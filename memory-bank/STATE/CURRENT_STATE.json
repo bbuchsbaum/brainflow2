@@ -1,0 +1,241 @@
+{
+  "version": "1.0",
+  "last_updated": "2025-01-21T15:00:00Z",
+  "sprint": {
+    "current": 0,
+    "start_date": "2025-01-22",
+    "day": 0,
+    "status": "not_started"
+  },
+  "metrics": {
+    "total_tickets": 52,
+    "completed_tickets": 0,
+    "in_progress_tickets": 0,
+    "blocked_tickets": 0,
+    "test_coverage": 3,
+    "health_score": 5.5,
+    "critical_debt_items": 8,
+    "high_debt_items": 6,
+    "medium_debt_items": 10,
+    "low_debt_items": 18
+  },
+  "tickets": {
+    "TD-CRIT-INTEG-001": {
+      "title": "Fix ts-rs Version Alignment",
+      "status": "not_started",
+      "assignee": "Dev D",
+      "package": "Chain 1",
+      "effort_hours": 4,
+      "started": null,
+      "completed": null,
+      "pr_number": null,
+      "test_status": "pending",
+      "blockers": [],
+      "actual_effort_hours": 0
+    },
+    "TD-CRIT-INTEG-002": {
+      "title": "Add TS_RS_EXPORT_DIR",
+      "status": "not_started",
+      "assignee": "Dev D",
+      "package": "Chain 1",
+      "effort_hours": 2,
+      "started": null,
+      "completed": null,
+      "pr_number": null,
+      "test_status": "pending",
+      "blockers": ["TD-CRIT-INTEG-001"],
+      "actual_effort_hours": 0
+    },
+    "TD-CRIT-INFRA-001": {
+      "title": "Create root package.json",
+      "status": "not_started",
+      "assignee": "Any",
+      "package": "Package 1",
+      "effort_hours": 0.5,
+      "started": null,
+      "completed": null,
+      "pr_number": null,
+      "test_status": "pending",
+      "blockers": [],
+      "actual_effort_hours": 0
+    },
+    "TD-HIGH-RUST-001": {
+      "title": "Fix api_bridge unwraps",
+      "status": "not_started",
+      "assignee": "Dev A",
+      "package": "Package 2",
+      "effort_hours": 8,
+      "started": null,
+      "completed": null,
+      "pr_number": null,
+      "test_status": "pending",
+      "blockers": [],
+      "actual_effort_hours": 0
+    },
+    "TD-HIGH-UI-001": {
+      "title": "Three-canvas layout",
+      "status": "not_started",
+      "assignee": "Dev B",
+      "package": "Package 3",
+      "effort_hours": 6,
+      "started": null,
+      "completed": null,
+      "pr_number": null,
+      "test_status": "pending",
+      "blockers": [],
+      "actual_effort_hours": 0
+    }
+  },
+  "chains": {
+    "type_generation": {
+      "chain_id": "Chain 1",
+      "current_phase": 0,
+      "total_phases": 3,
+      "gates_passed": [],
+      "status": "not_started",
+      "assignee": "Dev D",
+      "tickets": [
+        "TD-CRIT-INTEG-001",
+        "TD-CRIT-INTEG-002",
+        "TD-CRIT-INTEG-003",
+        "TD-CRIT-INTEG-004",
+        "TD-CRIT-INTEG-005",
+        "TD-CRIT-INTEG-006",
+        "TD-CRIT-INTEG-007",
+        "TD-CRIT-INTEG-008",
+        "TD-CRIT-INTEG-009"
+      ]
+    },
+    "shader_pipeline": {
+      "chain_id": "Chain 2",
+      "current_phase": 0,
+      "total_phases": 3,
+      "gates_passed": [],
+      "status": "not_started",
+      "assignee": "Dev E",
+      "tickets": [
+        "TD-CRIT-RUST-006",
+        "TD-CRIT-RUST-007",
+        "TD-CRIT-RUST-008",
+        "TD-CRIT-RUST-009",
+        "TD-CRIT-RUST-010",
+        "TD-CRIT-RUST-011",
+        "TD-CRIT-RUST-012",
+        "TD-CRIT-RUST-013",
+        "TD-CRIT-RUST-014"
+      ]
+    },
+    "data_flow": {
+      "chain_id": "Chain 3",
+      "current_phase": 0,
+      "total_phases": 3,
+      "gates_passed": [],
+      "status": "not_started",
+      "assignee": "Dev F",
+      "tickets": [
+        "TD-CRIT-RUST-015",
+        "TD-CRIT-RUST-016",
+        "TD-CRIT-RUST-017",
+        "TD-CRIT-RUST-018",
+        "TD-CRIT-RUST-019",
+        "TD-CRIT-RUST-020",
+        "TD-CRIT-RUST-021",
+        "TD-CRIT-RUST-022",
+        "TD-CRIT-RUST-023"
+      ]
+    }
+  },
+  "packages": {
+    "package_1": {
+      "name": "Infrastructure Quick Wins",
+      "status": "not_started",
+      "assignee": "Any",
+      "tickets": [
+        "TD-CRIT-INFRA-001",
+        "TD-CRIT-INFRA-002",
+        "TD-CRIT-INFRA-003",
+        "TD-CRIT-INFRA-004",
+        "TD-CRIT-INFRA-005"
+      ],
+      "completed": 0,
+      "total": 5
+    },
+    "package_2": {
+      "name": "Rust Error Handling",
+      "status": "not_started",
+      "assignee": "Dev A",
+      "tickets": [
+        "TD-HIGH-RUST-001",
+        "TD-HIGH-RUST-002",
+        "TD-HIGH-RUST-003",
+        "TD-HIGH-RUST-004",
+        "TD-HIGH-RUST-005"
+      ],
+      "completed": 0,
+      "total": 5
+    },
+    "package_3": {
+      "name": "UI Structure Preparation",
+      "status": "not_started",
+      "assignee": "Dev B",
+      "tickets": [
+        "TD-HIGH-UI-001",
+        "TD-HIGH-UI-002",
+        "TD-HIGH-UI-003",
+        "TD-HIGH-UI-004",
+        "TD-HIGH-UI-005"
+      ],
+      "completed": 0,
+      "total": 5
+    },
+    "package_4": {
+      "name": "Test Infrastructure",
+      "status": "not_started",
+      "assignee": "Dev C",
+      "tickets": [
+        "TD-HIGH-TEST-001",
+        "TD-HIGH-TEST-002",
+        "TD-HIGH-TEST-003",
+        "TD-HIGH-TEST-004",
+        "TD-HIGH-TEST-005"
+      ],
+      "completed": 0,
+      "total": 5
+    },
+    "package_5": {
+      "name": "Documentation & Cleanup",
+      "status": "not_started",
+      "assignee": "Any",
+      "tickets": [
+        "TD-MED-INFRA-001",
+        "TD-MED-INFRA-002",
+        "TD-MED-INFRA-003",
+        "TD-MED-INFRA-004"
+      ],
+      "completed": 0,
+      "total": 4
+    }
+  },
+  "test_results": {
+    "last_run": null,
+    "passing_tests": 0,
+    "failing_tests": 0,
+    "skipped_tests": 0,
+    "coverage_percent": 3,
+    "rust_coverage": 2,
+    "typescript_coverage": 5,
+    "integration_tests_passing": false,
+    "e2e_tests_passing": false
+  },
+  "blockers": {
+    "active": [],
+    "resolved_today": []
+  },
+  "recent_activity": [
+    {
+      "timestamp": "2025-01-21T15:00:00Z",
+      "type": "system",
+      "message": "State tracking system initialized"
+    }
+  ]
+}

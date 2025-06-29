@@ -1,0 +1,60 @@
+// Auto-generated TypeScript bindings from bridge_types
+// TODO: Replace with ts-rs generated version once working
+
+export interface BridgeError {
+  type: "Io" | "Loader" | "Scope" | "Input" | "Internal" | "VolumeError" | "GpuError" | "VolumeNotFound" | "ServiceNotInitialized";
+  code: number;
+  details?: string;
+  path?: string;
+}
+
+export type Loaded = 
+  | { type: "Volume"; data: { dims: [number, number, number]; dtype: string; path: string } }
+  | { type: "Table"; data: { rows: number; cols: number; path: string } }
+  | { type: "Image2D"; data: { width: number; height: number; path: string } }
+  | { type: "Metadata"; data: { path: string; loader_type: string } };
+
+export interface GpuUploadError {
+  code: "OutOfMemory" | "TextureTooLarge" | "UnsupportedFormat" | "VolumeNotFound" | "NotDense" | "WgpuError";
+  detail: {
+    needed_mb?: number;
+    limit_mb?: number;
+    dim?: [number, number, number];
+    max_dim?: number;
+    dtype?: string;
+    volume_id?: string;
+    message?: string;
+  };
+}
+
+export type GpuTextureFormat = "R8Unorm" | "R16Float" | "R32Float" | "RGBA8Unorm";
+
+export interface VolumeLayerGpuInfo {
+  layer_id: string;
+  world_to_voxel: number[]; // 16 elements, row-major 4x4 matrix
+  dim: [number, number, number];
+  pad_slices: number;
+  tex_format: GpuTextureFormat;
+}
+
+export interface FlatNode {
+  id: string;
+  name: string;
+  parent_idx: number | null;
+  icon_id: number;
+  is_dir: boolean;
+}
+
+export interface TreePayload {
+  nodes: FlatNode[];
+}
+
+// Icon ID constants
+export const ICON_IDS = {
+  FOLDER: 0,
+  FILE: 1,
+  NIFTI: 2,
+  GIFTI: 3,
+  TABLE: 4,
+  IMAGE: 5
+} as const;

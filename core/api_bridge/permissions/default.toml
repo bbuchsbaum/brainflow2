@@ -1,0 +1,24 @@
+# Default permissions for the api-bridge plugin
+
+[default]
+description = "Default permissions for api-bridge plugin"
+permissions = [
+    "allow-load-file",
+    "allow-world-to-voxel", 
+    "allow-get-timeseries-matrix",
+    "allow-request-layer-gpu-resources",
+    "allow-release-layer-gpu-resources",
+    "allow-fs-list-directory",
+    "allow-init-render-loop",
+    "allow-resize-canvas",
+    "allow-update-frame-ubo",
+    "allow-update-frame-for-synchronized-view",
+    "allow-set-crosshair",
+    "allow-set-view-plane",
+    "allow-render-frame",
+    "allow-create-offscreen-render-target",
+    "allow-render-to-image",
+    "allow-add-render-layer",
+    "allow-patch-layer",
+    "allow-sample-world-coordinate"
+]

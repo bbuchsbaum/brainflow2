@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-upload-volume-layer"
+description = "Enables the upload_volume_layer command without any pre-configured scope."
+commands.allow = ["upload_volume_layer"]
+
+[[permission]]
+identifier = "deny-upload-volume-layer"
+description = "Denies the upload_volume_layer command without any pre-configured scope."
+commands.deny = ["upload_volume_layer"]

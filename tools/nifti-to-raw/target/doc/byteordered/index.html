@@ -1,0 +1,70 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="generator" content="rustdoc"><meta name="description" content="This crate provides an alternative API for reading and writing data in an endianness that might only be known at run-time. It encapsulates the existing capabilities of the `byteorder` crate with an interface that assumes an implicitly acknowledged byte order."><title>byteordered - Rust</title><script>if(window.location.protocol!=="file:")document.head.insertAdjacentHTML("beforeend","SourceSerif4-Regular-6b053e98.ttf.woff2,FiraSans-Italic-81dc35de.woff2,FiraSans-Regular-0fe48ade.woff2,FiraSans-MediumItalic-ccf7e434.woff2,FiraSans-Medium-e1aa3f0a.woff2,SourceCodePro-Regular-8badfe75.ttf.woff2,SourceCodePro-Semibold-aa29a496.ttf.woff2".split(",").map(f=>`<link rel="preload" as="font" type="font/woff2" crossorigin href="../static.files/${f}">`).join(""))</script><link rel="stylesheet" href="../static.files/normalize-9960930a.css"><link rel="stylesheet" href="../static.files/rustdoc-6c3ea77c.css"><meta name="rustdoc-vars" data-root-path="../" data-static-root-path="../static.files/" data-current-crate="byteordered" data-themes="" data-resource-suffix="" data-rustdoc-version="1.86.0 (05f9846f8 2025-03-31)" data-channel="1.86.0" data-search-js="search-581efc7a.js" data-settings-js="settings-6dad6058.js" ><script src="../static.files/storage-3a5871a4.js"></script><script defer src="../crates.js"></script><script defer src="../static.files/main-4d63596a.js"></script><noscript><link rel="stylesheet" href="../static.files/noscript-893ab5e7.css"></noscript><link rel="alternate icon" type="image/png" href="../static.files/favicon-32x32-6580c154.png"><link rel="icon" type="image/svg+xml" href="../static.files/favicon-044be391.svg"></head><body class="rustdoc mod crate"><!--[if lte IE 11]><div class="warning">This old browser is unsupported and will most likely display funky things.</div><![endif]--><nav class="mobile-topbar"><button class="sidebar-menu-toggle" title="show sidebar"></button></nav><nav class="sidebar"><div class="sidebar-crate"><h2><a href="../byteordered/index.html">byteordered</a><span class="version">0.6.0</span></h2></div><div class="sidebar-elems"><ul class="block"><li><a id="all-types" href="all.html">All Items</a></li></ul><section id="rustdoc-toc"><h3><a href="#">Sections</a></h3><ul class="block top-toc"><li><a href="#examples" title="Examples">Examples</a></li><li><a href="#features" title="Features">Features</a></li></ul><h3><a href="#reexports">Crate Items</a></h3><ul class="block"><li><a href="#reexports" title="Re-exports">Re-exports</a></li><li><a href="#macros" title="Macros">Macros</a></li><li><a href="#structs" title="Structs">Structs</a></li><li><a href="#enums" title="Enums">Enums</a></li><li><a href="#traits" title="Traits">Traits</a></li></ul></section><div id="rustdoc-modnav"></div></div></nav><div class="sidebar-resizer"></div><main><div class="width-limiter"><rustdoc-search></rustdoc-search><section id="main-content" class="content"><div class="main-heading"><h1>Crate <span>byteordered</span><button id="copy-path" title="Copy item path to clipboard">Copy item path</button></h1><rustdoc-toolbar></rustdoc-toolbar><span class="sub-heading"><a class="src" href="../src/byteordered/lib.rs.html#1-261">Source</a> </span></div><details class="toggle top-doc" open><summary class="hideme"><span>Expand description</span></summary><div class="docblock"><p>This crate provides an alternative API for reading and writing data in an
+endianness that might only be known at run-time. It encapsulates the
+existing capabilities of the <a href="https://docs.rs/byteorder"><code>byteorder</code></a> crate with an interface that
+assumes an implicitly acknowledged byte order.</p>
+<p>The benefits of this API is two-fold. This crate supports use cases where
+the data’s endianness is only known during program execution, which may
+happen in some formats and protocols. The same API can be used to reduce
+redundancy by indicating the intended byte order once for the entire
+routine, instead of once for each method call.</p>
+<p>The main contribution in this crate is the <a href="struct.ByteOrdered.html"><code>ByteOrdered</code></a> wrapper type,
+which infuses byte order information to a data source or destination (it
+works for both readers and writers). Moreover, the <a href="trait.Endian.html"><code>Endian</code></a> trait
+contains multiple primitive data reading and writing methods, and the
+<a href="enum.Endianness.html"><code>Endianness</code></a> type provides a basic enumerate for endianness information
+only known at run-time.</p>
+<h2 id="examples"><a class="doc-anchor" href="#examples">§</a>Examples</h2>
+<p>Use one of <a href="struct.ByteOrdered.html"><code>ByteOrdered</code></a>’s constructors to create a wrapper with byte
+order awareness.</p>
+
+<div class="example-wrap"><pre class="rust rust-example-rendered"><code><span class="kw">use </span>byteordered::{ByteOrdered, Endianness};
+
+<span class="kw">let </span><span class="kw-2">mut </span>rd = ByteOrdered::le(get_data_source()<span class="question-mark">?</span>); <span class="comment">// little endian
+// read a u16
+</span><span class="kw">let </span>w = rd.read_u16()<span class="question-mark">?</span>;
+<span class="comment">// choose to read the following data in Little Endian if it's
+// smaller than 256, otherwise read in Big Endian
+</span><span class="kw">let </span><span class="kw-2">mut </span>rd = rd.into_endianness(Endianness::le_iff(w &lt; <span class="number">256</span>));
+<span class="kw">let </span>value: u32 = rd.read_u32()<span class="question-mark">?</span>;</code></pre></div>
+<p>Both <code>byteordered</code> and <a href="https://docs.rs/byteorder"><code>byteorder</code></a> work well side by side. You can use
+<a href="https://docs.rs/byteorder"><code>byteorder</code></a> in one part of
+the routine, and wrap the reader or writer when deemed useful.</p>
+
+<div class="example-wrap"><pre class="rust rust-example-rendered"><code><span class="kw">use </span>byteorder::ReadBytesExt;
+<span class="kw">use </span>byteordered::{ByteOrdered, Endianness};
+
+<span class="kw">let </span>b = <span class="number">5</span>;
+<span class="comment">// choose to read the following data in Little Endian if it's 0,
+// otherwise read in Big Endian (what happens in this case)
+</span><span class="kw">let </span><span class="kw-2">mut </span>wt = ByteOrdered::runtime(
+    Vec::new(),
+    <span class="kw">if </span>b == <span class="number">0 </span>{ Endianness::Little } <span class="kw">else </span>{ Endianness::Big }
+);
+<span class="comment">// write in this byte order
+</span>wt.write_u16(<span class="number">0xC000</span>)<span class="question-mark">?</span>;
+wt.write_u32(<span class="number">0</span>)<span class="question-mark">?</span>;
+<span class="comment">// then invert the byte order
+</span><span class="kw">let </span><span class="kw-2">mut </span>wt = wt.into_opposite();
+wt.write_u16(<span class="number">0xEEFF</span>)<span class="question-mark">?</span>;
+<span class="macro">assert_eq!</span>(<span class="kw-2">&amp;*</span>wt.into_inner(), <span class="kw-2">&amp;</span>[<span class="number">0xC0</span>, <span class="number">0</span>, <span class="number">0</span>, <span class="number">0</span>, <span class="number">0</span>, <span class="number">0</span>, <span class="number">0xFF</span>, <span class="number">0xEE</span>]);</code></pre></div>
+<p>As an additional construct, the <a href="macro.with_order.html"><code>with_order!</code></a> macro is another API for
+reading and writing data, with the perk of providing explicit
+monomorphization with respect to the given endianness.</p>
+
+<div class="example-wrap"><pre class="rust rust-example-rendered"><code><span class="macro">with_order!</span>(get_data_source()<span class="question-mark">?</span>, Endianness::Little, |rd| {
+    <span class="kw">let </span>value: u32 = rd.read_u32()<span class="question-mark">?</span>;
+    <span class="macro">println!</span>(<span class="string">"-&gt; {}"</span>, value);
+});</code></pre></div>
+<h2 id="features"><a class="doc-anchor" href="#features">§</a>Features</h2>
+<p>This library requires the standard library (<code>no_std</code> is currently not
+supported).</p>
+</div></details><h2 id="reexports" class="section-header">Re-exports<a href="#reexports" class="anchor">§</a></h2><dl class="item-table reexports"><dt><code>pub extern crate <a class="mod" href="../byteorder/index.html" title="mod byteorder">byteorder</a>;</code></dt></dl><h2 id="macros" class="section-header">Macros<a href="#macros" class="anchor">§</a></h2><dl class="item-table"><dt><a class="macro" href="macro.with_order.html" title="macro byteordered::with_order">with_<wbr>order</a></dt><dd>Creates a monomorphized scope for reading or writing with run-time byte
+order awareness.</dd></dl><h2 id="structs" class="section-header">Structs<a href="#structs" class="anchor">§</a></h2><dl class="item-table"><dt><a class="struct" href="struct.ByteOrdered.html" title="struct byteordered::ByteOrdered">Byte<wbr>Ordered</a></dt><dd>Wrapper type for a reader or writer with an assumed byte order.</dd><dt><a class="struct" href="struct.StaticEndianness.html" title="struct byteordered::StaticEndianness">Static<wbr>Endianness</a></dt><dd>A data type representing a byte order known in compile time.
+Unlike the types provided in <code>byteorder</code>, this type can be constructed.</dd></dl><h2 id="enums" class="section-header">Enums<a href="#enums" class="anchor">§</a></h2><dl class="item-table"><dt><a class="enum" href="enum.Endianness.html" title="enum byteordered::Endianness">Endianness</a></dt><dd>Enumerate for materializing
+the two kinds of machine byte order supported by Rust
+in a dynamic fashion.
+That is,
+the information of whether to read or write data
+in Little Endian or in Big Endian
+is resolved at run time by observing this value.</dd></dl><h2 id="traits" class="section-header">Traits<a href="#traits" class="anchor">§</a></h2><dl class="item-table"><dt><a class="trait" href="trait.Endian.html" title="trait byteordered::Endian">Endian</a></dt><dd>General trait for types that can
+serialize and deserialize bytes in some byte order.</dd></dl></section></div></main></body></html>

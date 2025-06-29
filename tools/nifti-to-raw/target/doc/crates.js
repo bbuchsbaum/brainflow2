@@ -1,0 +1,2 @@
+window.ALL_CRATES = ["adler2","anyhow","approx","bytemuck","byteorder","byteordered","cfg_if","crc32fast","either","flate2","itoa","matrixmultiply","memchr","miniz_oxide","nalgebra","nalgebra_macros","ndarray","nifti","nifti_to_raw","num_complex","num_derive","num_integer","num_rational","num_traits","paste","proc_macro2","quick_error","quote","rawpointer","rgb","ryu","safe_arch","serde","serde_json","simba","typenum","unicode_ident","wide"];
+//{"start":21,"fragment_lengths":[8,9,9,11,12,14,9,12,9,9,7,17,9,14,11,18,10,8,15,14,13,14,15,13,8,14,14,8,13,6,6,12,8,13,8,10,16,7]}

@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-add-render-layer"
+description = "Enables the add_render_layer command without any pre-configured scope."
+commands.allow = ["add_render_layer"]
+
+[[permission]]
+identifier = "deny-add-render-layer"
+description = "Denies the add_render_layer command without any pre-configured scope."
+commands.deny = ["add_render_layer"]

@@ -1,0 +1,19 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "lib": ["ES2022", "DOM"],
+    "moduleResolution": "node",
+    "strict": true,
+    "declaration": true,
+    "outDir": "./dist",
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "paths": {
+      "@brainflow/api": ["../api/src"]
+    }
+  },
+  "include": ["src/**/*.ts"],
+  "exclude": ["node_modules", "dist"]
+} 

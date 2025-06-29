@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-sample-world-coordinate"
+description = "Enables the sample_world_coordinate command without any pre-configured scope."
+commands.allow = ["sample_world_coordinate"]
+
+[[permission]]
+identifier = "deny-sample-world-coordinate"
+description = "Denies the sample_world_coordinate command without any pre-configured scope."
+commands.deny = ["sample_world_coordinate"]

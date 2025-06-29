@@ -1,0 +1,24 @@
+{
+  "name": "@brainflow/api",
+  "version": "0.1.1",
+  "description": "Core TypeScript interfaces and types for Brainflow",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch"
+  },
+  "devDependencies": {
+    "typescript": "^5.0.0"
+  },
+  "files": [
+    "dist"
+  ]
+} 

@@ -1,0 +1,15 @@
+[package]
+name = "brainflow-loaders"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+path = "mod.rs" # Explicitly point to mod.rs as the library entry point
+
+[dependencies]
+# Add dependencies needed directly by loaders/mod.rs, like log, bridge_types
+log = "0.4"
+bridge_types = { path = "../bridge_types" }
+# Need to list the sub-crates as dependencies here too
+nifti-loader = { path = "./nifti" }
+# gifti-loader = { path = "./gifti" } # Uncomment when gifti is ready 

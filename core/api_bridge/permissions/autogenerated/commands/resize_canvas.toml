@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-resize-canvas"
+description = "Enables the resize_canvas command without any pre-configured scope."
+commands.allow = ["resize_canvas"]
+
+[[permission]]
+identifier = "deny-resize-canvas"
+description = "Denies the resize_canvas command without any pre-configured scope."
+commands.deny = ["resize_canvas"]

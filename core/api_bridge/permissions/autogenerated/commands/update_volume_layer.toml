@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-update-volume-layer"
+description = "Enables the update_volume_layer command without any pre-configured scope."
+commands.allow = ["update_volume_layer"]
+
+[[permission]]
+identifier = "deny-update-volume-layer"
+description = "Denies the update_volume_layer command without any pre-configured scope."
+commands.deny = ["update_volume_layer"]

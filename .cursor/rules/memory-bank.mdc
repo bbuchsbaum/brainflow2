@@ -1,0 +1,327 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+
+Okay, this feedback provides a crucial refinement: the Memory Bank shouldn't duplicate detailed specs but act as a smart index *pointing* to them. This keeps the initial context load fast while ensuring the AI can access deep information on demand.
+
+Here is the finalized **Memory Bank Setup and Usage Guide**, incorporating this linking strategy and updating the core Memory Bank file contents.
+
+---
+
+# `docs/GUIDE-memory-bank-setup.md`
+
+**Version:** 1.1
+**Status:** Adopted
+**Date:** [Insert Date]
+**Context:** This guide explains how to set up and use the Brainflow Memory Bank with an AI coding assistant (like Cline/Cursor). The Memory Bank acts as a structured, high-level summary and index, enabling the AI to quickly grasp project context while providing pointers to detailed specification documents located in the main `/memory-bank` directory.
+
+## 1. Philosophy: Index, Don't Duplicate
+
+The Brainflow Memory Bank follows these principles:
+
+1.  **Fast Context:** The core Memory Bank files (`memory-bank/*.md`) provide a concise (< 5KB total) overview of the project's goals, architecture, tech stack, and current status. This allows the AI to load essential context quickly at the start of each session.
+2.  **Single Source of Truth:** Detailed specifications, architectural decisions, plans, and guides reside **only** in the main `/memory-bank` directory (`ADR-*.md`, `PLAN-*.md`, `GUIDE-*.md`, `SPEC-*.md`). The Memory Bank does *not* duplicate this content.
+3.  **Linked References:** Memory Bank files contain explicit references (by filename) and brief summaries ("digests") of the key documents in `/memory-bank`.
+4.  **AI Guidance:** The AI assistant is instructed to *follow these references* and consult the detailed documents when specific information is needed for a task, rather than relying solely on the Memory Bank summary or asking the user to repeat information.
+
+## 2. Setup: Creating the Memory Bank Files
+
+Create a `memory-bank/` folder in the project root. Populate it with the following six Markdown files, replacing `[Current Date]` placeholders.
+
+### `memory-bank/projectbrief.md`
+
+```markdown
+# Brainflow — Project Brief
+
+**Version:** 1.1 (Phase 1 - WebGPU v2)
+**Date:** [Current Date]
+**Status:** Active Development (Targeting M1 Kickoff)
+
+## 1. Core Goal
+
+Brainflow aims to be a **high-performance, cross-platform desktop application** for neuroimaging visualization and analysis, built using **Tauri (Rust backend) and Svelte (TypeScript frontend with WebGPU for 2D rendering)**.
+
+Key objectives include: Fast Loading & Interaction, Advanced Layering (GPU-based), Integrated Views & Plotting, Extensibility (Plugins), and Future-Proofing (path to pure-web).
+
+## 2. Phase 1 Scope
+
+Deliver an MVP demonstrating core architecture: Load NIfTI/GIfTI, Orthogonal Slice View (WebGPU), 3D Surface View (Three.js/WebGL), Basic Layer Management, Atlas Overlays & Legend, Click-to-Timeseries Plotting (Plotly Worker). Functional on macOS, Windows, Linux.
+
+*(Out of Scope P1: Volume Rendering, ROI editing, complex stats, full web deploy).*
+
+## 3. AI Assistant Guidance (`Hint`)
+
+> **AI Hint:**
+> *   **Focus:** Rust core (`core/`), TS UI (`ui/`), TS Plugins (`plugins/`). Use `@brainflow/api`.
+> *   **Performance:** Zero-copy SABs/Buffers via Tauri bridge.
+> *   **Rendering:** Defer to `RenderLoopService` (Rust/wgpu) for slices via `world_to_voxel` matrix (`ADR-002`). Surfaces use Three.js/WebGL (P1). No JS pixel math for volumes.
+> *   **Coordinates:** Canonical space is LPI world mm. Use `CoordinateEngine` (Rust).
+> *   **State:** Zustand immutable slices.
+> *   **Errors:** Rust `Result` -> TS Promise rejection (`ADR-001`).
+> *   **Tests:** Prioritize Rust unit -> TS component -> Adapter -> E2E.
+> *   **Docs:** **Follow references herein to detailed specs in `/memory-bank` when needed.**
+
+---
+**Further Reading (Core Plans):**
+*   `docs/PLAN-milestones-phase1.md` (Detailed Goals & DoD)
+*   *(Optional: See full index at `memory-bank/docIndex.md` if maintained)*
+```
+
+### `memory-bank/productContext.md`
+
+```markdown
+# Brainflow — Product Context
+
+**Version:** 1.1
+**Date:** [Current Date]
+
+## 1. Problem & Value
+
+Addresses performance, layering limitations, and integration issues in existing neuroimaging viewers by offering a fast (Rust/WebGPU), unified (linked slice/surface/plot), extensible (plugin API), cross-platform solution. Core value props: speed, GPU-based compositing, integrated analysis hooks, developer friendliness.
+
+## 2. Target Users (Phase 1)
+
+*   **Neuroimaging Researchers:** Inspect raw data, overlay stats/atlases, plot basic timeseries. Need speed, usability, accurate rendering.
+*   **Methods Developers/Core Staff:** Visualize custom pipeline outputs, compare modalities. Need performance, clear architecture, stable API.
+
+## 3. Key Interactions (Phase 1 Summary)
+
+Load (Drag/Drop, +New Tab Modal), Navigate (Pan/Zoom/Rotate/Scroll), Layer (Opacity/Colormap/Range/Threshold), Atlas (Legend filter/hover/click sync), Plot (Click voxel/vertex -> Timeseries).
+
+---
+**Further Reading (UI/UX Details):**
+*   `docs/GUIDE-ui-layout-phase1.md` (Layout, Component Roles, Interactions)
+```
+
+### `memory-bank/systemPatterns.md`
+
+```markdown
+# Brainflow — System Patterns & Architecture
+
+**Version:** 1.1
+**Date:** [Current Date]
+**Architecture:** WebGPU v2
+
+## 1. Core Architectural Patterns
+
+*   **Rust Core / TS UI:** Performance-critical logic in Rust, UI orchestration in TS/Svelte.
+*   **Tauri Bridge:** Async commands (`snake_case`) via `invoke`, defined by `@brainflow/api`.
+*   **Zero-Copy Data:** Large binaries via SABs/ArrayBuffers (Rust alloc -> TS access).
+*   **GPU-Centric Volume Rendering:** Rust `RenderLoopService` (`wgpu`) composites layers in world space using `world_to_voxel` matrices. No CPU resampling.
+*   **WebGL Surfaces (P1):** Three.js renders surfaces.
+*   **Immutable State:** Zustand slices manage UI state.
+*   **Plugin Architecture:** Decoupled TS Loaders/Plotters via defined interfaces.
+*   **Off-Thread Plotting:** Plotly runs in Web Worker with OffscreenCanvas.
+
+## 2. 🔗 Spec Digest (Key Documents in `/memory-bank`)
+
+*   **`ADR-001-architecture.md`:** High-level UML diagram, component responsibilities, language choices, error handling conventions. *(Last Sync: v1.1)*
+*   **`ADR-002-multilayer-rendering.md`:** Detailed WebGPU volume rendering strategy, `world_to_voxel` matrix concept, GPU resource specs (UBOs, textures), shader contracts, data type/format policy, DataFrame relation. *(Last Sync: v1.1)*
+*   **`Addendum-migration-details-v1.1.md`:** Refines the Phase 1 Migration Plan with specific Rust port scope, legacy TS integration, dependencies, and testing strategy.
+*   **`CODE-conversion.md`:** Rust code examples for core neuroimaging data structures (Axis, NeuroSpace) ported from TypeScript.
+*   **`DEV-bootstrap-guide.md`:** Step-by-step commands to initialize a new Brainflow project repository and scaffold components.
+*   **`DEV-testing-guide.md`:** Details local execution of linters, formatters, Rust/TS/Adapter/E2E tests, and plugin verification for developers.
+*   **`Errata-phase-v1.1.md`:** Lists inconsistencies and required updates across Phase 1 documents to align with v1.1 baseline.
+*   **`GUIDE-ui-layout-phase1.md`:** GoldenLayout structure, component registry, persistence, lifecycle management, interaction flows, "+ New Tab" UX. *(Last Sync: v1.1)*
+*   **`PLAN-milestones-phase1.md`:** Defines key development milestones (M1-M8) for Phase 1, including goals, tasks, and DoD for each. *(Last Sync: v1.1)*
+*   **`PLAN-migration-phase1.md`:** Strategy for porting legacy TS code, scope of Rust ports (`volmath`, loaders), legacy TS integration plan, timeline, testing. *(Last Sync: v1.1, merged Addendum)*
+*   **`repository_structure.md`:** Defines the monorepo directory structure, including Rust crates, TS packages, plugins, docs, schemas, and tooling.
+*   **`SPEC-json-schemas-v0.1.1.md`:** Specifies JSON schemas for plugin manifests, worker messages, config files, and API payloads (v0.1.1).
+
+*(Docs live in `/memory-bank`; last digest sync [Current Date])*
+
+---
+**Further Reading:**
+*   Consult the full documents listed above for implementation details.
+*   `memory-bank/repository_structure.md` (Detailed Folder Layout)
+```
+
+### `memory-bank/techContext.md`
+
+```markdown
+# Brainflow — Technical Context
+
+**Version:** 1.1
+**Date:** [Current Date]
+
+## 1. Core Stack Summary (Phase 1)
+
+Tauri `~2.0` (Rust `stable`), SvelteKit `~2.x` (TS `~5.x`), `wgpu` `~0.20` (Rust), Three.js `~0.16x` (WebGL), Plotly.js (Worker), Zustand `~4.x`, GoldenLayout `~2.x`, shadcn-svelte, pnpm `~8/9`, Cargo.
+
+## 2. Key Dependencies
+
+*   **Rust:** `nalgebra`, `serde`, `thiserror`, `rayon`, `nifti`, `gifti`, `kiddo`, `ts-rs`, `bytemuck`, `tokio`, `wgpu`.
+*   **TS:** `svelte`, `sveltekit`, `typescript`, `zustand`, `golden-layout`, `three`, `@brainflow/api`, `plotly.js-dist-min`, `vitest`, `@playwright/test`.
+
+## 3. Setup & Workspaces
+
+Dual workspace (Cargo + pnpm). See `DEV-bootstrap-guide.md` for setup script. `wasm32-unknown-unknown` target needed for adapter tests. VS Code + `rust-analyzer` + Svelte extensions recommended.
+
+## 4. Testing Strategy Summary
+
+Multi-layered: Static Analysis (Clippy, ESLint, Prettier), Rust Unit (`cargo test`), TS Unit/Component (`vitest`), Adapter Tests (Rust-WASM vs TS via `wasm-bindgen-test`), E2E (`playwright`), Plugin Validation (`plugin-verify` tool). See `DEV-testing-guide.md`.
+
+## 5. 🔗 Tech Spec References (Key Documents in `/memory-bank` & `/schemas`)
+
+*   **`DEV-bootstrap-guide.md`:** Step-by-step repository initialization script.
+*   **`DEV-testing-guide.md`:** Instructions for running all types of tests locally.
+*   **`SPEC-json-schemas-v0.1.1.md`:** Formal JSON Schema definitions for plugin manifests, worker messages, API payloads. *(Schemas live in `/schemas/0.1.1/`)*
+*   **`CI-pipeline.md` (To be created):** Details on GitHub Actions workflows, build matrix, signing.
+
+*(Docs live in `/memory-bank`, Schemas in `/schemas`; last digest sync [Current Date])*
+
+---
+**Further Reading:**
+*   Consult the full documents listed above for implementation details.
+```
+
+### `memory-bank/activeContext.md`
+
+```markdown
+# Brainflow — Active Context
+
+**Version:** 1.1
+**Last Updated:** [Current Date] - *Developer MUST keep this section current*
+
+## 1. Current Focus & Next Milestone
+
+*   **Current Branch:** `[e.g., main or feature/M1-initial-setup]`
+*   **Active Milestone:** **M1** - Foundation, Scaffolding & API v0.1.1
+*   **Immediate Next Steps:**
+    1.  Execute tasks from `memory-bank/DEV-bootstrap-guide.md`.
+    2.  Populate `@brainflow/api` with v0.1.1 interfaces.
+    3.  Implement basic Dockview layout in `ui/+layout.svelte`.
+    4.  Finalize CI workflow (`.github/workflows/ci.yml`).
+
+## 2. Key Decisions / Learnings (Recent)
+
+*   Adopted WebGPU v2 architecture plan.
+*   Finalized Memory Bank structure (this file set).
+*   Confirmed minimal Rust port scope for `volmath` in Phase 1.
+*   Defined DataFrame payload extension for `getTimeseriesMatrix`.
+
+## 3. Open Questions / Blockers
+
+*   **Blocking:** None. Ready to start M1 implementation.
+*   **Tracked:** Finalize SAB allocation strategy (Rust vs TS control) before M3.
+*   **Tracked:** Map `GpuUploadError` details to user-facing messages (M3).
+
+## 4. Important Reminders / Patterns
+
+*   Use `@brainflow/api@0.1.1`. Use `snake_case` for CoreApi methods.
+*   Prefer `R16Float` for volume textures. Follow Rust `Result`/TS `Promise` rejection pattern.
+*   Run adapter tests (`pnpm test:adapter`) when changing `volmath`.
+*   **Consult detailed docs in `/memory-bank` when implementing features.**
+
+---
+**Further Reading:**
+*   `memory-bank/PLAN-milestones-phase1.md` (Current/Next Milestone Details)
+*   `memory-bank/Errata-phase1-v1.1.md` (Log of resolved spec inconsistencies)
+```
+
+### `memory-bank/progress.md`
+
+```markdown
+# Brainflow — Progress Log & Status
+
+**Version:** 1.1
+**Last Updated:** [Current Date]
+
+## 1. High-Level Status (Phase 1)
+
+*   **Overall:** Project Kickoff - M1. Architecture & Plans Finalized (v1.1).
+*   **Repository:** Skeleton to be generated via `DEV-bootstrap-guide.md`.
+*   **API:** `@brainflow/api@0.1.1` definitions finalized.
+
+## 2. Milestone Status
+
+| Milestone | Status        | Key Outputs/Notes                     | Link                               |
+| :-------- | :------------ | :------------------------------------ | :--------------------------------- |
+| **M1**    | **Not Started** | Repo scaffold, API pkg, CI, UI Shell | `memory-bank/PLAN-phase1-milestones.md#m1`|
+| M2        | Not Started   | Rust Services, Bridge API, BIDS     | `memory-bank/PLAN-milestones-phase1.md#m2`|
+| M3        | Not Started   | NIfTI Load, WebGPU Slice Render     | `memory-bank/PLAN-milestones-phase1.md#m3`|
+| M4        | Not Started   | GIfTI Load, Surface View            | `memory-bank/PLAN-milestones-phase1.md#m4`|
+| M5        | Not Started   | Plotting Infra, Histogram Plot      | `memory-bank/PLAN-milestones-phase1.md#m5`|
+| M6        | Not Started   | Click->Plot, Matrix API             | `memory-bank/PLAN-milestones-phase1.md#m6`|
+| M7        | Not Started   | Atlas Load, Overlays, Legend        | `memory-bank/PLAN-milestones-phase1.md#m7`|
+| M8        | Not Started   | Polish, Integration, Builds         | `memory-bank/PLAN-milestones-phase1.md#m8`|
+
+## 3. Key Features / Components Status
+
+| Feature / Component       | Status        | Notes / Relevant Doc                      |
+| :------------------------ | :------------ | :---------------------------------------- |
+| Core Rust Services        | Not Started   | Target M2                                 |
+| WebGPU Render Loop        | Not Started   | Target M3 (`ADR-002`)                     |
+| Volume Loading (NIfTI)    | Not Started   | Target M3 (Rust Loader)                   |
+| Surface Loading (GIfTI)   | Not Started   | Target M4 (Rust Loader)                   |
+| ... (All other features)  | Not Started   | See Milestones                            |
+
+## 4. Known Issues & Limitations (Phase 1 Design)
+
+*(List remains the same as previous version: WebGPU Fallback, SAB Availability, Volume Rendering scope, Sheared Spaces caveat, Atlas Contour method)*
+
+---
+**Further Reading:**
+*   `memory-bank/PLAN-phase1-milestones.md` (Detailed Milestone Plan)
+*   `memory-bank/Errata-phase1-v1.1.md` (Record of resolved spec inconsistencies)
+```
+
+## 3. Optional: `memory-bank/docIndex.md`
+
+If desired, create this file and maintain it (manually or via script) for a single-point index.
+
+```markdown
+# Brainflow Documentation Index
+
+| File                             | Purpose                                      | Last Reviewed |
+| :------------------------------- | :------------------------------------------- | :------------ |
+| ADR-001-architecture.md        | Source architecture UML & CoreApi list       | [Current Date]|
+| ADR-002-multilayer-rendering.md| GPU layer contract, texture/shader policy    | [Current Date]|
+| GUIDE-ui-layout-phase1.md      | GoldenLayout skeleton & persistence rules    | [Current Date]|
+| PLAN-migration-phase1.md       | Strategy for porting legacy TS code        | [Current Date]|
+| PLAN-phase1-milestones.md      | Detailed Phase 1 goals, tasks, DoD, perf     | [Current Date]|
+| REPOSITORY_STRUCTURE.md        | Monorepo folder layout                       | [Current Date]|
+| SPEC-json-schemas-v0.1.1.md    | Canonical plugin & API message schemas       | [Current Date]|
+| DEV-bootstrap-guide.md         | Day-0 repo initialization script             | [Current Date]|
+| DEV-testing-guide.md           | Local test execution instructions            | [Current Date]|
+| ERRATA-phase1-v1.1.md          | Log of resolved spec inconsistencies         | [Current Date]|
+| ... (Add other guides as created) |                                              |               |
+
+```
+*   *(Optional Script: `tools/update_doc_digest.sh` as provided previously can generate this table based on Git history and Markdown headers.)*
+
+## 4. AI Assistant Instructions (`.clinerules` or Custom Instructions)
+
+Update the instructions provided to the AI assistant:
+
+```
+# Cline's Memory Bank Custom Instructions v1.1
+
+I am Cline, an expert software engineer... [rest of standard intro]... I MUST read ALL memory bank files at the start of EVERY task.
+
+## Memory Bank Structure & Usage
+
+The Memory Bank (`memory-bank/*.md`) provides high-level context: project goals, architecture, tech stack, current status, and key design patterns.
+
+**Crucially, the Memory Bank files contain cross-references (as filenames, e.g., `memory-bank/ADR-001-architecture.md`) to detailed specification documents located in the main `/memory-bank` directory.**
+
+**When a Memory Bank file references an external document (ADR, GUIDE, SPEC, PLAN), you SHOULD prioritize reading that specific external file for detailed information relevant to the current task, instead of relying solely on the Memory Bank summary or asking me to repeat the information.**
+
+The core Memory Bank files are: `projectbrief.md`, `productContext.md`, `systemPatterns.md`, `techContext.md`, `activeContext.md`, `progress.md`.
+
+[... rest of standard .clinerules instructions about Plan/Act modes and Update workflow ...]
+
+REMEMBER: The Memory Bank is the starting point and index. The detailed specifications live in `/memory-bank`. Follow the links!
+```
+
+## 5. Workflow Integration
+
+1.  **Commit:** Add the `memory-bank/` directory with these populated files to Git.
+2.  **Configure AI:** Set up Cline/Cursor to use the `.clinerules` file or paste the updated instructions into global Custom Instructions.
+3.  **Start Session:** Begin a new chat/task by instructing the AI to "initialize memory bank" or "follow custom instructions".
+4.  **Guide Interaction:** When asking for code or explanations requiring specific details, reference the relevant `/memory-bank/*.md` file if the AI doesn't automatically pick it up from the Memory Bank context.
+5.  **Maintain:** Regularly update `activeContext.md` and `progress.md`. After significant changes to specs/plans in `/memory-bank`, update the corresponding brief summaries/links in the Memory Bank files (especially `systemPatterns.md` and `techContext.md`) and ask the AI to "update memory bank".
+
+This enhanced Memory Bank structure provides the AI with a much more useful and accurate starting point, tightly integrated with the comprehensive project documentation.

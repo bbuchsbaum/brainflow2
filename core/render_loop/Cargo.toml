@@ -1,0 +1,79 @@
+[package]
+name = "render_loop"
+version = "0.1.0"
+edition = "2021"
+
+[features]
+default = []
+hot-reload = []
+
+[dependencies]
+# wgpu = { workspace = true } # Inherit version from workspace - REMOVE THIS
+# wgpu = "0.24.3" # Add explicit version - REMOVE THIS
+# wgpu = "0.25.0" # Update to latest stable wgpu - REMOVE THIS
+wgpu = { workspace = true } # Inherit 0.25.0 from workspace
+nalgebra = { workspace = true } # ADDED: Inherit nalgebra from workspace
+thiserror = "1.0" # Added for error handling
+anyhow = { workspace = true } # For error context
+volmath = { path = "../volmath" } # Add workspace dependency (serde is already required by volmath)
+raw-window-handle = "0.6" # Add for surface creation
+num-traits = "0.2"        # Add for numeric conversions/traits
+serde = { version = "1.0", features = ["derive"] } # Make serde a direct dependency
+# Add other potential dependencies later, e.g., raw-window-handle, futures
+bytemuck = { version = "1", features = ["derive"] } # For UBO struct casting
+pollster = "0.3" # For async buffer mapping
+futures-intrusive = "0.5" # For map_async callback channel
+colormap = { path = "../colormap" } # Colormap system
+half = { version = "2.3", features = ["serde", "bytemuck"] } # For R16Float texture format
+image = "0.24" # For saving rendered images
+clap = { version = "4", features = ["derive"] } # For command line parsing
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] } # For async runtime
+flume = "0.11" # For async channel communication
+
+[build-dependencies]
+# wgsl_to_wgpu = "0.13.1" # Version compatible with wgpu 0.24
+# wgsl_to_wgpu = "0.13.1" # Temporarily commented out for diagnosis
+# Commenting out due to incompatibility with wgpu 0.25
+#gsl_to_wgpu = "0.13.1"
+# wgsl_to_wgpu = "0.13.1" # Corrected typo: wgsl_to_wgpu - NOW COMMENTED OUT
+#wgsl_to_wgpu = "0.14.0" # Update to version compatible with wgpu 0.25 / naga 0.14
+
+# TODO (WGPU 25 Upgrade): wgsl_to_wgpu 0.13.1 is incompatible with wgpu 25 (requires wgpu ~24).
+# Tauri 2.5 requires wgpu ~25, forcing this upgrade.
+# TEMPORARY WORKAROUND:
+# 1. Build dependency above is commented out.
+# 2. `build.rs` script content is commented out.
+# 3. Shader loading, layout definition, and type mirroring must be done MANUALLY in `src/lib.rs`.
+# WHEN UPDATED:
+# 1. Find a `wgsl_to_wgpu` version compatible with `wgpu 25` (likely >= 0.14.0 when released).
+# 2. Uncomment the dependency above and set the correct version.
+# 3. Uncomment and potentially adapt the code in `build.rs`.
+# 4. Remove manual shader loading/type definitions from `src/lib.rs` and use the generated `shaders` module.
+
+[dev-dependencies]
+criterion = { version = "0.5", default-features = false, features = ["html_reports"] }
+pollster = "0.3"
+rand = "0.8"
+futures-intrusive = "0.5" # For map_async callback channel
+approx = "0.5" # For float comparisons
+tempfile = "3" # For temporary test files
+ndarray = "0.15" # For creating test data
+nifti = "0.16" # For saving test NIfTI files
+nifti-loader = { path = "../loaders/nifti" } # For loading NIfTI in tests
+bridge_types = { path = "../bridge_types" } # For VolumeSendable type
+
+[[bench]]
+name = "upload" # Must match the filename benches/upload.rs
+harness = false    # Tells cargo criterion provides the main function
+
+[[bin]]
+name = "test_render"
+path = "src/bin/test_render.rs"
+
+[[bin]]
+name = "test_nifti_e2e"
+path = "src/bin/test_nifti_e2e.rs"
+
+[[bin]]
+name = "test_mni_slices"
+path = "src/bin/test_mni_slices.rs"

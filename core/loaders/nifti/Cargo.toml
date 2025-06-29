@@ -1,0 +1,27 @@
+[package]
+name = "nifti-loader"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+nifti = { version = "0.16.0", features = ["ndarray", "nalgebra_affine"] }
+flate2 = "1.0"
+volmath = { path = "../../volmath" }
+thiserror = "1.0"
+serde = { version = "1.0", features = ["derive"] }
+bytemuck = "1.12"
+num-traits = "0.2" # Needed for AsPrimitive
+nalgebra = "0.32"
+# api_bridge = { path = "../../api_bridge" } # Cycle removed by bridge_types
+bridge_types = { path = "../../bridge_types" } # NEW: Shared types/traits
+log = "0.4" # Add log dependency
+
+# Add for async trait impl
+async-trait = "0.1"
+tokio = { version = "1", features = ["rt"] } # Simpler version, match feedback style
+uuid = { version = "1", features = ["v4"] } # Simpler version
+
+[dev-dependencies]
+approx = "0.5.1"
+# Add tokio test dependencies as per feedback
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }

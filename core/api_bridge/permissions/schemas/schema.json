@@ -1,0 +1,666 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "PermissionFile",
+  "description": "Permission file that can define a default permission, a set of permissions or a list of inlined permissions.",
+  "type": "object",
+  "properties": {
+    "default": {
+      "description": "The default permission set for the plugin",
+      "anyOf": [
+        {
+          "$ref": "#/definitions/DefaultPermission"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "set": {
+      "description": "A list of permissions sets defined",
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/PermissionSet"
+      }
+    },
+    "permission": {
+      "description": "A list of inlined permissions",
+      "default": [],
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/Permission"
+      }
+    }
+  },
+  "definitions": {
+    "DefaultPermission": {
+      "description": "The default permission set of the plugin.\n\nWorks similarly to a permission with the \"default\" identifier.",
+      "type": "object",
+      "required": [
+        "permissions"
+      ],
+      "properties": {
+        "version": {
+          "description": "The version of the permission.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 1.0
+        },
+        "description": {
+          "description": "Human-readable description of what the permission does. Tauri convention is to use `<h4>` headings in markdown content for Tauri documentation generation purposes.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "permissions": {
+          "description": "All permissions this set contains.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "PermissionSet": {
+      "description": "A set of direct permissions grouped together under a new name.",
+      "type": "object",
+      "required": [
+        "description",
+        "identifier",
+        "permissions"
+      ],
+      "properties": {
+        "identifier": {
+          "description": "A unique identifier for the permission.",
+          "type": "string"
+        },
+        "description": {
+          "description": "Human-readable description of what the permission does.",
+          "type": "string"
+        },
+        "permissions": {
+          "description": "All permissions this set contains.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/PermissionKind"
+          }
+        }
+      }
+    },
+    "Permission": {
+      "description": "Descriptions of explicit privileges of commands.\n\nIt can enable commands to be accessible in the frontend of the application.\n\nIf the scope is defined it can be used to fine grain control the access of individual or multiple commands.",
+      "type": "object",
+      "required": [
+        "identifier"
+      ],
+      "properties": {
+        "version": {
+          "description": "The version of the permission.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 1.0
+        },
+        "identifier": {
+          "description": "A unique identifier for the permission.",
+          "type": "string"
+        },
+        "description": {
+          "description": "Human-readable description of what the permission does. Tauri internal convention is to use `<h4>` headings in markdown content for Tauri documentation generation purposes.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "commands": {
+          "description": "Allowed or denied commands when using this permission.",
+          "default": {
+            "allow": [],
+            "deny": []
+          },
+          "allOf": [
+            {
+              "$ref": "#/definitions/Commands"
+            }
+          ]
+        },
+        "scope": {
+          "description": "Allowed or denied scoped when using this permission.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/Scopes"
+            }
+          ]
+        },
+        "platforms": {
+          "description": "Target platforms this permission applies. By default all platforms are affected by this permission.",
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "$ref": "#/definitions/Target"
+          }
+        }
+      }
+    },
+    "Commands": {
+      "description": "Allowed and denied commands inside a permission.\n\nIf two commands clash inside of `allow` and `deny`, it should be denied by default.",
+      "type": "object",
+      "properties": {
+        "allow": {
+          "description": "Allowed command.",
+          "default": [],
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "deny": {
+          "description": "Denied command, which takes priority.",
+          "default": [],
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "Scopes": {
+      "description": "An argument for fine grained behavior control of Tauri commands.\n\nIt can be of any serde serializable type and is used to allow or prevent certain actions inside a Tauri command. The configured scope is passed to the command and will be enforced by the command implementation.\n\n## Example\n\n```json { \"allow\": [{ \"path\": \"$HOME/**\" }], \"deny\": [{ \"path\": \"$HOME/secret.txt\" }] } ```",
+      "type": "object",
+      "properties": {
+        "allow": {
+          "description": "Data that defines what is allowed by the scope.",
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "$ref": "#/definitions/Value"
+          }
+        },
+        "deny": {
+          "description": "Data that defines what is denied by the scope. This should be prioritized by validation logic.",
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "$ref": "#/definitions/Value"
+          }
+        }
+      }
+    },
+    "Value": {
+      "description": "All supported ACL values.",
+      "anyOf": [
+        {
+          "description": "Represents a null JSON value.",
+          "type": "null"
+        },
+        {
+          "description": "Represents a [`bool`].",
+          "type": "boolean"
+        },
+        {
+          "description": "Represents a valid ACL [`Number`].",
+          "allOf": [
+            {
+              "$ref": "#/definitions/Number"
+            }
+          ]
+        },
+        {
+          "description": "Represents a [`String`].",
+          "type": "string"
+        },
+        {
+          "description": "Represents a list of other [`Value`]s.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Value"
+          }
+        },
+        {
+          "description": "Represents a map of [`String`] keys to [`Value`]s.",
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/definitions/Value"
+          }
+        }
+      ]
+    },
+    "Number": {
+      "description": "A valid ACL number.",
+      "anyOf": [
+        {
+          "description": "Represents an [`i64`].",
+          "type": "integer",
+          "format": "int64"
+        },
+        {
+          "description": "Represents a [`f64`].",
+          "type": "number",
+          "format": "double"
+        }
+      ]
+    },
+    "Target": {
+      "description": "Platform target.",
+      "oneOf": [
+        {
+          "description": "MacOS.",
+          "type": "string",
+          "enum": [
+            "macOS"
+          ]
+        },
+        {
+          "description": "Windows.",
+          "type": "string",
+          "enum": [
+            "windows"
+          ]
+        },
+        {
+          "description": "Linux.",
+          "type": "string",
+          "enum": [
+            "linux"
+          ]
+        },
+        {
+          "description": "Android.",
+          "type": "string",
+          "enum": [
+            "android"
+          ]
+        },
+        {
+          "description": "iOS.",
+          "type": "string",
+          "enum": [
+            "iOS"
+          ]
+        }
+      ]
+    },
+    "PermissionKind": {
+      "type": "string",
+      "oneOf": [
+        {
+          "description": "Enables the add_render_layer command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-add-render-layer",
+          "markdownDescription": "Enables the add_render_layer command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the add_render_layer command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-add-render-layer",
+          "markdownDescription": "Denies the add_render_layer command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the create_offscreen_render_target command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-create-offscreen-render-target",
+          "markdownDescription": "Enables the create_offscreen_render_target command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the create_offscreen_render_target command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-create-offscreen-render-target",
+          "markdownDescription": "Denies the create_offscreen_render_target command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the create_volume command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-create-volume",
+          "markdownDescription": "Enables the create_volume command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the create_volume command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-create-volume",
+          "markdownDescription": "Denies the create_volume command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the extract_slice command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-extract-slice",
+          "markdownDescription": "Enables the extract_slice command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the extract_slice command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-extract-slice",
+          "markdownDescription": "Denies the extract_slice command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the fs_list_directory command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-fs-list-directory",
+          "markdownDescription": "Enables the fs_list_directory command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the fs_list_directory command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-fs-list-directory",
+          "markdownDescription": "Denies the fs_list_directory command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the get_layer_info command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-get-layer-info",
+          "markdownDescription": "Enables the get_layer_info command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the get_layer_info command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-get-layer-info",
+          "markdownDescription": "Denies the get_layer_info command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the get_render_statistics command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-get-render-statistics",
+          "markdownDescription": "Enables the get_render_statistics command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the get_render_statistics command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-get-render-statistics",
+          "markdownDescription": "Denies the get_render_statistics command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the get_time_series command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-get-time-series",
+          "markdownDescription": "Enables the get_time_series command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the get_time_series command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-get-time-series",
+          "markdownDescription": "Denies the get_time_series command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the get_timeseries_matrix command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-get-timeseries-matrix",
+          "markdownDescription": "Enables the get_timeseries_matrix command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the get_timeseries_matrix command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-get-timeseries-matrix",
+          "markdownDescription": "Denies the get_timeseries_matrix command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the get_volume_info command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-get-volume-info",
+          "markdownDescription": "Enables the get_volume_info command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the get_volume_info command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-get-volume-info",
+          "markdownDescription": "Denies the get_volume_info command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the init_render_loop command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-init-render-loop",
+          "markdownDescription": "Enables the init_render_loop command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the init_render_loop command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-init-render-loop",
+          "markdownDescription": "Denies the init_render_loop command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the list_volumes command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-list-volumes",
+          "markdownDescription": "Enables the list_volumes command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the list_volumes command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-list-volumes",
+          "markdownDescription": "Denies the list_volumes command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the load_file command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-load-file",
+          "markdownDescription": "Enables the load_file command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the load_file command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-load-file",
+          "markdownDescription": "Denies the load_file command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the load_nifti_file command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-load-nifti-file",
+          "markdownDescription": "Enables the load_nifti_file command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the load_nifti_file command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-load-nifti-file",
+          "markdownDescription": "Denies the load_nifti_file command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the patch_layer command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-patch-layer",
+          "markdownDescription": "Enables the patch_layer command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the patch_layer command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-patch-layer",
+          "markdownDescription": "Denies the patch_layer command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the release_gpu_resources command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-release-gpu-resources",
+          "markdownDescription": "Enables the release_gpu_resources command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the release_gpu_resources command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-release-gpu-resources",
+          "markdownDescription": "Denies the release_gpu_resources command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the release_layer_gpu_resources command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-release-layer-gpu-resources",
+          "markdownDescription": "Enables the release_layer_gpu_resources command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the release_layer_gpu_resources command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-release-layer-gpu-resources",
+          "markdownDescription": "Denies the release_layer_gpu_resources command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the remove_volume command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-remove-volume",
+          "markdownDescription": "Enables the remove_volume command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the remove_volume command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-remove-volume",
+          "markdownDescription": "Denies the remove_volume command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the render_frame command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-render-frame",
+          "markdownDescription": "Enables the render_frame command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the render_frame command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-render-frame",
+          "markdownDescription": "Denies the render_frame command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the render_to_image command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-render-to-image",
+          "markdownDescription": "Enables the render_to_image command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the render_to_image command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-render-to-image",
+          "markdownDescription": "Denies the render_to_image command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the request_layer_gpu_resources command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-request-layer-gpu-resources",
+          "markdownDescription": "Enables the request_layer_gpu_resources command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the request_layer_gpu_resources command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-request-layer-gpu-resources",
+          "markdownDescription": "Denies the request_layer_gpu_resources command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the resize_canvas command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-resize-canvas",
+          "markdownDescription": "Enables the resize_canvas command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the resize_canvas command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-resize-canvas",
+          "markdownDescription": "Denies the resize_canvas command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the sample_world_coordinate command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-sample-world-coordinate",
+          "markdownDescription": "Enables the sample_world_coordinate command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the sample_world_coordinate command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-sample-world-coordinate",
+          "markdownDescription": "Denies the sample_world_coordinate command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the set_crosshair command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-set-crosshair",
+          "markdownDescription": "Enables the set_crosshair command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the set_crosshair command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-set-crosshair",
+          "markdownDescription": "Denies the set_crosshair command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the set_view_plane command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-set-view-plane",
+          "markdownDescription": "Enables the set_view_plane command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the set_view_plane command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-set-view-plane",
+          "markdownDescription": "Denies the set_view_plane command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the update_frame_for_synchronized_view command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-update-frame-for-synchronized-view",
+          "markdownDescription": "Enables the update_frame_for_synchronized_view command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the update_frame_for_synchronized_view command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-update-frame-for-synchronized-view",
+          "markdownDescription": "Denies the update_frame_for_synchronized_view command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the update_frame_ubo command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-update-frame-ubo",
+          "markdownDescription": "Enables the update_frame_ubo command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the update_frame_ubo command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-update-frame-ubo",
+          "markdownDescription": "Denies the update_frame_ubo command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the update_volume_layer command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-update-volume-layer",
+          "markdownDescription": "Enables the update_volume_layer command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the update_volume_layer command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-update-volume-layer",
+          "markdownDescription": "Denies the update_volume_layer command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the upload_volume_layer command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-upload-volume-layer",
+          "markdownDescription": "Enables the upload_volume_layer command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the upload_volume_layer command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-upload-volume-layer",
+          "markdownDescription": "Denies the upload_volume_layer command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the world_to_voxel command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-world-to-voxel",
+          "markdownDescription": "Enables the world_to_voxel command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the world_to_voxel command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-world-to-voxel",
+          "markdownDescription": "Denies the world_to_voxel command without any pre-configured scope."
+        },
+        {
+          "description": "Default permissions for api-bridge plugin\n#### This default permission set includes:\n\n- `allow-load-file`\n- `allow-world-to-voxel`\n- `allow-get-timeseries-matrix`\n- `allow-request-layer-gpu-resources`\n- `allow-release-layer-gpu-resources`\n- `allow-fs-list-directory`\n- `allow-init-render-loop`\n- `allow-resize-canvas`\n- `allow-update-frame-ubo`\n- `allow-update-frame-for-synchronized-view`\n- `allow-set-crosshair`\n- `allow-set-view-plane`\n- `allow-render-frame`\n- `allow-create-offscreen-render-target`\n- `allow-render-to-image`\n- `allow-add-render-layer`\n- `allow-patch-layer`\n- `allow-sample-world-coordinate`",
+          "type": "string",
+          "const": "default",
+          "markdownDescription": "Default permissions for api-bridge plugin\n#### This default permission set includes:\n\n- `allow-load-file`\n- `allow-world-to-voxel`\n- `allow-get-timeseries-matrix`\n- `allow-request-layer-gpu-resources`\n- `allow-release-layer-gpu-resources`\n- `allow-fs-list-directory`\n- `allow-init-render-loop`\n- `allow-resize-canvas`\n- `allow-update-frame-ubo`\n- `allow-update-frame-for-synchronized-view`\n- `allow-set-crosshair`\n- `allow-set-view-plane`\n- `allow-render-frame`\n- `allow-create-offscreen-render-target`\n- `allow-render-to-image`\n- `allow-add-render-layer`\n- `allow-patch-layer`\n- `allow-sample-world-coordinate`"
+        }
+      ]
+    }
+  }
+}

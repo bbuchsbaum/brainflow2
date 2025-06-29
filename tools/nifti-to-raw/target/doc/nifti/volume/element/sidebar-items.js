@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"struct":["DataRescaler"],"trait":["DataElement","NiftiDataRescaler"]};

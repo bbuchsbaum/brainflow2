@@ -1,0 +1,23 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Atlas Layer Labels Structure (v0.1.1)",
+  "description": "Structure of the 'labels' array within an AtlasLayer object.",
+  "type": "object",
+  "required": ["labels"],
+  "properties": {
+    "labels": { "type": "array", "items": { "$ref": "#/definitions/AtlasLabel" } }
+  },
+  "additionalProperties": true,
+  "definitions": {
+    "AtlasLabel": {
+      "type": "object",
+      "required": ["id", "name", "color"],
+      "properties": {
+        "id":    { "type": "integer", "minimum": 0 },
+        "name":  { "type": "string" },
+        "color": { "type": "array", "items": { "type": "number", "minimum": 0, "maximum": 1 }, "minItems": 3, "maxItems": 3 }
+      },
+      "additionalProperties": false
+    }
+  }
+} 

@@ -1,0 +1,46 @@
+[package]
+name = "api-bridge"
+version = "0.1.0"
+edition = "2021"
+links = "api-bridge"
+
+[lib]
+name = "api_bridge"
+crate-type = ["cdylib", "rlib"]
+
+[[bin]]
+name = "export_types"
+path = "src/bin/export_types.rs"
+
+[build-dependencies]
+tauri-plugin = { version = "2", features = ["build"] }
+
+[dependencies]
+tauri = { workspace = true }
+tauri-plugin = { version = "2" }
+serde = { version = "1.0", features = ["derive"] } # For Serialize/Deserialize
+thiserror = "1.0" # For error handling derives
+anyhow = { workspace = true } # For error context
+volmath = { path = "../volmath" } # Local workspace crate
+wgpu = { workspace = true } # Graphics API types
+async-trait = "0.1" # For dyn compatible async traits
+# nifti_loader = { path = "../loaders/nifti", package = "nifti-loader" } # Cycle removed by bridge_types, keep for registration?
+render_loop = { path = "../render_loop" } # For RenderLoopService
+uuid = { version = "1.4", features = ["v4"] } # For generating IDs
+futures = "0.3" # For block_on (though consider replacing with async runtime)
+bridge_types = { path = "../bridge_types" } # NEW: Shared types/traits
+nifti_loader = { path = "../loaders/nifti", package = "nifti-loader" } # Keep for NiftiLoader registration
+brainflow-loaders = { path = "../loaders" } # CORRECTED: Match package name
+log = "0.4" # Add log crate dependency
+tokio = { version = "1", features = ["sync", "test-util", "macros"] } # Add tokio for async Mutex and tests
+nalgebra = { version = "0.32", features = ["serde-serialize"] } # Added dependency for matrix math
+tracing = { workspace = true } # Add tracing dependency for instrumentation
+walkdir = "2" # ADDED: For directory traversal in fs_list_directory
+flate2 = "1.0" # For gzip decompression
+ts-rs = { workspace = true } # For generating TypeScript types
+base64 = "0.22" # For encoding rendered images
+colormap = { path = "../colormap" } # Colormap system
+image = { version = "0.25", default-features = false, features = ["png"] } # For PNG encoding
+
+[dev-dependencies]
+serde_json = "1.0" # For testing serialization

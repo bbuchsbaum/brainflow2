@@ -1,0 +1,882 @@
+        Info `tauri-build` dependency has workspace inheritance enabled. The features array won't be automatically rewritten. Expected features: []
+     Running BeforeDevCommand (`cd /Users/bbuchsbaum/code/brainflow2/ui && pnpm dev`)
+
+> ui@0.0.1 dev /Users/bbuchsbaum/code/brainflow2/ui
+> vite dev
+
+
+  VITE v6.3.5  ready in 652 ms
+
+  ➜  Local:   http://localhost:5173/
+  ➜  Network: use --host to expose
+     Running DevCommand (`cargo  run --no-default-features --color always --`)
+        Info Watching /Users/bbuchsbaum/code/brainflow2/src-tauri for changes...
+        Info Watching /Users/bbuchsbaum/code/brainflow2/src-tauri for changes...
+        Info Watching /Users/bbuchsbaum/code/brainflow2/core/render_loop for changes...
+        Info Watching /Users/bbuchsbaum/code/brainflow2/core/filesystem for changes...
+        Info Watching /Users/bbuchsbaum/code/brainflow2/core/loaders/nifti for changes...
+        Info Watching /Users/bbuchsbaum/code/brainflow2/core/loaders/gifti for changes...
+        Info Watching /Users/bbuchsbaum/code/brainflow2/core/volmath for changes...
+        Info Watching /Users/bbuchsbaum/code/brainflow2/core/api_bridge for changes...
+        Info Watching /Users/bbuchsbaum/code/brainflow2/core/bridge_types for changes...
+        Info Watching /Users/bbuchsbaum/code/brainflow2/xtask for changes...
+        Info Watching /Users/bbuchsbaum/code/brainflow2/core/colormap for changes...
+[1m[32m   Compiling[0m objc2-exception-helper v0.1.1
+[1m[32m   Compiling[0m volmath v0.1.0 (/Users/bbuchsbaum/code/brainflow2/core/volmath)
+[1m[33mwarning[0m[1m:[0m render_loop@0.1.0: Using runtime shader loading for wgpu 0.20 compatibility
+[1m[36m    Building[0m [======================>  ] 503/538: volmath, objc2-exception-...[K[1m[32m   Compiling[0m objc2 v0.6.1
+[1m[36m    Building[0m [======================>  ] 504/538: volmath, objc2(build), ob...[1m[36m    Building[0m [======================>  ] 505/538: volmath, objc2(build)       [1m[36m    Building[0m [======================>  ] 506/538: volmath, objc2              [K[1m[32m   Compiling[0m render_loop v0.1.0 (/Users/bbuchsbaum/code/brainflow2/core/render_loop)
+[1m[36m    Building[0m [======================>  ] 507/538: render_loop, objc2          [K[1m[32m   Compiling[0m bridge_types v0.1.0 (/Users/bbuchsbaum/code/brainflow2/core/bridge_types)
+[1m[36m    Building[0m [======================>  ] 507/538: render_loop, objc2, bridg...[K[1m[32m   Compiling[0m objc2-core-foundation v0.3.1
+[1m[32m   Compiling[0m block2 v0.6.1
+[1m[36m    Building[0m [======================>  ] 507/538: render_loop, block2, objc...[1m[36m    Building[0m [======================>  ] 508/538: block2, objc2, objc2-core...[K[1m[32m   Compiling[0m nifti-loader v0.1.0 (/Users/bbuchsbaum/code/brainflow2/core/loaders/nifti)
+[1m[36m    Building[0m [======================>  ] 508/538: nifti-loader, block2, obj...[1m[36m    Building[0m [======================>  ] 509/538: nifti-loader, block2, obj...[1m[36m    Building[0m [======================>  ] 510/538: nifti-loader, block2, obj...[K[1m[32m   Compiling[0m dispatch2 v0.2.0
+[1m[36m    Building[0m [======================>  ] 510/538: nifti-loader, block2, dis...[1m[36m    Building[0m [======================>  ] 511/538: nifti-loader, dispatch2, ...[K[0m[1m[33mwarning[0m[0m[1m: unused import: `uuid::Uuid`[0m
+[0m [0m[0m[1m[38;5;12m--> [0m[0mcore/loaders/nifti/src/lib.rs:7:5[0m
+[0m  [0m[0m[1m[38;5;12m|[0m
+[0m[1m[38;5;12m7[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0muse uuid::Uuid;[0m
+[0m  [0m[0m[1m[38;5;12m|[0m[0m     [0m[0m[1m[33m^^^^^^^^^^[0m
+[0m  [0m[0m[1m[38;5;12m|[0m
+[0m  [0m[0m[1m[38;5;12m= [0m[0m[1mnote[0m[0m: `#[warn(unused_imports)]` on by default[0m
+
+[1m[36m    Building[0m [======================>  ] 511/538: nifti-loader, dispatch2, ...[K[0m[1m[33mwarning[0m[0m[1m: unused import: `warn`[0m
+[0m  [0m[0m[1m[38;5;12m--> [0m[0mcore/loaders/nifti/src/lib.rs:10:31[0m
+[0m   [0m[0m[1m[38;5;12m|[0m
+[0m[1m[38;5;12m10[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0muse log::{info, error, debug, warn};[0m
+[0m   [0m[0m[1m[38;5;12m|[0m[0m                               [0m[0m[1m[33m^^^^[0m
+
+[1m[36m    Building[0m [======================>  ] 511/538: nifti-loader, dispatch2, ...[1m[36m    Building[0m [======================>  ] 512/538: nifti-loader, objc2-core-...[K[1m[32m   Compiling[0m brainflow-loaders v0.1.0 (/Users/bbuchsbaum/code/brainflow2/core/loaders)
+[1m[36m    Building[0m [======================>  ] 512/538: nifti-loader, brainflow-l...[K[1m[32m   Compiling[0m objc2-foundation v0.3.1
+[1m[32m   Compiling[0m objc2-core-graphics v0.3.1
+[1m[36m    Building[0m [======================>  ] 512/538: nifti-loader, objc2-core-...[1m[36m    Building[0m [======================>  ] 513/538: nifti-loader, objc2-core-...[K[1m[33mwarning[0m[1m:[0m `nifti-loader` (lib) generated 2 warnings (run `cargo fix --lib -p nifti-loader` to apply 2 suggestions)
+[1m[36m    Building[0m [======================>  ] 514/538: objc2-core-graphics, brai...[1m[36m    Building[0m [======================>  ] 515/538: objc2-core-graphics, objc...[1m[36m    Building[0m [======================>  ] 516/538: objc2-foundation            [K[1m[32m   Compiling[0m objc2-core-data v0.3.1
+[1m[32m   Compiling[0m objc2-quartz-core v0.3.1
+[1m[32m   Compiling[0m objc2-core-image v0.3.1
+[1m[32m   Compiling[0m objc2-cloud-kit v0.3.1
+[1m[36m    Building[0m [======================>  ] 516/538: objc2-quartz-core, objc2-...[1m[36m    Building[0m [=======================> ] 517/538: objc2-quartz-core, objc2-...[K[1m[32m   Compiling[0m objc2-app-kit v0.3.1
+[1m[36m    Building[0m [=======================> ] 517/538: objc2-quartz-core, objc2-...[1m[36m    Building[0m [=======================> ] 518/538: objc2-quartz-core, objc2-...[1m[36m    Building[0m [=======================> ] 519/538: objc2-app-kit, objc2-core...[1m[36m    Building[0m [=======================> ] 520/538: objc2-app-kit, objc2-foun...[1m[36m    Building[0m [=======================> ] 521/538: objc2-app-kit               [K[1m[32m   Compiling[0m objc2-web-kit v0.3.1
+[1m[32m   Compiling[0m tao v0.33.0
+[1m[32m   Compiling[0m muda v0.16.1
+[1m[32m   Compiling[0m window-vibrancy v0.6.0
+[1m[32m   Compiling[0m rfd v0.15.3
+[1m[36m    Building[0m [=======================> ] 521/538: muda, objc2-app-kit, tao,...[1m[36m    Building[0m [=======================> ] 522/538: muda, objc2-app-kit, tao,...[1m[36m    Building[0m [=======================> ] 523/538: muda, objc2-app-kit, tao,...[K[1m[32m   Compiling[0m wry v0.51.2
+[1m[36m    Building[0m [=======================> ] 523/538: muda, wry, objc2-app-kit,...[1m[36m    Building[0m [=======================> ] 524/538: muda, wry, objc2-app-kit,...[1m[36m    Building[0m [=======================> ] 525/538: wry, objc2-app-kit, tao     [K[1m[32m   Compiling[0m tauri-runtime-wry v2.6.0
+[1m[36m    Building[0m [=======================> ] 525/538: wry, objc2-app-kit, tao, ...[1m[36m    Building[0m [=======================> ] 526/538: wry, objc2-app-kit, tauri...[1m[36m    Building[0m [=======================> ] 527/538: objc2-app-kit, tauri-runt...[K[1m[32m   Compiling[0m tauri v2.5.1
+[1m[36m    Building[0m [=======================> ] 527/538: objc2-app-kit, tauri-runt...[1m[36m    Building[0m [=======================> ] 528/538: objc2-app-kit, tauri        [1m[36m    Building[0m [=======================> ] 529/538: tauri                       [K[1m[32m   Compiling[0m tauri-plugin-fs v2.2.1
+[1m[32m   Compiling[0m tauri-plugin-log v2.4.0
+[1m[32m   Compiling[0m tauri-plugin-shell v2.2.1
+[1m[32m   Compiling[0m tauri-plugin-window-state v2.2.2
+[1m[36m    Building[0m [=======================> ] 529/538: tauri-plugin-fs, tauri-pl...[1m[36m    Building[0m [=======================> ] 530/538: tauri-plugin-fs, tauri-pl...[1m[36m    Building[0m [=======================> ] 531/538: tauri-plugin-fs, tauri-pl...[K[1m[32m   Compiling[0m tauri-plugin-dialog v2.2.1
+[1m[36m    Building[0m [=======================> ] 531/538: tauri-plugin-fs, tauri-pl...[K[1m[32m   Compiling[0m api-bridge v0.1.0 (/Users/bbuchsbaum/code/brainflow2/core/api_bridge)
+[1m[36m    Building[0m [=======================> ] 532/538: tauri-plugin-fs, api-brid...[1m[36m    Building[0m [=======================> ] 533/538: api-bridge, tauri-plugin-...[1m[36m    Building[0m [=======================> ] 534/538: api-bridge, tauri-plugin-...[K[0m[1m[33mwarning[0m[0m[1m: unused imports: `ErrorDisplay` and `format_error_for_ui`[0m
+[0m  [0m[0m[1m[38;5;12m--> [0m[0mcore/api_bridge/src/lib.rs:43:19[0m
+[0m   [0m[0m[1m[38;5;12m|[0m
+[0m[1m[38;5;12m43[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0muse user_errors::{format_error_for_ui, ErrorDisplay};[0m
+[0m   [0m[0m[1m[38;5;12m|[0m[0m                   [0m[0m[1m[33m^^^^^^^^^^^^^^^^^^^[0m[0m  [0m[0m[1m[33m^^^^^^^^^^^^[0m
+[0m   [0m[0m[1m[38;5;12m|[0m
+[0m   [0m[0m[1m[38;5;12m= [0m[0m[1mnote[0m[0m: `#[warn(unused_imports)]` on by default[0m
+
+[1m[36m    Building[0m [=======================> ] 534/538: api-bridge, tauri-plugin-...[1m[36m    Building[0m [=======================> ] 535/538: api-bridge                  [K[0m[1m[33mwarning[0m[0m[1m: unused variable: `world_to_voxel`[0m
+[0m   [0m[0m[1m[38;5;12m--> [0m[0mcore/api_bridge/src/lib.rs:493:35[0m
+[0m    [0m[0m[1m[38;5;12m|[0m
+[0m[1m[38;5;12m493[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0m            let (atlas_layer_idx, world_to_voxel) = match volume_data {[0m
+[0m    [0m[0m[1m[38;5;12m|[0m[0m                                   [0m[0m[1m[33m^^^^^^^^^^^^^^[0m[0m [0m[0m[1m[33mhelp: if this is intentional, prefix it with an underscore: `_world_to_voxel`[0m
+[0m    [0m[0m[1m[38;5;12m|[0m
+[0m    [0m[0m[1m[38;5;12m= [0m[0m[1mnote[0m[0m: `#[warn(unused_variables)]` on by default[0m
+
+[1m[36m    Building[0m [=======================> ] 535/538: api-bridge                  [K[0m[1m[33mwarning[0m[0m[1m: unused variable: `details`[0m
+[0m  [0m[0m[1m[38;5;12m--> [0m[0mcore/api_bridge/src/user_errors.rs:53:40[0m
+[0m   [0m[0m[1m[38;5;12m|[0m
+[0m[1m[38;5;12m53[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0m            BridgeError::VolumeError { details, .. } => {[0m
+[0m   [0m[0m[1m[38;5;12m|[0m[0m                                        [0m[0m[1m[33m^^^^^^^[0m[0m[1m[38;5;12m-[0m
+[0m   [0m[0m[1m[38;5;12m|[0m[0m                                        [0m[0m[1m[38;5;12m|[0m
+[0m   [0m[0m[1m[38;5;12m|[0m[0m                                        [0m[0m[1m[38;5;12mhelp: try removing the field[0m
+
+[1m[36m    Building[0m [=======================> ] 535/538: api-bridge                  [K[0m[1m[33mwarning[0m[0m[1m: unused variable: `details`[0m
+[0m  [0m[0m[1m[38;5;12m--> [0m[0mcore/api_bridge/src/user_errors.rs:57:37[0m
+[0m   [0m[0m[1m[38;5;12m|[0m
+[0m[1m[38;5;12m57[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0m            BridgeError::GpuError { details, .. } => {[0m
+[0m   [0m[0m[1m[38;5;12m|[0m[0m                                     [0m[0m[1m[33m^^^^^^^[0m[0m[1m[38;5;12m-[0m
+[0m   [0m[0m[1m[38;5;12m|[0m[0m                                     [0m[0m[1m[38;5;12m|[0m
+[0m   [0m[0m[1m[38;5;12m|[0m[0m                                     [0m[0m[1m[38;5;12mhelp: try removing the field[0m
+
+[1m[36m    Building[0m [=======================> ] 535/538: api-bridge                  [K[0m[1m[33mwarning[0m[0m[1m: unused variable: `details`[0m
+[0m  [0m[0m[1m[38;5;12m--> [0m[0mcore/api_bridge/src/user_errors.rs:61:43[0m
+[0m   [0m[0m[1m[38;5;12m|[0m
+[0m[1m[38;5;12m61[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0m            BridgeError::VolumeNotFound { details, .. } => {[0m
+[0m   [0m[0m[1m[38;5;12m|[0m[0m                                           [0m[0m[1m[33m^^^^^^^[0m[0m[1m[38;5;12m-[0m
+[0m   [0m[0m[1m[38;5;12m|[0m[0m                                           [0m[0m[1m[38;5;12m|[0m
+[0m   [0m[0m[1m[38;5;12m|[0m[0m                                           [0m[0m[1m[38;5;12mhelp: try removing the field[0m
+
+[1m[36m    Building[0m [=======================> ] 535/538: api-bridge                  [K[0m[1m[33mwarning[0m[0m[1m: function `add_user_context` is never used[0m
+[0m  [0m[0m[1m[38;5;12m--> [0m[0mcore/api_bridge/src/error_helpers.rs:74:8[0m
+[0m   [0m[0m[1m[38;5;12m|[0m
+[0m[1m[38;5;12m74[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0mpub fn add_user_context(error: BridgeError, context: &str) -> BridgeError {[0m
+[0m   [0m[0m[1m[38;5;12m|[0m[0m        [0m[0m[1m[33m^^^^^^^^^^^^^^^^[0m
+[0m   [0m[0m[1m[38;5;12m|[0m
+[0m   [0m[0m[1m[38;5;12m= [0m[0m[1mnote[0m[0m: `#[warn(dead_code)]` on by default[0m
+
+[1m[36m    Building[0m [=======================> ] 535/538: api-bridge                  [K[0m[1m[33mwarning[0m[0m[1m: method `context_any` is never used[0m
+[0m [0m[0m[1m[38;5;12m--> [0m[0mcore/api_bridge/src/error_context.rs:7:8[0m
+[0m  [0m[0m[1m[38;5;12m|[0m
+[0m[1m[38;5;12m5[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0mpub trait ErrorContext<T> {[0m
+[0m  [0m[0m[1m[38;5;12m|[0m[0m           [0m[0m[1m[38;5;12m------------[0m[0m [0m[0m[1m[38;5;12mmethod in this trait[0m
+[0m[1m[38;5;12m6[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0m    /// Add context to a Result, converting to anyhow::Result[0m
+[0m[1m[38;5;12m7[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0m    fn context_any<C>(self, context: C) -> Result<T>[0m
+[0m  [0m[0m[1m[38;5;12m|[0m[0m        [0m[0m[1m[33m^^^^^^^^^^^[0m
+
+[1m[36m    Building[0m [=======================> ] 535/538: api-bridge                  [K[0m[1m[33mwarning[0m[0m[1m: method `context_bridge` is never used[0m
+[0m  [0m[0m[1m[38;5;12m--> [0m[0mcore/api_bridge/src/error_context.rs:45:8[0m
+[0m   [0m[0m[1m[38;5;12m|[0m
+[0m[1m[38;5;12m43[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0mpub trait OptionContext<T> {[0m
+[0m   [0m[0m[1m[38;5;12m|[0m[0m           [0m[0m[1m[38;5;12m-------------[0m[0m [0m[0m[1m[38;5;12mmethod in this trait[0m
+[0m[1m[38;5;12m44[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0m    /// Convert None to an error with context[0m
+[0m[1m[38;5;12m45[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0m    fn context_bridge<C>(self, context: C, code: u16) -> bridge_types::BridgeResult<T>[0m
+[0m   [0m[0m[1m[38;5;12m|[0m[0m        [0m[0m[1m[33m^^^^^^^^^^^^^^[0m
+
+[1m[36m    Building[0m [=======================> ] 535/538: api-bridge                  [K[0m[1m[33mwarning[0m[0m[1m: function `volume_not_found_context` is never used[0m
+[0m  [0m[0m[1m[38;5;12m--> [0m[0mcore/api_bridge/src/error_context.rs:71:8[0m
+[0m   [0m[0m[1m[38;5;12m|[0m
+[0m[1m[38;5;12m71[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0mpub fn volume_not_found_context(volume_id: &str, operation: &str) -> BridgeError {[0m
+[0m   [0m[0m[1m[38;5;12m|[0m[0m        [0m[0m[1m[33m^^^^^^^^^^^^^^^^^^^^^^^^[0m
+
+[0m[1m[33mwarning[0m[0m[1m: function `layer_error_context` is never used[0m
+[0m  [0m[0m[1m[38;5;12m--> [0m[0mcore/api_bridge/src/error_context.rs:83:8[0m
+[0m   [0m[0m[1m[38;5;12m|[0m
+[0m[1m[38;5;12m83[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0mpub fn layer_error_context(layer_id: &str, operation: &str, error: impl std::fmt::Display) -> BridgeError {[0m
+[0m   [0m[0m[1m[38;5;12m|[0m[0m        [0m[0m[1m[33m^^^^^^^^^^^^^^^^^^^[0m
+
+[0m[1m[33mwarning[0m[0m[1m: function `gpu_error_context` is never used[0m
+[0m  [0m[0m[1m[38;5;12m--> [0m[0mcore/api_bridge/src/error_context.rs:96:8[0m
+[0m   [0m[0m[1m[38;5;12m|[0m
+[0m[1m[38;5;12m96[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0mpub fn gpu_error_context(operation: &str, error: impl std::fmt::Display) -> BridgeError {[0m
+[0m   [0m[0m[1m[38;5;12m|[0m[0m        [0m[0m[1m[33m^^^^^^^^^^^^^^^^^[0m
+
+[0m[1m[33mwarning[0m[0m[1m: methods `user_message` and `suggested_actions` are never used[0m
+[0m  [0m[0m[1m[38;5;12m--> [0m[0mcore/api_bridge/src/user_errors.rs:7:8[0m
+[0m   [0m[0m[1m[38;5;12m|[0m
+[0m[1m[38;5;12m5[0m[0m  [0m[0m[1m[38;5;12m|[0m[0m [0m[0mpub trait UserFriendly {[0m
+[0m   [0m[0m[1m[38;5;12m|[0m[0m           [0m[0m[1m[38;5;12m------------[0m[0m [0m[0m[1m[38;5;12mmethods in this trait[0m
+[0m[1m[38;5;12m6[0m[0m  [0m[0m[1m[38;5;12m|[0m[0m [0m[0m    /// Get a user-friendly error message[0m
+[0m[1m[38;5;12m7[0m[0m  [0m[0m[1m[38;5;12m|[0m[0m [0m[0m    fn user_message(&self) -> String;[0m
+[0m   [0m[0m[1m[38;5;12m|[0m[0m        [0m[0m[1m[33m^^^^^^^^^^^^[0m
+[0m[1m[38;5;12m...[0m
+[0m[1m[38;5;12m10[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0m    fn suggested_actions(&self) -> Vec<String>;[0m
+[0m   [0m[0m[1m[38;5;12m|[0m[0m        [0m[0m[1m[33m^^^^^^^^^^^^^^^^^[0m
+
+[0m[1m[33mwarning[0m[0m[1m: function `format_error_for_ui` is never used[0m
+[0m   [0m[0m[1m[38;5;12m--> [0m[0mcore/api_bridge/src/user_errors.rs:189:8[0m
+[0m    [0m[0m[1m[38;5;12m|[0m
+[0m[1m[38;5;12m189[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0mpub fn format_error_for_ui(error: &BridgeError) -> ErrorDisplay {[0m
+[0m    [0m[0m[1m[38;5;12m|[0m[0m        [0m[0m[1m[33m^^^^^^^^^^^^^^^^^^^[0m
+
+[0m[1m[33mwarning[0m[0m[1m: function `error_title` is never used[0m
+[0m   [0m[0m[1m[38;5;12m--> [0m[0mcore/api_bridge/src/user_errors.rs:200:4[0m
+[0m    [0m[0m[1m[38;5;12m|[0m
+[0m[1m[38;5;12m200[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0mfn error_title(error: &BridgeError) -> String {[0m
+[0m    [0m[0m[1m[38;5;12m|[0m[0m    [0m[0m[1m[33m^^^^^^^^^^^[0m
+
+[0m[1m[33mwarning[0m[0m[1m: function `error_code` is never used[0m
+[0m   [0m[0m[1m[38;5;12m--> [0m[0mcore/api_bridge/src/user_errors.rs:230:4[0m
+[0m    [0m[0m[1m[38;5;12m|[0m
+[0m[1m[38;5;12m230[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0mfn error_code(error: &BridgeError) -> u16 {[0m
+[0m    [0m[0m[1m[38;5;12m|[0m[0m    [0m[0m[1m[33m^^^^^^^^^^[0m
+
+[1m[36m    Building[0m [=======================> ] 535/538: api-bridge                  [K[1m[33mwarning[0m[1m:[0m `api-bridge` (lib) generated 15 warnings (run `cargo fix --lib -p api-bridge` to apply 4 suggestions)
+[1m[32m   Compiling[0m brainflow v0.1.0 (/Users/bbuchsbaum/code/brainflow2/src-tauri)
+[1m[36m    Building[0m [=======================> ] 536/538: brainflow                   [K[0m[1m[33mwarning[0m[0m[1m: unused import: `Runtime`[0m
+[0m [0m[0m[1m[38;5;12m--> [0m[0msrc-tauri/src/lib.rs:5:29[0m
+[0m  [0m[0m[1m[38;5;12m|[0m
+[0m[1m[38;5;12m5[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0muse tauri::{State, Manager, Runtime};[0m
+[0m  [0m[0m[1m[38;5;12m|[0m[0m                             [0m[0m[1m[33m^^^^^^^[0m
+[0m  [0m[0m[1m[38;5;12m|[0m
+[0m  [0m[0m[1m[38;5;12m= [0m[0m[1mnote[0m[0m: `#[warn(unused_imports)]` on by default[0m
+
+[1m[36m    Building[0m [=======================> ] 536/538: brainflow                   [K[0m[1m[33mwarning[0m[0m[1m: unused import: `nifti_loader::NiftiLoader`[0m
+[0m [0m[0m[1m[38;5;12m--> [0m[0msrc-tauri/src/lib.rs:8:5[0m
+[0m  [0m[0m[1m[38;5;12m|[0m
+[0m[1m[38;5;12m8[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0muse nifti_loader::NiftiLoader;[0m
+[0m  [0m[0m[1m[38;5;12m|[0m[0m     [0m[0m[1m[33m^^^^^^^^^^^^^^^^^^^^^^^^^[0m
+
+[1m[36m    Building[0m [=======================> ] 536/538: brainflow                   [K[0m[1m[33mwarning[0m[0m[1m: unused imports: `HasDisplayHandle` and `HasWindowHandle`[0m
+[0m  [0m[0m[1m[38;5;12m--> [0m[0msrc-tauri/src/lib.rs:10:25[0m
+[0m   [0m[0m[1m[38;5;12m|[0m
+[0m[1m[38;5;12m10[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0muse raw_window_handle::{HasWindowHandle, HasDisplayHandle};[0m
+[0m   [0m[0m[1m[38;5;12m|[0m[0m                         [0m[0m[1m[33m^^^^^^^^^^^^^^^[0m[0m  [0m[0m[1m[33m^^^^^^^^^^^^^^^^[0m
+
+[1m[36m    Building[0m [=======================> ] 536/538: brainflow                   [K[0m[1m[33mwarning[0m[0m[1m: unused imports: `error` and `info`[0m
+[0m  [0m[0m[1m[38;5;12m--> [0m[0msrc-tauri/src/lib.rs:11:11[0m
+[0m   [0m[0m[1m[38;5;12m|[0m
+[0m[1m[38;5;12m11[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0muse log::{info, error};[0m
+[0m   [0m[0m[1m[38;5;12m|[0m[0m           [0m[0m[1m[33m^^^^[0m[0m  [0m[0m[1m[33m^^^^^[0m
+
+[1m[36m    Building[0m [=======================> ] 536/538: brainflow                   [K[0m[1m[33mwarning[0m[0m[1m: field `loaded_volumes` is never read[0m
+[0m  [0m[0m[1m[38;5;12m--> [0m[0msrc-tauri/src/lib.rs:29:5[0m
+[0m   [0m[0m[1m[38;5;12m|[0m
+[0m[1m[38;5;12m28[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0mpub struct AppState {[0m
+[0m   [0m[0m[1m[38;5;12m|[0m[0m            [0m[0m[1m[38;5;12m--------[0m[0m [0m[0m[1m[38;5;12mfield in this struct[0m
+[0m[1m[38;5;12m29[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0m    loaded_volumes: Mutex<HashMap<String, VolumeInfo>>,[0m
+[0m   [0m[0m[1m[38;5;12m|[0m[0m     [0m[0m[1m[33m^^^^^^^^^^^^^^[0m
+[0m   [0m[0m[1m[38;5;12m|[0m
+[0m   [0m[0m[1m[38;5;12m= [0m[0m[1mnote[0m[0m: `#[warn(dead_code)]` on by default[0m
+
+[1m[36m    Building[0m [=======================> ] 536/538: brainflow                   [K[0m[1m[33mwarning[0m[0m[1m: function `greet` is never used[0m
+[0m  [0m[0m[1m[38;5;12m--> [0m[0msrc-tauri/src/lib.rs:34:4[0m
+[0m   [0m[0m[1m[38;5;12m|[0m
+[0m[1m[38;5;12m34[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0mfn greet(name: &str) -> String {[0m
+[0m   [0m[0m[1m[38;5;12m|[0m[0m    [0m[0m[1m[33m^^^^^[0m
+
+[1m[36m    Building[0m [=======================> ] 536/538: brainflow                   [K[0m[1m[33mwarning[0m[0m[1m: function `list_volumes` is never used[0m
+[0m  [0m[0m[1m[38;5;12m--> [0m[0msrc-tauri/src/lib.rs:40:4[0m
+[0m   [0m[0m[1m[38;5;12m|[0m
+[0m[1m[38;5;12m40[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0mfn list_volumes(state: State<AppState>) -> Result<Vec<VolumeInfo>, String> {[0m
+[0m   [0m[0m[1m[38;5;12m|[0m[0m    [0m[0m[1m[33m^^^^^^^^^^^^[0m
+
+[1m[36m    Building[0m [=======================> ] 536/538: brainflow                   [K[0m[1m[33mwarning[0m[0m[1m: function `can_load_file` is never used[0m
+[0m  [0m[0m[1m[38;5;12m--> [0m[0msrc-tauri/src/lib.rs:47:4[0m
+[0m   [0m[0m[1m[38;5;12m|[0m
+[0m[1m[38;5;12m47[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0mfn can_load_file(file_path: &str) -> Result<bool, String> {[0m
+[0m   [0m[0m[1m[38;5;12m|[0m[0m    [0m[0m[1m[33m^^^^^^^^^^^^^[0m
+
+[1m[36m    Building[0m [=======================> ] 536/538: brainflow                   [K[0m[1m[33mwarning[0m[0m[1m: function `load_volume` is never used[0m
+[0m  [0m[0m[1m[38;5;12m--> [0m[0msrc-tauri/src/lib.rs:63:4[0m
+[0m   [0m[0m[1m[38;5;12m|[0m
+[0m[1m[38;5;12m63[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0mfn load_volume(file_path: &str, state: State<AppState>) -> Result<VolumeInfo, String> {[0m
+[0m   [0m[0m[1m[38;5;12m|[0m[0m    [0m[0m[1m[33m^^^^^^^^^^^[0m
+
+[1m[36m    Building[0m [=======================> ] 536/538: brainflow                   [K[1m[33mwarning[0m[1m:[0m `brainflow` (lib) generated 9 warnings (run `cargo fix --lib -p brainflow` to apply 4 suggestions)
+[1m[36m    Building[0m [=======================> ] 537/538: brainflow(bin)              [K[1m[32m    Finished[0m ]8;;https://doc.rust-lang.org/cargo/reference/profiles.html#default-profiles\`dev` profile [unoptimized + debuginfo]]8;;\ target(s) in 25.54s
+[1m[32m     Running[0m `/Users/bbuchsbaum/code/brainflow2/target/debug/brainflow`
+Initializing RenderLoopService...
+RenderLoopService: Initializing WGPU...
+[2025-06-25][00:21:49][wgpu_core::instance][INFO] Adapter Metal AdapterInfo { name: "Apple M3 Max", vendor: 0, device: 0, device_type: IntegratedGpu, driver: "", driver_info: "", backend: Metal }
+RenderLoopService: Found adapter: AdapterInfo { name: "Apple M3 Max", vendor: 0, device: 0, device_type: IntegratedGpu, driver: "", driver_info: "", backend: Metal }
+RenderLoopService: Device and Queue obtained successfully.
+RenderLoopService: Frame UBO buffer created.
+RenderLoopService: Crosshair UBO buffer created.
+RenderLoopService: View Plane UBO buffer created.
+RenderLoopService: Global bind group layout created.
+RenderLoopService Initialized.
+8:21:50 p.m. [vite-plugin-svelte] src/lib/components/MountableTreeBrowser.svelte:468:5 Elements with the ARIA role "treeitem" must have the following attributes defined: "aria-selected"
+https://svelte.dev/e/a11y_role_has_required_aria_props
+8:21:50 p.m. [vite-plugin-svelte] src/lib/components/MountableTreeBrowser.svelte:591:1 Visible, non-interactive elements with a click event must be accompanied by a keyboard event handler. Consider whether an interactive element such as `<button type="button">` or `<a>` might be more appropriate
+https://svelte.dev/e/a11y_click_events_have_key_events
+8:21:50 p.m. [vite-plugin-svelte] src/lib/components/MountableTreeBrowser.svelte:591:1 `<div>` with a click handler must have an ARIA role
+https://svelte.dev/e/a11y_no_static_element_interactions
+8:21:50 p.m. [vite-plugin-svelte] src/lib/components/MountableTreeBrowser.svelte:592:2 Visible, non-interactive elements with a click event must be accompanied by a keyboard event handler. Consider whether an interactive element such as `<button type="button">` or `<a>` might be more appropriate
+https://svelte.dev/e/a11y_click_events_have_key_events
+8:21:50 p.m. [vite-plugin-svelte] src/lib/components/MountableTreeBrowser.svelte:592:2 `<div>` with a click handler must have an ARIA role
+https://svelte.dev/e/a11y_no_static_element_interactions
+8:21:50 p.m. [vite-plugin-svelte] src/lib/components/MountableTreeBrowser.svelte:616:1 Visible, non-interactive elements with a click event must be accompanied by a keyboard event handler. Consider whether an interactive element such as `<button type="button">` or `<a>` might be more appropriate
+https://svelte.dev/e/a11y_click_events_have_key_events
+8:21:50 p.m. [vite-plugin-svelte] src/lib/components/MountableTreeBrowser.svelte:616:1 `<div>` with a click handler must have an ARIA role
+https://svelte.dev/e/a11y_no_static_element_interactions
+8:21:50 p.m. [vite-plugin-svelte] src/lib/components/MountableTreeBrowser.svelte:617:2 Visible, non-interactive elements with a click event must be accompanied by a keyboard event handler. Consider whether an interactive element such as `<button type="button">` or `<a>` might be more appropriate
+https://svelte.dev/e/a11y_click_events_have_key_events
+8:21:50 p.m. [vite-plugin-svelte] src/lib/components/MountableTreeBrowser.svelte:617:2 `<div>` with a click handler must have an ARIA role
+https://svelte.dev/e/a11y_no_static_element_interactions
+8:21:50 p.m. [vite-plugin-svelte] src/lib/components/MountableTreeBrowser.svelte:56:5 `unlistenMount` is updated, but is not declared with `$state(...)`. Changing its value will not correctly trigger updates
+https://svelte.dev/e/non_reactive_update
+8:21:50 p.m. [vite-plugin-svelte] src/lib/components/MountableTreeBrowser.svelte:764:1 Unused CSS selector ".mount-folder-icon"
+https://svelte.dev/e/css_unused_selector
+8:21:50 p.m. [vite-plugin-svelte] src/lib/components/MountableTreeBrowser.svelte:904:1 Unused CSS selector ".tree-icon"
+https://svelte.dev/e/css_unused_selector
+8:21:50 p.m. [vite-plugin-svelte] src/lib/components/views/VolumeView.svelte:37:73 This reference only captures the initial value of `layerId`. Did you mean to reference it inside a closure instead?
+https://svelte.dev/e/state_referenced_locally
+8:21:50 p.m. [vite-plugin-svelte] src/lib/components/views/VolumeView.svelte:232:0 `<div>` with a dragover, dragenter, dragleave or drop handler must have an ARIA role
+https://svelte.dev/e/a11y_no_static_element_interactions
+8:21:50 p.m. [vite-plugin-svelte] src/lib/components/panels/LayerControls.svelte:197:10 A form label must be associated with a control
+https://svelte.dev/e/a11y_label_has_associated_control
+8:21:50 p.m. [vite-plugin-svelte] src/lib/components/panels/LayerControls.svelte:213:10 A form label must be associated with a control
+https://svelte.dev/e/a11y_label_has_associated_control
+8:21:50 p.m. [vite-plugin-svelte] src/lib/components/panels/LayerControls.svelte:228:10 A form label must be associated with a control
+https://svelte.dev/e/a11y_label_has_associated_control
+8:21:50 p.m. [vite-plugin-svelte] src/lib/components/panels/LayerControls.svelte:238:10 A form label must be associated with a control
+https://svelte.dev/e/a11y_label_has_associated_control
+8:21:50 p.m. [vite-plugin-svelte] src/lib/components/panels/LayerControls.svelte:276:10 A form label must be associated with a control
+https://svelte.dev/e/a11y_label_has_associated_control
+8:21:50 p.m. [vite-plugin-svelte] src/components/TestRender.svelte:249:4 Self-closing HTML tags for non-void elements are ambiguous — use `<canvas ...></canvas>` rather than `<canvas ... />`
+https://svelte.dev/e/element_invalid_self_closing_tag
+8:21:50 p.m. [vite-plugin-svelte] src/lib/components/icons/FileIcon.svelte:57:0 `<svelte:component>` is deprecated in runes mode — components are dynamic by default
+https://svelte.dev/e/svelte_component_deprecated
+8:21:50 p.m. [vite-plugin-svelte] src/lib/components/ui/DualRangeSlider.svelte:77:4 A form label must be associated with a control
+https://svelte.dev/e/a11y_label_has_associated_control
+Bridge: init_render_loop called
+RenderLoopService: Initializing WGPU...
+[2025-06-25][00:21:50][wgpu_core::instance][INFO] Adapter Metal AdapterInfo { name: "Apple M3 Max", vendor: 0, device: 0, device_type: IntegratedGpu, driver: "", driver_info: "", backend: Metal }
+RenderLoopService: Found adapter: AdapterInfo { name: "Apple M3 Max", vendor: 0, device: 0, device_type: IntegratedGpu, driver: "", driver_info: "", backend: Metal }
+RenderLoopService: Device and Queue obtained successfully.
+RenderLoopService: Frame UBO buffer created.
+RenderLoopService: Crosshair UBO buffer created.
+RenderLoopService: View Plane UBO buffer created.
+RenderLoopService: Global bind group layout created.
+Bridge: init_render_loop called
+RenderLoopService: Initializing WGPU...
+[2025-06-25][00:21:50][wgpu_core::instance][INFO] Adapter Metal AdapterInfo { name: "Apple M3 Max", vendor: 0, device: 0, device_type: IntegratedGpu, driver: "", driver_info: "", backend: Metal }
+RenderLoopService: Found adapter: AdapterInfo { name: "Apple M3 Max", vendor: 0, device: 0, device_type: IntegratedGpu, driver: "", driver_info: "", backend: Metal }
+RenderLoopService: Device and Queue obtained successfully.
+RenderLoopService: Frame UBO buffer created.
+RenderLoopService: Crosshair UBO buffer created.
+RenderLoopService: View Plane UBO buffer created.
+RenderLoopService: Global bind group layout created.
+Shaders loaded and validated successfully.
+Colormaps initialized successfully.
+[2025-06-25][00:21:50][api_bridge][INFO] RenderLoopService initialized and shaders loaded successfully
+Shaders loaded and validated successfully.
+[2025-06-25][00:21:50][api_bridge][INFO] Bridge: create_offscreen_render_target called with 512x512
+Creating offscreen render target: 512x512
+Offscreen render target created successfully
+[2025-06-25][00:21:50][api_bridge][INFO] Offscreen render target created successfully: 512x512
+Colormaps initialized successfully.
+[2025-06-25][00:21:50][api_bridge][INFO] RenderLoopService initialized and shaders loaded successfully
+[2025-06-25][00:21:50][api_bridge][INFO] Bridge: create_offscreen_render_target called with 512x512
+Creating offscreen render target: 512x512
+Offscreen render target created successfully
+[2025-06-25][00:21:50][api_bridge][INFO] Offscreen render target created successfully: 512x512
+Bridge: fs_list_directory called for path: /Users/bbuchsbaum/code/brainflow2
+Bridge: load_file called with path: /Users/bbuchsbaum/code/brainflow2/test-data/unit/toy_t1w.nii.gz
+[2025-06-25][00:21:51][nifti_loader][INFO] NiftiLoader: Loading file: /Users/bbuchsbaum/code/brainflow2/test-data/unit/toy_t1w.nii.gz
+[2025-06-25][00:21:51][nifti_loader][INFO] Successfully processed NIFTI data into VolumeSendable::Discriminant(0)
+[2025-06-25][00:21:51][nifti_loader][INFO] Successfully loaded volume: dims=[10, 10, 10], dtype=f32
+[2025-06-25][00:21:51][nifti_loader][INFO] Successfully processed NIFTI data into VolumeSendable::Discriminant(0)
+[2025-06-25][00:21:51][api_bridge][INFO] Successfully loaded and stored volume with ID: a67ecd96-1e70-449c-88dd-b53523028eef
+Bridge: init_render_loop called
+[2025-06-25][00:21:51][api_bridge][INFO] RenderLoopService already initialized
+Menu event received: MenuId("mount_directory")
+Mount directory menu item clicked
+Opening mount dialog...
+Dialog setup complete
+Dialog callback triggered with: Some(Path("/Users/bbuchsbaum/code/neuroim2/inst/extdata"))
+Emitting mount-directory-event with path: /Users/bbuchsbaum/code/neuroim2/inst/extdata
+Event emitted successfully
+Bridge: fs_list_directory called for path: /Users/bbuchsbaum/code/neuroim2/inst/extdata
+Update dynamic menus called with 1 mounted directories
+Bridge: fs_list_directory called for path: /Users/bbuchsbaum/code/neuroim2/inst/extdata
+Bridge: load_file called with path: /Users/bbuchsbaum/code/neuroim2/inst/extdata/global_mask2.nii.gz
+[2025-06-25][00:22:07][nifti_loader][INFO] NiftiLoader: Loading file: /Users/bbuchsbaum/code/neuroim2/inst/extdata/global_mask2.nii.gz
+[2025-06-25][00:22:07][nifti_loader][INFO] Successfully processed NIFTI data into VolumeSendable::Discriminant(2)
+[2025-06-25][00:22:07][nifti_loader][INFO] Successfully loaded volume: dims=[64, 64, 25], dtype=u8
+[2025-06-25][00:22:07][nifti_loader][INFO] Successfully processed NIFTI data into VolumeSendable::Discriminant(2)
+[2025-06-25][00:22:07][api_bridge][INFO] Successfully loaded and stored volume with ID: d5322860-7052-467b-93b1-aa11e50d28f0
+8:31:46 p.m. [vite] (client) page reload src/routes/orthoview-demo/+page.svelte
+Bridge: init_render_loop called
+[2025-06-25][00:31:46][api_bridge][INFO] RenderLoopService already initialized
+Bridge: init_render_loop called
+[2025-06-25][00:31:46][api_bridge][INFO] RenderLoopService already initialized
+[2025-06-25][00:31:46][api_bridge][INFO] Bridge: create_offscreen_render_target called with 512x512
+Creating offscreen render target: 512x512
+Offscreen render target created successfully
+[2025-06-25][00:31:46][api_bridge][INFO] Offscreen render target created successfully: 512x512
+[2025-06-25][00:31:46][api_bridge][INFO] Bridge: create_offscreen_render_target called with 512x512
+Creating offscreen render target: 512x512
+Offscreen render target created successfully
+[2025-06-25][00:31:46][api_bridge][INFO] Offscreen render target created successfully: 512x512
+Bridge: fs_list_directory called for path: /Users/bbuchsbaum/code/brainflow2
+Bridge: load_file called with path: /Users/bbuchsbaum/code/brainflow2/test-data/unit/toy_t1w.nii.gz
+[2025-06-25][00:31:48][nifti_loader][INFO] NiftiLoader: Loading file: /Users/bbuchsbaum/code/brainflow2/test-data/unit/toy_t1w.nii.gz
+[2025-06-25][00:31:48][nifti_loader][INFO] Successfully processed NIFTI data into VolumeSendable::Discriminant(0)
+[2025-06-25][00:31:48][nifti_loader][INFO] Successfully loaded volume: dims=[10, 10, 10], dtype=f32
+[2025-06-25][00:31:48][nifti_loader][INFO] Successfully processed NIFTI data into VolumeSendable::Discriminant(0)
+[2025-06-25][00:31:48][api_bridge][INFO] Successfully loaded and stored volume with ID: 0cafa472-bb28-4da1-9907-a48cdcb145cd
+Bridge: init_render_loop called
+[2025-06-25][00:31:48][api_bridge][INFO] RenderLoopService already initialized
+8:31:57 p.m. [vite] (client) hmr update /src/lib/components/views/OrthogonalView.svelte, /src/app.css
+8:32:51 p.m. [vite] (client) page reload .svelte-kit/generated/client/app.js
+Bridge: init_render_loop called
+[2025-06-25][00:32:51][api_bridge][INFO] RenderLoopService already initialized
+Bridge: init_render_loop called
+[2025-06-25][00:32:51][api_bridge][INFO] RenderLoopService already initialized
+[2025-06-25][00:32:51][api_bridge][INFO] Bridge: create_offscreen_render_target called with 512x512
+Creating offscreen render target: 512x512
+[2025-06-25][00:32:51][api_bridge][INFO] Bridge: create_offscreen_render_target called with 512x512
+Offscreen render target created successfully
+[2025-06-25][00:32:51][api_bridge][INFO] Offscreen render target created successfully: 512x512
+Creating offscreen render target: 512x512
+Offscreen render target created successfully
+[2025-06-25][00:32:51][api_bridge][INFO] Offscreen render target created successfully: 512x512
+Bridge: fs_list_directory called for path: /Users/bbuchsbaum/code/brainflow2
+Bridge: load_file called with path: /Users/bbuchsbaum/code/brainflow2/test-data/unit/toy_t1w.nii.gz
+[2025-06-25][00:32:52][nifti_loader][INFO] NiftiLoader: Loading file: /Users/bbuchsbaum/code/brainflow2/test-data/unit/toy_t1w.nii.gz
+[2025-06-25][00:32:52][nifti_loader][INFO] Successfully processed NIFTI data into VolumeSendable::Discriminant(0)
+[2025-06-25][00:32:52][nifti_loader][INFO] Successfully loaded volume: dims=[10, 10, 10], dtype=f32
+[2025-06-25][00:32:52][nifti_loader][INFO] Successfully processed NIFTI data into VolumeSendable::Discriminant(0)
+[2025-06-25][00:32:52][api_bridge][INFO] Successfully loaded and stored volume with ID: 2bf5068f-1628-4581-bcfe-36de1a86da19
+Bridge: init_render_loop called
+[2025-06-25][00:32:52][api_bridge][INFO] RenderLoopService already initialized
+8:35:31 p.m. [vite] (client) page reload src/lib/components/views/OrthogonalViewGPU.svelte
+Bridge: init_render_loop called
+[2025-06-25][00:35:32][api_bridge][INFO] RenderLoopService already initialized
+Bridge: init_render_loop called
+[2025-06-25][00:35:32][api_bridge][INFO] RenderLoopService already initialized
+[2025-06-25][00:35:32][api_bridge][INFO] Bridge: create_offscreen_render_target called with 512x512
+Creating offscreen render target: 512x512
+Offscreen render target created successfully
+[2025-06-25][00:35:32][api_bridge][INFO] Offscreen render target created successfully: 512x512
+[2025-06-25][00:35:32][api_bridge][INFO] Bridge: create_offscreen_render_target called with 512x512
+Creating offscreen render target: 512x512
+Offscreen render target created successfully
+[2025-06-25][00:35:32][api_bridge][INFO] Offscreen render target created successfully: 512x512
+Bridge: fs_list_directory called for path: /Users/bbuchsbaum/code/brainflow2
+Bridge: load_file called with path: /Users/bbuchsbaum/code/brainflow2/test-data/unit/toy_t1w.nii.gz
+[2025-06-25][00:35:33][nifti_loader][INFO] NiftiLoader: Loading file: /Users/bbuchsbaum/code/brainflow2/test-data/unit/toy_t1w.nii.gz
+[2025-06-25][00:35:33][nifti_loader][INFO] Successfully processed NIFTI data into VolumeSendable::Discriminant(0)
+[2025-06-25][00:35:33][nifti_loader][INFO] Successfully loaded volume: dims=[10, 10, 10], dtype=f32
+[2025-06-25][00:35:33][nifti_loader][INFO] Successfully processed NIFTI data into VolumeSendable::Discriminant(0)
+[2025-06-25][00:35:33][api_bridge][INFO] Successfully loaded and stored volume with ID: 047fc0fb-5248-4949-9037-a452cde1da12
+Bridge: init_render_loop called
+[2025-06-25][00:35:33][api_bridge][INFO] RenderLoopService already initialized
+8:35:40 p.m. [vite] (client) page reload src/lib/components/views/OrthogonalViewGPU.svelte
+8:35:40 p.m. [vite] (client) page reload src/lib/components/views/OrthogonalViewGPU.svelte
+Bridge: init_render_loop called
+[2025-06-25][00:35:40][api_bridge][INFO] RenderLoopService already initialized
+Bridge: init_render_loop called
+[2025-06-25][00:35:40][api_bridge][INFO] RenderLoopService already initialized
+[2025-06-25][00:35:40][api_bridge][INFO] Bridge: create_offscreen_render_target called with 512x512
+Creating offscreen render target: 512x512
+Offscreen render target created successfully
+[2025-06-25][00:35:40][api_bridge][INFO] Offscreen render target created successfully: 512x512
+[2025-06-25][00:35:40][api_bridge][INFO] Bridge: create_offscreen_render_target called with 512x512
+Creating offscreen render target: 512x512
+Offscreen render target created successfully
+[2025-06-25][00:35:40][api_bridge][INFO] Offscreen render target created successfully: 512x512
+Bridge: init_render_loop called
+[2025-06-25][00:35:41][api_bridge][INFO] RenderLoopService already initialized
+Bridge: init_render_loop called
+[2025-06-25][00:35:41][api_bridge][INFO] RenderLoopService already initialized
+[2025-06-25][00:35:41][api_bridge][INFO] Bridge: create_offscreen_render_target called with 512x512
+Creating offscreen render target: 512x512
+Offscreen render target created successfully
+[2025-06-25][00:35:41][api_bridge][INFO] Offscreen render target created successfully: 512x512
+[2025-06-25][00:35:41][api_bridge][INFO] Bridge: create_offscreen_render_target called with 512x512
+Creating offscreen render target: 512x512
+Offscreen render target created successfully
+[2025-06-25][00:35:41][api_bridge][INFO] Offscreen render target created successfully: 512x512
+Bridge: fs_list_directory called for path: /Users/bbuchsbaum/code/brainflow2
+Bridge: load_file called with path: /Users/bbuchsbaum/code/brainflow2/test-data/unit/toy_t1w.nii.gz
+[2025-06-25][00:35:42][nifti_loader][INFO] NiftiLoader: Loading file: /Users/bbuchsbaum/code/brainflow2/test-data/unit/toy_t1w.nii.gz
+[2025-06-25][00:35:42][nifti_loader][INFO] Successfully processed NIFTI data into VolumeSendable::Discriminant(0)
+[2025-06-25][00:35:42][nifti_loader][INFO] Successfully loaded volume: dims=[10, 10, 10], dtype=f32
+[2025-06-25][00:35:42][nifti_loader][INFO] Successfully processed NIFTI data into VolumeSendable::Discriminant(0)
+[2025-06-25][00:35:42][api_bridge][INFO] Successfully loaded and stored volume with ID: ec73c672-b896-4334-ac9b-8b23b0b5797d
+Bridge: init_render_loop called
+[2025-06-25][00:35:42][api_bridge][INFO] RenderLoopService already initialized
+8:35:52 p.m. [vite] (client) page reload src/lib/components/views/OrthogonalViewGPU.svelte
+Bridge: init_render_loop called
+[2025-06-25][00:35:52][api_bridge][INFO] RenderLoopService already initialized
+Bridge: init_render_loop called
+[2025-06-25][00:35:52][api_bridge][INFO] RenderLoopService already initialized
+[2025-06-25][00:35:52][api_bridge][INFO] Bridge: create_offscreen_render_target called with 512x512
+Creating offscreen render target: 512x512
+Offscreen render target created successfully
+[2025-06-25][00:35:52][api_bridge][INFO] Offscreen render target created successfully: 512x512
+[2025-06-25][00:35:52][api_bridge][INFO] Bridge: create_offscreen_render_target called with 512x512
+Creating offscreen render target: 512x512
+Offscreen render target created successfully
+[2025-06-25][00:35:52][api_bridge][INFO] Offscreen render target created successfully: 512x512
+Bridge: fs_list_directory called for path: /Users/bbuchsbaum/code/brainflow2
+Bridge: load_file called with path: /Users/bbuchsbaum/code/brainflow2/test-data/unit/toy_t1w.nii.gz
+[2025-06-25][00:35:53][nifti_loader][INFO] NiftiLoader: Loading file: /Users/bbuchsbaum/code/brainflow2/test-data/unit/toy_t1w.nii.gz
+[2025-06-25][00:35:53][nifti_loader][INFO] Successfully processed NIFTI data into VolumeSendable::Discriminant(0)
+[2025-06-25][00:35:53][nifti_loader][INFO] Successfully loaded volume: dims=[10, 10, 10], dtype=f32
+[2025-06-25][00:35:53][nifti_loader][INFO] Successfully processed NIFTI data into VolumeSendable::Discriminant(0)
+[2025-06-25][00:35:53][api_bridge][INFO] Successfully loaded and stored volume with ID: fe82540d-0a92-4975-ad26-a8665de659a2
+Bridge: init_render_loop called
+[2025-06-25][00:35:53][api_bridge][INFO] RenderLoopService already initialized
+8:36:04 p.m. [vite] (client) page reload src/lib/components/views/OrthogonalViewGPU.svelte
+Bridge: init_render_loop called
+[2025-06-25][00:36:04][api_bridge][INFO] RenderLoopService already initialized
+Bridge: init_render_loop called
+[2025-06-25][00:36:04][api_bridge][INFO] RenderLoopService already initialized
+[2025-06-25][00:36:04][api_bridge][INFO] Bridge: create_offscreen_render_target called with 512x512
+Creating offscreen render target: 512x512
+Offscreen render target created successfully
+[2025-06-25][00:36:04][api_bridge][INFO] Offscreen render target created successfully: 512x512
+[2025-06-25][00:36:04][api_bridge][INFO] Bridge: create_offscreen_render_target called with 512x512
+Creating offscreen render target: 512x512
+Offscreen render target created successfully
+[2025-06-25][00:36:04][api_bridge][INFO] Offscreen render target created successfully: 512x512
+Bridge: fs_list_directory called for path: /Users/bbuchsbaum/code/brainflow2
+Bridge: load_file called with path: /Users/bbuchsbaum/code/brainflow2/test-data/unit/toy_t1w.nii.gz
+[2025-06-25][00:36:05][nifti_loader][INFO] NiftiLoader: Loading file: /Users/bbuchsbaum/code/brainflow2/test-data/unit/toy_t1w.nii.gz
+[2025-06-25][00:36:05][nifti_loader][INFO] Successfully processed NIFTI data into VolumeSendable::Discriminant(0)
+[2025-06-25][00:36:05][nifti_loader][INFO] Successfully loaded volume: dims=[10, 10, 10], dtype=f32
+[2025-06-25][00:36:05][nifti_loader][INFO] Successfully processed NIFTI data into VolumeSendable::Discriminant(0)
+[2025-06-25][00:36:05][api_bridge][INFO] Successfully loaded and stored volume with ID: 9645dd0f-2795-4c35-81d4-67329320ddcc
+Bridge: init_render_loop called
+[2025-06-25][00:36:05][api_bridge][INFO] RenderLoopService already initialized
+8:38:53 p.m. [vite] (client) hmr update /src/lib/components/MountableTreeBrowser.svelte, /src/app.css, /src/lib/components/views/VolumeView.svelte, /src/lib/components/panels/LayerPanel.svelte, /src/lib/components/panels/LayerControls.svelte, /src/lib/components/views/OrthogonalView.svelte
+8:39:04 p.m. [vite] (client) hmr update /src/lib/components/MountableTreeBrowser.svelte, /src/app.css, /src/lib/components/views/VolumeView.svelte, /src/lib/components/panels/LayerPanel.svelte, /src/lib/components/panels/LayerControls.svelte, /src/lib/components/views/OrthogonalView.svelte
+8:50:42 p.m. [vite] (client) page reload .svelte-kit/generated/client/app.js
+Bridge: init_render_loop called
+[2025-06-25][00:50:42][api_bridge][INFO] RenderLoopService already initialized
+Bridge: init_render_loop called
+[2025-06-25][00:50:42][api_bridge][INFO] RenderLoopService already initialized
+[2025-06-25][00:50:42][api_bridge][INFO] Bridge: create_offscreen_render_target called with 512x512
+Creating offscreen render target: 512x512
+Offscreen render target created successfully
+[2025-06-25][00:50:42][api_bridge][INFO] Offscreen render target created successfully: 512x512
+[2025-06-25][00:50:42][api_bridge][INFO] Bridge: create_offscreen_render_target called with 512x512
+Creating offscreen render target: 512x512
+Offscreen render target created successfully
+[2025-06-25][00:50:42][api_bridge][INFO] Offscreen render target created successfully: 512x512
+Bridge: fs_list_directory called for path: /Users/bbuchsbaum/code/brainflow2
+Bridge: load_file called with path: /Users/bbuchsbaum/code/brainflow2/test-data/unit/toy_t1w.nii.gz
+[2025-06-25][00:50:43][nifti_loader][INFO] NiftiLoader: Loading file: /Users/bbuchsbaum/code/brainflow2/test-data/unit/toy_t1w.nii.gz
+[2025-06-25][00:50:43][nifti_loader][INFO] Successfully processed NIFTI data into VolumeSendable::Discriminant(0)
+[2025-06-25][00:50:43][nifti_loader][INFO] Successfully loaded volume: dims=[10, 10, 10], dtype=f32
+[2025-06-25][00:50:43][nifti_loader][INFO] Successfully processed NIFTI data into VolumeSendable::Discriminant(0)
+[2025-06-25][00:50:43][api_bridge][INFO] Successfully loaded and stored volume with ID: 4a9bf0e1-a4a4-438d-80e2-70123ac76453
+Bridge: init_render_loop called
+[2025-06-25][00:50:43][api_bridge][INFO] RenderLoopService already initialized
+8:57:00 p.m. [vite] (client) page reload .svelte-kit/generated/client/app.js
+Bridge: init_render_loop called
+[2025-06-25][00:57:00][api_bridge][INFO] RenderLoopService already initialized
+Bridge: init_render_loop called
+[2025-06-25][00:57:00][api_bridge][INFO] RenderLoopService already initialized
+[2025-06-25][00:57:00][api_bridge][INFO] Bridge: create_offscreen_render_target called with 512x512
+Creating offscreen render target: 512x512
+Offscreen render target created successfully
+[2025-06-25][00:57:00][api_bridge][INFO] Offscreen render target created successfully: 512x512
+[2025-06-25][00:57:00][api_bridge][INFO] Bridge: create_offscreen_render_target called with 512x512
+Creating offscreen render target: 512x512
+Offscreen render target created successfully
+[2025-06-25][00:57:00][api_bridge][INFO] Offscreen render target created successfully: 512x512
+Bridge: fs_list_directory called for path: /Users/bbuchsbaum/code/brainflow2
+Bridge: load_file called with path: /Users/bbuchsbaum/code/brainflow2/test-data/unit/toy_t1w.nii.gz
+[2025-06-25][00:57:01][nifti_loader][INFO] NiftiLoader: Loading file: /Users/bbuchsbaum/code/brainflow2/test-data/unit/toy_t1w.nii.gz
+[2025-06-25][00:57:01][nifti_loader][INFO] Successfully processed NIFTI data into VolumeSendable::Discriminant(0)
+[2025-06-25][00:57:01][nifti_loader][INFO] Successfully loaded volume: dims=[10, 10, 10], dtype=f32
+[2025-06-25][00:57:01][nifti_loader][INFO] Successfully processed NIFTI data into VolumeSendable::Discriminant(0)
+[2025-06-25][00:57:01][api_bridge][INFO] Successfully loaded and stored volume with ID: 39bf1936-27d3-47a8-9a27-2811a11d2228
+Bridge: init_render_loop called
+[2025-06-25][00:57:01][api_bridge][INFO] RenderLoopService already initialized
+        Info File core/api_bridge/src/lib.rs changed. Rebuilding application...
+     Running DevCommand (`cargo  run --no-default-features --color always --`)
+        Info File core/api_bridge/src/lib.rs changed. Rebuilding application...
+     Running DevCommand (`cargo  run --no-default-features --color always --`)
+[1m[32m   Compiling[0m objc2-exception-helper v0.1.1
+[1m[33mwarning[0m[1m:[0m render_loop@0.1.0: Using runtime shader loading for wgpu 0.20 compatibility
+[1m[32m   Compiling[0m volmath v0.1.0 (/Users/bbuchsbaum/code/brainflow2/core/volmath)
+[1m[36m    Building[0m [======================>  ] 503/538: volmath, objc2-exception-...[K[1m[32m   Compiling[0m objc2 v0.6.1
+[1m[36m    Building[0m [======================>  ] 504/538: objc2-exception-helper, o...[1m[36m    Building[0m [======================>  ] 505/538: objc2(build), volmath       [1m[36m    Building[0m [======================>  ] 506/538: objc2, volmath              [K[1m[32m   Compiling[0m render_loop v0.1.0 (/Users/bbuchsbaum/code/brainflow2/core/render_loop)
+[1m[36m    Building[0m [======================>  ] 507/538: objc2, render_loop          [K[1m[32m   Compiling[0m bridge_types v0.1.0 (/Users/bbuchsbaum/code/brainflow2/core/bridge_types)
+[1m[36m    Building[0m [======================>  ] 507/538: objc2, bridge_types, rend...[1m[36m    Building[0m [======================>  ] 508/538: objc2, bridge_types         [K[1m[32m   Compiling[0m block2 v0.6.1
+[1m[32m   Compiling[0m objc2-core-foundation v0.3.1
+[1m[36m    Building[0m [======================>  ] 508/538: objc2, block2, bridge_typ...[K[1m[32m   Compiling[0m nifti-loader v0.1.0 (/Users/bbuchsbaum/code/brainflow2/core/loaders/nifti)
+[1m[36m    Building[0m [======================>  ] 508/538: objc2, nifti-loader, bloc...[1m[36m    Building[0m [======================>  ] 509/538: objc2, nifti-loader, bloc...[1m[36m    Building[0m [======================>  ] 510/538: nifti-loader, block2, obj...[K[1m[32m   Compiling[0m dispatch2 v0.2.0
+[1m[36m    Building[0m [======================>  ] 510/538: nifti-loader, dispatch2, ...[1m[36m    Building[0m [======================>  ] 511/538: nifti-loader, dispatch2, ...[K[0m[1m[33mwarning[0m[0m[1m: unused import: `uuid::Uuid`[0m
+[0m [0m[0m[1m[38;5;12m--> [0m[0mcore/loaders/nifti/src/lib.rs:7:5[0m
+[0m  [0m[0m[1m[38;5;12m|[0m
+[0m[1m[38;5;12m7[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0muse uuid::Uuid;[0m
+[0m  [0m[0m[1m[38;5;12m|[0m[0m     [0m[0m[1m[33m^^^^^^^^^^[0m
+[0m  [0m[0m[1m[38;5;12m|[0m
+[0m  [0m[0m[1m[38;5;12m= [0m[0m[1mnote[0m[0m: `#[warn(unused_imports)]` on by default[0m
+
+[1m[36m    Building[0m [======================>  ] 511/538: nifti-loader, dispatch2, ...[K[0m[1m[33mwarning[0m[0m[1m: unused import: `warn`[0m
+[0m  [0m[0m[1m[38;5;12m--> [0m[0mcore/loaders/nifti/src/lib.rs:10:31[0m
+[0m   [0m[0m[1m[38;5;12m|[0m
+[0m[1m[38;5;12m10[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0muse log::{info, error, debug, warn};[0m
+[0m   [0m[0m[1m[38;5;12m|[0m[0m                               [0m[0m[1m[33m^^^^[0m
+
+[1m[36m    Building[0m [======================>  ] 511/538: nifti-loader, dispatch2, ...[K[1m[32m   Compiling[0m brainflow-loaders v0.1.0 (/Users/bbuchsbaum/code/brainflow2/core/loaders)
+[1m[36m    Building[0m [======================>  ] 511/538: brainflow-loaders, nifti-...[1m[36m    Building[0m [======================>  ] 512/538: brainflow-loaders, nifti-...[K[1m[32m   Compiling[0m objc2-foundation v0.3.1
+[1m[32m   Compiling[0m objc2-core-graphics v0.3.1
+[1m[36m    Building[0m [======================>  ] 512/538: brainflow-loaders, nifti-...[1m[36m    Building[0m [======================>  ] 513/538: brainflow-loaders, nifti-...[K[1m[33mwarning[0m[1m:[0m `nifti-loader` (lib) generated 2 warnings (run `cargo fix --lib -p nifti-loader` to apply 2 suggestions)
+[1m[36m    Building[0m [======================>  ] 514/538: brainflow-loaders, objc2-...[1m[36m    Building[0m [======================>  ] 515/538: objc2-core-graphics, objc...[1m[36m    Building[0m [======================>  ] 516/538: objc2-foundation            [K[1m[32m   Compiling[0m objc2-core-image v0.3.1
+[1m[32m   Compiling[0m objc2-quartz-core v0.3.1
+[1m[32m   Compiling[0m objc2-cloud-kit v0.3.1
+[1m[32m   Compiling[0m objc2-core-data v0.3.1
+[1m[36m    Building[0m [======================>  ] 516/538: objc2-cloud-kit, objc2-qu...[1m[36m    Building[0m [=======================> ] 517/538: objc2-quartz-core, objc2-...[1m[36m    Building[0m [=======================> ] 518/538: objc2-quartz-core, objc2-...[K[1m[32m   Compiling[0m objc2-app-kit v0.3.1
+[1m[36m    Building[0m [=======================> ] 518/538: objc2-app-kit, objc2-quar...[1m[36m    Building[0m [=======================> ] 519/538: objc2-app-kit, objc2-core...[1m[36m    Building[0m [=======================> ] 520/538: objc2-app-kit, objc2-foun...[1m[36m    Building[0m [=======================> ] 521/538: objc2-app-kit               [K[1m[32m   Compiling[0m objc2-web-kit v0.3.1
+[1m[32m   Compiling[0m tao v0.33.0
+[1m[32m   Compiling[0m window-vibrancy v0.6.0
+[1m[32m   Compiling[0m muda v0.16.1
+[1m[32m   Compiling[0m rfd v0.15.3
+[1m[36m    Building[0m [=======================> ] 521/538: objc2-app-kit, muda, rfd,...[1m[36m    Building[0m [=======================> ] 522/538: objc2-app-kit, muda, rfd,...[1m[36m    Building[0m [=======================> ] 523/538: objc2-app-kit, muda, objc...[K[1m[32m   Compiling[0m wry v0.51.2
+[1m[36m    Building[0m [=======================> ] 523/538: objc2-app-kit, muda, wry,...[1m[36m    Building[0m [=======================> ] 524/538: objc2-app-kit, muda, wry,...[1m[36m    Building[0m [=======================> ] 525/538: objc2-app-kit, wry, tao     [K[1m[32m   Compiling[0m tauri-runtime-wry v2.6.0
+[1m[36m    Building[0m [=======================> ] 525/538: objc2-app-kit, wry, tao, ...[1m[36m    Building[0m [=======================> ] 526/538: objc2-app-kit, wry, tauri...[1m[36m    Building[0m [=======================> ] 527/538: objc2-app-kit, tauri-runt...[K[1m[32m   Compiling[0m tauri v2.5.1
+[1m[36m    Building[0m [=======================> ] 527/538: objc2-app-kit, tauri, tau...[1m[36m    Building[0m [=======================> ] 528/538: objc2-app-kit, tauri        [1m[36m    Building[0m [=======================> ] 529/538: tauri                       [K[1m[32m   Compiling[0m tauri-plugin-fs v2.2.1
+[1m[32m   Compiling[0m tauri-plugin-log v2.4.0
+[1m[32m   Compiling[0m tauri-plugin-shell v2.2.1
+[1m[32m   Compiling[0m tauri-plugin-window-state v2.2.2
+[1m[36m    Building[0m [=======================> ] 529/538: tauri-plugin-window-state...[1m[36m    Building[0m [=======================> ] 530/538: tauri-plugin-window-state...[1m[36m    Building[0m [=======================> ] 531/538: tauri, tauri-plugin-fs, t...[K[1m[32m   Compiling[0m tauri-plugin-dialog v2.2.1
+[1m[36m    Building[0m [=======================> ] 531/538: tauri, tauri-plugin-fs, t...[K[1m[32m   Compiling[0m api-bridge v0.1.0 (/Users/bbuchsbaum/code/brainflow2/core/api_bridge)
+[1m[36m    Building[0m [=======================> ] 532/538: tauri-plugin-fs, tauri-pl...[1m[36m    Building[0m [=======================> ] 533/538: tauri-plugin-shell, tauri...[1m[36m    Building[0m [=======================> ] 534/538: tauri-plugin-dialog, api-...[K[0m[1m[33mwarning[0m[0m[1m: unused imports: `ErrorDisplay` and `format_error_for_ui`[0m
+[0m  [0m[0m[1m[38;5;12m--> [0m[0mcore/api_bridge/src/lib.rs:43:19[0m
+[0m   [0m[0m[1m[38;5;12m|[0m
+[0m[1m[38;5;12m43[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0muse user_errors::{format_error_for_ui, ErrorDisplay};[0m
+[0m   [0m[0m[1m[38;5;12m|[0m[0m                   [0m[0m[1m[33m^^^^^^^^^^^^^^^^^^^[0m[0m  [0m[0m[1m[33m^^^^^^^^^^^^[0m
+[0m   [0m[0m[1m[38;5;12m|[0m
+[0m   [0m[0m[1m[38;5;12m= [0m[0m[1mnote[0m[0m: `#[warn(unused_imports)]` on by default[0m
+
+[1m[36m    Building[0m [=======================> ] 534/538: tauri-plugin-dialog, api-...[1m[36m    Building[0m [=======================> ] 535/538: api-bridge                  [K[0m[1m[33mwarning[0m[0m[1m: unused variable: `world_to_voxel`[0m
+[0m   [0m[0m[1m[38;5;12m--> [0m[0mcore/api_bridge/src/lib.rs:494:35[0m
+[0m    [0m[0m[1m[38;5;12m|[0m
+[0m[1m[38;5;12m494[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0m            let (atlas_layer_idx, world_to_voxel) = match volume_data {[0m
+[0m    [0m[0m[1m[38;5;12m|[0m[0m                                   [0m[0m[1m[33m^^^^^^^^^^^^^^[0m[0m [0m[0m[1m[33mhelp: if this is intentional, prefix it with an underscore: `_world_to_voxel`[0m
+[0m    [0m[0m[1m[38;5;12m|[0m
+[0m    [0m[0m[1m[38;5;12m= [0m[0m[1mnote[0m[0m: `#[warn(unused_variables)]` on by default[0m
+
+[1m[36m    Building[0m [=======================> ] 535/538: api-bridge                  [K[0m[1m[33mwarning[0m[0m[1m: unused variable: `details`[0m
+[0m  [0m[0m[1m[38;5;12m--> [0m[0mcore/api_bridge/src/user_errors.rs:53:40[0m
+[0m   [0m[0m[1m[38;5;12m|[0m
+[0m[1m[38;5;12m53[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0m            BridgeError::VolumeError { details, .. } => {[0m
+[0m   [0m[0m[1m[38;5;12m|[0m[0m                                        [0m[0m[1m[33m^^^^^^^[0m[0m[1m[38;5;12m-[0m
+[0m   [0m[0m[1m[38;5;12m|[0m[0m                                        [0m[0m[1m[38;5;12m|[0m
+[0m   [0m[0m[1m[38;5;12m|[0m[0m                                        [0m[0m[1m[38;5;12mhelp: try removing the field[0m
+
+[1m[36m    Building[0m [=======================> ] 535/538: api-bridge                  [K[0m[1m[33mwarning[0m[0m[1m: unused variable: `details`[0m
+[0m  [0m[0m[1m[38;5;12m--> [0m[0mcore/api_bridge/src/user_errors.rs:57:37[0m
+[0m   [0m[0m[1m[38;5;12m|[0m
+[0m[1m[38;5;12m57[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0m            BridgeError::GpuError { details, .. } => {[0m
+[0m   [0m[0m[1m[38;5;12m|[0m[0m                                     [0m[0m[1m[33m^^^^^^^[0m[0m[1m[38;5;12m-[0m
+[0m   [0m[0m[1m[38;5;12m|[0m[0m                                     [0m[0m[1m[38;5;12m|[0m
+[0m   [0m[0m[1m[38;5;12m|[0m[0m                                     [0m[0m[1m[38;5;12mhelp: try removing the field[0m
+
+[1m[36m    Building[0m [=======================> ] 535/538: api-bridge                  [K[0m[1m[33mwarning[0m[0m[1m: unused variable: `details`[0m
+[0m  [0m[0m[1m[38;5;12m--> [0m[0mcore/api_bridge/src/user_errors.rs:61:43[0m
+[0m   [0m[0m[1m[38;5;12m|[0m
+[0m[1m[38;5;12m61[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0m            BridgeError::VolumeNotFound { details, .. } => {[0m
+[0m   [0m[0m[1m[38;5;12m|[0m[0m                                           [0m[0m[1m[33m^^^^^^^[0m[0m[1m[38;5;12m-[0m
+[0m   [0m[0m[1m[38;5;12m|[0m[0m                                           [0m[0m[1m[38;5;12m|[0m
+[0m   [0m[0m[1m[38;5;12m|[0m[0m                                           [0m[0m[1m[38;5;12mhelp: try removing the field[0m
+
+[1m[36m    Building[0m [=======================> ] 535/538: api-bridge                  [K[0m[1m[33mwarning[0m[0m[1m: function `add_user_context` is never used[0m
+[0m  [0m[0m[1m[38;5;12m--> [0m[0mcore/api_bridge/src/error_helpers.rs:74:8[0m
+[0m   [0m[0m[1m[38;5;12m|[0m
+[0m[1m[38;5;12m74[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0mpub fn add_user_context(error: BridgeError, context: &str) -> BridgeError {[0m
+[0m   [0m[0m[1m[38;5;12m|[0m[0m        [0m[0m[1m[33m^^^^^^^^^^^^^^^^[0m
+[0m   [0m[0m[1m[38;5;12m|[0m
+[0m   [0m[0m[1m[38;5;12m= [0m[0m[1mnote[0m[0m: `#[warn(dead_code)]` on by default[0m
+
+[1m[36m    Building[0m [=======================> ] 535/538: api-bridge                  [K[0m[1m[33mwarning[0m[0m[1m: method `context_any` is never used[0m
+[0m [0m[0m[1m[38;5;12m--> [0m[0mcore/api_bridge/src/error_context.rs:7:8[0m
+[0m  [0m[0m[1m[38;5;12m|[0m
+[0m[1m[38;5;12m5[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0mpub trait ErrorContext<T> {[0m
+[0m  [0m[0m[1m[38;5;12m|[0m[0m           [0m[0m[1m[38;5;12m------------[0m[0m [0m[0m[1m[38;5;12mmethod in this trait[0m
+[0m[1m[38;5;12m6[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0m    /// Add context to a Result, converting to anyhow::Result[0m
+[0m[1m[38;5;12m7[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0m    fn context_any<C>(self, context: C) -> Result<T>[0m
+[0m  [0m[0m[1m[38;5;12m|[0m[0m        [0m[0m[1m[33m^^^^^^^^^^^[0m
+
+[1m[36m    Building[0m [=======================> ] 535/538: api-bridge                  [K[0m[1m[33mwarning[0m[0m[1m: method `context_bridge` is never used[0m
+[0m  [0m[0m[1m[38;5;12m--> [0m[0mcore/api_bridge/src/error_context.rs:45:8[0m
+[0m   [0m[0m[1m[38;5;12m|[0m
+[0m[1m[38;5;12m43[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0mpub trait OptionContext<T> {[0m
+[0m   [0m[0m[1m[38;5;12m|[0m[0m           [0m[0m[1m[38;5;12m-------------[0m[0m [0m[0m[1m[38;5;12mmethod in this trait[0m
+[0m[1m[38;5;12m44[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0m    /// Convert None to an error with context[0m
+[0m[1m[38;5;12m45[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0m    fn context_bridge<C>(self, context: C, code: u16) -> bridge_types::BridgeResult<T>[0m
+[0m   [0m[0m[1m[38;5;12m|[0m[0m        [0m[0m[1m[33m^^^^^^^^^^^^^^[0m
+
+[1m[36m    Building[0m [=======================> ] 535/538: api-bridge                  [K[0m[1m[33mwarning[0m[0m[1m: function `volume_not_found_context` is never used[0m
+[0m  [0m[0m[1m[38;5;12m--> [0m[0mcore/api_bridge/src/error_context.rs:71:8[0m
+[0m   [0m[0m[1m[38;5;12m|[0m
+[0m[1m[38;5;12m71[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0mpub fn volume_not_found_context(volume_id: &str, operation: &str) -> BridgeError {[0m
+[0m   [0m[0m[1m[38;5;12m|[0m[0m        [0m[0m[1m[33m^^^^^^^^^^^^^^^^^^^^^^^^[0m
+
+[0m[1m[33mwarning[0m[0m[1m: function `layer_error_context` is never used[0m
+[0m  [0m[0m[1m[38;5;12m--> [0m[0mcore/api_bridge/src/error_context.rs:83:8[0m
+[0m   [0m[0m[1m[38;5;12m|[0m
+[0m[1m[38;5;12m83[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0mpub fn layer_error_context(layer_id: &str, operation: &str, error: impl std::fmt::Display) -> BridgeError {[0m
+[0m   [0m[0m[1m[38;5;12m|[0m[0m        [0m[0m[1m[33m^^^^^^^^^^^^^^^^^^^[0m
+
+[1m[36m    Building[0m [=======================> ] 535/538: api-bridge                  [K[0m[1m[33mwarning[0m[0m[1m: function `gpu_error_context` is never used[0m
+[0m  [0m[0m[1m[38;5;12m--> [0m[0mcore/api_bridge/src/error_context.rs:96:8[0m
+[0m   [0m[0m[1m[38;5;12m|[0m
+[0m[1m[38;5;12m96[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0mpub fn gpu_error_context(operation: &str, error: impl std::fmt::Display) -> BridgeError {[0m
+[0m   [0m[0m[1m[38;5;12m|[0m[0m        [0m[0m[1m[33m^^^^^^^^^^^^^^^^^[0m
+
+[1m[36m    Building[0m [=======================> ] 535/538: api-bridge                  [K[0m[1m[33mwarning[0m[0m[1m: methods `user_message` and `suggested_actions` are never used[0m
+[0m  [0m[0m[1m[38;5;12m--> [0m[0mcore/api_bridge/src/user_errors.rs:7:8[0m
+[0m   [0m[0m[1m[38;5;12m|[0m
+[0m[1m[38;5;12m5[0m[0m  [0m[0m[1m[38;5;12m|[0m[0m [0m[0mpub trait UserFriendly {[0m
+[0m   [0m[0m[1m[38;5;12m|[0m[0m           [0m[0m[1m[38;5;12m------------[0m[0m [0m[0m[1m[38;5;12mmethods in this trait[0m
+[0m[1m[38;5;12m6[0m[0m  [0m[0m[1m[38;5;12m|[0m[0m [0m[0m    /// Get a user-friendly error message[0m
+[0m[1m[38;5;12m7[0m[0m  [0m[0m[1m[38;5;12m|[0m[0m [0m[0m    fn user_message(&self) -> String;[0m
+[0m   [0m[0m[1m[38;5;12m|[0m[0m        [0m[0m[1m[33m^^^^^^^^^^^^[0m
+[0m[1m[38;5;12m...[0m
+[0m[1m[38;5;12m10[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0m    fn suggested_actions(&self) -> Vec<String>;[0m
+[0m   [0m[0m[1m[38;5;12m|[0m[0m        [0m[0m[1m[33m^^^^^^^^^^^^^^^^^[0m
+
+[1m[36m    Building[0m [=======================> ] 535/538: api-bridge                  [K[0m[1m[33mwarning[0m[0m[1m: function `format_error_for_ui` is never used[0m
+[0m   [0m[0m[1m[38;5;12m--> [0m[0mcore/api_bridge/src/user_errors.rs:189:8[0m
+[0m    [0m[0m[1m[38;5;12m|[0m
+[0m[1m[38;5;12m189[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0mpub fn format_error_for_ui(error: &BridgeError) -> ErrorDisplay {[0m
+[0m    [0m[0m[1m[38;5;12m|[0m[0m        [0m[0m[1m[33m^^^^^^^^^^^^^^^^^^^[0m
+
+[1m[36m    Building[0m [=======================> ] 535/538: api-bridge                  [K[0m[1m[33mwarning[0m[0m[1m: function `error_title` is never used[0m
+[0m   [0m[0m[1m[38;5;12m--> [0m[0mcore/api_bridge/src/user_errors.rs:200:4[0m
+[0m    [0m[0m[1m[38;5;12m|[0m
+[0m[1m[38;5;12m200[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0mfn error_title(error: &BridgeError) -> String {[0m
+[0m    [0m[0m[1m[38;5;12m|[0m[0m    [0m[0m[1m[33m^^^^^^^^^^^[0m
+
+[1m[36m    Building[0m [=======================> ] 535/538: api-bridge                  [K[0m[1m[33mwarning[0m[0m[1m: function `error_code` is never used[0m
+[0m   [0m[0m[1m[38;5;12m--> [0m[0mcore/api_bridge/src/user_errors.rs:230:4[0m
+[0m    [0m[0m[1m[38;5;12m|[0m
+[0m[1m[38;5;12m230[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0mfn error_code(error: &BridgeError) -> u16 {[0m
+[0m    [0m[0m[1m[38;5;12m|[0m[0m    [0m[0m[1m[33m^^^^^^^^^^[0m
+
+[1m[36m    Building[0m [=======================> ] 535/538: api-bridge                  [K[1m[33mwarning[0m[1m:[0m `api-bridge` (lib) generated 15 warnings (run `cargo fix --lib -p api-bridge` to apply 4 suggestions)
+[1m[32m   Compiling[0m brainflow v0.1.0 (/Users/bbuchsbaum/code/brainflow2/src-tauri)
+[1m[36m    Building[0m [=======================> ] 536/538: brainflow                   [K[0m[1m[33mwarning[0m[0m[1m: unused import: `Runtime`[0m
+[0m [0m[0m[1m[38;5;12m--> [0m[0msrc-tauri/src/lib.rs:5:29[0m
+[0m  [0m[0m[1m[38;5;12m|[0m
+[0m[1m[38;5;12m5[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0muse tauri::{State, Manager, Runtime};[0m
+[0m  [0m[0m[1m[38;5;12m|[0m[0m                             [0m[0m[1m[33m^^^^^^^[0m
+[0m  [0m[0m[1m[38;5;12m|[0m
+[0m  [0m[0m[1m[38;5;12m= [0m[0m[1mnote[0m[0m: `#[warn(unused_imports)]` on by default[0m
+
+[1m[36m    Building[0m [=======================> ] 536/538: brainflow                   [K[0m[1m[33mwarning[0m[0m[1m: unused import: `nifti_loader::NiftiLoader`[0m
+[0m [0m[0m[1m[38;5;12m--> [0m[0msrc-tauri/src/lib.rs:8:5[0m
+[0m  [0m[0m[1m[38;5;12m|[0m
+[0m[1m[38;5;12m8[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0muse nifti_loader::NiftiLoader;[0m
+[0m  [0m[0m[1m[38;5;12m|[0m[0m     [0m[0m[1m[33m^^^^^^^^^^^^^^^^^^^^^^^^^[0m
+
+[1m[36m    Building[0m [=======================> ] 536/538: brainflow                   [K[0m[1m[33mwarning[0m[0m[1m: unused imports: `HasDisplayHandle` and `HasWindowHandle`[0m
+[0m  [0m[0m[1m[38;5;12m--> [0m[0msrc-tauri/src/lib.rs:10:25[0m
+[0m   [0m[0m[1m[38;5;12m|[0m
+[0m[1m[38;5;12m10[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0muse raw_window_handle::{HasWindowHandle, HasDisplayHandle};[0m
+[0m   [0m[0m[1m[38;5;12m|[0m[0m                         [0m[0m[1m[33m^^^^^^^^^^^^^^^[0m[0m  [0m[0m[1m[33m^^^^^^^^^^^^^^^^[0m
+
+[1m[36m    Building[0m [=======================> ] 536/538: brainflow                   [K[0m[1m[33mwarning[0m[0m[1m: unused imports: `error` and `info`[0m
+[0m  [0m[0m[1m[38;5;12m--> [0m[0msrc-tauri/src/lib.rs:11:11[0m
+[0m   [0m[0m[1m[38;5;12m|[0m
+[0m[1m[38;5;12m11[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0muse log::{info, error};[0m
+[0m   [0m[0m[1m[38;5;12m|[0m[0m           [0m[0m[1m[33m^^^^[0m[0m  [0m[0m[1m[33m^^^^^[0m
+
+[1m[36m    Building[0m [=======================> ] 536/538: brainflow                   [K[0m[1m[33mwarning[0m[0m[1m: field `loaded_volumes` is never read[0m
+[0m  [0m[0m[1m[38;5;12m--> [0m[0msrc-tauri/src/lib.rs:29:5[0m
+[0m   [0m[0m[1m[38;5;12m|[0m
+[0m[1m[38;5;12m28[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0mpub struct AppState {[0m
+[0m   [0m[0m[1m[38;5;12m|[0m[0m            [0m[0m[1m[38;5;12m--------[0m[0m [0m[0m[1m[38;5;12mfield in this struct[0m
+[0m[1m[38;5;12m29[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0m    loaded_volumes: Mutex<HashMap<String, VolumeInfo>>,[0m
+[0m   [0m[0m[1m[38;5;12m|[0m[0m     [0m[0m[1m[33m^^^^^^^^^^^^^^[0m
+[0m   [0m[0m[1m[38;5;12m|[0m
+[0m   [0m[0m[1m[38;5;12m= [0m[0m[1mnote[0m[0m: `#[warn(dead_code)]` on by default[0m
+
+[1m[36m    Building[0m [=======================> ] 536/538: brainflow                   [K[0m[1m[33mwarning[0m[0m[1m: function `greet` is never used[0m
+[0m  [0m[0m[1m[38;5;12m--> [0m[0msrc-tauri/src/lib.rs:34:4[0m
+[0m   [0m[0m[1m[38;5;12m|[0m
+[0m[1m[38;5;12m34[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0mfn greet(name: &str) -> String {[0m
+[0m   [0m[0m[1m[38;5;12m|[0m[0m    [0m[0m[1m[33m^^^^^[0m
+
+[1m[36m    Building[0m [=======================> ] 536/538: brainflow                   [K[0m[1m[33mwarning[0m[0m[1m: function `list_volumes` is never used[0m
+[0m  [0m[0m[1m[38;5;12m--> [0m[0msrc-tauri/src/lib.rs:40:4[0m
+[0m   [0m[0m[1m[38;5;12m|[0m
+[0m[1m[38;5;12m40[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0mfn list_volumes(state: State<AppState>) -> Result<Vec<VolumeInfo>, String> {[0m
+[0m   [0m[0m[1m[38;5;12m|[0m[0m    [0m[0m[1m[33m^^^^^^^^^^^^[0m
+
+[1m[36m    Building[0m [=======================> ] 536/538: brainflow                   [K[0m[1m[33mwarning[0m[0m[1m: function `can_load_file` is never used[0m
+[0m  [0m[0m[1m[38;5;12m--> [0m[0msrc-tauri/src/lib.rs:47:4[0m
+[0m   [0m[0m[1m[38;5;12m|[0m
+[0m[1m[38;5;12m47[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0mfn can_load_file(file_path: &str) -> Result<bool, String> {[0m
+[0m   [0m[0m[1m[38;5;12m|[0m[0m    [0m[0m[1m[33m^^^^^^^^^^^^^[0m
+
+[1m[36m    Building[0m [=======================> ] 536/538: brainflow                   [K[0m[1m[33mwarning[0m[0m[1m: function `load_volume` is never used[0m
+[0m  [0m[0m[1m[38;5;12m--> [0m[0msrc-tauri/src/lib.rs:63:4[0m
+[0m   [0m[0m[1m[38;5;12m|[0m
+[0m[1m[38;5;12m63[0m[0m [0m[0m[1m[38;5;12m|[0m[0m [0m[0mfn load_volume(file_path: &str, state: State<AppState>) -> Result<VolumeInfo, String> {[0m
+[0m   [0m[0m[1m[38;5;12m|[0m[0m    [0m[0m[1m[33m^^^^^^^^^^^[0m
+
+[1m[36m    Building[0m [=======================> ] 536/538: brainflow                   [K[1m[33mwarning[0m[1m:[0m `brainflow` (lib) generated 9 warnings (run `cargo fix --lib -p brainflow` to apply 4 suggestions)
+[1m[36m    Building[0m [=======================> ] 537/538: brainflow(bin)              [K[1m[32m    Finished[0m ]8;;https://doc.rust-lang.org/cargo/reference/profiles.html#default-profiles\`dev` profile [unoptimized + debuginfo]]8;;\ target(s) in 34.35s
+[1m[32m     Running[0m `/Users/bbuchsbaum/code/brainflow2/target/debug/brainflow`
+Initializing RenderLoopService...
+RenderLoopService: Initializing WGPU...
+[2025-06-25][01:00:01][wgpu_core::instance][INFO] Adapter Metal AdapterInfo { name: "Apple M3 Max", vendor: 0, device: 0, device_type: IntegratedGpu, driver: "", driver_info: "", backend: Metal }
+RenderLoopService: Found adapter: AdapterInfo { name: "Apple M3 Max", vendor: 0, device: 0, device_type: IntegratedGpu, driver: "", driver_info: "", backend: Metal }
+RenderLoopService: Device and Queue obtained successfully.
+RenderLoopService: Frame UBO buffer created.
+RenderLoopService: Crosshair UBO buffer created.
+RenderLoopService: View Plane UBO buffer created.
+RenderLoopService: Global bind group layout created.
+RenderLoopService Initialized.
+Bridge: init_render_loop called
+RenderLoopService: Initializing WGPU...
+[2025-06-25][01:00:02][wgpu_core::instance][INFO] Adapter Metal AdapterInfo { name: "Apple M3 Max", vendor: 0, device: 0, device_type: IntegratedGpu, driver: "", driver_info: "", backend: Metal }
+RenderLoopService: Found adapter: AdapterInfo { name: "Apple M3 Max", vendor: 0, device: 0, device_type: IntegratedGpu, driver: "", driver_info: "", backend: Metal }
+RenderLoopService: Device and Queue obtained successfully.
+RenderLoopService: Frame UBO buffer created.
+RenderLoopService: Crosshair UBO buffer created.
+RenderLoopService: View Plane UBO buffer created.
+RenderLoopService: Global bind group layout created.
+Bridge: init_render_loop called
+RenderLoopService: Initializing WGPU...
+[2025-06-25][01:00:02][wgpu_core::instance][INFO] Adapter Metal AdapterInfo { name: "Apple M3 Max", vendor: 0, device: 0, device_type: IntegratedGpu, driver: "", driver_info: "", backend: Metal }
+RenderLoopService: Found adapter: AdapterInfo { name: "Apple M3 Max", vendor: 0, device: 0, device_type: IntegratedGpu, driver: "", driver_info: "", backend: Metal }
+RenderLoopService: Device and Queue obtained successfully.
+RenderLoopService: Frame UBO buffer created.
+RenderLoopService: Crosshair UBO buffer created.
+RenderLoopService: View Plane UBO buffer created.
+RenderLoopService: Global bind group layout created.
+Shaders loaded and validated successfully.
+Colormaps initialized successfully.
+[2025-06-25][01:00:02][api_bridge][INFO] RenderLoopService initialized and shaders loaded successfully
+[2025-06-25][01:00:02][api_bridge][INFO] Bridge: create_offscreen_render_target called with 512x512
+Creating offscreen render target: 512x512
+Offscreen render target created successfully
+[2025-06-25][01:00:02][api_bridge][INFO] Offscreen render target created successfully: 512x512
+Shaders loaded and validated successfully.
+Colormaps initialized successfully.
+[2025-06-25][01:00:02][api_bridge][INFO] RenderLoopService initialized and shaders loaded successfully
+[2025-06-25][01:00:02][api_bridge][INFO] Bridge: create_offscreen_render_target called with 512x512
+Creating offscreen render target: 512x512
+Offscreen render target created successfully
+[2025-06-25][01:00:02][api_bridge][INFO] Offscreen render target created successfully: 512x512
+Bridge: fs_list_directory called for path: /Users/bbuchsbaum/code/brainflow2
+Bridge: load_file called with path: /Users/bbuchsbaum/code/brainflow2/test-data/unit/toy_t1w.nii.gz
+[2025-06-25][01:00:03][nifti_loader][INFO] NiftiLoader: Loading file: /Users/bbuchsbaum/code/brainflow2/test-data/unit/toy_t1w.nii.gz
+[2025-06-25][01:00:03][nifti_loader][INFO] Successfully processed NIFTI data into VolumeSendable::Discriminant(0)
+[2025-06-25][01:00:03][nifti_loader][INFO] Successfully loaded volume: dims=[10, 10, 10], dtype=f32
+[2025-06-25][01:00:03][nifti_loader][INFO] Successfully processed NIFTI data into VolumeSendable::Discriminant(0)
+[2025-06-25][01:00:03][api_bridge][INFO] Successfully loaded and stored volume with ID: d6a6e273-3da9-4a9b-baff-327da4542e8a
+Bridge: init_render_loop called
+[2025-06-25][01:00:03][api_bridge][INFO] RenderLoopService already initialized
+Menu event received: MenuId("mount_directory")
+Mount directory menu item clicked
+Opening mount dialog...
+Dialog setup complete
+Dialog callback triggered with: Some(Path("/Users/bbuchsbaum/code/neuroim2/inst/extdata"))
+Emitting mount-directory-event with path: /Users/bbuchsbaum/code/neuroim2/inst/extdata
+Event emitted successfully
+Bridge: fs_list_directory called for path: /Users/bbuchsbaum/code/neuroim2/inst/extdata
+Update dynamic menus called with 1 mounted directories
+Bridge: fs_list_directory called for path: /Users/bbuchsbaum/code/neuroim2/inst/extdata
+Bridge: load_file called with path: /Users/bbuchsbaum/code/neuroim2/inst/extdata/global_mask2.nii.gz
+[2025-06-25][01:00:18][nifti_loader][INFO] NiftiLoader: Loading file: /Users/bbuchsbaum/code/neuroim2/inst/extdata/global_mask2.nii.gz
+[2025-06-25][01:00:18][nifti_loader][INFO] Successfully processed NIFTI data into VolumeSendable::Discriminant(2)
+[2025-06-25][01:00:18][nifti_loader][INFO] Successfully loaded volume: dims=[64, 64, 25], dtype=u8
+[2025-06-25][01:00:18][nifti_loader][INFO] Successfully processed NIFTI data into VolumeSendable::Discriminant(2)
+[2025-06-25][01:00:18][api_bridge][INFO] Successfully loaded and stored volume with ID: 8e32bdce-da1f-40f2-99a8-81a58ad795ca
+RemoteLayerTreeDrawingAreaProxyMac::scheduleDisplayLink(): page has no displayID
+RemoteLayerTreeDrawingAreaProxyMac::scheduleDisplayLink(): page has no displayID
+Bridge: fs_list_directory called for path: /Users/bbuchsbaum/code/neuroim2/inst/extdata
+9:27:17 p.m. [vite] (client) page reload .svelte-kit/generated/client/nodes/0.js
+9:27:17 p.m. [vite] (client) page reload .svelte-kit/generated/client/nodes/1.js
+9:27:17 p.m. [vite] (client) page reload .svelte-kit/generated/client/nodes/2.js
+9:27:17 p.m. [vite] (client) page reload .svelte-kit/generated/client/app.js
+9:27:17 p.m. [vite] (client) page reload .svelte-kit/generated/client/matchers.js
+9:27:17 p.m. [vite] (ssr) page reload .svelte-kit/generated/server/internal.js
+9:27:17 p.m. [vite] (client) page reload .svelte-kit/generated/root.js
+9:27:17 p.m. [vite] (ssr) page reload .svelte-kit/generated/root.js
+Bridge: init_render_loop called
+[2025-06-25][01:27:17][api_bridge][INFO] RenderLoopService already initialized
+Bridge: init_render_loop called
+[2025-06-25][01:27:17][api_bridge][INFO] RenderLoopService already initialized
+[2025-06-25][01:27:17][api_bridge][INFO] Bridge: create_offscreen_render_target called with 512x512
+Creating offscreen render target: 512x512
+Offscreen render target created successfully
+[2025-06-25][01:27:17][api_bridge][INFO] Offscreen render target created successfully: 512x512
+[2025-06-25][01:27:17][api_bridge][INFO] Bridge: create_offscreen_render_target called with 512x512
+Creating offscreen render target: 512x512
+Offscreen render target created successfully
+[2025-06-25][01:27:17][api_bridge][INFO] Offscreen render target created successfully: 512x512
+Bridge: fs_list_directory called for path: /Users/bbuchsbaum/code/brainflow2
+Bridge: load_file called with path: /Users/bbuchsbaum/code/brainflow2/test-data/unit/toy_t1w.nii.gz
+[2025-06-25][01:27:18][nifti_loader][INFO] NiftiLoader: Loading file: /Users/bbuchsbaum/code/brainflow2/test-data/unit/toy_t1w.nii.gz
+[2025-06-25][01:27:18][nifti_loader][INFO] Successfully processed NIFTI data into VolumeSendable::Discriminant(0)
+[2025-06-25][01:27:18][nifti_loader][INFO] Successfully loaded volume: dims=[10, 10, 10], dtype=f32
+[2025-06-25][01:27:18][nifti_loader][INFO] Successfully processed NIFTI data into VolumeSendable::Discriminant(0)
+[2025-06-25][01:27:18][api_bridge][INFO] Successfully loaded and stored volume with ID: 931e39f4-cc79-412d-b809-c9da51cc8906
+Bridge: init_render_loop called
+[2025-06-25][01:27:18][api_bridge][INFO] RenderLoopService already initialized
+ ELIFECYCLE  Command failed.

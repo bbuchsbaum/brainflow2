@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-init-render-loop"
+description = "Enables the init_render_loop command without any pre-configured scope."
+commands.allow = ["init_render_loop"]
+
+[[permission]]
+identifier = "deny-init-render-loop"
+description = "Denies the init_render_loop command without any pre-configured scope."
+commands.deny = ["init_render_loop"]

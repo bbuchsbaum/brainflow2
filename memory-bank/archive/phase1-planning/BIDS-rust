@@ -1,0 +1,1218 @@
+Okay, this is excellent refinement. Let's integrate these final points to polish the library further.
+
+**Summary of Round 2 Changes Applied:**
+
+*   **API:** Introduced `BidsProject::open()`, clarified `project.filter()` returns `impl QueryDsl`, cleaned up `prelude.rs`.
+*   **Entities:** Renamed `BidsEntities` -> `FileRow`, switched fully to `std::sync::Arc<str>`, removed `arcstr` dependency. Derived `PolarsSchema` (requires bumping Polars). Kept manual `df!` creation for explicit control over `Arc<str>`/Categorical.
+*   **Performance:** Added comments acknowledging walker/CSV reader alternatives.
+*   **Errors:** Unified `NotFound` error variant. Added optional `color-eyre` dependency/integration for CLI.
+*   **Idiomatic Rust:** Removed `std_prelude`, added `Pipe` trait back. Corrected `PolarsDataType` impl, Arrow builder imports/usage (using Polars re-exports), `lit()` usage for categoricals, count extraction, `IntoIterator` types. Changed query default to `strict: false`. Added `#[allow(dead_code)]` to `BidsProject` fields. Renamed `utils` -> `_internal`.
+*   **Dependencies:** Bumped Polars to `0.40.0`, added `polars-ops` feature. Removed `std_prelude`. Added `color-eyre` optionally.
+
+*(Deferred: Query DSL macros/composition, channel walker, eager CSV feature, property tests, `llvm-cov`, Parquet/caching, tree view, categorical map persistence)*
+
+---
+**`Cargo.toml`**
+---
+```toml
+[package]
+name = "bids-reader-rs"
+version = "0.2.0" # Incremented version for significant changes
+edition = "2021"
+description = "A reader for BIDS (Brain Imaging Data Structure) datasets"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/your-username/bids-reader-rs" # Example
+readme = "README.md"
+keywords = ["bids", "neuroimaging", "bioinformatics", "polars", "data"]
+categories = ["science", "filesystem", "parser"]
+
+[dependencies]
+# --- Core ---
+polars = { version = "0.40.0", features = [ # Bumped to 0.40 for PolarsSchema
+    "lazy", "csv", "json", "dtype-struct", "dtype-categorical",
+    "serde", "performant", "polars-ops", "dtype-datetime" # Added datetime for potential mtime later
+]}
+walkdir = "2.4"
+regex = "1.10"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+thiserror = "1.0"
+once_cell = "1.18"
+rayon = "1.8"
+log = "0.4"
+strum = { version = "0.26", features = ["derive"] }
+pathdiff = "0.2"
+# std_prelude removed
+# arcstr removed, using std::sync::Arc
+
+# --- Optional Features ---
+clap = { version = "4.4", optional = true, features = ["derive"] }
+color-eyre = { version = "0.6", optional = true } # For CLI error reporting
+
+[dev-dependencies]
+tempfile = "3" # Highly recommended for fixture tests
+# insta = "1"
+# proptest = "1"
+
+[features]
+default = []
+cli = ["dep:clap", "dep:color-eyre"] # CLI feature depends on clap and color-eyre
+# ndarray_conv = ["dep:ndarray"]
+# lazy_io = [] # For potential future IO strategy toggle
+```
+
+---
+**`src/error.rs`**
+---
+```rust
+use std::path::PathBuf;
+use thiserror::Error;
+
+#[derive(Error, Debug)]
+pub enum BidsError {
+    #[error("IO Error accessing '{path}': {source}")]
+    Io {
+        path: PathBuf,
+        #[source]
+        source: std::io::Error,
+    },
+
+    #[error("Polars Error: {0}")]
+    Polars(#[from] polars::prelude::PolarsError),
+
+    #[error("JSON Error reading '{path}': {source}")]
+    Json {
+        path: PathBuf,
+        #[source]
+        source: serde_json::Error,
+    },
+
+    #[error("Path not found or is not a directory: {0}")]
+    PathNotFound(PathBuf),
+
+    #[error("Missing required BIDS file at root: {0}")]
+    MissingRootFile(String),
+
+    #[error("Failed to parse BIDS filename: {0}")]
+    ParseFilenameError(String),
+
+    #[error("Directory scanning failed: {0}")]
+    ScanError(String),
+
+    #[error("Invalid BIDS query filter: {0}")]
+    InvalidFilter(String),
+
+    // Unified NotFound error
+    #[error("No {kind} files matched query: {query_summary}")]
+    NotFound {
+        kind: &'static str,
+        query_summary: String,
+    },
+
+    #[error("Feature not implemented: {0}")]
+    NotImplemented(String),
+
+    #[error("Could not determine relative path for: {0}")]
+    RelativePathError(PathBuf),
+
+    #[error("Error building project: {0}")]
+    BuilderError(String),
+
+    #[error("Categorical encoding error for datatype: {0}")]
+    CategoricalError(String),
+}
+
+pub type BidsResult<T> = Result<T, BidsError>;
+
+// Helper to wrap IO errors with context
+pub(crate) fn io_err<P: AsRef<std::path::Path>>(path: P, source: std::io::Error) -> BidsError {
+    BidsError::Io { path: path.as_ref().to_path_buf(), source }
+}
+
+// Helper to wrap JSON errors with context
+pub(crate) fn json_err<P: AsRef<std::path::Path>>(path: P, source: serde_json::Error) -> BidsError {
+    BidsError::Json { path: path.as_ref().to_path_buf(), source }
+}
+```
+
+---
+**`src/entities.rs`**
+---
+```rust
+use polars::prelude::*;
+use polars_derive::PolarsSchema;
+use serde::{Deserialize, Serialize};
+use std::sync::Arc;
+use strum::{AsRefStr, EnumString};
+
+// Renamed BidsEntities -> FileRow
+#[derive(Debug, Clone, Serialize, Deserialize, PolarsSchema, PartialEq, Eq)]
+#[polars(rename_all = "snake_case")]
+pub struct FileRow {
+    pub filename: Arc<str>,
+    pub relative_path: Arc<str>,
+    pub datatype: Option<BidsDatatype>,
+    pub is_derivative: bool,
+    pub sub: Option<Arc<str>>,
+    pub ses: Option<Arc<str>>,
+    pub task: Option<Arc<str>>,
+    pub acq: Option<Arc<str>>,
+    pub ce: Option<Arc<str>>,
+    pub dir: Option<Arc<str>>,
+    pub rec: Option<Arc<str>>,
+    pub run: Option<Arc<str>>,
+    #[serde(rename = "mod")]
+    pub mod_: Option<Arc<str>>,
+    pub echo: Option<Arc<str>>,
+    pub space: Option<Arc<str>>,
+    pub res: Option<Arc<str>>,
+    pub den: Option<Arc<str>>,
+    pub label: Option<Arc<str>>,
+    pub desc: Option<Arc<str>>,
+    pub sample: Option<Arc<str>>,
+    pub recording: Option<Arc<str>>,
+    pub chunk: Option<Arc<str>>,
+    pub suffix: Option<Arc<str>>,
+    pub extension: Option<Arc<str>>,
+}
+
+// No Default derive, as default instance is not meaningful
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, EnumString, AsRefStr, PolarsSchema)]
+#[strum(serialize_all = "lowercase")]
+pub enum BidsDatatype {
+    Anat, Func, Dwi, Fmap, Beh, Meg, Eeg, Ieeg, Perf,
+    #[strum(default)]
+    Other,
+}
+
+// Polars 0.40 uses get_dtype()
+impl PolarsDataType for BidsDatatype {
+    fn get_dtype() -> DataType {
+        DataType::Categorical(None, CategoricalOrdering::Physical)
+    }
+}
+
+pub(crate) fn get_datatype_from_path(components: &[&str]) -> Option<BidsDatatype> {
+    use std::str::FromStr;
+    components
+        .iter()
+        .find_map(|&comp| BidsDatatype::from_str(comp).ok())
+        .filter(|dt| *dt != BidsDatatype::Other)
+}
+```
+
+---
+**`src/parser.rs`** (Internal, uses `Arc<str>`)
+---
+```rust
+use crate::entities::{BidsDatatype, FileRow}; // No need for get_datatype_from_path here
+use once_cell::sync::Lazy;
+use regex::Regex;
+use log::warn;
+use std::sync::Arc;
+
+static BIDS_REGEX: Lazy<Regex> = Lazy::new(|| {
+    // Regex remains the same
+    Regex::new(
+        r"(?x) # Allow comments and whitespace
+        ^ # Start of string
+        (?:sub-(?P<sub>[a-zA-Z0-9]+))? # Optional sub
+        (?:_ses-(?P<ses>[a-zA-Z0-9]+))? # Optional ses
+        (?:_sample-(?P<sample>[a-zA-Z0-9]+))? # Optional sample (BIDS 2.0)
+        (?:_task-(?P<task>[a-zA-Z0-9]+))? # Optional task
+        (?:_acq-(?P<acq>[a-zA-Z0-9]+))? # Optional acq
+        (?:_ce-(?P<ce>[a-zA-Z0-9]+))? # Optional ce
+        (?:_dir-(?P<dir>[a-zA-Z0-9]+))? # Optional dir
+        (?:_rec-(?P<rec>[a-zA-Z0-9]+))? # Optional rec
+        (?:_recording-(?P<recording>[a-zA-Z0-9]+))? # Optional recording (BIDS 2.0)
+        (?:_run-(?P<run>[a-zA-Z0-9]+))? # Optional run
+        (?:_mod-(?P<mod>[a-zA-Z0-9]+))? # Optional mod
+        (?:_echo-(?P<echo>[a-zA-Z0-9]+))? # Optional echo
+        (?:_chunk-(?P<chunk>[a-zA-Z0-9]+))? # Optional chunk (BIDS 2.0)
+        (?:_space-(?P<space>[a-zA-Z0-9]+))? # Optional space (derivatives)
+        (?:_res-(?P<res>[a-zA-Z0-9]+))? # Optional res (derivatives)
+        (?:_den-(?P<den>[a-zA-Z0-9]+))? # Optional den (derivatives)
+        (?:_label-(?P<label>[a-zA-Z0-9]+))? # Optional label (derivatives)
+        (?:_desc-(?P<desc>[a-zA-Z0-9]+))? # Optional desc (derivatives)
+        _ # The separator before the suffix
+        (?P<suffix>[a-zA-Z0-9]+) # The main suffix/modality
+        (?P<extension>\..+) # The file extension(s) - MUST start with dot, allow multiple dots
+        $ # End of string
+        "
+    ).expect("Failed to compile BIDS regex")
+});
+
+/// Parses a BIDS filename and populates a FileRow struct. Internal function.
+pub(crate) fn parse_bids_filename(
+    filename: &str,
+    relative_path: Arc<str>,
+    datatype: Option<BidsDatatype>,
+    is_derivative: bool,
+) -> Option<FileRow> {
+    BIDS_REGEX.captures(filename).and_then(|caps| {
+        let get_capture = |name: &str| caps.name(name).map(|m| Arc::from(m.as_str()));
+
+        let sub = get_capture("sub");
+        let suffix = get_capture("suffix");
+        let extension = get_capture("extension");
+
+        if filename.starts_with("sub-") && sub.is_none() {
+             warn!("Filename '{}' starts with 'sub-' but failed to parse subject.", filename);
+             return None;
+        }
+        if suffix.is_none() || extension.is_none() {
+             warn!("Filename '{}' failed to parse suffix or extension.", filename);
+             return None;
+        }
+
+        Some(FileRow {
+            filename: Arc::from(filename),
+            relative_path,
+            datatype,
+            is_derivative,
+            sub,
+            ses: get_capture("ses"),
+            task: get_capture("task"),
+            acq: get_capture("acq"),
+            ce: get_capture("ce"),
+            dir: get_capture("dir"),
+            rec: get_capture("rec"),
+            run: get_capture("run"),
+            mod_: get_capture("mod"),
+            echo: get_capture("echo"),
+            space: get_capture("space"),
+            res: get_capture("res"),
+            den: get_capture("den"),
+            label: get_capture("label"),
+            desc: get_capture("desc"),
+            sample: get_capture("sample"),
+            recording: get_capture("recording"),
+            chunk: get_capture("chunk"),
+            suffix,
+            extension,
+        })
+    })
+}
+```
+
+---
+**`src/io.rs`** (Internal IO Helpers - unchanged from previous revision, uses `scan_csv`)
+---
+```rust
+use crate::error::{BidsError, BidsResult, io_err, json_err};
+use crate::entities::FileRow; // Now needed for metadata type
+use polars::prelude::*;
+use std::fs::File;
+use std::path::{Path, PathBuf};
+use std::io::BufReader;
+use std::sync::Arc;
+use log::{info, warn};
+
+/// Reads the participants.tsv file.
+pub(crate) fn read_participants_tsv(root_path: &Path) -> BidsResult<Option<DataFrame>> {
+    let tsv_path = root_path.join("participants.tsv");
+    if !tsv_path.exists() {
+        return Err(BidsError::MissingRootFile("participants.tsv".to_string()));
+    }
+    info!("Reading participants file: {:?}", tsv_path);
+
+    let mut schema = Schema::new();
+    schema.with_column("participant_id".to_string(), DataType::Utf8);
+
+    let lazy_df = LazyCsvReader::new(&tsv_path)
+        .with_separator(b'\t')
+        .has_header(true)
+        .with_dtypes(Some(Arc::new(schema)))
+        .with_ignore_errors(true)
+        .finish()?;
+
+    let df = lazy_df.collect()?;
+    Ok(Some(df))
+}
+
+/// Reads the dataset_description.json file.
+pub(crate) fn read_dataset_description(root_path: &Path) -> BidsResult<Option<serde_json::Value>> {
+    let json_path = root_path.join("dataset_description.json");
+    if !json_path.exists() {
+        warn!("dataset_description.json not found at {:?}", root_path);
+        return Ok(None);
+    }
+    info!("Reading dataset description: {:?}", json_path);
+    let file = File::open(&json_path).map_err(|e| io_err(&json_path, e))?;
+    let reader = BufReader::new(file);
+    let description = serde_json::from_reader(reader).map_err(|e| json_err(&json_path, e))?;
+    Ok(Some(description))
+}
+
+/// Lazily scans multiple TSV files (events, confounds) and concatenates them.
+/// Adds metadata columns based on the main project DataFrame.
+pub(crate) fn scan_and_concat_tsvs(
+    paths: &[PathBuf],
+    main_df: &DataFrame,
+    root_path: &Path,
+    file_type_name: &str,
+    null_values: Option<NullValues>,
+) -> BidsResult<DataFrame> {
+    if paths.is_empty() {
+        return Ok(DataFrame::default());
+    }
+
+    let mut lazy_frames: Vec<LazyFrame> = Vec::with_capacity(paths.len());
+    let metadata_cols = ["sub", "ses", "task", "run"];
+
+    let relative_paths_to_find: Vec<Result<String, BidsError>> = paths.iter().map(|path| {
+        pathdiff::diff_paths(path, root_path)
+            .map(|p| p.to_string_lossy().to_string())
+            .ok_or_else(|| BidsError::RelativePathError(path.clone()))
+    }).collect();
+
+    let relative_paths: Vec<String> = relative_paths_to_find.into_iter().collect::<Result<_, _>>()?;
+
+    let relevant_meta_df = main_df.clone().lazy()
+        .filter(col("relative_path").is_in(lit(Series::new("paths", &relative_paths))))
+        .select([col("relative_path")].into_iter().chain(metadata_cols.iter().map(|&c| col(c))))
+        .collect()?;
+
+
+    for (i, path) in paths.iter().enumerate() {
+        info!("Scanning {} file: {:?}", file_type_name, path);
+        let current_relative_path = &relative_paths[i];
+
+        let mut lf = LazyCsvReader::new(path)
+            .with_separator(b'\t')
+            .has_header(true)
+            .with_null_values(null_values.clone())
+            .with_ignore_errors(true)
+            .finish()?;
+
+        let meta_row = relevant_meta_df.clone().lazy()
+             .filter(col("relative_path").eq(lit(current_relative_path)))
+             .first()
+             .collect()?;
+
+        if meta_row.height() == 1 {
+            for &col_name in &metadata_cols {
+                if lf.schema()?.get(col_name).is_none() {
+                    if let Ok(series) = meta_row.column(col_name) {
+                        if let Ok(scalar_value) = series.get(0) {
+                             let literal_value = match scalar_value {
+                                AnyValue::Utf8(s) => AnyValue::Utf8Owned(s.to_string()), // Use owned string for literal
+                                _ => scalar_value
+                             };
+                            lf = lf.with_column(lit(literal_value).alias(col_name));
+                        } else {
+                             warn!("Could not get scalar value for metadata '{}' from file {}", col_name, current_relative_path);
+                             lf = lf.with_column(lit(NULL).cast(DataType::Utf8).alias(col_name));
+                        }
+                    } else {
+                         warn!("Metadata column '{}' not found in main DF for file {}", col_name, current_relative_path);
+                         lf = lf.with_column(lit(NULL).cast(DataType::Utf8).alias(col_name));
+                    }
+                }
+            }
+        } else {
+            warn!("Could not find unique metadata in main DataFrame for {} file: {}", file_type_name, current_relative_path);
+            for &col_name in &metadata_cols {
+                if lf.schema()?.get(col_name).is_none() {
+                    lf = lf.with_column(lit(NULL).cast(DataType::Utf8).alias(col_name));
+                }
+            }
+        }
+
+        lazy_frames.push(lf);
+    }
+
+    // TODO: Add warning/error if schemas are incompatible during concat?
+    // `UnionArgs::default()` might handle some mismatches by upcasting types.
+    concat_impl(&lazy_frames, UnionArgs::default())
+        .map_err(BidsError::Polars)?
+        .collect()
+        .map_err(BidsError::Polars)
+}
+```
+
+---
+**`src/builder.rs`** (Builder - updated for `FileRow`, `Arc<str>`, Polars 0.40)
+---
+```rust
+use crate::error::{BidsError, BidsResult, io_err};
+use crate::project::BidsProject;
+use crate::io::{read_participants_tsv, read_dataset_description};
+use crate::entities::{FileRow, BidsDatatype, get_datatype_from_path};
+use crate::parser::parse_bids_filename;
+use polars::prelude::*;
+use std::path::{Path, PathBuf};
+use std::fs;
+use std::sync::Arc;
+use walkdir::WalkDir;
+use rayon::prelude::*;
+use log::{info, warn, debug};
+use once_cell::sync::OnceCell;
+use polars::chunked_array::builder::{
+    CategoricalMapBuilder, ListBooleanChunkedBuilder, ListPrimitiveChunkedBuilder, ListUtf8ChunkedBuilder, // etc.
+    PrimitiveChunkedBuilder, Utf8ChunkedBuilder, BooleanChunkedBuilder
+}; // Needed for manual Series construction
+
+#[derive(Debug, Clone, Default)]
+pub struct BidsProjectBuilder {
+    root_path: PathBuf,
+    include_derivatives: bool,
+    derivatives_dir: Option<String>,
+}
+
+impl BidsProjectBuilder {
+    /// Creates a new builder for a BIDS project located at `root_path`.
+    pub fn new<P: AsRef<Path>>(root_path: P) -> Self {
+        Self {
+            root_path: root_path.as_ref().to_path_buf(),
+            include_derivatives: false,
+            derivatives_dir: None,
+        }
+    }
+
+    /// Set whether to include the derivatives directory in the scan.
+    pub fn include_derivatives(mut self, include: bool) -> Self {
+        self.include_derivatives = include;
+        self
+    }
+
+    /// Specify the relative path to the main derivatives directory (e.g., "derivatives/fmriprep").
+    /// If set, `include_derivatives` is automatically enabled.
+    pub fn derivatives_dir(mut self, dir: impl Into<String>) -> Self {
+        self.derivatives_dir = Some(dir.into());
+        self.include_derivatives = true;
+        self
+    }
+
+    /// Scan the directory structure and build the `BidsProject`.
+    pub fn scan(self) -> BidsResult<BidsProject> {
+        let canonical_root = fs::canonicalize(&self.root_path)
+            .map_err(|e| io_err(&self.root_path, e))?;
+
+        if !canonical_root.is_dir() {
+            return Err(BidsError::PathNotFound(self.root_path));
+        }
+        info!("Initializing BIDS project at: {:?}", canonical_root);
+
+        let participants = read_participants_tsv(&canonical_root)?;
+        let description = read_dataset_description(&canonical_root)?;
+
+        info!("Scanning directory structure...");
+        let mut has_sessions = false;
+        let mut has_derivatives_found = false;
+
+        let prep_dir_prefix_parts: Option<Vec<String>> = self.derivatives_dir
+            .as_ref()
+            .map(|d| PathBuf::from(d).components().map(|c| c.as_os_str().to_string_lossy().to_string()).collect());
+
+        // --- Directory Walking and Parsing ---
+        // Option 1 (Current): Collect paths, then parallel parse
+        let file_paths_to_process: Vec<PathBuf> = WalkDir::new(&canonical_root)
+            .into_iter()
+            .filter_map(Result::ok)
+            .filter(|e| e.file_type().is_file())
+            .map(|e| e.into_path())
+            .collect();
+
+        info!("Found {} potential files. Parsing...", file_paths_to_process.len());
+
+        let all_entities: Vec<FileRow> = file_paths_to_process
+            .par_iter()
+            .filter_map(|entry_path| {
+                let filename = entry_path.file_name()?.to_string_lossy();
+                if filename.starts_with('.') { return None; }
+
+                 let relative_path = pathdiff::diff_paths(entry_path, &canonical_root)?;
+                 let relative_path_arc = Arc::from(relative_path.to_string_lossy().as_ref());
+
+                let path_components: Vec<&str> = relative_path.components()
+                    .map(|c| c.as_os_str().to_str().unwrap_or(""))
+                    .collect();
+
+                let mut is_derivative = false;
+                 if let Some(prefix_parts) = &prep_dir_prefix_parts {
+                     if path_components.len() >= prefix_parts.len() &&
+                        path_components[..prefix_parts.len()] == prefix_parts[..] {
+                          is_derivative = true;
+                      }
+                  } else if path_components.first().map_or(false, |&c| c == "derivatives") {
+                      is_derivative = true;
+                  }
+
+                if is_derivative && !self.include_derivatives { return None; }
+                let datatype = get_datatype_from_path(&path_components);
+                parse_bids_filename(&filename, relative_path_arc, datatype, is_derivative)
+            })
+            .collect();
+        // End Option 1
+
+        /* // Option 2: Channel + Pool (Conceptual - requires crossbeam_channel)
+           use crossbeam_channel::unbounded;
+           // ... setup pool ...
+           let (sender, receiver) = unbounded::<PathBuf>();
+           let canonical_root_clone = canonical_root.clone(); // Clone for thread
+           let walk_handle = std::thread::spawn(move || {
+               for entry in WalkDir::new(&canonical_root_clone).into_iter().filter_map(Result::ok) {
+                   if entry.file_type().is_file() {
+                       if sender.send(entry.into_path()).is_err() { break; } // Stop if receiver gone
+                   }
+               }
+           });
+           let all_entities: Vec<FileRow> = receiver.into_iter().par_bridge() // Assuming rayon setup
+                .filter_map(|entry_path| { /* ... parsing logic ... */ }).collect();
+           walk_handle.join().unwrap();
+        */ // End Option 2
+
+        info!("Successfully parsed {} BIDS files.", all_entities.len());
+
+        for entity in &all_entities {
+            if entity.ses.is_some() { has_sessions = true; }
+            if entity.is_derivative { has_derivatives_found = true; }
+        }
+
+        if all_entities.is_empty() {
+            if description.is_some() || participants.is_some() {
+               warn!("Scan did not find any BIDS-parsable files in the dataset.");
+            } else {
+                return Err(BidsError::ScanError("No BIDS files or metadata found.".to_string()));
+            }
+        }
+
+        // --- Convert Vec<FileRow> to DataFrame ---
+        // Manual construction gives fine-grained control over Arc<str> and Categorical
+        let n_rows = all_entities.len();
+        let mut filename_builder = Utf8ChunkedBuilder::new("filename", n_rows, n_rows * 20); // Estimate capacity
+        let mut rel_path_builder = Utf8ChunkedBuilder::new("relative_path", n_rows, n_rows * 30);
+        let mut datatype_builder = PrimitiveChunkedBuilder::<UInt32Type>::new("datatype", n_rows);
+        let mut is_deriv_builder = BooleanChunkedBuilder::new("is_derivative", n_rows);
+        let mut sub_builder = Utf8ChunkedBuilder::new("sub", n_rows, n_rows * 8);
+        let mut ses_builder = Utf8ChunkedBuilder::new("ses", n_rows, n_rows * 8);
+        let mut task_builder = Utf8ChunkedBuilder::new("task", n_rows, n_rows * 10);
+        let mut run_builder = Utf8ChunkedBuilder::new("run", n_rows, n_rows * 5);
+        let mut acq_builder = Utf8ChunkedBuilder::new("acq", n_rows, n_rows * 8);
+        let mut ce_builder = Utf8ChunkedBuilder::new("ce", n_rows, n_rows * 8);
+        let mut dir_builder = Utf8ChunkedBuilder::new("dir", n_rows, n_rows * 8);
+        let mut rec_builder = Utf8ChunkedBuilder::new("rec", n_rows, n_rows * 8);
+        let mut mod_builder = Utf8ChunkedBuilder::new("mod_", n_rows, n_rows * 8); // Use mod_
+        let mut echo_builder = Utf8ChunkedBuilder::new("echo", n_rows, n_rows * 5);
+        let mut space_builder = Utf8ChunkedBuilder::new("space", n_rows, n_rows * 20);
+        let mut res_builder = Utf8ChunkedBuilder::new("res", n_rows, n_rows * 8);
+        let mut den_builder = Utf8ChunkedBuilder::new("den", n_rows, n_rows * 8);
+        let mut label_builder = Utf8ChunkedBuilder::new("label", n_rows, n_rows * 15);
+        let mut desc_builder = Utf8ChunkedBuilder::new("desc", n_rows, n_rows * 15);
+        let mut sample_builder = Utf8ChunkedBuilder::new("sample", n_rows, n_rows * 8);
+        let mut recording_builder = Utf8ChunkedBuilder::new("recording", n_rows, n_rows * 8);
+        let mut chunk_builder = Utf8ChunkedBuilder::new("chunk", n_rows, n_rows * 8);
+        let mut suffix_builder = Utf8ChunkedBuilder::new("suffix", n_rows, n_rows * 10);
+        let mut ext_builder = Utf8ChunkedBuilder::new("extension", n_rows, n_rows * 10);
+
+        let mut cat_map = CategoricalMapBuilder::new();
+
+        for row in all_entities {
+            filename_builder.append_value(&row.filename);
+            rel_path_builder.append_value(&row.relative_path);
+            is_deriv_builder.append_value(row.is_derivative);
+            sub_builder.append_option(row.sub.as_deref());
+            ses_builder.append_option(row.ses.as_deref());
+            task_builder.append_option(row.task.as_deref());
+            run_builder.append_option(row.run.as_deref());
+            acq_builder.append_option(row.acq.as_deref());
+            ce_builder.append_option(row.ce.as_deref());
+            dir_builder.append_option(row.dir.as_deref());
+            rec_builder.append_option(row.rec.as_deref());
+            mod_builder.append_option(row.mod_.as_deref());
+            echo_builder.append_option(row.echo.as_deref());
+            space_builder.append_option(row.space.as_deref());
+            res_builder.append_option(row.res.as_deref());
+            den_builder.append_option(row.den.as_deref());
+            label_builder.append_option(row.label.as_deref());
+            desc_builder.append_option(row.desc.as_deref());
+            sample_builder.append_option(row.sample.as_deref());
+            recording_builder.append_option(row.recording.as_deref());
+            chunk_builder.append_option(row.chunk.as_deref());
+            suffix_builder.append_option(row.suffix.as_deref());
+            ext_builder.append_option(row.extension.as_deref());
+
+            if let Some(dt) = row.datatype {
+                datatype_builder.append_value(cat_map.find_or_insert(dt.as_ref()));
+            } else {
+                datatype_builder.append_null();
+            }
+        }
+
+        let rev_map = Arc::new(cat_map.finish());
+
+        // Create Series from builders
+        let filename_series = filename_builder.finish().into_series();
+        let rel_path_series = rel_path_builder.finish().into_series();
+        let datatype_cat_series = datatype_builder.finish().into_series()
+            .cast(&DataType::Categorical(Some(rev_map), CategoricalOrdering::Physical))?;
+        let is_deriv_series = is_deriv_builder.finish().into_series();
+        let sub_series = sub_builder.finish().into_series();
+        let ses_series = ses_builder.finish().into_series();
+        let task_series = task_builder.finish().into_series();
+        let run_series = run_builder.finish().into_series();
+        let acq_series = acq_builder.finish().into_series();
+        let ce_series = ce_builder.finish().into_series();
+        let dir_series = dir_builder.finish().into_series();
+        let rec_series = rec_builder.finish().into_series();
+        let mod_series = mod_builder.finish().into_series(); // Renamed field
+        let echo_series = echo_builder.finish().into_series();
+        let space_series = space_builder.finish().into_series();
+        let res_series = res_builder.finish().into_series();
+        let den_series = den_builder.finish().into_series();
+        let label_series = label_builder.finish().into_series();
+        let desc_series = desc_builder.finish().into_series();
+        let sample_series = sample_builder.finish().into_series();
+        let recording_series = recording_builder.finish().into_series();
+        let chunk_series = chunk_builder.finish().into_series();
+        let suffix_series = suffix_builder.finish().into_series();
+        let ext_series = ext_builder.finish().into_series();
+
+        // Assemble DataFrame
+        let files_df = DataFrame::new(vec![
+             filename_series, rel_path_series, datatype_cat_series, is_deriv_series,
+             sub_series, ses_series, task_series, acq_series, ce_series, dir_series,
+             rec_series, run_series, mod_series, echo_series, space_series, res_series,
+             den_series, label_series, desc_series, sample_series, recording_series,
+             chunk_series, suffix_series, ext_series
+        ])?;
+
+        debug!("Created DataFrame with {} rows and {} columns.", files_df.height(), files_df.width());
+
+        Ok(BidsProject {
+            root_path: canonical_root,
+            participants,
+            description,
+            files: files_df,
+            has_sessions,
+            has_derivatives: has_derivatives_found,
+            prep_dir_pattern: self.derivatives_dir,
+            cached_subjects: OnceCell::new(),
+            cached_sessions: OnceCell::new(),
+            cached_tasks: OnceCell::new(),
+        })
+    }
+}
+```
+
+---
+**`src/query_builder.rs`** (Query builder - updated for `Arc<str>`, default `strict=false`)
+---
+```rust
+use crate::error::{BidsError, BidsResult};
+use crate::entities::BidsDatatype;
+use crate::project::BidsProject;
+use polars::prelude::*;
+use std::path::PathBuf;
+use std::collections::HashMap;
+use std::sync::Arc;
+use crate::_internal::Pipe; // Use internal Pipe trait
+
+// Public Query Trait (Opaque Type)
+pub trait QueryDsl<'a>: Sized { // Add Sized bound here
+    // --- Filter Methods ---
+    fn sub(self, value: impl Into<Arc<str>>) -> Self;
+    fn ses(self, value: impl Into<Arc<str>>) -> Self;
+    fn task(self, value: impl Into<Arc<str>>) -> Self;
+    fn run(self, value: impl Into<Arc<str>>) -> Self;
+    fn suffix(self, value: impl Into<Arc<str>>) -> Self;
+    fn acq(self, value: impl Into<Arc<str>>) -> Self;
+    fn space(self, value: impl Into<Arc<str>>) -> Self;
+    fn desc(self, value: impl Into<Arc<str>>) -> Self;
+    fn extension(self, value: impl Into<Arc<str>>) -> Self;
+    fn datatype(self, value: BidsDatatype) -> Self;
+    // TODO: Regex variants .sub_matches(), etc.
+    // TODO: Composable variants .any_of(), .not()
+
+    // --- Derivative Status ---
+    fn raw_only(self) -> Self;
+    fn derivatives_only(self) -> Self;
+
+    // --- Configuration ---
+    fn strict(self, strict: bool) -> Self;
+
+    // --- Terminal Methods ---
+    fn dataframe(self) -> BidsResult<DataFrame>;
+    fn relative_paths(self) -> BidsResult<Vec<Arc<str>>>;
+    fn absolute_paths(self) -> BidsResult<Vec<PathBuf>>;
+    fn first_relative_path(self) -> BidsResult<Option<Arc<str>>>;
+    fn first_absolute_path(self) -> BidsResult<Option<PathBuf>>;
+    fn count(self) -> BidsResult<usize>;
+}
+
+// Internal Query Builder Implementation
+#[derive(Clone, Debug)]
+pub(crate) struct QueryBuilderInternal<'a> {
+    project: &'a BidsProject,
+    filters: HashMap<String, Expr>,
+    target_derivative_status: Option<bool>,
+    strict: bool, // Default is now false
+}
+
+impl<'a> QueryBuilderInternal<'a> {
+    pub(crate) fn new(project: &'a BidsProject) -> Self {
+        Self {
+            project,
+            filters: HashMap::new(),
+            target_derivative_status: None,
+            strict: false, // Default to lenient matching (like pybids)
+        }
+    }
+
+    fn add_filter_expr(mut self, column: &str, expr: Expr) -> Self {
+        self.filters.insert(column.to_string(), expr);
+        self
+    }
+
+    fn add_eq_filter(mut self, column: &str, value: Arc<str>) -> Self {
+        let filter_expr = col(column).eq(lit(value.to_string())); // Use owned string for literal
+
+        let condition = if !self.strict {
+            col(column).is_null().or(filter_expr) // Match null OR equal
+        } else {
+            filter_expr // Strict: Must be equal (implicitly filters nulls)
+        };
+        self.filters.insert(column.to_string(), condition);
+        self
+    }
+
+    fn execute_query(self) -> LazyFrame {
+        let mut lazy_df = self.project.files().clone().lazy();
+
+        if let Some(is_deriv) = self.target_derivative_status {
+            lazy_df = lazy_df.filter(col("is_derivative").eq(lit(is_deriv)));
+        }
+
+        if !self.filters.is_empty() {
+            let schema = lazy_df.schema().unwrap_or_default();
+            let mut combined_expr: Option<Expr> = None;
+
+            for (col_name, expr) in self.filters {
+                if schema.get(&col_name).is_none() {
+                    if self.strict {
+                        combined_expr = Some(lit(false));
+                        break;
+                    } else {
+                        // If column is missing and not strict, this filter has no effect
+                        continue;
+                    }
+                }
+
+                if let Some(existing) = combined_expr {
+                    combined_expr = Some(existing.and(expr));
+                } else {
+                    combined_expr = Some(expr);
+                }
+            }
+
+            if let Some(final_expr) = combined_expr {
+                lazy_df = lazy_df.filter(final_expr);
+            }
+        }
+        lazy_df
+    }
+}
+
+// Implement the Public Trait for the Internal Builder
+impl<'a> QueryDsl<'a> for QueryBuilderInternal<'a> {
+    fn sub(self, value: impl Into<Arc<str>>) -> Self { self.add_eq_filter("sub", value.into()) }
+    fn ses(self, value: impl Into<Arc<str>>) -> Self { self.add_eq_filter("ses", value.into()) }
+    fn task(self, value: impl Into<Arc<str>>) -> Self { self.add_eq_filter("task", value.into()) }
+    fn run(self, value: impl Into<Arc<str>>) -> Self { self.add_eq_filter("run", value.into()) }
+    fn suffix(self, value: impl Into<Arc<str>>) -> Self { self.add_eq_filter("suffix", value.into()) }
+    fn acq(self, value: impl Into<Arc<str>>) -> Self { self.add_eq_filter("acq", value.into()) }
+    fn space(self, value: impl Into<Arc<str>>) -> Self { self.add_eq_filter("space", value.into()) }
+    fn desc(self, value: impl Into<Arc<str>>) -> Self { self.add_eq_filter("desc", value.into()) }
+    fn extension(self, value: impl Into<Arc<str>>) -> Self { self.add_eq_filter("extension", value.into()) }
+
+    fn datatype(self, value: BidsDatatype) -> Self {
+        // TODO: Cache the categorical -> physical index map in BidsProject for performance
+        let cat_dtype = self.project.files().schema().get_field("datatype")
+            .map(|f| f.dtype().clone())
+            .filter(|dt| matches!(dt, DataType::Categorical(..)));
+
+        let expr = if let Some(DataType::Categorical(Some(rev_map), _)) = cat_dtype {
+            if let Some(idx) = rev_map.find(value.as_ref()) {
+                col("datatype").eq(lit(idx)) // Compare physical representation
+            } else {
+                 lit(false) // Value not present in this dataset's categories
+            }
+        } else {
+            warn!("Datatype column is not categorical or not found. Datatype filter ignored.");
+            lit(true) // Don't filter if column isn't usable
+        };
+        self.add_filter_expr("datatype", expr)
+    }
+
+    fn raw_only(mut self) -> Self { self.target_derivative_status = Some(false); self }
+    fn derivatives_only(mut self) -> Self { self.target_derivative_status = Some(true); self }
+    fn strict(mut self, strict: bool) -> Self { self.strict = strict; self }
+
+    // --- Terminal Methods ---
+    fn dataframe(self) -> BidsResult<DataFrame> { self.execute_query().collect().map_err(BidsError::Polars) }
+
+    fn relative_paths(self) -> BidsResult<Vec<Arc<str>>> {
+        let df = self.execute_query().select(&[col("relative_path")]).collect()?;
+        df.column("relative_path")?.utf8()?
+            .into_iter()
+            .filter_map(|opt_s| opt_s.map(Arc::from))
+            .collect::<Vec<_>>()
+            .pipe(Ok)
+    }
+
+    fn absolute_paths(self) -> BidsResult<Vec<PathBuf>> {
+        let root = self.project.root_path().to_path_buf();
+        let df = self.execute_query().select(&[col("relative_path")]).collect()?;
+        df.column("relative_path")?.utf8()?
+            .into_iter()
+            .filter_map(|opt_s| opt_s.map(|s| root.join(s)))
+            .collect::<Vec<_>>()
+            .pipe(Ok)
+    }
+
+    fn first_relative_path(self) -> BidsResult<Option<Arc<str>>> {
+        let df = self.execute_query().select(&[col("relative_path")]).first().collect()?;
+        if df.height() == 0 { Ok(None) }
+        else { Ok(df.column("relative_path")?.utf8()?.get(0).map(Arc::from)) }
+    }
+
+    fn first_absolute_path(self) -> BidsResult<Option<PathBuf>> {
+        let root = self.project.root_path().to_path_buf();
+        let df = self.execute_query().select(&[col("relative_path")]).first().collect()?;
+        if df.height() == 0 { Ok(None) }
+        else { Ok(df.column("relative_path")?.utf8()?.get(0).map(|s| root.join(s))) }
+    }
+
+    fn count(self) -> BidsResult<usize> {
+        let df = self.execute_query()
+             .select(&[len().alias("count")]) // Use Polars `len()` expression
+             .collect()?;
+        df.column("count")?
+             .get(0)?
+             .try_extract::<u32>() // len() returns u32
+             .map(|v| v as usize)
+             .map_err(|_| PolarsError::ComputeError("Failed to extract count".into()).into())
+    }
+}
+```
+
+---
+**`src/project.rs`** (`BidsProject` - updated for API changes, `allow(dead_code)`, iterator fix)
+---
+```rust
+use crate::error::{BidsError, BidsResult};
+use crate::builder::BidsProjectBuilder;
+use crate::query_builder::{QueryBuilderInternal, QueryDsl};
+use crate::io;
+use polars::prelude::*;
+use polars::frame::row::Row; // For RowIter type
+use serde_json;
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use once_cell::sync::OnceCell;
+use crate::_internal::Pipe; // Use internal Pipe trait
+
+
+#[derive(Debug)]
+pub struct BidsProject {
+    #[allow(dead_code)] // Used internally by methods
+    pub(crate) root_path: PathBuf,
+    #[allow(dead_code)]
+    pub(crate) participants: Option<DataFrame>,
+    #[allow(dead_code)]
+    pub(crate) description: Option<serde_json::Value>,
+    #[allow(dead_code)]
+    pub(crate) files: DataFrame,
+    #[allow(dead_code)]
+    pub(crate) has_sessions: bool,
+    #[allow(dead_code)]
+    pub(crate) has_derivatives: bool,
+    #[allow(dead_code)]
+    pub(crate) prep_dir_pattern: Option<String>,
+    // Caches
+    pub(crate) cached_subjects: OnceCell<Vec<Arc<str>>>,
+    pub(crate) cached_sessions: OnceCell<Vec<Arc<str>>>,
+    pub(crate) cached_tasks: OnceCell<Vec<Arc<str>>>,
+    // TODO: Cache categorical map for datatype
+}
+
+impl BidsProject {
+    /// Creates a new `BidsProjectBuilder` to configure and scan a BIDS dataset.
+    pub fn builder<P: AsRef<Path>>(root_path: P) -> BidsProjectBuilder {
+        BidsProjectBuilder::new(root_path)
+    }
+
+    /// Convenience function to open and scan a BIDS dataset with default options.
+    pub fn open<P: AsRef<Path>>(root_path: P) -> BidsResult<Self> {
+        BidsProjectBuilder::new(root_path).scan()
+    }
+
+    // --- Accessors ---
+    pub fn root_path(&self) -> &Path { &self.root_path }
+    pub fn participants_table(&self) -> Option<&DataFrame> { self.participants.as_ref() }
+    pub fn dataset_description(&self) -> Option<&serde_json::Value> { self.description.as_ref() }
+    pub fn files_df(&self) -> &DataFrame { &self.files }
+    pub fn has_sessions(&self) -> bool { self.has_sessions }
+    pub fn has_derivatives(&self) -> bool { self.has_derivatives }
+
+    /// Returns a sorted list of unique participant IDs found (without "sub-" prefix).
+    pub fn participants(&self) -> BidsResult<&Vec<Arc<str>>> {
+        self.cached_subjects
+            .get_or_try_init(|| self.fetch_unique_entities("sub", Some("sub-")))
+    }
+
+    /// Returns a sorted list of unique session IDs found (without "ses-" prefix), or `None`.
+    pub fn sessions(&self) -> BidsResult<Option<&Vec<Arc<str>>>> {
+        if !self.has_sessions { return Ok(None); }
+        self.cached_sessions
+            .get_or_try_init(|| self.fetch_unique_entities("ses", Some("ses-")))
+            .map(Some)
+    }
+
+    /// Returns a sorted list of unique task names found (without "task-" prefix).
+    pub fn tasks(&self) -> BidsResult<&Vec<Arc<str>>> {
+        self.cached_tasks
+            .get_or_try_init(|| self.fetch_unique_entities("task", Some("task-")))
+    }
+
+    // --- Query Builder Access ---
+
+    /// Start building a query to find files within the dataset.
+    pub fn filter(&self) -> impl QueryDsl {
+        QueryBuilderInternal::new(self)
+    }
+
+    // --- Convenience Query Methods ---
+
+    /// Find functional scans (e.g., bold NIfTI). Returns absolute paths.
+    pub fn func_scans(
+        &self,
+        sub: Option<&str>,
+        ses: Option<&str>,
+        task: Option<&str>,
+        run: Option<&str>,
+    ) -> BidsResult<Vec<PathBuf>> {
+        let mut query = self.filter()
+            // .suffix("(bold|cbv)") // Needs regex
+            .suffix("bold")
+            // .extension(".(nii|nii.gz)") // Needs regex
+             .extension(".nii.gz")
+            .raw_only();
+
+        if let Some(s) = sub { query = query.sub(s); }
+        if let Some(s) = ses { query = query.ses(s); }
+        if let Some(t) = task { query = query.task(t); }
+        if let Some(r) = run { query = query.run(r); }
+        query.absolute_paths()
+    }
+
+    /// Find event files (.tsv). Returns absolute paths.
+    pub fn event_files(
+        &self,
+        sub: Option<&str>,
+        ses: Option<&str>,
+        task: Option<&str>,
+        run: Option<&str>,
+    ) -> BidsResult<Vec<PathBuf>> {
+        let mut query = self.filter()
+            .datatype(crate::entities::BidsDatatype::Func)
+            .suffix("events")
+            .extension(".tsv")
+            .raw_only();
+
+        if let Some(s) = sub { query = query.sub(s); }
+        if let Some(s) = ses { query = query.ses(s); }
+        if let Some(t) = task { query = query.task(t); }
+        if let Some(r) = run { query = query.run(r); }
+        query.absolute_paths()
+    }
+
+    /// Find preprocessed scans. Returns absolute paths.
+    pub fn preproc_scans(
+        &self,
+        sub: Option<&str>,
+        ses: Option<&str>,
+        task: Option<&str>,
+        run: Option<&str>,
+        space: Option<&str>,
+        desc: Option<&str>,
+        suffix: Option<&str>,
+        extension: Option<&str>,
+    ) -> BidsResult<Vec<PathBuf>> {
+        let mut query = self.filter().derivatives_only();
+        if let Some(s) = sub { query = query.sub(s); }
+        if let Some(s) = ses { query = query.ses(s); }
+        if let Some(t) = task { query = query.task(t); }
+        if let Some(r) = run { query = query.run(r); }
+        if let Some(s) = space { query = query.space(s); }
+        if let Some(d) = desc { query = query.desc(d); }
+        if let Some(suf) = suffix { query = query.suffix(suf); }
+        if let Some(ext) = extension { query = query.extension(ext); }
+        query.absolute_paths()
+    }
+
+    // --- Data Reading Methods ---
+
+    /// Reads matching event files into a single Polars DataFrame.
+    pub fn read_events(
+        &self,
+        sub: Option<&str>,
+        ses: Option<&str>,
+        task: Option<&str>,
+        run: Option<&str>,
+    ) -> BidsResult<DataFrame> {
+        let event_file_paths = self.event_files(sub, ses, task, run)?;
+        let query_summary = format!("sub={:?}, ses={:?}, task={:?}, run={:?}", sub, ses, task, run);
+        if event_file_paths.is_empty() {
+            return Err(BidsError::NotFound { kind: "event", query_summary });
+        }
+        io::scan_and_concat_tsvs(
+            &event_file_paths, &self.files, &self.root_path, "event",
+            Some(NullValues::AllColumns(vec!["n/a".to_string(), "NA".to_string()])),
+        )
+    }
+
+    /// Reads matching confound files into a single Polars DataFrame.
+    pub fn read_confounds(
+        &self,
+        sub: Option<&str>,
+        ses: Option<&str>,
+        task: Option<&str>,
+        run: Option<&str>,
+    ) -> BidsResult<DataFrame> {
+        if !self.has_derivatives {
+            return Err(BidsError::NotFound {
+                kind: "confound", query_summary: "Project has no derivatives".to_string()
+            });
+        }
+        let mut query = self.filter()
+            // .suffix("(confounds|regressors|timeseries)") // Needs regex
+            .suffix("timeseries") // Temp
+            .extension(".tsv").derivatives_only();
+
+        if let Some(s) = sub { query = query.sub(s); }
+        if let Some(s) = ses { query = query.ses(s); }
+        if let Some(t) = task { query = query.task(t); }
+        if let Some(r) = run { query = query.run(r); }
+
+        let confound_file_paths = query.absolute_paths()?;
+        let query_summary = format!("sub={:?}, ses={:?}, task={:?}, run={:?} (suffix=timeseries, ext=.tsv)", sub, ses, task, run);
+        if confound_file_paths.is_empty() {
+            return Err(BidsError::NotFound { kind: "confound", query_summary });
+        }
+        io::scan_and_concat_tsvs(
+            &confound_file_paths, &self.files, &self.root_path, "confound",
+            Some(NullValues::AllColumns(vec!["n/a".to_string(), "NA".to_string()])),
+        )
+    }
+
+    // --- Internal Helper ---
+    fn fetch_unique_entities(&self, column_name: &str, prefix_to_strip: Option<&str>) -> BidsResult<Vec<Arc<str>>> {
+        if self.files.height() == 0 { return Ok(Vec::new()); }
+        let column = self.files.column(column_name)?;
+        let unique_series = column.unique()?.sort(false)?;
+
+        let entities: Vec<Arc<str>> = unique_series.utf8()?
+            .into_iter()
+            .filter_map(|opt_s| opt_s.map(|s| {
+                let final_s = prefix_to_strip.and_then(|prefix| s.strip_prefix(prefix)).unwrap_or(s);
+                Arc::from(final_s)
+            }))
+            .collect();
+        Ok(entities)
+    }
+}
+
+// Corrected IntoIterator implementation
+impl<'a> IntoIterator for &'a BidsProject {
+     type Item = Row<'a>; // Yields Rows (references to data)
+     type IntoIter = polars::frame::RowIter<'a>;
+
+     fn into_iter(self) -> Self::IntoIter {
+          self.files.iter() // DataFrame::iter returns RowIter
+     }
+}
+
+// --- Pipe Helper Trait ---
+// (Moved to internal module)
+```
+
+---
+**`src/_internal.rs`** (Internal utils, including `Pipe` trait)
+---
+```rust
+// This module is for internal helper functions or types that are not part of
+// the public API but might be shared across other internal modules.
+
+// --- Pipe Helper Trait ---
+// Allows writing `result.pipe(Ok)` instead of `Ok(result)`
+pub(crate) trait Pipe: Sized {
+    fn pipe<F, R>(self, f: F) -> R where F: FnOnce(Self) -> R { f(self) }
+}
+impl<T> Pipe for T {}
+
+```
+
+---
+**`src/prelude.rs`** (Public API exports - simplified)
+---
+```rust
+//! Public API prelude for the `bids-reader-rs` crate.
+//!
+//! Import this module to get convenient access to the main types and traits:
+//! ```
+//! use bids_reader_rs::prelude::*;
+//! ```
+
+pub use crate::project::BidsProject;
+// pub use crate::builder::BidsProjectBuilder; // Exclude builder from prelude
+pub use crate::query_builder::QueryDsl; // Expose the trait for type hinting
+pub use crate::entities::{FileRow, BidsDatatype}; // Expose core data types
+pub use crate::error::{BidsError, BidsResult}; // Expose error types
+```
+
+---
+**`src/lib.rs`** (Main library entry point - added `color-eyre` hook)
+---
+```rust
+#![doc = include_str!("../README.md")]
+#![cfg_attr(doc, deny(rustdoc::broken_intra_doc_links))]
+#![cfg_attr(doc, deny(missing_docs))]
+
+mod builder;
+mod entities;
+mod error;
+mod io;
+mod parser;
+mod project;
+mod query_builder;
+mod _internal; // Renamed internal module
+
+pub mod prelude;
+
+/// Sets up logging and error reporting for CLI applications.
+///
+/// Requires the `cli` feature to be enabled.
+/// Initializes `env_logger` and installs `color_eyre` for panic and error reporting.
+#[cfg(feature = "cli")]
+#[doc(cfg(feature = "cli"))]
+pub fn setup_cli_logging_and_errors(level: log::LevelFilter) -> BidsResult<()> {
+    env_logger::Builder::new().filter_level(level).init();
+    color_eyre::install().map_err(|e|
+        // Convert eyre::Report into a basic BidsError for simplicity here
+        // A more robust solution might involve a dedicated error variant
+        BidsError::NotImplemented(format!("Failed to install color-eyre: {}", e))
+    )?;
+    Ok(())
+}
+
+/// Basic logging setup without error reporting hooks.
+/// Does not require any features.
+pub fn setup_basic_logging(level: log::LevelFilter) {
+     env_logger::Builder::new().filter_level(level).init();
+}
+```
+
+This version addresses the compile-time issues, incorporates the API refinements, uses `Arc<str>` consistently, unifies the error types, and adjusts defaults and implementation details based on the feedback. It sets a strong foundation for adding the deferred features like advanced query options and performance tuning later.

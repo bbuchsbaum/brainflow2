@@ -1,0 +1,35 @@
+{
+  "name": "brainflow2",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "High-performance neuroimaging visualization platform",
+  "scripts": {
+    "dev": "cargo tauri dev",
+    "build": "pnpm -r build && cargo tauri build",
+    "test:unit": "pnpm -r test:unit",
+    "test:e2e": "pnpm --filter ui test:e2e",
+    "test": "pnpm test:unit && cargo test",
+    "lint": "pnpm -r lint && cargo clippy",
+    "format": "pnpm -r format && cargo fmt",
+    "check": "pnpm -r check",
+    "bench": "cargo bench",
+    "ts-bindings": "cargo xtask ts-bindings",
+    "clean": "pnpm -r clean && cargo clean",
+    "typecheck": "pnpm -r typecheck"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0"
+  },
+  "engines": {
+    "node": ">=18.0.0",
+    "pnpm": ">=8.0.0"
+  },
+  "packageManager": "pnpm@8.15.1",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/bbuchsbaum/brainflow2"
+  },
+  "license": "MIT",
+  "author": "Brainflow Team"
+}

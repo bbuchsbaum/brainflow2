@@ -1,0 +1,207 @@
+name: Brainflow CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  schema-validation:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: 20
+    
+    - name: Install ajv-cli
+      run: npm install -g ajv-cli
+    
+    - name: Validate JSON Schemas
+      run: |
+        # Validate all JSON schema files against the JSON Schema specification
+        for schema in schemas/0.1.1/*.json; do
+          echo "Validating schema: $schema"
+          ajv compile -s $schema
+        done
+    
+    # Additional future steps to validate example files against schemas can be added here
+    
+  api-package:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: 20
+    
+    - name: Setup pnpm
+      uses: pnpm/action-setup@v3
+      with:
+        version: 8
+    
+    - name: Install dependencies
+      run: pnpm install
+    
+    - name: Build API package
+      run: pnpm --filter @brainflow/api build
+    
+    - name: Check package (dry-run)
+      run: cd packages/api && pnpm publish --dry-run
+      
+  ts-bindings:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Setup Rust
+      uses: dtolnay/rust-toolchain@stable
+      
+    - name: Cache Rust dependencies
+      uses: Swatinem/rust-cache@v2
+    
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: 20
+    
+    - name: Setup pnpm
+      uses: pnpm/action-setup@v3
+      with:
+        version: 8
+        
+    - name: Install dependencies
+      run: pnpm install
+        
+    - name: Generate TypeScript bindings
+      run: pnpm ts-bindings
+      
+    - name: Verify TypeScript files are generated
+      run: |
+        if [ ! -d "packages/api/src/generated" ]; then
+          echo "Generated directory not found!"
+          exit 1
+        fi
+        if [ ! -f "packages/api/src/generated/index.ts" ]; then
+          echo "Generated index.ts not found!"
+          exit 1
+        fi 
+        
+  build-and-test:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Setup Rust
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        targets: wasm32-unknown-unknown # Ensure WASM target is available
+
+    - name: Cache Rust dependencies
+      uses: Swatinem/rust-cache@v2
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: 20
+
+    - name: Setup pnpm
+      uses: pnpm/action-setup@v3
+      with:
+        version: 8
+
+    - name: Get pnpm store directory
+      shell: bash
+      run: |
+        echo "STORE_PATH=$(pnpm store path --silent)" >> $GITHUB_ENV
+
+    - name: Cache pnpm dependencies
+      uses: actions/cache@v4
+      with:
+        path: ${{ env.STORE_PATH }}
+        key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
+        restore-keys: |
+          ${{ runner.os }}-pnpm-store-
+
+    - name: Install dependencies
+      run: pnpm install
+
+    - name: Build Rust Project (all crates)
+      run: cargo build --all-targets --verbose
+
+    - name: Run Rust Unit Tests (all crates)
+      run: cargo test --verbose
+
+    - name: Run TypeScript Unit Tests
+      run: pnpm test:unit
+
+    - name: Install Playwright Browsers
+      if: matrix.os == 'ubuntu-latest' # Only run E2E on Linux for now
+      run: pnpm --filter ui exec playwright install --with-deps
+      
+    - name: Run Playwright E2E Tests
+      if: matrix.os == 'ubuntu-latest' # Only run E2E on Linux for now
+      run: pnpm test:e2e
+
+    - name: Build WASM Target (for volmath - adjust if needed)
+      run: cargo build --package volmath --target wasm32-unknown-unknown --verbose
+
+    - name: Run Upload Benchmark
+      if: matrix.os == 'ubuntu-latest' # Run only where GPU likely available
+      run: cargo bench -p render_loop --bench upload -- --save-baseline upload
+
+    - name: Install jq for benchmark check
+      if: matrix.os == 'ubuntu-latest'
+      run: sudo apt-get update && sudo apt-get install -y jq
+      shell: bash
+
+    - name: Check Upload Throughput Gate (> 2 GB/s)
+      if: matrix.os == 'ubuntu-latest'
+      run: |
+        JSON_PATH="target/criterion/Texture Upload/upload_256_R32F_write_texture/new/estimates.json"
+        BYTES=67108864 # 256*256*256*4
+        if [ ! -f "$JSON_PATH" ]; then
+          echo "Benchmark JSON not found at $JSON_PATH"
+          # Allow benchmark to pass if JSON not found (e.g., first run), but warn
+          echo "::warning::Benchmark JSON not found, skipping throughput check."
+          exit 0 
+        fi
+        # Extract mean point estimate in ns, convert bytes/ns -> GB/s
+        MEAN_NS=$(jq '.mean.point_estimate' "$JSON_PATH")
+        if [ -z "$MEAN_NS" ] || [ "$MEAN_NS" == "null" ] || [ "$(echo "$MEAN_NS <= 0" | bc -l)" -eq 1 ]; then
+          echo "Could not extract valid mean time (ns > 0) from $JSON_PATH. Value: $MEAN_NS"
+          # Allow benchmark to pass if value invalid, but warn
+          echo "::warning::Could not extract valid mean time, skipping throughput check."
+          exit 0 
+        fi
+        # Calculate throughput: (Bytes / ns) * (1e9 ns / s) / (1024^3 B / GB)
+        THR_GBPS=$(awk -v bytes="$BYTES" -v ns="$MEAN_NS" 'BEGIN { printf "%.2f", bytes / ns * 1e9 / (1024*1024*1024) }')
+        echo "Measured Throughput: $THR_GBPS GB/s"
+        PASS=$(awk -v thr="$THR_GBPS" 'BEGIN { print (thr >= 2.0) }')
+        if [ "$PASS" -eq 1 ]; then
+          echo "Throughput meets target (>= 2.0 GB/s)."
+          exit 0
+        else
+          # Fail the build if throughput is below target
+          echo "::error::Throughput ($THR_GBPS GB/s) is BELOW target (2.0 GB/s)!"
+          exit 1 
+        fi
+      shell: bash
+
+    # Optional: Add wasm-pack test step if needed and feasible across platforms
+    # - name: Install wasm-pack
+    #   run: cargo install wasm-pack
+    # - name: Run WASM Tests (volmath)
+    #   run: cd core/volmath && wasm-pack test --headless --chrome # Firefox might be flaky 

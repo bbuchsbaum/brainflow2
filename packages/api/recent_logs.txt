@@ -1,0 +1,200 @@
+[2025-06-25][00:21:50][api_bridge][INFO] RenderLoopService initialized and shaders loaded successfully
+[2025-06-25][00:21:50][api_bridge][INFO] Bridge: create_offscreen_render_target called with 512x512
+Creating offscreen render target: 512x512
+Offscreen render target created successfully
+[2025-06-25][00:21:50][api_bridge][INFO] Offscreen render target created successfully: 512x512
+Bridge: fs_list_directory called for path: /Users/bbuchsbaum/code/brainflow2
+Bridge: load_file called with path: /Users/bbuchsbaum/code/brainflow2/test-data/unit/toy_t1w.nii.gz
+[2025-06-25][00:21:51][nifti_loader][INFO] NiftiLoader: Loading file: /Users/bbuchsbaum/code/brainflow2/test-data/unit/toy_t1w.nii.gz
+[2025-06-25][00:21:51][nifti_loader][INFO] Successfully processed NIFTI data into VolumeSendable::Discriminant(0)
+[2025-06-25][00:21:51][nifti_loader][INFO] Successfully loaded volume: dims=[10, 10, 10], dtype=f32
+[2025-06-25][00:21:51][nifti_loader][INFO] Successfully processed NIFTI data into VolumeSendable::Discriminant(0)
+[2025-06-25][00:21:51][api_bridge][INFO] Successfully loaded and stored volume with ID: a67ecd96-1e70-449c-88dd-b53523028eef
+Bridge: init_render_loop called
+[2025-06-25][00:21:51][api_bridge][INFO] RenderLoopService already initialized
+Menu event received: MenuId("mount_directory")
+Mount directory menu item clicked
+Opening mount dialog...
+Dialog setup complete
+Dialog callback triggered with: Some(Path("/Users/bbuchsbaum/code/neuroim2/inst/extdata"))
+Emitting mount-directory-event with path: /Users/bbuchsbaum/code/neuroim2/inst/extdata
+Event emitted successfully
+Bridge: fs_list_directory called for path: /Users/bbuchsbaum/code/neuroim2/inst/extdata
+Update dynamic menus called with 1 mounted directories
+Bridge: fs_list_directory called for path: /Users/bbuchsbaum/code/neuroim2/inst/extdata
+Bridge: load_file called with path: /Users/bbuchsbaum/code/neuroim2/inst/extdata/global_mask2.nii.gz
+[2025-06-25][00:22:07][nifti_loader][INFO] NiftiLoader: Loading file: /Users/bbuchsbaum/code/neuroim2/inst/extdata/global_mask2.nii.gz
+[2025-06-25][00:22:07][nifti_loader][INFO] Successfully processed NIFTI data into VolumeSendable::Discriminant(2)
+[2025-06-25][00:22:07][nifti_loader][INFO] Successfully loaded volume: dims=[64, 64, 25], dtype=u8
+[2025-06-25][00:22:07][nifti_loader][INFO] Successfully processed NIFTI data into VolumeSendable::Discriminant(2)
+[2025-06-25][00:22:07][api_bridge][INFO] Successfully loaded and stored volume with ID: d5322860-7052-467b-93b1-aa11e50d28f0
+8:31:46 p.m. [vite] (client) page reload src/routes/orthoview-demo/+page.svelte
+Bridge: init_render_loop called
+[2025-06-25][00:31:46][api_bridge][INFO] RenderLoopService already initialized
+Bridge: init_render_loop called
+[2025-06-25][00:31:46][api_bridge][INFO] RenderLoopService already initialized
+[2025-06-25][00:31:46][api_bridge][INFO] Bridge: create_offscreen_render_target called with 512x512
+Creating offscreen render target: 512x512
+Offscreen render target created successfully
+[2025-06-25][00:31:46][api_bridge][INFO] Offscreen render target created successfully: 512x512
+[2025-06-25][00:31:46][api_bridge][INFO] Bridge: create_offscreen_render_target called with 512x512
+Creating offscreen render target: 512x512
+Offscreen render target created successfully
+[2025-06-25][00:31:46][api_bridge][INFO] Offscreen render target created successfully: 512x512
+Bridge: fs_list_directory called for path: /Users/bbuchsbaum/code/brainflow2
+Bridge: load_file called with path: /Users/bbuchsbaum/code/brainflow2/test-data/unit/toy_t1w.nii.gz
+[2025-06-25][00:31:48][nifti_loader][INFO] NiftiLoader: Loading file: /Users/bbuchsbaum/code/brainflow2/test-data/unit/toy_t1w.nii.gz
+[2025-06-25][00:31:48][nifti_loader][INFO] Successfully processed NIFTI data into VolumeSendable::Discriminant(0)
+[2025-06-25][00:31:48][nifti_loader][INFO] Successfully loaded volume: dims=[10, 10, 10], dtype=f32
+[2025-06-25][00:31:48][nifti_loader][INFO] Successfully processed NIFTI data into VolumeSendable::Discriminant(0)
+[2025-06-25][00:31:48][api_bridge][INFO] Successfully loaded and stored volume with ID: 0cafa472-bb28-4da1-9907-a48cdcb145cd
+Bridge: init_render_loop called
+[2025-06-25][00:31:48][api_bridge][INFO] RenderLoopService already initialized
+8:31:57 p.m. [vite] (client) hmr update /src/lib/components/views/OrthogonalView.svelte, /src/app.css
+8:32:51 p.m. [vite] (client) page reload .svelte-kit/generated/client/app.js
+Bridge: init_render_loop called
+[2025-06-25][00:32:51][api_bridge][INFO] RenderLoopService already initialized
+Bridge: init_render_loop called
+[2025-06-25][00:32:51][api_bridge][INFO] RenderLoopService already initialized
+[2025-06-25][00:32:51][api_bridge][INFO] Bridge: create_offscreen_render_target called with 512x512
+Creating offscreen render target: 512x512
+[2025-06-25][00:32:51][api_bridge][INFO] Bridge: create_offscreen_render_target called with 512x512
+Offscreen render target created successfully
+[2025-06-25][00:32:51][api_bridge][INFO] Offscreen render target created successfully: 512x512
+Creating offscreen render target: 512x512
+Offscreen render target created successfully
+[2025-06-25][00:32:51][api_bridge][INFO] Offscreen render target created successfully: 512x512
+Bridge: fs_list_directory called for path: /Users/bbuchsbaum/code/brainflow2
+Bridge: load_file called with path: /Users/bbuchsbaum/code/brainflow2/test-data/unit/toy_t1w.nii.gz
+[2025-06-25][00:32:52][nifti_loader][INFO] NiftiLoader: Loading file: /Users/bbuchsbaum/code/brainflow2/test-data/unit/toy_t1w.nii.gz
+[2025-06-25][00:32:52][nifti_loader][INFO] Successfully processed NIFTI data into VolumeSendable::Discriminant(0)
+[2025-06-25][00:32:52][nifti_loader][INFO] Successfully loaded volume: dims=[10, 10, 10], dtype=f32
+[2025-06-25][00:32:52][nifti_loader][INFO] Successfully processed NIFTI data into VolumeSendable::Discriminant(0)
+[2025-06-25][00:32:52][api_bridge][INFO] Successfully loaded and stored volume with ID: 2bf5068f-1628-4581-bcfe-36de1a86da19
+Bridge: init_render_loop called
+[2025-06-25][00:32:52][api_bridge][INFO] RenderLoopService already initialized
+8:35:31 p.m. [vite] (client) page reload src/lib/components/views/OrthogonalViewGPU.svelte
+Bridge: init_render_loop called
+[2025-06-25][00:35:32][api_bridge][INFO] RenderLoopService already initialized
+Bridge: init_render_loop called
+[2025-06-25][00:35:32][api_bridge][INFO] RenderLoopService already initialized
+[2025-06-25][00:35:32][api_bridge][INFO] Bridge: create_offscreen_render_target called with 512x512
+Creating offscreen render target: 512x512
+Offscreen render target created successfully
+[2025-06-25][00:35:32][api_bridge][INFO] Offscreen render target created successfully: 512x512
+[2025-06-25][00:35:32][api_bridge][INFO] Bridge: create_offscreen_render_target called with 512x512
+Creating offscreen render target: 512x512
+Offscreen render target created successfully
+[2025-06-25][00:35:32][api_bridge][INFO] Offscreen render target created successfully: 512x512
+Bridge: fs_list_directory called for path: /Users/bbuchsbaum/code/brainflow2
+Bridge: load_file called with path: /Users/bbuchsbaum/code/brainflow2/test-data/unit/toy_t1w.nii.gz
+[2025-06-25][00:35:33][nifti_loader][INFO] NiftiLoader: Loading file: /Users/bbuchsbaum/code/brainflow2/test-data/unit/toy_t1w.nii.gz
+[2025-06-25][00:35:33][nifti_loader][INFO] Successfully processed NIFTI data into VolumeSendable::Discriminant(0)
+[2025-06-25][00:35:33][nifti_loader][INFO] Successfully loaded volume: dims=[10, 10, 10], dtype=f32
+[2025-06-25][00:35:33][nifti_loader][INFO] Successfully processed NIFTI data into VolumeSendable::Discriminant(0)
+[2025-06-25][00:35:33][api_bridge][INFO] Successfully loaded and stored volume with ID: 047fc0fb-5248-4949-9037-a452cde1da12
+Bridge: init_render_loop called
+[2025-06-25][00:35:33][api_bridge][INFO] RenderLoopService already initialized
+8:35:40 p.m. [vite] (client) page reload src/lib/components/views/OrthogonalViewGPU.svelte
+8:35:40 p.m. [vite] (client) page reload src/lib/components/views/OrthogonalViewGPU.svelte
+Bridge: init_render_loop called
+[2025-06-25][00:35:40][api_bridge][INFO] RenderLoopService already initialized
+Bridge: init_render_loop called
+[2025-06-25][00:35:40][api_bridge][INFO] RenderLoopService already initialized
+[2025-06-25][00:35:40][api_bridge][INFO] Bridge: create_offscreen_render_target called with 512x512
+Creating offscreen render target: 512x512
+Offscreen render target created successfully
+[2025-06-25][00:35:40][api_bridge][INFO] Offscreen render target created successfully: 512x512
+[2025-06-25][00:35:40][api_bridge][INFO] Bridge: create_offscreen_render_target called with 512x512
+Creating offscreen render target: 512x512
+Offscreen render target created successfully
+[2025-06-25][00:35:40][api_bridge][INFO] Offscreen render target created successfully: 512x512
+Bridge: init_render_loop called
+[2025-06-25][00:35:41][api_bridge][INFO] RenderLoopService already initialized
+Bridge: init_render_loop called
+[2025-06-25][00:35:41][api_bridge][INFO] RenderLoopService already initialized
+[2025-06-25][00:35:41][api_bridge][INFO] Bridge: create_offscreen_render_target called with 512x512
+Creating offscreen render target: 512x512
+Offscreen render target created successfully
+[2025-06-25][00:35:41][api_bridge][INFO] Offscreen render target created successfully: 512x512
+[2025-06-25][00:35:41][api_bridge][INFO] Bridge: create_offscreen_render_target called with 512x512
+Creating offscreen render target: 512x512
+Offscreen render target created successfully
+[2025-06-25][00:35:41][api_bridge][INFO] Offscreen render target created successfully: 512x512
+Bridge: fs_list_directory called for path: /Users/bbuchsbaum/code/brainflow2
+Bridge: load_file called with path: /Users/bbuchsbaum/code/brainflow2/test-data/unit/toy_t1w.nii.gz
+[2025-06-25][00:35:42][nifti_loader][INFO] NiftiLoader: Loading file: /Users/bbuchsbaum/code/brainflow2/test-data/unit/toy_t1w.nii.gz
+[2025-06-25][00:35:42][nifti_loader][INFO] Successfully processed NIFTI data into VolumeSendable::Discriminant(0)
+[2025-06-25][00:35:42][nifti_loader][INFO] Successfully loaded volume: dims=[10, 10, 10], dtype=f32
+[2025-06-25][00:35:42][nifti_loader][INFO] Successfully processed NIFTI data into VolumeSendable::Discriminant(0)
+[2025-06-25][00:35:42][api_bridge][INFO] Successfully loaded and stored volume with ID: ec73c672-b896-4334-ac9b-8b23b0b5797d
+Bridge: init_render_loop called
+[2025-06-25][00:35:42][api_bridge][INFO] RenderLoopService already initialized
+8:35:52 p.m. [vite] (client) page reload src/lib/components/views/OrthogonalViewGPU.svelte
+Bridge: init_render_loop called
+[2025-06-25][00:35:52][api_bridge][INFO] RenderLoopService already initialized
+Bridge: init_render_loop called
+[2025-06-25][00:35:52][api_bridge][INFO] RenderLoopService already initialized
+[2025-06-25][00:35:52][api_bridge][INFO] Bridge: create_offscreen_render_target called with 512x512
+Creating offscreen render target: 512x512
+Offscreen render target created successfully
+[2025-06-25][00:35:52][api_bridge][INFO] Offscreen render target created successfully: 512x512
+[2025-06-25][00:35:52][api_bridge][INFO] Bridge: create_offscreen_render_target called with 512x512
+Creating offscreen render target: 512x512
+Offscreen render target created successfully
+[2025-06-25][00:35:52][api_bridge][INFO] Offscreen render target created successfully: 512x512
+Bridge: fs_list_directory called for path: /Users/bbuchsbaum/code/brainflow2
+Bridge: load_file called with path: /Users/bbuchsbaum/code/brainflow2/test-data/unit/toy_t1w.nii.gz
+[2025-06-25][00:35:53][nifti_loader][INFO] NiftiLoader: Loading file: /Users/bbuchsbaum/code/brainflow2/test-data/unit/toy_t1w.nii.gz
+[2025-06-25][00:35:53][nifti_loader][INFO] Successfully processed NIFTI data into VolumeSendable::Discriminant(0)
+[2025-06-25][00:35:53][nifti_loader][INFO] Successfully loaded volume: dims=[10, 10, 10], dtype=f32
+[2025-06-25][00:35:53][nifti_loader][INFO] Successfully processed NIFTI data into VolumeSendable::Discriminant(0)
+[2025-06-25][00:35:53][api_bridge][INFO] Successfully loaded and stored volume with ID: fe82540d-0a92-4975-ad26-a8665de659a2
+Bridge: init_render_loop called
+[2025-06-25][00:35:53][api_bridge][INFO] RenderLoopService already initialized
+8:36:04 p.m. [vite] (client) page reload src/lib/components/views/OrthogonalViewGPU.svelte
+Bridge: init_render_loop called
+[2025-06-25][00:36:04][api_bridge][INFO] RenderLoopService already initialized
+Bridge: init_render_loop called
+[2025-06-25][00:36:04][api_bridge][INFO] RenderLoopService already initialized
+[2025-06-25][00:36:04][api_bridge][INFO] Bridge: create_offscreen_render_target called with 512x512
+Creating offscreen render target: 512x512
+Offscreen render target created successfully
+[2025-06-25][00:36:04][api_bridge][INFO] Offscreen render target created successfully: 512x512
+[2025-06-25][00:36:04][api_bridge][INFO] Bridge: create_offscreen_render_target called with 512x512
+Creating offscreen render target: 512x512
+Offscreen render target created successfully
+[2025-06-25][00:36:04][api_bridge][INFO] Offscreen render target created successfully: 512x512
+Bridge: fs_list_directory called for path: /Users/bbuchsbaum/code/brainflow2
+Bridge: load_file called with path: /Users/bbuchsbaum/code/brainflow2/test-data/unit/toy_t1w.nii.gz
+[2025-06-25][00:36:05][nifti_loader][INFO] NiftiLoader: Loading file: /Users/bbuchsbaum/code/brainflow2/test-data/unit/toy_t1w.nii.gz
+[2025-06-25][00:36:05][nifti_loader][INFO] Successfully processed NIFTI data into VolumeSendable::Discriminant(0)
+[2025-06-25][00:36:05][nifti_loader][INFO] Successfully loaded volume: dims=[10, 10, 10], dtype=f32
+[2025-06-25][00:36:05][nifti_loader][INFO] Successfully processed NIFTI data into VolumeSendable::Discriminant(0)
+[2025-06-25][00:36:05][api_bridge][INFO] Successfully loaded and stored volume with ID: 9645dd0f-2795-4c35-81d4-67329320ddcc
+Bridge: init_render_loop called
+[2025-06-25][00:36:05][api_bridge][INFO] RenderLoopService already initialized
+8:38:53 p.m. [vite] (client) hmr update /src/lib/components/MountableTreeBrowser.svelte, /src/app.css, /src/lib/components/views/VolumeView.svelte, /src/lib/components/panels/LayerPanel.svelte, /src/lib/components/panels/LayerControls.svelte, /src/lib/components/views/OrthogonalView.svelte
+8:39:04 p.m. [vite] (client) hmr update /src/lib/components/MountableTreeBrowser.svelte, /src/app.css, /src/lib/components/views/VolumeView.svelte, /src/lib/components/panels/LayerPanel.svelte, /src/lib/components/panels/LayerControls.svelte, /src/lib/components/views/OrthogonalView.svelte
+8:50:42 p.m. [vite] (client) page reload .svelte-kit/generated/client/app.js
+Bridge: init_render_loop called
+[2025-06-25][00:50:42][api_bridge][INFO] RenderLoopService already initialized
+Bridge: init_render_loop called
+[2025-06-25][00:50:42][api_bridge][INFO] RenderLoopService already initialized
+[2025-06-25][00:50:42][api_bridge][INFO] Bridge: create_offscreen_render_target called with 512x512
+Creating offscreen render target: 512x512
+Offscreen render target created successfully
+[2025-06-25][00:50:42][api_bridge][INFO] Offscreen render target created successfully: 512x512
+[2025-06-25][00:50:42][api_bridge][INFO] Bridge: create_offscreen_render_target called with 512x512
+Creating offscreen render target: 512x512
+Offscreen render target created successfully
+[2025-06-25][00:50:42][api_bridge][INFO] Offscreen render target created successfully: 512x512
+Bridge: fs_list_directory called for path: /Users/bbuchsbaum/code/brainflow2
+Bridge: load_file called with path: /Users/bbuchsbaum/code/brainflow2/test-data/unit/toy_t1w.nii.gz
+[2025-06-25][00:50:43][nifti_loader][INFO] NiftiLoader: Loading file: /Users/bbuchsbaum/code/brainflow2/test-data/unit/toy_t1w.nii.gz
+[2025-06-25][00:50:43][nifti_loader][INFO] Successfully processed NIFTI data into VolumeSendable::Discriminant(0)
+[2025-06-25][00:50:43][nifti_loader][INFO] Successfully loaded volume: dims=[10, 10, 10], dtype=f32
+[2025-06-25][00:50:43][nifti_loader][INFO] Successfully processed NIFTI data into VolumeSendable::Discriminant(0)
+[2025-06-25][00:50:43][api_bridge][INFO] Successfully loaded and stored volume with ID: 4a9bf0e1-a4a4-438d-80e2-70123ac76453
+Bridge: init_render_loop called
+[2025-06-25][00:50:43][api_bridge][INFO] RenderLoopService already initialized

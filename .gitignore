@@ -1,0 +1,16 @@
+# Brainflow Project Ignore List
+/target
+/node_modules
+/ui/build/
+/ui/.svelte-kit/
+dist # For plugins/tools builds
+pnpm-lock.yaml
+.DS_Store
+*.log
+*.wasm # Unless explicitly checked in for tests
+*.spv # Compiled shaders
+.idea/
+.vscode/settings.json # Allow user-specific vscode settings
+
+# Tauri Runtime
+src-tauri/target/

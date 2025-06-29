@@ -1,0 +1,6 @@
+# Track test data files using Git LFS
+test-data/unit/** filter=lfs diff=lfs merge=lfs -text
+test-data/overlays/** filter=lfs diff=lfs merge=lfs -text
+
+# Ensure yaml manifest is treated as text
+test-data/refs/datasets.yaml text 

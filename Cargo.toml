@@ -1,0 +1,45 @@
+[workspace]
+members = [
+  "src-tauri",
+  "core/render_loop",
+  "core/filesystem",
+  "core/loaders/nifti",
+  "core/loaders/gifti",
+  "core/volmath",
+  "core/api_bridge",
+  "core/bridge_types",
+  "xtask", "core/colormap",
+]
+resolver = "2"
+
+# Add workspace dependencies section
+[workspace.dependencies]
+tauri = { version = "^2.2", features = ["wry"] }
+tauri-build = { version = "^2.2" }
+tauri-plugin-opener = "^2.2"
+tauri-plugin-log = "^2.2"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt", "json"] }
+
+# --- Graphics dependencies (Pinning to WGPU 0.25 stack) ---
+wgpu = "0.20.0"
+# wgpu-core = "25.0.0"
+# wgpu-hal = "25.0.0"
+# wgpu-types = "25.0.0"
+# naga = "25.0.0"
+
+# --- Other common dependencies can be added here ---
+nalgebra = "0.32"
+serde = { version = "1.0", features = ["derive"] }
+ts-rs = "10.1"
+anyhow = "1.0"
+# thiserror = "1.0"
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true
+opt-level = 'z'
+panic = 'abort'
+
+# [patch.crates-io] section removed 

@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-update-frame-for-synchronized-view"
+description = "Enables the update_frame_for_synchronized_view command without any pre-configured scope."
+commands.allow = ["update_frame_for_synchronized_view"]
+
+[[permission]]
+identifier = "deny-update-frame-for-synchronized-view"
+description = "Denies the update_frame_for_synchronized_view command without any pre-configured scope."
+commands.deny = ["update_frame_for_synchronized_view"]

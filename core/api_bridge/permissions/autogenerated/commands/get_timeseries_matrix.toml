@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-get-timeseries-matrix"
+description = "Enables the get_timeseries_matrix command without any pre-configured scope."
+commands.allow = ["get_timeseries_matrix"]
+
+[[permission]]
+identifier = "deny-get-timeseries-matrix"
+description = "Denies the get_timeseries_matrix command without any pre-configured scope."
+commands.deny = ["get_timeseries_matrix"]

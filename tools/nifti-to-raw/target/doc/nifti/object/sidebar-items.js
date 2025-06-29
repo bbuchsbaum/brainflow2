@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"struct":["GenericNiftiObject","ReaderOptions","ReaderStreamedOptions"],"trait":["NiftiObject"],"type":["GzDecodedFile","InMemNiftiObject","MaybeGzDecodedFile","StreamedNiftiObject"]};

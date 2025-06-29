@@ -1,0 +1,258 @@
+name: Quality Gates
+
+on:
+  pull_request:
+    branches: [ main, develop ]
+  push:
+    branches: [ main, develop ]
+
+jobs:
+  # Code Quality Checks
+  quality:
+    name: Code Quality
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Setup Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          components: rustfmt, clippy
+          
+      - name: Setup Node
+        uses: actions/setup-node@v3
+        with:
+          node-version: 18
+          
+      - name: Install pnpm
+        run: npm install -g pnpm
+        
+      - name: Install dependencies
+        run: |
+          cargo fetch
+          pnpm install
+          
+      # Rust checks
+      - name: Rust Format Check
+        run: cargo fmt --all -- --check
+        
+      - name: Rust Clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+        
+      # TypeScript checks
+      - name: TypeScript Format Check
+        run: pnpm --filter ui format:check
+        
+      - name: TypeScript Lint
+        run: pnpm --filter ui lint
+        
+      - name: TypeScript Type Check
+        run: pnpm --filter ui check
+
+  # Security Audit
+  security:
+    name: Security Audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Rust Security Audit
+        uses: actions-rs/audit-check@v1
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          
+      - name: NPM Security Audit
+        run: pnpm audit --audit-level=high
+
+  # Performance Tests
+  performance:
+    name: Performance Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Setup Environment
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y mesa-utils xvfb
+          
+      - name: Setup Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          
+      - name: Run Performance Benchmarks
+        run: |
+          cargo bench --workspace -- --output-format bencher | tee output.txt
+          
+      - name: Check Performance Regression
+        run: |
+          # Compare with baseline (simplified version)
+          # In real implementation, would compare with previous runs
+          if grep -q "slower" output.txt; then
+            echo "Performance regression detected!"
+            exit 1
+          fi
+
+  # Test Coverage
+  coverage:
+    name: Test Coverage
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Setup Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          
+      - name: Install tarpaulin
+        run: cargo install cargo-tarpaulin
+        
+      - name: Run Coverage
+        run: cargo tarpaulin --workspace --out Xml
+        
+      - name: Upload Coverage
+        uses: codecov/codecov-action@v3
+        with:
+          files: ./cobertura.xml
+          fail_ci_if_error: true
+          
+      - name: Check Coverage Threshold
+        run: |
+          # Extract coverage percentage
+          COVERAGE=$(grep -oP 'line-rate="\K[0-9.]+' cobertura.xml | head -1)
+          COVERAGE_PCT=$(echo "$COVERAGE * 100" | bc)
+          
+          # Fail if below 80%
+          if (( $(echo "$COVERAGE_PCT < 80" | bc -l) )); then
+            echo "Coverage ${COVERAGE_PCT}% is below 80% threshold"
+            exit 1
+          fi
+
+  # Bundle Size Check
+  bundle-size:
+    name: Bundle Size Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Setup Node
+        uses: actions/setup-node@v3
+        with:
+          node-version: 18
+          
+      - name: Install pnpm
+        run: npm install -g pnpm
+        
+      - name: Build Frontend
+        run: |
+          pnpm install
+          pnpm --filter ui build
+          
+      - name: Check Bundle Size
+        run: |
+          # Get bundle sizes
+          BUNDLE_SIZE=$(du -sb ui/build | cut -f1)
+          MAX_SIZE=5242880  # 5MB
+          
+          if [ $BUNDLE_SIZE -gt $MAX_SIZE ]; then
+            echo "Bundle size ${BUNDLE_SIZE} exceeds limit ${MAX_SIZE}"
+            exit 1
+          fi
+          
+      - name: Analyze Bundle
+        run: |
+          cd ui
+          pnpm dlx vite-bundle-visualizer
+
+  # Dependency Check
+  dependencies:
+    name: Dependency Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Check for Outdated Dependencies
+        run: |
+          cargo outdated --exit-code 1
+          
+      - name: Check for Duplicate Dependencies
+        run: |
+          cargo tree --duplicates
+          
+      - name: Check NPM Dependencies
+        run: |
+          pnpm outdated --recursive
+
+  # Architecture Validation
+  architecture:
+    name: Architecture Validation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Check Circular Dependencies
+        run: |
+          cd ui
+          pnpm dlx madge --circular src/
+          
+      - name: Validate Module Boundaries
+        run: |
+          # Check that stores don't import from components
+          if grep -r "from.*components" ui/src/lib/stores/; then
+            echo "Stores should not import from components!"
+            exit 1
+          fi
+          
+          # Check that services don't import from stores
+          if grep -r "from.*stores" ui/src/lib/services/; then
+            echo "Services should not import from stores!"
+            exit 1
+          fi
+
+  # Documentation
+  documentation:
+    name: Documentation Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Check Rust Documentation
+        run: |
+          cargo doc --workspace --no-deps
+          
+      - name: Check TypeScript Documentation Coverage
+        run: |
+          cd ui
+          pnpm dlx typedoc --emit none --validation.invalidLink
+
+  # E2E Visual Tests
+  visual-tests:
+    name: Visual Regression Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Setup Environment
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y mesa-utils xvfb
+          
+      - name: Install Playwright
+        run: |
+          cd ui
+          pnpm dlx playwright install --with-deps
+          
+      - name: Run Visual Tests
+        run: |
+          cd ui
+          xvfb-run -a pnpm test:visual
+          
+      - name: Upload Visual Diff
+        if: failure()
+        uses: actions/upload-artifact@v3
+        with:
+          name: visual-regression-diff
+          path: ui/test-results/

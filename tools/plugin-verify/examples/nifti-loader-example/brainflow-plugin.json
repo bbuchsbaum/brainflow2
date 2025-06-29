@@ -1,0 +1,12 @@
+{
+  "id": "nifti-loader-basic",
+  "name": "NIfTI Loader (Basic)",
+  "version": "0.3.2",
+  "compatibleCore": "^0.1",
+  "type": "loader",
+  "apiVersion": "0.1.1",
+  "entrypoint": "dist/index.js",
+  "description": "Parses .nii/.nii.gz files.",
+  "author": "Brainflow Team",
+  "handles": ["*.nii", "*.nii.gz"]
+} 

@@ -1,0 +1,12 @@
+[package]
+name = "nifti-to-raw"
+version = "0.1.0"
+edition = "2021"
+
+[workspace]
+
+[dependencies]
+nifti = "0.16"
+nalgebra = "0.32"
+serde_json = "1.0"
+anyhow = "1.0"

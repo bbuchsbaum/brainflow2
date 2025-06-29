@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-release-layer-gpu-resources"
+description = "Enables the release_layer_gpu_resources command without any pre-configured scope."
+commands.allow = ["release_layer_gpu_resources"]
+
+[[permission]]
+identifier = "deny-release-layer-gpu-resources"
+description = "Denies the release_layer_gpu_resources command without any pre-configured scope."
+commands.deny = ["release_layer_gpu_resources"]

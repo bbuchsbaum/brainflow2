@@ -1,0 +1,68 @@
+{
+  "ticket_id": "TD-CRIT-INTEG-001",
+  "title": "Fix ts-rs Version Alignment",
+  "status": "not_started",
+  "assignee": "Dev D",
+  "package": "Chain 1",
+  "effort_hours": 4,
+  "timeline": [
+    {
+      "timestamp": "2025-01-21T15:00:00Z",
+      "event": "created",
+      "actor": "system"
+    }
+  ],
+  "test_requirements": [
+    {
+      "name": "version_alignment",
+      "command": "cd xtask && cargo tree | grep ts-rs",
+      "expected": "10.1.0",
+      "status": "pending",
+      "last_run": null
+    },
+    {
+      "name": "no_compilation_errors",
+      "command": "cd xtask && cargo build",
+      "expected": "Finished",
+      "status": "pending", 
+      "last_run": null
+    }
+  ],
+  "acceptance_criteria": [
+    {
+      "criterion": "xtask uses workspace ts-rs version",
+      "met": false,
+      "verified_at": null
+    },
+    {
+      "criterion": "cargo tree shows 10.1.0 for all crates",
+      "met": false,
+      "verified_at": null
+    },
+    {
+      "criterion": "No compilation errors in xtask",
+      "met": false,
+      "verified_at": null
+    },
+    {
+      "criterion": "cargo xtask ts-bindings runs without version errors",
+      "met": false,
+      "verified_at": null
+    }
+  ],
+  "pr_info": {
+    "number": null,
+    "url": null,
+    "status": null,
+    "reviews": []
+  },
+  "dependencies": {
+    "blocks": [
+      "TD-CRIT-INTEG-003",
+      "TD-CRIT-INTEG-004",
+      "TD-CRIT-INTEG-005"
+    ],
+    "blocked_by": []
+  },
+  "notes": []
+}

@@ -1,0 +1,9 @@
+# --- Required for Phase 1 Performance Gates & QA ---
+ds000114_t1w:
+  description: "Sample T1w anatomical from OpenNeuro ds000114 (sub-01)"
+  url: "https://openneuro.s3.amazonaws.com/ds000114/sub-01/anat/sub-01_T1w.nii.gz"
+  sha256: "EXPECTED_SHA256_HASH_FOR_T1W_FILE" # Replace with actual hash once verified
+  size_bytes: 24532876 # Example size, update with actual
+  output_path: "ds000114/sub-01/anat/sub-01_T1w.nii.gz"
+
+# Add more datasets as needed 

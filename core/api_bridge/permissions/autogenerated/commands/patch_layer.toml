@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-patch-layer"
+description = "Enables the patch_layer command without any pre-configured scope."
+commands.allow = ["patch_layer"]
+
+[[permission]]
+identifier = "deny-patch-layer"
+description = "Denies the patch_layer command without any pre-configured scope."
+commands.deny = ["patch_layer"]

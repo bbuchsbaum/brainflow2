@@ -1,0 +1,34 @@
+{
+  "name": "@brainflow/plugin-verify",
+  "version": "0.1.0",
+  "description": "CLI tool to validate Brainflow plugin manifests.",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "plugin-verify": "./dist/cli.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "start": "node ./dist/cli.js",
+    "dev": "tsc -w & node --watch ./dist/cli.js",
+    "lint": "eslint . --ext .ts",
+    "format": "prettier --write ."
+  },
+  "dependencies": {
+    "@types/glob": "^8.1.0",
+    "ajv": "^8.12.0",
+    "ajv-formats": "^2.1.1",
+    "chalk": "^5.4.1",
+    "commander": "^11.1.0",
+    "glob": "^11.0.3"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.17",
+    "eslint": "^8.56.0",
+    "prettier": "^3.2.5",
+    "typescript": "^5.3.3"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

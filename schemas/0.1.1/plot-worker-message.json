@@ -1,0 +1,41 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Plot Worker Message (v0.1.1)",
+  "description": "Structure for messages sent to/from the Plotting Web Worker.",
+  "type": "object",
+  "required": ["type"],
+  "oneOf": [
+    {
+      "properties": {
+        "type": { "const": "init" },
+        "canvas": { 
+          "description": "Transferred OffscreenCanvas.",
+          "type": "object"
+        }
+      },
+      "required": ["type", "canvas"]
+    },
+    {
+      "properties": {
+        "type": { "enum": ["plot", "resize"] },
+        "payload": {
+          "type": "object", "required": ["targetId"],
+          "properties": {
+            "targetId": { "type": "string" },
+            "sample":   { "description": "DataSample object (generic in v0.1.1).", "type": "object" },
+            "options":  { "description": "PlotOptions object (generic in v0.1.1).", "type": "object" },
+            "width":    { "type": "number", "minimum": 0 },
+            "height":   { "type": "number", "minimum": 0 }
+          },
+          "additionalProperties": false
+        }
+      },
+      "required": ["type", "payload"]
+    },
+    {
+      "properties": { "type": { "const": "terminate" } },
+      "required": ["type"]
+    }
+  ],
+  "additionalProperties": false
+} 

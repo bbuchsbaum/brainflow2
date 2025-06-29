@@ -1,0 +1,55 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="generator" content="rustdoc"><meta name="description" content="Creates a monomorphized scope for reading or writing with run-time byte order awareness."><title>with_order in byteordered - Rust</title><script>if(window.location.protocol!=="file:")document.head.insertAdjacentHTML("beforeend","SourceSerif4-Regular-6b053e98.ttf.woff2,FiraSans-Italic-81dc35de.woff2,FiraSans-Regular-0fe48ade.woff2,FiraSans-MediumItalic-ccf7e434.woff2,FiraSans-Medium-e1aa3f0a.woff2,SourceCodePro-Regular-8badfe75.ttf.woff2,SourceCodePro-Semibold-aa29a496.ttf.woff2".split(",").map(f=>`<link rel="preload" as="font" type="font/woff2" crossorigin href="../static.files/${f}">`).join(""))</script><link rel="stylesheet" href="../static.files/normalize-9960930a.css"><link rel="stylesheet" href="../static.files/rustdoc-6c3ea77c.css"><meta name="rustdoc-vars" data-root-path="../" data-static-root-path="../static.files/" data-current-crate="byteordered" data-themes="" data-resource-suffix="" data-rustdoc-version="1.86.0 (05f9846f8 2025-03-31)" data-channel="1.86.0" data-search-js="search-581efc7a.js" data-settings-js="settings-6dad6058.js" ><script src="../static.files/storage-3a5871a4.js"></script><script defer src="sidebar-items.js"></script><script defer src="../static.files/main-4d63596a.js"></script><noscript><link rel="stylesheet" href="../static.files/noscript-893ab5e7.css"></noscript><link rel="alternate icon" type="image/png" href="../static.files/favicon-32x32-6580c154.png"><link rel="icon" type="image/svg+xml" href="../static.files/favicon-044be391.svg"></head><body class="rustdoc macro"><!--[if lte IE 11]><div class="warning">This old browser is unsupported and will most likely display funky things.</div><![endif]--><nav class="mobile-topbar"><button class="sidebar-menu-toggle" title="show sidebar"></button></nav><nav class="sidebar"><div class="sidebar-crate"><h2><a href="../byteordered/index.html">byteordered</a><span class="version">0.6.0</span></h2></div><div class="sidebar-elems"><section id="rustdoc-toc"><h2 class="location"><a href="#">with_<wbr>order</a></h2><h3><a href="#">Sections</a></h3><ul class="block top-toc"><li><a href="#examples" title="Examples">Examples</a></li></ul></section><div id="rustdoc-modnav"><h2 class="in-crate"><a href="index.html">In crate byteordered</a></h2></div></div></nav><div class="sidebar-resizer"></div><main><div class="width-limiter"><rustdoc-search></rustdoc-search><section id="main-content" class="content"><div class="main-heading"><div class="rustdoc-breadcrumbs"><a href="index.html">byteordered</a></div><h1>Macro <span class="macro">with_order</span><button id="copy-path" title="Copy item path to clipboard">Copy item path</button></h1><rustdoc-toolbar></rustdoc-toolbar><span class="sub-heading"><a class="src" href="../src/byteordered/lib.rs.html#217-261">Source</a> </span></div><pre class="rust item-decl"><code>macro_rules! with_order {
+    ($byteordered: expr, |$bo: ident| $e: expr) =&gt; { ... };
+    ( ($($src: expr ),*), $endianness: expr, |$($bo: ident ),*| $e: expr ) =&gt; { ... };
+    ($src: expr, $endianness: expr, |$bo: ident| $e: expr ) =&gt; { ... };
+}</code></pre><details class="toggle top-doc" open><summary class="hideme"><span>Expand description</span></summary><div class="docblock"><p>Creates a monomorphized scope for reading or writing with run-time byte
+order awareness.</p>
+<p>The condition of whether to read or write data in big endian or little
+endian is evaluated only once, at the beginning of the scope. The given
+expression <code>$e</code> is then monomorphized for both cases.</p>
+<p>The last argument is not a closure. It is only depicted as one to convey
+the familiar aspect of being provided a local variable. As such, the data
+source and other captured values are moved by default.</p>
+<h2 id="examples"><a class="doc-anchor" href="#examples">§</a>Examples</h2>
+<p>Pass a <a href="struct.ByteOrdered.html"><code>ByteOrdered</code></a> object, or a pair of data (source or destination)
+and endianness (typically <a href="enum.Endianness.html"><code>Endianness</code></a>). What follows is a pseudo-closure
+declaration exposing the same value with the expected byte order awareness.</p>
+
+<div class="example-wrap"><pre class="rust rust-example-rendered"><code><span class="kw">let </span>e: Endianness = get_endianness();
+<span class="kw">let </span><span class="kw-2">mut </span>sink = Vec::new();
+<span class="macro">with_order!</span>(<span class="kw-2">&amp;mut </span>sink, e, |dest| {
+    <span class="comment">// dset is a `ByteOrdered&lt;_, StaticEndianness&lt;_&gt;&gt;`
+    </span>dest.write_u32(<span class="number">8</span>)<span class="question-mark">?</span>;
+    dest.write_u32(<span class="number">1024</span>)<span class="question-mark">?</span>;
+    dest.write_u32(<span class="number">0xF0FF_F0FF</span>)<span class="question-mark">?</span>;
+});
+<span class="macro">assert_eq!</span>(sink.len(), <span class="number">12</span>);</code></pre></div>
+<p>Moreover, you can pass multiple readers or writers to be augmented with
+the same implicit byte order. Note that the macro requires a literal tuple
+expression.</p>
+
+<div class="example-wrap"><pre class="rust rust-example-rendered"><code><span class="kw">let </span>e: Endianness = get_endianness();
+<span class="kw">let </span>(<span class="kw-2">mut </span>sink1, <span class="kw-2">mut </span>sink2) = (Vec::new(), Vec::new());
+<span class="macro">with_order!</span>((<span class="kw-2">&amp;mut </span>sink1, <span class="kw-2">&amp;mut </span>sink2), e, |dest1, dest2| {
+    dest1.write_u32(<span class="number">0x0000_EEFF</span>)<span class="question-mark">?</span>;
+    dest2.write_u32(<span class="number">0xFFEE_0000</span>)<span class="question-mark">?</span>;
+});
+<span class="macro">assert_eq!</span>(<span class="kw-2">&amp;</span>sink1, <span class="kw-2">&amp;</span>[<span class="number">0xFF</span>, <span class="number">0xEE</span>, <span class="number">0x00</span>, <span class="number">0x00</span>]);
+<span class="macro">assert_eq!</span>(<span class="kw-2">&amp;</span>sink2, <span class="kw-2">&amp;</span>[<span class="number">0x00</span>, <span class="number">0x00</span>, <span class="number">0xEE</span>, <span class="number">0xFF</span>]);</code></pre></div>
+<p>One might think that this always improves performance, since a
+runtime-bound <code>ByteOrdered</code> with a sequence of reads/writes would expand
+into one check for each method call:</p>
+
+<div class="example-wrap"><pre class="rust rust-example-rendered"><code><span class="kw">let </span><span class="kw-2">mut </span>dst = ByteOrdered::runtime(Vec::new(), get_endianness());
+<span class="comment">// dynamic dispatch each time (or is it?)
+</span>dst.write_u32(<span class="number">8</span>)<span class="question-mark">?</span>;
+dst.write_u32(<span class="number">1024</span>)<span class="question-mark">?</span>;
+dst.write_u32(<span class="number">0xF0FF_F0FF</span>)<span class="question-mark">?</span>;</code></pre></div>
+<p>However, because the compiler is known to optimize these checks away in
+the same context, making a scope for that purpose is not always necessary.
+On the other hand, this will ensure that deeper function calls are
+monomorphized to a static endianness without making unnecessary run-time
+checks, specifically when function calls are not inlined. It can also be
+seen as yet another way to create and manage data sources/destinations with
+byte order awareness.</p>
+</div></details></section></div></main></body></html>

@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"constant":["MAGIC_CODE_NI1","MAGIC_CODE_NIP1"],"struct":["NiftiHeader"]};

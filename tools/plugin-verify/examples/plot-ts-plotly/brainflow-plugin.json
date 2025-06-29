@@ -1,0 +1,11 @@
+{
+  "id": "plot-ts-plotly",
+  "name": "Voxel Time-series (Plotly)",
+  "version": "0.1.0",
+  "compatibleCore": "^0.1",
+  "type": "plot",
+  "apiVersion": "0.1.1",
+  "entrypoint": "dist/timeSeriesPlot.js",
+  "description": "Renders 1xT Float32Array.",
+  "handles": ["timeseries"]
+} 

@@ -1,0 +1,129 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="generator" content="rustdoc"><meta name="description" content="Public API for a NIFTI volume with full random access to data."><title>RandomAccessNiftiVolume in nifti::volume - Rust</title><script>if(window.location.protocol!=="file:")document.head.insertAdjacentHTML("beforeend","SourceSerif4-Regular-6b053e98.ttf.woff2,FiraSans-Italic-81dc35de.woff2,FiraSans-Regular-0fe48ade.woff2,FiraSans-MediumItalic-ccf7e434.woff2,FiraSans-Medium-e1aa3f0a.woff2,SourceCodePro-Regular-8badfe75.ttf.woff2,SourceCodePro-Semibold-aa29a496.ttf.woff2".split(",").map(f=>`<link rel="preload" as="font" type="font/woff2" crossorigin href="../../static.files/${f}">`).join(""))</script><link rel="stylesheet" href="../../static.files/normalize-9960930a.css"><link rel="stylesheet" href="../../static.files/rustdoc-6c3ea77c.css"><meta name="rustdoc-vars" data-root-path="../../" data-static-root-path="../../static.files/" data-current-crate="nifti" data-themes="" data-resource-suffix="" data-rustdoc-version="1.86.0 (05f9846f8 2025-03-31)" data-channel="1.86.0" data-search-js="search-581efc7a.js" data-settings-js="settings-6dad6058.js" ><script src="../../static.files/storage-3a5871a4.js"></script><script defer src="sidebar-items.js"></script><script defer src="../../static.files/main-4d63596a.js"></script><noscript><link rel="stylesheet" href="../../static.files/noscript-893ab5e7.css"></noscript><link rel="alternate icon" type="image/png" href="../../static.files/favicon-32x32-6580c154.png"><link rel="icon" type="image/svg+xml" href="../../static.files/favicon-044be391.svg"></head><body class="rustdoc trait"><!--[if lte IE 11]><div class="warning">This old browser is unsupported and will most likely display funky things.</div><![endif]--><nav class="mobile-topbar"><button class="sidebar-menu-toggle" title="show sidebar"></button></nav><nav class="sidebar"><div class="sidebar-crate"><h2><a href="../../nifti/index.html">nifti</a><span class="version">0.16.0</span></h2></div><div class="sidebar-elems"><section id="rustdoc-toc"><h2 class="location"><a href="#">Random<wbr>Access<wbr>Nifti<wbr>Volume</a></h2><h3><a href="#required-methods">Required Methods</a></h3><ul class="block"><li><a href="#tymethod.get_f64" title="get_f64">get_f64</a></li></ul><h3><a href="#provided-methods">Provided Methods</a></h3><ul class="block"><li><a href="#method.get_f32" title="get_f32">get_f32</a></li><li><a href="#method.get_i16" title="get_i16">get_i16</a></li><li><a href="#method.get_i32" title="get_i32">get_i32</a></li><li><a href="#method.get_i64" title="get_i64">get_i64</a></li><li><a href="#method.get_i8" title="get_i8">get_i8</a></li><li><a href="#method.get_u16" title="get_u16">get_u16</a></li><li><a href="#method.get_u32" title="get_u32">get_u32</a></li><li><a href="#method.get_u64" title="get_u64">get_u64</a></li><li><a href="#method.get_u8" title="get_u8">get_u8</a></li></ul><h3><a href="#implementors">Implementors</a></h3></section><div id="rustdoc-modnav"><h2><a href="index.html">In nifti::<wbr>volume</a></h2></div></div></nav><div class="sidebar-resizer"></div><main><div class="width-limiter"><rustdoc-search></rustdoc-search><section id="main-content" class="content"><div class="main-heading"><div class="rustdoc-breadcrumbs"><a href="../index.html">nifti</a>::<wbr><a href="index.html">volume</a></div><h1>Trait <span class="trait">RandomAccessNiftiVolume</span><button id="copy-path" title="Copy item path to clipboard">Copy item path</button></h1><rustdoc-toolbar></rustdoc-toolbar><span class="sub-heading"><a class="src" href="../../src/nifti/volume/mod.rs.html#49-206">Source</a> </span></div><pre class="rust item-decl"><code>pub trait RandomAccessNiftiVolume: <a class="trait" href="trait.NiftiVolume.html" title="trait nifti::volume::NiftiVolume">NiftiVolume</a> {
+    // Required method
+    fn <a href="#tymethod.get_f64" class="fn">get_f64</a>(&amp;self, coords: &amp;[<a class="primitive" href="https://doc.rust-lang.org/1.86.0/std/primitive.u16.html">u16</a>]) -&gt; <a class="type" href="../error/type.Result.html" title="type nifti::error::Result">Result</a>&lt;<a class="primitive" href="https://doc.rust-lang.org/1.86.0/std/primitive.f64.html">f64</a>&gt;;
+
+    // Provided methods
+    fn <a href="#method.get_f32" class="fn">get_f32</a>(&amp;self, coords: &amp;[<a class="primitive" href="https://doc.rust-lang.org/1.86.0/std/primitive.u16.html">u16</a>]) -&gt; <a class="type" href="../error/type.Result.html" title="type nifti::error::Result">Result</a>&lt;<a class="primitive" href="https://doc.rust-lang.org/1.86.0/std/primitive.f32.html">f32</a>&gt; { ... }
+<span class="item-spacer"></span>    fn <a href="#method.get_u8" class="fn">get_u8</a>(&amp;self, coords: &amp;[<a class="primitive" href="https://doc.rust-lang.org/1.86.0/std/primitive.u16.html">u16</a>]) -&gt; <a class="type" href="../error/type.Result.html" title="type nifti::error::Result">Result</a>&lt;<a class="primitive" href="https://doc.rust-lang.org/1.86.0/std/primitive.u8.html">u8</a>&gt; { ... }
+<span class="item-spacer"></span>    fn <a href="#method.get_i8" class="fn">get_i8</a>(&amp;self, coords: &amp;[<a class="primitive" href="https://doc.rust-lang.org/1.86.0/std/primitive.u16.html">u16</a>]) -&gt; <a class="type" href="../error/type.Result.html" title="type nifti::error::Result">Result</a>&lt;<a class="primitive" href="https://doc.rust-lang.org/1.86.0/std/primitive.i8.html">i8</a>&gt; { ... }
+<span class="item-spacer"></span>    fn <a href="#method.get_u16" class="fn">get_u16</a>(&amp;self, coords: &amp;[<a class="primitive" href="https://doc.rust-lang.org/1.86.0/std/primitive.u16.html">u16</a>]) -&gt; <a class="type" href="../error/type.Result.html" title="type nifti::error::Result">Result</a>&lt;<a class="primitive" href="https://doc.rust-lang.org/1.86.0/std/primitive.u16.html">u16</a>&gt; { ... }
+<span class="item-spacer"></span>    fn <a href="#method.get_i16" class="fn">get_i16</a>(&amp;self, coords: &amp;[<a class="primitive" href="https://doc.rust-lang.org/1.86.0/std/primitive.u16.html">u16</a>]) -&gt; <a class="type" href="../error/type.Result.html" title="type nifti::error::Result">Result</a>&lt;<a class="primitive" href="https://doc.rust-lang.org/1.86.0/std/primitive.i16.html">i16</a>&gt; { ... }
+<span class="item-spacer"></span>    fn <a href="#method.get_u32" class="fn">get_u32</a>(&amp;self, coords: &amp;[<a class="primitive" href="https://doc.rust-lang.org/1.86.0/std/primitive.u16.html">u16</a>]) -&gt; <a class="type" href="../error/type.Result.html" title="type nifti::error::Result">Result</a>&lt;<a class="primitive" href="https://doc.rust-lang.org/1.86.0/std/primitive.u32.html">u32</a>&gt; { ... }
+<span class="item-spacer"></span>    fn <a href="#method.get_i32" class="fn">get_i32</a>(&amp;self, coords: &amp;[<a class="primitive" href="https://doc.rust-lang.org/1.86.0/std/primitive.u16.html">u16</a>]) -&gt; <a class="type" href="../error/type.Result.html" title="type nifti::error::Result">Result</a>&lt;<a class="primitive" href="https://doc.rust-lang.org/1.86.0/std/primitive.i32.html">i32</a>&gt; { ... }
+<span class="item-spacer"></span>    fn <a href="#method.get_u64" class="fn">get_u64</a>(&amp;self, coords: &amp;[<a class="primitive" href="https://doc.rust-lang.org/1.86.0/std/primitive.u16.html">u16</a>]) -&gt; <a class="type" href="../error/type.Result.html" title="type nifti::error::Result">Result</a>&lt;<a class="primitive" href="https://doc.rust-lang.org/1.86.0/std/primitive.u64.html">u64</a>&gt; { ... }
+<span class="item-spacer"></span>    fn <a href="#method.get_i64" class="fn">get_i64</a>(&amp;self, coords: &amp;[<a class="primitive" href="https://doc.rust-lang.org/1.86.0/std/primitive.u16.html">u16</a>]) -&gt; <a class="type" href="../error/type.Result.html" title="type nifti::error::Result">Result</a>&lt;<a class="primitive" href="https://doc.rust-lang.org/1.86.0/std/primitive.i64.html">i64</a>&gt; { ... }
+}</code></pre><details class="toggle top-doc" open><summary class="hideme"><span>Expand description</span></summary><div class="docblock"><p>Public API for a NIFTI volume with full random access to data.</p>
+<p>This API is currently experimental and will likely be subjected to
+various changes and additions in future versions.</p>
+</div></details><h2 id="required-methods" class="section-header">Required Methods<a href="#required-methods" class="anchor">§</a></h2><div class="methods"><details class="toggle method-toggle" open><summary><section id="tymethod.get_f64" class="method"><a class="src rightside" href="../../src/nifti/volume/mod.rs.html#61">Source</a><h4 class="code-header">fn <a href="#tymethod.get_f64" class="fn">get_f64</a>(&amp;self, coords: &amp;[<a class="primitive" href="https://doc.rust-lang.org/1.86.0/std/primitive.u16.html">u16</a>]) -&gt; <a class="type" href="../error/type.Result.html" title="type nifti::error::Result">Result</a>&lt;<a class="primitive" href="https://doc.rust-lang.org/1.86.0/std/primitive.f64.html">f64</a>&gt;</h4></section></summary><div class="docblock"><p>Fetch a single voxel’s value in the given voxel index coordinates
+as a double precision floating point value.
+All necessary conversions and transformations are made
+when reading the voxel, including scaling. Note that using this
+function continuously to traverse the volume is inefficient.
+Prefer using iterators or the <code>ndarray</code> API for volume traversal.</p>
+<h5 id="errors"><a class="doc-anchor" href="#errors">§</a>Errors</h5>
+<ul>
+<li><code>NiftiError::OutOfBounds</code> if the given coordinates surpass this
+volume’s boundaries.</li>
+</ul>
+</div></details></div><h2 id="provided-methods" class="section-header">Provided Methods<a href="#provided-methods" class="anchor">§</a></h2><div class="methods"><details class="toggle method-toggle" open><summary><section id="method.get_f32" class="method"><a class="src rightside" href="../../src/nifti/volume/mod.rs.html#75-77">Source</a><h4 class="code-header">fn <a href="#method.get_f32" class="fn">get_f32</a>(&amp;self, coords: &amp;[<a class="primitive" href="https://doc.rust-lang.org/1.86.0/std/primitive.u16.html">u16</a>]) -&gt; <a class="type" href="../error/type.Result.html" title="type nifti::error::Result">Result</a>&lt;<a class="primitive" href="https://doc.rust-lang.org/1.86.0/std/primitive.f32.html">f32</a>&gt;</h4></section></summary><div class="docblock"><p>Fetch a single voxel’s value in the given voxel index coordinates
+as a single precision floating point value.
+All necessary conversions and transformations are made
+when reading the voxel, including scaling. Note that using this
+function continuously to traverse the volume is inefficient.
+Prefer using iterators or the <code>ndarray</code> API for volume traversal.</p>
+<h5 id="errors-1"><a class="doc-anchor" href="#errors-1">§</a>Errors</h5>
+<ul>
+<li><code>NiftiError::OutOfBounds</code> if the given coordinates surpass this
+volume’s boundaries.</li>
+</ul>
+</div></details><details class="toggle method-toggle" open><summary><section id="method.get_u8" class="method"><a class="src rightside" href="../../src/nifti/volume/mod.rs.html#91-93">Source</a><h4 class="code-header">fn <a href="#method.get_u8" class="fn">get_u8</a>(&amp;self, coords: &amp;[<a class="primitive" href="https://doc.rust-lang.org/1.86.0/std/primitive.u16.html">u16</a>]) -&gt; <a class="type" href="../error/type.Result.html" title="type nifti::error::Result">Result</a>&lt;<a class="primitive" href="https://doc.rust-lang.org/1.86.0/std/primitive.u8.html">u8</a>&gt;</h4></section></summary><div class="docblock"><p>Fetch a single voxel’s value in the given voxel index coordinates
+as an unsigned 8-bit value.
+All necessary conversions and transformations are made
+when reading the voxel, including scaling. Note that using this
+function continuously to traverse the volume is inefficient.
+Prefer using iterators or the <code>ndarray</code> API for volume traversal.</p>
+<h5 id="errors-2"><a class="doc-anchor" href="#errors-2">§</a>Errors</h5>
+<ul>
+<li><code>NiftiError::OutOfBounds</code> if the given coordinates surpass this
+volume’s boundaries.</li>
+</ul>
+</div></details><details class="toggle method-toggle" open><summary><section id="method.get_i8" class="method"><a class="src rightside" href="../../src/nifti/volume/mod.rs.html#107-109">Source</a><h4 class="code-header">fn <a href="#method.get_i8" class="fn">get_i8</a>(&amp;self, coords: &amp;[<a class="primitive" href="https://doc.rust-lang.org/1.86.0/std/primitive.u16.html">u16</a>]) -&gt; <a class="type" href="../error/type.Result.html" title="type nifti::error::Result">Result</a>&lt;<a class="primitive" href="https://doc.rust-lang.org/1.86.0/std/primitive.i8.html">i8</a>&gt;</h4></section></summary><div class="docblock"><p>Fetch a single voxel’s value in the given voxel index coordinates
+as a signed 8-bit value.
+All necessary conversions and transformations are made
+when reading the voxel, including scaling. Note that using this
+function continuously to traverse the volume is inefficient.
+Prefer using iterators or the <code>ndarray</code> API for volume traversal.</p>
+<h5 id="errors-3"><a class="doc-anchor" href="#errors-3">§</a>Errors</h5>
+<ul>
+<li><code>NiftiError::OutOfBounds</code> if the given coordinates surpass this
+volume’s boundaries.</li>
+</ul>
+</div></details><details class="toggle method-toggle" open><summary><section id="method.get_u16" class="method"><a class="src rightside" href="../../src/nifti/volume/mod.rs.html#123-125">Source</a><h4 class="code-header">fn <a href="#method.get_u16" class="fn">get_u16</a>(&amp;self, coords: &amp;[<a class="primitive" href="https://doc.rust-lang.org/1.86.0/std/primitive.u16.html">u16</a>]) -&gt; <a class="type" href="../error/type.Result.html" title="type nifti::error::Result">Result</a>&lt;<a class="primitive" href="https://doc.rust-lang.org/1.86.0/std/primitive.u16.html">u16</a>&gt;</h4></section></summary><div class="docblock"><p>Fetch a single voxel’s value in the given voxel index coordinates
+as an unsigned 16-bit value.
+All necessary conversions and transformations are made
+when reading the voxel, including scaling. Note that using this
+function continuously to traverse the volume is inefficient.
+Prefer using iterators or the <code>ndarray</code> API for volume traversal.</p>
+<h5 id="errors-4"><a class="doc-anchor" href="#errors-4">§</a>Errors</h5>
+<ul>
+<li><code>NiftiError::OutOfBounds</code> if the given coordinates surpass this
+volume’s boundaries.</li>
+</ul>
+</div></details><details class="toggle method-toggle" open><summary><section id="method.get_i16" class="method"><a class="src rightside" href="../../src/nifti/volume/mod.rs.html#139-141">Source</a><h4 class="code-header">fn <a href="#method.get_i16" class="fn">get_i16</a>(&amp;self, coords: &amp;[<a class="primitive" href="https://doc.rust-lang.org/1.86.0/std/primitive.u16.html">u16</a>]) -&gt; <a class="type" href="../error/type.Result.html" title="type nifti::error::Result">Result</a>&lt;<a class="primitive" href="https://doc.rust-lang.org/1.86.0/std/primitive.i16.html">i16</a>&gt;</h4></section></summary><div class="docblock"><p>Fetch a single voxel’s value in the given voxel index coordinates
+as a signed 16-bit value.
+All necessary conversions and transformations are made
+when reading the voxel, including scaling. Note that using this
+function continuously to traverse the volume is inefficient.
+Prefer using iterators or the <code>ndarray</code> API for volume traversal.</p>
+<h5 id="errors-5"><a class="doc-anchor" href="#errors-5">§</a>Errors</h5>
+<ul>
+<li><code>NiftiError::OutOfBounds</code> if the given coordinates surpass this
+volume’s boundaries.</li>
+</ul>
+</div></details><details class="toggle method-toggle" open><summary><section id="method.get_u32" class="method"><a class="src rightside" href="../../src/nifti/volume/mod.rs.html#155-157">Source</a><h4 class="code-header">fn <a href="#method.get_u32" class="fn">get_u32</a>(&amp;self, coords: &amp;[<a class="primitive" href="https://doc.rust-lang.org/1.86.0/std/primitive.u16.html">u16</a>]) -&gt; <a class="type" href="../error/type.Result.html" title="type nifti::error::Result">Result</a>&lt;<a class="primitive" href="https://doc.rust-lang.org/1.86.0/std/primitive.u32.html">u32</a>&gt;</h4></section></summary><div class="docblock"><p>Fetch a single voxel’s value in the given voxel index coordinates
+as an unsigned 32-bit value.
+All necessary conversions and transformations are made
+when reading the voxel, including scaling. Note that using this
+function continuously to traverse the volume is inefficient.
+Prefer using iterators or the <code>ndarray</code> API for volume traversal.</p>
+<h5 id="errors-6"><a class="doc-anchor" href="#errors-6">§</a>Errors</h5>
+<ul>
+<li><code>NiftiError::OutOfBounds</code> if the given coordinates surpass this
+volume’s boundaries.</li>
+</ul>
+</div></details><details class="toggle method-toggle" open><summary><section id="method.get_i32" class="method"><a class="src rightside" href="../../src/nifti/volume/mod.rs.html#171-173">Source</a><h4 class="code-header">fn <a href="#method.get_i32" class="fn">get_i32</a>(&amp;self, coords: &amp;[<a class="primitive" href="https://doc.rust-lang.org/1.86.0/std/primitive.u16.html">u16</a>]) -&gt; <a class="type" href="../error/type.Result.html" title="type nifti::error::Result">Result</a>&lt;<a class="primitive" href="https://doc.rust-lang.org/1.86.0/std/primitive.i32.html">i32</a>&gt;</h4></section></summary><div class="docblock"><p>Fetch a single voxel’s value in the given voxel index coordinates
+as a signed 32-bit value.
+All necessary conversions and transformations are made
+when reading the voxel, including scaling. Note that using this
+function continuously to traverse the volume is inefficient.
+Prefer using iterators or the <code>ndarray</code> API for volume traversal.</p>
+<h5 id="errors-7"><a class="doc-anchor" href="#errors-7">§</a>Errors</h5>
+<ul>
+<li><code>NiftiError::OutOfBounds</code> if the given coordinates surpass this
+volume’s boundaries.</li>
+</ul>
+</div></details><details class="toggle method-toggle" open><summary><section id="method.get_u64" class="method"><a class="src rightside" href="../../src/nifti/volume/mod.rs.html#187-189">Source</a><h4 class="code-header">fn <a href="#method.get_u64" class="fn">get_u64</a>(&amp;self, coords: &amp;[<a class="primitive" href="https://doc.rust-lang.org/1.86.0/std/primitive.u16.html">u16</a>]) -&gt; <a class="type" href="../error/type.Result.html" title="type nifti::error::Result">Result</a>&lt;<a class="primitive" href="https://doc.rust-lang.org/1.86.0/std/primitive.u64.html">u64</a>&gt;</h4></section></summary><div class="docblock"><p>Fetch a single voxel’s value in the given voxel index coordinates
+as an unsigned 64-bit value.
+All necessary conversions and transformations are made
+when reading the voxel, including scaling. Note that using this
+function continuously to traverse the volume is inefficient.
+Prefer using iterators or the <code>ndarray</code> API for volume traversal.</p>
+<h5 id="errors-8"><a class="doc-anchor" href="#errors-8">§</a>Errors</h5>
+<ul>
+<li><code>NiftiError::OutOfBounds</code> if the given coordinates surpass this
+volume’s boundaries.</li>
+</ul>
+</div></details><details class="toggle method-toggle" open><summary><section id="method.get_i64" class="method"><a class="src rightside" href="../../src/nifti/volume/mod.rs.html#203-205">Source</a><h4 class="code-header">fn <a href="#method.get_i64" class="fn">get_i64</a>(&amp;self, coords: &amp;[<a class="primitive" href="https://doc.rust-lang.org/1.86.0/std/primitive.u16.html">u16</a>]) -&gt; <a class="type" href="../error/type.Result.html" title="type nifti::error::Result">Result</a>&lt;<a class="primitive" href="https://doc.rust-lang.org/1.86.0/std/primitive.i64.html">i64</a>&gt;</h4></section></summary><div class="docblock"><p>Fetch a single voxel’s value in the given voxel index coordinates
+as a signed 64-bit value.
+All necessary conversions and transformations are made
+when reading the voxel, including scaling. Note that using this
+function continuously to traverse the volume is inefficient.
+Prefer using iterators or the <code>ndarray</code> API for volume traversal.</p>
+<h5 id="errors-9"><a class="doc-anchor" href="#errors-9">§</a>Errors</h5>
+<ul>
+<li><code>NiftiError::OutOfBounds</code> if the given coordinates surpass this
+volume’s boundaries.</li>
+</ul>
+</div></details></div><h2 id="implementors" class="section-header">Implementors<a href="#implementors" class="anchor">§</a></h2><div id="implementors-list"><section id="impl-RandomAccessNiftiVolume-for-InMemNiftiVolume" class="impl"><a class="src rightside" href="../../src/nifti/volume/inmem.rs.html#320-360">Source</a><a href="#impl-RandomAccessNiftiVolume-for-InMemNiftiVolume" class="anchor">§</a><h3 class="code-header">impl <a class="trait" href="trait.RandomAccessNiftiVolume.html" title="trait nifti::volume::RandomAccessNiftiVolume">RandomAccessNiftiVolume</a> for <a class="struct" href="inmem/struct.InMemNiftiVolume.html" title="struct nifti::volume::inmem::InMemNiftiVolume">InMemNiftiVolume</a></h3></section><section id="impl-RandomAccessNiftiVolume-for-%26InMemNiftiVolume" class="impl"><a class="src rightside" href="../../src/nifti/volume/inmem.rs.html#362-402">Source</a><a href="#impl-RandomAccessNiftiVolume-for-%26InMemNiftiVolume" class="anchor">§</a><h3 class="code-header">impl&lt;'a&gt; <a class="trait" href="trait.RandomAccessNiftiVolume.html" title="trait nifti::volume::RandomAccessNiftiVolume">RandomAccessNiftiVolume</a> for &amp;'a <a class="struct" href="inmem/struct.InMemNiftiVolume.html" title="struct nifti::volume::inmem::InMemNiftiVolume">InMemNiftiVolume</a></h3></section><section id="impl-RandomAccessNiftiVolume-for-SliceView%3CV%3E" class="impl"><a class="src rightside" href="../../src/nifti/volume/mod.rs.html#301-364">Source</a><a href="#impl-RandomAccessNiftiVolume-for-SliceView%3CV%3E" class="anchor">§</a><h3 class="code-header">impl&lt;V&gt; <a class="trait" href="trait.RandomAccessNiftiVolume.html" title="trait nifti::volume::RandomAccessNiftiVolume">RandomAccessNiftiVolume</a> for <a class="struct" href="struct.SliceView.html" title="struct nifti::volume::SliceView">SliceView</a>&lt;V&gt;<div class="where">where
+    V: <a class="trait" href="trait.RandomAccessNiftiVolume.html" title="trait nifti::volume::RandomAccessNiftiVolume">RandomAccessNiftiVolume</a>,</div></h3></section></div><script src="../../trait.impl/nifti/volume/trait.RandomAccessNiftiVolume.js" async></script></section></div></main></body></html>

@@ -1,0 +1,487 @@
+<script lang="ts">
+  /**
+   * SliceViewerGPU - GPU-accelerated slice viewer with layered display
+   * 
+   * Architecture:
+   * - Base layer: <img> element displaying PNG from GPU render
+   * - Overlay layer: <canvas> for annotations (crosshair, labels, etc.)
+   * - Interaction layer: invisible div for mouse/touch events
+   */
+  import { onMount, onDestroy, createEventDispatcher } from 'svelte';
+  import { GpuRenderManager } from '../gpu/renderManager';
+  import type { ViewFrameExplicit, Vec2, Vec3, Plane } from '../geometry/types';
+  import { 
+    screenToWorld, 
+    worldToScreen, 
+    pan as panFrame, 
+    zoomAroundPoint,
+    createFrameVersionGenerator,
+    makeFrameExplicit
+  } from '../geometry/viewFrameExplicit';
+  import type { VolumeMeta } from '../geometry/types';
+  import { annotationStore } from '../stores/annotationStore';
+  import { AnnotationRenderer } from './annotations/AnnotationRenderer';
+  import type { Annotation } from '../types/annotations';
+  
+  // Props
+  export let volumeMeta: VolumeMeta;
+  export let plane: Plane = 'axial';
+  export let sliceMm = 0;
+  export let zoom = 1;
+  export let pan: Vec2 = { x: 0, y: 0 };
+  export let crosshairWorld: Vec3 | null = null;
+  export let showCrosshair = true;
+  export let layers: Array<{
+    volumeId: string;
+    colormapId: number;
+    opacity: number;
+    window: { level: number; width: number };
+  }> = [];
+  
+  // Dimensions
+  let container: HTMLDivElement;
+  let baseImage: HTMLImageElement;
+  let overlayCanvas: HTMLCanvasElement;
+  let overlayCtx: CanvasRenderingContext2D | null = null;
+  let width = 512;
+  let height = 512;
+  
+  // State
+  let frame: ViewFrameExplicit | null = null;
+  let renderManager: GpuRenderManager | null = null;
+  let imageUrl: string | null = null;
+  let isRendering = false;
+  let lastRenderTime = 0;
+  
+  // Annotation state
+  let annotationRenderer: AnnotationRenderer | null = null;
+  let annotations: Annotation[] = [];
+  let selectedAnnotationIds: Set<string> = new Set();
+  let hoveredAnnotationId: string | null = null;
+  
+  // Subscribe to annotation store
+  const unsubscribeAnnotations = annotationStore.subscribe((state) => {
+    annotations = state.getVisibleAnnotations();
+    selectedAnnotationIds = state.selectedAnnotationIds;
+    hoveredAnnotationId = state.hoveredAnnotationId;
+    
+    // Trigger redraw when annotations change
+    if (overlayCtx && frame) {
+      drawOverlay();
+    }
+  });
+  
+  const dispatch = createEventDispatcher<{
+    click: { world: Vec3; screen: Vec2 };
+    annotationClick: { annotation: Annotation; world: Vec3; screen: Vec2 };
+    pan: { dx: number; dy: number };
+    zoom: { factor: number; focal: Vec3 };
+    frame: ViewFrameExplicit;
+  }>();
+  
+  const getNextVersion = createFrameVersionGenerator();
+  
+  // Initialize GPU render manager
+  onMount(async () => {
+    renderManager = new GpuRenderManager();
+    await renderManager.initialize();
+    
+    // Set up overlay canvas context
+    overlayCtx = overlayCanvas.getContext('2d');
+    
+    // Initialize annotation renderer
+    annotationRenderer = new AnnotationRenderer({
+      defaultColor: '#00ff00',
+      selectedColor: '#ffff00',
+      hoveredColor: '#ff00ff',
+      shadowBlur: 2,
+    });
+    
+    // Initial render
+    updateFrame();
+    
+    // Set up resize observer
+    const resizeObserver = new ResizeObserver(entries => {
+      const entry = entries[0];
+      if (entry) {
+        const rect = entry.contentRect;
+        width = Math.floor(rect.width);
+        height = Math.floor(rect.height);
+        updateFrame();
+      }
+    });
+    resizeObserver.observe(container);
+    
+    return () => {
+      resizeObserver.disconnect();
+    };
+  });
+  
+  onDestroy(() => {
+    renderManager?.dispose();
+    if (imageUrl) {
+      URL.revokeObjectURL(imageUrl);
+    }
+    unsubscribeAnnotations();
+  });
+  
+  // Update frame when parameters change
+  $: if (volumeMeta && renderManager) {
+    updateFrame();
+  }
+  
+  // Update frame and trigger render
+  function updateFrame() {
+    if (!volumeMeta || !renderManager || width === 0 || height === 0) return;
+    
+    frame = makeFrameExplicit(
+      volumeMeta,
+      plane,
+      sliceMm,
+      zoom,
+      pan,
+      { x: width, y: height },
+      getNextVersion
+    );
+    
+    dispatch('frame', frame);
+    requestRender();
+  }
+  
+  // Request GPU render
+  async function requestRender() {
+    if (!renderManager || !frame || isRendering) return;
+    
+    isRendering = true;
+    
+    try {
+      const result = await renderManager.render({
+        frame,
+        layers: layers.map(l => ({
+          ...l,
+          threshold: undefined,
+          blendMode: 'over' as const
+        })),
+        showCrosshair,
+        crosshairWorld: crosshairWorld || [0, 0, 0]
+      });
+      
+      // Convert PNG data to blob URL
+      const blob = new Blob([result.imageData], { type: 'image/png' });
+      const newUrl = URL.createObjectURL(blob);
+      
+      // Clean up old URL
+      if (imageUrl) {
+        URL.revokeObjectURL(imageUrl);
+      }
+      
+      imageUrl = newUrl;
+      lastRenderTime = result.renderTimeMs;
+      
+      // Update overlay after image loads
+      if (baseImage) {
+        baseImage.onload = () => drawOverlay();
+      }
+    } catch (error) {
+      console.error('GPU render failed:', error);
+    } finally {
+      isRendering = false;
+    }
+  }
+  
+  // Draw overlay annotations
+  function drawOverlay() {
+    if (!overlayCtx || !frame) return;
+    
+    overlayCtx.clearRect(0, 0, width, height);
+    
+    // Draw crosshair if enabled
+    if (showCrosshair && crosshairWorld) {
+      const screenPos = worldToScreen(frame, crosshairWorld);
+      if (screenPos) {
+        overlayCtx.strokeStyle = '#00ff00';
+        overlayCtx.lineWidth = 1;
+        overlayCtx.beginPath();
+        
+        // Horizontal line
+        overlayCtx.moveTo(0, screenPos.y);
+        overlayCtx.lineTo(width, screenPos.y);
+        
+        // Vertical line
+        overlayCtx.moveTo(screenPos.x, 0);
+        overlayCtx.lineTo(screenPos.x, height);
+        
+        overlayCtx.stroke();
+      }
+    }
+    
+    // Draw annotations
+    if (annotationRenderer && annotations.length > 0) {
+      // Filter annotations to only show those on or near the current slice
+      const sliceAnnotations = filterAnnotationsForSlice(annotations, plane, sliceMm);
+      
+      annotationRenderer.render(
+        overlayCtx,
+        sliceAnnotations,
+        frame,
+        selectedAnnotationIds,
+        hoveredAnnotationId
+      );
+    }
+    
+    // Draw render time indicator
+    if (lastRenderTime > 0) {
+      overlayCtx.fillStyle = 'rgba(255, 255, 255, 0.8)';
+      overlayCtx.font = '12px monospace';
+      overlayCtx.fillText(`${lastRenderTime.toFixed(1)}ms`, 5, height - 5);
+    }
+  }
+  
+  // Filter annotations based on slice position
+  function filterAnnotationsForSlice(annotations: Annotation[], plane: Plane, sliceMm: number, tolerance = 5): Annotation[] {
+    return annotations.filter(annotation => {
+      const coord = annotation.worldCoord;
+      
+      switch (plane) {
+        case 'axial':
+          return Math.abs(coord.z - sliceMm) <= tolerance;
+        case 'coronal':
+          return Math.abs(coord.y - sliceMm) <= tolerance;
+        case 'sagittal':
+          return Math.abs(coord.x - sliceMm) <= tolerance;
+        default:
+          return true;
+      }
+    });
+  }
+  
+  // Mouse interaction handlers
+  let isDragging = false;
+  let lastMousePos: Vec2 | null = null;
+  
+  function handleMouseDown(e: MouseEvent) {
+    if (e.button === 0) { // Left button
+      isDragging = true;
+      lastMousePos = { x: e.clientX, y: e.clientY };
+      e.preventDefault();
+    }
+  }
+  
+  function handleMouseMove(e: MouseEvent) {
+    if (!frame) return;
+    
+    const rect = container.getBoundingClientRect();
+    const screen: Vec2 = {
+      x: e.clientX - rect.left,
+      y: e.clientY - rect.top
+    };
+    
+    if (isDragging && lastMousePos) {
+      const dx = e.clientX - lastMousePos.x;
+      const dy = e.clientY - lastMousePos.y;
+      
+      // Pan the view
+      frame = panFrame(frame, -dx, -dy, getNextVersion);
+      dispatch('pan', { dx: -dx, dy: -dy });
+      dispatch('frame', frame);
+      
+      lastMousePos = { x: e.clientX, y: e.clientY };
+      requestRender();
+    } else {
+      // Check for annotation hover
+      const world = screenToWorld(frame, screen);
+      const hoveredAnnotation = findAnnotationAtPosition(world, screen);
+      
+      if (hoveredAnnotation) {
+        if (hoveredAnnotation.id !== hoveredAnnotationId) {
+          annotationStore.getState().setHoveredAnnotation(hoveredAnnotation.id);
+          container.style.cursor = 'pointer';
+        }
+      } else if (hoveredAnnotationId) {
+        annotationStore.getState().setHoveredAnnotation(null);
+        container.style.cursor = 'crosshair';
+      }
+    }
+  }
+  
+  // Find annotation at position
+  function findAnnotationAtPosition(world: Vec3, screen: Vec2): Annotation | null {
+    const sliceAnnotations = filterAnnotationsForSlice(annotations, plane, sliceMm);
+    
+    // Check in reverse order (top to bottom)
+    for (let i = sliceAnnotations.length - 1; i >= 0; i--) {
+      const annotation = sliceAnnotations[i];
+      const annotationScreen = worldToScreen(frame!, annotation.worldCoord);
+      
+      if (!annotationScreen) continue;
+      
+      // Simple distance check - can be refined per annotation type
+      const distance = Math.sqrt(
+        Math.pow(screen.x - annotationScreen.x, 2) + 
+        Math.pow(screen.y - annotationScreen.y, 2)
+      );
+      
+      // Adjust hit tolerance based on annotation type
+      let tolerance = 10;
+      if (annotation.type === 'marker') {
+        tolerance = (annotation as any).size / 2 + 5;
+      } else if (annotation.type === 'text') {
+        tolerance = 20;
+      }
+      
+      if (distance <= tolerance) {
+        return annotation;
+      }
+    }
+    
+    return null;
+  }
+  
+  function handleMouseUp(e: MouseEvent) {
+    if (e.button === 0 && !isDragging && frame) {
+      // Click event - convert to world coordinates
+      const rect = container.getBoundingClientRect();
+      const screen: Vec2 = {
+        x: e.clientX - rect.left,
+        y: e.clientY - rect.top
+      };
+      
+      const world = screenToWorld(frame, screen);
+      
+      // Check if clicking on annotation
+      const clickedAnnotation = findAnnotationAtPosition(world, screen);
+      if (clickedAnnotation) {
+        const store = annotationStore.getState();
+        if (e.shiftKey || e.ctrlKey || e.metaKey) {
+          // Multi-select
+          store.selectAnnotation(clickedAnnotation.id, true);
+        } else {
+          // Single select
+          store.selectAnnotation(clickedAnnotation.id, false);
+        }
+        
+        // Dispatch annotation click event
+        dispatch('annotationClick', { annotation: clickedAnnotation, world, screen });
+      } else {
+        // Clear selection if not clicking on annotation
+        if (!e.shiftKey && !e.ctrlKey && !e.metaKey) {
+          annotationStore.getState().clearSelection();
+        }
+        
+        // Dispatch regular click event
+        dispatch('click', { world, screen });
+      }
+    }
+    
+    isDragging = false;
+    lastMousePos = null;
+  }
+  
+  function handleWheel(e: WheelEvent) {
+    if (!frame) return;
+    
+    e.preventDefault();
+    
+    // Get mouse position in screen coordinates
+    const rect = container.getBoundingClientRect();
+    const screen: Vec2 = {
+      x: e.clientX - rect.left,
+      y: e.clientY - rect.top
+    };
+    
+    // Convert to world coordinates for zoom focal point
+    const worldPoint = screenToWorld(frame, screen);
+    
+    // Calculate zoom factor
+    const zoomDelta = e.deltaY > 0 ? 0.9 : 1.1;
+    
+    // Zoom around the mouse position
+    frame = zoomAroundPoint(frame, worldPoint, zoomDelta, getNextVersion);
+    dispatch('zoom', { factor: zoomDelta, focal: worldPoint });
+    dispatch('frame', frame);
+    
+    requestRender();
+  }
+</script>
+
+<div 
+  bind:this={container}
+  class="slice-viewer-gpu"
+  on:mousedown={handleMouseDown}
+  on:mousemove={handleMouseMove}
+  on:mouseup={handleMouseUp}
+  on:mouseleave={handleMouseUp}
+  on:wheel={handleWheel}
+>
+  <!-- Base image layer -->
+  {#if imageUrl}
+    <img 
+      bind:this={baseImage}
+      src={imageUrl} 
+      alt="Slice view"
+      class="base-image"
+      style="width: {width}px; height: {height}px;"
+    />
+  {/if}
+  
+  <!-- Overlay canvas for annotations -->
+  <canvas 
+    bind:this={overlayCanvas}
+    width={width}
+    height={height}
+    class="overlay-canvas"
+  />
+  
+  <!-- Loading indicator -->
+  {#if isRendering}
+    <div class="loading-indicator">
+      <div class="spinner" />
+    </div>
+  {/if}
+</div>
+
+<style>
+  .slice-viewer-gpu {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    background: #000;
+    cursor: crosshair;
+  }
+  
+  .base-image {
+    position: absolute;
+    top: 0;
+    left: 0;
+    image-rendering: pixelated; /* Preserve pixel accuracy */
+    user-select: none;
+  }
+  
+  .overlay-canvas {
+    position: absolute;
+    top: 0;
+    left: 0;
+    pointer-events: none;
+  }
+  
+  .loading-indicator {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+  }
+  
+  .spinner {
+    width: 40px;
+    height: 40px;
+    border: 3px solid rgba(255, 255, 255, 0.3);
+    border-top-color: white;
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+  }
+  
+  @keyframes spin {
+    to { transform: rotate(360deg); }
+  }
+</style>

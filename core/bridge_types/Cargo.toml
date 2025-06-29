@@ -1,0 +1,20 @@
+[package]
+name = "bridge_types"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "export_types"
+path = "src/bin/export_types.rs"
+
+[dependencies]
+serde = { workspace = true } # Inherit version/features from workspace
+thiserror = "1.0"                           # For BridgeError derive
+async-trait = "0.1"                         # For Loader trait
+volmath = { path = "../volmath" }             # For types used in VolumeSendable, BridgeError, VolumeHandleInfo etc.
+# uuid = { version = "1.4", features = ["v4"] } # Add if needed for ID generation within this crate
+# Add other dependencies like wgpu if strictly required by moved types 
+# Add dependency needed for From<RenderLoopError>
+render_loop = { path = "../render_loop" } 
+nalgebra = { version = "0.32", features = ["serde-serialize"] } # Add nalgebra 
+ts-rs = { workspace = true } # For generating TypeScript types 
