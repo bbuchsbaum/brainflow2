@@ -1,0 +1,78 @@
+/* Global slider fix to ensure thumb visibility */
+
+/* Reset any global styles that might hide the thumb */
+input[type="range"] {
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  appearance: none;
+}
+
+/* Ensure thumb is visible on all range inputs */
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none !important;
+  appearance: none !important;
+  opacity: 1 !important;
+  visibility: visible !important;
+}
+
+input[type="range"]::-moz-range-thumb {
+  -moz-appearance: none !important;
+  appearance: none !important;
+  opacity: 1 !important;
+  visibility: visible !important;
+  border: none !important;
+}
+
+/* Specific fix for slice sliders */
+.slice-slider::-webkit-slider-thumb,
+.orthogonal-view-slider::-webkit-slider-thumb {
+  width: 16px !important;
+  height: 16px !important;
+  background: #22c55e !important;
+  background-color: #22c55e !important;
+  border-radius: 50% !important;
+  cursor: pointer !important;
+  display: block !important;
+  position: relative !important;
+  top: 0 !important;
+  margin-top: -6px !important;
+}
+
+.slice-slider::-moz-range-thumb,
+.orthogonal-view-slider::-moz-range-thumb {
+  width: 16px !important;
+  height: 16px !important;
+  background: #22c55e !important;
+  background-color: #22c55e !important;
+  border-radius: 50% !important;
+  cursor: pointer !important;
+  display: block !important;
+  position: relative !important;
+}
+
+/* Make sure track is visible too */
+.slice-slider::-webkit-slider-runnable-track,
+.orthogonal-view-slider::-webkit-slider-runnable-track {
+  height: 4px !important;
+  background: #4a4a4a !important;
+  border-radius: 2px !important;
+}
+
+.slice-slider::-moz-range-track,
+.orthogonal-view-slider::-moz-range-track {
+  height: 4px !important;
+  background: #4a4a4a !important;
+  border-radius: 2px !important;
+}
+
+/* Ensure slider container doesn't hide overflow */
+.slice-slider-container {
+  overflow: visible !important;
+}
+
+.slice-slider,
+.orthogonal-view-slider {
+  overflow: visible !important;
+  position: relative !important;
+  z-index: 1 !important;
+}

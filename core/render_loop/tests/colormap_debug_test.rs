@@ -1,7 +1,7 @@
 // Debug test to verify colormap indices
 
 use render_loop::{RenderLoopService, LayerInfo, BlendMode, ThresholdMode};
-use volmath::DenseVolume3;
+use volmath::{DenseVolume3, NeuroSpaceExt};
 use volmath::space::{NeuroSpace3, NeuroSpaceImpl};
 use nalgebra::{Matrix4, Vector3};
 
@@ -20,8 +20,8 @@ fn test_colormap_indices() {
         let dims = [4, 4, 4];
         let data = vec![0.5f32; 64];
         let transform = Matrix4::new_translation(&Vector3::new(-2.0, -2.0, -2.0));
-        let space = NeuroSpace3(volmath::space::NeuroSpaceImpl::from_affine_matrix4(dims, transform));
-        let volume = DenseVolume3::from_data(space, data);
+        let space = NeuroSpace3::new(<volmath::NeuroSpace as NeuroSpaceExt>::from_affine_matrix4(dims.to_vec(), transform).expect("Failed to create NeuroSpace"));
+        let volume = DenseVolume3::from_data(space.0, data);
         
         let (handle, tfm) = service.upload_volume_3d(&volume)
             .expect("Failed to upload volume");
@@ -41,6 +41,7 @@ fn test_colormap_indices() {
             threshold_range: (-f32::INFINITY, f32::INFINITY),
             threshold_mode: ThresholdMode::Range,
             texture_coords: (0.0, 0.0, 1.0, 1.0),
+            is_mask: false,
         };
         
         println!("Layer info: colormap_id = {}, atlas_index = {}", layer.colormap_id, layer.atlas_index);

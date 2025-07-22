@@ -16,6 +16,10 @@ fn main() {
         eprintln!("Failed to export TimeSeriesResult: {}", e);
     }
     
+    if let Err(e) = VolumeBounds::export_all() {
+        eprintln!("Failed to export VolumeBounds: {}", e);
+    }
+    
     if let Err(e) = LayerGpuResources::export_all() {
         eprintln!("Failed to export LayerGpuResources: {}", e);
     }

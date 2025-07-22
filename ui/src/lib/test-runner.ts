@@ -51,7 +51,7 @@ export async function runTauriAPITests(): Promise<TestResult[]> {
     // Test 4: Test loading a file
     await runTest('Load test NIFTI file', async () => {
         const { invoke } = await import('@tauri-apps/api/core');
-        const result = await invoke('plugin:api-bridge|load_file', {
+        const result = await invoke<{ id: string; name: string; }>('plugin:api-bridge|load_file', {
             path: '/Users/bbuchsbaum/code/brainflow2/test-data/unit/toy_t1w.nii.gz'
         });
         if (!result?.id || !result?.name) {

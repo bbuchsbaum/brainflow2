@@ -1,0 +1,140 @@
+/* 
+ * Unified Theme System - Tailwind Blue-Tinted Gray Palette
+ * This provides CSS variables for the entire application
+ */
+
+:root {
+  /* Tailwind's blue-tinted gray palette */
+  --gray-50: #f8fafc;
+  --gray-100: #f1f5f9;
+  --gray-200: #e2e8f0;
+  --gray-300: #cbd5e1;
+  --gray-400: #94a3b8;
+  --gray-500: #64748b;
+  --gray-600: #475569;
+  --gray-700: #334155;
+  --gray-800: #1e293b;
+  --gray-850: #172033;  /* Custom intermediate shade */
+  --gray-900: #0f172a;
+  --gray-925: #0a1120;  /* Custom intermediate shade */
+  --gray-950: #020617;
+  --gray-975: #010410;  /* Custom near-black */
+  
+  /* Tailwind's blue palette for accents */
+  --blue-50: #eff6ff;
+  --blue-100: #dbeafe;
+  --blue-200: #bfdbfe;
+  --blue-300: #93c5fd;
+  --blue-400: #60a5fa;
+  --blue-500: #3b82f6;
+  --blue-600: #2563eb;
+  --blue-700: #1d4ed8;
+  --blue-800: #1e40af;
+  --blue-900: #1e3a8a;
+  --blue-950: #172554;
+  
+  /* Semantic color mappings for consistent usage */
+  --app-bg-primary: var(--gray-950);      /* #020617 - Main app background */
+  --app-bg-secondary: var(--gray-900);    /* #0f172a - Panels, content areas */
+  --app-bg-tertiary: var(--gray-800);     /* #1e293b - Elevated surfaces, tabs */
+  --app-bg-quaternary: var(--gray-850);   /* #172033 - Special sections */
+  --app-bg-hover: rgba(51, 65, 85, 0.5);  /* gray-700 with transparency */
+  --app-bg-active: var(--gray-700);       /* #334155 - Active states */
+  
+  /* Border colors */
+  --app-border: var(--gray-700);          /* #334155 - Main borders */
+  --app-border-subtle: var(--gray-800);   /* #1e293b - Subtle borders */
+  --app-border-strong: var(--gray-600);   /* #475569 - Emphasized borders */
+  
+  /* Text colors */
+  --app-text-primary: var(--gray-200);    /* #e2e8f0 - Main text */
+  --app-text-secondary: var(--gray-400);  /* #94a3b8 - Secondary text */
+  --app-text-muted: var(--gray-500);      /* #64748b - Muted text */
+  --app-text-disabled: var(--gray-600);   /* #475569 - Disabled text */
+  
+  /* Accent colors */
+  --app-accent: var(--blue-500);          /* #3b82f6 - Primary accent */
+  --app-accent-hover: var(--blue-600);    /* #2563eb - Accent hover */
+  --app-accent-active: var(--blue-900);   /* #1e3a8a - Selected/active */
+  --app-accent-text: var(--blue-400);     /* #60a5fa - Accent text */
+  --app-accent-muted: var(--blue-800);    /* #1e40af - Muted accent */
+  
+  /* Component-specific colors */
+  --app-tab-inactive: var(--gray-800);    /* #1e293b */
+  --app-tab-active: var(--gray-700);      /* #334155 */
+  --app-splitter: var(--gray-700);        /* #334155 */
+  --app-splitter-hover: var(--blue-500);  /* #3b82f6 */
+  
+  /* Status colors (using Tailwind's palette) */
+  --app-success: #10b981;  /* green-500 */
+  --app-warning: #f59e0b;  /* amber-500 */
+  --app-error: #ef4444;    /* red-500 */
+  --app-info: var(--blue-500);
+  
+  /* Layer Panel Specific Colors (Adobe/Photoshop style) */
+  --layer-bg: #1E1E1E;
+  --layer-text: #E4E4E4;
+  --layer-divider: #3A3A3A;
+  --layer-hover: #2C2C2C;
+  --layer-selected: #373737;
+  --layer-accent: #4E9AFA;
+  --layer-track-bg: #555;
+  
+  /* Typography */
+  --app-font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Helvetica Neue', Arial, sans-serif;
+  --app-font-mono: 'JetBrains Mono', 'Fira Code', 'Monaco', 'Menlo', 'Consolas', 'Courier New', monospace;
+  
+  /* Font sizes */
+  --app-text-xs: 11px;
+  --app-text-sm: 12px;
+  --app-text-base: 13px;
+  --app-text-md: 14px;
+  --app-text-lg: 16px;
+  
+  /* Spacing */
+  --app-spacing-xs: 4px;
+  --app-spacing-sm: 8px;
+  --app-spacing-md: 12px;
+  --app-spacing-lg: 16px;
+  --app-spacing-xl: 24px;
+  
+  /* Border radius */
+  --app-radius-sm: 4px;
+  --app-radius-md: 6px;
+  --app-radius-lg: 8px;
+  
+  /* Shadows (subtle, for dark theme) */
+  --app-shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.3);
+  --app-shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.4);
+  --app-shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.5);
+  
+  /* Transitions */
+  --app-transition-fast: 150ms ease;
+  --app-transition-base: 200ms ease;
+  --app-transition-slow: 300ms ease;
+}
+
+/* Light theme (future enhancement) */
+.theme-light {
+  /* Invert the color scale for light theme */
+  --app-bg-primary: var(--gray-50);
+  --app-bg-secondary: var(--gray-100);
+  --app-bg-tertiary: var(--gray-200);
+  --app-bg-quaternary: var(--gray-150);
+  --app-bg-hover: rgba(203, 213, 225, 0.5);
+  --app-bg-active: var(--gray-300);
+  
+  --app-border: var(--gray-300);
+  --app-border-subtle: var(--gray-200);
+  --app-border-strong: var(--gray-400);
+  
+  --app-text-primary: var(--gray-900);
+  --app-text-secondary: var(--gray-700);
+  --app-text-muted: var(--gray-600);
+  --app-text-disabled: var(--gray-400);
+  
+  /* Shadows are stronger in light theme */
+  --app-shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+  --app-shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+  --app-shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+}

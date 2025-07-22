@@ -8,9 +8,9 @@ import type { VolumeService } from '$lib/services/VolumeService';
 import type { CrosshairService } from '$lib/services/CrosshairService';
 import type { LayerService } from '$lib/services/LayerService';
 import type { NotificationService } from '$lib/services/NotificationService';
-import { useVolumeStore } from '$lib/stores/volumeStore.clean';
-import { useCrosshairStore } from '$lib/stores/crosshairSlice.clean';
-import { useLayerStore } from '$lib/stores/layerStore.clean';
+import { useVolumeStore } from '$lib/stores/volumeStore';
+import { crosshairSlice } from '$lib/stores/crosshairSlice';
+import { useLayerStore } from '$lib/stores/layerStore';
 
 export interface BridgeConfig {
   eventBus: EventBus;
@@ -42,48 +42,15 @@ export class StoreServiceBridge {
    * Bridge Volume Store with Volume Service
    */
   private bridgeVolumeStore() {
-    const volumeStore = useVolumeStore.getState();
-    
     // Volume loaded - update store
     this.unsubscribes.push(
-      this.config.eventBus.on('volume.loading', ({ path }) => {
-        volumeStore.setLoading(path, true);
-      })
-    );
-    
-    this.unsubscribes.push(
       this.config.eventBus.on('volume.loaded', ({ metadata }) => {
-        volumeStore.addVolume(metadata);
-        volumeStore.setLoading(metadata.path, false);
-      })
-    );
-    
-    this.unsubscribes.push(
-      this.config.eventBus.on('volume.load.failed', ({ path, error }) => {
-        volumeStore.setLoading(path, false);
-        // Store error by path temporarily
-        this.config.notificationService.error(`Failed to load ${path}`, {
-          message: error.message
-        });
-      })
-    );
-    
-    this.unsubscribes.push(
-      this.config.eventBus.on('volume.unloaded', ({ volumeId }) => {
-        volumeStore.removeVolume(volumeId);
-      })
-    );
-    
-    // Subscribe to store changes
-    this.unsubscribes.push(
-      useVolumeStore.subscribe(
-        (state) => state.activeVolumeId,
-        (activeVolumeId) => {
-          if (activeVolumeId) {
-            this.config.eventBus.emit('volume.active.changed', { volumeId: activeVolumeId });
-          }
+        // The current volumeStore only has an 'add' method for VolumeHandleInfo
+        // metadata might be different, so we need to adapt
+        if (metadata && metadata.id) {
+          useVolumeStore.add(metadata as any);
         }
-      )
+      })
     );
   }
 
@@ -91,43 +58,10 @@ export class StoreServiceBridge {
    * Bridge Crosshair Store with Crosshair Service
    */
   private bridgeCrosshairStore() {
-    const crosshairStore = useCrosshairStore.getState();
-    
     // Crosshair updated - update store
     this.unsubscribes.push(
-      this.config.eventBus.on('crosshair.updated', ({ worldCoord, voxelCoords, animated }) => {
-        crosshairStore.setWorldCoord(worldCoord);
-        crosshairStore.setAnimating(animated || false);
-        
-        // Update all voxel coordinates
-        for (const [volumeId, coord] of voxelCoords) {
-          crosshairStore.setVoxelCoord(volumeId, coord);
-        }
-      })
-    );
-    
-    this.unsubscribes.push(
-      this.config.eventBus.on('crosshair.voxel.updated', ({ volumeId, voxelCoord }) => {
-        crosshairStore.setVoxelCoord(volumeId, voxelCoord);
-      })
-    );
-    
-    this.unsubscribes.push(
-      this.config.eventBus.on('crosshair.visibility.changed', ({ visible }) => {
-        crosshairStore.setVisible(visible);
-      })
-    );
-    
-    this.unsubscribes.push(
-      this.config.eventBus.on('crosshair.appearance.changed', ({ color, thickness }) => {
-        crosshairStore.setAppearance({ color, thickness });
-      })
-    );
-    
-    // Volume unloaded - remove voxel coords
-    this.unsubscribes.push(
-      this.config.eventBus.on('volume.unloaded', ({ volumeId }) => {
-        crosshairStore.removeVoxelCoord(volumeId);
+      this.config.eventBus.on('crosshair.updated', ({ worldCoord }) => {
+        crosshairSlice.setCrosshairWorldCoord(worldCoord);
       })
     );
   }
@@ -136,28 +70,8 @@ export class StoreServiceBridge {
    * Bridge Layer Store with Layer Service
    */
   private bridgeLayerStore() {
-    // Layer GPU resources updated
-    this.unsubscribes.push(
-      this.config.eventBus.on('layer.gpu.request.start', ({ layerId }) => {
-        // Update layer loading state
-        this.config.eventBus.emit('layer.loading', { layerId, loading: true });
-      })
-    );
-    
-    this.unsubscribes.push(
-      this.config.eventBus.on('layer.gpu.request.success', ({ layerId, gpuInfo }) => {
-        // Update layer with GPU info
-        this.config.eventBus.emit('layer.gpu.ready', { layerId, gpuInfo });
-        this.config.eventBus.emit('layer.loading', { layerId, loading: false });
-      })
-    );
-    
-    this.unsubscribes.push(
-      this.config.eventBus.on('layer.gpu.request.failed', ({ layerId, error }) => {
-        this.config.eventBus.emit('layer.loading', { layerId, loading: false });
-        this.config.eventBus.emit('layer.error', { layerId, error });
-      })
-    );
+    // Layer events are already handled by the layerStore itself
+    // through event listeners, so no additional bridging needed
   }
 
   /**

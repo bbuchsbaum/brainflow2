@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-clear-render-layers"
+description = "Enables the clear_render_layers command without any pre-configured scope."
+commands.allow = ["clear_render_layers"]
+
+[[permission]]
+identifier = "deny-clear-render-layers"
+description = "Denies the clear_render_layers command without any pre-configured scope."
+commands.deny = ["clear_render_layers"]

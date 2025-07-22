@@ -8,8 +8,8 @@
   import type { VolumeService } from '$lib/services/VolumeService';
   import type { NotificationService } from '$lib/services/NotificationService';
   import type { LayerService } from '$lib/services/LayerService';
-  import { useVolumeStore } from '$lib/stores/volumeStore.clean';
-  import { useLayerStore } from '$lib/stores/layerStoreClean';
+  import { useVolumeStore } from '$lib/stores/volumeStore';
+  import { useLayerStore } from '$lib/stores/layerStore';
   
   // Services
   let volumeService: VolumeService | null = null;

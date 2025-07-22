@@ -1,0 +1,1018 @@
+warning: unused import: `HashSet`
+ --> /Users/bbuchsbaum/code/rust/neuroim-rs/src/connected_components.rs:6:43
+  |
+6 | use std::collections::{HashMap, VecDeque, HashSet};
+  |                                           ^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` on by default
+
+warning: use of deprecated method `ndarray::impl_methods::<impl ndarray::ArrayBase<S, D>>::into_shape`: Use `.into_shape_with_order()` or `.to_shape()`
+   --> /Users/bbuchsbaum/code/rust/neuroim-rs/src/io.rs:100:19
+    |
+100 |         converted.into_shape((nx, ny, nz)).map_err(|e| Error::ShapeError(e.to_string()))?
+    |                   ^^^^^^^^^^
+    |
+    = note: `#[warn(deprecated)]` on by default
+
+warning: use of deprecated method `ndarray::impl_methods::<impl ndarray::ArrayBase<S, D>>::into_shape`: Use `.into_shape_with_order()` or `.to_shape()`
+   --> /Users/bbuchsbaum/code/rust/neuroim-rs/src/io.rs:113:33
+    |
+113 |         let data_4d = converted.into_shape((nx, ny, nz, nt)).map_err(|e| Error::ShapeError(e.to_string()))?;
+    |                                 ^^^^^^^^^^
+
+warning: use of deprecated method `ndarray::impl_methods::<impl ndarray::ArrayBase<S, D>>::into_shape`: Use `.into_shape_with_order()` or `.to_shape()`
+   --> /Users/bbuchsbaum/code/rust/neuroim-rs/src/io.rs:178:26
+    |
+178 |     let data = converted.into_shape((nx, ny, nz, nt)).map_err(|e| Error::ShapeError(e.to_string()))?;
+    |                          ^^^^^^^^^^
+
+warning: unused import: `NeuroVol`
+  --> /Users/bbuchsbaum/code/rust/neuroim-rs/src/resample.rs:11:24
+   |
+11 | use crate::neuro_vol::{NeuroVol, DenseNeuroVol};
+   |                        ^^^^^^^^
+
+warning: unused import: `NeuroVol`
+  --> /Users/bbuchsbaum/code/rust/neuroim-rs/src/filter.rs:54:24
+   |
+54 | use crate::neuro_vol::{NeuroVol, DenseNeuroVol, LogicalNeuroVol};
+   |                        ^^^^^^^^
+
+warning: unused variable: `space`
+   --> /Users/bbuchsbaum/code/rust/neuroim-rs/src/orthogonal_slices.rs:342:9
+    |
+342 |     let space = volume.space();
+    |         ^^^^^ help: if this is intentional, prefix it with an underscore: `_space`
+    |
+    = note: `#[warn(unused_variables)]` on by default
+
+warning: function `world_to_voxel_axes` is never used
+   --> /Users/bbuchsbaum/code/rust/neuroim-rs/src/orthogonal_slices.rs:290:4
+    |
+290 | fn world_to_voxel_axes(affine: &Matrix4<f64>) -> [usize; 3] {
+    |    ^^^^^^^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` on by default
+
+warning: function `sample_plane` is never used
+   --> /Users/bbuchsbaum/code/rust/neuroim-rs/src/orthogonal_slices.rs:505:4
+    |
+505 | fn sample_plane<T>(
+    |    ^^^^^^^^^^^^
+
+warning: function `create_slice_space` is never used
+   --> /Users/bbuchsbaum/code/rust/neuroim-rs/src/orthogonal_slices.rs:684:4
+    |
+684 | fn create_slice_space(
+    |    ^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a constant
+   --> /Users/bbuchsbaum/code/rust/neuroim-rs/src/lib.rs:108:1
+    |
+108 | pub const VERSION: &str = env!("CARGO_PKG_VERSION");
+    | ^^^^^^^^^^^^^^^^^^^^^^^
+    |
+note: the lint level is defined here
+   --> /Users/bbuchsbaum/code/rust/neuroim-rs/src/lib.rs:68:9
+    |
+68  | #![warn(missing_docs)]
+    |         ^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+   --> /Users/bbuchsbaum/code/rust/neuroim-rs/src/axis.rs:103:5
+    |
+103 |     pub i: NamedAxis,
+    |     ^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+   --> /Users/bbuchsbaum/code/rust/neuroim-rs/src/axis.rs:126:5
+    |
+126 |     pub i: NamedAxis,
+    |     ^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+   --> /Users/bbuchsbaum/code/rust/neuroim-rs/src/axis.rs:127:5
+    |
+127 |     pub j: NamedAxis,
+    |     ^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+   --> /Users/bbuchsbaum/code/rust/neuroim-rs/src/axis.rs:150:5
+    |
+150 |     pub i: NamedAxis,
+    |     ^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+   --> /Users/bbuchsbaum/code/rust/neuroim-rs/src/axis.rs:151:5
+    |
+151 |     pub j: NamedAxis,
+    |     ^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+   --> /Users/bbuchsbaum/code/rust/neuroim-rs/src/axis.rs:152:5
+    |
+152 |     pub k: NamedAxis,
+    |     ^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+   --> /Users/bbuchsbaum/code/rust/neuroim-rs/src/axis.rs:185:5
+    |
+185 |     pub i: NamedAxis,
+    |     ^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+   --> /Users/bbuchsbaum/code/rust/neuroim-rs/src/axis.rs:186:5
+    |
+186 |     pub j: NamedAxis,
+    |     ^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+   --> /Users/bbuchsbaum/code/rust/neuroim-rs/src/axis.rs:187:5
+    |
+187 |     pub k: NamedAxis,
+    |     ^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+   --> /Users/bbuchsbaum/code/rust/neuroim-rs/src/axis.rs:188:5
+    |
+188 |     pub l: NamedAxis,
+    |     ^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+   --> /Users/bbuchsbaum/code/rust/neuroim-rs/src/axis.rs:211:5
+    |
+211 |     pub i: NamedAxis,
+    |     ^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+   --> /Users/bbuchsbaum/code/rust/neuroim-rs/src/axis.rs:212:5
+    |
+212 |     pub j: NamedAxis,
+    |     ^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+   --> /Users/bbuchsbaum/code/rust/neuroim-rs/src/axis.rs:213:5
+    |
+213 |     pub k: NamedAxis,
+    |     ^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+   --> /Users/bbuchsbaum/code/rust/neuroim-rs/src/axis.rs:214:5
+    |
+214 |     pub l: NamedAxis,
+    |     ^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+   --> /Users/bbuchsbaum/code/rust/neuroim-rs/src/axis.rs:215:5
+    |
+215 |     pub m: NamedAxis,
+    |     ^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> /Users/bbuchsbaum/code/rust/neuroim-rs/src/error.rs:14:24
+   |
+14 |     IndexOutOfBounds { index: usize, size: usize },
+   |                        ^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> /Users/bbuchsbaum/code/rust/neuroim-rs/src/error.rs:14:38
+   |
+14 |     IndexOutOfBounds { index: usize, size: usize },
+   |                                      ^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> /Users/bbuchsbaum/code/rust/neuroim-rs/src/error.rs:18:21
+   |
+18 |     ShapeMismatch { expected: Vec<usize>, actual: Vec<usize> },
+   |                     ^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> /Users/bbuchsbaum/code/rust/neuroim-rs/src/error.rs:18:43
+   |
+18 |     ShapeMismatch { expected: Vec<usize>, actual: Vec<usize> },
+   |                                           ^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> /Users/bbuchsbaum/code/rust/neuroim-rs/src/orthogonal_slices.rs:85:5
+   |
+85 |     pub sagittal_position: SlicePosition,
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> /Users/bbuchsbaum/code/rust/neuroim-rs/src/orthogonal_slices.rs:86:5
+   |
+86 |     pub coronal_position: SlicePosition,
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a function
+   --> /Users/bbuchsbaum/code/rust/neuroim-rs/src/roi.rs:459:1
+    |
+459 | / pub fn spherical_roi_coords_set<T>(
+460 | |     mask: &LogicalNeuroVol,
+461 | |     centers: &[(i32, i32, i32)],
+462 | |     radius: f64,
+463 | | ) -> Result<Vec<ROICoords>>
+464 | | where
+465 | |     T: Numeric,
+    | |_______________^
+
+warning: `neuroim` (lib) generated 33 warnings (run `cargo fix --lib -p neuroim` to apply 1 suggestion)
+warning: unused import: `nalgebra::Affine3`
+  --> core/volmath/src/lib.rs:14:5
+   |
+14 | use nalgebra::Affine3;
+   |     ^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` on by default
+
+warning: unused variable: `view_frame`
+   --> core/volmath/src/lib.rs:369:49
+    |
+369 | pub fn screen_to_world(screen_coords: [f64; 2], view_frame: &ViewFrame) -> [f64; 3] {
+    |                                                 ^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_view_frame`
+    |
+    = note: `#[warn(unused_variables)]` on by default
+
+warning: unused variable: `view_frame`
+   --> core/volmath/src/lib.rs:374:48
+    |
+374 | pub fn world_to_screen(world_coords: [f64; 3], view_frame: &ViewFrame) -> [f64; 2] {
+    |                                                ^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_view_frame`
+
+warning: unused variable: `volume_meta`
+   --> core/volmath/src/lib.rs:379:32
+    |
+379 | pub fn calculate_field_of_view(volume_meta: &VolumeMeta) -> f64 {
+    |                                ^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_volume_meta`
+
+warning: `volmath` (lib) generated 4 warnings (run `cargo fix --lib -p volmath` to apply 1 suggestion)
+warning: unused import: `Volume`
+ --> core/neuro-types/src/shapes.rs:7:28
+  |
+7 | use crate::{Result, Error, Volume, coordinates};
+  |                            ^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` on by default
+
+warning: variable does not need to be mutable
+   --> core/neuro-types/src/view_rect.rs:157:9
+    |
+157 |     let mut e_y = [col_y[0] / norm_y, col_y[1] / norm_y, col_y[2] / norm_y];
+    |         ----^^^
+    |         |
+    |         help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` on by default
+
+warning: variable does not need to be mutable
+   --> core/neuro-types/src/view_rect.rs:158:9
+    |
+158 |     let mut e_z = [col_z[0] / norm_z, col_z[1] / norm_z, col_z[2] / norm_z];
+    |         ----^^^
+    |         |
+    |         help: remove this `mut`
+
+warning: method `save_debug_images` is never used
+   --> core/neuro-types/src/testing.rs:245:8
+    |
+67  | impl DifferentialTester {
+    | ----------------------- method in this implementation
+...
+245 |     fn save_debug_images(
+    |        ^^^^^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` on by default
+
+warning: function `dot_product` is never used
+   --> core/neuro-types/src/view_rect.rs:180:4
+    |
+180 | fn dot_product(a: [f32; 3], b: [f32; 3]) -> f32 {
+    |    ^^^^^^^^^^^
+
+warning: function `vec3_sub` is never used
+   --> core/neuro-types/src/view_rect.rs:184:4
+    |
+184 | fn vec3_sub(a: [f32; 3], b: [f32; 3]) -> [f32; 3] {
+    |    ^^^^^^^^
+
+warning: function `vec3_add` is never used
+   --> core/neuro-types/src/view_rect.rs:188:4
+    |
+188 | fn vec3_add(a: [f32; 3], b: [f32; 3]) -> [f32; 3] {
+    |    ^^^^^^^^
+
+warning: function `vec3_distance` is never used
+   --> core/neuro-types/src/view_rect.rs:200:4
+    |
+200 | fn vec3_distance(a: [f32; 3], b: [f32; 3]) -> f32 {
+    |    ^^^^^^^^^^^^^
+
+warning: `neuro-types` (lib) generated 8 warnings (run `cargo fix --lib -p neuro-types` to apply 2 suggestions)
+warning: render_loop@0.1.0: Using runtime shader loading for wgpu 0.20 compatibility
+warning: unused import: `volmath::traits::Volume`
+  --> core/render_loop/src/lib.rs:22:5
+   |
+22 | use volmath::traits::Volume;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` on by default
+
+warning: unused import: `volmath::space::GridSpace`
+  --> core/render_loop/src/lib.rs:23:5
+   |
+23 | use volmath::space::GridSpace;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `neuro_types::ViewOrientation`
+   --> core/render_loop/src/view_state.rs:334:13
+    |
+334 |         use neuro_types::ViewOrientation;
+    |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `SliceSpec`
+ --> core/render_loop/src/slice_adapter.rs:6:86
+  |
+6 | use neuro_types::{SliceProvider, CompositeRequest, RgbaImage, Result as NeuroResult, SliceSpec, LayerSpec};
+  |                                                                                      ^^^^^^^^^
+
+warning: unused import: `Matrix4`
+  --> core/render_loop/src/slice_adapter.rs:10:16
+   |
+10 | use nalgebra::{Matrix4, Vector3};
+   |                ^^^^^^^
+
+warning: method `render_to_view_target` is never used
+    --> core/render_loop/src/lib.rs:2797:14
+     |
+319  | impl RenderLoopService {
+     | ---------------------- method in this implementation
+...
+2797 |     async fn render_to_view_target(
+     |              ^^^^^^^^^^^^^^^^^^^^^
+     |
+     = note: `#[warn(dead_code)]` on by default
+
+warning: field `texture` is never read
+  --> core/render_loop/src/multi_texture_manager.rs:32:5
+   |
+31 | struct TextureEntry {
+   |        ------------ field in this struct
+32 |     texture: Texture,
+   |     ^^^^^^^
+
+warning: field `memory_size` is never read
+  --> core/render_loop/src/smart_texture_manager.rs:21:5
+   |
+16 | struct PooledTexture {
+   |        ------------- field in this struct
+...
+21 |     memory_size: u64,
+   |     ^^^^^^^^^^^
+   |
+   = note: `PooledTexture` has a derived impl for the trait `Debug`, but this is intentionally ignored during dead code analysis
+
+warning: field `pipeline_manager` is never read
+  --> core/render_loop/src/optimized_renderer.rs:14:5
+   |
+12 | pub struct OptimizedRenderer {
+   |            ----------------- field in this struct
+13 |     /// Pipeline manager for optimized shaders
+14 |     pipeline_manager: PipelineManager,
+   |     ^^^^^^^^^^^^^^^^
+
+warning: methods `slice_spec_to_view_state`, `layer_spec_to_layer_config`, `convert_blend_mode`, and `detect_slice_orientation` are never used
+   --> core/render_loop/src/slice_adapter.rs:33:8
+    |
+24  | impl GpuSliceAdapter {
+    | -------------------- methods in this implementation
+...
+33  |     fn slice_spec_to_view_state(&self, request: &CompositeRequest) -> NeuroResult<ViewState> {
+    |        ^^^^^^^^^^^^^^^^^^^^^^^^
+...
+72  |     fn layer_spec_to_layer_config(&self, layer: &LayerSpec) -> NeuroResult<LayerConfig> {
+    |        ^^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+92  |     fn convert_blend_mode(&self, mode: neuro_types::BlendMode) -> GpuBlendMode {
+    |        ^^^^^^^^^^^^^^^^^^
+...
+101 |     fn detect_slice_orientation(&self, u_mm: &[f32; 3], v_mm: &[f32; 3]) -> NeuroResult<SliceOrientation> {
+    |        ^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: `render_loop` (lib) generated 10 warnings (run `cargo fix --lib -p render_loop` to apply 5 suggestions)
+warning: unused imports: `BufReader` and `fs::File`
+ --> core/loaders/nifti/src/lib.rs:1:11
+  |
+1 | use std::{fs::File, io::{Read, BufReader}, path::Path};
+  |           ^^^^^^^^             ^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` on by default
+
+warning: unused import: `NeuroSpace3`
+ --> core/loaders/nifti/src/lib.rs:3:29
+  |
+3 | use volmath::{DenseVolume3, NeuroSpace3, DenseVolumeExt};
+  |                             ^^^^^^^^^^^
+
+warning: unused import: `debug`
+ --> core/loaders/nifti/src/lib.rs:5:24
+  |
+5 | use log::{info, error, debug};
+  |                        ^^^^^
+
+warning: unused import: `NeuroSpace`
+  --> core/loaders/nifti/src/lib.rs:10:15
+   |
+10 | use neuroim::{NeuroSpace, DenseNeuroVol, NeuroVol};
+   |               ^^^^^^^^^^
+
+warning: unused import: `DenseVolumeExt`
+ --> core/loaders/nifti/src/lib.rs:3:42
+  |
+3 | use volmath::{DenseVolume3, NeuroSpace3, DenseVolumeExt};
+  |                                          ^^^^^^^^^^^^^^
+
+warning: unused import: `Read`
+ --> core/loaders/nifti/src/lib.rs:1:26
+  |
+1 | use std::{fs::File, io::{Read, BufReader}, path::Path};
+  |                          ^^^^
+
+warning: `nifti-loader` (lib) generated 6 warnings (run `cargo fix --lib -p nifti-loader` to apply 4 suggestions)
+warning: unused import: `colormap_by_name`
+ --> core/neuro-cpu/src/ellipsoid_renderer.rs:8:16
+  |
+8 | use colormap::{colormap_by_name, BuiltinColormap};
+  |                ^^^^^^^^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` on by default
+
+warning: unused variable: `half_width_mm`
+  --> core/neuro-cpu/src/ellipsoid_renderer.rs:55:13
+   |
+55 |         let half_width_mm = (width as f32 * pixel_spacing_mm) / 2.0;
+   |             ^^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_half_width_mm`
+   |
+   = note: `#[warn(unused_variables)]` on by default
+
+warning: unused variable: `half_height_mm`
+  --> core/neuro-cpu/src/ellipsoid_renderer.rs:56:13
+   |
+56 |         let half_height_mm = (height as f32 * pixel_spacing_mm) / 2.0;
+   |             ^^^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_half_height_mm`
+
+warning: `neuro-cpu` (lib) generated 3 warnings (run `cargo fix --lib -p neuro-cpu` to apply 1 suggestion)
+warning: unused import: `GridSpace`
+ --> core/api_bridge/src/lib.rs:3:22
+  |
+3 | use volmath::space::{GridSpace}; // Import GridSpace trait
+  |                      ^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` on by default
+
+warning: unused import: `volmath::traits::Volume`
+ --> core/api_bridge/src/lib.rs:4:5
+  |
+4 | use volmath::traits::Volume; // Import Volume trait
+  |     ^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `std::fs::File`
+   --> core/api_bridge/src/lib.rs:322:25
+    |
+322 |                     use std::fs::File;
+    |                         ^^^^^^^^^^^^^
+
+warning: unused import: `std::io::BufReader`
+   --> core/api_bridge/src/lib.rs:323:25
+    |
+323 |                     use std::io::BufReader;
+    |                         ^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `flate2::read::GzDecoder`
+   --> core/api_bridge/src/lib.rs:324:25
+    |
+324 |                     use flate2::read::GzDecoder;
+    |                         ^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `permission_error` is never used
+  --> core/api_bridge/src/error_helpers.rs:66:8
+   |
+66 | pub fn permission_error(path: &str) -> BridgeError {
+   |        ^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` on by default
+
+warning: function `add_user_context` is never used
+  --> core/api_bridge/src/error_helpers.rs:74:8
+   |
+74 | pub fn add_user_context(error: BridgeError, context: &str) -> BridgeError {
+   |        ^^^^^^^^^^^^^^^^
+
+warning: method `context_any` is never used
+ --> core/api_bridge/src/error_context.rs:7:8
+  |
+5 | pub trait ErrorContext<T> {
+  |           ------------ method in this trait
+6 |     /// Add context to a Result, converting to anyhow::Result
+7 |     fn context_any<C>(self, context: C) -> Result<T>
+  |        ^^^^^^^^^^^
+
+warning: method `context_bridge` is never used
+  --> core/api_bridge/src/error_context.rs:45:8
+   |
+43 | pub trait OptionContext<T> {
+   |           ------------- method in this trait
+44 |     /// Convert None to an error with context
+45 |     fn context_bridge<C>(self, context: C, code: u16) -> bridge_types::BridgeResult<T>
+   |        ^^^^^^^^^^^^^^
+
+warning: function `volume_not_found_context` is never used
+  --> core/api_bridge/src/error_context.rs:71:8
+   |
+71 | pub fn volume_not_found_context(volume_id: &str, operation: &str) -> BridgeError {
+   |        ^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `layer_error_context` is never used
+  --> core/api_bridge/src/error_context.rs:83:8
+   |
+83 | pub fn layer_error_context(layer_id: &str, operation: &str, error: impl std::fmt::Display) -> BridgeError {
+   |        ^^^^^^^^^^^^^^^^^^^
+
+warning: function `gpu_error_context` is never used
+  --> core/api_bridge/src/error_context.rs:96:8
+   |
+96 | pub fn gpu_error_context(operation: &str, error: impl std::fmt::Display) -> BridgeError {
+   |        ^^^^^^^^^^^^^^^^^
+
+warning: methods `user_message` and `suggested_actions` are never used
+  --> core/api_bridge/src/user_errors.rs:7:8
+   |
+5  | pub trait UserFriendly {
+   |           ------------ methods in this trait
+6  |     /// Get a user-friendly error message
+7  |     fn user_message(&self) -> String;
+   |        ^^^^^^^^^^^^
+...
+10 |     fn suggested_actions(&self) -> Vec<String>;
+   |        ^^^^^^^^^^^^^^^^^
+
+warning: function `format_error_for_ui` is never used
+   --> core/api_bridge/src/user_errors.rs:189:8
+    |
+189 | pub fn format_error_for_ui(error: &BridgeError) -> ErrorDisplay {
+    |        ^^^^^^^^^^^^^^^^^^^
+
+warning: function `error_title` is never used
+   --> core/api_bridge/src/user_errors.rs:200:4
+    |
+200 | fn error_title(error: &BridgeError) -> String {
+    |    ^^^^^^^^^^^
+
+warning: function `error_code` is never used
+   --> core/api_bridge/src/user_errors.rs:230:4
+    |
+230 | fn error_code(error: &BridgeError) -> u16 {
+    |    ^^^^^^^^^^
+
+warning: `api-bridge` (lib) generated 16 warnings (run `cargo fix --lib -p api-bridge` to apply 5 suggestions)
+warning: unused import: `OrientedEllipsoid`
+ --> core/neuro-integration-tests/src/simple_visual_dashboard.rs:5:19
+  |
+5 | use neuro_types::{OrientedEllipsoid, OverlapMetrics};
+  |                   ^^^^^^^^^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` on by default
+
+warning: unused imports: `Point3`, `Rotation3`, and `Vector3`
+ --> core/neuro-integration-tests/src/simple_visual_dashboard.rs:6:16
+  |
+6 | use nalgebra::{Point3, Vector3, Rotation3};
+  |                ^^^^^^  ^^^^^^^  ^^^^^^^^^
+
+warning: unused import: `std::path::Path`
+ --> core/neuro-integration-tests/src/simple_visual_dashboard.rs:8:5
+  |
+8 | use std::path::Path;
+  |     ^^^^^^^^^^^^^^^
+
+warning: unused imports: `Point3`, `Rotation3`, and `Vector3`
+ --> core/neuro-integration-tests/src/ellipsoid_visualizer.rs:6:16
+  |
+6 | use nalgebra::{Point3, Vector3, Rotation3, Matrix4};
+  |                ^^^^^^  ^^^^^^^  ^^^^^^^^^
+
+warning: unused import: `ImageBuffer`
+ --> core/neuro-integration-tests/src/ellipsoid_visualizer.rs:7:13
+  |
+7 | use image::{ImageBuffer, Rgb, RgbImage};
+  |             ^^^^^^^^^^^
+
+warning: unused import: `std::fs`
+ --> core/neuro-integration-tests/src/ellipsoid_visualizer.rs:8:5
+  |
+8 | use std::fs;
+  |     ^^^^^^^
+
+warning: unused import: `std::path::Path`
+ --> core/neuro-integration-tests/src/ellipsoid_visualizer.rs:9:5
+  |
+9 | use std::path::Path;
+  |     ^^^^^^^^^^^^^^^
+
+warning: unused import: `OverlapMetrics`
+ --> core/neuro-integration-tests/src/enhanced_visual_dashboard.rs:5:38
+  |
+5 | use neuro_types::{OrientedEllipsoid, OverlapMetrics};
+  |                                      ^^^^^^^^^^^^^^
+
+warning: unused imports: `Point3`, `Rotation3`, and `Vector3`
+ --> core/neuro-integration-tests/src/enhanced_visual_dashboard.rs:6:16
+  |
+6 | use nalgebra::{Point3, Vector3, Rotation3};
+  |                ^^^^^^  ^^^^^^^  ^^^^^^^^^
+
+warning: unused import: `std::path::Path`
+ --> core/neuro-integration-tests/src/enhanced_visual_dashboard.rs:8:5
+  |
+8 | use std::path::Path;
+  |     ^^^^^^^^^^^^^^^
+
+warning: unused imports: `OrientedEllipsoid` and `SliceSpec`
+ --> core/neuro-integration-tests/src/differential_dashboard.rs:7:30
+  |
+7 | use neuro_types::{RgbaImage, OrientedEllipsoid, SliceSpec};
+  |                              ^^^^^^^^^^^^^^^^^  ^^^^^^^^^
+
+warning: unused import: `std::path::Path`
+ --> core/neuro-integration-tests/src/differential_dashboard.rs:9:5
+  |
+9 | use std::path::Path;
+  |     ^^^^^^^^^^^^^^^
+
+warning: unnecessary parentheses around assigned value
+   --> core/neuro-integration-tests/src/differential_dashboard.rs:104:32
+    |
+104 |                     let size = ((total_pixels as f64).sqrt() as u32);
+    |                                ^                                   ^
+    |
+    = note: `#[warn(unused_parens)]` on by default
+help: remove these parentheses
+    |
+104 -                     let size = ((total_pixels as f64).sqrt() as u32);
+104 +                     let size = (total_pixels as f64).sqrt() as u32;
+    |
+
+warning: unnecessary parentheses around assigned value
+   --> core/neuro-integration-tests/src/differential_dashboard.rs:128:32
+    |
+128 |                     let size = ((total_pixels as f64).sqrt() as u32);
+    |                                ^                                   ^
+    |
+help: remove these parentheses
+    |
+128 -                     let size = ((total_pixels as f64).sqrt() as u32);
+128 +                     let size = (total_pixels as f64).sqrt() as u32;
+    |
+
+warning: unnecessary parentheses around assigned value
+   --> core/neuro-integration-tests/src/differential_dashboard.rs:178:32
+    |
+178 |                     let size = ((total_pixels as f64).sqrt() as u32);
+    |                                ^                                   ^
+    |
+help: remove these parentheses
+    |
+178 -                     let size = ((total_pixels as f64).sqrt() as u32);
+178 +                     let size = (total_pixels as f64).sqrt() as u32;
+    |
+
+warning: unnecessary parentheses around assigned value
+   --> core/neuro-integration-tests/src/differential_dashboard.rs:185:28
+    |
+185 |                 let size = ((total_pixels as f64).sqrt() as u32);
+    |                            ^                                   ^
+    |
+help: remove these parentheses
+    |
+185 -                 let size = ((total_pixels as f64).sqrt() as u32);
+185 +                 let size = (total_pixels as f64).sqrt() as u32;
+    |
+
+warning: unused import: `Result as NeuroResult`
+ --> core/neuro-integration-tests/src/orthogonal_renderer.rs:6:41
+  |
+6 | use neuro_types::{SliceSpec, RgbaImage, Result as NeuroResult};
+  |                                         ^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `RgbaImageWithDimensions`
+ --> core/neuro-integration-tests/src/orthogonal_renderer.rs:8:26
+  |
+8 | use crate::image_utils::{RgbaImageWithDimensions, ImageDimensions};
+  |                          ^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused variable: `ellipsoid`
+  --> core/neuro-integration-tests/src/lib_simple.rs:34:13
+   |
+34 |         let ellipsoid = OrientedEllipsoid::new(center, radii, rotation, 1.0)?;
+   |             ^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_ellipsoid`
+   |
+   = note: `#[warn(unused_variables)]` on by default
+
+warning: unused variable: `height`
+   --> core/neuro-integration-tests/src/differential_harness.rs:555:13
+    |
+555 |         let height = 1.0; // Treating as 1D for simplicity, could be enhanced for 2D
+    |             ^^^^^^ help: if this is intentional, prefix it with an underscore: `_height`
+
+warning: `neuro-integration-tests` (lib) generated 20 warnings (run `cargo fix --lib -p neuro-integration-tests` to apply 18 suggestions)
+warning: unused import: `ViewId`
+ --> core/neuro-integration-tests/tests/test_declarative_api.rs:8:42
+  |
+8 | use render_loop::view_state::{ViewState, ViewId, CameraState, SliceOrientation, LayerConfig};
+  |                                          ^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` on by default
+
+warning: unused imports: `Point3`, `Rotation3`, and `Vector3`
+   --> core/neuro-integration-tests/src/ellipsoid_gpu_renderer.rs:270:20
+    |
+270 |     use nalgebra::{Point3, Vector3, Rotation3};
+    |                    ^^^^^^  ^^^^^^^  ^^^^^^^^^
+
+warning: unused import: `BlendMode`
+ --> core/neuro-integration-tests/tests/baseline_imperative_test.rs:5:38
+  |
+5 | use render_loop::{RenderLoopService, BlendMode};
+  |                                      ^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` on by default
+
+warning: variable does not need to be mutable
+   --> core/neuro-integration-tests/tests/enhanced_metrics_test.rs:171:9
+    |
+171 |     let mut img1 = vec![100u8; 64];
+    |         ----^^^^
+    |         |
+    |         help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` on by default
+
+warning: unused import: `SliceOrientation`
+ --> core/neuro-integration-tests/tests/test_mni_declarative.rs:5:42
+  |
+5 | use render_loop::view_state::{ViewState, SliceOrientation, ViewId};
+  |                                          ^^^^^^^^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` on by default
+
+warning: unused import: `ViewId`
+ --> core/neuro-integration-tests/tests/test_declarative_layer_config.rs:6:42
+  |
+6 | use render_loop::view_state::{ViewState, ViewId, CameraState, SliceOrientation, LayerConfig};
+  |                                          ^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` on by default
+
+warning: `neuro-integration-tests` (test "test_declarative_api") generated 1 warning (run `cargo fix --test "test_declarative_api"` to apply 1 suggestion)
+warning: `neuro-integration-tests` (lib test) generated 21 warnings (20 duplicates) (run `cargo fix --lib -p neuro-integration-tests --tests` to apply 1 suggestion)
+warning: `neuro-integration-tests` (test "baseline_imperative_test") generated 1 warning (run `cargo fix --test "baseline_imperative_test"` to apply 1 suggestion)
+warning: `neuro-integration-tests` (test "enhanced_metrics_test") generated 1 warning (run `cargo fix --test "enhanced_metrics_test"` to apply 1 suggestion)
+warning: `neuro-integration-tests` (test "test_mni_declarative") generated 1 warning (run `cargo fix --test "test_mni_declarative"` to apply 1 suggestion)
+warning: `neuro-integration-tests` (test "test_declarative_layer_config") generated 1 warning (run `cargo fix --test "test_declarative_layer_config"` to apply 1 suggestion)
+warning: unused import: `DifferentialTestResult`
+ --> core/neuro-integration-tests/tests/differential_ellipsoid_tests.rs:6:56
+  |
+6 | use neuro_integration_tests::{DifferentialTestHarness, DifferentialTestResult};
+  |                                                        ^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` on by default
+
+warning: unused import: `Rotation3`
+ --> core/neuro-integration-tests/tests/differential_ellipsoid_tests.rs:8:33
+  |
+8 | use nalgebra::{Point3, Vector3, Rotation3};
+  |                                 ^^^^^^^^^
+
+warning: `neuro-integration-tests` (test "differential_ellipsoid_tests") generated 2 warnings (run `cargo fix --test "differential_ellipsoid_tests"` to apply 2 suggestions)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.21s
+     Running unittests src/lib.rs (/Users/bbuchsbaum/code/brainflow2/target/debug/deps/neuro_integration_tests-836975252fc2f6fc)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 8 filtered out; finished in 0.00s
+
+     Running tests/baseline_imperative_test.rs (/Users/bbuchsbaum/code/brainflow2/target/debug/deps/baseline_imperative_test-b7c5674a466e7a91)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 2 filtered out; finished in 0.00s
+
+     Running tests/cpu_gpu_differential.rs (/Users/bbuchsbaum/code/brainflow2/target/debug/deps/cpu_gpu_differential-7dff3ae0d2f3561d)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/differential_dashboard_demo.rs (/Users/bbuchsbaum/code/brainflow2/target/debug/deps/differential_dashboard_demo-5a90a8209750c504)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out; finished in 0.00s
+
+     Running tests/differential_ellipsoid_tests.rs (/Users/bbuchsbaum/code/brainflow2/target/debug/deps/differential_ellipsoid_tests-9ee0feadf7ced845)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 5 filtered out; finished in 0.00s
+
+     Running tests/ellipsoid_validation.rs (/Users/bbuchsbaum/code/brainflow2/target/debug/deps/ellipsoid_validation-2d0c38eee09d89d5)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/ellipsoid_visualization_test.rs (/Users/bbuchsbaum/code/brainflow2/target/debug/deps/ellipsoid_visualization_test-f353019f844f1d2c)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out; finished in 0.00s
+
+     Running tests/enhanced_dashboard_test.rs (/Users/bbuchsbaum/code/brainflow2/target/debug/deps/enhanced_dashboard_test-dda23c84a33be051)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out; finished in 0.00s
+
+     Running tests/enhanced_metrics_test.rs (/Users/bbuchsbaum/code/brainflow2/target/debug/deps/enhanced_metrics_test-f9f43397c23deef1)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 4 filtered out; finished in 0.00s
+
+     Running tests/integrated_ellipsoid_test.rs (/Users/bbuchsbaum/code/brainflow2/target/debug/deps/integrated_ellipsoid_test-d542fc64d98f6ae2)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 2 filtered out; finished in 0.00s
+
+     Running tests/mni_orthogonal_dashboard.rs (/Users/bbuchsbaum/code/brainflow2/target/debug/deps/mni_orthogonal_dashboard-3a537a370a742131)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out; finished in 0.00s
+
+     Running tests/orthogonal_dashboard_demo.rs (/Users/bbuchsbaum/code/brainflow2/target/debug/deps/orthogonal_dashboard_demo-990397640370b17a)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 2 filtered out; finished in 0.00s
+
+     Running tests/simple_ellipsoid_test.rs (/Users/bbuchsbaum/code/brainflow2/target/debug/deps/simple_ellipsoid_test-346bc91d4b431407)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 3 filtered out; finished in 0.00s
+
+     Running tests/test_declarative_api.rs (/Users/bbuchsbaum/code/brainflow2/target/debug/deps/test_declarative_api-17f08fcd1e7b015c)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out; finished in 0.00s
+
+     Running tests/test_declarative_layer_config.rs (/Users/bbuchsbaum/code/brainflow2/target/debug/deps/test_declarative_layer_config-e6e390fd3a9d0377)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out; finished in 0.00s
+
+     Running tests/test_mni_declarative.rs (/Users/bbuchsbaum/code/brainflow2/target/debug/deps/test_mni_declarative-f26ebfea7e375150)
+
+running 1 test
+=== Testing render_gpu_slice_from_view Migration to Declarative API ===
+
+Loading MNI brain template...
+RenderLoopService: Initializing WGPU...
+RenderLoopService: Found adapter: AdapterInfo { name: "Apple M3 Max", vendor: 0, device: 0, device_type: IntegratedGpu, driver: "", driver_info: "", backend: Metal }
+RenderLoopService: Device and Queue obtained successfully.
+RenderLoopService: Frame UBO buffer created.
+RenderLoopService: Crosshair UBO buffer created.
+RenderLoopService: Global bind group layout created.
+Colormap 0: First pixel = [0, 0, 0, 255], Middle pixel = [128, 128, 128, 255]
+Colormap 1: First pixel = [68, 1, 84, 255], Middle pixel = [32, 144, 140, 255]
+Colormap 2: First pixel = [0, 0, 0, 255], Middle pixel = [255, 86, 0, 255]
+Shaders loaded and validated successfully.
+Colormap 0: First pixel = [0, 0, 0, 255], Middle pixel = [128, 128, 128, 255]
+Colormap 1: First pixel = [68, 1, 84, 255], Middle pixel = [32, 144, 140, 255]
+Colormap 2: First pixel = [0, 0, 0, 255], Middle pixel = [255, 86, 0, 255]
+Colormaps initialized successfully.
+Colormap 0: First pixel = [0, 0, 0, 255], Middle pixel = [128, 128, 128, 255]
+Colormap 1: First pixel = [68, 1, 84, 255], Middle pixel = [32, 144, 140, 255]
+Colormap 2: First pixel = [0, 0, 0, 255], Middle pixel = [255, 86, 0, 255]
+
+Testing axial orientation...
+  Crosshair world position: [96.5, 114.5, 96.5]
+  Volume dimensions: [193, 229, 193]
+DEBUG update_frame_ubo: atlas_dim = [256, 256, 256], target_dim = [216, 256], offscreen_dimensions = (216, 256)
+[update_frame_ubo] Writing to GPU buffer:
+  Origin: [-96.000, 96.000, 96.500, 1.000]
+  U: [192.375, 0.000, 0.000, 0.000]
+  V: [-0.000, -228.000, -0.000, 0.000]
+set_crosshair: Setting crosshair to world position [-96.00, 96.00, 96.50]
+  Voxel coords: [0.00, 228.00, 174.50], In bounds: true
+DEBUG: update_all_layer_uniforms - 0 layers
+add_render_layer: Using intensity range: (0, 9848)
+DEBUG: Calling update_all_layer_uniforms after adding layer 0
+  Layer atlas_index 0: dimensions (193, 229, 193)
+  Layer 0 (atlas_index 0) world_to_voxel matrix:
+    [[1.0, 0.0, 0.0, 0.0], [0.0, 1.0, 0.0, 0.0], [0.0, 0.0, 1.0, 0.0], [96.0, 132.0, 78.0, 1.0]]
+DEBUG: update_all_layer_uniforms - 1 layers
+  Layer atlas_index 0: dimensions (193, 229, 193)
+  Layer 0 (atlas_index 0) world_to_voxel matrix:
+    [[1.0, 0.0, 0.0, 0.0], [0.0, 1.0, 0.0, 0.0], [0.0, 0.0, 1.0, 0.0], [96.0, 132.0, 78.0, 1.0]]
+DEBUG: update_all_layer_uniforms - 1 layers
+  Layer atlas_index 0: dimensions (193, 229, 193)
+  Layer 0 (atlas_index 0) world_to_voxel matrix:
+    [[1.0, 0.0, 0.0, 0.0], [0.0, 1.0, 0.0, 0.0], [0.0, 0.0, 1.0, 0.0], [96.0, 132.0, 78.0, 1.0]]
+DEBUG: update_all_layer_uniforms - 1 layers
+  Layer atlas_index 0: dimensions (193, 229, 193)
+  Layer 0 (atlas_index 0) world_to_voxel matrix:
+    [[1.0, 0.0, 0.0, 0.0], [0.0, 1.0, 0.0, 0.0], [0.0, 0.0, 1.0, 0.0], [96.0, 132.0, 78.0, 1.0]]
+DEBUG: update_all_layer_uniforms - 1 layers
+render_to_buffer: Starting render with dimensions 216x256
+render_to_buffer: World-space rendering with 1 active layers
+render_to_buffer: Using pipeline 'slice_world_space'
+ensure_pipeline: Creating pipeline for shader 'slice_world_space' with format Rgba8Unorm
+ensure_pipeline: Successfully created pipeline for shader 'slice_world_space'
+render_to_buffer: Load op: Clear(Color { r: 0.1, g: 0.1, b: 0.15, a: 1.0 }), Store op: Store
+render_to_buffer: Layer storage bind group set
+render_to_buffer: Multi-texture bind group set
+render_to_buffer: Drawing fullscreen quad (6 vertices)
+  ViewState frame params:
+    Origin: [-96.0, 96.0, 96.5]
+    U vec: [192.4, 0.0, 0.0]
+    V vec: [-0.0, -228.0, -0.0]
+DEBUG update_frame_ubo: atlas_dim = [256, 256, 256], target_dim = [216, 256], offscreen_dimensions = (216, 256)
+[update_frame_ubo] Writing to GPU buffer:
+  Origin: [-96.000, 96.000, 96.500, 1.000]
+  U: [192.375, 0.000, 0.000, 0.000]
+  V: [-0.000, -228.000, -0.000, 0.000]
+update_crosshair_position: Position [-96.00, 96.00, 96.50], Show: true
+ensure_pipeline: Creating pipeline for shader 'slice_world_space' with format Rgba8Unorm
+ensure_pipeline: Pipeline already exists
+DEBUG: update_all_layer_uniforms - 0 layers
+add_render_layer: Using intensity range: (0, 9848)
+DEBUG: Calling update_all_layer_uniforms after adding layer 0
+  Layer atlas_index 0: dimensions (193, 229, 193)
+  Layer 0 (atlas_index 0) world_to_voxel matrix:
+    [[1.0, 0.0, 0.0, 0.0], [0.0, 1.0, 0.0, 0.0], [0.0, 0.0, 1.0, 0.0], [96.0, 132.0, 78.0, 1.0]]
+DEBUG: update_all_layer_uniforms - 1 layers
+  Layer atlas_index 0: dimensions (193, 229, 193)
+  Layer 0 (atlas_index 0) world_to_voxel matrix:
+    [[1.0, 0.0, 0.0, 0.0], [0.0, 1.0, 0.0, 0.0], [0.0, 0.0, 1.0, 0.0], [96.0, 132.0, 78.0, 1.0]]
+DEBUG: update_all_layer_uniforms - 1 layers
+  Layer atlas_index 0: dimensions (193, 229, 193)
+  Layer 0 (atlas_index 0) world_to_voxel matrix:
+    [[1.0, 0.0, 0.0, 0.0], [0.0, 1.0, 0.0, 0.0], [0.0, 0.0, 1.0, 0.0], [96.0, 132.0, 78.0, 1.0]]
+DEBUG: update_all_layer_uniforms - 1 layers
+  Layer atlas_index 0: dimensions (193, 229, 193)
+  Layer 0 (atlas_index 0) world_to_voxel matrix:
+    [[1.0, 0.0, 0.0, 0.0], [0.0, 1.0, 0.0, 0.0], [0.0, 0.0, 1.0, 0.0], [96.0, 132.0, 78.0, 1.0]]
+DEBUG: update_all_layer_uniforms - 1 layers
+  Rendered layers: ["test_volume"]
+  Warnings: []
+  Debug images saved to test_output/debug_declarative/ with timestamp 1752849277
+  Image dimensions: 216x256
+  Imperative result size: 221184 bytes
+  Declarative result size: 221184 bytes
+  First 10 pixels comparison (RGBA):
+    Pixel 0: imp=[0,245,0,255] dec=[0,0,0,255]
+    Pixel 1: imp=[0,204,0,255] dec=[0,0,0,255]
+    Pixel 2: imp=[0,204,0,255] dec=[0,0,0,255]
+    Pixel 3: imp=[0,204,0,255] dec=[0,0,0,255]
+    Pixel 4: imp=[0,204,0,255] dec=[0,0,0,255]
+    Pixel 5: imp=[0,204,0,255] dec=[0,0,0,255]
+    Pixel 6: imp=[0,204,0,255] dec=[0,0,0,255]
+    Pixel 7: imp=[0,204,0,255] dec=[0,0,0,255]
+    Pixel 8: imp=[0,204,0,255] dec=[0,0,0,255]
+    Pixel 9: imp=[0,204,0,255] dec=[0,0,0,255]
+  Imperative all black: false
+  Declarative all black: false
+  Imperative non-black pixels: 39 / 55296
+  Declarative non-black pixels: 39 / 55296
+  Middle pixel (idx 27756): imp=[0,0,0,255] dec=[0,0,0,255]
+  SSIM: 0.7409
+  Dice coefficient: 1.0000
+  RMSE: 3.8526
+
+thread 'test_render_gpu_slice_migration' panicked at core/neuro-integration-tests/tests/test_mni_declarative.rs:283:9:
+axial orientation: SSIM 0.7409354546948018 is below threshold
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test test_render_gpu_slice_migration ... FAILED
+
+failures:
+
+failures:
+    test_render_gpu_slice_migration
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 1 filtered out; finished in 3.23s
+
+error: test failed, to rerun pass `--test test_mni_declarative`

@@ -7,9 +7,14 @@ edition = "2021"
 crate-type = ["rlib", "cdylib"]
 
 [dependencies]
+# Core neuroim dependency
+neuroim = { path = "../../../rust/neuroim-rs" }
+
+# Keep existing dependencies for compatibility layer
 ts-rs = { version = "8.0", features = ["serde-compat"] }
 serde = { version = "1.0", features = ["derive"] }
 nalgebra = { version = "0.32", features = ["serde-serialize"] }
+ndarray = "0.16"
 bytemuck = "1.12"
 num-traits = "0.2"
 thiserror = "1.0"

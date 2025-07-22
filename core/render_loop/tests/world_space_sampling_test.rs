@@ -203,6 +203,7 @@ fn test_layer_data_structure() {
                 threshold_range: (0.0, 1.0),
                 threshold_mode: ThresholdMode::Range,
                 texture_coords: (0.0, 0.0, 1.0, 1.0),
+                is_mask: false,
             },
             LayerInfo {
                 atlas_index: 1, // Functional volume
@@ -213,6 +214,7 @@ fn test_layer_data_structure() {
                 threshold_range: (0.3, 1.0),
                 threshold_mode: ThresholdMode::Above,
                 texture_coords: (0.0, 0.0, 1.0, 1.0),
+                is_mask: false,
             },
             LayerInfo {
                 atlas_index: 2, // Detail patch
@@ -223,6 +225,7 @@ fn test_layer_data_structure() {
                 threshold_range: (0.0, 65535.0),
                 threshold_mode: ThresholdMode::Range,
                 texture_coords: (0.0, 0.0, 1.0, 1.0),
+                is_mask: false,
             },
         ];
         

@@ -1,154 +1,194 @@
-import { createStore } from '$lib/zustand-vanilla';
+/**
+ * Clean Layer Store - Pure state management without business logic
+ * Uses Svelte stores and follows clean architecture principles
+ */
+import { writable, derived, get } from 'svelte/store';
 import type { LayerSpec, VolumeLayerGpuInfo } from '@brainflow/api';
-import { coreApi } from '$lib/api'; // Assumes api client exists at this path
-import { crosshairSlice } from '$lib/stores/crosshairSlice';
-// import { newRequestSpan } from '$lib/log'; // TODO: Import logging when available
+import { getEventBus } from '$lib/events/EventBus';
+
+export interface LayerInfo {
+  dataRange?: { min: number; max: number };
+  volumeId?: string;
+}
+
+export interface LayerEntry {
+  id: string;
+  spec: LayerSpec;
+  gpu?: VolumeLayerGpuInfo;
+  error?: Error | unknown;
+  isLoadingGpu?: boolean;
+  info?: LayerInfo;
+}
 
 // Helper function to get the ID from a LayerSpec
-function getLayerId(spec: LayerSpec): string {
+export function getLayerId(spec: LayerSpec): string {
   if ('Volume' in spec) {
     return spec.Volume.id;
   }
-  // Add other layer types as needed
   throw new Error('Unsupported layer type');
 }
 
+// Create the writable stores
+const layers = writable<LayerEntry[]>([]);
+const activeLayerId = writable<string | null>(null);
 
-export interface LayerEntry {
-  spec: LayerSpec;
-  gpu?: VolumeLayerGpuInfo; // Optional: Only present if GPU resources are ready
-  error?: Error | unknown; // Optional: Store error if GPU request failed
-  isLoadingGpu?: boolean; // Optional: Track loading state
-}
+// Create derived stores
+export const activeLayer = derived(
+  [layers, activeLayerId],
+  ([$layers, $activeLayerId]) => {
+    if (!$activeLayerId) return null;
+    return $layers.find(l => l.id === $activeLayerId) || null;
+  }
+);
 
-interface LayerState {
-  layers: LayerEntry[];
-  selectedLayerId: string | null;
-  addLayer: (spec: LayerSpec) => void; // Simplified initial add
-  requestGpuResources: (layerId: string) => Promise<void>; // Explicit GPU request
-  setGpuInfo: (layerId: string, gpuInfo: VolumeLayerGpuInfo) => void;
-  setLayerError: (layerId: string, error: Error | unknown) => void;
-  removeLayer: (layerId: string) => void;
-  selectLayer: (layerId: string | null) => void;
-  // Add other actions: updateLayerSpec, reorderLayers, etc.
-}
+export const hasLayers = derived(
+  layers,
+  $layers => $layers.length > 0
+);
 
-export const useLayerStore = createStore<LayerState>((set, get) => ({
-  layers: [],
-  selectedLayerId: null,
+export const visibleLayers = derived(
+  layers,
+  $layers => $layers.filter(l => !l.error && l.gpu)
+);
 
-  addLayer: (spec) => {
-    console.log('[layerStore] Adding layer spec:', spec);
-    const newEntry: LayerEntry = { spec, isLoadingGpu: false };
-    set((state) => ({ layers: [...state.layers, newEntry] }));
-    // Optionally trigger GPU request immediately after adding
-    // For Volume layers, we can access the id via spec.Volume.id
-    if ('Volume' in spec) {
-      // get().requestGpuResources(spec.Volume.id);
-    }
-  },
-
-  requestGpuResources: async (layerId: string) => {
-    console.log(`[layerStore] requestGpuResources called for layer ${layerId}`);
-    console.log(`[layerStore] Current layers:`, get().layers.map(l => ({
-      id: getLayerId(l.spec),
-      hasGpu: !!l.gpu,
-      isLoading: l.isLoadingGpu
-    })));
+// Create the layerStore with clean methods
+function createLayerStore() {
+  const { subscribe } = layers;
+  
+  return {
+    subscribe,
     
-    const layerEntry = get().layers.find(l => getLayerId(l.spec) === layerId);
-    if (!layerEntry || layerEntry.isLoadingGpu || layerEntry.gpu) {
-      if (!layerEntry) console.warn(`[layerStore] requestGpuResources: Layer ${layerId} not found.`);
-      if (layerEntry?.isLoadingGpu) console.warn(`[layerStore] requestGpuResources: Layer ${layerId} already loading.`);
-      if (layerEntry?.gpu) console.warn(`[layerStore] requestGpuResources: Layer ${layerId} already has GPU resources.`);
-      return; // Avoid duplicate requests or requests for non-existent layers
-    }
-
-    console.log(`[layerStore] Requesting GPU resources for layer ${layerId}...`);
-    // Set loading state
-    set(state => ({
-      layers: state.layers.map(l => 
-        getLayerId(l.spec) === layerId ? { ...l, isLoadingGpu: true, error: undefined } : l
-      )
-    }));
-
-    // TODO: Integrate tracing span when logger is available
-    // const span = newRequestSpan('ui.request_layer_gpu'); 
-
-    try {
-      // Pass only the spec to the backend
-      const gpuInfo = await coreApi.request_layer_gpu_resources(layerEntry.spec);
-      console.log(`[layerStore] GPU resources received for ${layerId}:`, gpuInfo);
-      get().setGpuInfo(layerId, gpuInfo); // Update store via dedicated action
-    } catch (err: unknown) {
-      console.error(`[layerStore] Failed to get GPU resources for ${layerId}:`, err);
-      // Store the error
-      const error = err instanceof Error ? err : new Error('Unknown error during GPU resource request');
-      get().setLayerError(layerId, error);
-    } finally {
-      // Clear loading state regardless of success/failure
-      set(state => ({
-        layers: state.layers.map(l => 
-          getLayerId(l.spec) === layerId ? { ...l, isLoadingGpu: false } : l
-        )
-      }));
-      // TODO: span.end();
-    }
-  },
-
-  setGpuInfo: (layerId, gpuInfo) => {
-    set(state => ({
-      layers: state.layers.map(l => 
-        getLayerId(l.spec) === layerId ? { ...l, gpu: gpuInfo, isLoadingGpu: false, error: undefined } : l
-      )
-    }));
+    // Pure state mutations
+    addLayer: (id: string, spec: LayerSpec) => {
+      const newEntry: LayerEntry = { id, spec, isLoadingGpu: false };
+      layers.update(currentLayers => [...currentLayers, newEntry]);
+      
+      // Emit event for other systems to react
+      getEventBus().emit('layer.added', { layerId: id, spec });
+    },
     
-    // Initialize crosshair to volume center if this is the first volume loaded
-    if (gpuInfo && 'center_world' in gpuInfo) {
-      // Use the pre-calculated center_world from the backend
-      const centerWorld: [number, number, number] = gpuInfo.center_world;
+    updateLayer: (layerId: string, updates: Partial<LayerEntry>) => {
+      console.log('[layerStore] Updating layer:', { layerId, updates });
+      layers.update(currentLayers => {
+        const updated = currentLayers.map(layer =>
+          layer.id === layerId ? { ...layer, ...updates } : layer
+        );
+        console.log('[layerStore] Layers after update:', updated);
+        return updated;
+      });
       
-      console.log(`[layerStore] Initializing crosshair to volume center: [${centerWorld[0]}, ${centerWorld[1]}, ${centerWorld[2]}]`);
-      console.log(`[layerStore] Volume dimensions: [${gpuInfo.dim[0]}, ${gpuInfo.dim[1]}, ${gpuInfo.dim[2]}]`);
+      getEventBus().emit('layer.updated', { layerId, updates });
+    },
+    
+    removeLayer: (layerId: string) => {
+      const layer = get(layers).find(l => l.id === layerId);
+      if (!layer) return;
       
-      // Check if crosshair was already set
-      const currentCrosshair = crosshairSlice.getState().crosshairWorldCoord;
-      if (currentCrosshair) {
-        console.log(`[layerStore] WARNING: Crosshair already set to: [${currentCrosshair[0]}, ${currentCrosshair[1]}, ${currentCrosshair[2]}]`);
+      layers.update(currentLayers => currentLayers.filter(l => l.id !== layerId));
+      
+      // Clear active layer if it was removed
+      if (get(activeLayerId) === layerId) {
+        activeLayerId.set(null);
       }
       
-      crosshairSlice.getState().setCrosshairWorldCoord(centerWorld);
-    }
-  },
+      getEventBus().emit('layer.removed', { layerId });
+    },
+    
+    setActiveLayer: (layerId: string | null) => {
+      activeLayerId.set(layerId);
+      getEventBus().emit('layer.selected', { layerId });
+    },
+    
+    getLayer: (layerId: string): LayerEntry | undefined => {
+      return get(layers).find(l => l.id === layerId);
+    },
+    
+    getLayersByVolumeId: (volumeId: string): LayerEntry[] => {
+      return get(layers).filter(layer => {
+        if ('Volume' in layer.spec && layer.spec.Volume.source_resource_id === volumeId) {
+          return true;
+        }
+        return false;
+      });
+    },
+    
+    clearAll: () => {
+      layers.set([]);
+      activeLayerId.set(null);
+      getEventBus().emit('layers.cleared');
+    },
+    
+    // Getters for current state
+    getState: () => ({
+      layers: get(layers),
+      activeLayerId: get(activeLayerId)
+    })
+  };
+}
 
-  setLayerError: (layerId, error) => {
-    set(state => ({
-      layers: state.layers.map(l => 
-        getLayerId(l.spec) === layerId ? { ...l, error, isLoadingGpu: false } : l
-      )
-    }));
-  },
+// Create and export the store instance
+export const useLayerStore = createLayerStore();
 
-  removeLayer: (layerId) => {
-     console.log(`[layerStore] Removing layer ${layerId}`);
-     set(state => ({ 
-       layers: state.layers.filter(l => getLayerId(l.spec) !== layerId),
-       // Clear selection if removed layer was selected
-       selectedLayerId: state.selectedLayerId === layerId ? null : state.selectedLayerId
-     }));
-     // TODO: Add coreApi.release_view_resources(layerId) call here?
-  },
+// Also export the raw stores for component bindings
+export { layers, activeLayerId };
+
+// Add layers as a property on useLayerStore for backward compatibility
+useLayerStore.layers = layers;
+
+// Listen to events from services
+const eventBus = getEventBus();
+
+// Update GPU info when resources are ready
+eventBus.on('layer.gpu.request.success', ({ layerId, gpuInfo }) => {
+  console.log('[layerStore] GPU request success:', { layerId, gpuInfo });
+  useLayerStore.updateLayer(layerId, { 
+    gpu: gpuInfo,
+    isLoadingGpu: false,
+    error: undefined
+  });
+});
+
+// Update loading state
+eventBus.on('layer.gpu.request.start', ({ layerId }) => {
+  useLayerStore.updateLayer(layerId, { 
+    isLoadingGpu: true,
+    error: undefined
+  });
+});
+
+// Handle errors
+eventBus.on('layer.gpu.request.error', ({ layerId, error }) => {
+  useLayerStore.updateLayer(layerId, { 
+    error,
+    isLoadingGpu: false
+  });
+});
+
+// Handle layer addition requests from service
+eventBus.on('layer.add.requested', ({ layerId, spec }) => {
+  useLayerStore.addLayer(layerId, spec);
+});
+
+// Handle layer update requests from service
+eventBus.on('layer.update.requested', ({ layerId, updates }) => {
+  const layer = useLayerStore.getLayer(layerId);
+  if (!layer) return;
   
-  selectLayer: (layerId) => {
-    set({ selectedLayerId: layerId });
-    console.log(`[layerStore] Selected layer: ${layerId}`);
-  },
-}));
+  // Update the spec with the new values
+  if ('Volume' in layer.spec && updates) {
+    const updatedSpec = {
+      ...layer.spec,
+      Volume: {
+        ...layer.spec.Volume,
+        ...updates
+      }
+    };
+    
+    useLayerStore.updateLayer(layerId, { spec: updatedSpec });
+  }
+});
 
-// Optional: Subscribe for debugging
-useLayerStore.subscribe((newState, prevState) => {
-    if (newState.layers.length !== prevState.layers.length) {
-        console.log('[layerStore] Layer list changed:', newState.layers.map(l => getLayerId(l.spec)));
-    }
-    // Add more checks if needed, e.g., GPU status changes
-}); 
+// Handle active layer requests from service
+eventBus.on('layer.setactive.requested', ({ layerId }) => {
+  useLayerStore.setActiveLayer(layerId);
+});

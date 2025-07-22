@@ -1,0 +1,37 @@
+{
+  "name": "@brainflow/plugin-sdk",
+  "version": "0.1.0",
+  "description": "TypeScript SDK for developing Brainflow plugins",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsup src/index.ts --format esm,cjs --dts",
+    "dev": "tsup src/index.ts --format esm,cjs --dts --watch",
+    "clean": "rm -rf dist"
+  },
+  "files": [
+    "dist",
+    "templates",
+    "README.md"
+  ],
+  "keywords": [
+    "brainflow",
+    "plugin",
+    "neuroimaging",
+    "typescript",
+    "sdk"
+  ],
+  "author": "Brainflow Team",
+  "license": "MIT",
+  "dependencies": {
+    "@brainflow/api": "workspace:*"
+  },
+  "devDependencies": {
+    "typescript": "^5.0.0",
+    "tsup": "^8.0.0"
+  },
+  "peerDependencies": {
+    "typescript": ">=5.0.0"
+  }
+}

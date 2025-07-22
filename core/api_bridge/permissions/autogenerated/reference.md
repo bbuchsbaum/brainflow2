@@ -5,8 +5,10 @@ Default permissions for api-bridge plugin
 #### This default permission set includes the following:
 
 - `allow-load-file`
+- `allow-get-volume-bounds`
 - `allow-world-to-voxel`
 - `allow-get-timeseries-matrix`
+- `allow-get-initial-views`
 - `allow-request-layer-gpu-resources`
 - `allow-release-layer-gpu-resources`
 - `allow-fs-list-directory`
@@ -19,9 +21,19 @@ Default permissions for api-bridge plugin
 - `allow-render-frame`
 - `allow-create-offscreen-render-target`
 - `allow-render-to-image`
+- `allow-render-to-image-binary`
 - `allow-add-render-layer`
+- `allow-remove-render-layer`
+- `allow-clear-render-layers`
 - `allow-patch-layer`
+- `allow-update-layer-opacity`
+- `allow-update-layer-colormap`
+- `allow-update-layer-intensity`
+- `allow-update-layer-threshold`
 - `allow-sample-world-coordinate`
+- `allow-apply-and-render-view-state`
+- `allow-apply-and-render-view-state-binary`
+- `allow-apply-and-render-view-state-raw`
 
 ## Permission Table
 
@@ -54,6 +66,110 @@ Enables the add_render_layer command without any pre-configured scope.
 <td>
 
 Denies the add_render_layer command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:allow-apply-and-render-view-state`
+
+</td>
+<td>
+
+Enables the apply_and_render_view_state command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:deny-apply-and-render-view-state`
+
+</td>
+<td>
+
+Denies the apply_and_render_view_state command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:allow-apply-and-render-view-state-binary`
+
+</td>
+<td>
+
+Enables the apply_and_render_view_state_binary command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:deny-apply-and-render-view-state-binary`
+
+</td>
+<td>
+
+Denies the apply_and_render_view_state_binary command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:allow-apply-and-render-view-state-raw`
+
+</td>
+<td>
+
+Enables the apply_and_render_view_state_raw command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:deny-apply-and-render-view-state-raw`
+
+</td>
+<td>
+
+Denies the apply_and_render_view_state_raw command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:allow-clear-render-layers`
+
+</td>
+<td>
+
+Enables the clear_render_layers command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:deny-clear-render-layers`
+
+</td>
+<td>
+
+Denies the clear_render_layers command without any pre-configured scope.
 
 </td>
 </tr>
@@ -165,6 +281,58 @@ Denies the fs_list_directory command without any pre-configured scope.
 <tr>
 <td>
 
+`api-bridge:allow-generate-orthogonal-slice-test`
+
+</td>
+<td>
+
+Enables the generate_orthogonal_slice_test command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:deny-generate-orthogonal-slice-test`
+
+</td>
+<td>
+
+Denies the generate_orthogonal_slice_test command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:allow-get-initial-views`
+
+</td>
+<td>
+
+Enables the get_initial_views command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:deny-get-initial-views`
+
+</td>
+<td>
+
+Denies the get_initial_views command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
 `api-bridge:allow-get-layer-info`
 
 </td>
@@ -262,6 +430,32 @@ Enables the get_timeseries_matrix command without any pre-configured scope.
 <td>
 
 Denies the get_timeseries_matrix command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:allow-get-volume-bounds`
+
+</td>
+<td>
+
+Enables the get_volume_bounds command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:deny-get-volume-bounds`
+
+</td>
+<td>
+
+Denies the get_volume_bounds command without any pre-configured scope.
 
 </td>
 </tr>
@@ -477,6 +671,32 @@ Denies the release_layer_gpu_resources command without any pre-configured scope.
 <tr>
 <td>
 
+`api-bridge:allow-remove-render-layer`
+
+</td>
+<td>
+
+Enables the remove_render_layer command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:deny-remove-render-layer`
+
+</td>
+<td>
+
+Denies the remove_render_layer command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
 `api-bridge:allow-remove-volume`
 
 </td>
@@ -548,6 +768,58 @@ Enables the render_to_image command without any pre-configured scope.
 <td>
 
 Denies the render_to_image command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:allow-render-to-image-binary`
+
+</td>
+<td>
+
+Enables the render_to_image_binary command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:deny-render-to-image-binary`
+
+</td>
+<td>
+
+Denies the render_to_image_binary command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:allow-request-frame`
+
+</td>
+<td>
+
+Enables the request_frame command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:deny-request-frame`
+
+</td>
+<td>
+
+Denies the request_frame command without any pre-configured scope.
 
 </td>
 </tr>
@@ -659,6 +931,32 @@ Denies the set_crosshair command without any pre-configured scope.
 <tr>
 <td>
 
+`api-bridge:allow-set-layer-mask`
+
+</td>
+<td>
+
+Enables the set_layer_mask command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:deny-set-layer-mask`
+
+</td>
+<td>
+
+Denies the set_layer_mask command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
 `api-bridge:allow-set-view-plane`
 
 </td>
@@ -730,6 +1028,110 @@ Enables the update_frame_ubo command without any pre-configured scope.
 <td>
 
 Denies the update_frame_ubo command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:allow-update-layer-colormap`
+
+</td>
+<td>
+
+Enables the update_layer_colormap command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:deny-update-layer-colormap`
+
+</td>
+<td>
+
+Denies the update_layer_colormap command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:allow-update-layer-intensity`
+
+</td>
+<td>
+
+Enables the update_layer_intensity command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:deny-update-layer-intensity`
+
+</td>
+<td>
+
+Denies the update_layer_intensity command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:allow-update-layer-opacity`
+
+</td>
+<td>
+
+Enables the update_layer_opacity command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:deny-update-layer-opacity`
+
+</td>
+<td>
+
+Denies the update_layer_opacity command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:allow-update-layer-threshold`
+
+</td>
+<td>
+
+Enables the update_layer_threshold command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:deny-update-layer-threshold`
+
+</td>
+<td>
+
+Denies the update_layer_threshold command without any pre-configured scope.
 
 </td>
 </tr>

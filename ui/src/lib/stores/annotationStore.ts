@@ -1,11 +1,11 @@
 /**
- * Zustand store for managing annotations across all views
+ * Svelte store for managing annotations across all views
  * 
  * This store maintains the global state of all annotations and provides
  * methods for CRUD operations, selection, and bulk updates.
  */
 
-import { createStore, type StateCreator } from '$lib/zustand-vanilla';
+import { writable, derived, get } from 'svelte/store';
 import type { 
   Annotation, 
   AnnotationGroup, 
@@ -17,68 +17,33 @@ import type {
 } from '$lib/types/annotations';
 import { nanoid } from 'nanoid';
 
-export interface AnnotationStore {
-  // State
-  annotations: Map<string, Annotation>;
-  groups: Map<string, AnnotationGroup>;
-  selectedAnnotationIds: Set<string>;
-  hoveredAnnotationId: string | null;
-  activeToolMode: 'select' | 'text' | 'marker' | 'line' | 'roi' | 'measure' | null;
-  
-  // Annotation CRUD operations
-  addAnnotation: (annotation: Omit<Annotation, 'id' | 'createdAt' | 'modifiedAt'>) => string;
-  updateAnnotation: (id: string, updates: Partial<Annotation>) => void;
-  removeAnnotation: (id: string) => void;
-  removeAnnotations: (ids: string[]) => void;
-  clearAnnotations: () => void;
-  
-  // Selection operations
-  selectAnnotation: (id: string, multi?: boolean) => void;
-  deselectAnnotation: (id: string) => void;
-  selectAnnotations: (ids: string[]) => void;
-  clearSelection: () => void;
-  selectAll: () => void;
-  
-  // Visibility operations
-  toggleVisibility: (id: string) => void;
-  setVisibility: (id: string, visible: boolean) => void;
-  showAll: () => void;
-  hideAll: () => void;
-  
-  // Group operations
-  createGroup: (name: string, annotationIds?: string[]) => string;
-  addToGroup: (groupId: string, annotationIds: string[]) => void;
-  removeFromGroup: (groupId: string, annotationIds: string[]) => void;
-  deleteGroup: (groupId: string) => void;
-  toggleGroupVisibility: (groupId: string) => void;
-  
-  // Hover state
-  setHoveredAnnotation: (id: string | null) => void;
-  
-  // Tool mode
-  setActiveToolMode: (mode: AnnotationStore['activeToolMode']) => void;
-  
-  // Bulk operations
-  importAnnotations: (annotations: Annotation[], replace?: boolean) => void;
-  getAnnotationsByLayer: (layerId: string) => Annotation[];
-  getVisibleAnnotations: () => Annotation[];
-  getSelectedAnnotations: () => Annotation[];
-  
-  // Utility functions
-  duplicateAnnotation: (id: string, offset?: { x: number; y: number; z: number }) => string | null;
-  lockAnnotation: (id: string, locked: boolean) => void;
-}
+// State type definitions
+type ToolMode = 'select' | 'text' | 'marker' | 'line' | 'roi' | 'measure' | null;
 
-const createAnnotationStore: StateCreator<AnnotationStore> = (set, get) => ({
-  // Initial state
-  annotations: new Map(),
-  groups: new Map(),
-  selectedAnnotationIds: new Set(),
-  hoveredAnnotationId: null,
-  activeToolMode: null,
-  
+// Create the writable stores for annotation state
+const annotations = writable<Map<string, Annotation>>(new Map());
+const groups = writable<Map<string, AnnotationGroup>>(new Map());
+const selectedAnnotationIds = writable<Set<string>>(new Set());
+const hoveredAnnotationId = writable<string | null>(null);
+const activeToolMode = writable<ToolMode>(null);
+
+// Create derived stores for commonly accessed data
+export const visibleAnnotations = derived(annotations, $annotations => 
+  Array.from($annotations.values()).filter(a => a.visible)
+);
+
+export const selectedAnnotations = derived(
+  [annotations, selectedAnnotationIds],
+  ([$annotations, $selectedIds]) => 
+    Array.from($selectedIds)
+      .map(id => $annotations.get(id))
+      .filter((a): a is Annotation => a !== undefined)
+);
+
+// Create the annotation store with all methods
+function createAnnotationStore() {
   // Add annotation
-  addAnnotation: (annotationData) => {
+  const addAnnotation = (annotationData: Omit<Annotation, 'id' | 'createdAt' | 'modifiedAt'>) => {
     const id = nanoid();
     const now = Date.now();
     const annotation: Annotation = {
@@ -89,22 +54,22 @@ const createAnnotationStore: StateCreator<AnnotationStore> = (set, get) => ({
       visible: true,
     } as Annotation;
     
-    set((state) => {
-      const newAnnotations = new Map(state.annotations);
+    annotations.update(currentAnnotations => {
+      const newAnnotations = new Map(currentAnnotations);
       newAnnotations.set(id, annotation);
-      return { annotations: newAnnotations };
+      return newAnnotations;
     });
     
     return id;
-  },
+  };
   
   // Update annotation
-  updateAnnotation: (id, updates) => {
-    set((state) => {
-      const annotation = state.annotations.get(id);
-      if (!annotation || annotation.locked) return state;
+  const updateAnnotation = (id: string, updates: Partial<Annotation>) => {
+    annotations.update(currentAnnotations => {
+      const annotation = currentAnnotations.get(id);
+      if (!annotation || annotation.locked) return currentAnnotations;
       
-      const newAnnotations = new Map(state.annotations);
+      const newAnnotations = new Map(currentAnnotations);
       newAnnotations.set(id, {
         ...annotation,
         ...updates,
@@ -113,125 +78,125 @@ const createAnnotationStore: StateCreator<AnnotationStore> = (set, get) => ({
         modifiedAt: Date.now(),
       });
       
-      return { annotations: newAnnotations };
+      return newAnnotations;
     });
-  },
+  };
   
   // Remove annotation
-  removeAnnotation: (id) => {
-    set((state) => {
-      const annotation = state.annotations.get(id);
-      if (!annotation || annotation.locked) return state;
-      
-      const newAnnotations = new Map(state.annotations);
+  const removeAnnotation = (id: string) => {
+    const annotation = get(annotations).get(id);
+    if (!annotation || annotation.locked) return;
+    
+    annotations.update(currentAnnotations => {
+      const newAnnotations = new Map(currentAnnotations);
       newAnnotations.delete(id);
-      
-      const newSelectedIds = new Set(state.selectedAnnotationIds);
-      newSelectedIds.delete(id);
-      
-      // Remove from groups
-      const newGroups = new Map(state.groups);
+      return newAnnotations;
+    });
+    
+    selectedAnnotationIds.update(currentIds => {
+      const newIds = new Set(currentIds);
+      newIds.delete(id);
+      return newIds;
+    });
+    
+    // Remove from groups
+    groups.update(currentGroups => {
+      const newGroups = new Map(currentGroups);
       newGroups.forEach((group) => {
         const index = group.annotationIds.indexOf(id);
         if (index !== -1) {
           group.annotationIds.splice(index, 1);
         }
       });
-      
-      return {
-        annotations: newAnnotations,
-        selectedAnnotationIds: newSelectedIds,
-        groups: newGroups,
-        hoveredAnnotationId: state.hoveredAnnotationId === id ? null : state.hoveredAnnotationId,
-      };
+      return newGroups;
     });
-  },
+    
+    // Clear hover if needed
+    const currentHoveredId = get(hoveredAnnotationId);
+    if (currentHoveredId === id) {
+      hoveredAnnotationId.set(null);
+    }
+  };
   
   // Remove multiple annotations
-  removeAnnotations: (ids) => {
-    ids.forEach(id => get().removeAnnotation(id));
-  },
+  const removeAnnotations = (ids: string[]) => {
+    ids.forEach(id => removeAnnotation(id));
+  };
   
   // Clear all annotations
-  clearAnnotations: () => {
-    set({
-      annotations: new Map(),
-      selectedAnnotationIds: new Set(),
-      hoveredAnnotationId: null,
-    });
-  },
+  const clearAnnotations = () => {
+    annotations.set(new Map());
+    selectedAnnotationIds.set(new Set());
+    hoveredAnnotationId.set(null);
+  };
   
   // Selection operations
-  selectAnnotation: (id, multi = false) => {
-    set((state) => {
-      const annotation = state.annotations.get(id);
-      if (!annotation) return state;
-      
-      const newSelectedIds = multi 
-        ? new Set(state.selectedAnnotationIds)
-        : new Set<string>();
-      
-      newSelectedIds.add(id);
-      return { selectedAnnotationIds: newSelectedIds };
+  const selectAnnotation = (id: string, multi = false) => {
+    const annotation = get(annotations).get(id);
+    if (!annotation) return;
+    
+    selectedAnnotationIds.update(currentIds => {
+      const newIds = multi ? new Set(currentIds) : new Set<string>();
+      newIds.add(id);
+      return newIds;
     });
-  },
+  };
   
-  deselectAnnotation: (id) => {
-    set((state) => {
-      const newSelectedIds = new Set(state.selectedAnnotationIds);
-      newSelectedIds.delete(id);
-      return { selectedAnnotationIds: newSelectedIds };
+  const deselectAnnotation = (id: string) => {
+    selectedAnnotationIds.update(currentIds => {
+      const newIds = new Set(currentIds);
+      newIds.delete(id);
+      return newIds;
     });
-  },
+  };
   
-  selectAnnotations: (ids) => {
-    set({ selectedAnnotationIds: new Set(ids) });
-  },
+  const selectAnnotations = (ids: string[]) => {
+    selectedAnnotationIds.set(new Set(ids));
+  };
   
-  clearSelection: () => {
-    set({ selectedAnnotationIds: new Set() });
-  },
+  const clearSelection = () => {
+    selectedAnnotationIds.set(new Set());
+  };
   
-  selectAll: () => {
-    set((state) => ({
-      selectedAnnotationIds: new Set(state.annotations.keys()),
-    }));
-  },
+  const selectAll = () => {
+    const allIds = new Set(get(annotations).keys());
+    selectedAnnotationIds.set(allIds);
+  };
   
   // Visibility operations
-  toggleVisibility: (id) => {
-    const annotation = get().annotations.get(id);
+  const toggleVisibility = (id: string) => {
+    const annotation = get(annotations).get(id);
     if (annotation) {
-      get().updateAnnotation(id, { visible: !annotation.visible });
+      updateAnnotation(id, { visible: !annotation.visible });
     }
-  },
+  };
   
-  setVisibility: (id, visible) => {
-    get().updateAnnotation(id, { visible });
-  },
+  const setVisibility = (id: string, visible: boolean) => {
+    updateAnnotation(id, { visible });
+  };
   
-  showAll: () => {
-    set((state) => {
-      const newAnnotations = new Map(state.annotations);
+  const showAll = () => {
+    annotations.update(currentAnnotations => {
+      const newAnnotations = new Map(currentAnnotations);
       newAnnotations.forEach((annotation) => {
         annotation.visible = true;
       });
-      return { annotations: newAnnotations };
+      return newAnnotations;
     });
-  },
+  };
   
-  hideAll: () => {
-    set((state) => {
-      const newAnnotations = new Map(state.annotations);
+  const hideAll = () => {
+    annotations.update(currentAnnotations => {
+      const newAnnotations = new Map(currentAnnotations);
       newAnnotations.forEach((annotation) => {
         annotation.visible = false;
       });
-      return { annotations: newAnnotations };
+      return newAnnotations;
     });
-  },
+  };
   
   // Group operations
-  createGroup: (name, annotationIds = []) => {
+  const createGroup = (name: string, annotationIds: string[] = []) => {
     const id = nanoid();
     const group: AnnotationGroup = {
       id,
@@ -240,94 +205,96 @@ const createAnnotationStore: StateCreator<AnnotationStore> = (set, get) => ({
       annotationIds,
     };
     
-    set((state) => {
-      const newGroups = new Map(state.groups);
+    groups.update(currentGroups => {
+      const newGroups = new Map(currentGroups);
       newGroups.set(id, group);
-      return { groups: newGroups };
+      return newGroups;
     });
     
     return id;
-  },
+  };
   
-  addToGroup: (groupId, annotationIds) => {
-    set((state) => {
-      const group = state.groups.get(groupId);
-      if (!group) return state;
+  const addToGroup = (groupId: string, annotationIds: string[]) => {
+    groups.update(currentGroups => {
+      const group = currentGroups.get(groupId);
+      if (!group) return currentGroups;
       
-      const newGroups = new Map(state.groups);
+      const newGroups = new Map(currentGroups);
       const updatedGroup = {
         ...group,
         annotationIds: [...new Set([...group.annotationIds, ...annotationIds])],
       };
       newGroups.set(groupId, updatedGroup);
       
-      return { groups: newGroups };
+      return newGroups;
     });
-  },
+  };
   
-  removeFromGroup: (groupId, annotationIds) => {
-    set((state) => {
-      const group = state.groups.get(groupId);
-      if (!group) return state;
+  const removeFromGroup = (groupId: string, annotationIds: string[]) => {
+    groups.update(currentGroups => {
+      const group = currentGroups.get(groupId);
+      if (!group) return currentGroups;
       
-      const newGroups = new Map(state.groups);
+      const newGroups = new Map(currentGroups);
       const updatedGroup = {
         ...group,
         annotationIds: group.annotationIds.filter(id => !annotationIds.includes(id)),
       };
       newGroups.set(groupId, updatedGroup);
       
-      return { groups: newGroups };
+      return newGroups;
     });
-  },
+  };
   
-  deleteGroup: (groupId) => {
-    set((state) => {
-      const newGroups = new Map(state.groups);
+  const deleteGroup = (groupId: string) => {
+    groups.update(currentGroups => {
+      const newGroups = new Map(currentGroups);
       newGroups.delete(groupId);
-      return { groups: newGroups };
+      return newGroups;
     });
-  },
+  };
   
-  toggleGroupVisibility: (groupId) => {
-    set((state) => {
-      const group = state.groups.get(groupId);
-      if (!group) return state;
-      
-      const newGroups = new Map(state.groups);
+  const toggleGroupVisibility = (groupId: string) => {
+    const group = get(groups).get(groupId);
+    if (!group) return;
+    
+    groups.update(currentGroups => {
+      const newGroups = new Map(currentGroups);
       const updatedGroup = { ...group, visible: !group.visible };
       newGroups.set(groupId, updatedGroup);
-      
-      // Update visibility of annotations in the group
-      const newAnnotations = new Map(state.annotations);
+      return newGroups;
+    });
+    
+    // Update visibility of annotations in the group
+    annotations.update(currentAnnotations => {
+      const newAnnotations = new Map(currentAnnotations);
       group.annotationIds.forEach(annotationId => {
         const annotation = newAnnotations.get(annotationId);
         if (annotation) {
-          annotation.visible = updatedGroup.visible;
+          annotation.visible = !group.visible;
         }
       });
-      
-      return { groups: newGroups, annotations: newAnnotations };
+      return newAnnotations;
     });
-  },
+  };
   
   // Hover state
-  setHoveredAnnotation: (id) => {
-    set({ hoveredAnnotationId: id });
-  },
+  const setHoveredAnnotation = (id: string | null) => {
+    hoveredAnnotationId.set(id);
+  };
   
   // Tool mode
-  setActiveToolMode: (mode) => {
-    set({ activeToolMode: mode });
-  },
+  const setActiveToolMode = (mode: ToolMode) => {
+    activeToolMode.set(mode);
+  };
   
   // Bulk operations
-  importAnnotations: (annotations, replace = false) => {
-    set((state) => {
-      const newAnnotations = replace ? new Map() : new Map(state.annotations);
+  const importAnnotations = (importedAnnotations: Annotation[], replace = false) => {
+    annotations.update(currentAnnotations => {
+      const newAnnotations = replace ? new Map() : new Map(currentAnnotations);
       const now = Date.now();
       
-      annotations.forEach((annotation) => {
+      importedAnnotations.forEach((annotation) => {
         const id = annotation.id || nanoid();
         newAnnotations.set(id, {
           ...annotation,
@@ -337,32 +304,33 @@ const createAnnotationStore: StateCreator<AnnotationStore> = (set, get) => ({
         });
       });
       
-      return { annotations: newAnnotations };
+      return newAnnotations;
     });
-  },
+  };
   
-  getAnnotationsByLayer: (layerId) => {
-    return Array.from(get().annotations.values()).filter(
+  const getAnnotationsByLayer = (layerId: string) => {
+    return Array.from(get(annotations).values()).filter(
       (annotation) => annotation.layerId === layerId
     );
-  },
+  };
   
-  getVisibleAnnotations: () => {
-    return Array.from(get().annotations.values()).filter(
+  const getVisibleAnnotations = () => {
+    return Array.from(get(annotations).values()).filter(
       (annotation) => annotation.visible
     );
-  },
+  };
   
-  getSelectedAnnotations: () => {
-    const state = get();
-    return Array.from(state.selectedAnnotationIds)
-      .map(id => state.annotations.get(id))
+  const getSelectedAnnotations = () => {
+    const currentAnnotations = get(annotations);
+    const currentSelectedIds = get(selectedAnnotationIds);
+    return Array.from(currentSelectedIds)
+      .map(id => currentAnnotations.get(id))
       .filter((a): a is Annotation => a !== undefined);
-  },
+  };
   
   // Utility functions
-  duplicateAnnotation: (id, offset = { x: 10, y: 10, z: 0 }) => {
-    const annotation = get().annotations.get(id);
+  const duplicateAnnotation = (id: string, offset = { x: 10, y: 10, z: 0 }) => {
+    const annotation = get(annotations).get(id);
     if (!annotation) return null;
     
     const duplicated = {
@@ -386,16 +354,67 @@ const createAnnotationStore: StateCreator<AnnotationStore> = (set, get) => ({
     // Remove id and timestamps - they'll be regenerated
     const { id: _, createdAt: __, modifiedAt: ___, ...annotationData } = duplicated;
     
-    return get().addAnnotation(annotationData);
-  },
+    return addAnnotation(annotationData);
+  };
   
-  lockAnnotation: (id, locked) => {
-    get().updateAnnotation(id, { locked });
-  },
-});
+  const lockAnnotation = (id: string, locked: boolean) => {
+    updateAnnotation(id, { locked });
+  };
+
+  // Get current state (for zustand compatibility)
+  const getState = () => ({
+    annotations: get(annotations),
+    groups: get(groups),
+    selectedAnnotationIds: get(selectedAnnotationIds),
+    hoveredAnnotationId: get(hoveredAnnotationId),
+    activeToolMode: get(activeToolMode)
+  });
+
+  // Return the store interface
+  return {
+    // Expose readable stores
+    annotations: { subscribe: annotations.subscribe },
+    groups: { subscribe: groups.subscribe },
+    selectedAnnotationIds: { subscribe: selectedAnnotationIds.subscribe },
+    hoveredAnnotationId: { subscribe: hoveredAnnotationId.subscribe },
+    activeToolMode: { subscribe: activeToolMode.subscribe },
+    visibleAnnotations,
+    selectedAnnotations,
+    
+    // Expose all methods
+    addAnnotation,
+    updateAnnotation,
+    removeAnnotation,
+    removeAnnotations,
+    clearAnnotations,
+    selectAnnotation,
+    deselectAnnotation,
+    selectAnnotations,
+    clearSelection,
+    selectAll,
+    toggleVisibility,
+    setVisibility,
+    showAll,
+    hideAll,
+    createGroup,
+    addToGroup,
+    removeFromGroup,
+    deleteGroup,
+    toggleGroupVisibility,
+    setHoveredAnnotation,
+    setActiveToolMode,
+    importAnnotations,
+    getAnnotationsByLayer,
+    getVisibleAnnotations,
+    getSelectedAnnotations,
+    duplicateAnnotation,
+    lockAnnotation,
+    getState
+  };
+}
 
 // Create and export the store
-export const annotationStore = createStore<AnnotationStore>(createAnnotationStore);
+export const annotationStore = createAnnotationStore();
 
 // Export typed hooks for Svelte components
 export const useAnnotationStore = () => annotationStore;

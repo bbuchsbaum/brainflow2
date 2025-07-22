@@ -3,6 +3,8 @@
  * Manages service instances and their dependencies
  */
 
+import { registerCoreServicesFixed } from './ContainerFix';
+
 type Factory<T> = () => T;
 type AsyncFactory<T> = () => Promise<T>;
 
@@ -16,6 +18,7 @@ interface ServiceDefinition<T> {
 export class DIContainer {
   private services = new Map<string, ServiceDefinition<any>>();
   private resolving = new Set<string>();
+  private resolutionPromises = new Map<string, Promise<any>>();
   
   /**
    * Register a service
@@ -70,35 +73,50 @@ export class DIContainer {
       throw new Error(`Service "${name}" not found`);
     }
     
-    // Check for circular dependencies
-    if (this.resolving.has(name)) {
-      throw new Error(`Circular dependency detected: ${name}`);
-    }
-    
     // Return existing instance if singleton
     if (service.singleton && service.instance) {
       return service.instance;
     }
     
-    try {
-      this.resolving.add(name);
-      
-      // Resolve dependencies first
-      const deps = await this.resolveDependencies(service.dependencies || []);
-      
-      // Create instance
-      const instance = await service.factory.apply(null, deps);
-      
-      // Store singleton instance
-      if (service.singleton) {
-        service.instance = instance;
-      }
-      
-      return instance;
-      
-    } finally {
-      this.resolving.delete(name);
+    // Check if already resolving (handle concurrent requests)
+    if (this.resolutionPromises.has(name)) {
+      return this.resolutionPromises.get(name);
     }
+    
+    // Check for circular dependencies
+    if (this.resolving.has(name)) {
+      throw new Error(`Circular dependency detected: ${name}`);
+    }
+    
+    // Create resolution promise
+    const resolutionPromise = (async () => {
+      try {
+        this.resolving.add(name);
+        
+        // Resolve dependencies first
+        const deps = await this.resolveDependencies(service.dependencies || []);
+        
+        // Create instance
+        const instance = await service.factory.apply(null, deps);
+        
+        // Store singleton instance
+        if (service.singleton) {
+          service.instance = instance;
+        }
+        
+        return instance;
+      } finally {
+        this.resolving.delete(name);
+        this.resolutionPromises.delete(name);
+      }
+    })();
+    
+    // Store promise for concurrent requests
+    if (service.singleton) {
+      this.resolutionPromises.set(name, resolutionPromise);
+    }
+    
+    return resolutionPromise;
   }
   
   /**
@@ -160,12 +178,16 @@ let globalContainer: DIContainer | null = null;
 export function getContainer(): DIContainer {
   if (!globalContainer) {
     globalContainer = new DIContainer();
-    registerCoreServices(globalContainer);
+    // Use the fixed registration function that avoids circular dependencies
+    registerCoreServicesFixed(globalContainer);
   }
   return globalContainer;
 }
 
-// Register core services
+// OLD REGISTRATION FUNCTION - DO NOT USE
+// This function has circular dependencies and causes startup crashes
+// Use registerCoreServicesFixed from ContainerFix.ts instead
+/*
 function registerCoreServices(container: DIContainer): void {
   // Event Bus
   container.register('eventBus', () => {
@@ -194,8 +216,8 @@ function registerCoreServices(container: DIContainer): void {
   });
   
   // API
-  container.register('api', () => {
-    const { validatedApi } = require('$lib/api/validatedApi');
+  container.register('api', async () => {
+    const { validatedApi } = await import('$lib/api/validatedApi');
     return validatedApi;
   });
   
@@ -363,6 +385,7 @@ function registerCoreServices(container: DIContainer): void {
     dependencies: ['eventBus', 'volumeService', 'crosshairService', 'layerService', 'notificationService']
   });
 }
+*/
 
 // Decorator for dependency injection
 export function Injectable(dependencies?: string[]) {

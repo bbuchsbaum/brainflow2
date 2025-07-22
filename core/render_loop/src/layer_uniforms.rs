@@ -94,16 +94,23 @@ impl LayerUniformManager {
             // Debug: Log layer configuration
             println!("LayerUniformManager: Configuring layer {} with:", i);
             println!("  Intensity range: ({}, {})", layer.intensity_range.0, layer.intensity_range.1);
+            println!("  Threshold range: ({}, {})", layer.threshold_range.0, layer.threshold_range.1);
+            println!("  Threshold mode: {:?}", layer.threshold_mode);
             println!("  Colormap ID: {}", layer.colormap_id);
             println!("  Opacity: {}", layer.opacity);
             
             // Use the is_mask field from LayerInfo
             println!("  Is mask: {}", layer.is_mask);
             
+            // DEBUG: Print the transform being used
+            println!("LayerUniformManager: Setting world_to_voxel for layer {}:", i);
+            println!("  Input transform: {:?}", transform);
+            let world_to_voxel_array: [[f32; 4]; 4] = crate::matrix_to_cols_array(transform);
+            println!("  Converted to column-major array: {:?}", world_to_voxel_array);
+            
             self.layer_data[i] = LayerUboStd140 {
-                // WGSL expects column-major matrices, but .into() produces row-major
-                // So we need to transpose the matrix first
-                world_to_voxel: transform.transpose().into(),
+                // Use column-major array for GPU
+                world_to_voxel: world_to_voxel_array,
                 texture_coords: [
                     layer.texture_coords.0,
                     layer.texture_coords.1,
@@ -175,9 +182,8 @@ impl LayerUniformManager {
         
         // Update the specific layer data
         self.layer_data[index] = LayerUboStd140 {
-            // WGSL expects column-major matrices, but .into() produces row-major
-            // So we need to transpose the matrix first
-            world_to_voxel: world_to_voxel.transpose().into(),
+            // Convert matrix to column-major format for GPU
+            world_to_voxel: crate::matrix_to_cols_array(world_to_voxel),
             texture_coords: [
                 layer.texture_coords.0,
                 layer.texture_coords.1,

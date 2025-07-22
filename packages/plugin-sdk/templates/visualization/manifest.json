@@ -1,0 +1,35 @@
+{
+  "id": "my-visualization-plugin",
+  "name": "My Visualization Plugin",
+  "version": "1.0.0",
+  "compatibleCore": "^0.1.0",
+  "type": "visualization",
+  "apiVersion": "0.1.1",
+  "entrypoint": "dist/index.js",
+  "description": "A custom visualization plugin for neuroimaging data",
+  "author": "Your Name",
+  "handles": ["timeseries", "volume-slice", "connectivity-matrix"],
+  "permissions": [
+    {
+      "type": "api",
+      "scope": "events",
+      "level": "read"
+    },
+    {
+      "type": "api",
+      "scope": "volumes",
+      "level": "read"
+    },
+    {
+      "type": "gpu",
+      "scope": "rendering",
+      "level": "execute"
+    }
+  ],
+  "resources": {
+    "maxMemoryMB": 256,
+    "maxExecutionTimeMs": 15000,
+    "requiresGPU": true,
+    "requiresNetwork": false
+  }
+}

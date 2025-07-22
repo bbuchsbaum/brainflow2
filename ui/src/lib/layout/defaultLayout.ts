@@ -14,6 +14,7 @@ export const defaultLayout: LayoutConfig = {
         content: [{
           type: 'component',
           componentType: 'tree-browser',
+          id: 'files-singleton',
           title: 'Files'
         }]
       },

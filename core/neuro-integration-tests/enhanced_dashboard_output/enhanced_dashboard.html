@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Enhanced Ellipsoid Test Dashboard</title>
+    <link rel="stylesheet" href="enhanced_dashboard.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🎯 Enhanced Ellipsoid Test Dashboard</h1>
+            <p>Visual dashboard with ellipsoid slice visualizations</p>
+        </header>
+        
+        <div class="results-grid">
+
+            <div class="result-card-enhanced passed" data-test-index="0">
+                <h3>Perfect Sphere</h3>
+                
+                <div class="visualization-section">
+
+                    <div class="slice-grid">
+                        <div class="slice-item">
+                            <img src="./images/test_0_axial.png" alt="Axial slice" class="slice-image">
+                            <p class="slice-label">Axial</p>
+                        </div>
+                        <div class="slice-item">
+                            <img src="./images/test_0_coronal.png" alt="Coronal slice" class="slice-image">
+                            <p class="slice-label">Coronal</p>
+                        </div>
+                        <div class="slice-item">
+                            <img src="./images/test_0_sagittal.png" alt="Sagittal slice" class="slice-image">
+                            <p class="slice-label">Sagittal</p>
+                        </div>
+                    </div>
+
+                </div>
+                
+                <div class="metrics-section">
+                    <div class="metric-row">
+                        <span class="metric-label">Dice:</span>
+                        <span class="metric-value">0.995</span>
+                    </div>
+                    <div class="metric-row">
+                        <span class="metric-label">Hausdorff:</span>
+                        <span class="metric-value">0.30 mm</span>
+                    </div>
+                    <div class="metric-row">
+                        <span class="metric-label">Volume Diff:</span>
+                        <span class="metric-value">0.5%</span>
+                    </div>
+                </div>
+                
+                <div class="ellipsoid-params">
+                    <h4>Ellipsoid Parameters</h4>
+
+                    <p>Center: (50.0, 50.0, 50.0)</p>
+                    <p>Radii: (20.0, 20.0, 20.0)</p>
+
+                </div>
+            </div>
+
+            <div class="result-card-enhanced passed" data-test-index="1">
+                <h3>Elongated Ellipsoid</h3>
+                
+                <div class="visualization-section">
+
+                    <div class="slice-grid">
+                        <div class="slice-item">
+                            <img src="./images/test_1_axial.png" alt="Axial slice" class="slice-image">
+                            <p class="slice-label">Axial</p>
+                        </div>
+                        <div class="slice-item">
+                            <img src="./images/test_1_coronal.png" alt="Coronal slice" class="slice-image">
+                            <p class="slice-label">Coronal</p>
+                        </div>
+                        <div class="slice-item">
+                            <img src="./images/test_1_sagittal.png" alt="Sagittal slice" class="slice-image">
+                            <p class="slice-label">Sagittal</p>
+                        </div>
+                    </div>
+
+                </div>
+                
+                <div class="metrics-section">
+                    <div class="metric-row">
+                        <span class="metric-label">Dice:</span>
+                        <span class="metric-value">0.912</span>
+                    </div>
+                    <div class="metric-row">
+                        <span class="metric-label">Hausdorff:</span>
+                        <span class="metric-value">2.80 mm</span>
+                    </div>
+                    <div class="metric-row">
+                        <span class="metric-label">Volume Diff:</span>
+                        <span class="metric-value">8.7%</span>
+                    </div>
+                </div>
+                
+                <div class="ellipsoid-params">
+                    <h4>Ellipsoid Parameters</h4>
+
+                    <p>Center: (50.0, 50.0, 50.0)</p>
+                    <p>Radii: (35.0, 20.0, 10.0)</p>
+
+                </div>
+            </div>
+
+            <div class="result-card-enhanced failed" data-test-index="2">
+                <h3>Complex Rotation</h3>
+                
+                <div class="visualization-section">
+
+                    <div class="slice-grid">
+                        <div class="slice-item">
+                            <img src="./images/test_2_axial.png" alt="Axial slice" class="slice-image">
+                            <p class="slice-label">Axial</p>
+                        </div>
+                        <div class="slice-item">
+                            <img src="./images/test_2_coronal.png" alt="Coronal slice" class="slice-image">
+                            <p class="slice-label">Coronal</p>
+                        </div>
+                        <div class="slice-item">
+                            <img src="./images/test_2_sagittal.png" alt="Sagittal slice" class="slice-image">
+                            <p class="slice-label">Sagittal</p>
+                        </div>
+                    </div>
+
+                </div>
+                
+                <div class="metrics-section">
+                    <div class="metric-row">
+                        <span class="metric-label">Dice:</span>
+                        <span class="metric-value">0.823</span>
+                    </div>
+                    <div class="metric-row">
+                        <span class="metric-label">Hausdorff:</span>
+                        <span class="metric-value">4.50 mm</span>
+                    </div>
+                    <div class="metric-row">
+                        <span class="metric-label">Volume Diff:</span>
+                        <span class="metric-value">17.3%</span>
+                    </div>
+                </div>
+                
+                <div class="ellipsoid-params">
+                    <h4>Ellipsoid Parameters</h4>
+
+                    <p>Center: (45.0, 55.0, 48.0)</p>
+                    <p>Radii: (25.0, 18.0, 30.0)</p>
+
+                </div>
+            </div>
+
+            <div class="result-card-enhanced passed" data-test-index="3">
+                <h3>No Visualization Test</h3>
+                
+                <div class="visualization-section">
+
+                    <div class="no-visualization">
+                        <p>No visualization available</p>
+                    </div>
+
+                </div>
+                
+                <div class="metrics-section">
+                    <div class="metric-row">
+                        <span class="metric-label">Dice:</span>
+                        <span class="metric-value">0.950</span>
+                    </div>
+                    <div class="metric-row">
+                        <span class="metric-label">Hausdorff:</span>
+                        <span class="metric-value">1.00 mm</span>
+                    </div>
+                    <div class="metric-row">
+                        <span class="metric-label">Volume Diff:</span>
+                        <span class="metric-value">5.0%</span>
+                    </div>
+                </div>
+                
+                <div class="ellipsoid-params">
+                    <h4>Ellipsoid Parameters</h4>
+
+                </div>
+            </div>
+
+        </div>
+    </div>
+    
+    <script src="enhanced_dashboard.js"></script>
+</body>
+</html>

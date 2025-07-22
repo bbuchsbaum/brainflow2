@@ -19,7 +19,7 @@ fn world_to_texture_coords_roundtrip() {
     let spacing = [1.0, 1.0, 1.0];
     let origin = [0.0, 0.0, 0.0];
     
-    let space = NeuroSpaceImpl::<3>::from_dims_spacing_origin(dims, spacing, origin);
+    let space = NeuroSpaceImpl::from_dims_spacing_origin(dims, spacing, origin);
     
     // Test world coordinate at center in LPI mm
     let world = [4.5, 4.5, 4.5];
@@ -66,7 +66,7 @@ fn world_to_texture_coords_corners() {
     let spacing = [1.0, 1.0, 1.0];
     let origin = [0.0, 0.0, 0.0];
     
-    let space = NeuroSpaceImpl::<3>::from_dims_spacing_origin(dims, spacing, origin);
+    let space = NeuroSpaceImpl::from_dims_spacing_origin(dims, spacing, origin);
     
     // Test corner cases using actual implementation
     let test_cases = vec![
@@ -98,7 +98,7 @@ fn world_to_texture_coords_with_offset() {
     let spacing = [2.0, 2.0, 2.0]; // 2mm voxels
     let origin = [-50.0, -50.0, -50.0];
     
-    let space = NeuroSpaceImpl::<3>::from_dims_spacing_origin(dims, spacing, origin);
+    let space = NeuroSpaceImpl::from_dims_spacing_origin(dims, spacing, origin);
     
     // World coordinate at volume center
     let world = [-1.0, -1.0, -1.0]; // Center of 50x50x50 with 2mm spacing
@@ -130,7 +130,7 @@ fn world_to_voxel_with_axis_flip() {
     let spacing = [1.0, 1.0, 2.0];
     let origin = [-31.5, -31.5, -31.0];
     
-    let space = NeuroSpaceImpl::<3>::from_dims_spacing_origin(dims, spacing, origin);
+    let space = NeuroSpaceImpl::from_dims_spacing_origin(dims, spacing, origin);
     
     // Test several points
     let test_points = vec![

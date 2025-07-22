@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-update-layer-intensity"
+description = "Enables the update_layer_intensity command without any pre-configured scope."
+commands.allow = ["update_layer_intensity"]
+
+[[permission]]
+identifier = "deny-update-layer-intensity"
+description = "Denies the update_layer_intensity command without any pre-configured scope."
+commands.deny = ["update_layer_intensity"]

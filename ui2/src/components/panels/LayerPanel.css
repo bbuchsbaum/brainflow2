@@ -1,0 +1,28 @@
+/* Layer Panel Scrollbar Styles */
+.layer-list::-webkit-scrollbar {
+  width: 8px;
+}
+
+.layer-list::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.layer-list::-webkit-scrollbar-thumb {
+  background: #444;
+  border-radius: 4px;
+}
+
+.layer-list::-webkit-scrollbar-thumb:hover {
+  background: #555;
+}
+
+/* Firefox scrollbar support */
+.layer-list {
+  scrollbar-width: thin;
+  scrollbar-color: #444 transparent;
+}
+
+/* Prevent row hover flicker when selected */
+li[data-selected="true"]:hover {
+  background-color: var(--layer-selected) !important;
+}

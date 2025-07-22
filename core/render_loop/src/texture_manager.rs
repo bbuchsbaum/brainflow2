@@ -23,14 +23,25 @@ pub struct TextureManager {
 impl TextureManager {
     /// Create a new texture manager
     pub fn new(device: &Device) -> Self {
+        // Check if device supports float32-filterable
+        let supports_float32_filterable = device.features().contains(wgpu::Features::FLOAT32_FILTERABLE);
+        
+        // Create appropriate sampler based on feature support
+        let filter_mode = if supports_float32_filterable {
+            wgpu::FilterMode::Linear
+        } else {
+            println!("WARNING: Using nearest neighbor sampling for volume textures because FLOAT32_FILTERABLE is not supported");
+            wgpu::FilterMode::Nearest
+        };
+        
         // Create linear sampler for volume data
         let linear_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             label: Some("Linear Sampler"),
             address_mode_u: wgpu::AddressMode::ClampToEdge,
             address_mode_v: wgpu::AddressMode::ClampToEdge,
             address_mode_w: wgpu::AddressMode::ClampToEdge,
-            mag_filter: wgpu::FilterMode::Linear,
-            min_filter: wgpu::FilterMode::Linear,
+            mag_filter: filter_mode,
+            min_filter: filter_mode,
             mipmap_filter: wgpu::FilterMode::Nearest,
             lod_min_clamp: 0.0,
             lod_max_clamp: 0.0,

@@ -1,6 +1,6 @@
 // Test resource management and memory cleanup
 use render_loop::RenderLoopService;
-use volmath::{DenseVolume3, NeuroSpace3};
+use volmath::{DenseVolume3, NeuroSpace3, NeuroSpaceExt};
 
 /// Create a small test volume
 fn create_test_volume(size: usize, value: f32) -> DenseVolume3<f32> {
@@ -8,12 +8,12 @@ fn create_test_volume(size: usize, value: f32) -> DenseVolume3<f32> {
     let spacing = [1.0, 1.0, 1.0];
     let origin = [0.0, 0.0, 0.0];
     
-    let space_impl = volmath::space::NeuroSpaceImpl::<3>::from_dims_spacing_origin(
-        dims,
-        spacing,
-        origin,
-    );
-    let space = NeuroSpace3(space_impl);
+    let space_impl = <volmath::NeuroSpace as NeuroSpaceExt>::from_dims_spacing_origin(
+        dims.to_vec(),
+        spacing.to_vec(),
+        origin.to_vec(),
+    ).expect("Failed to create NeuroSpace");
+    let space = NeuroSpace3::new(space_impl);
     
     // Create data with a gradient pattern for better visibility
     let mut data = Vec::with_capacity(dims[0] * dims[1] * dims[2]);
@@ -27,7 +27,7 @@ fn create_test_volume(size: usize, value: f32) -> DenseVolume3<f32> {
         }
     }
     
-    DenseVolume3::<f32>::from_data(space, data)
+    DenseVolume3::<f32>::from_data(space.0, data)
 }
 
 #[tokio::test]

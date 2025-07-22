@@ -11,7 +11,7 @@
 	import type { VolumeService } from '$lib/services/VolumeService';
 	import type { NotificationService } from '$lib/services/NotificationService';
 	import type { EventBus } from '$lib/events/EventBus';
-	import { useLayerStore } from '$lib/stores/layerStoreClean';
+	import { useLayerStore } from '$lib/stores/layerStore';
 	import { statusStore } from '$lib/stores/statusStore';
 	import OrthogonalViewGPU from './OrthogonalViewGPU.svelte';
 	import { ViewType } from '$lib/types/ViewType';
@@ -47,15 +47,15 @@
 
 	// Derived values
 	let activeLayer = $derived(
-		layerId ? layerStoreState.layers.find(l => l.id === layerId) : null
+		layerId && layerStoreState?.layers ? layerStoreState.layers.find(l => l.id === layerId) : null
 	);
 
-	let hasLayers = $derived(layerStoreState.layers.length > 0);
+	let hasLayers = $derived(layerStoreState?.layers?.length > 0);
 	let layerGpu = $derived(activeLayer?.gpu || null);
-
+	
 	// Auto-select first layer if none selected
 	$effect(() => {
-		if (!layerId && hasLayers) {
+		if (!layerId && hasLayers && layerStoreState?.layers) {
 			const firstLayer = layerStoreState.layers[0];
 			if (firstLayer) {
 				selectLayer(firstLayer.id);
@@ -71,7 +71,7 @@
 		// Update GoldenLayout state
 		if (glContainer) {
 			glContainer.setState({ layerId: id });
-			const layer = layerStoreState.layers.find(l => l.id === id);
+			const layer = layerStoreState?.layers?.find(l => l.id === id);
 			if (layer && 'Volume' in layer.spec) {
 				glContainer.setTitle(`Volume View - ${layer.spec.Volume.id}`);
 			}
@@ -160,7 +160,7 @@
 			eventBus.on('layer.removed', ({ layerId: removedId }) => {
 				if (layerId === removedId) {
 					// Select another layer or clear
-					const remainingLayers = layerStoreState.layers.map(l => l.id);
+					const remainingLayers = layerStoreState?.layers?.map(l => l.id) || [];
 					if (remainingLayers.length > 0) {
 						selectLayer(remainingLayers[0]);
 					} else {
@@ -194,8 +194,8 @@
 			]);
 
 			// Subscribe to stores
-			const unsubscribeLayerStore = useLayerStore.subscribe((state) => {
-				layerStoreState = state;
+			const unsubscribeLayerStore = useLayerStore.layers.subscribe(() => {
+				layerStoreState = useLayerStore.getState();
 			});
 
 			// StatusStore uses singleton pattern, no subscription needed

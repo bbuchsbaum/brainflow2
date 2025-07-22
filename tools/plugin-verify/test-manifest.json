@@ -1,0 +1,10 @@
+{
+  "id": "test-plugin",
+  "name": "Test Plugin",
+  "version": "1.0.0",
+  "description": "A test plugin",
+  "author": "Test Author",
+  "email": "test@example.com",
+  "entrypoint": "./index.js",
+  "permissions": []
+}

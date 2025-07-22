@@ -24,6 +24,7 @@ bytemuck = { version = "1", features = ["derive"] } # For UBO struct casting
 pollster = "0.3" # For async buffer mapping
 futures-intrusive = "0.5" # For map_async callback channel
 colormap = { path = "../colormap" } # Colormap system
+neuro-types = { path = "../neuro-types" } # Canonical slice extraction types
 half = { version = "2.3", features = ["serde", "bytemuck"] } # For R16Float texture format
 image = "0.24" # For saving rendered images
 clap = { version = "4", features = ["derive"] } # For command line parsing

@@ -63,28 +63,26 @@ export class VolumeService {
       const volumeHandle = await this.config.api.load_file(validPath);
       const loadTime = performance.now() - startTime;
       
-      // Extract volume info
-      if (volumeHandle && 'Volume' in volumeHandle) {
-        const volume = volumeHandle.Volume;
-        
+      // Validate volume handle
+      if (volumeHandle && volumeHandle.id) {
         // Store metadata
         const metadata: VolumeMetadata = {
-          id: volume.id,
+          id: volumeHandle.id,
           path: validPath,
           name: name || this.extractFileName(validPath),
-          dimensions: volume.shape,
-          voxelSize: volume.voxel_size,
-          dataType: volume.dtype,
-          origin: volume.origin || [0, 0, 0],
-          spacing: volume.spacing || [1, 1, 1],
+          dimensions: volumeHandle.dims,
+          voxelSize: [1, 1, 1], // Default voxel size since it's not in VolumeHandleInfo
+          dataType: volumeHandle.dtype,
+          origin: [0, 0, 0], // Default origin
+          spacing: [1, 1, 1], // Default spacing
           loadedAt: Date.now()
         };
         
-        this.volumeCache.set(volume.id, metadata);
+        this.volumeCache.set(volumeHandle.id, metadata);
         
         // Emit success event
         this.config.eventBus.emit('volume.loaded', {
-          volumeId: volume.id,
+          volumeId: volumeHandle.id,
           metadata,
           loadTime
         });

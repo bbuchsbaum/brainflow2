@@ -76,7 +76,17 @@
 
 	// Handle file selection from tree browser
 	async function handleFileSelected(file: FlatNode) {
-		if (isLoadingFile || !volumeService || !layerService) return;
+		console.log('[FileBrowserPanel] handleFileSelected called:', file);
+		
+		if (isLoadingFile) {
+			console.log('[FileBrowserPanel] Already loading a file, skipping');
+			return;
+		}
+		
+		if (!volumeService || !layerService) {
+			console.error('[FileBrowserPanel] Services not initialized:', { volumeService, layerService });
+			return;
+		}
 		
 		// Validate file extension
 		const hasValidExtension = acceptedExtensions.some(ext => 
@@ -101,7 +111,8 @@
 			});
 			
 			// Load the file through service
-			const volumeId = await volumeService.loadVolume(file.id);
+			const volumeHandle = await volumeService.loadVolume(file.id);
+			const volumeId = volumeHandle.id;
 			console.log('[FileBrowserPanel] Volume loaded:', volumeId);
 			
 			// Auto-create layer if enabled
@@ -141,9 +152,14 @@
 			
 		} catch (error) {
 			console.error('[FileBrowserPanel] Failed to load file:', error);
+			console.error('[FileBrowserPanel] Error details:', {
+				message: error instanceof Error ? error.message : 'Unknown',
+				stack: error instanceof Error ? error.stack : 'No stack',
+				error
+			});
 			
 			const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-			notificationService?.error(`Failed to load ${file.name}`, { 
+			notificationService?.error(`Failed to load ${file.name}: ${errorMessage}`, { 
 				error: error instanceof Error ? error : undefined 
 			});
 			
@@ -313,6 +329,8 @@
 	// Lifecycle
 	onMount(async () => {
 		try {
+			console.log('[FileBrowserPanel] Initializing services...');
+			
 			// Get services
 			[volumeService, layerService, configService, notificationService] = await Promise.all([
 				getService<VolumeService>('volumeService'),
@@ -320,6 +338,13 @@
 				getService<ConfigService>('configService'),
 				getService<NotificationService>('notificationService')
 			]);
+			
+			console.log('[FileBrowserPanel] Services initialized:', {
+				volumeService: !!volumeService,
+				layerService: !!layerService,
+				configService: !!configService,
+				notificationService: !!notificationService
+			});
 
 			// Load recent files
 			await loadRecentFiles();

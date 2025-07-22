@@ -1,6 +1,6 @@
 // Test coordinate inversion from screen space to world space
 use render_loop::RenderLoopService;
-use volmath::{DenseVolume3, NeuroSpace3};
+use volmath::{DenseVolume3, NeuroSpace3, NeuroSpaceExt};
 use nalgebra::Vector3;
 
 /// Create a test volume with markers at known positions
@@ -9,12 +9,12 @@ fn create_marker_volume() -> DenseVolume3<f32> {
     let spacing = [1.0, 1.0, 1.0];
     let origin = [0.0, 0.0, 0.0];
     
-    let space_impl = volmath::space::NeuroSpaceImpl::<3>::from_dims_spacing_origin(
-        dims,
-        spacing,
-        origin,
-    );
-    let space = NeuroSpace3(space_impl);
+    let space_impl = <volmath::NeuroSpace as NeuroSpaceExt>::from_dims_spacing_origin(
+        dims.to_vec(),
+        spacing.to_vec(),
+        origin.to_vec(),
+    ).expect("Failed to create NeuroSpace");
+    let space = NeuroSpace3::new(space_impl);
     
     let mut data = vec![0.0f32; dims[0] * dims[1] * dims[2]];
     
@@ -31,7 +31,7 @@ fn create_marker_volume() -> DenseVolume3<f32> {
         data[idx] = (i + 1) as f32 * 0.25; // Different intensities for each marker
     }
     
-    DenseVolume3::<f32>::from_data(space, data)
+    DenseVolume3::<f32>::from_data(space.0, data)
 }
 
 /// Convert screen pixel coordinates to world coordinates using frame parameters

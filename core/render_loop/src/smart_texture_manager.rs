@@ -4,9 +4,7 @@ use wgpu::{Device, Queue, Texture, TextureView, BindGroup, BindGroupLayout};
 use std::collections::{HashMap, BinaryHeap, HashSet};
 use std::cmp::Ordering;
 use crate::RenderLoopError;
-use volmath::{DenseVolume3, VoxelData, DataRange, NumericType};
-use volmath::traits::Volume;
-use volmath::space::GridSpace;
+use volmath::{DenseVolume3, VoxelData, DataRange, NumericType, NeuroSpaceExt};
 use nalgebra::Matrix4;
 use serde::Serialize;
 
@@ -380,7 +378,7 @@ impl SmartTextureManager {
         );
         
         // Get world-to-voxel transform
-        let world_to_voxel = space.0.world_to_voxel();
+        let world_to_voxel = space.world_to_voxel();
         
         // Track allocation
         let allocation = TextureAllocation {
@@ -602,7 +600,7 @@ where
     let range = max_val - min_val;
     
     let data: Vec<u8> = volume
-        .data_slice()
+        .values()
         .iter()
         .map(|&val| {
             let normalized = if range > T::zero() {
@@ -626,7 +624,7 @@ where
     T: VoxelData + num_traits::NumCast + DataRange<T> + Serialize,
 {
     let data: Vec<half::f16> = volume
-        .data_slice()
+        .values()
         .iter()
         .map(|&val| {
             let f32_val = num_traits::cast::<T, f32>(val).unwrap_or(0.0);
@@ -646,7 +644,7 @@ where
     T: VoxelData + num_traits::NumCast + DataRange<T> + Serialize,
 {
     let data: Vec<f32> = volume
-        .data_slice()
+        .values()
         .iter()
         .map(|&val| {
             num_traits::cast::<T, f32>(val).unwrap_or(0.0)
@@ -672,10 +670,10 @@ mod tests {
         
         // Test U8 volume
         let dims = [10, 10, 10];
-        let space_impl = NeuroSpaceImpl::from_affine_matrix4(dims, Matrix4::identity());
-        let space = NeuroSpace3(space_impl);
+        let space_impl = NeuroSpaceImpl::from_affine_matrix4(dims.to_vec(), Matrix4::identity()).unwrap();
+        let space = NeuroSpace3::new(space_impl);
         let u8_data = vec![0u8; 10 * 10 * 10];
-        let u8_volume = DenseVolume3::from_data(space, u8_data);
+        let u8_volume = DenseVolume3::from_data(space.0, u8_data);
         
         assert_eq!(
             SmartTextureManager::choose_optimal_format(&u8_volume),
@@ -683,14 +681,14 @@ mod tests {
         );
         
         // Test F32 volume with small range
-        let space_impl = NeuroSpaceImpl::from_affine_matrix4(dims, Matrix4::identity());
-        let space = NeuroSpace3(space_impl);
+        let space_impl = NeuroSpaceImpl::from_affine_matrix4(dims.to_vec(), Matrix4::identity()).unwrap();
+        let space = NeuroSpace3::new(space_impl);
         let mut f32_data = vec![0.0f32; 10 * 10 * 10];
         // Fill with small range values
         for i in 0..1000 {
             f32_data[i] = (i as f32) * 0.1;
         }
-        let f32_volume = DenseVolume3::from_data(space, f32_data);
+        let f32_volume = DenseVolume3::from_data(space.0, f32_data);
         
         assert_eq!(
             SmartTextureManager::choose_optimal_format(&f32_volume),
@@ -737,10 +735,10 @@ mod tests {
             
             // Create a test volume
             let dims = [64, 64, 64];
-            let space_impl = NeuroSpaceImpl::from_affine_matrix4(dims, Matrix4::identity());
-            let space = NeuroSpace3(space_impl);
+            let space_impl = NeuroSpaceImpl::from_affine_matrix4(dims.to_vec(), Matrix4::identity()).unwrap();
+            let space = NeuroSpace3::new(space_impl);
             let data = vec![0u8; 64 * 64 * 64];
-            let volume = DenseVolume3::from_data(space, data);
+            let volume = DenseVolume3::from_data(space.0, data);
             
             // Upload the volume
             let (index1, _) = manager.upload_volume(
@@ -801,10 +799,10 @@ mod tests {
             
             // Create a 1MB volume (128x128x64 at R8)
             let dims = [128, 128, 64];
-            let space_impl = NeuroSpaceImpl::from_affine_matrix4(dims, Matrix4::identity());
-            let space = NeuroSpace3(space_impl);
+            let space_impl = NeuroSpaceImpl::from_affine_matrix4(dims.to_vec(), Matrix4::identity()).unwrap();
+            let space = NeuroSpace3::new(space_impl);
             let data = vec![0u8; 128 * 128 * 64];
-            let volume = DenseVolume3::from_data(space, data);
+            let volume = DenseVolume3::from_data(space.0, data);
             
             // First upload should succeed
             let (index1, _) = manager.upload_volume(

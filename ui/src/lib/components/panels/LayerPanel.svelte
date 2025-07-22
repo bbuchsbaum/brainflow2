@@ -3,15 +3,15 @@
   Unified layer selection and controls in a compact, vertical layout
 -->
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onMount, onDestroy } from 'svelte';
   import { getContainer } from '$lib/di/Container';
-  import { useLayerStore } from '$lib/stores/layerStore';
+  import { useLayerStore, layers as layersStore, activeLayerId as activeLayerIdStore } from '$lib/stores/layerStore';
   import { sanitizeFileName } from '$lib/utils/sanitize';
   import { debounce } from '$lib/utils/debounce';
   import { ChevronDown, ChevronRight, Eye, EyeOff, Trash2 } from 'lucide-svelte';
   import type { EventBus } from '$lib/events/EventBus';
   import type { LayerService } from '$lib/services/LayerService';
-  import type { LayerEntry, LayerState } from '$lib/stores/layerStore';
+  import type { LayerEntry } from '$lib/stores/layerStore';
   
   // Dependencies
   let eventBus: EventBus;
@@ -24,6 +24,7 @@
   let layers = $state<LayerEntry[]>([]);
   let selectedLayerId = $state<string | null>(null);
   let selectedLayer = $derived(layers.find(l => getLayerId(l) === selectedLayerId));
+  let unsubscribeFns: Array<() => void> = [];
   
   // UI state
   let layersExpanded = $state(true);
@@ -49,17 +50,29 @@
   onMount(async () => {
     const container = getContainer();
     [eventBus, layerService] = await container.resolveAll('eventBus', 'layerService');
-  });
-  
-  // Subscribe to store changes
-  $effect(() => {
-    const unsubscribe = layerStore.subscribe((state: LayerState) => {
-      layers = state.layers;
-      selectedLayerId = state.selectedLayerId;
+    
+    // Get initial state
+    layers = useLayerStore.getState().layers;
+    selectedLayerId = useLayerStore.getState().activeLayerId;
+    updateControlsFromLayer();
+    
+    // Subscribe to store changes
+    const unsubscribeLayers = layersStore.subscribe((newLayers) => {
+      layers = newLayers;
       updateControlsFromLayer();
     });
     
-    return unsubscribe;
+    const unsubscribeSelected = activeLayerIdStore.subscribe((newId) => {
+      selectedLayerId = newId;
+      updateControlsFromLayer();
+    });
+    
+    unsubscribeFns = [unsubscribeLayers, unsubscribeSelected];
+  });
+  
+  // Cleanup subscriptions on destroy
+  onDestroy(() => {
+    unsubscribeFns.forEach(fn => fn());
   });
   
   // Update controls when selected layer changes
@@ -108,7 +121,7 @@
   }
   
   function selectLayer(layer: LayerEntry) {
-    layerStore.getState().selectLayer(getLayerId(layer));
+    useLayerStore.setActiveLayer(getLayerId(layer));
   }
   
   // Debounced control updates

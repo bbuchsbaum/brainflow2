@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-update-layer-threshold"
+description = "Enables the update_layer_threshold command without any pre-configured scope."
+commands.allow = ["update_layer_threshold"]
+
+[[permission]]
+identifier = "deny-update-layer-threshold"
+description = "Denies the update_layer_threshold command without any pre-configured scope."
+commands.deny = ["update_layer_threshold"]

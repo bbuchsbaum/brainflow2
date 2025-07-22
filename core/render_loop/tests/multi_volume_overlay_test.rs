@@ -9,12 +9,12 @@ fn create_sphere_volume(center: [f32; 3], radius: f32, value: f32) -> DenseVolum
     let spacing = [1.0, 1.0, 1.0];
     let origin = [0.0, 0.0, 0.0];
     
-    let space_impl = volmath::space::NeuroSpaceImpl::<3>::from_dims_spacing_origin(
+    let space_impl = volmath::space::NeuroSpaceImpl::from_dims_spacing_origin(
         dims,
         spacing,
         origin,
     );
-    let space = NeuroSpace3(space_impl);
+    let space = NeuroSpace3::new(space_impl);
     
     // Create data with sphere pattern
     let mut data = Vec::with_capacity(dims[0] * dims[1] * dims[2]);
@@ -44,12 +44,12 @@ fn create_box_volume(min: [f32; 3], max: [f32; 3], value: f32) -> DenseVolume3<f
     let spacing = [1.0, 1.0, 1.0];
     let origin = [0.0, 0.0, 0.0];
     
-    let space_impl = volmath::space::NeuroSpaceImpl::<3>::from_dims_spacing_origin(
+    let space_impl = volmath::space::NeuroSpaceImpl::from_dims_spacing_origin(
         dims,
         spacing,
         origin,
     );
-    let space = NeuroSpace3(space_impl);
+    let space = NeuroSpace3::new(space_impl);
     
     // Create data with box pattern
     let mut data = Vec::with_capacity(dims[0] * dims[1] * dims[2]);
@@ -113,12 +113,12 @@ fn create_multi_region_volume() -> DenseVolume3<f32> {
     let spacing = [1.0, 1.0, 1.0];
     let origin = [0.0, 0.0, 0.0];
     
-    let space_impl = volmath::space::NeuroSpaceImpl::<3>::from_dims_spacing_origin(
+    let space_impl = volmath::space::NeuroSpaceImpl::from_dims_spacing_origin(
         dims,
         spacing,
         origin,
     );
-    let space = NeuroSpace3(space_impl);
+    let space = NeuroSpace3::new(space_impl);
     
     // Create data with three distinct regions:
     // - Center sphere: high intensity (0.9)
@@ -290,12 +290,12 @@ fn verify_multi_threshold(buffer: &[u8], size: u32) {
 
 /// Create a test volume with a checkerboard pattern
 fn create_checkerboard_volume(dims: [usize; 3], spacing: [f32; 3], origin: [f32; 3]) -> DenseVolume3<f32> {
-    let space_impl = volmath::space::NeuroSpaceImpl::<3>::from_dims_spacing_origin(
+    let space_impl = volmath::space::NeuroSpaceImpl::from_dims_spacing_origin(
         dims,
         spacing,
         origin,
     );
-    let space = NeuroSpace3(space_impl);
+    let space = NeuroSpace3::new(space_impl);
     
     let mut data = vec![0.0f32; dims[0] * dims[1] * dims[2]];
     
@@ -316,12 +316,12 @@ fn create_checkerboard_volume(dims: [usize; 3], spacing: [f32; 3], origin: [f32;
 
 /// Create a test volume with a gradient pattern
 fn create_gradient_volume(dims: [usize; 3], spacing: [f32; 3], origin: [f32; 3]) -> DenseVolume3<f32> {
-    let space_impl = volmath::space::NeuroSpaceImpl::<3>::from_dims_spacing_origin(
+    let space_impl = volmath::space::NeuroSpaceImpl::from_dims_spacing_origin(
         dims,
         spacing,
         origin,
     );
-    let space = NeuroSpace3(space_impl);
+    let space = NeuroSpace3::new(space_impl);
     
     let mut data = vec![0.0f32; dims[0] * dims[1] * dims[2]];
     

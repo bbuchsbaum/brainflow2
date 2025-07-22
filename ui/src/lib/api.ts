@@ -275,6 +275,36 @@ async function update_frame_for_synchronized_view(
     }
 }
 
+/**
+ * Updates the frame parameters for synchronized view rendering with separate volume center.
+ * This version fixes the issue where the frame was incorrectly centered on the crosshair.
+ * @param view_width_mm - Width of the view in millimeters.
+ * @param view_height_mm - Height of the view in millimeters.  
+ * @param volume_center - Center of the volume in world coordinates [x, y, z].
+ * @param crosshair_world - Crosshair position in world coordinates [x, y, z].
+ * @param plane_id - The plane identifier (0=Axial, 1=Coronal, 2=Sagittal).
+ */
+async function update_frame_for_synchronized_view_fixed(
+    view_width_mm: number,
+    view_height_mm: number,
+    volume_center: [number, number, number],
+    crosshair_world: [number, number, number],
+    plane_id: 0 | 1 | 2
+): Promise<void> {
+    try {
+        await invokeWithReady<void>('plugin:api-bridge|update_frame_for_synchronized_view_fixed', {
+            viewWidthMm: view_width_mm,
+            viewHeightMm: view_height_mm,
+            volumeCenter: volume_center,
+            crosshairWorld: crosshair_world,
+            planeId: plane_id
+        });
+    } catch (error) {
+        console.error("API Error [update_frame_for_synchronized_view_fixed]:", error);
+        throw error;
+    }
+}
+
 // --- NEW Function: fs_list_directory ---
 
 /**
@@ -545,7 +575,9 @@ const baseApi = {
     set_view_plane,
     init_render_loop,
     update_frame_ubo,
+    set_frame_params,
     update_frame_for_synchronized_view,
+    update_frame_for_synchronized_view_fixed,
     render_frame,
     fs_list_directory,
     create_offscreen_render_target,

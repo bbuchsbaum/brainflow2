@@ -12,12 +12,12 @@ async fn oob_crosshair_yields_constant() {
     let data = vec![100.0f32; 1000];
     
     // Create space with 1mm spacing at origin (0,0,0)
-    let space = NeuroSpaceImpl::<3>::from_dims_spacing_origin(
+    let space = NeuroSpaceImpl::from_dims_spacing_origin(
         dims,
         [1.0, 1.0, 1.0],
         [0.0, 0.0, 0.0],
     );
-    let volume = DenseVolume3::from_data(NeuroSpace3(space.clone()), data);
+    let volume = DenseVolume3::from_data(NeuroSpace3::new(space.clone()), data);
     
     // Upload volume
     let result = service.upload_volume_3d(&volume);
@@ -96,12 +96,12 @@ async fn oob_edge_cases() {
         7.0, 8.0,  // z=1, y=1
     ];
     
-    let space = NeuroSpaceImpl::<3>::from_dims_spacing_origin(
+    let space = NeuroSpaceImpl::from_dims_spacing_origin(
         dims,
         [1.0, 1.0, 1.0],
         [0.0, 0.0, 0.0],
     );
-    let volume = DenseVolume3::from_data(NeuroSpace3(space.clone()), data);
+    let volume = DenseVolume3::from_data(NeuroSpace3::new(space.clone()), data);
     
     let result = service.upload_volume_3d(&volume);
     assert!(result.is_ok());
@@ -150,12 +150,12 @@ async fn oob_with_transform() {
     let data = vec![50.0f32; 4000];
     
     // 3mm spacing, origin at (-30, -30, -15)
-    let space = NeuroSpaceImpl::<3>::from_dims_spacing_origin(
+    let space = NeuroSpaceImpl::from_dims_spacing_origin(
         dims,
         [3.0, 3.0, 3.0],
         [-30.0, -30.0, -15.0],
     );
-    let volume = DenseVolume3::from_data(NeuroSpace3(space.clone()), data);
+    let volume = DenseVolume3::from_data(NeuroSpace3::new(space.clone()), data);
     
     let result = service.upload_volume_3d(&volume);
     assert!(result.is_ok());

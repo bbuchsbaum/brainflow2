@@ -1,5 +1,5 @@
 use render_loop::RenderLoopService;
-use volmath::{DenseVolume3, NeuroSpace3};
+use volmath::{DenseVolume3, NeuroSpace3, NeuroSpaceExt};
 use volmath::space::{NeuroSpaceImpl, GridSpace};
 use image::{ImageBuffer, Rgba};
 use std::path::Path;
@@ -220,28 +220,28 @@ fn load_nifti_volume(path: &Path) -> Result<DenseVolume3<f32>, Box<dyn std::erro
 
 /// Create a test volume with a sphere pattern
 fn create_sphere_test_volume() -> DenseVolume3<f32> {
-    let dims = [64, 64, 64];
-    let spacing = [1.0, 1.0, 1.0];
-    let origin = [0.0, 0.0, 0.0];
+    let dims = vec![64, 64, 64];
+    let spacing = vec![1.0, 1.0, 1.0];
+    let origin = vec![0.0, 0.0, 0.0];
     
-    let space_impl = NeuroSpaceImpl::<3>::from_dims_spacing_origin(dims, spacing, origin);
-    let space = NeuroSpace3(space_impl);
+    let space_impl = <volmath::NeuroSpace as NeuroSpaceExt>::from_dims_spacing_origin(dims, spacing, origin).expect("Failed to create NeuroSpace");
+    let space = NeuroSpace3::new(space_impl);
     
-    let mut data = vec![0.0f32; dims[0] * dims[1] * dims[2]];
+    let mut data = vec![0.0f32; 64 * 64 * 64];
     
-    let center = [dims[0] as f32 / 2.0, dims[1] as f32 / 2.0, dims[2] as f32 / 2.0];
+    let center = [32.0, 32.0, 32.0];
     let radius = 20.0;
     
-    for z in 0..dims[2] {
-        for y in 0..dims[1] {
-            for x in 0..dims[0] {
+    for z in 0..64 {
+        for y in 0..64 {
+            for x in 0..64 {
                 let dx = x as f32 - center[0];
                 let dy = y as f32 - center[1];
                 let dz = z as f32 - center[2];
                 let dist = (dx * dx + dy * dy + dz * dz).sqrt();
                 
                 if dist < radius {
-                    let idx = z * dims[0] * dims[1] + y * dims[0] + x;
+                    let idx = z * 64 * 64 + y * 64 + x;
                     // Create gradient from center
                     data[idx] = 1000.0 * (1.0 - dist / radius);
                 }
@@ -249,7 +249,7 @@ fn create_sphere_test_volume() -> DenseVolume3<f32> {
         }
     }
     
-    DenseVolume3::from_data(space, data)
+    DenseVolume3::from_data(space.0, data)
 }
 
 /// Analyze rendered image to count non-background pixels and unique colors

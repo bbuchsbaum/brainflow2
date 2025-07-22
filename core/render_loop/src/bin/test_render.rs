@@ -49,10 +49,12 @@ enum Pattern {
 
 /// Helper to create a volume with the given data
 fn create_volume_from_data(dims: [usize; 3], data: Vec<f32>, transform: Matrix4<f32>) -> DenseVolume3<f32> {
-    use volmath::space::{NeuroSpace3, NeuroSpaceImpl};
-    let space_impl = NeuroSpaceImpl::from_affine_matrix4(dims, transform);
-    let space = NeuroSpace3(space_impl);
-    DenseVolume3::from_data(space, data)
+    use volmath::space::NeuroSpace3;
+    use volmath::NeuroSpaceExt;
+    let dims_vec = vec![dims[0], dims[1], dims[2]];
+    let space_impl = <volmath::NeuroSpace as NeuroSpaceExt>::from_affine_matrix4(dims_vec, transform).expect("Failed to create NeuroSpace");
+    let space = NeuroSpace3::new(space_impl);
+    DenseVolume3::from_data(space.0, data)
 }
 
 fn create_volume(pattern: Pattern) -> DenseVolume3<f32> {

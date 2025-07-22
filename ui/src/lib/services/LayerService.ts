@@ -116,3 +116,10 @@ export class LayerService {
     throw new Error('Unsupported layer type');
   }
 }
+
+/**
+ * Factory function to create LayerService
+ */
+export function createLayerService(config: LayerServiceConfig): LayerService {
+  return new LayerService(config);
+}

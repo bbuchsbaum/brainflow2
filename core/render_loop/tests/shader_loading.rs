@@ -37,7 +37,7 @@ fn test_pipeline_creation() {
     // Set up a dummy surface config for the offscreen format
     service.surface_config = Some(wgpu::SurfaceConfiguration {
         usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
-        format: wgpu::TextureFormat::Rgba8UnormSrgb, // Match offscreen format
+        format: wgpu::TextureFormat::Rgba8Unorm, // Match offscreen format (linear color space)
         width: 800,
         height: 600,
         present_mode: wgpu::PresentMode::Fifo,

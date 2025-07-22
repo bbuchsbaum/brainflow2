@@ -4,8 +4,10 @@
 description = "Default permissions for api-bridge plugin"
 permissions = [
     "allow-load-file",
+    "allow-get-volume-bounds",
     "allow-world-to-voxel", 
     "allow-get-timeseries-matrix",
+    "allow-get-initial-views",
     "allow-request-layer-gpu-resources",
     "allow-release-layer-gpu-resources",
     "allow-fs-list-directory",
@@ -18,7 +20,17 @@ permissions = [
     "allow-render-frame",
     "allow-create-offscreen-render-target",
     "allow-render-to-image",
+    "allow-render-to-image-binary",
     "allow-add-render-layer",
+    "allow-remove-render-layer",
+    "allow-clear-render-layers",
     "allow-patch-layer",
-    "allow-sample-world-coordinate"
+    "allow-update-layer-opacity",
+    "allow-update-layer-colormap",
+    "allow-update-layer-intensity",
+    "allow-update-layer-threshold",
+    "allow-sample-world-coordinate",
+    "allow-apply-and-render-view-state",
+    "allow-apply-and-render-view-state-binary",
+    "allow-apply-and-render-view-state-raw"
 ]

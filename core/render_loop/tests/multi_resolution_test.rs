@@ -2,7 +2,7 @@
 
 use render_loop::test_fixtures::{TestVolumeSet, create_test_pattern_volume};
 use render_loop::{RenderLoopService, RenderLoopError};
-use volmath::DenseVolume3;
+use volmath::{DenseVolume3, NeuroSpaceExt};
 use nalgebra::{Matrix4, Vector3};
 use pollster;
 
@@ -123,9 +123,10 @@ fn create_full_fov_volume() -> DenseVolume3<u8> {
     }
     
     use volmath::space::{NeuroSpace3, NeuroSpaceImpl};
-    let space_impl = NeuroSpaceImpl::from_affine_matrix4(dims, Matrix4::identity());
-    let space = NeuroSpace3(space_impl);
-    DenseVolume3::from_data(space, data)
+    let space_impl = <volmath::NeuroSpace as NeuroSpaceExt>::from_affine_matrix4(dims.to_vec(), Matrix4::identity())
+        .expect("Failed to create NeuroSpace");
+    let space = NeuroSpace3::new(space_impl);
+    DenseVolume3::from_data(space.0, data)
 }
 
 fn create_partial_fov_volume() -> DenseVolume3<f32> {
@@ -143,9 +144,10 @@ fn create_partial_fov_volume() -> DenseVolume3<f32> {
     }
     
     use volmath::space::{NeuroSpace3, NeuroSpaceImpl};
-    let space_impl = NeuroSpaceImpl::from_affine_matrix4(dims, Matrix4::identity());
-    let space = NeuroSpace3(space_impl);
-    DenseVolume3::from_data(space, data)
+    let space_impl = <volmath::NeuroSpace as NeuroSpaceExt>::from_affine_matrix4(dims.to_vec(), Matrix4::identity())
+        .expect("Failed to create NeuroSpace");
+    let space = NeuroSpace3::new(space_impl);
+    DenseVolume3::from_data(space.0, data)
 }
 
 /// Test helper to verify a rendered image has no black pixels

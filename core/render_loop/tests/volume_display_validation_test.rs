@@ -3,7 +3,7 @@
 use render_loop::{RenderLoopService, RenderLoopError, FrameUbo, LayerUboStd140};
 use render_loop::render_state::{LayerInfo, BlendMode, ThresholdMode};
 use render_loop::test_fixtures::create_test_pattern_volume;
-use volmath::DenseVolume3;
+use volmath::{DenseVolume3, NeuroSpaceExt};
 use nalgebra::{Matrix4, Vector3, Point3};
 use pollster;
 use wgpu::TextureFormat;
@@ -43,6 +43,7 @@ fn test_volume_renders_not_black() {
             threshold_range: (0.0, 1.0),
             threshold_mode: ThresholdMode::Range,
             texture_coords: (0.0, 0.0, 1.0, 1.0),
+            is_mask: false,
         };
         
         // Configure world-to-voxel transform
@@ -111,6 +112,7 @@ fn test_binary_mask_renders_correctly() {
             threshold_range: (0.0, 1.0),
             threshold_mode: ThresholdMode::Range,
             texture_coords: (0.0, 0.0, 1.0, 1.0),
+            is_mask: false,
         };
         
         let world_to_voxel = Matrix4::new(
@@ -162,6 +164,7 @@ fn test_crosshair_position() {
             threshold_range: (0.0, 1.0),
             threshold_mode: ThresholdMode::Range,
             texture_coords: (0.0, 0.0, 1.0, 1.0),
+            is_mask: false,
         };
         
         let world_to_voxel = Matrix4::new(
@@ -229,9 +232,9 @@ fn create_binary_mask() -> DenseVolume3<u8> {
     }
     
     use volmath::space::{NeuroSpace3, NeuroSpaceImpl};
-    let space_impl = NeuroSpaceImpl::from_affine_matrix4(dims, Matrix4::identity());
-    let space = NeuroSpace3(space_impl);
-    DenseVolume3::from_data(space, data)
+    let space_impl = <volmath::NeuroSpace as NeuroSpaceExt>::from_affine_matrix4(dims, Matrix4::identity()).expect("Failed to create NeuroSpace");
+    let space = NeuroSpace3::new(space_impl);
+    DenseVolume3::from_data(space.0, data)
 }
 
 fn assert_center_pixel_visible(image_data: &[u8], width: u32, height: u32) {

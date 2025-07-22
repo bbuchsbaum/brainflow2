@@ -16,6 +16,19 @@
   let currentVolume: any = null;
   let volumeMeta: VolumeMeta | null = null;
   let viewMode: 'single' | 'orthogonal' = 'single';
+  let layers: any[] = [];
+  
+  onMount(() => {
+    // Initialize with current state
+    layers = useLayerStore.getState().layers;
+    
+    // Subscribe to changes
+    const unsubscribe = useLayerStore.layers.subscribe((newLayers) => {
+      layers = newLayers;
+    });
+    
+    return unsubscribe;
+  });
   
   async function greet() {
     try {
@@ -62,9 +75,10 @@
           };
           
           // Request GPU resources and set up layer
+          const layerId = `layer-${Date.now()}`;
           const layerSpec = {
             Volume: {
-              id: `layer-${Date.now()}`,
+              id: layerId,
               source_resource_id: volumeInfo.id,
               colormap: 'viridis',
               slice_axis: 'Axial' as const,
@@ -76,13 +90,8 @@
           console.log('GPU resources allocated:', gpuResources);
           
           // Add layer to the layer store
-          const layerStore = useLayerStore.getState();
-          layerStore.addLayer({
-            spec: layerSpec,
-            gpu: gpuResources,
-            visible: true,
-            opacity: 1.0
-          });
+          useLayerStore.addLayer(layerId, layerSpec);
+          useLayerStore.updateLayer(layerId, { gpu: gpuResources });
           
           // Refresh volumes list
           await listVolumes();
@@ -181,7 +190,7 @@
       {#if volumeMeta}
         <ViewerWithStatusBar
           {volumeMeta}
-          layers={useLayerStore.getState().layers.map(l => l.spec)}
+          layers={layers.map(l => l.spec)}
           {viewMode}
           width={800}
           height={600}

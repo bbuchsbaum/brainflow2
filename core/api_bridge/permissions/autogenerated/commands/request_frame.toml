@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-request-frame"
+description = "Enables the request_frame command without any pre-configured scope."
+commands.allow = ["request_frame"]
+
+[[permission]]
+identifier = "deny-request-frame"
+description = "Denies the request_frame command without any pre-configured scope."
+commands.deny = ["request_frame"]

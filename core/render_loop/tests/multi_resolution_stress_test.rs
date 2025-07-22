@@ -4,7 +4,7 @@
 mod tests {
     use render_loop::{RenderLoopService, test_fixtures};
     use render_loop::render_state::{LayerInfo, BlendMode, ThresholdMode};
-    use volmath::{DenseVolume3, space::{NeuroSpace3, NeuroSpaceImpl}};
+    use volmath::{DenseVolume3, NeuroSpaceExt, space::{NeuroSpace3, NeuroSpaceImpl}};
     use nalgebra::Matrix4;
     
     /// Create a volume with specific dimensions and resolution
@@ -32,9 +32,10 @@ mod tests {
             0.0, 0.0, 0.0, 1.0,
         );
         
-        let space_impl = NeuroSpaceImpl::from_affine_matrix4(dims, transform);
-        let space = NeuroSpace3(space_impl);
-        DenseVolume3::from_data(space, data)
+        let space_impl = <volmath::NeuroSpace as NeuroSpaceExt>::from_affine_matrix4(dims.to_vec(), transform)
+            .expect("Failed to create NeuroSpace");
+        let space = NeuroSpace3::new(space_impl);
+        DenseVolume3::from_data(space.0, data)
     }
     
     /// Test handling many volumes at different resolutions
@@ -86,6 +87,7 @@ mod tests {
                     threshold_range: (0.2, 0.8),
                     threshold_mode: if i > 2 { ThresholdMode::Range } else { ThresholdMode::Range },
                     texture_coords: (0.0, 0.0, 1.0, 1.0),
+                    is_mask: false,
                 }
             }).collect();
             
@@ -189,6 +191,7 @@ mod tests {
                         threshold_range: (0.0, 1.0),
                         threshold_mode: ThresholdMode::Range,
                         texture_coords: (0.0, 0.0, 1.0, 1.0),
+                        is_mask: false,
                     },
                     LayerInfo {
                         atlas_index: fine_idx,
@@ -199,6 +202,7 @@ mod tests {
                         threshold_range: (0.0, 1.0),
                         threshold_mode: ThresholdMode::Range,
                         texture_coords: (0.0, 0.0, 1.0, 1.0),
+                        is_mask: false,
                     },
                 ];
                 
@@ -239,6 +243,7 @@ mod tests {
                     threshold_range: (0.0, 1.0),
                     threshold_mode: ThresholdMode::Range,
                     texture_coords: (0.0, 0.0, 1.0, 1.0),
+                    is_mask: false,
                 },
                 LayerInfo {
                     atlas_index: idx2,
@@ -249,6 +254,7 @@ mod tests {
                     threshold_range: (0.3, 0.7),
                     threshold_mode: ThresholdMode::Range,
                     texture_coords: (0.0, 0.0, 1.0, 1.0),
+                    is_mask: false,
                 },
             ];
             

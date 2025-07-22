@@ -6,12 +6,35 @@ This file provides guidance to Claude Code when working with the UI frontend cod
 
 The Brainflow UI is a modern, reactive frontend built with:
 - **Framework**: SvelteKit 5 with runes (`$state`, `$derived`, `$effect`)
-- **State Management**: Zustand with clean store pattern
+- **State Management**: Svelte stores ONLY (NOT Zustand) - we are migrating away from Zustand
 - **Layout**: Golden Layout for dockable panels
 - **Styling**: Tailwind CSS
 - **GPU Rendering**: WebGPU for 2D slices, Three.js for 3D surfaces
 - **Event System**: Custom EventBus for decoupled communication
 - **Services**: Dependency injection pattern for business logic
+
+## CRITICAL: State Management Migration
+⚠️ **We are using Svelte stores ONLY** - do NOT use Zustand!
+- All stores should use Svelte's `writable()`, `derived()`, `readable()`
+- We are actively migrating away from Zustand
+- Any new stores must be Svelte stores
+- When fixing imports, convert Zustand stores to Svelte stores
+
+## Important SvelteKit File Naming Rules
+
+⚠️ **NEVER create files starting with "+" prefix** (except for SvelteKit's special route files like `+page.svelte`, `+layout.svelte`, etc.)
+
+SvelteKit reserves the "+" prefix for its routing system. Creating custom files with names like `+layout.golden.svelte` or `+mycomponent.svelte` will cause errors:
+```
+500 Files prefixed with + are reserved (saw src/routes/+layout.golden.svelte)
+```
+
+**Correct naming patterns:**
+- ✅ `layout.golden.svelte`
+- ✅ `MyComponent.svelte` 
+- ✅ `mycomponent.backup.svelte`
+- ❌ `+layout.golden.svelte`
+- ❌ `+MyComponent.svelte`
 
 ## Key Architectural Patterns
 

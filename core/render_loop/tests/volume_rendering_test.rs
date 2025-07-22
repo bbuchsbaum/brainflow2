@@ -11,7 +11,7 @@ fn create_test_volume() -> DenseVolume3<f32> {
     let spacing = [1.0, 1.0, 1.5];
     let origin = [0.0, 0.0, 0.0];
     
-    let space = NeuroSpace3(NeuroSpaceImpl::<3>::from_dims_spacing_origin(dims, spacing, origin));
+    let space = NeuroSpace3::new(NeuroSpaceImpl::from_dims_spacing_origin(dims, spacing, origin));
     
     // Create data with gradient pattern
     let mut data = Vec::with_capacity(dims[0] * dims[1] * dims[2]);
@@ -27,7 +27,7 @@ fn create_test_volume() -> DenseVolume3<f32> {
         }
     }
     
-    DenseVolume3::from_data(space, data)
+    DenseVolume3::from_data(space.0, data)
 }
 
 #[test]

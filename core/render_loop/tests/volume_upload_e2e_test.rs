@@ -32,12 +32,12 @@ async fn test_full_volume_upload_pipeline() {
     }
     
     // Step 3: Create coordinate space with realistic parameters
-    let space = NeuroSpaceImpl::<3>::from_dims_spacing_origin(
+    let space = NeuroSpaceImpl::from_dims_spacing_origin(
         dims,
         [3.5, 3.5, 3.5], // 3.5mm voxel spacing
         [-111.5, -111.5, -43.75], // Typical MRI origin
     );
-    let volume = DenseVolume3::from_data(NeuroSpace3(space.clone()), data);
+    let volume = DenseVolume3::from_data(NeuroSpace3::new(space.clone()), data);
     
     // Step 4: Upload entire volume
     let result = service.upload_volume_3d(&volume);
@@ -108,22 +108,22 @@ async fn test_multiple_volumes_different_spaces() {
     // Volume 1: Identity transform
     let vol1_dims = [32, 32, 32];
     let vol1_data = vec![100.0f32; 32 * 32 * 32];
-    let space1 = NeuroSpaceImpl::<3>::from_dims_spacing_origin(
+    let space1 = NeuroSpaceImpl::from_dims_spacing_origin(
         vol1_dims,
         [1.0, 1.0, 1.0],
         [0.0, 0.0, 0.0],
     );
-    let volume1 = DenseVolume3::from_data(NeuroSpace3(space1), vol1_data);
+    let volume1 = DenseVolume3::from_data(NeuroSpace3::new(space1), vol1_data);
     
     // Volume 2: Scaled and translated
     let vol2_dims = [64, 64, 16];
     let vol2_data = vec![200.0f32; 64 * 64 * 16];
-    let space2 = NeuroSpaceImpl::<3>::from_dims_spacing_origin(
+    let space2 = NeuroSpaceImpl::from_dims_spacing_origin(
         vol2_dims,
         [0.5, 0.5, 2.0],
         [-16.0, -16.0, -16.0],
     );
-    let _volume2 = DenseVolume3::from_data(NeuroSpace3(space2), vol2_data);
+    let _volume2 = DenseVolume3::from_data(NeuroSpace3::new(space2), vol2_data);
     
     // Upload both volumes
     let result1 = service.upload_volume_3d(&volume1);
@@ -154,12 +154,12 @@ async fn test_upload_pipeline_error_handling() {
     // Test with minimal valid volume
     let dims = [1, 1, 1];
     let data: Vec<f32> = vec![1.0];
-    let space = NeuroSpaceImpl::<3>::from_dims_spacing_origin(
+    let space = NeuroSpaceImpl::from_dims_spacing_origin(
         dims,
         [1.0, 1.0, 1.0],
         [0.0, 0.0, 0.0],
     );
-    let volume = DenseVolume3::from_data(NeuroSpace3(space), data);
+    let volume = DenseVolume3::from_data(NeuroSpace3::new(space), data);
     
     // This minimal volume should upload successfully
     let result = service.upload_volume_3d(&volume);
@@ -176,12 +176,12 @@ async fn test_coordinate_precision() {
     let data = vec![1.0f32; 500000];
     
     // Use non-round numbers to test floating point precision
-    let space = NeuroSpaceImpl::<3>::from_dims_spacing_origin(
+    let space = NeuroSpaceImpl::from_dims_spacing_origin(
         dims,
         [1.234567, 2.345678, 3.456789],
         [-123.456, -234.567, -345.678],
     );
-    let volume = DenseVolume3::from_data(NeuroSpace3(space.clone()), data);
+    let volume = DenseVolume3::from_data(NeuroSpace3::new(space.clone()), data);
     
     let result = service.upload_volume_3d(&volume);
     assert!(result.is_ok());
@@ -238,12 +238,12 @@ async fn test_render_with_pattern() {
     data[2*16 + 3*4 + 1] = 1000.0;
     data[2*16 + 3*4 + 2] = 1000.0;
     
-    let space = NeuroSpaceImpl::<3>::from_dims_spacing_origin(
+    let space = NeuroSpaceImpl::from_dims_spacing_origin(
         dims,
         [1.0, 1.0, 1.0],
         [0.0, 0.0, 0.0],
     );
-    let volume = DenseVolume3::from_data(NeuroSpace3(space), data);
+    let volume = DenseVolume3::from_data(NeuroSpace3::new(space), data);
     
     // Upload the patterned volume
     let result = service.upload_volume_3d(&volume);

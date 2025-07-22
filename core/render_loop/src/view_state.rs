@@ -31,7 +31,9 @@ pub struct ViewState {
     /// Viewport dimensions
     pub viewport_size: [u32; 2],
     
-    /// Show/hide crosshair
+    /// Show/hide crosshair hint for UI layer
+    /// Note: Crosshairs are rendered as UI overlays, not in the volume data.
+    /// This field is preserved for UI components to determine crosshair visibility.
     pub show_crosshair: bool,
 }
 
@@ -46,6 +48,16 @@ pub struct CameraState {
     
     /// Which anatomical plane we're viewing
     pub orientation: SliceOrientation,
+    
+    /// Optional exact frame parameters (for non-square FOVs)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub frame_origin: Option<[f32; 4]>,
+    
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub frame_u_vec: Option<[f32; 4]>,
+    
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub frame_v_vec: Option<[f32; 4]>,
 }
 
 /// Anatomical viewing planes
@@ -91,6 +103,60 @@ pub struct ThresholdConfig {
     pub range: (f32, f32),
 }
 
+impl LayerConfig {
+    /// Create a new layer with default settings
+    pub fn new(volume_id: String) -> Self {
+        Self {
+            volume_id,
+            opacity: 1.0,
+            colormap_id: 0,
+            blend_mode: BlendMode::Normal,
+            intensity_window: (0.0, 1.0),
+            threshold: None,
+            visible: true,
+        }
+    }
+    
+    /// Builder-style method to set opacity
+    pub fn with_opacity(mut self, opacity: f32) -> Self {
+        self.opacity = opacity;
+        self
+    }
+    
+    /// Builder-style method to set colormap
+    pub fn with_colormap(mut self, colormap_id: u32) -> Self {
+        self.colormap_id = colormap_id;
+        self
+    }
+    
+    /// Builder-style method to set blend mode
+    pub fn with_blend_mode(mut self, blend_mode: BlendMode) -> Self {
+        self.blend_mode = blend_mode;
+        self
+    }
+    
+    /// Builder-style method to set intensity window
+    pub fn with_intensity_window(mut self, min: f32, max: f32) -> Self {
+        self.intensity_window = (min, max);
+        self
+    }
+    
+    /// Builder-style method to set threshold
+    pub fn with_threshold(mut self, mode: ThresholdMode, min: f32, max: f32) -> Self {
+        self.threshold = Some(ThresholdConfig {
+            mode,
+            range: (min, max),
+        });
+        self
+    }
+    
+    /// Builder-style method to set visibility
+    pub fn with_visibility(mut self, visible: bool) -> Self {
+        self.visible = visible;
+        self
+    }
+}
+
 /// Result of a frame render request
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FrameResult {
@@ -132,6 +198,9 @@ impl ViewState {
                 world_center: center,
                 fov_mm: 256.0,
                 orientation: SliceOrientation::Axial,
+                frame_origin: None,
+                frame_u_vec: None,
+                frame_v_vec: None,
             },
             crosshair_world: center,
             layers: vec![LayerConfig {
@@ -142,7 +211,7 @@ impl ViewState {
                 intensity_window: (0.0, 1.0),
                 threshold: None,
                 visible: true,
-            }],
+        }],
             viewport_size: [512, 512],
             show_crosshair: true,
         }
@@ -181,8 +250,174 @@ impl ViewState {
         Ok(())
     }
     
+    /// Builder-style method to set orientation
+    pub fn with_orientation(mut self, orientation: SliceOrientation) -> Self {
+        self.camera.orientation = orientation;
+        self
+    }
+    
+    /// Builder-style method to set field of view
+    pub fn with_fov(mut self, fov_mm: f32) -> Self {
+        self.camera.fov_mm = fov_mm;
+        self
+    }
+    
+    /// Builder-style method to set world center
+    pub fn with_center(mut self, center: [f32; 3]) -> Self {
+        self.camera.world_center = center;
+        self.crosshair_world = center;
+        self
+    }
+    
+    /// Builder-style method to set viewport size
+    pub fn with_viewport(mut self, width: u32, height: u32) -> Self {
+        self.viewport_size = [width, height];
+        self
+    }
+    
+    /// Builder-style method to add a layer
+    pub fn with_layer(mut self, layer: LayerConfig) -> Self {
+        self.layers.push(layer);
+        self
+    }
+    
+    /// Builder-style method to replace all layers
+    pub fn with_layers(mut self, layers: Vec<LayerConfig>) -> Self {
+        self.layers = layers;
+        self
+    }
+    
+    /// Builder-style method to show/hide crosshair
+    pub fn with_crosshair(mut self, show: bool) -> Self {
+        self.show_crosshair = show;
+        self
+    }
+    
+    /// Create ViewState from basic parameters (convenience method)
+    pub fn from_basic_params(
+        volume_id: String,
+        center: [f32; 3],
+        orientation: SliceOrientation,
+        fov_mm: f32,
+        viewport_size: [u32; 2],
+        intensity_window: (f32, f32),
+    ) -> Self {
+        Self {
+            layout_version: Self::CURRENT_VERSION,
+            camera: CameraState {
+                world_center: center,
+                fov_mm,
+                orientation,
+                frame_origin: None,
+                frame_u_vec: None,
+                frame_v_vec: None,
+            },
+            crosshair_world: center,
+            layers: vec![LayerConfig {
+                volume_id,
+                opacity: 1.0,
+                colormap_id: 0,
+                blend_mode: BlendMode::Normal,
+                intensity_window,
+                threshold: None,
+                visible: true,
+            }],
+            viewport_size,
+            show_crosshair: true,
+        }
+    }
+    
+    /// Create ViewState from ViewRectMm with exact frame parameters
+    pub fn from_view_rect(
+        view_rect: &neuro_types::ViewRectMm,
+        volume_id: String,
+        intensity_window: (f32, f32),
+    ) -> Self {
+        use neuro_types::ViewOrientation;
+        
+        // Determine orientation from view rect vectors
+        let orientation = match (view_rect.u_mm, view_rect.v_mm) {
+            ([u, 0.0, 0.0], [0.0, v, 0.0]) if u != 0.0 && v != 0.0 => SliceOrientation::Axial,
+            ([u, 0.0, 0.0], [0.0, 0.0, v]) if u != 0.0 && v != 0.0 => SliceOrientation::Coronal,
+            ([0.0, u, 0.0], [0.0, 0.0, v]) if u != 0.0 && v != 0.0 => SliceOrientation::Sagittal,
+            _ => {
+                // More complex detection for non-axis-aligned views
+                if view_rect.u_mm[0] != 0.0 && view_rect.v_mm[1] != 0.0 {
+                    SliceOrientation::Axial
+                } else if view_rect.u_mm[0] != 0.0 && view_rect.v_mm[2] != 0.0 {
+                    SliceOrientation::Coronal
+                } else if view_rect.u_mm[1] != 0.0 && view_rect.v_mm[2] != 0.0 {
+                    SliceOrientation::Sagittal
+                } else {
+                    SliceOrientation::Axial // Default fallback
+                }
+            }
+        };
+        
+        // Get exact frame parameters
+        let (origin, u_vec, v_vec) = view_rect.to_gpu_frame_params();
+        
+        // Calculate world center from frame parameters
+        let world_center = match orientation {
+            SliceOrientation::Axial => [
+                origin[0] + u_vec[0] / 2.0,
+                origin[1] + v_vec[1] / 2.0,
+                origin[2],
+            ],
+            SliceOrientation::Coronal => [
+                origin[0] + u_vec[0] / 2.0,
+                origin[1],
+                origin[2] + v_vec[2] / 2.0,
+            ],
+            SliceOrientation::Sagittal => [
+                origin[0],
+                origin[1] - u_vec[1] / 2.0, // Note: sagittal often has negative u
+                origin[2] + v_vec[2] / 2.0,
+            ],
+        };
+        
+        // Calculate FOV as the maximum extent
+        let fov_mm = u_vec[0].abs().max(u_vec[1].abs())
+            .max(v_vec[1].abs()).max(v_vec[2].abs());
+        
+        Self {
+            layout_version: Self::CURRENT_VERSION,
+            camera: CameraState {
+                world_center,
+                fov_mm,
+                orientation,
+                // Store exact frame parameters
+                frame_origin: Some(origin),
+                frame_u_vec: Some(u_vec),
+                frame_v_vec: Some(v_vec),
+            },
+            crosshair_world: view_rect.origin_mm,
+            layers: vec![LayerConfig {
+                volume_id,
+                opacity: 1.0,
+                colormap_id: 0,
+                blend_mode: BlendMode::Normal,
+                intensity_window,
+                threshold: None,
+                visible: true,
+            }],
+            viewport_size: [view_rect.width_px, view_rect.height_px],
+            show_crosshair: true,
+        }
+    }
+    
     /// Convert camera state to frame UBO parameters
     pub fn camera_to_frame_params(&self) -> ([f32; 4], [f32; 4], [f32; 4]) {
+        // If we have exact frame parameters stored, use them
+        if let (Some(origin), Some(u_vec), Some(v_vec)) = (
+            self.camera.frame_origin,
+            self.camera.frame_u_vec,
+            self.camera.frame_v_vec,
+        ) {
+            return (origin, u_vec, v_vec);
+        }
+        
+        // Otherwise fall back to FOV-based calculation
         let half_fov = self.camera.fov_mm * 0.5;
         
         match self.camera.orientation {
@@ -212,13 +447,14 @@ impl ViewState {
             },
             SliceOrientation::Sagittal => {
                 // Looking down X axis, Y->right, Z->up
+                // Apply neurological convention: anterior on left (negative Y)
                 let origin = [
                     self.camera.world_center[0],
-                    self.camera.world_center[1] - half_fov,
+                    self.camera.world_center[1] + half_fov,  // Flip origin to match negated Y
                     self.camera.world_center[2] - half_fov,
                     1.0,
                 ];
-                let u_vec = [0.0, self.camera.fov_mm, 0.0, 0.0];
+                let u_vec = [0.0, -self.camera.fov_mm, 0.0, 0.0];  // Negate Y for neurological convention
                 let v_vec = [0.0, 0.0, self.camera.fov_mm, 0.0];
                 (origin, u_vec, v_vec)
             }
@@ -276,6 +512,9 @@ mod tests {
                 world_center: [100.0, 100.0, 50.0],
                 fov_mm: 200.0,
                 orientation: SliceOrientation::Axial,
+                frame_origin: None,
+                frame_u_vec: None,
+                frame_v_vec: None,
             },
             crosshair_world: [100.0, 100.0, 50.0],
             layers: vec![],

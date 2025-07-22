@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Intensity Range Fix Test</title>
+    <style>
+        body {
+            font-family: monospace;
+            padding: 20px;
+            background: #1e1e1e;
+            color: #d4d4d4;
+        }
+        pre {
+            background: #2d2d30;
+            padding: 10px;
+            border-radius: 4px;
+            overflow-x: auto;
+        }
+        h1 {
+            color: #569cd6;
+        }
+        .info {
+            color: #4ec9b0;
+        }
+        .error {
+            color: #f44747;
+        }
+        .success {
+            color: #6a9955;
+        }
+    </style>
+</head>
+<body>
+    <h1>Testing Intensity Range Fix</h1>
+    <p class="info">Open the Developer Console (F12) to see test output</p>
+    <p class="info">Also watch the Rust console for debug output</p>
+    
+    <div id="status">
+        <p>Loading test...</p>
+    </div>
+    
+    <script src="test_intensity_range_fix.js"></script>
+    <script>
+        // Update status on page
+        const originalLog = console.log;
+        const originalError = console.error;
+        const statusDiv = document.getElementById('status');
+        
+        console.log = function(...args) {
+            originalLog.apply(console, args);
+            const msg = args.join(' ');
+            if (msg.includes('Success!')) {
+                statusDiv.innerHTML += `<p class="success">${msg}</p>`;
+            } else {
+                statusDiv.innerHTML += `<p>${msg}</p>`;
+            }
+        };
+        
+        console.error = function(...args) {
+            originalError.apply(console, args);
+            const msg = args.join(' ');
+            statusDiv.innerHTML += `<p class="error">${msg}</p>`;
+        };
+    </script>
+</body>
+</html>

@@ -1,0 +1,35 @@
+{
+  "id": "my-analysis-plugin",
+  "name": "My Analysis Plugin",
+  "version": "1.0.0",
+  "compatibleCore": "^0.1.0",
+  "type": "analysis",
+  "apiVersion": "0.1.1",
+  "entrypoint": "dist/index.js",
+  "description": "A custom analysis plugin for neuroimaging data processing",
+  "author": "Your Name",
+  "handles": ["timeseries", "volume", "statistical-map"],
+  "permissions": [
+    {
+      "type": "api",
+      "scope": "volumes",
+      "level": "read"
+    },
+    {
+      "type": "api",
+      "scope": "events",
+      "level": "write"
+    },
+    {
+      "type": "storage",
+      "scope": "cache",
+      "level": "write"
+    }
+  ],
+  "resources": {
+    "maxMemoryMB": 512,
+    "maxExecutionTimeMs": 120000,
+    "requiresGPU": false,
+    "requiresNetwork": false
+  }
+}

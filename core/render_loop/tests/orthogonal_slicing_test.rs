@@ -1,5 +1,5 @@
 use render_loop::RenderLoopService;
-use volmath::{DenseVolume3, NeuroSpace3};
+use volmath::{DenseVolume3, NeuroSpace3, NeuroSpaceExt};
 
 /// Creates a test volume with distinct patterns on each axis:
 /// - X axis: Vertical stripes (alternating values every X slice)
@@ -10,12 +10,12 @@ fn create_patterned_volume() -> DenseVolume3<f32> {
     let spacing = [1.0, 1.0, 1.0];
     let origin = [0.0, 0.0, 0.0];
     
-    let space_impl = volmath::space::NeuroSpaceImpl::<3>::from_dims_spacing_origin(
-        dims,
-        spacing,
-        origin,
-    );
-    let space = NeuroSpace3(space_impl);
+    let space_impl = <volmath::NeuroSpace as NeuroSpaceExt>::from_dims_spacing_origin(
+        dims.to_vec(),
+        spacing.to_vec(),
+        origin.to_vec(),
+    ).expect("Failed to create NeuroSpace");
+    let space = NeuroSpace3::new(space_impl);
     
     // Create data array with patterns
     let mut data = Vec::with_capacity(dims[0] * dims[1] * dims[2]);
@@ -36,7 +36,7 @@ fn create_patterned_volume() -> DenseVolume3<f32> {
         }
     }
     
-    DenseVolume3::<f32>::from_data(space, data)
+    DenseVolume3::<f32>::from_data(space.0, data)
 }
 
 #[tokio::test]
@@ -254,7 +254,7 @@ fn verify_volume_patterns(volume: &DenseVolume3<f32>) {
     // Check a few slices to ensure patterns are correct
     
     // Check Z=32 (middle axial slice) - should have mixed X and Y patterns
-    let axial_slice = volume.get_slice(2, 32).expect("Failed to get axial slice");
+    let axial_slice = volume.data_slice(2, 32).expect("Failed to get axial slice");
     let mut x_variations = 0;
     let mut y_variations = 0;
     
@@ -283,8 +283,8 @@ fn verify_volume_patterns(volume: &DenseVolume3<f32>) {
     assert!(y_variations > 5, "Expected Y-axis stripes in axial slice");
     
     // Check gradient along Z
-    let z1_slice = volume.get_slice(2, 10).expect("Failed to get Z=10 slice");
-    let z2_slice = volume.get_slice(2, 50).expect("Failed to get Z=50 slice");
+    let z1_slice = volume.data_slice(2, 10).expect("Failed to get Z=10 slice");
+    let z2_slice = volume.data_slice(2, 50).expect("Failed to get Z=50 slice");
     
     let avg_z1: f32 = z1_slice.iter().sum::<f32>() / z1_slice.len() as f32;
     let avg_z2: f32 = z2_slice.iter().sum::<f32>() / z2_slice.len() as f32;

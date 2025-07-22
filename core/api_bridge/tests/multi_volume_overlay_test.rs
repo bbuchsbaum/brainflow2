@@ -13,7 +13,7 @@ mod multi_volume_overlay_tests {
         // Create three volumes with different orientations and resolutions
         
         // Volume 1: RPI orientation, 64x64x32 resolution
-        let space1 = NeuroSpace3(NeuroSpaceImpl::<3>::from_dims_spacing_origin(
+        let space1 = NeuroSpace3(NeuroSpaceImpl::from_dims_spacing_origin(
             [64, 64, 32],
             [3.0, 3.0, 4.0],  // 3mm x 3mm x 4mm voxels
             [-96.0, -96.0, -64.0],  // Origin offset
@@ -31,7 +31,7 @@ mod multi_volume_overlay_tests {
         let vol1_sendable = VolumeSendable::VolF32(volume1, affine1);
         
         // Volume 2: ASI orientation, 128x128x64 resolution
-        let space2 = NeuroSpace3(NeuroSpaceImpl::<3>::from_dims_spacing_origin(
+        let space2 = NeuroSpace3(NeuroSpaceImpl::from_dims_spacing_origin(
             [128, 128, 64],
             [1.5, 1.5, 2.0],  // 1.5mm x 1.5mm x 2mm voxels
             [-96.0, -96.0, -64.0],  // Same world space coverage
@@ -87,7 +87,7 @@ mod multi_volume_overlay_tests {
         let dims2 = [20, 20, 20];
         
         // Volume 1: Lower resolution, each voxel = 2mm
-        let space1 = NeuroSpace3(NeuroSpaceImpl::<3>::from_dims_spacing_origin(
+        let space1 = NeuroSpace3(NeuroSpaceImpl::from_dims_spacing_origin(
             dims1,
             [2.0, 2.0, 2.0],
             [-10.0, -10.0, -10.0],
@@ -101,7 +101,7 @@ mod multi_volume_overlay_tests {
         ));
         
         // Volume 2: Higher resolution, each voxel = 1mm  
-        let space2 = NeuroSpace3(NeuroSpaceImpl::<3>::from_dims_spacing_origin(
+        let space2 = NeuroSpace3(NeuroSpaceImpl::from_dims_spacing_origin(
             dims2,
             [1.0, 1.0, 1.0],
             [-10.0, -10.0, -10.0],
@@ -137,7 +137,7 @@ mod multi_volume_overlay_tests {
     #[test] 
     fn test_multi_volume_edge_cases() {
         // Test 1: Volumes with non-overlapping fields of view
-        let space1 = NeuroSpace3(NeuroSpaceImpl::<3>::from_dims_spacing_origin(
+        let space1 = NeuroSpace3(NeuroSpaceImpl::from_dims_spacing_origin(
             [50, 50, 30],
             [1.0, 1.0, 1.0],
             [0.0, 0.0, 0.0],  // Origin at [0,0,0]
@@ -145,7 +145,7 @@ mod multi_volume_overlay_tests {
         let volume1 = DenseVolume3::<f32>::new(space1);
         let affine1 = Affine3::<f32>::identity();
         
-        let space2 = NeuroSpace3(NeuroSpaceImpl::<3>::from_dims_spacing_origin(
+        let space2 = NeuroSpace3(NeuroSpaceImpl::from_dims_spacing_origin(
             [50, 50, 30],
             [1.0, 1.0, 1.0],
             [100.0, 100.0, 100.0],  // Origin at [100,100,100] - no overlap
@@ -176,7 +176,7 @@ mod multi_volume_overlay_tests {
         let origin = [-64.0, -64.0, -48.0];
         
         // Standard LPI volume
-        let space_lpi = NeuroSpace3(NeuroSpaceImpl::<3>::from_dims_spacing_origin(
+        let space_lpi = NeuroSpace3(NeuroSpaceImpl::from_dims_spacing_origin(
             dims, spacing, origin
         ));
         let volume_lpi = DenseVolume3::<f32>::new(space_lpi);
@@ -188,7 +188,7 @@ mod multi_volume_overlay_tests {
         ));
         
         // Same volume but stored as RAI on disk
-        let space_rai = NeuroSpace3(NeuroSpaceImpl::<3>::from_dims_spacing_origin(
+        let space_rai = NeuroSpace3(NeuroSpaceImpl::from_dims_spacing_origin(
             dims, spacing, origin
         ));
         let volume_rai = DenseVolume3::<f32>::new(space_rai);

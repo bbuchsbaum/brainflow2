@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ellipsoid Test Dashboard</title>
+    <link rel="stylesheet" href="dashboard.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🎯 Ellipsoid Coordinate Transformation Tests</h1>
+            <p>Visual dashboard for differential testing validation</p>
+        </header>
+        
+        <div class="summary-section">
+            <h2>Test Summary</h2>
+            <div class="summary-stats">
+
+                <div class="stat-card">
+                    <div class="stat-value">5</div>
+                    <div class="stat-label">Total Tests</div>
+                </div>
+                <div class="stat-card success">
+                    <div class="stat-value">4</div>
+                    <div class="stat-label">Passed</div>
+                </div>
+                <div class="stat-card failure">
+                    <div class="stat-value">1</div>
+                    <div class="stat-label">Failed</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value">0.903</div>
+                    <div class="stat-label">Avg Dice</div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="results-section">
+            <h2>Test Results</h2>
+            <div class="results-grid">
+
+                <div class="result-card passed" data-test-index="0">
+                    <h3>Isotropic Sphere</h3>
+                    <div class="metrics">
+                        <div class="metric">
+                            <span class="metric-label">Dice:</span>
+                            <span class="metric-value">0.985</span>
+                        </div>
+                        <div class="metric">
+                            <span class="metric-label">Hausdorff:</span>
+                            <span class="metric-value">0.80 mm</span>
+                        </div>
+                        <div class="metric">
+                            <span class="metric-label">ASSD:</span>
+                            <span class="metric-value">0.40 mm</span>
+                        </div>
+                        <div class="metric">
+                            <span class="metric-label">Volume Diff:</span>
+                            <span class="metric-value">1.5%</span>
+                        </div>
+                    </div>
+                    <div class="execution-time">
+                        <span class="time-icon">⏱</span> 45 ms
+                    </div>
+                </div>
+
+                <div class="result-card passed" data-test-index="1">
+                    <h3>Anisotropic Ellipsoid</h3>
+                    <div class="metrics">
+                        <div class="metric">
+                            <span class="metric-label">Dice:</span>
+                            <span class="metric-value">0.923</span>
+                        </div>
+                        <div class="metric">
+                            <span class="metric-label">Hausdorff:</span>
+                            <span class="metric-value">2.30 mm</span>
+                        </div>
+                        <div class="metric">
+                            <span class="metric-label">ASSD:</span>
+                            <span class="metric-value">1.10 mm</span>
+                        </div>
+                        <div class="metric">
+                            <span class="metric-label">Volume Diff:</span>
+                            <span class="metric-value">7.8%</span>
+                        </div>
+                    </div>
+                    <div class="execution-time">
+                        <span class="time-icon">⏱</span> 62 ms
+                    </div>
+                </div>
+
+                <div class="result-card passed" data-test-index="2">
+                    <h3>Extreme Aspect Ratio</h3>
+                    <div class="metrics">
+                        <div class="metric">
+                            <span class="metric-label">Dice:</span>
+                            <span class="metric-value">0.867</span>
+                        </div>
+                        <div class="metric">
+                            <span class="metric-label">Hausdorff:</span>
+                            <span class="metric-value">3.50 mm</span>
+                        </div>
+                        <div class="metric">
+                            <span class="metric-label">ASSD:</span>
+                            <span class="metric-value">1.90 mm</span>
+                        </div>
+                        <div class="metric">
+                            <span class="metric-label">Volume Diff:</span>
+                            <span class="metric-value">13.2%</span>
+                        </div>
+                    </div>
+                    <div class="execution-time">
+                        <span class="time-icon">⏱</span> 89 ms
+                    </div>
+                </div>
+
+                <div class="result-card failed" data-test-index="3">
+                    <h3>Small Object Test</h3>
+                    <div class="metrics">
+                        <div class="metric">
+                            <span class="metric-label">Dice:</span>
+                            <span class="metric-value">0.742</span>
+                        </div>
+                        <div class="metric">
+                            <span class="metric-label">Hausdorff:</span>
+                            <span class="metric-value">5.20 mm</span>
+                        </div>
+                        <div class="metric">
+                            <span class="metric-label">ASSD:</span>
+                            <span class="metric-value">3.10 mm</span>
+                        </div>
+                        <div class="metric">
+                            <span class="metric-label">Volume Diff:</span>
+                            <span class="metric-value">25.8%</span>
+                        </div>
+                    </div>
+                    <div class="execution-time">
+                        <span class="time-icon">⏱</span> 112 ms
+                    </div>
+                </div>
+
+                <div class="result-card passed" data-test-index="4">
+                    <h3>basic_ellipsoid_creation</h3>
+                    <div class="metrics">
+                        <div class="metric">
+                            <span class="metric-label">Dice:</span>
+                            <span class="metric-value">1.000</span>
+                        </div>
+                        <div class="metric">
+                            <span class="metric-label">Hausdorff:</span>
+                            <span class="metric-value">0.00 mm</span>
+                        </div>
+                        <div class="metric">
+                            <span class="metric-label">ASSD:</span>
+                            <span class="metric-value">0.00 mm</span>
+                        </div>
+                        <div class="metric">
+                            <span class="metric-label">Volume Diff:</span>
+                            <span class="metric-value">0.0%</span>
+                        </div>
+                    </div>
+                    <div class="execution-time">
+                        <span class="time-icon">⏱</span> 0 ms
+                    </div>
+                </div>
+
+            </div>
+        </div>
+        
+        <div class="details-section" id="details" style="display: none;">
+            <h2>Test Details</h2>
+            <div id="details-content"></div>
+        </div>
+        
+        <footer>
+            <p>Generated with neuro-integration-tests</p>
+        </footer>
+    </div>
+    
+    <script src="dashboard.js"></script>
+</body>
+</html>

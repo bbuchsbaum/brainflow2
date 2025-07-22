@@ -1,0 +1,30 @@
+{
+  "id": "my-loader-plugin",
+  "name": "My Loader Plugin",
+  "version": "1.0.0",
+  "compatibleCore": "^0.1.0",
+  "type": "loader",
+  "apiVersion": "0.1.1",
+  "entrypoint": "dist/index.js",
+  "description": "A loader plugin for custom file formats",
+  "author": "Your Name",
+  "handles": [".myformat", "application/x-myformat"],
+  "permissions": [
+    {
+      "type": "filesystem",
+      "scope": "read",
+      "level": "read"
+    },
+    {
+      "type": "api",
+      "scope": "volumes",
+      "level": "write"
+    }
+  ],
+  "resources": {
+    "maxMemoryMB": 128,
+    "maxExecutionTimeMs": 30000,
+    "requiresGPU": false,
+    "requiresNetwork": false
+  }
+}

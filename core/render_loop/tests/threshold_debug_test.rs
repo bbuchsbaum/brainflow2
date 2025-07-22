@@ -41,9 +41,9 @@ fn test_threshold_simple() {
         }
         
         let transform = Matrix4::new_translation(&Vector3::new(-4.0, -4.0, -4.0));
-        let space_impl = NeuroSpaceImpl::from_affine_matrix4(dims, transform);
-        let space = volmath::space::NeuroSpace3(space_impl);
-        let volume = DenseVolume3::from_data(space, data);
+        let space_impl = NeuroSpaceExt::from_affine_matrix4(dims, transform);
+        let space = volmath::space::NeuroSpace3::new(space_impl);
+        let volume = DenseVolume3::from_data(space.0, data);
         
         let (handle, transform) = service.upload_volume_3d(&volume)
             .expect("Failed to upload volume");
@@ -62,6 +62,7 @@ fn test_threshold_simple() {
             threshold_range: (1000.0, f32::INFINITY), // Filter out values < 1000
             threshold_mode: ThresholdMode::Range,
             texture_coords: (0.0, 0.0, 1.0, 1.0),
+            is_mask: false,
         };
         
         // Set up layer storage

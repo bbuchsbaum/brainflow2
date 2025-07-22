@@ -1,5 +1,5 @@
 use render_loop::RenderLoopService;
-use volmath::{DenseVolume3, NeuroSpace3};
+use volmath::{DenseVolume3, NeuroSpace3, NeuroSpaceExt};
 
 /// Creates a test volume with a single bright voxel at a specific location
 fn create_single_voxel_volume(voxel_pos: [usize; 3]) -> DenseVolume3<f32> {
@@ -7,12 +7,12 @@ fn create_single_voxel_volume(voxel_pos: [usize; 3]) -> DenseVolume3<f32> {
     let spacing = [1.0, 1.0, 1.0];
     let origin = [0.0, 0.0, 0.0];
     
-    let space_impl = volmath::space::NeuroSpaceImpl::<3>::from_dims_spacing_origin(
-        dims,
-        spacing,
-        origin,
-    );
-    let space = NeuroSpace3(space_impl);
+    let space_impl = <volmath::NeuroSpace as NeuroSpaceExt>::from_dims_spacing_origin(
+        dims.to_vec(),
+        spacing.to_vec(),
+        origin.to_vec(),
+    ).expect("Failed to create NeuroSpace");
+    let space = NeuroSpace3::new(space_impl);
     
     // Create data array with all zeros except one bright voxel
     let mut data = vec![0.0f32; dims[0] * dims[1] * dims[2]];
@@ -27,7 +27,7 @@ fn create_single_voxel_volume(voxel_pos: [usize; 3]) -> DenseVolume3<f32> {
     let non_zero_count = data.iter().filter(|&&v| v > 0.0).count();
     println!("Volume has {} non-zero voxels out of {}", non_zero_count, data.len());
     
-    DenseVolume3::<f32>::from_data(space, data)
+    DenseVolume3::<f32>::from_data(space.0, data)
 }
 
 #[tokio::test]
@@ -195,12 +195,12 @@ async fn test_crosshair_movement_updates_views() {
     let spacing = [1.0, 1.0, 1.0];
     let origin = [0.0, 0.0, 0.0];
     
-    let space_impl = volmath::space::NeuroSpaceImpl::<3>::from_dims_spacing_origin(
-        dims,
-        spacing,
-        origin,
-    );
-    let space = NeuroSpace3(space_impl);
+    let space_impl = <volmath::NeuroSpace as NeuroSpaceExt>::from_dims_spacing_origin(
+        dims.to_vec(),
+        spacing.to_vec(),
+        origin.to_vec(),
+    ).expect("Failed to create NeuroSpace");
+    let space = NeuroSpace3::new(space_impl);
     
     // Create data with bright voxels at specific locations
     let mut data = vec![0.0f32; dims[0] * dims[1] * dims[2]];

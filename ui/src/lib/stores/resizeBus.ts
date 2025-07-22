@@ -1,28 +1,27 @@
-import { createStore } from '$lib/zustand-vanilla';
+import { writable, get } from 'svelte/store';
 
 interface ResizeState {
   width: number;
   height: number;
 }
 
-// Create a vanilla Zustand store - no need for React hooks
-// It holds the latest dimensions
-export const resizeBus = createStore<ResizeState>(() => ({
+// Create the writable store for resize state
+const resizeState = writable<ResizeState>({
   width: 0,
   height: 0,
-}));
+});
 
 // Export the setter directly for convenience
 export const setResizeBusDimensions = (width: number, height: number) => {
-  resizeBus.setState({ width, height });
+  resizeState.set({ width, height });
 };
 
 // Simple subscription function remains similar
 export const subscribeToResize = (listener: (width: number, height: number) => void) => {
-  let previousWidth = resizeBus.getState().width;
-  let previousHeight = resizeBus.getState().height;
+  let previousWidth = get(resizeState).width;
+  let previousHeight = get(resizeState).height;
 
-  const unsub = resizeBus.subscribe((state) => { // Subscribe to the whole state
+  const unsub = resizeState.subscribe((state) => { // Subscribe to the whole state
     const { width, height } = state;
 
     // Fire only if dimensions actually changed and are non-zero
@@ -36,4 +35,13 @@ export const subscribeToResize = (listener: (width: number, height: number) => v
   });
   
   return unsub;
+};
+
+// Export a zustand-compatible interface for backward compatibility
+export const resizeBus = {
+  getState: () => get(resizeState),
+  setState: (newState: Partial<ResizeState>) => {
+    resizeState.update(current => ({ ...current, ...newState }));
+  },
+  subscribe: resizeState.subscribe
 }; 

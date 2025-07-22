@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Brainflow is a high-performance, cross-platform desktop neuroimaging application built with:
 - **Backend**: Rust with Tauri, wgpu for WebGPU rendering
-- **Frontend**: SvelteKit, TypeScript, Three.js (3D), WebGPU (2D slices)
+- **Frontend**: React, TypeScript, Three.js (3D), WebGPU (2D slices)
 - **State Management**: Zustand
 - **UI**: Tailwind CSS, Golden Layout for docking
 
@@ -15,19 +15,24 @@ Brainflow is a high-performance, cross-platform desktop neuroimaging application
 ### Development
 ```bash
 # Run development server (hot-reloading)
+# IMPORTANT: Always use this command to run the app, NOT "npm run dev"
 cargo tauri dev
 
 # Run Rust tests
 cargo test --workspace
 
 # Run UI unit tests
-pnpm --filter ui test:unit
+pnpm --filter ui2 test:unit
 
 # Run E2E tests (requires UI dev server)
-pnpm --filter ui test:e2e
+pnpm --filter ui2 test:e2e
 
 # Build application
 cargo tauri build
+
+# UI-only development (only for testing UI components, not full app)
+# Note: Many features won't work without Tauri backend
+cd ui2 && npm run dev
 
 # Generate TypeScript bindings from Rust types
 cargo xtask ts-bindings
@@ -102,8 +107,8 @@ The project uses a dual-workspace architecture:
 - `render_loop/` - WebGPU rendering service with shaders
 - `volmath/` - Core math, volume operations, spatial utilities
 
-**Frontend (`/ui/`)**:
-- SvelteKit application with WebGPU 2D and Three.js 3D rendering
+**Frontend (`/ui2/`)**:
+- React application with WebGPU 2D and Three.js 3D rendering
 - Zustand stores for state management
 - Golden Layout for dockable panels
 
@@ -119,6 +124,37 @@ The project uses a dual-workspace architecture:
 5. Rust prepares GPU resources, renders via WebGPU/WebGL
 6. Zero-copy transfer of results to frontend
 
+## Tauri Command Bridge
+
+When working with Tauri commands between JavaScript and Rust:
+
+### 1. Parameter Naming Convention
+Tauri automatically converts between naming conventions:
+- **JavaScript**: Use camelCase (`originMm`, `layerId`)
+- **Rust**: Use snake_case (`origin_mm`, `layer_id`)
+
+### 2. Command Registration
+Commands must be registered in `/core/api_bridge/build.rs`:
+```rust
+const COMMANDS: &[&str] = &["update_frame_ubo", "patch_layer", ...];
+```
+
+### 3. Permissions
+Commands need permissions in `/core/api_bridge/permissions/default.toml`:
+```toml
+permissions = ["allow-update-frame-ubo", "allow-patch-layer", ...]
+```
+
+### 4. Invocation
+From JavaScript, use the plugin namespace:
+```typescript
+await invoke('plugin:api-bridge|update_frame_ubo', {
+  originMm: [0, 0, 0, 1],  // camelCase in JS
+  uMm: [1, 0, 0, 0],
+  vMm: [0, 1, 0, 0]
+});
+```
+
 ## Key Documentation
 
 Essential architectural docs in `/memory-bank/`:
@@ -127,6 +163,70 @@ Essential architectural docs in `/memory-bank/`:
 - `PLAN-phase1-milestones.md` - Current development phase
 - `DEV-bootstrap-guide.md` - Detailed setup instructions
 - `repository_structure.md` - Complete directory layout
+
+## Coordinate Systems & Rendering
+
+**Key Insight**: CPU and GPU use different Y-axis conventions that must be handled at the correct boundary.
+
+### Coordinate Conventions
+- **World Space**: LPI (Left-Posterior-Inferior) - standard neuroimaging coordinates
+- **GPU/WebGPU**: Y=0 at bottom, Y increases upward (OpenGL convention)
+- **CPU/Images**: Y=0 at top, Y increases downward (image convention)
+
+### Critical Implementation Details
+1. **CPU Renderer** (`neuro-cpu/src/volume_renderer.rs`):
+   - Uses image convention internally (Y=0 at top)
+   - NO Y-flip in the renderer itself
+   - Directly writes pixels in row order
+
+2. **GPU Renderer** (`render_loop/`):
+   - Uses OpenGL convention internally (Y=0 at bottom)
+   - Y-flip happens during buffer readback in `render_to_buffer()`
+   - This is the ONLY place where Y-flip should occur
+
+3. **Coordinate Transforms** (`neuro-types/src/slice_spec.rs`, `view_rect.rs`):
+   - Define viewing planes with consistent orientation vectors
+   - Axial: down = -Y (anterior→posterior)
+   - Sagittal: right = -Y (anterior→posterior), down = -Z
+   - Coronal: down = -Z (superior→inferior)
+
+### Why This Matters
+Placing the Y-flip at the GPU buffer readback boundary ensures:
+- Both renderers use consistent world-to-pixel transforms
+- Coordinate calculations remain identical between CPU/GPU
+- The Y-flip is isolated to format conversion, not geometric calculations
+
+## Aspect Ratio Preservation
+
+**Critical**: Medical imaging requires square pixels to preserve anatomical proportions.
+
+### The Problem
+The frontend's `createOrthogonalViews` in `ui2/src/utils/coordinates.ts` was using non-uniform pixel sizes:
+```typescript
+// ❌ WRONG - Creates different pixel sizes for X and Y
+const pixelSizeX = extentX / dimX;
+const pixelSizeY = extentY / dimY;
+```
+
+This caused the axial view to appear horizontally compressed when the view dimensions weren't square.
+
+### The Solution
+Use uniform pixel size (matching the backend's implementation):
+```typescript
+// ✅ CORRECT - Uses same pixel size for both axes
+const pixelSize = Math.max(extentX / dimX, extentY / dimY);
+```
+
+### Backend Reference
+The backend correctly implements this in `core/neuro-types/src/view_rect.rs`:
+```rust
+// SliceGeometry::full_extent
+let pixel_size = (width_mm / screen_px_max[0] as f32)
+    .max(height_mm / screen_px_max[1] as f32);
+```
+
+### Key Principle
+Always use the larger of the two pixel sizes to ensure the entire extent fits within the view while maintaining square pixels. This is standard practice in medical imaging to avoid distorting anatomical structures.
 
 ## Current Status
 

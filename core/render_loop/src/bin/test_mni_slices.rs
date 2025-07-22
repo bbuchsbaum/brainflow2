@@ -1,6 +1,7 @@
-use render_loop::RenderLoopService;
-use volmath::{DenseVolume3, NeuroSpace3};
+use render_loop::{RenderLoopService, view_state::{ViewState, ViewId, SliceOrientation}};
+use volmath::{DenseVolume3, NeuroSpace3, NeuroSpaceExt};
 use volmath::space::{NeuroSpaceImpl, GridSpace};
+use neuro_types::{ViewRectMm, ViewOrientation, VolumeMetadata};
 use image::{ImageBuffer, Rgba, RgbaImage};
 use std::path::Path;
 use std::fs;
@@ -35,11 +36,6 @@ async fn test_synthetic_brain_slices() {
     service.load_shaders()
         .expect("Failed to load shaders");
     
-    // Create offscreen render target
-    let render_size = 256;
-    service.create_offscreen_target(render_size, render_size)
-        .expect("Failed to create offscreen target");
-    
     // Create a synthetic brain-like volume (256x256x256, 1mm isotropic)
     let volume = create_synthetic_brain_volume();
     
@@ -61,26 +57,36 @@ async fn test_synthetic_brain_slices() {
     println!("Z-axis range: {:.1}mm to {:.1}mm", inferior_z, superior_z);
     println!("Slice increment: {}mm", slice_increment);
     
-    // Upload volume to GPU
-    let (atlas_idx, _transform) = service.upload_volume_3d(&volume)
-        .expect("Failed to upload volume to GPU");
+    // Enable world space rendering for proper coordinate handling
+    service.enable_world_space_rendering()
+        .expect("Failed to enable world space rendering");
     
-    // Add render layer
-    service.add_render_layer(atlas_idx, 1.0, (0.0, 0.0, 1.0, 1.0))
-        .expect("Failed to add render layer");
+    // Register volume with upload for declarative API
+    let volume_id = "synthetic_brain".to_string();
+    service.register_volume_with_upload(
+        volume_id.clone(),
+        &volume,
+        wgpu::TextureFormat::R32Float,
+    ).expect("Failed to register volume");
     
-    // Set grayscale colormap and intensity
-    service.set_layer_colormap(0, 0)
-        .expect("Failed to set colormap");
-    service.update_layer_intensity(0, data_range.0, data_range.1)
-        .expect("Failed to update intensity");
-    service.update_layer_threshold(0, data_range.0, data_range.1)
-        .expect("Failed to update threshold");
+    // Initialize colormap
+    service.initialize_colormap()
+        .expect("Failed to initialize colormap");
+    service.create_world_space_bind_groups()
+        .expect("Failed to create world space bind groups");
+    
+    // Set render size for slices
+    let render_size = 256u32;
+    
+    // Create offscreen target for rendering
+    service.create_offscreen_target(render_size, render_size)
+        .expect("Failed to create offscreen target");
     
     // Extract slices
     extract_axial_slices(
         &mut service,
         &volume,
+        volume_id,
         inferior_z,
         superior_z,
         slice_increment,
@@ -101,6 +107,7 @@ async fn test_mni_brain_slices(mni_path: &Path) {
 async fn extract_axial_slices(
     service: &mut RenderLoopService,
     volume: &DenseVolume3<f32>,
+    volume_id: String,
     inferior_z: f32,
     superior_z: f32,
     increment: f32,
@@ -113,9 +120,14 @@ async fn extract_axial_slices(
     let center_x = 0.0;
     let center_y = 0.0;
     
-    // Calculate field of view in world coordinates (dims * spacing)
-    let fov_x = dims[0] as f32 * 1.0;  // 256 voxels * 1mm spacing = 256mm
-    let fov_y = dims[1] as f32 * 1.0;  // 256 voxels * 1mm spacing = 256mm
+    // Get data range for intensity scaling
+    let data_range = volume.range().unwrap_or((0.0, 1.0));
+    
+    // Create volume metadata for ViewRectMm
+    let volume_meta = VolumeMetadata {
+        dimensions: [dims[0], dims[1], dims[2]],
+        voxel_to_world: volume.space.voxel_to_world(),
+    };
     
     // Create output directory
     let output_dir = Path::new("target/test-output/mni_slices");
@@ -129,15 +141,29 @@ async fn extract_axial_slices(
     
     while z <= superior_z {
         // Set crosshair at current Z position
-        let crosshair = [center_x, center_y, z];
-        service.set_crosshair(crosshair);
+        let crosshair_world = [center_x, center_y, z];
         
-        // Update view for current slice
-        service.update_frame_for_synchronized_view(fov_x, fov_y, crosshair, 0);
+        // Create view rect for this slice using declarative API
+        let view_rect = ViewRectMm::full_extent(
+            &volume_meta,
+            ViewOrientation::Axial,
+            crosshair_world,
+            [render_size, render_size],
+        );
         
-        // Render to buffer
-        let rgba_data = service.render_to_buffer()
-            .expect("Failed to render to buffer");
+        // Create ViewState from ViewRectMm
+        let mut view_state = ViewState::from_view_rect(&view_rect, volume_id.clone(), data_range);
+        view_state.crosshair_world = crosshair_world;
+        
+        // Request frame using declarative API
+        let result = service.request_frame(
+            ViewId::new(format!("axial_slice_{}", slice_count)), 
+            view_state
+        )
+        .await
+        .expect("Failed to render frame");
+        
+        let rgba_data = result.image_data;
         
         // Analyze the slice
         let (non_background_count, unique_colors) = analyze_rendered_image(&rgba_data);
@@ -228,21 +254,21 @@ fn create_slice_montage(
 
 /// Create a synthetic brain-like volume
 fn create_synthetic_brain_volume() -> DenseVolume3<f32> {
-    let dims = [256, 256, 256];
-    let spacing = [1.0, 1.0, 1.0];
-    let origin = [-128.0, -128.0, -128.0]; // Center at origin
+    let dims = vec![256, 256, 256];
+    let spacing = vec![1.0, 1.0, 1.0];
+    let origin = vec![-128.0, -128.0, -128.0]; // Center at origin
     
-    let space_impl = NeuroSpaceImpl::<3>::from_dims_spacing_origin(dims, spacing, origin);
-    let space = NeuroSpace3(space_impl);
+    let space_impl = <volmath::NeuroSpace as NeuroSpaceExt>::from_dims_spacing_origin(dims, spacing, origin).expect("Failed to create NeuroSpace");
+    let space = NeuroSpace3::new(space_impl);
     
-    let mut data = vec![0.0f32; dims[0] * dims[1] * dims[2]];
+    let mut data = vec![0.0f32; 256 * 256 * 256];
     
     // Create a brain-like structure with multiple tissue types
-    let brain_center = [dims[0] as f32 / 2.0, dims[1] as f32 / 2.0, dims[2] as f32 / 2.0];
+    let brain_center = [128.0, 128.0, 128.0];
     
-    for z in 0..dims[2] {
-        for y in 0..dims[1] {
-            for x in 0..dims[0] {
+    for z in 0..256 {
+        for y in 0..256 {
+            for x in 0..256 {
                 let dx = x as f32 - brain_center[0];
                 let dy = y as f32 - brain_center[1];
                 let dz = z as f32 - brain_center[2];
@@ -254,7 +280,7 @@ fn create_synthetic_brain_volume() -> DenseVolume3<f32> {
                 
                 let dist_norm = (dx/rx).powi(2) + (dy/ry).powi(2) + (dz/rz).powi(2);
                 
-                let idx = z * dims[0] * dims[1] + y * dims[0] + x;
+                let idx = z * 256 * 256 + y * 256 + x;
                 
                 if dist_norm < 1.0 {
                     // Inside brain
@@ -283,7 +309,7 @@ fn create_synthetic_brain_volume() -> DenseVolume3<f32> {
         }
     }
     
-    DenseVolume3::from_data(space, data)
+    DenseVolume3::from_data(space.0, data)
 }
 
 /// Analyze rendered image to count non-background pixels and unique colors

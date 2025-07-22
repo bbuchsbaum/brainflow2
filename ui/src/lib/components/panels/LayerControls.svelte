@@ -9,7 +9,7 @@
   import type { LayerService } from '$lib/services/LayerService';
   import type { NotificationService } from '$lib/services/NotificationService';
   import type { EventBus } from '$lib/events/EventBus';
-  import { layerStoreClean } from '$lib/stores/layerStore.clean';
+  import { useLayerStore } from '$lib/stores/layerStore';
   import { Palette, SlidersHorizontal, Blend } from 'lucide-svelte';
   import type { LayerPatch, LayerSpec } from '@brainflow/api';
   
@@ -42,7 +42,7 @@
   let eventBus: EventBus = getEventBus();
   
   // Store state
-  let storeState = $state(layerStoreClean.getState());
+  let storeState = $state(useLayerStore.getState());
   
   // Local state
   let activeTab = $state<'appearance' | 'window' | 'blend'>('appearance');
@@ -53,7 +53,7 @@
     const layerId = storeState.activeLayerId;
     if (!layerId) return null;
     
-    const layer = storeState.layers.get(layerId);
+    const layer = storeState.layers?.find(l => l.id === layerId);
     if (!layer || !('Volume' in layer.spec)) return null;
     
     return layer;
@@ -282,8 +282,8 @@
       ]);
       
       // Subscribe to store
-      const unsubscribeStore = layerStoreClean.subscribe((state) => {
-        storeState = state;
+      const unsubscribeStore = useLayerStore.layers.subscribe(() => {
+        storeState = useLayerStore.getState();
       });
       
       // Subscribe to events

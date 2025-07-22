@@ -27,6 +27,7 @@ export interface Notification {
 
 export interface NotificationOptions {
   type?: NotificationType;
+  message?: string;
   duration?: number;
   action?: {
     label: string;

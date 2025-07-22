@@ -1,0 +1,17 @@
+[package]
+name = "neuro-core"
+version = "0.1.0"
+edition = "2021"
+authors = ["Brainflow Team"]
+description = "Core contracts and types for neuroimaging slice extraction"
+license = "MIT"
+
+[dependencies]
+nalgebra = "0.32"
+thiserror = "1.0"
+anyhow = "1.0"
+serde = { version = "1.0", features = ["derive"] }
+
+[dev-dependencies]
+approx = "0.5"
+proptest = "1.0"

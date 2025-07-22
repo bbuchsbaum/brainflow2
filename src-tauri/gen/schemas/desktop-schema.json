@@ -2187,16 +2187,40 @@
       "description": "Permission identifier",
       "oneOf": [
         {
-          "description": "Default permissions for api-bridge plugin\n#### This default permission set includes:\n\n- `allow-load-file`\n- `allow-world-to-voxel`\n- `allow-get-timeseries-matrix`\n- `allow-request-layer-gpu-resources`\n- `allow-release-layer-gpu-resources`\n- `allow-fs-list-directory`\n- `allow-init-render-loop`\n- `allow-resize-canvas`\n- `allow-update-frame-ubo`\n- `allow-update-frame-for-synchronized-view`\n- `allow-set-crosshair`\n- `allow-set-view-plane`\n- `allow-render-frame`\n- `allow-create-offscreen-render-target`\n- `allow-render-to-image`\n- `allow-add-render-layer`\n- `allow-patch-layer`\n- `allow-sample-world-coordinate`",
+          "description": "Default permissions for api-bridge plugin\n#### This default permission set includes:\n\n- `allow-load-file`\n- `allow-get-volume-bounds`\n- `allow-world-to-voxel`\n- `allow-get-timeseries-matrix`\n- `allow-get-initial-views`\n- `allow-request-layer-gpu-resources`\n- `allow-release-layer-gpu-resources`\n- `allow-fs-list-directory`\n- `allow-init-render-loop`\n- `allow-resize-canvas`\n- `allow-update-frame-ubo`\n- `allow-update-frame-for-synchronized-view`\n- `allow-set-crosshair`\n- `allow-set-view-plane`\n- `allow-render-frame`\n- `allow-create-offscreen-render-target`\n- `allow-render-to-image`\n- `allow-render-to-image-binary`\n- `allow-add-render-layer`\n- `allow-remove-render-layer`\n- `allow-clear-render-layers`\n- `allow-patch-layer`\n- `allow-update-layer-opacity`\n- `allow-update-layer-colormap`\n- `allow-update-layer-intensity`\n- `allow-update-layer-threshold`\n- `allow-sample-world-coordinate`\n- `allow-apply-and-render-view-state`\n- `allow-apply-and-render-view-state-binary`\n- `allow-apply-and-render-view-state-raw`",
           "type": "string",
           "const": "api-bridge:default",
-          "markdownDescription": "Default permissions for api-bridge plugin\n#### This default permission set includes:\n\n- `allow-load-file`\n- `allow-world-to-voxel`\n- `allow-get-timeseries-matrix`\n- `allow-request-layer-gpu-resources`\n- `allow-release-layer-gpu-resources`\n- `allow-fs-list-directory`\n- `allow-init-render-loop`\n- `allow-resize-canvas`\n- `allow-update-frame-ubo`\n- `allow-update-frame-for-synchronized-view`\n- `allow-set-crosshair`\n- `allow-set-view-plane`\n- `allow-render-frame`\n- `allow-create-offscreen-render-target`\n- `allow-render-to-image`\n- `allow-add-render-layer`\n- `allow-patch-layer`\n- `allow-sample-world-coordinate`"
+          "markdownDescription": "Default permissions for api-bridge plugin\n#### This default permission set includes:\n\n- `allow-load-file`\n- `allow-get-volume-bounds`\n- `allow-world-to-voxel`\n- `allow-get-timeseries-matrix`\n- `allow-get-initial-views`\n- `allow-request-layer-gpu-resources`\n- `allow-release-layer-gpu-resources`\n- `allow-fs-list-directory`\n- `allow-init-render-loop`\n- `allow-resize-canvas`\n- `allow-update-frame-ubo`\n- `allow-update-frame-for-synchronized-view`\n- `allow-set-crosshair`\n- `allow-set-view-plane`\n- `allow-render-frame`\n- `allow-create-offscreen-render-target`\n- `allow-render-to-image`\n- `allow-render-to-image-binary`\n- `allow-add-render-layer`\n- `allow-remove-render-layer`\n- `allow-clear-render-layers`\n- `allow-patch-layer`\n- `allow-update-layer-opacity`\n- `allow-update-layer-colormap`\n- `allow-update-layer-intensity`\n- `allow-update-layer-threshold`\n- `allow-sample-world-coordinate`\n- `allow-apply-and-render-view-state`\n- `allow-apply-and-render-view-state-binary`\n- `allow-apply-and-render-view-state-raw`"
         },
         {
           "description": "Enables the add_render_layer command without any pre-configured scope.",
           "type": "string",
           "const": "api-bridge:allow-add-render-layer",
           "markdownDescription": "Enables the add_render_layer command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the apply_and_render_view_state command without any pre-configured scope.",
+          "type": "string",
+          "const": "api-bridge:allow-apply-and-render-view-state",
+          "markdownDescription": "Enables the apply_and_render_view_state command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the apply_and_render_view_state_binary command without any pre-configured scope.",
+          "type": "string",
+          "const": "api-bridge:allow-apply-and-render-view-state-binary",
+          "markdownDescription": "Enables the apply_and_render_view_state_binary command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the apply_and_render_view_state_raw command without any pre-configured scope.",
+          "type": "string",
+          "const": "api-bridge:allow-apply-and-render-view-state-raw",
+          "markdownDescription": "Enables the apply_and_render_view_state_raw command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the clear_render_layers command without any pre-configured scope.",
+          "type": "string",
+          "const": "api-bridge:allow-clear-render-layers",
+          "markdownDescription": "Enables the clear_render_layers command without any pre-configured scope."
         },
         {
           "description": "Enables the create_offscreen_render_target command without any pre-configured scope.",
@@ -2223,6 +2247,18 @@
           "markdownDescription": "Enables the fs_list_directory command without any pre-configured scope."
         },
         {
+          "description": "Enables the generate_orthogonal_slice_test command without any pre-configured scope.",
+          "type": "string",
+          "const": "api-bridge:allow-generate-orthogonal-slice-test",
+          "markdownDescription": "Enables the generate_orthogonal_slice_test command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the get_initial_views command without any pre-configured scope.",
+          "type": "string",
+          "const": "api-bridge:allow-get-initial-views",
+          "markdownDescription": "Enables the get_initial_views command without any pre-configured scope."
+        },
+        {
           "description": "Enables the get_layer_info command without any pre-configured scope.",
           "type": "string",
           "const": "api-bridge:allow-get-layer-info",
@@ -2245,6 +2281,12 @@
           "type": "string",
           "const": "api-bridge:allow-get-timeseries-matrix",
           "markdownDescription": "Enables the get_timeseries_matrix command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the get_volume_bounds command without any pre-configured scope.",
+          "type": "string",
+          "const": "api-bridge:allow-get-volume-bounds",
+          "markdownDescription": "Enables the get_volume_bounds command without any pre-configured scope."
         },
         {
           "description": "Enables the get_volume_info command without any pre-configured scope.",
@@ -2295,6 +2337,12 @@
           "markdownDescription": "Enables the release_layer_gpu_resources command without any pre-configured scope."
         },
         {
+          "description": "Enables the remove_render_layer command without any pre-configured scope.",
+          "type": "string",
+          "const": "api-bridge:allow-remove-render-layer",
+          "markdownDescription": "Enables the remove_render_layer command without any pre-configured scope."
+        },
+        {
           "description": "Enables the remove_volume command without any pre-configured scope.",
           "type": "string",
           "const": "api-bridge:allow-remove-volume",
@@ -2311,6 +2359,18 @@
           "type": "string",
           "const": "api-bridge:allow-render-to-image",
           "markdownDescription": "Enables the render_to_image command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the render_to_image_binary command without any pre-configured scope.",
+          "type": "string",
+          "const": "api-bridge:allow-render-to-image-binary",
+          "markdownDescription": "Enables the render_to_image_binary command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the request_frame command without any pre-configured scope.",
+          "type": "string",
+          "const": "api-bridge:allow-request-frame",
+          "markdownDescription": "Enables the request_frame command without any pre-configured scope."
         },
         {
           "description": "Enables the request_layer_gpu_resources command without any pre-configured scope.",
@@ -2337,6 +2397,12 @@
           "markdownDescription": "Enables the set_crosshair command without any pre-configured scope."
         },
         {
+          "description": "Enables the set_layer_mask command without any pre-configured scope.",
+          "type": "string",
+          "const": "api-bridge:allow-set-layer-mask",
+          "markdownDescription": "Enables the set_layer_mask command without any pre-configured scope."
+        },
+        {
           "description": "Enables the set_view_plane command without any pre-configured scope.",
           "type": "string",
           "const": "api-bridge:allow-set-view-plane",
@@ -2353,6 +2419,30 @@
           "type": "string",
           "const": "api-bridge:allow-update-frame-ubo",
           "markdownDescription": "Enables the update_frame_ubo command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the update_layer_colormap command without any pre-configured scope.",
+          "type": "string",
+          "const": "api-bridge:allow-update-layer-colormap",
+          "markdownDescription": "Enables the update_layer_colormap command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the update_layer_intensity command without any pre-configured scope.",
+          "type": "string",
+          "const": "api-bridge:allow-update-layer-intensity",
+          "markdownDescription": "Enables the update_layer_intensity command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the update_layer_opacity command without any pre-configured scope.",
+          "type": "string",
+          "const": "api-bridge:allow-update-layer-opacity",
+          "markdownDescription": "Enables the update_layer_opacity command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the update_layer_threshold command without any pre-configured scope.",
+          "type": "string",
+          "const": "api-bridge:allow-update-layer-threshold",
+          "markdownDescription": "Enables the update_layer_threshold command without any pre-configured scope."
         },
         {
           "description": "Enables the update_volume_layer command without any pre-configured scope.",
@@ -2379,6 +2469,30 @@
           "markdownDescription": "Denies the add_render_layer command without any pre-configured scope."
         },
         {
+          "description": "Denies the apply_and_render_view_state command without any pre-configured scope.",
+          "type": "string",
+          "const": "api-bridge:deny-apply-and-render-view-state",
+          "markdownDescription": "Denies the apply_and_render_view_state command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the apply_and_render_view_state_binary command without any pre-configured scope.",
+          "type": "string",
+          "const": "api-bridge:deny-apply-and-render-view-state-binary",
+          "markdownDescription": "Denies the apply_and_render_view_state_binary command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the apply_and_render_view_state_raw command without any pre-configured scope.",
+          "type": "string",
+          "const": "api-bridge:deny-apply-and-render-view-state-raw",
+          "markdownDescription": "Denies the apply_and_render_view_state_raw command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the clear_render_layers command without any pre-configured scope.",
+          "type": "string",
+          "const": "api-bridge:deny-clear-render-layers",
+          "markdownDescription": "Denies the clear_render_layers command without any pre-configured scope."
+        },
+        {
           "description": "Denies the create_offscreen_render_target command without any pre-configured scope.",
           "type": "string",
           "const": "api-bridge:deny-create-offscreen-render-target",
@@ -2403,6 +2517,18 @@
           "markdownDescription": "Denies the fs_list_directory command without any pre-configured scope."
         },
         {
+          "description": "Denies the generate_orthogonal_slice_test command without any pre-configured scope.",
+          "type": "string",
+          "const": "api-bridge:deny-generate-orthogonal-slice-test",
+          "markdownDescription": "Denies the generate_orthogonal_slice_test command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the get_initial_views command without any pre-configured scope.",
+          "type": "string",
+          "const": "api-bridge:deny-get-initial-views",
+          "markdownDescription": "Denies the get_initial_views command without any pre-configured scope."
+        },
+        {
           "description": "Denies the get_layer_info command without any pre-configured scope.",
           "type": "string",
           "const": "api-bridge:deny-get-layer-info",
@@ -2425,6 +2551,12 @@
           "type": "string",
           "const": "api-bridge:deny-get-timeseries-matrix",
           "markdownDescription": "Denies the get_timeseries_matrix command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the get_volume_bounds command without any pre-configured scope.",
+          "type": "string",
+          "const": "api-bridge:deny-get-volume-bounds",
+          "markdownDescription": "Denies the get_volume_bounds command without any pre-configured scope."
         },
         {
           "description": "Denies the get_volume_info command without any pre-configured scope.",
@@ -2475,6 +2607,12 @@
           "markdownDescription": "Denies the release_layer_gpu_resources command without any pre-configured scope."
         },
         {
+          "description": "Denies the remove_render_layer command without any pre-configured scope.",
+          "type": "string",
+          "const": "api-bridge:deny-remove-render-layer",
+          "markdownDescription": "Denies the remove_render_layer command without any pre-configured scope."
+        },
+        {
           "description": "Denies the remove_volume command without any pre-configured scope.",
           "type": "string",
           "const": "api-bridge:deny-remove-volume",
@@ -2491,6 +2629,18 @@
           "type": "string",
           "const": "api-bridge:deny-render-to-image",
           "markdownDescription": "Denies the render_to_image command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the render_to_image_binary command without any pre-configured scope.",
+          "type": "string",
+          "const": "api-bridge:deny-render-to-image-binary",
+          "markdownDescription": "Denies the render_to_image_binary command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the request_frame command without any pre-configured scope.",
+          "type": "string",
+          "const": "api-bridge:deny-request-frame",
+          "markdownDescription": "Denies the request_frame command without any pre-configured scope."
         },
         {
           "description": "Denies the request_layer_gpu_resources command without any pre-configured scope.",
@@ -2517,6 +2667,12 @@
           "markdownDescription": "Denies the set_crosshair command without any pre-configured scope."
         },
         {
+          "description": "Denies the set_layer_mask command without any pre-configured scope.",
+          "type": "string",
+          "const": "api-bridge:deny-set-layer-mask",
+          "markdownDescription": "Denies the set_layer_mask command without any pre-configured scope."
+        },
+        {
           "description": "Denies the set_view_plane command without any pre-configured scope.",
           "type": "string",
           "const": "api-bridge:deny-set-view-plane",
@@ -2533,6 +2689,30 @@
           "type": "string",
           "const": "api-bridge:deny-update-frame-ubo",
           "markdownDescription": "Denies the update_frame_ubo command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the update_layer_colormap command without any pre-configured scope.",
+          "type": "string",
+          "const": "api-bridge:deny-update-layer-colormap",
+          "markdownDescription": "Denies the update_layer_colormap command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the update_layer_intensity command without any pre-configured scope.",
+          "type": "string",
+          "const": "api-bridge:deny-update-layer-intensity",
+          "markdownDescription": "Denies the update_layer_intensity command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the update_layer_opacity command without any pre-configured scope.",
+          "type": "string",
+          "const": "api-bridge:deny-update-layer-opacity",
+          "markdownDescription": "Denies the update_layer_opacity command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the update_layer_threshold command without any pre-configured scope.",
+          "type": "string",
+          "const": "api-bridge:deny-update-layer-threshold",
+          "markdownDescription": "Denies the update_layer_threshold command without any pre-configured scope."
         },
         {
           "description": "Denies the update_volume_layer command without any pre-configured scope.",

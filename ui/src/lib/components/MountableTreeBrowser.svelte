@@ -1,11 +1,9 @@
 <script lang="ts">
 	import { getContext, tick, onMount, onDestroy } from 'svelte';
-	import type { ComponentContainer } from 'golden-layout';
-	import { getGlContainer } from '$lib/layout/glUtils';
 	import { coreApi } from '$lib/api';
 	import { useVolumeStore } from '$lib/stores/volumeStore';
 	import { useLayerStore } from '$lib/stores/layerStore';
-	import { mountStore, useMountStore, FILE_PATTERNS, type FilePatternKey } from '$lib/stores/mountStore';
+	import { mountStore, FILE_PATTERNS, type FilePatternKey, type MountedDirectory } from '$lib/stores/mountStore';
 	import { nanoid } from 'nanoid';
 	import type { LayerSpec, FlatNode, TreePayload } from '$lib/api';
 	import { listen } from '@tauri-apps/api/event';
@@ -14,32 +12,31 @@
 	import FileIcon from '$lib/components/icons/FileIcon.svelte';
 	import { RefreshCw, Filter, X, ChevronRight, ChevronDown, Folder } from 'lucide-svelte';
 
+	// --- Props ---
+	let {
+		onFileDoubleClick,
+		onError,
+		acceptedExtensions = ['.nii', '.nii.gz', '.gii'],
+		showFileInfo = true
+	}: {
+		onFileDoubleClick?: (file: FlatNode) => void | Promise<void>;
+		onError?: (error: Error) => void;
+		acceptedExtensions?: string[];
+		showFileInfo?: boolean;
+	} = $props();
+
 	// --- Component State ---
-	let container: ComponentContainer | undefined;
 	let isLoading = $state(false);
 	let errorMsg: string | null = $state(null);
 	let treeNodesMap = $state(new Map<string, FlatNode[]>()); // Map mount ID to nodes
 	let nodeMapByMount = $state(new Map<string, Map<string, FlatNode>>()); // Map mount ID to node map
 	let childrenMapByMount = $state(new Map<string, Map<string | null, FlatNode[]>>()); // Map mount ID to children map
 	
-	// Mount store subscriptions
-	let mounts = $state(useMountStore().getAllMounts());
-	let activeMountId = $state(useMountStore().activeMountId);
-	
-	// Subscribe to store changes
-	$effect(() => {
-		const unsubscribe = mountStore.subscribe((state) => {
-			const newMounts = state.getAllMounts();
-			console.log('📊 Mount store updated. Mounts:', newMounts.length, newMounts.map(m => ({ id: m.id, path: m.path })));
-			mounts = newMounts;
-			activeMountId = state.activeMountId;
-		});
-		
-		// Log initial state
-		console.log('📊 Initial mounts:', mounts.length, mounts.map(m => ({ id: m.id, path: m.path })));
-		
-		return unsubscribe;
-	});
+	// Mount store state - directly from the store
+	let mounts = $state<MountedDirectory[]>([]);
+	let activeMountId = $state<string | null>(null);
+	let unsubMounts: (() => void) | null = null;
+	let unsubActiveId: (() => void) | null = null;
 	
 	// File filter dialog state
 	let showFilterDialog = $state(false);
@@ -93,18 +90,25 @@
 	});
 	
 	onMount(async () => {
-		container = getGlContainer();
-		
 		await tick();
 		console.log("MountableTreeBrowser initialized.");
 		
-		// Mount default directory if no mounts exist
-		if (mounts.length === 0) {
-			const defaultPath = "/Users/bbuchsbaum/code/brainflow2/test-data";
-			useMountStore().mountDirectory(defaultPath, "Test Data");
-		}
+		// Get initial values from store
+		mounts = mountStore.getAllMounts();
+		activeMountId = mountStore.getState().activeMountId;
+		console.log('📊 Initial mounts:', mounts.length, mounts.map(m => ({ id: m.id, path: m.path })));
 		
-		// Load initial directories for all mounts
+		// Subscribe to changes
+		unsubMounts = mountStore.allMounts.subscribe((newMounts) => {
+			console.log('📊 Mount store updated. Mounts:', newMounts.length, newMounts.map(m => ({ id: m.id, path: m.path })));
+			mounts = newMounts;
+		});
+		
+		unsubActiveId = mountStore.activeMountId.subscribe((newActiveId) => {
+			activeMountId = newActiveId;
+		});
+		
+		// Load initial directories for all existing mounts
 		for (const mount of mounts) {
 			loadDirectory(mount.id, mount.path);
 		}
@@ -113,6 +117,12 @@
 	onDestroy(() => {
 		if (unlistenMount) {
 			unlistenMount();
+		}
+		if (unsubMounts) {
+			unsubMounts();
+		}
+		if (unsubActiveId) {
+			unsubActiveId();
 		}
 	});
 
@@ -160,7 +170,7 @@
 		try {
 			const label = path.split('/').pop() || path;
 			console.log('📍 Creating mount with label:', label);
-			const mountId = useMountStore().mountDirectory(path, label);
+			const mountId = mountStore.mountDirectory(path, label);
 			console.log('📍 Mount created with ID:', mountId);
 			await loadDirectory(mountId, path);
 			console.log('📍 Directory loaded successfully');
@@ -198,7 +208,7 @@
 		
 		try {
 			const label = mountPath.split('/').pop() || mountPath;
-			const mountId = useMountStore().mountDirectory(mountPath, label);
+			const mountId = mountStore.mountDirectory(mountPath, label);
 			await loadDirectory(mountId, mountPath);
 			showMountDialog = false;
 			mountPath = '';
@@ -222,7 +232,7 @@
 			await tick();
 			
 			// Filter nodes based on mount's file patterns
-			const mount = useMountStore().getMountById(mountId);
+			const mount = mountStore.getMountById(mountId);
 			let filteredNodes = payload.nodes;
 			
 			if (mount && mount.filePatterns.length > 0) {
@@ -266,11 +276,34 @@
 		}
 	}
 
-	function handleNodeDoubleClick(mountId: string, node: FlatNode) {
+	async function handleNodeDoubleClick(mountId: string, node: FlatNode) {
 		console.log(`Node double-clicked:`, node);
 		if (!node.is_dir) {
 			console.log(`File double-clicked: ${node.id}`);
-			handleSingleFile(node.id, node.name);
+			
+			// Check if file has valid extension
+			const hasValidExtension = acceptedExtensions.some(ext => 
+				node.name.toLowerCase().endsWith(ext)
+			);
+			
+			if (!hasValidExtension) {
+				console.log(`File ${node.name} does not have a valid extension`);
+				return;
+			}
+			
+			// Use parent's handler if provided, otherwise use built-in
+			if (onFileDoubleClick) {
+				try {
+					await onFileDoubleClick(node);
+				} catch (error) {
+					console.error('Error in onFileDoubleClick handler:', error);
+					if (onError && error instanceof Error) {
+						onError(error);
+					}
+				}
+			} else {
+				handleSingleFile(node.id, node.name);
+			}
 		} else {
 			console.log(`Directory double-clicked: ${node.id}`);
 		}
@@ -286,7 +319,7 @@
 			const handleInfo = await coreApi.load_file(fullPath);
 			console.log('File loaded successfully:', handleInfo);
 			
-			useVolumeStore.getState().add(handleInfo);
+			useVolumeStore.add(handleInfo);
 
 			const layerId = `layer-${nanoid(5)}`;
 			const defaultLayerSpec: LayerSpec = {
@@ -299,8 +332,8 @@
 				}
 			};
 			console.log('Adding default layer spec:', defaultLayerSpec);
-			useLayerStore.getState().addLayer(defaultLayerSpec);
-			useLayerStore.getState().requestGpuResources(layerId);
+			useLayerStore.addLayer(defaultLayerSpec);
+			useLayerStore.requestGpuResources(layerId);
 
 			// The VolumeView will automatically pick up the new layer through the store subscription
 			console.log('Layer added, VolumeView should update automatically');
@@ -322,7 +355,7 @@
 	}
 
 	function showFilterDialogForMount(mountId: string) {
-		const mount = useMountStore().getMountById(mountId);
+		const mount = mountStore.getMountById(mountId);
 		if (mount) {
 			filterDialogMountId = mountId;
 			selectedPatterns = [...mount.filePatterns];
@@ -332,8 +365,8 @@
 
 	function applyFilters() {
 		if (filterDialogMountId) {
-			useMountStore().updateMountPatterns(filterDialogMountId, selectedPatterns);
-			const mount = useMountStore().getMountById(filterDialogMountId);
+			mountStore.updateMountPatterns(filterDialogMountId, selectedPatterns);
+			const mount = mountStore.getMountById(filterDialogMountId);
 			if (mount) {
 				loadDirectory(filterDialogMountId, mount.path);
 			}
@@ -518,7 +551,7 @@
 					<div class="mount-header">
 						<button 
 							class="expand-button"
-							onclick={() => useMountStore().toggleMountExpanded(mount.id)}
+							onclick={() => mountStore.toggleMountExpanded(mount.id)}
 							aria-label={mount.isExpanded ? 'Collapse' : 'Expand'}
 						>
 							{#if mount.isExpanded}
@@ -530,8 +563,8 @@
 						<Folder class="mount-folder-icon" size={16} />
 						<span 
 							class="mount-label" 
-							onclick={() => useMountStore().setActiveMountId(mount.id)}
-							onkeydown={(e) => e.key === 'Enter' && useMountStore().setActiveMountId(mount.id)}
+							onclick={() => mountStore.setActiveMountId(mount.id)}
+							onkeydown={(e) => e.key === 'Enter' && mountStore.setActiveMountId(mount.id)}
 							role="button"
 							tabindex="0"
 							title={mount.path}
@@ -558,7 +591,7 @@
 							<button 
 								class="icon-button icon-button-danger" 
 								onclick={async () => {
-									useMountStore().unmountDirectory(mount.id);
+									mountStore.unmountDirectory(mount.id);
 									await updateDynamicMenus();
 								}}
 								title="Unmount"
@@ -656,10 +689,8 @@
 		display: flex;
 		flex-direction: column;
 		overflow: hidden;
-		background-color: #fafafa;
-		:global(.dark) & {
-			background-color: #1a1a1a;
-		}
+		background-color: #1a1a1a;
+		color: #e5e7eb;
 	}
 
 	.toolbar {
@@ -697,23 +728,16 @@
 	.empty-state {
 		text-align: center;
 		padding: 40px 20px;
-		color: #6b7280;
-		:global(.dark) & {
-			color: #9ca3af;
-		}
+		color: #9ca3af;
 	}
 
 	.mount-section {
 		margin-bottom: 12px;
-		border: 1px solid #e5e7eb;
+		border: 1px solid #374151;
 		border-radius: 8px;
 		overflow: hidden;
-		background: white;
+		background: #262626;
 		transition: all 0.2s;
-		:global(.dark) & {
-			border-color: #374151;
-			background: #262626;
-		}
 	}
 
 	.mount-section.active {
@@ -725,19 +749,13 @@
 		display: flex;
 		align-items: center;
 		padding: 10px 12px;
-		background-color: #f9fafb;
+		background-color: #1f1f1f;
 		user-select: none;
 		gap: 8px;
-		:global(.dark) & {
-			background-color: #1f1f1f;
-		}
 	}
 
 	.mount-section.active .mount-header {
-		background-color: #eff6ff;
-		:global(.dark) & {
-			background-color: #1e3a5f;
-		}
+		background-color: #1e3a5f;
 	}
 
 	.expand-button {
@@ -745,20 +763,14 @@
 		background: none;
 		cursor: pointer;
 		padding: 2px;
-		color: #6b7280;
+		color: #9ca3af;
 		display: flex;
 		align-items: center;
 		transition: color 0.2s;
-		:global(.dark) & {
-			color: #9ca3af;
-		}
 	}
 
 	.expand-button:hover {
-		color: #374151;
-		:global(.dark) & {
-			color: #d1d5db;
-		}
+		color: #d1d5db;
 	}
 
 	.mount-folder-icon {
@@ -770,21 +782,15 @@
 		flex: 1;
 		font-weight: 500;
 		font-size: 14px;
-		color: #111827;
+		color: #f3f4f6;
 		cursor: pointer;
 		padding: 2px 4px;
 		border-radius: 4px;
 		transition: background-color 0.2s;
-		:global(.dark) & {
-			color: #f3f4f6;
-		}
 	}
 
 	.mount-label:hover {
-		background-color: rgba(0, 0, 0, 0.05);
-		:global(.dark) & {
-			background-color: rgba(255, 255, 255, 0.05);
-		}
+		background-color: rgba(255, 255, 255, 0.05);
 	}
 
 	.mount-label:focus {
@@ -943,12 +949,13 @@
 	}
 
 	.dialog {
-		background: white;
+		background: #262626;
 		border-radius: 8px;
 		padding: 24px;
 		min-width: 400px;
 		max-width: 500px;
-		box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+		box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+		color: #e5e7eb;
 	}
 
 	.dialog h3 {
@@ -960,7 +967,7 @@
 		margin: 16px 0 8px 0;
 		font-size: 14px;
 		font-weight: 500;
-		color: #666;
+		color: #9ca3af;
 	}
 
 	.mount-form {
@@ -970,16 +977,18 @@
 	.mount-form label {
 		display: block;
 		font-size: 14px;
-		color: #333;
+		color: #e5e7eb;
 	}
 
 	.mount-input {
 		width: 100%;
 		padding: 8px;
 		margin-top: 4px;
-		border: 1px solid #ddd;
+		border: 1px solid #374151;
 		border-radius: 4px;
 		font-size: 14px;
+		background-color: #1a1a1a;
+		color: #e5e7eb;
 	}
 
 	.mount-input:focus {
@@ -995,15 +1004,16 @@
 	.preset-button {
 		padding: 4px 12px;
 		margin-right: 8px;
-		background: #f0f0f0;
-		border: 1px solid #ddd;
+		background: #374151;
+		border: 1px solid #4b5563;
 		border-radius: 4px;
 		cursor: pointer;
 		font-size: 13px;
+		color: #e5e7eb;
 	}
 
 	.preset-button:hover {
-		background: #e0e0e0;
+		background: #4b5563;
 	}
 
 	.pattern-grid {
@@ -1036,8 +1046,8 @@
 	}
 
 	.cancel-button {
-		background: #f0f0f0;
-		color: #333;
+		background: #374151;
+		color: #e5e7eb;
 	}
 
 	.cancel-button:hover {

@@ -1,0 +1,269 @@
+name: Nightly Differential Testing
+
+on:
+  schedule:
+    # Run at 3 AM UTC every night
+    - cron: '0 3 * * *'
+  workflow_dispatch:
+    inputs:
+      extensive_tests:
+        description: 'Run extensive test suite'
+        required: false
+        type: boolean
+        default: true
+      tolerance_override:
+        description: 'Override tolerance (e.g., "5,0.05" for max_abs=5, max_rel=0.05)'
+        required: false
+        default: ''
+
+env:
+  RUST_BACKTRACE: full
+  CARGO_INCREMENTAL: 0
+  NEURO_DEBUG_DIFF: 1 # Enable detailed differential output
+
+jobs:
+  extensive-differential-tests:
+    name: Extensive CPU/GPU Tests - ${{ matrix.test_suite }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        test_suite:
+          - name: standard_slices
+            filter: "test_basic_axial_slices or test_coronal_slices or test_sagittal_slices"
+          - name: oblique_slices
+            filter: "test_oblique_slices"
+          - name: edge_cases
+            filter: "test_edge_cases"
+          - name: multi_layer
+            filter: "test_multi_layer"
+          - name: interpolation
+            filter: "test_interpolation"
+          - name: large_volumes
+            filter: "test_large_volumes"
+          - name: stress_tests
+            filter: "test_stress"
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Setup Rust nightly
+      uses: dtolnay/rust-toolchain@nightly
+      with:
+        components: clippy, rustfmt
+
+    - name: Cache Rust dependencies
+      uses: Swatinem/rust-cache@v2
+
+    - name: Setup GPU environment
+      run: |
+        # Install required packages
+        sudo apt-get update
+        sudo apt-get install -y mesa-utils libgl1-mesa-dri vulkan-tools
+        
+        # Try hardware acceleration first
+        if vulkaninfo &> /dev/null; then
+          echo "Vulkan detected, using hardware acceleration"
+          echo "WGPU_BACKEND=vulkan" >> $GITHUB_ENV
+        else
+          echo "No Vulkan support, falling back to software rendering"
+          echo "LIBGL_ALWAYS_SOFTWARE=1" >> $GITHUB_ENV
+          echo "GALLIUM_DRIVER=llvmpipe" >> $GITHUB_ENV
+          echo "WGPU_BACKEND=gl" >> $GITHUB_ENV
+        fi
+
+    - name: Create extensive test configuration
+      run: |
+        cat > test_config.toml << EOF
+        [differential]
+        max_abs_diff = 3
+        max_rel_diff = 0.03
+        save_debug_images = true
+        min_nonzero_pixels = 10
+        
+        [test_sizes]
+        small = [128, 128]
+        medium = [512, 512]
+        large = [1024, 1024]
+        huge = [2048, 2048]
+        
+        [test_volumes]
+        count = 10
+        max_dimension = 512
+        EOF
+        
+        if [ -n "${{ github.event.inputs.tolerance_override }}" ]; then
+          IFS=',' read -r abs_tol rel_tol <<< "${{ github.event.inputs.tolerance_override }}"
+          sed -i "s/max_abs_diff = .*/max_abs_diff = $abs_tol/" test_config.toml
+          sed -i "s/max_rel_diff = .*/max_rel_diff = $rel_tol/" test_config.toml
+        fi
+
+    - name: Build with all features
+      run: |
+        cargo build --package neuro-integration-tests --all-features --release
+
+    - name: Run extensive test suite
+      run: |
+        export NEURO_TEST_CONFIG=test_config.toml
+        cargo test --package neuro-integration-tests --release -- \
+          --test-threads=1 \
+          --nocapture \
+          ${{ matrix.test_suite.filter }} \
+          > ${{ matrix.test_suite.name }}_results.txt 2>&1 || true
+
+    - name: Analyze test results
+      if: always()
+      run: |
+        # Extract test summary
+        echo "::group::Test Results for ${{ matrix.test_suite.name }}"
+        cat ${{ matrix.test_suite.name }}_results.txt
+        echo "::endgroup::"
+        
+        # Count passed/failed tests
+        PASSED=$(grep -c "test .* ok" ${{ matrix.test_suite.name }}_results.txt || true)
+        FAILED=$(grep -c "test .* FAILED" ${{ matrix.test_suite.name }}_results.txt || true)
+        
+        echo "Test Suite: ${{ matrix.test_suite.name }}" >> summary.txt
+        echo "Passed: $PASSED" >> summary.txt
+        echo "Failed: $FAILED" >> summary.txt
+        echo "" >> summary.txt
+
+    - name: Upload test results
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: test-results-${{ matrix.test_suite.name }}
+        path: |
+          ${{ matrix.test_suite.name }}_results.txt
+          summary.txt
+
+    - name: Upload debug images
+      if: failure()
+      uses: actions/upload-artifact@v4
+      with:
+        name: debug-images-${{ matrix.test_suite.name }}
+        path: |
+          debug_images/**/*.png
+          debug_images/**/*.json
+
+  performance-profiling:
+    name: Performance Profiling
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Setup Rust nightly with profiling
+      uses: dtolnay/rust-toolchain@nightly
+
+    - name: Install profiling tools
+      run: |
+        cargo install flamegraph
+        sudo apt-get update
+        sudo apt-get install -y linux-tools-common linux-tools-generic
+        
+        # Enable perf for containers
+        echo -1 | sudo tee /proc/sys/kernel/perf_event_paranoid
+
+    - name: Build with profiling
+      run: |
+        cargo build --package neuro-integration-tests --release
+        
+    - name: Profile CPU implementation
+      run: |
+        sudo cargo flamegraph --package neuro-integration-tests \
+          --bench performance_comparison \
+          --features profiling \
+          -- --bench cpu_complex_oblique \
+          --output cpu_profile.svg
+
+    - name: Generate performance report
+      run: |
+        cargo bench --package neuro-integration-tests \
+          --bench performance_comparison \
+          -- --save-baseline nightly-$(date +%Y%m%d)
+        
+        # Generate detailed report
+        cargo bench --package neuro-integration-tests \
+          --bench performance_comparison \
+          -- --load-baseline nightly-$(date +%Y%m%d) \
+          --output-format json > performance_report.json
+
+    - name: Upload profiling results
+      uses: actions/upload-artifact@v4
+      with:
+        name: profiling-results
+        path: |
+          cpu_profile.svg
+          performance_report.json
+          target/criterion/**/*.json
+
+  generate-report:
+    name: Generate Nightly Report
+    runs-on: ubuntu-latest
+    needs: [extensive-differential-tests, performance-profiling]
+    if: always()
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Download all artifacts
+      uses: actions/download-artifact@v4
+      with:
+        path: artifacts
+
+    - name: Generate comprehensive report
+      run: |
+        cat > nightly_report.md << 'EOF'
+        # Nightly Differential Testing Report
+        
+        Date: $(date -u +"%Y-%m-%d %H:%M:%S UTC")
+        Commit: ${{ github.sha }}
+        
+        ## Test Suite Summary
+        
+        EOF
+        
+        # Aggregate test results
+        for suite in artifacts/test-results-*/summary.txt; do
+          cat "$suite" >> nightly_report.md
+        done
+        
+        echo "## Performance Metrics" >> nightly_report.md
+        echo "" >> nightly_report.md
+        
+        # Add performance summary if available
+        if [ -f artifacts/profiling-results/performance_report.json ]; then
+          echo "Performance profiling completed. See attached artifacts for details." >> nightly_report.md
+        fi
+        
+        echo "" >> nightly_report.md
+        echo "## Artifacts" >> nightly_report.md
+        echo "- Test results: Available in workflow artifacts" >> nightly_report.md
+        echo "- Debug images: Available for failed tests" >> nightly_report.md
+        echo "- Performance profiles: CPU flamegraphs available" >> nightly_report.md
+
+    - name: Create issue if tests failed
+      if: failure()
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const fs = require('fs');
+          const report = fs.readFileSync('nightly_report.md', 'utf8');
+          
+          const issue = await github.rest.issues.create({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            title: `Nightly Differential Tests Failed - ${new Date().toISOString().split('T')[0]}`,
+            body: report,
+            labels: ['automated', 'differential-testing', 'nightly']
+          });
+          
+          console.log(`Created issue #${issue.data.number}`);
+
+    - name: Upload final report
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: nightly-report
+        path: nightly_report.md

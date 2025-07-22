@@ -22,7 +22,7 @@ async fn test_affine_transform_passed_to_gpu() {
     affine[(1, 0)] = angle.sin();
     affine[(1, 1)] = angle.cos();
     
-    let space = NeuroSpaceImpl::<3>::from_affine_matrix4(dims, affine.clone());
+    let space = NeuroSpaceImpl::from_affine_matrix4(dims, affine.clone());
     let neuro_space = NeuroSpace3(space);
     let volume = DenseVolume3::<f32>::from_data(neuro_space, data);
     
@@ -52,7 +52,7 @@ async fn test_affine_transform_passed_to_gpu() {
         colormap_id: 0,
         threshold_range: None,
         visible: true,
-    });
+        });
     
     // Request GPU resources
     let state = State::new(bridge_state);
@@ -79,7 +79,7 @@ async fn test_identity_affine_transform() {
     let data = vec![2.0f32; 27];
     
     let affine = Matrix4::<f32>::identity();
-    let space = NeuroSpaceImpl::<3>::from_affine_matrix4(dims, affine.clone());
+    let space = NeuroSpaceImpl::from_affine_matrix4(dims, affine.clone());
     let neuro_space = NeuroSpace3(space);
     let volume = DenseVolume3::<f32>::from_data(neuro_space, data);
     
@@ -109,7 +109,7 @@ async fn test_identity_affine_transform() {
         colormap_id: 1,
         threshold_range: None,
         visible: true,
-    });
+        });
     
     // Request GPU resources
     let state = State::new(bridge_state);

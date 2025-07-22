@@ -1,5 +1,6 @@
 use render_loop::{RenderLoopService, RenderLoopError};
 use volmath::dense_vol::DenseVolume3;
+use volmath::{NeuroSpaceExt};
 use volmath::space::{NeuroSpace3, NeuroSpaceImpl};
 use nalgebra::Matrix4;
 
@@ -20,8 +21,8 @@ async fn test_3d_texture_upload() -> Result<(), RenderLoopError> {
     
     // Create identity space
     let affine = Matrix4::<f32>::identity();
-    let space = NeuroSpaceImpl::<3>::from_affine_matrix4(dims, affine);
-    let neuro_space = NeuroSpace3(space);
+    let space = NeuroSpaceImpl::from_affine_matrix4(dims, affine);
+    let neuro_space = NeuroSpace3::new(space);
     let volume = DenseVolume3::<f32>::from_data(neuro_space, data);
     
     // Initialize render service
@@ -60,9 +61,10 @@ async fn test_3d_texture_with_rotation() -> Result<(), RenderLoopError> {
     affine[(1, 0)] = angle.sin();
     affine[(1, 1)] = angle.cos();
     
-    let space = NeuroSpaceImpl::<3>::from_affine_matrix4(dims, affine.clone());
-    let neuro_space = NeuroSpace3(space);
-    let volume = DenseVolume3::<f32>::from_data(neuro_space, data);
+    let space = <volmath::NeuroSpace as NeuroSpaceExt>::from_affine_matrix4(dims.to_vec(), affine.clone())
+        .expect("Failed to create NeuroSpace");
+    let neuro_space = NeuroSpace3::new(space);
+    let volume = DenseVolume3::<f32>::from_data(neuro_space.0, data);
     
     // Initialize render service
     let mut service = RenderLoopService::new().await?;

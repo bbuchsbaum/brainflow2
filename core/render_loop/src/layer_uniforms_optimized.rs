@@ -38,7 +38,7 @@ pub struct LayerDataOptimized {
 impl Default for LayerDataOptimized {
     fn default() -> Self {
         Self {
-            world_to_voxel: Matrix4::identity().into(),
+            world_to_voxel: crate::matrix_to_cols_array(&Matrix4::identity()),
             dim: [1; 3],
             texture_index: 0,
             colormap_id: 0,
@@ -220,7 +220,8 @@ impl LayerStorageManagerOptimized {
             let is_mask = if layer.is_mask { 1 } else { 0 };
             
             let layer_data = LayerDataOptimized {
-                world_to_voxel: transform.transpose().into(),
+                // Convert matrix to column-major format for GPU
+                world_to_voxel: crate::matrix_to_cols_array(transform),
                 dim: [dims.0, dims.1, dims.2],
                 texture_index: layer.atlas_index,
                 colormap_id: layer.colormap_id,

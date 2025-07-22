@@ -15,7 +15,7 @@ mod mock_helpers {
     use super::*;
     
     pub fn create_test_volume(dims: [usize; 3]) -> VolumeSendable {
-        let space_impl = volmath::space::NeuroSpaceImpl::<3>::from_dims_spacing_origin(
+        let space_impl = volmath::space::NeuroSpaceImpl::from_dims_spacing_origin(
             dims,
             [1.0, 1.0, 1.0],     // spacing
             [0.0, 0.0, 0.0],     // origin
@@ -163,7 +163,7 @@ fn test_volume_layer_spec_defaults() {
 fn test_edge_cases_for_slice_calculations() {
     // Test volume with size 1 along an axis
     let dims = vec![1, 100, 100];
-    let space_impl = volmath::space::NeuroSpaceImpl::<3>::from_dims_spacing_origin(
+    let space_impl = volmath::space::NeuroSpaceImpl::from_dims_spacing_origin(
         [1, 100, 100],
         [1.0, 1.0, 1.0],
         [0.0, 0.0, 0.0],
@@ -184,7 +184,7 @@ fn test_edge_cases_for_slice_calculations() {
     
     // Test relative position at boundaries
     let dims2 = vec![50, 50, 50];
-    let space_impl2 = volmath::space::NeuroSpaceImpl::<3>::from_dims_spacing_origin(
+    let space_impl2 = volmath::space::NeuroSpaceImpl::from_dims_spacing_origin(
         [50, 50, 50],
         [1.0, 1.0, 1.0],
         [0.0, 0.0, 0.0],

@@ -1,7 +1,9 @@
 const COMMANDS: &[&str] = &[
     "load_file",
+    "get_volume_bounds",
     "world_to_voxel",
     "get_timeseries_matrix",
+    "get_initial_views",
     "request_layer_gpu_resources",
     "release_layer_gpu_resources",
     "fs_list_directory",
@@ -14,9 +16,20 @@ const COMMANDS: &[&str] = &[
     "render_frame",
     "create_offscreen_render_target",
     "render_to_image",
+    "render_to_image_binary",
+    "clear_render_layers",
+    "update_layer_opacity",
+    "update_layer_colormap",
+    "update_layer_intensity",
+    "update_layer_threshold",
+    "set_layer_mask",
+    "request_frame",
     "add_render_layer",
     "patch_layer",
     "sample_world_coordinate",
+    "apply_and_render_view_state",
+    "apply_and_render_view_state_binary",
+    "apply_and_render_view_state_raw",
 ];
 
 fn main() {

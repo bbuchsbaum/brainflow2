@@ -1,0 +1,47 @@
+[package]
+name = "neuro-integration-tests"
+version = "0.1.0"
+edition = "2021"
+description = "Integration tests for CPU/GPU differential testing"
+
+[dependencies]
+neuro-types = { path = "../neuro-types" }
+neuro-cpu = { path = "../neuro-cpu" }
+neuro-core = { path = "../neuro-core" }
+render_loop = { path = "../render_loop" }
+api-bridge = { path = "../api_bridge" }
+volmath = { path = "../volmath" }
+brainflow-loaders = { path = "../loaders" }
+bridge_types = { path = "../bridge_types" }
+nifti-loader = { path = "../loaders/nifti" }
+colormap = { path = "../colormap" }
+
+# Testing utilities
+tokio = { workspace = true, features = ["full"] }
+anyhow = "1.0"
+nalgebra = { workspace = true }
+approx = "0.5"
+rand = "0.8"
+image = "0.24"
+wgpu = { workspace = true }
+
+[dev-dependencies]
+criterion = "0.5"
+tempfile = "3.8"
+
+# TODO: Re-enable when modules are fixed for current API
+# [[test]]
+# name = "cpu_gpu_differential"
+# path = "tests/cpu_gpu_differential.rs"
+
+# [[test]]
+# name = "slice_extraction_validation"  
+# path = "tests/slice_extraction_validation.rs"
+
+[[bench]]
+name = "performance_comparison"
+harness = false
+
+[[bench]]
+name = "ellipsoid_benchmarks"
+harness = false

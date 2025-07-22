@@ -36,9 +36,9 @@ mod tests {
             }
         }
         
-        let space_impl = NeuroSpaceImpl::from_affine_matrix4(dims, voxel_to_world);
-        let space = NeuroSpace3(space_impl);
-        DenseVolume3::from_data(space, data)
+        let space_impl = NeuroSpaceExt::from_affine_matrix4(dims, voxel_to_world);
+        let space = NeuroSpace3::new(space_impl);
+        DenseVolume3::from_data(space.0, data)
     }
     
     /// Test that volumes with different orientations align correctly in world space
@@ -175,9 +175,9 @@ mod tests {
                 0.0, 0.0, 0.0, 1.0,
             );
             
-            let space_impl = NeuroSpaceImpl::from_affine_matrix4(dims, transform);
-            let space = NeuroSpace3(space_impl);
-            let volume = DenseVolume3::from_data(space, data);
+            let space_impl = NeuroSpaceExt::from_affine_matrix4(dims, transform);
+            let space = NeuroSpace3::new(space_impl);
+            let volume = DenseVolume3::from_data(space.0, data);
             
             let (idx, world_to_voxel) = service.upload_volume_3d(&volume).unwrap();
             
@@ -244,9 +244,9 @@ mod tests {
                 0.0, 0.0, 0.0, 1.0,
             );
             
-            let space_impl = NeuroSpaceImpl::from_affine_matrix4(dims, transform);
-            let space = NeuroSpace3(space_impl);
-            let volume = DenseVolume3::from_data(space, data);
+            let space_impl = NeuroSpaceExt::from_affine_matrix4(dims, transform);
+            let space = NeuroSpace3::new(space_impl);
+            let volume = DenseVolume3::from_data(space.0, data);
             
             let (idx, world_to_voxel) = service.upload_volume_3d(&volume).unwrap();
             

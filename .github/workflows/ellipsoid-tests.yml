@@ -1,0 +1,185 @@
+name: Ellipsoid Coordinate Tests
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  ellipsoid-tests:
+    name: Ellipsoid Validation Tests
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Install Rust
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        components: rustfmt, clippy
+    
+    - name: Cache dependencies
+      uses: actions/cache@v3
+      with:
+        path: |
+          ~/.cargo/registry
+          ~/.cargo/git
+          target
+        key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+    
+    - name: Check formatting
+      run: cargo fmt --all -- --check
+      working-directory: core/neuro-types
+    
+    - name: Run clippy
+      run: cargo clippy --all-targets --all-features -- -D warnings
+      working-directory: core/neuro-types
+    
+    - name: Build neuro-types
+      run: cargo build --verbose
+      working-directory: core/neuro-types
+    
+    - name: Test neuro-types shapes module
+      run: cargo test shapes --verbose
+      working-directory: core/neuro-types
+    
+    - name: Test neuro-types metrics module
+      run: cargo test metrics --verbose
+      working-directory: core/neuro-types
+    
+    - name: Build integration tests
+      run: cargo build --verbose
+      working-directory: core/neuro-integration-tests
+    
+    - name: Run basic ellipsoid tests
+      run: cargo test ellipsoid_validation::test_ellipsoid_isotropic_volumes --verbose
+      working-directory: core/neuro-integration-tests
+    
+    - name: Run anisotropic ellipsoid tests
+      run: cargo test ellipsoid_validation::test_ellipsoid_anisotropic_volumes --verbose
+      working-directory: core/neuro-integration-tests
+    
+    - name: Run extreme aspect ratio tests
+      run: cargo test ellipsoid_validation::test_ellipsoid_extreme_aspect_ratios --verbose
+      working-directory: core/neuro-integration-tests
+    
+    - name: Run small object tests
+      run: cargo test ellipsoid_validation::test_ellipsoid_small_objects --verbose
+      working-directory: core/neuro-integration-tests
+    
+    - name: Run edge case tests
+      run: cargo test ellipsoid_validation::test_ellipsoid_edge_cases --verbose
+      working-directory: core/neuro-integration-tests
+
+  performance-benchmarks:
+    name: Performance Benchmarks
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Install Rust
+      uses: dtolnay/rust-toolchain@stable
+    
+    - name: Cache dependencies
+      uses: actions/cache@v3
+      with:
+        path: |
+          ~/.cargo/registry
+          ~/.cargo/git
+          target
+        key: ${{ runner.os }}-cargo-bench-${{ hashFiles('**/Cargo.lock') }}
+    
+    - name: Run ellipsoid benchmarks
+      run: cargo bench --package neuro-integration-tests ellipsoid
+      working-directory: core
+    
+    - name: Save benchmark results
+      run: |
+        mkdir -p benchmark-results
+        cp target/criterion/*/report/index.html benchmark-results/ || true
+        echo "Benchmarks completed at $(date)" > benchmark-results/timestamp.txt
+    
+    - name: Upload benchmark results
+      uses: actions/upload-artifact@v3
+      with:
+        name: benchmark-results
+        path: benchmark-results/
+
+  stress-tests:
+    name: Stress Tests (Large Volumes)
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Install Rust
+      uses: dtolnay/rust-toolchain@stable
+    
+    - name: Cache dependencies
+      uses: actions/cache@v3
+      with:
+        path: |
+          ~/.cargo/registry
+          ~/.cargo/git
+          target
+        key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+    
+    - name: Run random property tests
+      run: cargo test ellipsoid_validation::test_ellipsoid_random_configurations --ignored --verbose
+      working-directory: core/neuro-integration-tests
+      env:
+        RUST_BACKTRACE: 1
+    
+    - name: Memory usage test
+      run: |
+        # Run a memory-intensive test with monitoring
+        echo "Testing large volume handling..."
+        cargo test ellipsoid_validation::test_ellipsoid_edge_cases --verbose
+      working-directory: core/neuro-integration-tests
+
+  validation-report:
+    name: Generate Validation Report
+    runs-on: ubuntu-latest
+    needs: [ellipsoid-tests, performance-benchmarks, stress-tests]
+    if: always()
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Download benchmark results
+      uses: actions/download-artifact@v3
+      with:
+        name: benchmark-results
+        path: benchmark-results/
+      continue-on-error: true
+    
+    - name: Generate summary report
+      run: |
+        echo "# Ellipsoid Validation Report" > validation-report.md
+        echo "" >> validation-report.md
+        echo "## Test Results" >> validation-report.md
+        echo "- Basic Tests: ${{ needs.ellipsoid-tests.result }}" >> validation-report.md
+        echo "- Performance Tests: ${{ needs.performance-benchmarks.result }}" >> validation-report.md
+        echo "- Stress Tests: ${{ needs.stress-tests.result }}" >> validation-report.md
+        echo "" >> validation-report.md
+        echo "## Timestamp" >> validation-report.md
+        echo "Generated: $(date -u)" >> validation-report.md
+        echo "" >> validation-report.md
+        
+        if [ -f benchmark-results/timestamp.txt ]; then
+          echo "## Benchmarks" >> validation-report.md
+          cat benchmark-results/timestamp.txt >> validation-report.md
+        fi
+    
+    - name: Upload validation report
+      uses: actions/upload-artifact@v3
+      with:
+        name: validation-report
+        path: validation-report.md

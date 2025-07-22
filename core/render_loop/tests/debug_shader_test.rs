@@ -1,4 +1,6 @@
 use render_loop::{RenderLoopService, FrameUbo};
+use render_loop::render_state::{LayerInfo, BlendMode, ThresholdMode};
+use volmath::{NeuroSpaceExt};
 use pollster;
 use nalgebra::Matrix4;
 
@@ -32,7 +34,7 @@ fn test_debug_shader_world_coordinate_variation() {
     service.update_crosshair_position([0.0, 0.0, 0.0].into(), true);
     
     // Create a simple volume
-    use volmath::{DenseVolume3, space::{NeuroSpace3, NeuroSpaceImpl}};
+    use volmath::{DenseVolume3, space::{NeuroSpace3}, NeuroSpaceExt};
     let dims = [64, 64, 64];
     let mut data = vec![0.0f32; dims[0] * dims[1] * dims[2]];
     
@@ -49,9 +51,10 @@ fn test_debug_shader_world_coordinate_variation() {
     
     // Create volume with identity transform
     let transform = Matrix4::identity();
-    let space_impl = NeuroSpaceImpl::from_affine_matrix4(dims, transform);
-    let space = NeuroSpace3(space_impl);
-    let volume = DenseVolume3::from_data(space, data);
+    let space_impl = <volmath::NeuroSpace as NeuroSpaceExt>::from_affine_matrix4(dims.to_vec(), transform)
+        .expect("Failed to create NeuroSpace");
+    let space = NeuroSpace3::new(space_impl);
+    let volume = DenseVolume3::from_data(space.0, data);
     
     // Upload volume
     let (layer_idx, world_to_voxel) = service.upload_volume_3d(&volume)
@@ -68,6 +71,7 @@ fn test_debug_shader_world_coordinate_variation() {
         threshold_range: (0.0, 1000.0),
         threshold_mode: ThresholdMode::Range,
         texture_coords: (0.0, 0.0, 1.0, 1.0),
+        is_mask: false,
     };
     
     // Use proper API to set layer info

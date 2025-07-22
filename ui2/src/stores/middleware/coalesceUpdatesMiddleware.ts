@@ -1,0 +1,238 @@
+/**
+ * Coalescing Updates Middleware for ViewStateStore
+ * 
+ * This middleware collects rapid state changes and sends only the latest state 
+ * to the backend in a requestAnimationFrame loop. This prevents overwhelming
+ * the backend with rapid UI updates (e.g., during slider drags).
+ * 
+ * Implementation follows the architectural blueprint pattern.
+ */
+
+import type { StateCreator } from 'zustand/vanilla';
+import type { ViewState } from '@/types/viewState';
+
+// Global state for coalescing - persists across store instances
+let pendingState: ViewState | null = null;
+let rafId: number | null = null;
+let isEnabled = true;
+
+// Callback for backend updates - will be injected
+let backendUpdateCallback: ((viewState: ViewState) => void) | null = null;
+
+/**
+ * Flush the pending state to the backend
+ */
+function flushState() {
+  const flushTime = performance.now();
+  if (pendingState && backendUpdateCallback && isEnabled) {
+    // console.log(`[coalesceMiddleware ${flushTime.toFixed(0)}ms] 🚨 FLUSHING STATE TO BACKEND:`);
+    // console.log(`  - layers: ${pendingState.layers.length}`);
+    // console.log(`  - layer ids:`, pendingState.layers.map(l => l.id));
+    // console.log(`  - layer details:`, pendingState.layers.map(l => ({
+    //   id: l.id,
+    //   volumeId: l.volumeId,
+    //   visible: l.visible,
+    //   opacity: l.opacity,
+    //   intensity: l.intensity,
+    //   threshold: l.threshold,
+    //   colormap: l.colormap
+    // })));
+    
+    // Check for problematic intensity values
+    pendingState.layers.forEach(layer => {
+      if (layer.intensity && 
+          layer.intensity[0] > 1969 && layer.intensity[0] < 1970 &&
+          layer.intensity[1] > 7878 && layer.intensity[1] < 7879) {
+        console.error(`[coalesceMiddleware] 🚨 FLUSHING PROBLEMATIC INTENSITY VALUES for layer ${layer.id}:`, layer.intensity);
+        console.trace('Stack trace for problematic flush:');
+      }
+    });
+    
+    try {
+      backendUpdateCallback(pendingState);
+    } catch (error) {
+      console.error('[coalesceMiddleware] Error flushing state to backend:', error);
+    }
+    pendingState = null;
+  } else {
+    if (!pendingState) {
+      console.log(`[coalesceMiddleware ${flushTime.toFixed(0)}ms] No pending state to flush`);
+    } else if (!backendUpdateCallback) {
+      console.log(`[coalesceMiddleware ${flushTime.toFixed(0)}ms] No backend callback set`);
+    } else if (!isEnabled) {
+      console.log(`[coalesceMiddleware ${flushTime.toFixed(0)}ms] Coalescing disabled`);
+    }
+  }
+  rafId = null;
+}
+
+/**
+ * Configuration for coalescing middleware
+ */
+export interface CoalesceConfig {
+  /**
+   * Callback to send state updates to backend
+   */
+  onStateUpdate?: (viewState: ViewState) => void;
+  
+  /**
+   * Whether coalescing is enabled (default: true)
+   * Useful for testing or debugging
+   */
+  enabled?: boolean;
+  
+  /**
+   * Use setTimeout instead of requestAnimationFrame
+   * Useful for testing environments
+   */
+  useTimeout?: boolean;
+  
+  /**
+   * Timeout delay in ms when useTimeout is true
+   */
+  timeoutDelay?: number;
+}
+
+/**
+ * Coalescing middleware implementation
+ * 
+ * This middleware intercepts state changes and batches them using
+ * requestAnimationFrame to prevent overwhelming the backend.
+ */
+export const coalesceUpdatesMiddleware = <T extends { viewState: ViewState }>(
+  config: CoalesceConfig = {}
+) => {
+  return (stateCreator: StateCreator<T>) => {
+    return (set: any, get: any, api: any) => {
+      // Configure coalescing for this store instance
+      const localBackendCallback = config.onStateUpdate || backendUpdateCallback;
+      const localIsEnabled = config.enabled !== false;
+      
+      // Create a coalesced set function
+      const coalescedSet = (updater: any) => {
+        // Apply the state change immediately for UI responsiveness
+        const result = set(updater);
+        
+        // If we have a viewState in the new state, coalesce the backend update
+        const newState = get();
+        if (newState && newState.viewState && localIsEnabled) {
+          const queueTime = performance.now();
+          // console.log(`[coalesceMiddleware ${queueTime.toFixed(0)}ms] 📥 QUEUING state update:`);
+          // console.log(`  - layers: ${newState.viewState.layers.length}`);
+          // console.log(`  - layer ids:`, newState.viewState.layers.map(l => l.id));
+          // console.log(`  - layer details:`, newState.viewState.layers.map(l => ({
+          //   id: l.id,
+          //   volumeId: l.volumeId,
+          //   visible: l.visible,
+          //   opacity: l.opacity,
+          //   intensity: l.intensity,
+          //   threshold: l.threshold,
+          //   colormap: l.colormap
+          // })));
+          
+          // Check for problematic intensity values being queued
+          newState.viewState.layers.forEach(layer => {
+            if (layer.intensity && 
+                layer.intensity[0] > 1969 && layer.intensity[0] < 1970 &&
+                layer.intensity[1] > 7878 && layer.intensity[1] < 7879) {
+              console.error(`[coalesceMiddleware] 📥 QUEUING PROBLEMATIC INTENSITY VALUES for layer ${layer.id}:`, layer.intensity);
+              console.trace('Stack trace for problematic queue:');
+            }
+          });
+          
+          // Store the latest state for batching
+          pendingState = newState.viewState;
+          
+          // Update global callback if provided locally
+          if (localBackendCallback) {
+            backendUpdateCallback = localBackendCallback;
+          }
+          
+          // Schedule flush if not already scheduled
+          if (!rafId) {
+            // console.log(`[coalesceMiddleware ${queueTime.toFixed(0)}ms] Scheduling flush via ${config.useTimeout ? 'setTimeout' : 'requestAnimationFrame'}`);
+            if (config.useTimeout) {
+              rafId = setTimeout(flushState, config.timeoutDelay || 16) as any;
+            } else {
+              rafId = requestAnimationFrame(flushState);
+            }
+          } else {
+            // console.log(`[coalesceMiddleware ${queueTime.toFixed(0)}ms] Flush already scheduled, updating pending state`);
+          }
+        }
+        
+        return result;
+      };
+      
+      // Create the store with the coalesced set function
+      const store = stateCreator(coalescedSet, get, api);
+      
+      // Return store with additional metadata
+      return {
+        ...store,
+        // Expose the original set for internal use
+        _originalSet: set
+      };
+    };
+  };
+};
+
+/**
+ * Utility functions for managing coalescing
+ */
+export const coalesceUtils = {
+  /**
+   * Set the backend update callback
+   */
+  setBackendCallback: (callback: (viewState: ViewState) => void) => {
+    backendUpdateCallback = callback;
+  },
+  
+  /**
+   * Enable or disable coalescing
+   */
+  setEnabled: (enabled: boolean) => {
+    isEnabled = enabled;
+  },
+  
+  /**
+   * Force flush any pending state immediately
+   */
+  flush: () => {
+    if (rafId) {
+      if (typeof rafId === 'number' && rafId > 0) {
+        cancelAnimationFrame(rafId);
+      } else {
+        clearTimeout(rafId as any);
+      }
+    }
+    flushState();
+  },
+  
+  /**
+   * Get whether there is a pending state update
+   */
+  hasPendingUpdate: () => pendingState !== null,
+  
+  /**
+   * Clear any pending updates without flushing
+   */
+  clearPending: () => {
+    if (rafId) {
+      if (typeof rafId === 'number' && rafId > 0) {
+        cancelAnimationFrame(rafId);
+      } else {
+        clearTimeout(rafId as any);
+      }
+      rafId = null;
+    }
+    pendingState = null;
+  }
+};
+
+/**
+ * Type helper for stores using coalescing middleware
+ */
+export type WithCoalescing<T> = T & {
+  _originalSet: (updater: any) => void;
+};

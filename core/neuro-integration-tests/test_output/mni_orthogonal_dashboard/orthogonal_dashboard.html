@@ -1,0 +1,700 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Orthogonal Slice Differential Testing - CPU vs GPU</title>
+    <link rel="stylesheet" href="orthogonal_dashboard.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🧠 Orthogonal Slice Differential Testing</h1>
+            <p>CPU vs GPU Rendering Comparison - Axial, Sagittal, and Coronal Views</p>
+        </header>
+        
+        <div class="summary-section">
+            <h2>Test Summary</h2>
+
+            <div class="summary-grid">
+                <div class="summary-card">
+                    <div class="metric-value">6</div>
+                    <div class="metric-label">Total Tests</div>
+                </div>
+                <div class="summary-card passed">
+                    <div class="metric-value">6</div>
+                    <div class="metric-label">Passed</div>
+                </div>
+                <div class="summary-card failed">
+                    <div class="metric-value">0</div>
+                    <div class="metric-label">Failed</div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="tests-section">
+            <h2>Orthogonal Test Results</h2>
+
+            <div class="test-section passed">
+                <div class="test-header">
+                    <h3>✅ brain_center - World Coordinate: (0.0, 0.0, 0.0) mm</h3>
+                    <div class="test-status">PASS</div>
+                </div>
+                
+                <div class="coordinate-info">
+                    <p><strong>Test Point:</strong> (0.0, 0.0, 0.0) mm in LPI world space</p>
+                    <p><strong>Ellipsoid:</strong> Center at (0.0, 0.0, 0.0), Radii: (1.0, 1.0, 1.0)</p>
+                </div>
+                
+                <div class="orthogonal-grid">
+                    <div class="grid-header"></div>
+                    <div class="grid-header">Axial (Z=0.0)</div>
+                    <div class="grid-header">Sagittal (X=0.0)</div>
+                    <div class="grid-header">Coronal (Y=0.0)</div>
+                    
+                    <div class="grid-label">CPU</div>
+                    <div class="slice-image">
+                        <img src="images/test_0_cpu_axial.png" alt="CPU Axial">
+                    </div>
+                    <div class="slice-image">
+                        <img src="images/test_0_cpu_sagittal.png" alt="CPU Sagittal">
+                    </div>
+                    <div class="slice-image">
+                        <img src="images/test_0_cpu_coronal.png" alt="CPU Coronal">
+                    </div>
+                    
+                    <div class="grid-label">GPU</div>
+                    <div class="slice-image">
+                        <img src="images/test_0_gpu_axial.png" alt="GPU Axial">
+                    </div>
+                    <div class="slice-image">
+                        <img src="images/test_0_gpu_sagittal.png" alt="GPU Sagittal">
+                    </div>
+                    <div class="slice-image">
+                        <img src="images/test_0_gpu_coronal.png" alt="GPU Coronal">
+                    </div>
+                </div>
+                
+                <div class="metrics-section">
+                    <h4>Comparison Metrics</h4>
+                    <div class="metrics-grid">
+                        
+            <div class="metric-card">
+                <div class="metric-title">Axial Plane</div>
+                <div class="metric-row">
+                    <span>Dice:</span>
+                    <span class="metric-value">1.000</span>
+                </div>
+                <div class="metric-row">
+                    <span>SSIM:</span>
+                    <span class="metric-value">0.993</span>
+                </div>
+                <div class="metric-row">
+                    <span>RMSE:</span>
+                    <span class="metric-value">9.8</span>
+                </div>
+                <div class="metric-row">
+                    <span>Max Diff:</span>
+                    <span class="metric-value">204</span>
+                </div>
+            </div>
+        
+                        
+            <div class="metric-card">
+                <div class="metric-title">Sagittal Plane</div>
+                <div class="metric-row">
+                    <span>Dice:</span>
+                    <span class="metric-value">1.000</span>
+                </div>
+                <div class="metric-row">
+                    <span>SSIM:</span>
+                    <span class="metric-value">0.976</span>
+                </div>
+                <div class="metric-row">
+                    <span>RMSE:</span>
+                    <span class="metric-value">12.6</span>
+                </div>
+                <div class="metric-row">
+                    <span>Max Diff:</span>
+                    <span class="metric-value">221</span>
+                </div>
+            </div>
+        
+                        
+            <div class="metric-card">
+                <div class="metric-title">Coronal Plane</div>
+                <div class="metric-row">
+                    <span>Dice:</span>
+                    <span class="metric-value">1.000</span>
+                </div>
+                <div class="metric-row">
+                    <span>SSIM:</span>
+                    <span class="metric-value">0.992</span>
+                </div>
+                <div class="metric-row">
+                    <span>RMSE:</span>
+                    <span class="metric-value">10.2</span>
+                </div>
+                <div class="metric-row">
+                    <span>Max Diff:</span>
+                    <span class="metric-value">204</span>
+                </div>
+            </div>
+        
+                    </div>
+                </div>
+</div>
+            <div class="test-section passed">
+                <div class="test-header">
+                    <h3>✅ frontal_lobe - World Coordinate: (0.0, 40.0, 20.0) mm</h3>
+                    <div class="test-status">PASS</div>
+                </div>
+                
+                <div class="coordinate-info">
+                    <p><strong>Test Point:</strong> (0.0, 40.0, 20.0) mm in LPI world space</p>
+                    <p><strong>Ellipsoid:</strong> Center at (0.0, 0.0, 0.0), Radii: (1.0, 1.0, 1.0)</p>
+                </div>
+                
+                <div class="orthogonal-grid">
+                    <div class="grid-header"></div>
+                    <div class="grid-header">Axial (Z=20.0)</div>
+                    <div class="grid-header">Sagittal (X=0.0)</div>
+                    <div class="grid-header">Coronal (Y=40.0)</div>
+                    
+                    <div class="grid-label">CPU</div>
+                    <div class="slice-image">
+                        <img src="images/test_1_cpu_axial.png" alt="CPU Axial">
+                    </div>
+                    <div class="slice-image">
+                        <img src="images/test_1_cpu_sagittal.png" alt="CPU Sagittal">
+                    </div>
+                    <div class="slice-image">
+                        <img src="images/test_1_cpu_coronal.png" alt="CPU Coronal">
+                    </div>
+                    
+                    <div class="grid-label">GPU</div>
+                    <div class="slice-image">
+                        <img src="images/test_1_gpu_axial.png" alt="GPU Axial">
+                    </div>
+                    <div class="slice-image">
+                        <img src="images/test_1_gpu_sagittal.png" alt="GPU Sagittal">
+                    </div>
+                    <div class="slice-image">
+                        <img src="images/test_1_gpu_coronal.png" alt="GPU Coronal">
+                    </div>
+                </div>
+                
+                <div class="metrics-section">
+                    <h4>Comparison Metrics</h4>
+                    <div class="metrics-grid">
+                        
+            <div class="metric-card">
+                <div class="metric-title">Axial Plane</div>
+                <div class="metric-row">
+                    <span>Dice:</span>
+                    <span class="metric-value">1.000</span>
+                </div>
+                <div class="metric-row">
+                    <span>SSIM:</span>
+                    <span class="metric-value">0.993</span>
+                </div>
+                <div class="metric-row">
+                    <span>RMSE:</span>
+                    <span class="metric-value">10.0</span>
+                </div>
+                <div class="metric-row">
+                    <span>Max Diff:</span>
+                    <span class="metric-value">204</span>
+                </div>
+            </div>
+        
+                        
+            <div class="metric-card">
+                <div class="metric-title">Sagittal Plane</div>
+                <div class="metric-row">
+                    <span>Dice:</span>
+                    <span class="metric-value">1.000</span>
+                </div>
+                <div class="metric-row">
+                    <span>SSIM:</span>
+                    <span class="metric-value">0.976</span>
+                </div>
+                <div class="metric-row">
+                    <span>RMSE:</span>
+                    <span class="metric-value">12.6</span>
+                </div>
+                <div class="metric-row">
+                    <span>Max Diff:</span>
+                    <span class="metric-value">221</span>
+                </div>
+            </div>
+        
+                        
+            <div class="metric-card">
+                <div class="metric-title">Coronal Plane</div>
+                <div class="metric-row">
+                    <span>Dice:</span>
+                    <span class="metric-value">1.000</span>
+                </div>
+                <div class="metric-row">
+                    <span>SSIM:</span>
+                    <span class="metric-value">0.992</span>
+                </div>
+                <div class="metric-row">
+                    <span>RMSE:</span>
+                    <span class="metric-value">8.7</span>
+                </div>
+                <div class="metric-row">
+                    <span>Max Diff:</span>
+                    <span class="metric-value">204</span>
+                </div>
+            </div>
+        
+                    </div>
+                </div>
+</div>
+            <div class="test-section passed">
+                <div class="test-header">
+                    <h3>✅ temporal_lobe - World Coordinate: (40.0, 0.0, -20.0) mm</h3>
+                    <div class="test-status">PASS</div>
+                </div>
+                
+                <div class="coordinate-info">
+                    <p><strong>Test Point:</strong> (40.0, 0.0, -20.0) mm in LPI world space</p>
+                    <p><strong>Ellipsoid:</strong> Center at (0.0, 0.0, 0.0), Radii: (1.0, 1.0, 1.0)</p>
+                </div>
+                
+                <div class="orthogonal-grid">
+                    <div class="grid-header"></div>
+                    <div class="grid-header">Axial (Z=-20.0)</div>
+                    <div class="grid-header">Sagittal (X=40.0)</div>
+                    <div class="grid-header">Coronal (Y=0.0)</div>
+                    
+                    <div class="grid-label">CPU</div>
+                    <div class="slice-image">
+                        <img src="images/test_2_cpu_axial.png" alt="CPU Axial">
+                    </div>
+                    <div class="slice-image">
+                        <img src="images/test_2_cpu_sagittal.png" alt="CPU Sagittal">
+                    </div>
+                    <div class="slice-image">
+                        <img src="images/test_2_cpu_coronal.png" alt="CPU Coronal">
+                    </div>
+                    
+                    <div class="grid-label">GPU</div>
+                    <div class="slice-image">
+                        <img src="images/test_2_gpu_axial.png" alt="GPU Axial">
+                    </div>
+                    <div class="slice-image">
+                        <img src="images/test_2_gpu_sagittal.png" alt="GPU Sagittal">
+                    </div>
+                    <div class="slice-image">
+                        <img src="images/test_2_gpu_coronal.png" alt="GPU Coronal">
+                    </div>
+                </div>
+                
+                <div class="metrics-section">
+                    <h4>Comparison Metrics</h4>
+                    <div class="metrics-grid">
+                        
+            <div class="metric-card">
+                <div class="metric-title">Axial Plane</div>
+                <div class="metric-row">
+                    <span>Dice:</span>
+                    <span class="metric-value">1.000</span>
+                </div>
+                <div class="metric-row">
+                    <span>SSIM:</span>
+                    <span class="metric-value">0.989</span>
+                </div>
+                <div class="metric-row">
+                    <span>RMSE:</span>
+                    <span class="metric-value">10.9</span>
+                </div>
+                <div class="metric-row">
+                    <span>Max Diff:</span>
+                    <span class="metric-value">204</span>
+                </div>
+            </div>
+        
+                        
+            <div class="metric-card">
+                <div class="metric-title">Sagittal Plane</div>
+                <div class="metric-row">
+                    <span>Dice:</span>
+                    <span class="metric-value">1.000</span>
+                </div>
+                <div class="metric-row">
+                    <span>SSIM:</span>
+                    <span class="metric-value">0.986</span>
+                </div>
+                <div class="metric-row">
+                    <span>RMSE:</span>
+                    <span class="metric-value">13.4</span>
+                </div>
+                <div class="metric-row">
+                    <span>Max Diff:</span>
+                    <span class="metric-value">194</span>
+                </div>
+            </div>
+        
+                        
+            <div class="metric-card">
+                <div class="metric-title">Coronal Plane</div>
+                <div class="metric-row">
+                    <span>Dice:</span>
+                    <span class="metric-value">1.000</span>
+                </div>
+                <div class="metric-row">
+                    <span>SSIM:</span>
+                    <span class="metric-value">0.992</span>
+                </div>
+                <div class="metric-row">
+                    <span>RMSE:</span>
+                    <span class="metric-value">10.2</span>
+                </div>
+                <div class="metric-row">
+                    <span>Max Diff:</span>
+                    <span class="metric-value">204</span>
+                </div>
+            </div>
+        
+                    </div>
+                </div>
+</div>
+            <div class="test-section passed">
+                <div class="test-header">
+                    <h3>✅ occipital_lobe - World Coordinate: (0.0, -60.0, 10.0) mm</h3>
+                    <div class="test-status">PASS</div>
+                </div>
+                
+                <div class="coordinate-info">
+                    <p><strong>Test Point:</strong> (0.0, -60.0, 10.0) mm in LPI world space</p>
+                    <p><strong>Ellipsoid:</strong> Center at (0.0, 0.0, 0.0), Radii: (1.0, 1.0, 1.0)</p>
+                </div>
+                
+                <div class="orthogonal-grid">
+                    <div class="grid-header"></div>
+                    <div class="grid-header">Axial (Z=10.0)</div>
+                    <div class="grid-header">Sagittal (X=0.0)</div>
+                    <div class="grid-header">Coronal (Y=-60.0)</div>
+                    
+                    <div class="grid-label">CPU</div>
+                    <div class="slice-image">
+                        <img src="images/test_3_cpu_axial.png" alt="CPU Axial">
+                    </div>
+                    <div class="slice-image">
+                        <img src="images/test_3_cpu_sagittal.png" alt="CPU Sagittal">
+                    </div>
+                    <div class="slice-image">
+                        <img src="images/test_3_cpu_coronal.png" alt="CPU Coronal">
+                    </div>
+                    
+                    <div class="grid-label">GPU</div>
+                    <div class="slice-image">
+                        <img src="images/test_3_gpu_axial.png" alt="GPU Axial">
+                    </div>
+                    <div class="slice-image">
+                        <img src="images/test_3_gpu_sagittal.png" alt="GPU Sagittal">
+                    </div>
+                    <div class="slice-image">
+                        <img src="images/test_3_gpu_coronal.png" alt="GPU Coronal">
+                    </div>
+                </div>
+                
+                <div class="metrics-section">
+                    <h4>Comparison Metrics</h4>
+                    <div class="metrics-grid">
+                        
+            <div class="metric-card">
+                <div class="metric-title">Axial Plane</div>
+                <div class="metric-row">
+                    <span>Dice:</span>
+                    <span class="metric-value">1.000</span>
+                </div>
+                <div class="metric-row">
+                    <span>SSIM:</span>
+                    <span class="metric-value">0.993</span>
+                </div>
+                <div class="metric-row">
+                    <span>RMSE:</span>
+                    <span class="metric-value">10.1</span>
+                </div>
+                <div class="metric-row">
+                    <span>Max Diff:</span>
+                    <span class="metric-value">204</span>
+                </div>
+            </div>
+        
+                        
+            <div class="metric-card">
+                <div class="metric-title">Sagittal Plane</div>
+                <div class="metric-row">
+                    <span>Dice:</span>
+                    <span class="metric-value">1.000</span>
+                </div>
+                <div class="metric-row">
+                    <span>SSIM:</span>
+                    <span class="metric-value">0.976</span>
+                </div>
+                <div class="metric-row">
+                    <span>RMSE:</span>
+                    <span class="metric-value">12.6</span>
+                </div>
+                <div class="metric-row">
+                    <span>Max Diff:</span>
+                    <span class="metric-value">221</span>
+                </div>
+            </div>
+        
+                        
+            <div class="metric-card">
+                <div class="metric-title">Coronal Plane</div>
+                <div class="metric-row">
+                    <span>Dice:</span>
+                    <span class="metric-value">1.000</span>
+                </div>
+                <div class="metric-row">
+                    <span>SSIM:</span>
+                    <span class="metric-value">0.993</span>
+                </div>
+                <div class="metric-row">
+                    <span>RMSE:</span>
+                    <span class="metric-value">9.4</span>
+                </div>
+                <div class="metric-row">
+                    <span>Max Diff:</span>
+                    <span class="metric-value">204</span>
+                </div>
+            </div>
+        
+                    </div>
+                </div>
+</div>
+            <div class="test-section passed">
+                <div class="test-header">
+                    <h3>✅ hippocampus - World Coordinate: (25.0, -20.0, -15.0) mm</h3>
+                    <div class="test-status">PASS</div>
+                </div>
+                
+                <div class="coordinate-info">
+                    <p><strong>Test Point:</strong> (25.0, -20.0, -15.0) mm in LPI world space</p>
+                    <p><strong>Ellipsoid:</strong> Center at (0.0, 0.0, 0.0), Radii: (1.0, 1.0, 1.0)</p>
+                </div>
+                
+                <div class="orthogonal-grid">
+                    <div class="grid-header"></div>
+                    <div class="grid-header">Axial (Z=-15.0)</div>
+                    <div class="grid-header">Sagittal (X=25.0)</div>
+                    <div class="grid-header">Coronal (Y=-20.0)</div>
+                    
+                    <div class="grid-label">CPU</div>
+                    <div class="slice-image">
+                        <img src="images/test_4_cpu_axial.png" alt="CPU Axial">
+                    </div>
+                    <div class="slice-image">
+                        <img src="images/test_4_cpu_sagittal.png" alt="CPU Sagittal">
+                    </div>
+                    <div class="slice-image">
+                        <img src="images/test_4_cpu_coronal.png" alt="CPU Coronal">
+                    </div>
+                    
+                    <div class="grid-label">GPU</div>
+                    <div class="slice-image">
+                        <img src="images/test_4_gpu_axial.png" alt="GPU Axial">
+                    </div>
+                    <div class="slice-image">
+                        <img src="images/test_4_gpu_sagittal.png" alt="GPU Sagittal">
+                    </div>
+                    <div class="slice-image">
+                        <img src="images/test_4_gpu_coronal.png" alt="GPU Coronal">
+                    </div>
+                </div>
+                
+                <div class="metrics-section">
+                    <h4>Comparison Metrics</h4>
+                    <div class="metrics-grid">
+                        
+            <div class="metric-card">
+                <div class="metric-title">Axial Plane</div>
+                <div class="metric-row">
+                    <span>Dice:</span>
+                    <span class="metric-value">1.000</span>
+                </div>
+                <div class="metric-row">
+                    <span>SSIM:</span>
+                    <span class="metric-value">0.992</span>
+                </div>
+                <div class="metric-row">
+                    <span>RMSE:</span>
+                    <span class="metric-value">10.3</span>
+                </div>
+                <div class="metric-row">
+                    <span>Max Diff:</span>
+                    <span class="metric-value">204</span>
+                </div>
+            </div>
+        
+                        
+            <div class="metric-card">
+                <div class="metric-title">Sagittal Plane</div>
+                <div class="metric-row">
+                    <span>Dice:</span>
+                    <span class="metric-value">1.000</span>
+                </div>
+                <div class="metric-row">
+                    <span>SSIM:</span>
+                    <span class="metric-value">0.987</span>
+                </div>
+                <div class="metric-row">
+                    <span>RMSE:</span>
+                    <span class="metric-value">14.0</span>
+                </div>
+                <div class="metric-row">
+                    <span>Max Diff:</span>
+                    <span class="metric-value">194</span>
+                </div>
+            </div>
+        
+                        
+            <div class="metric-card">
+                <div class="metric-title">Coronal Plane</div>
+                <div class="metric-row">
+                    <span>Dice:</span>
+                    <span class="metric-value">1.000</span>
+                </div>
+                <div class="metric-row">
+                    <span>SSIM:</span>
+                    <span class="metric-value">0.992</span>
+                </div>
+                <div class="metric-row">
+                    <span>RMSE:</span>
+                    <span class="metric-value">10.5</span>
+                </div>
+                <div class="metric-row">
+                    <span>Max Diff:</span>
+                    <span class="metric-value">204</span>
+                </div>
+            </div>
+        
+                    </div>
+                </div>
+</div>
+            <div class="test-section passed">
+                <div class="test-header">
+                    <h3>✅ motor_cortex - World Coordinate: (-20.0, -10.0, 60.0) mm</h3>
+                    <div class="test-status">PASS</div>
+                </div>
+                
+                <div class="coordinate-info">
+                    <p><strong>Test Point:</strong> (-20.0, -10.0, 60.0) mm in LPI world space</p>
+                    <p><strong>Ellipsoid:</strong> Center at (0.0, 0.0, 0.0), Radii: (1.0, 1.0, 1.0)</p>
+                </div>
+                
+                <div class="orthogonal-grid">
+                    <div class="grid-header"></div>
+                    <div class="grid-header">Axial (Z=60.0)</div>
+                    <div class="grid-header">Sagittal (X=-20.0)</div>
+                    <div class="grid-header">Coronal (Y=-10.0)</div>
+                    
+                    <div class="grid-label">CPU</div>
+                    <div class="slice-image">
+                        <img src="images/test_5_cpu_axial.png" alt="CPU Axial">
+                    </div>
+                    <div class="slice-image">
+                        <img src="images/test_5_cpu_sagittal.png" alt="CPU Sagittal">
+                    </div>
+                    <div class="slice-image">
+                        <img src="images/test_5_cpu_coronal.png" alt="CPU Coronal">
+                    </div>
+                    
+                    <div class="grid-label">GPU</div>
+                    <div class="slice-image">
+                        <img src="images/test_5_gpu_axial.png" alt="GPU Axial">
+                    </div>
+                    <div class="slice-image">
+                        <img src="images/test_5_gpu_sagittal.png" alt="GPU Sagittal">
+                    </div>
+                    <div class="slice-image">
+                        <img src="images/test_5_gpu_coronal.png" alt="GPU Coronal">
+                    </div>
+                </div>
+                
+                <div class="metrics-section">
+                    <h4>Comparison Metrics</h4>
+                    <div class="metrics-grid">
+                        
+            <div class="metric-card">
+                <div class="metric-title">Axial Plane</div>
+                <div class="metric-row">
+                    <span>Dice:</span>
+                    <span class="metric-value">1.000</span>
+                </div>
+                <div class="metric-row">
+                    <span>SSIM:</span>
+                    <span class="metric-value">0.989</span>
+                </div>
+                <div class="metric-row">
+                    <span>RMSE:</span>
+                    <span class="metric-value">9.7</span>
+                </div>
+                <div class="metric-row">
+                    <span>Max Diff:</span>
+                    <span class="metric-value">204</span>
+                </div>
+            </div>
+        
+                        
+            <div class="metric-card">
+                <div class="metric-title">Sagittal Plane</div>
+                <div class="metric-row">
+                    <span>Dice:</span>
+                    <span class="metric-value">1.000</span>
+                </div>
+                <div class="metric-row">
+                    <span>SSIM:</span>
+                    <span class="metric-value">0.989</span>
+                </div>
+                <div class="metric-row">
+                    <span>RMSE:</span>
+                    <span class="metric-value">12.9</span>
+                </div>
+                <div class="metric-row">
+                    <span>Max Diff:</span>
+                    <span class="metric-value">194</span>
+                </div>
+            </div>
+        
+                        
+            <div class="metric-card">
+                <div class="metric-title">Coronal Plane</div>
+                <div class="metric-row">
+                    <span>Dice:</span>
+                    <span class="metric-value">1.000</span>
+                </div>
+                <div class="metric-row">
+                    <span>SSIM:</span>
+                    <span class="metric-value">0.991</span>
+                </div>
+                <div class="metric-row">
+                    <span>RMSE:</span>
+                    <span class="metric-value">10.9</span>
+                </div>
+                <div class="metric-row">
+                    <span>Max Diff:</span>
+                    <span class="metric-value">204</span>
+                </div>
+            </div>
+        
+                    </div>
+                </div>
+</div>
+        </div>
+        
+        <footer>
+            <p>Generated by Brainflow2 Orthogonal Differential Testing Framework</p>
+            <p>Crosshairs indicate the world space coordinate location on each slice</p>
+        </footer>
+    </div>
+</body>
+</html>

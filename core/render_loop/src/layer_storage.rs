@@ -164,13 +164,36 @@ impl LayerStorageManager {
             let dims = volume_dimensions.get(i).unwrap_or(&default_dims);
             let transform = world_to_voxel_transforms.get(i).unwrap_or(&identity);
             
+            // Debug: Log the transform being used (commented out to reduce log noise)
+            // println!("LayerStorageManager: Layer {} world_to_voxel transform:", i);
+            // println!("  Input matrix (Debug format shows rows): {:?}", transform);
+            // println!("  Matrix element (0,3) = {}", transform[(0, 3)]);
+            // println!("  Matrix element (3,0) = {}", transform[(3, 0)]);
+            let converted: [[f32; 4]; 4] = (*transform).into();
+            // println!("  Converted array: {:?}", converted);
+            
+            // Test transformation of a few key points (commented out to reduce log noise)
+            // let test_points = [
+            //     [0.0, 0.0, 0.0, 1.0],     // origin
+            //     [96.5, 114.5, 96.5, 1.0], // crosshair
+            //     [-96.0, -132.0, -78.0, 1.0], // min corner
+            //     [96.0, 132.0, 114.0, 1.0],   // max corner
+            // ];
+            // println!("  Testing world->voxel transformation:");
+            // for (idx, point) in test_points.iter().enumerate() {
+            //     let world_vec = nalgebra::Vector4::new(point[0], point[1], point[2], point[3]);
+            //     let voxel_vec = transform * world_vec;
+            //     println!("    Point {}: world=[{:.1}, {:.1}, {:.1}] -> voxel=[{:.1}, {:.1}, {:.1}]", 
+            //         idx, point[0], point[1], point[2], 
+            //         voxel_vec[0], voxel_vec[1], voxel_vec[2]);
+            // }
+            
             // Only treat as mask if explicitly marked or has binary-like threshold
             let _is_mask = false; // TODO: Add explicit mask flag to LayerInfo
             
             let layer_data = LayerUboStd140 {
-                // nalgebra already stores matrices in column-major format
-                // which is exactly what WGSL expects, so no transpose needed
-                world_to_voxel: (*transform).into(),
+                // Convert matrix to column-major format for GPU
+                world_to_voxel: crate::matrix_to_cols_array(transform),
                 texture_coords: [
                     layer.texture_coords.0,
                     layer.texture_coords.1,
@@ -216,6 +239,11 @@ impl LayerStorageManager {
             0,
             bytemuck::bytes_of(&metadata),
         );
+        
+        // Create bind group if it doesn't exist yet
+        if self.bind_group.is_none() {
+            self.create_bind_group(device, layout);
+        }
     }
     
     /// Update a single layer's properties
@@ -227,7 +255,12 @@ impl LayerStorageManager {
         volume_dims: (u32, u32, u32),
         world_to_voxel: &Matrix4<f32>,
     ) -> Result<(), &'static str> {
-        if index >= self.active_count as usize {
+        // Update active_count if we're adding a new layer at the end
+        if index == self.active_count as usize && index < self.capacity {
+            self.active_count = (index + 1) as u32;
+        } else if index >= self.capacity {
+            return Err("Layer index exceeds capacity");
+        } else if index > self.active_count as usize {
             return Err("Layer index exceeds active count");
         }
         
@@ -235,9 +268,8 @@ impl LayerStorageManager {
         
         // Update the specific layer data
         let layer_data = LayerUboStd140 {
-            // nalgebra already stores matrices in column-major format
-            // which is exactly what WGSL expects, so no transpose needed
-            world_to_voxel: (*world_to_voxel).into(),
+            // Convert matrix to column-major format for GPU
+            world_to_voxel: crate::matrix_to_cols_array(world_to_voxel),
             texture_coords: [
                 layer.texture_coords.0,
                 layer.texture_coords.1,

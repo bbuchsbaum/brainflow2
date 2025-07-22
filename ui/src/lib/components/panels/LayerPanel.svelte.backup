@@ -1,0 +1,1081 @@
+<!--
+  LayerPanel - Unified layer panel with selection and controls
+  Combines layer list with immediate controls for better UX
+-->
+<script lang="ts">
+	import { onMount, onDestroy } from 'svelte';
+	import { getEventBus } from '$lib/events/EventBus';
+	import type { EventBus } from '$lib/events/EventBus';
+	import { Eye, EyeOff, Palette, Trash2, RotateCcw, FlipVertical, ChevronDown, ChevronRight } from 'lucide-svelte';
+	import type { LayerSpec } from '@brainflow/api';
+	import { debounce } from '$lib/utils/debounce';
+	import DualRangeSlider from '$lib/components/ui/DualRangeSlider.svelte';
+
+	// Props
+	let {
+		class: className = ''
+	}: {
+		class?: string;
+	} = $props();
+
+	// Event-based communication
+	let eventBus: EventBus = getEventBus();
+
+	// State
+	let layers = $state<any[]>([]);
+	let activeLayerId = $state<string | null>(null);
+	let expandedLayerId = $state<string | null>(null);
+	let isUpdating = $state(false);
+	
+	// Track contrast values per layer
+	let layerContrastValues = $state(new Map<string, { low: number; high: number }>());
+	
+	// Track threshold values per layer
+	let layerThresholdValues = $state(new Map<string, { low: number; high: number }>());
+	
+	// Track threshold state per layer
+	let layerThresholdEnabled = $state<Map<string, boolean>>(new Map());
+
+	// Colormap definitions with accessibility info
+	const colormaps = [
+		{ 
+			value: 'grayscale', 
+			label: 'Grayscale',
+			tooltip: 'Linear black to white. Good for anatomical images.',
+			preview: 'linear-gradient(to right, #000, #fff)',
+			colorBlindSafe: true
+		},
+		{
+			value: 'viridis',
+			label: 'Viridis',
+			tooltip: 'Purple to yellow. Perceptually uniform, color-blind safe.',
+			preview: 'linear-gradient(to right, #440154, #31688e, #35b779, #fde725)',
+			colorBlindSafe: true
+		},
+		{ 
+			value: 'hot', 
+			label: 'Hot',
+			tooltip: 'Black to red to yellow to white. Good for highlighting intensity.',
+			preview: 'linear-gradient(to right, #000, #f00, #ff0, #fff)',
+			colorBlindSafe: false
+		},
+		{ 
+			value: 'cool', 
+			label: 'Cool',
+			tooltip: 'Blue to cyan. Good for negative values.',
+			preview: 'linear-gradient(to right, #00f, #0ff)',
+			colorBlindSafe: false
+		},
+		{
+			value: 'plasma',
+			label: 'Plasma',
+			tooltip: 'Purple to pink to yellow. Good contrast, mostly color-blind safe.',
+			preview: 'linear-gradient(to right, #0d0887, #7e03a8, #cc4778, #f89540, #f0f921)',
+			colorBlindSafe: true
+		},
+		{
+			value: 'inferno',
+			label: 'Inferno',
+			tooltip: 'Black to red to yellow. High contrast, good for statistical maps.',
+			preview: 'linear-gradient(to right, #000, #420a68, #932667, #dd513a, #fca50a, #fcffa4)',
+			colorBlindSafe: true
+		}
+	];
+
+
+	// Get active layer
+	let activeLayer = $derived(() => {
+		if (!activeLayerId) return null;
+		return layers.find((l) => l.id === activeLayerId);
+	});
+
+	// Layer management functions
+	function selectLayer(layerId: string) {
+		console.log('[LayerPanel] selectLayer called with:', layerId);
+		activeLayerId = layerId;
+		eventBus.emit('layer.selected', { layerId });
+		// Auto-expand selected layer
+		expandedLayerId = layerId;
+		console.log('[LayerPanel] expandedLayerId set to:', expandedLayerId);
+	}
+
+	function toggleLayerExpanded(layerId: string) {
+		if (expandedLayerId === layerId) {
+			expandedLayerId = null;
+		} else {
+			expandedLayerId = layerId;
+			// Also select it
+			selectLayer(layerId);
+		}
+	}
+
+	async function toggleLayerVisibility(layerId: string) {
+		const layer = layers.find((l) => l.id === layerId);
+		if (!layer) return;
+
+		try {
+			eventBus.emit('layer.visibility.toggle.request', {
+				layerId,
+				visible: !layer.visible
+			});
+		} catch (error) {
+			eventBus.emit('notification.error', {
+				message: 'Failed to toggle layer visibility',
+				error
+			});
+		}
+	}
+
+	async function removeLayer(layerId: string) {
+		try {
+			eventBus.emit('layer.remove.request', { layerId });
+			if (activeLayerId === layerId) {
+				activeLayerId = null;
+				expandedLayerId = null;
+			}
+		} catch (error) {
+			eventBus.emit('notification.error', {
+				message: 'Failed to remove layer',
+				error
+			});
+		}
+	}
+
+	// Update functions for controls
+	async function updateLayerProperty(layerId: string, updates: any) {
+		isUpdating = true;
+		try {
+			// Convert updates to proper LayerSpec format
+			const layerSpec: Partial<LayerSpec> = {};
+			
+			if ('opacity' in updates) {
+				layerSpec.Volume = { ...layerSpec.Volume, opacity: updates.opacity };
+			}
+			if ('colormap' in updates) {
+				layerSpec.Volume = { ...layerSpec.Volume, colormap: updates.colormap };
+			}
+			if ('contrastMin' in updates || 'contrastMax' in updates) {
+				layerSpec.Volume = {
+					...layerSpec.Volume,
+					window_min: updates.contrastMin,
+					window_max: updates.contrastMax
+				};
+			}
+			if ('thresholdMin' in updates || 'thresholdMax' in updates) {
+				layerSpec.Volume = {
+					...layerSpec.Volume,
+					threshold_lower: updates.thresholdMin,
+					threshold_upper: updates.thresholdMax,
+					threshold_enabled: updates.thresholdEnabled
+				};
+			}
+			
+			eventBus.emit('layer.update.request', {
+				layerId,
+				updates: layerSpec
+			});
+		} catch (error) {
+			eventBus.emit('notification.error', {
+				message: 'Failed to update layer',
+				error
+			});
+		} finally {
+			isUpdating = false;
+		}
+	}
+
+	const debouncedUpdate = debounce(updateLayerProperty, 300);
+
+	function updateOpacity(layerId: string, value: number) {
+		// Update local state immediately for responsiveness
+		layers = layers.map(layer => 
+			layer.id === layerId ? { ...layer, opacity: value } : layer
+		);
+		debouncedUpdate(layerId, { opacity: value });
+	}
+
+	function updateColormap(layerId: string, value: string, reversed: boolean = false) {
+		const actualColormap = reversed ? `${value}_r` : value;
+		updateLayerProperty(layerId, { colormap: actualColormap });
+	}
+
+	function updateContrast(layerId: string, min: number, max: number) {
+		debouncedUpdate(layerId, { contrastMin: min, contrastMax: max });
+	}
+
+	function updateThreshold(layerId: string, min: number, max: number, enabled: boolean) {
+		debouncedUpdate(layerId, { thresholdMin: min, thresholdMax: max, thresholdEnabled: enabled });
+	}
+
+	function toggleThreshold(layerId: string) {
+		const enabled = !layerThresholdEnabled.get(layerId);
+		layerThresholdEnabled.set(layerId, enabled);
+		
+		const layer = layers.find(l => l.id === layerId);
+		if (layer?.gpu?.data_range) {
+			const { min: dataMin, max: dataMax } = layer.gpu.data_range;
+			// Default threshold to middle 50% of data range
+			const thresholdMin = layer.spec.Volume?.threshold_lower ?? (dataMin + (dataMax - dataMin) * 0.25);
+			const thresholdMax = layer.spec.Volume?.threshold_upper ?? (dataMax - (dataMax - dataMin) * 0.25);
+			updateThreshold(layerId, thresholdMin, thresholdMax, enabled);
+		}
+	}
+
+
+	function resetLayer(layerId: string) {
+		const layer = layers.find(l => l.id === layerId);
+		if (!layer?.gpu?.data_range) return;
+		
+		const { min: dataMin, max: dataMax } = layer.gpu.data_range;
+		layerThresholdEnabled.set(layerId, false);
+		updateLayerProperty(layerId, {
+			opacity: 1.0,
+			colormap: 'grayscale',
+			contrastMin: dataMin,
+			contrastMax: dataMax,
+			thresholdMin: dataMin,
+			thresholdMax: dataMax,
+			thresholdEnabled: false
+		});
+	}
+
+	onMount(async () => {
+		console.log('[LayerPanel] Mounting component');
+
+		// Subscribe to layer events
+		const unsubscribes = [
+			eventBus.on('layer.added', ({ layerEntry }) => {
+				console.log('[LayerPanel] Received layer.added event:', layerEntry);
+				layers = [...layers, layerEntry];
+				// Auto-select and expand first layer
+				if (layers.length === 1) {
+					selectLayer(layerEntry.id);
+				}
+			}),
+
+			eventBus.on('layer.removed', ({ layerId }) => {
+				layers = layers.filter((l) => l.id !== layerId);
+				if (activeLayerId === layerId) {
+					activeLayerId = null;
+					expandedLayerId = null;
+				}
+			}),
+
+			eventBus.on('layer.updated', ({ layerId, updates }) => {
+				layers = layers.map((layer) => (layer.id === layerId ? { ...layer, ...updates } : layer));
+			}),
+
+			eventBus.on('layer.visibility.changed', ({ layerId, visible }) => {
+				layers = layers.map((layer) => (layer.id === layerId ? { ...layer, visible } : layer));
+			}),
+
+			eventBus.on('layer.opacity.changed', ({ layerId, opacity }) => {
+				layers = layers.map((layer) => 
+					layer.id === layerId ? { ...layer, opacity } : layer
+				);
+			}),
+
+			eventBus.on('gpu.resources.ready', ({ layerId, info }) => {
+				console.log('[LayerPanel] GPU resources ready for layer:', layerId, info);
+				layers = layers.map((layer) => 
+					layer.id === layerId ? { ...layer, gpu: info, isLoadingGpu: false } : layer
+				);
+			}),
+
+			eventBus.on('layer.gpu.request.start', ({ layerId }) => {
+				console.log('[LayerPanel] GPU request started for layer:', layerId);
+				layers = layers.map((layer) => 
+					layer.id === layerId ? { ...layer, isLoadingGpu: true } : layer
+				);
+			}),
+
+			eventBus.on('gpu.resources.error', ({ layerId, error }) => {
+				console.error('[LayerPanel] GPU resources error for layer:', layerId, error);
+				layers = layers.map((layer) => 
+					layer.id === layerId ? { ...layer, isLoadingGpu: false, gpuError: error } : layer
+				);
+			})
+		];
+
+		// Request initial layer data
+		eventBus.emit('layer.list.request', {});
+
+		// Check for existing layers after mount
+		setTimeout(() => {
+			eventBus.emit('layer.list.request', {});
+		}, 100);
+
+		// Cleanup
+		return () => {
+			unsubscribes.forEach((unsub) => unsub());
+		};
+	});
+</script>
+
+<div class="layer-panel {className}">
+	{#if layers.length === 0}
+		<div class="empty-state">
+			<p>No layers loaded</p>
+			<span class="hint">Load a volume to begin</span>
+		</div>
+	{:else}
+		<div class="layer-list" role="list" aria-label="Layer list">
+			{#each layers as layer (layer.id)}
+				{@const isExpanded = expandedLayerId === layer.id}
+				{@const isActive = activeLayerId === layer.id}
+				{@const layerName = layer.spec.Volume?.name || layer.spec.Volume?.id || layer.id}
+				{@const colormapBase = layer.colormap?.replace('_r', '') || 'grayscale'}
+				{@const isReversed = layer.colormap?.endsWith('_r') || false}
+				
+				<div
+					class="layer-item"
+					class:active={isActive}
+					class:expanded={isExpanded}
+					data-testid="layer-item-{layer.id}"
+				>
+					<!-- Layer Header Row -->
+					<div 
+						class="layer-header"
+						onclick={() => selectLayer(layer.id)}
+						onkeydown={(e) => {
+							if (e.key === 'Enter' || e.key === ' ') {
+								e.preventDefault();
+								selectLayer(layer.id);
+							}
+						}}
+						role="button"
+						tabindex="0"
+						aria-expanded={isExpanded}
+						aria-label="Layer: {layerName}"
+					>
+						<button
+							class="expand-toggle"
+							onclick={(e) => {
+								e.stopPropagation();
+								toggleLayerExpanded(layer.id);
+							}}
+							title={isExpanded ? 'Collapse' : 'Expand'}
+							aria-label={isExpanded ? 'Collapse layer' : 'Expand layer'}
+						>
+							{#if isExpanded}
+								<ChevronDown size={14} />
+							{:else}
+								<ChevronRight size={14} />
+							{/if}
+						</button>
+
+						<button
+							class="visibility-toggle"
+							onclick={(e) => {
+								e.stopPropagation();
+								toggleLayerVisibility(layer.id);
+							}}
+							title={layer.visible ? 'Hide layer (H)' : 'Show layer (H)'}
+							aria-label={layer.visible ? 'Hide layer' : 'Show layer'}
+						>
+							{#if layer.visible}
+								<Eye size={14} />
+							{:else}
+								<EyeOff size={14} />
+							{/if}
+						</button>
+
+						<span class="layer-name" title={layerName}>
+							{layerName}
+							{#if layer.isLoadingGpu}
+								<span class="loading-indicator">⋯</span>
+							{/if}
+						</span>
+
+						<!-- Inline opacity control -->
+						<div class="inline-control opacity-control">
+							<label class="opacity-label" for="opacity-{layer.id}">
+								{Math.round((layer.opacity ?? 1) * 100)}%
+							</label>
+							<input
+								id="opacity-{layer.id}"
+								type="range"
+								class="opacity-slider"
+								min="0"
+								max="1"
+								step="0.01"
+								value={layer.opacity ?? 1}
+								onclick={(e) => e.stopPropagation()}
+								oninput={(e) => {
+									e.stopPropagation();
+									updateOpacity(layer.id, parseFloat(e.currentTarget.value));
+								}}
+								title="Opacity: {Math.round((layer.opacity ?? 1) * 100)}%"
+								aria-label="Layer opacity"
+							/>
+						</div>
+
+						<!-- Quick colormap selector -->
+						<div class="inline-control colormap-quick">
+							<button
+								class="colormap-swatch"
+								style="background: {colormaps.find(c => c.value === colormapBase)?.preview}"
+								onclick={(e) => {
+									e.stopPropagation();
+									toggleLayerExpanded(layer.id);
+								}}
+								title="{colormaps.find(c => c.value === colormapBase)?.label} - Click to change"
+								aria-label="Current colormap: {colormaps.find(c => c.value === colormapBase)?.label}"
+							>
+								{#if isReversed}
+									<FlipVertical size={10} class="reverse-indicator" />
+								{/if}
+							</button>
+						</div>
+
+						<button
+							class="remove-button"
+							onclick={(e) => {
+								e.stopPropagation();
+								removeLayer(layer.id);
+							}}
+							title="Remove layer (Delete)"
+							aria-label="Remove layer"
+						>
+							<Trash2 size={14} />
+						</button>
+					</div>
+
+					<!-- Expanded Controls -->
+					{#if isExpanded}
+						<div class="layer-controls">
+							<!-- Colormap Selection Row -->
+							<div class="control-row colormap-row">
+								<div class="colormap-grid">
+									{#each colormaps as cm}
+										{@const isSelected = colormapBase === cm.value}
+										<button
+											class="colormap-option"
+											class:selected={isSelected}
+											onclick={() => updateColormap(layer.id, cm.value, isReversed)}
+											title={cm.tooltip}
+											aria-label="{cm.label} colormap"
+										>
+											<div class="colormap-preview" style="background: {cm.preview}">
+												{#if cm.colorBlindSafe}
+													<span class="cb-safe" title="Color-blind friendly">✓</span>
+												{/if}
+											</div>
+											{#if isSelected && isReversed}
+												<FlipVertical size={10} class="reverse-indicator" />
+											{/if}
+										</button>
+									{/each}
+								</div>
+								<div class="colormap-actions">
+									<button
+										class="icon-button"
+										onclick={() => updateColormap(layer.id, colormapBase, !isReversed)}
+										title="Reverse colormap (R)"
+										aria-label="Reverse colormap"
+									>
+										<FlipVertical size={14} />
+									</button>
+									<button
+										class="icon-button"
+										onclick={() => resetLayer(layer.id)}
+										title="Reset all settings"
+										aria-label="Reset layer settings"
+									>
+										<RotateCcw size={14} />
+									</button>
+								</div>
+							</div>
+
+							<!-- Contrast and Threshold Controls Section -->
+							{#if layer.isLoadingGpu}
+								<div class="control-section">
+									<div class="loading-message">Loading GPU resources...</div>
+								</div>
+							{:else if layer.gpuError}
+								<div class="control-section">
+									<div class="error-message">Failed to load GPU resources</div>
+								</div>
+							{:else if layer.gpu?.data_range}
+								{@const dataRange = layer.gpu.data_range}
+								{@const rangeIsValid = dataRange.max > dataRange.min}
+								{@const defaultContrastMin = layer.spec.Volume?.window_min ?? dataRange.min}
+								{@const defaultContrastMax = layer.spec.Volume?.window_max ?? (rangeIsValid ? dataRange.max : dataRange.min + 1)}
+								{@const defaultThresholdMin = layer.spec.Volume?.threshold_lower ?? (dataRange.min + (dataRange.max - dataRange.min) * 0.25)}
+								{@const defaultThresholdMax = layer.spec.Volume?.threshold_upper ?? (dataRange.max - (dataRange.max - dataRange.min) * 0.25)}
+								{@const thresholdEnabled = layerThresholdEnabled.get(layer.id) ?? false}
+								
+								<!-- Initialize contrast values if not set -->
+								{#if !layerContrastValues.has(layer.id)}
+									{@const _ = layerContrastValues.set(layer.id, { low: defaultContrastMin, high: defaultContrastMax })}
+								{/if}
+								
+								{@const contrastValues = layerContrastValues.get(layer.id) ?? { low: defaultContrastMin, high: defaultContrastMax }}
+								
+								<!-- Debug data range values -->
+								<div class="debug-info" style="font-size: 10px; color: #888; margin: 4px 0;">
+									Data: {dataRange.min.toFixed(2)} - {dataRange.max.toFixed(2)} | 
+									Contrast: {contrastValues.low.toFixed(2)} - {contrastValues.high.toFixed(2)}
+								</div>
+								
+								<!-- Contrast Control -->
+								<div class="control-section">
+									<h4 class="control-label">Contrast</h4>
+									<div class="value-display">
+										Min: {Math.round(contrastValues.low)} | Max: {Math.round(contrastValues.high)}
+									</div>
+									<div class="slider-wrapper" style="min-height: 60px; padding: 10px 0; margin-top: 8px; overflow: visible;">
+										<DualRangeSlider
+											valueLow={contrastValues.low}
+											valueHigh={contrastValues.high}
+											min={dataRange.min}
+											max={dataRange.max}
+											on:input={(e) => {
+												layerContrastValues.set(layer.id, { low: e.detail.low, high: e.detail.high });
+											}}
+											on:change={(e) => updateContrast(layer.id, e.detail.low, e.detail.high)}
+											disabled={isUpdating}
+										/>
+									</div>
+								</div>
+
+								<!-- Threshold Control -->
+								<div class="control-section">
+									<div class="control-header">
+										<label class="checkbox-label">
+											<input
+												type="checkbox"
+												checked={thresholdEnabled}
+												onchange={() => toggleThreshold(layer.id)}
+												class="checkbox"
+											/>
+											<span>Threshold</span>
+										</label>
+										<span class="info-icon" title="Values outside range become transparent">ℹ️</span>
+									</div>
+									
+									{#if thresholdEnabled}
+										<!-- Initialize threshold values if not set -->
+										{#if !layerThresholdValues.has(layer.id)}
+											{@const _ = layerThresholdValues.set(layer.id, { low: defaultThresholdMin, high: defaultThresholdMax })}
+										{/if}
+										
+										{@const thresholdValues = layerThresholdValues.get(layer.id) ?? { low: defaultThresholdMin, high: defaultThresholdMax }}
+										
+										<div class="threshold-info">
+											Values outside [{Math.round(thresholdValues.low)}, {Math.round(thresholdValues.high)}] → transparent
+										</div>
+										<div class="slider-wrapper">
+											<DualRangeSlider
+												valueLow={thresholdValues.low}
+												valueHigh={thresholdValues.high}
+												min={dataRange.min}
+												max={dataRange.max}
+												on:input={(e) => {
+													layerThresholdValues.set(layer.id, { low: e.detail.low, high: e.detail.high });
+												}}
+												on:change={(e) => updateThreshold(layer.id, e.detail.low, e.detail.high, true)}
+												disabled={isUpdating}
+											/>
+										</div>
+									{/if}
+								</div>
+
+								<!-- Opacity Control -->
+								<div class="control-section">
+									<h4 class="control-label">Layer Opacity</h4>
+									<div class="control-row opacity-row">
+										<input
+											type="range"
+											class="opacity-slider-full"
+											min="0"
+											max="1"
+											step="0.01"
+											value={layer.opacity ?? 1}
+											oninput={(e) => updateOpacity(layer.id, parseFloat(e.currentTarget.value))}
+											disabled={isUpdating}
+										/>
+										<span class="opacity-value">{Math.round((layer.opacity ?? 1) * 100)}%</span>
+									</div>
+								</div>
+							{/if}
+						</div>
+					{/if}
+				</div>
+			{/each}
+		</div>
+	{/if}
+</div>
+
+<style>
+	.layer-panel {
+		display: flex;
+		flex-direction: column;
+		height: 100%;
+		background: var(--color-panel-background);
+		overflow: visible; /* Changed from hidden to allow slider thumbs */
+		font-size: 14px;
+	}
+
+	/* Layer List */
+	.layer-list {
+		flex: 1;
+		overflow-y: auto;
+		padding: 0.5rem;
+	}
+
+	/* Layer Item */
+	.layer-item {
+		background: var(--color-surface);
+		border-radius: 6px;
+		margin-bottom: 0.5rem;
+		transition: all 0.2s ease;
+	}
+
+	.layer-item:hover {
+		background: var(--color-hover);
+	}
+
+	.layer-item.active {
+		background: var(--color-surface-elevated, var(--color-base-400));
+		box-shadow: 0 0 0 1px var(--color-primary-500);
+	}
+
+	/* Layer Header */
+	.layer-header {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		padding: 0.5rem;
+		cursor: pointer;
+		user-select: none;
+	}
+
+	.expand-toggle,
+	.visibility-toggle,
+	.remove-button {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		width: 24px;
+		height: 24px;
+		padding: 0;
+		border: none;
+		background: none;
+		color: var(--color-text-secondary);
+		border-radius: 4px;
+		cursor: pointer;
+		transition: all 0.15s ease;
+	}
+
+	.expand-toggle:hover,
+	.visibility-toggle:hover,
+	.remove-button:hover {
+		background: var(--color-hover);
+		color: var(--color-text-primary);
+	}
+
+	.remove-button:hover {
+		color: var(--color-danger);
+	}
+
+	.layer-name {
+		flex: 1;
+		font-size: 14px;
+		font-weight: 500;
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		color: var(--color-text-primary);
+	}
+
+	/* Inline Controls */
+	.inline-control {
+		display: flex;
+		align-items: center;
+		gap: 0.25rem;
+	}
+
+	.opacity-control {
+		min-width: 80px;
+	}
+
+	.opacity-label {
+		font-size: 12px;
+		color: var(--color-text-secondary);
+		min-width: 35px;
+		text-align: right;
+		font-variant-numeric: tabular-nums;
+	}
+
+	.opacity-slider {
+		width: 50px;
+		height: 4px;
+		-webkit-appearance: none;
+		appearance: none;
+		background: var(--color-base-600);
+		border-radius: 2px;
+		outline: none;
+	}
+
+	.opacity-slider::-webkit-slider-thumb {
+		-webkit-appearance: none;
+		appearance: none;
+		width: 12px;
+		height: 12px;
+		background: var(--color-primary-500);
+		border-radius: 50%;
+		cursor: pointer;
+		box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+		transition: transform 0.15s ease;
+	}
+
+	.opacity-slider::-webkit-slider-thumb:hover {
+		transform: scale(1.2);
+		background: var(--color-primary-400);
+	}
+
+	.opacity-slider::-moz-range-thumb {
+		width: 12px;
+		height: 12px;
+		background: var(--color-primary-500);
+		border-radius: 50%;
+		cursor: pointer;
+		border: none;
+		box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+		transition: transform 0.15s ease;
+	}
+
+	.opacity-slider::-moz-range-thumb:hover {
+		transform: scale(1.2);
+		background: var(--color-primary-400);
+	}
+
+	/* Colormap Quick Access */
+	.colormap-swatch {
+		position: relative;
+		width: 32px;
+		height: 20px;
+		border: 1px solid var(--color-border);
+		border-radius: 4px;
+		cursor: pointer;
+		transition: all 0.15s ease;
+		overflow: hidden;
+	}
+
+	.colormap-swatch:hover {
+		border-color: var(--color-primary-500);
+		transform: scale(1.05);
+	}
+
+	.reverse-indicator {
+		position: absolute;
+		bottom: 1px;
+		right: 1px;
+		background: rgba(0, 0, 0, 0.5);
+		border-radius: 2px;
+		padding: 1px;
+		color: white;
+	}
+
+	/* Expanded Controls */
+	.layer-controls {
+		padding: 0.5rem;
+		border-top: 1px solid var(--color-border);
+		background: var(--color-base-400);
+	}
+
+	.control-row {
+		margin-bottom: 0.75rem;
+	}
+
+	.control-row:last-child {
+		margin-bottom: 0;
+	}
+
+	/* Colormap Grid */
+	.colormap-row {
+		display: flex;
+		gap: 0.5rem;
+		align-items: center;
+	}
+
+	.colormap-grid {
+		display: grid;
+		grid-template-columns: repeat(3, 1fr);
+		gap: 0.25rem;
+		flex: 1;
+	}
+
+	.colormap-option {
+		position: relative;
+		width: 100%;
+		height: 24px;
+		padding: 0;
+		border: 1px solid transparent;
+		background: none;
+		border-radius: 4px;
+		cursor: pointer;
+		transition: all 0.15s ease;
+		overflow: hidden;
+	}
+
+	.colormap-option:hover {
+		border-color: var(--color-border-hover);
+		transform: scale(1.02);
+	}
+
+	.colormap-option.selected {
+		border-color: var(--color-primary-500);
+		box-shadow: 0 0 0 1px var(--color-primary-500);
+	}
+
+	.colormap-preview {
+		position: relative;
+		width: 100%;
+		height: 100%;
+		border-radius: 3px;
+	}
+
+	.cb-safe {
+		position: absolute;
+		top: 1px;
+		right: 2px;
+		font-size: 10px;
+		color: #4ade80;
+		font-weight: bold;
+		text-shadow: 0 0 2px rgba(0, 0, 0, 0.5);
+	}
+
+	.colormap-actions {
+		display: flex;
+		gap: 0.25rem;
+	}
+
+	.icon-button {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		width: 28px;
+		height: 28px;
+		padding: 0;
+		border: 1px solid var(--color-border);
+		background: var(--color-surface);
+		color: var(--color-text-secondary);
+		border-radius: 4px;
+		cursor: pointer;
+		transition: all 0.15s ease;
+	}
+
+	.icon-button:hover {
+		background: var(--color-hover);
+		color: var(--color-text-primary);
+		border-color: var(--color-border-hover);
+	}
+
+
+	/* Empty State */
+	.empty-state {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		justify-content: center;
+		height: 100%;
+		padding: 2rem;
+		text-align: center;
+	}
+
+	.empty-state p {
+		color: var(--color-text-primary);
+		font-size: 14px;
+		margin: 0 0 0.25rem 0;
+	}
+
+	.empty-state .hint {
+		color: var(--color-text-secondary);
+		font-size: 12px;
+	}
+
+	/* Scrollbar */
+	.layer-list::-webkit-scrollbar {
+		width: 6px;
+	}
+
+	.layer-list::-webkit-scrollbar-track {
+		background: var(--color-base-500);
+		border-radius: 3px;
+	}
+
+	.layer-list::-webkit-scrollbar-thumb {
+		background: var(--color-base-600);
+		border-radius: 3px;
+	}
+
+	.layer-list::-webkit-scrollbar-thumb:hover {
+		background: var(--color-base-700);
+	}
+
+	/* Control Sections */
+	.control-section {
+		margin-bottom: 0.75rem;
+		padding-bottom: 0.75rem;
+		border-bottom: 1px solid var(--color-border);
+	}
+
+	.control-section:last-child {
+		margin-bottom: 0;
+		padding-bottom: 0;
+		border-bottom: none;
+	}
+
+	.control-label {
+		font-size: 12px;
+		font-weight: 600;
+		color: var(--color-text-secondary);
+		text-transform: uppercase;
+		letter-spacing: 0.05em;
+		margin: 0 0 0.5rem 0;
+	}
+
+	.control-header {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		margin-bottom: 0.5rem;
+	}
+
+	.checkbox-label {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		font-size: 12px;
+		font-weight: 600;
+		color: var(--color-text-secondary);
+		text-transform: uppercase;
+		letter-spacing: 0.05em;
+		cursor: pointer;
+		user-select: none;
+	}
+
+	.checkbox {
+		width: 16px;
+		height: 16px;
+		margin: 0;
+		cursor: pointer;
+		accent-color: var(--color-primary-500);
+	}
+
+	.info-icon {
+		font-size: 12px;
+		color: var(--color-text-tertiary);
+		cursor: help;
+		user-select: none;
+	}
+
+	.threshold-info {
+		font-size: 11px;
+		color: var(--color-text-tertiary);
+		margin-bottom: 0.5rem;
+		font-style: italic;
+	}
+
+	/* Full width opacity control */
+	.opacity-slider-full {
+		flex: 1;
+		height: 4px;
+		-webkit-appearance: none;
+		appearance: none;
+		background: var(--color-base-600);
+		border-radius: 2px;
+		outline: none;
+	}
+
+	.opacity-slider-full::-webkit-slider-thumb {
+		-webkit-appearance: none;
+		appearance: none;
+		width: 14px;
+		height: 14px;
+		background: var(--color-primary-500);
+		border-radius: 50%;
+		cursor: pointer;
+		box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+		transition: all 0.15s ease;
+	}
+
+	.opacity-slider-full::-webkit-slider-thumb:hover {
+		transform: scale(1.15);
+		background: var(--color-primary-400);
+	}
+
+	.opacity-slider-full::-moz-range-thumb {
+		width: 14px;
+		height: 14px;
+		background: var(--color-primary-500);
+		border-radius: 50%;
+		cursor: pointer;
+		border: none;
+		box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+		transition: all 0.15s ease;
+	}
+
+	.opacity-slider-full::-moz-range-thumb:hover {
+		transform: scale(1.15);
+		background: var(--color-primary-400);
+	}
+
+	.opacity-value {
+		font-size: 12px;
+		color: var(--color-text-secondary);
+		min-width: 35px;
+		text-align: right;
+		font-variant-numeric: tabular-nums;
+	}
+
+	/* Opacity row layout */
+	.opacity-row {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+	}
+
+	/* Loading message */
+	.loading-message {
+		text-align: center;
+		color: var(--color-text-secondary);
+		font-size: 12px;
+		font-style: italic;
+		padding: 1rem;
+	}
+
+	/* Slider wrapper */
+	.slider-wrapper {
+		display: block;
+		width: 100%;
+		padding: 0.5rem 0;
+	}
+
+	.value-display {
+		font-size: 11px;
+		color: var(--color-text-tertiary);
+		margin-bottom: 0.25rem;
+		font-variant-numeric: tabular-nums;
+	}
+
+	.error-message {
+		text-align: center;
+		color: var(--color-danger, #ff6b6b);
+		font-size: 12px;
+		padding: 1rem;
+	}
+
+	.loading-indicator {
+		animation: pulse 1.5s ease-in-out infinite;
+		color: var(--color-primary-500);
+		margin-left: 0.25rem;
+	}
+
+	@keyframes pulse {
+		0%, 100% { opacity: 0.3; }
+		50% { opacity: 1; }
+	}
+</style>

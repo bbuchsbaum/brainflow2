@@ -8,12 +8,12 @@ fn create_gradient_volume() -> DenseVolume3<f32> {
     let spacing = [1.0, 1.0, 1.0];
     let origin = [0.0, 0.0, 0.0];
     
-    let space_impl = volmath::space::NeuroSpaceImpl::<3>::from_dims_spacing_origin(
+    let space_impl = volmath::space::NeuroSpaceImpl::from_dims_spacing_origin(
         dims,
         spacing,
         origin,
     );
-    let space = NeuroSpace3(space_impl);
+    let space = NeuroSpace3::new(space_impl);
     
     // Create linear gradient from 0 to 1 along X axis
     let mut data = Vec::with_capacity(dims[0] * dims[1] * dims[2]);
@@ -338,12 +338,12 @@ fn create_multi_level_volume() -> DenseVolume3<f32> {
     let spacing = [1.0, 1.0, 1.0];
     let origin = [0.0, 0.0, 0.0];
     
-    let space_impl = volmath::space::NeuroSpaceImpl::<3>::from_dims_spacing_origin(
+    let space_impl = volmath::space::NeuroSpaceImpl::from_dims_spacing_origin(
         dims,
         spacing,
         origin,
     );
-    let space = NeuroSpace3(space_impl);
+    let space = NeuroSpace3::new(space_impl);
     
     // Create concentric squares with different values
     let mut data = Vec::with_capacity(dims[0] * dims[1] * dims[2]);

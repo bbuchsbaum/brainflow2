@@ -1,7 +1,7 @@
 // Basic test to ensure volumes render without black screens
 
 use render_loop::test_fixtures::create_test_pattern_volume;
-use volmath::{DenseVolume3, space::GridSpace};
+use volmath::{DenseVolume3, space::GridSpace, NeuroSpaceExt};
 use nalgebra::Matrix4;
 
 /// Test that we can create and validate test volumes
@@ -13,7 +13,7 @@ fn test_create_test_volume() {
     assert_eq!(volume.space.0.dims(), &[64, 64, 25]);
     
     // Check that we have non-zero data
-    let data = volume.data_slice();
+    let data = volume.values();
     let non_zero_count = data.iter().filter(|&&v| v > 0).count();
     assert!(non_zero_count > 100, "Volume should have substantial non-zero data");
     
@@ -101,9 +101,9 @@ fn create_simple_anatomical() -> DenseVolume3<u8> {
     }
     
     use volmath::space::{NeuroSpace3, NeuroSpaceImpl};
-    let space_impl = NeuroSpaceImpl::from_affine_matrix4(dims, Matrix4::identity());
-    let space = NeuroSpace3(space_impl);
-    DenseVolume3::from_data(space, data)
+    let space_impl = NeuroSpaceExt::from_affine_matrix4(dims, Matrix4::identity());
+    let space = NeuroSpace3::new(space_impl);
+    DenseVolume3::from_data(space.0, data)
 }
 
 /// Test that anatomical volumes have expected properties
@@ -123,7 +123,7 @@ fn test_anatomical_volume_properties() {
     assert_eq!(corner_value, 0, "Corner should be outside sphere");
     
     // Verify we have substantial brain tissue
-    let tissue_voxels = volume.data_slice().iter().filter(|&&v| v == 200).count();
+    let tissue_voxels = volume.values().iter().filter(|&&v| v == 200).count();
     assert!(tissue_voxels > 100000, "Should have substantial tissue volume");
 }
 

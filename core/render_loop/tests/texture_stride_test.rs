@@ -1,5 +1,5 @@
 use render_loop::RenderLoopService;
-use volmath::{DenseVolume3, NeuroSpace3};
+use volmath::{DenseVolume3, NeuroSpace3, NeuroSpaceExt};
 use volmath::space::{NeuroSpaceImpl, GridSpace};
 use wgpu::COPY_BYTES_PER_ROW_ALIGNMENT;
 
@@ -24,12 +24,12 @@ async fn texture_upload_stride_10x10x10() {
     }
     
     // Create space
-    let space = NeuroSpaceImpl::<3>::from_dims_spacing_origin(
-        dims,
-        [1.0, 1.0, 1.0],
-        [0.0, 0.0, 0.0],
-    );
-    let volume = DenseVolume3::from_data(NeuroSpace3(space.clone()), data.clone());
+    let space = <volmath::NeuroSpace as NeuroSpaceExt>::from_dims_spacing_origin(
+        dims.to_vec(),
+        vec![1.0, 1.0, 1.0],
+        vec![0.0, 0.0, 0.0],
+    ).expect("Failed to create NeuroSpace");
+    let volume = DenseVolume3::from_data(space.clone(), data.clone());
     
     // Upload volume - this is where stride handling happens
     let result = service.upload_volume_3d(&volume);
@@ -105,12 +105,12 @@ async fn texture_upload_various_dimensions() {
         let voxel_count = dims[0] * dims[1] * dims[2];
         let data = vec![1.0f32; voxel_count];
         
-        let space = NeuroSpaceImpl::<3>::from_dims_spacing_origin(
-            dims,
-            [1.0, 1.0, 1.0],
-            [0.0, 0.0, 0.0],
-        );
-        let volume = DenseVolume3::from_data(NeuroSpace3(space), data);
+        let space = <volmath::NeuroSpace as NeuroSpaceExt>::from_dims_spacing_origin(
+            dims.to_vec(),
+            vec![1.0, 1.0, 1.0],
+            vec![0.0, 0.0, 0.0],
+        ).expect("Failed to create NeuroSpace");
+        let volume = DenseVolume3::from_data(space, data);
         
         let result = service.upload_volume_3d(&volume);
         assert!(result.is_ok(), "Failed to upload {}: {:?}", description, result.err());
@@ -142,12 +142,12 @@ async fn texture_upload_data_integrity() {
         data[i] = i as f32;
     }
     
-    let space = NeuroSpaceImpl::<3>::from_dims_spacing_origin(
-        dims,
-        [1.0, 1.0, 1.0],
-        [0.0, 0.0, 0.0],
-    );
-    let volume = DenseVolume3::from_data(NeuroSpace3(space.clone()), data.clone());
+    let space = <volmath::NeuroSpace as NeuroSpaceExt>::from_dims_spacing_origin(
+        dims.to_vec(),
+        vec![1.0, 1.0, 1.0],
+        vec![0.0, 0.0, 0.0],
+    ).expect("Failed to create NeuroSpace");
+    let volume = DenseVolume3::from_data(space.clone(), data.clone());
     
     let result = service.upload_volume_3d(&volume);
     assert!(result.is_ok());

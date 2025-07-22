@@ -55,9 +55,9 @@ fn create_benchmark_volumes() -> Vec<DenseVolume3<f32>> {
         }
         
         let transform = Matrix4::new_translation(&Vector3::new(-128.0, -128.0, -96.0));
-        let space_impl = NeuroSpaceImpl::from_affine_matrix4(dims, transform);
-        let space = NeuroSpace3(space_impl);
-        volumes.push(DenseVolume3::from_data(space, data));
+        let space_impl = NeuroSpaceExt::from_affine_matrix4(dims, transform);
+        let space = NeuroSpace3::new(space_impl);
+        volumes.push(DenseVolume3::from_data(space.0, data));
     }
     
     // Medium-res functional (3mm)
@@ -76,9 +76,9 @@ fn create_benchmark_volumes() -> Vec<DenseVolume3<f32>> {
         
         let transform = Matrix4::new_nonuniform_scaling(&Vector3::new(3.0, 3.0, 3.0))
             * Matrix4::new_translation(&Vector3::new(-32.0, -32.0, -24.0));
-        let space_impl = NeuroSpaceImpl::from_affine_matrix4(dims, transform);
-        let space = NeuroSpace3(space_impl);
-        volumes.push(DenseVolume3::from_data(space, data));
+        let space_impl = NeuroSpaceExt::from_affine_matrix4(dims, transform);
+        let space = NeuroSpace3::new(space_impl);
+        volumes.push(DenseVolume3::from_data(space.0, data));
     }
     
     // Low-res mask (5mm)
@@ -101,9 +101,9 @@ fn create_benchmark_volumes() -> Vec<DenseVolume3<f32>> {
         
         let transform = Matrix4::new_nonuniform_scaling(&Vector3::new(5.0, 5.0, 5.0))
             * Matrix4::new_translation(&Vector3::new(-24.0, -24.0, -18.0));
-        let space_impl = NeuroSpaceImpl::from_affine_matrix4(dims, transform);
-        let space = NeuroSpace3(space_impl);
-        volumes.push(DenseVolume3::from_data(space, data));
+        let space_impl = NeuroSpaceExt::from_affine_matrix4(dims, transform);
+        let space = NeuroSpace3::new(space_impl);
+        volumes.push(DenseVolume3::from_data(space.0, data));
     }
     
     volumes
@@ -480,9 +480,9 @@ fn test_memory_bandwidth_optimization() {
                             }
                         }
                     }
-                    let space_impl = NeuroSpaceImpl::from_affine_matrix4(dims, Matrix4::identity());
-                    let space = NeuroSpace3(space_impl);
-                    DenseVolume3::from_data(space, data)
+                    let space_impl = NeuroSpaceExt::from_affine_matrix4(dims, Matrix4::identity());
+                    let space = NeuroSpace3::new(space_impl);
+                    DenseVolume3::from_data(space.0, data)
                 },
                 // Checkerboard pattern (poor cache coherence)
                 {
@@ -495,9 +495,9 @@ fn test_memory_bandwidth_optimization() {
                             }
                         }
                     }
-                    let space_impl = NeuroSpaceImpl::from_affine_matrix4(dims, Matrix4::identity());
-                    let space = NeuroSpace3(space_impl);
-                    DenseVolume3::from_data(space, data)
+                    let space_impl = NeuroSpaceExt::from_affine_matrix4(dims, Matrix4::identity());
+                    let space = NeuroSpace3::new(space_impl);
+                    DenseVolume3::from_data(space.0, data)
                 },
             ]
         };

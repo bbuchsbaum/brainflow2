@@ -9,8 +9,8 @@
 	import type { CrosshairService } from '$lib/services/CrosshairService';
 	import type { LayerService } from '$lib/services/LayerService';
 	import type { EventBus } from '$lib/events/EventBus';
-	import { useCrosshairStore } from '$lib/stores/crosshairSlice.clean';
-	import { useLayerStore } from '$lib/stores/layerStoreClean';
+	import { crosshairSlice } from '$lib/stores/crosshairSlice';
+	import { useLayerStore } from '$lib/stores/layerStore';
 	import { statusStore } from '$lib/stores/statusStore';
 	import { coreApi } from '$lib/api';
 
@@ -31,7 +31,7 @@
 	let isSampling = $state(false);
 
 	// Store subscriptions
-	let crosshairStoreState = $state(useCrosshairStore.getState());
+	let crosshairStoreState = $state(crosshairSlice.getState());
 	let layerStoreState = $state(useLayerStore.getState());
 
 	// Derived values
@@ -171,7 +171,7 @@
 			]);
 
 			// Subscribe to stores
-			const unsubscribeCrosshair = useCrosshairStore.subscribe((state) => {
+			const unsubscribeCrosshair = crosshairSlice.subscribe((state) => {
 				crosshairStoreState = state;
 			});
 

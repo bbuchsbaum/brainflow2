@@ -170,7 +170,7 @@ pub struct LayerUboStd140 {
 impl Default for LayerUboStd140 {
     fn default() -> Self {
         Self {
-            world_to_voxel: Matrix4::identity().into(),
+            world_to_voxel: crate::matrix_to_cols_array(&Matrix4::identity()),
             texture_coords: [0.0, 0.0, 1.0, 1.0], // Default to full texture
             dim: [0; 3],
             pad_slices: 0,

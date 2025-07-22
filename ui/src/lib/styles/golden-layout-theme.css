@@ -1,0 +1,290 @@
+/**
+ * Golden Layout Theme Override for Brainflow
+ * Styles Golden Layout headers to match Svelte panel aesthetics
+ */
+
+/* Header Base Styling - Match Svelte PanelHeader */
+.lm_header {
+	background: var(--color-panel-header) !important;
+	height: 36px !important; /* Match --height-panel-header */
+	min-height: 36px !important;
+	display: flex !important;
+	align-items: center !important;
+	padding: 0 var(--spacing-2) !important;
+	border-bottom: 1px solid var(--color-border) !important;
+	font-family: var(--font-family) !important;
+	user-select: none !important;
+}
+
+/* Tab Container */
+.lm_tabs {
+	flex: 1 !important;
+	display: flex !important;
+	align-items: center !important;
+	height: 100% !important;
+	min-width: 0 !important;
+}
+
+/* Individual Tabs - Clean, minimal style */
+.lm_tab {
+	background: transparent !important;
+	color: var(--color-text-primary) !important;
+	border: none !important;
+	padding: 0 var(--spacing-3) !important;
+	margin: 0 !important;
+	height: 100% !important;
+	display: flex !important;
+	align-items: center !important;
+	font-size: var(--font-size-base) !important;
+	font-weight: var(--font-weight-medium) !important;
+	cursor: pointer !important;
+	transition: all var(--transition-fast) !important;
+	position: relative !important;
+	white-space: nowrap !important;
+	overflow: hidden !important;
+	text-overflow: ellipsis !important;
+	max-width: 200px !important;
+}
+
+/* Tab Hover State */
+.lm_tab:hover {
+	background: var(--color-hover) !important;
+	color: var(--color-text-primary) !important;
+}
+
+/* Active Tab */
+.lm_tab.lm_active {
+	background: transparent !important;
+	color: var(--color-text-primary) !important;
+}
+
+/* Active tab indicator - bottom border */
+.lm_tab.lm_active::after {
+	content: '';
+	position: absolute;
+	bottom: 0;
+	left: 0;
+	right: 0;
+	height: 2px;
+	background: var(--color-primary-500);
+}
+
+/* Tab Title */
+.lm_title {
+	flex: 1 !important;
+	font-size: var(--font-size-base) !important;
+	font-weight: var(--font-weight-medium) !important;
+	overflow: hidden !important;
+	text-overflow: ellipsis !important;
+	white-space: nowrap !important;
+	margin-right: var(--spacing-2) !important;
+}
+
+/* Control Buttons Container */
+.lm_controls {
+	display: flex !important;
+	align-items: center !important;
+	gap: var(--spacing-1) !important;
+	margin-left: var(--spacing-2) !important;
+}
+
+/* Individual Control Buttons - Match Svelte panel-action style */
+.lm_close_tab,
+.lm_maximise,
+.lm_popout,
+.lm_close {
+	width: 28px !important;
+	height: 28px !important;
+	padding: 0 !important;
+	background: transparent !important;
+	border: none !important;
+	border-radius: var(--radius-base) !important;
+	color: var(--color-text-secondary) !important;
+	cursor: pointer !important;
+	display: flex !important;
+	align-items: center !important;
+	justify-content: center !important;
+	opacity: 0.6 !important;
+	transition: all var(--transition-fast) !important;
+	position: relative !important;
+}
+
+/* Control Button Hover */
+.lm_close_tab:hover,
+.lm_maximise:hover,
+.lm_popout:hover,
+.lm_close:hover {
+	background-color: var(--color-hover) !important;
+	color: var(--color-text-primary) !important;
+	opacity: 1 !important;
+}
+
+/* Control Button Active */
+.lm_close_tab:active,
+.lm_maximise:active,
+.lm_popout:active,
+.lm_close:active {
+	transform: scale(0.95) !important;
+}
+
+/* Close Button Special Hover - Red tint like Svelte */
+.lm_close_tab:hover,
+.lm_close:hover {
+	background-color: rgba(239, 68, 68, 0.1) !important;
+	color: var(--color-error) !important;
+}
+
+/* Icon Replacements - Use Lucide-style icons */
+.lm_close_tab::before,
+.lm_close::before {
+	font-family: 'Font Awesome 6 Free' !important;
+	font-weight: 900 !important;
+	content: '\f00d' !important; /* fa-times */
+	font-size: 16px !important;
+}
+
+.lm_maximise::before {
+	font-family: 'Font Awesome 6 Free' !important;
+	font-weight: 900 !important;
+	content: '\f2d0' !important; /* fa-window-maximize */
+	font-size: 16px !important;
+}
+
+/* Maximized state icon */
+.lm_maximised .lm_maximise::before {
+	content: '\f2d2' !important; /* fa-window-restore */
+}
+
+.lm_popout::before {
+	font-family: 'Font Awesome 6 Free' !important;
+	font-weight: 900 !important;
+	content: '\f08e' !important; /* fa-external-link-alt */
+	font-size: 16px !important;
+}
+
+/* Remove tab close button (use header close instead) */
+.lm_tab .lm_close_tab {
+	display: none !important;
+}
+
+/* Stack Header (when only one tab) */
+.lm_stack > .lm_header {
+	/* Single tab doesn't need tab UI */
+}
+
+.lm_stack[data-tab-count="1"] .lm_tabs {
+	/* Hide tab bar when only one tab */
+	display: none !important;
+}
+
+/* Title in header when no tabs */
+.lm_header .lm_title_container {
+	flex: 1 !important;
+	display: flex !important;
+	align-items: center !important;
+	min-width: 0 !important;
+}
+
+.lm_header .lm_title_container .lm_title {
+	font-size: var(--font-size-base) !important;
+	font-weight: var(--font-weight-medium) !important;
+	color: var(--color-text-primary) !important;
+	overflow: hidden !important;
+	text-overflow: ellipsis !important;
+	white-space: nowrap !important;
+}
+
+/* Drag Handle */
+.lm_header .lm_drag_handle {
+	cursor: move !important;
+	flex: 1 !important;
+	height: 100% !important;
+}
+
+/* Focus Styles */
+.lm_tab:focus-visible,
+.lm_close_tab:focus-visible,
+.lm_maximise:focus-visible,
+.lm_popout:focus-visible {
+	outline: 2px solid var(--color-border-focus) !important;
+	outline-offset: -1px !important;
+}
+
+/* Splitter Styling - Match overall theme */
+.lm_splitter {
+	background: var(--color-border) !important;
+	opacity: 1 !important;
+	transition: background var(--transition-fast) !important;
+}
+
+.lm_splitter:hover {
+	background: var(--color-border-hover) !important;
+}
+
+.lm_splitter.lm_dragging {
+	background: var(--color-primary-500) !important;
+}
+
+/* Drop Target Indicator */
+.lm_drop_tab_placeholder {
+	background: var(--color-primary-500) !important;
+	opacity: 0.3 !important;
+}
+
+/* Transition Indicator */
+.lm_transition_indicator {
+	background: var(--color-primary-500) !important;
+	border: 2px solid var(--color-primary-600) !important;
+}
+
+/* Remove default Golden Layout shadows */
+.lm_header {
+	box-shadow: none !important;
+}
+
+/* Ensure proper stacking */
+.lm_stack {
+	z-index: auto !important;
+}
+
+/* Hide header for components that still have PanelHeader during migration */
+.lm_stack[data-has-panel-header="true"] > .lm_header {
+	display: none !important;
+}
+
+/* Custom Header Actions */
+.lm_custom_action {
+	width: 28px !important;
+	height: 28px !important;
+	padding: 0 !important;
+	background: transparent !important;
+	border: none !important;
+	border-radius: var(--radius-base) !important;
+	color: var(--color-text-secondary) !important;
+	cursor: pointer !important;
+	display: flex !important;
+	align-items: center !important;
+	justify-content: center !important;
+	opacity: 0.6 !important;
+	transition: all var(--transition-fast) !important;
+	margin-right: var(--spacing-1) !important;
+}
+
+.lm_custom_action:hover {
+	background-color: var(--color-hover) !important;
+	color: var(--color-text-primary) !important;
+	opacity: 1 !important;
+}
+
+.lm_custom_action:active {
+	transform: scale(0.95) !important;
+}
+
+/* Custom icon styling */
+.custom-icon {
+	display: flex !important;
+	align-items: center !important;
+	justify-content: center !important;
+	font-size: 12px !important;
+	font-weight: bold !important;
+}

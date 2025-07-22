@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-apply-and-render-view-state-binary"
+description = "Enables the apply_and_render_view_state_binary command without any pre-configured scope."
+commands.allow = ["apply_and_render_view_state_binary"]
+
+[[permission]]
+identifier = "deny-apply-and-render-view-state-binary"
+description = "Denies the apply_and_render_view_state_binary command without any pre-configured scope."
+commands.deny = ["apply_and_render_view_state_binary"]

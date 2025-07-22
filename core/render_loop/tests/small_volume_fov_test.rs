@@ -1,6 +1,5 @@
 use render_loop::RenderLoopService;
-use volmath::{DenseVolume3, NeuroSpace3};
-use volmath::space::NeuroSpaceImpl;
+use volmath::{DenseVolume3, NeuroSpace3, NeuroSpaceExt};
 
 #[tokio::test]
 async fn small_volume_default_fov_is_full_size() {
@@ -12,9 +11,14 @@ async fn small_volume_default_fov_is_full_size() {
     let spacing = [1.0, 1.0, 1.0];
     let origin = [0.0, 0.0, 0.0];
     
-    let space = NeuroSpaceImpl::<3>::from_dims_spacing_origin(dims, spacing, origin);
+    let space = NeuroSpaceExt::from_dims_spacing_origin(
+        dims.to_vec(), 
+        spacing.to_vec(), 
+        origin.to_vec()
+    ).expect("Failed to create NeuroSpace");
+    let space3 = NeuroSpace3::new(space);
     let data = vec![1.0f32; 1000];
-    let volume = DenseVolume3::from_data(NeuroSpace3(space.clone()), data);
+    let volume = DenseVolume3::from_data(space3.0, data);
     
     // Upload volume
     let result = service.upload_volume_3d(&volume);
@@ -64,10 +68,15 @@ async fn verify_fov_calculation_for_various_volumes() {
     ];
     
     for (dims, spacing, origin, expected_fov) in test_cases {
-        let space = NeuroSpaceImpl::<3>::from_dims_spacing_origin(dims, spacing, origin);
+        let space = NeuroSpaceExt::from_dims_spacing_origin(
+            dims.to_vec(), 
+            spacing.to_vec(), 
+            origin.to_vec()
+        ).expect("Failed to create NeuroSpace");
+        let space3 = NeuroSpace3::new(space);
         let voxel_count = dims[0] * dims[1] * dims[2];
         let data = vec![1.0f32; voxel_count];
-        let volume = DenseVolume3::from_data(NeuroSpace3(space.clone()), data);
+        let volume = DenseVolume3::from_data(space3.0, data);
         
         let result = service.upload_volume_3d(&volume);
         assert!(result.is_ok());
@@ -79,9 +88,9 @@ async fn verify_fov_calculation_for_various_volumes() {
         
         // Calculate center of volume in world coordinates
         let center = [
-            origin[0] + (dims[0] as f32 - 1.0) * spacing[0] / 2.0,
-            origin[1] + (dims[1] as f32 - 1.0) * spacing[1] / 2.0,
-            origin[2] + (dims[2] as f32 - 1.0) * spacing[2] / 2.0,
+            (origin[0] + (dims[0] as f64 - 1.0) * spacing[0] / 2.0) as f32,
+            (origin[1] + (dims[1] as f64 - 1.0) * spacing[1] / 2.0) as f32,
+            (origin[2] + (dims[2] as f64 - 1.0) * spacing[2] / 2.0) as f32,
         ];
         
         // Update frame for axial view

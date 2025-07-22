@@ -156,9 +156,9 @@ fn test_world_space_coordinate_mapping() {
         // Create volume with identity transform (1mm voxels)
         use volmath::space::{NeuroSpace3, NeuroSpaceImpl};
         use nalgebra::Matrix4;
-        let space_impl = NeuroSpaceImpl::from_affine_matrix4(dims, Matrix4::identity());
-        let space = NeuroSpace3(space_impl);
-        let test_volume = volmath::DenseVolume3::from_data(space, data);
+        let space_impl = NeuroSpaceExt::from_affine_matrix4(dims, Matrix4::identity());
+        let space = NeuroSpace3::new(space_impl);
+        let test_volume = volmath::DenseVolume3::from_data(space.0, data);
         
         // Upload volume
         let (idx, tfm) = service.upload_volume_multi_texture(

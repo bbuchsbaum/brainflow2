@@ -1,11 +1,11 @@
 use render_loop::RenderLoopService;
-use volmath::{DenseVolume3, NeuroSpace3};
+use volmath::{DenseVolume3, NeuroSpace3, NeuroSpaceExt};
 use volmath::space::NeuroSpaceImpl;
 use nalgebra::Vector4;
 use approx::assert_relative_eq;
 
 /// Helper to create a test volume with known values
-fn create_test_volume() -> (DenseVolume3<f32>, NeuroSpaceImpl<3>) {
+fn create_test_volume() -> (DenseVolume3<f32>, NeuroSpaceImpl) {
     // Create a 10x10x10 volume with identity transform
     let dims = [10, 10, 10];
     let mut data = vec![0.0f32; 1000];
@@ -20,12 +20,12 @@ fn create_test_volume() -> (DenseVolume3<f32>, NeuroSpaceImpl<3>) {
         }
     }
     
-    let space = NeuroSpaceImpl::<3>::from_dims_spacing_origin(
-        dims,
-        [1.0, 1.0, 1.0],
-        [0.0, 0.0, 0.0],
-    );
-    let volume = DenseVolume3::from_data(NeuroSpace3(space.clone()), data);
+    let space = <volmath::NeuroSpace as NeuroSpaceExt>::from_dims_spacing_origin(
+        dims.to_vec(),
+        vec![1.0, 1.0, 1.0],
+        vec![0.0, 0.0, 0.0],
+    ).expect("Failed to create NeuroSpace");
+    let volume = DenseVolume3::from_data(space.clone(), data);
     
     (volume, space)
 }
@@ -76,12 +76,12 @@ async fn test_upload_volume_with_scaled_transform() {
         data[i] = i as f32;
     }
     
-    let space = NeuroSpaceImpl::<3>::from_dims_spacing_origin(
-        dims,
-        [2.0, 3.0, 4.0], // Non-unit spacing
-        [-10.0, -20.0, -30.0], // Non-zero origin
-    );
-    let volume = DenseVolume3::from_data(NeuroSpace3(space), data);
+    let space = <volmath::NeuroSpace as NeuroSpaceExt>::from_dims_spacing_origin(
+        dims.to_vec(),
+        vec![2.0, 3.0, 4.0], // Non-unit spacing
+        vec![-10.0, -20.0, -30.0], // Non-zero origin
+    ).expect("Failed to create NeuroSpace");
+    let volume = DenseVolume3::from_data(space.clone(), data);
     
     let result = service.upload_volume_3d(&volume);
     
@@ -174,12 +174,12 @@ async fn test_texture_coordinate_calculation() {
     // Create a rectangular volume
     let dims = [64, 32, 16];
     let data = vec![1.0f32; 64 * 32 * 16];
-    let space = NeuroSpaceImpl::<3>::from_dims_spacing_origin(
-        dims,
-        [1.0, 1.0, 1.0],
-        [0.0, 0.0, 0.0],
-    );
-    let volume = DenseVolume3::from_data(NeuroSpace3(space), data);
+    let space = <volmath::NeuroSpace as NeuroSpaceExt>::from_dims_spacing_origin(
+        dims.to_vec(),
+        vec![1.0, 1.0, 1.0],
+        vec![0.0, 0.0, 0.0],
+    ).expect("Failed to create NeuroSpace");
+    let volume = DenseVolume3::from_data(space.clone(), data);
     
     // Upload the volume
     let result = service.upload_volume_3d(&volume);

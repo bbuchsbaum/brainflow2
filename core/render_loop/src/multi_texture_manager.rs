@@ -3,9 +3,7 @@
 use wgpu::{Device, Queue, Texture, TextureView, BindGroup, BindGroupLayout};
 use std::collections::HashMap;
 use crate::RenderLoopError;
-use volmath::{DenseVolume3, VoxelData, DataRange};
-use volmath::traits::Volume;
-use volmath::space::GridSpace;
+use volmath::{DenseVolume3, VoxelData, DataRange, NeuroSpaceExt};
 use nalgebra::Matrix4;
 use serde::Serialize;
 
@@ -203,8 +201,8 @@ impl MultiTextureManager {
         );
         
         // Get world-to-voxel transform from the space
-        // Access the inner NeuroSpaceImpl<3> to get world_to_voxel()
-        let world_to_voxel = space.0.world_to_voxel();
+        // Access the inner NeuroSpaceImpl to get world_to_voxel()
+        let world_to_voxel = space.world_to_voxel();
         
         // Store texture entry
         self.textures.insert(index, TextureEntry {
@@ -225,8 +223,7 @@ impl MultiTextureManager {
         let mut entries = Vec::new();
         
         // Individual texture bindings (0-14)
-        // Note: We use filterable: false to support R32Float textures
-        // The shader will handle sampling appropriately
+        // Use filterable: true for linear sampling support
         for i in 0..max_textures {
             entries.push(BindGroupLayoutEntry {
                 binding: i,
@@ -234,18 +231,18 @@ impl MultiTextureManager {
                 ty: BindingType::Texture {
                     multisampled: false,
                     view_dimension: TextureViewDimension::D3,
-                    sample_type: TextureSampleType::Float { filterable: false },
+                    sample_type: TextureSampleType::Float { filterable: true },
                 },
                 count: None,
             });
         }
         
         // Linear sampler at binding 15 (samplerLinear in shader)
-        // Using NonFiltering to support R32Float textures
+        // Using Filtering for linear interpolation
         entries.push(BindGroupLayoutEntry {
             binding: 15,
             visibility: ShaderStages::FRAGMENT,
-            ty: BindingType::Sampler(SamplerBindingType::NonFiltering),
+            ty: BindingType::Sampler(SamplerBindingType::Filtering),
             count: None,
         });
         
@@ -402,7 +399,7 @@ where
     let range = max_val - min_val;
     
     let data: Vec<u8> = volume
-        .data_slice()
+        .values()
         .iter()
         .map(|&val| {
             let normalized = if range > T::zero() {
@@ -427,7 +424,7 @@ where
 {
     // Convert to f16 (half precision float)
     let data: Vec<half::f16> = volume
-        .data_slice()
+        .values()
         .iter()
         .map(|&val| {
             let f32_val = num_traits::cast::<T, f32>(val).unwrap_or(0.0);
@@ -448,7 +445,7 @@ where
     T: VoxelData + num_traits::NumCast + DataRange<T> + Serialize,
 {
     let data: Vec<f32> = volume
-        .data_slice()
+        .values()
         .iter()
         .map(|&val| {
             num_traits::cast::<T, f32>(val).unwrap_or(0.0)

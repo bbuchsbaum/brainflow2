@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-get-volume-bounds"
+description = "Enables the get_volume_bounds command without any pre-configured scope."
+commands.allow = ["get_volume_bounds"]
+
+[[permission]]
+identifier = "deny-get-volume-bounds"
+description = "Denies the get_volume_bounds command without any pre-configured scope."
+commands.deny = ["get_volume_bounds"]

@@ -10,8 +10,8 @@
 	import type { CrosshairService } from '$lib/services/CrosshairService';
 	import type { NotificationService } from '$lib/services/NotificationService';
 	import type { EventBus } from '$lib/events/EventBus';
-	import { useLayerStore } from '$lib/stores/layerStoreClean';
-	import { useCrosshairStore } from '$lib/stores/crosshairSlice.clean';
+	import { useLayerStore } from '$lib/stores/layerStore';
+	import { crosshairSlice } from '$lib/stores/crosshairSlice';
 	import { ViewType } from '$lib/types/ViewType';
 	import OrthogonalViewGPU from './OrthogonalViewGPU.svelte';
 
@@ -40,7 +40,7 @@
 
 	// Store subscriptions
 	let layerStoreState = $state(useLayerStore.getState());
-	let crosshairStoreState = $state(useCrosshairStore.getState());
+	let crosshairStoreState = $state(crosshairSlice.getState());
 
 	// Initialize GPU context once for all views
 	async function initializeGPUContext() {
@@ -188,7 +188,7 @@
 				layerStoreState = state;
 			});
 
-			const unsubscribeCrosshairStore = useCrosshairStore.subscribe((state) => {
+			const unsubscribeCrosshairStore = crosshairSlice.subscribe((state) => {
 				crosshairStoreState = state;
 			});
 

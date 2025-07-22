@@ -278,12 +278,12 @@ async fn test_texture_coordinate_mapping() {
     let spacing = [1.0, 1.0, 1.0];
     let origin = [0.0, 0.0, 0.0];
     
-    let space_impl = volmath::space::NeuroSpaceImpl::<3>::from_dims_spacing_origin(
+    let space_impl = volmath::space::NeuroSpaceImpl::from_dims_spacing_origin(
         dims,
         spacing,
         origin,
     );
-    let space = volmath::NeuroSpace3(space_impl);
+    let space = volmath::NeuroSpace3::new(space_impl);
     
     // Create checkerboard pattern
     let mut data = Vec::with_capacity(dims[0] * dims[1] * dims[2]);
@@ -370,12 +370,12 @@ fn create_test_volume() -> volmath::DenseVolume3<f32> {
     let spacing = [1.0, 1.0, 1.0];
     let origin = [0.0, 0.0, 0.0];
     
-    let space_impl = volmath::space::NeuroSpaceImpl::<3>::from_dims_spacing_origin(
+    let space_impl = volmath::space::NeuroSpaceImpl::from_dims_spacing_origin(
         dims,
         spacing,
         origin,
     );
-    let space = volmath::NeuroSpace3(space_impl);
+    let space = volmath::NeuroSpace3::new(space_impl);
     
     // Create data that resembles a brain (bright center, darker edges)
     let mut data = Vec::with_capacity(dims[0] * dims[1] * dims[2]);

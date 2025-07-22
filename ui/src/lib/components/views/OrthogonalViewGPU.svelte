@@ -10,8 +10,8 @@
 	import type { CrosshairService } from '$lib/services/CrosshairService';
 	import type { NotificationService } from '$lib/services/NotificationService';
 	import type { EventBus } from '$lib/events/EventBus';
-	import { useLayerStore } from '$lib/stores/layerStoreClean';
-	import { useCrosshairStore } from '$lib/stores/crosshairSlice.clean';
+	import { useLayerStore } from '$lib/stores/layerStore';
+	import { crosshairSlice } from '$lib/stores/crosshairSlice';
 	import { ViewType, getViewTypeName } from '$lib/types/ViewType';
 	import type { VolumeLayerGpuInfo } from '$lib/api';
 	import { coreApi } from '$lib/api';
@@ -49,6 +49,7 @@
 
 	// State - Interaction
 	let isDragging = $state(false);
+	let isPanning = $state(false);
 	let lastPointerPos = $state<[number, number] | null>(null);
 
 	// State - Slice control
@@ -59,15 +60,15 @@
 
 	// Store subscriptions
 	let layerStoreState = $state(useLayerStore.getState());
-	let crosshairStoreState = $state(useCrosshairStore.getState());
+	let crosshairStoreState = $state(crosshairSlice.getState());
 
 	// Derived values
 	let layer = $derived(
-		layerId ? layerStoreState.layers.get(layerId) : null
+		layerId && layerStoreState?.layers ? layerStoreState.layers.find(l => l.id === layerId) : null
 	);
 
-	let layerGpu = $derived(layer?.gpuInfo || null);
-	let crosshairPos = $derived(crosshairStoreState.worldCoord);
+	let layerGpu = $derived(layer?.gpu || null);
+	let crosshairPos = $derived(crosshairStoreState.crosshairWorldCoord);
 
 	// Canvas resize observer
 	let resizeObserver: ResizeObserver | null = null;
@@ -83,6 +84,7 @@
 			}
 
 			if (!renderTargetCreated && containerSize.width > 0 && containerSize.height > 0) {
+				await coreApi.create_offscreen_render_target(containerSize.width, containerSize.height);
 				renderTargetCreated = true;
 				eventBus.emit('gpu.rendertarget.created', { viewType, size: containerSize });
 			}
@@ -394,8 +396,12 @@
 		const rect = canvasElement?.getBoundingClientRect();
 		if (!rect) return null;
 
-		const ndcX = (canvasX / rect.width) * 2 - 1;
-		const ndcY = -((canvasY / rect.height) * 2 - 1);
+		// Adjust for view offset and scale
+		const adjustedX = (canvasX - viewOffset[0]) / viewScale;
+		const adjustedY = (canvasY - viewOffset[1]) / viewScale;
+
+		const ndcX = (adjustedX / rect.width) * 2 - 1;
+		const ndcY = -((adjustedY / rect.height) * 2 - 1);
 
 		const bounds = getVolumeBounds(layerGpu);
 		const viewDims = getViewDimensions(viewType, bounds);
@@ -427,27 +433,50 @@
 
 	// Mouse handlers
 	function handlePointerDown(event: PointerEvent) {
-		if (event.button === 0) {
-			const rect = canvasElement?.getBoundingClientRect();
-			if (rect) {
-				const canvasX = event.clientX - rect.left;
-				const canvasY = event.clientY - rect.top;
-				const worldCoords = canvasToWorld(canvasX, canvasY);
-				
-				if (worldCoords && crosshairService) {
-					crosshairService.setWorldCoordinate(worldCoords);
-				}
+		const rect = canvasElement?.getBoundingClientRect();
+		if (!rect) return;
+
+		const canvasX = event.clientX - rect.left;
+		const canvasY = event.clientY - rect.top;
+
+		// Middle mouse button or shift+left click for panning
+		if (event.button === 1 || (event.button === 0 && event.shiftKey)) {
+			isPanning = true;
+			lastPointerPos = [canvasX, canvasY];
+			event.currentTarget?.setPointerCapture(event.pointerId);
+			event.preventDefault();
+		} 
+		// Left click for crosshair
+		else if (event.button === 0) {
+			const worldCoords = canvasToWorld(canvasX, canvasY);
+			if (worldCoords && crosshairService) {
+				crosshairService.setWorldCoordinate(worldCoords);
 			}
 		}
 	}
 
 	function handlePointerMove(event: PointerEvent) {
 		const rect = canvasElement?.getBoundingClientRect();
-		if (rect) {
-			const canvasX = event.clientX - rect.left;
-			const canvasY = event.clientY - rect.top;
-			const worldCoords = canvasToWorld(canvasX, canvasY);
+		if (!rect) return;
+
+		const canvasX = event.clientX - rect.left;
+		const canvasY = event.clientY - rect.top;
+
+		if (isPanning && lastPointerPos) {
+			// Update view offset based on mouse movement
+			const dx = canvasX - lastPointerPos[0];
+			const dy = canvasY - lastPointerPos[1];
 			
+			viewOffset = [
+				viewOffset[0] + dx,
+				viewOffset[1] + dy
+			];
+			
+			lastPointerPos = [canvasX, canvasY];
+			onViewportChange?.(viewType, { scale: viewScale, offset: viewOffset });
+		} else {
+			// Emit world coordinates for hover
+			const worldCoords = canvasToWorld(canvasX, canvasY);
 			if (worldCoords) {
 				eventBus.emit('mouse.worldcoord', { coord: worldCoords, viewType });
 			}
@@ -456,6 +485,13 @@
 
 	function handlePointerLeave(event: PointerEvent) {
 		eventBus.emit('mouse.worldcoord', { coord: null, viewType });
+	}
+
+	function handlePointerUp(event: PointerEvent) {
+		if (isPanning) {
+			isPanning = false;
+			event.currentTarget?.releasePointerCapture(event.pointerId);
+		}
 	}
 
 	function handleWheel(event: WheelEvent) {
@@ -506,6 +542,15 @@
 				layerAdded = false;
 			}
 			
+			// Set default crosshair position if not set
+			if (!crosshairPos && layerGpu) {
+				const bounds = getVolumeBounds(layerGpu);
+				const centerX = (bounds.x.min + bounds.x.max) / 2;
+				const centerY = (bounds.y.min + bounds.y.max) / 2;
+				const centerZ = (bounds.z.min + bounds.z.max) / 2;
+				crosshairService?.setWorldCoordinate([centerX, centerY, centerZ]);
+			}
+			
 			addLayerToRenderState().then(() => {
 				startRenderLoop();
 			});
@@ -534,12 +579,13 @@
 			]);
 
 			// Subscribe to stores
-			const unsubscribeLayerStore = useLayerStore.subscribe((state) => {
-				layerStoreState = state;
+			const unsubscribeLayerStore = useLayerStore.layers.subscribe(() => {
+				layerStoreState = useLayerStore.getState();
 			});
 
-			const unsubscribeCrosshair = useCrosshairStore.subscribe((state) => {
-				crosshairStoreState = state;
+			// crosshairSlice doesn't have a direct subscribe method, need to subscribe to the stores
+			const unsubscribeCrosshair = crosshairSlice.crosshairWorldCoord.subscribe(() => {
+				crosshairStoreState = crosshairSlice.getState();
 			});
 
 			// Subscribe to events

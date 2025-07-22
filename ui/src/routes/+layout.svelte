@@ -1,263 +1,169 @@
 <script lang="ts">
-	import { onMount, onDestroy, setContext } from 'svelte';
-	import { GoldenLayout, type LayoutConfig, type ResolvedLayoutConfig, type ComponentContainer } from 'golden-layout';
-	import { setResizeBusDimensions } from '$lib/stores/resizeBus';
-	import { defaultLayout } from '$lib/layout/defaultLayout'; // Import default layout
-	import { coreApi } from '$lib/api';
-	// Import actual Svelte components
-	import MountableTreeBrowser from '$lib/components/MountableTreeBrowser.svelte';
-	import VolumeView from '$lib/components/views/VolumeView.svelte';
-	import LayerPanel from '$lib/components/panels/LayerPanel.svelte';
-	import LayerControls from '$lib/components/panels/LayerControls.svelte';
-	import type { SvelteComponent } from 'svelte';
-	import { mount } from 'svelte';
-	import '../app.css';
-	import 'golden-layout/dist/css/goldenlayout-base.css';
-	// Choose a theme (or create your own)
-	import 'golden-layout/dist/css/themes/goldenlayout-light-theme.css';
-	// import 'golden-layout/dist/css/themes/goldenlayout-dark-theme.css';
-	import PlaceholderPanel from '$lib/components/panels/PlaceholderPanel.svelte';
-	import StatusBar from '$lib/components/StatusBar.svelte';
-	// --- Add Log Store Import ---
-	import { setupLogListener } from '$lib/stores/logStore';
-	// --------------------------
-	// --- Add Test Runner for Development ---
-	import { dev } from '$app/environment';
-	if (dev) {
-		import('$lib/test-runner'); // Auto-runs tests in dev mode
-	}
-	// -------------------------------------
-
+	// Initialize validated config before anything else
+	import { loadAndValidateConfig } from '$lib/validation/schemas/Config';
+	const validatedConfig = loadAndValidateConfig();
+	(globalThis as any).__BRAINFLOW_VALIDATED_CONFIG__ = validatedConfig;
+	
 	let { children } = $props();
+	
+	// Import components and services after config is initialized
+	import { onMount } from 'svelte';
+	import { coreApi } from '$lib/api';
+	import { GoldenLayout, type LayoutConfig } from 'golden-layout';
+	import 'golden-layout/dist/css/goldenlayout-base.css';
+	import 'golden-layout/dist/css/themes/goldenlayout-dark-theme.css';
+	import StatusBar from '$lib/components/StatusBar.simple.svelte';
+	
+	// Import real components
+	import VolumeView from '$lib/components/views/VolumeView.svelte';
+	import FileBrowserPanel from '$lib/components/panels/FileBrowserPanel.svelte';
+	import LayerPanel from '$lib/components/panels/LayerPanel.svelte';
+	
+	// Local state for golden layout
 	let layoutContainer: HTMLElement;
 	let goldenLayoutInstance: GoldenLayout | null = null;
-	let resizeObserver: ResizeObserver | null = null;
-
-	// --- Debounce Utility ---
-	function debounce<T extends (...args: any[]) => any>(func: T, waitFor: number) {
-		let timeoutId: ReturnType<typeof setTimeout> | null = null;
-
-		return (...args: Parameters<T>): Promise<ReturnType<T>> =>
-			new Promise(resolve => {
-				if (timeoutId) {
-					clearTimeout(timeoutId);
-				}
-
-				timeoutId = setTimeout(() => {
-					timeoutId = null;
-					resolve(func(...args));
-				}, waitFor);
-			});
-	}
-	// ------------------------
-
-	// --- Enhanced GoldenLayout Svelte Component Registration Helper ---
-	function glRegister(
-		instance: GoldenLayout | null,
-		componentType: string, 
-		SvelteComp: any,
-		defaultTitle: string = componentType
-	) {
-		if (!instance) return;
-
-		instance.registerComponentFactoryFunction(componentType, (container, componentState) => {
-			// Create a container context that can be passed to components
-			const containerContext = {
-				container,
-				componentType,
-				state: componentState || {},
-				// Helper methods for container interaction
-				setTitle: (title: string) => container.setTitle(title),
-				setState: (state: Record<string, unknown>) => {
-					// Update internal reference; Golden-Layout will request it via stateRequestEvent
-					latestState = { ...latestState, ...state };
-				},
-				getState: () => latestState as Record<string, unknown>,
-				close: () => container.close(),
-				focus: () => container.focus()
-			};
-			
-			// Adjust Prop Handling for Svelte 5 
-			// Ensure componentState is an object before spreading
-			const stateProps = 
-				componentState && typeof componentState === 'object' && !Array.isArray(componentState)
-				? componentState 
-				: {};
-
-			const initialProps = {
-				...stateProps, // Spread only if it was an object
-				title: container.title || defaultTitle, // Use container title or default
-				componentType: componentType,
-				containerContext: containerContext // Pass the context helper
-			};
-
-			// Create Svelte component instance using mount
-			const component = mount(SvelteComp, {
-				target: container.element,
-				props: initialProps as any // Pass props to mount
-			});
-			
-			// Handle component lifecycle and cleanup
-			container.on('destroy', () => {
-				if (component && typeof component.destroy === 'function') {
-					component.destroy(); 
-				} else {
-					console.warn("Could not call destroy on mounted component - check Svelte 5 mount API");
-				}
-			});
-			
-			// Optional - handle visibility changes
-			container.on('hide', () => {
-				if ('onHide' in component) {
-					(component as any).onHide();
-				}
-			});
-			
-			container.on('show', () => {
-				if ('onShow' in component) {
-					(component as any).onShow();
-				}
-			});
-			
-			// Maintain latest component state for persistence
-			let latestState: Record<string, unknown> = { ...stateProps };
-			// Provide to Golden-Layout when it asks
-			(container as any).stateRequestEvent = () => latestState;
-
-			// Return API for container to interact with component
-			return {
-				component,
-				// update: (state: Record<string, unknown>) => {
-				//     component.$set(state); // $set is likely gone in Svelte 5
-				// }
-			};
-		});
-	}
-	// -------------------------------------------------------
-
-	// Debounced save function - Accept ResolvedLayoutConfig
-	const debouncedSaveLayout = debounce(async (layout: ResolvedLayoutConfig) => {
-		console.log('Debounced stateChanged: attempting to save layout...');
+	let initError = $state<string | null>(null);
+	
+	onMount(async () => {
+		// Initialize GPU first
 		try {
-			// TODO: Replace with actual API call - backend needs to handle ResolvedLayoutConfig
-			// await coreApi.saveConfig({ glLayout: layout });
-			await Promise.resolve(); // Placeholder
-			console.log('Layout save successful (stubbed).');
-		} catch (error) {
-			console.error('Failed to save layout configuration:', error);
+			await coreApi.init_render_loop();
+			await coreApi.create_offscreen_render_target(512, 512);
+		} catch (err) {
+			console.error('Failed to initialize GPU render loop:', err);
 		}
-	}, 500); // Save 500ms after the last change
-
-	onMount(() => { // Keep onMount synchronous
-		let localGoldenLayoutInstance: GoldenLayout | null = null;
-		let localResizeObserver: ResizeObserver | null = null;
-
-		// Use an IIAFE for async operations within onMount
-		// Move setContext outside the async block
-		localGoldenLayoutInstance = new GoldenLayout(layoutContainer);
-		goldenLayoutInstance = localGoldenLayoutInstance;
-		setContext('layoutManager', localGoldenLayoutInstance); // MOVED HERE - Must be synchronous
-
-		(async () => {
-			if (!layoutContainer) return;
-			// GoldenLayout instance is already created synchronously above
-			if (!localGoldenLayoutInstance) return; // Added safety check
-
-			// Tauri v2 no longer uses window.__TAURI__ global
-			// API is available through ES module imports from '@tauri-apps/api'
-
-			// --- Setup Log Listener --- 
-			await setupLogListener(); // Call the setup function
-			// --------------------------
+		
+		// Wait a tick for container to be ready
+		setTimeout(() => {
+			if (!layoutContainer) {
+				initError = 'Layout container not found';
+				return;
+			}
 			
-			// --- Initialize GPU Render Loop ---
 			try {
-				console.log('Initializing GPU render loop...');
-				await coreApi.init_render_loop();
-				await coreApi.create_offscreen_render_target(512, 512);
-				console.log('GPU render loop initialized successfully');
+				goldenLayoutInstance = new GoldenLayout(layoutContainer);
+				
+				// Register file browser component
+				goldenLayoutInstance.registerComponentFactoryFunction('tree-browser', (container) => {
+					// Mount the FileBrowserPanel component
+					import('$lib/components/panels/FileBrowserPanel.svelte').then(({ default: FileBrowserPanel }) => {
+						import('svelte').then(({ mount }) => {
+							mount(FileBrowserPanel, {
+								target: container.element
+							});
+						});
+					});
+				});
+				
+				goldenLayoutInstance.registerComponentFactoryFunction('volume-view', (container) => {
+					// For VolumeView, we'll mount the real Svelte component
+					import('$lib/components/views/VolumeView.svelte').then(({ default: VolumeView }) => {
+						import('svelte').then(({ mount }) => {
+							mount(VolumeView, {
+								target: container.element
+							});
+						});
+					});
+				});
+				
+				goldenLayoutInstance.registerComponentFactoryFunction('layer-panel', (container) => {
+					// Mount the real LayerPanel component
+					import('$lib/components/panels/LayerPanel.svelte').then(({ default: LayerPanel }) => {
+						import('svelte').then(({ mount }) => {
+							mount(LayerPanel, {
+								target: container.element
+							});
+						});
+					});
+				});
+				
+				// Simple 3-panel layout
+				const simpleLayout: LayoutConfig = {
+					root: {
+						type: 'row',
+						content: [
+							// Left sidebar
+							{
+								type: 'stack',
+								width: 20,
+								content: [{
+									type: 'component',
+									componentType: 'tree-browser',
+									id: 'files-singleton',
+									title: 'Files'
+								}]
+							},
+							// Center content
+							{
+								type: 'stack',
+								width: 60,
+								content: [{
+									type: 'component',
+									componentType: 'volume-view',
+									title: 'Volume View'
+								}]
+							},
+							// Right sidebar
+							{
+								type: 'stack',
+								width: 20,
+								content: [{
+									type: 'component',
+									componentType: 'layer-panel',
+									title: 'Layers'
+								}]
+							}
+						]
+					},
+					settings: {
+						showPopoutIcon: false,
+						showMaximiseIcon: true,
+						showCloseIcon: false,
+					},
+					dimensions: {
+						borderWidth: 3,
+						minItemHeight: 150,
+						minItemWidth: 160,
+						headerHeight: 28,
+					}
+				};
+				
+				// Load layout
+				goldenLayoutInstance.loadLayout(simpleLayout);
+				
 			} catch (err) {
-				console.error('Failed to initialize GPU render loop:', err);
-				// Continue anyway - some features may not work
+				console.error('Failed to initialize GoldenLayout:', err);
+				initError = `GoldenLayout error: ${err}`;
 			}
-			// ----------------------------------
-
-			// --- Register Components using the Helper ---
-			// Use PlaceholderPanel temporarily for all component types
-			// This will be replaced with actual components when they're ready
-			glRegister(localGoldenLayoutInstance, 'tree-browser', MountableTreeBrowser);
-			glRegister(localGoldenLayoutInstance, 'volume-view', VolumeView);
-			glRegister(localGoldenLayoutInstance, 'surface-view', PlaceholderPanel);
-			glRegister(localGoldenLayoutInstance, 'layer-panel', LayerPanel);
-			glRegister(localGoldenLayoutInstance, 'layer-controls', LayerControls);
-			glRegister(localGoldenLayoutInstance, 'legend-drawer', PlaceholderPanel);
-			glRegister(localGoldenLayoutInstance, 'plot-panel', PlaceholderPanel);
-			// ---------------------------------------------
-
-			// --- Load Layout --- 
-			let loadedConfig: LayoutConfig | undefined = undefined;
-			try {
-				// TODO: Replace with actual API call when available
-				// const config = await coreApi.loadConfig(); // e.g., load from backend/localStorage
-				// loadedConfig = config?.glLayout;
-				console.warn('Layout loading from Core API not implemented yet.');
-				await Promise.resolve(); // Placeholder for async operation
-			} catch (error) {
-				console.error('Failed to load layout configuration:', error);
-			}
-			localGoldenLayoutInstance.loadLayout(loadedConfig ?? defaultLayout);
-			// -------------------
-
-			// --- Add State Change Listener for Saving ---
-			localGoldenLayoutInstance.on('stateChanged', () => {
-				if (localGoldenLayoutInstance) {
-					const currentLayout = localGoldenLayoutInstance.saveLayout();
-					debouncedSaveLayout(currentLayout);
-				}
-			});
-			// ---------------------------------------------
-
-			// Setup ResizeObserver to update resizeBus store
-			localResizeObserver = new ResizeObserver(entries => {
-				for (let entry of entries) {
-					const { width, height } = entry.contentRect;
-					// Call the setter from the new resizeBus store
-					setResizeBusDimensions(width, height); 
-					localGoldenLayoutInstance?.updateSize(width, height); 
-				}
-			});
-			localResizeObserver.observe(layoutContainer);
-			resizeObserver = localResizeObserver;
-
-			// Initial dimension set - Use the new setter
-			const { width, height } = layoutContainer.getBoundingClientRect();
-			setResizeBusDimensions(width, height); 
-
-		})(); // End of IIAFE
-
-		// Synchronous return with cleanup function
+		}, 100);
+		
+		// Cleanup
 		return () => {
-			resizeObserver?.disconnect();
-			goldenLayoutInstance?.destroy();
-			goldenLayoutInstance = null;
-			resizeObserver = null;
+			if (goldenLayoutInstance) {
+				goldenLayoutInstance.destroy();
+			}
 		};
 	});
-
-	// onDestroy is handled by the onMount return function
-
 </script>
 
 <div class="app-container">
+	<!-- Error display -->
+	{#if initError}
+		<div class="error-message">
+			{initError}
+		</div>
+	{/if}
+	
+	<!-- Layout container -->
 	<div class="layout-wrapper" bind:this={layoutContainer}>
 		<!-- GoldenLayout will render here -->
-		<!-- The main page content ($children) will typically be rendered *inside* 
-			 one of the GoldenLayout panels in a real app, not here directly. -->
-		<!-- For now, keep the slot for SvelteKit routing to work -->
-		<div style="display: none;">
-			{@render children()}
-		</div>
 	</div>
+	
+	<!-- Hidden children for routing -->
+	<div style="display: none;">
+		{@render children()}
+	</div>
+	
 	<StatusBar />
 </div>
 
@@ -268,22 +174,66 @@
 		width: 100vw;
 		height: 100vh;
 		overflow: hidden;
+		background: #1a1a1a;
+		color: white;
 	}
-
+	
+	.error-message {
+		position: fixed;
+		top: 10px;
+		left: 50%;
+		transform: translateX(-50%);
+		background: #ff3333;
+		color: white;
+		padding: 10px 20px;
+		border-radius: 4px;
+		z-index: 10000;
+	}
+	
 	.layout-wrapper {
 		flex: 1;
-		overflow: hidden; /* Prevent scrollbars on the wrapper */
+		overflow: hidden;
+		position: relative;
 	}
-
-	/* Ensure GoldenLayout takes full space */
+	
+	/* GoldenLayout overrides for dark theme */
 	:global(.lm_root) {
-		width: 100%;
-		height: 100%;
+		position: relative;
 	}
-
-	/* Basic styling for placeholder */
-	:global(.lm_content h2) {
-		margin-top: 0;
-		font-size: 1.1em;
+	
+	:global(.lm_header) {
+		background: #2a2a2a;
+		height: 28px;
+	}
+	
+	:global(.lm_header .lm_tab) {
+		background: #333;
+		color: #e0e0e0;
+		font-size: 13px;
+		height: 24px;
+		line-height: 24px;
+		margin-top: 2px;
+	}
+	
+	:global(.lm_header .lm_tab.lm_active) {
+		background: #444;
+		color: white;
+	}
+	
+	:global(.lm_content) {
+		background: #1a1a1a;
+	}
+	
+	:global(.lm_splitter) {
+		background: #444;
+		opacity: 1;
+	}
+	
+	:global(.lm_splitter:hover) {
+		background: #666;
+	}
+	
+	:global(.lm_controls > li) {
+		filter: invert(0.8);
 	}
 </style>

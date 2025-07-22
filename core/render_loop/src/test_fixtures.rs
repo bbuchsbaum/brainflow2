@@ -1,6 +1,6 @@
 // Test fixtures for multi-resolution volume rendering
 
-use volmath::DenseVolume3;
+use volmath::{DenseVolume3, NeuroSpaceExt};
 use nalgebra::{Matrix4, Vector3};
 
 /// A set of test volumes with different resolutions but aligned in world space
@@ -76,9 +76,9 @@ fn create_anatomical_volume() -> DenseVolume3<u8> {
     use volmath::space::{NeuroSpace3, NeuroSpaceImpl};
     // Create with voxel-to-world transform (inverse of world-to-voxel)
     let voxel_to_world = anatomical_world_to_voxel().try_inverse().unwrap();
-    let space_impl = NeuroSpaceImpl::from_affine_matrix4(dims, voxel_to_world);
-    let space = NeuroSpace3(space_impl);
-    DenseVolume3::from_data(space, data)
+    let space_impl = NeuroSpaceImpl::from_affine_matrix4(dims.to_vec(), voxel_to_world).unwrap();
+    let space = NeuroSpace3::new(space_impl);
+    DenseVolume3::from_data(space.0, data)
 }
 
 /// Create a 128x128x32 functional volume at 2x2x4mm resolution
@@ -108,9 +108,9 @@ fn create_functional_volume() -> DenseVolume3<f32> {
     use volmath::space::{NeuroSpace3, NeuroSpaceImpl};
     // Create with voxel-to-world transform (inverse of world-to-voxel)
     let voxel_to_world = functional_world_to_voxel().try_inverse().unwrap();
-    let space_impl = NeuroSpaceImpl::from_affine_matrix4(dims, voxel_to_world);
-    let space = NeuroSpace3(space_impl);
-    DenseVolume3::from_data(space, data)
+    let space_impl = NeuroSpaceImpl::from_affine_matrix4(dims.to_vec(), voxel_to_world).unwrap();
+    let space = NeuroSpace3::new(space_impl);
+    DenseVolume3::from_data(space.0, data)
 }
 
 /// Create a 128x128x64 detail patch at 0.5mm resolution
@@ -140,9 +140,9 @@ fn create_detail_patch() -> DenseVolume3<u16> {
     use volmath::space::{NeuroSpace3, NeuroSpaceImpl};
     // Create with voxel-to-world transform (inverse of world-to-voxel)
     let voxel_to_world = detail_world_to_voxel().try_inverse().unwrap();
-    let space_impl = NeuroSpaceImpl::from_affine_matrix4(dims, voxel_to_world);
-    let space = NeuroSpace3(space_impl);
-    DenseVolume3::from_data(space, data)
+    let space_impl = NeuroSpaceImpl::from_affine_matrix4(dims.to_vec(), voxel_to_world).unwrap();
+    let space = NeuroSpace3::new(space_impl);
+    DenseVolume3::from_data(space.0, data)
 }
 
 /// Transform for 1mm anatomical volume centered at world origin
@@ -187,30 +187,40 @@ pub fn create_test_pattern_volume() -> DenseVolume3<u8> {
     let mut data = vec![0u8; 64 * 64 * 25];
     
     // Create a binary mask with known pattern
-    // Center voxel = 255
-    let center_idx = 12 * 64 * 64 + 32 * 64 + 32;
+    // IMPORTANT: neuroim's values() returns data in column-major order: 
+    // for z { for y { for x { push(data[x,y,z]) } } }
+    // So index = z * (nx * ny) + y * nx + x
+    
+    // Center voxel = 255 at (32, 32, 12)
+    let center_idx = 12 * (64 * 64) + 32 * 64 + 32;
     data[center_idx] = 255;
     
     // Corners = 128
     data[0] = 128; // (0,0,0)
-    data[63] = 128; // (63,0,0)
-    data[64 * 63] = 128; // (0,63,0)
-    data[64 * 63 + 63] = 128; // (63,63,0)
+    data[0 * (64 * 64) + 0 * 64 + 63] = 128; // (63,0,0) 
+    data[0 * (64 * 64) + 63 * 64 + 0] = 128; // (0,63,0)
+    data[0 * (64 * 64) + 63 * 64 + 63] = 128; // (63,63,0)
     
-    // Create plus sign in center slice
+    // Create plus sign in center slice (z=12)
     let z = 12;
-    for i in 0..64 {
-        data[z * 64 * 64 + 32 * 64 + i] = 100; // Horizontal line
-        data[z * 64 * 64 + i * 64 + 32] = 100; // Vertical line
+    // Horizontal line: vary x at y=32, z=12
+    for x in 0..64 {
+        let idx = z * (64 * 64) + 32 * 64 + x;
+        data[idx] = 100;
+    }
+    // Vertical line: vary y at x=32, z=12
+    for y in 0..64 {
+        let idx = z * (64 * 64) + y * 64 + 32;
+        data[idx] = 100;
     }
     
     // Re-set center voxel to be brightest (after plus sign overwrote it)
     data[center_idx] = 255;
     
     use volmath::space::{NeuroSpace3, NeuroSpaceImpl};
-    let space_impl = NeuroSpaceImpl::from_affine_matrix4(dims, Matrix4::identity());
-    let space = NeuroSpace3(space_impl);
-    DenseVolume3::from_data(space, data)
+    let space_impl = NeuroSpaceImpl::from_affine_matrix4(dims.to_vec(), Matrix4::identity()).unwrap();
+    let space = NeuroSpace3::new(space_impl);
+    DenseVolume3::from_data(space.0, data)
 }
 
 #[cfg(test)]
@@ -255,6 +265,7 @@ mod tests {
         
         // Check center voxel
         let center_value = volume.get_at_coords(&[32, 32, 12]).unwrap();
+        
         assert_eq!(center_value, 255);
         
         // Check corners

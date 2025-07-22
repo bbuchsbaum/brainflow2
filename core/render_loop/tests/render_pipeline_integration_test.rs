@@ -4,7 +4,7 @@ use render_loop::{
     RenderLoopService, LayerInfo, BlendMode, ThresholdMode,
     FrameTimeTracker, FrameUbo,
 };
-use volmath::DenseVolume3;
+use volmath::{DenseVolume3, NeuroSpaceExt};
 use volmath::traits::Volume;
 use nalgebra::{Vector3, Matrix4};
 use std::collections::HashSet;
@@ -42,9 +42,10 @@ fn create_test_pattern_volume() -> DenseVolume3<f32> {
     }
     
     let transform = Matrix4::new_translation(&Vector3::new(-4.0, -4.0, -4.0));
-    let space_impl = NeuroSpaceImpl::from_affine_matrix4(dims, transform);
-    let space = NeuroSpace3(space_impl);
-    DenseVolume3::from_data(space, data)
+    let space_impl = <volmath::NeuroSpace as NeuroSpaceExt>::from_affine_matrix4(dims.to_vec(), transform)
+        .expect("Failed to create NeuroSpace");
+    let space = NeuroSpace3::new(space_impl);
+    DenseVolume3::from_data(space.0, data)
 }
 
 /// Create a sphere mask volume
@@ -69,9 +70,10 @@ fn create_sphere_mask_volume() -> DenseVolume3<f32> {
     }
     
     let transform = Matrix4::new_translation(&Vector3::new(-4.0, -4.0, -4.0));
-    let space_impl = NeuroSpaceImpl::from_affine_matrix4(dims, transform);
-    let space = NeuroSpace3(space_impl);
-    DenseVolume3::from_data(space, data)
+    let space_impl = <volmath::NeuroSpace as NeuroSpaceExt>::from_affine_matrix4(dims.to_vec(), transform)
+        .expect("Failed to create NeuroSpace");
+    let space = NeuroSpace3::new(space_impl);
+    DenseVolume3::from_data(space.0, data)
 }
 
 /// Verify pixel values in rendered output
@@ -137,6 +139,7 @@ fn test_render_single_volume_grayscale() {
             threshold_range: (-f32::INFINITY, f32::INFINITY),
             threshold_mode: ThresholdMode::Range,
             texture_coords: (0.0, 0.0, 1.0, 1.0),
+            is_mask: false,
         };
         
         println!("Layer configuration:");
@@ -275,6 +278,7 @@ fn test_render_two_layer_overlay() {
                 threshold_range: (-f32::INFINITY, f32::INFINITY),
                 threshold_mode: ThresholdMode::Range,
                 texture_coords: (0.0, 0.0, 1.0, 1.0),
+                is_mask: false,
             },
             LayerInfo {
                 atlas_index: overlay_handle,
@@ -285,6 +289,7 @@ fn test_render_two_layer_overlay() {
                 threshold_range: (0.5, f32::INFINITY), // Show only mask
                 threshold_mode: ThresholdMode::Range,
                 texture_coords: (0.0, 0.0, 1.0, 1.0),
+                is_mask: false,
             },
         ];
         
@@ -420,9 +425,10 @@ fn test_render_different_orientations() {
         }
         
         let transform = Matrix4::new_translation(&Vector3::new(-4.0, -3.0, -2.0));
-        let space_impl = NeuroSpaceImpl::from_affine_matrix4(dims, transform);
-        let space = NeuroSpace3(space_impl);
-        let volume = DenseVolume3::from_data(space, data);
+        let space_impl = <volmath::NeuroSpace as NeuroSpaceExt>::from_affine_matrix4(dims.to_vec(), transform)
+        .expect("Failed to create NeuroSpace");
+        let space = NeuroSpace3::new(space_impl);
+        let volume = DenseVolume3::from_data(space.0, data);
         
         let (handle, transform) = service.upload_volume_3d(&volume)
             .expect("Failed to upload volume");
@@ -436,6 +442,7 @@ fn test_render_different_orientations() {
             threshold_range: (-f32::INFINITY, f32::INFINITY),
             threshold_mode: ThresholdMode::Range,
             texture_coords: (0.0, 0.0, 1.0, 1.0),
+            is_mask: false,
         };
         
         // Create bind groups for world-space rendering
@@ -534,7 +541,7 @@ fn test_render_threshold_modes() {
         
         // Debug: print values from the volume and check data range
         println!("\nVolume data analysis:");
-        let data = volume.data_slice();
+        let data = volume.values();
         let min_val = data.iter().cloned().fold(f32::INFINITY, f32::min);
         let max_val = data.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
         println!("  Data range: {:.1} to {:.1}", min_val, max_val);
@@ -596,6 +603,7 @@ fn test_render_threshold_modes() {
                 threshold_range: range,
                 threshold_mode: mode,
                 texture_coords: (0.0, 0.0, 1.0, 1.0),
+                is_mask: false,
             };
             
             println!("  Testing {} with range {:?}, mode: {:?}", name, range, mode);
@@ -745,6 +753,7 @@ fn test_render_performance_tracking() {
             threshold_range: (-f32::INFINITY, f32::INFINITY),
             threshold_mode: ThresholdMode::Range,
             texture_coords: (0.0, 0.0, 1.0, 1.0),
+            is_mask: false,
         };
         
         // Create bind groups for world-space rendering  
@@ -830,9 +839,10 @@ fn test_render_world_coordinate_consistency() {
         data[idx] = 1000.0;
         
         let transform = Matrix4::new_translation(&Vector3::new(-5.0, -5.0, -5.0));
-        let space_impl = NeuroSpaceImpl::from_affine_matrix4(dims, transform);
-        let space = NeuroSpace3(space_impl);
-        let volume = DenseVolume3::from_data(space, data);
+        let space_impl = <volmath::NeuroSpace as NeuroSpaceExt>::from_affine_matrix4(dims.to_vec(), transform)
+        .expect("Failed to create NeuroSpace");
+        let space = NeuroSpace3::new(space_impl);
+        let volume = DenseVolume3::from_data(space.0, data);
         
         let (handle, transform) = service.upload_volume_3d(&volume)
             .expect("Failed to upload volume");
@@ -846,6 +856,7 @@ fn test_render_world_coordinate_consistency() {
             threshold_range: (-f32::INFINITY, f32::INFINITY),
             threshold_mode: ThresholdMode::Range,
             texture_coords: (0.0, 0.0, 1.0, 1.0),
+            is_mask: false,
         };
         
         // Create bind groups for world-space rendering  

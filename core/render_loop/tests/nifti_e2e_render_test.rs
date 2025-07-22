@@ -1,9 +1,9 @@
 use render_loop::{RenderLoopService, BlendMode, ThresholdMode, LayerInfo};
-use volmath::{DenseVolume3, NeuroSpace3};
-use volmath::space::NeuroSpaceImpl;
+use volmath::{DenseVolume3, NeuroSpace3, NeuroSpaceExt};
 use image::{ImageBuffer, Rgba};
 use std::path::Path;
 use std::fs;
+use nifti_loader::load_nifti_volume_auto;
 
 /// End-to-end test that loads a NIfTI file, renders it through the GPU pipeline,
 /// and saves the output as a PNG file for inspection.
@@ -32,11 +32,17 @@ async fn test_nifti_render_to_png() {
     assert!(nifti_path.exists(), "Test NIFTI file not found at {:?}", nifti_path);
     
     // Load the NIfTI file using the loader
-    let volume = load_nifti_volume(&nifti_path)
+    let (volume_sendable, _affine) = load_nifti_volume_auto(&nifti_path)
         .expect("Failed to load NIfTI file");
     
+    // Extract the DenseVolume3<f32>
+    let volume = match volume_sendable {
+        bridge_types::VolumeSendable::VolF32(vol, _) => vol,
+        _ => panic!("Expected f32 volume from test NIfTI file"),
+    };
+    
     // Get volume info
-    let dims = volume.space.dims();
+    let dims = volume.dims();
     let data_range = volume.range().unwrap_or((0.0, 1.0));
     println!("Loaded volume dimensions: {:?}", dims);
     println!("Data range: [{}, {}]", data_range.0, data_range.1);
@@ -115,6 +121,7 @@ async fn test_nifti_render_to_png() {
     println!("   You can inspect the PNG to verify the axial slice rendering");
 }
 
+/* Commented out due to missing dependency
 /// Load a NIfTI file and return it as a DenseVolume3<f32>
 fn load_nifti_volume(path: &Path) -> Result<DenseVolume3<f32>, Box<dyn std::error::Error>> {
     use std::fs::File;
@@ -134,6 +141,7 @@ fn load_nifti_volume(path: &Path) -> Result<DenseVolume3<f32>, Box<dyn std::erro
         _ => Err("Expected F32 volume from toy_t1w.nii.gz".into()),
     }
 }
+*/
 
 /// Count non-black pixels in RGBA buffer
 fn count_non_black_pixels(rgba_data: &[u8]) -> usize {
@@ -236,12 +244,12 @@ async fn test_synthetic_volume_render_to_png() {
 
 /// Create a test volume with a sphere pattern
 fn create_sphere_test_volume() -> DenseVolume3<f32> {
-    let dims = [64, 64, 64];
-    let spacing = [1.0, 1.0, 1.0];
-    let origin = [0.0, 0.0, 0.0];
+    let dims = vec![64, 64, 64];
+    let spacing = vec![1.0, 1.0, 1.0];
+    let origin = vec![0.0, 0.0, 0.0];
     
-    let space_impl = NeuroSpaceImpl::<3>::from_dims_spacing_origin(dims, spacing, origin);
-    let space = NeuroSpace3(space_impl);
+    let neuro_space = neuroim::NeuroSpace::from_dims_spacing_origin(dims.clone(), spacing, origin)
+        .expect("Failed to create NeuroSpace");
     
     let mut data = vec![0.0f32; dims[0] * dims[1] * dims[2]];
     
@@ -265,5 +273,12 @@ fn create_sphere_test_volume() -> DenseVolume3<f32> {
         }
     }
     
-    DenseVolume3::from_data(space, data)
+    // Create a DenseNeuroVol from neuroim
+    let data_ndarray = ndarray::Array3::from_shape_vec((dims[0], dims[1], dims[2]), data)
+        .expect("Failed to create ndarray");
+    let dense_vol = neuroim::DenseNeuroVol::new(data_ndarray, neuro_space)
+        .expect("Failed to create DenseNeuroVol");
+    
+    // Wrap in CompatibleVolume (aka DenseVolume3)
+    DenseVolume3::new(dense_vol)
 }

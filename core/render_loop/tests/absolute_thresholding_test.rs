@@ -16,6 +16,7 @@ mod tests {
             threshold_range: (0.5, 1.0), // Threshold on absolute values
             threshold_mode: ThresholdMode::Absolute,
             texture_coords: (0.0, 0.0, 1.0, 1.0),
+            is_mask: false,
         };
         
         assert_eq!(layer.threshold_mode, ThresholdMode::Absolute);

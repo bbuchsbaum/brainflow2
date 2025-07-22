@@ -1,0 +1,16 @@
+[package]
+name = "neuro-types"
+version = "0.1.0"
+edition = "2021"
+description = "Canonical type definitions for neuroimaging slice extraction and rendering"
+
+[dependencies]
+nalgebra = { workspace = true }
+serde = { workspace = true }
+thiserror = "1.0"
+
+[dev-dependencies]
+approx = "0.5"
+
+[features]
+default = []

@@ -111,6 +111,7 @@ fn test_storage_buffer_dynamic_resize() {
                 threshold_range: (0.0, 1.0),
                 threshold_mode: ThresholdMode::Range,
                 texture_coords: (0.0, 0.0, 1.0, 1.0),
+                is_mask: false,
             }).collect();
             
             let dims = vec![(256, 256, 128); batch_size];

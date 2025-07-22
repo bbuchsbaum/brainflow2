@@ -10,12 +10,12 @@ async fn test_3d_texture_volume_upload() {
     // Create 10x10x10 volume
     let dims = [10, 10, 10];
     let data = vec![1.0f32; 1000];
-    let space = NeuroSpaceImpl::<3>::from_dims_spacing_origin(
+    let space = NeuroSpaceImpl::from_dims_spacing_origin(
         dims,
         [1.0, 1.0, 1.0],
         [0.0, 0.0, 0.0],
     );
-    let volume = DenseVolume3::from_data(NeuroSpace3(space), data);
+    let volume = DenseVolume3::from_data(NeuroSpace3::new(space), data);
     
     // Upload volume
     let result = service.upload_volume_3d(&volume);
@@ -56,12 +56,12 @@ async fn test_non_cubic_volume_normalization() {
     // Create rectangular volume 64x32x16
     let dims = [64, 32, 16];
     let data = vec![1.0f32; 64 * 32 * 16];
-    let space = NeuroSpaceImpl::<3>::from_dims_spacing_origin(
+    let space = NeuroSpaceImpl::from_dims_spacing_origin(
         dims,
         [1.0, 1.0, 1.0],
         [0.0, 0.0, 0.0],
     );
-    let volume = DenseVolume3::from_data(NeuroSpace3(space), data);
+    let volume = DenseVolume3::from_data(NeuroSpace3::new(space), data);
     
     // Upload volume
     let result = service.upload_volume_3d(&volume);
@@ -94,12 +94,12 @@ async fn test_edge_case_dimensions() {
     // Test 1x1x1 volume (degenerate case)
     let dims = [1, 1, 1];
     let data = vec![1.0f32; 1];
-    let space = NeuroSpaceImpl::<3>::from_dims_spacing_origin(
+    let space = NeuroSpaceImpl::from_dims_spacing_origin(
         dims,
         [1.0, 1.0, 1.0],
         [0.0, 0.0, 0.0],
     );
-    let volume = DenseVolume3::from_data(NeuroSpace3(space), data);
+    let volume = DenseVolume3::from_data(NeuroSpace3::new(space), data);
     
     let result = service.upload_volume_3d(&volume);
     assert!(result.is_ok());
@@ -107,12 +107,12 @@ async fn test_edge_case_dimensions() {
     // Test 2x2x2 volume (minimal non-degenerate)
     let dims = [2, 2, 2];
     let data = vec![1.0f32; 8];
-    let space = NeuroSpaceImpl::<3>::from_dims_spacing_origin(
+    let space = NeuroSpaceImpl::from_dims_spacing_origin(
         dims,
         [1.0, 1.0, 1.0],
         [0.0, 0.0, 0.0],
     );
-    let volume = DenseVolume3::from_data(NeuroSpace3(space), data);
+    let volume = DenseVolume3::from_data(NeuroSpace3::new(space), data);
     
     let result = service.upload_volume_3d(&volume);
     assert!(result.is_ok());
@@ -157,12 +157,12 @@ async fn test_intensity_window_normalization() {
         }
     }
     
-    let space = NeuroSpaceImpl::<3>::from_dims_spacing_origin(
+    let space = NeuroSpaceImpl::from_dims_spacing_origin(
         dims,
         [1.0, 1.0, 1.0],
         [0.0, 0.0, 0.0],
     );
-    let volume = DenseVolume3::from_data(NeuroSpace3(space), data);
+    let volume = DenseVolume3::from_data(NeuroSpace3::new(space), data);
     
     let result = service.upload_volume_3d(&volume);
     assert!(result.is_ok());
@@ -202,12 +202,12 @@ async fn test_texture_upload_alignment() {
     for dims in test_dims {
         let voxel_count = dims[0] * dims[1] * dims[2];
         let data = vec![1.0f32; voxel_count];
-        let space = NeuroSpaceImpl::<3>::from_dims_spacing_origin(
+        let space = NeuroSpaceImpl::from_dims_spacing_origin(
             dims,
             [1.0, 1.0, 1.0],
             [0.0, 0.0, 0.0],
         );
-        let volume = DenseVolume3::from_data(NeuroSpace3(space), data);
+        let volume = DenseVolume3::from_data(NeuroSpace3::new(space), data);
         
         let result = service.upload_volume_3d(&volume);
         assert!(result.is_ok(), "Failed to upload volume with dims {:?}", dims);

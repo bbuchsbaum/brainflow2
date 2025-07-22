@@ -18,7 +18,7 @@ use wgpu::util::DeviceExt; // For create_buffer_init helper trait
 use thiserror::Error; // Add for error handling
 use std::sync::Arc; // Re-add Arc import
 use std::collections::HashMap;
-use volmath::{DenseVolume3, VoxelData, NumericType, DataRange}; // Import DataRange directly
+use volmath::{DenseVolume3, VoxelData, NumericType, DataRange, NeuroSpaceExt}; // Import DataRange directly
 use volmath::traits::Volume;
 use volmath::space::GridSpace;
 use raw_window_handle::{HasDisplayHandle, HasWindowHandle}; // Add for surface creation
@@ -41,6 +41,7 @@ pub mod transform_validator;
 pub mod benchmarks;
 pub mod layer_uniforms_optimized;
 pub mod optimized_renderer;
+pub mod slice_adapter;
 
 pub mod test_fixtures;
 
@@ -48,6 +49,8 @@ pub mod test_fixtures;
 pub use ubo::{FrameUbo, CrosshairUbo, CrosshairUboUpdated, LayerUboStd140, ViewPlaneUbo};
 // Re-export render state types for external use
 pub use render_state::{LayerInfo, BlendMode, ThresholdMode};
+// Re-export slice adapter for GPU-CPU differential testing
+pub use slice_adapter::{GpuSliceAdapter, SliceSpecMapper};
 // Re-export benchmarking utilities
 pub use benchmarks::{FrameTimeTracker, RenderPassProfiler, PerformanceComparison};
 // Re-export optimized renderer
@@ -55,10 +58,24 @@ pub use optimized_renderer::{OptimizedRenderer, PerformanceMonitor};
 use shaders::ShaderManager;
 use shader_watcher::{ShaderWatcher, ShaderWatchEvent};
 use pipeline::{PipelineManager, PipelineKey};
-use render_state::{RenderState, RenderPassManager, LayerStateManager, FrameStats};
+use render_state::{RenderState, RenderPassManager, LayerStateManager, FrameStats, RenderPassType};
 use layer_uniforms::LayerUniformManager;
 use texture_manager::TextureManager;
 use multi_texture_manager::MultiTextureManager;
+
+/// Convert nalgebra Matrix4 to column-major array for GPU upload
+/// WGSL expects matrices in column-major order, but nalgebra's Into trait
+/// produces row-major order, so we need to manually extract columns.
+fn matrix_to_cols_array(m: &Matrix4<f32>) -> [[f32; 4]; 4] {
+    // Explicitly extract columns to ensure correct column-major layout
+    // Each inner array is a column of the matrix
+    [
+        [m[(0,0)], m[(1,0)], m[(2,0)], m[(3,0)]],  // Column 0
+        [m[(0,1)], m[(1,1)], m[(2,1)], m[(3,1)]],  // Column 1
+        [m[(0,2)], m[(1,2)], m[(2,2)], m[(3,2)]],  // Column 2
+        [m[(0,3)], m[(1,3)], m[(2,3)], m[(3,3)]],  // Column 3 - translation
+    ]
+}
 
 #[derive(Error, Debug)]
 pub enum RenderLoopError {
@@ -339,14 +356,31 @@ impl RenderLoopService {
 
         let adapter_info = adapter.get_info();
         println!("RenderLoopService: Found adapter: {:?}", adapter_info);
+        
+        // Check if float32-filterable is supported
+        let adapter_features = adapter.features();
+        let supports_float32_filterable = adapter_features.contains(wgpu::Features::FLOAT32_FILTERABLE);
+        
+        if !supports_float32_filterable {
+            println!("WARNING: FLOAT32_FILTERABLE feature not supported on this adapter.");
+            println!("         Linear filtering of R32Float textures will not work correctly.");
+            println!("         Consider using nearest neighbor sampling or R16Float textures.");
+        }
 
         // 3. Request Device and Queue
+        let mut required_features = wgpu::Features::TEXTURE_BINDING_ARRAY 
+            | wgpu::Features::SAMPLED_TEXTURE_AND_STORAGE_BUFFER_ARRAY_NON_UNIFORM_INDEXING;
+            
+        // Only request FLOAT32_FILTERABLE if supported
+        if supports_float32_filterable {
+            required_features |= wgpu::Features::FLOAT32_FILTERABLE;
+        }
+        
         let (device, queue) = adapter
             .request_device(
                 &wgpu::DeviceDescriptor {
                     label: Some("Brainflow Render Device"),
-                    required_features: wgpu::Features::TEXTURE_BINDING_ARRAY 
-                        | wgpu::Features::SAMPLED_TEXTURE_AND_STORAGE_BUFFER_ARRAY_NON_UNIFORM_INDEXING,
+                    required_features,
                     required_limits: wgpu::Limits::default(),
                 },
                 None, // Trace path
@@ -635,8 +669,8 @@ impl RenderLoopService {
         let surface_format = if let Some(config) = self.surface_config.as_ref() {
             config.format
         } else if self.offscreen_texture.is_some() {
-            // For offscreen rendering, use RGBA8UnormSrgb
-            wgpu::TextureFormat::Rgba8UnormSrgb
+            // For offscreen rendering, use RGBA8Unorm (linear color space)
+            wgpu::TextureFormat::Rgba8Unorm
         } else {
             return Err(RenderLoopError::SurfaceNotConfigured);
         };
@@ -713,8 +747,8 @@ impl RenderLoopService {
         let surface_format = if let Some(config) = self.surface_config.as_ref() {
             config.format
         } else if self.offscreen_texture.is_some() {
-            // For offscreen rendering, use RGBA8UnormSrgb
-            wgpu::TextureFormat::Rgba8UnormSrgb
+            // For offscreen rendering, use RGBA8Unorm (linear color space)
+            wgpu::TextureFormat::Rgba8Unorm
         } else {
             return Err(RenderLoopError::SurfaceNotConfigured);
         };
@@ -773,8 +807,8 @@ impl RenderLoopService {
         // 4. Get slice data as f16 bytes
         let slice_bytes = source_volume
             .get_slice_as_f16_bytes(slice_axis, slice_index)
-            .ok_or_else(|| RenderLoopError::SliceRetrievalFailed(format!(
-                "Failed to get or convert slice (axis={}, index={})", slice_axis, slice_index
+            .map_err(|e| RenderLoopError::SliceRetrievalFailed(format!(
+                "Failed to get or convert slice (axis={}, index={}): {}", slice_axis, slice_index, e
             )))?;
 
         // 5. Allocate a layer in the atlas
@@ -929,7 +963,7 @@ impl RenderLoopService {
         if let (Some(texture_layout), Some(colormap_view)) = 
             (self.texture_bind_group_layout.as_ref(), self.texture_manager.colormap_view()) 
         {
-            let linear_sampler = self.texture_manager.nearest_sampler();
+            let linear_sampler = self.texture_manager.linear_sampler();
             let colormap_sampler = self.texture_manager.colormap_sampler();
             
             multi_texture_manager.create_bind_group(
@@ -964,11 +998,10 @@ impl RenderLoopService {
         if self.world_space_enabled {
             if let Some(ref mut multi_texture_manager) = self.multi_texture_manager {
                 // Determine texture format based on data type
+                // Use R16Float for all types to ensure filtering support
                 let format = match source_volume.voxel_type() {
                     NumericType::U8 => wgpu::TextureFormat::R8Unorm,
-                    NumericType::U16 | NumericType::I16 => wgpu::TextureFormat::R16Float,
-                    NumericType::F32 | NumericType::I32 | NumericType::U32 => wgpu::TextureFormat::R32Float,
-                    _ => wgpu::TextureFormat::R16Float, // Default to R16Float
+                    _ => wgpu::TextureFormat::R16Float, // Use R16Float for everything else to support filtering
                 };
                 
                 // Upload to multi-texture manager
@@ -1018,7 +1051,7 @@ impl RenderLoopService {
                     multi_texture_manager.create_bind_group(
                         &self.device,
                         texture_layout,
-                        self.texture_manager.nearest_sampler(),
+                        self.texture_manager.linear_sampler(),
                         colormap_view,
                         self.texture_manager.colormap_sampler(),
                     )?;
@@ -1181,7 +1214,9 @@ impl RenderLoopService {
                 num_traits::cast::<T, f32>(data_max).unwrap_or(1.0)
             ),
         };
-        self.volume_metadata.insert(0, metadata.clone()); // Always use index 0 for 3D textures
+        // For non-world-space rendering, we always use texture index 0
+        // This matches what we return at the end of this function
+        self.volume_metadata.insert(0, metadata.clone());
         
         // Calculate world bounds using 8-corner method for debugging
         let corners = [
@@ -1265,6 +1300,37 @@ impl RenderLoopService {
         Ok((0, world_to_voxel))
     }
 
+    /// Register a volume with a unique ID and data range for use with ViewState API
+    pub fn register_volume_with_range(&mut self, 
+        volume_id: String, 
+        texture_index: u32,
+        data_range: (f32, f32)
+    ) -> Result<(), RenderLoopError> {
+        // Get metadata from volume_metadata and update data range
+        let mut metadata = self.volume_metadata.get(&texture_index)
+            .ok_or_else(|| RenderLoopError::Internal {
+                code: 1503,
+                details: format!("No metadata found for texture index {}", texture_index),
+            })?
+            .clone();
+        
+        // Update the data range with the actual computed values
+        metadata.data_range = data_range;
+        println!("register_volume_with_range: Setting data_range to ({}, {})", data_range.0, data_range.1);
+        
+        // Also update volume_metadata with the correct data range
+        self.volume_metadata.insert(texture_index, metadata.clone());
+        
+        // Register in volumes map
+        self.volumes.insert(volume_id.clone(), VolumeRegistryEntry {
+            atlas_index: texture_index,
+            metadata,
+            format: wgpu::TextureFormat::R32Float, // TODO: Get from actual upload
+        });
+        
+        Ok(())
+    }
+    
     /// Register a volume with a unique ID for use with ViewState API
     pub fn register_volume(&mut self, volume_id: String, texture_index: u32) -> Result<(), RenderLoopError> {
         // Get metadata from volume_metadata
@@ -1622,78 +1688,132 @@ impl RenderLoopService {
             return;
         }
         
-        // Get viewport aspect ratio from offscreen dimensions
-        let viewport_aspect = self.offscreen_dimensions.0 as f32 / self.offscreen_dimensions.1 as f32;
-        let data_aspect = view_width_mm / view_height_mm;
+        // Get volume bounds from metadata
+        let (volume_min, volume_max) = if let Some(metadata) = self.volume_metadata.get(&0) {
+            // Calculate volume bounds using 8-corner method
+            let corners = [
+                [0.0, 0.0, 0.0],
+                [metadata.dimensions.0 as f32 - 1.0, 0.0, 0.0],
+                [0.0, metadata.dimensions.1 as f32 - 1.0, 0.0],
+                [metadata.dimensions.0 as f32 - 1.0, metadata.dimensions.1 as f32 - 1.0, 0.0],
+                [0.0, 0.0, metadata.dimensions.2 as f32 - 1.0],
+                [metadata.dimensions.0 as f32 - 1.0, 0.0, metadata.dimensions.2 as f32 - 1.0],
+                [0.0, metadata.dimensions.1 as f32 - 1.0, metadata.dimensions.2 as f32 - 1.0],
+                [metadata.dimensions.0 as f32 - 1.0, metadata.dimensions.1 as f32 - 1.0, metadata.dimensions.2 as f32 - 1.0],
+            ];
+            
+            let mut min_bounds = [f32::INFINITY; 3];
+            let mut max_bounds = [f32::NEG_INFINITY; 3];
+            
+            for corner in &corners {
+                let voxel_point = nalgebra::Point4::new(corner[0], corner[1], corner[2], 1.0);
+                let world_point = metadata.voxel_to_world * voxel_point;
+                let world_coords = [
+                    world_point[0] / world_point[3],
+                    world_point[1] / world_point[3],
+                    world_point[2] / world_point[3]
+                ];
+                
+                for i in 0..3 {
+                    min_bounds[i] = min_bounds[i].min(world_coords[i]);
+                    max_bounds[i] = max_bounds[i].max(world_coords[i]);
+                }
+            }
+            
+            (min_bounds, max_bounds)
+        } else {
+            // Fallback to view dimensions if no metadata
+            let half_width = view_width_mm / 2.0;
+            let half_height = view_height_mm / 2.0;
+            (
+                [crosshair_world[0] - half_width, crosshair_world[1] - half_width, crosshair_world[2] - half_height],
+                [crosshair_world[0] + half_width, crosshair_world[1] + half_width, crosshair_world[2] + half_height]
+            )
+        };
         
-        println!("DEBUG: offscreen_dimensions = {:?}", self.offscreen_dimensions);
-        println!("DEBUG: viewport_aspect = {:.3}, data_aspect = {:.3}", viewport_aspect, data_aspect);
-        
-        // Since the render target is square (512x512), we don't need to adjust for viewport aspect
-        // The frontend will handle letterboxing/pillarboxing when drawing to the canvas
-        let (corrected_width_mm, corrected_height_mm) = (view_width_mm, view_height_mm);
-        
-        println!("  Aspect ratio correction: data_aspect={:.3}, viewport_aspect={:.3}", data_aspect, viewport_aspect);
-        println!("  Original dimensions: {:.1}x{:.1}mm", view_width_mm, view_height_mm);
-        println!("  Corrected dimensions: {:.1}x{:.1}mm", corrected_width_mm, corrected_height_mm);
-        
-        // Calculate frame parameters based on view plane with corrected dimensions
-        // The origin is placed at the crosshair position (center of view)
-        // The u_mm and v_mm vectors define the view plane's basis in world space
-        let (origin_mm, u_mm, v_mm) = match plane_id {
+        // Calculate frame parameters based on view plane
+        // The view should show the full volume extent, not centered on crosshair
+        let (origin_mm, mut u_mm, mut v_mm) = match plane_id {
             0 => {
                 // Axial view (XY plane at Z = current slice)
-                // Origin at bottom-left corner of the view (not center)
+                let width = volume_max[0] - volume_min[0];
+                let height = volume_max[1] - volume_min[1];
                 let origin = [
-                    crosshair_world[0] - corrected_width_mm / 2.0,
-                    crosshair_world[1] - corrected_height_mm / 2.0,
-                    crosshair_world[2],
+                    volume_min[0],
+                    volume_min[1],
+                    crosshair_world[2],  // Only Z comes from crosshair
                     1.0
                 ];
-                let u = [corrected_width_mm, 0.0, 0.0, 0.0];  // Full width
-                let v = [0.0, corrected_height_mm, 0.0, 0.0]; // Full height
+                let u = [width, 0.0, 0.0, 0.0];
+                let v = [0.0, height, 0.0, 0.0];
                 (origin, u, v)
             }
             1 => {
                 // Coronal view (XZ plane at Y = current slice)
-                // Origin at bottom-left corner of the view
+                let width = volume_max[0] - volume_min[0];
+                let height = volume_max[2] - volume_min[2];
                 let origin = [
-                    crosshair_world[0] - corrected_width_mm / 2.0,
-                    crosshair_world[1],
-                    crosshair_world[2] + corrected_height_mm / 2.0,  // +Z because v is negative
+                    volume_min[0],
+                    crosshair_world[1],  // Only Y comes from crosshair
+                    volume_max[2],       // Start from top (max Z)
                     1.0
                 ];
-                let u = [corrected_width_mm, 0.0, 0.0, 0.0];  // Full width
-                let v = [0.0, 0.0, -corrected_height_mm, 0.0]; // Full height (negative Z)
+                let u = [width, 0.0, 0.0, 0.0];
+                let v = [0.0, 0.0, -height, 0.0]; // Negative to go from top to bottom
                 (origin, u, v)
             }
             2 => {
                 // Sagittal view (YZ plane at X = current slice)
-                // Shows: Y (anterior-posterior) horizontally, Z (inferior-superior) vertically
-                // Origin at top-left corner (anterior-superior)
+                let width = volume_max[1] - volume_min[1];
+                let height = volume_max[2] - volume_min[2];
                 let origin = [
-                    crosshair_world[0],
-                    crosshair_world[1] + corrected_width_mm / 2.0,  // Start from anterior (positive Y)
-                    crosshair_world[2] + corrected_height_mm / 2.0,  // Start from superior (positive Z)
+                    crosshair_world[0],  // Only X comes from crosshair
+                    volume_max[1],       // Start from anterior (max Y)
+                    volume_max[2],       // Start from superior (max Z)
                     1.0
                 ];
-                let u = [0.0, -corrected_width_mm, 0.0, 0.0];  // Negative Y: anterior (left) to posterior (right)
-                let v = [0.0, 0.0, -corrected_height_mm, 0.0]; // Negative Z: superior (top) to inferior (bottom)
+                let u = [0.0, -width, 0.0, 0.0];  // Negative Y: anterior to posterior
+                let v = [0.0, 0.0, -height, 0.0]; // Negative Z: superior to inferior
                 (origin, u, v)
             }
             _ => {
                 // Default to axial if invalid plane_id
+                let width = volume_max[0] - volume_min[0];
+                let height = volume_max[1] - volume_min[1];
                 let origin = [
-                    crosshair_world[0] - corrected_width_mm / 2.0,
-                    crosshair_world[1] - corrected_height_mm / 2.0,
+                    volume_min[0],
+                    volume_min[1],
                     crosshair_world[2],
                     1.0
                 ];
-                let u = [corrected_width_mm, 0.0, 0.0, 0.0];  // Full width
-                let v = [0.0, corrected_height_mm, 0.0, 0.0]; // Full height
+                let u = [width, 0.0, 0.0, 0.0];
+                let v = [0.0, height, 0.0, 0.0];
                 (origin, u, v)
             }
         };
+        
+        // Apply uniform scaling to preserve aspect ratio
+        if view_width_mm > 0.0 && view_height_mm > 0.0 {
+            // Calculate current u and v vector lengths
+            let u_length = (u_mm[0] * u_mm[0] + u_mm[1] * u_mm[1] + u_mm[2] * u_mm[2]).sqrt();
+            let v_length = (v_mm[0] * v_mm[0] + v_mm[1] * v_mm[1] + v_mm[2] * v_mm[2]).sqrt();
+            
+            if u_length > 1e-6 && v_length > 1e-6 {
+                // Calculate scale factors for each axis
+                let scale_x = view_width_mm / u_length;
+                let scale_y = view_height_mm / v_length;
+                
+                // Use uniform scaling to preserve aspect ratio
+                let scale = scale_x.min(scale_y);
+                
+                // Apply scaling to the vectors
+                u_mm = [u_mm[0] * scale, u_mm[1] * scale, u_mm[2] * scale, u_mm[3]];
+                v_mm = [v_mm[0] * scale, v_mm[1] * scale, v_mm[2] * scale, v_mm[3]];
+                
+                println!("RENDER_LOOP: Applied uniform scaling: scale={:.3}, scale_x={:.3}, scale_y={:.3}", 
+                    scale, scale_x, scale_y);
+            }
+        }
         
         println!("RENDER_LOOP: Received dimensions: {}x{}mm", view_width_mm, view_height_mm);
         println!("update_frame_for_synchronized_view: plane_id={}, view_size={}x{}mm, crosshair=[{:.1}, {:.1}, {:.1}]", 
@@ -1812,7 +1932,75 @@ impl RenderLoopService {
         self.render_state.current_stats()
     }
     
-    /// Add a layer to be rendered
+    /// Add a layer to be rendered for world-space rendering
+    pub fn add_layer_3d(
+        &mut self,
+        texture_index: u32,
+        world_to_voxel: nalgebra::Matrix4<f32>,
+        volume_dims: (u32, u32, u32),
+        opacity: f32,
+        colormap_id: u32,
+    ) -> Result<usize, RenderLoopError> {
+        println!("add_layer_3d: Adding layer with texture_index={}, dims={:?}, opacity={}", 
+                 texture_index, volume_dims, opacity);
+        
+        // For world-space rendering, we need to store the texture index and transform
+        let layer_info = LayerInfo {
+            atlas_index: texture_index,
+            opacity,
+            texture_coords: (0.0, 0.0, 1.0, 1.0), // Full texture for 3D volumes
+            blend_mode: crate::render_state::BlendMode::Normal,
+            colormap_id,
+            intensity_range: (0.0, 1.0), // Will be updated later
+            threshold_range: (-f32::INFINITY, f32::INFINITY),
+            threshold_mode: crate::render_state::ThresholdMode::Range,
+            is_mask: false,
+        };
+        
+        let layer_index = self.layer_state_manager.add_layer(layer_info.clone())
+            .map_err(|e| RenderLoopError::Internal {
+                code: 1885,
+                details: format!("Failed to add layer: {}", e),
+            })?;
+        
+        // Store volume metadata for this layer with the texture index as key
+        // This is needed for update_all_layer_uniforms to get the transform
+        let metadata = VolumeMetadata {
+            dimensions: volume_dims,
+            world_to_voxel: world_to_voxel.clone(),
+            voxel_to_world: world_to_voxel.try_inverse().unwrap_or_else(Matrix4::identity),
+            origin: [0.0, 0.0, 0.0], // Will be updated if available
+            spacing: [1.0, 1.0, 1.0], // Will be updated if available
+            data_range: (0.0, 1.0), // Will be updated later
+        };
+        self.volume_metadata.insert(texture_index, metadata);
+        
+        // For world-space rendering, update the layer storage manager immediately
+        if self.world_space_enabled {
+            if let (Some(ref mut layer_storage), Some(ref layout)) = 
+                (&mut self.layer_storage_manager, &self.layer_bind_group_layout) 
+            {
+                // Update just this layer in the storage
+                layer_storage.update_layer(
+                    &self.queue,
+                    layer_index,
+                    &layer_info,
+                    volume_dims,
+                    &world_to_voxel,
+                ).map_err(|e| RenderLoopError::Internal {
+                    code: 1886,
+                    details: format!("Failed to update layer storage: {}", e),
+                })?;
+                
+                println!("add_layer_3d: Updated layer storage for layer {} with transform", layer_index);
+            }
+        }
+        
+        println!("add_layer_3d: Added layer at index {}", layer_index);
+        Ok(layer_index)
+    }
+    
+    /// Add a layer to be rendered (legacy atlas-based method)
     pub fn add_render_layer(
         &mut self, 
         atlas_index: u32, 
@@ -1823,9 +2011,18 @@ impl RenderLoopService {
         
         // Get the actual data range from volume metadata
         // Use the correct atlas_index to look up the volume's intensity range
+        println!("add_render_layer: Looking up metadata for atlas_index {}", atlas_index);
+        println!("  Available volume_metadata keys: {:?}", self.volume_metadata.keys().collect::<Vec<_>>());
+        
         let intensity_range = self.volume_metadata.get(&atlas_index)
-            .map(|meta| meta.data_range)
-            .unwrap_or((0.0, 1.0));
+            .map(|meta| {
+                println!("  Found metadata with data_range: ({}, {})", meta.data_range.0, meta.data_range.1);
+                meta.data_range
+            })
+            .unwrap_or_else(|| {
+                println!("  No metadata found for atlas_index {}, using default (0.0, 1.0)", atlas_index);
+                (0.0, 1.0)
+            });
         
         println!("add_render_layer: Using intensity range: ({}, {})", intensity_range.0, intensity_range.1);
         
@@ -1838,7 +2035,7 @@ impl RenderLoopService {
             threshold_range: intensity_range, // Use same range for thresholding initially
             threshold_mode: ThresholdMode::Range,
             texture_coords,
-            is_mask: false, // Default to false, can be set via a separate method if needed
+            is_mask: false,
         };
         
         let index = self.layer_state_manager.add_layer(layer)
@@ -1848,7 +2045,7 @@ impl RenderLoopService {
             })?;
         
         // Update layer uniforms
-        println!("DEBUG: Calling update_all_layer_uniforms after adding layer {}", index);
+        // println!("DEBUG: Calling update_all_layer_uniforms after adding layer {}", index);
         self.update_all_layer_uniforms()?;
         
         Ok(index)
@@ -1969,7 +2166,7 @@ impl RenderLoopService {
                 let dims = self.volume_metadata.get(&layer.atlas_index)
                     .map(|meta| meta.dimensions)
                     .unwrap_or((256, 256, 128)); // Default if metadata missing
-                println!("  Layer atlas_index {}: dimensions {:?}", layer.atlas_index, dims);
+                // println!("  Layer atlas_index {}: dimensions {:?}", layer.atlas_index, dims);
                 dims
             })
             .collect();
@@ -1980,13 +2177,13 @@ impl RenderLoopService {
                 let transform = self.volume_metadata.get(&layer.atlas_index)
                     .map(|meta| meta.world_to_voxel.clone())
                     .unwrap_or_else(Matrix4::identity); // Default if metadata missing
-                println!("  Layer {} (atlas_index {}) world_to_voxel matrix:", i, layer.atlas_index);
-                println!("    {:?}", transform);
+                // println!("  Layer {} (atlas_index {}) world_to_voxel matrix:", i, layer.atlas_index);
+                // println!("    {:?}", transform);
                 transform
             })
             .collect();
         
-        println!("DEBUG: update_all_layer_uniforms - {} layers", layers.len());
+        // println!("DEBUG: update_all_layer_uniforms - {} layers", layers.len());
         
         // Update based on rendering mode
         if self.world_space_enabled {
@@ -1994,6 +2191,11 @@ impl RenderLoopService {
             if let (Some(ref mut layer_storage), Some(ref layout)) = 
                 (&mut self.layer_storage_manager, &self.layer_bind_group_layout) 
             {
+                // println!("DEBUG: Updating layer storage with {} layers", layers.len());
+                // for (i, layer) in layers.iter().enumerate() {
+                //     println!("  Layer {}: atlas_index={}, opacity={}, colormap={}", 
+                //              i, layer.atlas_index, layer.opacity, layer.colormap_id);
+                // }
                 layer_storage.update_layers(
                     &self.device,
                     &self.queue,
@@ -2002,6 +2204,8 @@ impl RenderLoopService {
                     &volume_dimensions,
                     &world_to_voxel_transforms,
                 );
+            } else {
+                println!("WARNING: Layer storage manager not available for world-space rendering!");
             }
         } else {
             // Update the uniform buffer for atlas-based rendering
@@ -2075,12 +2279,40 @@ impl RenderLoopService {
             mip_level_count: 1,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Rgba8UnormSrgb,
+            format: wgpu::TextureFormat::Rgba8Unorm,
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
             view_formats: &[],
         });
         
         let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+        
+        // Clear the texture to ensure it starts with the proper background color
+        let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("Clear Offscreen Target"),
+        });
+        
+        // Get the clear color from render pass manager
+        let clear_color = self.render_pass_manager.get_config(RenderPassType::Main).clear_color;
+        
+        {
+            let _render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("Clear Pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(clear_color),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                occlusion_query_set: None,
+                timestamp_writes: None,
+            });
+            // Just begin and end the pass to clear the texture
+        }
+        
+        self.queue.submit(std::iter::once(encoder.finish()));
         
         self.offscreen_texture = Some(texture);
         self.offscreen_view = Some(view);
@@ -2091,7 +2323,7 @@ impl RenderLoopService {
         if self.surface_config.is_none() {
             self.surface_config = Some(wgpu::SurfaceConfiguration {
                 usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
-                format: wgpu::TextureFormat::Rgba8UnormSrgb,
+                format: wgpu::TextureFormat::Rgba8Unorm,
                 width,
                 height,
                 present_mode: wgpu::PresentMode::Fifo,
@@ -2102,6 +2334,30 @@ impl RenderLoopService {
         }
         
         Ok(())
+    }
+    
+    /// Unpack GPU buffer data to image format, removing padding and flipping Y axis
+    /// 
+    /// GPU renders with Y=0 at bottom (OpenGL convention), but image convention 
+    /// expects Y=0 at top. This function handles both padding removal and Y-flip.
+    fn unpack_gpu_buffer_to_image(
+        data: &[u8],
+        width: u32,
+        height: u32,
+        padded_bytes_per_row: u32,
+    ) -> Vec<u8> {
+        let bytes_per_row = width * 4; // RGBA8
+        let mut output = Vec::with_capacity((width * height * 4) as usize);
+        
+        for row in 0..height {
+            // Read rows in reverse order to flip Y
+            let flipped_row = height - 1 - row;
+            let row_start = (flipped_row * padded_bytes_per_row) as usize;
+            let row_end = row_start + bytes_per_row as usize;
+            output.extend_from_slice(&data[row_start..row_end]);
+        }
+        
+        output
     }
     
     /// Render to the offscreen target and return the image data
@@ -2140,7 +2396,26 @@ impl RenderLoopService {
         } else {
             // For world-space rendering, check layer storage manager
             if let Some(layer_storage) = &self.layer_storage_manager {
-                println!("render_to_buffer: World-space rendering with {} active layers", layer_storage.active_count());
+                let active_count = layer_storage.active_count();
+                println!("render_to_buffer: World-space rendering with {} active layers", active_count);
+                
+                if active_count == 0 {
+                    println!("WARNING: render_to_buffer: No active layers for world-space rendering!");
+                    println!("  - This usually means GPU resources haven't been allocated yet");
+                    println!("  - Check that request_layer_gpu_resources was called before rendering");
+                    println!("  - Ensure add_layer_3d was called with the layer info");
+                    
+                    // Return a transparent image instead of continuing
+                    let (width, height) = self.offscreen_dimensions;
+                    let size = (width * height * 4) as usize;
+                    return Ok(vec![0u8; size]);
+                }
+            } else {
+                println!("ERROR: World-space rendering enabled but layer_storage_manager is None!");
+                return Err(RenderLoopError::Internal {
+                    code: 7010,
+                    details: "Layer storage manager not initialized for world-space rendering".to_string(),
+                });
             }
         }
         
@@ -2186,6 +2461,26 @@ impl RenderLoopService {
         let pass_label = "Offscreen Render Pass";
         
         println!("render_to_buffer: Load op: {:?}, Store op: {:?}", load_op, store_op);
+        
+        // Ensure multi-texture bind group exists before creating render pass
+        if self.world_space_enabled {
+            if let Some(multi_texture) = &mut self.multi_texture_manager {
+                // Ensure bind group exists - recreate if needed
+                if multi_texture.bind_group().is_none() {
+                    if let (Some(texture_layout), Some(colormap_view)) = 
+                        (self.texture_bind_group_layout.as_ref(), self.texture_manager.colormap_view()) 
+                    {
+                        multi_texture.create_bind_group(
+                            &self.device,
+                            texture_layout,
+                            self.texture_manager.linear_sampler(),
+                            colormap_view,
+                            self.texture_manager.colormap_sampler(),
+                        ).ok(); // Ignore error for now
+                    }
+                }
+            }
+        }
         
         // Get the pipeline
         let pipeline = self.get_pipeline(&pipeline_name)?;
@@ -2321,12 +2616,34 @@ impl RenderLoopService {
         
         let data = buffer_slice.get_mapped_range();
         
-        // Remove padding from each row and collect into a contiguous buffer
-        let mut output = Vec::with_capacity((width * height * 4) as usize);
-        for row in 0..height {
-            let row_start = (row * padded_bytes_per_row) as usize;
-            let row_end = row_start + bytes_per_row as usize;
-            output.extend_from_slice(&data[row_start..row_end]);
+        // Use helper to unpack buffer with Y-flip
+        let output = Self::unpack_gpu_buffer_to_image(&data, width, height, padded_bytes_per_row);
+        
+        // Debug: Verify alpha channel values
+        #[cfg(debug_assertions)]
+        {
+            let mut zero_alpha_count = 0;
+            let mut low_alpha_count = 0;
+            let total_pixels = (width * height) as usize;
+            
+            for i in (3..output.len()).step_by(4) {
+                if output[i] == 0 {
+                    zero_alpha_count += 1;
+                } else if output[i] < 128 {
+                    low_alpha_count += 1;
+                }
+            }
+            
+            if zero_alpha_count > 0 {
+                println!("WARNING: {} pixels ({:.1}%) have alpha=0 (fully transparent)", 
+                    zero_alpha_count, 
+                    (zero_alpha_count as f32 / total_pixels as f32) * 100.0);
+            }
+            if low_alpha_count > 0 {
+                println!("WARNING: {} pixels ({:.1}%) have alpha<128 (semi-transparent)", 
+                    low_alpha_count,
+                    (low_alpha_count as f32 / total_pixels as f32) * 100.0);
+            }
         }
         
         // Record draw call
@@ -2360,12 +2677,22 @@ impl RenderLoopService {
         let voxel_to_world = volume.space.0.voxel_to_world();
         let spacing = volume.space.0.spacing();
         let origin = volume.space.0.origin();
+        
+        // DEBUG: Print both transforms to verify
+        println!("DEBUG register_volume_with_upload:");
+        println!("  world_to_voxel: {:?}", world_to_voxel);
+        println!("  voxel_to_world: {:?}", voxel_to_world);
         let data_range = volume.range()
-            .map(|(min, max)| (
-                num_traits::cast::<T, f32>(min).unwrap_or(0.0),
-                num_traits::cast::<T, f32>(max).unwrap_or(1.0)
-            ))
-            .unwrap_or((0.0, 1.0));
+            .map(|(min, max)| {
+                let min_f32 = num_traits::cast::<T, f32>(min).unwrap_or(0.0);
+                let max_f32 = num_traits::cast::<T, f32>(max).unwrap_or(1.0);
+                println!("DEBUG: Volume data range: min={}, max={}", min_f32, max_f32);
+                (min_f32, max_f32)
+            })
+            .unwrap_or_else(|| {
+                println!("DEBUG: Volume.range() returned None, using default (0.0, 1.0)");
+                (0.0, 1.0)
+            });
         
         let metadata = VolumeMetadata {
             dimensions: (dims[0] as u32, dims[1] as u32, dims[2] as u32),
@@ -2405,7 +2732,7 @@ impl RenderLoopService {
             mip_level_count: 1,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Rgba8UnormSrgb,
+            format: wgpu::TextureFormat::Rgba8Unorm,
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
             view_formats: &[],
         });
@@ -2490,13 +2817,13 @@ impl RenderLoopService {
                 threshold_range: layer_config.threshold
                     .as_ref()
                     .map(|t| t.range)
-                    .unwrap_or((0.0, 1.0)),
+                    .unwrap_or((-f32::INFINITY, f32::INFINITY)),
                 threshold_mode: layer_config.threshold
                     .as_ref()
                     .map(|t| t.mode)
                     .unwrap_or(ThresholdMode::Range),
-                texture_coords: (0.0, 0.0, 1.0, 1.0), // Full texture
-                is_mask: false, // TODO: Add mask field to layer config
+                texture_coords: (0.0, 0.0, 1.0, 1.0),
+                is_mask: false,  // TODO: determine from volume metadata
             };
             
             layer_infos.push(layer_info);
@@ -2513,13 +2840,6 @@ impl RenderLoopService {
             warnings.push("No visible layers to render".to_string());
         }
         
-        // Update all layer uniforms
-        self.update_layer_uniforms_direct(
-            &layer_infos,
-            &layer_dims,
-            &world_to_voxels,
-        );
-        
         // Store viewport size before moving state
         let viewport_size = state.viewport_size;
         
@@ -2528,18 +2848,42 @@ impl RenderLoopService {
         
         // Configure render state for layers
         self.clear_render_layers();
-        for (_i, layer_info) in layer_infos.iter().enumerate() {
+        
+        // Ensure volume_metadata is populated with correct data from volumes registry
+        for (i, layer_config) in state.layers.iter().enumerate() {
+            if !layer_config.visible {
+                continue;
+            }
+            
+            if let Some(vol_entry) = self.volumes.get(&layer_config.volume_id) {
+                // Copy metadata to volume_metadata map with correct data_range
+                println!("DEBUG: Copying volume metadata for '{}' to atlas_index {}", 
+                    layer_config.volume_id, vol_entry.atlas_index);
+                println!("  data_range: ({}, {})", 
+                    vol_entry.metadata.data_range.0, vol_entry.metadata.data_range.1);
+                self.volume_metadata.insert(vol_entry.atlas_index, vol_entry.metadata.clone());
+            }
+        }
+        
+        for (i, layer_info) in layer_infos.iter().enumerate() {
             self.add_render_layer(
                 layer_info.atlas_index,
                 layer_info.opacity,
                 layer_info.texture_coords,
             )?;
             
-            // Update layer settings
-            self.update_layer_intensity(layer_info.atlas_index as usize, layer_info.intensity_range.0, layer_info.intensity_range.1)?;
-            self.update_layer_threshold(layer_info.atlas_index as usize, layer_info.threshold_range.0, layer_info.threshold_range.1)?;
-            self.update_layer(layer_info.atlas_index as usize, layer_info.opacity, layer_info.colormap_id)?;
+            // Update layer settings - use layer index, not atlas index!
+            self.set_layer_colormap(i, layer_info.colormap_id)?;
+            self.update_layer_intensity(i, layer_info.intensity_range.0, layer_info.intensity_range.1)?;
+            self.update_layer_threshold(i, layer_info.threshold_range.0, layer_info.threshold_range.1)?;
         }
+        
+        // Update all layer uniforms AFTER layers have been added
+        self.update_layer_uniforms_direct(
+            &layer_infos,
+            &layer_dims,
+            &world_to_voxels,
+        );
         
         // Update view's last state
         if let Some(view_context) = self.views.get_mut(&view_id) {
@@ -2627,7 +2971,13 @@ impl RenderLoopService {
         self.queue.submit(Some(encoder.finish()));
         
         // Read back rendered data
-        let buffer_size = (viewport_size[0] * viewport_size[1] * 4) as u64;
+        // Calculate aligned bytes_per_row for GPU requirements
+        let bytes_per_pixel = 4u32; // RGBA8 = 4 bytes
+        let unpadded_bytes_per_row = viewport_size[0] * bytes_per_pixel;
+        let align = wgpu::COPY_BYTES_PER_ROW_ALIGNMENT; // 256 bytes
+        let padded_bytes_per_row = ((unpadded_bytes_per_row + align - 1) / align) * align;
+        let buffer_size = (padded_bytes_per_row * viewport_size[1]) as u64;
+        
         let staging_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("ViewState Staging Buffer"),
             size: buffer_size,
@@ -2658,7 +3008,7 @@ impl RenderLoopService {
                 buffer: &staging_buffer,
                 layout: wgpu::ImageDataLayout {
                     offset: 0,
-                    bytes_per_row: Some(viewport_size[0] * 4),
+                    bytes_per_row: Some(padded_bytes_per_row),
                     rows_per_image: Some(viewport_size[1]),
                 },
             },
@@ -2682,13 +3032,16 @@ impl RenderLoopService {
         
         let image_data = if let Some(Ok(())) = pollster::block_on(receiver.receive()) {
             let data = slice.get_mapped_range();
-            let result = data.to_vec();
+            
+            // Use helper to unpack buffer with Y-flip
+            let result = Self::unpack_gpu_buffer_to_image(&data, viewport_size[0], viewport_size[1], padded_bytes_per_row);
+            
             drop(data);
             staging_buffer.unmap();
             result
         } else {
             warnings.push("Failed to read back rendered image".to_string());
-            vec![128u8; buffer_size as usize]
+            vec![128u8; (viewport_size[0] * viewport_size[1] * 4) as usize]
         };
         
         // Calculate render time
@@ -2797,6 +3150,126 @@ impl RenderLoopService {
     /// Get smart texture manager statistics
     pub fn smart_texture_stats(&self) -> Option<smart_texture_manager::TextureStats> {
         self.smart_texture_manager.as_ref().map(|m| m.stats().clone())
+    }
+    
+    /// Set view state for slice rendering (for GPU slice adapter)
+    pub fn set_view_state(&mut self, view_state: &view_state::ViewState) -> Result<(), RenderLoopError> {
+        // Clear existing layers
+        self.clear_render_layers();
+        
+        // Set up offscreen target with the correct dimensions
+        let viewport_size = (view_state.viewport_size[0], view_state.viewport_size[1]);
+        if self.offscreen_dimensions != viewport_size {
+            self.create_offscreen_target(view_state.viewport_size[0], view_state.viewport_size[1])?;
+        }
+        
+        // Update crosshair position
+        self.update_crosshair_position(view_state.crosshair_world, view_state.show_crosshair);
+        
+        // Calculate field of view and slice parameters from view state
+        let fov_mm = view_state.camera.fov_mm;
+        let half_fov = fov_mm / 2.0;
+        
+        // Convert the camera center and orientation to slice parameters
+        let center = view_state.camera.world_center;
+        
+        // Generate slice plane vectors based on orientation
+        let (u_mm, v_mm) = match view_state.camera.orientation {
+            view_state::SliceOrientation::Axial => {
+                // Axial: u=right (X+), v=forward (Y+), normal=up (Z+)
+                ([1.0, 0.0, 0.0, 0.0], [0.0, 1.0, 0.0, 0.0])
+            },
+            view_state::SliceOrientation::Sagittal => {
+                // Sagittal: u=forward (Y+), v=up (Z+), normal=right (X+)
+                ([0.0, 1.0, 0.0, 0.0], [0.0, 0.0, 1.0, 0.0])
+            },
+            view_state::SliceOrientation::Coronal => {
+                // Coronal: u=right (X+), v=up (Z+), normal=forward (Y+)
+                ([1.0, 0.0, 0.0, 0.0], [0.0, 0.0, 1.0, 0.0])
+            },
+        };
+        
+        // Calculate origin as center - half_extent in each direction
+        let origin_mm = [
+            center[0] - half_fov * u_mm[0] - half_fov * v_mm[0],
+            center[1] - half_fov * u_mm[1] - half_fov * v_mm[1], 
+            center[2] - half_fov * u_mm[2] - half_fov * v_mm[2],
+            0.0
+        ];
+        
+        // Scale vectors to span the full field of view
+        let u_scaled = [
+            u_mm[0] * fov_mm, u_mm[1] * fov_mm, u_mm[2] * fov_mm, u_mm[3]
+        ];
+        let v_scaled = [
+            v_mm[0] * fov_mm, v_mm[1] * fov_mm, v_mm[2] * fov_mm, v_mm[3]
+        ];
+        
+        // Update frame UBO with slice parameters
+        self.update_frame_ubo(origin_mm, u_scaled, v_scaled);
+        
+        // Add layers from view state
+        for layer_config in &view_state.layers {
+            if !layer_config.visible {
+                continue;
+            }
+            
+            // Look up volume in registry
+            let texture_index = if let Some(vol_entry) = self.volumes.get(&layer_config.volume_id) {
+                vol_entry.atlas_index
+            } else {
+                // Fall back to old format for backward compatibility
+                if layer_config.volume_id.starts_with("volume_") {
+                    layer_config.volume_id[7..].parse::<u32>()
+                        .map_err(|_| RenderLoopError::Internal {
+                            code: 9030,
+                            details: format!("Invalid volume ID format: {}", layer_config.volume_id),
+                        })?
+                } else {
+                    return Err(RenderLoopError::Internal {
+                        code: 8002,
+                        details: format!("Volume '{}' not registered", layer_config.volume_id),
+                    });
+                }
+            };
+            
+            // Add the layer
+            self.add_render_layer(texture_index, layer_config.opacity, (0.0, 0.0, 1.0, 1.0))?;
+            
+            // Update layer properties
+            if let Some(layer) = self.layer_state_manager.get_layer_mut(self.active_layer_count() - 1) {
+                layer.colormap_id = layer_config.colormap_id;
+                layer.blend_mode = layer_config.blend_mode.clone();
+                layer.intensity_range = layer_config.intensity_window;
+                
+                // Set threshold if specified
+                if let Some(threshold_config) = &layer_config.threshold {
+                    layer.threshold_mode = threshold_config.mode.clone();
+                    layer.threshold_range = threshold_config.range;
+                }
+            }
+        }
+        
+        // Update layer uniforms to apply all changes
+        self.update_all_layer_uniforms()?;
+        
+        Ok(())
+    }
+    
+    /// Composite RGBA image using current view state (implements SliceProvider interface)
+    pub fn composite_rgba(&mut self, request: &neuro_types::CompositeRequest) -> Result<Vec<u8>, RenderLoopError> {
+        // Convert CompositeRequest to ViewState
+        let view_state = crate::slice_adapter::SliceSpecMapper::to_view_state(request)
+            .map_err(|e| RenderLoopError::Internal {
+                code: 9032,
+                details: format!("Failed to convert SliceSpec to ViewState: {}", e),
+            })?;
+        
+        // Set the view state
+        self.set_view_state(&view_state)?;
+        
+        // Render to buffer and return RGBA data
+        self.render_to_buffer()
     }
 }
 

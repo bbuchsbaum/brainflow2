@@ -1,0 +1,111 @@
+/**
+ * StatusBar.css - Fixed layout styles for stable status bar
+ * Uses tabular numerals and fixed widths to prevent layout jitter
+ */
+
+.status-bar {
+  display: flex;
+  align-items: center;
+  height: 32px; /* Slightly taller for better readability */
+  padding: 0 12px;
+  background: #111827; /* gray-900 */
+  border-top: 1px solid #374151; /* gray-700 */
+  color: #d1d5db; /* gray-300 */
+  font-size: 13px;
+  font-family: system-ui, -apple-system, 'Inter', sans-serif;
+  font-variant-numeric: tabular-nums; /* Fixed-width digits to prevent jitter */
+  white-space: nowrap; /* Never wrap lines */
+  user-select: none; /* Prevent text selection in status bar */
+}
+
+.status-slot {
+  display: flex;
+  align-items: center;
+  gap: 6px; /* Space between label and value */
+  overflow: hidden; /* Protect layout if values exceed width */
+  text-overflow: ellipsis;
+  padding: 0 8px;
+  border-right: 1px solid #1f2937; /* gray-800 - subtle separator */
+}
+
+.status-slot:last-child {
+  border-right: none;
+}
+
+.status-label {
+  color: #9ca3af; /* gray-400 - slightly dimmer than value */
+  opacity: 0.85;
+  font-size: 12px;
+  flex-shrink: 0; /* Label never shrinks */
+}
+
+.status-value {
+  font-family: 'JetBrains Mono', 'Roboto Mono', 'Consolas', monospace;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Specific value colors for different data types */
+.status-value--coordinate-system {
+  color: #60a5fa; /* blue-400 */
+}
+
+.status-value--crosshair {
+  color: #34d399; /* green-400 */
+}
+
+.status-value--mouse {
+  color: #fbbf24; /* yellow-400 */
+}
+
+.status-value--fps {
+  color: #a78bfa; /* purple-400 */
+}
+
+.status-value--gpu {
+  color: #f87171; /* red-400 */
+}
+
+/* Status states */
+.status-value--warning {
+  color: #fb923c; /* orange-400 */
+}
+
+.status-value--error {
+  color: #f87171; /* red-400 */
+}
+
+.status-value--success {
+  color: #4ade80; /* green-400 */
+}
+
+/* Right-side content area */
+.status-bar__right {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+/* Responsive: hide less important items on small screens */
+@media (max-width: 1024px) {
+  .status-slot[data-priority="low"] {
+    display: none;
+  }
+}
+
+@media (max-width: 768px) {
+  .status-bar {
+    font-size: 12px;
+    height: 28px;
+  }
+  
+  .status-slot {
+    padding: 0 6px;
+  }
+  
+  .status-label {
+    font-size: 11px;
+  }
+}

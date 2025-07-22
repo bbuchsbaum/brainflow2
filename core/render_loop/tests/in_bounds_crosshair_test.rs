@@ -1,5 +1,5 @@
 use render_loop::RenderLoopService;
-use volmath::{DenseVolume3, NeuroSpace3};
+use volmath::{DenseVolume3, NeuroSpace3, NeuroSpaceExt};
 use volmath::space::{NeuroSpaceImpl, GridSpace};
 use approx::assert_relative_eq;
 
@@ -22,12 +22,12 @@ async fn in_bounds_crosshair_yields_gradient() {
     }
     
     // Create space with 1mm spacing at origin (0,0,0)
-    let space = NeuroSpaceImpl::<3>::from_dims_spacing_origin(
-        dims,
-        [1.0, 1.0, 1.0],
-        [0.0, 0.0, 0.0],
-    );
-    let volume = DenseVolume3::from_data(NeuroSpace3(space.clone()), data);
+    let space = <volmath::NeuroSpace as NeuroSpaceExt>::from_dims_spacing_origin(
+        dims.to_vec(),
+        vec![1.0, 1.0, 1.0],
+        vec![0.0, 0.0, 0.0],
+    ).expect("Failed to create NeuroSpace");
+    let volume = DenseVolume3::from_data(space, data);
     
     // Upload volume
     let result = service.upload_volume_3d(&volume);
@@ -105,12 +105,12 @@ async fn in_bounds_crosshair_non_identity_transform() {
     }
     
     // Non-identity transform: 2mm spacing, origin at (-31, -31, -15)
-    let space = NeuroSpaceImpl::<3>::from_dims_spacing_origin(
-        dims,
-        [2.0, 2.0, 2.0],
-        [-31.0, -31.0, -15.0],
-    );
-    let volume = DenseVolume3::from_data(NeuroSpace3(space.clone()), data);
+    let space = <volmath::NeuroSpace as NeuroSpaceExt>::from_dims_spacing_origin(
+        dims.to_vec(),
+        vec![2.0, 2.0, 2.0],
+        vec![-31.0, -31.0, -15.0],
+    ).expect("Failed to create NeuroSpace");
+    let volume = DenseVolume3::from_data(space, data);
     
     // Upload volume
     let result = service.upload_volume_3d(&volume);

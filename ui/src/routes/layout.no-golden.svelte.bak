@@ -1,0 +1,137 @@
+<script lang="ts">
+	console.log('=== +layout.no-golden.svelte starting ===');
+	
+	// Initialize validated config before anything else
+	import { loadAndValidateConfig } from '$lib/validation/schemas/Config';
+	const validatedConfig = loadAndValidateConfig();
+	(globalThis as any).__BRAINFLOW_VALIDATED_CONFIG__ = validatedConfig;
+	console.log('Validated config initialized:', validatedConfig);
+	
+	let { children } = $props();
+	
+	// Import components and services after config is initialized
+	import { onMount } from 'svelte';
+	import { coreApi } from '$lib/api';
+	import StatusBar from '$lib/components/StatusBar.simple.svelte';
+	// Temporarily comment out complex components
+	// import MountableTreeBrowser from '$lib/components/MountableTreeBrowser.svelte';
+	import VolumeView from '$lib/components/views/VolumeView.svelte';
+	// import LayerPanel from '$lib/components/panels/LayerPanel.svelte';
+	
+	// Initialize GPU render loop
+	onMount(async () => {
+		try {
+			console.log('Initializing GPU render loop...');
+			await coreApi.init_render_loop();
+			await coreApi.create_offscreen_render_target(512, 512);
+			console.log('GPU render loop initialized successfully');
+		} catch (err) {
+			console.error('Failed to initialize GPU render loop:', err);
+		}
+	});
+</script>
+
+<div class="app-container">
+	<!-- Simple flex layout instead of GoldenLayout -->
+	<div class="main-layout">
+		<!-- Left sidebar -->
+		<div class="sidebar">
+			<div class="panel">
+				<div class="panel-header">File Browser</div>
+				<div class="panel-content">
+					<!-- <MountableTreeBrowser /> -->
+					<div style="padding: 20px;">File browser will go here</div>
+				</div>
+			</div>
+		</div>
+		
+		<!-- Center content -->
+		<div class="center-content">
+			<div class="panel">
+				<div class="panel-header">Volume View</div>
+				<div class="panel-content">
+					<VolumeView />
+				</div>
+			</div>
+		</div>
+		
+		<!-- Right sidebar -->
+		<div class="sidebar">
+			<div class="panel">
+				<div class="panel-header">Layers</div>
+				<div class="panel-content">
+					<!-- <LayerPanel /> -->
+					<div style="padding: 20px;">Layer controls will go here</div>
+				</div>
+			</div>
+		</div>
+	</div>
+	
+	<!-- Hidden children for routing -->
+	<div style="display: none;">
+		{@render children()}
+	</div>
+	
+	<StatusBar />
+</div>
+
+<style>
+	.app-container {
+		display: flex;
+		flex-direction: column;
+		width: 100vw;
+		height: 100vh;
+		overflow: hidden;
+		background: #1a1a1a;
+		color: white;
+	}
+	
+	.main-layout {
+		flex: 1;
+		display: flex;
+		flex-direction: row;
+		overflow: hidden;
+	}
+	
+	.sidebar {
+		width: 300px;
+		display: flex;
+		flex-direction: column;
+		border-right: 1px solid #444;
+	}
+	
+	.sidebar:last-child {
+		border-right: none;
+		border-left: 1px solid #444;
+	}
+	
+	.center-content {
+		flex: 1;
+		display: flex;
+		flex-direction: column;
+	}
+	
+	.panel {
+		flex: 1;
+		display: flex;
+		flex-direction: column;
+		overflow: hidden;
+	}
+	
+	.panel-header {
+		height: 30px;
+		background: #2a2a2a;
+		border-bottom: 1px solid #444;
+		padding: 0 10px;
+		display: flex;
+		align-items: center;
+		font-weight: bold;
+		font-size: 14px;
+	}
+	
+	.panel-content {
+		flex: 1;
+		overflow: auto;
+		background: #1a1a1a;
+	}
+</style>

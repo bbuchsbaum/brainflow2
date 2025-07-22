@@ -6,13 +6,14 @@
   "identifier": "com.brainflow.dev",
 
   "build": {
-    "beforeDevCommand": "cd /Users/bbuchsbaum/code/brainflow2/ui && pnpm dev",
-    "beforeBuildCommand": "cd /Users/bbuchsbaum/code/brainflow2/ui && pnpm build",
-    "frontendDist": "../ui/build",
-    "devUrl": "http://localhost:5173"
+    "beforeDevCommand": "cd /Users/bbuchsbaum/code/brainflow2/ui2 && npm run dev",
+    "beforeBuildCommand": "cd /Users/bbuchsbaum/code/brainflow2/ui2 && npm run build",
+    "frontendDist": "../ui2/dist",
+    "devUrl": "http://localhost:5174"
   },
 
   "app": {
+    "withGlobalTauri": true,
     "windows": [
       {
         "title": "Brainflow",
