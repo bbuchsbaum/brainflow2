@@ -58,7 +58,7 @@ interface ViewStateStore {
   
   // Actions
   setViewState: (updater: (state: ViewState) => ViewState | void) => void;
-  setCrosshair: (world_mm: WorldCoordinates, visible?: boolean) => void;
+  setCrosshair: (world_mm: WorldCoordinates, updateViews?: boolean) => void;
   updateView: (viewType: ViewType, plane: ViewPlane) => void;
   updateViewDimensions: (viewType: ViewType, dimensions: [number, number]) => void;
   // Layer operations removed - use setViewState to update layers
@@ -136,24 +136,62 @@ const createViewStateStore = () => create<ViewStateStore>()(
           }
         }),
         
-        setCrosshair: (world_mm, visible = true) => set((state) => {
-          state.viewState.crosshair.world_mm = world_mm;
-          state.viewState.crosshair.visible = visible;
+        setCrosshair: (position, updateViews = false) => set((state) => {
+          const [x, y, z] = position;
+          state.viewState.crosshair.world_mm = [x, y, z];
+          state.viewState.crosshair.visible = true;
           
-          // Update view plane origins to intersect at crosshair
-          const [x, y, z] = world_mm;
-          
-          // Maintain current view orientations but update origins
-          const views = state.viewState.views;
-          
-          // Axial: update Z origin
-          views.axial.origin_mm[2] = z;
-          
-          // Sagittal: update X origin  
-          views.sagittal.origin_mm[0] = x;
-          
-          // Coronal: update Y origin
-          views.coronal.origin_mm[1] = y;
+          if (updateViews) {
+            // Update view plane positions to show the slice containing the crosshair
+            // This only updates the out-of-plane coordinate for each view
+            const views = state.viewState.views;
+            
+            // For each view, we need to find the normal vector to determine
+            // which coordinate to update for the slice position
+            
+            // Helper to calculate normal vector (cross product of u and v)
+            const calculateNormal = (u: [number, number, number], v: [number, number, number]): [number, number, number] => {
+              return [
+                u[1] * v[2] - u[2] * v[1],
+                u[2] * v[0] - u[0] * v[2],
+                u[0] * v[1] - u[1] * v[0]
+              ];
+            };
+            
+            // Helper to update the origin to show the slice at the crosshair position
+            const updateSlicePosition = (view: ViewPlane, crosshair: [number, number, number]): [number, number, number] => {
+              const u = [view.u_mm[0], view.u_mm[1], view.u_mm[2]];
+              const v = [view.v_mm[0], view.v_mm[1], view.v_mm[2]];
+              const normal = calculateNormal(u, v);
+              
+              // Normalize the normal vector
+              const mag = Math.sqrt(normal[0]**2 + normal[1]**2 + normal[2]**2);
+              const n_norm = [normal[0]/mag, normal[1]/mag, normal[2]/mag];
+              
+              // Project crosshair onto the normal to get the distance from origin
+              const distance = crosshair[0] * n_norm[0] + crosshair[1] * n_norm[1] + crosshair[2] * n_norm[2];
+              
+              // Project current origin onto normal
+              const origin_distance = view.origin_mm[0] * n_norm[0] + view.origin_mm[1] * n_norm[1] + view.origin_mm[2] * n_norm[2];
+              
+              // Calculate the offset needed
+              const offset = distance - origin_distance;
+              
+              // Update origin by moving along the normal
+              return [
+                view.origin_mm[0] + offset * n_norm[0],
+                view.origin_mm[1] + offset * n_norm[1],
+                view.origin_mm[2] + offset * n_norm[2]
+              ];
+            };
+            
+            // Update each view's origin to show the slice at the crosshair
+            views.axial.origin_mm = updateSlicePosition(views.axial, [x, y, z]);
+            views.sagittal.origin_mm = updateSlicePosition(views.sagittal, [x, y, z]);
+            views.coronal.origin_mm = updateSlicePosition(views.coronal, [x, y, z]);
+            
+            console.log(`[viewStateStore] Updated slice positions for crosshair at [${x.toFixed(1)}, ${y.toFixed(1)}, ${z.toFixed(1)}]`);
+          }
         }),
         
         updateView: (viewType, plane) => set((state) => {
