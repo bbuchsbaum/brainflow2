@@ -7,6 +7,7 @@
 import React from 'react';
 import { useStatus } from '@/contexts/StatusContext';
 import { StatusBarSlot } from './StatusBarSlot';
+import { StatusBarProgress } from './StatusBarProgress';
 
 interface StatusBarProps {
   className?: string;
@@ -32,6 +33,9 @@ export function StatusBar({
       {visibleSlotIds.map(id => (
         <StatusBarSlot key={id} id={id} />
       ))}
+      
+      {/* Progress indicator */}
+      <StatusBarProgress />
       
       {rightContent && (
         <div className="status-bar__right">

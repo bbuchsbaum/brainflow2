@@ -1,12 +1,14 @@
-import React, { useCallback, useEffect } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { useLayerStore } from '@/stores/layerStore';
 import { useViewStateStore } from '@/stores/viewStateStore';
 import { getLayerService } from '@/services/LayerService';
 import { getStoreSyncService } from '@/services/StoreSyncService';
-import { LayerDropdown } from '../ui/LayerDropdown';
+import { LayerTable } from '../ui/LayerTable';
 import { ProSlider } from '../ui/ProSlider';
 import { SingleSlider } from '../ui/SingleSlider';
 import { EnhancedColormapSelector } from './EnhancedColormapSelector';
+import { MetadataDrawer } from '../ui/MetadataDrawer';
+import { useMetadataShortcut } from '@/hooks/useMetadataShortcut';
 import type { LayerRender } from '@/types/layers';
 import './LayerPanel.css';
 
@@ -15,6 +17,13 @@ export const LayerPanel: React.FC = () => {
   const selectedLayerId = useLayerStore(state => state.selectedLayerId);
   const layerMetadata = useLayerStore(state => state.layerMetadata);
   const selectLayer = useLayerStore(state => state.selectLayer);
+  
+  // Metadata drawer state
+  const [metadataLayerId, setMetadataLayerId] = useState<string | null>(null);
+  const [isMetadataPinned, setIsMetadataPinned] = useState(false);
+  
+  // Keyboard shortcut for metadata
+  useMetadataShortcut({ onShowMetadata: setMetadataLayerId });
   
   // Get layer render properties from ViewState (source of truth)
   const viewStateLayers = useViewStateStore(state => state.viewState.layers);
@@ -72,21 +81,14 @@ export const LayerPanel: React.FC = () => {
       // Get current ViewState layer for threshold validation
       const currentViewLayer = useViewStateStore.getState().viewState.layers.find(l => l.id === selectedLayerId);
       
-      // Validate threshold values to ensure they stay within intensity window
-      if (updates.threshold && currentViewLayer) {
+      // Validate threshold values - just ensure min <= max
+      if (updates.threshold) {
         const [minThresh, maxThresh] = updates.threshold;
-        const [minIntensity, maxIntensity] = currentViewLayer.intensity;
         
         // Auto-swap if crossed
         if (minThresh > maxThresh) {
           updates.threshold = [maxThresh, minThresh];
         }
-        
-        // Clamp to intensity range
-        updates.threshold = [
-          Math.max(minIntensity, Math.min(maxIntensity, updates.threshold[0])),
-          Math.max(minIntensity, Math.min(maxIntensity, updates.threshold[1]))
-        ];
       }
       
       // Update ViewState (primary source of truth)
@@ -147,12 +149,13 @@ export const LayerPanel: React.FC = () => {
           Debug: {layers.length} layers, selected: {selectedLayerId || 'none'}
         </div>
         
-        {/* Layer selector dropdown */}
-        <LayerDropdown
+        {/* Layer selector table */}
+        <LayerTable
           layers={layers}
           selectedLayerId={selectedLayerId}
           onSelect={selectLayer}
           onToggleVisibility={toggleVisibility}
+          onShowMetadata={setMetadataLayerId}
         />
 
         {/* Layer controls - only show if a layer is selected */}
@@ -171,8 +174,8 @@ export const LayerPanel: React.FC = () => {
             {/* Threshold */}
             <ProSlider
               label="Threshold"
-              min={selectedRender.intensity[0]}
-              max={selectedRender.intensity[1]}
+              min={selectedMetadata?.dataRange?.min ?? 0}
+              max={selectedMetadata?.dataRange?.max ?? 10000}
               value={selectedRender.threshold}
               onChange={(value) => handleRenderUpdate({ threshold: value })}
               precision={0}
@@ -206,6 +209,19 @@ export const LayerPanel: React.FC = () => {
           )
         )}
       </div>
+      
+      {/* Metadata Drawer */}
+      <MetadataDrawer
+        layerId={metadataLayerId || selectedLayerId || ''}
+        isOpen={!!metadataLayerId}
+        onOpenChange={(open) => {
+          if (!open && !isMetadataPinned) {
+            setMetadataLayerId(null);
+          }
+        }}
+        isPinned={isMetadataPinned}
+        onPinToggle={() => setIsMetadataPinned(!isMetadataPinned)}
+      />
     </div>
   );
 };

@@ -16,6 +16,7 @@ enableMapSet();
 
 // Volume metadata
 export interface VolumeMetadata {
+  // Existing fields
   dataRange?: DataRange;
   centerWorld?: [number, number, number];
   isBinaryLike?: boolean;
@@ -23,6 +24,20 @@ export interface VolumeMetadata {
     min: [number, number, number];
     max: [number, number, number];
   };
+  
+  // New fields for comprehensive metadata
+  dimensions?: [number, number, number];     // Volume dimensions in voxels
+  spacing?: [number, number, number];         // Voxel spacing in mm
+  origin?: [number, number, number];          // Volume origin in world space
+  dataType?: string;                          // Data type (e.g., "Float32", "Int16")
+  voxelToWorld?: number[];                    // 4x4 transformation matrix (flat array)
+  worldToVoxel?: number[];                    // 4x4 inverse transformation matrix
+  filePath?: string;                          // Source file path
+  fileFormat?: string;                        // File format (e.g., "NIfTI", "DICOM")
+  totalVoxels?: number;                       // Total number of voxels
+  nonZeroVoxels?: number;                     // Number of non-zero voxels
+  orientation?: string;                       // Orientation string (e.g., "RAS+")
+  units?: string;                             // Spatial units (e.g., "millimeters")
 }
 
 // Declare global interface for store
@@ -93,7 +108,9 @@ const createDefaultRender = (dataRange?: { min: number; max: number }): LayerRen
   return {
     opacity: 1.0,
     intensity,
-    threshold: [0, 0],  // Disabled by default - pixels opaque if x < 0 OR x > 0, so nothing is thresholded
+    threshold: dataRange 
+      ? [dataRange.min + (dataRange.max - dataRange.min) / 2, dataRange.min + (dataRange.max - dataRange.min) / 2]  // Midpoint by default
+      : [5000, 5000],  // Midpoint of default range
     colormap: 'gray',
     interpolation: 'linear',
   };

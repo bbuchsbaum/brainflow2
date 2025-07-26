@@ -28,6 +28,10 @@ static COLORMAP_NAMES: phf::Map<&'static str, BuiltinColormap> = phf_map! {
     "pet_hot_metal" => BuiltinColormap::PetHotMetal,
     "fmri" => BuiltinColormap::FmriRedBlue,
     "activation" => BuiltinColormap::FmriRedBlue,
+    "jet" => BuiltinColormap::Jet,
+    "parula" => BuiltinColormap::Parula,
+    "hsv" => BuiltinColormap::Hsv,
+    "phase" => BuiltinColormap::Phase,
 };
 
 /// Fast lookup by name - O(1) at runtime

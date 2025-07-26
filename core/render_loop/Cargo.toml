@@ -6,6 +6,7 @@ edition = "2021"
 [features]
 default = []
 hot-reload = []
+precomputed-shader = []
 
 [dependencies]
 # wgpu = { workspace = true } # Inherit version from workspace - REMOVE THIS

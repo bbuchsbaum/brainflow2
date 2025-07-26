@@ -3,7 +3,7 @@
  * Provides centralized control over status bar items
  */
 
-import React, { createContext, useReducer, useContext, type ReactNode } from 'react';
+import { createContext, useReducer, useContext, type ReactNode, type FC, type Dispatch } from 'react';
 import type { StatusSlot, StatusBatchUpdate } from '@/types/statusBar';
 
 // State type - maps slot IDs to their data (excluding the ID itself)
@@ -72,7 +72,7 @@ function reducer(state: State, action: Action): State {
 }
 
 // Context type
-type StatusContextType = [State, React.Dispatch<Action>];
+type StatusContextType = [State, Dispatch<Action>];
 
 // Create context with undefined default (will be provided by StatusProvider)
 const StatusContext = createContext<StatusContextType | undefined>(undefined);
@@ -86,7 +86,7 @@ interface StatusProviderProps {
 /**
  * StatusProvider - Wraps the app to provide status bar state
  */
-export const StatusProvider: React.FC<StatusProviderProps> = ({ initial, children }) => {
+export const StatusProvider: FC<StatusProviderProps> = ({ initial, children }) => {
   // Convert initial slots array to state object
   const initialState: State = Object.fromEntries(
     initial.map(slot => [slot.id, {
@@ -131,7 +131,7 @@ export const useStatusSlot = (id: string): Omit<StatusSlot, 'id'> | undefined =>
  * useSetStatus - Hook to get the dispatch function for updates
  * Returns the dispatch function to send actions
  */
-export const useSetStatus = (): React.Dispatch<Action> => {
+export const useSetStatus = (): Dispatch<Action> => {
   const context = useContext(StatusContext);
   if (!context) {
     throw new Error('useSetStatus must be used within a StatusProvider');

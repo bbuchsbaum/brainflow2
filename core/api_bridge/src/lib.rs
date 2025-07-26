@@ -1,4 +1,5 @@
 use tauri::command;
+use tauri::Emitter; // Import Emitter trait for emit method
 // Import necessary volmath types directly
 use volmath::NeuroSpaceExt; // Import NeuroSpaceExt trait
 use volmath::DenseVolumeExt; // Import DenseVolumeExt trait
@@ -18,6 +19,7 @@ use render_loop::{RenderLoopService}; // Remove unused RenderLoopError
 use log::{info, error, warn}; // Added error and warn
 use serde::{Serialize, Deserialize}; // Need Serialize/Deserialize for new types
 use serde_json; // For JSON parsing
+use uuid; // For generating unique IDs
 use ts_rs::TS; // Add TS trait
 // Use futures::executor::block_on when needed (now removed)
 // use futures;
@@ -312,31 +314,90 @@ impl BridgeState {
 #[command]
 #[tracing::instrument(skip_all, err, name = "api.load_file")]
 #[allow(dead_code)] // Allow unused for now
-async fn load_file(path: String, state: State<'_, BridgeState>) -> BridgeResult<VolumeHandleInfo> { // Return VolumeHandleInfo
+async fn load_file<R: Runtime>(
+    path: String, 
+    state: State<'_, BridgeState>,
+    app: tauri::AppHandle<R>
+) -> BridgeResult<VolumeHandleInfo> { // Return VolumeHandleInfo
     println!("Bridge: load_file called with path: {}", path);
     let path_buf = Path::new(&path);
     
+    // Generate task ID for progress tracking
+    let task_id = format!("load-file-{}", uuid::Uuid::new_v4());
+    let filename = path_buf.file_name()
+        .unwrap_or_default()
+        .to_string_lossy()
+        .to_string();
+    
+    // Emit progress start event
+    let _ = app.emit("progress:start", serde_json::json!({
+        "taskId": &task_id,
+        "type": "file-load",
+        "title": format!("Loading {}", filename),
+        "message": "Reading file...",
+        "cancellable": false
+    }));
+    
     // Check if file exists first
     if !path_buf.exists() {
+        let _ = app.emit("progress:error", serde_json::json!({
+            "taskId": &task_id,
+            "error": "File not found"
+        }));
         return Err(file_not_found_error(&path));
     }
     
+    // Update progress - file found
+    let _ = app.emit("progress:update", serde_json::json!({
+        "taskId": &task_id,
+        "progress": 10,
+        "message": "File found, checking format..."
+    }));
+    
     // Check if we can load this file type
     if core_loaders::is_loadable(path_buf) {
+        // Update progress - reading file
+        let _ = app.emit("progress:update", serde_json::json!({
+            "taskId": &task_id,
+            "progress": 25,
+            "message": "Reading file data..."
+        }));
+        
         // For now, we'll use spawn_blocking since NiftiLoader::load is sync
         let path_clone = path_buf.to_path_buf();
         let loaded_data = tokio::task::spawn_blocking(move || {
             nifti_loader::NiftiLoader::load(&path_clone)
         }).await
-        .map_err(|e| BridgeError::Internal { code: 5003, details: format!("Task join error: {}", e) })?
-        .map_err(|e| volume_load_error(&path, &e.to_string()))?;
+        .map_err(|e| {
+            let _ = app.emit("progress:error", serde_json::json!({
+                "taskId": &task_id,
+                "error": format!("Task join error: {}", e)
+            }));
+            BridgeError::Internal { code: 5003, details: format!("Task join error: {}", e) }
+        })?
+        .map_err(|e| {
+            let _ = app.emit("progress:error", serde_json::json!({
+                "taskId": &task_id,
+                "error": e.to_string()
+            }));
+            volume_load_error(&path, &e.to_string())
+        })?;
 
         match loaded_data {
             Loaded::Volume { dims, dtype, path: loaded_path } => {
+                // Update progress - parsing volume
+                let _ = app.emit("progress:update", serde_json::json!({
+                    "taskId": &task_id,
+                    "progress": 50,
+                    "message": "Parsing volume data..."
+                }));
+                
                 // Now we need to load the actual volume data
                 // Since load_nifti_volume is not exposed publicly, we need to read the file again
                 // This is inefficient but maintains the current architecture
                 let path_buf2 = path_buf.to_path_buf();
+                let app_clone = app.clone();
+                let task_id_clone = task_id.clone();
                 let volume_result = tokio::task::spawn_blocking(move || {
                     // File operations handled by loaders
                     
@@ -346,9 +407,22 @@ async fn load_file(path: String, state: State<'_, BridgeState>) -> BridgeResult<
                             5003
                         )
                 }).await
-                .map_err(|e| BridgeError::Internal { code: 5004, details: format!("Task join error: {}", e) })??;
+                .map_err(|e| {
+                    let _ = app_clone.emit("progress:error", serde_json::json!({
+                        "taskId": &task_id_clone,
+                        "error": format!("Task join error: {}", e)
+                    }));
+                    BridgeError::Internal { code: 5004, details: format!("Task join error: {}", e) }
+                })??;
 
                 let (volume_sendable, _affine) = volume_result;
+                
+                // Update progress - storing volume
+                let _ = app.emit("progress:update", serde_json::json!({
+                    "taskId": &task_id,
+                    "progress": 75,
+                    "message": "Storing volume data..."
+                }));
                 
                 // Generate a unique ID for this volume
                 let volume_id = uuid::Uuid::new_v4().to_string();
@@ -366,12 +440,28 @@ async fn load_file(path: String, state: State<'_, BridgeState>) -> BridgeResult<
                     dtype,
                 };
                 
+                // Emit completion event
+                let _ = app.emit("progress:complete", serde_json::json!({
+                    "taskId": &task_id,
+                    "message": "Volume loaded successfully"
+                }));
+                
                 info!("Successfully loaded and stored volume with ID: {}", handle_info.id);
                 Ok(handle_info)
             }
-            _ => Err(BridgeError::Internal { code: 500, details: "Loader returned unexpected data type".to_string() })
+            _ => {
+                let _ = app.emit("progress:error", serde_json::json!({
+                    "taskId": &task_id,
+                    "error": "Loader returned unexpected data type"
+                }));
+                Err(BridgeError::Internal { code: 500, details: "Loader returned unexpected data type".to_string() })
+            }
         }
     } else {
+        let _ = app.emit("progress:error", serde_json::json!({
+            "taskId": &task_id,
+            "error": "Unsupported file format"
+        }));
         Err(unsupported_format_error(&path))
     }
 }
@@ -617,7 +707,7 @@ async fn get_initial_views(
 #[command]
 #[tracing::instrument(skip_all, err, name = "api.request_gpu")]
 #[allow(dead_code)] // Allow unused for now
-async fn request_layer_gpu_resources(layer_spec: LayerSpec, state: State<'_, BridgeState>) -> BridgeResult<VolumeLayerGpuInfo> { // Update return type
+async fn request_layer_gpu_resources(layer_spec: LayerSpec, metadata_only: Option<bool>, state: State<'_, BridgeState>) -> BridgeResult<VolumeLayerGpuInfo> { // Update return type
     println!("Bridge: request_layer_gpu_resources called with spec: {:?}", layer_spec);
     info!("Bridge: request_layer_gpu_resources called");
     // error!("request_layer_gpu_resources is not implemented yet!"); // Remove error log
@@ -626,20 +716,33 @@ async fn request_layer_gpu_resources(layer_spec: LayerSpec, state: State<'_, Bri
         LayerSpec::Volume(vol_spec) => {
             let source_volume_id = vol_spec.source_resource_id.clone();
             let ui_layer_id = vol_spec.id.clone();
-            info!("Requesting GPU resources for UI layer '{}' (source volume '{}')", ui_layer_id, source_volume_id);
+            let metadata_only_flag = metadata_only.unwrap_or(false);
+            
+            info!("Requesting {} for UI layer '{}' (source volume '{}')", 
+                  if metadata_only_flag { "metadata only" } else { "GPU resources" }, 
+                  ui_layer_id, source_volume_id);
 
-            // --- 1. Get RenderLoopService ---
-            let service_guard = state.render_loop_service.lock().await;
-            let service_arc = service_guard.as_ref()
-                .ok_or_else(|| {
-                    error!("RenderLoopService is not available.");
-                    BridgeError::ServiceNotInitialized { 
-                        code: 5002, 
-                        details: "GPU rendering service is not initialized. Please ensure the application has started correctly.".to_string() 
-                    }
-                })?;
-            let mut render_loop_service = service_arc.lock().await;
-            // Keep the service locked for atlas allocation and upload
+            // --- 1. Get RenderLoopService (only if not metadata_only) ---
+            // We need to keep the service guard alive if we're going to use it
+            let service_guard = if !metadata_only_flag {
+                Some(state.render_loop_service.lock().await)
+            } else {
+                None
+            };
+            
+            let mut render_loop_service = if let Some(ref guard) = service_guard {
+                let service_arc = guard.as_ref()
+                    .ok_or_else(|| {
+                        error!("RenderLoopService is not available.");
+                        BridgeError::ServiceNotInitialized { 
+                            code: 5002, 
+                            details: "GPU rendering service is not initialized. Please ensure the application has started correctly.".to_string() 
+                        }
+                    })?;
+                Some(service_arc.lock().await)
+            } else {
+                None
+            };
 
             // --- 2. Get VolumeSendable ---
             let volume_registry_guard = state.volume_registry.lock().await;
@@ -672,41 +775,49 @@ async fn request_layer_gpu_resources(layer_spec: LayerSpec, state: State<'_, Bri
             let _slice_idx = calculate_slice_index(&slice_index_spec, &vol_dims_temp, slice_axis, volume_data)?;
             
             // Upload the entire volume as a 3D texture and get the world-to-voxel transform
-            println!("DEBUG: About to upload volume to GPU");
-            let (atlas_layer_idx, volume_world_to_voxel) = match volume_data {
+            // Skip if metadata_only is true
+            let (atlas_layer_idx, volume_world_to_voxel) = if metadata_only_flag {
+                info!("Metadata-only mode: skipping GPU upload");
+                (u32::MAX, nalgebra::Matrix4::<f32>::identity()) // Dummy values
+            } else {
+                println!("DEBUG: About to upload volume to GPU");
+                let render_service = render_loop_service.as_mut()
+                    .expect("RenderLoopService should be available when not in metadata_only mode");
+                match volume_data {
                 VolumeSendable::VolF32(vol, _) => {
                     println!("DEBUG: Uploading F32 volume with {} voxels", vol.data().len());
-                    render_loop_service.upload_volume_3d(vol)
+                    render_service.upload_volume_3d(vol)
                         .map_err(|e| gpu_allocation_error(&ui_layer_id, &e.to_string()))?
                 },
                 VolumeSendable::VolI16(vol, _) => {
-                    render_loop_service.upload_volume_3d(vol)
+                    render_service.upload_volume_3d(vol)
                         .map_err(|e| gpu_allocation_error(&ui_layer_id, &e.to_string()))?
                 },
                 VolumeSendable::VolU8(vol, _) => {
-                    render_loop_service.upload_volume_3d(vol)
+                    render_service.upload_volume_3d(vol)
                         .map_err(|e| gpu_allocation_error(&ui_layer_id, &e.to_string()))?
                 },
                 VolumeSendable::VolI8(vol, _) => {
-                    render_loop_service.upload_volume_3d(vol)
+                    render_service.upload_volume_3d(vol)
                         .map_err(|e| gpu_allocation_error(&ui_layer_id, &e.to_string()))?
                 },
                 VolumeSendable::VolU16(vol, _) => {
-                    render_loop_service.upload_volume_3d(vol)
+                    render_service.upload_volume_3d(vol)
                         .map_err(|e| gpu_allocation_error(&ui_layer_id, &e.to_string()))?
                 },
                 VolumeSendable::VolI32(vol, _) => {
-                    render_loop_service.upload_volume_3d(vol)
+                    render_service.upload_volume_3d(vol)
                         .map_err(|e| gpu_allocation_error(&ui_layer_id, &e.to_string()))?
                 },
                 VolumeSendable::VolU32(vol, _) => {
-                    render_loop_service.upload_volume_3d(vol)
+                    render_service.upload_volume_3d(vol)
                         .map_err(|e| gpu_allocation_error(&ui_layer_id, &e.to_string()))?
                 },
                 VolumeSendable::VolF64(vol, _) => {
-                    render_loop_service.upload_volume_3d(vol)
+                    render_service.upload_volume_3d(vol)
                         .map_err(|e| gpu_allocation_error(&ui_layer_id, &e.to_string()))?
                 },
+                }
             };
             
             // For 3D textures, texture coordinates are always the full texture
@@ -748,8 +859,8 @@ async fn request_layer_gpu_resources(layer_spec: LayerSpec, state: State<'_, Bri
                 },
             };
             
-            // Store the mapping from UI layer ID to atlas layer index
-            {
+            // Store the mapping from UI layer ID to atlas layer index (only if GPU was allocated)
+            if !metadata_only_flag {
                 let mut layer_map = state.layer_to_atlas_map.lock().await;
                 layer_map.insert(ui_layer_id.clone(), atlas_layer_idx);
             }
@@ -982,61 +1093,85 @@ async fn request_layer_gpu_resources(layer_spec: LayerSpec, state: State<'_, Bri
             
             // Register the volume for the declarative API using the source volume ID
             // This enables request_frame to access this volume with correct data range
-            if let Err(e) = render_loop_service.register_volume_with_range(
-                source_volume_id.clone(), 
-                atlas_layer_idx,
-                (min_val, max_val)
-            ) {
-                warn!("Failed to register volume {} with atlas index {}: {:?}", source_volume_id, atlas_layer_idx, e);
-                // Continue anyway - the volume is uploaded and can be used imperatively
+            // Skip if metadata_only mode
+            let layer_index = if metadata_only_flag {
+                info!("Metadata-only mode: skipping volume registration and layer addition");
+                0 // Dummy value
             } else {
-                info!("Successfully registered volume '{}' with atlas index {} for declarative API with data range ({}, {})", 
-                    source_volume_id, atlas_layer_idx, min_val, max_val);
-            }
-            
-            // Add the layer to the render state using world-space rendering
-            info!("Adding layer to render state: texture_index={}, dims={:?}", atlas_layer_idx, vol_dims);
-            let layer_index = render_loop_service.add_layer_3d(
-                atlas_layer_idx,
-                volume_world_to_voxel.clone(),
-                (vol_dims[0], vol_dims[1], vol_dims[2]),
-                1.0, // Initial opacity
-                colormap_id
-            )
-            .map_err(|e| BridgeError::GpuError {
-                code: 5012,
-                details: format!("Failed to add layer to render state: {:?}", e),
-            })?;
-            info!("Successfully added layer at index: {}", layer_index);
-            
-            // Update intensity range - for binary masks, force 0-1 range
-            // IMPORTANT: For U8 volumes using R8Unorm texture format, the GPU automatically
-            // normalizes 0-255 to 0.0-1.0 when sampling. So we must use 0-1 range in shaders!
-            let is_u8 = matches!(&volume_data, VolumeSendable::VolU8(_, _));
-            let (display_min, display_max) = if is_u8 {
-                // For U8 data, always use 0-1 range because R8Unorm normalizes to this range
-                (0.0, 1.0)
-            } else if is_binary_like && max_val <= 1.0 {
-                // For float data that's already 0-1
-                (0.0, 1.0)
-            } else {
-                (min_val, max_val)
+                let render_service = render_loop_service.as_mut()
+                    .expect("RenderLoopService should be available when not in metadata_only mode");
+                    
+                if let Err(e) = render_service.register_volume_with_range(
+                    source_volume_id.clone(), 
+                    atlas_layer_idx,
+                    (min_val, max_val)
+                ) {
+                    warn!("Failed to register volume {} with atlas index {}: {:?}", source_volume_id, atlas_layer_idx, e);
+                    // Continue anyway - the volume is uploaded and can be used imperatively
+                } else {
+                    info!("Successfully registered volume '{}' with atlas index {} for declarative API with data range ({}, {})", 
+                        source_volume_id, atlas_layer_idx, min_val, max_val);
+                }
+                
+                // Add the layer to the render state using world-space rendering
+                info!("Adding layer to render state: texture_index={}, dims={:?}", atlas_layer_idx, vol_dims);
+                let layer_idx = render_service.add_layer_3d(
+                    atlas_layer_idx,
+                    volume_world_to_voxel.clone(),
+                    (vol_dims[0], vol_dims[1], vol_dims[2]),
+                    1.0, // Initial opacity
+                    colormap_id
+                )
+                .map_err(|e| BridgeError::GpuError {
+                    code: 5012,
+                    details: format!("Failed to add layer to render state: {:?}", e),
+                })?;
+                info!("Successfully added layer at index: {}", layer_idx);
+                
+                // Update intensity range - for binary masks, force 0-1 range
+                // IMPORTANT: For U8 volumes using R8Unorm texture format, the GPU automatically
+                // normalizes 0-255 to 0.0-1.0 when sampling. So we must use 0-1 range in shaders!
+                let is_u8 = matches!(&volume_data, VolumeSendable::VolU8(_, _));
+                let (display_min, display_max) = if is_u8 {
+                    // For U8 data, always use 0-1 range because R8Unorm normalizes to this range
+                    (0.0, 1.0)
+                } else if is_binary_like && max_val <= 1.0 {
+                    // For float data that's already 0-1
+                    (0.0, 1.0)
+                } else {
+                    (min_val, max_val)
+                };
+                
+                render_service.update_layer_intensity(layer_idx, display_min, display_max)
+                    .map_err(|e| BridgeError::GpuError {
+                        code: 5014,
+                        details: format!("Failed to set layer intensity range: {:?}", e),
+                    })?;
+                    
+                layer_idx
             };
             
-            render_loop_service.update_layer_intensity(layer_index, display_min, display_max)
-                .map_err(|e| BridgeError::GpuError {
-                    code: 5014,
-                    details: format!("Failed to set layer intensity range: {:?}", e),
-                })?;
-            
-            info!("Added render layer {} with colormap {} (id {}) and intensity range ({}, {}) -> display range ({}, {})", 
-                  layer_index, vol_spec.colormap, colormap_id, min_val, max_val, display_min, display_max);
+            // Log the layer addition (skip detailed logging in metadata_only mode)
+            if !metadata_only_flag {
+                // Recalculate display_min/max for logging (they were in the else block scope)
+                let is_u8 = matches!(&volume_data, VolumeSendable::VolU8(_, _));
+                let (display_min, display_max) = if is_u8 {
+                    (0.0, 1.0)
+                } else if is_binary_like && max_val <= 1.0 {
+                    (0.0, 1.0)
+                } else {
+                    (min_val, max_val)
+                };
+                
+                info!("Added render layer {} with colormap {} (id {}) and intensity range ({}, {}) -> display range ({}, {})", 
+                      layer_index, vol_spec.colormap, colormap_id, min_val, max_val, display_min, display_max);
+            }
             if is_binary_like {
                 info!("Detected binary mask - using 0-1 display range");
             }
 
-            // Store the mapping between UI layer ID and atlas index
-            {
+            // Store the mapping between UI layer ID and atlas index (only if GPU was allocated)
+            if !metadata_only_flag {
                 let mut layer_map = state.layer_to_atlas_map.lock().await;
                 info!("📌 STORING layer mapping: UI layer '{}' -> atlas index {}", ui_layer_id, atlas_layer_idx);
                 layer_map.insert(ui_layer_id.clone(), atlas_layer_idx);
@@ -2523,24 +2658,13 @@ async fn apply_and_render_view_state_internal(
             // Volume should already be registered by allocate_gpu_resources_for_layer
             // with the correct data range, so we don't need to register it again
             
-            // Map colormap name to ID
-            let colormap_id = match layer.colormap.as_str() {
-                "gray" => 0,
-                "hot" => 1,
-                "cool" => 2,
-                "red-yellow" => 3,
-                "blue-lightblue" => 4,
-                "red" => 5,
-                "green" => 6,
-                "blue" => 7,
-                "yellow" => 8,
-                "cyan" => 9,
-                "magenta" => 10,
-                "warm" => 11,
-                "cool-warm" => 12,
-                "spectral" => 13,
-                "turbo" => 14,
-                _ => 0, // Default to grayscale
+            // Map colormap name to ID using the centralized colormap system
+            let colormap_id = match colormap_by_name(&layer.colormap) {
+                Some(id) => id.id() as u32,
+                None => {
+                    warn!("Unknown colormap '{}', defaulting to grayscale", layer.colormap);
+                    0 // Default to grayscale
+                }
             };
             
             // Map blend mode
@@ -2912,7 +3036,7 @@ pub fn create_plugin<R: Runtime>() -> TauriPlugin<R> {
 }
 
 pub fn plugin<R: Runtime>() -> TauriPlugin<R> {
-    Builder::new("api-bridge")
+    Builder::<R>::new("api-bridge")
         .invoke_handler(generate_handler![
             load_file,
             get_volume_bounds,

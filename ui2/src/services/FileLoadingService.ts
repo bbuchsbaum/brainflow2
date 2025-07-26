@@ -213,7 +213,7 @@ export class FileLoadingService {
       const extentY = bounds.max[1] - bounds.min[1];
       const extentZ = bounds.max[2] - bounds.min[2];
       const maxExtent = Math.max(extentX, extentY, extentZ);
-      const fov = maxExtent * 1.2; // Add 20% padding
+      const fov = maxExtent; // No extra padding for maximum space utilization
       
       console.log(`[FileLoadingService] Field of view: ${fov.toFixed(1)}mm`);
       
@@ -252,7 +252,7 @@ export class FileLoadingService {
       useViewStateStore.getState().setCrosshair([centerX, centerY, centerZ], true);
       
       const maxDim = Math.max(dimX, dimY, dimZ);
-      const fov = maxDim * 1.2;
+      const fov = maxDim;
       
       const currentViews = useViewStateStore.getState().viewState.views;
       const newViews = CoordinateTransform.createOrthogonalViews(

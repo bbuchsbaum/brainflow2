@@ -171,6 +171,9 @@ pub mod sources {
     /// World-space slice shader with multi-texture support
     pub const SLICE_WORLD_SPACE: &str = include_str!("../shaders/slice_world_space.wgsl");
     
+    /// Optimized world-space slice shader with performance improvements
+    pub const SLICE_WORLD_SPACE_OPTIMIZED: &str = include_str!("../shaders/slice_world_space_optimized.wgsl");
+    
     // Debug shaders - kept for potential future debugging but not loaded by default
     #[allow(dead_code)]
     pub const BASIC: &str = include_str!("../shaders/basic.wgsl");

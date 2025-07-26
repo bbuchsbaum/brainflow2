@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Backend Test</title>
+    <style>
+        body {
+            font-family: monospace;
+            margin: 20px;
+        }
+        #canvas {
+            border: 2px solid black;
+            margin: 20px 0;
+        }
+        button {
+            margin: 5px;
+            padding: 10px;
+        }
+        pre {
+            background: #f0f0f0;
+            padding: 10px;
+            overflow: auto;
+            max-height: 300px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Backend Render Test</h1>
+    <div>
+        <button onclick="loadTestVolume()">1. Load Test Volume</button>
+        <button onclick="checkState()">2. Check State</button>
+        <button onclick="testRender()">3. Test Render</button>
+        <button onclick="testRenderWithoutScaling()">4. Test Without Vector Scaling</button>
+    </div>
+    <canvas id="canvas" width="512" height="512"></canvas>
+    <pre id="log"></pre>
+
+    <script>
+        const log = (msg) => {
+            const logEl = document.getElementById('log');
+            logEl.textContent = new Date().toISOString() + ' - ' + msg + '\n' + logEl.textContent;
+            console.log(msg);
+        };
+
+        async function loadTestVolume() {
+            log('Loading test volume...');
+            try {
+                // This would normally be done through file browser
+                log('Please load a volume through the UI file browser');
+            } catch (error) {
+                log('Error: ' + error.message);
+            }
+        }
+
+        async function checkState() {
+            log('Checking state...');
+            
+            // Check if stores are available
+            if (!window.__viewStateStore) {
+                log('ERROR: ViewStateStore not available');
+                return;
+            }
+            
+            const viewState = window.__viewStateStore.getState().viewState;
+            log('ViewState layers: ' + viewState.layers.length);
+            
+            if (viewState.layers.length > 0) {
+                log('First layer: ' + JSON.stringify(viewState.layers[0], null, 2));
+                log('Axial view: ' + JSON.stringify(viewState.views.axial, null, 2));
+            }
+            
+            // Check services
+            if (window.__BRAINFLOW_SERVICES) {
+                log('Services available: ' + Object.keys(window.__BRAINFLOW_SERVICES).join(', '));
+            } else {
+                log('ERROR: Services not exposed to window');
+            }
+        }
+
+        async function testRender() {
+            log('Testing render with current state...');
+            
+            const apiService = window.__BRAINFLOW_SERVICES?.apiService;
+            if (!apiService) {
+                log('ERROR: API service not available');
+                return;
+            }
+            
+            const viewState = window.__viewStateStore.getState().viewState;
+            if (viewState.layers.length === 0) {
+                log('ERROR: No layers loaded');
+                return;
+            }
+            
+            try {
+                log('Calling applyAndRenderViewState...');
+                const imageBitmap = await apiService.applyAndRenderViewState(
+                    viewState,
+                    'axial',
+                    512,
+                    512
+                );
+                
+                if (imageBitmap) {
+                    log('SUCCESS: Got ImageBitmap ' + imageBitmap.width + 'x' + imageBitmap.height);
+                    
+                    // Draw to canvas
+                    const canvas = document.getElementById('canvas');
+                    const ctx = canvas.getContext('2d');
+                    ctx.clearRect(0, 0, 512, 512);
+                    ctx.drawImage(imageBitmap, 0, 0);
+                    log('Image drawn to canvas');
+                } else {
+                    log('ERROR: No ImageBitmap returned');
+                }
+            } catch (error) {
+                log('ERROR: ' + error.message);
+                log('Stack: ' + error.stack);
+            }
+        }
+
+        async function testRenderWithoutScaling() {
+            log('Testing render WITHOUT vector scaling...');
+            
+            const apiService = window.__BRAINFLOW_SERVICES?.apiService;
+            if (!apiService) {
+                log('ERROR: API service not available');
+                return;
+            }
+            
+            const viewState = window.__viewStateStore.getState().viewState;
+            if (viewState.layers.length === 0) {
+                log('ERROR: No layers loaded');
+                return;
+            }
+            
+            // Create a copy of viewState with unscaled vectors
+            const testViewState = JSON.parse(JSON.stringify(viewState));
+            
+            // Log original vectors
+            log('Original axial vectors:');
+            log('  u_mm: ' + JSON.stringify(testViewState.views.axial.u_mm));
+            log('  v_mm: ' + JSON.stringify(testViewState.views.axial.v_mm));
+            
+            try {
+                // Temporarily disable raw RGBA to use PNG path
+                apiService.setRawRGBA(false);
+                
+                log('Calling applyAndRenderViewState with PNG mode...');
+                const imageBitmap = await apiService.applyAndRenderViewState(
+                    testViewState,
+                    'axial',
+                    512,
+                    512
+                );
+                
+                if (imageBitmap) {
+                    log('SUCCESS: Got ImageBitmap ' + imageBitmap.width + 'x' + imageBitmap.height);
+                    
+                    // Draw to canvas
+                    const canvas = document.getElementById('canvas');
+                    const ctx = canvas.getContext('2d');
+                    ctx.clearRect(0, 0, 512, 512);
+                    ctx.drawImage(imageBitmap, 0, 0);
+                    log('Image drawn to canvas');
+                } else {
+                    log('ERROR: No ImageBitmap returned');
+                }
+                
+                // Re-enable raw RGBA
+                apiService.setRawRGBA(true);
+            } catch (error) {
+                log('ERROR: ' + error.message);
+                log('Stack: ' + error.stack);
+            }
+        }
+    </script>
+</body>
+</html>

@@ -27,9 +27,17 @@ export function useStatusBarUpdates() {
     const unsubscribe = useViewStateStore.subscribe(
       state => state.viewState.crosshair,
       crosshair => {
-        setValue('crosshair', formatCoord(crosshair.world_mm));
+        console.log('[useStatusBarUpdates] Crosshair updated:', crosshair.world_mm);
+        const formatted = formatCoord(crosshair.world_mm);
+        console.log('[useStatusBarUpdates] Setting crosshair status to:', formatted);
+        setValue('crosshair', formatted);
       }
     );
+    
+    // Set initial value
+    const initialCrosshair = useViewStateStore.getState().viewState.crosshair;
+    console.log('[useStatusBarUpdates] Initial crosshair:', initialCrosshair.world_mm);
+    setValue('crosshair', formatCoord(initialCrosshair.world_mm));
     
     return unsubscribe;
   }, [setValue]);

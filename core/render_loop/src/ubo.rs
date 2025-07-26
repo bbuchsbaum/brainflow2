@@ -187,4 +187,57 @@ impl Default for LayerUboStd140 {
             _pad: [0.0; 2],
         }
     }
+}
+
+// --- Optimized layer data struct for performance shader ---
+// This struct includes precomputed values to reduce per-pixel calculations
+#[repr(C)]
+#[derive(Debug, Copy, Clone, Pod, Zeroable)]
+pub struct LayerDataOptimized {
+    // --- 16-byte aligned types first ---
+    pub world_to_voxel: [[f32; 4]; 4], // 64 bytes, offset 0
+    
+    // --- Volume info ---
+    pub dim: [u32; 3],                  // 12 bytes, offset 64
+    pub texture_index: u32,             // 4 bytes, offset 76 (completes 16-byte block)
+    
+    // --- Rendering parameters ---
+    pub colormap_id: u32,               // 4 bytes, offset 80
+    pub blend_mode: u32,                // 4 bytes, offset 84
+    pub threshold_mode: u32,            // 4 bytes, offset 88
+    pub is_mask: u32,                   // 4 bytes, offset 92 (completes 16-byte block)
+    
+    pub opacity: f32,                   // 4 bytes, offset 96
+    pub intensity_min: f32,             // 4 bytes, offset 100
+    pub intensity_max: f32,             // 4 bytes, offset 104
+    pub thresh_low: f32,                // 4 bytes, offset 108 (completes 16-byte block)
+    
+    pub thresh_high: f32,               // 4 bytes, offset 112
+    // Performance optimization: precomputed values
+    pub inv_intensity_delta: f32,       // 4 bytes, offset 116 - 1.0 / (intensity_max - intensity_min)
+    pub voxel_size_estimate: f32,       // 4 bytes, offset 120 - Approximate voxel size for LOD
+    pub _padding: f32,                  // 4 bytes, offset 124 (completes 16-byte block)
+    // Total size: 64 + 16 + 16 + 16 + 16 = 128 bytes (8 * 16-byte blocks)
+}
+
+impl Default for LayerDataOptimized {
+    fn default() -> Self {
+        Self {
+            world_to_voxel: crate::matrix_to_cols_array(&Matrix4::identity()),
+            dim: [0; 3],
+            texture_index: 0,
+            colormap_id: 0,
+            blend_mode: 0, // Default to alpha
+            threshold_mode: 0, // Default to range thresholding
+            is_mask: 0,
+            opacity: 1.0,
+            intensity_min: 0.0,
+            intensity_max: 1.0,
+            thresh_low: -f32::INFINITY,
+            thresh_high: f32::INFINITY,
+            inv_intensity_delta: 1.0, // 1.0 / (1.0 - 0.0)
+            voxel_size_estimate: 1.0,
+            _padding: 0.0,
+        }
+    }
 } 

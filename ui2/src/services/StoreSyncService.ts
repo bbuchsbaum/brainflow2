@@ -9,6 +9,7 @@ import { useViewStateStore } from '@/stores/viewStateStore';
 import type { ViewLayer } from '@/types/viewState';
 import type { Layer as StoreLayer } from '@/types/layers';
 import { CoordinateTransform } from '@/utils/coordinates';
+import { coalesceUtils } from '@/stores/middleware/coalesceUpdatesMiddleware';
 
 export class StoreSyncService {
   private eventBus: EventBus;
@@ -76,7 +77,8 @@ export class StoreSyncService {
         
         // CRITICAL: Prefer layerRender values which now include user modifications
         const intensityToUse = layerRender?.intensity ?? existingViewLayer?.intensity ?? [defaultMin, defaultMax];
-        const thresholdToUse = layerRender?.threshold ?? existingViewLayer?.threshold ?? [defaultMin, defaultMax];
+        const midpoint = defaultMin + (defaultMax - defaultMin) / 2;
+        const thresholdToUse = layerRender?.threshold ?? existingViewLayer?.threshold ?? [midpoint, midpoint];
         
         return {
           id: layer.id,
@@ -227,9 +229,9 @@ export class StoreSyncService {
         opacity: currentViewLayer?.opacity ?? (layer.visible ? 1.0 : 0.0),
         colormap: currentViewLayer?.colormap ?? layerRender?.colormap ?? 'gray',
         intensity: intensityToUse,
-        threshold: currentViewLayer?.threshold ?? [
-          actualThreshold?.[0] ?? -1e10,
-          actualThreshold?.[1] ?? 1e10
+        threshold: currentViewLayer?.threshold ?? actualThreshold ?? [
+          defaultMin + (defaultMax - defaultMin) / 2,  // Set both to midpoint
+          defaultMin + (defaultMax - defaultMin) / 2
         ],
         blendMode: 'alpha'
       };
@@ -253,22 +255,11 @@ export class StoreSyncService {
         console.log(`[StoreSyncService ${performance.now() - eventTime}ms] Updating views to center on volume`);
         const currentViews = useViewStateStore.getState().viewState.views;
         
-        // Calculate appropriate field of view based on data range
-        // This is a rough estimate - ideally we'd have volume dimensions in mm
-        const fov = 256; // Default FOV in mm for brain imaging
-        
-        const newViews = CoordinateTransform.createOrthogonalViews(
-          layerMetadata.centerWorld,
-          [fov, fov],
-          [currentViews.axial.dim_px[0], currentViews.axial.dim_px[1]]
-        );
-        
-        // Update each view
-        Object.entries(newViews).forEach(([viewType, plane]) => {
-          useViewStateStore.getState().updateView(viewType as any, plane);
-        });
-        
-        console.log(`[StoreSyncService ${performance.now() - eventTime}ms] Views updated`);
+        // Don't update views here - they should already be properly calculated by FileLoadingService
+        // using the backend's get_initial_views which takes into account the actual volume bounds
+        // and aspect ratio. The simplified createOrthogonalViews uses square FOV which causes
+        // incorrect positioning.
+        console.log(`[StoreSyncService ${performance.now() - eventTime}ms] Skipping view update - using backend-calculated views`);
       }
       
       console.log(`[StoreSyncService ${performance.now() - eventTime}ms] Calling setViewState to add layer...`);
@@ -309,6 +300,10 @@ export class StoreSyncService {
         
         if (finalLayers.length === 0) {
           console.error(`[StoreSyncService] WARNING: ViewState has 0 layers after sync!`);
+        } else {
+          // Force a render by flushing the coalescing middleware
+          console.log(`[StoreSyncService] Forcing coalescing middleware flush after layer addition`);
+          coalesceUtils.flush(true); // Force dimension update to trigger render
         }
         
         // Clear the flag and mark as processed after layer addition is complete

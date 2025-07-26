@@ -50,7 +50,16 @@ export class LayerApiImpl implements LayerApi {
           ...existingMetadata,  // Preserve existing metadata like worldBounds
           dataRange: gpuInfo.data_range,
           centerWorld: gpuInfo.center_world,
-          isBinaryLike: gpuInfo.is_binary_like
+          isBinaryLike: gpuInfo.is_binary_like,
+          // Add new metadata fields
+          dimensions: gpuInfo.dim,
+          spacing: gpuInfo.spacing,
+          origin: gpuInfo.origin,
+          voxelToWorld: gpuInfo.voxel_to_world,
+          worldToVoxel: gpuInfo.world_to_voxel,
+          // Map texture format to readable string
+          dataType: gpuInfo.tex_format,
+          // TODO: Add file path and format when available from volume handle
         };
         console.log(`[LayerApiImpl ${performance.now() - addLayerStartTime}ms] Setting layer metadata:`, JSON.stringify(metadata));
         useLayerStore.getState().setLayerMetadata(newLayer.id, metadata);
@@ -75,7 +84,7 @@ export class LayerApiImpl implements LayerApi {
           renderProps = {
             opacity: 1.0,
             intensity: [intensityMin, intensityMax],
-            threshold: [-1e10, 1e10],  // Default to no thresholding - very wide range
+            threshold: [min + (range / 2), min + (range / 2)],  // Default to midpoint
             colormap: 'gray',
             interpolation: 'linear',
           };

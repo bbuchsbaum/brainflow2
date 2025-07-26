@@ -2,7 +2,7 @@
  * Hook to ensure render loop is initialized before rendering
  */
 
-import { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { getApiService } from '@/services/apiService';
 
 interface RenderLoopState {
@@ -15,14 +15,31 @@ interface RenderLoopState {
 let globalInitPromise: Promise<void> | null = null;
 let globalInitialized = false;
 
+// Export function to mark as initialized (for use by useServicesInit)
+export function markRenderLoopAsInitialized() {
+  globalInitialized = true;
+}
+
 export function useRenderLoopInit(width: number, height: number) {
+  // Validate dimensions using useMemo to ensure stable values
+  const { validWidth, validHeight } = React.useMemo(() => {
+    const w = (width > 0 && width <= 8192) ? width : 512;
+    const h = (height > 0 && height <= 8192) ? height : 512;
+    
+    if (width !== w || height !== h) {
+      console.warn(`[useRenderLoopInit] Invalid dimensions provided: ${width}x${height}, using ${w}x${h}`);
+    }
+    
+    return { validWidth: w, validHeight: h };
+  }, [width, height]);
+  
   const [state, setState] = useState<RenderLoopState>({
     isInitialized: globalInitialized,
     isInitializing: false,
     error: null
   });
   
-  const apiService = getApiService();
+  const apiService = React.useMemo(() => getApiService(), []);
   const isMounted = useRef(true);
   
   useEffect(() => {
@@ -66,10 +83,10 @@ export function useRenderLoopInit(width: number, height: number) {
       setState(prev => ({ ...prev, isInitializing: true }));
       
       globalInitPromise = (async () => {
-        // First initialize the render loop
-        await apiService.initRenderLoop(width, height);
+        // First initialize the render loop with validated dimensions
+        await apiService.initRenderLoop(validWidth, validHeight);
         // Then create the offscreen render target
-        await apiService.createOffscreenRenderTarget(width, height);
+        await apiService.createOffscreenRenderTarget(validWidth, validHeight);
       })();
       
       try {
@@ -101,7 +118,7 @@ export function useRenderLoopInit(width: number, height: number) {
     return () => {
       isMounted.current = false;
     };
-  }, [apiService, width, height]);
+  }, [apiService, validWidth, validHeight]);
   
   return state;
 }

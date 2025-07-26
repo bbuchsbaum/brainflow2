@@ -13,9 +13,15 @@ export default defineConfig({
       '@/stores': path.resolve(__dirname, './src/stores'),
       '@/utils': path.resolve(__dirname, './src/utils'),
       '@/types': path.resolve(__dirname, './src/types'),
-    }
+    },
+    // Ensure React is resolved correctly
+    dedupe: ['react', 'react-dom']
   },
   server: {
     port: 5174,
   },
+  optimizeDeps: {
+    // Force pre-bundling of React to avoid issues
+    include: ['react', 'react-dom', 'react-dom/client']
+  }
 })

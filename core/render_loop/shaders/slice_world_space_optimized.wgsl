@@ -5,6 +5,15 @@
 // - Vectorized bounds checking
 // - Reduced branching in sampling paths
 
+// Helper functions - WGSL doesn't have saturate() built-in
+fn saturate(x: f32) -> f32 {
+    return clamp(x, 0.0, 1.0);
+}
+
+fn saturate3(v: vec3<f32>) -> vec3<f32> {
+    return clamp(v, vec3<f32>(0.0), vec3<f32>(1.0));
+}
+
 // --- Frame Uniform Buffer Object (UBO) ---
 struct FrameUbo {
     origin_mm : vec4<f32>,   // World position at NDC (0,0) (homogeneous, w = 1)
@@ -33,7 +42,7 @@ struct LayerData {
     colormap_id    : u32,              // Colormap LUT index
     blend_mode     : u32,              // 0=alpha, 1=add, 2=max, 3=min
     threshold_mode : u32,              // 0=range, 1=absolute, 2=above, 3=below
-    isMask         : u32,              // 1 if binary mask
+    _padding0      : u32,              // Padding for alignment
     
     opacity        : f32,              // Layer opacity
     intensity_min  : f32,              // Intensity window min
@@ -41,10 +50,8 @@ struct LayerData {
     thresh_low     : f32,              // Threshold lower bound
     
     thresh_high    : f32,              // Threshold upper bound
-    // Performance optimization: precomputed values
-    inv_intensity_delta : f32,         // 1.0 / (intensity_max - intensity_min)
-    voxel_size_estimate : f32,         // Approximate voxel size for LOD
-    _padding       : f32,              // Pad to 16-byte alignment
+    is_mask        : u32,              // 1 if binary mask
+    _pad           : vec2<f32>,        // 8 bytes to complete 16-byte block
 };
 
 // --- Layer metadata ---
@@ -170,33 +177,43 @@ fn sampleLayerOptimized(layer: LayerData, world_mm: vec3<f32>, pixel_size: f32) 
     // Convert to texture coordinates
     let tex_coord = voxel_coord / dim_f;
     
-    // Calculate LOD based on pixel size and voxel size
-    // This helps with cache coherence for lower resolution layers
-    let lod = log2(max(1.0, pixel_size / layer.voxel_size_estimate));
+    // Calculate LOD based on pixel size
+    // Estimate voxel size as 1.0 for now (could be calculated from transform)
+    let voxel_size_estimate = 1.0;
+    // DISABLED LOD for debugging - use 0.0 to match standard shader
+    let lod = 0.0; // log2(max(1.0, pixel_size / max(voxel_size_estimate, 1e-6)));
     
     // Sample from texture with LOD
     let raw_value = sampleVolumeTextureOptimized(layer.texture_index, tex_coord, lod);
     
     // Fast path for binary masks
-    if (layer.isMask == 1u) {
+    if (layer.is_mask == 1u) {
         let alpha = select(0.0, layer.opacity, raw_value > 0.1);
         return vec4<f32>(1.0, 1.0, 1.0, alpha);
     }
     
-    // Optimized intensity normalization using precomputed inverse
-    let intensity_norm = saturate((raw_value - layer.intensity_min) * layer.inv_intensity_delta);
+    // Calculate intensity normalization
+    let intensity_delta = max(layer.intensity_max - layer.intensity_min, 1e-9);
+    let intensity_norm = saturate((raw_value - layer.intensity_min) / intensity_delta);
     
     // Optimized thresholding with reduced branching
     var alpha = layer.opacity;
     
     // Use select() to avoid branching where possible
-    if (layer.threshold_mode == 0u) { // Range mode (most common)
-        let in_range = raw_value >= layer.thresh_low && raw_value <= layer.thresh_high;
-        alpha = select(0.0, alpha, in_range);
-    } else if (layer.threshold_mode == 1u) { // Absolute value
+    if (layer.threshold_mode == 0u) { // Range mode (most common) - hide values within range, show extremes
+        let within_range = raw_value > layer.thresh_low && raw_value < layer.thresh_high;
+        alpha = select(alpha, 0.0, within_range);
+        
+        // DEBUG: Visualize threshold behavior
+        // Uncomment one of these to debug:
+        // return vec4<f32>(within_range ? 1.0 : 0.0, 0.0, 0.0, 1.0); // Red if within range
+        // return vec4<f32>(layer.thresh_low / 10000.0, layer.thresh_high / 10000.0, raw_value / 10000.0, 1.0); // Show values as colors
+    } else if (layer.threshold_mode == 1u) { // Absolute value - keep values inside range
         let abs_value = abs(raw_value);
-        let in_range = abs_value >= layer.thresh_low && abs_value <= layer.thresh_high;
-        alpha = select(0.0, alpha, in_range);
+        // Match original shader: hide if outside range [low, high]
+        if (abs_value < layer.thresh_low || abs_value > layer.thresh_high) {
+            alpha = 0.0;
+        }
     } else if (layer.threshold_mode == 2u) { // Above
         alpha = select(0.0, alpha, raw_value >= layer.thresh_low);
     } else { // Below
@@ -207,6 +224,9 @@ fn sampleLayerOptimized(layer: LayerData, world_mm: vec3<f32>, pixel_size: f32) 
     if (alpha <= 0.0) {
         return vec4<f32>(0.0);
     }
+    
+    // DEBUG: Uncomment to verify shader is being used  
+    // return vec4<f32>(1.0, 0.0, 0.0, 1.0); // Should show red screen
     
     // Apply colormap
     let lut_coord = vec2<f32>(intensity_norm, 0.5);
@@ -234,7 +254,7 @@ fn compositeOptimized(dst: vec4<f32>, src: vec4<f32>, mode: u32) -> vec4<f32> {
         let out_rgb = src.rgb * src.a + dst.rgb * dst.a * inv_src_a;
         return vec4<f32>(out_rgb / max(out_alpha, 0.00001), out_alpha);
     } else if (mode == 1u) { // Additive
-        return vec4<f32>(saturate(dst.rgb + src.rgb * src.a), max(dst.a, src.a));
+        return vec4<f32>(saturate3(dst.rgb + src.rgb * src.a), max(dst.a, src.a));
     } else if (mode == 2u) { // Max
         return vec4<f32>(max(dst.rgb, src.rgb), max(dst.a, src.a));
     } else { // Min

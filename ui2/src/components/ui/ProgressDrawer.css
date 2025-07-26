@@ -1,0 +1,20 @@
+/* ProgressDrawer animations */
+@keyframes shimmer {
+  0% {
+    transform: translateX(0);
+  }
+  100% {
+    transform: translateX(200%);
+  }
+}
+
+/* Additional styles for better contrast */
+.task-card-active {
+  background-color: rgba(16, 185, 129, 0.05);
+  border-color: #10b981;
+}
+
+.task-card-inactive {
+  background-color: transparent;
+  border-color: var(--app-border, #374151);
+}

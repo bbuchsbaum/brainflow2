@@ -1,0 +1,173 @@
+/* 
+ * shadcn/ui CSS Variables
+ * These variables are required for shadcn components to work properly
+ * Mapped to our existing theme system
+ */
+
+@layer base {
+  :root {
+    /* Background colors */
+    --background: 220 17% 7%;        /* gray-950 #020617 */
+    --foreground: 220 9% 90%;        /* gray-200 #e2e8f0 */
+    
+    /* Card/Component backgrounds */
+    --card: 220 17% 9%;              /* gray-900 #0f172a */
+    --card-foreground: 220 9% 90%;   /* gray-200 #e2e8f0 */
+    
+    /* Popover backgrounds */
+    --popover: 220 17% 9%;           /* gray-900 #0f172a */
+    --popover-foreground: 220 9% 90%; /* gray-200 #e2e8f0 */
+    
+    /* Primary colors (blue) */
+    --primary: 217 91% 60%;          /* blue-500 #3b82f6 */
+    --primary-foreground: 0 0% 100%; /* white */
+    
+    /* Secondary colors (gray) */
+    --secondary: 220 13% 28%;        /* gray-700 #334155 */
+    --secondary-foreground: 220 9% 90%; /* gray-200 #e2e8f0 */
+    
+    /* Muted colors */
+    --muted: 220 17% 12%;            /* gray-800 #1e293b */
+    --muted-foreground: 220 13% 58%; /* gray-400 #94a3b8 */
+    
+    /* Accent colors */
+    --accent: 217 91% 50%;           /* blue-600 #2563eb */
+    --accent-foreground: 0 0% 100%;  /* white */
+    
+    /* Destructive (error) colors */
+    --destructive: 0 84% 60%;        /* red-500 #ef4444 */
+    --destructive-foreground: 0 0% 100%; /* white */
+    
+    /* Border colors */
+    --border: 220 13% 28%;           /* gray-700 #334155 */
+    --input: 220 13% 28%;            /* gray-700 #334155 */
+    --ring: 217 91% 60%;             /* blue-500 #3b82f6 */
+    
+    /* Border radius (converted from rem to px) */
+    --radius: 6px;                   /* app-radius-md */
+  }
+  
+  /* Light theme support (future) */
+  .theme-light {
+    --background: 0 0% 100%;
+    --foreground: 222.2 84% 4.9%;
+    
+    --card: 0 0% 100%;
+    --card-foreground: 222.2 84% 4.9%;
+    
+    --popover: 0 0% 100%;
+    --popover-foreground: 222.2 84% 4.9%;
+    
+    --primary: 222.2 47.4% 11.2%;
+    --primary-foreground: 210 40% 98%;
+    
+    --secondary: 210 40% 96.1%;
+    --secondary-foreground: 222.2 47.4% 11.2%;
+    
+    --muted: 210 40% 96.1%;
+    --muted-foreground: 215.4 16.3% 46.9%;
+    
+    --accent: 210 40% 96.1%;
+    --accent-foreground: 222.2 47.4% 11.2%;
+    
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 210 40% 98%;
+    
+    --border: 214.3 31.8% 91.4%;
+    --input: 214.3 31.8% 91.4%;
+    --ring: 222.2 84% 4.9%;
+    
+    --radius: 6px;
+  }
+}
+
+/* Apply theme to all elements */
+@layer base {
+  * {
+    border-color: hsl(var(--border));
+  }
+  body {
+    background-color: hsl(var(--background));
+    color: hsl(var(--foreground));
+  }
+}
+
+/* Custom flat icon button styles */
+@layer components {
+  /* Flat icon button - no borders, minimal hover state */
+  .icon-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    height: 2rem; /* 32px */
+    width: 2rem; /* 32px */
+    border-radius: var(--radius);
+    color: hsl(var(--muted-foreground));
+    transition: all 150ms ease;
+    border: none !important;
+    box-shadow: none !important;
+    background: transparent;
+    cursor: pointer;
+  }
+  
+  .icon-btn:hover {
+    color: hsl(var(--foreground));
+    background-color: hsl(var(--accent) / 0.2);
+  }
+  
+  .icon-btn:focus-visible {
+    outline: none;
+    ring: 2px solid hsl(var(--ring));
+    ring-offset: 2px;
+  }
+  
+  .icon-btn:disabled {
+    pointer-events: none;
+    opacity: 0.5;
+  }
+  
+  /* Active/pressed state for toggles */
+  .icon-btn[data-state="on"],
+  .icon-btn.active {
+    color: hsl(var(--accent));
+    background-color: hsl(var(--accent) / 0.2);
+  }
+  
+  /* Row selection indicator */
+  .layer-row {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: 0.75rem; /* 12px */
+    padding: 0.5rem 0.75rem; /* 8px 12px */
+    border-radius: var(--radius);
+    transition: all 150ms ease;
+    cursor: pointer;
+  }
+  
+  .layer-row:hover {
+    background-color: hsl(var(--muted) / 0.3);
+  }
+  
+  .layer-row.selected {
+    background-color: hsl(var(--accent) / 0.15);
+  }
+  
+  /* Selection accent bar */
+  .layer-row.selected::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 0.25rem; /* 4px */
+    bottom: 0.25rem; /* 4px */
+    width: 3px;
+    background-color: hsl(var(--accent));
+    border-radius: 9999px;
+  }
+  
+  /* Keyboard focus styles */
+  .layer-row:focus {
+    outline: none;
+    box-shadow: 0 0 0 2px hsl(var(--ring));
+  }
+}

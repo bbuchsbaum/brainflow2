@@ -60,6 +60,31 @@ export interface EventMap {
   'ui.notification': { type: 'info' | 'warning' | 'error'; message: string };
   'ui.progress': { taskId: string; progress: number; message?: string };
   
+  // Progress events from backend
+  'progress.start': { 
+    taskId: string; 
+    type: 'file-load' | 'computation' | 'export' | 'rendering' | 'generic';
+    title: string;
+    message?: string;
+    cancellable?: boolean;
+  };
+  'progress.update': { 
+    taskId: string; 
+    progress: number; // 0-100 or -1 for indeterminate
+    message?: string;
+  };
+  'progress.complete': { 
+    taskId: string;
+    message?: string;
+  };
+  'progress.error': { 
+    taskId: string;
+    error: string;
+  };
+  'progress.cancel': {
+    taskId: string;
+  };
+  
   // Mouse coordinate events
   'mouse.worldCoordinate': { world_mm: [number, number, number]; viewType: ViewType };
   'mouse.leave': { viewType: ViewType };

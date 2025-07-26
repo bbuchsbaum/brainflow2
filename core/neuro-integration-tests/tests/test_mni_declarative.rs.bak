@@ -7,6 +7,52 @@ use neuro_types::{ViewRectMm, ViewOrientation, VolumeMetadata};
 use nifti_loader::load_nifti_volume_auto;
 use std::path::Path;
 
+/// Helper function to render a slice using GPU optimized shader variant
+async fn render_gpu_slice_optimized(
+    service: &mut RenderLoopService,
+    atlas_idx: u32,
+    view_rect: &ViewRectMm,
+    data_range: (f32, f32),
+) -> Vec<u8> {
+    // Resize offscreen target to match view dimensions
+    service.create_offscreen_target(view_rect.width_px, view_rect.height_px)
+        .expect("Failed to resize offscreen target");
+    
+    // Get GPU frame parameters from ViewRectMm
+    let (origin, u_vec, v_vec) = view_rect.to_gpu_frame_params();
+    
+    // Update frame UBO directly
+    service.update_frame_ubo(origin, u_vec, v_vec);
+    
+    // Set crosshair position to world center (0,0,0) for MNI template
+    let crosshair_world = [0.0, 0.0, 0.0];
+    service.set_crosshair(crosshair_world);
+    
+    // Clear existing layers
+    service.clear_render_layers();
+    
+    // Add the volume as a layer with grayscale colormap
+    service.add_render_layer(atlas_idx, 1.0, (0.0, 0.0, 1.0, 1.0))
+        .expect("Failed to add render layer");
+    
+    // Set colormap and intensity
+    service.set_layer_colormap(0, 0)
+        .expect("Failed to set colormap");
+    service.update_layer_intensity(0, data_range.0, data_range.1)
+        .expect("Failed to update intensity");
+    // Set threshold to [0, 0] to show all values (no thresholding)
+    service.update_layer_threshold(0, 0.0, 0.0)
+        .expect("Failed to update threshold");
+    
+    // Switch to optimized shader
+    service.set_shader("slice_world_space_optimized")
+        .expect("Failed to set optimized shader");
+    
+    // Render to buffer using the optimized shader
+    service.render_to_buffer()
+        .expect("Failed to render to buffer")
+}
+
 /// Helper function to render a slice using declarative ViewState API
 async fn render_gpu_slice_declarative(
     service: &mut RenderLoopService,
@@ -19,6 +65,13 @@ async fn render_gpu_slice_declarative(
     
     // Use world center (0,0,0) as the crosshair position for MNI template
     view_state.crosshair_world = [0.0, 0.0, 0.0];
+    
+    // Debug: print layer configuration
+    println!("  ViewState layers: {}", view_state.layers.len());
+    for (i, layer) in view_state.layers.iter().enumerate() {
+        println!("    Layer {}: volume_id={}, opacity={}, intensity_window={:?}, visible={}", 
+            i, layer.volume_id, layer.opacity, layer.intensity_window, layer.visible);
+    }
     
     // Debug: print frame parameters
     let (origin, u_vec, v_vec) = view_state.camera_to_frame_params();
@@ -92,8 +145,8 @@ async fn render_gpu_slice_imperative(
         .expect("Failed to set colormap");
     service.update_layer_intensity(0, data_range.0, data_range.1)
         .expect("Failed to update intensity");
-    // Set threshold to allow all values (don't filter anything)
-    service.update_layer_threshold(0, -f32::INFINITY, f32::INFINITY)
+    // Set threshold to [0, 0] to show all values (no thresholding)
+    service.update_layer_threshold(0, 0.0, 0.0)
         .expect("Failed to update threshold");
     
     // Render to buffer
@@ -131,6 +184,7 @@ async fn test_render_gpu_slice_migration() {
     };
     
     let data_range = volume.range().unwrap_or((0.0, 100.0));
+    println!("Volume data range: {:?}", data_range);
     
     // Initialize GPU renderer
     let mut gpu_service = RenderLoopService::new().await
@@ -146,8 +200,8 @@ async fn test_render_gpu_slice_migration() {
     let (atlas_idx, _transform) = gpu_service.upload_volume_3d(&volume)
         .expect("Failed to upload volume to GPU");
     
-    // Also register volume for declarative API
-    gpu_service.register_volume("test_volume".to_string(), atlas_idx)
+    // Also register volume for declarative API with data range
+    gpu_service.register_volume_with_range("test_volume".to_string(), atlas_idx, data_range)
         .expect("Failed to register volume");
     
     // Initialize colormap
@@ -195,12 +249,19 @@ async fn test_render_gpu_slice_migration() {
             viewport_size,
         );
         
+        // For better contrast, use 20-80% of data range for intensity window
+        let intensity_range = (
+            data_range.0 + (data_range.1 - data_range.0) * 0.2,
+            data_range.0 + (data_range.1 - data_range.0) * 0.8
+        );
+        println!("Using intensity window: {:?} (from data range {:?})", intensity_range, data_range);
+        
         // Render with imperative API
         let imperative_result = render_gpu_slice_imperative(
             &mut gpu_service,
             atlas_idx,
             &view_rect,
-            data_range,
+            intensity_range,
         ).await;
         
         // No need to clear layers - request_frame handles this internally
@@ -210,7 +271,15 @@ async fn test_render_gpu_slice_migration() {
             &mut gpu_service,
             "test_volume".to_string(),
             &view_rect,
-            data_range,
+            intensity_range,
+        ).await;
+        
+        // Render with optimized shader
+        let optimized_result = render_gpu_slice_optimized(
+            &mut gpu_service,
+            atlas_idx,
+            &view_rect,
+            intensity_range,
         ).await;
         
         // Save dashboard images for all orientations
@@ -241,6 +310,17 @@ async fn test_render_gpu_slice_migration() {
         dec_img.save(&dec_path)
             .expect("Failed to save declarative image");
         println!("  Saved: {:?}", dec_path);
+        
+        // Save optimized shader image
+        let opt_img = image::RgbaImage::from_raw(
+            view_rect.width_px,
+            view_rect.height_px,
+            optimized_result.clone()
+        ).expect("Failed to create optimized image");
+        let opt_path = dashboard_dir.join(format!("optimized_{}.png", name));
+        opt_img.save(&opt_path)
+            .expect("Failed to save optimized image");
+        println!("  Saved: {:?}", opt_path);
         
         // Create difference image
         let mut diff_img = image::RgbaImage::new(view_rect.width_px, view_rect.height_px);
@@ -332,6 +412,45 @@ async fn test_render_gpu_slice_migration() {
         println!("  Dice coefficient: {:.4}", metrics.dice_coefficient);
         println!("  RMSE: {:.4}", metrics.rmse);
         
+        // Compare with optimized shader
+        println!("\n  Comparing imperative vs optimized shader:");
+        let opt_metrics = harness.compute_metrics(&imperative_result, &optimized_result)
+            .expect("Failed to compute optimized metrics");
+        
+        println!("  Optimized SSIM: {:.4}", opt_metrics.ssim);
+        println!("  Optimized Dice: {:.4}", opt_metrics.dice_coefficient);
+        println!("  Optimized RMSE: {:.4}", opt_metrics.rmse);
+        
+        // Create difference image for optimized comparison
+        let mut opt_diff_img = image::RgbaImage::new(view_rect.width_px, view_rect.height_px);
+        let mut opt_max_diff = 0u8;
+        
+        for (i, (imp_pixel, opt_pixel)) in imperative_result.chunks(4)
+            .zip(optimized_result.chunks(4))
+            .enumerate()
+        {
+            let x = (i % view_rect.width_px as usize) as u32;
+            let y = (i / view_rect.width_px as usize) as u32;
+            
+            let r_diff = (imp_pixel[0] as i16 - opt_pixel[0] as i16).abs() as u8;
+            let g_diff = (imp_pixel[1] as i16 - opt_pixel[1] as i16).abs() as u8;
+            let b_diff = (imp_pixel[2] as i16 - opt_pixel[2] as i16).abs() as u8;
+            
+            let amplification = 10;
+            let r_amp = (r_diff as u16 * amplification).min(255) as u8;
+            let g_amp = (g_diff as u16 * amplification).min(255) as u8;
+            let b_amp = (b_diff as u16 * amplification).min(255) as u8;
+            
+            opt_diff_img.put_pixel(x, y, image::Rgba([r_amp, g_amp, b_amp, 255]));
+            opt_max_diff = opt_max_diff.max(r_diff).max(g_diff).max(b_diff);
+        }
+        
+        let opt_diff_path = dashboard_dir.join(format!("difference_optimized_{}.png", name));
+        opt_diff_img.save(&opt_diff_path)
+            .expect("Failed to save optimized difference image");
+        println!("  Saved: {:?}", opt_diff_path);
+        println!("  Maximum pixel difference (optimized): {}", opt_max_diff);
+        
         // Report but don't fail immediately - we want to generate all images
         if metrics.ssim > 0.999 && metrics.dice_coefficient > 0.999 {
             println!("  ✅ {} orientation passed - APIs produce identical output", name);
@@ -344,12 +463,15 @@ async fn test_render_gpu_slice_migration() {
     
     if all_passed {
         println!("\n✅ All orientations passed - migration successful!");
+        println!("   Optimized shader comparison also included in dashboard");
+        println!("   Note: Optimized shader uses performance-enhanced world-space shader");
     } else {
         let dashboard_path = dashboard_dir.canonicalize()
             .unwrap_or_else(|_| dashboard_dir.to_path_buf());
         println!("\n⚠️  Dashboard generated at: {}", dashboard_path.display());
         println!("   Open dashboard.html in that directory to view the visual comparison");
         println!("   Current SSIM scores indicate differences in crosshair rendering");
+        println!("   Optimized shader results are also included for comparison");
         panic!("Some orientations have differences between imperative and declarative APIs");
     }
 }
@@ -386,6 +508,7 @@ async fn test_declarative_center_pixel_and_crosshair() {
     };
     
     let data_range = volume.range().unwrap_or((0.0, 100.0));
+    println!("Volume data range: {:?}", data_range);
     
     // Initialize GPU renderer
     let mut gpu_service = RenderLoopService::new().await
@@ -625,6 +748,7 @@ async fn test_declarative_multi_slice_render() {
     };
     
     let data_range = volume.range().unwrap_or((0.0, 100.0));
+    println!("Volume data range: {:?}", data_range);
     
     // Initialize GPU renderer
     let mut gpu_service = RenderLoopService::new().await
@@ -706,4 +830,15 @@ async fn test_declarative_multi_slice_render() {
     }
     
     println!("\n✅ All multi-slice renders completed successfully!");
+}
+
+// Main function to run the tests
+#[tokio::main]
+async fn main() {
+    println!("Running MNI Declarative Tests with GPU Optimized Shader");
+    
+    // Run the main test
+    test_render_gpu_slice_migration().await;
+    
+    println!("\nAll tests completed!");
 }

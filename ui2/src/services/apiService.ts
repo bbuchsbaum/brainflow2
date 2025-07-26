@@ -195,6 +195,17 @@ export class ApiService {
       width: declarativeViewState.requestedView?.width,
       height: declarativeViewState.requestedView?.height
     });
+    
+    // Log the original view vectors before scaling
+    if (viewType && viewState.views[viewType]) {
+      const view = viewState.views[viewType];
+      console.log(`  - Original view vectors (per-pixel):`, {
+        u_mm: view.u_mm,
+        v_mm: view.v_mm,
+        dim_px: view.dim_px
+      });
+    }
+    
     console.log(`  - Full ViewState:`, JSON.stringify(declarativeViewState, null, 2));
     
     const backendCallTime = performance.now();
@@ -296,12 +307,18 @@ export class ApiService {
     
     // Check if we got valid data
     if (!imageData || imageData.length === 0) {
-      console.warn('Backend returned empty image data');
-      // Return a 1x1 transparent image as fallback
-      const canvas = new OffscreenCanvas(1, 1);
+      console.error('❌ Backend returned empty image data!');
+      console.error('❌ This means the backend render failed completely');
+      // Return a red error image
+      const canvas = new OffscreenCanvas(width, height);
       const ctx = canvas.getContext('2d');
       if (ctx) {
-        ctx.clearRect(0, 0, 1, 1);
+        ctx.fillStyle = '#ff0000';
+        ctx.fillRect(0, 0, width, height);
+        ctx.fillStyle = '#ffffff';
+        ctx.font = '20px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText('Backend Error: No Data', width/2, height/2);
       }
       return createImageBitmap(canvas);
     }
@@ -527,6 +544,17 @@ export class ApiService {
    * Must be called before rendering
    */
   async createOffscreenRenderTarget(width: number, height: number): Promise<void> {
+    // Validate dimensions
+    if (!width || !height || width <= 0 || height <= 0 || width > 8192 || height > 8192) {
+      const error = new Error(`Invalid render target dimensions: ${width}x${height}. Dimensions must be between 1 and 8192.`);
+      console.error('[ApiService]', error.message);
+      
+      // Cancel resize on validation error
+      const resizeStore = useResizeStore.getState();
+      resizeStore.cancelResize();
+      throw error;
+    }
+    
     // Skip if already recreating or if dimensions haven't changed
     if (this.renderTargetState.isRecreating) {
       console.log('[ApiService] Render target recreation already in progress, skipping');
@@ -595,8 +623,8 @@ export class ApiService {
   /**
    * Request GPU resources for a layer
    */
-  async requestLayerGpuResources(layerId: string, volumeId: string): Promise<any> {
-    console.log(`ApiService: Requesting GPU resources for layer ${layerId}, volume ${volumeId}`);
+  async requestLayerGpuResources(layerId: string, volumeId: string, metadataOnly?: boolean): Promise<any> {
+    console.log(`ApiService: Requesting GPU resources for layer ${layerId}, volume ${volumeId}, metadataOnly: ${metadataOnly}`);
     const result = await this.transport.invoke('request_layer_gpu_resources', { 
       layerSpec: {
         Volume: {
@@ -604,7 +632,8 @@ export class ApiService {
           source_resource_id: volumeId,  // Use snake_case for Rust compatibility
           colormap: 'gray'
         }
-      }
+      },
+      metadataOnly: metadataOnly || false
     });
     console.log('ApiService: GPU resources response:', result);
     return result;
@@ -641,9 +670,16 @@ export class ApiService {
       const renderHeight = height ?? 512;
       
       // Call the core method with all parameters
-      return await this.applyAndRenderViewStateCore(viewState, viewType, renderWidth, renderHeight);
+      const result = await this.applyAndRenderViewStateCore(viewState, viewType, renderWidth, renderHeight);
+      console.log(`[ApiService] applyAndRenderViewState result:`, {
+        hasResult: !!result,
+        isImageBitmap: result instanceof ImageBitmap,
+        type: result ? Object.prototype.toString.call(result) : 'null'
+      });
+      return result;
     } catch (error) {
       console.error(`Failed to render ${viewType} view:`, error);
+      console.error(`Error stack:`, (error as Error).stack);
       return null;
     }
   }

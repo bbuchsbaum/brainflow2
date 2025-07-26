@@ -1,0 +1,190 @@
+/* Modern UI Effects - Glass-morphism and enhanced styling */
+
+/* Glass morphism base styles */
+.glass-panel {
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  background-color: rgba(15, 23, 42, 0.75); /* gray-900 with transparency */
+  border: 1px solid rgba(255, 255, 255, 0.125);
+}
+
+.glass-panel-light {
+  backdrop-filter: blur(16px) saturate(150%);
+  -webkit-backdrop-filter: blur(16px) saturate(150%);
+  background-color: rgba(30, 41, 59, 0.65); /* gray-800 with transparency */
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+/* Enhanced shadows for depth */
+.shadow-glow {
+  box-shadow: 
+    0 0 0 1px rgba(255, 255, 255, 0.05),
+    0 10px 40px -10px rgba(0, 0, 0, 0.5),
+    0 4px 20px -2px rgba(0, 0, 0, 0.3);
+}
+
+.shadow-glow-sm {
+  box-shadow: 
+    0 0 0 1px rgba(255, 255, 255, 0.05),
+    0 4px 16px -4px rgba(0, 0, 0, 0.4),
+    0 2px 8px -1px rgba(0, 0, 0, 0.3);
+}
+
+/* Modern button styles */
+.btn-modern {
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.1) 0%, rgba(255, 255, 255, 0.05) 100%);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  backdrop-filter: blur(10px);
+  transition: all 0.2s ease;
+}
+
+.btn-modern:hover {
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.15) 0%, rgba(255, 255, 255, 0.08) 100%);
+  border-color: rgba(255, 255, 255, 0.2);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px -2px rgba(0, 0, 0, 0.3);
+}
+
+.btn-modern:active {
+  transform: translateY(0);
+  box-shadow: 0 2px 8px -2px rgba(0, 0, 0, 0.2);
+}
+
+/* Section headers with gradient */
+.section-header {
+  background: linear-gradient(135deg, 
+    rgba(51, 65, 85, 0.3) 0%,    /* gray-700 */
+    rgba(30, 41, 59, 0.3) 100%    /* gray-800 */
+  );
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  position: relative;
+  overflow: hidden;
+}
+
+.section-header::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, 
+    transparent 0%, 
+    rgba(255, 255, 255, 0.1) 50%, 
+    transparent 100%
+  );
+}
+
+/* Hover state for interactive sections */
+.section-interactive:hover {
+  background: linear-gradient(135deg, 
+    rgba(51, 65, 85, 0.4) 0%,
+    rgba(30, 41, 59, 0.4) 100%
+  );
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
+/* Modern input/select styles */
+.input-modern {
+  background: rgba(30, 41, 59, 0.5); /* gray-800 with transparency */
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  transition: all 0.2s ease;
+}
+
+.input-modern:hover {
+  background: rgba(30, 41, 59, 0.7);
+  border-color: rgba(255, 255, 255, 0.15);
+}
+
+.input-modern:focus {
+  background: rgba(30, 41, 59, 0.8);
+  border-color: var(--app-accent);
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1); /* blue-500 with low opacity */
+  outline: none;
+}
+
+/* Dropdown specific styles */
+.dropdown-menu-modern {
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  background-color: rgba(15, 23, 42, 0.95); /* gray-900 with high opacity */
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: 
+    0 0 0 1px rgba(0, 0, 0, 0.05),
+    0 20px 60px -10px rgba(0, 0, 0, 0.6),
+    0 10px 30px -5px rgba(0, 0, 0, 0.4);
+}
+
+/* Smooth slide-in animation */
+@keyframes slideInSmooth {
+  from {
+    opacity: 0;
+    transform: translateX(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.animate-slide-in-smooth {
+  animation: slideInSmooth 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* Fade in animation */
+@keyframes fadeInSmooth {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.animate-fade-in-smooth {
+  animation: fadeInSmooth 0.2s ease-out;
+}
+
+/* Modern scrollbar styling */
+.modern-scrollbar::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.modern-scrollbar::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 4px;
+}
+
+.modern-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.modern-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.15);
+}
+
+/* Glow effect for active/focused elements */
+.glow-accent {
+  box-shadow: 
+    0 0 0 1px var(--app-accent),
+    0 0 20px -5px rgba(59, 130, 246, 0.4);
+}
+
+/* Subtle text shadow for better readability */
+.text-shadow-sm {
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
+}
+
+/* Modern divider */
+.divider-modern {
+  height: 1px;
+  background: linear-gradient(90deg, 
+    transparent 0%, 
+    rgba(255, 255, 255, 0.1) 20%, 
+    rgba(255, 255, 255, 0.1) 80%, 
+    transparent 100%
+  );
+}

@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Declarative API Migration Dashboard</title>
+    <title>GPU Rendering Comparison Dashboard</title>
     <style>
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
@@ -24,8 +24,8 @@
         }
         .image-grid {
             display: grid;
-            grid-template-columns: repeat(3, 1fr);
-            gap: 20px;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 15px;
             margin-top: 20px;
         }
         .image-container {
@@ -33,13 +33,15 @@
         }
         .image-container img {
             width: 100%;
-            max-width: 300px;
+            max-width: 256px;
             border: 1px solid #ddd;
             border-radius: 4px;
+            cursor: pointer;
         }
         .image-container h3 {
             margin: 10px 0 5px 0;
             color: #555;
+            font-size: 14px;
         }
         .metrics {
             margin-top: 20px;
@@ -47,6 +49,13 @@
             background: #f8f9fa;
             border-radius: 4px;
             font-family: monospace;
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 20px;
+        }
+        .metrics-column h4 {
+            margin-top: 0;
+            color: #333;
         }
         .warning {
             color: #d73a49;
@@ -63,15 +72,56 @@
             padding: 15px;
             margin: 20px 0;
         }
+        .diff-row {
+            margin-top: 15px;
+            border-top: 1px solid #e0e0e0;
+            padding-top: 15px;
+        }
+        .image-modal {
+            display: none;
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0,0,0,0.9);
+        }
+        .modal-content {
+            margin: auto;
+            display: block;
+            width: 80%;
+            max-width: 700px;
+            margin-top: 50px;
+        }
+        .close {
+            position: absolute;
+            top: 15px;
+            right: 35px;
+            color: #f1f1f1;
+            font-size: 40px;
+            font-weight: bold;
+            cursor: pointer;
+        }
+        .close:hover,
+        .close:focus {
+            color: #bbb;
+            text-decoration: none;
+            cursor: pointer;
+        }
     </style>
 </head>
 <body>
-    <h1>Declarative API Migration Visual Dashboard</h1>
+    <h1>GPU Rendering Comparison Dashboard</h1>
     
     <div class="note">
-        <strong>Note:</strong> This dashboard shows the comparison between imperative and declarative GPU rendering APIs.
-        The difference images are amplified 10x to make subtle differences visible.
-        Current SSIM: ~0.8862 (target: >0.999)
+        <strong>Note:</strong> This dashboard compares three GPU rendering approaches:
+        <ul>
+            <li><strong>Imperative API:</strong> Original direct GPU command approach</li>
+            <li><strong>Declarative API:</strong> New ViewState-based approach</li>
+            <li><strong>Optimized Shader:</strong> Performance-optimized shader variant (currently using standard shader as placeholder)</li>
+        </ul>
+        Difference images are amplified 10x to make subtle differences visible.
     </div>
     
     <div class="orientation-section">
@@ -79,15 +129,25 @@
         <div class="image-grid">
             <div class="image-container">
                 <h3>Imperative API</h3>
-                <img src="imperative_axial.png" alt="Imperative Axial">
+                <img src="imperative_axial.png" alt="Imperative Axial" onclick="openModal(this)">
             </div>
             <div class="image-container">
                 <h3>Declarative API</h3>
-                <img src="declarative_axial.png" alt="Declarative Axial">
+                <img src="declarative_axial.png" alt="Declarative Axial" onclick="openModal(this)">
             </div>
             <div class="image-container">
-                <h3>Difference (10x amplified)</h3>
-                <img src="difference_axial.png" alt="Difference Axial">
+                <h3>Optimized Shader</h3>
+                <img src="optimized_axial.png" alt="Optimized Axial" onclick="openModal(this)">
+            </div>
+            <div class="image-container">
+                <h3>Difference (Imp vs Dec)</h3>
+                <img src="difference_axial.png" alt="Difference Axial" onclick="openModal(this)">
+            </div>
+        </div>
+        <div class="diff-row">
+            <div class="image-container">
+                <h3>Difference: Imperative vs Optimized (10x amplified)</h3>
+                <img src="difference_optimized_axial.png" alt="Optimized Difference Axial" onclick="openModal(this)">
             </div>
         </div>
     </div>
@@ -97,15 +157,25 @@
         <div class="image-grid">
             <div class="image-container">
                 <h3>Imperative API</h3>
-                <img src="imperative_sagittal.png" alt="Imperative Sagittal">
+                <img src="imperative_sagittal.png" alt="Imperative Sagittal" onclick="openModal(this)">
             </div>
             <div class="image-container">
                 <h3>Declarative API</h3>
-                <img src="declarative_sagittal.png" alt="Declarative Sagittal">
+                <img src="declarative_sagittal.png" alt="Declarative Sagittal" onclick="openModal(this)">
             </div>
             <div class="image-container">
-                <h3>Difference (10x amplified)</h3>
-                <img src="difference_sagittal.png" alt="Difference Sagittal">
+                <h3>Optimized Shader</h3>
+                <img src="optimized_sagittal.png" alt="Optimized Sagittal" onclick="openModal(this)">
+            </div>
+            <div class="image-container">
+                <h3>Difference (Imp vs Dec)</h3>
+                <img src="difference_sagittal.png" alt="Difference Sagittal" onclick="openModal(this)">
+            </div>
+        </div>
+        <div class="diff-row">
+            <div class="image-container">
+                <h3>Difference: Imperative vs Optimized (10x amplified)</h3>
+                <img src="difference_optimized_sagittal.png" alt="Optimized Difference Sagittal" onclick="openModal(this)">
             </div>
         </div>
     </div>
@@ -115,44 +185,102 @@
         <div class="image-grid">
             <div class="image-container">
                 <h3>Imperative API</h3>
-                <img src="imperative_coronal.png" alt="Imperative Coronal">
+                <img src="imperative_coronal.png" alt="Imperative Coronal" onclick="openModal(this)">
             </div>
             <div class="image-container">
                 <h3>Declarative API</h3>
-                <img src="declarative_coronal.png" alt="Declarative Coronal">
+                <img src="declarative_coronal.png" alt="Declarative Coronal" onclick="openModal(this)">
             </div>
             <div class="image-container">
-                <h3>Difference (10x amplified)</h3>
-                <img src="difference_coronal.png" alt="Difference Coronal">
+                <h3>Optimized Shader</h3>
+                <img src="optimized_coronal.png" alt="Optimized Coronal" onclick="openModal(this)">
+            </div>
+            <div class="image-container">
+                <h3>Difference (Imp vs Dec)</h3>
+                <img src="difference_coronal.png" alt="Difference Coronal" onclick="openModal(this)">
+            </div>
+        </div>
+        <div class="diff-row">
+            <div class="image-container">
+                <h3>Difference: Imperative vs Optimized (10x amplified)</h3>
+                <img src="difference_optimized_coronal.png" alt="Optimized Difference Coronal" onclick="openModal(this)">
             </div>
         </div>
     </div>
     
     <div class="orientation-section">
-        <h2>Known Issues</h2>
+        <h2>Test Results Summary</h2>
+        <div class="metrics">
+            <div class="metrics-column">
+                <h4>Imperative vs Declarative</h4>
+                <p>Axial: SSIM = ~0.8862</p>
+                <p>Sagittal: SSIM = ~0.8862</p>
+                <p>Coronal: SSIM = ~0.0288</p>
+                <p class="warning">⚠️ Significant differences detected</p>
+            </div>
+            <div class="metrics-column">
+                <h4>Imperative vs Optimized</h4>
+                <p>Axial: SSIM = 1.0000 ✓</p>
+                <p>Sagittal: SSIM = 1.0000 ✓</p>
+                <p>Coronal: SSIM = 1.0000 ✓</p>
+                <p class="success">✅ Perfect match (expected - same shader)</p>
+            </div>
+        </div>
+        
+        <h3>Analysis</h3>
         <ul>
-            <li>Crosshair rendering differences between APIs (appears as bright spots in difference images)</li>
-            <li>Slight pixel differences in brain data rendering</li>
-            <li>Both issues contribute to SSIM being ~0.8862 instead of target >0.999</li>
+            <li>Imperative and Optimized results are identical (SSIM = 1.0), confirming the test framework works correctly</li>
+            <li>Declarative API shows significant differences from Imperative, particularly in coronal view</li>
+            <li>The differences appear to be related to volume rendering, not just crosshair placement</li>
+            <li>When the optimized shader is integrated, it will replace the placeholder implementation</li>
         </ul>
         
         <h3>Next Steps</h3>
         <ul>
-            <li>Investigate crosshair rendering path differences</li>
-            <li>Check if crosshair blending modes differ between APIs</li>
-            <li>Verify shader uniform precision</li>
+            <li>Fix the declarative API to match imperative rendering output</li>
+            <li>Integrate the optimized shader variant system into RenderLoopService</li>
+            <li>Add performance benchmarks comparing standard vs optimized shaders</li>
+            <li>Implement precomputed values (inv_intensity_delta, voxel_size_estimate) for optimized shader</li>
         </ul>
     </div>
     
+    <!-- Modal for enlarged images -->
+    <div id="imageModal" class="image-modal">
+        <span class="close" onclick="closeModal()">&times;</span>
+        <img class="modal-content" id="modalImg">
+    </div>
+    
     <script>
+        function openModal(img) {
+            var modal = document.getElementById("imageModal");
+            var modalImg = document.getElementById("modalImg");
+            modal.style.display = "block";
+            modalImg.src = img.src;
+        }
+        
+        function closeModal() {
+            var modal = document.getElementById("imageModal");
+            modal.style.display = "none";
+        }
+        
+        // Close modal when clicking outside of image
+        window.onclick = function(event) {
+            var modal = document.getElementById("imageModal");
+            if (event.target == modal) {
+                modal.style.display = "none";
+            }
+        }
+        
         // Auto-refresh images every 5 seconds if test is being run repeatedly
         if (window.location.protocol === 'file:') {
             setInterval(() => {
                 const images = document.querySelectorAll('img');
                 images.forEach(img => {
-                    const src = img.src;
-                    img.src = '';
-                    img.src = src + '?t=' + new Date().getTime();
+                    if (!img.classList.contains('modal-content')) {
+                        const src = img.src;
+                        img.src = '';
+                        img.src = src + '?t=' + new Date().getTime();
+                    }
                 });
             }, 5000);
         }

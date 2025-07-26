@@ -1,0 +1,4 @@
+//! Simple runner for the MNI test
+
+// Re-export the test module
+include!("../../tests/test_mni_declarative.rs");

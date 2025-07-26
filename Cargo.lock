@@ -3130,6 +3130,7 @@ dependencies = [
  "criterion",
  "image 0.24.9",
  "nalgebra",
+ "ndarray 0.16.1",
  "neuro-core",
  "neuro-cpu",
  "neuro-types",

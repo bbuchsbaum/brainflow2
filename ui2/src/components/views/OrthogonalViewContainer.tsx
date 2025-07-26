@@ -222,7 +222,7 @@ export function OrthogonalViewContainer({ className = '', containerWidth, contai
       {/* Layout: Axial on top, Sagittal and Coronal on bottom */}
       <div className="grid grid-rows-2 h-full gap-1 p-1">
         {/* Top row: Axial view */}
-        <div className="w-full h-full">
+        <div className="w-full h-full overflow-visible">
           <SliceView
             viewId="axial"
             width={dimensions.width * 2} // Full width

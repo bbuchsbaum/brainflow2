@@ -60,6 +60,7 @@ interface ViewStateStore {
   setViewState: (updater: (state: ViewState) => ViewState | void) => void;
   setCrosshair: (world_mm: WorldCoordinates, visible?: boolean) => void;
   updateView: (viewType: ViewType, plane: ViewPlane) => void;
+  updateViewDimensions: (viewType: ViewType, dimensions: [number, number]) => void;
   // Layer operations removed - use setViewState to update layers
   
   // Helpers
@@ -95,7 +96,10 @@ const createViewStateStore = () => create<ViewStateStore>()(
           console.log(`  - Layer ids:`, oldState.layers.map(l => l.id));
           
           // Track who's calling setViewState
-          const caller = new Error().stack?.split('\n')[3]?.trim() || 'unknown';
+          const stack = new Error().stack;
+          const caller = typeof stack === 'string' 
+            ? stack.split('\n')[3]?.trim() || 'unknown'
+            : 'unknown';
           console.log(`  - Called from: ${caller}`);
           
           // Log the full stack trace if we're updating with 20-80% values
@@ -154,6 +158,56 @@ const createViewStateStore = () => create<ViewStateStore>()(
         
         updateView: (viewType, plane) => set((state) => {
           state.viewState.views[viewType] = plane;
+        }),
+        
+        updateViewDimensions: (viewType, dimensions) => set((state) => {
+          console.log(`[viewStateStore] Updating ${viewType} dimensions to ${dimensions[0]}x${dimensions[1]}`);
+          
+          const view = state.viewState.views[viewType];
+          const [newWidth, newHeight] = dimensions;
+          const [oldWidth, oldHeight] = view.dim_px;
+          
+          // If dimensions haven't actually changed, skip the update
+          if (oldWidth === newWidth && oldHeight === newHeight) {
+            return;
+          }
+          
+          // Calculate current physical extent (in mm)
+          const u_length = Math.sqrt(
+            view.u_mm[0] ** 2 + view.u_mm[1] ** 2 + view.u_mm[2] ** 2
+          );
+          const v_length = Math.sqrt(
+            view.v_mm[0] ** 2 + view.v_mm[1] ** 2 + view.v_mm[2] ** 2
+          );
+          
+          const physicalWidth = u_length * oldWidth;
+          const physicalHeight = v_length * oldHeight;
+          
+          console.log(`[viewStateStore] Physical extent: ${physicalWidth.toFixed(2)}mm x ${physicalHeight.toFixed(2)}mm`);
+          
+          // Calculate new pixel size to maintain physical extent
+          // Use uniform pixel size to preserve aspect ratio (matching backend behavior)
+          const pixelSize = Math.max(
+            physicalWidth / newWidth,
+            physicalHeight / newHeight
+          );
+          
+          console.log(`[viewStateStore] New pixel size: ${pixelSize.toFixed(4)}mm/px`);
+          
+          // Scale vectors to new pixel size while preserving direction
+          const u_scale = pixelSize / u_length;
+          const v_scale = pixelSize / v_length;
+          
+          // Update vectors
+          view.u_mm = view.u_mm.map(component => component * u_scale) as [number, number, number];
+          view.v_mm = view.v_mm.map(component => component * v_scale) as [number, number, number];
+          view.dim_px = dimensions;
+          
+          console.log(`[viewStateStore] Updated ${viewType} vectors:`, {
+            u_mm: view.u_mm,
+            v_mm: view.v_mm,
+            dim_px: view.dim_px
+          });
         }),
         
         // Layer operations removed - use setViewState to update layers

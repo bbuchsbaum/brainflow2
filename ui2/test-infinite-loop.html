@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Progress Indicator Test</title>
+    <script>
+        // Test script to check for infinite loop
+        console.log('Testing progress indicators...');
+        
+        // Wait for app to load
+        setTimeout(() => {
+            console.log('Checking for infinite loop...');
+            
+            // Try to access progress service
+            if (window.__BRAINFLOW_SERVICES?.progressService) {
+                console.log('Progress service available');
+                
+                // Start a test task
+                const taskId = window.__BRAINFLOW_SERVICES.progressService.startTask(
+                    'computation',
+                    'Test Task',
+                    { message: 'Testing...' }
+                );
+                
+                console.log('Started test task:', taskId);
+                
+                // Update progress
+                setTimeout(() => {
+                    window.__BRAINFLOW_SERVICES.progressService.updateTask(taskId, 50);
+                    console.log('Updated to 50%');
+                }, 1000);
+                
+                // Complete task
+                setTimeout(() => {
+                    window.__BRAINFLOW_SERVICES.progressService.completeTask(taskId);
+                    console.log('Task completed');
+                }, 2000);
+            } else {
+                console.error('Progress service not available');
+            }
+        }, 3000);
+    </script>
+</head>
+<body>
+    <h1>Check browser console for test results</h1>
+</body>
+</html>

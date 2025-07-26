@@ -13,6 +13,7 @@ import { useEvent } from '@/events/EventBus';
 import { getEventBus } from '@/events/EventBus';
 import { SliceSlider } from '@/components/ui/SliceSlider';
 import { getSliceNavigationService } from '@/services/SliceNavigationService';
+import { coalesceUtils } from '@/stores/middleware/coalesceUpdatesMiddleware';
 import type { ViewPlane } from '@/types/coordinates';
 
 interface SliceViewProps {
@@ -23,9 +24,29 @@ interface SliceViewProps {
 }
 
 export function SliceView({ viewId, width, height, className = '' }: SliceViewProps) {
+  // Validate props using useMemo to ensure stable values
+  const { validWidth, validHeight } = React.useMemo(() => {
+    const w = (width > 0 && width <= 8192) ? width : 512;
+    const h = (height > 0 && height <= 8192) ? height : 512;
+    
+    if (width !== w || height !== h) {
+      console.error(`[SliceView ${viewId}] Invalid dimensions provided: ${width}x${height}, using ${w}x${h}`);
+    }
+    
+    return { validWidth: w, validHeight: h };
+  }, [width, height, viewId]);
+  
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
   const [isRendering, setIsRendering] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  
+  // Store the last rendered image to redraw on canvas resize
+  const lastImageRef = useRef<ImageBitmap | null>(null);
+  
+  // Store refs to avoid recreation of functions
+  const redrawCanvasRef = useRef<() => void>();
+  const renderCrosshairRef = useRef<() => void>();
   
   // Store the image placement for crosshair coordinate transformation
   const imagePlacementRef = useRef<{
@@ -40,19 +61,27 @@ export function SliceView({ viewId, width, height, className = '' }: SliceViewPr
   const { viewState, setCrosshair } = useViewStateStore();
   const layers = useLayerStore(state => state.layers);
   const loadingLayers = useLayerStore(state => state.loadingLayers);
-  const renderLoopState = useRenderLoopInit(width, height);
+  const renderLoopState = useRenderLoopInit(validWidth, validHeight);
   
   const viewPlane: ViewPlane = viewState.views[viewId];
   const hasLayers = layers.length > 0;
   const isLoadingAnyLayer = loadingLayers.size > 0;
+  
+  // Use the validated props directly as canvas dimensions
+  // FlexibleSlicePanel already provides the correct container size
+  const canvasWidth = validWidth;
+  const canvasHeight = validHeight;
 
   // This component should only display images, not trigger renders
   // The coalescing middleware handles all ViewState → Backend communication
   
-  // Create renderCrosshair callback before using it in useEvent
-  const renderCrosshair = useCallback(() => {
+  // Create renderCrosshair function that doesn't cause re-renders
+  const renderCrosshairImpl = () => {
     const canvas = canvasRef.current;
-    if (!canvas || !viewState.crosshair.visible) return;
+    const currentViewState = useViewStateStore.getState().viewState;
+    const currentViewPlane = currentViewState.views[viewId];
+    
+    if (!canvas || !currentViewState.crosshair.visible) return;
     
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
@@ -60,8 +89,8 @@ export function SliceView({ viewId, width, height, className = '' }: SliceViewPr
     try {
       // Transform crosshair world coordinate to screen space
       const screenCoord = CoordinateTransform.worldToScreen(
-        viewState.crosshair.world_mm,
-        viewPlane
+        currentViewState.crosshair.world_mm,
+        currentViewPlane
       );
       
       if (screenCoord && imagePlacementRef.current) {
@@ -103,10 +132,13 @@ export function SliceView({ viewId, width, height, className = '' }: SliceViewPr
     } catch (err) {
       console.warn('Failed to render crosshair:', err);
     }
-  }, [viewState.crosshair, viewPlane]);
+  };
   
-  // Listen for render complete events and update the canvas
-  useEvent('render.complete', useCallback((data) => {
+  // Store the function in ref to keep it stable
+  renderCrosshairRef.current = renderCrosshairImpl;
+  
+  // Create stable event handler
+  const handleRenderComplete = React.useCallback((data: any) => {
     console.log(`[SliceView ${viewId}] render.complete event received:`, data);
     console.log(`  - viewType: ${data.viewType}`);
     console.log(`  - imageBitmap:`, data.imageBitmap);
@@ -123,85 +155,29 @@ export function SliceView({ viewId, width, height, className = '' }: SliceViewPr
         ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
         
         try {
-          const imageWidth = data.imageBitmap.width;
-          const imageHeight = data.imageBitmap.height;
+          // Store the image for redrawing on canvas resize
+          lastImageRef.current = data.imageBitmap;
           
-          // Clear canvas with background color first
-          ctx.fillStyle = '#000000';
-          ctx.fillRect(0, 0, canvasRef.current.width, canvasRef.current.height);
-          
-          // The backend returns an image with the correct aspect ratio already
-          // We just need to scale it to fit the canvas without distortion
-          const imageAspectRatio = imageWidth / imageHeight;
-          const canvasAspectRatio = canvasRef.current.width / canvasRef.current.height;
-          
-          let drawWidth, drawHeight, drawX, drawY;
-          
-          if (imageAspectRatio > canvasAspectRatio) {
-            // Image is wider than canvas - fit to width
-            drawWidth = canvasRef.current.width;
-            drawHeight = drawWidth / imageAspectRatio;
-            drawX = 0;
-            drawY = (canvasRef.current.height - drawHeight) / 2;
-          } else {
-            // Image is taller than canvas - fit to height
-            drawHeight = canvasRef.current.height;
-            drawWidth = drawHeight * imageAspectRatio;
-            drawX = (canvasRef.current.width - drawWidth) / 2;
-            drawY = 0;
+          // Use the redraw function to draw the image
+          if (redrawCanvasRef.current) {
+            redrawCanvasRef.current();
           }
           
-          // Draw image centered and scaled to fit
-          ctx.drawImage(
-            data.imageBitmap,
-            drawX,
-            drawY,
-            drawWidth,
-            drawHeight
-          );
-          
-          // Store the image placement for crosshair calculations
-          imagePlacementRef.current = {
-            x: drawX,
-            y: drawY,
-            width: drawWidth,
-            height: drawHeight,
-            imageWidth: imageWidth,
-            imageHeight: imageHeight
-          };
-          
-          console.log(`[SliceView ${viewId}] Image drawn:`, {
-            canvas: `${canvasRef.current.width}x${canvasRef.current.height}`,
-            image: `${imageWidth}x${imageHeight}`,
-            imageAspectRatio: imageAspectRatio.toFixed(3),
-            canvasAspectRatio: canvasAspectRatio.toFixed(3),
-            drawn: `${drawWidth.toFixed(0)}x${drawHeight.toFixed(0)} at (${drawX.toFixed(0)}, ${drawY.toFixed(0)})`
-          });
-          
-          // Test if image is actually visible by checking a few pixels
-          const imageData = ctx.getImageData(0, 0, 10, 10);
-          const pixels = imageData.data;
-          let allBlack = true;
-          for (let i = 0; i < pixels.length; i += 4) {
-            if (pixels[i] > 0 || pixels[i+1] > 0 || pixels[i+2] > 0) {
-              allBlack = false;
-              break;
-            }
-          }
-          console.log(`[SliceView ${viewId}] First 10x10 pixels are ${allBlack ? 'all black' : 'NOT all black'}`);
+          console.log(`[SliceView ${viewId}] New image received and drawn`);
         } catch (error) {
           console.error(`[SliceView ${viewId}] Failed to draw image:`, error);
         }
         
-        // Redraw crosshair on top
-        renderCrosshair();
         setIsRendering(false);
         setError(null);
       } else {
         console.warn(`[SliceView ${viewId}] Missing context or imageBitmap`);
       }
     }
-  }, [viewId, renderCrosshair]));
+  }, [viewId]); // Only depend on viewId which is stable
+  
+  // Listen for render complete events
+  useEvent('render.complete', handleRenderComplete);
   
   // Listen for render errors
   useEvent('render.error', useCallback((data) => {
@@ -215,6 +191,9 @@ export function SliceView({ viewId, width, height, className = '' }: SliceViewPr
   useEvent('render.start', useCallback(() => {
     setIsRendering(true);
   }, []));
+
+  // This component now only displays images
+  // Dimension updates are handled by FlexibleSlicePanel
 
   // Handle mouse clicks to update crosshair
   const handleMouseClick = useCallback((event: React.MouseEvent<HTMLCanvasElement>) => {
@@ -298,8 +277,139 @@ export function SliceView({ viewId, width, height, className = '' }: SliceViewPr
 
   // Draw crosshair when it changes
   useEffect(() => {
-    renderCrosshair();
-  }, [renderCrosshair]);
+    if (renderCrosshairRef.current) {
+      renderCrosshairRef.current();
+    }
+  }, [viewState.crosshair]);
+  
+  // Create a stable redraw function
+  const redrawCanvasImpl = () => {
+    if (!canvasRef.current || !lastImageRef.current) {
+      console.warn(`[SliceView ${viewId}] Cannot redraw - canvas or image missing`);
+      console.warn(`  - canvas exists: ${!!canvasRef.current}`);
+      console.warn(`  - lastImage exists: ${!!lastImageRef.current}`);
+      return;
+    }
+    
+    const ctx = canvasRef.current.getContext('2d');
+    if (!ctx) {
+      console.error(`[SliceView ${viewId}] Failed to get 2d context`);
+      return;
+    }
+    
+    const imageBitmap = lastImageRef.current;
+    const imageWidth = imageBitmap.width;
+    const imageHeight = imageBitmap.height;
+    
+    console.log(`[SliceView ${viewId}] Redrawing canvas at ${canvasRef.current.width}x${canvasRef.current.height}`);
+    console.log(`[SliceView ${viewId}] Image dimensions: ${imageWidth}x${imageHeight}`);
+    
+    // Clear canvas with background color
+    ctx.fillStyle = '#000000';
+    ctx.fillRect(0, 0, canvasRef.current.width, canvasRef.current.height);
+    
+    // Calculate new placement
+    const imageAspectRatio = imageWidth / imageHeight;
+    const canvasAspectRatio = canvasRef.current.width / canvasRef.current.height;
+    
+    let drawWidth, drawHeight, drawX, drawY;
+    
+    if (imageAspectRatio > canvasAspectRatio) {
+      drawWidth = canvasRef.current.width;
+      drawHeight = drawWidth / imageAspectRatio;
+      drawX = 0;
+      drawY = (canvasRef.current.height - drawHeight) / 2;
+    } else {
+      drawHeight = canvasRef.current.height;
+      drawWidth = drawHeight * imageAspectRatio;
+      drawX = (canvasRef.current.width - drawWidth) / 2;
+      drawY = 0;
+    }
+    
+    // Round positions
+    drawX = Math.round(drawX);
+    drawY = Math.round(drawY);
+    drawWidth = Math.round(drawWidth);
+    drawHeight = Math.round(drawHeight);
+    
+    // Draw image
+    console.log(`[SliceView ${viewId}] Drawing image at ${drawX},${drawY} size ${drawWidth}x${drawHeight}`);
+    
+    try {
+      ctx.drawImage(
+        imageBitmap,
+        drawX,
+        drawY,
+        drawWidth,
+        drawHeight
+      );
+      
+      console.log(`[SliceView ${viewId}] Image drawn successfully`);
+      
+      // Verify pixels were actually drawn
+      const sampleData = ctx.getImageData(drawX + 10, drawY + 10, 1, 1);
+      console.log(`[SliceView ${viewId}] Sample pixel at (${drawX + 10},${drawY + 10}):`, 
+        `R=${sampleData.data[0]}, G=${sampleData.data[1]}, B=${sampleData.data[2]}, A=${sampleData.data[3]}`);
+    } catch (error) {
+      console.error(`[SliceView ${viewId}] Failed to draw image:`, error);
+    }
+    
+    // Update image placement for crosshair
+    imagePlacementRef.current = {
+      x: drawX,
+      y: drawY,
+      width: drawWidth,
+      height: drawHeight,
+      imageWidth: imageWidth,
+      imageHeight: imageHeight
+    };
+    
+    // Redraw crosshair on top
+    if (renderCrosshairRef.current) {
+      renderCrosshairRef.current();
+    }
+  };
+  
+  // Store the redraw function in ref
+  redrawCanvasRef.current = redrawCanvasImpl;
+  
+  // Redraw when canvas dimensions change
+  useEffect(() => {
+    if (!canvasRef.current || !lastImageRef.current) return;
+    
+    // Canvas dimensions have changed - the drawing buffer is now blank
+    // Schedule a redraw in the next animation frame
+    const rafId = requestAnimationFrame(() => {
+      if (redrawCanvasRef.current) {
+        redrawCanvasRef.current();
+      }
+    });
+    
+    return () => cancelAnimationFrame(rafId);
+  }, [canvasWidth, canvasHeight]);
+  
+  // SliceView now uses dimensions from props directly
+  // FlexibleSlicePanel handles container size tracking
+  
+  // Check on mount if we missed any renders
+  useEffect(() => {
+    console.log(`[SliceView ${viewId}] Component mounted`);
+    
+    // Give a small delay to ensure event listeners are set up
+    const timer = setTimeout(() => {
+      if (!lastImageRef.current) {
+        console.log(`[SliceView ${viewId}] No image on mount - requesting render`);
+        // Force a render by triggering coalescing flush
+        const viewState = useViewStateStore.getState().viewState;
+        if (viewState.layers.length > 0) {
+          console.log(`[SliceView ${viewId}] Found ${viewState.layers.length} layers, forcing render`);
+          coalesceUtils.flush(true);
+        }
+      }
+    }, 100);
+    
+    return () => clearTimeout(timer);
+  }, [viewId]);
 
   // Handle file drop
   const [isDragging, setIsDragging] = useState(false);
@@ -359,116 +469,131 @@ export function SliceView({ viewId, width, height, className = '' }: SliceViewPr
         current: 0
       };
     }
-  }, [viewId, layers]);
+  }, [viewId, layers, viewState.crosshair.world_mm]);
   
   const handleSliderChange = useCallback((value: number) => {
+    console.log(`[SliceView ${viewId}] Slider changed to: ${value}`);
     sliceNavService.updateSlicePosition(viewId, value);
   }, [viewId]);
   
   // Log dimension changes for debugging
   useEffect(() => {
-    console.log(`[SliceView ${viewId}] Canvas dimensions: ${width}x${height}`);
-  }, [width, height, viewId]);
+    console.log(`[SliceView ${viewId}] Requested dimensions: ${width}x${height}`);
+    console.log(`[SliceView ${viewId}] Validated dimensions: ${validWidth}x${validHeight}`);
+    console.log(`[SliceView ${viewId}] Calculated canvas: ${canvasWidth}x${canvasHeight}`);
+  }, [width, height, validWidth, validHeight, viewId, canvasWidth, canvasHeight]);
   
   // Debug logging
   useEffect(() => {
     console.log(`SliceView ${viewId}: hasLayers=${hasLayers}, renderLoopState.isInitialized=${renderLoopState.isInitialized}`);
     console.log(`SliceView ${viewId}: sliceRange=`, sliceRange);
-  }, [viewId, hasLayers, renderLoopState.isInitialized, sliceRange]);
+    console.log(`SliceView ${viewId}: current slider value=${sliceRange.current}`);
+    console.log(`SliceView ${viewId}: slider disabled=${!renderLoopState.isInitialized || isRendering} (isInitialized=${renderLoopState.isInitialized}, isRendering=${isRendering})`);
+    console.log(`SliceView ${viewId}: using dimensions ${validWidth}x${validHeight} (requested: ${width}x${height})`);
+  }, [viewId, hasLayers, renderLoopState.isInitialized, sliceRange, isRendering, validWidth, validHeight, width, height]);
 
+  // Filter out h-full from className to allow flex container to accommodate slider
+  const filteredClassName = className?.replace(/\bh-full\b/g, '').trim() || '';
+  
   return (
-    <div className={`flex flex-col ${className}`}>
+    <div className={`relative h-full ${filteredClassName}`}>
       <div 
-        className={`relative flex-1 min-h-0`}
+        ref={containerRef}
+        className={`h-full relative overflow-hidden`}
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
       >
-        <canvas
-          ref={canvasRef}
-          width={width}
-          height={height}
-          className={`border border-gray-300 cursor-crosshair ${isDragging ? 'border-blue-500 border-2' : ''}`}
-          onClick={handleMouseClick}
-          onMouseMove={handleMouseMove}
-          onMouseLeave={handleMouseLeave}
-          style={{ width: '100%', height: '100%' }}
-        />
+        {/* Canvas wrapper for centering */}
+        <div className="w-full h-full flex items-center justify-center">
+          <canvas
+            ref={canvasRef}
+            width={canvasWidth || validWidth}
+            height={canvasHeight || validHeight}
+            className={`block border border-gray-300 cursor-crosshair ${isDragging ? 'border-blue-500 border-2' : ''}`}
+            onClick={handleMouseClick}
+            onMouseMove={handleMouseMove}
+            onMouseLeave={handleMouseLeave}
+          />
+        </div>
       
-      {/* Drag overlay */}
-      {isDragging && (
-        <div className="absolute inset-0 bg-blue-500 bg-opacity-20 pointer-events-none flex items-center justify-center">
-          <div className="bg-white rounded-lg px-4 py-2 shadow-lg">
-            <div className="text-blue-600 font-medium">Drop file to load</div>
+        {/* Absolute positioned overlays */}
+        {/* Drag overlay */}
+        {isDragging && (
+          <div className="absolute inset-0 bg-blue-500 bg-opacity-20 pointer-events-none flex items-center justify-center">
+            <div className="bg-white rounded-lg px-4 py-2 shadow-lg">
+              <div className="text-blue-600 font-medium">Drop file to load</div>
+            </div>
           </div>
-        </div>
-      )}
-      
-      {/* Initialization overlay */}
-      {renderLoopState.isInitializing && (
-        <div className="absolute inset-0 bg-black bg-opacity-50 flex items-center justify-center">
-          <div className="text-white text-sm">Initializing GPU...</div>
-        </div>
-      )}
-      
-      {/* Loading overlay */}
-      {isRendering && renderLoopState.isInitialized && (
-        <div className="absolute inset-0 bg-black bg-opacity-50 flex items-center justify-center">
-          <div className="text-white text-sm">Rendering...</div>
-        </div>
-      )}
-      
-      {/* Error overlay */}
-      {(error || renderLoopState.error) && (
-        <div className="absolute inset-0 bg-red-500 bg-opacity-75 flex items-center justify-center">
-          <div className="text-white text-sm text-center p-2">
-            Error: {error || renderLoopState.error?.message}
+        )}
+        
+        {/* Initialization overlay */}
+        {renderLoopState.isInitializing && (
+          <div className="absolute inset-0 bg-black bg-opacity-50 flex items-center justify-center">
+            <div className="text-white text-sm">Initializing GPU...</div>
           </div>
+        )}
+        
+        {/* Loading overlay */}
+        {isRendering && renderLoopState.isInitialized && (
+          <div className="absolute inset-0 bg-black bg-opacity-50 flex items-center justify-center">
+            <div className="text-white text-sm">Rendering...</div>
+          </div>
+        )}
+        
+        {/* Error overlay */}
+        {(error || renderLoopState.error) && (
+          <div className="absolute inset-0 bg-red-500 bg-opacity-75 flex items-center justify-center">
+            <div className="text-white text-sm text-center p-2">
+              Error: {error || renderLoopState.error?.message}
+            </div>
+          </div>
+        )}
+        
+        {/* Coordinate display */}
+        {hoverCoord && (
+          <div className="absolute top-2 left-2 bg-black bg-opacity-75 text-white text-xs px-2 py-1 rounded">
+            {formatCoordinate(hoverCoord)}
+          </div>
+        )}
+        
+        {/* View label */}
+        <div className="absolute bottom-2 right-2 bg-black bg-opacity-75 text-white text-xs px-2 py-1 rounded">
+          {viewId.charAt(0).toUpperCase() + viewId.slice(1)}
         </div>
-      )}
-      
-      {/* Coordinate display */}
-      {hoverCoord && (
-        <div className="absolute top-2 left-2 bg-black bg-opacity-75 text-white text-xs px-2 py-1 rounded">
-          {formatCoordinate(hoverCoord)}
-        </div>
-      )}
-      
-      {/* View label */}
-      <div className="absolute bottom-2 right-2 bg-black bg-opacity-75 text-white text-xs px-2 py-1 rounded">
-        {viewId.charAt(0).toUpperCase() + viewId.slice(1)}
+        
+        {/* No layers indicator */}
+        {!hasLayers && !isLoadingAnyLayer && renderLoopState.isInitialized && (
+          <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+            <div className="text-gray-400 text-center">
+              <div className="text-4xl mb-2">🧠</div>
+              <div className="text-sm">No volumes loaded</div>
+              <div className="text-xs mt-1 opacity-75">Double-click a file or drag & drop</div>
+            </div>
+          </div>
+        )}
+        
+        {/* Layer loading indicator */}
+        {isLoadingAnyLayer && (
+          <div className="absolute top-2 right-2 bg-yellow-500 bg-opacity-90 text-white text-xs px-2 py-1 rounded animate-pulse">
+            Loading volume...
+          </div>
+        )}
       </div>
       
-      {/* No layers indicator */}
-      {!hasLayers && !isLoadingAnyLayer && renderLoopState.isInitialized && (
-        <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-          <div className="text-gray-400 text-center">
-            <div className="text-4xl mb-2">🧠</div>
-            <div className="text-sm">No volumes loaded</div>
-            <div className="text-xs mt-1 opacity-75">Double-click a file or drag & drop</div>
-          </div>
-        </div>
-      )}
-      
-      {/* Layer loading indicator */}
-      {isLoadingAnyLayer && (
-        <div className="absolute top-2 right-2 bg-yellow-500 bg-opacity-90 text-white text-xs px-2 py-1 rounded animate-pulse">
-          Loading volume...
-        </div>
-      )}
-      </div>
-      
-      {/* Slice navigation slider */}
+      {/* Slice navigation slider - absolutely positioned at bottom */}
       {hasLayers && (
-        <SliceSlider
-          viewType={viewId}
-          value={sliceRange.current}
-          min={sliceRange.min}
-          max={sliceRange.max}
-          step={sliceRange.step}
-          disabled={!renderLoopState.isInitialized || isRendering}
-          onChange={handleSliderChange}
-        />
+        <div className="absolute bottom-0 left-0 right-0 p-2 bg-gray-900 bg-opacity-75">
+          <SliceSlider
+            viewType={viewId}
+            value={sliceRange.current}
+            min={sliceRange.min}
+            max={sliceRange.max}
+            step={sliceRange.step}
+            disabled={!renderLoopState.isInitialized || isRendering}
+            onChange={handleSliderChange}
+          />
+        </div>
       )}
     </div>
   );

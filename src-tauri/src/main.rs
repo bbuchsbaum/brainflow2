@@ -128,6 +128,30 @@ fn main() {
                      
                      &SubmenuBuilder::new(app, "View")
                          .item(&PredefinedMenuItem::fullscreen(app, None)?)
+                         .separator()
+                         .item(&SubmenuBuilder::new(app, "Workspace")
+                             // Visualization workspaces
+                             .item(&MenuItemBuilder::new("Orthogonal (Locked)")
+                                 .id("workspace_orthogonal_locked")
+                                 .accelerator("CmdOrCtrl+1")
+                                 .build(app)?)
+                             .item(&MenuItemBuilder::new("Orthogonal (Flexible)")
+                                 .id("workspace_orthogonal_flexible")
+                                 .accelerator("CmdOrCtrl+2")
+                                 .build(app)?)
+                             .separator()
+                             // Analysis workspaces
+                             .item(&MenuItemBuilder::new("ROI Statistics (Demo)")
+                                 .id("workspace_roi_stats")
+                                 .accelerator("CmdOrCtrl+3")
+                                 .build(app)?)
+                             .separator()
+                             // Tool workspaces
+                             .item(&MenuItemBuilder::new("Coordinate Converter (Demo)")
+                                 .id("workspace_coordinate_converter")
+                                 .accelerator("CmdOrCtrl+4")
+                                 .build(app)?)
+                             .build()?)
                          .build()?,
                      
                      &SubmenuBuilder::new(app, "Window")
@@ -144,12 +168,41 @@ fn main() {
              // Handle menu events
              app.on_menu_event(move |app, event| {
                  println!("Menu event received: {:?}", event.id());
-                 match event.id().as_ref() {
+                 let event_id = event.id().as_ref();
+                 
+                 match event_id {
                      "mount_directory" => {
                          println!("Mount directory menu item clicked");
                          let handle = app.app_handle().clone();
                          // Call synchronously since it's no longer async
                          open_mount_dialog(handle);
+                     }
+                     // Handle workspace menu items
+                     id if id.starts_with("workspace_") => {
+                         let workspace_type = match id {
+                             "workspace_orthogonal_locked" => "orthogonal-locked",
+                             "workspace_orthogonal_flexible" => "orthogonal-flexible",
+                             "workspace_mosaic" => "mosaic",
+                             "workspace_lightbox" => "lightbox",
+                             "workspace_roi_stats" => "roi-stats",
+                             "workspace_coordinate_converter" => "coordinate-converter",
+                             _ => return,
+                         };
+                         
+                         println!("Workspace menu item clicked: {}", workspace_type);
+                         
+                         // Emit workspace action event to frontend
+                         match app.emit("workspace-action", 
+                             serde_json::json!({
+                                 "action": "new-workspace",
+                                 "payload": {
+                                     "type": workspace_type
+                                 }
+                             })
+                         ) {
+                             Ok(_) => println!("Workspace event emitted successfully"),
+                             Err(e) => eprintln!("Failed to emit workspace event: {}", e),
+                         }
                      }
                      _ => {}
                  }

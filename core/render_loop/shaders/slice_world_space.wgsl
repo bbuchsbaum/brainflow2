@@ -196,12 +196,15 @@ fn sampleLayer(layer: LayerData, world_mm: vec3<f32>) -> vec4<f32> {
                 alpha = 0.0;
             }
         }
-        default: { // Range thresholding (mode 0)
-            if (raw_value < layer.thresh_low || raw_value > layer.thresh_high) {
+        default: { // Range thresholding (mode 0) - hide values within range, show extremes
+            if (raw_value >= layer.thresh_low && raw_value <= layer.thresh_high) {
                 alpha = 0.0;
             }
         }
     }
+    
+    // DEBUG: Uncomment to verify this shader is being used
+    // return vec4<f32>(0.0, 1.0, 0.0, 1.0); // Should show green screen
     
     // Apply colormap
     let lut_coord = vec2<f32>(intensity_norm, 0.5);

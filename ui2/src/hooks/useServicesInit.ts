@@ -7,34 +7,62 @@ import { initializeLayerService } from '@/services/LayerService';
 import { LayerApiImpl } from '@/services/LayerApiImpl';
 import { initializeFileLoadingService } from '@/services/FileLoadingService';
 import { initializeStoreSyncService } from '@/services/StoreSyncService';
+import { getProgressService } from '@/services/ProgressService';
+import { getMetadataStatusService } from '@/services/MetadataStatusService';
+import { initializeViewRegistry } from '@/services/ViewRegistry';
 // import { initializeViewStateRenderService } from '@/services/ViewStateRenderService'; // Removed - redundant with coalescing
 import { coalesceUtils } from '@/stores/middleware/coalesceUpdatesMiddleware';
 import { getApiService } from '@/services/apiService';
 import { getEventBus } from '@/events/EventBus';
 import { useLayerStore } from '@/stores/layerStore';
 import { useViewStateStore } from '@/stores/viewStateStore';
+import { markRenderLoopAsInitialized } from './useRenderLoopInit';
 
 // Global flag to prevent double initialization in React StrictMode
 let servicesInitialized = false;
+let initializationInProgress = false;
 
 export function useServicesInit() {
   useEffect(() => {
-    if (servicesInitialized) {
-      console.log('[useServicesInit] Services already initialized, skipping...');
+    if (servicesInitialized || initializationInProgress) {
+      console.log('[useServicesInit] Services already initialized or in progress, skipping...');
       return;
     }
     
+    initializationInProgress = true;
     console.log('[useServicesInit] Starting service initialization...');
-    servicesInitialized = true;
     
-    // Add a global event debug listener first
-    const eventBus = getEventBus();
-    eventBus.onAny((event, data) => {
-      if (event === 'layer.added') {
-        console.log(`[EventDebug] layer.added event fired!`, data);
-        console.log(`[EventDebug] Current listeners: ${eventBus.listenerCount('layer.added')}`);
-      }
-    });
+    // Initialize services asynchronously
+    const initializeServices = async () => {
+      try {
+        // Initialize ViewRegistry first (needed for workspace creation)
+        initializeViewRegistry();
+        console.log('[useServicesInit] ViewRegistry initialized');
+        
+        // Add a global event debug listener first
+        const eventBus = getEventBus();
+        eventBus.onAny((event, data) => {
+          if (event === 'layer.added') {
+            console.log(`[EventDebug] layer.added event fired!`, data);
+            console.log(`[EventDebug] Current listeners: ${eventBus.listenerCount('layer.added')}`);
+          }
+        });
+        
+        // Initialize RenderLoop for GPU resources
+        // This must be done early so GPU resources are available for file loading
+        const apiService = getApiService();
+        try {
+          console.log('[useServicesInit] Initializing RenderLoop...');
+          await apiService.initRenderLoop(512, 512);
+          await apiService.createOffscreenRenderTarget(512, 512);
+          console.log('[useServicesInit] RenderLoop initialized successfully');
+          
+          // Mark RenderLoop as globally initialized so individual views don't try to reinitialize
+          markRenderLoopAsInitialized();
+        } catch (error) {
+          console.error('[useServicesInit] Failed to initialize RenderLoop:', error);
+          // Don't throw - let the app continue and handle errors when actually trying to render
+        }
     
     // Initialize LayerService with backend API implementation
     const layerApi = new LayerApiImpl();
@@ -49,12 +77,21 @@ export function useServicesInit() {
     initializeStoreSyncService();
     console.log('[useServicesInit] StoreSyncService initialized');
     
+    // Initialize ProgressService
+    const progressService = getProgressService();
+    console.log('[useServicesInit] ProgressService initialized');
+    
+    // Initialize MetadataStatusService
+    const metadataStatusService = getMetadataStatusService();
+    metadataStatusService.initialize();
+    console.log('[useServicesInit] MetadataStatusService initialized');
+    
     // Verify StoreSyncService is listening
     const listenerCount = eventBus.listenerCount('layer.added');
     console.log(`[useServicesInit] After init - listeners for 'layer.added': ${listenerCount}`);
     
     // Set up coalescing middleware callback
-    const apiService = getApiService();
+    // apiService is already declared above
     
     console.log('Setting up coalescing middleware callback...');
     coalesceUtils.setBackendCallback(async (viewState) => {
@@ -112,6 +149,18 @@ export function useServicesInit() {
               width,
               height
             );
+            
+            console.log(`[useServicesInit] Render ${viewType} complete:`, {
+              imageBitmap,
+              isImageBitmap: imageBitmap instanceof ImageBitmap,
+              type: imageBitmap ? Object.prototype.toString.call(imageBitmap) : 'null',
+              hasImage: !!imageBitmap
+            });
+            
+            if (imageBitmap) {
+              console.log(`[useServicesInit] ImageBitmap dimensions: ${imageBitmap.width}x${imageBitmap.height}`);
+            }
+            
             eventBus.emit('render.complete', { viewType, imageBitmap });
           } catch (error) {
             console.error(`Failed to render ${viewType} view:`, error);
@@ -126,17 +175,49 @@ export function useServicesInit() {
     
     // ViewStateRenderService removed - coalescing middleware handles ViewState updates
     
-    console.log('Services initialized successfully:');
-    console.log('- LayerService: initialized');
-    console.log('- FileLoadingService: initialized');
-    console.log('- StoreSyncService: initialized');
-    console.log('- Coalescing middleware: configured');
+        console.log('Services initialized successfully:');
+        console.log('- ViewRegistry: initialized');
+        console.log('- RenderLoop: initialized');
+        console.log('- LayerService: initialized');
+        console.log('- FileLoadingService: initialized');
+        console.log('- StoreSyncService: initialized');
+        console.log('- ProgressService: initialized');
+        console.log('- MetadataStatusService: initialized');
+        console.log('- Coalescing middleware: configured');
     
-    // Test logging to make sure console works
-    setTimeout(() => {
-      console.log('TEST: Console logging is working!');
-      console.log('TEST: Current layer count:', useLayerStore.getState().layers.length);
-      console.log('TEST: Current viewState layers:', useViewStateStore.getState().viewState.layers.length);
-    }, 2000);
+    // Expose services to window for debugging/testing in development
+    if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
+      (window as any).__BRAINFLOW_SERVICES = {
+        apiService,
+        progressService,
+        eventBus,
+        // Add getters for other services to avoid double initialization
+        get fileLoadingService() {
+          return require('@/services/FileLoadingService').getFileLoadingService();
+        },
+        get layerService() {
+          return require('@/services/LayerService').getLayerService();
+        }
+      };
+      console.log('[useServicesInit] Services exposed to window.__BRAINFLOW_SERVICES for debugging');
+    }
+    
+        // Test logging to make sure console works
+        setTimeout(() => {
+          console.log('TEST: Console logging is working!');
+          console.log('TEST: Current layer count:', useLayerStore.getState().layers.length);
+          console.log('TEST: Current viewState layers:', useViewStateStore.getState().viewState.layers.length);
+        }, 2000);
+        
+        servicesInitialized = true;
+      } catch (error) {
+        console.error('[useServicesInit] Error during initialization:', error);
+      } finally {
+        initializationInProgress = false;
+      }
+    };
+    
+    // Call the async initialization
+    initializeServices();
   }, []);
 }

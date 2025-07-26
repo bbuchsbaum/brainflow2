@@ -4,7 +4,22 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Vite + React + TS</title>
+    <title>Brainflow2</title>
+    <script>
+      // Early polyfills for compatibility
+      if (!String.prototype.trimStart) {
+        String.prototype.trimStart = function() {
+          return this.replace(/^[\s\uFEFF\xA0]+/, '');
+        };
+        String.prototype.trimLeft = String.prototype.trimStart;
+      }
+      if (!String.prototype.trimEnd) {
+        String.prototype.trimEnd = function() {
+          return this.replace(/[\s\uFEFF\xA0]+$/, '');
+        };
+        String.prototype.trimRight = String.prototype.trimEnd;
+      }
+    </script>
   </head>
   <body>
     <div id="root"></div>

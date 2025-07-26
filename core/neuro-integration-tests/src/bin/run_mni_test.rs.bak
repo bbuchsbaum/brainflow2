@@ -1,0 +1,203 @@
+//! Run the MNI test and generate HTML output
+
+use std::path::Path;
+use neuro_integration_tests::DifferentialTestHarness;
+use render_loop::RenderLoopService;
+use neuro_types::ViewRectMm;
+use nifti_loader::load_nifti_volume_auto;
+use bridge_types;
+use volmath::DenseVolumeExt;
+
+#[tokio::main]
+async fn main() {
+    println!("=== Running MNI Test with GPU Optimized Shader ===");
+    
+    // Path to test data
+    let workspace_root = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent().unwrap()  // core/
+        .parent().unwrap(); // brainflow2/
+    
+    let mni_path = workspace_root
+        .join("test-data/unit/tpl-MNI152NLin2009cAsym_res-01_desc-brain_T1w.nii");
+    
+    if !mni_path.exists() {
+        eprintln!("MNI file not found at {:?}", mni_path);
+        eprintln!("Skipping test - MNI template file required");
+        return;
+    }
+    
+    // Load volume
+    println!("Loading MNI brain template...");
+    let (volume_sendable, _affine) = load_nifti_volume_auto(&mni_path)
+        .expect("Failed to load NIfTI file");
+    
+    let volume = match volume_sendable {
+        bridge_types::VolumeSendable::VolF32(vol, _) => vol,
+        _ => panic!("Expected f32 volume from MNI template"),
+    };
+    
+    let data_range = volume.range().unwrap_or((0.0, 100.0));
+    println!("Volume data range: {:?}", data_range);
+    
+    // Create test harness
+    let mut harness = DifferentialTestHarness::new();
+    harness.set_title("MNI GPU Optimized Test");
+    
+    // Test slices at different Z levels
+    let z_slices = vec![30.0, 0.0, -30.0];
+    
+    for &z_mm in &z_slices {
+        let test_name = format!("MNI_axial_z_{:.0}mm", z_mm);
+        
+        // Render with standard shader
+        let standard_result = render_gpu_slice_standard(&volume, z_mm, data_range).await;
+        
+        // Render with optimized shader
+        let optimized_result = render_gpu_slice_optimized(&volume, z_mm, data_range).await;
+        
+        // Add comparison to harness
+        harness.add_test(&test_name)
+            .set_cpu_result(standard_result, 512, 512)  // Using standard as "CPU"
+            .set_gpu_result(optimized_result, 512, 512);  // Using optimized as "GPU"
+    }
+    
+    // Generate HTML report
+    let html_path = workspace_root.join("test_output/mni_gpu_optimized_comparison.html");
+    harness.generate_report(&html_path);
+    
+    println!("HTML report generated at: {:?}", html_path);
+}
+
+async fn render_gpu_slice_standard(
+    volume: &volmath::DenseVolume3<f32>,
+    z_mm: f32,
+    data_range: (f32, f32),
+) -> Vec<u8> {
+    let mut service = RenderLoopService::new()
+        .await
+        .expect("Failed to create RenderLoopService");
+    
+    service.load_shaders()
+        .expect("Failed to load shaders");
+    
+    service.enable_world_space_rendering()
+        .expect("Failed to enable world space rendering");
+    
+    service.initialize_colormap()
+        .expect("Failed to initialize colormap");
+    
+    service.create_world_space_bind_groups()
+        .expect("Failed to create world space bind groups");
+    
+    let (atlas_idx, _transform) = service.upload_volume_3d(&volume)
+        .expect("Failed to upload volume to GPU");
+    
+    service.register_volume_with_range("test_volume".to_string(), atlas_idx, data_range)
+        .expect("Failed to register volume");
+    
+    let view_rect = ViewRectMm {
+        origin_mm: [-96.0, -66.0, z_mm],
+        u_mm: [192.0, 0.0, 0.0],
+        v_mm: [0.0, 264.0, 0.0],
+        width_px: 512,
+        height_px: 512,
+    };
+    
+    service.create_offscreen_target(view_rect.width_px, view_rect.height_px)
+        .expect("Failed to create offscreen target");
+    
+    let (origin, u_vec, v_vec) = view_rect.to_gpu_frame_params();
+    service.update_frame_ubo(origin, u_vec, v_vec);
+    service.set_crosshair([0.0, 0.0, z_mm]);
+    
+    service.clear_render_layers();
+    service.add_render_layer(atlas_idx, 1.0, (0.0, 0.0, 1.0, 1.0))
+        .expect("Failed to add render layer");
+    
+    service.set_layer_colormap(0, 0)
+        .expect("Failed to set colormap");
+    
+    let intensity_range = (
+        data_range.0 + (data_range.1 - data_range.0) * 0.2,
+        data_range.0 + (data_range.1 - data_range.0) * 0.8
+    );
+    service.update_layer_intensity(0, intensity_range.0, intensity_range.1)
+        .expect("Failed to update intensity");
+    
+    service.update_layer_threshold(0, 0.0, 0.0)
+        .expect("Failed to update threshold");
+    
+    // Use standard shader
+    service.set_shader("slice_world_space")
+        .expect("Failed to set standard shader");
+    
+    service.render_to_buffer()
+        .expect("Failed to render to buffer")
+}
+
+async fn render_gpu_slice_optimized(
+    volume: &volmath::DenseVolume3<f32>,
+    z_mm: f32,
+    data_range: (f32, f32),
+) -> Vec<u8> {
+    let mut service = RenderLoopService::new()
+        .await
+        .expect("Failed to create RenderLoopService");
+    
+    service.load_shaders()
+        .expect("Failed to load shaders");
+    
+    service.enable_world_space_rendering()
+        .expect("Failed to enable world space rendering");
+    
+    service.initialize_colormap()
+        .expect("Failed to initialize colormap");
+    
+    service.create_world_space_bind_groups()
+        .expect("Failed to create world space bind groups");
+    
+    let (atlas_idx, _transform) = service.upload_volume_3d(&volume)
+        .expect("Failed to upload volume to GPU");
+    
+    service.register_volume_with_range("test_volume".to_string(), atlas_idx, data_range)
+        .expect("Failed to register volume");
+    
+    let view_rect = ViewRectMm {
+        origin_mm: [-96.0, -66.0, z_mm],
+        u_mm: [192.0, 0.0, 0.0],
+        v_mm: [0.0, 264.0, 0.0],
+        width_px: 512,
+        height_px: 512,
+    };
+    
+    service.create_offscreen_target(view_rect.width_px, view_rect.height_px)
+        .expect("Failed to create offscreen target");
+    
+    let (origin, u_vec, v_vec) = view_rect.to_gpu_frame_params();
+    service.update_frame_ubo(origin, u_vec, v_vec);
+    service.set_crosshair([0.0, 0.0, z_mm]);
+    
+    service.clear_render_layers();
+    service.add_render_layer(atlas_idx, 1.0, (0.0, 0.0, 1.0, 1.0))
+        .expect("Failed to add render layer");
+    
+    service.set_layer_colormap(0, 0)
+        .expect("Failed to set colormap");
+    
+    let intensity_range = (
+        data_range.0 + (data_range.1 - data_range.0) * 0.2,
+        data_range.0 + (data_range.1 - data_range.0) * 0.8
+    );
+    service.update_layer_intensity(0, intensity_range.0, intensity_range.1)
+        .expect("Failed to update intensity");
+    
+    service.update_layer_threshold(0, 0.0, 0.0)
+        .expect("Failed to update threshold");
+    
+    // Use optimized shader
+    service.set_shader("slice_world_space_optimized")
+        .expect("Failed to set optimized shader");
+    
+    service.render_to_buffer()
+        .expect("Failed to render to buffer")
+}

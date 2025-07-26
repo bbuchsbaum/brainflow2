@@ -22,6 +22,7 @@ pub mod differential_dashboard;
 pub mod orthogonal_renderer;
 pub mod orthogonal_dashboard;
 pub mod image_utils;
+pub mod roi_overlay_dashboard;
 
 // TODO: Re-enable these exports when modules are fixed
 // pub use test_utils::*;
@@ -41,3 +42,4 @@ pub use differential_dashboard::{DifferentialDashboard, ComparisonImagePaths, ru
 pub use orthogonal_renderer::{OrthogonalSlices, OrthogonalSliceConfig, create_orthogonal_slices, add_crosshairs_to_slices, draw_crosshairs};
 pub use orthogonal_dashboard::{OrthogonalDashboard, run_orthogonal_testing_with_dashboard};
 pub use image_utils::{save_rgba_image_with_dimensions, ImageDimensions, RgbaImageWithDimensions};
+pub use roi_overlay_dashboard::RoiOverlayDashboard;

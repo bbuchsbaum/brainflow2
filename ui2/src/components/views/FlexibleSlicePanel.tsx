@@ -1,67 +1,122 @@
 /**
  * FlexibleSlicePanel - Individual slice view panel for flexible layout mode
- * Wraps a SliceView for use in GoldenLayout
+ * Wraps a SliceView for use in Allotment panes
  */
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useRef, memo, useMemo } from 'react';
 import { SliceView } from './SliceView';
 import type { ViewType } from '@/types/coordinates';
+import { clampDimensions } from '@/utils/dimensions';
+import { useViewStateStore } from '@/stores/viewStateStore';
+import { useLayoutDragStore } from '@/stores/layoutDragStore';
+import { debounce } from 'lodash';
 
 interface FlexibleSlicePanelProps {
   viewId?: ViewType;
   title?: string;
-  containerWidth?: number;
-  containerHeight?: number;
 }
 
-export function FlexibleSlicePanel({ viewId = 'axial', title, containerWidth, containerHeight }: FlexibleSlicePanelProps) {
+// Memoize the component to prevent unnecessary re-renders
+export const FlexibleSlicePanel = memo(function FlexibleSlicePanel({ 
+  viewId = 'axial', 
+  title
+}: FlexibleSlicePanelProps) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const [dimensions, setDimensions] = useState({ 
-    width: containerWidth || 512, 
-    height: containerHeight || 512 
-  });
+  const [dimensions, setDimensions] = useState({ width: 512, height: 512 });
   
-  // Update dimensions when Golden Layout container dimensions change
-  useEffect(() => {
-    if (containerWidth && containerHeight) {
-      console.log(`[FlexibleSlicePanel ${viewId}] Golden Layout dimensions: ${containerWidth}x${containerHeight}`);
-      setDimensions({ width: containerWidth, height: containerHeight });
-    }
-  }, [containerWidth, containerHeight, viewId]);
-  
-  // Update dimensions when container resizes
-  useEffect(() => {
-    const updateDimensions = () => {
-      if (containerRef.current) {
-        const rect = containerRef.current.getBoundingClientRect();
-        console.log(`[FlexibleSlicePanel ${viewId}] Updating dimensions: ${rect.width}x${rect.height}`);
-        setDimensions({
-          width: Math.floor(rect.width),
-          height: Math.floor(rect.height)
-        });
+  // Create debounced function to update ViewState dimensions
+  const debouncedUpdateDimensions = useMemo(
+    () => debounce((width: number, height: number) => {
+      // Don't update ViewState if we're dragging - wait for drag end
+      const isDragging = useLayoutDragStore.getState().isDragging;
+      if (isDragging) {
+        console.log(`[FlexibleSlicePanel ${viewId}] Skipping ViewState update during drag: ${width}x${height}`);
+        return;
       }
+      
+      // Check if dimensions actually changed to prevent render loops
+      const currentView = useViewStateStore.getState().viewState.views[viewId];
+      const [currentWidth, currentHeight] = currentView.dim_px;
+      
+      // Only update if dimensions changed by more than 1 pixel (to avoid float precision issues)
+      if (Math.abs(currentWidth - width) > 1 || Math.abs(currentHeight - height) > 1) {
+        console.log(`[FlexibleSlicePanel ${viewId}] Updating ViewState dimensions: ${width}x${height} (was ${currentWidth}x${currentHeight})`);
+        useViewStateStore.getState().updateViewDimensions(viewId, [width, height]);
+      }
+    }, 150), // 150ms provides smooth updates
+    [viewId]
+  );
+
+  // Cleanup debounced function on unmount
+  useEffect(() => {
+    return () => {
+      debouncedUpdateDimensions.cancel();
     };
+  }, [debouncedUpdateDimensions]);
+  
+  // Force dimension update when drag ends
+  useEffect(() => {
+    let previousDragging = useLayoutDragStore.getState().isDragging;
     
-    updateDimensions();
-    
-    // Listen for window resize (triggered by Golden Layout)
-    window.addEventListener('resize', updateDimensions);
-    
-    // ResizeObserver for accurate container resize detection
-    const resizeObserver = new ResizeObserver(() => {
-      console.log(`[FlexibleSlicePanel ${viewId}] ResizeObserver triggered`);
-      updateDimensions();
+    const unsubscribe = useLayoutDragStore.subscribe((state) => {
+      const currentDragging = state.isDragging;
+      
+      // When drag ends, force update dimensions
+      if (previousDragging && !currentDragging) {
+        console.log(`[FlexibleSlicePanel ${viewId}] Drag ended, forcing dimension update`);
+        const { width, height } = dimensions;
+        if (width > 0 && height > 0) {
+          // Cancel any pending debounced update
+          debouncedUpdateDimensions.cancel();
+          // Force immediate update
+          console.log(`[FlexibleSlicePanel ${viewId}] Updating ViewState to ${width}x${height}`);
+          useViewStateStore.getState().updateViewDimensions(viewId, [width, height]);
+        }
+      }
+      
+      previousDragging = currentDragging;
     });
     
-    if (containerRef.current) {
-      resizeObserver.observe(containerRef.current);
-    }
+    return unsubscribe;
+  }, [viewId, dimensions, debouncedUpdateDimensions]);
+  
+  // Use ResizeObserver to track container size internally
+  // Using useLayoutEffect to ensure measurements happen synchronously after DOM updates
+  useLayoutEffect(() => {
+    if (!containerRef.current) return;
     
-    return () => {
-      window.removeEventListener('resize', updateDimensions);
-      resizeObserver.disconnect();
-    };
-  }, [viewId]);
+    const resizeObserver = new ResizeObserver((entries) => {
+      const entry = entries[0];
+      if (entry) {
+        const { width, height } = entry.contentRect;
+        // Clamp dimensions and only update if they actually changed
+        const [clampedWidth, clampedHeight] = clampDimensions(width, height);
+        setDimensions(prev => {
+          if (prev.width === clampedWidth && prev.height === clampedHeight) {
+            return prev;
+          }
+          return { width: clampedWidth, height: clampedHeight };
+        });
+        
+        // Trigger debounced update for backend re-render
+        if (clampedWidth > 0 && clampedHeight > 0) {
+          debouncedUpdateDimensions(clampedWidth, clampedHeight);
+        }
+      }
+    });
+    
+    resizeObserver.observe(containerRef.current);
+    
+    // Get initial size with clamping
+    const rect = containerRef.current.getBoundingClientRect();
+    const [initialWidth, initialHeight] = clampDimensions(rect.width, rect.height);
+    setDimensions({ 
+      width: initialWidth, 
+      height: initialHeight 
+    });
+    
+    return () => resizeObserver.disconnect();
+  }, [viewId, debouncedUpdateDimensions]);
   
   return (
     <div ref={containerRef} className="h-full w-full bg-gray-900 flex flex-col">
@@ -69,8 +124,8 @@ export function FlexibleSlicePanel({ viewId = 'axial', title, containerWidth, co
         viewId={viewId}
         width={dimensions.width}
         height={dimensions.height}
-        className="h-full"
+        className="flex-1"
       />
     </div>
   );
-}
+});

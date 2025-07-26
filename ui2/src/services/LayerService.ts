@@ -79,8 +79,8 @@ export class LayerService {
     console.log(`[LayerService ${startTime.toFixed(0)}ms] addLayer called with:`, JSON.stringify(layer));
     
     try {
-      console.log(`[LayerService ${performance.now() - startTime}ms] Setting loading state for layer:`, layer.name);
-      this.setLayerLoading(layer.name, true);
+      console.log(`[LayerService ${performance.now() - startTime}ms] Setting loading state for layer:`, layer.id);
+      this.setLayerLoading(layer.id, true);
       
       console.log(`[LayerService ${performance.now() - startTime}ms] Calling API addLayer...`);
       const newLayer = await this.api.addLayer(layer);
@@ -113,8 +113,8 @@ export class LayerService {
       return newLayer;
     } catch (error) {
       console.error(`[LayerService ${performance.now() - startTime}ms] addLayer failed:`, error);
-      this.setLayerLoading(layer.name, false);
-      this.setLayerError(layer.name, error as Error);
+      this.setLayerLoading(layer.id, false);
+      this.setLayerError(layer.id, error as Error);
       
       this.eventBus.emit('layer.error', { 
         layerId: layer.name, 
@@ -161,6 +161,9 @@ export class LayerService {
       this.setLayerLoading(id, true);
       
       const updatedLayer = await this.api.updateLayer(id, updates);
+      
+      // Update the layer in the store immediately
+      useLayerStore.getState().updateLayer(id, updates);
       
       this.setLayerLoading(id, false);
       this.clearLayerError(id);

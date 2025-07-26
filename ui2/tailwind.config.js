@@ -7,6 +7,15 @@ export default {
   theme: {
     extend: {
       colors: {
+        // Support for CSS variables with opacity
+        popover: 'hsl(var(--popover) / <alpha-value>)',
+        'popover-foreground': 'hsl(var(--popover-foreground) / <alpha-value>)',
+        background: 'hsl(var(--background) / <alpha-value>)',
+        foreground: 'hsl(var(--foreground) / <alpha-value>)',
+        muted: 'hsl(var(--muted) / <alpha-value>)',
+        'muted-foreground': 'hsl(var(--muted-foreground) / <alpha-value>)',
+        accent: 'hsl(var(--accent) / <alpha-value>)',
+        'accent-foreground': 'hsl(var(--accent-foreground) / <alpha-value>)',
         // Neuroimaging-specific color palette
         brain: {
           50: '#f0f9ff',
@@ -32,5 +41,6 @@ export default {
   },
   plugins: [
     require('tailwind-scrollbar')({ nocompatible: true }),
+    require('tailwindcss-animate'),
   ],
 }

@@ -42,6 +42,7 @@ pub mod benchmarks;
 pub mod layer_uniforms_optimized;
 pub mod optimized_renderer;
 pub mod slice_adapter;
+pub mod slice_variant;
 
 pub mod test_fixtures;
 
@@ -552,6 +553,21 @@ impl RenderLoopService {
         // Report world-space shader warnings
         for warning in &validation.warnings {
             println!("Slice world-space shader warning: {}", warning);
+        }
+        
+        // Load the optimized world-space shader
+        let (_shader_opt, validation_opt) = self.shader_manager.load_shader_validated(
+            &self.device,
+            "slice_world_space_optimized",
+            shaders::sources::SLICE_WORLD_SPACE_OPTIMIZED
+        ).map_err(|e| RenderLoopError::Internal { 
+            code: 9021, 
+            details: format!("Failed to load slice_world_space_optimized shader: {}", e) 
+        })?;
+        
+        // Report optimized shader warnings
+        for warning in &validation_opt.warnings {
+            println!("Slice world-space optimized shader warning: {}", warning);
         }
 
         println!("Shaders loaded and validated successfully.");
@@ -2421,7 +2437,16 @@ impl RenderLoopService {
         
         // Get the current pipeline name based on rendering mode
         let pipeline_name = if self.world_space_enabled {
-            "slice_world_space".to_string()
+            // If we have a current pipeline set and it's a world-space shader, use it
+            if let Some(ref current) = self.current_pipeline {
+                if current.contains("world_space") {
+                    current.clone()
+                } else {
+                    "slice_world_space".to_string()
+                }
+            } else {
+                "slice_world_space".to_string()
+            }
         } else {
             self.current_pipeline.clone()
                 .unwrap_or_else(|| "slice_simplified".to_string())
@@ -2817,7 +2842,7 @@ impl RenderLoopService {
                 threshold_range: layer_config.threshold
                     .as_ref()
                     .map(|t| t.range)
-                    .unwrap_or((-f32::INFINITY, f32::INFINITY)),
+                    .unwrap_or((0.0, 0.0)),  // Default to [0,0] for no thresholding
                 threshold_mode: layer_config.threshold
                     .as_ref()
                     .map(|t| t.mode)
