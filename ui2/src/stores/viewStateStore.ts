@@ -201,12 +201,28 @@ const createViewStateStore = () => create<ViewStateStore>()(
         updateViewDimensions: (viewType, dimensions) => set((state) => {
           console.log(`[viewStateStore] Updating ${viewType} dimensions to ${dimensions[0]}x${dimensions[1]}`);
           
-          const view = state.viewState.views[viewType];
           const [newWidth, newHeight] = dimensions;
+          
+          // Guard against zero or negative dimensions
+          if (newWidth <= 0 || newHeight <= 0) {
+            console.warn(`[viewStateStore] Invalid dimensions for ${viewType}: ${newWidth}x${newHeight}, skipping update`);
+            const view = state.viewState.views[viewType];
+            view.dim_px = dimensions;
+            return;
+          }
+          
+          const view = state.viewState.views[viewType];
           const [oldWidth, oldHeight] = view.dim_px;
           
           // If dimensions haven't actually changed, skip the update
           if (oldWidth === newWidth && oldHeight === newHeight) {
+            return;
+          }
+          
+          // Guard against zero old dimensions (initial state)
+          if (oldWidth <= 0 || oldHeight <= 0) {
+            // Just update dimensions without adjusting vectors
+            view.dim_px = dimensions;
             return;
           }
           
@@ -221,6 +237,19 @@ const createViewStateStore = () => create<ViewStateStore>()(
           const physicalWidth = u_length * oldWidth;
           const physicalHeight = v_length * oldHeight;
           
+          // Calculate current center of view in world space
+          const centerOffset = [
+            view.u_mm[0] * oldWidth / 2 + view.v_mm[0] * oldHeight / 2,
+            view.u_mm[1] * oldWidth / 2 + view.v_mm[1] * oldHeight / 2,
+            view.u_mm[2] * oldWidth / 2 + view.v_mm[2] * oldHeight / 2
+          ];
+          const currentCenter = [
+            view.origin_mm[0] + centerOffset[0],
+            view.origin_mm[1] + centerOffset[1],
+            view.origin_mm[2] + centerOffset[2]
+          ];
+          
+          console.log(`[viewStateStore] Current center: [${currentCenter[0].toFixed(2)}, ${currentCenter[1].toFixed(2)}, ${currentCenter[2].toFixed(2)}]`);
           console.log(`[viewStateStore] Physical extent: ${physicalWidth.toFixed(2)}mm x ${physicalHeight.toFixed(2)}mm`);
           
           // Calculate new pixel size to maintain physical extent
@@ -239,12 +268,33 @@ const createViewStateStore = () => create<ViewStateStore>()(
           // Update vectors
           view.u_mm = view.u_mm.map(component => component * u_scale) as [number, number, number];
           view.v_mm = view.v_mm.map(component => component * v_scale) as [number, number, number];
+          
+          // Calculate new center offset with scaled vectors
+          const newCenterOffset = [
+            view.u_mm[0] * newWidth / 2 + view.v_mm[0] * newHeight / 2,
+            view.u_mm[1] * newWidth / 2 + view.v_mm[1] * newHeight / 2,
+            view.u_mm[2] * newWidth / 2 + view.v_mm[2] * newHeight / 2
+          ];
+          
+          // Adjust origin to maintain the same world-space center
+          view.origin_mm = [
+            currentCenter[0] - newCenterOffset[0],
+            currentCenter[1] - newCenterOffset[1],
+            currentCenter[2] - newCenterOffset[2]
+          ] as [number, number, number];
+          
           view.dim_px = dimensions;
           
-          console.log(`[viewStateStore] Updated ${viewType} vectors:`, {
+          console.log(`[viewStateStore] Updated ${viewType}:`, {
+            origin_mm: view.origin_mm,
             u_mm: view.u_mm,
             v_mm: view.v_mm,
-            dim_px: view.dim_px
+            dim_px: view.dim_px,
+            newCenter: [
+              view.origin_mm[0] + newCenterOffset[0],
+              view.origin_mm[1] + newCenterOffset[1],
+              view.origin_mm[2] + newCenterOffset[2]
+            ]
           });
         }),
         
