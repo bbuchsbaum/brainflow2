@@ -9,6 +9,7 @@ import type { ViewType } from '@/types/coordinates';
 import { clampDimensions } from '@/utils/dimensions';
 import { useViewStateStore } from '@/stores/viewStateStore';
 import { useLayoutDragStore } from '@/stores/layoutDragStore';
+import { getApiService } from '@/services/apiService';
 import { debounce } from 'lodash';
 
 interface FlexibleSlicePanelProps {
@@ -23,6 +24,7 @@ export const FlexibleSlicePanel = memo(function FlexibleSlicePanel({
 }: FlexibleSlicePanelProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [dimensions, setDimensions] = useState({ width: 512, height: 512 });
+  const lastRenderTargetDims = useRef({ width: 512, height: 512 });
   
   // Create debounced function to update ViewState dimensions
   const debouncedUpdateDimensions = useMemo(
@@ -68,9 +70,38 @@ export const FlexibleSlicePanel = memo(function FlexibleSlicePanel({
         if (width > 0 && height > 0) {
           // Cancel any pending debounced update
           debouncedUpdateDimensions.cancel();
-          // Force immediate update
-          console.log(`[FlexibleSlicePanel ${viewId}] Updating ViewState to ${width}x${height}`);
-          useViewStateStore.getState().updateViewDimensions(viewId, [width, height]);
+          
+          // Handle resize end asynchronously
+          const handleResizeEnd = async () => {
+            // Check if we need to update render target
+            // Remove threshold for pixel-perfect accuracy
+            const widthDiff = Math.abs(width - lastRenderTargetDims.current.width);
+            const heightDiff = Math.abs(height - lastRenderTargetDims.current.height);
+            
+            if (widthDiff > 0 || heightDiff > 0) {
+              console.log(`[FlexibleSlicePanel ${viewId}] Updating render target FIRST: ${width}x${height} (was ${lastRenderTargetDims.current.width}x${lastRenderTargetDims.current.height})`);
+              try {
+                // STEP 1: Await render target creation
+                await getApiService().createOffscreenRenderTarget(width, height);
+                lastRenderTargetDims.current = { width, height };
+                console.log(`[FlexibleSlicePanel ${viewId}] Render target ready`);
+              } catch (error) {
+                console.error(`[FlexibleSlicePanel ${viewId}] Failed to update render target:`, error);
+                return; // Don't update view dimensions if render target failed
+              }
+            }
+            
+            // STEP 2: Await view state update (which now includes backend frame update)
+            console.log(`[FlexibleSlicePanel ${viewId}] Updating ViewState to ${width}x${height}`);
+            try {
+              await useViewStateStore.getState().updateViewDimensions(viewId, [width, height]);
+              console.log(`[FlexibleSlicePanel ${viewId}] ViewState update complete, render scheduled`);
+            } catch (error) {
+              console.error(`[FlexibleSlicePanel ${viewId}] Failed to update view dimensions:`, error);
+            }
+          };
+          
+          handleResizeEnd();
         }
       }
       

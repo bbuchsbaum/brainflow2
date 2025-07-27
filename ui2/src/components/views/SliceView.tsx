@@ -196,7 +196,7 @@ export function SliceView({ viewId, width, height, className = '' }: SliceViewPr
   // Dimension updates are handled by FlexibleSlicePanel
 
   // Handle mouse clicks to update crosshair
-  const handleMouseClick = useCallback((event: React.MouseEvent<HTMLCanvasElement>) => {
+  const handleMouseClick = useCallback(async (event: React.MouseEvent<HTMLCanvasElement>) => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     
@@ -240,8 +240,13 @@ export function SliceView({ viewId, width, height, className = '' }: SliceViewPr
     
     console.log(`[SliceView ${viewId}] World coordinate:`, worldCoord);
     
-    // Update crosshair position
-    setCrosshair(worldCoord, true);
+    // Update crosshair position (now waits for any pending resizes)
+    try {
+      await setCrosshair(worldCoord, true);
+      console.log(`[SliceView ${viewId}] Crosshair updated successfully`);
+    } catch (error) {
+      console.error(`[SliceView ${viewId}] Failed to update crosshair:`, error);
+    }
   }, [viewPlane, setCrosshair]);
 
   // Handle mouse move for hover coordinates

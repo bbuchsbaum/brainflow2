@@ -2805,7 +2805,7 @@ async fn apply_and_render_view_state_internal(
         crosshair_world: frontend_state.crosshair.world_mm,
         layers: backend_layers,
         viewport_size: [width, height],
-        show_crosshair: frontend_state.crosshair.visible,
+        show_crosshair: false, // Disabled per architecture decision - crosshairs should be UI-only
     };
     
     info!("Created backend ViewState with {} layers, crosshair at {:?}", 

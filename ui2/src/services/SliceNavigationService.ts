@@ -118,8 +118,8 @@ export class SliceNavigationService {
         break;
     }
     
-    // Update the crosshair position
-    useViewStateStore.getState().setCrosshair(newCrosshair, true);
+    // Update the crosshair position with immediate flag for responsive slider
+    useViewStateStore.getState().setCrosshair(newCrosshair, true, true);
   }
 }
 

@@ -208,6 +208,24 @@ export class ApiService {
     
     console.log(`  - Full ViewState:`, JSON.stringify(declarativeViewState, null, 2));
     
+    // Validate render target dimensions match requested dimensions
+    if (this.renderTargetState.currentWidth !== width || 
+        this.renderTargetState.currentHeight !== height) {
+      console.warn(`[ApiService] DIMENSION MISMATCH DETECTED!`);
+      console.warn(`  - Render target: ${this.renderTargetState.currentWidth}x${this.renderTargetState.currentHeight}`);
+      console.warn(`  - Requested: ${width}x${height}`);
+      console.warn(`  - Updating render target before rendering...`);
+      
+      // Update render target to match requested dimensions
+      try {
+        await this.createOffscreenRenderTarget(width, height);
+        console.log(`[ApiService] Render target updated to ${width}x${height}`);
+      } catch (error) {
+        console.error(`[ApiService] Failed to update render target:`, error);
+        throw new Error(`Render target dimension mismatch: expected ${width}x${height}, got ${this.renderTargetState.currentWidth}x${this.renderTargetState.currentHeight}`);
+      }
+    }
+    
     const backendCallTime = performance.now();
     let imageData: Uint8Array;
     
@@ -537,6 +555,24 @@ export class ApiService {
    */
   async initRenderLoop(width: number, height: number): Promise<void> {
     return this.transport.invoke('init_render_loop', { width, height });
+  }
+  
+  /**
+   * Update frame parameters for synchronized view
+   * Tells the backend about new view dimensions for proper aspect ratio handling
+   */
+  async updateFrameForSynchronizedView(
+    viewWidthMm: number,
+    viewHeightMm: number,
+    crosshairWorld: [number, number, number],
+    planeId: number
+  ): Promise<void> {
+    return this.transport.invoke('update_frame_for_synchronized_view', {
+      viewWidthMm,
+      viewHeightMm,
+      crosshairWorld,
+      planeId
+    });
   }
   
   /**

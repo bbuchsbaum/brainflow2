@@ -6,15 +6,15 @@
 import { create } from 'zustand';
 import { temporal } from 'zundo';
 import { immer } from 'zustand/middleware/immer';
-import type { ViewState, ViewLayer } from '@/types/viewState';
+import type { ViewState } from '@/types/viewState';
 import type { ViewType, ViewPlane, WorldCoordinates } from '@/types/coordinates';
-import { CoordinateTransform } from '@/utils/coordinates';
-import { coalesceUpdatesMiddleware, type WithCoalescing } from './middleware/coalesceUpdatesMiddleware';
+import { coalesceUpdatesMiddleware } from './middleware/coalesceUpdatesMiddleware';
+import { getApiService } from '@/services/apiService';
 
 // Declare global interface for store
 declare global {
   interface Window {
-    __viewStateStore?: any;
+    __viewStateStore?: ReturnType<typeof createViewStateStore>;
   }
 }
 
@@ -56,11 +56,14 @@ function getInitialViewState(): ViewState {
 interface ViewStateStore {
   viewState: ViewState;
   
+  // Track pending resize operations to prevent race conditions
+  resizeInFlight: Record<ViewType, Promise<void> | null>;
+  
   // Actions
   setViewState: (updater: (state: ViewState) => ViewState | void) => void;
-  setCrosshair: (world_mm: WorldCoordinates, updateViews?: boolean) => void;
+  setCrosshair: (world_mm: WorldCoordinates, updateViews?: boolean, immediate?: boolean) => Promise<void>;
   updateView: (viewType: ViewType, plane: ViewPlane) => void;
-  updateViewDimensions: (viewType: ViewType, dimensions: [number, number]) => void;
+  updateViewDimensions: (viewType: ViewType, dimensions: [number, number]) => Promise<void>;
   // Layer operations removed - use setViewState to update layers
   
   // Helpers
@@ -87,6 +90,13 @@ const createViewStateStore = () => create<ViewStateStore>()(
     })(
       immer((set, get) => ({
         viewState: getInitialViewState(),
+        
+        // Initialize resize tracking
+        resizeInFlight: {
+          axial: null,
+          sagittal: null,
+          coronal: null
+        },
         
         setViewState: (updater) => set((state) => {
           const timestamp = performance.now();
@@ -136,12 +146,31 @@ const createViewStateStore = () => create<ViewStateStore>()(
           }
         }),
         
-        setCrosshair: (position, updateViews = false) => set((state) => {
-          const [x, y, z] = position;
-          state.viewState.crosshair.world_mm = [x, y, z];
-          state.viewState.crosshair.visible = true;
+        setCrosshair: async (position, updateViews = false, immediate = false) => {
+          // Wait for any pending resizes to complete before updating crosshair
+          const currentState = get();
+          const resizePromises = Object.values(currentState.resizeInFlight).filter(p => p !== null);
           
-          if (updateViews) {
+          if (resizePromises.length > 0) {
+            console.log(`[viewStateStore] Waiting for ${resizePromises.length} pending resize(s) before updating crosshair`);
+            try {
+              await Promise.all(resizePromises);
+              console.log(`[viewStateStore] All resizes complete, proceeding with crosshair update`);
+            } catch (error) {
+              console.warn(`[viewStateStore] Resize failed, but continuing with crosshair update:`, error);
+            }
+          }
+          
+          // For immediate updates (like slider drags), bypass coalescing
+          const storeWithCoalescing = get() as ViewStateStore & { _originalSet?: typeof set };
+          const setter = immediate && storeWithCoalescing._originalSet ? storeWithCoalescing._originalSet : set;
+          
+          setter((state) => {
+            const [x, y, z] = position;
+            state.viewState.crosshair.world_mm = [x, y, z];
+            state.viewState.crosshair.visible = true;
+            
+            if (updateViews) {
             // Update view plane positions to show the slice containing the crosshair
             // This only updates the out-of-plane coordinate for each view
             const views = state.viewState.views;
@@ -191,14 +220,38 @@ const createViewStateStore = () => create<ViewStateStore>()(
             views.coronal.origin_mm = updateSlicePosition(views.coronal, [x, y, z]);
             
             console.log(`[viewStateStore] Updated slice positions for crosshair at [${x.toFixed(1)}, ${y.toFixed(1)}, ${z.toFixed(1)}]`);
+            
+            // Notify backend about crosshair update for each view
+            // This ensures the backend knows the current view dimensions when reslicing
+            const viewTypes: ViewType[] = ['axial', 'sagittal', 'coronal'];
+            viewTypes.forEach(viewType => {
+              const view = views[viewType];
+              const pixelWidth = Math.sqrt(view.u_mm[0]**2 + view.u_mm[1]**2 + view.u_mm[2]**2);
+              const pixelHeight = Math.sqrt(view.v_mm[0]**2 + view.v_mm[1]**2 + view.v_mm[2]**2);
+              const widthMm = pixelWidth * view.dim_px[0];
+              const heightMm = pixelHeight * view.dim_px[1];
+              
+              const planeId = { axial: 0, coronal: 1, sagittal: 2 }[viewType];
+              
+              // Don't await - fire and forget for performance
+              getApiService().updateFrameForSynchronizedView(
+                widthMm,
+                heightMm,
+                [x, y, z],
+                planeId
+              ).catch(error => {
+                console.error(`[viewStateStore] Failed to update backend for ${viewType} crosshair:`, error);
+              });
+            });
           }
-        }),
+          });
+        },
         
         updateView: (viewType, plane) => set((state) => {
           state.viewState.views[viewType] = plane;
         }),
         
-        updateViewDimensions: (viewType, dimensions) => set((state) => {
+        updateViewDimensions: async (viewType, dimensions) => {
           console.log(`[viewStateStore] Updating ${viewType} dimensions to ${dimensions[0]}x${dimensions[1]}`);
           
           const [newWidth, newHeight] = dimensions;
@@ -206,12 +259,12 @@ const createViewStateStore = () => create<ViewStateStore>()(
           // Guard against zero or negative dimensions
           if (newWidth <= 0 || newHeight <= 0) {
             console.warn(`[viewStateStore] Invalid dimensions for ${viewType}: ${newWidth}x${newHeight}, skipping update`);
-            const view = state.viewState.views[viewType];
-            view.dim_px = dimensions;
             return;
           }
           
-          const view = state.viewState.views[viewType];
+          // Get current state without triggering re-render
+          const currentState = get();
+          const view = currentState.viewState.views[viewType];
           const [oldWidth, oldHeight] = view.dim_px;
           
           // If dimensions haven't actually changed, skip the update
@@ -221,82 +274,101 @@ const createViewStateStore = () => create<ViewStateStore>()(
           
           // Guard against zero old dimensions (initial state)
           if (oldWidth <= 0 || oldHeight <= 0) {
-            // Just update dimensions without adjusting vectors
-            view.dim_px = dimensions;
+            // Just update dimensions without adjusting vectors or origin
+            set((state) => {
+              state.viewState.views[viewType].dim_px = dimensions;
+            });
             return;
           }
           
-          // Calculate current physical extent (in mm)
-          const u_length = Math.sqrt(
-            view.u_mm[0] ** 2 + view.u_mm[1] ** 2 + view.u_mm[2] ** 2
-          );
-          const v_length = Math.sqrt(
-            view.v_mm[0] ** 2 + view.v_mm[1] ** 2 + view.v_mm[2] ** 2
-          );
-          
-          const physicalWidth = u_length * oldWidth;
-          const physicalHeight = v_length * oldHeight;
-          
-          // Calculate current center of view in world space
+          // Perform all calculations up-front
           const centerOffset = [
             view.u_mm[0] * oldWidth / 2 + view.v_mm[0] * oldHeight / 2,
             view.u_mm[1] * oldWidth / 2 + view.v_mm[1] * oldHeight / 2,
             view.u_mm[2] * oldWidth / 2 + view.v_mm[2] * oldHeight / 2
           ];
-          const currentCenter = [
+          const worldCenter = [
             view.origin_mm[0] + centerOffset[0],
             view.origin_mm[1] + centerOffset[1],
             view.origin_mm[2] + centerOffset[2]
           ];
           
-          console.log(`[viewStateStore] Current center: [${currentCenter[0].toFixed(2)}, ${currentCenter[1].toFixed(2)}, ${currentCenter[2].toFixed(2)}]`);
-          console.log(`[viewStateStore] Physical extent: ${physicalWidth.toFixed(2)}mm x ${physicalHeight.toFixed(2)}mm`);
+          console.log(`[viewStateStore] World center before resize: [${worldCenter[0].toFixed(2)}, ${worldCenter[1].toFixed(2)}, ${worldCenter[2].toFixed(2)}]`);
           
-          // Calculate new pixel size to maintain physical extent
-          // Use uniform pixel size to preserve aspect ratio (matching backend behavior)
-          const pixelSize = Math.max(
-            physicalWidth / newWidth,
-            physicalHeight / newHeight
-          );
-          
-          console.log(`[viewStateStore] New pixel size: ${pixelSize.toFixed(4)}mm/px`);
-          
-          // Scale vectors to new pixel size while preserving direction
-          const u_scale = pixelSize / u_length;
-          const v_scale = pixelSize / v_length;
-          
-          // Update vectors
-          view.u_mm = view.u_mm.map(component => component * u_scale) as [number, number, number];
-          view.v_mm = view.v_mm.map(component => component * v_scale) as [number, number, number];
-          
-          // Calculate new center offset with scaled vectors
+          // Calculate new center offset
           const newCenterOffset = [
             view.u_mm[0] * newWidth / 2 + view.v_mm[0] * newHeight / 2,
             view.u_mm[1] * newWidth / 2 + view.v_mm[1] * newHeight / 2,
             view.u_mm[2] * newWidth / 2 + view.v_mm[2] * newHeight / 2
           ];
           
-          // Adjust origin to maintain the same world-space center
-          view.origin_mm = [
-            currentCenter[0] - newCenterOffset[0],
-            currentCenter[1] - newCenterOffset[1],
-            currentCenter[2] - newCenterOffset[2]
+          // Calculate new origin to keep the same world center visible
+          const newOrigin = [
+            worldCenter[0] - newCenterOffset[0],
+            worldCenter[1] - newCenterOffset[1],
+            worldCenter[2] - newCenterOffset[2]
           ] as [number, number, number];
           
-          view.dim_px = dimensions;
+          // Calculate view dimensions in mm for backend
+          const pixelWidth = Math.sqrt(view.u_mm[0]**2 + view.u_mm[1]**2 + view.u_mm[2]**2);
+          const pixelHeight = Math.sqrt(view.v_mm[0]**2 + view.v_mm[1]**2 + view.v_mm[2]**2);
+          const widthMm = pixelWidth * newWidth;
+          const heightMm = pixelHeight * newHeight;
           
-          console.log(`[viewStateStore] Updated ${viewType}:`, {
-            origin_mm: view.origin_mm,
-            u_mm: view.u_mm,
-            v_mm: view.v_mm,
-            dim_px: view.dim_px,
-            newCenter: [
-              view.origin_mm[0] + newCenterOffset[0],
-              view.origin_mm[1] + newCenterOffset[1],
-              view.origin_mm[2] + newCenterOffset[2]
-            ]
+          // Map view type to plane ID (backend convention)
+          const planeId = { axial: 0, coronal: 1, sagittal: 2 }[viewType];
+          
+          // Create the resize promise
+          const resizePromise = (async () => {
+            try {
+              // AWAIT the frame update to complete in the backend
+              await getApiService().updateFrameForSynchronizedView(
+                widthMm,
+                heightMm,
+                currentState.viewState.crosshair.world_mm as [number, number, number],
+                planeId
+              );
+              console.log(`[viewStateStore] Backend notified and ready for ${viewType} resize: ${widthMm.toFixed(1)}x${heightMm.toFixed(1)}mm`);
+              
+              // NOW update the state - this will trigger the coalesced render
+              set((state) => {
+                const viewToUpdate = state.viewState.views[viewType];
+                viewToUpdate.dim_px = dimensions;
+                viewToUpdate.origin_mm = newOrigin;
+                
+                console.log(`[viewStateStore] Updated ${viewType}:`, {
+                  origin_mm: viewToUpdate.origin_mm,
+                  u_mm: viewToUpdate.u_mm,  // Unchanged
+                  v_mm: viewToUpdate.v_mm,  // Unchanged
+                  dim_px: viewToUpdate.dim_px,
+                  worldCenterAfter: [
+                    viewToUpdate.origin_mm[0] + newCenterOffset[0],
+                    viewToUpdate.origin_mm[1] + newCenterOffset[1],
+                    viewToUpdate.origin_mm[2] + newCenterOffset[2]
+                  ]
+                });
+                
+                // Clear the resize promise after state is updated
+                state.resizeInFlight[viewType] = null;
+              });
+            } catch (error) {
+              console.error(`[viewStateStore] Failed to update backend for ${viewType}:`, error);
+              // Clear the resize promise on error
+              set((state) => {
+                state.resizeInFlight[viewType] = null;
+              });
+              throw error; // Re-throw to maintain the promise rejection
+            }
+          })();
+          
+          // Track the resize promise
+          set((state) => {
+            state.resizeInFlight[viewType] = resizePromise;
           });
-        }),
+          
+          // Wait for the resize to complete
+          await resizePromise;
+        },
         
         // Layer operations removed - use setViewState to update layers
         

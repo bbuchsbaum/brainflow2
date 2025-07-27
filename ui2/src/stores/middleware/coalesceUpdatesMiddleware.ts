@@ -220,7 +220,37 @@ export const coalesceUpdatesMiddleware = <T extends { viewState: ViewState }>(
       return {
         ...store,
         // Expose the original set for internal use
-        _originalSet: set
+        _originalSet: (updater: any) => {
+          // Apply the state change immediately without coalescing
+          const result = set(updater);
+          
+          // Get the new state and immediately send to backend
+          const newState = get();
+          const effectiveCallback = localBackendCallback || backendUpdateCallback;
+          if (newState && newState.viewState && effectiveCallback && localIsEnabled) {
+            console.log('[coalesceMiddleware] Immediate update - bypassing coalescing');
+            try {
+              effectiveCallback(newState.viewState);
+              // Update last flushed state so we don't re-send the same state
+              lastFlushedState = JSON.parse(JSON.stringify(newState.viewState));
+              // Clear any pending state since we just sent it
+              pendingState = null;
+              // Cancel any scheduled flush
+              if (rafId) {
+                if (typeof rafId === 'number' && rafId > 0) {
+                  cancelAnimationFrame(rafId);
+                } else {
+                  clearTimeout(rafId as any);
+                }
+                rafId = null;
+              }
+            } catch (error) {
+              console.error('[coalesceMiddleware] Error sending immediate update:', error);
+            }
+          }
+          
+          return result;
+        }
       };
     };
   };
