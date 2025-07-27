@@ -4,6 +4,7 @@ const COMMANDS: &[&str] = &[
     "world_to_voxel",
     "get_timeseries_matrix",
     "get_initial_views",
+    "recalculate_view_for_dimensions",
     "request_layer_gpu_resources",
     "release_layer_gpu_resources",
     "fs_list_directory",

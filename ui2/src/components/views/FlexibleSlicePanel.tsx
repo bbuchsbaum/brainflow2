@@ -9,8 +9,8 @@ import type { ViewType } from '@/types/coordinates';
 import { clampDimensions } from '@/utils/dimensions';
 import { useViewStateStore } from '@/stores/viewStateStore';
 import { useLayoutDragStore } from '@/stores/layoutDragStore';
-import { getApiService } from '@/services/apiService';
-import { debounce } from 'lodash';
+import { debounce, throttle } from 'lodash';
+import { coalesceUtils } from '@/stores/middleware/coalesceUpdatesMiddleware';
 
 interface FlexibleSlicePanelProps {
   viewId?: ViewType;
@@ -24,37 +24,43 @@ export const FlexibleSlicePanel = memo(function FlexibleSlicePanel({
 }: FlexibleSlicePanelProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [dimensions, setDimensions] = useState({ width: 512, height: 512 });
-  const lastRenderTargetDims = useRef({ width: 512, height: 512 });
   
-  // Create debounced function to update ViewState dimensions
-  const debouncedUpdateDimensions = useMemo(
-    () => debounce((width: number, height: number) => {
-      // Don't update ViewState if we're dragging - wait for drag end
-      const isDragging = useLayoutDragStore.getState().isDragging;
-      if (isDragging) {
-        console.log(`[FlexibleSlicePanel ${viewId}] Skipping ViewState update during drag: ${width}x${height}`);
-        return;
-      }
-      
+  // Create throttled function to update view dimensions with immediate render
+  const throttledUpdateDimensions = useMemo(
+    () => throttle(async (width: number, height: number) => {
       // Check if dimensions actually changed to prevent render loops
       const currentView = useViewStateStore.getState().viewState.views[viewId];
       const [currentWidth, currentHeight] = currentView.dim_px;
       
-      // Only update if dimensions changed by more than 1 pixel (to avoid float precision issues)
+      // Only update if dimensions changed by more than 1 pixel
       if (Math.abs(currentWidth - width) > 1 || Math.abs(currentHeight - height) > 1) {
-        console.log(`[FlexibleSlicePanel ${viewId}] Updating ViewState dimensions: ${width}x${height} (was ${currentWidth}x${currentHeight})`);
-        useViewStateStore.getState().updateViewDimensions(viewId, [width, height]);
+        console.log(`[FlexibleSlicePanel ${viewId}] Throttled resize update:`, {
+          requested: { width, height },
+          current: { width: currentWidth, height: currentHeight },
+          delta: { width: width - currentWidth, height: height - currentHeight }
+        });
+        
+        // Update dimensions and vectors atomically (now async with backend)
+        await useViewStateStore.getState().updateDimensionsAndPreserveScale(viewId, [width, height]);
+        
+        // Force immediate render (skip drag check during resize)
+        coalesceUtils.flush(true);
+      } else {
+        console.log(`[FlexibleSlicePanel ${viewId}] Skipping update - dimension change too small:`, {
+          current: [currentWidth, currentHeight],
+          new: [width, height]
+        });
       }
-    }, 150), // 150ms provides smooth updates
+    }, 30), // 30ms throttle for smooth resizing
     [viewId]
   );
 
-  // Cleanup debounced function on unmount
+  // Cleanup throttled function on unmount
   useEffect(() => {
     return () => {
-      debouncedUpdateDimensions.cancel();
+      throttledUpdateDimensions.cancel();
     };
-  }, [debouncedUpdateDimensions]);
+  }, [throttledUpdateDimensions]);
   
   // Force dimension update when drag ends
   useEffect(() => {
@@ -68,40 +74,21 @@ export const FlexibleSlicePanel = memo(function FlexibleSlicePanel({
         console.log(`[FlexibleSlicePanel ${viewId}] Drag ended, forcing dimension update`);
         const { width, height } = dimensions;
         if (width > 0 && height > 0) {
-          // Cancel any pending debounced update
-          debouncedUpdateDimensions.cancel();
+          // Cancel any pending throttled update
+          throttledUpdateDimensions.cancel();
           
-          // Handle resize end asynchronously
-          const handleResizeEnd = async () => {
-            // Check if we need to update render target
-            // Remove threshold for pixel-perfect accuracy
-            const widthDiff = Math.abs(width - lastRenderTargetDims.current.width);
-            const heightDiff = Math.abs(height - lastRenderTargetDims.current.height);
-            
-            if (widthDiff > 0 || heightDiff > 0) {
-              console.log(`[FlexibleSlicePanel ${viewId}] Updating render target FIRST: ${width}x${height} (was ${lastRenderTargetDims.current.width}x${lastRenderTargetDims.current.height})`);
-              try {
-                // STEP 1: Await render target creation
-                await getApiService().createOffscreenRenderTarget(width, height);
-                lastRenderTargetDims.current = { width, height };
-                console.log(`[FlexibleSlicePanel ${viewId}] Render target ready`);
-              } catch (error) {
-                console.error(`[FlexibleSlicePanel ${viewId}] Failed to update render target:`, error);
-                return; // Don't update view dimensions if render target failed
-              }
-            }
-            
-            // STEP 2: Await view state update (which now includes backend frame update)
-            console.log(`[FlexibleSlicePanel ${viewId}] Updating ViewState to ${width}x${height}`);
-            try {
-              await useViewStateStore.getState().updateViewDimensions(viewId, [width, height]);
-              console.log(`[FlexibleSlicePanel ${viewId}] ViewState update complete, render scheduled`);
-            } catch (error) {
-              console.error(`[FlexibleSlicePanel ${viewId}] Failed to update view dimensions:`, error);
-            }
-          };
+          // Force final update on drag end
+          console.log(`[FlexibleSlicePanel ${viewId}] Drag end - final update:`, {
+            dimensions: { width, height },
+            timestamp: performance.now()
+          });
           
-          handleResizeEnd();
+          // Update dimensions and vectors atomically (now async with backend)
+          useViewStateStore.getState().updateDimensionsAndPreserveScale(viewId, [width, height]).then(() => {
+            console.log(`[FlexibleSlicePanel ${viewId}] Drag end update completed`);
+            // Force immediate render after backend update
+            coalesceUtils.flush(true);
+          });
         }
       }
       
@@ -109,7 +96,7 @@ export const FlexibleSlicePanel = memo(function FlexibleSlicePanel({
     });
     
     return unsubscribe;
-  }, [viewId, dimensions, debouncedUpdateDimensions]);
+  }, [viewId, dimensions, throttledUpdateDimensions]);
   
   // Use ResizeObserver to track container size internally
   // Using useLayoutEffect to ensure measurements happen synchronously after DOM updates
@@ -120,18 +107,28 @@ export const FlexibleSlicePanel = memo(function FlexibleSlicePanel({
       const entry = entries[0];
       if (entry) {
         const { width, height } = entry.contentRect;
+        console.log(`[FlexibleSlicePanel ${viewId}] ResizeObserver triggered:`, {
+          raw: { width, height },
+          timestamp: performance.now()
+        });
+        
         // Clamp dimensions and only update if they actually changed
         const [clampedWidth, clampedHeight] = clampDimensions(width, height);
         setDimensions(prev => {
           if (prev.width === clampedWidth && prev.height === clampedHeight) {
+            console.log(`[FlexibleSlicePanel ${viewId}] Dimensions unchanged, skipping state update`);
             return prev;
           }
+          console.log(`[FlexibleSlicePanel ${viewId}] Updating local dimensions:`, {
+            prev: { width: prev.width, height: prev.height },
+            new: { width: clampedWidth, height: clampedHeight }
+          });
           return { width: clampedWidth, height: clampedHeight };
         });
         
-        // Trigger debounced update for backend re-render
+        // Trigger throttled update for backend re-render
         if (clampedWidth > 0 && clampedHeight > 0) {
-          debouncedUpdateDimensions(clampedWidth, clampedHeight);
+          throttledUpdateDimensions(clampedWidth, clampedHeight);
         }
       }
     });
@@ -147,7 +144,7 @@ export const FlexibleSlicePanel = memo(function FlexibleSlicePanel({
     });
     
     return () => resizeObserver.disconnect();
-  }, [viewId, debouncedUpdateDimensions]);
+  }, [viewId, throttledUpdateDimensions]);
   
   return (
     <div ref={containerRef} className="h-full w-full bg-gray-900 flex flex-col">

@@ -139,17 +139,21 @@ export function SliceView({ viewId, width, height, className = '' }: SliceViewPr
   
   // Create stable event handler
   const handleRenderComplete = React.useCallback((data: any) => {
-    console.log(`[SliceView ${viewId}] render.complete event received:`, data);
-    console.log(`  - viewType: ${data.viewType}`);
-    console.log(`  - imageBitmap:`, data.imageBitmap);
-    console.log(`  - imageBitmap type:`, data.imageBitmap ? Object.prototype.toString.call(data.imageBitmap) : 'null');
+    console.log(`[SliceView ${viewId}] render.complete event received:`, {
+      timestamp: performance.now(),
+      viewType: data.viewType,
+      hasImageBitmap: !!data.imageBitmap,
+      imageBitmapType: data.imageBitmap ? Object.prototype.toString.call(data.imageBitmap) : 'null'
+    });
     
     if (data.viewType === viewId && canvasRef.current) {
       const ctx = canvasRef.current.getContext('2d');
       if (ctx && data.imageBitmap) {
-        console.log(`[SliceView ${viewId}] Drawing image to canvas`);
-        console.log(`  - Canvas size: ${canvasRef.current.width}x${canvasRef.current.height}`);
-        console.log(`  - ImageBitmap size: ${data.imageBitmap.width}x${data.imageBitmap.height}`);
+        console.log(`[SliceView ${viewId}] Drawing image to canvas:`, {
+          canvasSize: `${canvasRef.current.width}x${canvasRef.current.height}`,
+          imageBitmapSize: `${data.imageBitmap.width}x${data.imageBitmap.height}`,
+          timestamp: performance.now()
+        });
         
         // Clear and draw the new image
         ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
@@ -163,7 +167,7 @@ export function SliceView({ viewId, width, height, className = '' }: SliceViewPr
             redrawCanvasRef.current();
           }
           
-          console.log(`[SliceView ${viewId}] New image received and drawn`);
+          console.log(`[SliceView ${viewId}] New image received and drawn successfully`);
         } catch (error) {
           console.error(`[SliceView ${viewId}] Failed to draw image:`, error);
         }
@@ -171,8 +175,14 @@ export function SliceView({ viewId, width, height, className = '' }: SliceViewPr
         setIsRendering(false);
         setError(null);
       } else {
-        console.warn(`[SliceView ${viewId}] Missing context or imageBitmap`);
+        console.warn(`[SliceView ${viewId}] Missing context or imageBitmap:`, {
+          hasCanvas: !!canvasRef.current,
+          hasContext: !!ctx,
+          hasImageBitmap: !!data.imageBitmap
+        });
       }
+    } else if (data.viewType !== viewId) {
+      console.log(`[SliceView ${viewId}] Ignoring render.complete for different view: ${data.viewType}`);
     }
   }, [viewId]); // Only depend on viewId which is stable
   
@@ -289,10 +299,14 @@ export function SliceView({ viewId, width, height, className = '' }: SliceViewPr
   
   // Create a stable redraw function
   const redrawCanvasImpl = () => {
+    const startTime = performance.now();
+    
     if (!canvasRef.current || !lastImageRef.current) {
-      console.warn(`[SliceView ${viewId}] Cannot redraw - canvas or image missing`);
-      console.warn(`  - canvas exists: ${!!canvasRef.current}`);
-      console.warn(`  - lastImage exists: ${!!lastImageRef.current}`);
+      console.warn(`[SliceView ${viewId}] Cannot redraw - canvas or image missing:`, {
+        hasCanvas: !!canvasRef.current,
+        hasLastImage: !!lastImageRef.current,
+        timestamp: startTime
+      });
       return;
     }
     
@@ -306,8 +320,11 @@ export function SliceView({ viewId, width, height, className = '' }: SliceViewPr
     const imageWidth = imageBitmap.width;
     const imageHeight = imageBitmap.height;
     
-    console.log(`[SliceView ${viewId}] Redrawing canvas at ${canvasRef.current.width}x${canvasRef.current.height}`);
-    console.log(`[SliceView ${viewId}] Image dimensions: ${imageWidth}x${imageHeight}`);
+    console.log(`[SliceView ${viewId}] Redrawing canvas:`, {
+      canvasSize: `${canvasRef.current.width}x${canvasRef.current.height}`,
+      imageSize: `${imageWidth}x${imageHeight}`,
+      timestamp: startTime
+    });
     
     // Clear canvas with background color
     ctx.fillStyle = '#000000';
@@ -320,11 +337,13 @@ export function SliceView({ viewId, width, height, className = '' }: SliceViewPr
     let drawWidth, drawHeight, drawX, drawY;
     
     if (imageAspectRatio > canvasAspectRatio) {
+      // Image is wider than canvas - fit to width
       drawWidth = canvasRef.current.width;
       drawHeight = drawWidth / imageAspectRatio;
       drawX = 0;
       drawY = (canvasRef.current.height - drawHeight) / 2;
     } else {
+      // Image is taller than canvas - fit to height
       drawHeight = canvasRef.current.height;
       drawWidth = drawHeight * imageAspectRatio;
       drawX = (canvasRef.current.width - drawWidth) / 2;
@@ -338,7 +357,13 @@ export function SliceView({ viewId, width, height, className = '' }: SliceViewPr
     drawHeight = Math.round(drawHeight);
     
     // Draw image
-    console.log(`[SliceView ${viewId}] Drawing image at ${drawX},${drawY} size ${drawWidth}x${drawHeight}`);
+    console.log(`[SliceView ${viewId}] Drawing params:`, {
+      position: `(${drawX}, ${drawY})`,
+      size: `${drawWidth}x${drawHeight}`,
+      imageAspectRatio: imageAspectRatio.toFixed(3),
+      canvasAspectRatio: canvasAspectRatio.toFixed(3),
+      fitMode: imageAspectRatio > canvasAspectRatio ? 'fit-width' : 'fit-height'
+    });
     
     try {
       ctx.drawImage(
@@ -349,12 +374,16 @@ export function SliceView({ viewId, width, height, className = '' }: SliceViewPr
         drawHeight
       );
       
-      console.log(`[SliceView ${viewId}] Image drawn successfully`);
+      const drawTime = performance.now() - startTime;
+      console.log(`[SliceView ${viewId}] Image drawn successfully in ${drawTime.toFixed(1)}ms`);
       
       // Verify pixels were actually drawn
-      const sampleData = ctx.getImageData(drawX + 10, drawY + 10, 1, 1);
-      console.log(`[SliceView ${viewId}] Sample pixel at (${drawX + 10},${drawY + 10}):`, 
-        `R=${sampleData.data[0]}, G=${sampleData.data[1]}, B=${sampleData.data[2]}, A=${sampleData.data[3]}`);
+      const sampleX = Math.min(drawX + 10, drawX + drawWidth - 1);
+      const sampleY = Math.min(drawY + 10, drawY + drawHeight - 1);
+      const sampleData = ctx.getImageData(sampleX, sampleY, 1, 1);
+      console.log(`[SliceView ${viewId}] Sample pixel at (${sampleX},${sampleY}):`, {
+        rgba: `rgba(${sampleData.data[0]}, ${sampleData.data[1]}, ${sampleData.data[2]}, ${sampleData.data[3] / 255})`
+      });
     } catch (error) {
       console.error(`[SliceView ${viewId}] Failed to draw image:`, error);
     }
@@ -398,18 +427,26 @@ export function SliceView({ viewId, width, height, className = '' }: SliceViewPr
   
   // Check on mount if we missed any renders
   useEffect(() => {
-    console.log(`[SliceView ${viewId}] Component mounted`);
+    console.log(`[SliceView ${viewId}] Component mounted at ${performance.now().toFixed(0)}ms`);
     
     // Give a small delay to ensure event listeners are set up
     const timer = setTimeout(() => {
       if (!lastImageRef.current) {
-        console.log(`[SliceView ${viewId}] No image on mount - requesting render`);
+        console.log(`[SliceView ${viewId}] No image on mount - checking state`);
         // Force a render by triggering coalescing flush
         const viewState = useViewStateStore.getState().viewState;
+        console.log(`[SliceView ${viewId}] Current state:`, {
+          layerCount: viewState.layers.length,
+          hasVisibleLayers: viewState.layers.some(l => l.visible && l.opacity > 0),
+          timestamp: performance.now()
+        });
+        
         if (viewState.layers.length > 0) {
           console.log(`[SliceView ${viewId}] Found ${viewState.layers.length} layers, forcing render`);
           coalesceUtils.flush(true);
         }
+      } else {
+        console.log(`[SliceView ${viewId}] Already has image on mount`);
       }
     }, 100);
     
@@ -483,9 +520,12 @@ export function SliceView({ viewId, width, height, className = '' }: SliceViewPr
   
   // Log dimension changes for debugging
   useEffect(() => {
-    console.log(`[SliceView ${viewId}] Requested dimensions: ${width}x${height}`);
-    console.log(`[SliceView ${viewId}] Validated dimensions: ${validWidth}x${validHeight}`);
-    console.log(`[SliceView ${viewId}] Calculated canvas: ${canvasWidth}x${canvasHeight}`);
+    console.log(`[SliceView ${viewId}] Dimension update:`, {
+      requested: `${width}x${height}`,
+      validated: `${validWidth}x${validHeight}`,
+      canvas: `${canvasWidth}x${canvasHeight}`,
+      timestamp: performance.now()
+    });
   }, [width, height, validWidth, validHeight, viewId, canvasWidth, canvasHeight]);
   
   // Debug logging

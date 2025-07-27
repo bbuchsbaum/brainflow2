@@ -133,11 +133,14 @@ Tauri automatically converts between naming conventions:
 - **JavaScript**: Use camelCase (`originMm`, `layerId`)
 - **Rust**: Use snake_case (`origin_mm`, `layer_id`)
 
-### 2. Command Registration
-Commands must be registered in `/core/api_bridge/build.rs`:
-```rust
-const COMMANDS: &[&str] = &["update_frame_ubo", "patch_layer", ...];
-```
+### 2. Adding New Commands
+**IMPORTANT**: Adding a new Tauri command requires updates in FOUR places:
+1. Define the command function in `lib.rs` with `#[command]` attribute
+2. Add to `COMMANDS` array in `/core/api_bridge/build.rs`
+3. Add to `generate_handler!` macro in `lib.rs` (commonly missed!)
+4. Add to `apiBridgeCommands` array in `/ui2/src/services/transport.ts`
+
+See `/core/api_bridge/ADDING_COMMANDS.md` for detailed steps.
 
 ### 3. Permissions
 Commands need permissions in `/core/api_bridge/permissions/default.toml`:

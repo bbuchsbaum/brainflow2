@@ -705,6 +705,120 @@ async fn get_initial_views(
 }
 
 #[command]
+#[tracing::instrument(skip_all, err, name = "api.recalculate_view_for_dimensions")]
+async fn recalculate_view_for_dimensions(
+    volume_id: String,
+    view_type: String, // "axial", "sagittal", or "coronal"
+    dimensions: Vec<u32>, // [width, height]
+    crosshair_mm: Vec<f32>, // [x, y, z]
+    state: State<'_, BridgeState>,
+) -> BridgeResult<ViewRectMm> {
+    println!("[Backend] recalculate_view_for_dimensions called:");
+    println!("  - volume_id: {}", volume_id);
+    println!("  - view_type: {}", view_type);
+    println!("  - requested dimensions: {:?}", dimensions);
+    println!("  - crosshair_mm: {:?}", crosshair_mm);
+    
+    // Validate inputs
+    if dimensions.len() != 2 {
+        return Err(BridgeError::Input { 
+            code: 4001, 
+            details: "dimensions must have exactly 2 elements [width, height]".to_string() 
+        });
+    }
+    if crosshair_mm.len() != 3 {
+        return Err(BridgeError::Input { 
+            code: 4001, 
+            details: "crosshair_mm must have exactly 3 elements [x, y, z]".to_string() 
+        });
+    }
+    
+    let screen_px_max = [dimensions[0], dimensions[1]];
+    let crosshair_world = [crosshair_mm[0], crosshair_mm[1], crosshair_mm[2]];
+    
+    println!("[Backend] Parsed parameters:");
+    println!("  - screen_px_max: {:?}", screen_px_max);
+    println!("  - crosshair_world: {:?}", crosshair_world);
+    
+    // Parse view type
+    let orientation = match view_type.as_str() {
+        "axial" => ViewOrientation::Axial,
+        "sagittal" => ViewOrientation::Sagittal,
+        "coronal" => ViewOrientation::Coronal,
+        _ => return Err(BridgeError::Input { 
+            code: 4001, 
+            details: format!("Invalid view type: {}. Must be 'axial', 'sagittal', or 'coronal'", view_type) 
+        }),
+    };
+    
+    // Get volume from registry
+    let volume_registry = state.volume_registry.lock().await;
+    let volume_data = volume_registry.get(&volume_id)
+        .ok_or_else(|| BridgeError::VolumeNotFound { 
+            code: 4041, 
+            details: format!("Volume '{}' not found", volume_id) 
+        })?;
+    
+    // Extract dimensions and voxel_to_world transform
+    let (dims, voxel_to_world) = match volume_data {
+        VolumeSendable::VolF32(vol, affine) => (vol.space().dims(), affine.to_homogeneous()),
+        VolumeSendable::VolI16(vol, affine) => (vol.space().dims(), affine.to_homogeneous()),
+        VolumeSendable::VolU8(vol, affine) => (vol.space().dims(), affine.to_homogeneous()),
+        VolumeSendable::VolI8(vol, affine) => (vol.space().dims(), affine.to_homogeneous()),
+        VolumeSendable::VolU16(vol, affine) => (vol.space().dims(), affine.to_homogeneous()),
+        VolumeSendable::VolI32(vol, affine) => (vol.space().dims(), affine.to_homogeneous()),
+        VolumeSendable::VolU32(vol, affine) => (vol.space().dims(), affine.to_homogeneous()),
+        VolumeSendable::VolF64(vol, affine) => (vol.space().dims(), affine.to_homogeneous()),
+    };
+    
+    println!("[Backend] Volume metadata:");
+    println!("  - volume dims: {:?}", dims);
+    println!("  - voxel_to_world transform: {:?}", voxel_to_world);
+    
+    // Create VolumeMetadata
+    let volume_meta = VolumeMetadata {
+        dimensions: [dims[0], dims[1], dims[2]],
+        voxel_to_world,
+    };
+    
+    // Calculate view using the same logic as get_initial_views
+    println!("[Backend] Calling ViewRectMm::full_extent with:");
+    println!("  - orientation: {:?}", orientation);
+    println!("  - crosshair_world: {:?}", crosshair_world);
+    println!("  - screen_px_max: {:?}", screen_px_max);
+    
+    let view = ViewRectMm::full_extent(
+        &volume_meta,
+        orientation,
+        crosshair_world,
+        screen_px_max,
+    );
+    
+    println!("[Backend] Calculated ViewRectMm:");
+    println!("  - origin_mm: {:?}", view.origin_mm);
+    println!("  - u_mm: {:?}", view.u_mm);
+    println!("  - v_mm: {:?}", view.v_mm);
+    println!("  - width_px: {}", view.width_px);
+    println!("  - height_px: {}", view.height_px);
+    
+    // Log pixel sizes
+    let u_pixel_size = (view.u_mm[0].powi(2) + view.u_mm[1].powi(2) + view.u_mm[2].powi(2)).sqrt();
+    let v_pixel_size = (view.v_mm[0].powi(2) + view.v_mm[1].powi(2) + view.v_mm[2].powi(2)).sqrt();
+    println!("[Backend] Pixel sizes:");
+    println!("  - u pixel size: {} mm", u_pixel_size);
+    println!("  - v pixel size: {} mm", v_pixel_size);
+    
+    // CRITICAL: Check if calculated dimensions match requested
+    if view.width_px != screen_px_max[0] || view.height_px != screen_px_max[1] {
+        println!("[Backend] ⚠️ WARNING: Calculated dimensions differ from requested!");
+        println!("  - Requested: {}x{}", screen_px_max[0], screen_px_max[1]);
+        println!("  - Calculated: {}x{}", view.width_px, view.height_px);
+    }
+    
+    Ok(view)
+}
+
+#[command]
 #[tracing::instrument(skip_all, err, name = "api.request_gpu")]
 #[allow(dead_code)] // Allow unused for now
 async fn request_layer_gpu_resources(layer_spec: LayerSpec, metadata_only: Option<bool>, state: State<'_, BridgeState>) -> BridgeResult<VolumeLayerGpuInfo> { // Update return type
@@ -2572,14 +2686,8 @@ async fn apply_and_render_view_state_internal(
         })?;
     let mut service = service_arc.lock().await;
     
-    // Get render target dimensions
-    let (width, height) = service.get_render_target_size()
-        .ok_or_else(|| BridgeError::Internal {
-            code: 5021,
-            details: "No render target created. Call create_offscreen_render_target first.".to_string()
-        })?;
-    
-    // Use the requested view if provided, otherwise default to axial
+    // Extract dimensions from requestedView if provided, otherwise use defaults
+    // This supports per-view render targets instead of global render targets
     let (view_plane, width, height) = if let Some(req_view) = &frontend_state.requested_view {
         info!("Using requested view '{}' with dimensions {}x{}", req_view.view_type, req_view.width, req_view.height);
         // The requested view already has the complete frame parameters, so we'll use them directly
@@ -2593,6 +2701,15 @@ async fn apply_and_render_view_state_internal(
         info!("No specific view requested, using axial view with default dimensions");
         (&frontend_state.views.axial, 512u32, 512u32)
     };
+    
+    // Create render target with the specific dimensions for this view
+    // This replaces the global render target approach with per-view render targets
+    info!("Creating render target for dimensions: {}x{}", width, height);
+    service.create_offscreen_target(width, height)
+        .map_err(|e| BridgeError::GpuError {
+            code: 5021,
+            details: format!("Failed to create per-view render target ({}x{}): {}", width, height, e),
+        })?;
     
     // Convert frontend ViewState to backend ViewState format
     // Build layers for backend ViewState
@@ -3043,6 +3160,7 @@ pub fn plugin<R: Runtime>() -> TauriPlugin<R> {
             world_to_voxel,
             get_timeseries_matrix,
             get_initial_views,
+            recalculate_view_for_dimensions,
             request_layer_gpu_resources,
             release_layer_gpu_resources,
             fs_list_directory,
@@ -3061,14 +3179,14 @@ pub fn plugin<R: Runtime>() -> TauriPlugin<R> {
             set_layer_mask,
             request_frame,
             render_frame,
+            add_render_layer,
+            patch_layer,
+            sample_world_coordinate,
             render_to_image,
             render_to_image_binary,
             apply_and_render_view_state,
             apply_and_render_view_state_binary,
             apply_and_render_view_state_raw,
-            add_render_layer,
-            patch_layer,
-            sample_world_coordinate,
         ])
         .setup(|app, _| {
             // Initialize the bridge state

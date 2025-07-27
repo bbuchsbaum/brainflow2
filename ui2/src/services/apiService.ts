@@ -8,7 +8,7 @@ import { getTransport } from './transport';
 import type { ViewState } from '@/types/viewState';
 import type { WorldCoordinates, ViewPlane } from '@/types/coordinates';
 import type { VolumeBounds } from '@brainflow/api';
-import { useResizeStore } from '@/stores/resizeStore';
+import { useRenderStore } from '@/stores/renderStore';
 
 export interface VolumeHandle {
   id: string;
@@ -38,18 +38,7 @@ export class ApiService {
   private useRawRGBA: boolean = true; // Set to true to use raw RGBA instead of PNG
   private debugBrighten: boolean = false; // Set to true to artificially brighten raw RGBA for debugging
   
-  // Render target state management
-  private renderTargetState: {
-    isRecreating: boolean;
-    currentWidth: number;
-    currentHeight: number;
-    lastError: Error | null;
-  } = {
-    isRecreating: false,
-    currentWidth: 0,
-    currentHeight: 0,
-    lastError: null
-  };
+  // Note: Render target state is now managed by RenderCoordinator
   
   constructor(transport: BackendTransport = getTransport()) {
     this.transport = transport;
@@ -74,23 +63,11 @@ export class ApiService {
       intensity: l.intensity 
     })));
     
-    // Check if we're in the middle of a resize
-    const resizeState = useResizeStore.getState();
-    if (resizeState.shouldBlockRender()) {
-      console.warn('[ApiService] Blocking render during resize operation');
-      const canvas = new OffscreenCanvas(width, height);
-      const ctx = canvas.getContext('2d');
-      if (ctx) {
-        ctx.fillStyle = '#1a1a1a';
-        ctx.fillRect(0, 0, width, height);
-      }
-      return createImageBitmap(canvas);
-    }
-    
-    // Check if render target is ready
-    if (!this.isRenderTargetReady()) {
-      console.warn('[ApiService] Render target not ready - returning empty image');
-      console.log('  Render target state:', this.getRenderTargetState());
+    // Check if render target is ready (now managed by RenderCoordinator)
+    const renderStore = useRenderStore.getState();
+    if (renderStore.shouldBlockRender()) {
+      console.warn('[ApiService] Blocking render - render target not ready');
+      console.log('  Render target state:', renderStore.getRenderTargetState());
       const canvas = new OffscreenCanvas(width, height);
       const ctx = canvas.getContext('2d');
       if (ctx) {
@@ -208,23 +185,7 @@ export class ApiService {
     
     console.log(`  - Full ViewState:`, JSON.stringify(declarativeViewState, null, 2));
     
-    // Validate render target dimensions match requested dimensions
-    if (this.renderTargetState.currentWidth !== width || 
-        this.renderTargetState.currentHeight !== height) {
-      console.warn(`[ApiService] DIMENSION MISMATCH DETECTED!`);
-      console.warn(`  - Render target: ${this.renderTargetState.currentWidth}x${this.renderTargetState.currentHeight}`);
-      console.warn(`  - Requested: ${width}x${height}`);
-      console.warn(`  - Updating render target before rendering...`);
-      
-      // Update render target to match requested dimensions
-      try {
-        await this.createOffscreenRenderTarget(width, height);
-        console.log(`[ApiService] Render target updated to ${width}x${height}`);
-      } catch (error) {
-        console.error(`[ApiService] Failed to update render target:`, error);
-        throw new Error(`Render target dimension mismatch: expected ${width}x${height}, got ${this.renderTargetState.currentWidth}x${this.renderTargetState.currentHeight}`);
-      }
-    }
+    // Note: Render target dimension validation is now handled by RenderCoordinator
     
     const backendCallTime = performance.now();
     let imageData: Uint8Array;
@@ -530,6 +491,86 @@ export class ApiService {
   }
   
   /**
+   * Recalculate view for new dimensions using backend logic
+   * This ensures views always show the full anatomical extent
+   */
+  async recalculateViewForDimensions(
+    volumeId: string,
+    viewType: 'axial' | 'sagittal' | 'coronal',
+    dimensions: [number, number],
+    crosshairMm: [number, number, number]
+  ): Promise<ViewPlane> {
+    console.log(`[ApiService] recalculateViewForDimensions called:`, {
+      volumeId,
+      viewType,
+      requestedDimensions: dimensions,
+      crosshairMm,
+      timestamp: performance.now()
+    });
+    
+    const startTime = performance.now();
+    
+    // Log the exact request being sent to backend
+    const request = {
+      volumeId,
+      viewType,
+      dimensions: [dimensions[0], dimensions[1]],
+      crosshairMm: [crosshairMm[0], crosshairMm[1], crosshairMm[2]]
+    };
+    console.log(`[ApiService] Sending to backend:`, JSON.stringify(request, null, 2));
+    
+    const result = await this.transport.invoke<any>('recalculate_view_for_dimensions', request);
+    
+    console.log(`[ApiService] Backend response received after ${(performance.now() - startTime).toFixed(1)}ms:`, {
+      raw: result,
+      hasOrigin: !!result.origin_mm,
+      hasU: !!result.u_mm,
+      hasV: !!result.v_mm,
+      backendDimensions: result.width_px ? [result.width_px, result.height_px] : 'undefined'
+    });
+    
+    // Log detailed backend response
+    console.log(`[ApiService] Backend ViewRectMm details:`, {
+      origin_mm: result.origin_mm,
+      u_mm: result.u_mm,
+      v_mm: result.v_mm,
+      width_px: result.width_px,
+      height_px: result.height_px,
+      pixelSizes: {
+        u: result.u_mm ? Math.hypot(...result.u_mm) : 'undefined',
+        v: result.v_mm ? Math.hypot(...result.v_mm) : 'undefined'
+      }
+    });
+    
+    // Convert backend ViewRectMm format to frontend ViewPlane format
+    const viewPlane = {
+      origin_mm: result.origin_mm,
+      u_mm: result.u_mm,
+      v_mm: result.v_mm,
+      dim_px: [result.width_px, result.height_px] as [number, number]
+    };
+    
+    // CRITICAL LOG: Check if we're using backend dimensions vs requested dimensions
+    console.log(`[ApiService] ⚠️ DIMENSION CHECK:`, {
+      requested: dimensions,
+      backendReturned: [result.width_px, result.height_px],
+      usingBackendDims: true, // We're always using backend's calculated dimensions
+      match: dimensions[0] === result.width_px && dimensions[1] === result.height_px
+    });
+    
+    if (dimensions[0] !== result.width_px || dimensions[1] !== result.height_px) {
+      console.warn(`[ApiService] ⚠️ DIMENSION MISMATCH: Backend returned different dimensions than requested!`);
+      console.warn(`  Requested: ${dimensions[0]}x${dimensions[1]}`);
+      console.warn(`  Backend returned: ${result.width_px}x${result.height_px}`);
+      console.warn(`  This could cause centering/sizing issues!`);
+    }
+    
+    console.log(`[ApiService] Returning ViewPlane:`, viewPlane);
+    
+    return viewPlane;
+  }
+  
+  /**
    * List directory contents
    */
   async listDirectory(path: string, maxDepth = 1): Promise<FileNode[]> {
@@ -577,76 +618,41 @@ export class ApiService {
   
   /**
    * Create offscreen render target
-   * Must be called before rendering
+   * Note: This is now primarily called by RenderCoordinator
    */
   async createOffscreenRenderTarget(width: number, height: number): Promise<void> {
     // Validate dimensions
     if (!width || !height || width <= 0 || height <= 0 || width > 8192 || height > 8192) {
       const error = new Error(`Invalid render target dimensions: ${width}x${height}. Dimensions must be between 1 and 8192.`);
       console.error('[ApiService]', error.message);
-      
-      // Cancel resize on validation error
-      const resizeStore = useResizeStore.getState();
-      resizeStore.cancelResize();
       throw error;
-    }
-    
-    // Skip if already recreating or if dimensions haven't changed
-    if (this.renderTargetState.isRecreating) {
-      console.log('[ApiService] Render target recreation already in progress, skipping');
-      return;
-    }
-    
-    if (width === this.renderTargetState.currentWidth && 
-        height === this.renderTargetState.currentHeight) {
-      console.log('[ApiService] Render target dimensions unchanged, skipping recreation');
-      // Update resize store to mark completion
-      const resizeStore = useResizeStore.getState();
-      resizeStore.completeResize();
-      return;
     }
     
     console.log(`[ApiService] Creating offscreen render target: ${width}x${height}`);
-    this.renderTargetState.isRecreating = true;
     
     try {
       await this.transport.invoke('create_offscreen_render_target', { width, height });
-      this.renderTargetState.currentWidth = width;
-      this.renderTargetState.currentHeight = height;
-      this.renderTargetState.lastError = null;
       console.log(`[ApiService] Render target created successfully: ${width}x${height}`);
-      
-      // Update resize store
-      const resizeStore = useResizeStore.getState();
-      resizeStore.updateRenderTargetDimensions(width, height);
-      resizeStore.completeResize();
     } catch (error) {
       console.error('[ApiService] Failed to create render target:', error);
-      this.renderTargetState.lastError = error as Error;
-      // Cancel resize on error
-      const resizeStore = useResizeStore.getState();
-      resizeStore.cancelResize();
       throw error;
-    } finally {
-      this.renderTargetState.isRecreating = false;
     }
   }
   
   /**
    * Check if render target is ready for rendering
+   * @deprecated Global render targets removed - backend handles per-view render targets
    */
   isRenderTargetReady(): boolean {
-    return !this.renderTargetState.isRecreating && 
-           this.renderTargetState.currentWidth > 0 && 
-           this.renderTargetState.currentHeight > 0 &&
-           !this.renderTargetState.lastError;
+    return useRenderStore.getState().isRenderTargetReady();
   }
   
   /**
    * Get current render target state
+   * @deprecated Global render targets removed - backend handles per-view render targets
    */
   getRenderTargetState() {
-    return { ...this.renderTargetState };
+    return useRenderStore.getState().getRenderTargetState();
   }
   
   /**

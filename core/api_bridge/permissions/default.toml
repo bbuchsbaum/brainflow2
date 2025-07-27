@@ -8,6 +8,7 @@ permissions = [
     "allow-world-to-voxel", 
     "allow-get-timeseries-matrix",
     "allow-get-initial-views",
+    "allow-recalculate-view-for-dimensions",
     "allow-request-layer-gpu-resources",
     "allow-release-layer-gpu-resources",
     "allow-fs-list-directory",
