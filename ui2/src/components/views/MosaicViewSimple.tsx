@@ -19,6 +19,7 @@ import { useViewStateStore } from '@/stores/viewStateStore';
 import { getMosaicRenderService } from '@/services/MosaicRenderService';
 import { getApiService } from '@/services/apiService';
 import { RenderCell } from './RenderCell';
+import { calculateInitialPage, calculateVolumeCenter } from '@/utils/mosaicUtils';
 import './MosaicView.css';
 
 interface MosaicViewSimpleProps {
@@ -47,24 +48,63 @@ export function MosaicViewSimple({ workspaceId }: MosaicViewSimpleProps) {
   // Get primary volume for metadata
   const primaryVolumeId = visibleLayers[0]?.volumeId;
   
-  // Fetch slice metadata when volume or axis changes
+  // Fetch slice metadata and calculate initial page based on crosshair
   useEffect(() => {
     if (!primaryVolumeId) return;
     
-    const fetchMetadata = async () => {
+    const fetchMetadataAndSetInitialPage = async () => {
       try {
+        // Get slice metadata
         const meta = await apiService.querySliceAxisMeta(primaryVolumeId, sliceAxis);
-        if (meta && meta.sliceCount > 0) {
-          setTotalSlices(meta.sliceCount);
+        if (!meta || meta.sliceCount <= 0) {
+          console.warn('[MosaicViewSimple] Invalid slice metadata received');
+          return;
         }
+        
+        setTotalSlices(meta.sliceCount);
+        
+        // Get volume bounds for coordinate calculations
+        const volumeBounds = await apiService.getVolumeBounds(primaryVolumeId);
+        if (!volumeBounds) {
+          console.warn('[MosaicViewSimple] Could not get volume bounds');
+          return;
+        }
+        
+        // Get current crosshair position
+        const viewState = useViewStateStore.getState().viewState;
+        let crosshairPosition = viewState.crosshair.world_mm;
+        
+        // If crosshair is at origin [0,0,0], use volume center
+        if (crosshairPosition[0] === 0 && 
+            crosshairPosition[1] === 0 && 
+            crosshairPosition[2] === 0) {
+          crosshairPosition = calculateVolumeCenter(volumeBounds);
+        }
+        
+        // Calculate initial page based on crosshair position
+        const initialPage = calculateInitialPage(
+          crosshairPosition,
+          volumeBounds,
+          sliceAxis,
+          meta.sliceCount,
+          gridSize.rows,
+          gridSize.cols
+        );
+        
+        // Ensure page is within valid range
+        const maxPage = Math.ceil(meta.sliceCount / (gridSize.rows * gridSize.cols)) - 1;
+        const validPage = Math.max(0, Math.min(initialPage, maxPage));
+        
+        console.log(`[MosaicViewSimple] Setting initial page to ${validPage} for ${sliceAxis} axis`);
+        setCurrentPage(validPage);
+        
       } catch (error) {
-        console.error('[MosaicViewSimple] Failed to fetch metadata:', error);
-        // Keep default
+        console.error('[MosaicViewSimple] Error fetching metadata or calculating initial page:', error);
       }
     };
     
-    fetchMetadata();
-  }, [primaryVolumeId, sliceAxis, apiService]);
+    fetchMetadataAndSetInitialPage();
+  }, [primaryVolumeId, sliceAxis, gridSize.rows, gridSize.cols, apiService]);
   
   // Calculate slice indices for current page
   const sliceIndices = useMemo(() => {
@@ -205,7 +245,7 @@ export function MosaicViewSimple({ workspaceId }: MosaicViewSimpleProps) {
               value={sliceAxis}
               onChange={(e) => {
                 setSliceAxis(e.target.value as any);
-                setCurrentPage(0); // Reset to first page
+                // Page will be recalculated in useEffect based on crosshair position
               }}
             >
               <option value="axial">Axial</option>
@@ -223,7 +263,7 @@ export function MosaicViewSimple({ workspaceId }: MosaicViewSimpleProps) {
               onChange={(e) => {
                 const [rows, cols] = e.target.value.split('x').map(Number);
                 setGridSize({ rows, cols });
-                setCurrentPage(0); // Reset to first page
+                // Page will be recalculated in useEffect based on crosshair position
               }}
             >
               <option value="2x2">2×2</option>
@@ -274,12 +314,11 @@ export function MosaicViewSimple({ workspaceId }: MosaicViewSimpleProps) {
         }}
       >
         {sliceIndices.map((sliceIndex, i) => (
-          <div key={cellIds[i]} className="mosaic-cell relative border border-gray-700 bg-black">
+          <div key={cellIds[i]} className="mosaic-cell">
             <RenderCell
               width={cellSize.width}
               height={cellSize.height}
               tag={cellIds[i]}
-              className="w-full h-full"
               showLabel={true}
               label={`${sliceAxis[0].toUpperCase()}${sliceIndex}`}
             />

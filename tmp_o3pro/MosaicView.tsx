@@ -18,6 +18,7 @@ import { ChevronLeft, ChevronRight, Grid3x3 } from 'lucide-react';
 import { getApiService } from '@/services/apiService';
 import { useViewStateStore } from '@/stores/viewStateStore';
 import { drawScaledImage } from '@/utils/canvasUtils';
+import { calculateInitialPage, calculateVolumeCenter } from '@/utils/mosaicUtils';
 import './MosaicView.css';
 
 // Local types for MosaicView
@@ -246,7 +247,7 @@ export function MosaicView({ workspaceId }: MosaicViewProps) {
       return;
     }
 
-    const fetchMetadata = async () => {
+    const fetchMetadataAndSetInitialPage = async () => {
       try {
         console.log('[MosaicView] Starting metadata fetch for volume:', primaryVolumeId, 'axis:', viewState.sliceAxis);
         
@@ -264,16 +265,59 @@ export function MosaicView({ workspaceId }: MosaicViewProps) {
             ...prev,
             totalSlices: 100,
             sliceSpacing: 1,
+            currentPage: 0
           }));
-        } else {
+          return;
+        }
+        
+        // Get volume bounds for coordinate calculations
+        const volumeBounds = await apiService.getVolumeBounds(primaryVolumeId);
+        if (!volumeBounds) {
+          console.warn('[MosaicView] Could not get volume bounds');
           setViewState(prev => ({
             ...prev,
             totalSlices: meta.sliceCount,
             sliceSpacing: meta.sliceSpacing,
+            currentPage: 0 // Fallback to 0 if bounds not available
           }));
+          return;
         }
+        
+        // Get current crosshair position
+        const globalViewState = useViewStateStore.getState().viewState;
+        let crosshairPosition = globalViewState.crosshair.world_mm;
+        
+        // If crosshair is at origin, use volume center
+        if (crosshairPosition[0] === 0 && 
+            crosshairPosition[1] === 0 && 
+            crosshairPosition[2] === 0) {
+          crosshairPosition = calculateVolumeCenter(volumeBounds);
+        }
+        
+        // Calculate initial page
+        const initialPage = calculateInitialPage(
+          crosshairPosition,
+          volumeBounds,
+          viewState.sliceAxis,
+          meta.sliceCount,
+          viewState.gridSize.rows,
+          viewState.gridSize.cols
+        );
+        
+        // Ensure page is within valid range
+        const maxPage = Math.ceil(meta.sliceCount / (viewState.gridSize.rows * viewState.gridSize.cols)) - 1;
+        const validPage = Math.max(0, Math.min(initialPage, maxPage));
+        
+        console.log(`[MosaicView] Setting initial page to ${validPage} for ${viewState.sliceAxis} axis`);
+        
+        setViewState(prev => ({
+          ...prev,
+          totalSlices: meta.sliceCount,
+          sliceSpacing: meta.sliceSpacing,
+          currentPage: validPage
+        }));
       } catch (error) {
-        console.error('[MosaicView] Failed to fetch slice metadata:', error);
+        console.error('[MosaicView] Failed to fetch metadata or calculate initial page:', error);
         console.error('[MosaicView] Error details:', {
           error: error,
           message: (error as any)?.message || String(error),
@@ -285,12 +329,13 @@ export function MosaicView({ workspaceId }: MosaicViewProps) {
           ...prev,
           totalSlices: 100,
           sliceSpacing: 1,
+          currentPage: 0
         }));
       }
     };
 
-    fetchMetadata();
-  }, [primaryVolumeId, viewState.sliceAxis, apiService]);
+    fetchMetadataAndSetInitialPage();
+  }, [primaryVolumeId, viewState.sliceAxis, viewState.gridSize.rows, viewState.gridSize.cols, apiService]);
 
   // Calculate slice indices for current page
   useEffect(() => {
@@ -573,8 +618,8 @@ export function MosaicView({ workspaceId }: MosaicViewProps) {
               value={viewState.sliceAxis}
               onChange={(e) => setViewState(prev => ({ 
                 ...prev, 
-                sliceAxis: e.target.value as any,
-                currentPage: 0 // Reset to first page when changing axis
+                sliceAxis: e.target.value as any
+                // Page will be recalculated in useEffect based on crosshair position
               }))}
               disabled={isLoading}
             >
@@ -594,8 +639,8 @@ export function MosaicView({ workspaceId }: MosaicViewProps) {
                 const [rows, cols] = e.target.value.split('x').map(Number);
                 setViewState(prev => ({ 
                   ...prev, 
-                  gridSize: { rows, cols },
-                  currentPage: 0 // Reset to first page when changing grid
+                  gridSize: { rows, cols }
+                  // Page will be recalculated in useEffect based on crosshair position
                 }));
               }}
               disabled={isLoading}
