@@ -490,8 +490,8 @@ export function GoldenLayoutWrapper({
     ));
     
     // Import and register additional components dynamically
-    import('@/components/views/MosaicViewSimple').then(module => {
-      componentRegistry.set('MosaicView', module.MosaicViewSimple);
+    import('@/components/views/MosaicViewPromise').then(module => {
+      componentRegistry.set('MosaicView', module.MosaicViewPromise);
     });
     
     import('@/components/analysis/ROIStatsWorkspace').then(module => {
