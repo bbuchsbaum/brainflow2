@@ -82,10 +82,11 @@ export class RenderSession {
     }
     
     const startTime = performance.now();
+    let renderPromise: Promise<ImageBitmap> | null = null;
     
     try {
       // Create render promise
-      const renderPromise = this.apiService.renderViewState(
+      renderPromise = this.apiService.renderViewState(
         viewState,
         viewType,
         width,
@@ -118,7 +119,9 @@ export class RenderSession {
       throw error;
     } finally {
       // Remove from active renders
-      this.activeRenders.delete(renderPromise);
+      if (renderPromise) {
+        this.activeRenders.delete(renderPromise);
+      }
     }
   }
   
