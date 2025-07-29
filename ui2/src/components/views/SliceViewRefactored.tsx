@@ -53,6 +53,10 @@ export function SliceViewRefactored({ viewId, width, height, className = '' }: S
   const hasLayers = layers.length > 0;
   const isLoadingAnyLayer = loadingLayers.size > 0;
   
+  // Store the main canvas ref and redraw function
+  const mainCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const redrawCanvasRef = useRef<(() => void) | null>(null);
+  
   // Use the validated props directly as canvas dimensions
   const canvasWidth = validWidth;
   const canvasHeight = validHeight;
@@ -66,6 +70,64 @@ export function SliceViewRefactored({ viewId, width, height, className = '' }: S
     imageWidth: number;
     imageHeight: number;
   } | null>(null);
+
+  // Custom render function for drawing crosshair
+  const customRender = useCallback((ctx: CanvasRenderingContext2D, placement: any) => {
+    const currentViewState = useViewStateStore.getState().viewState;
+    const currentViewPlane = currentViewState.views[viewId];
+    
+    if (!currentViewPlane || !currentViewPlane.origin_mm) {
+      console.warn(`[SliceViewRefactored ${viewId}] ViewPlane not available in customRender`);
+      return;
+    }
+    
+    if (!currentViewState.crosshair.visible) return;
+    
+    try {
+      // Transform crosshair world coordinate to screen space
+      const screenCoord = CoordinateTransform.worldToScreen(
+        currentViewState.crosshair.world_mm,
+        currentViewPlane
+      );
+      
+      if (screenCoord) {
+        const [screenX, screenY] = screenCoord;
+        
+        // Transform screen coordinates to account for image placement
+        const scaleX = placement.width / placement.imageWidth;
+        const scaleY = placement.height / placement.imageHeight;
+        
+        const canvasX = placement.x + screenX * scaleX;
+        const canvasY = placement.y + screenY * scaleY;
+        
+        // Only draw if crosshair is within the image bounds
+        if (canvasX >= placement.x && canvasX <= placement.x + placement.width &&
+            canvasY >= placement.y && canvasY <= placement.y + placement.height) {
+          // Draw crosshair
+          ctx.save();
+          ctx.strokeStyle = '#00ff00';
+          ctx.lineWidth = 1;
+          ctx.setLineDash([5, 5]);
+          
+          // Horizontal line (only within image bounds)
+          ctx.beginPath();
+          ctx.moveTo(placement.x, canvasY);
+          ctx.lineTo(placement.x + placement.width, canvasY);
+          ctx.stroke();
+          
+          // Vertical line (only within image bounds)
+          ctx.beginPath();
+          ctx.moveTo(canvasX, placement.y);
+          ctx.lineTo(canvasX, placement.y + placement.height);
+          ctx.stroke();
+          
+          ctx.restore();
+        }
+      }
+    } catch (error) {
+      console.error(`[SliceViewRefactored ${viewId}] Error rendering crosshair:`, error);
+    }
+  }, [viewId]);
 
   // Handle image received from SliceRenderer
   const handleImageReceived = useCallback((imageBitmap: ImageBitmap) => {
@@ -110,8 +172,18 @@ export function SliceViewRefactored({ viewId, width, height, className = '' }: S
 
   // Handle mouse clicks to update crosshair
   const handleMouseDown = useCallback(async (event: React.MouseEvent<HTMLDivElement>) => {
-    const canvas = event.currentTarget.querySelector('canvas');
-    if (!canvas) return;
+    // Use the stored canvas ref instead of querying
+    const canvas = mainCanvasRef.current;
+    if (!canvas) {
+      console.warn(`[SliceViewRefactored ${viewId}] No canvas ref available`);
+      return;
+    }
+    
+    // Check if viewPlane is initialized
+    if (!viewPlane || !viewPlane.origin_mm) {
+      console.warn(`[SliceViewRefactored ${viewId}] ViewPlane not initialized:`, viewPlane);
+      return;
+    }
     
     const rect = canvas.getBoundingClientRect();
     const scaleX = canvas.width / rect.width;
@@ -149,19 +221,21 @@ export function SliceViewRefactored({ viewId, width, height, className = '' }: S
     });
     
     // Transform to world coordinates
-    const worldCoord = CoordinateTransform.screenToWorld([imageX, imageY], viewPlane);
+    const worldCoord = CoordinateTransform.screenToWorld(imageX, imageY, viewPlane);
     
     if (worldCoord) {
       console.log(`[SliceViewRefactored ${viewId}] Setting crosshair to:`, worldCoord);
       setCrosshair({ world_mm: worldCoord, visible: true });
       getEventBus().emit('view.clicked', { viewType: viewId, worldCoord });
+    } else {
+      console.warn(`[SliceViewRefactored ${viewId}] Failed to calculate world coordinates`);
     }
   }, [viewId, viewPlane, setCrosshair]);
 
   // Handle mouse move for hover coordinates
   const handleMouseMove = useCallback((event: React.MouseEvent<HTMLDivElement>) => {
-    const canvas = event.currentTarget.querySelector('canvas');
-    if (!canvas || !imagePlacementRef.current) return;
+    const canvas = mainCanvasRef.current;
+    if (!canvas || !imagePlacementRef.current || !viewPlane || !viewPlane.origin_mm) return;
     
     const rect = canvas.getBoundingClientRect();
     const scaleX = canvas.width / rect.width;
@@ -177,7 +251,7 @@ export function SliceViewRefactored({ viewId, width, height, className = '' }: S
       const imageX = (canvasX - placement.x) / placement.width * placement.imageWidth;
       const imageY = (canvasY - placement.y) / placement.height * placement.imageHeight;
       
-      const worldCoord = CoordinateTransform.screenToWorld([imageX, imageY], viewPlane);
+      const worldCoord = CoordinateTransform.screenToWorld(imageX, imageY, viewPlane);
       if (worldCoord) {
         setHoverCoord(worldCoord);
       }
@@ -211,6 +285,14 @@ export function SliceViewRefactored({ viewId, width, height, className = '' }: S
       await fileLoadingService.loadDroppedFile(file);
     }
   }, []);
+
+  // Re-render when crosshair position changes by triggering a redraw
+  useEffect(() => {
+    if (redrawCanvasRef.current) {
+      // Trigger a redraw which will call our customRender function
+      redrawCanvasRef.current();
+    }
+  }, [viewState.crosshair.world_mm, viewState.crosshair.visible]);
 
   // Check on mount if we missed any renders
   useEffect(() => {
@@ -283,6 +365,9 @@ export function SliceViewRefactored({ viewId, width, height, className = '' }: S
           onMouseLeave={handleMouseLeave}
           onWheel={handleWheel}
           onImageReceived={handleImageReceived}
+          onCanvasReady={(canvas) => { mainCanvasRef.current = canvas; }}
+          onRedrawReady={(redrawFn) => { redrawCanvasRef.current = redrawFn; }}
+          customRender={customRender}
           canvasClassName={`border border-gray-300 cursor-crosshair`}
         />
         

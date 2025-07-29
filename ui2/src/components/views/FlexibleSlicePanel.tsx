@@ -4,7 +4,8 @@
  */
 
 import React, { useState, useEffect, useLayoutEffect, useRef, memo, useMemo } from 'react';
-import { SliceView } from './SliceView';
+// import { SliceView } from './SliceView';
+import { SliceViewRefactored as SliceView } from './SliceViewRefactored';
 import type { ViewType } from '@/types/coordinates';
 import { clampDimensions } from '@/utils/dimensions';
 import { useViewStateStore } from '@/stores/viewStateStore';

@@ -52,6 +52,11 @@ export interface SliceRendererProps {
   
   // Callbacks
   onImageReceived?: (imageBitmap: ImageBitmap) => void;
+  onCanvasReady?: (canvas: HTMLCanvasElement) => void;
+  onRedrawReady?: (redrawFn: () => void) => void;
+  
+  // Custom rendering
+  customRender?: (ctx: CanvasRenderingContext2D, placement: { x: number, y: number, width: number, height: number, imageWidth: number, imageHeight: number }) => void;
   
   // Styling
   className?: string;
@@ -81,6 +86,9 @@ export function SliceRenderer({
   onMouseLeave,
   onWheel,
   onImageReceived,
+  onCanvasReady,
+  onRedrawReady,
+  customRender,
   className = '',
   canvasClassName = ''
 }: SliceRendererProps) {
@@ -91,11 +99,25 @@ export function SliceRenderer({
     error, 
     lastImage,
     redrawCanvas 
-  } = useRenderCanvas({ tag, viewType, onImageReceived });
+  } = useRenderCanvas({ tag, viewType, onImageReceived, customRender });
   
   // Drag and drop state
   const [isDragging, setIsDragging] = useState(false);
   
+  // Notify when canvas is ready
+  useEffect(() => {
+    if (canvasRef.current && onCanvasReady) {
+      onCanvasReady(canvasRef.current);
+    }
+  }, [onCanvasReady]);
+
+  // Notify when redraw function is ready
+  useEffect(() => {
+    if (onRedrawReady) {
+      onRedrawReady(redrawCanvas);
+    }
+  }, [onRedrawReady, redrawCanvas]);
+
   // Redraw when dimensions change
   useEffect(() => {
     if (!canvasRef.current || !lastImage) return;

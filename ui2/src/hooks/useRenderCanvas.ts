@@ -14,10 +14,11 @@ interface UseRenderCanvasOptions {
   tag?: string;
   viewType?: 'axial' | 'sagittal' | 'coronal';
   onImageReceived?: (imageBitmap: ImageBitmap) => void;
+  customRender?: (ctx: CanvasRenderingContext2D, placement: ImagePlacement) => void;
 }
 
 export function useRenderCanvas(options: UseRenderCanvasOptions = {}) {
-  const { tag, viewType, onImageReceived } = options;
+  const { tag, viewType, onImageReceived, customRender } = options;
   
   // Refs
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -45,6 +46,11 @@ export function useRenderCanvas(options: UseRenderCanvasOptions = {}) {
       // Store placement for potential future use
       imagePlacementRef.current = placement;
       
+      // Call custom render function if provided
+      if (customRender) {
+        customRender(ctx, placement);
+      }
+      
       // Call callback if provided
       if (onImageReceived) {
         onImageReceived(lastImageRef.current);
@@ -56,7 +62,7 @@ export function useRenderCanvas(options: UseRenderCanvasOptions = {}) {
       setError('Failed to draw image');
       return null;
     }
-  }, [tag, onImageReceived]);
+  }, [tag, onImageReceived, customRender]);
   
   // Handle render complete events
   const handleRenderComplete = useCallback((data: any) => {
