@@ -67,15 +67,24 @@ export function useRenderCanvas(options: UseRenderCanvasOptions = {}) {
   // Handle render complete events
   const handleRenderComplete = useCallback((data: any) => {
     // Filter based on tag or viewType
+    // If we're looking for a specific tag, only match that tag
     if (tag && data.tag !== tag) return;
+    
+    // If we're looking for a viewType without a tag, don't match events that have tags
+    if (viewType && !tag && data.tag) return;
+    
+    // If we're looking for a viewType, it must match
     if (viewType && data.viewType !== viewType) return;
+    
+    // If we have neither tag nor viewType, only match events without tags or viewTypes
     if (!tag && !viewType && (data.tag || data.viewType)) return;
     
-    console.log(`[useRenderCanvas${tag ? ` ${tag}` : viewType ? ` ${viewType}` : ''}] render.complete event received:`, {
-      hasImageBitmap: !!data.imageBitmap,
-      tag: data.tag,
-      viewType: data.viewType
-    });
+    // Log only in development
+    if (process.env.NODE_ENV === 'development') {
+      console.log(`[useRenderCanvas${tag ? ` ${tag}` : viewType ? ` ${viewType}` : ''}] render.complete`, {
+        hasImage: !!data.imageBitmap
+      });
+    }
     
     if (data.imageBitmap && canvasRef.current) {
       setIsLoading(false);
@@ -93,21 +102,25 @@ export function useRenderCanvas(options: UseRenderCanvasOptions = {}) {
   useEvent('render.complete', handleRenderComplete);
   
   useEvent('render.start', useCallback((data: any) => {
-    if ((tag && data.tag === tag) || 
-        (viewType && data.viewType === viewType) || 
-        (!tag && !viewType && !data.tag && !data.viewType)) {
-      setIsLoading(true);
-      setError(null);
-    }
+    // Apply same filtering logic as render.complete
+    if (tag && data.tag !== tag) return;
+    if (viewType && !tag && data.tag) return;
+    if (viewType && data.viewType !== viewType) return;
+    if (!tag && !viewType && (data.tag || data.viewType)) return;
+    
+    setIsLoading(true);
+    setError(null);
   }, [tag, viewType]));
   
   useEvent('render.error', useCallback((data: any) => {
-    if ((tag && data.tag === tag) || 
-        (viewType && data.viewType === viewType) || 
-        (!tag && !viewType && !data.tag && !data.viewType)) {
-      setError(data.error?.message || 'Render error');
-      setIsLoading(false);
-    }
+    // Apply same filtering logic as render.complete
+    if (tag && data.tag !== tag) return;
+    if (viewType && !tag && data.tag) return;
+    if (viewType && data.viewType !== viewType) return;
+    if (!tag && !viewType && (data.tag || data.viewType)) return;
+    
+    setError(data.error?.message || 'Render error');
+    setIsLoading(false);
   }, [tag, viewType]));
   
   return {

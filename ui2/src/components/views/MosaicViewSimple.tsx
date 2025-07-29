@@ -95,7 +95,6 @@ export function MosaicViewSimple({ workspaceId }: MosaicViewSimpleProps) {
         const maxPage = Math.ceil(meta.sliceCount / (gridSize.rows * gridSize.cols)) - 1;
         const validPage = Math.max(0, Math.min(initialPage, maxPage));
         
-        console.log(`[MosaicViewSimple] Setting initial page to ${validPage} for ${sliceAxis} axis`);
         setCurrentPage(validPage);
         
       } catch (error) {
@@ -182,7 +181,6 @@ export function MosaicViewSimple({ workspaceId }: MosaicViewSimpleProps) {
       height: cellSize.height
     }));
     
-    console.log('[MosaicViewSimple] Triggering renders for', renderRequests.length, 'cells');
     mosaicRenderService.renderMosaicGrid(renderRequests);
     
     // Cleanup: cancel renders when component unmounts or indices change
@@ -319,8 +317,7 @@ export function MosaicViewSimple({ workspaceId }: MosaicViewSimpleProps) {
               width={cellSize.width}
               height={cellSize.height}
               tag={cellIds[i]}
-              showLabel={true}
-              label={`${sliceAxis[0].toUpperCase()}${sliceIndex}`}
+              showLabel={false}
             />
           </div>
         ))}

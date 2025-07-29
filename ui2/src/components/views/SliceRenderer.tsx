@@ -159,7 +159,7 @@ export function SliceRenderer({
   
   return (
     <div 
-      className={`relative ${className}`}
+      className={`relative flex items-center justify-center ${className}`}
       onMouseMove={onMouseMove}
       onMouseDown={onMouseDown}
       onMouseUp={onMouseUp}
@@ -169,7 +169,7 @@ export function SliceRenderer({
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
     >
-      {/* Canvas as a simple block element - parent handles centering */}
+      {/* Canvas as flex child */}
       <canvas
         ref={canvasRef}
         width={width}

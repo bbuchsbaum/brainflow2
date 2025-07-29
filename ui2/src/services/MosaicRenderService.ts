@@ -50,27 +50,12 @@ class MosaicRenderService {
       );
       
       // Render using the normal pipeline with dimensions
-      console.log(`[MosaicRenderService] Calling applyAndRenderViewState for ${cellId}:`, {
-        axis,
-        width,
-        height,
-        crosshair: modifiedViewState.crosshair.world_mm,
-        layers: modifiedViewState.layers.length,
-        viewOrigin: modifiedViewState.views[axis]?.origin_mm
-      });
-      
       const imageBitmap = await this.apiService.applyAndRenderViewState(
         modifiedViewState,
         axis,
         width,
         height
       );
-      
-      console.log(`[MosaicRenderService] applyAndRenderViewState returned:`, {
-        cellId,
-        hasImageBitmap: !!imageBitmap,
-        type: imageBitmap ? Object.prototype.toString.call(imageBitmap) : 'null'
-      });
       
       if (imageBitmap) {
         // Emit render complete event with tag
@@ -116,6 +101,34 @@ class MosaicRenderService {
   }
   
   /**
+   * Calculate natural dimensions for a view based on anatomical extent
+   * This respects the volume's aspect ratio instead of forcing square dimensions
+   */
+  private async getNaturalDimensions(
+    volumeId: string,
+    axis: 'axial' | 'sagittal' | 'coronal',
+    maxSize: number
+  ): Promise<[number, number]> {
+    // Check cache first
+    const cacheKey = volumeId;
+    if (!this.viewCache.has(cacheKey)) {
+      // Get initial views from backend which properly calculates dimensions
+      const views = await this.apiService.getInitialViews(volumeId, [maxSize, maxSize]);
+      this.viewCache.set(cacheKey, views);
+    }
+    
+    const views = this.viewCache.get(cacheKey)!;
+    const view = views[axis];
+    
+    if (view && view.dim_px) {
+      return view.dim_px;
+    }
+    
+    // Fallback to square if something goes wrong
+    return [maxSize, maxSize];
+  }
+  
+  /**
    * Create a modified ViewState for a specific slice
    */
   private async createSliceViewState(
@@ -125,9 +138,9 @@ class MosaicRenderService {
     width: number,
     height: number
   ): Promise<ViewState> {
-    // Get volume bounds to calculate slice positions
-    const primaryLayer = baseViewState.layers.find(l => l.visible);
-    if (!primaryLayer) {
+    // Get all visible layers to calculate combined bounds
+    const visibleLayers = baseViewState.layers.filter(l => l.visible && l.opacity > 0);
+    if (visibleLayers.length === 0) {
       return baseViewState;
     }
     
@@ -158,25 +171,37 @@ class MosaicRenderService {
       normal[2] / mag
     ];
     
-    // Get volume bounds from the primary layer to calculate proper slice positions
-    // For a volume with bounds, we want to map slice indices to actual anatomical positions
-    let volumeBounds = {
-      min: [-96, -132, -78],  // Default MNI bounds
-      max: [96, 96, 114]
+    // Calculate combined bounds from all visible layers
+    let combinedBounds = {
+      min: [Infinity, Infinity, Infinity],
+      max: [-Infinity, -Infinity, -Infinity]
     };
     
-    // Try to get actual bounds from the primary layer
-    if (primaryLayer?.volumeId) {
-      try {
-        const bounds = await this.apiService.getVolumeBounds(primaryLayer.volumeId);
-        volumeBounds = {
-          min: [bounds.min_xyz[0], bounds.min_xyz[1], bounds.min_xyz[2]],
-          max: [bounds.max_xyz[0], bounds.max_xyz[1], bounds.max_xyz[2]]
-        };
-        console.log(`[MosaicRenderService] Using actual volume bounds:`, volumeBounds);
-      } catch (error) {
-        console.warn('[MosaicRenderService] Failed to get volume bounds, using defaults:', error);
+    // Get bounds for each visible layer and combine them
+    for (const layer of visibleLayers) {
+      if (layer.volumeId) {
+        try {
+          const bounds = await this.apiService.getVolumeBounds(layer.volumeId);
+          // Update combined min bounds
+          combinedBounds.min[0] = Math.min(combinedBounds.min[0], bounds.min[0]);
+          combinedBounds.min[1] = Math.min(combinedBounds.min[1], bounds.min[1]);
+          combinedBounds.min[2] = Math.min(combinedBounds.min[2], bounds.min[2]);
+          // Update combined max bounds
+          combinedBounds.max[0] = Math.max(combinedBounds.max[0], bounds.max[0]);
+          combinedBounds.max[1] = Math.max(combinedBounds.max[1], bounds.max[1]);
+          combinedBounds.max[2] = Math.max(combinedBounds.max[2], bounds.max[2]);
+        } catch (error) {
+          console.warn(`[MosaicRenderService] Failed to get bounds for volume ${layer.volumeId}:`, error);
+        }
       }
+    }
+    
+    // Use default MNI bounds if we couldn't get any bounds
+    if (!isFinite(combinedBounds.min[0])) {
+      combinedBounds = {
+        min: [-96, -132, -78],  // Default MNI bounds
+        max: [96, 96, 114]
+      };
     }
     
     // Calculate the range for each axis
@@ -184,18 +209,18 @@ class MosaicRenderService {
     switch (axis) {
       case 'axial':
         // For axial slices in LPI, we move inferior to superior (Z axis)
-        sliceMin = volumeBounds.min[2];  // Most inferior slice
-        sliceMax = volumeBounds.max[2];  // Most superior slice
+        sliceMin = combinedBounds.min[2];  // Most inferior slice
+        sliceMax = combinedBounds.max[2];  // Most superior slice
         break;
       case 'sagittal':
         // For sagittal slices, we move right to left (X axis) 
-        sliceMin = volumeBounds.min[0];
-        sliceMax = volumeBounds.max[0];
+        sliceMin = combinedBounds.min[0];
+        sliceMax = combinedBounds.max[0];
         break;
       case 'coronal':
         // For coronal slices, we move posterior to anterior (Y axis)
-        sliceMin = volumeBounds.min[1];
-        sliceMax = volumeBounds.max[1];
+        sliceMin = combinedBounds.min[1];
+        sliceMax = combinedBounds.max[1];
         break;
     }
     

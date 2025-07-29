@@ -975,6 +975,87 @@ export class ApiService {
   }
   
   /**
+   * Promise-based rendering method that returns ImageBitmap directly
+   * Part of the new architecture to reduce event-based brittleness
+   */
+  async renderViewState(
+    viewState: ViewState,
+    viewType: 'axial' | 'sagittal' | 'coronal',
+    width = 512,
+    height = 512
+  ): Promise<ImageBitmap> {
+    // Call the core method directly - no event emission
+    return this.applyAndRenderViewStateCore(viewState, viewType, width, height);
+  }
+  
+  /**
+   * Promise-based batch rendering for MosaicView
+   * Returns an array of ImageBitmaps for multiple slice indices
+   */
+  async renderViewStateBatch(
+    baseViewState: ViewState,
+    sliceConfigs: Array<{
+      viewType: 'axial' | 'sagittal' | 'coronal';
+      sliceIndex: number;
+      width: number;
+      height: number;
+    }>
+  ): Promise<ImageBitmap[]> {
+    const renderPromises = sliceConfigs.map(config => {
+      // Clone view state and modify for this specific slice
+      const sliceViewState = this.createSliceViewState(
+        baseViewState,
+        config.viewType,
+        config.sliceIndex
+      );
+      
+      return this.renderViewState(
+        sliceViewState,
+        config.viewType,
+        config.width,
+        config.height
+      );
+    });
+    
+    return Promise.all(renderPromises);
+  }
+  
+  /**
+   * Helper to create a view state for a specific slice index
+   * Used by batch rendering operations
+   */
+  private createSliceViewState(
+    baseViewState: ViewState,
+    viewType: 'axial' | 'sagittal' | 'coronal',
+    sliceIndex: number
+  ): ViewState {
+    // Clone the base view state
+    const sliceViewState = JSON.parse(JSON.stringify(baseViewState));
+    
+    // Calculate slice position based on volume bounds and slice index
+    // This logic will be refined based on actual volume metadata
+    const axisIndex = viewType === 'axial' ? 2 : viewType === 'sagittal' ? 0 : 1;
+    
+    // TODO: Get actual bounds from volume metadata
+    // For now, use reasonable defaults
+    const bounds = {
+      min: [-96, -132, -78],
+      max: [96, 96, 114]
+    };
+    
+    const range = bounds.max[axisIndex] - bounds.min[axisIndex];
+    const totalSlices = Math.ceil(range); // Assuming 1mm spacing
+    const slicePosition = bounds.min[axisIndex] + (sliceIndex * range / totalSlices);
+    
+    // Update crosshair position for this slice
+    const newCrosshair = [...sliceViewState.crosshair.world_mm];
+    newCrosshair[axisIndex] = slicePosition;
+    sliceViewState.crosshair.world_mm = newCrosshair;
+    
+    return sliceViewState;
+  }
+  
+  /**
    * Enable or disable binary IPC optimization
    * @param enable - true to use binary IPC (fast), false to use JSON (slow)
    */

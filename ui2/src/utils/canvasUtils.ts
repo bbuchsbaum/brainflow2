@@ -43,7 +43,7 @@ export function calculateImagePlacement(
     drawX = 0;
     drawY = (canvasHeight - drawHeight) / 2;
   } else {
-    // Image is taller than canvas - fit to height
+    // Image is taller than canvas (or equal aspect ratios) - fit to height
     drawHeight = canvasHeight;
     drawWidth = drawHeight * imageAspectRatio;
     drawX = (canvasWidth - drawWidth) / 2;
