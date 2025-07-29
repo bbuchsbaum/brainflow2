@@ -15,7 +15,7 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useViewStateStore } from '@/stores/viewStateStore';
 import { useRenderSession } from '@/hooks/useRenderSession';
-import { calculateSliceIndicesForPage, calculatePageForSliceIndex } from '@/utils/mosaicUtils';
+import { calculateInitialPage, worldPositionToSliceIndex, getAxisIndex } from '@/utils/mosaicUtils';
 import { getApiService } from '@/services/apiService';
 import type { ViewState } from '@/types/viewState';
 import type { WorldCoordinates } from '@/types/coordinates';
@@ -177,11 +177,21 @@ export function MosaicViewPromise({
         // Calculate initial page based on crosshair
         const axisIndex = viewType === 'axial' ? 2 : viewType === 'sagittal' ? 0 : 1;
         const currentPosition = viewState.crosshair.world_mm[axisIndex];
-        const initialPage = calculatePageForSliceIndex(
-          currentPosition,
+        // Calculate bounds from metadata
+        const bounds = {
+          min: [-metadata.axisLength / 2, -metadata.axisLength / 2, -metadata.axisLength / 2],
+          max: [metadata.axisLength / 2, metadata.axisLength / 2, metadata.axisLength / 2]
+        };
+        bounds.min[axisIndex] = -metadata.axisLength / 2;
+        bounds.max[axisIndex] = metadata.axisLength / 2;
+        
+        const initialPage = calculateInitialPage(
+          viewState.crosshair.world_mm,
+          bounds,
+          viewType,
           metadata.sliceCount,
-          metadata.axisLength,
-          gridSize.rows * gridSize.cols
+          gridSize.rows,
+          gridSize.cols
         );
         setCurrentPage(initialPage);
       } catch (error) {
@@ -196,17 +206,31 @@ export function MosaicViewPromise({
   const sliceData = useMemo(() => {
     if (!sliceMetadata) return [];
     
-    const axisIndex = viewType === 'axial' ? 2 : viewType === 'sagittal' ? 0 : 1;
-    const currentPosition = viewState.crosshair.world_mm[axisIndex];
+    const slicesPerPage = gridSize.rows * gridSize.cols;
+    const startIndex = currentPage * slicesPerPage;
+    const endIndex = Math.min(startIndex + slicesPerPage, sliceMetadata.sliceCount);
     
-    return calculateSliceIndicesForPage(
-      currentPage,
-      gridSize.rows * gridSize.cols,
-      sliceMetadata.sliceCount,
-      sliceMetadata.axisLength,
-      currentPosition
-    );
-  }, [currentPage, gridSize, sliceMetadata, viewType, viewState.crosshair.world_mm]);
+    const slices = [];
+    const axisIndex = getAxisIndex(viewType);
+    
+    // Calculate slice positions based on the volume bounds
+    const axisMin = -sliceMetadata.axisLength / 2;
+    const axisMax = sliceMetadata.axisLength / 2;
+    const sliceSpacing = sliceMetadata.sliceSpacing;
+    
+    for (let i = startIndex; i < endIndex; i++) {
+      // Calculate world position for this slice
+      const normalizedPosition = i / (sliceMetadata.sliceCount - 1);
+      const worldPosition = axisMin + normalizedPosition * (axisMax - axisMin);
+      
+      slices.push({
+        index: i,
+        position: worldPosition
+      });
+    }
+    
+    return slices;
+  }, [currentPage, gridSize, sliceMetadata, viewType]);
   
   // Handle page navigation
   const totalPages = sliceMetadata 
