@@ -2,18 +2,13 @@
  * RenderCell Component
  * 
  * A basic building block for displaying rendered images from the backend.
- * This component listens for render.complete events and displays the received ImageBitmap.
+ * This component is now a thin wrapper around SliceRenderer for backward compatibility.
  * 
- * Key features:
- * - Subscribes to render.complete events with optional tag filtering
- * - Displays images using the shared canvas utility
- * - Can be reused in both SliceView and MosaicView contexts
- * - Handles image scaling and placement
+ * @deprecated Use SliceRenderer directly for new code
  */
 
-import React, { useEffect } from 'react';
-import { useRenderCanvas } from '@/hooks/useRenderCanvas';
-import { RenderOverlays } from '@/components/ui/RenderOverlays';
+import React from 'react';
+import { SliceRenderer } from './SliceRenderer';
 
 interface RenderCellProps {
   width: number;
@@ -34,45 +29,16 @@ export function RenderCell({
   showLabel = false,
   label = ''
 }: RenderCellProps) {
-  // Use the shared rendering hook
-  const { 
-    canvasRef, 
-    isLoading, 
-    error, 
-    lastImage,
-    redrawCanvas 
-  } = useRenderCanvas({ tag, onImageReceived });
-  
-  // Redraw when dimensions change
-  useEffect(() => {
-    if (!canvasRef.current || !lastImage) return;
-    
-    // Schedule a redraw in the next animation frame
-    const rafId = requestAnimationFrame(() => {
-      redrawCanvas();
-    });
-    
-    return () => cancelAnimationFrame(rafId);
-  }, [width, height, lastImage, redrawCanvas]);
-  
+  // Delegate to SliceRenderer
   return (
-    <div className={`relative ${className}`}>
-      {/* Canvas wrapper for centering - matches SliceView approach */}
-      <div className="w-full h-full flex items-center justify-center">
-        <canvas
-          ref={canvasRef}
-          width={width}
-          height={height}
-          className="block"
-        />
-      </div>
-      
-      {/* Use the shared overlay components */}
-      <RenderOverlays
-        isLoading={isLoading}
-        error={error}
-        label={showLabel ? label : undefined}
-      />
-    </div>
+    <SliceRenderer
+      width={width}
+      height={height}
+      tag={tag}
+      onImageReceived={onImageReceived}
+      className={className}
+      showLabel={showLabel}
+      label={label}
+    />
   );
 }

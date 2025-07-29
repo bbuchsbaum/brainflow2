@@ -93,8 +93,10 @@ export function MosaicViewSimple({ workspaceId }: MosaicViewSimpleProps) {
     if (!gridRef.current) return;
 
     const updateCellDimensions = () => {
+      if (!gridRef.current) return;
+      
       const { rows, cols } = gridSize;
-      const containerRect = gridRef.current!.getBoundingClientRect();
+      const containerRect = gridRef.current.getBoundingClientRect();
       
       // Account for gaps and padding
       const gap = 4;
@@ -115,9 +117,17 @@ export function MosaicViewSimple({ workspaceId }: MosaicViewSimpleProps) {
 
     updateCellDimensions();
     
-    // Re-calculate on window resize
+    // Use ResizeObserver to detect container size changes
+    const resizeObserver = new ResizeObserver(updateCellDimensions);
+    resizeObserver.observe(gridRef.current);
+    
+    // Also listen to window resize as backup
     window.addEventListener('resize', updateCellDimensions);
-    return () => window.removeEventListener('resize', updateCellDimensions);
+    
+    return () => {
+      resizeObserver.disconnect();
+      window.removeEventListener('resize', updateCellDimensions);
+    };
   }, [gridSize]);
   
   // Trigger renders when slice indices or layer parameters change
@@ -254,6 +264,7 @@ export function MosaicViewSimple({ workspaceId }: MosaicViewSimpleProps) {
 
       {/* Grid container */}
       <div 
+        ref={gridRef}
         className="mosaic-grid flex-1 p-2 overflow-auto"
         style={{
           display: 'grid',
