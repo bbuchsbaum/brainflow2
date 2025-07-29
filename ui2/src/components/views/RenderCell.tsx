@@ -13,6 +13,7 @@
 
 import React, { useEffect } from 'react';
 import { useRenderCanvas } from '@/hooks/useRenderCanvas';
+import { RenderOverlays } from '@/components/ui/RenderOverlays';
 
 interface RenderCellProps {
   width: number;
@@ -66,26 +67,12 @@ export function RenderCell({
         />
       </div>
       
-      {/* Loading overlay */}
-      {isLoading && (
-        <div className="absolute inset-0 bg-black bg-opacity-50 flex items-center justify-center">
-          <div className="text-white text-sm">Loading...</div>
-        </div>
-      )}
-      
-      {/* Error overlay */}
-      {error && (
-        <div className="absolute inset-0 bg-red-500 bg-opacity-75 flex items-center justify-center">
-          <div className="text-white text-sm text-center p-2">{error}</div>
-        </div>
-      )}
-      
-      {/* Label overlay */}
-      {showLabel && label && (
-        <div className="absolute bottom-1 left-1 text-xs text-white bg-black/50 px-1 rounded">
-          {label}
-        </div>
-      )}
+      {/* Use the shared overlay components */}
+      <RenderOverlays
+        isLoading={isLoading}
+        error={error}
+        label={showLabel ? label : undefined}
+      />
     </div>
   );
 }
