@@ -11,6 +11,7 @@ import type { VolumeBounds } from '@brainflow/api';
 import { useRenderStore } from '@/stores/renderStore';
 import type { RustViewState } from '@/types/rustViewState';
 import { isValidRustViewState } from '@/types/rustViewState';
+import { RenderSession, createRenderSession } from './RenderSession';
 
 export interface VolumeHandle {
   id: string;
@@ -1080,6 +1081,14 @@ export class ApiService {
   setDebugBrighten(enable: boolean) {
     this.debugBrighten = enable;
     console.log(`[ApiService] Debug brightening ${enable ? 'enabled' : 'disabled'}`);
+  }
+  
+  /**
+   * Create a new isolated render session
+   * Part of the new architecture for better render isolation
+   */
+  createRenderSession(sessionId?: string): RenderSession {
+    return createRenderSession(this, sessionId);
   }
 }
 
