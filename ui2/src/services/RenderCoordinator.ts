@@ -9,6 +9,7 @@ import { useRenderStore } from '@/stores/renderStore';
 import { getApiService } from '@/services/apiService';
 import type { ViewState } from '@/types/viewState';
 import type { ViewType } from '@/types/coordinates';
+import type { RenderSession } from './RenderSession';
 
 export interface RenderRequest {
   viewState: ViewState;
@@ -42,8 +43,14 @@ export class RenderCoordinator {
   // Debouncing for resize operations
   private resizeDebounceMap = new Map<string, NodeJS.Timeout>();
   
+  // RenderSession for promise-based rendering
+  private renderSession: RenderSession | null = null;
+  
   constructor() {
     console.log('[RenderCoordinator] Initialized');
+    // Create a persistent render session for the coordinator
+    const apiService = getApiService();
+    this.renderSession = apiService.createRenderSession('render-coordinator');
   }
   
   /**
@@ -85,6 +92,12 @@ export class RenderCoordinator {
     this.clearAllDebounces();
     this.queue.forEach(job => job.reject(new Error('RenderCoordinator disposed')));
     this.queue = [];
+    
+    // Dispose the render session
+    if (this.renderSession) {
+      this.renderSession.dispose();
+      this.renderSession = null;
+    }
   }
   
   // Private methods
@@ -250,17 +263,33 @@ export class RenderCoordinator {
         throw new Error('Invalid view parameters detected - corrupted vectors or dimensions');
       }
       
-      // Step 1: Execute the render (backend will create per-view render target)
-      const apiService = getApiService();
-      const result = await apiService.applyAndRenderViewStateCore(
-        job.viewState,
-        job.viewType,
-        job.width,
-        job.height,
-        job.sliceOverride
-      );
+      // Use promise-based rendering if we have a render session
+      let result: ImageBitmap | null;
       
-      // Step 3: Update success state
+      if (this.renderSession && job.viewType) {
+        // Use the new promise-based API for better isolation
+        const renderResult = await this.renderSession.render(
+          job.viewState,
+          job.viewType,
+          job.width,
+          job.height
+        );
+        result = renderResult.bitmap;
+        
+        console.log(`[RenderCoordinator] Job ${job.id} completed via RenderSession in ${renderResult.renderTime.toFixed(1)}ms`);
+      } else {
+        // Fallback to direct API call for backward compatibility
+        const apiService = getApiService();
+        result = await apiService.applyAndRenderViewStateCore(
+          job.viewState,
+          job.viewType,
+          job.width,
+          job.height,
+          job.sliceOverride
+        );
+      }
+      
+      // Update success state
       useRenderStore.getState()._setLastRender(performance.now(), {
         width: job.width,
         height: job.height
