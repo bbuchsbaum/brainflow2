@@ -1,0 +1,26 @@
+[
+  {
+    "content": "Examine existing vignettes to understand structure and style",
+    "status": "completed",
+    "priority": "high",
+    "id": "1"
+  },
+  {
+    "content": "Research hrf_library, penalty_matrix, reconstruction_matrix, regressor_set and regressor_design functions",
+    "status": "completed",
+    "priority": "high",
+    "id": "2"
+  },
+  {
+    "content": "Create new vignette file with pedagogical examples and plots",
+    "status": "completed",
+    "priority": "high",
+    "id": "3"
+  },
+  {
+    "content": "Test vignette builds correctly and examples work",
+    "status": "completed",
+    "priority": "medium",
+    "id": "4"
+  }
+]

@@ -1,0 +1,14 @@
+[
+  {
+    "content": "Implement High-Precision Clock (KER-001) - Core timing system for ≤2ms precision",
+    "status": "completed",
+    "priority": "high",
+    "id": "ker-001"
+  },
+  {
+    "content": "Implement Hierarchical Scheduler (KER-002) - Task scheduling with timing guarantees",
+    "status": "pending",
+    "priority": "high",
+    "id": "ker-002"
+  }
+]

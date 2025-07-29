@@ -1,0 +1,50 @@
+[
+  {
+    "content": "Create unified R² calculation function",
+    "status": "completed",
+    "priority": "high",
+    "id": "impl-1"
+  },
+  {
+    "content": "Refactor estimate_parametric_hrf.R into modular stages",
+    "status": "completed",
+    "priority": "high",
+    "id": "impl-2"
+  },
+  {
+    "content": "Vectorize post-refinement R² calculation",
+    "status": "completed",
+    "priority": "high",
+    "id": "impl-3"
+  },
+  {
+    "content": "Optimize batch_convolution loop",
+    "status": "completed",
+    "priority": "high",
+    "id": "impl-4"
+  },
+  {
+    "content": "Add parallelization to refinement functions",
+    "status": "pending",
+    "priority": "medium",
+    "id": "impl-5"
+  },
+  {
+    "content": "Add @examples to S3 methods",
+    "status": "completed",
+    "priority": "medium",
+    "id": "impl-6"
+  },
+  {
+    "content": "Define named constants for magic numbers",
+    "status": "pending",
+    "priority": "medium",
+    "id": "impl-7"
+  },
+  {
+    "content": "Abstract parallel dispatch logic",
+    "status": "pending",
+    "priority": "low",
+    "id": "impl-8"
+  }
+]

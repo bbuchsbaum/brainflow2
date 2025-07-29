@@ -1,0 +1,86 @@
+[
+  {
+    "content": "Phase 1: Critical Cleanup - Remove deprecated files",
+    "status": "completed",
+    "priority": "high",
+    "id": "1"
+  },
+  {
+    "content": "Phase 1: Remove all console.log statements from display components",
+    "status": "completed",
+    "priority": "high",
+    "id": "2"
+  },
+  {
+    "content": "Phase 1: Implement missing dispose() method in SliceModel",
+    "status": "completed",
+    "priority": "high",
+    "id": "3"
+  },
+  {
+    "content": "Phase 1: Fix window resize listener leak in SliceView",
+    "status": "completed",
+    "priority": "high",
+    "id": "4"
+  },
+  {
+    "content": "Phase 1: Add coordinate bounds validation",
+    "status": "in_progress",
+    "priority": "high",
+    "id": "5"
+  },
+  {
+    "content": "Phase 2: Add epsilon tolerance for floating-point comparisons",
+    "status": "pending",
+    "priority": "medium",
+    "id": "6"
+  },
+  {
+    "content": "Phase 2: Document LPI world space convention",
+    "status": "pending",
+    "priority": "medium",
+    "id": "7"
+  },
+  {
+    "content": "Phase 2: Cache computed values for performance",
+    "status": "pending",
+    "priority": "medium",
+    "id": "8"
+  },
+  {
+    "content": "Phase 3: Enhance multi-layer alignment",
+    "status": "pending",
+    "priority": "medium",
+    "id": "9"
+  },
+  {
+    "content": "Phase 3: Implement global memory manager",
+    "status": "pending",
+    "priority": "medium",
+    "id": "10"
+  },
+  {
+    "content": "Phase 3: Add Web Worker support",
+    "status": "pending",
+    "priority": "medium",
+    "id": "11"
+  },
+  {
+    "content": "Phase 4: Replace any types with proper types",
+    "status": "pending",
+    "priority": "low",
+    "id": "12"
+  },
+  {
+    "content": "Phase 4: Implement logging system",
+    "status": "pending",
+    "priority": "low",
+    "id": "13"
+  },
+  {
+    "content": "Phase 4: Add comprehensive tests",
+    "status": "pending",
+    "priority": "low",
+    "id": "14"
+  }
+]

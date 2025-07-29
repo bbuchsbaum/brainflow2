@@ -1,0 +1,26 @@
+[
+  {
+    "content": "Debug why view shows 100% gray instead of volume data",
+    "status": "completed",
+    "priority": "high",
+    "id": "debug-gray-view"
+  },
+  {
+    "content": "Fix layer metadata not being passed to shader",
+    "status": "in_progress",
+    "priority": "high",
+    "id": "fix-layer-metadata"
+  },
+  {
+    "content": "Fix intensity readout showing no data",
+    "status": "pending",
+    "priority": "high",
+    "id": "fix-intensity-readout"
+  },
+  {
+    "content": "Investigate green flash issue when moving cursor",
+    "status": "pending",
+    "priority": "high",
+    "id": "fix-green-flash"
+  }
+]

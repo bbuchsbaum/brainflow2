@@ -1,0 +1,44 @@
+[
+  {
+    "content": "Review Rust unit tests in core/ modules",
+    "status": "completed",
+    "priority": "high",
+    "id": "1"
+  },
+  {
+    "content": "Review TypeScript unit tests (UI tests, component tests)",
+    "status": "completed",
+    "priority": "high",
+    "id": "2"
+  },
+  {
+    "content": "Review Integration tests",
+    "status": "completed",
+    "priority": "high",
+    "id": "3"
+  },
+  {
+    "content": "Review E2E tests (Playwright)",
+    "status": "completed",
+    "priority": "high",
+    "id": "4"
+  },
+  {
+    "content": "Review test data and fixtures in test-data/",
+    "status": "completed",
+    "priority": "medium",
+    "id": "5"
+  },
+  {
+    "content": "Review CI test execution configuration",
+    "status": "completed",
+    "priority": "high",
+    "id": "6"
+  },
+  {
+    "content": "Compile findings and recommendations",
+    "status": "completed",
+    "priority": "medium",
+    "id": "7"
+  }
+]

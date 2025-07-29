@@ -1,0 +1,20 @@
+[
+  {
+    "content": "Create benchmarks comparing Rust vs Python TemplateFlow performance",
+    "status": "completed",
+    "priority": "high",
+    "id": "1"
+  },
+  {
+    "content": "Create additional examples and improve guides",
+    "status": "pending",
+    "priority": "medium",
+    "id": "2"
+  },
+  {
+    "content": "Prepare and publish to crates.io",
+    "status": "pending",
+    "priority": "medium",
+    "id": "3"
+  }
+]

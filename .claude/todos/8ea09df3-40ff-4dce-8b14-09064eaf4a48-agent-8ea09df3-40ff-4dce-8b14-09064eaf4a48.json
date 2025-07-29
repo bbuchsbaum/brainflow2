@@ -1,0 +1,26 @@
+[
+  {
+    "content": "Fix documentation build script to avoid HDF5 dependency",
+    "status": "completed",
+    "priority": "high",
+    "id": "1"
+  },
+  {
+    "content": "Install cargo-tarpaulin for code coverage",
+    "status": "completed",
+    "priority": "high",
+    "id": "2"
+  },
+  {
+    "content": "Run documentation generation and serving",
+    "status": "completed",
+    "priority": "high",
+    "id": "3"
+  },
+  {
+    "content": "Run code coverage analysis",
+    "status": "completed",
+    "priority": "high",
+    "id": "4"
+  }
+]

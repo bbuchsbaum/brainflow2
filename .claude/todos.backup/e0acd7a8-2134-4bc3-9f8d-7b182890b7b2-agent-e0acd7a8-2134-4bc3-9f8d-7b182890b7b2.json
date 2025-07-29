@@ -1,0 +1,62 @@
+[
+  {
+    "content": "Implement surfwidget() for interactive HTML/JavaScript visualization",
+    "status": "completed",
+    "priority": "high",
+    "id": "64"
+  },
+  {
+    "content": "Implement remesh_surface() for uniform mesh resampling",
+    "status": "completed",
+    "priority": "high",
+    "id": "65"
+  },
+  {
+    "content": "Implement RandomSurfaceSearchlight class for random sampling",
+    "status": "completed",
+    "priority": "high",
+    "id": "66"
+  },
+  {
+    "content": "Implement view_surface() with plotly and matplotlib backends",
+    "status": "completed",
+    "priority": "high",
+    "id": "59"
+  },
+  {
+    "content": "Add plot() methods to all surface classes",
+    "status": "completed",
+    "priority": "high",
+    "id": "60"
+  },
+  {
+    "content": "Implement color blending logic matching R's colorplane",
+    "status": "completed",
+    "priority": "high",
+    "id": "61"
+  },
+  {
+    "content": "Update notebooks to use new plot() API",
+    "status": "completed",
+    "priority": "high",
+    "id": "62"
+  },
+  {
+    "content": "Test visualization with different backends",
+    "status": "completed",
+    "priority": "medium",
+    "id": "63"
+  },
+  {
+    "content": "Include pre-rendered images for users without vedo",
+    "status": "completed",
+    "priority": "medium",
+    "id": "58"
+  },
+  {
+    "content": "Prepare for PyPI release",
+    "status": "pending",
+    "priority": "medium",
+    "id": "42"
+  }
+]

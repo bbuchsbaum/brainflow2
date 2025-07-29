@@ -1,0 +1,14 @@
+[
+  {
+    "content": "Fix path.resolve variable shadowing error in runPackageCheck",
+    "status": "completed",
+    "priority": "high",
+    "id": "28"
+  },
+  {
+    "content": "Improve error message when run_package_check is used in non-R package directory",
+    "status": "completed",
+    "priority": "medium",
+    "id": "29"
+  }
+]

@@ -1,0 +1,32 @@
+[
+  {
+    "content": "Examine the R help MCP server code to understand how it retrieves documentation",
+    "status": "completed",
+    "priority": "high",
+    "id": "1"
+  },
+  {
+    "content": "Check how the server handles package::function syntax",
+    "status": "completed",
+    "priority": "high",
+    "id": "2"
+  },
+  {
+    "content": "Investigate why get_r_help fails for neuroim2::read_vol",
+    "status": "completed",
+    "priority": "high",
+    "id": "3"
+  },
+  {
+    "content": "Fix the documentation retrieval issue",
+    "status": "completed",
+    "priority": "high",
+    "id": "4"
+  },
+  {
+    "content": "Test the fix with read_vol function",
+    "status": "completed",
+    "priority": "medium",
+    "id": "5"
+  }
+]

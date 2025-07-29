@@ -1,0 +1,110 @@
+[
+  {
+    "content": "Read progress.md to understand current status",
+    "status": "completed",
+    "priority": "high",
+    "id": "1"
+  },
+  {
+    "content": "Read sprints.md for sprint plan overview",
+    "status": "completed",
+    "priority": "high",
+    "id": "2"
+  },
+  {
+    "content": "Read feature_parity.md for requirements",
+    "status": "completed",
+    "priority": "high",
+    "id": "3"
+  },
+  {
+    "content": "Check compilation status with cargo check",
+    "status": "completed",
+    "priority": "high",
+    "id": "4"
+  },
+  {
+    "content": "Fix any compilation errors",
+    "status": "completed",
+    "priority": "high",
+    "id": "5"
+  },
+  {
+    "content": "Complete current sprint tasks",
+    "status": "completed",
+    "priority": "medium",
+    "id": "6"
+  },
+  {
+    "content": "Update progress.md with completed work",
+    "status": "completed",
+    "priority": "medium",
+    "id": "7"
+  },
+  {
+    "content": "Fix io/mod.rs export syntax error",
+    "status": "completed",
+    "priority": "high",
+    "id": "8"
+  },
+  {
+    "content": "Check confounds.rs for import issues",
+    "status": "completed",
+    "priority": "high",
+    "id": "9"
+  },
+  {
+    "content": "Run cargo check to verify fixes",
+    "status": "pending",
+    "priority": "high",
+    "id": "10"
+  },
+  {
+    "content": "Check if analysis/pca.rs has pca_confounds function",
+    "status": "completed",
+    "priority": "high",
+    "id": "11"
+  },
+  {
+    "content": "Complete Phase 2 confounds module testing",
+    "status": "completed",
+    "priority": "medium",
+    "id": "12"
+  },
+  {
+    "content": "Move to Phase 4 validation framework",
+    "status": "completed",
+    "priority": "medium",
+    "id": "13"
+  },
+  {
+    "content": "Update progress.md with Phase 2 completion",
+    "status": "completed",
+    "priority": "high",
+    "id": "14"
+  },
+  {
+    "content": "Implement BIDS compliance checking in compliance.rs",
+    "status": "completed",
+    "priority": "high",
+    "id": "15"
+  },
+  {
+    "content": "Add project summary statistics",
+    "status": "completed",
+    "priority": "medium",
+    "id": "16"
+  },
+  {
+    "content": "Test compliance checking functionality",
+    "status": "pending",
+    "priority": "medium",
+    "id": "17"
+  },
+  {
+    "content": "Update progress.md with Phase 4 completion",
+    "status": "completed",
+    "priority": "medium",
+    "id": "18"
+  }
+]

@@ -1,0 +1,86 @@
+[
+  {
+    "content": "Fixed ar_whiten_inplace C++ function to return matrices instead of modifying in place",
+    "status": "completed",
+    "priority": "high",
+    "id": "summary-001"
+  },
+  {
+    "content": "Updated ar_whiten tests to use returned values",
+    "status": "completed",
+    "priority": "high",
+    "id": "summary-002"
+  },
+  {
+    "content": "Fixed arp structure support in AR functions",
+    "status": "completed",
+    "priority": "medium",
+    "id": "summary-003"
+  },
+  {
+    "content": "Updated API from old cor_struct parameters to ar_options",
+    "status": "completed",
+    "priority": "high",
+    "id": "summary-004"
+  },
+  {
+    "content": "Fixed baseline_model usage in tests",
+    "status": "completed",
+    "priority": "medium",
+    "id": "summary-005"
+  },
+  {
+    "content": "Fixed ar_whiten_transform to make copies before passing to C++",
+    "status": "completed",
+    "priority": "high",
+    "id": "fix-001"
+  },
+  {
+    "content": "Fixed phi_global scope issue in runwise_lm",
+    "status": "completed",
+    "priority": "high",
+    "id": "fix-002"
+  },
+  {
+    "content": "Fixed test_ar_components.R - all 27 tests passing",
+    "status": "completed",
+    "priority": "high",
+    "id": "remaining-001"
+  },
+  {
+    "content": "Fixed test_ar_args.R - all 4 tests passing",
+    "status": "completed",
+    "priority": "high",
+    "id": "remaining-002"
+  },
+  {
+    "content": "Fixed test_ar_glm_integration.R - all 8 tests passing",
+    "status": "completed",
+    "priority": "high",
+    "id": "fix-003"
+  },
+  {
+    "content": "Fixed test_fmri_ar_modeling.R - all 5 tests passing",
+    "status": "completed",
+    "priority": "high",
+    "id": "fix-004"
+  },
+  {
+    "content": "Reduced total test failures from 141 to 17",
+    "status": "completed",
+    "priority": "high",
+    "id": "progress-001"
+  },
+  {
+    "content": "Fix remaining benchmark_datasets test failures",
+    "status": "pending",
+    "priority": "medium",
+    "id": "remaining-003"
+  },
+  {
+    "content": "CONS-005: Implement runwise_lm Using Modular Components",
+    "status": "in_progress",
+    "priority": "high",
+    "id": "cons-005"
+  }
+]

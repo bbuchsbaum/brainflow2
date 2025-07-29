@@ -1,0 +1,56 @@
+[
+  {
+    "content": "Run devtools::document() to update documentation",
+    "status": "completed",
+    "priority": "high",
+    "id": "1"
+  },
+  {
+    "content": "Run devtools::test() to check all tests pass",
+    "status": "completed",
+    "priority": "high",
+    "id": "2"
+  },
+  {
+    "content": "Run devtools::check() for CRAN readiness",
+    "status": "in_progress",
+    "priority": "high",
+    "id": "3"
+  },
+  {
+    "content": "Fix any issues found during checks",
+    "status": "completed",
+    "priority": "high",
+    "id": "4"
+  },
+  {
+    "content": "Fix @experimental tag in crqa.R",
+    "status": "completed",
+    "priority": "medium",
+    "id": "5"
+  },
+  {
+    "content": "Fix @noRd tag in multimatch.R",
+    "status": "completed",
+    "priority": "medium",
+    "id": "6"
+  },
+  {
+    "content": "Add @export tag for Ops.eye_density in similarity.R",
+    "status": "completed",
+    "priority": "medium",
+    "id": "7"
+  },
+  {
+    "content": "Fix emdw.Rd missing name/title",
+    "status": "completed",
+    "priority": "medium",
+    "id": "8"
+  },
+  {
+    "content": "Fix repetitive_similarity test failures",
+    "status": "completed",
+    "priority": "high",
+    "id": "9"
+  }
+]

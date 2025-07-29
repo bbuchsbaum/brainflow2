@@ -1,0 +1,62 @@
+[
+  {
+    "content": "Run comprehensive test suite to verify 100% pass rate",
+    "status": "completed",
+    "priority": "high",
+    "id": "1"
+  },
+  {
+    "content": "Execute oracle harness tests against R baseline at 1e-10 tolerance",
+    "status": "completed",
+    "priority": "high",
+    "id": "2"
+  },
+  {
+    "content": "Run linting and style checks",
+    "status": "completed",
+    "priority": "high",
+    "id": "3"
+  },
+  {
+    "content": "Conduct take stock assessment of progress vs R targets",
+    "status": "completed",
+    "priority": "medium",
+    "id": "4"
+  },
+  {
+    "content": "Perform mandatory code audit using zen mcp tools",
+    "status": "completed",
+    "priority": "medium",
+    "id": "5"
+  },
+  {
+    "content": "Plan and execute next sprint based on assessment",
+    "status": "in_progress",
+    "priority": "medium",
+    "id": "6"
+  },
+  {
+    "content": "Implement lm! procedural macro for ergonomic API",
+    "status": "pending",
+    "priority": "high",
+    "id": "7"
+  },
+  {
+    "content": "Add robust standard errors (HC0-HC3) to inference crate",
+    "status": "pending",
+    "priority": "high",
+    "id": "8"
+  },
+  {
+    "content": "Implement weighted least squares in stats_models",
+    "status": "pending",
+    "priority": "medium",
+    "id": "9"
+  },
+  {
+    "content": "Add automated R vs Rust performance comparison to CI",
+    "status": "pending",
+    "priority": "medium",
+    "id": "10"
+  }
+]

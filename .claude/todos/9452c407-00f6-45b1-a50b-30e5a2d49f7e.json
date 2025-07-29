@@ -1,0 +1,38 @@
+[
+  {
+    "content": "Refactor cross-validation to compute QR decomposition once per fold instead of per lambda",
+    "status": "completed",
+    "priority": "high",
+    "id": "1"
+  },
+  {
+    "content": "Add numerical stability improvements to EB method (epsilon and lambda cap)",
+    "status": "completed",
+    "priority": "high",
+    "id": "2"
+  },
+  {
+    "content": "Extract ridge solver logic into a helper function to reduce duplication",
+    "status": "completed",
+    "priority": "medium",
+    "id": "3"
+  },
+  {
+    "content": "Rename LOOcv_local to KFold_cv_local for accuracy",
+    "status": "pending",
+    "priority": "low",
+    "id": "4"
+  },
+  {
+    "content": "Update documentation to warn about memory usage with diagnostics=TRUE",
+    "status": "completed",
+    "priority": "medium",
+    "id": "5"
+  },
+  {
+    "content": "Run tests to ensure changes don't break functionality",
+    "status": "completed",
+    "priority": "high",
+    "id": "6"
+  }
+]

@@ -1,0 +1,32 @@
+[
+  {
+    "content": "Run complete test suite - Oracle Harness, Unit Tests, Integration Tests",
+    "status": "completed",
+    "priority": "high",
+    "id": "sprint_gate_1"
+  },
+  {
+    "content": "Run linting and style checks",
+    "status": "completed",
+    "priority": "high",
+    "id": "sprint_gate_2"
+  },
+  {
+    "content": "Conduct Take Stock Assessment - evaluate progress toward surpassing R",
+    "status": "completed",
+    "priority": "high",
+    "id": "sprint_assessment"
+  },
+  {
+    "content": "Mandatory code audit using zen mcp tools",
+    "status": "completed",
+    "priority": "high",
+    "id": "sprint_audit"
+  },
+  {
+    "content": "Make PROCEED or COURSE CORRECT decision",
+    "status": "completed",
+    "priority": "high",
+    "id": "sprint_decision"
+  }
+]

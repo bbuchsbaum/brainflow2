@@ -1,0 +1,26 @@
+[
+  {
+    "content": "Remove hdf5r h5file imports from all R files",
+    "status": "completed",
+    "priority": "high",
+    "id": "1"
+  },
+  {
+    "content": "Regenerate NAMESPACE to remove h5file import conflict",
+    "status": "completed",
+    "priority": "high",
+    "id": "2"
+  },
+  {
+    "content": "Fix all 10 failing tests by updating h5file calls",
+    "status": "completed",
+    "priority": "high",
+    "id": "3"
+  },
+  {
+    "content": "Reinstall package and validate zero test failures",
+    "status": "completed",
+    "priority": "high",
+    "id": "4"
+  }
+]

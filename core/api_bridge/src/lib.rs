@@ -9,7 +9,7 @@ use std::sync::Arc;
 use std::path::Path;
 use tauri::State; // Need State for accessing registry
 // Import types from bridge_types
-use bridge_types::{self, VolumeSendable, BridgeError, BridgeResult, VolumeLayerGpuInfo, GpuTextureFormat, FlatNode, TreePayload, icons, Loaded, Loader, SliceInfo, TextureCoordinates, LayerPatch, DataRange};
+use bridge_types::{self, VolumeSendable, BridgeError, BridgeResult, VolumeLayerGpuInfo, GpuTextureFormat, FlatNode, TreePayload, icons, Loaded, Loader, SliceInfo, TextureCoordinates, LayerPatch, DataRange, SliceAxisMeta, BatchRenderRequest};
 use colormap::colormap_by_name;
 // Import NiftiLoader for registration
 // use nifti_loader::NiftiLoader;
@@ -976,7 +976,26 @@ async fn request_layer_gpu_resources(layer_spec: LayerSpec, metadata_only: Optio
             // Store the mapping from UI layer ID to atlas layer index (only if GPU was allocated)
             if !metadata_only_flag {
                 let mut layer_map = state.layer_to_atlas_map.lock().await;
+                
+                // Debug logging for layer ID storage
+                info!("🔍 DEBUG: request_layer_gpu_resources - Storing layer mapping:");
+                info!("  - UI Layer ID: '{}'", ui_layer_id);
+                info!("  - Atlas Index: {}", atlas_layer_idx);
+                info!("  - UI Layer ID hash: {:x}", {
+                    use std::collections::hash_map::DefaultHasher;
+                    use std::hash::{Hash, Hasher};
+                    let mut hasher = DefaultHasher::new();
+                    ui_layer_id.hash(&mut hasher);
+                    hasher.finish()
+                });
+                
                 layer_map.insert(ui_layer_id.clone(), atlas_layer_idx);
+                
+                info!("  - Map size after insert: {}", layer_map.len());
+                info!("  - All entries in layer_to_atlas_map:");
+                for (key, value) in layer_map.iter() {
+                    info!("    '{}' -> {}", key, value);
+                }
             }
             
             // Get the affine transform (voxel to world) and extract space info - clone before dropping the guard
@@ -2592,6 +2611,70 @@ async fn allocate_gpu_resources_for_layer(
     })
 }
 
+/// Robust layer lookup helper that tries multiple strategies
+fn find_layer_atlas_index_robust(
+    layer_map: &HashMap<String, u32>,
+    layer_id: &str,
+    volume_id: &str,
+) -> Option<u32> {
+    // Strategy 1: Try exact match with layer_id
+    if let Some(&idx) = layer_map.get(layer_id) {
+        info!("🔍 Found layer via exact layer_id match: '{}' -> {}", layer_id, idx);
+        return Some(idx);
+    }
+    
+    // Strategy 2: Try exact match with volume_id
+    if let Some(&idx) = layer_map.get(volume_id) {
+        info!("🔍 Found layer via exact volume_id match: '{}' -> {}", volume_id, idx);
+        return Some(idx);
+    }
+    
+    // Strategy 3: Try case-insensitive match
+    for (key, &idx) in layer_map.iter() {
+        if key.eq_ignore_ascii_case(layer_id) {
+            warn!("🔍 Found layer via case-insensitive layer_id match: '{}' -> {} (actual key: '{}')", 
+                  layer_id, idx, key);
+            return Some(idx);
+        }
+        if key.eq_ignore_ascii_case(volume_id) {
+            warn!("🔍 Found layer via case-insensitive volume_id match: '{}' -> {} (actual key: '{}')", 
+                  volume_id, idx, key);
+            return Some(idx);
+        }
+    }
+    
+    // Strategy 4: Try trimmed match (in case of whitespace issues)
+    let layer_id_trimmed = layer_id.trim();
+    let volume_id_trimmed = volume_id.trim();
+    
+    for (key, &idx) in layer_map.iter() {
+        let key_trimmed = key.trim();
+        if key_trimmed == layer_id_trimmed {
+            warn!("🔍 Found layer via trimmed layer_id match: '{}' -> {} (key had whitespace)", 
+                  layer_id, idx);
+            return Some(idx);
+        }
+        if key_trimmed == volume_id_trimmed {
+            warn!("🔍 Found layer via trimmed volume_id match: '{}' -> {} (key had whitespace)", 
+                  volume_id, idx);
+            return Some(idx);
+        }
+    }
+    
+    // Strategy 5: Log detailed comparison for debugging
+    error!("🔍 Layer lookup failed completely. Detailed comparison:");
+    error!("  Looking for layer_id: '{}' (len: {})", layer_id, layer_id.len());
+    error!("  Looking for volume_id: '{}' (len: {})", volume_id, volume_id.len());
+    error!("  Keys in map:");
+    for (key, idx) in layer_map.iter() {
+        error!("    Key: '{}' (len: {}) -> idx: {}", key, key.len(), idx);
+        error!("      layer_id == key: {}", layer_id == key);
+        error!("      volume_id == key: {}", volume_id == key);
+    }
+    
+    None
+}
+
 // Internal implementation that supports both PNG and raw RGBA output
 async fn apply_and_render_view_state_internal(
     view_state_json: String,
@@ -2726,8 +2809,17 @@ async fn apply_and_render_view_state_internal(
     
     let layer_processing_start = std::time::Instant::now();
     for layer in &frontend_state.layers {
-        info!("Processing layer: id='{}', volumeId='{}', visible={}, opacity={}", 
-              layer.id, layer.volume_id, layer.visible, layer.opacity);
+        info!("🔍 DEBUG: apply_and_render_view_state_internal - Processing layer:");
+        info!("  - Layer ID: '{}'", layer.id);
+        info!("  - Volume ID: '{}'", layer.volume_id);
+        info!("  - Visible: {}, Opacity: {}", layer.visible, layer.opacity);
+        info!("  - Layer ID hash: {:x}", {
+            use std::collections::hash_map::DefaultHasher;
+            use std::hash::{Hash, Hasher};
+            let mut hasher = DefaultHasher::new();
+            layer.id.hash(&mut hasher);
+            hasher.finish()
+        });
         
         // Check both layer.id and layer.volume_id to ensure we find the layer
         if layer.visible && layer.opacity > 0.0 {
@@ -2736,11 +2828,16 @@ async fn apply_and_render_view_state_internal(
             let atlas_idx = {
                 let layer_map = state.layer_to_atlas_map.lock().await;
                 
-                // Try both layer.id and layer.volume_id as keys
-                let found_idx = layer_map.get(&layer.id)
-                    .or_else(|| layer_map.get(&layer.volume_id));
+                info!("  - Searching in layer_map with {} entries", layer_map.len());
+                info!("  - All keys in map:");
+                for key in layer_map.keys() {
+                    info!("    Key: '{}'", key);
+                }
                 
-                if let Some(&idx) = found_idx {
+                // Try multiple strategies to find the layer
+                let found_idx = find_layer_atlas_index_robust(&layer_map, &layer.id, &layer.volume_id);
+                
+                if let Some(idx) = found_idx {
                     info!("✅ CACHE HIT: Layer {} already has GPU resources at atlas index {}", layer.id, idx);
                     idx
                 } else {
@@ -3147,6 +3244,280 @@ async fn apply_and_render_view_state_raw(
     Ok(tauri::ipc::Response::new(raw_data))
 }
 
+// Query metadata about slices along a specific axis
+#[command]
+#[tracing::instrument(skip_all, err, name = "api.query_slice_axis_meta")]
+async fn query_slice_axis_meta(
+    volume_id: String,
+    axis: String, // "axial", "sagittal", or "coronal"
+    state: State<'_, BridgeState>
+) -> BridgeResult<SliceAxisMeta> {
+    info!("Bridge: query_slice_axis_meta called for volume {} axis {}", volume_id, axis);
+    
+    // Get volume from registry
+    let volume_registry = state.volume_registry.lock().await;
+    let volume_data = volume_registry.get(&volume_id)
+        .ok_or_else(|| BridgeError::VolumeNotFound { 
+            code: 5001, 
+            details: format!("Volume {} not found in registry", volume_id) 
+        })?;
+    
+    // Extract shape and spacing information based on volume type
+    let (shape, spacing) = match volume_data {
+        VolumeSendable::VolF32(vol, _) => {
+            let space = vol.space();
+            (space.dims(), space.spacing())
+        },
+        VolumeSendable::VolI16(vol, _) => {
+            let space = vol.space();
+            (space.dims(), space.spacing())
+        },
+        VolumeSendable::VolU8(vol, _) => {
+            let space = vol.space();
+            (space.dims(), space.spacing())
+        },
+        VolumeSendable::VolI8(vol, _) => {
+            let space = vol.space();
+            (space.dims(), space.spacing())
+        },
+        VolumeSendable::VolU16(vol, _) => {
+            let space = vol.space();
+            (space.dims(), space.spacing())
+        },
+        VolumeSendable::VolI32(vol, _) => {
+            let space = vol.space();
+            (space.dims(), space.spacing())
+        },
+        VolumeSendable::VolU32(vol, _) => {
+            let space = vol.space();
+            (space.dims(), space.spacing())
+        },
+        VolumeSendable::VolF64(vol, _) => {
+            let space = vol.space();
+            (space.dims(), space.spacing())
+        },
+    };
+    
+    // Determine axis index and metadata based on orientation
+    let (slice_count, slice_spacing, axis_length) = match axis.as_str() {
+        "axial" => {
+            // Axial slices along Z axis (index 2)
+            let count = shape[2];
+            let spacing_mm = spacing[2];
+            let length = count as f32 * spacing_mm;
+            (count as u32, spacing_mm, length)
+        },
+        "sagittal" => {
+            // Sagittal slices along X axis (index 0)
+            let count = shape[0];
+            let spacing_mm = spacing[0];
+            let length = count as f32 * spacing_mm;
+            (count as u32, spacing_mm, length)
+        },
+        "coronal" => {
+            // Coronal slices along Y axis (index 1)
+            let count = shape[1];
+            let spacing_mm = spacing[1];
+            let length = count as f32 * spacing_mm;
+            (count as u32, spacing_mm, length)
+        },
+        _ => return Err(BridgeError::Input { 
+            code: 5002, 
+            details: format!("Invalid axis '{}'. Must be 'axial', 'sagittal', or 'coronal'", axis)
+        })
+    };
+    
+    Ok(SliceAxisMeta {
+        slice_count,
+        slice_spacing,
+        axis_length_mm: axis_length,
+    })
+}
+
+// Batch render multiple slices for MosaicView
+#[command]
+#[tracing::instrument(skip_all, err, name = "api.batch_render_slices")]
+async fn batch_render_slices(
+    batch_request: BatchRenderRequest,
+    state: State<'_, BridgeState>
+) -> Result<tauri::ipc::Response, BridgeError> {
+    info!("Bridge: batch_render_slices called");
+    
+    // Add detailed logging for debugging
+    info!("Batch render: Received JSON (first 1000 chars): {}", 
+          batch_request.view_states_json.chars().take(1000).collect::<String>());
+    
+    // Parse view states from JSON string to ViewState structs
+    let view_states: Vec<render_loop::view_state::ViewState> = match serde_json::from_str(&batch_request.view_states_json) {
+        Ok(states) => states,
+        Err(e) => {
+            // First try to parse as generic JSON to get better error info
+            match serde_json::from_str::<serde_json::Value>(&batch_request.view_states_json) {
+                Ok(json_value) => {
+                    // JSON is valid, problem is with deserialization to ViewState
+                    error!("JSON parsed successfully but failed to deserialize to ViewState");
+                    error!("Parsed JSON structure: {}", serde_json::to_string_pretty(&json_value).unwrap_or_default());
+                    
+                    // Try to identify the specific field that failed
+                    if let Some(array) = json_value.as_array() {
+                        for (idx, item) in array.iter().enumerate() {
+                            // Check each ViewState for common issues
+                            if let Some(obj) = item.as_object() {
+                                // Check layers
+                                if let Some(layers) = obj.get("layers").and_then(|l| l.as_array()) {
+                                    for (layer_idx, layer) in layers.iter().enumerate() {
+                                        if let Some(layer_obj) = layer.as_object() {
+                                            // Check threshold field specifically
+                                            if let Some(threshold) = layer_obj.get("threshold") {
+                                                if !threshold.is_null() && !threshold.is_object() {
+                                                    error!("ViewState[{}].layers[{}].threshold has invalid type: {:?}", 
+                                                           idx, layer_idx, threshold);
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    
+                    return Err(BridgeError::Input {
+                        code: 7001,
+                        details: format!("JSON structure doesn't match ViewState schema: {}", e)
+                    });
+                },
+                Err(json_err) => {
+                    // JSON itself is invalid
+                    let column = json_err.column();
+                    let line = json_err.line();
+                    let error_context = if column > 0 && column < batch_request.view_states_json.len() {
+                        let start = column.saturating_sub(100);
+                        let end = std::cmp::min(column + 100, batch_request.view_states_json.len());
+                        format!("\nError at line {} column {}. Context: ...{}...", 
+                                line, column, &batch_request.view_states_json[start..end])
+                    } else {
+                        String::new()
+                    };
+                    
+                    return Err(BridgeError::Input {
+                        code: 7001,
+                        details: format!("Invalid JSON: {}{}", json_err, error_context)
+                    });
+                }
+            }
+        }
+    };
+    
+    // Validate batch size
+    if view_states.is_empty() {
+        return Err(BridgeError::Input {
+            code: 7002,
+            details: "Empty batch request - no view states provided".to_string()
+        });
+    }
+    
+    if view_states.len() > 25 {
+        return Err(BridgeError::Internal {
+            code: 7010,
+            details: format!("Batch size {} exceeds GPU limits (max 25)", view_states.len())
+        });
+    }
+    
+    info!("Batch render: {} slices at {}x{} each", 
+          view_states.len(), batch_request.width_per_slice, batch_request.height_per_slice);
+    
+    // Verify render service is initialized (but we don't need to lock it here)
+    let service_guard = state.render_loop_service.lock().await;
+    if service_guard.is_none() {
+        return Err(BridgeError::ServiceNotInitialized { 
+            code: 5006, 
+            details: "GPU rendering service is not initialized. Please initialize the render loop first.".to_string() 
+        });
+    }
+    drop(service_guard); // Release the lock early
+    
+    let render_start = std::time::Instant::now();
+    
+    // Calculate total buffer size
+    let slice_count = view_states.len() as u32;
+    let bytes_per_slice = (batch_request.width_per_slice * batch_request.height_per_slice * 4) as usize; // RGBA
+    let total_buffer_size = 4 + 4 + 4 + (bytes_per_slice * slice_count as usize); // header + data
+    
+    let mut result_buffer = Vec::with_capacity(total_buffer_size);
+    
+    // Write header: [width][height][slice_count]
+    result_buffer.extend_from_slice(&batch_request.width_per_slice.to_le_bytes());
+    result_buffer.extend_from_slice(&batch_request.height_per_slice.to_le_bytes());
+    result_buffer.extend_from_slice(&slice_count.to_le_bytes());
+    
+    // Render each slice directly using the render_loop service
+    for (idx, view_state) in view_states.iter().enumerate() {
+        info!("Rendering slice {} of {} with ViewState", idx + 1, view_states.len());
+        
+        // Get render loop service
+        let service_guard = state.render_loop_service.lock().await;
+        let service_arc = service_guard.as_ref()
+            .ok_or_else(|| BridgeError::ServiceNotInitialized { 
+                code: 5006, 
+                details: "GPU rendering service is not initialized".to_string() 
+            })?;
+        let mut service = service_arc.lock().await;
+        
+        // Create render target for this slice
+        service.create_offscreen_target(batch_request.width_per_slice, batch_request.height_per_slice)
+            .map_err(|e| BridgeError::GpuError {
+                code: 5021,
+                details: format!("Failed to create render target: {}", e),
+            })?;
+        
+        // Apply frame parameters if available
+        if let (Some(origin), Some(u_vec), Some(v_vec)) = (
+            view_state.camera.frame_origin,
+            view_state.camera.frame_u_vec,
+            view_state.camera.frame_v_vec,
+        ) {
+            service.update_frame_ubo(origin, u_vec, v_vec);
+        }
+        
+        // Render using the ViewState directly
+        let frame_result = service.request_frame(
+            render_loop::view_state::ViewId::new(format!("batch_slice_{}", idx)),
+            view_state.clone()
+        ).await.map_err(|e| BridgeError::GpuError {
+            code: 8011,
+            details: format!("Failed to render slice {}: {:?}", idx, e),
+        })?;
+        
+        drop(service);
+        drop(service_guard);
+        
+        // Get the raw RGBA data
+        let rgba_data = frame_result.image_data;
+        
+        // Validate the data size
+        let expected_size = (batch_request.width_per_slice * batch_request.height_per_slice * 4) as usize;
+        if rgba_data.len() != expected_size {
+            return Err(BridgeError::Internal {
+                code: 7013,
+                details: format!("Invalid render result for slice {}: expected {} bytes, got {}", 
+                    idx, expected_size, rgba_data.len())
+            });
+        }
+        
+        // Append the raw RGBA data directly (no header)
+        result_buffer.extend_from_slice(&rgba_data);
+    }
+    
+    let render_duration = render_start.elapsed();
+    
+    info!("Batch render completed in {:?} ({:.2} ms per slice)", 
+          render_duration, 
+          render_duration.as_millis() as f64 / view_states.len() as f64);
+    
+    // Return the batch buffer as a binary response
+    Ok(tauri::ipc::Response::new(result_buffer))
+}
+
 // --- Plugin Creation ---
 pub fn create_plugin<R: Runtime>() -> TauriPlugin<R> {
     plugin()
@@ -3187,6 +3558,8 @@ pub fn plugin<R: Runtime>() -> TauriPlugin<R> {
             apply_and_render_view_state,
             apply_and_render_view_state_binary,
             apply_and_render_view_state_raw,
+            query_slice_axis_meta,
+            batch_render_slices,
         ])
         .setup(|app, _| {
             // Initialize the bridge state

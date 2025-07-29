@@ -1,0 +1,50 @@
+[
+  {
+    "content": "GUI-009: Time-Travel Scrubber UI - Build interactive timeline scrubber",
+    "status": "completed",
+    "priority": "high",
+    "id": "sprint5-gui-009"
+  },
+  {
+    "content": "SIM-002: Virtual Device Integration - Integrate with headless runner",
+    "status": "completed",
+    "priority": "high",
+    "id": "sprint5-sim-002"
+  },
+  {
+    "content": "GUI-010: AI Command Palette UI Integration - Build UI for AI assistant",
+    "status": "completed",
+    "priority": "high",
+    "id": "sprint5-gui-010"
+  },
+  {
+    "content": "SIM-003: Performance Monitoring Integration - Add to simulator",
+    "status": "completed",
+    "priority": "medium",
+    "id": "sprint5-sim-003"
+  },
+  {
+    "content": "Sprint 5 Integration Testing - Test all components together",
+    "status": "completed",
+    "priority": "high",
+    "id": "sprint5-testing"
+  },
+  {
+    "content": "Prepare Sprint 5 for External Audits - Document completion",
+    "status": "completed",
+    "priority": "high",
+    "id": "sprint5-audit-prep"
+  },
+  {
+    "content": "Request O3 Audit for Sprint 5 - Technical validation",
+    "status": "pending",
+    "priority": "high",
+    "id": "sprint5-audit-o3"
+  },
+  {
+    "content": "Request Gemini Pro Audit for Sprint 5 - Architecture validation",
+    "status": "pending",
+    "priority": "high",
+    "id": "sprint5-audit-gemini"
+  }
+]

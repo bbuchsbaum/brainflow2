@@ -1,0 +1,26 @@
+[
+  {
+    "content": "Review remaining Phase 2 tasks and identify next implementation target",
+    "status": "completed",
+    "priority": "high",
+    "id": "1"
+  },
+  {
+    "content": "Implement T212: BiProjector Methods (scores, components, sdev, residuals)",
+    "status": "completed",
+    "priority": "high",
+    "id": "2"
+  },
+  {
+    "content": "Complete transpose() implementation for BiProjector",
+    "status": "completed",
+    "priority": "medium",
+    "id": "3"
+  },
+  {
+    "content": "Update progress.md with completion status",
+    "status": "completed",
+    "priority": "medium",
+    "id": "4"
+  }
+]

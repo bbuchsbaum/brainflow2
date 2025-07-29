@@ -1,0 +1,26 @@
+[
+  {
+    "content": "Run devtools::check() for full CRAN compliance check",
+    "status": "in_progress",
+    "priority": "high",
+    "id": "6"
+  },
+  {
+    "content": "Fix test failures related to missing phoneme dataset files",
+    "status": "pending",
+    "priority": "high",
+    "id": "7"
+  },
+  {
+    "content": "Fix functional scan extraction test failures",
+    "status": "pending",
+    "priority": "high",
+    "id": "8"
+  },
+  {
+    "content": "Address CRAN check errors, warnings, and notes",
+    "status": "pending",
+    "priority": "high",
+    "id": "9"
+  }
+]

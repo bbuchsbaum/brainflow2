@@ -1,0 +1,50 @@
+[
+  {
+    "content": "Review current project state and identify Sprint 6 objectives",
+    "status": "completed",
+    "priority": "high",
+    "id": "sprint6-1"
+  },
+  {
+    "content": "Run all tests to verify current status",
+    "status": "completed",
+    "priority": "high",
+    "id": "sprint6-2"
+  },
+  {
+    "content": "Identify remaining work from previous sprints",
+    "status": "completed",
+    "priority": "high",
+    "id": "sprint6-3"
+  },
+  {
+    "content": "Plan Sprint 6 implementation tasks",
+    "status": "completed",
+    "priority": "high",
+    "id": "sprint6-4"
+  },
+  {
+    "content": "Implement glm! macro with alpha and lambda arguments",
+    "status": "completed",
+    "priority": "high",
+    "id": "sprint6-5"
+  },
+  {
+    "content": "Run Oracle tests against R's glmnet",
+    "status": "completed",
+    "priority": "high",
+    "id": "sprint6-6"
+  },
+  {
+    "content": "Run performance benchmarks vs R",
+    "status": "completed",
+    "priority": "high",
+    "id": "sprint6-7"
+  },
+  {
+    "content": "Conduct Sprint 6 assessment and code audit",
+    "status": "completed",
+    "priority": "high",
+    "id": "sprint6-8"
+  }
+]

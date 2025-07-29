@@ -1,0 +1,32 @@
+[
+  {
+    "content": "Implement RObject trait and core type system",
+    "status": "completed",
+    "priority": "high",
+    "id": "T001"
+  },
+  {
+    "content": "Implement Combine trait for vector concatenation",
+    "status": "completed",
+    "priority": "high",
+    "id": "T002"
+  },
+  {
+    "content": "Implement Subset trait for indexing operations",
+    "status": "in_progress",
+    "priority": "high",
+    "id": "T003"
+  },
+  {
+    "content": "Implement arithmetic operations traits",
+    "status": "pending",
+    "priority": "medium",
+    "id": "T004"
+  },
+  {
+    "content": "Implement comparison operations traits",
+    "status": "pending",
+    "priority": "medium",
+    "id": "T005"
+  }
+]

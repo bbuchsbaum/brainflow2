@@ -1,0 +1,140 @@
+[
+  {
+    "content": "Port Python test suite to Rust",
+    "status": "completed",
+    "priority": "medium",
+    "id": "port-python-tests"
+  },
+  {
+    "content": "Fix failing unit tests in event_matrix and event_term modules",
+    "status": "completed",
+    "priority": "high",
+    "id": "fix-failing-tests"
+  },
+  {
+    "content": "Fix failing integration tests for basis functions",
+    "status": "completed",
+    "priority": "high",
+    "id": "fix-integration-tests"
+  },
+  {
+    "content": "Fix failing convolution tests",
+    "status": "completed",
+    "priority": "high",
+    "id": "fix-conv-tests"
+  },
+  {
+    "content": "Implement EventModel.generate_design_matrix() method",
+    "status": "completed",
+    "priority": "high",
+    "id": "impl-design-matrix"
+  },
+  {
+    "content": "Implement event_model() function with formula parsing",
+    "status": "completed",
+    "priority": "high",
+    "id": "impl-event-model-fn"
+  },
+  {
+    "content": "Fix column naming to match Python format",
+    "status": "completed",
+    "priority": "medium",
+    "id": "fix-column-naming"
+  },
+  {
+    "content": "Create basic_design.rs example",
+    "status": "completed",
+    "priority": "medium",
+    "id": "create-basic-example"
+  },
+  {
+    "content": "Add HRF convolution to EventModel",
+    "status": "completed",
+    "priority": "high",
+    "id": "add-hrf-convolution"
+  },
+  {
+    "content": "Implement interactions in formulas (e.g., condition:difficulty)",
+    "status": "completed",
+    "priority": "high",
+    "id": "impl-interactions"
+  },
+  {
+    "content": "Improve column naming for interaction terms",
+    "status": "completed",
+    "priority": "high",
+    "id": "improve-interaction-naming"
+  },
+  {
+    "content": "Support continuous variables and parametric modulation",
+    "status": "completed",
+    "priority": "high",
+    "id": "impl-parametric"
+  },
+  {
+    "content": "Add basis functions in formulas (poly(), bs(), scale())",
+    "status": "completed",
+    "priority": "high",
+    "id": "impl-basis-formulas"
+  },
+  {
+    "content": "Implement contrast specifications and computation",
+    "status": "completed",
+    "priority": "high",
+    "id": "impl-contrasts"
+  },
+  {
+    "content": "Add baseline/nuisance models",
+    "status": "completed",
+    "priority": "medium",
+    "id": "impl-baseline"
+  },
+  {
+    "content": "Implement trialwise() function",
+    "status": "completed",
+    "priority": "medium",
+    "id": "impl-trialwise"
+  },
+  {
+    "content": "Add covariate support",
+    "status": "pending",
+    "priority": "medium",
+    "id": "impl-covariates"
+  },
+  {
+    "content": "Create parametric_design.rs example",
+    "status": "completed",
+    "priority": "medium",
+    "id": "create-param-example"
+  },
+  {
+    "content": "Add model.summary() and other utility methods",
+    "status": "pending",
+    "priority": "medium",
+    "id": "add-model-methods"
+  },
+  {
+    "content": "Implement AFNI GLT export",
+    "status": "pending",
+    "priority": "low",
+    "id": "impl-afni"
+  },
+  {
+    "content": "Add visualization functions (design_map, correlation_map)",
+    "status": "pending",
+    "priority": "low",
+    "id": "impl-visualization"
+  },
+  {
+    "content": "Clean up compiler warnings",
+    "status": "pending",
+    "priority": "low",
+    "id": "cleanup-warnings"
+  },
+  {
+    "content": "Add README.md with usage documentation",
+    "status": "pending",
+    "priority": "low",
+    "id": "add-readme"
+  }
+]

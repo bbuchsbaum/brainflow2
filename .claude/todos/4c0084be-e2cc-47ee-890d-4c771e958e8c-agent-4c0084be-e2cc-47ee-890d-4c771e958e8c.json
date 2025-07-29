@@ -1,0 +1,20 @@
+[
+  {
+    "content": "Document Sprint 5 completion in progress.md",
+    "status": "pending",
+    "priority": "high",
+    "id": "document-sprint5"
+  },
+  {
+    "content": "Update next.md with Sprint 6 priorities",
+    "status": "pending",
+    "priority": "high",
+    "id": "update-next"
+  },
+  {
+    "content": "Create Sprint 6 implementation plan",
+    "status": "pending",
+    "priority": "medium",
+    "id": "sprint6-plan"
+  }
+]

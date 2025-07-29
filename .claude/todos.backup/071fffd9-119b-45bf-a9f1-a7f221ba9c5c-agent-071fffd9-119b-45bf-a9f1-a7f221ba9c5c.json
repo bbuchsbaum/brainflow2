@@ -1,0 +1,44 @@
+[
+  {
+    "content": "Fix broken asset paths in generated artwork pages",
+    "status": "completed",
+    "priority": "high",
+    "id": "fix_asset_paths"
+  },
+  {
+    "content": "Fix filename collisions and empty slugs",
+    "status": "completed",
+    "priority": "high",
+    "id": "fix_filename_collisions"
+  },
+  {
+    "content": "Add JavaScript minification for production",
+    "status": "completed",
+    "priority": "high",
+    "id": "add_js_minification"
+  },
+  {
+    "content": "Fix sitemap priority callback signatures",
+    "status": "completed",
+    "priority": "high",
+    "id": "fix_sitemap_callbacks"
+  },
+  {
+    "content": "Parallelize image watermarking with p-map",
+    "status": "completed",
+    "priority": "medium",
+    "id": "parallelize_watermarking"
+  },
+  {
+    "content": "Add HTML minification to artwork pages",
+    "status": "completed",
+    "priority": "medium",
+    "id": "add_html_minification"
+  },
+  {
+    "content": "Clean up robots.txt and package.json",
+    "status": "completed",
+    "priority": "low",
+    "id": "cleanup_misc"
+  }
+]

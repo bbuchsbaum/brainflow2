@@ -1,0 +1,50 @@
+[
+  {
+    "content": "Address Security Improvements from Sprint 1 Audits",
+    "status": "completed",
+    "priority": "high",
+    "id": "SEC-001"
+  },
+  {
+    "content": "Build TypeScript Fluent API & Compiler",
+    "status": "completed",
+    "priority": "high",
+    "id": "DSL-003"
+  },
+  {
+    "content": "Fix TypeScript Compilation Errors in Fluent API",
+    "status": "completed",
+    "priority": "high",
+    "id": "FIX-TS-001"
+  },
+  {
+    "content": "Fix remaining TypeScript compilation issues",
+    "status": "completed",
+    "priority": "high",
+    "id": "FIX-TS-002"
+  },
+  {
+    "content": "Clean up unused variables and parameters",
+    "status": "pending",
+    "priority": "medium",
+    "id": "CLEAN-TS-001"
+  },
+  {
+    "content": "Implement Core Stimulus Types",
+    "status": "pending",
+    "priority": "high",
+    "id": "KER-003-S2"
+  },
+  {
+    "content": "Complete Stroop Task Implementation",
+    "status": "pending",
+    "priority": "high",
+    "id": "TST-002"
+  },
+  {
+    "content": "Lock v0.1 BIDS-compatible Data Schema",
+    "status": "pending",
+    "priority": "high",
+    "id": "ARE-003"
+  }
+]

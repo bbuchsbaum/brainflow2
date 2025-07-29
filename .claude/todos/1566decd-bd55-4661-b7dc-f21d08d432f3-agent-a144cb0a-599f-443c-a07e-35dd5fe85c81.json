@@ -1,0 +1,20 @@
+[
+  {
+    "content": "Fix the MultiLayerAlignment test by correcting the scale calculation in slice creation",
+    "status": "completed",
+    "priority": "high",
+    "id": "1"
+  },
+  {
+    "content": "Identify whether the issue is in dropDim() method or in the scale calculation",
+    "status": "completed",
+    "priority": "high",
+    "id": "2"
+  },
+  {
+    "content": "Test the fix with the actual test case to verify it works",
+    "status": "completed",
+    "priority": "high",
+    "id": "3"
+  }
+]

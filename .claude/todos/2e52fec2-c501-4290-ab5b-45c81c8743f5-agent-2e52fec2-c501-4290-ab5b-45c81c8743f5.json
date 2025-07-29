@@ -1,0 +1,14 @@
+[
+  {
+    "content": "Remove or significantly increase the max_r_files_to_include limit (line 79)",
+    "status": "completed",
+    "priority": "high",
+    "id": "1"
+  },
+  {
+    "content": "Increase the default max_tokens to handle larger responses",
+    "status": "completed",
+    "priority": "high",
+    "id": "2"
+  }
+]

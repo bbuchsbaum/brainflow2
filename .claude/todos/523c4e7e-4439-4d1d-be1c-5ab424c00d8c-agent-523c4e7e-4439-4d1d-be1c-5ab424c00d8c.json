@@ -1,0 +1,68 @@
+[
+  {
+    "content": "Assess current project state and determine Sprint 8 tasks",
+    "status": "completed",
+    "priority": "high",
+    "id": "sprint8-assess"
+  },
+  {
+    "content": "S8-T01: Write 'R Flight Manual' (Part 1) - Philosophy, data loading, basic formulas",
+    "status": "completed",
+    "priority": "high",
+    "id": "s8-t01"
+  },
+  {
+    "content": "S8-T02: Write 'R Flight Manual' (Part 2) - Diagnostics, GLMs, extending toolkit",
+    "status": "completed",
+    "priority": "high",
+    "id": "s8-t02"
+  },
+  {
+    "content": "S8-T03: Create WASM build target for stats_models_wasm",
+    "status": "completed",
+    "priority": "medium",
+    "id": "s8-t03"
+  },
+  {
+    "content": "S8-T04: Build interactive web demo for WASM",
+    "status": "completed",
+    "priority": "medium",
+    "id": "s8-t04"
+  },
+  {
+    "content": "S8-T05: Deploy WASM demo to GitHub Pages",
+    "status": "pending",
+    "priority": "medium",
+    "id": "s8-t05"
+  },
+  {
+    "content": "S8-T06: Finalize all README.md and API docs",
+    "status": "completed",
+    "priority": "high",
+    "id": "s8-t06"
+  },
+  {
+    "content": "S8-T07: Create crates.io release checklist",
+    "status": "completed",
+    "priority": "high",
+    "id": "s8-t07"
+  },
+  {
+    "content": "S8-T08: Draft v0.1.0 release announcement",
+    "status": "completed",
+    "priority": "medium",
+    "id": "s8-t08"
+  },
+  {
+    "content": "S8-T09: Create 'Good First Issue' backlog",
+    "status": "completed",
+    "priority": "low",
+    "id": "s8-t09"
+  },
+  {
+    "content": "S8-T10: Launch! Publish crates and announce",
+    "status": "pending",
+    "priority": "high",
+    "id": "s8-t10"
+  }
+]

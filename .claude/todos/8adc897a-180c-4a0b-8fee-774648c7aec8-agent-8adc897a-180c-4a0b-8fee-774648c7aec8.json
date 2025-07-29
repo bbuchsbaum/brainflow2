@@ -1,0 +1,32 @@
+[
+  {
+    "content": "Check current test status and identify failing tests",
+    "status": "in_progress",
+    "priority": "high",
+    "id": "1"
+  },
+  {
+    "content": "Fix failing unit tests",
+    "status": "pending",
+    "priority": "high",
+    "id": "2"
+  },
+  {
+    "content": "Fix failing integration tests",
+    "status": "pending",
+    "priority": "high",
+    "id": "3"
+  },
+  {
+    "content": "Run linting and type checking",
+    "status": "pending",
+    "priority": "medium",
+    "id": "4"
+  },
+  {
+    "content": "Verify all tests pass",
+    "status": "pending",
+    "priority": "high",
+    "id": "5"
+  }
+]

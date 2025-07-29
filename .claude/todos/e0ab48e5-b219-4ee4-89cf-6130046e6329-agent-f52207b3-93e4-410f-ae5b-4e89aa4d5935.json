@@ -1,0 +1,50 @@
+[
+  {
+    "content": "Compare the two SparseNeuroVec implementations for structure, completeness, and R consistency",
+    "status": "completed",
+    "priority": "high",
+    "id": "1"
+  },
+  {
+    "content": "Check which implementation is actually used in tests and other modules",
+    "status": "completed",
+    "priority": "high",
+    "id": "2"
+  },
+  {
+    "content": "Identify unique features in either implementation that need to be preserved",
+    "status": "completed",
+    "priority": "high",
+    "id": "3"
+  },
+  {
+    "content": "Provide recommendation on which implementation to keep and consolidation plan",
+    "status": "completed",
+    "priority": "high",
+    "id": "4"
+  },
+  {
+    "content": "Update all imports to use SparseNeuroVec from neuro_vec.py",
+    "status": "pending",
+    "priority": "high",
+    "id": "5"
+  },
+  {
+    "content": "Add vectors() method from sparse_neuro_vec.py to the neuro_vec.py implementation",
+    "status": "pending",
+    "priority": "medium",
+    "id": "6"
+  },
+  {
+    "content": "Update test files to use the correct import",
+    "status": "pending",
+    "priority": "high",
+    "id": "7"
+  },
+  {
+    "content": "Remove the standalone sparse_neuro_vec.py file",
+    "status": "pending",
+    "priority": "high",
+    "id": "8"
+  }
+]

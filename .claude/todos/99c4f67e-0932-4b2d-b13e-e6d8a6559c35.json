@@ -1,0 +1,38 @@
+[
+  {
+    "content": "Remove Phase 4 BIDS facade (natural language features)",
+    "status": "completed",
+    "priority": "high",
+    "id": "1"
+  },
+  {
+    "content": "Remove Phase 5 BIDS facade (AI/workflow features)",
+    "status": "completed",
+    "priority": "high",
+    "id": "2"
+  },
+  {
+    "content": "Remove stub implementations from bids_interface.R",
+    "status": "completed",
+    "priority": "high",
+    "id": "3"
+  },
+  {
+    "content": "Update test files to remove tests for deleted features",
+    "status": "completed",
+    "priority": "high",
+    "id": "4"
+  },
+  {
+    "content": "Update any remaining files that reference removed features",
+    "status": "completed",
+    "priority": "medium",
+    "id": "5"
+  },
+  {
+    "content": "Run tests to ensure nothing is broken",
+    "status": "completed",
+    "priority": "high",
+    "id": "6"
+  }
+]

@@ -1,0 +1,50 @@
+[
+  {
+    "content": "Run mandatory testing gate - Oracle Harness, Unit Tests, Integration Tests, Linting",
+    "status": "completed",
+    "priority": "high",
+    "id": "test-gate"
+  },
+  {
+    "content": "Conduct take stock assessment of progress toward R superiority",
+    "status": "completed",
+    "priority": "high",
+    "id": "assess-progress"
+  },
+  {
+    "content": "Make decision on proceed vs course correct",
+    "status": "completed",
+    "priority": "high",
+    "id": "decide-direction"
+  },
+  {
+    "content": "Conduct mandatory code audit using zen mcp tools",
+    "status": "pending",
+    "priority": "high",
+    "id": "code-audit"
+  },
+  {
+    "content": "URGENT: Implement robust R vs Rust benchmark harness with criterion",
+    "status": "pending",
+    "priority": "high",
+    "id": "fix-performance-validation"
+  },
+  {
+    "content": "Add memory profiling infrastructure to validate ≤50% R memory usage",
+    "status": "pending",
+    "priority": "high",
+    "id": "implement-memory-profiling"
+  },
+  {
+    "content": "Measure and validate all CLAUDE.md performance targets against R",
+    "status": "pending",
+    "priority": "high",
+    "id": "validate-performance-targets"
+  },
+  {
+    "content": "Integrate performance validation into CI pipeline",
+    "status": "pending",
+    "priority": "high",
+    "id": "automate-performance-ci"
+  }
+]

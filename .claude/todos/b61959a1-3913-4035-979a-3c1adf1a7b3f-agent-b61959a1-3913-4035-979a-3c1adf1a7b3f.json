@@ -1,0 +1,50 @@
+[
+  {
+    "content": "Run all tests to assess current project state",
+    "status": "completed",
+    "priority": "high",
+    "id": "1"
+  },
+  {
+    "content": "Review oracle harness results and identify any failures",
+    "status": "completed",
+    "priority": "high",
+    "id": "2"
+  },
+  {
+    "content": "Check benchmark performance against R baseline",
+    "status": "completed",
+    "priority": "high",
+    "id": "3"
+  },
+  {
+    "content": "Conduct code audit using zen mcp tools",
+    "status": "completed",
+    "priority": "medium",
+    "id": "4"
+  },
+  {
+    "content": "Implement improvements based on audit findings",
+    "status": "in_progress",
+    "priority": "medium",
+    "id": "5"
+  },
+  {
+    "content": "Fix numerical instability in coordinate descent causing exploding coefficients",
+    "status": "completed",
+    "priority": "high",
+    "id": "6"
+  },
+  {
+    "content": "Run full test suite to verify all tests pass",
+    "status": "completed",
+    "priority": "high",
+    "id": "7"
+  },
+  {
+    "content": "Fix Lasso oracle test failure - coefficients differ from R glmnet",
+    "status": "pending",
+    "priority": "high",
+    "id": "8"
+  }
+]

@@ -1,0 +1,32 @@
+[
+  {
+    "content": "Create executable test scripts for vignette functionality",
+    "status": "completed",
+    "priority": "high",
+    "id": "vignette-tests-1"
+  },
+  {
+    "content": "Verify ImageVolumes vignette functionality",
+    "status": "completed",
+    "priority": "high",
+    "id": "vignette-tests-2"
+  },
+  {
+    "content": "Verify NeuroVector vignette functionality",
+    "status": "completed",
+    "priority": "high",
+    "id": "vignette-tests-3"
+  },
+  {
+    "content": "Verify ROI vignette functionality",
+    "status": "completed",
+    "priority": "high",
+    "id": "vignette-tests-4"
+  },
+  {
+    "content": "Verify Pipelines vignette functionality",
+    "status": "completed",
+    "priority": "high",
+    "id": "vignette-tests-5"
+  }
+]

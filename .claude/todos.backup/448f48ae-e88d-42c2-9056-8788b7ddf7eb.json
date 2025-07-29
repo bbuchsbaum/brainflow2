@@ -1,0 +1,26 @@
+[
+  {
+    "content": "Examine test-estimate-parametric-hrf.R to understand the failing test",
+    "status": "completed",
+    "priority": "high",
+    "id": "1"
+  },
+  {
+    "content": "Trace the rho validation error through the codebase",
+    "status": "completed",
+    "priority": "high",
+    "id": "2"
+  },
+  {
+    "content": "Fix the rho parameter validation issue",
+    "status": "completed",
+    "priority": "high",
+    "id": "3"
+  },
+  {
+    "content": "Run the test to verify the fix",
+    "status": "completed",
+    "priority": "medium",
+    "id": "4"
+  }
+]

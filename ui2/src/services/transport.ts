@@ -46,7 +46,9 @@ export class TauriTransport implements BackendTransport {
       'release_layer_gpu_resources',
       'update_frame_ubo',
       'update_frame_for_synchronized_view',
-      'recalculate_view_for_dimensions'
+      'recalculate_view_for_dimensions',
+      'query_slice_axis_meta',
+      'batch_render_slices'
     ];
     
     if (apiBridgeCommands.includes(cmd)) {

@@ -1,0 +1,26 @@
+[
+  {
+    "content": "Run UI tests to identify failures",
+    "status": "in_progress",
+    "priority": "high",
+    "id": "1"
+  },
+  {
+    "content": "Fix failing unit tests",
+    "status": "pending",
+    "priority": "high",
+    "id": "2"
+  },
+  {
+    "content": "Run linting and type checking",
+    "status": "pending",
+    "priority": "medium",
+    "id": "3"
+  },
+  {
+    "content": "Verify all tests pass",
+    "status": "pending",
+    "priority": "medium",
+    "id": "4"
+  }
+]

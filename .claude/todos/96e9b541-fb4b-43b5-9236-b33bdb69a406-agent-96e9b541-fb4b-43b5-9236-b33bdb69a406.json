@@ -1,0 +1,20 @@
+[
+  {
+    "content": "Create Python golden test runner",
+    "status": "completed",
+    "priority": "high",
+    "id": "1"
+  },
+  {
+    "content": "Implement test execution for Python project",
+    "status": "completed",
+    "priority": "high",
+    "id": "2"
+  },
+  {
+    "content": "Generate dashboard with test results",
+    "status": "in_progress",
+    "priority": "medium",
+    "id": "3"
+  }
+]

@@ -1,0 +1,86 @@
+[
+  {
+    "content": "Fix carousel image loading performance - add loading='lazy' to carousel images after the first",
+    "status": "completed",
+    "priority": "high",
+    "id": "cwv-performance-1"
+  },
+  {
+    "content": "Implement responsive images with srcset for artwork pages",
+    "status": "completed",
+    "priority": "high",
+    "id": "cwv-performance-2"
+  },
+  {
+    "content": "Optimize carousel JS to prevent layout shift (CLS)",
+    "status": "completed",
+    "priority": "high",
+    "id": "cwv-performance-3"
+  },
+  {
+    "content": "Run Lighthouse audit to identify specific performance bottlenecks",
+    "status": "completed",
+    "priority": "high",
+    "id": "cwv-performance-4"
+  },
+  {
+    "content": "Add SRI hashes to Stripe script tags",
+    "status": "completed",
+    "priority": "high",
+    "id": "security-sri-1"
+  },
+  {
+    "content": "Add SRI hashes to Google Analytics script tags",
+    "status": "completed",
+    "priority": "high",
+    "id": "security-sri-2"
+  },
+  {
+    "content": "Add SRI hashes to Bulma CSS, Font Awesome, and other CDN resources",
+    "status": "completed",
+    "priority": "high",
+    "id": "security-sri-3"
+  },
+  {
+    "content": "Move hardcoded API keys to Netlify environment variables",
+    "status": "completed",
+    "priority": "high",
+    "id": "security-env-vars"
+  },
+  {
+    "content": "Add Related Artworks sections to connect the 42 artwork pages",
+    "status": "completed",
+    "priority": "medium",
+    "id": "seo-internal-linking"
+  },
+  {
+    "content": "Implement BreadcrumbList schema on artwork pages",
+    "status": "completed",
+    "priority": "medium",
+    "id": "seo-breadcrumbs"
+  },
+  {
+    "content": "Improve artwork image alt text descriptions to be more descriptive",
+    "status": "completed",
+    "priority": "medium",
+    "id": "seo-alt-text"
+  },
+  {
+    "content": "Phase 1: Implement VisualArtwork structured data (JSON-LD) for all 42 artwork pages",
+    "status": "completed",
+    "priority": "high",
+    "id": "advanced-seo-structured-data"
+  },
+  {
+    "content": "Phase 2: Implement automated image pipeline with WebP/AVIF generation using custom Gulp task",
+    "status": "completed",
+    "priority": "high",
+    "id": "advanced-performance-images"
+  },
+  {
+    "content": "Phase 3: Implement automated SRI hash generation using custom Node.js crypto implementation",
+    "status": "completed",
+    "priority": "high",
+    "id": "advanced-security-sri"
+  }
+]

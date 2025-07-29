@@ -33,5 +33,7 @@ permissions = [
     "allow-sample-world-coordinate",
     "allow-apply-and-render-view-state",
     "allow-apply-and-render-view-state-binary",
-    "allow-apply-and-render-view-state-raw"
+    "allow-apply-and-render-view-state-raw",
+    "allow-query-slice-axis-meta",
+    "allow-batch-render-slices"
 ]

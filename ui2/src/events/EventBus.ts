@@ -38,9 +38,9 @@ export interface EventMap {
   'view.plane.updated': { viewType: ViewType; plane: any };
   
   // Render events
-  'render.complete': { viewType?: ViewType; imageBitmap: ImageBitmap };
-  'render.error': { viewType?: ViewType; error: Error };
-  'render.start': { viewType?: ViewType };
+  'render.complete': { viewType?: ViewType; imageBitmap: ImageBitmap; tag?: string };
+  'render.error': { viewType?: ViewType; error: Error; tag?: string };
+  'render.start': { viewType?: ViewType; tag?: string };
   
   // Volume events
   'volume.loaded': { volumeId: string; metadata: any };
@@ -88,6 +88,10 @@ export interface EventMap {
   // Mouse coordinate events
   'mouse.worldCoordinate': { world_mm: [number, number, number]; viewType: ViewType };
   'mouse.leave': { viewType: ViewType };
+  
+  // Performance events
+  'render.fps': { fps: number };
+  'gpu.status': { status: string };
 }
 
 type EventHandler<T> = (data: T) => void;

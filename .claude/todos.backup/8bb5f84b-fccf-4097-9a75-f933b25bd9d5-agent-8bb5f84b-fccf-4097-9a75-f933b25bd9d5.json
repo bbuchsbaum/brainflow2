@@ -1,0 +1,38 @@
+[
+  {
+    "content": "Implement single-run diffusion map prototype with graphtools",
+    "status": "completed",
+    "priority": "high",
+    "id": "diffusion_prototype"
+  },
+  {
+    "content": "Validate diffusion embedding and k-NN mapping for sample parameters",
+    "status": "completed",
+    "priority": "high",
+    "id": "validate_prototype"
+  },
+  {
+    "content": "Implement mapping coherence evaluation metric",
+    "status": "completed",
+    "priority": "high",
+    "id": "coherence_metric"
+  },
+  {
+    "content": "Implement temporal correlation metric (Spearman correlation)",
+    "status": "completed",
+    "priority": "high",
+    "id": "temporal_correlation"
+  },
+  {
+    "content": "Build parameter sweep framework for (d, t) combinations",
+    "status": "completed",
+    "priority": "medium",
+    "id": "parameter_sweep"
+  },
+  {
+    "content": "Create visualization of sparse mapping matrix (515 x 1976)",
+    "status": "completed",
+    "priority": "medium",
+    "id": "mapping_visualization"
+  }
+]

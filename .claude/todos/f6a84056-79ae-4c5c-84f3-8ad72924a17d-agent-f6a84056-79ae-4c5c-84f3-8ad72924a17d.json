@@ -1,0 +1,26 @@
+[
+  {
+    "content": "Implement layout caching for improved performance",
+    "status": "completed",
+    "priority": "high",
+    "id": "1"
+  },
+  {
+    "content": "Create benchmarks comparing Rust vs Python performance",
+    "status": "pending",
+    "priority": "medium",
+    "id": "2"
+  },
+  {
+    "content": "Add more examples and guides",
+    "status": "pending",
+    "priority": "medium",
+    "id": "3"
+  },
+  {
+    "content": "Prepare for publishing to crates.io",
+    "status": "pending",
+    "priority": "low",
+    "id": "4"
+  }
+]

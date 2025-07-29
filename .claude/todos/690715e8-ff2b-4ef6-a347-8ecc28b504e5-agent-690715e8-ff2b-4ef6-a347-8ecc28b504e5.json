@@ -1,0 +1,74 @@
+[
+  {
+    "content": "Analyze server error (5xx) issues - 13 pages affected",
+    "status": "completed",
+    "priority": "high",
+    "id": "1"
+  },
+  {
+    "content": "Fix 404 errors - 9 pages affected",
+    "status": "completed",
+    "priority": "high",
+    "id": "2"
+  },
+  {
+    "content": "Resolve redirect issues - 9 pages affected",
+    "status": "completed",
+    "priority": "medium",
+    "id": "3"
+  },
+  {
+    "content": "Fix canonical tag issues - 7 pages affected",
+    "status": "completed",
+    "priority": "medium",
+    "id": "4"
+  },
+  {
+    "content": "Address soft 404 issue - 1 page affected",
+    "status": "completed",
+    "priority": "low",
+    "id": "5"
+  },
+  {
+    "content": "Improve crawlability for 22 pages not indexed",
+    "status": "completed",
+    "priority": "high",
+    "id": "6"
+  },
+  {
+    "content": "Create comprehensive _redirects file",
+    "status": "completed",
+    "priority": "high",
+    "id": "7"
+  },
+  {
+    "content": "Update netlify.toml with proper redirect rules",
+    "status": "completed",
+    "priority": "high",
+    "id": "8"
+  },
+  {
+    "content": "Create server-side handler for dynamic URLs",
+    "status": "completed",
+    "priority": "high",
+    "id": "9"
+  },
+  {
+    "content": "Test and verify all fixes",
+    "status": "completed",
+    "priority": "medium",
+    "id": "10"
+  },
+  {
+    "content": "Create XML sitemap for individual artwork pages",
+    "status": "completed",
+    "priority": "high",
+    "id": "11"
+  },
+  {
+    "content": "Add structured data for artwork pages",
+    "status": "completed",
+    "priority": "medium",
+    "id": "12"
+  }
+]

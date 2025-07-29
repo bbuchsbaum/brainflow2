@@ -1,0 +1,32 @@
+[
+  {
+    "content": "Fix merge_atlases label_map mismatch issue",
+    "status": "in_progress",
+    "priority": "high",
+    "id": "1"
+  },
+  {
+    "content": "Implement reduce_atlas methods for atlas objects",
+    "status": "pending",
+    "priority": "medium",
+    "id": "2"
+  },
+  {
+    "content": "Fix get_roi implementation to handle ClusteredNeuroVol properly",
+    "status": "pending",
+    "priority": "medium",
+    "id": "3"
+  },
+  {
+    "content": "Fix dilate_atlas to handle different volume types",
+    "status": "completed",
+    "priority": "medium",
+    "id": "4"
+  },
+  {
+    "content": "Update tests to match actual data structures",
+    "status": "completed",
+    "priority": "high",
+    "id": "5"
+  }
+]

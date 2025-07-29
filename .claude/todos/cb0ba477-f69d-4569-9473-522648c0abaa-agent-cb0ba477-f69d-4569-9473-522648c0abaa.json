@@ -1,0 +1,20 @@
+[
+  {
+    "content": "Gather detailed information about HATSA project through strategic questions",
+    "status": "completed",
+    "priority": "high",
+    "id": "1"
+  },
+  {
+    "content": "Draft LOI sections based on gathered information",
+    "status": "completed",
+    "priority": "high",
+    "id": "2"
+  },
+  {
+    "content": "Review and refine LOI for DSI alignment and word limits",
+    "status": "completed",
+    "priority": "medium",
+    "id": "3"
+  }
+]

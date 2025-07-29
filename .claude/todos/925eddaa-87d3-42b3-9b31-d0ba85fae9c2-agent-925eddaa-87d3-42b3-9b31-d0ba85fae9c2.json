@@ -1,0 +1,80 @@
+[
+  {
+    "content": "Review formula module implementation status",
+    "status": "completed",
+    "priority": "high",
+    "id": "1"
+  },
+  {
+    "content": "Implement formula parser using nom",
+    "status": "completed",
+    "priority": "high",
+    "id": "2"
+  },
+  {
+    "content": "Port formula/dsl.py to src/formula/dsl.rs (builder pattern)",
+    "status": "completed",
+    "priority": "high",
+    "id": "3"
+  },
+  {
+    "content": "Port formula/parser.py to src/formula/parser.rs",
+    "status": "completed",
+    "priority": "high",
+    "id": "4"
+  },
+  {
+    "content": "Port formula/model_spec.py to src/formula/model.rs",
+    "status": "completed",
+    "priority": "high",
+    "id": "5"
+  },
+  {
+    "content": "Run tests to verify current implementation status",
+    "status": "completed",
+    "priority": "medium",
+    "id": "6"
+  },
+  {
+    "content": "Fix compilation errors in visualization modules",
+    "status": "completed",
+    "priority": "high",
+    "id": "7"
+  },
+  {
+    "content": "Fix failing tests (3 tests failed)",
+    "status": "completed",
+    "priority": "high",
+    "id": "8"
+  },
+  {
+    "content": "Continue with baseline.py port to src/baseline.rs",
+    "status": "completed",
+    "priority": "high",
+    "id": "9"
+  },
+  {
+    "content": "Port contrast.py to src/contrast.rs",
+    "status": "in_progress",
+    "priority": "high",
+    "id": "10"
+  },
+  {
+    "content": "Port covariate.py to src/covariate.rs",
+    "status": "pending",
+    "priority": "high",
+    "id": "11"
+  },
+  {
+    "content": "Port core/event_model.py to src/core/model.rs",
+    "status": "pending",
+    "priority": "high",
+    "id": "12"
+  },
+  {
+    "content": "Run all tests to ensure everything still works",
+    "status": "pending",
+    "priority": "medium",
+    "id": "13"
+  }
+]

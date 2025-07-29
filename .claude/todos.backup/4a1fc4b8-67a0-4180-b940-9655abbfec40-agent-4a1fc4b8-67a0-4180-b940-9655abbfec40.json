@@ -1,0 +1,44 @@
+[
+  {
+    "content": "Investigate test 3 hanging issue in REKEMA exact solver",
+    "status": "completed",
+    "priority": "high",
+    "id": "1"
+  },
+  {
+    "content": "Analyze eigenvalue problem size and complexity",
+    "status": "completed",
+    "priority": "high",
+    "id": "2"
+  },
+  {
+    "content": "Collaborate with Gemini/O3 to diagnose root cause",
+    "status": "completed",
+    "priority": "high",
+    "id": "3"
+  },
+  {
+    "content": "Implement fix for hanging issue",
+    "status": "completed",
+    "priority": "high",
+    "id": "4"
+  },
+  {
+    "content": "Fix dimension mismatch errors in tests 1 & 2",
+    "status": "in_progress",
+    "priority": "medium",
+    "id": "5"
+  },
+  {
+    "content": "Fix coskern kernel function bug",
+    "status": "pending",
+    "priority": "high",
+    "id": "6"
+  },
+  {
+    "content": "Fix REKEMA primal vector calculation",
+    "status": "pending",
+    "priority": "high",
+    "id": "7"
+  }
+]

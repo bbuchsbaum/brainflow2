@@ -1,0 +1,50 @@
+[
+  {
+    "content": "Run mandatory testing gate - Oracle Harness, Unit Tests, Integration Tests, Linting",
+    "status": "completed",
+    "priority": "high",
+    "id": "sprint_gate_testing"
+  },
+  {
+    "content": "Conduct honest assessment of progress toward surpassing R",
+    "status": "completed",
+    "priority": "high",
+    "id": "take_stock_assessment"
+  },
+  {
+    "content": "Comprehensive code review using zen mcp tools",
+    "status": "completed",
+    "priority": "high",
+    "id": "mandatory_code_audit"
+  },
+  {
+    "content": "Plan next sprint based on assessment and audit results",
+    "status": "completed",
+    "priority": "medium",
+    "id": "next_sprint_planning"
+  },
+  {
+    "content": "CRITICAL: Fix coefficient permutation bug in Lm::fit() QR decomposition",
+    "status": "pending",
+    "priority": "high",
+    "id": "fix_coefficient_permutation_bug"
+  },
+  {
+    "content": "Implement IRLS optimization core for GLM support",
+    "status": "pending",
+    "priority": "high",
+    "id": "implement_glm_foundation"
+  },
+  {
+    "content": "Build performance benchmarking harness vs R baselines",
+    "status": "pending",
+    "priority": "high",
+    "id": "create_benchmarking_infrastructure"
+  },
+  {
+    "content": "Implement build_design_matrix() function in dmatrix crate",
+    "status": "pending",
+    "priority": "medium",
+    "id": "complete_design_matrix_construction"
+  }
+]

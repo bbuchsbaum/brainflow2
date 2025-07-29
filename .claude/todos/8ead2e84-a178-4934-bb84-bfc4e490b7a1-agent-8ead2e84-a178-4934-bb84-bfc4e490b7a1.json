@@ -1,0 +1,32 @@
+[
+  {
+    "content": "Update spatial_resampling.xml to use real NIfTI file as template",
+    "status": "completed",
+    "priority": "high",
+    "id": "1"
+  },
+  {
+    "content": "Create realistic upsampling scenario (64x64x25 → 128x128x50)",
+    "status": "completed",
+    "priority": "high",
+    "id": "2"
+  },
+  {
+    "content": "Create realistic downsampling scenario (64x64x25 → 32x32x12)",
+    "status": "completed",
+    "priority": "high",
+    "id": "3"
+  },
+  {
+    "content": "Update expected values based on actual resampling behavior",
+    "status": "completed",
+    "priority": "high",
+    "id": "4"
+  },
+  {
+    "content": "Test the updated spatial_resampling.xml",
+    "status": "completed",
+    "priority": "high",
+    "id": "5"
+  }
+]

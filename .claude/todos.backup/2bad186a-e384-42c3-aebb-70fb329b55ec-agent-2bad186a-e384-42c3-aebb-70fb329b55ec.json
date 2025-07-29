@@ -1,0 +1,26 @@
+[
+  {
+    "content": "Check how Zen reads and uses the GEMINI_API_KEY",
+    "status": "completed",
+    "priority": "high",
+    "id": "1"
+  },
+  {
+    "content": "Compare Zen's Gemini provider with working MCP server",
+    "status": "completed",
+    "priority": "high",
+    "id": "2"
+  },
+  {
+    "content": "Check environment variable handling and configuration",
+    "status": "completed",
+    "priority": "medium",
+    "id": "3"
+  },
+  {
+    "content": "Test actual API key value and format",
+    "status": "completed",
+    "priority": "medium",
+    "id": "4"
+  }
+]

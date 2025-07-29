@@ -1,0 +1,26 @@
+[
+  {
+    "content": "Run mandatory testing gate - Oracle Harness, Unit Tests, Integration Tests, Linting",
+    "status": "completed",
+    "priority": "high",
+    "id": "testing_gate"
+  },
+  {
+    "content": "Conduct take stock assessment of progress toward surpassing R",
+    "status": "completed",
+    "priority": "high",
+    "id": "take_stock"
+  },
+  {
+    "content": "Perform mandatory code audit using zen mcp tools",
+    "status": "completed",
+    "priority": "medium",
+    "id": "code_audit"
+  },
+  {
+    "content": "Plan next sprint based on assessment and audit results",
+    "status": "in_progress",
+    "priority": "medium",
+    "id": "next_sprint_planning"
+  }
+]

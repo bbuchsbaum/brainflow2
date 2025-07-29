@@ -1,0 +1,8 @@
+[
+  {
+    "content": "Fix path.resolve variable shadowing error in runPackageCheck",
+    "status": "completed",
+    "priority": "high",
+    "id": "28"
+  }
+]

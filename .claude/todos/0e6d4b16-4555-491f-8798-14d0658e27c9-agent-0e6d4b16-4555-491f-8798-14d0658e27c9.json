@@ -1,0 +1,62 @@
+[
+  {
+    "content": "Examine R bidser test structure in ~/code/bidser/tests/testthat",
+    "status": "completed",
+    "priority": "high",
+    "id": "1"
+  },
+  {
+    "content": "Assess current Rust test coverage",
+    "status": "completed",
+    "priority": "high",
+    "id": "2"
+  },
+  {
+    "content": "Create mapping of R tests to Rust equivalents",
+    "status": "completed",
+    "priority": "medium",
+    "id": "3"
+  },
+  {
+    "content": "Implement missing test cases",
+    "status": "completed",
+    "priority": "medium",
+    "id": "4"
+  },
+  {
+    "content": "Verify all tests pass",
+    "status": "in_progress",
+    "priority": "high",
+    "id": "5"
+  },
+  {
+    "content": "Expand parser tests for complex fMRIPrep outputs",
+    "status": "completed",
+    "priority": "high",
+    "id": "6"
+  },
+  {
+    "content": "Add mock BIDS dataset creation utility",
+    "status": "completed",
+    "priority": "high",
+    "id": "7"
+  },
+  {
+    "content": "Add event file filtering tests (by subject, run, session)",
+    "status": "completed",
+    "priority": "high",
+    "id": "8"
+  },
+  {
+    "content": "Add comprehensive confounds tests with PCA and variable selection",
+    "status": "completed",
+    "priority": "medium",
+    "id": "9"
+  },
+  {
+    "content": "Add subject-specific interface tests (bids_subject equivalent)",
+    "status": "completed",
+    "priority": "medium",
+    "id": "10"
+  }
+]

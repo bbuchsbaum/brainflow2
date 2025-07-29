@@ -1,0 +1,32 @@
+[
+  {
+    "content": "Set up Prisma ORM with PostgreSQL database schema",
+    "status": "completed",
+    "priority": "high",
+    "id": "db-design-1"
+  },
+  {
+    "content": "Create Prisma schema based on sprint1.md design",
+    "status": "completed",
+    "priority": "high",
+    "id": "db-design-2"
+  },
+  {
+    "content": "Write migration script to convert R data to PostgreSQL",
+    "status": "completed",
+    "priority": "high",
+    "id": "db-design-3"
+  },
+  {
+    "content": "Create database indexes for query performance",
+    "status": "completed",
+    "priority": "medium",
+    "id": "db-design-4"
+  },
+  {
+    "content": "Test database setup and data migration",
+    "status": "completed",
+    "priority": "medium",
+    "id": "db-design-5"
+  }
+]

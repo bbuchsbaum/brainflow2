@@ -9,6 +9,7 @@ Default permissions for api-bridge plugin
 - `allow-world-to-voxel`
 - `allow-get-timeseries-matrix`
 - `allow-get-initial-views`
+- `allow-recalculate-view-for-dimensions`
 - `allow-request-layer-gpu-resources`
 - `allow-release-layer-gpu-resources`
 - `allow-fs-list-directory`
@@ -34,6 +35,8 @@ Default permissions for api-bridge plugin
 - `allow-apply-and-render-view-state`
 - `allow-apply-and-render-view-state-binary`
 - `allow-apply-and-render-view-state-raw`
+- `allow-query-slice-axis-meta`
+- `allow-batch-render-slices`
 
 ## Permission Table
 
@@ -144,6 +147,32 @@ Enables the apply_and_render_view_state_raw command without any pre-configured s
 <td>
 
 Denies the apply_and_render_view_state_raw command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:allow-batch-render-slices`
+
+</td>
+<td>
+
+Enables the batch_render_slices command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:deny-batch-render-slices`
+
+</td>
+<td>
+
+Denies the batch_render_slices command without any pre-configured scope.
 
 </td>
 </tr>
@@ -612,6 +641,58 @@ Enables the patch_layer command without any pre-configured scope.
 <td>
 
 Denies the patch_layer command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:allow-query-slice-axis-meta`
+
+</td>
+<td>
+
+Enables the query_slice_axis_meta command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:deny-query-slice-axis-meta`
+
+</td>
+<td>
+
+Denies the query_slice_axis_meta command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:allow-recalculate-view-for-dimensions`
+
+</td>
+<td>
+
+Enables the recalculate_view_for_dimensions command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:deny-recalculate-view-for-dimensions`
+
+</td>
+<td>
+
+Denies the recalculate_view_for_dimensions command without any pre-configured scope.
 
 </td>
 </tr>

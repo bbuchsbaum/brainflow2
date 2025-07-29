@@ -1,0 +1,14 @@
+[
+  {
+    "content": "Fix transposition bug in save_slice_as_image function",
+    "status": "completed",
+    "priority": "high",
+    "id": "7"
+  },
+  {
+    "content": "Test the fix with MNI152 template",
+    "status": "completed",
+    "priority": "high",
+    "id": "8"
+  }
+]

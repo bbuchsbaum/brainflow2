@@ -1,0 +1,32 @@
+[
+  {
+    "content": "Fix lag_hrf_decorator.xml schema violations - convert to canonical namespace format",
+    "status": "completed",
+    "priority": "high",
+    "id": "1"
+  },
+  {
+    "content": "Create schema validation tool to check compliance with golden tests spec",
+    "status": "completed",
+    "priority": "high",
+    "id": "2"
+  },
+  {
+    "content": "Update all test runners to remove dual-namespace parsing logic",
+    "status": "completed",
+    "priority": "medium",
+    "id": "3"
+  },
+  {
+    "content": "Test that all 11 tests are discovered and run after schema standardization",
+    "status": "completed",
+    "priority": "high",
+    "id": "4"
+  },
+  {
+    "content": "Enhance documentation in ~/code/translation/golden/GOLDEN_TESTS.md",
+    "status": "completed",
+    "priority": "low",
+    "id": "5"
+  }
+]

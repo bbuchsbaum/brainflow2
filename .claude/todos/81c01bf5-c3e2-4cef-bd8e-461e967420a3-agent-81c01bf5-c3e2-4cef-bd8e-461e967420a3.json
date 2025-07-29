@@ -1,0 +1,134 @@
+[
+  {
+    "content": "Fix matrix transpose issue - matrices sent to GPU in wrong order",
+    "status": "completed",
+    "priority": "high",
+    "id": "1"
+  },
+  {
+    "content": "Fix GPU resource allocation in declarative API to be on-demand",
+    "status": "completed",
+    "priority": "high",
+    "id": "7"
+  },
+  {
+    "content": "Add get_volume_bounds to transport layer commands",
+    "status": "completed",
+    "priority": "high",
+    "id": "8"
+  },
+  {
+    "content": "Debug why backend_layers is empty in apply_and_render_view_state",
+    "status": "completed",
+    "priority": "high",
+    "id": "9"
+  },
+  {
+    "content": "Add comprehensive debugging to trace layer visibility and opacity",
+    "status": "completed",
+    "priority": "high",
+    "id": "10"
+  },
+  {
+    "content": "Add defensive validation to prevent rendering with no layers",
+    "status": "completed",
+    "priority": "high",
+    "id": "11"
+  },
+  {
+    "content": "Debug why rendered images are not displaying (black screen issue)",
+    "status": "completed",
+    "priority": "high",
+    "id": "12"
+  },
+  {
+    "content": "Add get_initial_views backend command",
+    "status": "completed",
+    "priority": "high",
+    "id": "13"
+  },
+  {
+    "content": "Add get_initial_views to transport layer",
+    "status": "completed",
+    "priority": "high",
+    "id": "14"
+  },
+  {
+    "content": "Replace frontend createOrthogonalViews with backend geometry",
+    "status": "completed",
+    "priority": "high",
+    "id": "15"
+  },
+  {
+    "content": "Implement recenterPlane for crosshair updates",
+    "status": "completed",
+    "priority": "high",
+    "id": "16"
+  },
+  {
+    "content": "Fix coordinate display issue - backend geometry calculation",
+    "status": "completed",
+    "priority": "high",
+    "id": "19"
+  },
+  {
+    "content": "Debug why layers are not being added to viewState",
+    "status": "completed",
+    "priority": "high",
+    "id": "20"
+  },
+  {
+    "content": "Fix canvas not displaying rendered images",
+    "status": "completed",
+    "priority": "high",
+    "id": "21"
+  },
+  {
+    "content": "Fix crosshair coordinate updates not working",
+    "status": "completed",
+    "priority": "high",
+    "id": "22"
+  },
+  {
+    "content": "Fix intensity normalization - images rendering all black",
+    "status": "completed",
+    "priority": "high",
+    "id": "3"
+  },
+  {
+    "content": "Fix slice range calculation using actual volume bounds",
+    "status": "completed",
+    "priority": "high",
+    "id": "23"
+  },
+  {
+    "content": "Fix coordinate transformation in SliceView",
+    "status": "completed",
+    "priority": "high",
+    "id": "24"
+  },
+  {
+    "content": "Create StatusBar component",
+    "status": "completed",
+    "priority": "high",
+    "id": "25"
+  },
+  {
+    "content": "Add mouse coordinate tracking to EventBus",
+    "status": "completed",
+    "priority": "high",
+    "id": "26"
+  },
+  {
+    "content": "Update App.tsx to include StatusBar",
+    "status": "completed",
+    "priority": "high",
+    "id": "27"
+  },
+  {
+    "content": "Debug canvas display and slider visibility",
+    "status": "pending",
+    "priority": "high",
+    "id": "17"
+  }
+]

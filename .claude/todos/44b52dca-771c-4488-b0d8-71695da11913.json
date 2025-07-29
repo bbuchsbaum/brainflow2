@@ -1,0 +1,32 @@
+[
+  {
+    "content": "Consolidate duplicate functions (.mask_to_weights and .make_weights)",
+    "status": "completed",
+    "priority": "high",
+    "id": "phase1-consolidate-duplicates"
+  },
+  {
+    "content": "Remove unused .col_index function and commented code",
+    "status": "completed",
+    "priority": "high",
+    "id": "phase1-remove-dead-code"
+  },
+  {
+    "content": "Add input validation to constructor functions",
+    "status": "completed",
+    "priority": "high",
+    "id": "phase1-add-validation"
+  },
+  {
+    "content": "Create internal constants for magic numbers",
+    "status": "completed",
+    "priority": "high",
+    "id": "phase1-create-constants"
+  },
+  {
+    "content": "Fix documentation inconsistencies (@export vs @keywords internal)",
+    "status": "completed",
+    "priority": "high",
+    "id": "phase1-fix-docs"
+  }
+]

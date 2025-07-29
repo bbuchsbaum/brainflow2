@@ -1,0 +1,50 @@
+[
+  {
+    "content": "Remove hidden files (.claude) causing NOTE",
+    "status": "completed",
+    "priority": "high",
+    "id": "fix-hidden-files"
+  },
+  {
+    "content": "Fix function signature mismatches in deprecated functions",
+    "status": "completed",
+    "priority": "high",
+    "id": "fix-installation-warnings"
+  },
+  {
+    "content": "Move non-standard top-level files to appropriate locations",
+    "status": "completed",
+    "priority": "high",
+    "id": "fix-top-level-files"
+  },
+  {
+    "content": "Fix undefined global variables and functions",
+    "status": "completed",
+    "priority": "high",
+    "id": "fix-global-variables"
+  },
+  {
+    "content": "Verify test coverage is comprehensive (>80%)",
+    "status": "completed",
+    "priority": "high",
+    "id": "comprehensive-test-coverage"
+  },
+  {
+    "content": "Create professional README with examples",
+    "status": "completed",
+    "priority": "medium",
+    "id": "create-readme"
+  },
+  {
+    "content": "Prepare release candidate with version bump",
+    "status": "completed",
+    "priority": "medium",
+    "id": "release-candidate"
+  },
+  {
+    "content": "Final documentation review and cleanup",
+    "status": "completed",
+    "priority": "medium",
+    "id": "documentation-review"
+  }
+]

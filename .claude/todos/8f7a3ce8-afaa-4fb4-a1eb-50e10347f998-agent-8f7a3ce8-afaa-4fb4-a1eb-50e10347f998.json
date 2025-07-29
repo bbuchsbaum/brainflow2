@@ -1,0 +1,62 @@
+[
+  {
+    "content": "Run comprehensive test suite to verify current state",
+    "status": "completed",
+    "priority": "high",
+    "id": "1"
+  },
+  {
+    "content": "Check oracle harness pass rate with R comparison tests",
+    "status": "completed",
+    "priority": "high",
+    "id": "2"
+  },
+  {
+    "content": "Run linting and style checks",
+    "status": "completed",
+    "priority": "high",
+    "id": "3"
+  },
+  {
+    "content": "Assess current progress against R performance targets",
+    "status": "completed",
+    "priority": "medium",
+    "id": "4"
+  },
+  {
+    "content": "Plan next development iteration based on assessment",
+    "status": "completed",
+    "priority": "medium",
+    "id": "5"
+  },
+  {
+    "content": "Fix critical bootstrap statistic bug in RegularizedBootstrapStatistic",
+    "status": "pending",
+    "priority": "high",
+    "id": "6"
+  },
+  {
+    "content": "Refactor legacy API to reduce code duplication",
+    "status": "pending",
+    "priority": "medium",
+    "id": "7"
+  },
+  {
+    "content": "Implement reproducible parallel bootstrap seeding",
+    "status": "pending",
+    "priority": "medium",
+    "id": "8"
+  },
+  {
+    "content": "Optimize matrix conversion in RegularizedFit bootstrap",
+    "status": "pending",
+    "priority": "low",
+    "id": "9"
+  },
+  {
+    "content": "Enhance GLM deviance-based R² calculation",
+    "status": "pending",
+    "priority": "low",
+    "id": "10"
+  }
+]

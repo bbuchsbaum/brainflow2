@@ -1,0 +1,26 @@
+[
+  {
+    "content": "Add format argument to reduce_atlas with wide/long options",
+    "status": "completed",
+    "priority": "high",
+    "id": "1"
+  },
+  {
+    "content": "Update reduce_atlas to support long format output",
+    "status": "completed",
+    "priority": "high",
+    "id": "2"
+  },
+  {
+    "content": "Update all tests to work with new format options",
+    "status": "completed",
+    "priority": "high",
+    "id": "3"
+  },
+  {
+    "content": "Add tests for both wide and long formats",
+    "status": "completed",
+    "priority": "medium",
+    "id": "4"
+  }
+]

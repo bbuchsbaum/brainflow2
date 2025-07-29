@@ -1,0 +1,56 @@
+[
+  {
+    "content": "Run 100% Oracle Harness Pass Rate - All R comparison tests at 1e-10 tolerance",
+    "status": "completed",
+    "priority": "high",
+    "id": "test-gate"
+  },
+  {
+    "content": "Verify all unit tests pass in entire workspace",
+    "status": "completed",
+    "priority": "high",
+    "id": "unit-tests"
+  },
+  {
+    "content": "Run all integration tests for end-to-end workflows",
+    "status": "completed",
+    "priority": "high",
+    "id": "integration-tests"
+  },
+  {
+    "content": "Run linting and style checks",
+    "status": "completed",
+    "priority": "high",
+    "id": "linting"
+  },
+  {
+    "content": "Conduct Take Stock Assessment",
+    "status": "completed",
+    "priority": "medium",
+    "id": "assessment"
+  },
+  {
+    "content": "Mandatory Code Audit using zen mcp tools",
+    "status": "completed",
+    "priority": "medium",
+    "id": "code-audit"
+  },
+  {
+    "content": "COURSE CORRECT: Fix GLM performance regressions before proceeding",
+    "status": "pending",
+    "priority": "high",
+    "id": "course-correct"
+  },
+  {
+    "content": "Eliminate faer↔ndarray conversions in IRLS algorithm (optimcore)",
+    "status": "pending",
+    "priority": "high",
+    "id": "fix-irls-bottleneck"
+  },
+  {
+    "content": "Consolidate scattered benchmarking into unified performance validation",
+    "status": "pending",
+    "priority": "medium",
+    "id": "consolidate-benchmarks"
+  }
+]

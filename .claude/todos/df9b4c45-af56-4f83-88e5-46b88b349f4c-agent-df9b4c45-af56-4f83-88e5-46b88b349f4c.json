@@ -1,0 +1,26 @@
+[
+  {
+    "content": "Create the specverse-py package, implement load_spec and write_cache, and publish to PyPI",
+    "status": "pending",
+    "priority": "medium",
+    "id": "T-12"
+  },
+  {
+    "content": "Add a command to generate a basic .pre-commit-config.yaml to run sv_check() locally on changed files",
+    "status": "pending",
+    "priority": "medium",
+    "id": "T-13"
+  },
+  {
+    "content": "Set up GitHub Actions CI for the specverse package itself",
+    "status": "pending",
+    "priority": "medium",
+    "id": "T-14"
+  },
+  {
+    "content": "Write README.md with the MVP quick-start guide",
+    "status": "completed",
+    "priority": "high",
+    "id": "T-15"
+  }
+]

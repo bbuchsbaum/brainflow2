@@ -1,0 +1,26 @@
+[
+  {
+    "content": "Fix path traversal vulnerability in runPackageCheck",
+    "status": "completed",
+    "priority": "high",
+    "id": "24"
+  },
+  {
+    "content": "Add argument validation whitelist for runPackageCheck",
+    "status": "completed",
+    "priority": "high",
+    "id": "25"
+  },
+  {
+    "content": "Improve argument parsing to handle spaces",
+    "status": "pending",
+    "priority": "medium",
+    "id": "26"
+  },
+  {
+    "content": "Add check for missing Package field in DESCRIPTION",
+    "status": "completed",
+    "priority": "low",
+    "id": "27"
+  }
+]

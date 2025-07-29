@@ -1,0 +1,14 @@
+[
+  {
+    "content": "Clean up Python references from golden tests directory",
+    "status": "completed",
+    "priority": "medium",
+    "id": "1"
+  },
+  {
+    "content": "Fix the failing R test in lag_hrf_decorator",
+    "status": "completed",
+    "priority": "high",
+    "id": "2"
+  }
+]

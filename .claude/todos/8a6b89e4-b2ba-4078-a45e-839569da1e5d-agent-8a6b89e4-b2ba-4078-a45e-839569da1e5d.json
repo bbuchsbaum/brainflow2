@@ -1,0 +1,32 @@
+[
+  {
+    "content": "Assess current codebase state and test status",
+    "status": "completed",
+    "priority": "high",
+    "id": "sprint_start_assessment"
+  },
+  {
+    "content": "Run 100% Oracle Harness tests (R comparison at 1e-10 tolerance)",
+    "status": "completed",
+    "priority": "high",
+    "id": "run_oracle_harness"
+  },
+  {
+    "content": "Execute all unit tests across workspace",
+    "status": "completed",
+    "priority": "high",
+    "id": "run_unit_tests"
+  },
+  {
+    "content": "Execute all integration tests",
+    "status": "in_progress",
+    "priority": "high",
+    "id": "run_integration_tests"
+  },
+  {
+    "content": "Execute linting and style checks",
+    "status": "pending",
+    "priority": "high",
+    "id": "run_lint_style_checks"
+  }
+]

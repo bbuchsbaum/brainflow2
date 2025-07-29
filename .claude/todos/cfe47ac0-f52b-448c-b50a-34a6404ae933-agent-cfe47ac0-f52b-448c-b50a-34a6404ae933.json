@@ -1,0 +1,26 @@
+[
+  {
+    "content": "Test H5Neuro vignette code and compare with R outputs",
+    "status": "completed",
+    "priority": "high",
+    "id": "1"
+  },
+  {
+    "content": "Test H5ClusterExperiment vignette code and compare with R outputs",
+    "status": "completed",
+    "priority": "high",
+    "id": "2"
+  },
+  {
+    "content": "Test LabeledVolumeSet vignette code and compare with R outputs",
+    "status": "completed",
+    "priority": "high",
+    "id": "3"
+  },
+  {
+    "content": "Fix any code that doesn't run or produce expected results",
+    "status": "completed",
+    "priority": "high",
+    "id": "4"
+  }
+]

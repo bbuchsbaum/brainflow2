@@ -1,0 +1,20 @@
+[
+  {
+    "content": "Check Claude Code MCP settings configuration",
+    "status": "completed",
+    "priority": "high",
+    "id": "1"
+  },
+  {
+    "content": "Update Claude Code settings with Zen MCP server configuration",
+    "status": "completed",
+    "priority": "high",
+    "id": "2"
+  },
+  {
+    "content": "Verify the server is running and accessible",
+    "status": "completed",
+    "priority": "medium",
+    "id": "3"
+  }
+]

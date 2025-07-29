@@ -1,0 +1,32 @@
+[
+  {
+    "content": "T202: Base Projector Implementation",
+    "status": "completed",
+    "priority": "high",
+    "id": "t202"
+  },
+  {
+    "content": "T211: PCA Model Structure",
+    "status": "completed",
+    "priority": "high",
+    "id": "t211"
+  },
+  {
+    "content": "T301: Basic PCA Implementation",
+    "status": "completed",
+    "priority": "high",
+    "id": "t301"
+  },
+  {
+    "content": "T313: Permutation Testing",
+    "status": "completed",
+    "priority": "medium",
+    "id": "t313"
+  },
+  {
+    "content": "Update progress.md after completing tasks",
+    "status": "completed",
+    "priority": "medium",
+    "id": "update_progress"
+  }
+]

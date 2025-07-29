@@ -1,0 +1,26 @@
+[
+  {
+    "content": "Temporarily disable dataframes feature due to Polars API changes",
+    "status": "completed",
+    "priority": "high",
+    "id": "1"
+  },
+  {
+    "content": "Test core BIDS functionality without dataframes",
+    "status": "in_progress",
+    "priority": "high",
+    "id": "2"
+  },
+  {
+    "content": "Document dataframes limitation in README",
+    "status": "pending",
+    "priority": "medium",
+    "id": "3"
+  },
+  {
+    "content": "Prepare for v0.1.0 release with core functionality",
+    "status": "pending",
+    "priority": "high",
+    "id": "4"
+  }
+]

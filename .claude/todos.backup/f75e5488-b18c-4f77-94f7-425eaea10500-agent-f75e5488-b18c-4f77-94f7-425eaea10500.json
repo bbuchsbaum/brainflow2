@@ -1,0 +1,62 @@
+[
+  {
+    "content": "Fix non-ASCII characters in gep_subspace.R",
+    "status": "pending",
+    "priority": "high",
+    "id": "1"
+  },
+  {
+    "content": "Add testthat to Suggests in DESCRIPTION",
+    "status": "in_progress",
+    "priority": "high",
+    "id": "2"
+  },
+  {
+    "content": "Fix PRIMME references still in code",
+    "status": "pending",
+    "priority": "high",
+    "id": "3"
+  },
+  {
+    "content": "Update LICENSE field in DESCRIPTION to MIT + file LICENSE",
+    "status": "pending",
+    "priority": "medium",
+    "id": "4"
+  },
+  {
+    "content": "Add bench, genpls_notes.md, repomix-output.xml to .Rbuildignore",
+    "status": "pending",
+    "priority": "medium",
+    "id": "5"
+  },
+  {
+    "content": "Fix documentation mismatch for genpca function",
+    "status": "pending",
+    "priority": "high",
+    "id": "6"
+  },
+  {
+    "content": "Fix S3 method signature mismatches",
+    "status": "pending",
+    "priority": "high",
+    "id": "7"
+  },
+  {
+    "content": "Fix syntax error in test_gpca.R line 448",
+    "status": "pending",
+    "priority": "high",
+    "id": "8"
+  },
+  {
+    "content": "Add documentation for sfpca function",
+    "status": "pending",
+    "priority": "medium",
+    "id": "9"
+  },
+  {
+    "content": "Fix duplicate reexports aliases in Rd files",
+    "status": "pending",
+    "priority": "medium",
+    "id": "10"
+  }
+]

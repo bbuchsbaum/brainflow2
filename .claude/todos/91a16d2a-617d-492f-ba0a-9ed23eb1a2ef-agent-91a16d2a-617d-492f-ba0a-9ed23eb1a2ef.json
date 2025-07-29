@@ -1,0 +1,62 @@
+[
+  {
+    "content": "Create packages/forgescript directory structure following monorepo standards",
+    "status": "completed",
+    "priority": "high",
+    "id": "forgescript-001"
+  },
+  {
+    "content": "Implement core Timeline class with hierarchical support",
+    "status": "completed",
+    "priority": "high",
+    "id": "forgescript-002"
+  },
+  {
+    "content": "Create Event system for experiment flow control",
+    "status": "completed",
+    "priority": "high",
+    "id": "forgescript-003"
+  },
+  {
+    "content": "Build Stimulus primitives (Text, Image, Audio, Video)",
+    "status": "completed",
+    "priority": "high",
+    "id": "forgescript-004"
+  },
+  {
+    "content": "Implement Response collectors (Keyboard, Mouse, Touch)",
+    "status": "completed",
+    "priority": "high",
+    "id": "forgescript-005"
+  },
+  {
+    "content": "Create Experiment class with configuration and metadata",
+    "status": "completed",
+    "priority": "high",
+    "id": "forgescript-006"
+  },
+  {
+    "content": "Build serialization and validation system",
+    "status": "completed",
+    "priority": "medium",
+    "id": "forgescript-007"
+  },
+  {
+    "content": "Create comprehensive test suite with >90% coverage",
+    "status": "completed",
+    "priority": "high",
+    "id": "forgescript-008"
+  },
+  {
+    "content": "Add TypeScript types and documentation",
+    "status": "completed",
+    "priority": "medium",
+    "id": "forgescript-009"
+  },
+  {
+    "content": "Create example experiments demonstrating API usage",
+    "status": "completed",
+    "priority": "medium",
+    "id": "forgescript-010"
+  }
+]

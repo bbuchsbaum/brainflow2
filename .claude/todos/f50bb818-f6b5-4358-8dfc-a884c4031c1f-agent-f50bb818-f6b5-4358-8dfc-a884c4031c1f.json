@@ -1,0 +1,26 @@
+[
+  {
+    "content": "Update package.json for global installation",
+    "status": "completed",
+    "priority": "high",
+    "id": "1"
+  },
+  {
+    "content": "Create a proper bin entry point",
+    "status": "completed",
+    "priority": "high",
+    "id": "2"
+  },
+  {
+    "content": "Add installation and setup instructions",
+    "status": "completed",
+    "priority": "medium",
+    "id": "3"
+  },
+  {
+    "content": "Create script to automatically configure Claude CLI",
+    "status": "completed",
+    "priority": "medium",
+    "id": "4"
+  }
+]

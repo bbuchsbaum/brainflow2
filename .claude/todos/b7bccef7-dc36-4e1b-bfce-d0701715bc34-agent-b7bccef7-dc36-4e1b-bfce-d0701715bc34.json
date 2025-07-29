@@ -1,0 +1,20 @@
+[
+  {
+    "content": "Update README with usage examples and installation instructions",
+    "status": "completed",
+    "priority": "high",
+    "id": "1"
+  },
+  {
+    "content": "Add API documentation to all public functions and types",
+    "status": "completed",
+    "priority": "high",
+    "id": "2"
+  },
+  {
+    "content": "Create user guide with common workflows",
+    "status": "completed",
+    "priority": "medium",
+    "id": "3"
+  }
+]

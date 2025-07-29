@@ -1,0 +1,32 @@
+[
+  {
+    "content": "Examine R bidser test files to understand test coverage",
+    "status": "in_progress",
+    "priority": "high",
+    "id": "1"
+  },
+  {
+    "content": "Check current Rust test implementation status",
+    "status": "pending",
+    "priority": "high",
+    "id": "2"
+  },
+  {
+    "content": "Identify missing tests that need to be ported",
+    "status": "pending",
+    "priority": "high",
+    "id": "3"
+  },
+  {
+    "content": "Port missing tests from R to Rust",
+    "status": "pending",
+    "priority": "high",
+    "id": "4"
+  },
+  {
+    "content": "Run all tests and fix any failures",
+    "status": "pending",
+    "priority": "high",
+    "id": "5"
+  }
+]

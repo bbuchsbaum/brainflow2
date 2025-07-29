@@ -1,0 +1,32 @@
+[
+  {
+    "content": "Read and analyze the main files in the rhelp codebase",
+    "status": "completed",
+    "priority": "high",
+    "id": "1"
+  },
+  {
+    "content": "Examine package.json for dependencies and scripts",
+    "status": "completed",
+    "priority": "high",
+    "id": "2"
+  },
+  {
+    "content": "Review index.js to understand the MCP server implementation",
+    "status": "completed",
+    "priority": "high",
+    "id": "3"
+  },
+  {
+    "content": "Check README.md for important information",
+    "status": "completed",
+    "priority": "medium",
+    "id": "4"
+  },
+  {
+    "content": "Create CLAUDE.md with relevant information",
+    "status": "completed",
+    "priority": "high",
+    "id": "5"
+  }
+]

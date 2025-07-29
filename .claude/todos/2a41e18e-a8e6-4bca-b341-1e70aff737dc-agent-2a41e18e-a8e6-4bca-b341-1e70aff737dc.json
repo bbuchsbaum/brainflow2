@@ -1,0 +1,56 @@
+[
+  {
+    "content": "Fix import error in LayerPanel.svelte (getLayerStore not found)",
+    "status": "completed",
+    "priority": "high",
+    "id": "fix_layer_import_error"
+  },
+  {
+    "content": "Convert layerStore from Zustand to Svelte-compatible state management",
+    "status": "completed",
+    "priority": "high",
+    "id": "convert_layer_store"
+  },
+  {
+    "content": "Update all components using layerStore to use new implementation",
+    "status": "completed",
+    "priority": "high",
+    "id": "update_layer_components"
+  },
+  {
+    "content": "Fix $state rune error in layerStore.ts and plotStore.ts",
+    "status": "completed",
+    "priority": "high",
+    "id": "fix_state_rune_error"
+  },
+  {
+    "content": "Fix diagnostic page to use correct store methods",
+    "status": "completed",
+    "priority": "high",
+    "id": "fix_diagnostic_page"
+  },
+  {
+    "content": "Fix remaining components using old store patterns (22 files found)",
+    "status": "pending",
+    "priority": "high",
+    "id": "fix_remaining_store_usage"
+  },
+  {
+    "content": "Complete event-driven migration for all components",
+    "status": "pending",
+    "priority": "medium",
+    "id": "complete_event_migration"
+  },
+  {
+    "content": "Fix Golden Layout context errors in components",
+    "status": "pending",
+    "priority": "medium",
+    "id": "fix_golden_layout_errors"
+  },
+  {
+    "content": "Test application thoroughly",
+    "status": "pending",
+    "priority": "medium",
+    "id": "test_application"
+  }
+]

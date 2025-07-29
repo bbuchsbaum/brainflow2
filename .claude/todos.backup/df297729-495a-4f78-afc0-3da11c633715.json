@@ -1,0 +1,32 @@
+[
+  {
+    "content": "Fix parse error in examples (unexpected ')' at line 1620)",
+    "status": "completed",
+    "priority": "high",
+    "id": "7"
+  },
+  {
+    "content": "Fix non-ASCII characters in R files",
+    "status": "completed",
+    "priority": "medium",
+    "id": "8"
+  },
+  {
+    "content": "Remove unused imports (colorplane, purrr)",
+    "status": "completed",
+    "priority": "medium",
+    "id": "9"
+  },
+  {
+    "content": "Fix cross-reference to LabeledVolumeSet",
+    "status": "completed",
+    "priority": "low",
+    "id": "10"
+  },
+  {
+    "content": "Re-run devtools::check() without vignettes",
+    "status": "completed",
+    "priority": "high",
+    "id": "11"
+  }
+]

@@ -1,0 +1,62 @@
+[
+  {
+    "content": "Check recent commits in ~/code/fmrihrf",
+    "status": "completed",
+    "priority": "high",
+    "id": "1"
+  },
+  {
+    "content": "Compare file structures between fmrihrf and pyfmrihrf",
+    "status": "completed",
+    "priority": "high",
+    "id": "2"
+  },
+  {
+    "content": "Identify changes that need to be transferred",
+    "status": "completed",
+    "priority": "medium",
+    "id": "3"
+  },
+  {
+    "content": "Determine best approach for transferring changes",
+    "status": "completed",
+    "priority": "medium",
+    "id": "4"
+  },
+  {
+    "content": "Transfer memoise implementation fix",
+    "status": "completed",
+    "priority": "high",
+    "id": "5"
+  },
+  {
+    "content": "Add performance benchmark documentation",
+    "status": "completed",
+    "priority": "medium",
+    "id": "6"
+  },
+  {
+    "content": "Add citation file",
+    "status": "completed",
+    "priority": "low",
+    "id": "7"
+  },
+  {
+    "content": "Implement derivative interface (deriv.HRF)",
+    "status": "completed",
+    "priority": "high",
+    "id": "8"
+  },
+  {
+    "content": "Add missing short-hand aliases to HRF_REGISTRY",
+    "status": "completed",
+    "priority": "medium",
+    "id": "9"
+  },
+  {
+    "content": "Add acquisition_onsets method",
+    "status": "completed",
+    "priority": "medium",
+    "id": "10"
+  }
+]

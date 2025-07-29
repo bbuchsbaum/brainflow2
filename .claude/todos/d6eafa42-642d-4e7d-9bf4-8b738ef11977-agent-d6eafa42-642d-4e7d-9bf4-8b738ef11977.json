@@ -1,0 +1,32 @@
+[
+  {
+    "content": "Remove extra_nuisance from fmrilm.R function signatures",
+    "status": "completed",
+    "priority": "high",
+    "id": "1"
+  },
+  {
+    "content": "Remove extra_nuisance from runwise and chunkwise implementations",
+    "status": "completed",
+    "priority": "high",
+    "id": "2"
+  },
+  {
+    "content": "Fix beta extraction to include both event and baseline betas",
+    "status": "completed",
+    "priority": "high",
+    "id": "3"
+  },
+  {
+    "content": "Update write_results to handle all betas correctly",
+    "status": "completed",
+    "priority": "high",
+    "id": "4"
+  },
+  {
+    "content": "Update documentation and run tests",
+    "status": "completed",
+    "priority": "high",
+    "id": "5"
+  }
+]

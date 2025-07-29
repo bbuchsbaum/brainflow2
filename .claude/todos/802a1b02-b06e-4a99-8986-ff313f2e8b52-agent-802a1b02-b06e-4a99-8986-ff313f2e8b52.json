@@ -1,0 +1,26 @@
+[
+  {
+    "content": "Add request validation using Zod schemas",
+    "status": "completed",
+    "priority": "high",
+    "id": "api-validation"
+  },
+  {
+    "content": "Implement comprehensive error handling and logging",
+    "status": "completed",
+    "priority": "high",
+    "id": "api-error-handling"
+  },
+  {
+    "content": "Create /api/health endpoint for system status",
+    "status": "completed",
+    "priority": "medium",
+    "id": "api-health-endpoint"
+  },
+  {
+    "content": "Write API tests for core endpoints",
+    "status": "completed",
+    "priority": "medium",
+    "id": "api-tests"
+  }
+]

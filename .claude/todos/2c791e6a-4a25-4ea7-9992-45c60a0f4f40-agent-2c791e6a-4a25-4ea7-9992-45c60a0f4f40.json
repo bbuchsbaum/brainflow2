@@ -1,0 +1,38 @@
+[
+  {
+    "content": "Implement advanced blend modes (multiply, screen, overlay, etc.)",
+    "status": "completed",
+    "priority": "high",
+    "id": "18"
+  },
+  {
+    "content": "Add frequency separation with Laplacian pyramids",
+    "status": "completed",
+    "priority": "high",
+    "id": "19"
+  },
+  {
+    "content": "Create differential processing mode for detail extraction",
+    "status": "pending",
+    "priority": "high",
+    "id": "20"
+  },
+  {
+    "content": "Implement per-scale artistic effects",
+    "status": "pending",
+    "priority": "medium",
+    "id": "21"
+  },
+  {
+    "content": "Add local adaptive blending with masks",
+    "status": "pending",
+    "priority": "medium",
+    "id": "22"
+  },
+  {
+    "content": "Create color space processing options",
+    "status": "pending",
+    "priority": "low",
+    "id": "23"
+  }
+]

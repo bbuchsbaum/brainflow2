@@ -1,0 +1,20 @@
+[
+  {
+    "content": "Check Claude Code data directory for large files",
+    "status": "completed",
+    "priority": "high",
+    "id": "1"
+  },
+  {
+    "content": "Clear temporary Claude Code cache",
+    "status": "completed",
+    "priority": "high",
+    "id": "2"
+  },
+  {
+    "content": "Restart Claude Code CLI",
+    "status": "completed",
+    "priority": "medium",
+    "id": "3"
+  }
+]

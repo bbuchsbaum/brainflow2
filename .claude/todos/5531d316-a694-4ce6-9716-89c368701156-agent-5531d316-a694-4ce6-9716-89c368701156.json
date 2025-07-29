@@ -1,0 +1,56 @@
+[
+  {
+    "content": "Execute mandatory testing gate - run all tests to verify 100% pass rate",
+    "status": "completed",
+    "priority": "high",
+    "id": "sprint_gate_check"
+  },
+  {
+    "content": "Conduct take stock assessment of progress toward surpassing R",
+    "status": "completed",
+    "priority": "high",
+    "id": "assess_current_state"
+  },
+  {
+    "content": "Perform mandatory code audit using zen mcp tools",
+    "status": "completed",
+    "priority": "medium",
+    "id": "code_audit"
+  },
+  {
+    "content": "Plan next sprint based on assessment and audit results",
+    "status": "completed",
+    "priority": "medium",
+    "id": "next_sprint_planning"
+  },
+  {
+    "content": "CRITICAL: Fix hardcoded n_stats in RegularizedBootstrapStatistic to prevent panics",
+    "status": "pending",
+    "priority": "high",
+    "id": "fix_bootstrap_panic"
+  },
+  {
+    "content": "HIGH: Implement reproducible parallel bootstrap with proper seeding",
+    "status": "pending",
+    "priority": "high",
+    "id": "fix_parallel_bootstrap"
+  },
+  {
+    "content": "Implement direct R vs Rust comparative benchmarking infrastructure",
+    "status": "pending",
+    "priority": "high",
+    "id": "performance_benchmarks"
+  },
+  {
+    "content": "Integrate formula crate into stats_models for R-style API",
+    "status": "pending",
+    "priority": "medium",
+    "id": "formula_api_integration"
+  },
+  {
+    "content": "Expand oracle test coverage to include GLM and regularization",
+    "status": "pending",
+    "priority": "medium",
+    "id": "expand_oracle_tests"
+  }
+]

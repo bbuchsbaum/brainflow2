@@ -1,0 +1,38 @@
+[
+  {
+    "content": "Project Setup: Initialize Next.js 14 with TypeScript and configure development environment",
+    "status": "completed",
+    "priority": "high",
+    "id": "1"
+  },
+  {
+    "content": "Database Design: Create PostgreSQL schema and migration from R data",
+    "status": "completed",
+    "priority": "high",
+    "id": "2"
+  },
+  {
+    "content": "API Development: Build REST endpoints for racquet data",
+    "status": "completed",
+    "priority": "high",
+    "id": "3"
+  },
+  {
+    "content": "UI Components: Create tennis-themed design system and reusable components",
+    "status": "in_progress",
+    "priority": "medium",
+    "id": "4"
+  },
+  {
+    "content": "Basic Visualization: Implement 2D scatter plot with D3.js",
+    "status": "pending",
+    "priority": "high",
+    "id": "5"
+  },
+  {
+    "content": "Sprint 1 Review: Code audit with Gemini Pro and O3",
+    "status": "pending",
+    "priority": "high",
+    "id": "6"
+  }
+]

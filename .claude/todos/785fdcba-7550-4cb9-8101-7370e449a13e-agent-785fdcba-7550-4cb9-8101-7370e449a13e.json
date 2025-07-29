@@ -1,0 +1,32 @@
+[
+  {
+    "content": "Agent 1: Create test_f_contrasts.R for F-statistic testing",
+    "status": "completed",
+    "priority": "high",
+    "id": "1"
+  },
+  {
+    "content": "Agent 2: Create test_simulation.R for simulation framework",
+    "status": "completed",
+    "priority": "high",
+    "id": "2"
+  },
+  {
+    "content": "Agent 3: Create test_numerical_stability.R for edge cases",
+    "status": "completed",
+    "priority": "high",
+    "id": "3"
+  },
+  {
+    "content": "Agent 4: Create test_ar_advanced.R for AR advanced features",
+    "status": "completed",
+    "priority": "high",
+    "id": "4"
+  },
+  {
+    "content": "Agent 5: Create test_robust_convergence.R for robust fitting",
+    "status": "completed",
+    "priority": "high",
+    "id": "5"
+  }
+]

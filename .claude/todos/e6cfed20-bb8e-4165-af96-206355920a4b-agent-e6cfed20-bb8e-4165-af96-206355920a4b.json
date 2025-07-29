@@ -1,0 +1,32 @@
+[
+  {
+    "content": "Fix namespace and import issues causing test failures",
+    "status": "completed",
+    "priority": "high",
+    "id": "fix-namespace-issues"
+  },
+  {
+    "content": "Ensure hrf function is accessible in test environment",
+    "status": "completed",
+    "priority": "high",
+    "id": "fix-hrf-function-access"
+  },
+  {
+    "content": "Fix missing functions like estimate_betas and hrf_spmg1",
+    "status": "completed",
+    "priority": "medium",
+    "id": "fix-missing-functions"
+  },
+  {
+    "content": "Rebuild package and test core functionality",
+    "status": "completed",
+    "priority": "high",
+    "id": "rebuild-and-test-core"
+  },
+  {
+    "content": "Test all 6 critical functionalities mentioned in CLAUDE.md",
+    "status": "completed",
+    "priority": "high",
+    "id": "test-critical-functionality"
+  }
+]

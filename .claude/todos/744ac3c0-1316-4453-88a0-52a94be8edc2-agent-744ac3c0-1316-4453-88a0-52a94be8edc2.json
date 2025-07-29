@@ -1,0 +1,32 @@
+[
+  {
+    "content": "Investigate why Cold Comfort artwork not showing on portfolio.html",
+    "status": "completed",
+    "priority": "high",
+    "id": "1"
+  },
+  {
+    "content": "Increase tier slots to accommodate all 31 high-power artworks",
+    "status": "completed",
+    "priority": "high",
+    "id": "2"
+  },
+  {
+    "content": "Fix collection.html redirect issue in netlify.toml",
+    "status": "completed",
+    "priority": "high",
+    "id": "3"
+  },
+  {
+    "content": "Verify Cold Comfort collection page loads correctly",
+    "status": "completed",
+    "priority": "medium",
+    "id": "4"
+  },
+  {
+    "content": "Commit and push all changes to production",
+    "status": "completed",
+    "priority": "high",
+    "id": "5"
+  }
+]

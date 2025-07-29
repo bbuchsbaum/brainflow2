@@ -1,0 +1,200 @@
+[
+  {
+    "content": "Create Python project structure and setup files (pyproject.toml, setup.py, etc.)",
+    "status": "completed",
+    "priority": "high",
+    "id": "1"
+  },
+  {
+    "content": "Convert core data structures: mvpa_dataset, mvpa_surface_dataset, mvpa_design",
+    "status": "completed",
+    "priority": "high",
+    "id": "2"
+  },
+  {
+    "content": "Implement mvpa_model base class and model registration system",
+    "status": "completed",
+    "priority": "high",
+    "id": "3"
+  },
+  {
+    "content": "Convert cross-validation schemes (blocked, kfold, bootstrap, custom)",
+    "status": "completed",
+    "priority": "high",
+    "id": "4"
+  },
+  {
+    "content": "Port custom classifiers (corclass, sda variants, lda_thomaz, hdrda)",
+    "status": "completed",
+    "priority": "medium",
+    "id": "5"
+  },
+  {
+    "content": "Implement RSA models (standard, feature, vector, contrast)",
+    "status": "completed",
+    "priority": "medium",
+    "id": "6"
+  },
+  {
+    "content": "Convert searchlight analysis (volumetric and surface-based)",
+    "status": "completed",
+    "priority": "medium",
+    "id": "7"
+  },
+  {
+    "content": "Implement regional analysis functionality",
+    "status": "completed",
+    "priority": "medium",
+    "id": "8"
+  },
+  {
+    "content": "Port feature selection methods",
+    "status": "completed",
+    "priority": "low",
+    "id": "9"
+  },
+  {
+    "content": "Convert performance metrics and evaluation functions",
+    "status": "completed",
+    "priority": "medium",
+    "id": "10"
+  },
+  {
+    "content": "Implement iteration procedures (internal_crossval, external_crossval, mvpa_iterate)",
+    "status": "completed",
+    "priority": "high",
+    "id": "11"
+  },
+  {
+    "content": "Implement crossnobis distance and noise normalization",
+    "status": "completed",
+    "priority": "high",
+    "id": "12"
+  },
+  {
+    "content": "Implement cross-validated mean computation",
+    "status": "completed",
+    "priority": "high",
+    "id": "13"
+  },
+  {
+    "content": "Implement dataset balancing utilities",
+    "status": "completed",
+    "priority": "medium",
+    "id": "14"
+  },
+  {
+    "content": "Create test suite mirroring R tests",
+    "status": "completed",
+    "priority": "high",
+    "id": "15"
+  },
+  {
+    "content": "Fix remaining test failures (5 tests)",
+    "status": "completed",
+    "priority": "high",
+    "id": "16"
+  },
+  {
+    "content": "Implement high-priority utilities: group_means, distance infrastructure, zero variance utils",
+    "status": "completed",
+    "priority": "high",
+    "id": "17"
+  },
+  {
+    "content": "Fix searchlight and regional test failures",
+    "status": "completed",
+    "priority": "high",
+    "id": "18"
+  },
+  {
+    "content": "Achieve 100% test pass rate (155 tests)",
+    "status": "completed",
+    "priority": "high",
+    "id": "19"
+  },
+  {
+    "content": "Create documentation (README and IMPLEMENTATION_STATUS)",
+    "status": "completed",
+    "priority": "high",
+    "id": "20"
+  },
+  {
+    "content": "Implement mvpa_model() constructor function",
+    "status": "completed",
+    "priority": "high",
+    "id": "21"
+  },
+  {
+    "content": "Implement searchlight pooling functions",
+    "status": "completed",
+    "priority": "high",
+    "id": "22"
+  },
+  {
+    "content": "Implement result merging framework",
+    "status": "completed",
+    "priority": "high",
+    "id": "23"
+  },
+  {
+    "content": "Implement Vector RSA model",
+    "status": "completed",
+    "priority": "medium",
+    "id": "27"
+  },
+  {
+    "content": "Add tests for searchlight pooling functions",
+    "status": "completed",
+    "priority": "high",
+    "id": "30"
+  },
+  {
+    "content": "Add tests for result merging framework",
+    "status": "completed",
+    "priority": "high",
+    "id": "31"
+  },
+  {
+    "content": "Implement data normalization utilities",
+    "status": "completed",
+    "priority": "medium",
+    "id": "24"
+  },
+  {
+    "content": "Implement Feature RSA model",
+    "status": "completed",
+    "priority": "medium",
+    "id": "28"
+  },
+  {
+    "content": "Implement Contrast RSA model",
+    "status": "completed",
+    "priority": "medium",
+    "id": "32"
+  },
+  {
+    "content": "Convert vignettes to Python notebooks",
+    "status": "completed",
+    "priority": "low",
+    "id": "25"
+  },
+  {
+    "content": "Fix API inconsistencies in notebooks",
+    "status": "completed",
+    "priority": "high",
+    "id": "33"
+  },
+  {
+    "content": "Implement MANOVA alternatives (optional)",
+    "status": "pending",
+    "priority": "low",
+    "id": "26"
+  },
+  {
+    "content": "Complete surface-based analysis when neurosurf is ported",
+    "status": "pending",
+    "priority": "low",
+    "id": "29"
+  }
+]

@@ -1,0 +1,20 @@
+[
+  {
+    "content": "Complete investigation of remaining 18% scaling difference between Python and R HRF",
+    "status": "in_progress",
+    "priority": "high",
+    "id": "21"
+  },
+  {
+    "content": "Identify source of 15x undershoot scaling difference",
+    "status": "pending",
+    "priority": "medium",
+    "id": "22"
+  },
+  {
+    "content": "Run final validation of all 15 golden tests",
+    "status": "pending",
+    "priority": "high",
+    "id": "23"
+  }
+]

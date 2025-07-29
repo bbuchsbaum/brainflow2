@@ -1,0 +1,26 @@
+[
+  {
+    "content": "Back up current rcheatsheet.py",
+    "status": "completed",
+    "priority": "high",
+    "id": "1"
+  },
+  {
+    "content": "Rename rcheatsheet_v3.4.py to rcheatsheet.py",
+    "status": "completed",
+    "priority": "high",
+    "id": "2"
+  },
+  {
+    "content": "Update default model to gemini-pro",
+    "status": "completed",
+    "priority": "high",
+    "id": "3"
+  },
+  {
+    "content": "Install script and configuration files to ~/bin/",
+    "status": "completed",
+    "priority": "high",
+    "id": "4"
+  }
+]

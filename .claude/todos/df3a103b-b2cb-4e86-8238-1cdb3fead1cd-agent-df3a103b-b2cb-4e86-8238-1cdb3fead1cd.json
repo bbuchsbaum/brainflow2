@@ -1,0 +1,26 @@
+[
+  {
+    "content": "Review current task status in next.md",
+    "status": "completed",
+    "priority": "high",
+    "id": "1"
+  },
+  {
+    "content": "Verify sprint designs 4-10 are complete",
+    "status": "completed",
+    "priority": "high",
+    "id": "2"
+  },
+  {
+    "content": "Update progress.md and next.md to reflect completed sprint designs",
+    "status": "completed",
+    "priority": "high",
+    "id": "3"
+  },
+  {
+    "content": "Add next task to next.md",
+    "status": "completed",
+    "priority": "high",
+    "id": "4"
+  }
+]

@@ -1,0 +1,32 @@
+[
+  {
+    "content": "Check current git status and remote configuration",
+    "status": "completed",
+    "priority": "high",
+    "id": "MERGE-001"
+  },
+  {
+    "content": "Pull upstream changes and identify conflicts",
+    "status": "in_progress",
+    "priority": "high",
+    "id": "MERGE-002"
+  },
+  {
+    "content": "Resolve merge conflicts if any",
+    "status": "pending",
+    "priority": "high",
+    "id": "MERGE-003"
+  },
+  {
+    "content": "Evaluate code quality and changes",
+    "status": "pending",
+    "priority": "high",
+    "id": "MERGE-004"
+  },
+  {
+    "content": "Run tests to ensure nothing is broken",
+    "status": "pending",
+    "priority": "high",
+    "id": "MERGE-005"
+  }
+]

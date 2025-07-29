@@ -1,0 +1,26 @@
+[
+  {
+    "content": "Execute mandatory testing gate - run all tests (oracle harness, unit, integration, linting)",
+    "status": "completed",
+    "priority": "high",
+    "id": "sprint_testing_gate"
+  },
+  {
+    "content": "Conduct honest assessment of progress toward surpassing R",
+    "status": "completed",
+    "priority": "high",
+    "id": "take_stock_assessment"
+  },
+  {
+    "content": "Make clear decision: PROCEED or COURSE CORRECT",
+    "status": "completed",
+    "priority": "high",
+    "id": "decision_point"
+  },
+  {
+    "content": "Conduct comprehensive code review using zen mcp tools",
+    "status": "completed",
+    "priority": "high",
+    "id": "mandatory_code_audit"
+  }
+]

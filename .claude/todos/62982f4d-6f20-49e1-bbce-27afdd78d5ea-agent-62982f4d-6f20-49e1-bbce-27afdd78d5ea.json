@@ -1,0 +1,20 @@
+[
+  {
+    "content": "Move completed Sprint 2 tasks to completed section",
+    "status": "completed",
+    "priority": "high",
+    "id": "update-next-md-1"
+  },
+  {
+    "content": "Add Complete Stroop Task Implementation (TST-002) as immediate priority #1",
+    "status": "completed",
+    "priority": "high",
+    "id": "update-next-md-2"
+  },
+  {
+    "content": "Update task statuses and sprint completion percentage",
+    "status": "completed",
+    "priority": "medium",
+    "id": "update-next-md-3"
+  }
+]

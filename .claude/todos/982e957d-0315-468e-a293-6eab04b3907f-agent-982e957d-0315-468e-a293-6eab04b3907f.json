@@ -1,0 +1,20 @@
+[
+  {
+    "content": "Refactor make_term_tag to remove hardcoded basis list and use OOP approach",
+    "status": "completed",
+    "priority": "high",
+    "id": "1"
+  },
+  {
+    "content": "Write comprehensive tests for make_term_tag with all ParametricBasis types",
+    "status": "completed",
+    "priority": "high",
+    "id": "2"
+  },
+  {
+    "content": "Run tests to ensure refactoring doesn't break existing functionality",
+    "status": "completed",
+    "priority": "medium",
+    "id": "3"
+  }
+]

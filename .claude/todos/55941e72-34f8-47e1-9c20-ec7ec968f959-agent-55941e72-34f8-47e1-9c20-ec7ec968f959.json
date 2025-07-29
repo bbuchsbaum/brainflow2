@@ -1,0 +1,44 @@
+[
+  {
+    "content": "Conduct mandatory code audit using zen mcp tools",
+    "status": "completed",
+    "priority": "medium",
+    "id": "code_audit"
+  },
+  {
+    "content": "Profile and optimize Lm::fit - target 2x+ R performance",
+    "status": "pending",
+    "priority": "high",
+    "id": "performance_optimization"
+  },
+  {
+    "content": "Cache (X'X)^-1 calculation to avoid recomputation in summary()",
+    "status": "pending",
+    "priority": "high",
+    "id": "cache_matrix_inverse"
+  },
+  {
+    "content": "Replace custom statistical functions with statrs crate for correctness",
+    "status": "pending",
+    "priority": "high",
+    "id": "replace_statrs"
+  },
+  {
+    "content": "Complete design matrix builder to connect formula parsing to modeling",
+    "status": "pending",
+    "priority": "high",
+    "id": "implement_dmatrix"
+  },
+  {
+    "content": "Implement logistic regression as first GLM to prove architecture",
+    "status": "pending",
+    "priority": "medium",
+    "id": "implement_basic_glm"
+  },
+  {
+    "content": "Add rayon parallelization for matrix operations",
+    "status": "pending",
+    "priority": "medium",
+    "id": "add_parallelism"
+  }
+]

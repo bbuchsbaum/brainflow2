@@ -1,0 +1,20 @@
+[
+  {
+    "content": "Fix C++ convolution implementation to match stats::convolve",
+    "status": "completed",
+    "priority": "high",
+    "id": "fix-convolution"
+  },
+  {
+    "content": "Update tests to ensure convolution matches expected behavior",
+    "status": "completed",
+    "priority": "high",
+    "id": "update-tests"
+  },
+  {
+    "content": "Fix sigma lower bound to be strictly > 0.05 for fmrireg compatibility",
+    "status": "completed",
+    "priority": "high",
+    "id": "fix-sigma-bound"
+  }
+]

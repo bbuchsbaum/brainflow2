@@ -1,0 +1,32 @@
+[
+  {
+    "content": "Analyze neurosurf R package structure and dependencies",
+    "status": "completed",
+    "priority": "high",
+    "id": "1"
+  },
+  {
+    "content": "Identify R-specific features and their Python equivalents (especially rgl → Python 3D visualization)",
+    "status": "completed",
+    "priority": "high",
+    "id": "2"
+  },
+  {
+    "content": "Create architecture mapping and implementation plan",
+    "status": "completed",
+    "priority": "high",
+    "id": "3"
+  },
+  {
+    "content": "Set up Python project structure",
+    "status": "in_progress",
+    "priority": "medium",
+    "id": "4"
+  },
+  {
+    "content": "Implement core functionality with tests",
+    "status": "pending",
+    "priority": "medium",
+    "id": "5"
+  }
+]

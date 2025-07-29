@@ -1,0 +1,44 @@
+[
+  {
+    "content": "Analyze R's ROI implementation",
+    "status": "completed",
+    "priority": "high",
+    "id": "1"
+  },
+  {
+    "content": "Implement ROI base class",
+    "status": "completed",
+    "priority": "high",
+    "id": "2"
+  },
+  {
+    "content": "Implement ROICoords class",
+    "status": "completed",
+    "priority": "high",
+    "id": "3"
+  },
+  {
+    "content": "Implement ROIVol class",
+    "status": "completed",
+    "priority": "high",
+    "id": "4"
+  },
+  {
+    "content": "Implement ROI construction functions",
+    "status": "completed",
+    "priority": "medium",
+    "id": "5"
+  },
+  {
+    "content": "Create tests for Phase 5",
+    "status": "completed",
+    "priority": "high",
+    "id": "6"
+  },
+  {
+    "content": "Update FEATURE_PARITY.md for Phase 5",
+    "status": "completed",
+    "priority": "medium",
+    "id": "7"
+  }
+]

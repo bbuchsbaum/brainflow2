@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-query-slice-axis-meta"
+description = "Enables the query_slice_axis_meta command without any pre-configured scope."
+commands.allow = ["query_slice_axis_meta"]
+
+[[permission]]
+identifier = "deny-query-slice-axis-meta"
+description = "Denies the query_slice_axis_meta command without any pre-configured scope."
+commands.deny = ["query_slice_axis_meta"]

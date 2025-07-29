@@ -1,0 +1,62 @@
+[
+  {
+    "content": "Complete GUI-001: Set up SvelteKit Project",
+    "status": "completed",
+    "priority": "high",
+    "id": "1"
+  },
+  {
+    "content": "Complete GUI-002: Visual Timeline (Read-Only)",
+    "status": "completed",
+    "priority": "high",
+    "id": "2"
+  },
+  {
+    "content": "Complete GUI-003: Code Pane (Monaco)",
+    "status": "completed",
+    "priority": "high",
+    "id": "3"
+  },
+  {
+    "content": "Complete GUI-004: Application Layout & Navigation",
+    "status": "completed",
+    "priority": "high",
+    "id": "4"
+  },
+  {
+    "content": "Complete GUI-015: WCAG Audit & Contrast Theme Pass",
+    "status": "completed",
+    "priority": "medium",
+    "id": "5"
+  },
+  {
+    "content": "Complete GUI-016: Timeline Performance Optimization",
+    "status": "completed",
+    "priority": "medium",
+    "id": "6"
+  },
+  {
+    "content": "Complete GUI-017: Code Editor Features",
+    "status": "completed",
+    "priority": "medium",
+    "id": "7"
+  },
+  {
+    "content": "Complete GUI-018: Loading States & Error Handling",
+    "status": "completed",
+    "priority": "low",
+    "id": "8"
+  },
+  {
+    "content": "Update progress.md with Sprint 3 completion",
+    "status": "completed",
+    "priority": "high",
+    "id": "9"
+  },
+  {
+    "content": "Request external audits (O3 and Gemini Pro) before advancing to Sprint 4",
+    "status": "pending",
+    "priority": "high",
+    "id": "10"
+  }
+]

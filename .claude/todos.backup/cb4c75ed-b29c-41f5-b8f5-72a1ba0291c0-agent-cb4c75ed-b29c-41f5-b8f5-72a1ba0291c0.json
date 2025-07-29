@@ -1,0 +1,32 @@
+[
+  {
+    "content": "Fix VoxelWiseGLM R6 class documentation - document all fields",
+    "status": "completed",
+    "priority": "high",
+    "id": "doc-fix-1"
+  },
+  {
+    "content": "Fix \\times macro issues in dot-compute_qc_metrics.Rd",
+    "status": "completed",
+    "priority": "high",
+    "id": "doc-fix-2"
+  },
+  {
+    "content": "Fix grapes-or-or-grapes.Rd naming issue",
+    "status": "completed",
+    "priority": "high",
+    "id": "doc-fix-3"
+  },
+  {
+    "content": "Document missing function arguments",
+    "status": "completed",
+    "priority": "medium",
+    "id": "doc-fix-4"
+  },
+  {
+    "content": "Remove inheritParams from make_voxel_graph_laplacian_core",
+    "status": "completed",
+    "priority": "low",
+    "id": "doc-fix-5"
+  }
+]

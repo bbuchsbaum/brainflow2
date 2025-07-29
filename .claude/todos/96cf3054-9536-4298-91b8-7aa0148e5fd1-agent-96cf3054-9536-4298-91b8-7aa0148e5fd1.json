@@ -1,0 +1,50 @@
+[
+  {
+    "content": "Fix CLI output formatting to match test expectations",
+    "status": "completed",
+    "priority": "high",
+    "id": "1"
+  },
+  {
+    "content": "Fix or optimize long-running parallel download tests",
+    "status": "completed",
+    "priority": "medium",
+    "id": "2"
+  },
+  {
+    "content": "Fix edge case handling in specialized tests",
+    "status": "completed",
+    "priority": "medium",
+    "id": "3"
+  },
+  {
+    "content": "Fix remaining file path issues in download tests",
+    "status": "pending",
+    "priority": "low",
+    "id": "4"
+  },
+  {
+    "content": "Create basic usage example",
+    "status": "completed",
+    "priority": "high",
+    "id": "5"
+  },
+  {
+    "content": "Create async/await usage example",
+    "status": "completed",
+    "priority": "high",
+    "id": "6"
+  },
+  {
+    "content": "Create CLI integration example",
+    "status": "completed",
+    "priority": "high",
+    "id": "7"
+  },
+  {
+    "content": "Create advanced features example",
+    "status": "completed",
+    "priority": "medium",
+    "id": "8"
+  }
+]

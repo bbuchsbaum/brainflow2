@@ -1,0 +1,56 @@
+[
+  {
+    "content": "Request O3 Technical Audit for Sprint 3 completion",
+    "status": "completed",
+    "priority": "high",
+    "id": "audit-1"
+  },
+  {
+    "content": "Request Gemini Pro Architecture Audit for Sprint 3 completion",
+    "status": "completed",
+    "priority": "high",
+    "id": "audit-2"
+  },
+  {
+    "content": "Document audit results in progress.md",
+    "status": "completed",
+    "priority": "high",
+    "id": "audit-3"
+  },
+  {
+    "content": "Address audit feedback - Critical issues found",
+    "status": "in_progress",
+    "priority": "high",
+    "id": "audit-4"
+  },
+  {
+    "content": "Cannot advance to Sprint 4 - Critical issues must be resolved first",
+    "status": "in_progress",
+    "priority": "high",
+    "id": "audit-5"
+  },
+  {
+    "content": "Implement comprehensive test suite with >90% coverage",
+    "status": "pending",
+    "priority": "high",
+    "id": "fix-1"
+  },
+  {
+    "content": "Fix broken package integration - resolve @psyforge/api references",
+    "status": "pending",
+    "priority": "high",
+    "id": "fix-2"
+  },
+  {
+    "content": "Fix CSP security vulnerabilities",
+    "status": "pending",
+    "priority": "high",
+    "id": "fix-3"
+  },
+  {
+    "content": "Optimize timeline renderer for performance",
+    "status": "pending",
+    "priority": "high",
+    "id": "fix-4"
+  }
+]

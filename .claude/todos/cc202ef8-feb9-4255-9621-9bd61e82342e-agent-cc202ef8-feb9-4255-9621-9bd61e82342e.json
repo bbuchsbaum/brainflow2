@@ -1,0 +1,56 @@
+[
+  {
+    "content": "Implement hierarchical scheduler system (KER-002)",
+    "status": "completed",
+    "priority": "high",
+    "id": "scheduler-001"
+  },
+  {
+    "content": "Create Timeline hierarchy for nested experiment structures",
+    "status": "completed",
+    "priority": "high",
+    "id": "scheduler-002"
+  },
+  {
+    "content": "Implement priority-based task scheduling",
+    "status": "completed",
+    "priority": "high",
+    "id": "scheduler-003"
+  },
+  {
+    "content": "Build frame-accurate stimulus timing system",
+    "status": "completed",
+    "priority": "high",
+    "id": "scheduler-004"
+  },
+  {
+    "content": "Add concurrent task management with proper cleanup",
+    "status": "completed",
+    "priority": "high",
+    "id": "scheduler-005"
+  },
+  {
+    "content": "Integrate with PrecisionClock for timing guarantees",
+    "status": "completed",
+    "priority": "high",
+    "id": "scheduler-006"
+  },
+  {
+    "content": "Write comprehensive test suite (>90% coverage)",
+    "status": "completed",
+    "priority": "medium",
+    "id": "scheduler-007"
+  },
+  {
+    "content": "Validate cross-browser compatibility",
+    "status": "pending",
+    "priority": "medium",
+    "id": "scheduler-008"
+  },
+  {
+    "content": "Fix test issues and get tests passing",
+    "status": "completed",
+    "priority": "high",
+    "id": "scheduler-009"
+  }
+]

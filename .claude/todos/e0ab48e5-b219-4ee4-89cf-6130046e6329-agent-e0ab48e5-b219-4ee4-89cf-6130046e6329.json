@@ -1,0 +1,26 @@
+[
+  {
+    "content": "Implement comprehensive edge case tests for NeuroVol/NeuroVec operations",
+    "status": "completed",
+    "priority": "high",
+    "id": "edge-case-tests"
+  },
+  {
+    "content": "Add coordinate transformation validation tests",
+    "status": "completed",
+    "priority": "high",
+    "id": "coordinate-transform-tests"
+  },
+  {
+    "content": "Implement NeuroHyperVec tests for 5D+ support",
+    "status": "completed",
+    "priority": "high",
+    "id": "neurohypervec-tests"
+  },
+  {
+    "content": "Add memory efficiency comparison tests",
+    "status": "completed",
+    "priority": "medium",
+    "id": "memory-efficiency-tests"
+  }
+]

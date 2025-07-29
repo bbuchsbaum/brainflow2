@@ -1,0 +1,62 @@
+[
+  {
+    "content": "Check image_volumes.ipynb notebook for validity",
+    "status": "completed",
+    "priority": "high",
+    "id": "1"
+  },
+  {
+    "content": "Check regions_of_interest.ipynb notebook for validity",
+    "status": "completed",
+    "priority": "high",
+    "id": "2"
+  },
+  {
+    "content": "Check neuro_vectors.ipynb notebook for validity",
+    "status": "completed",
+    "priority": "high",
+    "id": "3"
+  },
+  {
+    "content": "Check pipelines.ipynb notebook for validity",
+    "status": "completed",
+    "priority": "high",
+    "id": "4"
+  },
+  {
+    "content": "Run notebooks to verify they execute without errors",
+    "status": "completed",
+    "priority": "high",
+    "id": "5"
+  },
+  {
+    "content": "Fix namespace issues (pn vs pyneuroim) in all notebooks",
+    "status": "completed",
+    "priority": "high",
+    "id": "6"
+  },
+  {
+    "content": "Fix import statements in all notebooks",
+    "status": "completed",
+    "priority": "high",
+    "id": "7"
+  },
+  {
+    "content": "Add execution_count fields to all code cells",
+    "status": "completed",
+    "priority": "medium",
+    "id": "8"
+  },
+  {
+    "content": "Replace file references with tutorial-friendly data generation",
+    "status": "completed",
+    "priority": "high",
+    "id": "9"
+  },
+  {
+    "content": "Fix code execution order issues",
+    "status": "completed",
+    "priority": "high",
+    "id": "10"
+  }
+]

@@ -1,0 +1,20 @@
+[
+  {
+    "content": "Conduct Round 2 expert review of revised HATSA LOI with focus on pragmatic claims and LOI-appropriate level of detail",
+    "status": "completed",
+    "priority": "high",
+    "id": "review_round_2"
+  },
+  {
+    "content": "Read current LOI version to understand what needs review",
+    "status": "completed",
+    "priority": "high",
+    "id": "check_current_version"
+  },
+  {
+    "content": "Update PROGRESS.md with Round 2 findings",
+    "status": "completed",
+    "priority": "medium",
+    "id": "update_progress"
+  }
+]

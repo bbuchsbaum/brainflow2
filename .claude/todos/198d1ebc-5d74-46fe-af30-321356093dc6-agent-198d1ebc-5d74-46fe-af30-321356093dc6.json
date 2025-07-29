@@ -1,0 +1,8 @@
+[
+  {
+    "content": "Fix _check_dimension method to properly handle numpy arrays",
+    "status": "completed",
+    "priority": "high",
+    "id": "fix_check_dimension"
+  }
+]

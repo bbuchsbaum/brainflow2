@@ -1,0 +1,44 @@
+[
+  {
+    "content": "Add kema.default() method with helpful error message",
+    "status": "completed",
+    "priority": "high",
+    "id": "audit_1"
+  },
+  {
+    "content": "Add generalized_procrustes.default() method",
+    "status": "completed",
+    "priority": "high",
+    "id": "audit_2"
+  },
+  {
+    "content": "Fix generalized_procrustes interface inconsistency",
+    "status": "completed",
+    "priority": "high",
+    "id": "audit_3"
+  },
+  {
+    "content": "Add missing default methods for all generics",
+    "status": "completed",
+    "priority": "high",
+    "id": "audit_4"
+  },
+  {
+    "content": "Update KEMA examples to use proper hyperdesign constructors",
+    "status": "completed",
+    "priority": "high",
+    "id": "audit_5"
+  },
+  {
+    "content": "Document TV penalty limitations prominently in FPGW",
+    "status": "pending",
+    "priority": "high",
+    "id": "audit_6"
+  },
+  {
+    "content": "Fix C++ style comment in genprocrustes.R line 164",
+    "status": "completed",
+    "priority": "high",
+    "id": "audit_7"
+  }
+]

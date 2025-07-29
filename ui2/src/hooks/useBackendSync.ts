@@ -17,7 +17,7 @@ export function useBackendSync() {
   
   // Set up the backend update callback
   useEffect(() => {
-    const updateBackend = async (state: ViewState) => {
+    const updateBackend = async (state: ViewState, tag?: string) => {
       const updateTime = performance.now();
       try {
         // For now, render all three views when state changes
@@ -60,7 +60,8 @@ export function useBackendSync() {
               const eventBus = getEventBus();
               eventBus.emit('render.complete', {
                 viewType,
-                imageBitmap
+                imageBitmap,
+                ...(tag && { tag })
               });
               
               // Don't close the bitmap - SliceView needs it!

@@ -1,0 +1,44 @@
+[
+  {
+    "content": "Update package documentation",
+    "status": "completed",
+    "priority": "high",
+    "id": "fpgw-phase3-1"
+  },
+  {
+    "content": "Add fpgw to package exports",
+    "status": "completed",
+    "priority": "high",
+    "id": "fpgw-phase3-2"
+  },
+  {
+    "content": "Create vignette for FPGW usage",
+    "status": "completed",
+    "priority": "medium",
+    "id": "fpgw-phase3-3"
+  },
+  {
+    "content": "Add FPGW examples to help files",
+    "status": "completed",
+    "priority": "medium",
+    "id": "fpgw-phase3-4"
+  },
+  {
+    "content": "Integrate with existing multiblock_biprojector methods",
+    "status": "completed",
+    "priority": "high",
+    "id": "fpgw-phase3-5"
+  },
+  {
+    "content": "Add predict method for fpgw",
+    "status": "completed",
+    "priority": "medium",
+    "id": "fpgw-phase3-6"
+  },
+  {
+    "content": "Update DESCRIPTION with new dependencies",
+    "status": "completed",
+    "priority": "high",
+    "id": "fpgw-phase3-7"
+  }
+]

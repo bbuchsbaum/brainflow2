@@ -1,0 +1,44 @@
+[
+  {
+    "content": "Fix import paths in test files (use relative instead of $lib)",
+    "status": "completed",
+    "priority": "high",
+    "id": "fix-test-imports"
+  },
+  {
+    "content": "Fix TypeScript errors in test files",
+    "status": "completed",
+    "priority": "high",
+    "id": "fix-test-typescript"
+  },
+  {
+    "content": "Fix API timeout issues in tests",
+    "status": "completed",
+    "priority": "high",
+    "id": "fix-api-timeouts"
+  },
+  {
+    "content": "Fix missing mocks and type definitions",
+    "status": "completed",
+    "priority": "medium",
+    "id": "fix-test-mocks"
+  },
+  {
+    "content": "Fix ResilientService test failures",
+    "status": "completed",
+    "priority": "medium",
+    "id": "fix-resilient-service"
+  },
+  {
+    "content": "Fix LayerPanel test import errors",
+    "status": "completed",
+    "priority": "medium",
+    "id": "fix-layer-panel-imports"
+  },
+  {
+    "content": "Run all tests to verify they pass",
+    "status": "completed",
+    "priority": "high",
+    "id": "all-tests-pass"
+  }
+]

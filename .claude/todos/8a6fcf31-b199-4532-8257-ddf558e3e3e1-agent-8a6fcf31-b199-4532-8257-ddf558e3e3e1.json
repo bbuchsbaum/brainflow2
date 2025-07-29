@@ -1,0 +1,68 @@
+[
+  {
+    "content": "Run complete test suite to assess current state (oracle harness, unit tests, integration tests)",
+    "status": "completed",
+    "priority": "high",
+    "id": "1"
+  },
+  {
+    "content": "Execute linting and style checks",
+    "status": "completed",
+    "priority": "high",
+    "id": "2"
+  },
+  {
+    "content": "Conduct take stock assessment of progress toward R superiority",
+    "status": "completed",
+    "priority": "medium",
+    "id": "3"
+  },
+  {
+    "content": "Run comprehensive code audit using zen mcp tools",
+    "status": "completed",
+    "priority": "medium",
+    "id": "4"
+  },
+  {
+    "content": "Identify and implement next sprint objectives",
+    "status": "completed",
+    "priority": "medium",
+    "id": "5"
+  },
+  {
+    "content": "Refactor summary statistics to eliminate code duplication between LmFit and GlmFit",
+    "status": "pending",
+    "priority": "high",
+    "id": "6"
+  },
+  {
+    "content": "Simplify and document coefficient correction logic in fit_internal",
+    "status": "pending",
+    "priority": "high",
+    "id": "7"
+  },
+  {
+    "content": "Optimize bootstrap matrix conversion to improve memory efficiency",
+    "status": "pending",
+    "priority": "medium",
+    "id": "8"
+  },
+  {
+    "content": "Create configurable constants for hardcoded tolerance values",
+    "status": "pending",
+    "priority": "low",
+    "id": "9"
+  },
+  {
+    "content": "Implement GLM benchmarks to validate 5x performance target vs R",
+    "status": "pending",
+    "priority": "high",
+    "id": "10"
+  },
+  {
+    "content": "Expand oracle test suite with more complex statistical scenarios",
+    "status": "pending",
+    "priority": "medium",
+    "id": "11"
+  }
+]

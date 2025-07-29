@@ -1,0 +1,74 @@
+[
+  {
+    "content": "Fix resize pipeline to use drag end events",
+    "status": "pending",
+    "priority": "medium",
+    "id": "254"
+  },
+  {
+    "content": "Add safeguards for edge cases",
+    "status": "pending",
+    "priority": "medium",
+    "id": "217"
+  },
+  {
+    "content": "Stage 4: Stabilize callbacks in useServicesInit",
+    "status": "pending",
+    "priority": "medium",
+    "id": "203"
+  },
+  {
+    "content": "Fix axial image centering",
+    "status": "pending",
+    "priority": "medium",
+    "id": "179"
+  },
+  {
+    "content": "Remove complex scaling logic from updateViewDimensions",
+    "status": "completed",
+    "priority": "high",
+    "id": "258"
+  },
+  {
+    "content": "Fix slider stickiness by implementing immediate updates",
+    "status": "completed",
+    "priority": "high",
+    "id": "259"
+  },
+  {
+    "content": "Fix updateViewDimensions to not scale vectors on resize",
+    "status": "completed",
+    "priority": "high",
+    "id": "260"
+  },
+  {
+    "content": "Investigate using backend for all view calculations",
+    "status": "completed",
+    "priority": "high",
+    "id": "261"
+  },
+  {
+    "content": "Add updateFrameForSynchronizedView to apiService",
+    "status": "completed",
+    "priority": "high",
+    "id": "262"
+  },
+  {
+    "content": "Update viewStateStore to call backend on dimension changes",
+    "status": "completed",
+    "priority": "high",
+    "id": "263"
+  },
+  {
+    "content": "Update FlexibleSlicePanel to call createOffscreenRenderTarget",
+    "status": "completed",
+    "priority": "high",
+    "id": "264"
+  },
+  {
+    "content": "Call backend on crosshair updates to sync view dimensions",
+    "status": "completed",
+    "priority": "high",
+    "id": "265"
+  }
+]

@@ -1,0 +1,14 @@
+[
+  {
+    "content": "Check package.json and cargo.toml for build dependencies",
+    "status": "completed",
+    "priority": "high",
+    "id": "1"
+  },
+  {
+    "content": "Create update and rebuild script for claudia",
+    "status": "completed",
+    "priority": "high",
+    "id": "2"
+  }
+]

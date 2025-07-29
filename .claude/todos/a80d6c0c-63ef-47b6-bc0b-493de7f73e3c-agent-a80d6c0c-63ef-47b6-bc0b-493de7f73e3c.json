@@ -1,0 +1,20 @@
+[
+  {
+    "content": "Fix Y-flip by removing negation from down vectors",
+    "status": "completed",
+    "priority": "high",
+    "id": "FIX-YFLIP"
+  },
+  {
+    "content": "Fix origin calculation to show full slice instead of centering on crosshair",
+    "status": "completed",
+    "priority": "high",
+    "id": "FIX-ORIGIN"
+  },
+  {
+    "content": "Verify crosshair moves within view and images are right-side up",
+    "status": "in_progress",
+    "priority": "high",
+    "id": "VERIFY-FIX"
+  }
+]

@@ -1,0 +1,32 @@
+[
+  {
+    "content": "Read the README.md to understand shader overview",
+    "status": "completed",
+    "priority": "high",
+    "id": "read_readme"
+  },
+  {
+    "content": "Analyze basic.wgsl shader",
+    "status": "completed",
+    "priority": "medium",
+    "id": "analyze_basic_shader"
+  },
+  {
+    "content": "Analyze and compare slice-related shaders",
+    "status": "completed",
+    "priority": "medium",
+    "id": "analyze_slice_shaders"
+  },
+  {
+    "content": "Analyze debug shader variants",
+    "status": "completed",
+    "priority": "medium",
+    "id": "analyze_debug_shaders"
+  },
+  {
+    "content": "Summarize key differences between shaders",
+    "status": "completed",
+    "priority": "high",
+    "id": "summarize_differences"
+  }
+]

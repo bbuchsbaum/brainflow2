@@ -1,0 +1,38 @@
+[
+  {
+    "content": "Implement PIRLS solver in optimcore crate for mixed effects estimation",
+    "status": "completed",
+    "priority": "high",
+    "id": "1"
+  },
+  {
+    "content": "Complete Lmer::fit() method implementation (replace todo!() placeholders)",
+    "status": "in_progress",
+    "priority": "high",
+    "id": "2"
+  },
+  {
+    "content": "Create Oracle tests against lme4 for random intercept models",
+    "status": "pending",
+    "priority": "high",
+    "id": "3"
+  },
+  {
+    "content": "Implement memory usage benchmarks (target ≤50% of lme4)",
+    "status": "pending",
+    "priority": "medium",
+    "id": "4"
+  },
+  {
+    "content": "Implement performance benchmarks (target ≥2x speed vs lme4)",
+    "status": "pending",
+    "priority": "medium",
+    "id": "5"
+  },
+  {
+    "content": "Extend formula parser for (1|group) random effects syntax",
+    "status": "pending",
+    "priority": "medium",
+    "id": "6"
+  }
+]

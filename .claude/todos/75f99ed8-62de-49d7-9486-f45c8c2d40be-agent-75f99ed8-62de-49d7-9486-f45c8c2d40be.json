@@ -1,0 +1,44 @@
+[
+  {
+    "content": "Run mandatory testing gate - Oracle Harness Pass Rate",
+    "status": "completed",
+    "priority": "high",
+    "id": "1"
+  },
+  {
+    "content": "Run all unit tests in workspace",
+    "status": "completed",
+    "priority": "high",
+    "id": "2"
+  },
+  {
+    "content": "Run integration tests",
+    "status": "completed",
+    "priority": "high",
+    "id": "3"
+  },
+  {
+    "content": "Run linting and style checks",
+    "status": "completed",
+    "priority": "high",
+    "id": "4"
+  },
+  {
+    "content": "Conduct Take Stock Assessment",
+    "status": "completed",
+    "priority": "medium",
+    "id": "5"
+  },
+  {
+    "content": "Make sprint decision (Proceed/Course Correct)",
+    "status": "completed",
+    "priority": "medium",
+    "id": "6"
+  },
+  {
+    "content": "Conduct mandatory code audit",
+    "status": "completed",
+    "priority": "medium",
+    "id": "7"
+  }
+]

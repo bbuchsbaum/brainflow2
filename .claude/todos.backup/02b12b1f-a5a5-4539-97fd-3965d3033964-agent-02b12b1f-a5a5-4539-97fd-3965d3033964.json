@@ -1,0 +1,32 @@
+[
+  {
+    "content": "Implement modified K-factor system with minimum values",
+    "status": "completed",
+    "priority": "high",
+    "id": "1"
+  },
+  {
+    "content": "Add upset bonus for underdogs",
+    "status": "completed",
+    "priority": "high",
+    "id": "2"
+  },
+  {
+    "content": "Implement second chance mechanism for underexposed images",
+    "status": "completed",
+    "priority": "high",
+    "id": "3"
+  },
+  {
+    "content": "Add freshness decay mechanism",
+    "status": "completed",
+    "priority": "medium",
+    "id": "4"
+  },
+  {
+    "content": "Implement progressive exposure system",
+    "status": "completed",
+    "priority": "high",
+    "id": "5"
+  }
+]

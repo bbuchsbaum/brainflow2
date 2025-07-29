@@ -1,0 +1,26 @@
+[
+  {
+    "content": "Check current test status and identify failures",
+    "status": "completed",
+    "priority": "high",
+    "id": "1"
+  },
+  {
+    "content": "Fix existing test failures unrelated to refactoring",
+    "status": "completed",
+    "priority": "high",
+    "id": "2"
+  },
+  {
+    "content": "Restructure output object to use model_specific$parameters",
+    "status": "completed",
+    "priority": "medium",
+    "id": "3"
+  },
+  {
+    "content": "Add hrf_shape component with pre-computed HRF curves",
+    "status": "completed",
+    "priority": "medium",
+    "id": "4"
+  }
+]

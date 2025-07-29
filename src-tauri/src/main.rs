@@ -140,16 +140,26 @@ fn main() {
                                  .accelerator("CmdOrCtrl+2")
                                  .build(app)?)
                              .separator()
+                             // Multi-slice workspaces
+                             .item(&MenuItemBuilder::new("Mosaic View")
+                                 .id("workspace_mosaic")
+                                 .accelerator("CmdOrCtrl+3")
+                                 .build(app)?)
+                             .item(&MenuItemBuilder::new("Lightbox View")
+                                 .id("workspace_lightbox")
+                                 .accelerator("CmdOrCtrl+4")
+                                 .build(app)?)
+                             .separator()
                              // Analysis workspaces
                              .item(&MenuItemBuilder::new("ROI Statistics (Demo)")
                                  .id("workspace_roi_stats")
-                                 .accelerator("CmdOrCtrl+3")
+                                 .accelerator("CmdOrCtrl+5")
                                  .build(app)?)
                              .separator()
                              // Tool workspaces
                              .item(&MenuItemBuilder::new("Coordinate Converter (Demo)")
                                  .id("workspace_coordinate_converter")
-                                 .accelerator("CmdOrCtrl+4")
+                                 .accelerator("CmdOrCtrl+6")
                                  .build(app)?)
                              .build()?)
                          .build()?,

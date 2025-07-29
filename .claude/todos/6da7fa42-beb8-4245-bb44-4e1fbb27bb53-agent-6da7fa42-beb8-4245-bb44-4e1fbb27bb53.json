@@ -1,0 +1,8 @@
+[
+  {
+    "content": "Implement efficient slice navigation without GPU reloading",
+    "status": "completed",
+    "priority": "high",
+    "id": "efficient-slice-nav"
+  }
+]

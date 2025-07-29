@@ -1,0 +1,32 @@
+[
+  {
+    "content": "Complete rustdoc documentation for all PCA methods",
+    "status": "completed",
+    "priority": "high",
+    "id": "1"
+  },
+  {
+    "content": "Add examples matching R prcomp() usage",
+    "status": "completed",
+    "priority": "high",
+    "id": "2"
+  },
+  {
+    "content": "Document rotation methods vs R equivalents",
+    "status": "completed",
+    "priority": "medium",
+    "id": "3"
+  },
+  {
+    "content": "Cross-reference with R multivarious PCA functions",
+    "status": "completed",
+    "priority": "medium",
+    "id": "4"
+  },
+  {
+    "content": "Update progress.md and MASTER_TODO.md when complete",
+    "status": "completed",
+    "priority": "low",
+    "id": "5"
+  }
+]

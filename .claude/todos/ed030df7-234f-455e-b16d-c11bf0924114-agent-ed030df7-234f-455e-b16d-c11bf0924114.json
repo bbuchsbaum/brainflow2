@@ -1,0 +1,50 @@
+[
+  {
+    "content": "Create components directory structure",
+    "status": "completed",
+    "priority": "high",
+    "id": "task4-1"
+  },
+  {
+    "content": "Build reusable Button component with variants",
+    "status": "completed",
+    "priority": "high",
+    "id": "task4-2"
+  },
+  {
+    "content": "Create Card component for racquet displays",
+    "status": "completed",
+    "priority": "high",
+    "id": "task4-3"
+  },
+  {
+    "content": "Build Select component for filtering",
+    "status": "completed",
+    "priority": "high",
+    "id": "task4-4"
+  },
+  {
+    "content": "Create Input component for search/filters",
+    "status": "completed",
+    "priority": "medium",
+    "id": "task4-5"
+  },
+  {
+    "content": "Implement responsive layout components",
+    "status": "completed",
+    "priority": "medium",
+    "id": "task4-6"
+  },
+  {
+    "content": "Add loading states and error boundaries",
+    "status": "completed",
+    "priority": "medium",
+    "id": "task4-7"
+  },
+  {
+    "content": "Ensure accessibility features (ARIA, keyboard navigation)",
+    "status": "completed",
+    "priority": "medium",
+    "id": "task4-8"
+  }
+]

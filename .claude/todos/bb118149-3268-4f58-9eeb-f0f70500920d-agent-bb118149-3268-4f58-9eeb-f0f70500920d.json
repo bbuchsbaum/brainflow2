@@ -1,0 +1,20 @@
+[
+  {
+    "content": "Configure Mac to prevent sleep and maintain network",
+    "status": "completed",
+    "priority": "high",
+    "id": "1"
+  },
+  {
+    "content": "Create CLAUDE.md file with instructions to avoid dangerous commands",
+    "status": "in_progress",
+    "priority": "high",
+    "id": "2"
+  },
+  {
+    "content": "Verify hooks are properly blocking dangerous commands",
+    "status": "pending",
+    "priority": "medium",
+    "id": "3"
+  }
+]

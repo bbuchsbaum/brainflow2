@@ -1,0 +1,26 @@
+[
+  {
+    "content": "Run complete test suite - Oracle Harness, Unit Tests, Integration Tests",
+    "status": "completed",
+    "priority": "high",
+    "id": "1"
+  },
+  {
+    "content": "Run linting and style checks",
+    "status": "completed",
+    "priority": "high",
+    "id": "2"
+  },
+  {
+    "content": "Assess current state against R performance targets",
+    "status": "completed",
+    "priority": "medium",
+    "id": "3"
+  },
+  {
+    "content": "Conduct comprehensive code audit using zen mcp tools",
+    "status": "completed",
+    "priority": "medium",
+    "id": "4"
+  }
+]

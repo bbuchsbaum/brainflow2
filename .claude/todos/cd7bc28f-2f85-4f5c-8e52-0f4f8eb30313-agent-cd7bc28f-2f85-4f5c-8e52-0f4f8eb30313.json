@@ -1,0 +1,80 @@
+[
+  {
+    "content": "Create Hotel data model separate from Contact",
+    "status": "completed",
+    "priority": "high",
+    "id": "hotel_model"
+  },
+  {
+    "content": "Update Contact model to reference Hotels",
+    "status": "completed",
+    "priority": "high",
+    "id": "contact_hotel_relation"
+  },
+  {
+    "content": "Build CSV hotel import functionality",
+    "status": "completed",
+    "priority": "high",
+    "id": "csv_import"
+  },
+  {
+    "content": "Add geographic filtering (city/country) to existing UI",
+    "status": "completed",
+    "priority": "medium",
+    "id": "geo_filtering"
+  },
+  {
+    "content": "Enhance bulk operations for fresh hotel contacts",
+    "status": "pending",
+    "priority": "medium",
+    "id": "bulk_hotel_ops"
+  },
+  {
+    "content": "Add hotel status tracking (NEW/CONTACTED/etc)",
+    "status": "completed",
+    "priority": "medium",
+    "id": "hotel_status"
+  },
+  {
+    "content": "Add bulk email functionality for fresh hotel contacts",
+    "status": "pending",
+    "priority": "medium",
+    "id": "bulk_email"
+  },
+  {
+    "content": "Create hotel detail view/modal",
+    "status": "completed",
+    "priority": "low",
+    "id": "hotel_detail"
+  },
+  {
+    "content": "Add contact creation from hotel records",
+    "status": "pending",
+    "priority": "medium",
+    "id": "hotel_to_contact"
+  },
+  {
+    "content": "Implement hotel dashboard analytics",
+    "status": "pending",
+    "priority": "low",
+    "id": "hotel_analytics"
+  },
+  {
+    "content": "Add hotel export functionality",
+    "status": "pending",
+    "priority": "low",
+    "id": "hotel_export"
+  },
+  {
+    "content": "Create hotel search/filter by location",
+    "status": "completed",
+    "priority": "medium",
+    "id": "hotel_location_filter"
+  },
+  {
+    "content": "Add hotel website validation and parsing",
+    "status": "pending",
+    "priority": "low",
+    "id": "hotel_website_validation"
+  }
+]

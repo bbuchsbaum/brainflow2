@@ -1,0 +1,20 @@
+[
+  {
+    "content": "Fix Golden Layout dimensions - components have zero width/height",
+    "status": "in_progress",
+    "priority": "high",
+    "id": "fix-golden-layout-dimensions"
+  },
+  {
+    "content": "Add CSS overrides to force content visibility",
+    "status": "completed",
+    "priority": "high",
+    "id": "force-content-visibility"
+  },
+  {
+    "content": "Debug Golden Layout API method errors",
+    "status": "completed",
+    "priority": "medium",
+    "id": "fix-api-errors"
+  }
+]

@@ -1,0 +1,8 @@
+[
+  {
+    "content": "Fix global refinement option test failure by ensuring convergence field is empty when refinement is disabled",
+    "status": "completed",
+    "priority": "high",
+    "id": "1"
+  }
+]

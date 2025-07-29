@@ -1,0 +1,32 @@
+[
+  {
+    "content": "Clone zen-mcp-server repository",
+    "status": "completed",
+    "priority": "high",
+    "id": "1"
+  },
+  {
+    "content": "Run setup-docker.sh to build and configure the server",
+    "status": "completed",
+    "priority": "high",
+    "id": "2"
+  },
+  {
+    "content": "Configure API keys in .env file",
+    "status": "completed",
+    "priority": "high",
+    "id": "3"
+  },
+  {
+    "content": "Add zen MCP server to Claude Code CLI user config",
+    "status": "completed",
+    "priority": "high",
+    "id": "4"
+  },
+  {
+    "content": "Test the installation by using zen tools",
+    "status": "in_progress",
+    "priority": "medium",
+    "id": "5"
+  }
+]

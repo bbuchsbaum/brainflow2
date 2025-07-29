@@ -1,0 +1,38 @@
+[
+  {
+    "content": "Update test_dataset.R with qualified fmridataset calls",
+    "status": "completed",
+    "priority": "high",
+    "id": "1"
+  },
+  {
+    "content": "Update test_betas.R with qualified fmridataset calls",
+    "status": "completed",
+    "priority": "high",
+    "id": "2"
+  },
+  {
+    "content": "Update test_fmriglm.R with qualified fmridataset calls",
+    "status": "completed",
+    "priority": "high",
+    "id": "3"
+  },
+  {
+    "content": "Update test_iterators.R with qualified fmridataset calls",
+    "status": "completed",
+    "priority": "high",
+    "id": "4"
+  },
+  {
+    "content": "Update test_fmri_latent_lm.R with qualified fmridataset calls",
+    "status": "completed",
+    "priority": "high",
+    "id": "5"
+  },
+  {
+    "content": "Run full test suite after all updates",
+    "status": "completed",
+    "priority": "high",
+    "id": "6"
+  }
+]

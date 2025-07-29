@@ -1,0 +1,44 @@
+[
+  {
+    "content": "Run all tests to verify current state",
+    "status": "completed",
+    "priority": "high",
+    "id": "sprint6-1"
+  },
+  {
+    "content": "Review Sprint 5 completion and identify next priorities",
+    "status": "completed",
+    "priority": "high",
+    "id": "sprint6-2"
+  },
+  {
+    "content": "Implement L-BFGS-B solver (S6-T09)",
+    "status": "pending",
+    "priority": "high",
+    "id": "sprint6-3"
+  },
+  {
+    "content": "Add .bootstrap() method to Fit trait implementations",
+    "status": "completed",
+    "priority": "medium",
+    "id": "sprint6-4"
+  },
+  {
+    "content": "Create benchmarks for bootstrap performance vs R",
+    "status": "completed",
+    "priority": "medium",
+    "id": "sprint6-5"
+  },
+  {
+    "content": "Add Oracle tests for Lasso/Ridge against glmnet",
+    "status": "completed",
+    "priority": "high",
+    "id": "sprint6-6"
+  },
+  {
+    "content": "Conduct code audit using zen mcp tools",
+    "status": "completed",
+    "priority": "high",
+    "id": "sprint6-7"
+  }
+]

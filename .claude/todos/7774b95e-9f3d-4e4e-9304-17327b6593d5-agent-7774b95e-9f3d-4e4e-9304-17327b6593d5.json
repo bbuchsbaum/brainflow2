@@ -1,0 +1,62 @@
+[
+  {
+    "content": "Assess current state and run all tests to ensure 100% pass rate",
+    "status": "completed",
+    "priority": "high",
+    "id": "sprint_assessment"
+  },
+  {
+    "content": "Review benchmark performance against R targets",
+    "status": "completed",
+    "priority": "high",
+    "id": "benchmark_review"
+  },
+  {
+    "content": "Conduct mandatory code audit using zen mcp tools",
+    "status": "completed",
+    "priority": "medium",
+    "id": "code_audit"
+  },
+  {
+    "content": "Plan next sprint objectives based on assessment",
+    "status": "completed",
+    "priority": "high",
+    "id": "next_sprint_planning"
+  },
+  {
+    "content": "Create R performance comparison benchmarks to meet CLAUDE.md requirements",
+    "status": "pending",
+    "priority": "high",
+    "id": "create_r_benchmarks"
+  },
+  {
+    "content": "Investigate and fix performance regressions in recent benchmarks",
+    "status": "pending",
+    "priority": "high",
+    "id": "fix_performance_regression"
+  },
+  {
+    "content": "Fix RegularizedBootstrapStatistic n_stats() hardcoded value bug",
+    "status": "pending",
+    "priority": "high",
+    "id": "fix_bootstrap_bug"
+  },
+  {
+    "content": "Add comprehensive oracle tests for GLM, Lasso, Ridge models",
+    "status": "pending",
+    "priority": "high",
+    "id": "expand_oracle_tests"
+  },
+  {
+    "content": "Implement proper deviance-based R-squared for GLM models",
+    "status": "pending",
+    "priority": "high",
+    "id": "fix_glm_r_squared"
+  },
+  {
+    "content": "Split monolithic stats_models/lib.rs into modular structure",
+    "status": "pending",
+    "priority": "medium",
+    "id": "modularize_stats_models"
+  }
+]

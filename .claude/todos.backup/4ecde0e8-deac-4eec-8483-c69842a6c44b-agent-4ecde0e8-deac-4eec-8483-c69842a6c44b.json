@@ -1,0 +1,20 @@
+[
+  {
+    "content": "Chat with Gemini Pro to design function for saving fMRI analysis results to fmristore format",
+    "status": "completed",
+    "priority": "high",
+    "id": "1"
+  },
+  {
+    "content": "Get O3's opinion on the Gemini design proposal",
+    "status": "completed",
+    "priority": "high",
+    "id": "2"
+  },
+  {
+    "content": "Integrate both perspectives and implement the final solution",
+    "status": "in_progress",
+    "priority": "high",
+    "id": "3"
+  }
+]

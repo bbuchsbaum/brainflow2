@@ -1,0 +1,38 @@
+[
+  {
+    "content": "Fix VolumeView.test.ts - change createMockContainer to createMockDIContainer",
+    "status": "completed",
+    "priority": "high",
+    "id": "1"
+  },
+  {
+    "content": "Fix TreeBrowser.test.ts - remove setupMockServices import",
+    "status": "completed",
+    "priority": "high",
+    "id": "2"
+  },
+  {
+    "content": "Run tests to check for failures in GpuResourceService.test.ts",
+    "status": "completed",
+    "priority": "medium",
+    "id": "3"
+  },
+  {
+    "content": "Check SliceViewerGPU test files for any issues",
+    "status": "completed",
+    "priority": "low",
+    "id": "4"
+  },
+  {
+    "content": "Fix GpuResourceService test - 'should only initialize once'",
+    "status": "in_progress",
+    "priority": "high",
+    "id": "5"
+  },
+  {
+    "content": "Fix GpuResourceService test - 'should track render statistics'",
+    "status": "pending",
+    "priority": "high",
+    "id": "6"
+  }
+]

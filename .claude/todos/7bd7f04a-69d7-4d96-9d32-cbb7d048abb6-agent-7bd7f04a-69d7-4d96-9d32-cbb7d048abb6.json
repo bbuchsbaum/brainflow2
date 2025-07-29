@@ -1,0 +1,44 @@
+[
+  {
+    "content": "Create golden test framework infrastructure",
+    "status": "completed",
+    "priority": "high",
+    "id": "1"
+  },
+  {
+    "content": "Set up reference data generation utilities",
+    "status": "completed",
+    "priority": "high",
+    "id": "2"
+  },
+  {
+    "content": "Create golden tests for key data structures (fmri_dataset, FmriSeries)",
+    "status": "completed",
+    "priority": "medium",
+    "id": "3"
+  },
+  {
+    "content": "Create golden tests for backend outputs",
+    "status": "completed",
+    "priority": "medium",
+    "id": "4"
+  },
+  {
+    "content": "Add snapshot tests for print methods and summaries",
+    "status": "completed",
+    "priority": "low",
+    "id": "5"
+  },
+  {
+    "content": "Fix backend test parameter issues",
+    "status": "completed",
+    "priority": "high",
+    "id": "6"
+  },
+  {
+    "content": "Fix FmriSeries test parameter issues",
+    "status": "completed",
+    "priority": "high",
+    "id": "7"
+  }
+]

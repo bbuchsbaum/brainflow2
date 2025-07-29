@@ -1,0 +1,44 @@
+[
+  {
+    "content": "Fix memory inefficiency in GLM+SVD: keep low-rank form instead of computing full matrix",
+    "status": "completed",
+    "priority": "high",
+    "id": "review-1"
+  },
+  {
+    "content": "Add robust error handling for matrix operations and dimension checks",
+    "status": "completed",
+    "priority": "high",
+    "id": "review-2"
+  },
+  {
+    "content": "Implement parallel GLM fitting for performance improvement",
+    "status": "completed",
+    "priority": "high",
+    "id": "review-3"
+  },
+  {
+    "content": "Add numerical stability checks for SVD operations",
+    "status": "completed",
+    "priority": "high",
+    "id": "review-4"
+  },
+  {
+    "content": "Fix convolution overflow handling in C++ code",
+    "status": "completed",
+    "priority": "medium",
+    "id": "review-5"
+  },
+  {
+    "content": "Complete CBD implementation placeholders",
+    "status": "completed",
+    "priority": "medium",
+    "id": "review-6"
+  },
+  {
+    "content": "Add comprehensive integration tests",
+    "status": "completed",
+    "priority": "medium",
+    "id": "review-7"
+  }
+]

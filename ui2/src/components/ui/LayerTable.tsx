@@ -135,18 +135,23 @@ export const LayerTable: React.FC<LayerTableProps> = ({
                 {layer.name}
               </span>
 
-              {/* Info button - flat design, only visible on hover */}
+              {/* Info button - modern design with improved hover states */}
               <MetadataPopover layerId={layer.id}>
                 <button
-                  className="icon-btn opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity"
+                  className={cn(
+                    "icon-btn",
+                    "opacity-0 group-hover:opacity-100 focus:opacity-100",
+                    "transition-all duration-200",
+                    "hover:bg-accent/20 active:bg-accent/30",
+                    "rounded-md p-1"
+                  )}
                   onClick={(e) => {
                     e.stopPropagation();
-                    // The popover will handle the click, no need for onShowMetadata
                   }}
-                  aria-label={`Metadata for ${layer.name}`}
+                  aria-label={`View metadata for ${layer.name}`}
                   tabIndex={-1}
                 >
-                  <Info className="h-4 w-4" />
+                  <Info className="h-4 w-4 text-muted-foreground" />
                 </button>
               </MetadataPopover>
             </div>

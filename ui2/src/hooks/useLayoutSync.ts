@@ -47,10 +47,10 @@ export function useLayoutSync() {
           // If dimensions changed, force a flush to trigger rendering
           if (dimensionsChanged) {
             console.log('[useLayoutSync] Dimensions changed, forcing flush with dimension update flag');
-            // Use a small delay to ensure ViewState updates have been queued
+            // Use unified timing to ensure ViewState updates have been queued
             setTimeout(() => {
               coalesceUtils.flush(true);
-            }, 50);
+            }, 200);
           }
         }
       }
@@ -64,7 +64,7 @@ export function useLayoutSync() {
         if (!useLayoutDragStore.getState().isDragging) {
           console.log('[useLayoutSync] Layout dimensions changed while not dragging, considering sync');
           
-          // Add a small debounce to batch multiple dimension changes
+          // Add unified debounce timing to batch multiple dimension changes
           setTimeout(() => {
             if (!useLayoutDragStore.getState().isDragging) {
               const viewStateStore = useViewStateStore.getState();
@@ -80,7 +80,7 @@ export function useLayoutSync() {
                 }
               });
             }
-          }, 100);
+          }, 200); // Unified timing
         }
       }
     );

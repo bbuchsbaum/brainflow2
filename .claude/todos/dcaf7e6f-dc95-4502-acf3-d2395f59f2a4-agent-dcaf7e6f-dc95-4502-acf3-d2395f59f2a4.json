@@ -1,0 +1,50 @@
+[
+  {
+    "content": "T314: Complete PCA documentation with R equivalents and examples",
+    "status": "in_progress",
+    "priority": "high",
+    "id": "t314-pca-documentation"
+  },
+  {
+    "content": "Phase 4: Implement complete multiblock analysis system (T400-T412)",
+    "status": "pending",
+    "priority": "high",
+    "id": "multiblock-analysis"
+  },
+  {
+    "content": "Phase 5: Implement classification and regression functionality (T500-T511)",
+    "status": "pending",
+    "priority": "high",
+    "id": "classification-regression"
+  },
+  {
+    "content": "Phase 6: Build cross-language validation infrastructure (T600-T603)",
+    "status": "pending",
+    "priority": "high",
+    "id": "cross-validation-testing"
+  },
+  {
+    "content": "Phase 7: Audit all 115 R exported functions and ensure complete coverage",
+    "status": "pending",
+    "priority": "high",
+    "id": "audit-r-functions"
+  },
+  {
+    "content": "T703: Verify all 106 S3 methods have Rust trait equivalents",
+    "status": "pending",
+    "priority": "medium",
+    "id": "verify-s3-methods"
+  },
+  {
+    "content": "T602: Implement numerical validation tests (1e-12 tolerance) against R",
+    "status": "pending",
+    "priority": "high",
+    "id": "numerical-validation"
+  },
+  {
+    "content": "T801: Create R-to-Rust migration guide with 1:1 function mapping",
+    "status": "pending",
+    "priority": "medium",
+    "id": "migration-documentation"
+  }
+]

@@ -1,0 +1,50 @@
+[
+  {
+    "content": "Run complete test suite to verify current state",
+    "status": "completed",
+    "priority": "high",
+    "id": "1"
+  },
+  {
+    "content": "Assess current progress against R performance targets",
+    "status": "completed",
+    "priority": "high",
+    "id": "2"
+  },
+  {
+    "content": "Fix rank calculation in LmFit using faer QR results",
+    "status": "completed",
+    "priority": "high",
+    "id": "3"
+  },
+  {
+    "content": "Implement complete statistical inference (std errors, t-stats, p-values)",
+    "status": "completed",
+    "priority": "high",
+    "id": "4"
+  },
+  {
+    "content": "Integrate Oracle R harness into benchmark workflow",
+    "status": "completed",
+    "priority": "high",
+    "id": "5"
+  },
+  {
+    "content": "Implement t-distribution CDF for proper p-value calculation",
+    "status": "completed",
+    "priority": "medium",
+    "id": "6"
+  },
+  {
+    "content": "Fix API documentation mismatch (README vs implementation)",
+    "status": "completed",
+    "priority": "medium",
+    "id": "7"
+  },
+  {
+    "content": "Run comprehensive code audit with zen mcp tools",
+    "status": "completed",
+    "priority": "medium",
+    "id": "8"
+  }
+]

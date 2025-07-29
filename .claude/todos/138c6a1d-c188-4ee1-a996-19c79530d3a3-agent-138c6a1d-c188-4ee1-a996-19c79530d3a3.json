@@ -1,0 +1,32 @@
+[
+  {
+    "content": "Explore stats-rs codebase structure",
+    "status": "completed",
+    "priority": "high",
+    "id": "1"
+  },
+  {
+    "content": "Find linear model implementation",
+    "status": "completed",
+    "priority": "high",
+    "id": "2"
+  },
+  {
+    "content": "Create R comparison example",
+    "status": "completed",
+    "priority": "high",
+    "id": "3"
+  },
+  {
+    "content": "Generate random data and fit models",
+    "status": "completed",
+    "priority": "medium",
+    "id": "4"
+  },
+  {
+    "content": "Verify numerical accuracy",
+    "status": "completed",
+    "priority": "high",
+    "id": "5"
+  }
+]

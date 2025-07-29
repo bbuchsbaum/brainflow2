@@ -1,0 +1,32 @@
+[
+  {
+    "content": "Create next.md file with current priority task",
+    "status": "completed",
+    "priority": "high",
+    "id": "1"
+  },
+  {
+    "content": "Update sprint markdowns to check off completed tasks",
+    "status": "completed",
+    "priority": "high",
+    "id": "2"
+  },
+  {
+    "content": "Fix TypeScript compilation errors",
+    "status": "completed",
+    "priority": "high",
+    "id": "3"
+  },
+  {
+    "content": "Implement Three.js 3D visualization foundation",
+    "status": "pending",
+    "priority": "medium",
+    "id": "4"
+  },
+  {
+    "content": "Continue Sprint 2 development with proper tracking",
+    "status": "pending",
+    "priority": "medium",
+    "id": "5"
+  }
+]

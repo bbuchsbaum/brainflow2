@@ -1,0 +1,32 @@
+[
+  {
+    "content": "Search for existing spline usage in fmrihrf-rs codebase",
+    "status": "completed",
+    "priority": "high",
+    "id": "1"
+  },
+  {
+    "content": "Identify spline-related functionality to replace",
+    "status": "completed",
+    "priority": "high",
+    "id": "2"
+  },
+  {
+    "content": "Replace existing spline implementations with splines library",
+    "status": "completed",
+    "priority": "medium",
+    "id": "3"
+  },
+  {
+    "content": "Update tests to use new splines library",
+    "status": "completed",
+    "priority": "medium",
+    "id": "4"
+  },
+  {
+    "content": "Verify all functionality still works",
+    "status": "completed",
+    "priority": "medium",
+    "id": "5"
+  }
+]

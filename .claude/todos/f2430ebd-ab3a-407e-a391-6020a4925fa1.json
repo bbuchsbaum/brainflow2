@@ -1,0 +1,32 @@
+[
+  {
+    "content": "Create a new tool for R package analysis",
+    "status": "completed",
+    "priority": "high",
+    "id": "1"
+  },
+  {
+    "content": "Add R-specific file parsing utilities",
+    "status": "completed",
+    "priority": "high",
+    "id": "2"
+  },
+  {
+    "content": "Update server.py to register the new tool",
+    "status": "completed",
+    "priority": "medium",
+    "id": "3"
+  },
+  {
+    "content": "Add tests for the R package oracle",
+    "status": "completed",
+    "priority": "medium",
+    "id": "4"
+  },
+  {
+    "content": "Update documentation",
+    "status": "completed",
+    "priority": "low",
+    "id": "5"
+  }
+]

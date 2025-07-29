@@ -1,0 +1,62 @@
+[
+  {
+    "content": "Run comprehensive test suite to verify current state",
+    "status": "completed",
+    "priority": "high",
+    "id": "1"
+  },
+  {
+    "content": "Execute oracle harness tests against R comparison",
+    "status": "completed",
+    "priority": "high",
+    "id": "2"
+  },
+  {
+    "content": "Run performance benchmarks and assess progress",
+    "status": "completed",
+    "priority": "high",
+    "id": "3"
+  },
+  {
+    "content": "Conduct code quality assessment using zen tools",
+    "status": "pending",
+    "priority": "medium",
+    "id": "4"
+  },
+  {
+    "content": "Identify next optimization targets based on results",
+    "status": "completed",
+    "priority": "high",
+    "id": "5"
+  },
+  {
+    "content": "EMERGENCY: Fix performance regression - we're 0.78x vs target 2x",
+    "status": "completed",
+    "priority": "high",
+    "id": "6"
+  },
+  {
+    "content": "Update all benchmark scripts to use release mode",
+    "status": "completed",
+    "priority": "high",
+    "id": "7"
+  },
+  {
+    "content": "Run comprehensive performance validation across all models",
+    "status": "completed",
+    "priority": "high",
+    "id": "8"
+  },
+  {
+    "content": "Implement CI guardrails to prevent debug benchmarks",
+    "status": "pending",
+    "priority": "high",
+    "id": "9"
+  },
+  {
+    "content": "Plan next sprint targeting mixed models and advanced features",
+    "status": "pending",
+    "priority": "medium",
+    "id": "10"
+  }
+]

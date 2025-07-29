@@ -1,0 +1,8 @@
+[
+  {
+    "content": "Fix _pkgdown.yml to use correct class names after refactoring",
+    "status": "completed",
+    "priority": "high",
+    "id": "1"
+  }
+]

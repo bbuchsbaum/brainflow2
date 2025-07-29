@@ -1,0 +1,14 @@
+[
+  {
+    "content": "Stage and commit the fixes",
+    "status": "completed",
+    "priority": "high",
+    "id": "1"
+  },
+  {
+    "content": "Push changes to remote repository",
+    "status": "completed",
+    "priority": "high",
+    "id": "2"
+  }
+]

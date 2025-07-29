@@ -1,0 +1,68 @@
+[
+  {
+    "content": "Convert StudyBackendSeed from S4 to S3",
+    "status": "completed",
+    "priority": "high",
+    "id": "1"
+  },
+  {
+    "content": "Standardize mask representation to logical vectors",
+    "status": "completed",
+    "priority": "high",
+    "id": "2"
+  },
+  {
+    "content": "Optimize zarr_backend with chunk-aware reading",
+    "status": "completed",
+    "priority": "high",
+    "id": "3"
+  },
+  {
+    "content": "Create GitHub Actions job with all optional packages",
+    "status": "completed",
+    "priority": "high",
+    "id": "4"
+  },
+  {
+    "content": "Refactor latent_dataset to use storage_backend contract",
+    "status": "completed",
+    "priority": "medium",
+    "id": "5"
+  },
+  {
+    "content": "Vectorize get_latent_scores performance",
+    "status": "completed",
+    "priority": "medium",
+    "id": "6"
+  },
+  {
+    "content": "Implement proper LRU cache",
+    "status": "completed",
+    "priority": "medium",
+    "id": "7"
+  },
+  {
+    "content": "Create backend registry system",
+    "status": "completed",
+    "priority": "medium",
+    "id": "8"
+  },
+  {
+    "content": "Replace is_absolute_path with fs equivalent",
+    "status": "completed",
+    "priority": "low",
+    "id": "9"
+  },
+  {
+    "content": "Create configuration documentation",
+    "status": "completed",
+    "priority": "low",
+    "id": "10"
+  },
+  {
+    "content": "Revamp vignettes with engaging narrative",
+    "status": "completed",
+    "priority": "high",
+    "id": "11"
+  }
+]

@@ -1,0 +1,14 @@
+[
+  {
+    "content": "Fix searchRHelp to handle help.search() pager output",
+    "status": "completed",
+    "priority": "high",
+    "id": "1"
+  },
+  {
+    "content": "Test the updated search functionality",
+    "status": "completed",
+    "priority": "medium",
+    "id": "2"
+  }
+]

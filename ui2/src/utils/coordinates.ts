@@ -139,6 +139,15 @@ export class CoordinateTransform {
     };
   }
   
+  /**
+   * Calculate normal vector from two basis vectors
+   */
+  static calculateNormal(u: WorldCoordinates, v: WorldCoordinates): WorldCoordinates {
+    const normal = this.crossProduct(u, v);
+    const mag = this.magnitude(normal);
+    return [normal[0] / mag, normal[1] / mag, normal[2] / mag];
+  }
+  
   // Helper methods
   private static crossProduct(a: WorldCoordinates, b: WorldCoordinates): WorldCoordinates {
     return [

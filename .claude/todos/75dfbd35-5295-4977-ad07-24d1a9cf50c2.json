@@ -1,0 +1,56 @@
+[
+  {
+    "content": "Run all tests to check current status",
+    "status": "completed",
+    "priority": "high",
+    "id": "1"
+  },
+  {
+    "content": "Fix any test failures found",
+    "status": "completed",
+    "priority": "high",
+    "id": "2"
+  },
+  {
+    "content": "Verify all tests pass after fixes",
+    "status": "completed",
+    "priority": "medium",
+    "id": "3"
+  },
+  {
+    "content": "Fix context() deprecation warning in bayesian-engine test",
+    "status": "completed",
+    "priority": "low",
+    "id": "4"
+  },
+  {
+    "content": "Fix crossprod-updates test expecting different behavior",
+    "status": "completed",
+    "priority": "high",
+    "id": "5"
+  },
+  {
+    "content": "Fix dimension-checks test using wrong argument name",
+    "status": "completed",
+    "priority": "high",
+    "id": "6"
+  },
+  {
+    "content": "Fix estimate-parametric-hrf test theta_bounds validation",
+    "status": "completed",
+    "priority": "high",
+    "id": "7"
+  },
+  {
+    "content": "Fix integration tests expecting different data structure",
+    "status": "completed",
+    "priority": "high",
+    "id": "8"
+  },
+  {
+    "content": "Fix parametric-engine-validation tests using wrong argument",
+    "status": "completed",
+    "priority": "high",
+    "id": "9"
+  }
+]

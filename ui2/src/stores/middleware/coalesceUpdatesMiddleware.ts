@@ -23,23 +23,41 @@ let backendUpdateCallback: ((viewState: ViewState) => void) | null = null;
 
 /**
  * Check if only dimensions changed between two ViewStates
+ * Now properly handles the views field and dim_px comparisons
  */
 function isDimensionOnlyChange(current: ViewState, previous: ViewState | null): boolean {
   if (!previous) return false;
   
-  // Compare everything except view dimensions
-  const currentWithoutDims = {
-    layers: current.layers,
-    crosshair: current.crosshair
-  };
+  // Compare layers and crosshair - these should be identical for dimension-only changes
+  if (JSON.stringify(current.layers) !== JSON.stringify(previous.layers)) {
+    return false;
+  }
   
-  const previousWithoutDims = {
-    layers: previous.layers,
-    crosshair: previous.crosshair
-  };
+  if (JSON.stringify(current.crosshair) !== JSON.stringify(previous.crosshair)) {
+    return false;
+  }
   
-  // If layers or crosshair changed, it's not dimension-only
-  return JSON.stringify(currentWithoutDims) === JSON.stringify(previousWithoutDims);
+  // Compare views, but exclude dim_px fields - only dim_px should change in dimension-only updates
+  const viewTypes: (keyof typeof current.views)[] = ['axial', 'sagittal', 'coronal'];
+  
+  for (const viewType of viewTypes) {
+    const currentView = current.views[viewType];
+    const previousView = previous.views[viewType];
+    
+    if (!currentView && !previousView) continue;
+    if (!currentView || !previousView) return false;
+    
+    // Compare everything except dim_px
+    if (JSON.stringify(currentView.origin_mm) !== JSON.stringify(previousView.origin_mm) ||
+        JSON.stringify(currentView.u_mm) !== JSON.stringify(previousView.u_mm) ||
+        JSON.stringify(currentView.v_mm) !== JSON.stringify(previousView.v_mm)) {
+      return false;
+    }
+    
+    // dim_px is allowed to be different in dimension-only changes
+  }
+  
+  return true;
 }
 
 /**
@@ -61,11 +79,10 @@ function flushState(forceDimensionUpdate = false) {
     }
     
     // Check if this is a dimension-only update
+    // IMPORTANT: Always allow dimension updates to pass through for proper rendering after resize
     if (!forceDimensionUpdate && isDimensionOnlyChange(pendingState, lastFlushedState)) {
-      console.log(`[coalesceMiddleware ${flushTime.toFixed(0)}ms] 📏 Skipping dimension-only update - no radiological content changed`);
-      pendingState = null;
-      rafId = null;
-      return;
+      console.log(`[coalesceMiddleware ${flushTime.toFixed(0)}ms] 📏 Dimension-only update detected - allowing for proper resize handling`);
+      // Don't skip dimension updates - they're essential for proper rendering after panel resizes
     }
     
     if (forceDimensionUpdate) {

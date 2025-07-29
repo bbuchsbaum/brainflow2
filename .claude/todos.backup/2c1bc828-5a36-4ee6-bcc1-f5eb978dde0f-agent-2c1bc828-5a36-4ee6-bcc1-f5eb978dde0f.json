@@ -1,0 +1,50 @@
+[
+  {
+    "content": "Run devtools::check() and capture all issues",
+    "status": "completed",
+    "priority": "high",
+    "id": "1"
+  },
+  {
+    "content": "Fix ERROR: as_tibble function not found in example",
+    "status": "completed",
+    "priority": "high",
+    "id": "2"
+  },
+  {
+    "content": "Fix WARNING: Missing fmristore::read_vec",
+    "status": "completed",
+    "priority": "high",
+    "id": "3"
+  },
+  {
+    "content": "Fix WARNING: dplyr import not declared in tests",
+    "status": "completed",
+    "priority": "high",
+    "id": "4"
+  },
+  {
+    "content": "Fix NOTE: Remove check_output.log from top level",
+    "status": "completed",
+    "priority": "medium",
+    "id": "5"
+  },
+  {
+    "content": "Fix NOTE: show method export issue",
+    "status": "completed",
+    "priority": "medium",
+    "id": "6"
+  },
+  {
+    "content": "Fix ERROR: matrix_dataset mask parameter examples",
+    "status": "completed",
+    "priority": "high",
+    "id": "7"
+  },
+  {
+    "content": "FINAL SUCCESS: devtools::check() passes cleanly!",
+    "status": "completed",
+    "priority": "high",
+    "id": "8"
+  }
+]

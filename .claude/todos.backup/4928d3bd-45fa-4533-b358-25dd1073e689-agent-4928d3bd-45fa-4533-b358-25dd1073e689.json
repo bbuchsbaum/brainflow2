@@ -1,0 +1,26 @@
+[
+  {
+    "content": "Create end-to-end test: Load NIfTI → GPU upload → Render to PNG",
+    "status": "completed",
+    "priority": "high",
+    "id": "e2e-test"
+  },
+  {
+    "content": "Fix missing volume registration in GPU pipeline",
+    "status": "completed",
+    "priority": "high",
+    "id": "volume-registration"
+  },
+  {
+    "content": "Create simple demo app to test the full pipeline",
+    "status": "completed",
+    "priority": "medium",
+    "id": "demo-app"
+  },
+  {
+    "content": "Debug and fix any integration issues",
+    "status": "in_progress",
+    "priority": "medium",
+    "id": "debug-integration"
+  }
+]

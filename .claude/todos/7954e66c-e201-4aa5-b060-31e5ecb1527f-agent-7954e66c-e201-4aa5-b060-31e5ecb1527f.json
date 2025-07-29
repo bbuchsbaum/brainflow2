@@ -1,0 +1,80 @@
+[
+  {
+    "content": "Execute Testing Gate - run all tests to ensure 100% pass rate",
+    "status": "completed",
+    "priority": "high",
+    "id": "sprint_start"
+  },
+  {
+    "content": "Verify 100% Oracle Harness Pass Rate (R comparison tests at 1e-10 tolerance)",
+    "status": "completed",
+    "priority": "high",
+    "id": "oracle_harness"
+  },
+  {
+    "content": "Verify all unit tests pass",
+    "status": "completed",
+    "priority": "high",
+    "id": "unit_tests"
+  },
+  {
+    "content": "Verify all integration tests pass",
+    "status": "completed",
+    "priority": "high",
+    "id": "integration_tests"
+  },
+  {
+    "content": "Verify linting and style checks pass",
+    "status": "completed",
+    "priority": "high",
+    "id": "linting_style"
+  },
+  {
+    "content": "Conduct Take Stock Assessment - evaluate progress toward surpassing R",
+    "status": "completed",
+    "priority": "high",
+    "id": "stock_assessment"
+  },
+  {
+    "content": "Mandatory Code Audit using zen mcp tools",
+    "status": "completed",
+    "priority": "high",
+    "id": "code_audit"
+  },
+  {
+    "content": "Plan next sprint iteration based on assessment",
+    "status": "completed",
+    "priority": "medium",
+    "id": "next_sprint_planning"
+  },
+  {
+    "content": "Implement summary() result caching using OnceLock for performance",
+    "status": "pending",
+    "priority": "high",
+    "id": "optimize_summary_caching"
+  },
+  {
+    "content": "Replace custom statistical approximations with statrs library",
+    "status": "pending",
+    "priority": "high",
+    "id": "improve_statistical_accuracy"
+  },
+  {
+    "content": "Implement IRLS algorithm for GLM functionality",
+    "status": "pending",
+    "priority": "medium",
+    "id": "implement_irls"
+  },
+  {
+    "content": "Add fast path LM fitting for full-rank matrices",
+    "status": "pending",
+    "priority": "medium",
+    "id": "add_fast_lm_path"
+  },
+  {
+    "content": "Expand formula parsing to support more R syntax features",
+    "status": "pending",
+    "priority": "low",
+    "id": "enhance_formula_parser"
+  }
+]

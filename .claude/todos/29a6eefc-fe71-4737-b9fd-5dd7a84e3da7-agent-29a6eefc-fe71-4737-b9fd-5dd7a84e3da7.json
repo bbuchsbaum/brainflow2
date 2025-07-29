@@ -1,0 +1,20 @@
+[
+  {
+    "content": "Fix series() usage in NeuroVec test",
+    "status": "completed",
+    "priority": "high",
+    "id": "1"
+  },
+  {
+    "content": "Run all golden tests and verify they pass",
+    "status": "completed",
+    "priority": "high",
+    "id": "2"
+  },
+  {
+    "content": "Clean up temporary files",
+    "status": "completed",
+    "priority": "low",
+    "id": "3"
+  }
+]

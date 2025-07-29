@@ -1,0 +1,32 @@
+[
+  {
+    "content": "Add tests for types.rs validation",
+    "status": "pending",
+    "priority": "high",
+    "id": "test_types"
+  },
+  {
+    "content": "Add edge case tests for convolution methods",
+    "status": "completed",
+    "priority": "high",
+    "id": "test_convolution_edge"
+  },
+  {
+    "content": "Add tests for HRF core trait implementations",
+    "status": "completed",
+    "priority": "medium",
+    "id": "test_hrf_core"
+  },
+  {
+    "content": "Add tests for plotting error conditions",
+    "status": "completed",
+    "priority": "medium",
+    "id": "test_plotting_errors"
+  },
+  {
+    "content": "Add cross-validation actual tests",
+    "status": "pending",
+    "priority": "high",
+    "id": "test_cross_validation"
+  }
+]

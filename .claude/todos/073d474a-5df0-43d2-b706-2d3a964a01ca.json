@@ -1,0 +1,74 @@
+[
+  {
+    "content": "Check that all exported functions have complete documentation (@title, @param, @return, @examples, @export)",
+    "status": "completed",
+    "priority": "high",
+    "id": "1"
+  },
+  {
+    "content": "Verify S4 classes and methods are properly documented",
+    "status": "completed",
+    "priority": "high",
+    "id": "2"
+  },
+  {
+    "content": "Check for package-level documentation file",
+    "status": "completed",
+    "priority": "high",
+    "id": "3"
+  },
+  {
+    "content": "Verify examples run without errors and use appropriate tags (@donttest, @dontrun, @dontshow)",
+    "status": "completed",
+    "priority": "high",
+    "id": "4"
+  },
+  {
+    "content": "Check DESCRIPTION file for CRAN compliance",
+    "status": "completed",
+    "priority": "high",
+    "id": "5"
+  },
+  {
+    "content": "Run devtools::check(cran = TRUE) and address any issues",
+    "status": "completed",
+    "priority": "high",
+    "id": "6"
+  },
+  {
+    "content": "Check for any undocumented datasets",
+    "status": "completed",
+    "priority": "medium",
+    "id": "7"
+  },
+  {
+    "content": "Verify all internal functions use @noRd or @keywords internal appropriately",
+    "status": "completed",
+    "priority": "medium",
+    "id": "8"
+  },
+  {
+    "content": "Add @examples sections to 8 functions missing them",
+    "status": "completed",
+    "priority": "high",
+    "id": "9"
+  },
+  {
+    "content": "Create package-level documentation file",
+    "status": "completed",
+    "priority": "high",
+    "id": "10"
+  },
+  {
+    "content": "Update DESCRIPTION file for CRAN compliance (Title case, expand Description)",
+    "status": "completed",
+    "priority": "high",
+    "id": "11"
+  },
+  {
+    "content": "Replace all @dontrun with @donttest and ensure examples can actually run",
+    "status": "completed",
+    "priority": "high",
+    "id": "12"
+  }
+]

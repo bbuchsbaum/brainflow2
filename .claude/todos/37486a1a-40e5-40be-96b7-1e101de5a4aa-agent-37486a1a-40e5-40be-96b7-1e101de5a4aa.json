@@ -1,0 +1,32 @@
+[
+  {
+    "content": "Check server logs for recent errors",
+    "status": "completed",
+    "priority": "high",
+    "id": "1"
+  },
+  {
+    "content": "Run code quality checks to identify any issues",
+    "status": "completed",
+    "priority": "high",
+    "id": "2"
+  },
+  {
+    "content": "Check server status and configuration",
+    "status": "pending",
+    "priority": "medium",
+    "id": "3"
+  },
+  {
+    "content": "Run quick test mode to validate functionality",
+    "status": "in_progress",
+    "priority": "medium",
+    "id": "4"
+  },
+  {
+    "content": "Fix consensus tool model_context issue",
+    "status": "completed",
+    "priority": "high",
+    "id": "5"
+  }
+]

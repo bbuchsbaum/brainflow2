@@ -1,0 +1,62 @@
+[
+  {
+    "content": "Create config schema for bootstrap validation",
+    "status": "completed",
+    "priority": "high",
+    "id": "25"
+  },
+  {
+    "content": "Add bootstrap config validation to +layout.svelte",
+    "status": "completed",
+    "priority": "high",
+    "id": "26"
+  },
+  {
+    "content": "Simplify ConfigService to pure accessor pattern",
+    "status": "completed",
+    "priority": "high",
+    "id": "27"
+  },
+  {
+    "content": "Update DI Container configService registration",
+    "status": "completed",
+    "priority": "high",
+    "id": "28"
+  },
+  {
+    "content": "Remove lazy loading from validatedApi",
+    "status": "completed",
+    "priority": "high",
+    "id": "29"
+  },
+  {
+    "content": "Simplify GpuResourceService config access",
+    "status": "completed",
+    "priority": "high",
+    "id": "30"
+  },
+  {
+    "content": "Test application startup without circular dependencies",
+    "status": "completed",
+    "priority": "high",
+    "id": "31"
+  },
+  {
+    "content": "Fix legacy export let syntax in 9 files",
+    "status": "pending",
+    "priority": "medium",
+    "id": "9"
+  },
+  {
+    "content": "Fix legacy on: event handlers in 49 files",
+    "status": "pending",
+    "priority": "medium",
+    "id": "10"
+  },
+  {
+    "content": "Clean up debug logging in production",
+    "status": "pending",
+    "priority": "medium",
+    "id": "24"
+  }
+]

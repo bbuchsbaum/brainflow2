@@ -1,0 +1,50 @@
+[
+  {
+    "content": "Create comprehensive R to Rust conversion guide document",
+    "status": "completed",
+    "priority": "high",
+    "id": "1"
+  },
+  {
+    "content": "Adapt discovery and assessment phase for Rust ecosystem",
+    "status": "completed",
+    "priority": "high",
+    "id": "2"
+  },
+  {
+    "content": "Map R concepts to Rust equivalents (structs, traits, etc.)",
+    "status": "completed",
+    "priority": "high",
+    "id": "3"
+  },
+  {
+    "content": "Define Rust project structure and implementation strategy",
+    "status": "completed",
+    "priority": "high",
+    "id": "4"
+  },
+  {
+    "content": "Create Rust-specific testing and verification strategies",
+    "status": "completed",
+    "priority": "high",
+    "id": "5"
+  },
+  {
+    "content": "Adapt documentation strategy for rustdoc",
+    "status": "completed",
+    "priority": "high",
+    "id": "6"
+  },
+  {
+    "content": "Define performance optimization approaches for Rust",
+    "status": "completed",
+    "priority": "high",
+    "id": "7"
+  },
+  {
+    "content": "Create Rust-specific workflow commands and patterns",
+    "status": "completed",
+    "priority": "high",
+    "id": "8"
+  }
+]

@@ -1,0 +1,14 @@
+[
+  {
+    "content": "Create additional examples and guides for Phase 4",
+    "status": "completed",
+    "priority": "high",
+    "id": "1"
+  },
+  {
+    "content": "Prepare project for publishing to crates.io",
+    "status": "completed",
+    "priority": "medium",
+    "id": "2"
+  }
+]

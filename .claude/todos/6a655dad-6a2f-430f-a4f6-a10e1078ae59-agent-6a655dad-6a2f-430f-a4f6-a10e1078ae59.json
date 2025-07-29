@@ -1,0 +1,38 @@
+[
+  {
+    "content": "Investigate numerical discrepancy between our mixed model (1.739) and R's lme4 (2.023)",
+    "status": "completed",
+    "priority": "high",
+    "id": "1"
+  },
+  {
+    "content": "Debug mixed model implementation to find root cause",
+    "status": "completed",
+    "priority": "high",
+    "id": "2"
+  },
+  {
+    "content": "Fix the mixed model calculation to match R's result within 1e-10",
+    "status": "completed",
+    "priority": "high",
+    "id": "3"
+  },
+  {
+    "content": "Clean up unused variable warnings in optimcore",
+    "status": "completed",
+    "priority": "medium",
+    "id": "4"
+  },
+  {
+    "content": "Run full test suite to ensure all tests pass",
+    "status": "completed",
+    "priority": "high",
+    "id": "5"
+  },
+  {
+    "content": "Complete Sprint Completion Protocol",
+    "status": "completed",
+    "priority": "high",
+    "id": "6"
+  }
+]

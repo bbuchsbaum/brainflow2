@@ -1,0 +1,20 @@
+[
+  {
+    "content": "Fix all stats.test.ts failures (NeuroSpace validation)",
+    "status": "completed",
+    "priority": "high",
+    "id": "43"
+  },
+  {
+    "content": "Fix remaining DenseNeuroVol test failures",
+    "status": "completed",
+    "priority": "high",
+    "id": "44"
+  },
+  {
+    "content": "Fix any remaining test failures",
+    "status": "completed",
+    "priority": "high",
+    "id": "45"
+  }
+]

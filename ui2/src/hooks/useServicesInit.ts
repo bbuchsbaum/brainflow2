@@ -13,6 +13,7 @@ import { initializeViewRegistry } from '@/services/ViewRegistry';
 // import { initializeViewStateRenderService } from '@/services/ViewStateRenderService'; // Removed - redundant with coalescing
 import { coalesceUtils } from '@/stores/middleware/coalesceUpdatesMiddleware';
 import { getApiService } from '@/services/apiService';
+import { getRenderCoordinator } from '@/services/RenderCoordinator';
 import { getEventBus } from '@/events/EventBus';
 import { useLayerStore } from '@/stores/layerStore';
 import { useViewStateStore } from '@/stores/viewStateStore';
@@ -48,13 +49,14 @@ export function useServicesInit() {
           }
         });
         
-        // Initialize RenderLoop for GPU resources
+        // Initialize RenderLoop for GPU resources via RenderCoordinator
         // This must be done early so GPU resources are available for file loading
         const apiService = getApiService();
+        const renderCoordinator = getRenderCoordinator();
         try {
           console.log('[useServicesInit] Initializing RenderLoop...');
           await apiService.initRenderLoop(512, 512);
-          await apiService.createOffscreenRenderTarget(512, 512);
+          // Removed updateDimensions call - backend now handles per-view render targets
           console.log('[useServicesInit] RenderLoop initialized successfully');
           
           // Mark RenderLoop as globally initialized so individual views don't try to reinitialize
@@ -140,17 +142,19 @@ export function useServicesInit() {
             const view = viewState.views[viewType];
             const [width, height] = view.dim_px;
             
-            console.log(`Rendering ${viewType} view: ${width}x${height}`);
+            console.log(`Rendering ${viewType} view: ${width}x${height} via RenderCoordinator`);
             
-            // Pass actual dimensions to render call
-            const imageBitmap = await apiService.applyAndRenderViewState(
-              viewState, 
+            // ⭐ UNIFIED RENDER PATHWAY: Use RenderCoordinator for ALL renders
+            const imageBitmap = await renderCoordinator.requestRender({
+              viewState,
               viewType,
               width,
-              height
-            );
+              height,
+              reason: 'layer_change', // Could be layer_change, crosshair, etc.
+              priority: 'normal'
+            });
             
-            console.log(`[useServicesInit] Render ${viewType} complete:`, {
+            console.log(`[useServicesInit] Render ${viewType} complete via RenderCoordinator:`, {
               imageBitmap,
               isImageBitmap: imageBitmap instanceof ImageBitmap,
               type: imageBitmap ? Object.prototype.toString.call(imageBitmap) : 'null',

@@ -1,0 +1,20 @@
+[
+  {
+    "content": "Verify T103 SVD Result Structure is complete",
+    "status": "completed",
+    "priority": "high",
+    "id": "1"
+  },
+  {
+    "content": "Update progress.md to mark T103 as complete",
+    "status": "completed",
+    "priority": "high",
+    "id": "2"
+  },
+  {
+    "content": "Move to next task T110 - Preprocessing System",
+    "status": "completed",
+    "priority": "medium",
+    "id": "3"
+  }
+]

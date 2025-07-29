@@ -1,0 +1,44 @@
+[
+  {
+    "content": "Fix non-standard license specification in DESCRIPTION",
+    "status": "completed",
+    "priority": "high",
+    "id": "fix-license"
+  },
+  {
+    "content": "Add missing imports to NAMESPACE (grDevices, stats, dplyr functions)",
+    "status": "completed",
+    "priority": "high",
+    "id": "fix-imports"
+  },
+  {
+    "content": "Fix undocumented arguments in Rd files",
+    "status": "completed",
+    "priority": "high",
+    "id": "fix-documentation"
+  },
+  {
+    "content": "Remove hidden files/directories (.claude, .pytest_cache)",
+    "status": "completed",
+    "priority": "medium",
+    "id": "clean-hidden-files"
+  },
+  {
+    "content": "Remove non-standard top-level files",
+    "status": "completed",
+    "priority": "medium",
+    "id": "clean-top-level"
+  },
+  {
+    "content": "Add LazyDataCompression to DESCRIPTION",
+    "status": "completed",
+    "priority": "medium",
+    "id": "fix-lazy-data"
+  },
+  {
+    "content": "Fix partial argument matches in ggplot code",
+    "status": "completed",
+    "priority": "low",
+    "id": "fix-partial-matches"
+  }
+]

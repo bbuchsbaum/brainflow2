@@ -1,0 +1,14 @@
+[
+  {
+    "content": "Implement base projector (as_numeric trait)",
+    "status": "completed",
+    "priority": "high",
+    "id": "T202"
+  },
+  {
+    "content": "Implement PCA projector (as_logical trait)",
+    "status": "in_progress",
+    "priority": "high",
+    "id": "T203"
+  }
+]

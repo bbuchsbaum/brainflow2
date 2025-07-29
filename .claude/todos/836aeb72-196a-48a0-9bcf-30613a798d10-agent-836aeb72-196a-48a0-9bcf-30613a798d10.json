@@ -1,0 +1,38 @@
+[
+  {
+    "content": "Set up accounts on all target platforms (Stack Overflow, GitHub Jobs, AngelList, etc.)",
+    "status": "in_progress",
+    "priority": "high",
+    "id": "1"
+  },
+  {
+    "content": "Publish platform-specific job postings with tracking links",
+    "status": "pending",
+    "priority": "high",
+    "id": "2"
+  },
+  {
+    "content": "Configure LinkedIn Recruiter and GitHub Talent sourcing tools",
+    "status": "pending",
+    "priority": "high",
+    "id": "3"
+  },
+  {
+    "content": "Launch active sourcing campaigns with personalized outreach",
+    "status": "pending",
+    "priority": "high",
+    "id": "4"
+  },
+  {
+    "content": "Implement candidate tracking and metrics dashboard",
+    "status": "pending",
+    "priority": "medium",
+    "id": "5"
+  },
+  {
+    "content": "Begin 50+ weekly outreach per role via LinkedIn and GitHub",
+    "status": "pending",
+    "priority": "medium",
+    "id": "6"
+  }
+]

@@ -9,6 +9,7 @@ path = "src/bin/export_types.rs"
 
 [dependencies]
 serde = { workspace = true } # Inherit version/features from workspace
+serde_json = "1.0" # For serde_json::Value in BatchRenderRequest
 thiserror = "1.0"                           # For BridgeError derive
 async-trait = "0.1"                         # For Loader trait
 volmath = { path = "../volmath" }             # For types used in VolumeSendable, BridgeError, VolumeHandleInfo etc.

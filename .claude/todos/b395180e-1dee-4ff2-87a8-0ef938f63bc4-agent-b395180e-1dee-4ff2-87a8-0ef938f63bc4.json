@@ -1,0 +1,38 @@
+[
+  {
+    "content": "Fix CSS injection vulnerability in Experiment.ts",
+    "status": "completed",
+    "priority": "high",
+    "id": "sec-001-css-injection"
+  },
+  {
+    "content": "Resolve memory leaks in AudioDevice event listeners",
+    "status": "completed",
+    "priority": "high",
+    "id": "sec-001-memory-leaks"
+  },
+  {
+    "content": "Implement proper input sanitization",
+    "status": "completed",
+    "priority": "high",
+    "id": "sec-001-input-sanitization"
+  },
+  {
+    "content": "Add explicit consent handling for data collection",
+    "status": "completed",
+    "priority": "high",
+    "id": "sec-001-consent-handling"
+  },
+  {
+    "content": "Fix XSS vulnerability in privacy policy URL",
+    "status": "completed",
+    "priority": "high",
+    "id": "sec-001-xss-privacy-url"
+  },
+  {
+    "content": "Security audit re-validation passes",
+    "status": "completed",
+    "priority": "medium",
+    "id": "sec-001-audit-revalidation"
+  }
+]

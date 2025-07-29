@@ -31,6 +31,8 @@ const COMMANDS: &[&str] = &[
     "apply_and_render_view_state",
     "apply_and_render_view_state_binary",
     "apply_and_render_view_state_raw",
+    "query_slice_axis_meta",
+    "batch_render_slices",
 ];
 
 fn main() {

@@ -1,0 +1,44 @@
+[
+  {
+    "content": "Create new stepper-based layout with vertical wizard flow",
+    "status": "completed",
+    "priority": "high",
+    "id": "1"
+  },
+  {
+    "content": "Implement draft management for task switching",
+    "status": "completed",
+    "priority": "high",
+    "id": "2"
+  },
+  {
+    "content": "Add search functionality to task list",
+    "status": "completed",
+    "priority": "high",
+    "id": "3"
+  },
+  {
+    "content": "Convert variant input to segmented control",
+    "status": "completed",
+    "priority": "medium",
+    "id": "4"
+  },
+  {
+    "content": "Implement URL state management for sharing",
+    "status": "completed",
+    "priority": "medium",
+    "id": "5"
+  },
+  {
+    "content": "Add keyboard shortcuts and accessibility",
+    "status": "completed",
+    "priority": "medium",
+    "id": "6"
+  },
+  {
+    "content": "Apply design tokens for spacing and typography",
+    "status": "completed",
+    "priority": "low",
+    "id": "7"
+  }
+]

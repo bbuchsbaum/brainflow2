@@ -9,6 +9,8 @@ import type { ViewState } from '@/types/viewState';
 import type { WorldCoordinates, ViewPlane } from '@/types/coordinates';
 import type { VolumeBounds } from '@brainflow/api';
 import { useRenderStore } from '@/stores/renderStore';
+import type { RustViewState } from '@/types/rustViewState';
+import { isValidRustViewState } from '@/types/rustViewState';
 
 export interface VolumeHandle {
   id: string;
@@ -50,7 +52,13 @@ export class ApiService {
    * Currently the backend only handles crosshair in apply_and_render_view_state,
    * so we need to handle layers separately for now.
    */
-  async applyAndRenderViewStateCore(viewState: ViewState, viewType?: 'axial' | 'sagittal' | 'coronal', width = 512, height = 512): Promise<ImageBitmap> {
+  async applyAndRenderViewStateCore(
+    viewState: ViewState, 
+    viewType?: 'axial' | 'sagittal' | 'coronal', 
+    width = 512, 
+    height = 512,
+    sliceOverride?: { axis: 'x' | 'y' | 'z'; position: number }
+  ): Promise<ImageBitmap> {
     const startTime = performance.now();
     console.log(`[ApiService ${startTime.toFixed(0)}ms] applyAndRenderViewStateCore called`);
     console.log(`  - Total layers: ${viewState.layers.length}`);
@@ -109,19 +117,47 @@ export class ApiService {
       return createImageBitmap(canvas);
     }
     
+    // Handle slice override if provided - only modify crosshair position
+    let crosshairToUse = viewState.crosshair;
+    let viewsToUse = viewState.views;
+    
+    if (sliceOverride && viewType) {
+      // Create a copy of the crosshair with the overridden slice position
+      const axisIndex = sliceOverride.axis === 'x' ? 0 : sliceOverride.axis === 'y' ? 1 : 2;
+      const newWorldMm = [...viewState.crosshair.world_mm];
+      newWorldMm[axisIndex] = sliceOverride.position;
+      
+      // Only update crosshair, let backend calculate view origin
+      crosshairToUse = {
+        ...viewState.crosshair,
+        world_mm: newWorldMm
+      };
+      
+      console.log(`[ApiService] Using slice override: ${sliceOverride.axis}=${sliceOverride.position}mm`);
+      console.log(`[ApiService] Original crosshair: [${viewState.crosshair.world_mm}]`);
+      console.log(`[ApiService] Modified crosshair: [${newWorldMm}]`);
+    }
+    
     const declarativeViewState = {
-      views: viewState.views,
-      crosshair: viewState.crosshair,
-      layers: visibleLayers.map(layer => ({
-        id: layer.id,  // Add the id field expected by backend
-        volumeId: layer.volumeId,  // Use camelCase to match backend expectation
-        colormap: layer.colormap,
-        blendMode: layer.blendMode || 'alpha',
-        opacity: layer.opacity,
-        intensity: layer.intensity,
-        threshold: layer.threshold,
-        visible: true  // Always true since we pre-filtered for visible layers
-      }))
+      views: viewsToUse,
+      crosshair: crosshairToUse,
+      layers: visibleLayers.map(layer => {
+        console.log(`[ApiService] DEBUG: Converting layer for backend:`, {
+          id: layer.id,
+          volumeId: layer.volumeId,
+          isSame: layer.id === layer.volumeId
+        });
+        return {
+          id: layer.id,  // Add the id field expected by backend
+          volumeId: layer.volumeId,  // Use camelCase to match backend expectation
+          colormap: layer.colormap,
+          blendMode: layer.blendMode || 'alpha',
+          opacity: layer.opacity,
+          intensity: layer.intensity,
+          threshold: layer.threshold,
+          visible: true  // Always true since we pre-filtered for visible layers
+        };
+      })
     };
     
     // // Log the layer properties being sent to backend
@@ -136,8 +172,8 @@ export class ApiService {
     // });
     
     // If a specific view is requested, add frame parameters
-    if (viewType && viewState.views[viewType]) {
-      const view = viewState.views[viewType];
+    if (viewType && viewsToUse[viewType]) {
+      const view = viewsToUse[viewType];
       // Add the specific view's frame parameters to be used by backend
       // IMPORTANT: The shader expects u_mm and v_mm to represent the total extent
       // of the view, not per-pixel vectors. We must scale by viewport dimensions.
@@ -174,8 +210,8 @@ export class ApiService {
     });
     
     // Log the original view vectors before scaling
-    if (viewType && viewState.views[viewType]) {
-      const view = viewState.views[viewType];
+    if (viewType && viewsToUse[viewType]) {
+      const view = viewsToUse[viewType];
       console.log(`  - Original view vectors (per-pixel):`, {
         u_mm: view.u_mm,
         v_mm: view.v_mm,
@@ -559,10 +595,14 @@ export class ApiService {
     });
     
     if (dimensions[0] !== result.width_px || dimensions[1] !== result.height_px) {
-      console.warn(`[ApiService] ⚠️ DIMENSION MISMATCH: Backend returned different dimensions than requested!`);
-      console.warn(`  Requested: ${dimensions[0]}x${dimensions[1]}`);
-      console.warn(`  Backend returned: ${result.width_px}x${result.height_px}`);
-      console.warn(`  This could cause centering/sizing issues!`);
+      // This is expected behavior - backend preserves aspect ratios and square pixels
+      console.info(`[ApiService] 📐 Backend dimension adjustment: ${dimensions.join('×')} → ${result.width_px}×${result.height_px}`, {
+        requestedDimensions: dimensions,
+        actualDimensions: [result.width_px, result.height_px],
+        reason: 'aspect ratio preservation and square pixel requirements',
+        impactOnRendering: 'Using backend dimensions - this is expected medical imaging behavior',
+        medicalImagingNote: 'Square pixels preserve anatomical proportions'
+      });
     }
     
     console.log(`[ApiService] Returning ViewPlane:`, viewPlane);
@@ -694,6 +734,214 @@ export class ApiService {
   async patchLayer(layerId: string, patch: Record<string, any>): Promise<void> {
     // Tauri expects camelCase parameter names from JS and converts to snake_case for Rust
     return this.transport.invoke('patch_layer', { layerId, patch });
+  }
+  
+  /**
+   * Query metadata about slices along a specific axis
+   * Note: Uses the volume from the first visible layer as the reference
+   */
+  async querySliceAxisMeta(
+    volumeId: string,
+    axis: 'axial' | 'sagittal' | 'coronal'
+  ): Promise<{
+    sliceCount: number;
+    sliceSpacing: number;
+    axisLength: number;
+  }> {
+    console.log('[ApiService] Querying slice metadata:', { volumeId, axis });
+    const result = await this.transport.invoke<{
+      slice_count: number;
+      slice_spacing: number;
+      axis_length_mm: number;
+    }>('query_slice_axis_meta', {
+      volumeId: volumeId,  // Tauri automatically converts to snake_case
+      axis
+    });
+    
+    console.log('[ApiService] Slice metadata result:', result);
+    
+    // Convert snake_case to camelCase for frontend consistency
+    return {
+      sliceCount: result.slice_count,
+      sliceSpacing: result.slice_spacing,
+      axisLength: result.axis_length_mm
+    };
+  }
+  
+  /**
+   * Batch render multiple slices for MosaicView
+   * @param viewStates - Array of view states to render
+   * @param widthPerSlice - Width of each slice in pixels
+   * @param heightPerSlice - Height of each slice in pixels
+   * @returns Raw RGBA buffer containing all rendered slices
+   */
+  async batchRenderSlices(
+    viewStates: any[], // FrontendViewState[] - using any to avoid circular dependencies
+    widthPerSlice: number,
+    heightPerSlice: number
+  ): Promise<ArrayBuffer> {
+    // Transform FrontendViewState to render_loop ViewState format
+    // The backend expects a specific JSON structure with different field names
+    
+    console.log(`[ApiService] batchRenderSlices called with ${viewStates.length} FrontendViewStates`);
+    console.log('[ApiService] First ViewState:', JSON.stringify(viewStates[0], null, 2));
+    
+    // Transform each FrontendViewState to render_loop ViewState format
+    const transformedViewStates = viewStates.map((fvs, idx) => {
+      // Validate FrontendViewState structure
+      if (!fvs.views || !fvs.crosshair || !fvs.layers) {
+        throw new Error(`ViewState ${idx}: Missing required fields (views, crosshair, or layers)`);
+      }
+      
+      // Get the single view (MosaicView only uses one axis at a time)
+      const viewType = Object.keys(fvs.views)[0];
+      const view = fvs.views[viewType];
+      
+      if (!view || !view.origin_mm || !view.u_mm || !view.v_mm) {
+        throw new Error(`ViewState ${idx}: Invalid view structure for ${viewType}`);
+      }
+      
+      // Get requestedView for render parameters
+      const requestedView = fvs.requestedView;
+      if (!requestedView) {
+        throw new Error(`ViewState ${idx}: Missing requestedView`);
+      }
+      
+      // Map colormap names to IDs
+      const colormapNameToId = (name: string): number => {
+        const colormapMap: Record<string, number> = {
+          'gray': 0,
+          'hot': 1,
+          'cool': 2,
+          'jet': 3,
+          'viridis': 4,
+          'plasma': 5,
+          'inferno': 6,
+          'magma': 7,
+          'turbo': 8,
+          'rainbow': 9,
+          // Add more as needed
+        };
+        return colormapMap[name] || 0; // Default to gray
+      };
+      
+      // Transform layers from FrontendViewState format to render_loop format
+      const transformedLayers = fvs.layers.map((layer: any, layerIdx: number) => {
+        // Validate layer
+        if (!layer.volumeId || !layer.intensity || layer.intensity.length !== 2) {
+          throw new Error(`ViewState ${idx}, Layer ${layerIdx}: Invalid layer structure`);
+        }
+        
+        // Ensure intensity values are numbers
+        const intensityMin = Number(layer.intensity[0]);
+        const intensityMax = Number(layer.intensity[1]);
+        
+        if (isNaN(intensityMin) || isNaN(intensityMax)) {
+          throw new Error(`ViewState ${idx}, Layer ${layerIdx}: Invalid intensity values`);
+        }
+        
+        return {
+          volume_id: layer.volumeId,  // camelCase to snake_case
+          opacity: layer.opacity || 1.0,
+          colormap_id: colormapNameToId(layer.colormap || 'gray'),
+          blend_mode: layer.blendMode === 'alpha' ? 'Normal' : 'Normal', // Currently only Normal is supported
+          intensity_window: [intensityMin, intensityMax], // Array format for JSON serialization
+          // For batch_render_slices, we need to send threshold as null for Option<ThresholdConfig>
+          // But apply_and_render_view_state_internal expects [f32; 2] array
+          // Since batch_render_slices re-serializes and calls apply_and_render_view_state_internal,
+          // we need to handle this mismatch temporarily
+          threshold: null, // This will be re-serialized correctly by batch_render_slices
+          visible: layer.visible !== false
+        };
+      });
+      
+      // Build render_loop ViewState structure
+      const renderLoopViewState = {
+        layout_version: 1,
+        camera: {
+          world_center: fvs.crosshair.world_mm,
+          fov_mm: Math.max(
+            Math.abs(requestedView.u_mm[0]) + Math.abs(requestedView.u_mm[1]) + Math.abs(requestedView.u_mm[2]),
+            Math.abs(requestedView.v_mm[0]) + Math.abs(requestedView.v_mm[1]) + Math.abs(requestedView.v_mm[2])
+          ),
+          orientation: requestedView.type.charAt(0).toUpperCase() + requestedView.type.slice(1), // 'axial' -> 'Axial'
+          frame_origin: requestedView.origin_mm.length === 3 
+            ? [...requestedView.origin_mm, 1.0] 
+            : requestedView.origin_mm,
+          frame_u_vec: requestedView.u_mm,
+          frame_v_vec: requestedView.v_mm
+        },
+        crosshair_world: fvs.crosshair.world_mm,
+        layers: transformedLayers,
+        viewport_size: [requestedView.width, requestedView.height],
+        show_crosshair: false
+      };
+      
+      console.log(`[ApiService] Transformed ViewState ${idx}:`, JSON.stringify(renderLoopViewState, null, 2));
+      
+      // Validate the transformed ViewState
+      if (!isValidRustViewState(renderLoopViewState)) {
+        console.error('[ApiService] Invalid ViewState structure:', renderLoopViewState);
+        throw new Error(`ViewState ${idx} does not match Rust structure`);
+      }
+      
+      return renderLoopViewState as RustViewState;
+    });
+    
+    // Serialize with proper JSON format for Rust deserialization
+    // Note: We need to ensure tuples are serialized as arrays
+    const viewStatesJson = JSON.stringify(transformedViewStates, (key, value) => {
+      // Convert intensity_window arrays to ensure proper serialization
+      if (key === 'intensity_window' && Array.isArray(value) && value.length === 2) {
+        return value; // Keep as array for JSON
+      }
+      return value;
+    });
+    
+    console.log('[ApiService] Batch render request with', transformedViewStates.length, 'slices');
+    console.log('[ApiService] Transformed ViewStates JSON preview:', viewStatesJson.substring(0, 500) + '...');
+    
+    // Add detailed validation and logging
+    try {
+      // Test parse to catch issues early
+      const testParse = JSON.parse(viewStatesJson);
+      console.log('[ApiService] JSON validation passed. Structure:', {
+        arrayLength: testParse.length,
+        firstItem: testParse[0] ? {
+          hasLayoutVersion: 'layout_version' in testParse[0],
+          hasCamera: 'camera' in testParse[0],
+          hasLayers: 'layers' in testParse[0],
+          layersCount: testParse[0].layers?.length,
+          firstLayer: testParse[0].layers?.[0] ? {
+            hasThreshold: 'threshold' in testParse[0].layers[0],
+            thresholdValue: testParse[0].layers[0].threshold,
+            thresholdType: typeof testParse[0].layers[0].threshold
+          } : null
+        } : null
+      });
+      
+      // Log the full JSON for debugging (only in development)
+      if (transformedViewStates.length <= 3) {
+        console.log('[ApiService] Full ViewStates JSON:', JSON.stringify(testParse, null, 2));
+      }
+    } catch (e) {
+      console.error('[ApiService] Invalid JSON generated:', e);
+      console.error('[ApiService] JSON string that failed:', viewStatesJson);
+      throw new Error(`Failed to generate valid JSON: ${e.message}`);
+    }
+    
+    // Call the batch render command
+    // Note: Tauri converts top-level param names (batchRequest → batch_request)
+    // but NOT field names inside objects - those must match Rust struct exactly
+    const response = await this.transport.invoke<ArrayBuffer>('batch_render_slices', {
+      batchRequest: {
+        view_states_json: viewStatesJson,
+        width_per_slice: widthPerSlice,
+        height_per_slice: heightPerSlice
+      }
+    });
+    
+    return response;
   }
   
   /**

@@ -1,0 +1,44 @@
+[
+  {
+    "content": "Research BIDS test datasets and minimal examples",
+    "status": "completed",
+    "priority": "high",
+    "id": "1"
+  },
+  {
+    "content": "Create synthetic BIDS data generator",
+    "status": "pending",
+    "priority": "medium",
+    "id": "3"
+  },
+  {
+    "content": "Set up remote dataset testing",
+    "status": "pending",
+    "priority": "medium",
+    "id": "4"
+  },
+  {
+    "content": "Implement subset/sampling strategies",
+    "status": "pending",
+    "priority": "medium",
+    "id": "5"
+  },
+  {
+    "content": "Add bids-examples as git submodule",
+    "status": "completed",
+    "priority": "high",
+    "id": "6"
+  },
+  {
+    "content": "Create integration tests using real BIDS examples",
+    "status": "completed",
+    "priority": "high",
+    "id": "7"
+  },
+  {
+    "content": "Update test infrastructure to handle example datasets",
+    "status": "completed",
+    "priority": "high",
+    "id": "8"
+  }
+]

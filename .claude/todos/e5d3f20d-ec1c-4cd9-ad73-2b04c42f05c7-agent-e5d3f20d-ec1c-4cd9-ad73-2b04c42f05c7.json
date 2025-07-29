@@ -1,0 +1,32 @@
+[
+  {
+    "content": "Optimize BIDS query performance",
+    "status": "completed",
+    "priority": "high",
+    "id": "1"
+  },
+  {
+    "content": "Implement layout caching for skeleton data",
+    "status": "pending",
+    "priority": "high",
+    "id": "2"
+  },
+  {
+    "content": "Create performance benchmarks vs Python",
+    "status": "pending",
+    "priority": "medium",
+    "id": "3"
+  },
+  {
+    "content": "Add more examples and guides",
+    "status": "pending",
+    "priority": "medium",
+    "id": "4"
+  },
+  {
+    "content": "Prepare for publishing to crates.io",
+    "status": "pending",
+    "priority": "low",
+    "id": "5"
+  }
+]

@@ -1,0 +1,44 @@
+[
+  {
+    "content": "Plan Sprint 5 implementation approach",
+    "status": "completed",
+    "priority": "high",
+    "id": "sprint5-plan"
+  },
+  {
+    "content": "SIM-001: Package @psyforge/headless (WASM) & Memory Budget Test",
+    "status": "completed",
+    "priority": "high",
+    "id": "sim-001"
+  },
+  {
+    "content": "AI-001: AI Command Palette Backend",
+    "status": "completed",
+    "priority": "high",
+    "id": "ai-001"
+  },
+  {
+    "content": "SIM-002: Virtual Device Integration",
+    "status": "in_progress",
+    "priority": "high",
+    "id": "sim-002"
+  },
+  {
+    "content": "GUI-010: AI Command Palette UI Integration",
+    "status": "pending",
+    "priority": "high",
+    "id": "gui-010"
+  },
+  {
+    "content": "GUI-009: Time-Travel Scrubber UI",
+    "status": "pending",
+    "priority": "high",
+    "id": "gui-009"
+  },
+  {
+    "content": "SIM-003: Performance Monitoring Integration",
+    "status": "pending",
+    "priority": "medium",
+    "id": "sim-003"
+  }
+]

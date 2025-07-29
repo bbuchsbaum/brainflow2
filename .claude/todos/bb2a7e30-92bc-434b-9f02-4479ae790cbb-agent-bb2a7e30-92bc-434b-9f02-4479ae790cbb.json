@@ -1,0 +1,56 @@
+[
+  {
+    "content": "Run mandatory testing gate - all tests must pass before sprint work",
+    "status": "completed",
+    "priority": "high",
+    "id": "sprint_testing_gate"
+  },
+  {
+    "content": "Fix GLM test failures - matrix dimension mismatch",
+    "status": "completed",
+    "priority": "high",
+    "id": "fix_glm_tests"
+  },
+  {
+    "content": "Fix code formatting violations",
+    "status": "completed",
+    "priority": "high",
+    "id": "fix_formatting"
+  },
+  {
+    "content": "Conduct take stock assessment of progress toward R superiority goals",
+    "status": "completed",
+    "priority": "high",
+    "id": "assess_current_state"
+  },
+  {
+    "content": "Plan next sprint work based on assessment results",
+    "status": "completed",
+    "priority": "high",
+    "id": "plan_next_sprint"
+  },
+  {
+    "content": "CRITICAL: Fix OpenBLAS build failure to enable benchmark validation",
+    "status": "completed",
+    "priority": "high",
+    "id": "fix_openblas_build"
+  },
+  {
+    "content": "Migrate optimcore from ndarray-linalg to faer for consistency",
+    "status": "completed",
+    "priority": "high",
+    "id": "unify_linalg_backend"
+  },
+  {
+    "content": "Get performance benchmarks running and establish R baseline comparison",
+    "status": "completed",
+    "priority": "high",
+    "id": "establish_benchmarks"
+  },
+  {
+    "content": "Measure current performance against CLAUDE.md targets (≥2x LM, ≥5x GLM)",
+    "status": "pending",
+    "priority": "medium",
+    "id": "validate_performance_targets"
+  }
+]

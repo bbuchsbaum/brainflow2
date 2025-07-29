@@ -1,0 +1,56 @@
+[
+  {
+    "content": "Run mandatory testing gate - Oracle harness, unit tests, integration tests, linting",
+    "status": "completed",
+    "priority": "high",
+    "id": "test_gate"
+  },
+  {
+    "content": "Conduct take stock assessment of progress toward R superiority",
+    "status": "completed",
+    "priority": "high",
+    "id": "take_stock"
+  },
+  {
+    "content": "Perform mandatory code audit using zen mcp tools",
+    "status": "completed",
+    "priority": "high",
+    "id": "code_audit"
+  },
+  {
+    "content": "Integrate ndarray-linalg + OpenBLAS backend for performance",
+    "status": "completed",
+    "priority": "high",
+    "id": "integrate_blas"
+  },
+  {
+    "content": "Build criterion benchmark suite to measure vs R",
+    "status": "completed",
+    "priority": "high",
+    "id": "benchmark_suite"
+  },
+  {
+    "content": "Refactor IRLS to use LAPACK-backed solvers",
+    "status": "completed",
+    "priority": "high",
+    "id": "refactor_solvers"
+  },
+  {
+    "content": "Run benchmarks to validate ≥2x lm, ≥5x glm targets",
+    "status": "pending",
+    "priority": "high",
+    "id": "validate_performance"
+  },
+  {
+    "content": "Eliminate memory allocations in IRLS hot path",
+    "status": "pending",
+    "priority": "high",
+    "id": "optimize_hotpath"
+  },
+  {
+    "content": "Replace manual loops with vectorized operations",
+    "status": "pending",
+    "priority": "medium",
+    "id": "vectorize_ops"
+  }
+]

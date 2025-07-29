@@ -1,0 +1,68 @@
+[
+  {
+    "content": "Fix example errors: Add blockids.matrix_dataset method (or update example to use proper method)",
+    "status": "completed",
+    "priority": "high",
+    "id": "1"
+  },
+  {
+    "content": "Fix test failures: 12 tests failing (down from 20)",
+    "status": "in_progress",
+    "priority": "high",
+    "id": "2"
+  },
+  {
+    "content": "Remove hidden .claude directory from package",
+    "status": "completed",
+    "priority": "medium",
+    "id": "3"
+  },
+  {
+    "content": "Fix import conflict: blocklens imported from both fmridataset and fmrihrf",
+    "status": "completed",
+    "priority": "medium",
+    "id": "4"
+  },
+  {
+    "content": "Replace non-ASCII characters in R files with \\uxxxx escapes",
+    "status": "completed",
+    "priority": "medium",
+    "id": "5"
+  },
+  {
+    "content": "Add missing namespace imports: MASS, RcppParallel, bslib, future.apply, jsonlite, progress",
+    "status": "completed",
+    "priority": "medium",
+    "id": "6"
+  },
+  {
+    "content": "Fix S3 method consistency issues in fmri_lm methods",
+    "status": "pending",
+    "priority": "medium",
+    "id": "7"
+  },
+  {
+    "content": "Fix Rd documentation issues (undocumented arguments, incorrect usage entries)",
+    "status": "pending",
+    "priority": "medium",
+    "id": "8"
+  },
+  {
+    "content": "Remove non-portable compilation flags from Makevars (-O3 -ffast-math -march=native)",
+    "status": "completed",
+    "priority": "medium",
+    "id": "9"
+  },
+  {
+    "content": "Build vignettes to inst/doc directory",
+    "status": "pending",
+    "priority": "low",
+    "id": "10"
+  },
+  {
+    "content": "Consider reducing package size (currently 27.4MB, mostly extdata)",
+    "status": "pending",
+    "priority": "low",
+    "id": "11"
+  }
+]

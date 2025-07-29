@@ -1,0 +1,68 @@
+[
+  {
+    "content": "EMERGENCY: Fix numerical discrepancy in mixed models (our: 1.739 vs R: 2.023)",
+    "status": "completed",
+    "priority": "high",
+    "id": "1"
+  },
+  {
+    "content": "Investigate root cause of mixed model oracle test failure",
+    "status": "completed",
+    "priority": "high",
+    "id": "2"
+  },
+  {
+    "content": "Clean up unused variable warnings in optimcore module",
+    "status": "completed",
+    "priority": "medium",
+    "id": "3"
+  },
+  {
+    "content": "Run full test suite after fixes",
+    "status": "completed",
+    "priority": "high",
+    "id": "4"
+  },
+  {
+    "content": "Complete Sprint Completion Protocol",
+    "status": "completed",
+    "priority": "high",
+    "id": "5"
+  },
+  {
+    "content": "Implement proper variance component estimation matching lme4",
+    "status": "completed",
+    "priority": "high",
+    "id": "6"
+  },
+  {
+    "content": "Create REML objective function for L-BFGS-B",
+    "status": "completed",
+    "priority": "high",
+    "id": "7"
+  },
+  {
+    "content": "Modify PIRLS to expose pwrss and log-determinants",
+    "status": "completed",
+    "priority": "high",
+    "id": "8"
+  },
+  {
+    "content": "Implement theta parameterization with log transform",
+    "status": "completed",
+    "priority": "high",
+    "id": "9"
+  },
+  {
+    "content": "Integrate outer optimization loop with inner PIRLS",
+    "status": "completed",
+    "priority": "high",
+    "id": "10"
+  },
+  {
+    "content": "Update oracle test with correct R values",
+    "status": "completed",
+    "priority": "high",
+    "id": "11"
+  }
+]

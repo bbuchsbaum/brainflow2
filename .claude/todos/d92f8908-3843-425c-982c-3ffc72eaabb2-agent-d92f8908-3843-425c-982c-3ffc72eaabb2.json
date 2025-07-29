@@ -1,0 +1,32 @@
+[
+  {
+    "content": "Examine R bidser test files in ~/code/bidser/tests/testthat",
+    "status": "completed",
+    "priority": "high",
+    "id": "1"
+  },
+  {
+    "content": "Analyze test coverage and create comprehensive summary",
+    "status": "completed",
+    "priority": "high",
+    "id": "2"
+  },
+  {
+    "content": "Compare with current Rust implementation to identify gaps",
+    "status": "completed",
+    "priority": "high",
+    "id": "3"
+  },
+  {
+    "content": "Replicate missing tests in Rust",
+    "status": "completed",
+    "priority": "high",
+    "id": "4"
+  },
+  {
+    "content": "Run new tests and fix any failures",
+    "status": "completed",
+    "priority": "high",
+    "id": "5"
+  }
+]

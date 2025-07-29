@@ -1,0 +1,50 @@
+[
+  {
+    "content": "Run devtools::check() to identify issues",
+    "status": "completed",
+    "priority": "high",
+    "id": "1"
+  },
+  {
+    "content": "Fix missing imports error: neuroim2:::extract_roi_data and neuroim2:::is.NeuroSpace",
+    "status": "completed",
+    "priority": "high",
+    "id": "2"
+  },
+  {
+    "content": "Fix test failures in test-roi-operations.R",
+    "status": "completed",
+    "priority": "high",
+    "id": "3"
+  },
+  {
+    "content": "Fix test failures in test-surface-atlases.R",
+    "status": "completed",
+    "priority": "high",
+    "id": "4"
+  },
+  {
+    "content": "Fix test failures in test-templateflow-advanced.R",
+    "status": "completed",
+    "priority": "high",
+    "id": "5"
+  },
+  {
+    "content": "Remove test_summary.md from top level",
+    "status": "completed",
+    "priority": "medium",
+    "id": "6"
+  },
+  {
+    "content": "Run devtools::check() again to verify all fixes",
+    "status": "completed",
+    "priority": "high",
+    "id": "7"
+  },
+  {
+    "content": "Run final devtools::check() to confirm all issues resolved",
+    "status": "completed",
+    "priority": "high",
+    "id": "8"
+  }
+]

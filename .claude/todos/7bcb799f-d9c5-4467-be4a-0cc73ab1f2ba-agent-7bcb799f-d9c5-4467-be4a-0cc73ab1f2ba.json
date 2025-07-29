@@ -1,0 +1,20 @@
+[
+  {
+    "content": "Add rcmdcheck tool to run R CMD check and return todo list",
+    "status": "completed",
+    "priority": "high",
+    "id": "21"
+  },
+  {
+    "content": "Update tests to include new tool count (12)",
+    "status": "completed",
+    "priority": "high",
+    "id": "22"
+  },
+  {
+    "content": "Update documentation for rcmdcheck tool",
+    "status": "completed",
+    "priority": "medium",
+    "id": "23"
+  }
+]

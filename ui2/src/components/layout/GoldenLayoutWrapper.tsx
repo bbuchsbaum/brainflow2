@@ -12,9 +12,8 @@ import { FlexibleSlicePanel } from '@/components/views/FlexibleSlicePanel';
 import { FileBrowserPanel } from '@/components/panels/FileBrowserPanel';
 import { LayerPanel } from '@/components/panels/LayerPanel';
 import { useViewLayoutStore } from '@/stores/viewLayoutStore';
-import { useResizeStore } from '@/stores/resizeStore';
 import { useViewStateStore } from '@/stores/viewStateStore';
-import { getApiService } from '@/services/apiService';
+import { getRenderCoordinator } from '@/services/RenderCoordinator';
 import 'golden-layout/dist/css/goldenlayout-base.css';
 import 'golden-layout/dist/css/themes/goldenlayout-dark-theme.css';
 
@@ -491,8 +490,8 @@ export function GoldenLayoutWrapper({
     ));
     
     // Import and register additional components dynamically
-    import('@/components/views/MosaicView').then(module => {
-      componentRegistry.set('MosaicView', module.MosaicView);
+    import('@/components/views/MosaicViewSimple').then(module => {
+      componentRegistry.set('MosaicView', module.MosaicViewSimple);
     });
     
     import('@/components/analysis/ROIStatsWorkspace').then(module => {
@@ -644,14 +643,11 @@ export function GoldenLayoutWrapper({
           return;
         }
         
-        // Update render target if needed
-        const resizeStore = useResizeStore.getState();
-        const apiService = getApiService();
+        // Update render target using RenderCoordinator
+        const renderCoordinator = getRenderCoordinator();
         
         try {
-          resizeStore.startResize(containerWidth, containerHeight);
-          await apiService.createOffscreenRenderTarget(containerWidth, containerHeight);
-          resizeStore.completeResize();
+          await renderCoordinator.updateDimensions(containerWidth, containerHeight, 'resize');
           console.log('[GoldenLayout] Render target updated after resize');
           
           // Trigger a re-render by touching the ViewState
@@ -661,7 +657,6 @@ export function GoldenLayoutWrapper({
           console.log('[GoldenLayout] Triggered ViewState update to force re-render');
         } catch (error) {
           console.error('[GoldenLayout] Failed to update render target:', error);
-          resizeStore.cancelResize();
         }
       }, 150); // Debounce by 150ms
     });

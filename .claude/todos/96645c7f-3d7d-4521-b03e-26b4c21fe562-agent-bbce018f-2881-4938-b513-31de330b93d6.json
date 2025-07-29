@@ -1,0 +1,32 @@
+[
+  {
+    "content": "Investigate dual crosshair rendering issue",
+    "status": "completed",
+    "priority": "high",
+    "id": "investigate-crosshairs"
+  },
+  {
+    "content": "Analyze GPU shader crosshair implementation",
+    "status": "completed",
+    "priority": "high",
+    "id": "analyze-gpu-crosshair"
+  },
+  {
+    "content": "Analyze frontend canvas crosshair implementation",
+    "status": "completed",
+    "priority": "high",
+    "id": "analyze-canvas-crosshair"
+  },
+  {
+    "content": "Investigate resize synchronization issues",
+    "status": "completed",
+    "priority": "high",
+    "id": "investigate-resize-issue"
+  },
+  {
+    "content": "Review crosshair architecture documentation",
+    "status": "completed",
+    "priority": "medium",
+    "id": "review-architecture-docs"
+  }
+]

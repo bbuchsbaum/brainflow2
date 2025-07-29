@@ -206,21 +206,54 @@ fn vec3_distance(a: [f32; 3], b: [f32; 3]) -> f32 {
 ///
 /// This type ensures both CPU and GPU renderers show exactly the same region
 /// by providing a single source of truth for view calculations.
+/// 
+/// # Coordinate System Contract
+/// 
+/// This struct defines the critical contract between backend view calculations and frontend rendering:
+/// 
+/// - `origin_mm`: World coordinates of the top-left pixel center
+/// - `u_mm`: Per-pixel world displacement vector for moving right (X direction)
+/// - `v_mm`: Per-pixel world displacement vector for moving down (Y direction)  
+/// - `width_px`/`height_px`: Actual pixel dimensions (may differ from requested)
+/// 
+/// # Important Notes for Frontend Integration
+/// 
+/// - The u_mm and v_mm vectors are already scaled to pixel size by `vec3_scale(direction, pixel_size)`
+/// - Frontend should use these vectors directly without further scaling
+/// - Dimensions may differ from requested to preserve square pixels and aspect ratios
+/// - This dimension adjustment is intentional behavior, not an error condition
+/// - Square pixels are essential in medical imaging to preserve anatomical proportions
+/// 
+/// # Dimension Preservation Strategy
+/// 
+/// The `full_extent` method prioritizes anatomical accuracy over exact dimension matching:
+/// 1. Calculate required pixel size for square pixels: `max(width_mm/req_width, height_mm/req_height)`
+/// 2. Use this pixel size to determine actual dimensions that fit the anatomical extent
+/// 3. The resulting dimensions ensure square pixels and complete anatomical coverage
+/// 
+/// For a typical MNI brain (193×229×193 voxels):
+/// - Anatomical extent might be ~193mm × ~229mm  
+/// - Requested 512×512 would create different pixel sizes for X/Y
+/// - Actual 432×512 ensures square pixels and complete brain coverage
+/// 
+/// This is medical imaging best practice - square pixels preserve anatomical proportions.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ViewRectMm {
     /// Upper-left pixel center in world coordinates (mm)
     pub origin_mm: [f32; 3],
     
     /// World-space vector for one pixel to the right (mm)
+    /// NOTE: Already scaled by pixel_size - do not scale further in frontend
     pub u_mm: [f32; 3],
     
     /// World-space vector for one pixel downward (mm)
+    /// NOTE: Already scaled by pixel_size - do not scale further in frontend
     pub v_mm: [f32; 3],
     
-    /// Width in pixels
+    /// Width in pixels (may differ from requested for square pixel preservation)
     pub width_px: u32,
     
-    /// Height in pixels
+    /// Height in pixels (may differ from requested for square pixel preservation)
     pub height_px: u32,
 }
 
@@ -284,6 +317,28 @@ impl ViewRectMm {
     ///
     /// Uses SliceGeometry for consistent plane calculation that ensures all views
     /// properly intersect at the crosshair position.
+    /// 
+    /// # Dimension Preservation Strategy
+    /// 
+    /// This function prioritizes anatomical accuracy over exact dimension matching:
+    /// 1. Calculate required pixel size for square pixels: `max(width_mm/req_width, height_mm/req_height)`
+    /// 2. Use this pixel size to determine actual dimensions that fit the anatomical extent
+    /// 3. The resulting dimensions ensure square pixels and complete anatomical coverage
+    /// 
+    /// # Why Dimensions May Differ
+    /// 
+    /// For a typical MNI brain volume (193×229×193 voxels):
+    /// - Anatomical extent might be ~193mm × ~229mm  
+    /// - Requested 512×512 would create different pixel sizes for X/Y (non-square pixels)
+    /// - Actual 432×512 ensures square pixels and complete brain coverage
+    /// 
+    /// This is medical imaging best practice - square pixels preserve anatomical proportions.
+    /// 
+    /// # Frontend Integration Contract
+    /// 
+    /// The returned `ViewRectMm` contains per-pixel displacement vectors that should be used
+    /// directly by the frontend without scaling. Any attempt to scale these vectors will
+    /// corrupt the carefully calculated geometric relationships.
     pub fn full_extent(
         volume_meta: &VolumeMetadata,
         orientation: ViewOrientation,

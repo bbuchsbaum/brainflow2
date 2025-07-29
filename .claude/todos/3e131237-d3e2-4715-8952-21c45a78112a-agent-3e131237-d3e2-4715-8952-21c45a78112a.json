@@ -1,0 +1,122 @@
+[
+  {
+    "content": "Analyze existing TypeScript code structure and identify gaps compared to Python implementation",
+    "status": "completed",
+    "priority": "high",
+    "id": "1"
+  },
+  {
+    "content": "Set up enhanced TypeScript configuration following Py2TS guidelines",
+    "status": "completed",
+    "priority": "high",
+    "id": "2"
+  },
+  {
+    "content": "Create comprehensive type definitions in src/types.ts",
+    "status": "completed",
+    "priority": "high",
+    "id": "3"
+  },
+  {
+    "content": "Implement SparseNeuroVol class with custom sparse matrix support",
+    "status": "completed",
+    "priority": "high",
+    "id": "4"
+  },
+  {
+    "content": "Implement LogicalNeuroVol class for binary volumes",
+    "status": "completed",
+    "priority": "high",
+    "id": "5"
+  },
+  {
+    "content": "Implement ClusteredNeuroVol class",
+    "status": "completed",
+    "priority": "medium",
+    "id": "6"
+  },
+  {
+    "content": "Create base NeuroVec interface and implement DenseNeuroVec",
+    "status": "completed",
+    "priority": "high",
+    "id": "7"
+  },
+  {
+    "content": "Implement SparseNeuroVec for 4D sparse data",
+    "status": "completed",
+    "priority": "medium",
+    "id": "8"
+  },
+  {
+    "content": "Implement BigNeuroVec with memory-mapped support",
+    "status": "completed",
+    "priority": "medium",
+    "id": "9"
+  },
+  {
+    "content": "Complete ROI functionality (ROIVol, ROIVec)",
+    "status": "completed",
+    "priority": "medium",
+    "id": "10"
+  },
+  {
+    "content": "Enhance I/O with async operations and multi-format support",
+    "status": "completed",
+    "priority": "medium",
+    "id": "11"
+  },
+  {
+    "content": "Implement searchlight analysis with Web Workers",
+    "status": "completed",
+    "priority": "low",
+    "id": "12"
+  },
+  {
+    "content": "Add statistical operations module",
+    "status": "completed",
+    "priority": "low",
+    "id": "13"
+  },
+  {
+    "content": "Create test migration framework and convert Python tests",
+    "status": "completed",
+    "priority": "medium",
+    "id": "14"
+  },
+  {
+    "content": "Create orthogonalSlices.ts module with world-coordinate slice extraction",
+    "status": "completed",
+    "priority": "high",
+    "id": "15"
+  },
+  {
+    "content": "Implement extractOrthogonalSlices function",
+    "status": "completed",
+    "priority": "high",
+    "id": "16"
+  },
+  {
+    "content": "Implement individual slice extractors (axial, sagittal, coronal)",
+    "status": "completed",
+    "priority": "high",
+    "id": "17"
+  },
+  {
+    "content": "Add helper functions for slice orientation and bounds",
+    "status": "completed",
+    "priority": "medium",
+    "id": "18"
+  },
+  {
+    "content": "Create comprehensive tests for orthogonal slice extraction",
+    "status": "completed",
+    "priority": "medium",
+    "id": "19"
+  },
+  {
+    "content": "Export orthogonal slice functions from index.ts",
+    "status": "completed",
+    "priority": "low",
+    "id": "20"
+  }
+]

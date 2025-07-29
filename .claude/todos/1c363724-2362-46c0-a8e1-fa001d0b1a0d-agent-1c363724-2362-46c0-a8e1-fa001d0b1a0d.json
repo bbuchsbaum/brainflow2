@@ -1,0 +1,50 @@
+[
+  {
+    "content": "Plan Sprint 8 (Launch) objectives and scope",
+    "status": "in_progress",
+    "priority": "high",
+    "id": "1"
+  },
+  {
+    "content": "Run comprehensive performance benchmarks against R",
+    "status": "pending",
+    "priority": "high",
+    "id": "2"
+  },
+  {
+    "content": "Create performance comparison documentation",
+    "status": "pending",
+    "priority": "high",
+    "id": "3"
+  },
+  {
+    "content": "Polish API documentation and examples",
+    "status": "pending",
+    "priority": "high",
+    "id": "4"
+  },
+  {
+    "content": "Create comprehensive tutorial/mdBook documentation",
+    "status": "pending",
+    "priority": "high",
+    "id": "5"
+  },
+  {
+    "content": "Implement WebAssembly demo for browser showcase",
+    "status": "pending",
+    "priority": "medium",
+    "id": "6"
+  },
+  {
+    "content": "Prepare community resources (contributing guidelines, good first issues)",
+    "status": "pending",
+    "priority": "medium",
+    "id": "7"
+  },
+  {
+    "content": "Validate all oracle tests are passing at required tolerance",
+    "status": "pending",
+    "priority": "high",
+    "id": "8"
+  }
+]

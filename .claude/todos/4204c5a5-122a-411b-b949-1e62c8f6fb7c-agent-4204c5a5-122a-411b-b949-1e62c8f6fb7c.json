@@ -1,0 +1,32 @@
+[
+  {
+    "content": "Fix hardcoded auth token security vulnerability",
+    "status": "completed",
+    "priority": "high",
+    "id": "1"
+  },
+  {
+    "content": "Fix NoSQL injection vulnerability in sortBy parameter",
+    "status": "completed",
+    "priority": "high",
+    "id": "2"
+  },
+  {
+    "content": "Use Netlify's secure IP header for rate limiting",
+    "status": "completed",
+    "priority": "high",
+    "id": "3"
+  },
+  {
+    "content": "Add server-side AI keyword filtering",
+    "status": "completed",
+    "priority": "high",
+    "id": "4"
+  },
+  {
+    "content": "Implement MongoDB connection caching",
+    "status": "pending",
+    "priority": "medium",
+    "id": "5"
+  }
+]

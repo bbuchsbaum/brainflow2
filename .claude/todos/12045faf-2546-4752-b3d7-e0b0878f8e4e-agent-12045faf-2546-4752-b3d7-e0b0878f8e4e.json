@@ -1,0 +1,26 @@
+[
+  {
+    "content": "Create SECTION_STATUS.json to track all sections",
+    "status": "completed",
+    "priority": "high",
+    "id": "1"
+  },
+  {
+    "content": "Launch Act One Supervisor with excellence mandate",
+    "status": "in_progress",
+    "priority": "high",
+    "id": "2"
+  },
+  {
+    "content": "Establish quality benchmarks from Scorsese/Allen masterpieces",
+    "status": "completed",
+    "priority": "high",
+    "id": "3"
+  },
+  {
+    "content": "Create first scene briefs with highest standards",
+    "status": "pending",
+    "priority": "high",
+    "id": "4"
+  }
+]

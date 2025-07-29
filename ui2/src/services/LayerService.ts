@@ -101,6 +101,28 @@ export class LayerService {
       this.eventBus.emit('layer.added', { layer: newLayer });
       console.log(`[LayerService ${performance.now() - startTime}ms] Event emitted!`);
       
+      // Defensive check: Ensure render properties were created
+      const layerStore = useLayerStore.getState();
+      const renderProps = layerStore.getLayerRender(newLayer.id);
+      if (!renderProps) {
+        console.error(`[LayerService] WARNING: No render properties found for layer ${newLayer.id} after adding!`);
+        // Force creation of default render properties
+        const metadata = layerStore.getLayerMetadata(newLayer.id);
+        layerStore.setLayerRender(newLayer.id, {
+          opacity: 1.0,
+          intensity: metadata?.dataRange ? 
+            [metadata.dataRange.min + (metadata.dataRange.max - metadata.dataRange.min) * 0.2,
+             metadata.dataRange.min + (metadata.dataRange.max - metadata.dataRange.min) * 0.8] : 
+            [0, 100],
+          threshold: [0, 0],
+          colormap: 'gray',
+          interpolation: 'linear'
+        });
+        console.log(`[LayerService] Created default render properties for layer ${newLayer.id}`);
+      } else {
+        console.log(`[LayerService] Render properties verified for layer ${newLayer.id}:`, renderProps);
+      }
+      
       // Check state immediately after emit
       setTimeout(() => {
         const viewStateLayers = useViewStateStore.getState().viewState.layers;

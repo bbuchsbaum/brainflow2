@@ -1,0 +1,68 @@
+[
+  {
+    "content": "Address Round 1 Priority 1: Re-frame primary narrative from brain science application to novel computational tool creation",
+    "status": "completed",
+    "priority": "high",
+    "id": "1"
+  },
+  {
+    "content": "Address Round 1 Priority 2: Strengthen technical differentiation by explicitly naming existing methods (ComBat, normative modeling)",
+    "status": "completed",
+    "priority": "high",
+    "id": "2"
+  },
+  {
+    "content": "Address Round 1 Priority 3: Substantiate cross-disciplinary impact with concrete algorithm adaptation examples",
+    "status": "completed",
+    "priority": "high",
+    "id": "3"
+  },
+  {
+    "content": "Address Round 1 Priority 4: Integrate EDI authentically by addressing demographic bias and algorithmic fairness as core technical challenges",
+    "status": "completed",
+    "priority": "high",
+    "id": "4"
+  },
+  {
+    "content": "Address Round 2 Priority 1: Replace 'Rosetta Stone' metaphor with 'common functional language'",
+    "status": "completed",
+    "priority": "high",
+    "id": "5"
+  },
+  {
+    "content": "Address Round 2 Priority 2: Hedge performance claims (25% improvement, 90% reduction) with preliminary data language",
+    "status": "completed",
+    "priority": "high",
+    "id": "6"
+  },
+  {
+    "content": "Address Round 2 Priority 3: Replace marketing language ('Alignment Equity v2.0', 'kill-switch tests') with academic terms",
+    "status": "completed",
+    "priority": "medium",
+    "id": "7"
+  },
+  {
+    "content": "Address Round 2 Priority 4: Reframe cross-disciplinary claims from 'will transform' to 'shows promise for'",
+    "status": "completed",
+    "priority": "medium",
+    "id": "8"
+  },
+  {
+    "content": "Verify word limits are maintained for all sections",
+    "status": "completed",
+    "priority": "medium",
+    "id": "9"
+  },
+  {
+    "content": "Save revised version as HATSA_LOI_v2.md",
+    "status": "completed",
+    "priority": "low",
+    "id": "10"
+  },
+  {
+    "content": "Update PROGRESS.md with Round 2 implementation completion",
+    "status": "completed",
+    "priority": "medium",
+    "id": "11"
+  }
+]

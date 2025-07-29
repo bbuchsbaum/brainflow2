@@ -1,0 +1,38 @@
+[
+  {
+    "content": "Create useRacquetComparison hook for state management",
+    "status": "completed",
+    "priority": "high",
+    "id": "comparison-hook"
+  },
+  {
+    "content": "Implement RadarChart component for performance visualization",
+    "status": "completed",
+    "priority": "high",
+    "id": "radar-chart"
+  },
+  {
+    "content": "Create ComparisonTable component for side-by-side specs",
+    "status": "completed",
+    "priority": "high",
+    "id": "comparison-table"
+  },
+  {
+    "content": "Implement main RacquetComparison component",
+    "status": "completed",
+    "priority": "high",
+    "id": "comparison-main"
+  },
+  {
+    "content": "Add export comparison functionality",
+    "status": "completed",
+    "priority": "medium",
+    "id": "comparison-export"
+  },
+  {
+    "content": "Integrate comparison with filter system",
+    "status": "completed",
+    "priority": "medium",
+    "id": "comparison-integration"
+  }
+]

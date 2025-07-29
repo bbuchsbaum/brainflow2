@@ -1,0 +1,38 @@
+[
+  {
+    "content": "Remove all fake/demo data from dashboard",
+    "status": "completed",
+    "priority": "high",
+    "id": "remove-fake-data"
+  },
+  {
+    "content": "Remove mockData.ts and all its usage",
+    "status": "completed",
+    "priority": "high",
+    "id": "remove-mock-data-file"
+  },
+  {
+    "content": "Replace hardcoded AI performance metrics with API calls",
+    "status": "completed",
+    "priority": "high",
+    "id": "fix-ai-metrics"
+  },
+  {
+    "content": "Remove demo authentication tokens",
+    "status": "completed",
+    "priority": "high",
+    "id": "remove-demo-auth"
+  },
+  {
+    "content": "Replace static statistics with real API data",
+    "status": "completed",
+    "priority": "high",
+    "id": "real-statistics"
+  },
+  {
+    "content": "Update components to show loading states when no data",
+    "status": "completed",
+    "priority": "medium",
+    "id": "loading-states"
+  }
+]

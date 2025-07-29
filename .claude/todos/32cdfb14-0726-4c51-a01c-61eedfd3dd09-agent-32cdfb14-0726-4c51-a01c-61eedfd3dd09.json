@@ -1,0 +1,32 @@
+[
+  {
+    "content": "Explore existing examples structure",
+    "status": "completed",
+    "priority": "high",
+    "id": "1"
+  },
+  {
+    "content": "Identify core library elements to demonstrate",
+    "status": "completed",
+    "priority": "high",
+    "id": "2"
+  },
+  {
+    "content": "Create 3 new example programs",
+    "status": "completed",
+    "priority": "high",
+    "id": "3"
+  },
+  {
+    "content": "Ensure examples compile and run",
+    "status": "completed",
+    "priority": "medium",
+    "id": "4"
+  },
+  {
+    "content": "Set up data output to examples/data folder",
+    "status": "completed",
+    "priority": "medium",
+    "id": "5"
+  }
+]

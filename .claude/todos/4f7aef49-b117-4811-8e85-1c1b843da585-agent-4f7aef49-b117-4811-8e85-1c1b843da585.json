@@ -1,0 +1,44 @@
+[
+  {
+    "content": "Run mandatory testing gate - Oracle Harness Pass Rate check",
+    "status": "completed",
+    "priority": "high",
+    "id": "1"
+  },
+  {
+    "content": "Run all unit tests to ensure 100% pass rate",
+    "status": "completed",
+    "priority": "high",
+    "id": "2"
+  },
+  {
+    "content": "Run integration tests end-to-end",
+    "status": "completed",
+    "priority": "high",
+    "id": "3"
+  },
+  {
+    "content": "Run linting and style checks",
+    "status": "completed",
+    "priority": "high",
+    "id": "4"
+  },
+  {
+    "content": "Conduct Take Stock Assessment",
+    "status": "completed",
+    "priority": "medium",
+    "id": "5"
+  },
+  {
+    "content": "Make decision point (PROCEED/COURSE CORRECT)",
+    "status": "completed",
+    "priority": "medium",
+    "id": "6"
+  },
+  {
+    "content": "Conduct mandatory code audit using zen mcp tools",
+    "status": "completed",
+    "priority": "medium",
+    "id": "7"
+  }
+]

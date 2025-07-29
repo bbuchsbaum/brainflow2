@@ -1,0 +1,26 @@
+[
+  {
+    "content": "Implement T-16: Create sv_bench() function using bench::mark()",
+    "status": "completed",
+    "priority": "high",
+    "id": "1"
+  },
+  {
+    "content": "Implement T-17: Design and implement perf.parquet database schema",
+    "status": "completed",
+    "priority": "high",
+    "id": "2"
+  },
+  {
+    "content": "Implement T-18: Update scaffolding to include optional benchmark tests",
+    "status": "completed",
+    "priority": "medium",
+    "id": "3"
+  },
+  {
+    "content": "Implement T-19: Add cargo bench integration for perf.parquet",
+    "status": "pending",
+    "priority": "medium",
+    "id": "4"
+  }
+]

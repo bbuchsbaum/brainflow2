@@ -20,3 +20,5 @@ export * from './FlatNode';
 export * from './LayerSpec';
 export * from './VolumeLayerGpuInfo';
 export * from './LayerGpuResources';
+export * from './SliceAxisMeta';
+export * from './BatchRenderRequest';

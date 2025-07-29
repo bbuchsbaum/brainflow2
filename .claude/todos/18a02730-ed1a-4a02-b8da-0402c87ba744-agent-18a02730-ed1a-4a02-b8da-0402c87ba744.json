@@ -1,0 +1,62 @@
+[
+  {
+    "content": "Conduct mandatory testing gate - run all tests and quality checks",
+    "status": "completed",
+    "priority": "high",
+    "id": "sprint_assessment"
+  },
+  {
+    "content": "Verify 100% Oracle Harness pass rate at 1e-10 tolerance",
+    "status": "completed",
+    "priority": "high",
+    "id": "oracle_harness"
+  },
+  {
+    "content": "Run all unit tests in workspace",
+    "status": "completed",
+    "priority": "high",
+    "id": "unit_tests"
+  },
+  {
+    "content": "Execute all integration tests",
+    "status": "completed",
+    "priority": "high",
+    "id": "integration_tests"
+  },
+  {
+    "content": "Run linting and style checks",
+    "status": "completed",
+    "priority": "high",
+    "id": "linting_style"
+  },
+  {
+    "content": "Conduct take stock assessment after tests pass",
+    "status": "completed",
+    "priority": "medium",
+    "id": "take_stock"
+  },
+  {
+    "content": "Perform mandatory code audit using zen mcp tools",
+    "status": "completed",
+    "priority": "medium",
+    "id": "code_audit"
+  },
+  {
+    "content": "Plan next sprint based on assessment results",
+    "status": "in_progress",
+    "priority": "high",
+    "id": "next_sprint_planning"
+  },
+  {
+    "content": "Implement GLM functionality for 5x speedup target",
+    "status": "pending",
+    "priority": "high",
+    "id": "glm_implementation"
+  },
+  {
+    "content": "Implement bootstrap functionality for 10x speedup target",
+    "status": "pending",
+    "priority": "high",
+    "id": "bootstrap_implementation"
+  }
+]

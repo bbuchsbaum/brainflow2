@@ -1,0 +1,26 @@
+[
+  {
+    "content": "Read proposal.md to understand all tickets",
+    "status": "in_progress",
+    "priority": "high",
+    "id": "1"
+  },
+  {
+    "content": "Check progress.md to see current status",
+    "status": "pending",
+    "priority": "high",
+    "id": "2"
+  },
+  {
+    "content": "Review current project structure",
+    "status": "pending",
+    "priority": "medium",
+    "id": "3"
+  },
+  {
+    "content": "Begin systematic implementation of tickets",
+    "status": "pending",
+    "priority": "medium",
+    "id": "4"
+  }
+]

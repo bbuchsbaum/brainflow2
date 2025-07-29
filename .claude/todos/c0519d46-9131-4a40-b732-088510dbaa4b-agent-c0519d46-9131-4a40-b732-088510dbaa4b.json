@@ -1,0 +1,38 @@
+[
+  {
+    "content": "Create analytics calculations utility for statistical summaries",
+    "status": "completed",
+    "priority": "high",
+    "id": "analytics-1"
+  },
+  {
+    "content": "Implement useAnalytics hook for state management",
+    "status": "completed",
+    "priority": "high",
+    "id": "analytics-2"
+  },
+  {
+    "content": "Create StatsCard component for metric display",
+    "status": "completed",
+    "priority": "medium",
+    "id": "analytics-3"
+  },
+  {
+    "content": "Implement TrendChart component for visualizations",
+    "status": "completed",
+    "priority": "medium",
+    "id": "analytics-4"
+  },
+  {
+    "content": "Create main AnalyticsDashboard component",
+    "status": "completed",
+    "priority": "high",
+    "id": "analytics-5"
+  },
+  {
+    "content": "Integrate analytics dashboard with main page",
+    "status": "completed",
+    "priority": "medium",
+    "id": "analytics-6"
+  }
+]

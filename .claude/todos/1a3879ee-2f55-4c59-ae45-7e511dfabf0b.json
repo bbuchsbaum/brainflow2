@@ -1,0 +1,74 @@
+[
+  {
+    "content": "Fix memory inefficiency in chunked_sparse_cor - implement true sparse correlation computation",
+    "status": "completed",
+    "priority": "high",
+    "id": "1"
+  },
+  {
+    "content": "Optimize compute_subject_connectivity_graph_sparse to avoid full correlation matrix computation",
+    "status": "completed",
+    "priority": "high",
+    "id": "2"
+  },
+  {
+    "content": "Fix race condition risk in task_hatsa_helpers.R process_subjects function",
+    "status": "completed",
+    "priority": "high",
+    "id": "3"
+  },
+  {
+    "content": "Improve eigen decomposition strategy in compute_spectral_sketch_sparse",
+    "status": "completed",
+    "priority": "high",
+    "id": "4"
+  },
+  {
+    "content": "Add error recovery and fallback methods to solve_gev_laplacian_primme",
+    "status": "completed",
+    "priority": "high",
+    "id": "5"
+  },
+  {
+    "content": "Fix unbounded memory growth in process_subjects (task_hatsa_helpers.R)",
+    "status": "completed",
+    "priority": "high",
+    "id": "6"
+  },
+  {
+    "content": "Optimize graph symmetrization in compute_subject_connectivity_graph_sparse",
+    "status": "pending",
+    "priority": "medium",
+    "id": "7"
+  },
+  {
+    "content": "Clarify sparse matrix handling in validate_hatsa_inputs",
+    "status": "pending",
+    "priority": "medium",
+    "id": "8"
+  },
+  {
+    "content": "Vectorize rotation computations in perform_gpa_refinement",
+    "status": "pending",
+    "priority": "medium",
+    "id": "9"
+  },
+  {
+    "content": "Define package constants for magic numbers (tolerances, defaults)",
+    "status": "pending",
+    "priority": "low",
+    "id": "10"
+  },
+  {
+    "content": "Add caching layer for expensive operations (eigendecompositions, SVDs)",
+    "status": "pending",
+    "priority": "medium",
+    "id": "11"
+  },
+  {
+    "content": "Run tests after implementing fixes to ensure no regressions",
+    "status": "completed",
+    "priority": "high",
+    "id": "12"
+  }
+]

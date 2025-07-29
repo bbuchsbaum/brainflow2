@@ -3,7 +3,7 @@
  * Provides centralized control over status bar items
  */
 
-import { createContext, useReducer, useContext, type ReactNode, type FC, type Dispatch } from 'react';
+import { createContext, useReducer, useContext, useMemo, useCallback, type ReactNode, type FC, type Dispatch } from 'react';
 import type { StatusSlot, StatusBatchUpdate } from '@/types/statusBar';
 
 // State type - maps slot IDs to their data (excluding the ID itself)
@@ -145,25 +145,28 @@ export const useSetStatus = (): Dispatch<Action> => {
 export const useStatusUpdater = () => {
   const dispatch = useSetStatus();
   
-  return {
-    // Update a single value
-    setValue: (id: string, value: string | ReactNode) => {
-      dispatch({ type: 'SET', id, value });
-    },
-    
-    // Update multiple values at once
-    setBatch: (entries: StatusBatchUpdate) => {
-      dispatch({ type: 'BATCH', entries });
-    },
-    
-    // Update label (less common)
-    setLabel: (id: string, label: string) => {
-      dispatch({ type: 'UPDATE_LABEL', id, label });
-    },
-    
-    // Update width (rare, usually only during development)
-    setWidth: (id: string, width: string | number) => {
-      dispatch({ type: 'UPDATE_WIDTH', id, width });
-    }
-  };
+  // Use useCallback to ensure stable function references
+  const setValue = useCallback((id: string, value: string | ReactNode) => {
+    dispatch({ type: 'SET', id, value });
+  }, [dispatch]);
+  
+  const setBatch = useCallback((entries: StatusBatchUpdate) => {
+    dispatch({ type: 'BATCH', entries });
+  }, [dispatch]);
+  
+  const setLabel = useCallback((id: string, label: string) => {
+    dispatch({ type: 'UPDATE_LABEL', id, label });
+  }, [dispatch]);
+  
+  const setWidth = useCallback((id: string, width: string | number) => {
+    dispatch({ type: 'UPDATE_WIDTH', id, width });
+  }, [dispatch]);
+  
+  // Return a stable object reference
+  return useMemo(() => ({
+    setValue,
+    setBatch,
+    setLabel,
+    setWidth
+  }), [setValue, setBatch, setLabel, setWidth]);
 };

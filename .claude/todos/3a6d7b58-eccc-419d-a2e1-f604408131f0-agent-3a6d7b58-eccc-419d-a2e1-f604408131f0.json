@@ -1,0 +1,8 @@
+[
+  {
+    "content": "Core Dependencies and Build System - Add ndarray, ndarray-linalg, thiserror, serde, configure features",
+    "status": "pending",
+    "priority": "high",
+    "id": "T002"
+  }
+]

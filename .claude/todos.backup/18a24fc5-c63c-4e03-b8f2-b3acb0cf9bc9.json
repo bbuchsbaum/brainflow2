@@ -1,0 +1,44 @@
+[
+  {
+    "content": "Run devtools::check(vignettes=FALSE)",
+    "status": "completed",
+    "priority": "high",
+    "id": "1"
+  },
+  {
+    "content": "Fix any errors from the check",
+    "status": "in_progress",
+    "priority": "high",
+    "id": "2"
+  },
+  {
+    "content": "Fix any warnings if time permits",
+    "status": "pending",
+    "priority": "medium",
+    "id": "3"
+  },
+  {
+    "content": "Fix svd_wrapper example error with iris data",
+    "status": "completed",
+    "priority": "high",
+    "id": "4"
+  },
+  {
+    "content": "Fix parse error in test_discriminant_projector.R",
+    "status": "completed",
+    "priority": "high",
+    "id": "5"
+  },
+  {
+    "content": "Fix non-ASCII characters in multiblock.R",
+    "status": "in_progress",
+    "priority": "medium",
+    "id": "6"
+  },
+  {
+    "content": "Add missing imports for combn and coefficients",
+    "status": "pending",
+    "priority": "medium",
+    "id": "7"
+  }
+]

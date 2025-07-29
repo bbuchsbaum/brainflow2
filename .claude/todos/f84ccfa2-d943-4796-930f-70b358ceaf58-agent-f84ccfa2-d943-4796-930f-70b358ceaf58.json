@@ -1,0 +1,26 @@
+[
+  {
+    "content": "CLI with clap v4 - implement main CLI structure",
+    "status": "completed",
+    "priority": "high",
+    "id": "1"
+  },
+  {
+    "content": "CLI commands implementation - ls, get, config, update, wipe",
+    "status": "completed",
+    "priority": "high",
+    "id": "2"
+  },
+  {
+    "content": "Integration tests for API functions",
+    "status": "pending",
+    "priority": "medium",
+    "id": "3"
+  },
+  {
+    "content": "Documentation - API docs and examples",
+    "status": "pending",
+    "priority": "medium",
+    "id": "4"
+  }
+]

@@ -1,0 +1,44 @@
+[
+  {
+    "content": "Analyze and understand the current proposal.md structure and content",
+    "status": "completed",
+    "priority": "high",
+    "id": "analyze-proposal"
+  },
+  {
+    "content": "Clean up and restructure the main proposal.md with enhanced wisdom and insights",
+    "status": "completed",
+    "priority": "high",
+    "id": "restructure-proposal"
+  },
+  {
+    "content": "Create individual sprint1.md through sprint10.md files with detailed specifications",
+    "status": "completed",
+    "priority": "high",
+    "id": "create-sprint-files"
+  },
+  {
+    "content": "Create CLAUDE.md with project rules and quality gates",
+    "status": "completed",
+    "priority": "high",
+    "id": "create-claude-md"
+  },
+  {
+    "content": "Create progress.md for tracking completed tasks",
+    "status": "completed",
+    "priority": "medium",
+    "id": "create-progress-md"
+  },
+  {
+    "content": "Create next.md for tracking upcoming tasks",
+    "status": "completed",
+    "priority": "medium",
+    "id": "create-next-md"
+  },
+  {
+    "content": "Complete sprint5.md through sprint10.md files",
+    "status": "completed",
+    "priority": "high",
+    "id": "complete-remaining-sprints"
+  }
+]

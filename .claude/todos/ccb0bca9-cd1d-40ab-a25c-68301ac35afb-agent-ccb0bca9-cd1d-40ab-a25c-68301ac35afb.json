@@ -1,0 +1,14 @@
+[
+  {
+    "content": "Complete Stroop Task Implementation (TST-002)",
+    "status": "completed",
+    "priority": "high",
+    "id": "1"
+  },
+  {
+    "content": "Lock v0.1 BIDS-compatible Data Schema (ARE-003)",
+    "status": "in_progress",
+    "priority": "high",
+    "id": "2"
+  }
+]

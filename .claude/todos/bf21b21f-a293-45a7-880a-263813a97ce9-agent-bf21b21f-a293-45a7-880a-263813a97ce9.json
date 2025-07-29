@@ -1,0 +1,44 @@
+[
+  {
+    "content": "Fix TypeScript compilation errors in FluentExperimentBuilder",
+    "status": "completed",
+    "priority": "high",
+    "id": "dsl-003-fix-typescript"
+  },
+  {
+    "content": "Fix Timeline API compatibility issues",
+    "status": "completed",
+    "priority": "high",
+    "id": "dsl-003-fix-timeline-api"
+  },
+  {
+    "content": "Fix Stimulus class property conflicts",
+    "status": "completed",
+    "priority": "high",
+    "id": "dsl-003-fix-stimulus-classes"
+  },
+  {
+    "content": "Fix PrecisionTimestamp type usage across codebase",
+    "status": "pending",
+    "priority": "high",
+    "id": "dsl-003-fix-timing-types"
+  },
+  {
+    "content": "Implement Core Stimulus Types with PixiJS",
+    "status": "pending",
+    "priority": "high",
+    "id": "ker-003-implement-stimulus"
+  },
+  {
+    "content": "Complete Stroop Task Implementation",
+    "status": "pending",
+    "priority": "medium",
+    "id": "tst-002-stroop-task"
+  },
+  {
+    "content": "Lock v0.1 BIDS-compatible Data Schema",
+    "status": "pending",
+    "priority": "medium",
+    "id": "are-003-data-schema"
+  }
+]

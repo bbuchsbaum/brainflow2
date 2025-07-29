@@ -1,0 +1,44 @@
+[
+  {
+    "content": "Check current compilation status",
+    "status": "completed",
+    "priority": "high",
+    "id": "1"
+  },
+  {
+    "content": "Fix ~14 compiler warnings (mostly unused imports)",
+    "status": "completed",
+    "priority": "high",
+    "id": "2"
+  },
+  {
+    "content": "Run clippy and fix any linting issues",
+    "status": "completed",
+    "priority": "high",
+    "id": "3"
+  },
+  {
+    "content": "Ensure all public APIs are documented",
+    "status": "completed",
+    "priority": "medium",
+    "id": "4"
+  },
+  {
+    "content": "Complete Phase 3 preprocessed data handling (placeholder only)",
+    "status": "completed",
+    "priority": "low",
+    "id": "5"
+  },
+  {
+    "content": "Final version check and tag v0.1.0 release",
+    "status": "completed",
+    "priority": "medium",
+    "id": "6"
+  },
+  {
+    "content": "Fix dead code warnings - remove unused functions or add #[allow(dead_code)]",
+    "status": "completed",
+    "priority": "high",
+    "id": "7"
+  }
+]

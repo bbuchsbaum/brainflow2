@@ -1,0 +1,50 @@
+[
+  {
+    "content": "Create SliceCoordinator class for multi-volume slice validation",
+    "status": "completed",
+    "priority": "high",
+    "id": "31"
+  },
+  {
+    "content": "Update ImageLayer to use SliceCoordinator",
+    "status": "completed",
+    "priority": "high",
+    "id": "32"
+  },
+  {
+    "content": "Create TestVolumeFactory for dynamic test data",
+    "status": "completed",
+    "priority": "medium",
+    "id": "33"
+  },
+  {
+    "content": "Refactor extractSliceNeuroSpace to accept axis parameter",
+    "status": "completed",
+    "priority": "high",
+    "id": "34"
+  },
+  {
+    "content": "Create view-specific slice extraction helpers",
+    "status": "completed",
+    "priority": "medium",
+    "id": "35"
+  },
+  {
+    "content": "Implement VolumeCompatibilityChecker",
+    "status": "pending",
+    "priority": "low",
+    "id": "36"
+  },
+  {
+    "content": "Add configurable error handling for slice access",
+    "status": "pending",
+    "priority": "medium",
+    "id": "37"
+  },
+  {
+    "content": "Update all tests to use dynamic index calculation",
+    "status": "pending",
+    "priority": "medium",
+    "id": "38"
+  }
+]

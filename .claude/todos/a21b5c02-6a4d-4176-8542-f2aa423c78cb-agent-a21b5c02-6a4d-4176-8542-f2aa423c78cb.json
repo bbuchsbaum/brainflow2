@@ -1,0 +1,62 @@
+[
+  {
+    "content": "Review current I/O implementation in io.py and h5_io.py",
+    "status": "completed",
+    "priority": "high",
+    "id": "phase6-1"
+  },
+  {
+    "content": "Implement full NIfTI format support with proper header handling",
+    "status": "in_progress",
+    "priority": "high",
+    "id": "phase6-2"
+  },
+  {
+    "content": "Create FileFormat abstract base class and NIFTIFormat class",
+    "status": "pending",
+    "priority": "high",
+    "id": "phase6-3"
+  },
+  {
+    "content": "Implement MetaInfo and FileMetaInfo classes",
+    "status": "pending",
+    "priority": "high",
+    "id": "phase6-4"
+  },
+  {
+    "content": "Implement NIFTIMetaInfo class for NIfTI-specific metadata",
+    "status": "pending",
+    "priority": "high",
+    "id": "phase6-5"
+  },
+  {
+    "content": "Create BinaryReader and BinaryWriter classes for low-level I/O",
+    "status": "pending",
+    "priority": "medium",
+    "id": "phase6-6"
+  },
+  {
+    "content": "Implement AFNI format support (AFNIFormat, AFNIMetaInfo)",
+    "status": "pending",
+    "priority": "medium",
+    "id": "phase6-7"
+  },
+  {
+    "content": "Add header utility functions (read_header, read_meta_info)",
+    "status": "pending",
+    "priority": "medium",
+    "id": "phase6-8"
+  },
+  {
+    "content": "Create comprehensive tests for all I/O functionality",
+    "status": "pending",
+    "priority": "high",
+    "id": "phase6-9"
+  },
+  {
+    "content": "Update FEATURE_PARITY.md to track Phase 6 completion",
+    "status": "pending",
+    "priority": "low",
+    "id": "phase6-10"
+  }
+]

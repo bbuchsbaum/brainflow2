@@ -1,0 +1,26 @@
+[
+  {
+    "content": "Fix Test 1: Parameter estimation tau not in expected range",
+    "status": "completed",
+    "priority": "high",
+    "id": "1"
+  },
+  {
+    "content": "Fix Test 2: Multiple event types matrix multiplication error",
+    "status": "completed",
+    "priority": "high",
+    "id": "2"
+  },
+  {
+    "content": "Fix Test 3: Confound regression length mismatch",
+    "status": "completed",
+    "priority": "high",
+    "id": "3"
+  },
+  {
+    "content": "Fix Test 4: Edge cases empty matrix handling",
+    "status": "completed",
+    "priority": "high",
+    "id": "4"
+  }
+]

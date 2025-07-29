@@ -1,0 +1,50 @@
+[
+  {
+    "content": "SIM-001: Package @psyforge/headless (WASM) & Memory Budget Test - Create WebAssembly runtime",
+    "status": "completed",
+    "priority": "high",
+    "id": "sprint5-sim001"
+  },
+  {
+    "content": "AI-001: AI Command Palette Backend - Implement natural language processing",
+    "status": "in_progress",
+    "priority": "high",
+    "id": "sprint5-ai001"
+  },
+  {
+    "content": "GUI-009: Time-Travel Scrubber UI - Build interactive timeline scrubber",
+    "status": "pending",
+    "priority": "high",
+    "id": "sprint5-gui009"
+  },
+  {
+    "content": "SIM-002: Virtual Device Integration - Integrate virtual devices for simulation",
+    "status": "pending",
+    "priority": "high",
+    "id": "sprint5-sim002"
+  },
+  {
+    "content": "GUI-010: AI Command Palette UI Integration - Build UI for AI assistance",
+    "status": "pending",
+    "priority": "high",
+    "id": "sprint5-gui010"
+  },
+  {
+    "content": "SIM-003: Performance Monitoring Integration - Add performance monitoring to simulator",
+    "status": "pending",
+    "priority": "medium",
+    "id": "sprint5-sim003"
+  },
+  {
+    "content": "Sprint 5 Testing: Create comprehensive test suite with >90% coverage",
+    "status": "pending",
+    "priority": "high",
+    "id": "sprint5-tests"
+  },
+  {
+    "content": "Sprint 5 External Audits: Request O3 and Gemini Pro audits",
+    "status": "pending",
+    "priority": "high",
+    "id": "sprint5-audit"
+  }
+]

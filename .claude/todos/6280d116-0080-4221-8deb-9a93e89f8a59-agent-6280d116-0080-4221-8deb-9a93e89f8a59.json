@@ -1,0 +1,32 @@
+[
+  {
+    "content": "Update artworks.json - change base prices from 350→250 and 400→300",
+    "status": "completed",
+    "priority": "high",
+    "id": "1"
+  },
+  {
+    "content": "Update calculatePrice function in item.html template",
+    "status": "completed",
+    "priority": "high",
+    "id": "2"
+  },
+  {
+    "content": "Update calculatePrice function in create-checkout.js",
+    "status": "completed",
+    "priority": "high",
+    "id": "3"
+  },
+  {
+    "content": "Build the project with gulp",
+    "status": "completed",
+    "priority": "medium",
+    "id": "4"
+  },
+  {
+    "content": "Test pricing calculations with different sizes/editions",
+    "status": "completed",
+    "priority": "medium",
+    "id": "5"
+  }
+]

@@ -1,0 +1,56 @@
+[
+  {
+    "content": "Fix NumericalUtils test - add missing functions (roundToDigits, normalizeAngle, degreesToRadians, radiansToDegrees, interpolate, smoothstep)",
+    "status": "completed",
+    "priority": "high",
+    "id": "1"
+  },
+  {
+    "content": "Fix EventEmitter test failures",
+    "status": "completed",
+    "priority": "high",
+    "id": "2"
+  },
+  {
+    "content": "Fix Logger test failures",
+    "status": "completed",
+    "priority": "high",
+    "id": "3"
+  },
+  {
+    "content": "Fix debounce test failures",
+    "status": "completed",
+    "priority": "high",
+    "id": "4"
+  },
+  {
+    "content": "Fix display integration tests (DisplaySystem, MultiLayerAlignment)",
+    "status": "pending",
+    "priority": "medium",
+    "id": "5"
+  },
+  {
+    "content": "Fix alignment tests (AlignmentManager, AlignmentStrategies)",
+    "status": "pending",
+    "priority": "medium",
+    "id": "6"
+  },
+  {
+    "content": "Fix display component tests (ImageLayer, OrthogonalImageViewer, SliceViewer, VolLayerCache)",
+    "status": "pending",
+    "priority": "medium",
+    "id": "7"
+  },
+  {
+    "content": "Fix orthogonalSlices test failures",
+    "status": "pending",
+    "priority": "medium",
+    "id": "8"
+  },
+  {
+    "content": "Fix ImageLayerPooling benchmark test",
+    "status": "pending",
+    "priority": "low",
+    "id": "9"
+  }
+]

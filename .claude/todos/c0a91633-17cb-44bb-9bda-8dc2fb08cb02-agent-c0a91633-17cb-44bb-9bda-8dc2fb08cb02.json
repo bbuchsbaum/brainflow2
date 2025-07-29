@@ -1,0 +1,74 @@
+[
+  {
+    "content": "Create Python project structure and setup files (pyproject.toml, setup.py, etc.)",
+    "status": "completed",
+    "priority": "high",
+    "id": "1"
+  },
+  {
+    "content": "Convert core data structures: mvpa_dataset, mvpa_surface_dataset, mvpa_design",
+    "status": "completed",
+    "priority": "high",
+    "id": "2"
+  },
+  {
+    "content": "Implement mvpa_model base class and model registration system",
+    "status": "completed",
+    "priority": "high",
+    "id": "3"
+  },
+  {
+    "content": "Convert cross-validation schemes (blocked, kfold, bootstrap, custom)",
+    "status": "completed",
+    "priority": "high",
+    "id": "4"
+  },
+  {
+    "content": "Port custom classifiers (corclass, sda variants, lda_thomaz, hdrda)",
+    "status": "completed",
+    "priority": "medium",
+    "id": "5"
+  },
+  {
+    "content": "Implement RSA models (standard, feature, vector, contrast)",
+    "status": "completed",
+    "priority": "medium",
+    "id": "6"
+  },
+  {
+    "content": "Convert searchlight analysis (volumetric and surface-based)",
+    "status": "completed",
+    "priority": "medium",
+    "id": "7"
+  },
+  {
+    "content": "Implement regional analysis functionality",
+    "status": "completed",
+    "priority": "medium",
+    "id": "8"
+  },
+  {
+    "content": "Port feature selection methods",
+    "status": "completed",
+    "priority": "low",
+    "id": "9"
+  },
+  {
+    "content": "Convert performance metrics and evaluation functions",
+    "status": "completed",
+    "priority": "medium",
+    "id": "10"
+  },
+  {
+    "content": "Create test suite mirroring R tests",
+    "status": "in_progress",
+    "priority": "high",
+    "id": "11"
+  },
+  {
+    "content": "Convert vignettes to Python notebooks/documentation",
+    "status": "pending",
+    "priority": "low",
+    "id": "12"
+  }
+]

@@ -1,0 +1,26 @@
+[
+  {
+    "content": "Search for HRF_FIR and other basis set implementations",
+    "status": "completed",
+    "priority": "high",
+    "id": "1"
+  },
+  {
+    "content": "Examine documentation for basis set functions",
+    "status": "completed",
+    "priority": "high",
+    "id": "2"
+  },
+  {
+    "content": "Identify distinction between constants and generators",
+    "status": "completed",
+    "priority": "medium",
+    "id": "3"
+  },
+  {
+    "content": "Update roxygen documentation with seealso and details",
+    "status": "completed",
+    "priority": "medium",
+    "id": "4"
+  }
+]

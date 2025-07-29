@@ -1,0 +1,8 @@
+[
+  {
+    "content": "T101: Basic SVD Interface - Design SvdMethod enum and SvdSolver trait",
+    "status": "completed",
+    "priority": "high",
+    "id": "T101"
+  }
+]

@@ -1,0 +1,26 @@
+[
+  {
+    "content": "Fix remaining TypeScript compilation issues",
+    "status": "completed",
+    "priority": "high",
+    "id": "typescript-fixes"
+  },
+  {
+    "content": "Implement Core Stimulus Types (KER-003) with PixiJS",
+    "status": "completed",
+    "priority": "high",
+    "id": "core-stimulus-types"
+  },
+  {
+    "content": "Complete Stroop Task Implementation (TST-002)",
+    "status": "pending",
+    "priority": "medium",
+    "id": "stroop-task"
+  },
+  {
+    "content": "Lock v0.1 BIDS-compatible Data Schema (ARE-003)",
+    "status": "pending",
+    "priority": "medium",
+    "id": "data-schema"
+  }
+]

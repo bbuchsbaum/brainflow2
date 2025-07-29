@@ -1,0 +1,50 @@
+[
+  {
+    "content": "Implement T-19: Add functionality to import Cargo bench (Criterion) results into perf.parquet database",
+    "status": "completed",
+    "priority": "high",
+    "id": "t19"
+  },
+  {
+    "content": "Implement T-20: Create Quarto template skeleton for HTML dashboard",
+    "status": "pending",
+    "priority": "high",
+    "id": "t20"
+  },
+  {
+    "content": "Implement T-21: Build data gathering logic for sv_report()",
+    "status": "pending",
+    "priority": "high",
+    "id": "t21"
+  },
+  {
+    "content": "Implement T-22: Add pre-flight checks for Quarto/Pandoc in sv_report()",
+    "status": "pending",
+    "priority": "high",
+    "id": "t22"
+  },
+  {
+    "content": "Implement T-23: Create Parity Matrix and Error Details tabs",
+    "status": "pending",
+    "priority": "medium",
+    "id": "t23"
+  },
+  {
+    "content": "Implement T-24: Add Performance Trends tab with time series charts",
+    "status": "pending",
+    "priority": "medium",
+    "id": "t24"
+  },
+  {
+    "content": "Implement T-25: Create Spec Coverage widget",
+    "status": "pending",
+    "priority": "medium",
+    "id": "t25"
+  },
+  {
+    "content": "Update progress.md with current status",
+    "status": "completed",
+    "priority": "high",
+    "id": "update_progress"
+  }
+]

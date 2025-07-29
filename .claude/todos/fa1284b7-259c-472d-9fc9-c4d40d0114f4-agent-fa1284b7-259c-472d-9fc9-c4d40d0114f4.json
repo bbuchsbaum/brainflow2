@@ -1,0 +1,62 @@
+[
+  {
+    "content": "Implement T312 - PCA Diagnostics",
+    "status": "completed",
+    "priority": "high",
+    "id": "1"
+  },
+  {
+    "content": "Check plan.md for T312 details",
+    "status": "completed",
+    "priority": "high",
+    "id": "2"
+  },
+  {
+    "content": "Check feature_parity.md for T312 details",
+    "status": "completed",
+    "priority": "high",
+    "id": "3"
+  },
+  {
+    "content": "Check if PCA diagnostics are already implemented",
+    "status": "completed",
+    "priority": "high",
+    "id": "4"
+  },
+  {
+    "content": "Identify missing diagnostic methods",
+    "status": "completed",
+    "priority": "high",
+    "id": "5"
+  },
+  {
+    "content": "Implement influence measures for observations",
+    "status": "completed",
+    "priority": "high",
+    "id": "6"
+  },
+  {
+    "content": "Add model fit statistics",
+    "status": "completed",
+    "priority": "high",
+    "id": "7"
+  },
+  {
+    "content": "Export PcaFitStatistics in mod.rs",
+    "status": "completed",
+    "priority": "high",
+    "id": "8"
+  },
+  {
+    "content": "Add tests for new diagnostic methods",
+    "status": "completed",
+    "priority": "high",
+    "id": "9"
+  },
+  {
+    "content": "Update progress.md to mark T312 complete",
+    "status": "completed",
+    "priority": "medium",
+    "id": "10"
+  }
+]

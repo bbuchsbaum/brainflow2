@@ -1,0 +1,38 @@
+[
+  {
+    "content": "Run all tests (cargo test) to verify 100% pass rate",
+    "status": "completed",
+    "priority": "high",
+    "id": "1"
+  },
+  {
+    "content": "Run Oracle Harness tests for R comparison",
+    "status": "in_progress",
+    "priority": "high",
+    "id": "2"
+  },
+  {
+    "content": "Run linting and style checks",
+    "status": "pending",
+    "priority": "high",
+    "id": "3"
+  },
+  {
+    "content": "Conduct Take Stock Assessment",
+    "status": "pending",
+    "priority": "high",
+    "id": "4"
+  },
+  {
+    "content": "Perform mandatory code audit using zen mcp tools",
+    "status": "pending",
+    "priority": "high",
+    "id": "5"
+  },
+  {
+    "content": "Fix failing oracle test: test_random_intercept_vs_lme4",
+    "status": "pending",
+    "priority": "high",
+    "id": "6"
+  }
+]

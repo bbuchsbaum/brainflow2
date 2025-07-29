@@ -1,0 +1,20 @@
+[
+  {
+    "content": "Remove neuroscience-specific references and make generic",
+    "status": "completed",
+    "priority": "high",
+    "id": "1"
+  },
+  {
+    "content": "Focus on source repo setup rather than port setup",
+    "status": "completed",
+    "priority": "high",
+    "id": "2"
+  },
+  {
+    "content": "Generalize first test selection guidance",
+    "status": "completed",
+    "priority": "medium",
+    "id": "3"
+  }
+]

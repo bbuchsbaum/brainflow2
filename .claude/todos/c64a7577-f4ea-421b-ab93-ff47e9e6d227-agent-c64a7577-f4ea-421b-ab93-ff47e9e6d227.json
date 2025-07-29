@@ -1,0 +1,38 @@
+[
+  {
+    "content": "Analyze S7-T08, S7-T09, S7-T10 test failures",
+    "status": "completed",
+    "priority": "high",
+    "id": "1"
+  },
+  {
+    "content": "Fix S7-T08: qchisq implementation",
+    "status": "pending",
+    "priority": "high",
+    "id": "2"
+  },
+  {
+    "content": "Fix S7-T09: qnbinom implementation",
+    "status": "pending",
+    "priority": "high",
+    "id": "3"
+  },
+  {
+    "content": "Fix S7-T10: qbeta implementation",
+    "status": "pending",
+    "priority": "high",
+    "id": "4"
+  },
+  {
+    "content": "Run oracle harness tests",
+    "status": "pending",
+    "priority": "high",
+    "id": "5"
+  },
+  {
+    "content": "Clarify actual test failures with user",
+    "status": "pending",
+    "priority": "high",
+    "id": "6"
+  }
+]

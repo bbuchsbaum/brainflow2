@@ -1,0 +1,26 @@
+[
+  {
+    "content": "Fix session tracking by consolidating session creation in track-visitor-source.js",
+    "status": "completed",
+    "priority": "high",
+    "id": "fix-session-tracking"
+  },
+  {
+    "content": "Remove redundant client-side logPageView call",
+    "status": "completed",
+    "priority": "high",
+    "id": "remove-redundant-pageview"
+  },
+  {
+    "content": "Fix dashboard queries to use correct nested field paths for traffic source data",
+    "status": "completed",
+    "priority": "high",
+    "id": "fix-dashboard-queries"
+  },
+  {
+    "content": "Rebuild the project to deploy the analytics fixes",
+    "status": "completed",
+    "priority": "medium",
+    "id": "rebuild-project"
+  }
+]

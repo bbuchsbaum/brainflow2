@@ -1,0 +1,56 @@
+[
+  {
+    "content": "Add database schema for interview management (resumes_session_id, root_session_id, status, audit table)",
+    "status": "completed",
+    "priority": "high",
+    "id": "16"
+  },
+  {
+    "content": "Create FastAPI endpoints for interview management (resume, delete, edit transcript)",
+    "status": "completed",
+    "priority": "high",
+    "id": "17"
+  },
+  {
+    "content": "Build interview management UI page with history table and actions",
+    "status": "completed",
+    "priority": "high",
+    "id": "18"
+  },
+  {
+    "content": "Implement transcript editing functionality with audit trail",
+    "status": "completed",
+    "priority": "medium",
+    "id": "19"
+  },
+  {
+    "content": "Add analysis review workflow for regenerating system prompts",
+    "status": "completed",
+    "priority": "medium",
+    "id": "20"
+  },
+  {
+    "content": "Design off-the-record chat mode for agent probing",
+    "status": "completed",
+    "priority": "high",
+    "id": "21"
+  },
+  {
+    "content": "Create chat API endpoints separate from interview system",
+    "status": "completed",
+    "priority": "high",
+    "id": "22"
+  },
+  {
+    "content": "Build chat UI for real-time persona conversation",
+    "status": "completed",
+    "priority": "high",
+    "id": "23"
+  },
+  {
+    "content": "Ensure clear distinction between formal interviews and informal chats",
+    "status": "completed",
+    "priority": "medium",
+    "id": "24"
+  }
+]

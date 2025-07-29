@@ -1,0 +1,44 @@
+[
+  {
+    "content": "Run mandatory testing gate - check all tests pass at 100%",
+    "status": "completed",
+    "priority": "high",
+    "id": "1"
+  },
+  {
+    "content": "Conduct take stock assessment of current progress",
+    "status": "completed",
+    "priority": "high",
+    "id": "2"
+  },
+  {
+    "content": "Run comprehensive code audit using zen mcp tools",
+    "status": "completed",
+    "priority": "high",
+    "id": "3"
+  },
+  {
+    "content": "Execute next sprint iteration based on assessment",
+    "status": "completed",
+    "priority": "high",
+    "id": "4"
+  },
+  {
+    "content": "Add faer dependency and implement OLS solver with QR decomposition",
+    "status": "completed",
+    "priority": "high",
+    "id": "5"
+  },
+  {
+    "content": "Create benchmark harness against R's lm() using criterion.rs",
+    "status": "completed",
+    "priority": "high",
+    "id": "6"
+  },
+  {
+    "content": "Implement robust handling of rank-deficient matrices using column pivoting QR",
+    "status": "completed",
+    "priority": "high",
+    "id": "7"
+  }
+]

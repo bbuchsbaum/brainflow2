@@ -1,0 +1,32 @@
+[
+  {
+    "content": "Fix ClusterVol import issues in NeuroAtlas",
+    "status": "pending",
+    "priority": "high",
+    "id": "30"
+  },
+  {
+    "content": "Fix AxisSet perm_mat() method missing",
+    "status": "pending",
+    "priority": "high",
+    "id": "31"
+  },
+  {
+    "content": "Fix NeuroVec dimension validation issues",
+    "status": "pending",
+    "priority": "high",
+    "id": "32"
+  },
+  {
+    "content": "Fix Jest to Vitest migration issues (jest.fn, timers)",
+    "status": "pending",
+    "priority": "high",
+    "id": "33"
+  },
+  {
+    "content": "Fix ColorMap and VolLayer API issues",
+    "status": "pending",
+    "priority": "high",
+    "id": "34"
+  }
+]

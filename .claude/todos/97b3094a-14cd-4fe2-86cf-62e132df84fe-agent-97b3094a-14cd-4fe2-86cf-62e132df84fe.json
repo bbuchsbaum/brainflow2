@@ -1,0 +1,62 @@
+[
+  {
+    "content": "Run mandatory testing gate - Oracle harness, unit tests, integration tests",
+    "status": "completed",
+    "priority": "high",
+    "id": "1"
+  },
+  {
+    "content": "Conduct take stock assessment of current progress",
+    "status": "completed",
+    "priority": "high",
+    "id": "2"
+  },
+  {
+    "content": "Run comprehensive code audit using zen mcp tools",
+    "status": "completed",
+    "priority": "high",
+    "id": "3"
+  },
+  {
+    "content": "Identify next sprint objectives to surpass R",
+    "status": "completed",
+    "priority": "high",
+    "id": "4"
+  },
+  {
+    "content": "Fix critical bootstrap n_stats bug for statistical correctness",
+    "status": "pending",
+    "priority": "high",
+    "id": "5"
+  },
+  {
+    "content": "Optimize GLM IRLS algorithm - replace QR per iteration with normal equations",
+    "status": "pending",
+    "priority": "high",
+    "id": "6"
+  },
+  {
+    "content": "Eliminate memory allocation churn in IRLS working data calculations",
+    "status": "pending",
+    "priority": "high",
+    "id": "7"
+  },
+  {
+    "content": "Integrate R baseline benchmarks for continuous performance validation",
+    "status": "pending",
+    "priority": "high",
+    "id": "8"
+  },
+  {
+    "content": "Implement formula-based API connecting formula and dmatrix crates",
+    "status": "pending",
+    "priority": "high",
+    "id": "9"
+  },
+  {
+    "content": "Add memory profiling to track progress toward ≤50% R memory target",
+    "status": "pending",
+    "priority": "medium",
+    "id": "10"
+  }
+]

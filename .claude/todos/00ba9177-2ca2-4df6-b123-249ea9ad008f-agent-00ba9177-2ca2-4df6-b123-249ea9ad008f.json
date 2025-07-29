@@ -1,0 +1,122 @@
+[
+  {
+    "content": "Create comprehensive feature_parity.md document",
+    "status": "completed",
+    "priority": "high",
+    "id": "phase0_1"
+  },
+  {
+    "content": "Create granular sprints.md with 5 phases and detailed tickets",
+    "status": "completed",
+    "priority": "high",
+    "id": "phase0_2"
+  },
+  {
+    "content": "Set up Rust project structure with Cargo.toml",
+    "status": "completed",
+    "priority": "high",
+    "id": "phase0_3"
+  },
+  {
+    "content": "Analyze bidser R package dependencies and map to Rust equivalents",
+    "status": "pending",
+    "priority": "medium",
+    "id": "phase0_4"
+  },
+  {
+    "content": "Implement core BidsProject and BidsFile data structures",
+    "status": "completed",
+    "priority": "high",
+    "id": "phase1_1"
+  },
+  {
+    "content": "Implement BIDS filename parsing with regex",
+    "status": "completed",
+    "priority": "high",
+    "id": "phase1_2"
+  },
+  {
+    "content": "Implement file discovery and search functionality",
+    "status": "completed",
+    "priority": "high",
+    "id": "phase1_3"
+  },
+  {
+    "content": "Implement event file reading and processing",
+    "status": "completed",
+    "priority": "high",
+    "id": "phase2_1"
+  },
+  {
+    "content": "Implement JSON sidecar reading and metadata extraction",
+    "status": "completed",
+    "priority": "high",
+    "id": "phase2_2"
+  },
+  {
+    "content": "Implement confound data reading with PCA processing",
+    "status": "completed",
+    "priority": "high",
+    "id": "phase2_3"
+  },
+  {
+    "content": "Fix compilation errors in I/O modules and complete confounds testing",
+    "status": "in_progress",
+    "priority": "high",
+    "id": "current_blocker"
+  },
+  {
+    "content": "Implement fMRIPrep derivatives support",
+    "status": "completed",
+    "priority": "medium",
+    "id": "phase3_1"
+  },
+  {
+    "content": "Implement preprocessed data handling",
+    "status": "pending",
+    "priority": "medium",
+    "id": "phase3_2"
+  },
+  {
+    "content": "Implement BIDS compliance checking",
+    "status": "pending",
+    "priority": "medium",
+    "id": "phase4_1"
+  },
+  {
+    "content": "Implement project summaries and statistics",
+    "status": "pending",
+    "priority": "medium",
+    "id": "phase4_2"
+  },
+  {
+    "content": "Create comprehensive test suite with cross-language validation",
+    "status": "pending",
+    "priority": "high",
+    "id": "phase5_1"
+  },
+  {
+    "content": "Write documentation and examples",
+    "status": "pending",
+    "priority": "medium",
+    "id": "phase5_2"
+  },
+  {
+    "content": "Performance benchmarking and optimization",
+    "status": "pending",
+    "priority": "medium",
+    "id": "phase5_3"
+  },
+  {
+    "content": "Create progress.md tracking file",
+    "status": "completed",
+    "priority": "high",
+    "id": "setup_progress"
+  },
+  {
+    "content": "Create CLAUDE.md development instructions",
+    "status": "completed",
+    "priority": "high",
+    "id": "setup_claude"
+  }
+]

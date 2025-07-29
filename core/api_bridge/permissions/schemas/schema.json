@@ -343,6 +343,18 @@
           "markdownDescription": "Denies the apply_and_render_view_state_raw command without any pre-configured scope."
         },
         {
+          "description": "Enables the batch_render_slices command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-batch-render-slices",
+          "markdownDescription": "Enables the batch_render_slices command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the batch_render_slices command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-batch-render-slices",
+          "markdownDescription": "Denies the batch_render_slices command without any pre-configured scope."
+        },
+        {
           "description": "Enables the clear_render_layers command without any pre-configured scope.",
           "type": "string",
           "const": "allow-clear-render-layers",
@@ -557,6 +569,30 @@
           "type": "string",
           "const": "deny-patch-layer",
           "markdownDescription": "Denies the patch_layer command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the query_slice_axis_meta command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-query-slice-axis-meta",
+          "markdownDescription": "Enables the query_slice_axis_meta command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the query_slice_axis_meta command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-query-slice-axis-meta",
+          "markdownDescription": "Denies the query_slice_axis_meta command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the recalculate_view_for_dimensions command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-recalculate-view-for-dimensions",
+          "markdownDescription": "Enables the recalculate_view_for_dimensions command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the recalculate_view_for_dimensions command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-recalculate-view-for-dimensions",
+          "markdownDescription": "Denies the recalculate_view_for_dimensions command without any pre-configured scope."
         },
         {
           "description": "Enables the release_gpu_resources command without any pre-configured scope.",
@@ -835,10 +871,10 @@
           "markdownDescription": "Denies the world_to_voxel command without any pre-configured scope."
         },
         {
-          "description": "Default permissions for api-bridge plugin\n#### This default permission set includes:\n\n- `allow-load-file`\n- `allow-get-volume-bounds`\n- `allow-world-to-voxel`\n- `allow-get-timeseries-matrix`\n- `allow-get-initial-views`\n- `allow-request-layer-gpu-resources`\n- `allow-release-layer-gpu-resources`\n- `allow-fs-list-directory`\n- `allow-init-render-loop`\n- `allow-resize-canvas`\n- `allow-update-frame-ubo`\n- `allow-update-frame-for-synchronized-view`\n- `allow-set-crosshair`\n- `allow-set-view-plane`\n- `allow-render-frame`\n- `allow-create-offscreen-render-target`\n- `allow-render-to-image`\n- `allow-render-to-image-binary`\n- `allow-add-render-layer`\n- `allow-remove-render-layer`\n- `allow-clear-render-layers`\n- `allow-patch-layer`\n- `allow-update-layer-opacity`\n- `allow-update-layer-colormap`\n- `allow-update-layer-intensity`\n- `allow-update-layer-threshold`\n- `allow-sample-world-coordinate`\n- `allow-apply-and-render-view-state`\n- `allow-apply-and-render-view-state-binary`\n- `allow-apply-and-render-view-state-raw`",
+          "description": "Default permissions for api-bridge plugin\n#### This default permission set includes:\n\n- `allow-load-file`\n- `allow-get-volume-bounds`\n- `allow-world-to-voxel`\n- `allow-get-timeseries-matrix`\n- `allow-get-initial-views`\n- `allow-recalculate-view-for-dimensions`\n- `allow-request-layer-gpu-resources`\n- `allow-release-layer-gpu-resources`\n- `allow-fs-list-directory`\n- `allow-init-render-loop`\n- `allow-resize-canvas`\n- `allow-update-frame-ubo`\n- `allow-update-frame-for-synchronized-view`\n- `allow-set-crosshair`\n- `allow-set-view-plane`\n- `allow-render-frame`\n- `allow-create-offscreen-render-target`\n- `allow-render-to-image`\n- `allow-render-to-image-binary`\n- `allow-add-render-layer`\n- `allow-remove-render-layer`\n- `allow-clear-render-layers`\n- `allow-patch-layer`\n- `allow-update-layer-opacity`\n- `allow-update-layer-colormap`\n- `allow-update-layer-intensity`\n- `allow-update-layer-threshold`\n- `allow-sample-world-coordinate`\n- `allow-apply-and-render-view-state`\n- `allow-apply-and-render-view-state-binary`\n- `allow-apply-and-render-view-state-raw`\n- `allow-query-slice-axis-meta`\n- `allow-batch-render-slices`",
           "type": "string",
           "const": "default",
-          "markdownDescription": "Default permissions for api-bridge plugin\n#### This default permission set includes:\n\n- `allow-load-file`\n- `allow-get-volume-bounds`\n- `allow-world-to-voxel`\n- `allow-get-timeseries-matrix`\n- `allow-get-initial-views`\n- `allow-request-layer-gpu-resources`\n- `allow-release-layer-gpu-resources`\n- `allow-fs-list-directory`\n- `allow-init-render-loop`\n- `allow-resize-canvas`\n- `allow-update-frame-ubo`\n- `allow-update-frame-for-synchronized-view`\n- `allow-set-crosshair`\n- `allow-set-view-plane`\n- `allow-render-frame`\n- `allow-create-offscreen-render-target`\n- `allow-render-to-image`\n- `allow-render-to-image-binary`\n- `allow-add-render-layer`\n- `allow-remove-render-layer`\n- `allow-clear-render-layers`\n- `allow-patch-layer`\n- `allow-update-layer-opacity`\n- `allow-update-layer-colormap`\n- `allow-update-layer-intensity`\n- `allow-update-layer-threshold`\n- `allow-sample-world-coordinate`\n- `allow-apply-and-render-view-state`\n- `allow-apply-and-render-view-state-binary`\n- `allow-apply-and-render-view-state-raw`"
+          "markdownDescription": "Default permissions for api-bridge plugin\n#### This default permission set includes:\n\n- `allow-load-file`\n- `allow-get-volume-bounds`\n- `allow-world-to-voxel`\n- `allow-get-timeseries-matrix`\n- `allow-get-initial-views`\n- `allow-recalculate-view-for-dimensions`\n- `allow-request-layer-gpu-resources`\n- `allow-release-layer-gpu-resources`\n- `allow-fs-list-directory`\n- `allow-init-render-loop`\n- `allow-resize-canvas`\n- `allow-update-frame-ubo`\n- `allow-update-frame-for-synchronized-view`\n- `allow-set-crosshair`\n- `allow-set-view-plane`\n- `allow-render-frame`\n- `allow-create-offscreen-render-target`\n- `allow-render-to-image`\n- `allow-render-to-image-binary`\n- `allow-add-render-layer`\n- `allow-remove-render-layer`\n- `allow-clear-render-layers`\n- `allow-patch-layer`\n- `allow-update-layer-opacity`\n- `allow-update-layer-colormap`\n- `allow-update-layer-intensity`\n- `allow-update-layer-threshold`\n- `allow-sample-world-coordinate`\n- `allow-apply-and-render-view-state`\n- `allow-apply-and-render-view-state-binary`\n- `allow-apply-and-render-view-state-raw`\n- `allow-query-slice-axis-meta`\n- `allow-batch-render-slices`"
         }
       ]
     }

@@ -1,0 +1,20 @@
+[
+  {
+    "content": "Fix lifecycle_message error in get_template_gm function",
+    "status": "completed",
+    "priority": "high",
+    "id": "1"
+  },
+  {
+    "content": "Update CLAUDE.md with proper TemplateFlow installation instructions",
+    "status": "completed",
+    "priority": "medium",
+    "id": "2"
+  },
+  {
+    "content": "Test the fixes to ensure they work correctly",
+    "status": "completed",
+    "priority": "medium",
+    "id": "3"
+  }
+]

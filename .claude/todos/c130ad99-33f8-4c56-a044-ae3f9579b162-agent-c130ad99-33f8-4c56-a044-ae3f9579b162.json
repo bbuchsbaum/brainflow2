@@ -1,0 +1,20 @@
+[
+  {
+    "content": "Update CLAUDE.md with development workflow documentation",
+    "status": "completed",
+    "priority": "high",
+    "id": "task-1"
+  },
+  {
+    "content": "Document progress tracking standards in CLAUDE.md",
+    "status": "completed",
+    "priority": "medium",
+    "id": "task-2"
+  },
+  {
+    "content": "Establish sprint advancement workflow with AI audits",
+    "status": "completed",
+    "priority": "medium",
+    "id": "task-3"
+  }
+]

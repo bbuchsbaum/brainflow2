@@ -1,0 +1,26 @@
+[
+  {
+    "content": "Run tests to check if extraction was successful",
+    "status": "completed",
+    "priority": "high",
+    "id": "1"
+  },
+  {
+    "content": "Run devtools::check_man() to check documentation",
+    "status": "completed",
+    "priority": "high",
+    "id": "2"
+  },
+  {
+    "content": "Run devtools::check() for comprehensive package check",
+    "status": "completed",
+    "priority": "high",
+    "id": "3"
+  },
+  {
+    "content": "Document and fix any issues found",
+    "status": "completed",
+    "priority": "high",
+    "id": "4"
+  }
+]

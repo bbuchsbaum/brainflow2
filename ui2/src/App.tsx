@@ -8,7 +8,7 @@ import { StatusProvider } from '@/contexts/StatusContext';
 import { useBackendSync } from '@/hooks/useBackendSync';
 import { useMountListener } from '@/hooks/useMountListener';
 import { useServicesInit } from '@/hooks/useServicesInit';
-import { useStatusBarUpdates } from '@/hooks/useStatusBarUpdates';
+import { useStatusBarInit } from '@/hooks/useStatusBarInit';
 import { useWorkspaceMenuListener } from '@/hooks/useWorkspaceMenuListener';
 import { coalesceUtils } from '@/stores/middleware/coalesceUpdatesMiddleware';
 import { getProgressService } from '@/services/ProgressService';
@@ -74,8 +74,8 @@ function AppContent() {
   // Listen for workspace menu events
   useWorkspaceMenuListener();
   
-  // Initialize status bar updates - temporarily disabled to debug render loop
-  // useStatusBarUpdates();
+  // Initialize status bar service using Zustand store
+  useStatusBarInit();
   
   // Global render logging (after hooks)
   if (typeof window !== 'undefined' && (window as any).__logRender) {

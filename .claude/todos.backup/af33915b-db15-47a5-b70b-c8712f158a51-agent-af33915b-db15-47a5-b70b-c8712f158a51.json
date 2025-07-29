@@ -1,0 +1,20 @@
+[
+  {
+    "content": "Implement enhanced searchRHelp with fallback for undocumented functions",
+    "status": "completed",
+    "priority": "high",
+    "id": "5"
+  },
+  {
+    "content": "Add detection for S3 methods when generic has no docs",
+    "status": "completed",
+    "priority": "high",
+    "id": "6"
+  },
+  {
+    "content": "Test the enhanced search with blockids and other cases",
+    "status": "completed",
+    "priority": "medium",
+    "id": "7"
+  }
+]

@@ -1,0 +1,98 @@
+[
+  {
+    "content": "Fix world_to_voxel transpose in layer_storage.rs",
+    "status": "completed",
+    "priority": "high",
+    "id": "FIX-LAYER-STORAGE"
+  },
+  {
+    "content": "Check and fix layer_uniforms_optimized.rs if it exists",
+    "status": "completed",
+    "priority": "high",
+    "id": "FIX-LAYER-OPTIMIZED"
+  },
+  {
+    "content": "Run test to verify fix works",
+    "status": "completed",
+    "priority": "high",
+    "id": "RUN-TEST-VERIFY"
+  },
+  {
+    "content": "Debug why only crosshair is rendering (39 pixels)",
+    "status": "completed",
+    "priority": "high",
+    "id": "DEBUG-CROSSHAIR-ONLY"
+  },
+  {
+    "content": "Create visual dashboard for migration test",
+    "status": "completed",
+    "priority": "high",
+    "id": "CREATE-DASHBOARD"
+  },
+  {
+    "content": "Extract Y-flip logic into reusable helper function",
+    "status": "completed",
+    "priority": "high",
+    "id": "EXTRACT-Y-FLIP"
+  },
+  {
+    "content": "Fix Y-axis flipping difference between APIs",
+    "status": "completed",
+    "priority": "high",
+    "id": "FIX-Y-FLIP-DIFF"
+  },
+  {
+    "content": "Run tests to verify Y-flip fix",
+    "status": "completed",
+    "priority": "high",
+    "id": "VERIFY-Y-FLIP"
+  },
+  {
+    "content": "Update MNI orthogonal dashboard test to use declarative API",
+    "status": "completed",
+    "priority": "medium",
+    "id": "MIGRATE-MNI-DASHBOARD"
+  },
+  {
+    "content": "Migrate test_mni_slices.rs to use declarative API",
+    "status": "completed",
+    "priority": "medium",
+    "id": "MIGRATE-MNI-SLICES"
+  },
+  {
+    "content": "Add test assertions for center pixel and crosshair",
+    "status": "completed",
+    "priority": "medium",
+    "id": "ADD-TEST-ASSERTIONS"
+  },
+  {
+    "content": "Document that crosshairs are a UI overlay concern, not renderer",
+    "status": "completed",
+    "priority": "medium",
+    "id": "DOCUMENT-CROSSHAIR-ARCH"
+  },
+  {
+    "content": "Document matrix layout convention",
+    "status": "pending",
+    "priority": "low",
+    "id": "DOCUMENT-MATRIX"
+  },
+  {
+    "content": "Migrate remaining test locations",
+    "status": "pending",
+    "priority": "medium",
+    "id": "MIGRATE-ALL-TESTS"
+  },
+  {
+    "content": "Add deprecation warnings to imperative methods",
+    "status": "pending",
+    "priority": "low",
+    "id": "ADD-DEPRECATIONS"
+  },
+  {
+    "content": "Update documentation with declarative patterns",
+    "status": "pending",
+    "priority": "low",
+    "id": "UPDATE-DOCS"
+  }
+]

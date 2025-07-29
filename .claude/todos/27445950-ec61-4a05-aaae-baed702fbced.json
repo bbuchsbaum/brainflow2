@@ -1,0 +1,20 @@
+[
+  {
+    "content": "Replace Woodbury implementation with fmrireg::lss_fast wrapper",
+    "status": "completed",
+    "priority": "high",
+    "id": "1"
+  },
+  {
+    "content": "Update tests to use new implementation",
+    "status": "completed",
+    "priority": "high",
+    "id": "2"
+  },
+  {
+    "content": "Verify all tests pass with new implementation",
+    "status": "completed",
+    "priority": "high",
+    "id": "3"
+  }
+]

@@ -1,0 +1,38 @@
+[
+  {
+    "content": "Implement Core API functions (ls, get, templates)",
+    "status": "completed",
+    "priority": "high",
+    "id": "1"
+  },
+  {
+    "content": "Implement Async API variants",
+    "status": "pending",
+    "priority": "medium",
+    "id": "2"
+  },
+  {
+    "content": "Create CLI with clap v4",
+    "status": "pending",
+    "priority": "medium",
+    "id": "3"
+  },
+  {
+    "content": "Implement CLI commands (ls, get, config, update, wipe)",
+    "status": "pending",
+    "priority": "medium",
+    "id": "4"
+  },
+  {
+    "content": "Write integration tests",
+    "status": "pending",
+    "priority": "high",
+    "id": "5"
+  },
+  {
+    "content": "Write documentation",
+    "status": "pending",
+    "priority": "medium",
+    "id": "6"
+  }
+]

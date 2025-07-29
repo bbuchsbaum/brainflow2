@@ -1,0 +1,26 @@
+[
+  {
+    "content": "Search for S3 generics with @return tags",
+    "status": "completed",
+    "priority": "high",
+    "id": "1"
+  },
+  {
+    "content": "Identify S3 methods that share documentation with their generics",
+    "status": "completed",
+    "priority": "high",
+    "id": "2"
+  },
+  {
+    "content": "Remove redundant @return tags from S3 methods",
+    "status": "completed",
+    "priority": "high",
+    "id": "3"
+  },
+  {
+    "content": "Verify documentation builds correctly",
+    "status": "completed",
+    "priority": "high",
+    "id": "4"
+  }
+]

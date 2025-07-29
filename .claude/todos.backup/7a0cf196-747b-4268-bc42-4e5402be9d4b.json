@@ -1,0 +1,26 @@
+[
+  {
+    "content": "Analyze test failures in test-core-voxelfit-engine.R",
+    "status": "completed",
+    "priority": "high",
+    "id": "1"
+  },
+  {
+    "content": "Fix the extract_xi_beta_raw_svd_core matrix orientation issue",
+    "status": "completed",
+    "priority": "high",
+    "id": "2"
+  },
+  {
+    "content": "Update tests to match the corrected implementation",
+    "status": "completed",
+    "priority": "high",
+    "id": "3"
+  },
+  {
+    "content": "Run tests to verify fixes",
+    "status": "completed",
+    "priority": "high",
+    "id": "4"
+  }
+]

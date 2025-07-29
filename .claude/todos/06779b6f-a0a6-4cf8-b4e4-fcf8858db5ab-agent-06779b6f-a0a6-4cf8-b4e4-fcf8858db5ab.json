@@ -1,0 +1,32 @@
+[
+  {
+    "content": "Create comprehensive backend integration plan based on expert guidance",
+    "status": "completed",
+    "priority": "high",
+    "id": "16"
+  },
+  {
+    "content": "Implement event-driven volume loading system",
+    "status": "in_progress",
+    "priority": "high",
+    "id": "17"
+  },
+  {
+    "content": "Create VolumeLayerSpec after NIFTI load",
+    "status": "pending",
+    "priority": "high",
+    "id": "18"
+  },
+  {
+    "content": "Implement add_volume_layer GPU upload",
+    "status": "pending",
+    "priority": "high",
+    "id": "19"
+  },
+  {
+    "content": "Fix PNG rendering with active layers",
+    "status": "pending",
+    "priority": "high",
+    "id": "20"
+  }
+]

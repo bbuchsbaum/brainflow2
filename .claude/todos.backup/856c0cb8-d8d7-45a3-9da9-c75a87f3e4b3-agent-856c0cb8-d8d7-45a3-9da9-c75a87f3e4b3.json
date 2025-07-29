@@ -1,0 +1,326 @@
+[
+  {
+    "content": "Phase 0: Discovery & Assessment - Scan eyesim R package structure",
+    "status": "completed",
+    "priority": "high",
+    "id": "1"
+  },
+  {
+    "content": "Analyze package complexity and dependencies",
+    "status": "completed",
+    "priority": "high",
+    "id": "2"
+  },
+  {
+    "content": "Create baseline testing inventory",
+    "status": "completed",
+    "priority": "high",
+    "id": "3"
+  },
+  {
+    "content": "Phase 1: Architecture Mapping - Design Python package structure",
+    "status": "completed",
+    "priority": "medium",
+    "id": "4"
+  },
+  {
+    "content": "Phase 2: Implementation - Convert core functions",
+    "status": "completed",
+    "priority": "medium",
+    "id": "5"
+  },
+  {
+    "content": "Phase 3: Verification - Create test suite",
+    "status": "completed",
+    "priority": "medium",
+    "id": "6"
+  },
+  {
+    "content": "Phase 4: Documentation - Convert vignettes and create Sphinx docs",
+    "status": "completed",
+    "priority": "low",
+    "id": "7"
+  },
+  {
+    "content": "Implement FixationGroup class",
+    "status": "completed",
+    "priority": "high",
+    "id": "8"
+  },
+  {
+    "content": "Implement EyeTable class",
+    "status": "completed",
+    "priority": "high",
+    "id": "9"
+  },
+  {
+    "content": "Implement basic validation and type checking",
+    "status": "completed",
+    "priority": "high",
+    "id": "10"
+  },
+  {
+    "content": "Create data loading utilities",
+    "status": "completed",
+    "priority": "high",
+    "id": "11"
+  },
+  {
+    "content": "Implement center_fixations transformation",
+    "status": "completed",
+    "priority": "medium",
+    "id": "12"
+  },
+  {
+    "content": "Write tests for core data structures",
+    "status": "completed",
+    "priority": "high",
+    "id": "13"
+  },
+  {
+    "content": "Implement EyeDensity class",
+    "status": "completed",
+    "priority": "high",
+    "id": "14"
+  },
+  {
+    "content": "Implement density computation functions",
+    "status": "completed",
+    "priority": "medium",
+    "id": "15"
+  },
+  {
+    "content": "Implement similarity metrics",
+    "status": "completed",
+    "priority": "medium",
+    "id": "16"
+  },
+  {
+    "content": "Implement normalize_fixations transformation",
+    "status": "completed",
+    "priority": "medium",
+    "id": "17"
+  },
+  {
+    "content": "Implement rotate_fixations transformation",
+    "status": "completed",
+    "priority": "low",
+    "id": "18"
+  },
+  {
+    "content": "Implement scale_fixations transformation",
+    "status": "completed",
+    "priority": "low",
+    "id": "19"
+  },
+  {
+    "content": "Create tests for transformation functions",
+    "status": "completed",
+    "priority": "medium",
+    "id": "20"
+  },
+  {
+    "content": "Implement core similarity metrics (pearson, spearman, etc.)",
+    "status": "completed",
+    "priority": "high",
+    "id": "21"
+  },
+  {
+    "content": "Create EMD utility wrapper",
+    "status": "completed",
+    "priority": "medium",
+    "id": "22"
+  },
+  {
+    "content": "Write tests for similarity metrics",
+    "status": "completed",
+    "priority": "high",
+    "id": "23"
+  },
+  {
+    "content": "Implement MultiMatch algorithm",
+    "status": "completed",
+    "priority": "medium",
+    "id": "24"
+  },
+  {
+    "content": "Implement fixation group similarity methods",
+    "status": "completed",
+    "priority": "medium",
+    "id": "25"
+  },
+  {
+    "content": "Implement template and scanpath similarity",
+    "status": "completed",
+    "priority": "medium",
+    "id": "26"
+  },
+  {
+    "content": "Phase 2 complete: Similarity metrics implemented",
+    "status": "completed",
+    "priority": "high",
+    "id": "27"
+  },
+  {
+    "content": "Phase 3: Advanced Algorithms - Complete implementation",
+    "status": "completed",
+    "priority": "high",
+    "id": "28"
+  },
+  {
+    "content": "Implement saccade computation utilities",
+    "status": "completed",
+    "priority": "medium",
+    "id": "29"
+  },
+  {
+    "content": "Implement fixation overlap and time-based similarity",
+    "status": "completed",
+    "priority": "medium",
+    "id": "30"
+  },
+  {
+    "content": "Implement template similarity analysis",
+    "status": "completed",
+    "priority": "medium",
+    "id": "31"
+  },
+  {
+    "content": "Implement scanpath similarity wrapper",
+    "status": "completed",
+    "priority": "medium",
+    "id": "32"
+  },
+  {
+    "content": "Implement CRQA analysis",
+    "status": "completed",
+    "priority": "medium",
+    "id": "33"
+  },
+  {
+    "content": "Implement repetitive similarity metrics",
+    "status": "completed",
+    "priority": "medium",
+    "id": "34"
+  },
+  {
+    "content": "Create tests for advanced algorithms",
+    "status": "completed",
+    "priority": "high",
+    "id": "35"
+  },
+  {
+    "content": "Phase 4: Visualization - Implement static plot functions",
+    "status": "completed",
+    "priority": "high",
+    "id": "36"
+  },
+  {
+    "content": "Implement animated scanpath visualization",
+    "status": "completed",
+    "priority": "medium",
+    "id": "37"
+  },
+  {
+    "content": "Create tests for visualization functions",
+    "status": "completed",
+    "priority": "high",
+    "id": "38"
+  },
+  {
+    "content": "Phase 5: Additional Utilities - density_by, scale estimation",
+    "status": "completed",
+    "priority": "medium",
+    "id": "39"
+  },
+  {
+    "content": "Implement density_by function",
+    "status": "completed",
+    "priority": "high",
+    "id": "42"
+  },
+  {
+    "content": "Implement scale estimation utilities",
+    "status": "completed",
+    "priority": "medium",
+    "id": "43"
+  },
+  {
+    "content": "Implement fixation sampling utilities",
+    "status": "completed",
+    "priority": "medium",
+    "id": "44"
+  },
+  {
+    "content": "Implement fixation overlap calculation",
+    "status": "completed",
+    "priority": "medium",
+    "id": "45"
+  },
+  {
+    "content": "Phase 6: Testing and Integration",
+    "status": "completed",
+    "priority": "high",
+    "id": "40"
+  },
+  {
+    "content": "Create integration tests for end-to-end workflows",
+    "status": "completed",
+    "priority": "high",
+    "id": "46"
+  },
+  {
+    "content": "Add property-based tests for core functions",
+    "status": "completed",
+    "priority": "medium",
+    "id": "47"
+  },
+  {
+    "content": "Create performance benchmarks",
+    "status": "completed",
+    "priority": "medium",
+    "id": "48"
+  },
+  {
+    "content": "Fix failing tests from previous phases",
+    "status": "completed",
+    "priority": "high",
+    "id": "49"
+  },
+  {
+    "content": "Phase 7: Documentation and Examples",
+    "status": "completed",
+    "priority": "medium",
+    "id": "41"
+  },
+  {
+    "content": "Create comprehensive README.md with installation and usage",
+    "status": "completed",
+    "priority": "high",
+    "id": "50"
+  },
+  {
+    "content": "Write API documentation with examples for all modules",
+    "status": "completed",
+    "priority": "high",
+    "id": "51"
+  },
+  {
+    "content": "Create example notebooks demonstrating key workflows",
+    "status": "completed",
+    "priority": "medium",
+    "id": "52"
+  },
+  {
+    "content": "Write migration guide from R eyesim to Python peyesim",
+    "status": "completed",
+    "priority": "medium",
+    "id": "53"
+  },
+  {
+    "content": "Add docstring examples to all major functions",
+    "status": "completed",
+    "priority": "medium",
+    "id": "54"
+  }
+]

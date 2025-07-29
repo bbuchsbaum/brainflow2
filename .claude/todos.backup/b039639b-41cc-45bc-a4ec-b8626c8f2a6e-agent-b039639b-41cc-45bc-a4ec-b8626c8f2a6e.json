@@ -1,0 +1,26 @@
+[
+  {
+    "content": "Check if setup.py or pyproject.toml exists for pip installation",
+    "status": "completed",
+    "priority": "high",
+    "id": "1"
+  },
+  {
+    "content": "Review pyproject.toml configuration",
+    "status": "completed",
+    "priority": "high",
+    "id": "2"
+  },
+  {
+    "content": "Install package in editable mode for development",
+    "status": "completed",
+    "priority": "medium",
+    "id": "3"
+  },
+  {
+    "content": "Verify installation and test import",
+    "status": "completed",
+    "priority": "medium",
+    "id": "4"
+  }
+]

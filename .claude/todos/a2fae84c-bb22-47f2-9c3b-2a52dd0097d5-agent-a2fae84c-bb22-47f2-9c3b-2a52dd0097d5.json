@@ -1,0 +1,32 @@
+[
+  {
+    "content": "Analyze the balanced design and convolution discrepancy issue",
+    "status": "completed",
+    "priority": "high",
+    "id": "1"
+  },
+  {
+    "content": "Examine event timing and distribution across runs",
+    "status": "completed",
+    "priority": "high",
+    "id": "2"
+  },
+  {
+    "content": "Investigate convolution process and HRF application",
+    "status": "completed",
+    "priority": "high",
+    "id": "3"
+  },
+  {
+    "content": "Identify root cause of column sum discrepancies",
+    "status": "completed",
+    "priority": "high",
+    "id": "4"
+  },
+  {
+    "content": "Propose solution to preserve design balance",
+    "status": "completed",
+    "priority": "high",
+    "id": "5"
+  }
+]

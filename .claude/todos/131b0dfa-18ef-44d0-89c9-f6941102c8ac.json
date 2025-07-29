@@ -1,0 +1,32 @@
+[
+  {
+    "content": "Fix atlas-integrity test failures",
+    "status": "completed",
+    "priority": "high",
+    "id": "1"
+  },
+  {
+    "content": "Fix data-integrity test failures",
+    "status": "completed",
+    "priority": "high",
+    "id": "2"
+  },
+  {
+    "content": "Fix roi-operations test failures",
+    "status": "completed",
+    "priority": "high",
+    "id": "3"
+  },
+  {
+    "content": "Fix surface-atlases test failures",
+    "status": "completed",
+    "priority": "medium",
+    "id": "4"
+  },
+  {
+    "content": "Fix space-transforms test - merged atlas dimension mismatch",
+    "status": "pending",
+    "priority": "low",
+    "id": "5"
+  }
+]

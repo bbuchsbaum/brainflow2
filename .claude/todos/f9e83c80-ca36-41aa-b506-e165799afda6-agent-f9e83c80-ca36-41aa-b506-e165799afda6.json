@@ -1,0 +1,26 @@
+[
+  {
+    "content": "Fix inject_basis function by adding proper imports for f_lhs and f_rhs",
+    "status": "completed",
+    "priority": "high",
+    "id": "1"
+  },
+  {
+    "content": "Check for any other missing imports/dependencies",
+    "status": "completed",
+    "priority": "medium",
+    "id": "2"
+  },
+  {
+    "content": "Re-run tests to verify fixes",
+    "status": "completed",
+    "priority": "high",
+    "id": "3"
+  },
+  {
+    "content": "Document the package to update NAMESPACE with new imports",
+    "status": "completed",
+    "priority": "high",
+    "id": "4"
+  }
+]

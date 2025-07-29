@@ -1,0 +1,14 @@
+[
+  {
+    "content": "Install pyfmridesign in development mode",
+    "status": "completed",
+    "priority": "high",
+    "id": "1"
+  },
+  {
+    "content": "Install pyfmrihrf dependency first",
+    "status": "completed",
+    "priority": "high",
+    "id": "2"
+  }
+]

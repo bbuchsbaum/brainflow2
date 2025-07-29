@@ -1,0 +1,74 @@
+[
+  {
+    "content": "TICKET-301hh: Fix empty PNG rendering - ensure layers are added to render state",
+    "status": "completed",
+    "priority": "high",
+    "id": "301hh"
+  },
+  {
+    "content": "TICKET-301ii: Fix PNG decoding error - type coercion issue with Tauri binary transport",
+    "status": "completed",
+    "priority": "high",
+    "id": "301ii"
+  },
+  {
+    "content": "TICKET-301jj: Fix empty rendering - backend only processes crosshair, not layers",
+    "status": "completed",
+    "priority": "high",
+    "id": "301jj"
+  },
+  {
+    "content": "TICKET-301kk: Fix LayerStorageManager active_count not updating when adding single layer",
+    "status": "in_progress",
+    "priority": "high",
+    "id": "301kk"
+  },
+  {
+    "content": "TICKET-302: Performance Optimizations (Batching & Throttling)",
+    "status": "pending",
+    "priority": "high",
+    "id": "302"
+  },
+  {
+    "content": "TICKET-303: Enhanced LayerPanel with Lifecycle Management",
+    "status": "pending",
+    "priority": "high",
+    "id": "303"
+  },
+  {
+    "content": "TICKET-304: FileBrowserPanel Scalability (Lazy Loading & Search)",
+    "status": "pending",
+    "priority": "medium",
+    "id": "304"
+  },
+  {
+    "content": "TICKET-305: Error Handling & Notification System",
+    "status": "pending",
+    "priority": "medium",
+    "id": "305"
+  },
+  {
+    "content": "TICKET-306: Image Caching & Optimization",
+    "status": "pending",
+    "priority": "medium",
+    "id": "306"
+  },
+  {
+    "content": "TICKET-307: Keyboard Shortcuts & Accessibility",
+    "status": "pending",
+    "priority": "medium",
+    "id": "307"
+  },
+  {
+    "content": "TICKET-308: Testing Infrastructure & Backend Mocking",
+    "status": "pending",
+    "priority": "high",
+    "id": "308"
+  },
+  {
+    "content": "TICKET-309: UX Polish (Theming, File Drop, Colormap Previews)",
+    "status": "pending",
+    "priority": "low",
+    "id": "309"
+  }
+]

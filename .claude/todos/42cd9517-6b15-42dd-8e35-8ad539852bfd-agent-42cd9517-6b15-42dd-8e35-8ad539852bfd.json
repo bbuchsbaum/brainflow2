@@ -1,0 +1,50 @@
+[
+  {
+    "content": "Fix missing paragraph breaks within sections",
+    "status": "completed",
+    "priority": "high",
+    "id": "7"
+  },
+  {
+    "content": "Ensure markdown paragraph breaks are preserved in PDF",
+    "status": "completed",
+    "priority": "high",
+    "id": "8"
+  },
+  {
+    "content": "Identify remaining long paragraphs that need breaks",
+    "status": "completed",
+    "priority": "high",
+    "id": "9"
+  },
+  {
+    "content": "Implement solution for breaking up long paragraphs",
+    "status": "completed",
+    "priority": "medium",
+    "id": "10"
+  },
+  {
+    "content": "Add sophisticated paragraph breaking algorithm to script",
+    "status": "completed",
+    "priority": "high",
+    "id": "11"
+  },
+  {
+    "content": "Create semantic paragraph analyzer script",
+    "status": "completed",
+    "priority": "high",
+    "id": "13"
+  },
+  {
+    "content": "Test enhanced script and verify PDF output",
+    "status": "completed",
+    "priority": "medium",
+    "id": "12"
+  },
+  {
+    "content": "Fix Word document generation to preserve paragraphs and headings",
+    "status": "completed",
+    "priority": "high",
+    "id": "14"
+  }
+]

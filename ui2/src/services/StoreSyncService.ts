@@ -263,26 +263,58 @@ export class StoreSyncService {
       }
       
       console.log(`[StoreSyncService ${performance.now() - eventTime}ms] Calling setViewState to add layer...`);
-      useViewStateStore.getState().setViewState((state) => {
-        // Check if we're overwriting an existing layer with user values
-        const existingLayerInState = state.layers.find(l => l.id === viewLayer.id);
-        if (existingLayerInState) {
-          console.error(`[StoreSyncService] ❌ CRITICAL: About to overwrite existing layer ${viewLayer.id} in ViewState!`);
-          console.error(`  - Existing intensity: [${existingLayerInState.intensity[0]}, ${existingLayerInState.intensity[1]}]`);
-          console.error(`  - New intensity: [${viewLayer.intensity[0]}, ${viewLayer.intensity[1]}]`);
-          console.trace('Overwrite stack trace:');
-          // Don't add duplicate - this is likely causing the reset!
-          return state;
-        }
-        
-        const newState = {
-          ...state,
-          layers: [...state.layers, viewLayer]
-        };
-        console.log(`[StoreSyncService] Inside setViewState - old layers: ${state.layers.length}, new layers: ${newState.layers.length}`);
-        return newState;
-      });
       
+      // Force immediate sync for new layers by accessing the store's internal _originalSet
+      // This bypasses the coalescing middleware to ensure immediate synchronization
+      const store = useViewStateStore.getState() as any;
+      if (store._originalSet) {
+        console.log(`[StoreSyncService] Using _originalSet for immediate sync of new layer ${viewLayer.id}`);
+        store._originalSet((storeState: any) => {
+          // storeState is the full store state, not just viewState
+          const state = storeState.viewState;
+          
+          // Check if we're overwriting an existing layer with user values
+          const existingLayerInState = state.layers.find(l => l.id === viewLayer.id);
+          if (existingLayerInState) {
+            console.error(`[StoreSyncService] ❌ CRITICAL: About to overwrite existing layer ${viewLayer.id} in ViewState!`);
+            console.error(`  - Existing intensity: [${existingLayerInState.intensity[0]}, ${existingLayerInState.intensity[1]}]`);
+            console.error(`  - New intensity: [${viewLayer.intensity[0]}, ${viewLayer.intensity[1]}]`);
+            console.trace('Overwrite stack trace:');
+            // Don't add duplicate - this is likely causing the reset!
+            return storeState;
+          }
+          
+          return {
+            ...storeState,
+            viewState: {
+              ...state,
+              layers: [...state.layers, viewLayer]
+            }
+          };
+        });
+      } else {
+        // Fallback to regular setViewState if _originalSet is not available
+        console.log(`[StoreSyncService] _originalSet not available, using regular setViewState`);
+        useViewStateStore.getState().setViewState((state) => {
+          // Check if we're overwriting an existing layer with user values
+          const existingLayerInState = state.layers.find(l => l.id === viewLayer.id);
+          if (existingLayerInState) {
+            console.error(`[StoreSyncService] ❌ CRITICAL: About to overwrite existing layer ${viewLayer.id} in ViewState!`);
+            console.error(`  - Existing intensity: [${existingLayerInState.intensity[0]}, ${existingLayerInState.intensity[1]}]`);
+            console.error(`  - New intensity: [${viewLayer.intensity[0]}, ${viewLayer.intensity[1]}]`);
+            console.trace('Overwrite stack trace:');
+            // Don't add duplicate - this is likely causing the reset!
+            return state;
+          }
+          
+          const newState = {
+            ...state,
+            layers: [...state.layers, viewLayer]
+          };
+          console.log(`[StoreSyncService] Inside setViewState - old layers: ${state.layers.length}, new layers: ${newState.layers.length}`);
+          return newState;
+        });
+      }
       const newViewState = useViewStateStore.getState().viewState;
       const newLayers = newViewState.layers;
       console.log(`[StoreSyncService ${performance.now() - eventTime}ms] ViewState after update:`);

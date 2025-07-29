@@ -1,0 +1,8 @@
+[
+  {
+    "content": "Update failing tests to match R-compatible defaults",
+    "status": "completed",
+    "priority": "low",
+    "id": "fix_tests"
+  }
+]

@@ -1,0 +1,20 @@
+[
+  {
+    "content": "Implement shortnames.event_term method",
+    "status": "completed",
+    "priority": "high",
+    "id": "1"
+  },
+  {
+    "content": "Implement longnames.event_term method",
+    "status": "completed",
+    "priority": "high",
+    "id": "2"
+  },
+  {
+    "content": "Run tests to verify the implementation",
+    "status": "completed",
+    "priority": "medium",
+    "id": "3"
+  }
+]

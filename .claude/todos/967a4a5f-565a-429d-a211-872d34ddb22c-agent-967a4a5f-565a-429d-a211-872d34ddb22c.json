@@ -1,0 +1,32 @@
+[
+  {
+    "content": "Review and stage documentation reorganization (deleted Arith-methods.Rd, Compare-methods.Rd, added specific method docs)",
+    "status": "pending",
+    "priority": "high",
+    "id": "1"
+  },
+  {
+    "content": "Review JavaScript changes (71k+ lines in neurosurface.js - likely a build artifact issue)",
+    "status": "pending",
+    "priority": "high",
+    "id": "2"
+  },
+  {
+    "content": "Check if new untracked documentation files should be added",
+    "status": "pending",
+    "priority": "medium",
+    "id": "3"
+  },
+  {
+    "content": "Review surfwidget.R enhancements (127 lines added)",
+    "status": "pending",
+    "priority": "medium",
+    "id": "4"
+  },
+  {
+    "content": "Verify package dependencies updates in package.json",
+    "status": "pending",
+    "priority": "low",
+    "id": "5"
+  }
+]

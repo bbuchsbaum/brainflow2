@@ -1,0 +1,26 @@
+[
+  {
+    "content": "Add more S3 methods to ProjectedDataSource for better matrix compatibility",
+    "status": "completed",
+    "priority": "high",
+    "id": "6"
+  },
+  {
+    "content": "Audit rMVPA codebase for matrix access patterns",
+    "status": "completed",
+    "priority": "high",
+    "id": "7"
+  },
+  {
+    "content": "Add integration tests comparing proxy results to baseline",
+    "status": "completed",
+    "priority": "high",
+    "id": "8"
+  },
+  {
+    "content": "Document memory implications and clear_cache usage",
+    "status": "completed",
+    "priority": "medium",
+    "id": "9"
+  }
+]

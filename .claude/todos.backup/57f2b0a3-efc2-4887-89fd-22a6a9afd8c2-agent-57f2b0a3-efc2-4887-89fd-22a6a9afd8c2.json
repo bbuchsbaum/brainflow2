@@ -1,0 +1,62 @@
+[
+  {
+    "content": "Fix KEMA preprocessing error in test-toy-manifold-benchmarks.R",
+    "status": "completed",
+    "priority": "high",
+    "id": "1"
+  },
+  {
+    "content": "Fix GRASP matrix validation error",
+    "status": "completed",
+    "priority": "high",
+    "id": "2"
+  },
+  {
+    "content": "Fix GPCA preprocessing count mismatch",
+    "status": "completed",
+    "priority": "high",
+    "id": "3"
+  },
+  {
+    "content": "Add namespace imports to DESCRIPTION and R files",
+    "status": "completed",
+    "priority": "medium",
+    "id": "4"
+  },
+  {
+    "content": "Implement preprocessing broadcasting in GPCA",
+    "status": "completed",
+    "priority": "medium",
+    "id": "5"
+  },
+  {
+    "content": "Add data validation in GRASP",
+    "status": "completed",
+    "priority": "medium",
+    "id": "6"
+  },
+  {
+    "content": "Fix underlying robustness issue in linear_sim_embed to prevent hanging",
+    "status": "completed",
+    "priority": "high",
+    "id": "7"
+  },
+  {
+    "content": "Fix C++ export issue for linear_sim_embed_cpp",
+    "status": "completed",
+    "priority": "high",
+    "id": "8"
+  },
+  {
+    "content": "Fix PARROT transport plan normalization failures",
+    "status": "completed",
+    "priority": "high",
+    "id": "9"
+  },
+  {
+    "content": "Fix generalized_procrustes test failures",
+    "status": "completed",
+    "priority": "medium",
+    "id": "10"
+  }
+]

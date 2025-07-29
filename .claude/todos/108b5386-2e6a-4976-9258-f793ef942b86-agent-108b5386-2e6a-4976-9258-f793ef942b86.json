@@ -1,0 +1,56 @@
+[
+  {
+    "content": "Review current project state and identify Sprint 8 objectives",
+    "status": "completed",
+    "priority": "high",
+    "id": "sprint8-1"
+  },
+  {
+    "content": "Run all tests to ensure clean starting point",
+    "status": "completed",
+    "priority": "high",
+    "id": "sprint8-2"
+  },
+  {
+    "content": "Identify next statistical functions to implement",
+    "status": "completed",
+    "priority": "high",
+    "id": "sprint8-3"
+  },
+  {
+    "content": "Implement model diagnostics (residual plots, leverage, Cook's distance)",
+    "status": "completed",
+    "priority": "high",
+    "id": "sprint8-4a"
+  },
+  {
+    "content": "Implement hypothesis tests (Wald test, likelihood ratio test)",
+    "status": "completed",
+    "priority": "high",
+    "id": "sprint8-4b"
+  },
+  {
+    "content": "Implement confidence intervals and prediction intervals",
+    "status": "completed",
+    "priority": "high",
+    "id": "sprint8-4c"
+  },
+  {
+    "content": "Create oracle tests for new functions",
+    "status": "completed",
+    "priority": "high",
+    "id": "sprint8-5"
+  },
+  {
+    "content": "Run comprehensive test suite",
+    "status": "completed",
+    "priority": "high",
+    "id": "sprint8-6"
+  },
+  {
+    "content": "Conduct code audit using zen mcp tools",
+    "status": "completed",
+    "priority": "medium",
+    "id": "sprint8-7"
+  }
+]

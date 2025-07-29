@@ -1,0 +1,107 @@
+# Claude hooks configuration - Permissive mode (allows all except dangerous commands)
+
+# Block dangerous file operations
+[[hooks]]
+event = "PreToolUse"
+[hooks.matcher]
+tool_name = "Bash"
+command_pattern = "^(rm|mv|rmdir|dd|mkfs|fdisk|shred|chmod\\s+\\+x|sudo|su|shutdown|reboot|kill|pkill|killall)\\b"
+command = 'echo \'{"decision": "block", "reason": "Dangerous command blocked for safety"}\''
+
+# Auto-approve all other Bash commands
+[[hooks]]
+event = "PreToolUse"
+[hooks.matcher]
+tool_name = "Bash"
+command = 'echo \'{"decision": "approve", "reason": "Auto-approved in permissive mode"}\''
+
+# Auto-approve all read operations
+[[hooks]]
+event = "PreToolUse"
+[hooks.matcher]
+tool_name = "Read"
+command = 'echo \'{"decision": "approve", "reason": "Auto-approved read operation"}\''
+
+# Auto-approve all write/edit operations
+[[hooks]]
+event = "PreToolUse"
+[hooks.matcher]
+tool_name = "Write"
+command = 'echo \'{"decision": "approve", "reason": "Auto-approved write operation"}\''
+
+[[hooks]]
+event = "PreToolUse"
+[hooks.matcher]
+tool_name = "Edit"
+command = 'echo \'{"decision": "approve", "reason": "Auto-approved edit operation"}\''
+
+[[hooks]]
+event = "PreToolUse"
+[hooks.matcher]
+tool_name = "MultiEdit"
+command = 'echo \'{"decision": "approve", "reason": "Auto-approved multi-edit operation"}\''
+
+# Auto-approve all search and listing operations
+[[hooks]]
+event = "PreToolUse"
+[hooks.matcher]
+tool_name = "LS"
+command = 'echo \'{"decision": "approve", "reason": "Auto-approved directory listing"}\''
+
+[[hooks]]
+event = "PreToolUse"
+[hooks.matcher]
+tool_name = "Grep"
+command = 'echo \'{"decision": "approve", "reason": "Auto-approved search operation"}\''
+
+[[hooks]]
+event = "PreToolUse"
+[hooks.matcher]
+tool_name = "Glob"
+command = 'echo \'{"decision": "approve", "reason": "Auto-approved file pattern matching"}\''
+
+# Auto-approve notebook operations
+[[hooks]]
+event = "PreToolUse"
+[hooks.matcher]
+tool_name = "NotebookRead"
+command = 'echo \'{"decision": "approve", "reason": "Auto-approved notebook read"}\''
+
+[[hooks]]
+event = "PreToolUse"
+[hooks.matcher]
+tool_name = "NotebookEdit"
+command = 'echo \'{"decision": "approve", "reason": "Auto-approved notebook edit"}\''
+
+# Auto-approve todo operations
+[[hooks]]
+event = "PreToolUse"
+[hooks.matcher]
+tool_name = "TodoRead"
+command = 'echo \'{"decision": "approve", "reason": "Auto-approved todo read"}\''
+
+[[hooks]]
+event = "PreToolUse"
+[hooks.matcher]
+tool_name = "TodoWrite"
+command = 'echo \'{"decision": "approve", "reason": "Auto-approved todo write"}\''
+
+# Auto-approve web operations
+[[hooks]]
+event = "PreToolUse"
+[hooks.matcher]
+tool_name = "WebFetch"
+command = 'echo \'{"decision": "approve", "reason": "Auto-approved web fetch"}\''
+
+[[hooks]]
+event = "PreToolUse"
+[hooks.matcher]
+tool_name = "WebSearch"
+command = 'echo \'{"decision": "approve", "reason": "Auto-approved web search"}\''
+
+# Auto-approve Task tool
+[[hooks]]
+event = "PreToolUse"
+[hooks.matcher]
+tool_name = "Task"
+command = 'echo \'{"decision": "approve", "reason": "Auto-approved task operation"}\''

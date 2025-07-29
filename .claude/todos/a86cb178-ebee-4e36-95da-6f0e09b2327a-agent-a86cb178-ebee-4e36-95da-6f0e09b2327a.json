@@ -1,0 +1,38 @@
+[
+  {
+    "content": "T-20: Create the main Quarto template (.qmd) for the HTML dashboard",
+    "status": "completed",
+    "priority": "high",
+    "id": "1"
+  },
+  {
+    "content": "T-21: Implement the data gathering logic for sv_report() to feed the dashboard",
+    "status": "completed",
+    "priority": "high",
+    "id": "2"
+  },
+  {
+    "content": "T-22: Add a pre-flight check to sv_report() to ensure Quarto/Pandoc are available",
+    "status": "completed",
+    "priority": "medium",
+    "id": "3"
+  },
+  {
+    "content": "T-23: Design and implement the Parity Matrix and Error Details tabs",
+    "status": "completed",
+    "priority": "medium",
+    "id": "4"
+  },
+  {
+    "content": "T-24: Design and implement the Performance Trends tab",
+    "status": "completed",
+    "priority": "medium",
+    "id": "5"
+  },
+  {
+    "content": "T-25: Add a Spec Coverage widget to the dashboard",
+    "status": "completed",
+    "priority": "low",
+    "id": "6"
+  }
+]

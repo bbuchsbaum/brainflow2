@@ -1,0 +1,38 @@
+[
+  {
+    "content": "Fix StatusBar.test.ts import errors using established patterns",
+    "status": "pending",
+    "priority": "high",
+    "id": "fix-statusbar-tests"
+  },
+  {
+    "content": "Fix VolumeView.test.ts by adding createMockContainer function",
+    "status": "pending",
+    "priority": "high",
+    "id": "fix-volumeview-tests"
+  },
+  {
+    "content": "Debug and fix 2 failing GpuResourceService tests",
+    "status": "pending",
+    "priority": "medium",
+    "id": "fix-gpu-service-tests"
+  },
+  {
+    "content": "Resolve TreeBrowser.test.ts issue (missing component)",
+    "status": "pending",
+    "priority": "low",
+    "id": "handle-treebrowser"
+  },
+  {
+    "content": "Check and fix SliceViewerGPU test files",
+    "status": "pending",
+    "priority": "medium",
+    "id": "check-sliceviewer-tests"
+  },
+  {
+    "content": "Fix FileBrowserPanel and LayerPanel tests",
+    "status": "pending",
+    "priority": "medium",
+    "id": "fix-panel-tests"
+  }
+]

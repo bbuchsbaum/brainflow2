@@ -1,0 +1,38 @@
+[
+  {
+    "content": "T411: Consensus Analysis Foundation - Design consensus PCA system",
+    "status": "completed",
+    "priority": "high",
+    "id": "1"
+  },
+  {
+    "content": "Implement ConsensusProjector struct with global model",
+    "status": "completed",
+    "priority": "high",
+    "id": "2"
+  },
+  {
+    "content": "Add consensus weight computation and iteration",
+    "status": "completed",
+    "priority": "high",
+    "id": "3"
+  },
+  {
+    "content": "Implement convergence criteria and monitoring",
+    "status": "completed",
+    "priority": "high",
+    "id": "4"
+  },
+  {
+    "content": "Create comprehensive tests for consensus analysis",
+    "status": "in_progress",
+    "priority": "high",
+    "id": "5"
+  },
+  {
+    "content": "Update progress.md and MASTER_TODO.md when complete",
+    "status": "pending",
+    "priority": "medium",
+    "id": "6"
+  }
+]

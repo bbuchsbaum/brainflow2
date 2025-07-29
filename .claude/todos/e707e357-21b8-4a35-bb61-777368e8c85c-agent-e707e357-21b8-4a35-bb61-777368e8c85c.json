@@ -1,0 +1,104 @@
+[
+  {
+    "content": "Remove basic DataFrame implementation from src/core.rs",
+    "status": "completed",
+    "priority": "high",
+    "id": "1"
+  },
+  {
+    "content": "Remove conditional compilation from src/lib.rs",
+    "status": "completed",
+    "priority": "high",
+    "id": "2"
+  },
+  {
+    "content": "Remove conditional compilation from event system files",
+    "status": "completed",
+    "priority": "high",
+    "id": "3"
+  },
+  {
+    "content": "Remove conditional compilation from src/covariate.rs",
+    "status": "completed",
+    "priority": "medium",
+    "id": "4"
+  },
+  {
+    "content": "Remove conditional compilation from src/formula/context.rs",
+    "status": "completed",
+    "priority": "medium",
+    "id": "5"
+  },
+  {
+    "content": "Update Cargo.toml to make polars required dependency",
+    "status": "completed",
+    "priority": "high",
+    "id": "6"
+  },
+  {
+    "content": "Implement Transform basis functions (Scale, RobustScale)",
+    "status": "completed",
+    "priority": "high",
+    "id": "10"
+  },
+  {
+    "content": "Implement Sub-basis functionality",
+    "status": "completed",
+    "priority": "high",
+    "id": "11"
+  },
+  {
+    "content": "Complete Cells/conditions system implementation",
+    "status": "completed",
+    "priority": "high",
+    "id": "12"
+  },
+  {
+    "content": "Implement DataFrame conversion methods for events",
+    "status": "completed",
+    "priority": "high",
+    "id": "13"
+  },
+  {
+    "content": "Check missing EventSpec methods (levels, values, n_columns)",
+    "status": "completed",
+    "priority": "high",
+    "id": "16"
+  },
+  {
+    "content": "Enhance functional formula interface with proper Formula::parse",
+    "status": "completed",
+    "priority": "high",
+    "id": "17"
+  },
+  {
+    "content": "Test compilation and functionality after changes",
+    "status": "completed",
+    "priority": "high",
+    "id": "9"
+  },
+  {
+    "content": "Add regressor extraction utilities",
+    "status": "completed",
+    "priority": "medium",
+    "id": "15"
+  },
+  {
+    "content": "Add AFNI GLT conversion support",
+    "status": "pending",
+    "priority": "medium",
+    "id": "14"
+  },
+  {
+    "content": "Simplify examples/dataframe_demo.rs",
+    "status": "pending",
+    "priority": "low",
+    "id": "7"
+  },
+  {
+    "content": "Update CLAUDE.md documentation",
+    "status": "pending",
+    "priority": "low",
+    "id": "8"
+  }
+]

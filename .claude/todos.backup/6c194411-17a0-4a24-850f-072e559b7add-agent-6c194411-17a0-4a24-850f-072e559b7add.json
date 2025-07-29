@@ -1,0 +1,86 @@
+[
+  {
+    "content": "PAR-01: Implement S3 Method Structure (generic + method)",
+    "status": "completed",
+    "priority": "high",
+    "id": "par_01_s3_structure"
+  },
+  {
+    "content": "PAR-02: Implement Network Extraction",
+    "status": "completed",
+    "priority": "high",
+    "id": "par_02_network_extraction"
+  },
+  {
+    "content": "PAR-03: Implement RWR Feature Computation",
+    "status": "completed",
+    "priority": "high",
+    "id": "par_03_rwr_features"
+  },
+  {
+    "content": "PAR-04: Implement Transport Problem Solver",
+    "status": "completed",
+    "priority": "high",
+    "id": "par_04_transport_solver"
+  },
+  {
+    "content": "PAR-05: Implement Return Value Structure",
+    "status": "completed",
+    "priority": "high",
+    "id": "par_05_return_structure"
+  },
+  {
+    "content": "PAR-06: Add Package Documentation and Examples",
+    "status": "completed",
+    "priority": "medium",
+    "id": "par_06_documentation"
+  },
+  {
+    "content": "PAR-07: Implement Comprehensive Unit Tests",
+    "status": "completed",
+    "priority": "medium",
+    "id": "par_07_unit_tests"
+  },
+  {
+    "content": "PAR-08: Performance and Accuracy Validation",
+    "status": "completed",
+    "priority": "low",
+    "id": "par_08_validation"
+  },
+  {
+    "content": "AUDIT-01: Vectorize RWR computation for efficiency",
+    "status": "completed",
+    "priority": "high",
+    "id": "audit_01_rwr_vectorize"
+  },
+  {
+    "content": "AUDIT-02: Fix position-aware cost matrix computation",
+    "status": "completed",
+    "priority": "high",
+    "id": "audit_02_cost_matrix"
+  },
+  {
+    "content": "AUDIT-03: Rewrite proximal point method with proper objective",
+    "status": "completed",
+    "priority": "high",
+    "id": "audit_03_proximal_method"
+  },
+  {
+    "content": "AUDIT-04: Implement monotonicity check in Algorithm 2",
+    "status": "completed",
+    "priority": "high",
+    "id": "audit_04_monotonicity"
+  },
+  {
+    "content": "AUDIT-05: Fix regularizer formulations (L_e, L_n)",
+    "status": "completed",
+    "priority": "high",
+    "id": "audit_05_regularizers"
+  },
+  {
+    "content": "AUDIT-06: Implement log-domain stabilized Sinkhorn",
+    "status": "completed",
+    "priority": "medium",
+    "id": "audit_06_sinkhorn_stable"
+  }
+]

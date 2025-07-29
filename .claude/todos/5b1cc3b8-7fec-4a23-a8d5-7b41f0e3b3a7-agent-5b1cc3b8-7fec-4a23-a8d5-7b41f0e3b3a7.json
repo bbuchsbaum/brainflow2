@@ -1,0 +1,26 @@
+[
+  {
+    "content": "Fix function export issues in kema tests",
+    "status": "completed",
+    "priority": "high",
+    "id": "fix-kema-exports"
+  },
+  {
+    "content": "Re-enable legitimately skipped kema tests",
+    "status": "completed",
+    "priority": "high",
+    "id": "reenable-kema-tests"
+  },
+  {
+    "content": "Fix REKEMA test assertions with realistic bounds",
+    "status": "completed",
+    "priority": "medium",
+    "id": "refactor-rekema-test"
+  },
+  {
+    "content": "Implement smoke tests for placeholder correctness tests",
+    "status": "completed",
+    "priority": "medium",
+    "id": "implement-smoke-tests"
+  }
+]

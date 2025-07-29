@@ -1,0 +1,26 @@
+[
+  {
+    "content": "Investigate Node.js spawn error for index.js",
+    "status": "completed",
+    "priority": "high",
+    "id": "1"
+  },
+  {
+    "content": "Check if index.js exists in the directory",
+    "status": "completed",
+    "priority": "high",
+    "id": "2"
+  },
+  {
+    "content": "Verify Node.js installation and path",
+    "status": "completed",
+    "priority": "high",
+    "id": "3"
+  },
+  {
+    "content": "Fix the spawn issue",
+    "status": "completed",
+    "priority": "high",
+    "id": "4"
+  }
+]

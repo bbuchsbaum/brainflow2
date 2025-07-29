@@ -1,0 +1,38 @@
+[
+  {
+    "content": "Fix global variable abuse in logger.R",
+    "status": "completed",
+    "priority": "high",
+    "id": "1"
+  },
+  {
+    "content": "Refactor apply_intrinsic_identifiability_core into smaller functions",
+    "status": "completed",
+    "priority": "high",
+    "id": "2"
+  },
+  {
+    "content": "Replace suppressWarnings with proper error handling",
+    "status": "completed",
+    "priority": "medium",
+    "id": "3"
+  },
+  {
+    "content": "Fix error handling in mhrf_lss.R",
+    "status": "completed",
+    "priority": "medium",
+    "id": "4"
+  },
+  {
+    "content": "Add constants for magic numbers",
+    "status": "completed",
+    "priority": "low",
+    "id": "5"
+  },
+  {
+    "content": "Fix message spam in inner loops",
+    "status": "completed",
+    "priority": "medium",
+    "id": "6"
+  }
+]

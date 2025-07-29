@@ -1,0 +1,68 @@
+[
+  {
+    "content": "Fix intensity window range issue ([0,1] vs actual data range)",
+    "status": "completed",
+    "priority": "high",
+    "id": "34"
+  },
+  {
+    "content": "Implement professional Layer Panel UI with Adobe-style design",
+    "status": "completed",
+    "priority": "high",
+    "id": "73"
+  },
+  {
+    "content": "Create ProSlider component with tooltips and proper styling",
+    "status": "completed",
+    "priority": "high",
+    "id": "74"
+  },
+  {
+    "content": "Add Inter font and update color scheme to match spec",
+    "status": "completed",
+    "priority": "medium",
+    "id": "75"
+  },
+  {
+    "content": "Fix infinite loop with layer.patched events",
+    "status": "completed",
+    "priority": "high",
+    "id": "77"
+  },
+  {
+    "content": "Fix frozen sliders due to debounce issue",
+    "status": "completed",
+    "priority": "high",
+    "id": "78"
+  },
+  {
+    "content": "Fix infinite empty patch loop flooding backend",
+    "status": "completed",
+    "priority": "high",
+    "id": "79"
+  },
+  {
+    "content": "Fix LayerPanel visual issues per engineering review",
+    "status": "completed",
+    "priority": "high",
+    "id": "80"
+  },
+  {
+    "content": "Fix LayerPanel layout issues - remove button, fix spacing",
+    "status": "completed",
+    "priority": "high",
+    "id": "82"
+  },
+  {
+    "content": "Set LayerPanel width to 280px in GoldenLayout config",
+    "status": "pending",
+    "priority": "medium",
+    "id": "81"
+  },
+  {
+    "content": "Implement keyboard navigation and validation",
+    "status": "pending",
+    "priority": "medium",
+    "id": "76"
+  }
+]

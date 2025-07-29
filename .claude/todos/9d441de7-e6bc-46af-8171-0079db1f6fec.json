@@ -1,0 +1,50 @@
+[
+  {
+    "content": "TODAY: Consolidate 4 versions into ONE ultimate estimate_parametric_hrf function",
+    "status": "completed",
+    "priority": "high",
+    "id": "consolidate-1"
+  },
+  {
+    "content": "Update NAMESPACE to export full interface and advanced features",
+    "status": "completed",
+    "priority": "high",
+    "id": "consolidate-2"
+  },
+  {
+    "content": "Update all tests to use consolidated version",
+    "status": "completed",
+    "priority": "high",
+    "id": "consolidate-3"
+  },
+  {
+    "content": "Implement batch FFT convolution (2-3x speedup)",
+    "status": "completed",
+    "priority": "medium",
+    "id": "performance-1"
+  },
+  {
+    "content": "Add QR caching for iterations (5x speedup)",
+    "status": "completed",
+    "priority": "medium",
+    "id": "performance-2"
+  },
+  {
+    "content": "Implement smart parallel chunking (linear scaling)",
+    "status": "completed",
+    "priority": "medium",
+    "id": "performance-3"
+  },
+  {
+    "content": "Add memory-mapped processing (10x capacity)",
+    "status": "completed",
+    "priority": "medium",
+    "id": "performance-4"
+  },
+  {
+    "content": "Create comprehensive benchmarking suite",
+    "status": "completed",
+    "priority": "low",
+    "id": "benchmarks-1"
+  }
+]

@@ -1,0 +1,86 @@
+[
+  {
+    "content": "Test coordinate transformations with new layout",
+    "status": "pending",
+    "priority": "high",
+    "id": "32"
+  },
+  {
+    "content": "Restore full layout structure from defaultLayout.ts",
+    "status": "pending",
+    "priority": "medium",
+    "id": "33"
+  },
+  {
+    "content": "Clean up old layout files",
+    "status": "pending",
+    "priority": "low",
+    "id": "34"
+  },
+  {
+    "content": "Remove unused layerStoreClean.ts",
+    "status": "completed",
+    "priority": "high",
+    "id": "50"
+  },
+  {
+    "content": "Convert layerStore.clean.ts from zustand to Svelte stores",
+    "status": "completed",
+    "priority": "high",
+    "id": "51"
+  },
+  {
+    "content": "Merge clean architecture patterns into main layerStore.ts",
+    "status": "completed",
+    "priority": "high",
+    "id": "52"
+  },
+  {
+    "content": "Fix VolumeView.svelte to work with array-based layers",
+    "status": "completed",
+    "priority": "high",
+    "id": "53"
+  },
+  {
+    "content": "Delete layerStore.clean.ts after merging",
+    "status": "completed",
+    "priority": "medium",
+    "id": "54"
+  },
+  {
+    "content": "Update tests to work with clean layerStore",
+    "status": "pending",
+    "priority": "medium",
+    "id": "55"
+  },
+  {
+    "content": "Fix null safety issues in VolumeView.svelte",
+    "status": "completed",
+    "priority": "high",
+    "id": "56"
+  },
+  {
+    "content": "Fix OrthogonalViewGPU.svelte to use array-based layers",
+    "status": "completed",
+    "priority": "high",
+    "id": "57"
+  },
+  {
+    "content": "Fix LayerControls.svelte to use array-based layers",
+    "status": "completed",
+    "priority": "high",
+    "id": "58"
+  },
+  {
+    "content": "Fix missing handlePointerUp function in OrthogonalViewGPU",
+    "status": "completed",
+    "priority": "high",
+    "id": "59"
+  },
+  {
+    "content": "Fix LayerPanel subscription errors",
+    "status": "completed",
+    "priority": "high",
+    "id": "60"
+  }
+]

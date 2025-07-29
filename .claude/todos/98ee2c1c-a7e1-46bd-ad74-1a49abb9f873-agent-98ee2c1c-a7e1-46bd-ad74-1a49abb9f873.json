@@ -1,0 +1,236 @@
+[
+  {
+    "content": "Create discovery analytics table schema",
+    "status": "completed",
+    "priority": "high",
+    "id": "deploy1-schema-1"
+  },
+  {
+    "content": "Implement Google Places addressComponents country parsing fix",
+    "status": "completed",
+    "priority": "high",
+    "id": "deploy1-places-1"
+  },
+  {
+    "content": "Create requests-based static HTML scraper",
+    "status": "completed",
+    "priority": "high",
+    "id": "deploy1-scraper-1"
+  },
+  {
+    "content": "Implement Celery task queue with discovery mode flag",
+    "status": "completed",
+    "priority": "high",
+    "id": "deploy1-celery-1"
+  },
+  {
+    "content": "Create hybrid discovery strategy tasks",
+    "status": "completed",
+    "priority": "high",
+    "id": "deploy1-discovery-1"
+  },
+  {
+    "content": "Test Deployment 1 with curated city list",
+    "status": "completed",
+    "priority": "medium",
+    "id": "deploy1-test-1"
+  },
+  {
+    "content": "Execute real-world validation using global discovery sampling",
+    "status": "completed",
+    "priority": "high",
+    "id": "validation-realworld-1"
+  },
+  {
+    "content": "Set up discovery analytics database table in production",
+    "status": "completed",
+    "priority": "high",
+    "id": "validation-db-setup-1"
+  },
+  {
+    "content": "Run discovery sampling on 50 cities with 20 hotels per city",
+    "status": "completed",
+    "priority": "high",
+    "id": "validation-sampling-1"
+  },
+  {
+    "content": "Analyze geographic and TLD success patterns from real data",
+    "status": "completed",
+    "priority": "medium",
+    "id": "validation-analysis-1"
+  },
+  {
+    "content": "Create prototype integration hooks with AI personas pipeline",
+    "status": "completed",
+    "priority": "high",
+    "id": "integration-prototype-1"
+  },
+  {
+    "content": "Design Contact → AI Persona handoff workflow",
+    "status": "completed",
+    "priority": "high",
+    "id": "integration-workflow-1"
+  },
+  {
+    "content": "Map extracted contacts to existing Contact model schema",
+    "status": "completed",
+    "priority": "high",
+    "id": "integration-schema-1"
+  },
+  {
+    "content": "Implement persona selection logic based on hotel geography/type",
+    "status": "completed",
+    "priority": "medium",
+    "id": "integration-persona-selection-1"
+  },
+  {
+    "content": "Test contact extraction data flow to AI personas",
+    "status": "completed",
+    "priority": "high",
+    "id": "integration-dataflow-1"
+  },
+  {
+    "content": "Create integration test suite for full pipeline",
+    "status": "pending",
+    "priority": "medium",
+    "id": "integration-testing-1"
+  },
+  {
+    "content": "Add POST /api/discovery/run endpoint for job triggering",
+    "status": "completed",
+    "priority": "high",
+    "id": "phase1-api-endpoint"
+  },
+  {
+    "content": "Instrument static_scraper.py with detailed status events",
+    "status": "completed",
+    "priority": "high",
+    "id": "phase1-scraper-instrumentation"
+  },
+  {
+    "content": "Implement FastAPI SSE endpoint + Redis pub/sub bridge",
+    "status": "completed",
+    "priority": "high",
+    "id": "phase1-sse-implementation"
+  },
+  {
+    "content": "Build DiscoveryControl.tsx component (job trigger form)",
+    "status": "completed",
+    "priority": "high",
+    "id": "phase1-discovery-control"
+  },
+  {
+    "content": "Build JobStatusLog.tsx component (real-time feedback display)",
+    "status": "completed",
+    "priority": "high",
+    "id": "phase1-status-log"
+  },
+  {
+    "content": "Implement SSE connection hook for live updates",
+    "status": "completed",
+    "priority": "high",
+    "id": "phase1-sse-hook"
+  },
+  {
+    "content": "Create scraping_jobs database table and model",
+    "status": "completed",
+    "priority": "high",
+    "id": "phase2-database-schema"
+  },
+  {
+    "content": "Build scraping jobs API with filtering and retry endpoints",
+    "status": "completed",
+    "priority": "high",
+    "id": "phase2-api-endpoints"
+  },
+  {
+    "content": "Update ContactsTable.tsx with status indicators and retry buttons",
+    "status": "completed",
+    "priority": "high",
+    "id": "phase2-contacts-table"
+  },
+  {
+    "content": "Add comprehensive status filtering to contacts API",
+    "status": "completed",
+    "priority": "high",
+    "id": "phase2-status-filtering"
+  },
+  {
+    "content": "Implement visual status indicators (success/failed/pending)",
+    "status": "completed",
+    "priority": "high",
+    "id": "phase2-visual-indicators"
+  },
+  {
+    "content": "Build retry and escalation controls",
+    "status": "completed",
+    "priority": "high",
+    "id": "phase2-retry-controls"
+  },
+  {
+    "content": "Create AI email generation test endpoint",
+    "status": "completed",
+    "priority": "high",
+    "id": "phase3-api-endpoint"
+  },
+  {
+    "content": "Build EmailPlayground.tsx sandbox component",
+    "status": "completed",
+    "priority": "high",
+    "id": "phase3-email-playground"
+  },
+  {
+    "content": "Implement persona selection and hotel selection dropdowns",
+    "status": "completed",
+    "priority": "high",
+    "id": "phase3-selection-controls"
+  },
+  {
+    "content": "Add live email generation and preview functionality",
+    "status": "completed",
+    "priority": "high",
+    "id": "phase3-live-preview"
+  },
+  {
+    "content": "Create email generation testing page and routing",
+    "status": "completed",
+    "priority": "medium",
+    "id": "phase3-routing"
+  },
+  {
+    "content": "Create prompts database table with versioning support",
+    "status": "completed",
+    "priority": "high",
+    "id": "phase4-database-schema"
+  },
+  {
+    "content": "Build prompt management API with CRUD endpoints",
+    "status": "completed",
+    "priority": "high",
+    "id": "phase4-api-endpoints"
+  },
+  {
+    "content": "Build PromptManager.tsx with rich text editor",
+    "status": "completed",
+    "priority": "high",
+    "id": "phase4-prompt-manager"
+  },
+  {
+    "content": "Implement version history and rollback capabilities",
+    "status": "completed",
+    "priority": "high",
+    "id": "phase4-version-history"
+  },
+  {
+    "content": "Add 'Test Before Activate' workflow for prompt validation",
+    "status": "completed",
+    "priority": "medium",
+    "id": "phase4-test-workflow"
+  },
+  {
+    "content": "Create prompt management page and routing",
+    "status": "completed",
+    "priority": "medium",
+    "id": "phase4-routing"
+  }
+]

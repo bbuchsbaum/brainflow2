@@ -1,0 +1,26 @@
+[
+  {
+    "content": "Implement CLIP-based image similarity system for better related images",
+    "status": "completed",
+    "priority": "high",
+    "id": "implement-clip-similarity"
+  },
+  {
+    "content": "Generate CLIP embeddings for all artwork images",
+    "status": "completed",
+    "priority": "high",
+    "id": "generate-clip-embeddings"
+  },
+  {
+    "content": "Create static similarity index/matrix for artworks",
+    "status": "completed",
+    "priority": "medium",
+    "id": "create-similarity-index"
+  },
+  {
+    "content": "Replace current related images logic with CLIP similarity",
+    "status": "completed",
+    "priority": "medium",
+    "id": "update-related-images-logic"
+  }
+]

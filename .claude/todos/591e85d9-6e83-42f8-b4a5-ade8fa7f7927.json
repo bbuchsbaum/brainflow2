@@ -1,0 +1,62 @@
+[
+  {
+    "content": "Fix missing .bayesian_engine function (2 failures)",
+    "status": "completed",
+    "priority": "high",
+    "id": "1"
+  },
+  {
+    "content": "Fix missing .lwu_hrf_function (1 failure)",
+    "status": "completed",
+    "priority": "high",
+    "id": "2"
+  },
+  {
+    "content": "Fix C++ matrix type errors 'Wrong R type for mapped matrix' (4 failures)",
+    "status": "in_progress",
+    "priority": "high",
+    "id": "3"
+  },
+  {
+    "content": "Fix characterization test failures - dimension mismatch and comparisons (3 failures)",
+    "status": "pending",
+    "priority": "high",
+    "id": "4"
+  },
+  {
+    "content": "Fix refinement algorithm degrading R² values (3 failures)",
+    "status": "pending",
+    "priority": "high",
+    "id": "5"
+  },
+  {
+    "content": "Fix validation errors in estimate_parametric_hrf tests",
+    "status": "pending",
+    "priority": "high",
+    "id": "6"
+  },
+  {
+    "content": "Fix implementation comparison test failures",
+    "status": "pending",
+    "priority": "high",
+    "id": "7"
+  },
+  {
+    "content": "Fix integration test low R² issues",
+    "status": "pending",
+    "priority": "high",
+    "id": "8"
+  },
+  {
+    "content": "Fix memory fallback test errors (2 failures)",
+    "status": "pending",
+    "priority": "high",
+    "id": "9"
+  },
+  {
+    "content": "Run full test suite to verify zero failures",
+    "status": "pending",
+    "priority": "high",
+    "id": "10"
+  }
+]

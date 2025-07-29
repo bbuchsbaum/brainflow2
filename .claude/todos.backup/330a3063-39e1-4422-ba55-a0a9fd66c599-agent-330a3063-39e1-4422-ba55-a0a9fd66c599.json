@@ -1,0 +1,20 @@
+[
+  {
+    "content": "Investigate missing mediumres.jpg files for arabesques and synaptic_lanterns",
+    "status": "completed",
+    "priority": "high",
+    "id": "investigate-missing-images"
+  },
+  {
+    "content": "Check cart.js image path construction",
+    "status": "in_progress",
+    "priority": "high",
+    "id": "check-cart-js-paths"
+  },
+  {
+    "content": "Fix image path issues in cart or file structure",
+    "status": "pending",
+    "priority": "high",
+    "id": "fix-image-paths"
+  }
+]

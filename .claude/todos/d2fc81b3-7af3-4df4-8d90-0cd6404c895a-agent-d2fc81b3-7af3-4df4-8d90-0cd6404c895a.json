@@ -1,0 +1,80 @@
+[
+  {
+    "content": "Address Security Improvements from Sprint 1 Audits (SEC-001)",
+    "status": "completed",
+    "priority": "high",
+    "id": "sec-001"
+  },
+  {
+    "content": "Fix CSS injection vulnerability in Experiment.ts",
+    "status": "completed",
+    "priority": "high",
+    "id": "sec-001-css"
+  },
+  {
+    "content": "Resolve memory leaks in AudioDevice event listeners",
+    "status": "completed",
+    "priority": "high",
+    "id": "sec-001-memory"
+  },
+  {
+    "content": "Implement proper input sanitization",
+    "status": "completed",
+    "priority": "high",
+    "id": "sec-001-sanitization"
+  },
+  {
+    "content": "Add explicit consent handling for data collection",
+    "status": "completed",
+    "priority": "high",
+    "id": "sec-001-consent"
+  },
+  {
+    "content": "Build TypeScript Fluent API & Compiler (DSL-003)",
+    "status": "completed",
+    "priority": "high",
+    "id": "dsl-003"
+  },
+  {
+    "content": "Fluent API classes for Experiment, Timeline, Trial, Stimulus, Response",
+    "status": "completed",
+    "priority": "high",
+    "id": "dsl-003-fluent"
+  },
+  {
+    "content": "Compile-time and runtime validation through Zod schemas",
+    "status": "completed",
+    "priority": "high",
+    "id": "dsl-003-validation"
+  },
+  {
+    "content": "Type-safe builder pattern with IntelliSense support",
+    "status": "completed",
+    "priority": "high",
+    "id": "dsl-003-intellisense"
+  },
+  {
+    "content": "Integration with formal verification checks",
+    "status": "completed",
+    "priority": "high",
+    "id": "dsl-003-verification"
+  },
+  {
+    "content": "API compiles to FZB binary format",
+    "status": "completed",
+    "priority": "high",
+    "id": "dsl-003-fzb"
+  },
+  {
+    "content": "Support for power analysis integration (requirePower())",
+    "status": "completed",
+    "priority": "high",
+    "id": "dsl-003-power"
+  },
+  {
+    "content": "Implement Core Stimulus Types (KER-003)",
+    "status": "in_progress",
+    "priority": "high",
+    "id": "ker-003"
+  }
+]

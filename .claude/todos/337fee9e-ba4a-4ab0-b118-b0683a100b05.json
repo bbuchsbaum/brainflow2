@@ -1,0 +1,116 @@
+[
+  {
+    "content": "Ticket #001: Setup - Branching and Initial Dependency Declaration",
+    "status": "completed",
+    "priority": "high",
+    "id": "ticket-001"
+  },
+  {
+    "content": "Ticket #002: Modify load_model() - Remove caret Fallback",
+    "status": "completed",
+    "priority": "high",
+    "id": "ticket-002"
+  },
+  {
+    "content": "Ticket #003: Implement create_mvpa_folds() Helper",
+    "status": "completed",
+    "priority": "high",
+    "id": "ticket-003"
+  },
+  {
+    "content": "Ticket #004: Patch glmnet_opt Model for Fold Creation",
+    "status": "completed",
+    "priority": "high",
+    "id": "ticket-004"
+  },
+  {
+    "content": "Ticket #005: Verify Prediction Method Calls",
+    "status": "completed",
+    "priority": "high",
+    "id": "ticket-005"
+  },
+  {
+    "content": "Ticket #006: Remove load_caret_libs() Function",
+    "status": "completed",
+    "priority": "high",
+    "id": "ticket-006"
+  },
+  {
+    "content": "Ticket #007: Phase 1 Integration Testing",
+    "status": "completed",
+    "priority": "high",
+    "id": "ticket-007"
+  },
+  {
+    "content": "Ticket #008: Rewrite get_control()",
+    "status": "completed",
+    "priority": "high",
+    "id": "ticket-008"
+  },
+  {
+    "content": "Ticket #009: Remove mclass_summary() Function",
+    "status": "completed",
+    "priority": "high",
+    "id": "ticket-009"
+  },
+  {
+    "content": "Ticket #010: Update binary_perf() using yardstick",
+    "status": "completed",
+    "priority": "high",
+    "id": "ticket-010"
+  },
+  {
+    "content": "Ticket #011: Update multiclass_perf() using yardstick",
+    "status": "completed",
+    "priority": "high",
+    "id": "ticket-011"
+  },
+  {
+    "content": "Ticket #012: Update performance.regression_result() using yardstick",
+    "status": "completed",
+    "priority": "high",
+    "id": "ticket-012"
+  },
+  {
+    "content": "Ticket #013: Update Performance Wrappers in mvpa_model.R",
+    "status": "completed",
+    "priority": "high",
+    "id": "ticket-013"
+  },
+  {
+    "content": "Ticket #014: Phase 2 Integration Testing",
+    "status": "completed",
+    "priority": "high",
+    "id": "ticket-014"
+  },
+  {
+    "content": "Ticket #015: Rewrite tune_model() - Custom Tuning Loop",
+    "status": "completed",
+    "priority": "high",
+    "id": "ticket-015"
+  },
+  {
+    "content": "Ticket #016: Integrate new tune_model() into train_model.mvpa_model",
+    "status": "completed",
+    "priority": "high",
+    "id": "ticket-016"
+  },
+  {
+    "content": "Ticket #017: Phase 3 Integration Testing",
+    "status": "completed",
+    "priority": "high",
+    "id": "ticket-017"
+  },
+  {
+    "content": "Ticket #018: Update DESCRIPTION File - Final Dependencies",
+    "status": "completed",
+    "priority": "high",
+    "id": "ticket-018"
+  },
+  {
+    "content": "Ticket #019: Implement register_mvpa_model() Helper",
+    "status": "in_progress",
+    "priority": "high",
+    "id": "ticket-019"
+  }
+]

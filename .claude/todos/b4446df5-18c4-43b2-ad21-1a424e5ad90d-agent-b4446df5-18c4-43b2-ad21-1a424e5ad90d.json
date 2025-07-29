@@ -1,0 +1,50 @@
+[
+  {
+    "content": "Review Sprint 4 requirements and current progress",
+    "status": "completed",
+    "priority": "high",
+    "id": "1"
+  },
+  {
+    "content": "Verify Sprint 4 is fully documented in progress.md",
+    "status": "completed",
+    "priority": "high",
+    "id": "2"
+  },
+  {
+    "content": "Update next.md to reflect Sprint 5 as current priority",
+    "status": "completed",
+    "priority": "high",
+    "id": "3"
+  },
+  {
+    "content": "Create Sprint 5 implementation plan",
+    "status": "in_progress",
+    "priority": "high",
+    "id": "4"
+  },
+  {
+    "content": "Begin Sprint 5: Headless Simulation Engine (SIM-001)",
+    "status": "pending",
+    "priority": "high",
+    "id": "5"
+  },
+  {
+    "content": "Implement AI Command Palette Backend (AI-001)",
+    "status": "pending",
+    "priority": "high",
+    "id": "6"
+  },
+  {
+    "content": "Build Time-Travel Simulator UI (GUI-009)",
+    "status": "pending",
+    "priority": "high",
+    "id": "7"
+  },
+  {
+    "content": "Complete Sprint 5 and request audits",
+    "status": "pending",
+    "priority": "high",
+    "id": "8"
+  }
+]

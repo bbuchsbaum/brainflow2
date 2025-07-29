@@ -1,0 +1,74 @@
+[
+  {
+    "content": "Create shapes.rs module in neuro-types with OrientedEllipsoid type",
+    "status": "completed",
+    "priority": "high",
+    "id": "ELLIPSOID-001"
+  },
+  {
+    "content": "Implement efficient rasterization methods (basic, scanline, supersampled)",
+    "status": "completed",
+    "priority": "high",
+    "id": "ELLIPSOID-002"
+  },
+  {
+    "content": "Create comprehensive validation metrics module with Dice, Hausdorff, ASSD",
+    "status": "completed",
+    "priority": "high",
+    "id": "ELLIPSOID-003"
+  },
+  {
+    "content": "Build test configurations including edge cases and property-based tests",
+    "status": "completed",
+    "priority": "medium",
+    "id": "ELLIPSOID-004"
+  },
+  {
+    "content": "Integrate with existing differential testing framework",
+    "status": "completed",
+    "priority": "medium",
+    "id": "ELLIPSOID-005"
+  },
+  {
+    "content": "Add performance tracking and CI integration",
+    "status": "completed",
+    "priority": "low",
+    "id": "ELLIPSOID-006"
+  },
+  {
+    "content": "Design visual debugging webpage layout and structure",
+    "status": "completed",
+    "priority": "high",
+    "id": "VISUAL-001"
+  },
+  {
+    "content": "Implement image generation from ellipsoid rasterization (PNG output)",
+    "status": "completed",
+    "priority": "high",
+    "id": "VISUAL-002"
+  },
+  {
+    "content": "Create HTML template with CSS styling for test result presentation",
+    "status": "completed",
+    "priority": "medium",
+    "id": "VISUAL-003"
+  },
+  {
+    "content": "Add JavaScript interactivity for slice navigation and comparisons",
+    "status": "completed",
+    "priority": "medium",
+    "id": "VISUAL-004"
+  },
+  {
+    "content": "Integrate visual output generation into test runner",
+    "status": "completed",
+    "priority": "medium",
+    "id": "VISUAL-005"
+  },
+  {
+    "content": "Add difference maps and overlay visualizations",
+    "status": "completed",
+    "priority": "low",
+    "id": "VISUAL-006"
+  }
+]

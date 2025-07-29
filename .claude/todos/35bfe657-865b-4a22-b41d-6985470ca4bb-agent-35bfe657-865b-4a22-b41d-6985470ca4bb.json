@@ -1,0 +1,20 @@
+[
+  {
+    "content": "T-12: Create specverse-py package",
+    "status": "completed",
+    "priority": "high",
+    "id": "1"
+  },
+  {
+    "content": "T-13: Generate .pre-commit-config.yaml",
+    "status": "completed",
+    "priority": "medium",
+    "id": "2"
+  },
+  {
+    "content": "T-14: Set up GitHub Actions CI",
+    "status": "completed",
+    "priority": "medium",
+    "id": "3"
+  }
+]

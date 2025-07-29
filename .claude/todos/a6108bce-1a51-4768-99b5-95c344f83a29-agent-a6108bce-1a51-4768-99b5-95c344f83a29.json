@@ -1,0 +1,26 @@
+[
+  {
+    "content": "Fix validator peak_time calculation bug to return time values instead of indices",
+    "status": "completed",
+    "priority": "high",
+    "id": "1"
+  },
+  {
+    "content": "Update design matrix conditioning test expected values (3 checks)",
+    "status": "completed",
+    "priority": "high",
+    "id": "2"
+  },
+  {
+    "content": "Update temporal precision sampling test expected values (5 checks)",
+    "status": "completed",
+    "priority": "high",
+    "id": "3"
+  },
+  {
+    "content": "Verify all 15 golden tests pass at 100% rate",
+    "status": "completed",
+    "priority": "high",
+    "id": "4"
+  }
+]

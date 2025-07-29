@@ -1,0 +1,20 @@
+[
+  {
+    "content": "Create microdsl_v3.4_source.grammar file",
+    "status": "completed",
+    "priority": "high",
+    "id": "1"
+  },
+  {
+    "content": "Create microdsl_v3.4_source_prompt.md file",
+    "status": "completed",
+    "priority": "high",
+    "id": "2"
+  },
+  {
+    "content": "Test v3.4 generation with the new files",
+    "status": "completed",
+    "priority": "medium",
+    "id": "3"
+  }
+]

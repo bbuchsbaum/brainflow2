@@ -1,0 +1,32 @@
+[
+  {
+    "content": "Implement Hardware Timing Validation Suite (TIMING-001)",
+    "status": "completed",
+    "priority": "high",
+    "id": "1"
+  },
+  {
+    "content": "Add WebGL2 Feature Detection and Fallback (COMPAT-001)",
+    "status": "completed",
+    "priority": "high",
+    "id": "2"
+  },
+  {
+    "content": "Implement API Complexity Management (API-001)",
+    "status": "completed",
+    "priority": "high",
+    "id": "3"
+  },
+  {
+    "content": "Security Hardening Phase 2 (SEC-002)",
+    "status": "completed",
+    "priority": "high",
+    "id": "4"
+  },
+  {
+    "content": "Memory Profiling and Optimization (PERF-001)",
+    "status": "in_progress",
+    "priority": "medium",
+    "id": "5"
+  }
+]

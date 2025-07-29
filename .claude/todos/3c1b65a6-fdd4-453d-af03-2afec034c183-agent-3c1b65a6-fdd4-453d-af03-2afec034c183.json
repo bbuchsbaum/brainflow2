@@ -1,0 +1,122 @@
+[
+  {
+    "content": "Create benchmark for standard vs optimized shader performance",
+    "status": "completed",
+    "priority": "high",
+    "id": "1"
+  },
+  {
+    "content": "Fix 2D slice view padding - remove 1.2x FOV multiplier",
+    "status": "completed",
+    "priority": "high",
+    "id": "2"
+  },
+  {
+    "content": "Fix brain centering - adjust for typical inferior padding in MRI volumes",
+    "status": "completed",
+    "priority": "high",
+    "id": "3"
+  },
+  {
+    "content": "Fix colormap selection - replace hardcoded mapping with colormap_by_name()",
+    "status": "completed",
+    "priority": "high",
+    "id": "4"
+  },
+  {
+    "content": "Create progress store and types",
+    "status": "completed",
+    "priority": "high",
+    "id": "5"
+  },
+  {
+    "content": "Build progress service",
+    "status": "completed",
+    "priority": "high",
+    "id": "6"
+  },
+  {
+    "content": "Create GlobalProgressBar component",
+    "status": "completed",
+    "priority": "medium",
+    "id": "7"
+  },
+  {
+    "content": "Create StatusBarProgress component",
+    "status": "completed",
+    "priority": "medium",
+    "id": "8"
+  },
+  {
+    "content": "Update backend to emit progress events",
+    "status": "completed",
+    "priority": "high",
+    "id": "9"
+  },
+  {
+    "content": "Integrate progress with file loading",
+    "status": "completed",
+    "priority": "high",
+    "id": "10"
+  },
+  {
+    "content": "Fix React infinite loop in progress components",
+    "status": "completed",
+    "priority": "high",
+    "id": "11"
+  },
+  {
+    "content": "Improve progress bar styling with green tint and better visibility",
+    "status": "completed",
+    "priority": "medium",
+    "id": "12"
+  },
+  {
+    "content": "Set default threshold to midpoint of data range",
+    "status": "completed",
+    "priority": "high",
+    "id": "13"
+  },
+  {
+    "content": "Replace emoji icons with VSCode SVG icons",
+    "status": "completed",
+    "priority": "high",
+    "id": "14"
+  },
+  {
+    "content": "Improve visual contrast and borders",
+    "status": "completed",
+    "priority": "high",
+    "id": "15"
+  },
+  {
+    "content": "Enhance progress bars with indeterminate state",
+    "status": "completed",
+    "priority": "medium",
+    "id": "16"
+  },
+  {
+    "content": "Move test buttons to drawer footer",
+    "status": "completed",
+    "priority": "medium",
+    "id": "17"
+  },
+  {
+    "content": "Implement task grouping by status",
+    "status": "pending",
+    "priority": "medium",
+    "id": "18"
+  },
+  {
+    "content": "Improve task card layout hierarchy",
+    "status": "pending",
+    "priority": "medium",
+    "id": "19"
+  },
+  {
+    "content": "Add ARIA labels for accessibility",
+    "status": "completed",
+    "priority": "high",
+    "id": "20"
+  }
+]

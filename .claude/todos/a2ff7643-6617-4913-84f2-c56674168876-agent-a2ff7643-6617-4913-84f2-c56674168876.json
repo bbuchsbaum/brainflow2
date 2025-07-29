@@ -1,0 +1,26 @@
+[
+  {
+    "content": "Execute mandatory testing gate - run all tests, linting, and oracle harness",
+    "status": "completed",
+    "priority": "high",
+    "id": "test_gate"
+  },
+  {
+    "content": "Conduct take stock assessment of current progress vs R superiority goals",
+    "status": "completed",
+    "priority": "high",
+    "id": "assess_progress"
+  },
+  {
+    "content": "Perform mandatory code audit using zen mcp tools",
+    "status": "completed",
+    "priority": "medium",
+    "id": "code_audit"
+  },
+  {
+    "content": "Plan and execute next development iteration",
+    "status": "in_progress",
+    "priority": "medium",
+    "id": "next_iteration"
+  }
+]

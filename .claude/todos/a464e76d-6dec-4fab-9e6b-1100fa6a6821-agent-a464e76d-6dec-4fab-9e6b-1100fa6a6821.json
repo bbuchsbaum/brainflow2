@@ -1,0 +1,74 @@
+[
+  {
+    "content": "Understand current REML implementation status in the codebase",
+    "status": "completed",
+    "priority": "high",
+    "id": "1"
+  },
+  {
+    "content": "Consult Gemini Pro for REML implementation advice",
+    "status": "completed",
+    "priority": "high",
+    "id": "2"
+  },
+  {
+    "content": "Consult O3 for REML implementation advice",
+    "status": "completed",
+    "priority": "high",
+    "id": "3"
+  },
+  {
+    "content": "Synthesize advice and create implementation plan",
+    "status": "completed",
+    "priority": "high",
+    "id": "4"
+  },
+  {
+    "content": "Fix REML objective function formula",
+    "status": "completed",
+    "priority": "high",
+    "id": "5"
+  },
+  {
+    "content": "Implement BOBYQA optimizer integration",
+    "status": "pending",
+    "priority": "medium",
+    "id": "6"
+  },
+  {
+    "content": "Switch to θ ratio parameterization",
+    "status": "completed",
+    "priority": "high",
+    "id": "7"
+  },
+  {
+    "content": "Add group size calculation for log-det",
+    "status": "completed",
+    "priority": "high",
+    "id": "8"
+  },
+  {
+    "content": "Simplify PIRLS to return only pwrss",
+    "status": "pending",
+    "priority": "medium",
+    "id": "9"
+  },
+  {
+    "content": "Test REML implementation against R oracle",
+    "status": "completed",
+    "priority": "high",
+    "id": "10"
+  },
+  {
+    "content": "Add numerical stability improvements",
+    "status": "pending",
+    "priority": "low",
+    "id": "11"
+  },
+  {
+    "content": "Consider sparse Cholesky for performance",
+    "status": "pending",
+    "priority": "low",
+    "id": "12"
+  }
+]

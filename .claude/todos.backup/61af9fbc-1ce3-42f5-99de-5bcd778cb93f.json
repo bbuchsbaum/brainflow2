@@ -1,0 +1,38 @@
+[
+  {
+    "content": "Debug manifold construction: Check eigendecomposition and basis matrix dimensions",
+    "status": "completed",
+    "priority": "high",
+    "id": "1"
+  },
+  {
+    "content": "Fix Test 1: Transpose Phi_coords_matrix in distance calculation (line 94)",
+    "status": "in_progress",
+    "priority": "high",
+    "id": "2"
+  },
+  {
+    "content": "Fix Test 1: Debug B_reconstructor_matrix computation and eigenvalue handling",
+    "status": "pending",
+    "priority": "high",
+    "id": "3"
+  },
+  {
+    "content": "Debug LSS: Check if projections are being applied correctly in project_out_confounds_core",
+    "status": "pending",
+    "priority": "high",
+    "id": "4"
+  },
+  {
+    "content": "Create minimal test cases to isolate each component failure",
+    "status": "pending",
+    "priority": "high",
+    "id": "5"
+  },
+  {
+    "content": "Fix numerical stability issues in Woodbury formula implementation",
+    "status": "pending",
+    "priority": "medium",
+    "id": "6"
+  }
+]

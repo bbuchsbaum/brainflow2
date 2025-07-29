@@ -1,0 +1,62 @@
+[
+  {
+    "content": "T5-00: Implement Robust Built-in Function Registry",
+    "status": "completed",
+    "priority": "high",
+    "id": "t5-00"
+  },
+  {
+    "content": "T5-01: Complete DataFrame Semantic Fusion Optimizer",
+    "status": "completed",
+    "priority": "high",
+    "id": "t5-01"
+  },
+  {
+    "content": "T5-02: Implement If/Else Expressions",
+    "status": "completed",
+    "priority": "high",
+    "id": "t5-02"
+  },
+  {
+    "content": "T5-03: Implement Unary Operators",
+    "status": "completed",
+    "priority": "high",
+    "id": "t5-03"
+  },
+  {
+    "content": "T5-04: Implement Function Definitions",
+    "status": "completed",
+    "priority": "high",
+    "id": "t5-04"
+  },
+  {
+    "content": "T5-05: Implement For Loops",
+    "status": "completed",
+    "priority": "high",
+    "id": "t5-05"
+  },
+  {
+    "content": "T5-06: Implement While Loops",
+    "status": "completed",
+    "priority": "medium",
+    "id": "t5-06"
+  },
+  {
+    "content": "T5-07: Implement Block Expressions",
+    "status": "completed",
+    "priority": "medium",
+    "id": "t5-07"
+  },
+  {
+    "content": "T5-08: DataFrame Performance Benchmarks",
+    "status": "pending",
+    "priority": "low",
+    "id": "t5-08"
+  },
+  {
+    "content": "T5-09: Advanced Type Inference for Functions",
+    "status": "completed",
+    "priority": "low",
+    "id": "t5-09"
+  }
+]

@@ -1,0 +1,32 @@
+[
+  {
+    "content": "Design MultiblockProjector trait with block-wise projection methods",
+    "status": "completed",
+    "priority": "high",
+    "id": "1"
+  },
+  {
+    "content": "Implement single block projection functionality",
+    "status": "completed",
+    "priority": "high",
+    "id": "2"
+  },
+  {
+    "content": "Add block-wise preprocessing support",
+    "status": "in_progress",
+    "priority": "medium",
+    "id": "3"
+  },
+  {
+    "content": "Create block weight management system",
+    "status": "completed",
+    "priority": "medium",
+    "id": "4"
+  },
+  {
+    "content": "Write comprehensive tests for multiblock projector",
+    "status": "completed",
+    "priority": "high",
+    "id": "5"
+  }
+]

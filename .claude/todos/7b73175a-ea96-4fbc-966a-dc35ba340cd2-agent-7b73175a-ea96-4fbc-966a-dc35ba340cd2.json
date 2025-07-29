@@ -1,0 +1,182 @@
+[
+  {
+    "content": "Set up Cargo.toml with dependencies and project structure",
+    "status": "completed",
+    "priority": "high",
+    "id": "setup-project"
+  },
+  {
+    "content": "Create core type system (SplineType enum, Spline trait, error types)",
+    "status": "completed",
+    "priority": "high",
+    "id": "core-types"
+  },
+  {
+    "content": "Port core C algorithms (basis_funcs, evaluate, diff_table) to Rust",
+    "status": "completed",
+    "priority": "high",
+    "id": "port-c-algorithms"
+  },
+  {
+    "content": "Implement splineDesign / design matrix functionality",
+    "status": "completed",
+    "priority": "high",
+    "id": "design-matrix"
+  },
+  {
+    "content": "Implement basic BSpline struct with new() and predict() methods",
+    "status": "completed",
+    "priority": "high",
+    "id": "bspline-basic"
+  },
+  {
+    "content": "Fix algorithm issues causing NaN values in basis functions",
+    "status": "completed",
+    "priority": "high",
+    "id": "fix-algorithms"
+  },
+  {
+    "content": "Implement NaturalSpline extending B-spline functionality",
+    "status": "completed",
+    "priority": "high",
+    "id": "natural-spline"
+  },
+  {
+    "content": "Create XYVector utility struct (R xyVector equivalent)",
+    "status": "completed",
+    "priority": "medium",
+    "id": "xy-vector"
+  },
+  {
+    "content": "Implement R's exact knot construction for InterpolationSpline",
+    "status": "completed",
+    "priority": "high",
+    "id": "r-knot-construction"
+  },
+  {
+    "content": "Implement R's exact constraint setup for InterpolationSpline",
+    "status": "completed",
+    "priority": "high",
+    "id": "r-constraint-setup"
+  },
+  {
+    "content": "Create R ground truth script for 6x6 matrix generation",
+    "status": "completed",
+    "priority": "high",
+    "id": "r-ground-truth"
+  },
+  {
+    "content": "Add matrix debugging to Rust InterpolationSpline",
+    "status": "completed",
+    "priority": "high",
+    "id": "rust-matrix-debug"
+  },
+  {
+    "content": "Perform systematic matrix comparison element-by-element",
+    "status": "completed",
+    "priority": "high",
+    "id": "matrix-comparison"
+  },
+  {
+    "content": "Fix DesignMatrixBuilder second derivative implementation",
+    "status": "completed",
+    "priority": "high",
+    "id": "fix-second-derivatives"
+  },
+  {
+    "content": "Fix DesignMatrixBuilder basis function evaluation with full knot vector",
+    "status": "completed",
+    "priority": "high",
+    "id": "fix-basis-functions"
+  },
+  {
+    "content": "Achieve perfect coefficient calculation matching R exactly",
+    "status": "completed",
+    "priority": "high",
+    "id": "perfect-coefficients"
+  },
+  {
+    "content": "Resolve tiny evaluation precision issue (0.01667 vs 0.0)",
+    "status": "completed",
+    "priority": "medium",
+    "id": "evaluation-precision"
+  },
+  {
+    "content": "Fix non-square matrix issues for different spline orders",
+    "status": "completed",
+    "priority": "medium",
+    "id": "non-square-matrices"
+  },
+  {
+    "content": "Run comprehensive InterpolationSpline tests",
+    "status": "completed",
+    "priority": "medium",
+    "id": "comprehensive-tests"
+  },
+  {
+    "content": "Clean up debug output and finalize implementation",
+    "status": "completed",
+    "priority": "low",
+    "id": "cleanup"
+  },
+  {
+    "content": "Fix right boundary condition bug in B-spline evaluation",
+    "status": "completed",
+    "priority": "high",
+    "id": "fix-boundary-bug"
+  },
+  {
+    "content": "Add intercept parameter to BSpline to match R's bs(intercept=FALSE)",
+    "status": "completed",
+    "priority": "high",
+    "id": "add-intercept-param"
+  },
+  {
+    "content": "Verify full BSpline equivalence with R's bs() function",
+    "status": "completed",
+    "priority": "high",
+    "id": "verify-bs-equivalence"
+  },
+  {
+    "content": "Implement splineKnots() utility function",
+    "status": "completed",
+    "priority": "medium",
+    "id": "spline-knots"
+  },
+  {
+    "content": "Implement splineOrder() utility function",
+    "status": "completed",
+    "priority": "medium",
+    "id": "spline-order"
+  },
+  {
+    "content": "Implement asVector() utility function",
+    "status": "completed",
+    "priority": "medium",
+    "id": "as-vector"
+  },
+  {
+    "content": "Implement spline.des() wrapper for splineDesign",
+    "status": "completed",
+    "priority": "medium",
+    "id": "spline-des"
+  },
+  {
+    "content": "Test utility functions with comprehensive examples",
+    "status": "completed",
+    "priority": "medium",
+    "id": "test-utilities"
+  },
+  {
+    "content": "Fix failing InterpolationSpline test with correct expectations",
+    "status": "completed",
+    "priority": "high",
+    "id": "fix-interpolation-test"
+  },
+  {
+    "content": "Implement periodic splines for cyclic data",
+    "status": "pending",
+    "priority": "low",
+    "id": "periodic-splines"
+  }
+]

@@ -1,0 +1,26 @@
+[
+  {
+    "content": "Test isolation issues - tests pass individually but fail together",
+    "status": "completed",
+    "priority": "high",
+    "id": "test-issues-1"
+  },
+  {
+    "content": "Delta edge cases test failures - RLE encoding issue",
+    "status": "completed",
+    "priority": "medium",
+    "id": "test-issues-2"
+  },
+  {
+    "content": "Experimental API tests removed",
+    "status": "completed",
+    "priority": "low",
+    "id": "test-issues-3"
+  },
+  {
+    "content": "Intermittent file access errors in test suite",
+    "status": "pending",
+    "priority": "medium",
+    "id": "test-issues-4"
+  }
+]

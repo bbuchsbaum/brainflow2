@@ -1,0 +1,26 @@
+[
+  {
+    "content": "Check Claude Code CLI global configuration location",
+    "status": "completed",
+    "priority": "high",
+    "id": "1"
+  },
+  {
+    "content": "Install zen-mcp-server globally using uvx method",
+    "status": "completed",
+    "priority": "high",
+    "id": "2"
+  },
+  {
+    "content": "Update Claude Code CLI global configuration",
+    "status": "completed",
+    "priority": "high",
+    "id": "3"
+  },
+  {
+    "content": "Add API keys to zen configuration",
+    "status": "completed",
+    "priority": "high",
+    "id": "4"
+  }
+]

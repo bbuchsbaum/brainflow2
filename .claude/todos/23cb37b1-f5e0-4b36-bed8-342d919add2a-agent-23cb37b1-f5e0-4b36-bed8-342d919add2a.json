@@ -1,0 +1,50 @@
+[
+  {
+    "content": "Create API complexity analyzer for ForgeScript runtime",
+    "status": "completed",
+    "priority": "high",
+    "id": "api-001-1"
+  },
+  {
+    "content": "Implement static code analysis for experiment scripts",
+    "status": "completed",
+    "priority": "high",
+    "id": "api-001-2"
+  },
+  {
+    "content": "Create complexity metrics calculator",
+    "status": "completed",
+    "priority": "high",
+    "id": "api-001-3"
+  },
+  {
+    "content": "Build optimization suggestion engine",
+    "status": "completed",
+    "priority": "high",
+    "id": "api-001-4"
+  },
+  {
+    "content": "Implement visual complexity reporting",
+    "status": "completed",
+    "priority": "medium",
+    "id": "api-001-5"
+  },
+  {
+    "content": "Add performance impact analysis",
+    "status": "completed",
+    "priority": "medium",
+    "id": "api-001-6"
+  },
+  {
+    "content": "Create tests for complexity analyzer",
+    "status": "completed",
+    "priority": "high",
+    "id": "api-001-7"
+  },
+  {
+    "content": "Run lint and typecheck",
+    "status": "completed",
+    "priority": "high",
+    "id": "api-001-8"
+  }
+]

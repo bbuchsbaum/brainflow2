@@ -1,0 +1,146 @@
+[
+  {
+    "content": "Explore the neurosurf R library structure and understand its core functionality",
+    "status": "completed",
+    "priority": "high",
+    "id": "1"
+  },
+  {
+    "content": "Create feature_parity.md file documenting all features to be ported",
+    "status": "completed",
+    "priority": "high",
+    "id": "2"
+  },
+  {
+    "content": "Create ticketqueue.md file for tracking implementation progress",
+    "status": "completed",
+    "priority": "high",
+    "id": "3"
+  },
+  {
+    "content": "Analyze how tri-mesh crate can be leveraged for mesh operations",
+    "status": "completed",
+    "priority": "medium",
+    "id": "4"
+  },
+  {
+    "content": "Design Rust architecture based on R package structure",
+    "status": "completed",
+    "priority": "medium",
+    "id": "5"
+  },
+  {
+    "content": "Initialize Rust project with cargo and basic structure",
+    "status": "completed",
+    "priority": "high",
+    "id": "6"
+  },
+  {
+    "content": "Set up core dependencies in Cargo.toml",
+    "status": "completed",
+    "priority": "high",
+    "id": "7"
+  },
+  {
+    "content": "Create basic module structure and error handling",
+    "status": "completed",
+    "priority": "high",
+    "id": "8"
+  },
+  {
+    "content": "Implement core SurfaceGeometry structure",
+    "status": "completed",
+    "priority": "high",
+    "id": "9"
+  },
+  {
+    "content": "Create stub modules for remaining functionality",
+    "status": "completed",
+    "priority": "medium",
+    "id": "10"
+  },
+  {
+    "content": "Fix compilation errors and make project buildable",
+    "status": "completed",
+    "priority": "high",
+    "id": "11"
+  },
+  {
+    "content": "Run tests to ensure basic functionality works",
+    "status": "completed",
+    "priority": "medium",
+    "id": "12"
+  },
+  {
+    "content": "Fix surface area calculation in GeometricOperations trait",
+    "status": "completed",
+    "priority": "high",
+    "id": "14"
+  },
+  {
+    "content": "Update ticketqueue.md with current progress",
+    "status": "completed",
+    "priority": "low",
+    "id": "13"
+  },
+  {
+    "content": "Fix GIFTI and NIML I/O tests to prevent panics",
+    "status": "completed",
+    "priority": "high",
+    "id": "15"
+  },
+  {
+    "content": "Ensure all unit tests pass",
+    "status": "completed",
+    "priority": "high",
+    "id": "16"
+  },
+  {
+    "content": "Integrate gifti-rs library for proper GIFTI I/O support",
+    "status": "completed",
+    "priority": "high",
+    "id": "17"
+  },
+  {
+    "content": "Fix API compatibility issues with gifti-rs",
+    "status": "completed",
+    "priority": "high",
+    "id": "18"
+  },
+  {
+    "content": "Fix HashMap compilation error in vol_to_surf find_mode function",
+    "status": "completed",
+    "priority": "high",
+    "id": "19"
+  },
+  {
+    "content": "Implement advanced curvature calculations (mean, gaussian)",
+    "status": "completed",
+    "priority": "high",
+    "id": "20"
+  },
+  {
+    "content": "Implement volume-to-surface mapping algorithms",
+    "status": "completed",
+    "priority": "high",
+    "id": "23"
+  },
+  {
+    "content": "Fix documentation examples in lib.rs",
+    "status": "pending",
+    "priority": "low",
+    "id": "24"
+  },
+  {
+    "content": "Implement neighborhood finding algorithms",
+    "status": "pending",
+    "priority": "medium",
+    "id": "21"
+  },
+  {
+    "content": "Implement surface smoothing operations",
+    "status": "pending",
+    "priority": "medium",
+    "id": "22"
+  }
+]

@@ -1,0 +1,26 @@
+[
+  {
+    "content": "Investigate mixed models numerical discrepancy (1.739 vs R's 2.023)",
+    "status": "completed",
+    "priority": "high",
+    "id": "1"
+  },
+  {
+    "content": "Fix unused variable warnings in optimcore",
+    "status": "completed",
+    "priority": "medium",
+    "id": "2"
+  },
+  {
+    "content": "Run full test suite after fixes",
+    "status": "in_progress",
+    "priority": "high",
+    "id": "3"
+  },
+  {
+    "content": "Complete Sprint Completion Protocol",
+    "status": "pending",
+    "priority": "high",
+    "id": "4"
+  }
+]

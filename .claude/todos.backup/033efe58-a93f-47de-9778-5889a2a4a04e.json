@@ -1,0 +1,26 @@
+[
+  {
+    "content": "Install dependencies with pnpm",
+    "status": "completed",
+    "priority": "high",
+    "id": "1"
+  },
+  {
+    "content": "Build the markdownify-mcp project",
+    "status": "completed",
+    "priority": "high",
+    "id": "2"
+  },
+  {
+    "content": "Configure markdownify-mcp for Claude Desktop",
+    "status": "completed",
+    "priority": "high",
+    "id": "3"
+  },
+  {
+    "content": "Configure markdownify-mcp for Claude Code CLI",
+    "status": "completed",
+    "priority": "high",
+    "id": "4"
+  }
+]

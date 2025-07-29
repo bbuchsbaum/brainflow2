@@ -1,0 +1,20 @@
+[
+  {
+    "content": "Investigate reticulate ephemeral environment issue",
+    "status": "completed",
+    "priority": "high",
+    "id": "1"
+  },
+  {
+    "content": "Fix directory creation error for .first_time_complete file",
+    "status": "completed",
+    "priority": "high",
+    "id": "2"
+  },
+  {
+    "content": "Test TemplateFlow functionality after fixes",
+    "status": "completed",
+    "priority": "medium",
+    "id": "3"
+  }
+]

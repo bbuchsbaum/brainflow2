@@ -1,0 +1,38 @@
+[
+  {
+    "content": "Test image loading and rendering in OrthogonalView",
+    "status": "in_progress",
+    "priority": "high",
+    "id": "701"
+  },
+  {
+    "content": "Add crosshair synchronization between views",
+    "status": "pending",
+    "priority": "high",
+    "id": "702"
+  },
+  {
+    "content": "Implement performance metrics collection",
+    "status": "pending",
+    "priority": "high",
+    "id": "703"
+  },
+  {
+    "content": "Fix critical error handling (unwrap() calls)",
+    "status": "pending",
+    "priority": "medium",
+    "id": "704"
+  },
+  {
+    "content": "Add slice scrolling interaction",
+    "status": "pending",
+    "priority": "medium",
+    "id": "705"
+  },
+  {
+    "content": "Implement layer opacity controls",
+    "status": "pending",
+    "priority": "medium",
+    "id": "706"
+  }
+]

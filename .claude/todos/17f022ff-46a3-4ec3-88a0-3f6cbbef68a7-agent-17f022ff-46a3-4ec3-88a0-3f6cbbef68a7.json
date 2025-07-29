@@ -1,0 +1,50 @@
+[
+  {
+    "content": "Fix crosshair behavior - image should stay in full view, only crosshair moves",
+    "status": "completed",
+    "priority": "high",
+    "id": "FIX-9"
+  },
+  {
+    "content": "Fix Y-flip issue in CPU renderer's sagittal and coronal views",
+    "status": "completed",
+    "priority": "high",
+    "id": "FIX-10"
+  },
+  {
+    "content": "Fix origin calculations to use actual volume bounds",
+    "status": "completed",
+    "priority": "high",
+    "id": "FIX-11"
+  },
+  {
+    "content": "Create ViewRectMm abstraction for unified CPU/GPU rendering",
+    "status": "completed",
+    "priority": "high",
+    "id": "FIX-12"
+  },
+  {
+    "content": "Implement ViewRectMm::full_extent() method",
+    "status": "completed",
+    "priority": "high",
+    "id": "FIX-13"
+  },
+  {
+    "content": "Convert CPU renderer to use ViewRectMm",
+    "status": "completed",
+    "priority": "high",
+    "id": "FIX-14"
+  },
+  {
+    "content": "Convert GPU renderer to use ViewRectMm",
+    "status": "completed",
+    "priority": "high",
+    "id": "FIX-15"
+  },
+  {
+    "content": "Fix dimension mismatch between CPU and GPU renderers",
+    "status": "completed",
+    "priority": "high",
+    "id": "FIX-16"
+  }
+]

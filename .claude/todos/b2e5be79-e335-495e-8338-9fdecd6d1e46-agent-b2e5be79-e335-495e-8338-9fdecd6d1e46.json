@@ -1,0 +1,32 @@
+[
+  {
+    "content": "Fix loadings normalization to ensure Omega-orthogonality",
+    "status": "completed",
+    "priority": "high",
+    "id": "10"
+  },
+  {
+    "content": "Implement correct generalized PLS formulation",
+    "status": "completed",
+    "priority": "high",
+    "id": "11"
+  },
+  {
+    "content": "Create as_weight_operator helper function",
+    "status": "completed",
+    "priority": "high",
+    "id": "12"
+  },
+  {
+    "content": "Modify genplsc to use svds approach",
+    "status": "completed",
+    "priority": "high",
+    "id": "13"
+  },
+  {
+    "content": "Test with diagnostic suite",
+    "status": "in_progress",
+    "priority": "high",
+    "id": "14"
+  }
+]

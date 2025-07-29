@@ -1,0 +1,26 @@
+[
+  {
+    "content": "Run complete testing gate - oracle harness, unit tests, integration tests, linting",
+    "status": "completed",
+    "priority": "high",
+    "id": "test-gate"
+  },
+  {
+    "content": "Conduct take stock assessment against R performance targets",
+    "status": "completed",
+    "priority": "high",
+    "id": "assess-progress"
+  },
+  {
+    "content": "Perform mandatory code audit using zen mcp tools",
+    "status": "completed",
+    "priority": "medium",
+    "id": "code-audit"
+  },
+  {
+    "content": "Make proceed/course-correct decision based on assessment",
+    "status": "completed",
+    "priority": "high",
+    "id": "decide-next"
+  }
+]

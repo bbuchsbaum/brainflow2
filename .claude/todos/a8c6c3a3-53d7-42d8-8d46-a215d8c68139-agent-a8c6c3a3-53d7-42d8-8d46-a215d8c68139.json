@@ -1,0 +1,32 @@
+[
+  {
+    "content": "Conduct Round 1 expert review using mcp__zen__consensus with o3 + Gemini Pro models",
+    "status": "completed",
+    "priority": "high",
+    "id": "round1_consensus"
+  },
+  {
+    "content": "Focus review on DSI core requirements: mission alignment, Tier 1 tools, cross-disciplinary impact, EDI integration, word limits",
+    "status": "completed",
+    "priority": "high",
+    "id": "dsi_compliance_check"
+  },
+  {
+    "content": "Address consensus recommendations from Round 1",
+    "status": "in_progress",
+    "priority": "high",
+    "id": "address_recommendations"
+  },
+  {
+    "content": "Update PROGRESS.md with Round 1 findings",
+    "status": "pending",
+    "priority": "medium",
+    "id": "update_progress"
+  },
+  {
+    "content": "Save improved version as HATSA_LOI_v1.md",
+    "status": "pending",
+    "priority": "medium",
+    "id": "save_v1"
+  }
+]

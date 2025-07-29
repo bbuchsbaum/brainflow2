@@ -14,7 +14,7 @@ import type { WorkspaceType } from '@/types/workspace';
 // Import workspace components
 import { OrthogonalViewContainer } from '@/components/views/OrthogonalViewContainer';
 import { FlexibleOrthogonalView } from '@/components/views/FlexibleOrthogonalView';
-import { MosaicView } from '@/components/views/MosaicView';
+import { MosaicViewSimple } from '@/components/views/MosaicViewSimple';
 import { LightboxView } from '@/components/views/LightboxView';
 import { ROIStatsWorkspace } from '@/components/analysis/ROIStatsWorkspace';
 import { CoordinateConverterWorkspace } from '@/components/tools/CoordinateConverterWorkspace';
@@ -49,7 +49,7 @@ const WorkspaceComponent: React.FC<WorkspaceComponentProps> = ({ workspaceId, wo
     case 'orthogonal-flexible':
       return <FlexibleOrthogonalView workspaceId={workspaceId} />;
     case 'mosaic':
-      return <MosaicView workspaceId={workspaceId} />;
+      return <MosaicViewSimple workspaceId={workspaceId} />;
     case 'lightbox':
       return <LightboxView workspaceId={workspaceId} />;
     case 'roi-stats':

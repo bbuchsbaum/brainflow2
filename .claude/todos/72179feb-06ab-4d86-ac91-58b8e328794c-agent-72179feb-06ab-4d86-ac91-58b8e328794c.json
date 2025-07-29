@@ -1,0 +1,38 @@
+[
+  {
+    "content": "Add missing short-hand aliases (bs, gam) to HRF_REGISTRY",
+    "status": "completed",
+    "priority": "high",
+    "id": "1"
+  },
+  {
+    "content": "Add plot method for HRF objects",
+    "status": "completed",
+    "priority": "high",
+    "id": "2"
+  },
+  {
+    "content": "Add generic derivative interface (deriv.HRF)",
+    "status": "completed",
+    "priority": "medium",
+    "id": "3"
+  },
+  {
+    "content": "Fix potential cache explosion with bounded cache",
+    "status": "completed",
+    "priority": "medium",
+    "id": "4"
+  },
+  {
+    "content": "Add package citation file",
+    "status": "completed",
+    "priority": "low",
+    "id": "5"
+  },
+  {
+    "content": "Create performance benchmark vignette",
+    "status": "completed",
+    "priority": "low",
+    "id": "6"
+  }
+]

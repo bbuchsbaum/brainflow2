@@ -1,0 +1,26 @@
+[
+  {
+    "content": "Review caret removal plan to check completion status",
+    "status": "completed",
+    "priority": "high",
+    "id": "1"
+  },
+  {
+    "content": "Search for any remaining caret dependencies in the codebase",
+    "status": "completed",
+    "priority": "high",
+    "id": "2"
+  },
+  {
+    "content": "Check if all caret functions have been replaced",
+    "status": "completed",
+    "priority": "high",
+    "id": "3"
+  },
+  {
+    "content": "Verify tests pass without caret",
+    "status": "completed",
+    "priority": "medium",
+    "id": "4"
+  }
+]

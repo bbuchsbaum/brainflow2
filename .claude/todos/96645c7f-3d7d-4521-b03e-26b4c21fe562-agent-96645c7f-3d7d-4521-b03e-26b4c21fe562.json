@@ -1,0 +1,20 @@
+[
+  {
+    "content": "Restart cargo tauri dev to compile the new backend command",
+    "status": "completed",
+    "priority": "high",
+    "id": "1"
+  },
+  {
+    "content": "Investigate problematic intensity values being reset",
+    "status": "pending",
+    "priority": "medium",
+    "id": "2"
+  },
+  {
+    "content": "Fix empty LayerPanel sidebar - no controls showing",
+    "status": "in_progress",
+    "priority": "high",
+    "id": "3"
+  }
+]

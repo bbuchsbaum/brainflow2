@@ -1,0 +1,44 @@
+[
+  {
+    "content": "Execute mandatory testing gate - run oracle harness, unit tests, integration tests, and linting",
+    "status": "completed",
+    "priority": "high",
+    "id": "sprint_testing_gate"
+  },
+  {
+    "content": "Fix oracle Docker image issue for R comparison tests",
+    "status": "completed",
+    "priority": "high",
+    "id": "fix_oracle_docker"
+  },
+  {
+    "content": "Fix oracle test runner - placeholder Rust implementation needs actual implementation",
+    "status": "completed",
+    "priority": "high",
+    "id": "fix_oracle_implementation"
+  },
+  {
+    "content": "Conduct honest assessment of progress toward R superiority targets",
+    "status": "completed",
+    "priority": "high",
+    "id": "take_stock_assessment"
+  },
+  {
+    "content": "Execute comprehensive performance benchmarks vs R to validate superiority claims",
+    "status": "completed",
+    "priority": "high",
+    "id": "run_performance_benchmarks"
+  },
+  {
+    "content": "Perform comprehensive code audit using zen mcp tools",
+    "status": "completed",
+    "priority": "medium",
+    "id": "code_audit"
+  },
+  {
+    "content": "Make proceed/course-correct decision based on assessment",
+    "status": "completed",
+    "priority": "high",
+    "id": "sprint_decision"
+  }
+]

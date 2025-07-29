@@ -1,0 +1,56 @@
+[
+  {
+    "content": "Run complete test suite to verify 100% pass rate before sprint planning",
+    "status": "completed",
+    "priority": "high",
+    "id": "test_gate_check"
+  },
+  {
+    "content": "Fix oracle_tests::test_oracle_multiple_regression - coefficients and fitted values differ significantly from R",
+    "status": "completed",
+    "priority": "high",
+    "id": "fix_oracle_test"
+  },
+  {
+    "content": "Take stock assessment of current progress toward R superiority goals",
+    "status": "completed",
+    "priority": "high",
+    "id": "assess_current_state"
+  },
+  {
+    "content": "Plan next sprint based on assessment and core mission objectives",
+    "status": "completed",
+    "priority": "high",
+    "id": "plan_next_sprint"
+  },
+  {
+    "content": "Enhance LmFit summary to include R², adj-R², F-statistic, residual standard error for full R parity",
+    "status": "completed",
+    "priority": "high",
+    "id": "complete_ols_summary"
+  },
+  {
+    "content": "Fix F-test p-value calculation - currently giving 1-CDF instead of CDF for upper tail test",
+    "status": "pending",
+    "priority": "medium",
+    "id": "fix_f_test_pvalue"
+  },
+  {
+    "content": "Execute baseline performance benchmark vs R's lm() using mtcars dataset to validate 2x speedup target",
+    "status": "completed",
+    "priority": "high",
+    "id": "baseline_benchmark"
+  },
+  {
+    "content": "Implement Minimum Viable Formula (MVF) supporting ~, +, * operators for core formula functionality",
+    "status": "completed",
+    "priority": "high",
+    "id": "mvf_implementation"
+  },
+  {
+    "content": "Add Oracle tests for multicollinearity, zero variance predictors, and other edge cases R handles",
+    "status": "pending",
+    "priority": "medium",
+    "id": "edge_case_robustness"
+  }
+]

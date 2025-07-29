@@ -1,0 +1,26 @@
+[
+  {
+    "content": "Fix atomic write return value (critical)",
+    "status": "completed",
+    "priority": "high",
+    "id": "10"
+  },
+  {
+    "content": "Fix design_matrix method call",
+    "status": "completed",
+    "priority": "high",
+    "id": "11"
+  },
+  {
+    "content": "Fix test filename expectations",
+    "status": "completed",
+    "priority": "medium",
+    "id": "12"
+  },
+  {
+    "content": "Address contrast warnings (optional)",
+    "status": "completed",
+    "priority": "low",
+    "id": "13"
+  }
+]

@@ -1,0 +1,62 @@
+[
+  {
+    "content": "Group 1: Core exported functions - estimate_parametric_hrf.R, single_voxel_sanity_check.R",
+    "status": "completed",
+    "priority": "high",
+    "id": "doc-group-1"
+  },
+  {
+    "content": "Group 2: S3 methods - parametric-hrf-fit-methods.R, parametric-hrf-fit-class.R",
+    "status": "completed",
+    "priority": "high",
+    "id": "doc-group-2"
+  },
+  {
+    "content": "Group 3: Package documentation - fmriparametric-package.R, api-version.R",
+    "status": "completed",
+    "priority": "high",
+    "id": "doc-group-3"
+  },
+  {
+    "content": "Group 4: Exported utilities - diagnostics.R, internal-utils.R, fast_batch_convolution.R",
+    "status": "completed",
+    "priority": "medium",
+    "id": "doc-group-4"
+  },
+  {
+    "content": "Group 5: Internal engine functions - hrf-estimation-engine.R, parametric-engine.R, prepare-parametric-inputs.R",
+    "status": "completed",
+    "priority": "medium",
+    "id": "doc-group-5"
+  },
+  {
+    "content": "Group 6: Internal utilities - batch_convolution.R, bounds-utils.R, convergence-config.R",
+    "status": "completed",
+    "priority": "low",
+    "id": "doc-group-6"
+  },
+  {
+    "content": "Group 7: Validation and helpers - validation-core.R, validation-helpers.R, utils-hrf-estimation.R",
+    "status": "completed",
+    "priority": "low",
+    "id": "doc-group-7"
+  },
+  {
+    "content": "Group 8: HRF interfaces - hrf-interface-factory.R, hrf-interface-lwu.R",
+    "status": "completed",
+    "priority": "low",
+    "id": "doc-group-8"
+  },
+  {
+    "content": "Group 9: Advanced features - gauss-newton-refinement.R, local-recentering.R, estimation-stages.R",
+    "status": "completed",
+    "priority": "low",
+    "id": "doc-group-9"
+  },
+  {
+    "content": "Group 10: Other files - bayesian_engine.R, engineering-standards.R, fit-metrics.R, ridge_linear_solver.R",
+    "status": "completed",
+    "priority": "low",
+    "id": "doc-group-10"
+  }
+]

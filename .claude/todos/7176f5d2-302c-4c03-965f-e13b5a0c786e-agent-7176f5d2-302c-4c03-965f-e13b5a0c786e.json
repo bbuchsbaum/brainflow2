@@ -1,0 +1,62 @@
+[
+  {
+    "content": "Run mandatory testing gate - oracle harness, unit tests, integration tests, linting",
+    "status": "completed",
+    "priority": "high",
+    "id": "sprint_testing_gate"
+  },
+  {
+    "content": "Conduct honest take stock assessment of progress toward R superiority",
+    "status": "completed",
+    "priority": "high",
+    "id": "take_stock_assessment"
+  },
+  {
+    "content": "Make proceed/course-correct decision based on assessment",
+    "status": "completed",
+    "priority": "high",
+    "id": "decision_point"
+  },
+  {
+    "content": "Conduct comprehensive code audit using zen mcp tools",
+    "status": "completed",
+    "priority": "high",
+    "id": "mandatory_code_audit"
+  },
+  {
+    "content": "Add more oracle tests covering GLM, ANOVA, statistical inference",
+    "status": "pending",
+    "priority": "high",
+    "id": "expand_oracle_tests"
+  },
+  {
+    "content": "Create performance benchmarks comparing speed vs R implementations",
+    "status": "pending",
+    "priority": "high",
+    "id": "implement_benchmarking"
+  },
+  {
+    "content": "Improve API design for R user adoption",
+    "status": "pending",
+    "priority": "high",
+    "id": "enhance_api_ergonomics"
+  },
+  {
+    "content": "Replace ad-hoc rank handling with proper statistical methods",
+    "status": "pending",
+    "priority": "high",
+    "id": "fix_rank_deficiency"
+  },
+  {
+    "content": "Replace simplified inference approximations with robust implementations",
+    "status": "pending",
+    "priority": "high",
+    "id": "improve_statistical_precision"
+  },
+  {
+    "content": "Expand oracle test coverage to comprehensive R function validation",
+    "status": "pending",
+    "priority": "high",
+    "id": "strengthen_oracle_framework"
+  }
+]

@@ -1,0 +1,62 @@
+[
+  {
+    "content": "Run comprehensive test suite - Oracle harness, unit tests, integration tests",
+    "status": "completed",
+    "priority": "high",
+    "id": "sprint_gate_1"
+  },
+  {
+    "content": "Run linting and style checks",
+    "status": "completed",
+    "priority": "high",
+    "id": "sprint_gate_2"
+  },
+  {
+    "content": "Conduct take stock assessment - performance trends, code quality, R superiority progress",
+    "status": "completed",
+    "priority": "high",
+    "id": "sprint_assessment"
+  },
+  {
+    "content": "Mandatory code audit using zen mcp tools",
+    "status": "completed",
+    "priority": "high",
+    "id": "sprint_audit"
+  },
+  {
+    "content": "Plan next sprint iteration based on assessment results",
+    "status": "completed",
+    "priority": "medium",
+    "id": "next_sprint_plan"
+  },
+  {
+    "content": "Implement QR-based OLS solver in Lm::fit() - TOP PRIORITY",
+    "status": "pending",
+    "priority": "high",
+    "id": "implement_ols_solver"
+  },
+  {
+    "content": "Create Rust Oracle harness integration for numerical verification",
+    "status": "pending",
+    "priority": "high",
+    "id": "build_oracle_harness"
+  },
+  {
+    "content": "Implement pest-based R formula parsing",
+    "status": "pending",
+    "priority": "high",
+    "id": "implement_formula_parser"
+  },
+  {
+    "content": "Replace O(n*m) loops with vectorized matrix operations",
+    "status": "pending",
+    "priority": "medium",
+    "id": "optimize_matrix_construction"
+  },
+  {
+    "content": "Connect formula parser to design matrix construction",
+    "status": "pending",
+    "priority": "medium",
+    "id": "implement_design_matrix"
+  }
+]

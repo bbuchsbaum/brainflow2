@@ -1,0 +1,50 @@
+[
+  {
+    "content": "Remove requireNamespace check for cachem in study_backend_seed_s3.R (line 77) - cachem is in Imports",
+    "status": "completed",
+    "priority": "high",
+    "id": "1"
+  },
+  {
+    "content": "Remove requireNamespace checks for DelayedArray in study_backend_seed_s3.R (lines 270, 296) - DelayedArray is in Imports",
+    "status": "completed",
+    "priority": "high",
+    "id": "2"
+  },
+  {
+    "content": "Remove requireNamespace checks for DelayedArray and tibble in FmriSeries.R examples - these are in Imports",
+    "status": "completed",
+    "priority": "medium",
+    "id": "3"
+  },
+  {
+    "content": "Remove requireNamespace check for fmrihrf in all_generic.R example - fmrihrf is in Imports",
+    "status": "completed",
+    "priority": "medium",
+    "id": "4"
+  },
+  {
+    "content": "Keep requireNamespace checks for jsonlite and yaml in config.R - these are in Suggests (correct usage)",
+    "status": "completed",
+    "priority": "low",
+    "id": "5"
+  },
+  {
+    "content": "Keep requireNamespace checks for fmristore in various backends - fmristore is in Suggests (correct usage)",
+    "status": "completed",
+    "priority": "low",
+    "id": "6"
+  },
+  {
+    "content": "Keep requireNamespace check for Rarr in zarr_backend.R - Rarr is not listed but should be in Suggests",
+    "status": "completed",
+    "priority": "low",
+    "id": "7"
+  },
+  {
+    "content": "Check if S4Arrays and Rarr should be added to DESCRIPTION Suggests",
+    "status": "completed",
+    "priority": "medium",
+    "id": "8"
+  }
+]

@@ -1,0 +1,32 @@
+[
+  {
+    "content": "Implement complete build_design_matrix function in dmatrix crate",
+    "status": "pending",
+    "priority": "high",
+    "id": "critical_fix_1"
+  },
+  {
+    "content": "Fix numerical stability handling using QR permutation matrix",
+    "status": "pending",
+    "priority": "high",
+    "id": "critical_fix_2"
+  },
+  {
+    "content": "Replace statistical approximations with statrs crate",
+    "status": "pending",
+    "priority": "medium",
+    "id": "medium_fix_1"
+  },
+  {
+    "content": "Run full test suite including oracle tests after fixes",
+    "status": "pending",
+    "priority": "high",
+    "id": "test_all_fixes"
+  },
+  {
+    "content": "Run performance benchmarks to verify 2x speedup target",
+    "status": "pending",
+    "priority": "medium",
+    "id": "performance_benchmark"
+  }
+]

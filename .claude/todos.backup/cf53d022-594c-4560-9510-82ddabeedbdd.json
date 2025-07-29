@@ -1,0 +1,20 @@
+[
+  {
+    "content": "Examine test_custom_searchlight.R for potential regressions",
+    "status": "completed",
+    "priority": "high",
+    "id": "1"
+  },
+  {
+    "content": "Run test_custom_searchlight.R to identify failures",
+    "status": "completed",
+    "priority": "high",
+    "id": "2"
+  },
+  {
+    "content": "Diagnose and fix any issues found",
+    "status": "completed",
+    "priority": "high",
+    "id": "3"
+  }
+]

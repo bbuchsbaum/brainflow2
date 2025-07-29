@@ -1,0 +1,44 @@
+[
+  {
+    "content": "Review resampling requirements from R neuroim2",
+    "status": "in_progress",
+    "priority": "high",
+    "id": "phase8-1"
+  },
+  {
+    "content": "Implement resample function for NeuroVol",
+    "status": "pending",
+    "priority": "high",
+    "id": "phase8-2"
+  },
+  {
+    "content": "Implement resample function for NeuroVec",
+    "status": "pending",
+    "priority": "high",
+    "id": "phase8-3"
+  },
+  {
+    "content": "Implement interpolation methods (linear, nearest, cubic)",
+    "status": "pending",
+    "priority": "medium",
+    "id": "phase8-4"
+  },
+  {
+    "content": "Implement reorient function",
+    "status": "pending",
+    "priority": "medium",
+    "id": "phase8-5"
+  },
+  {
+    "content": "Create comprehensive tests for resampling",
+    "status": "pending",
+    "priority": "high",
+    "id": "phase8-6"
+  },
+  {
+    "content": "Update FEATURE_PARITY.md for Phase 8 completion",
+    "status": "pending",
+    "priority": "low",
+    "id": "phase8-7"
+  }
+]

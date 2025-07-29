@@ -1,0 +1,14 @@
+[
+  {
+    "content": "Fix App.tsx subscription that's incorrectly spreading state instead of state.layers",
+    "status": "completed",
+    "priority": "high",
+    "id": "1"
+  },
+  {
+    "content": "Check if the StoreSyncService subscription is also preserving user intensity values correctly",
+    "status": "completed",
+    "priority": "high",
+    "id": "2"
+  }
+]

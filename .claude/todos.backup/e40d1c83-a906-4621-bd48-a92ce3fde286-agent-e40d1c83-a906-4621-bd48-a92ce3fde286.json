@@ -1,0 +1,32 @@
+[
+  {
+    "content": "Fix hyperdesign documentation - remove '...' from documented arguments",
+    "status": "completed",
+    "priority": "high",
+    "id": "1"
+  },
+  {
+    "content": "Fix init_transform documentation - add missing x, X, ... arguments",
+    "status": "completed",
+    "priority": "high",
+    "id": "2"
+  },
+  {
+    "content": "Fix split_indices documentation - remove 'collapse' from documented arguments",
+    "status": "completed",
+    "priority": "high",
+    "id": "3"
+  },
+  {
+    "content": "Fix subset.hyperdesign documentation - add 'fexpr' and remove '...'",
+    "status": "completed",
+    "priority": "high",
+    "id": "4"
+  },
+  {
+    "content": "Fix summarize_by documentation - remove 'extract_data' from documented arguments",
+    "status": "completed",
+    "priority": "high",
+    "id": "5"
+  }
+]

@@ -1,0 +1,56 @@
+[
+  {
+    "content": "Create Python web scraping project structure",
+    "status": "completed",
+    "priority": "high",
+    "id": "7"
+  },
+  {
+    "content": "Implement core data matching engine with fuzzy string matching",
+    "status": "completed",
+    "priority": "high",
+    "id": "8"
+  },
+  {
+    "content": "Build Tennis Warehouse scraper for flex ratings",
+    "status": "completed",
+    "priority": "high",
+    "id": "9"
+  },
+  {
+    "content": "Add manufacturer website scrapers (Wilson, Babolat, Head)",
+    "status": "pending",
+    "priority": "medium",
+    "id": "10"
+  },
+  {
+    "content": "Implement cross-validation and quality control system",
+    "status": "completed",
+    "priority": "medium",
+    "id": "11"
+  },
+  {
+    "content": "Test scraping pipeline and validate data accuracy",
+    "status": "completed",
+    "priority": "medium",
+    "id": "12"
+  },
+  {
+    "content": "Update scraper based on R code lessons learned",
+    "status": "completed",
+    "priority": "high",
+    "id": "13"
+  },
+  {
+    "content": "Implement multi-layout parsing strategy from R code",
+    "status": "completed",
+    "priority": "high",
+    "id": "14"
+  },
+  {
+    "content": "Add sophisticated fallback selectors from R implementation",
+    "status": "completed",
+    "priority": "high",
+    "id": "15"
+  }
+]

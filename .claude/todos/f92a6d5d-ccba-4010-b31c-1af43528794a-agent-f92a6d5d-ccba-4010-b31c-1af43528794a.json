@@ -1,0 +1,44 @@
+[
+  {
+    "content": "Download and extract templateflow-skel.zip to understand its structure",
+    "status": "completed",
+    "priority": "high",
+    "id": "1"
+  },
+  {
+    "content": "Create BIDS module with structures for parsing BIDS entities from filenames",
+    "status": "completed",
+    "priority": "high",
+    "id": "2"
+  },
+  {
+    "content": "Implement filename parser to extract BIDS entities (template, resolution, suffix, etc.)",
+    "status": "completed",
+    "priority": "high",
+    "id": "3"
+  },
+  {
+    "content": "Create TemplateLayout struct to hold parsed template structure",
+    "status": "completed",
+    "priority": "high",
+    "id": "4"
+  },
+  {
+    "content": "Implement skeleton parser to build layout from templateflow-skel.zip",
+    "status": "completed",
+    "priority": "high",
+    "id": "5"
+  },
+  {
+    "content": "Add tests for BIDS parsing functionality",
+    "status": "completed",
+    "priority": "medium",
+    "id": "6"
+  },
+  {
+    "content": "Update progress.md with completed tasks",
+    "status": "completed",
+    "priority": "low",
+    "id": "7"
+  }
+]

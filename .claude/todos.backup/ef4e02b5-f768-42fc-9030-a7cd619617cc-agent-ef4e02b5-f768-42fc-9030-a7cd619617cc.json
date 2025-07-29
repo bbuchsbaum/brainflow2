@@ -1,0 +1,26 @@
+[
+  {
+    "content": "Analyze semantic richness gaps in v3.1 for the 'strategy' slot example",
+    "status": "completed",
+    "priority": "high",
+    "id": "1"
+  },
+  {
+    "content": "Design constrained value notation for parameters/slots",
+    "status": "completed",
+    "priority": "high",
+    "id": "2"
+  },
+  {
+    "content": "Propose semantic annotation system for v3.3",
+    "status": "completed",
+    "priority": "high",
+    "id": "3"
+  },
+  {
+    "content": "Create examples showing v3.1 vs v3.3 improvements",
+    "status": "completed",
+    "priority": "medium",
+    "id": "4"
+  }
+]

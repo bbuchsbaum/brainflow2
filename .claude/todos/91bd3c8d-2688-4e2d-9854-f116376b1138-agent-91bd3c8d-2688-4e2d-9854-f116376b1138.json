@@ -1,0 +1,164 @@
+[
+  {
+    "content": "Explore fmrireg codebase structure and inventory all R files, functions, and classes",
+    "status": "completed",
+    "priority": "high",
+    "id": "explore-codebase"
+  },
+  {
+    "content": "Analyze existing tests in fmrireg to understand test coverage",
+    "status": "completed",
+    "priority": "high",
+    "id": "analyze-tests"
+  },
+  {
+    "content": "Create feature_parity.md file documenting the porting plan",
+    "status": "completed",
+    "priority": "high",
+    "id": "create-feature-parity"
+  },
+  {
+    "content": "Update CLAUDE.md with project information",
+    "status": "completed",
+    "priority": "medium",
+    "id": "update-claude-md"
+  },
+  {
+    "content": "Design Python package structure for pyfmrireg",
+    "status": "completed",
+    "priority": "high",
+    "id": "design-structure"
+  },
+  {
+    "content": "Create initial Python package structure",
+    "status": "completed",
+    "priority": "high",
+    "id": "create-python-structure"
+  },
+  {
+    "content": "Port core model classes (fmri_model, fmri_lm)",
+    "status": "completed",
+    "priority": "high",
+    "id": "port-core-models"
+  },
+  {
+    "content": "Create minimal MatrixDataset for testing",
+    "status": "completed",
+    "priority": "high",
+    "id": "create-matrix-dataset"
+  },
+  {
+    "content": "Port FmriModel class with tests",
+    "status": "completed",
+    "priority": "high",
+    "id": "port-fmri-model"
+  },
+  {
+    "content": "Port FmriLm class and GLM solver",
+    "status": "completed",
+    "priority": "high",
+    "id": "port-fmri-lm"
+  },
+  {
+    "content": "Port GLM solver functions (fast_preproject, solve_glm_core)",
+    "status": "completed",
+    "priority": "high",
+    "id": "port-glm-solver"
+  },
+  {
+    "content": "Create compatibility tests from R",
+    "status": "completed",
+    "priority": "high",
+    "id": "create-compat-tests"
+  },
+  {
+    "content": "Port contrast functions",
+    "status": "completed",
+    "priority": "high",
+    "id": "port-contrasts"
+  },
+  {
+    "content": "Port statistical functions (standard_error, p_values, etc.)",
+    "status": "completed",
+    "priority": "high",
+    "id": "port-stats"
+  },
+  {
+    "content": "Port test infrastructure and helper functions",
+    "status": "completed",
+    "priority": "high",
+    "id": "port-test-infrastructure"
+  },
+  {
+    "content": "Port all test files systematically",
+    "status": "in_progress",
+    "priority": "high",
+    "id": "port-all-tests"
+  },
+  {
+    "content": "Port test_glm_solver.R to Python",
+    "status": "completed",
+    "priority": "high",
+    "id": "port-test-glm-solver"
+  },
+  {
+    "content": "Port test_critical_functionality.R to Python",
+    "status": "completed",
+    "priority": "high",
+    "id": "port-test-critical"
+  },
+  {
+    "content": "Port test_ar_integration.R to Python",
+    "status": "completed",
+    "priority": "medium",
+    "id": "port-test-ar"
+  },
+  {
+    "content": "Port test_naming.R helper to Python",
+    "status": "completed",
+    "priority": "low",
+    "id": "port-test-naming"
+  },
+  {
+    "content": "Port AR modeling functionality from fmrireg",
+    "status": "completed",
+    "priority": "high",
+    "id": "port-ar-modeling"
+  },
+  {
+    "content": "Port robust regression functionality from fmrireg (Huber, bisquare IRLS, sandwich variance)",
+    "status": "completed",
+    "priority": "high",
+    "id": "port-robust-regression"
+  },
+  {
+    "content": "Port test_robust_components.R to Python",
+    "status": "completed",
+    "priority": "medium",
+    "id": "port-test-robust"
+  },
+  {
+    "content": "Port bootstrap inference functionality from fmrireg (block bootstrap, confidence intervals, hypothesis testing)",
+    "status": "completed",
+    "priority": "high",
+    "id": "port-bootstrap-inference"
+  },
+  {
+    "content": "Port test_bootstrap.R to Python",
+    "status": "completed",
+    "priority": "medium",
+    "id": "port-test-bootstrap"
+  },
+  {
+    "content": "Port C++ code to Python (numpy/numba/cython)",
+    "status": "pending",
+    "priority": "medium",
+    "id": "port-cpp-code"
+  },
+  {
+    "content": "Port dataset classes (pending pyfmridataset package)",
+    "status": "pending",
+    "priority": "low",
+    "id": "port-dataset-classes"
+  }
+]

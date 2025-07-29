@@ -1,0 +1,44 @@
+[
+  {
+    "content": "Fix critical authentication bypass - implement secure session management",
+    "status": "completed",
+    "priority": "high",
+    "id": "sec-1"
+  },
+  {
+    "content": "Remove hard-coded credentials and use environment variables",
+    "status": "completed",
+    "priority": "high",
+    "id": "sec-2"
+  },
+  {
+    "content": "Fix token exposure - use HttpOnly cookies exclusively",
+    "status": "completed",
+    "priority": "high",
+    "id": "sec-3"
+  },
+  {
+    "content": "Add rate limiting for brute force protection",
+    "status": "completed",
+    "priority": "high",
+    "id": "sec-4"
+  },
+  {
+    "content": "Implement input sanitization and XSS protection",
+    "status": "completed",
+    "priority": "high",
+    "id": "sec-5"
+  },
+  {
+    "content": "Add security headers and CSRF protection",
+    "status": "completed",
+    "priority": "medium",
+    "id": "sec-6"
+  },
+  {
+    "content": "Add logout functionality to dashboard",
+    "status": "completed",
+    "priority": "medium",
+    "id": "sec-7"
+  }
+]

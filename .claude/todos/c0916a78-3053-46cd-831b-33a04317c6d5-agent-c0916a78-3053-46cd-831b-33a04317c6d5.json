@@ -1,0 +1,74 @@
+[
+  {
+    "content": "Read progress.md to understand current status",
+    "status": "completed",
+    "priority": "high",
+    "id": "1"
+  },
+  {
+    "content": "Read sprints.md for sprint plan",
+    "status": "completed",
+    "priority": "high",
+    "id": "2"
+  },
+  {
+    "content": "Read feature_parity.md for requirements",
+    "status": "completed",
+    "priority": "high",
+    "id": "3"
+  },
+  {
+    "content": "Check compilation status with cargo check",
+    "status": "completed",
+    "priority": "high",
+    "id": "4"
+  },
+  {
+    "content": "Set up GitHub Actions CI/CD (.github/workflows/ci.yml)",
+    "status": "completed",
+    "priority": "high",
+    "id": "5"
+  },
+  {
+    "content": "Resolve ~14 compiler warnings",
+    "status": "pending",
+    "priority": "high",
+    "id": "6"
+  },
+  {
+    "content": "Update README.md with badges and instructions",
+    "status": "completed",
+    "priority": "medium",
+    "id": "7"
+  },
+  {
+    "content": "Create CHANGELOG.md for version 0.1.0",
+    "status": "completed",
+    "priority": "medium",
+    "id": "8"
+  },
+  {
+    "content": "Update progress.md with completed work",
+    "status": "completed",
+    "priority": "medium",
+    "id": "9"
+  },
+  {
+    "content": "Continue with compiler warnings resolution",
+    "status": "pending",
+    "priority": "high",
+    "id": "10"
+  },
+  {
+    "content": "Ensure all public APIs are documented",
+    "status": "pending",
+    "priority": "medium",
+    "id": "11"
+  },
+  {
+    "content": "Final version check and tag v0.1.0",
+    "status": "pending",
+    "priority": "medium",
+    "id": "12"
+  }
+]

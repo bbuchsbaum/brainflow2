@@ -1,0 +1,44 @@
+[
+  {
+    "content": "Create dashboard launcher script",
+    "status": "completed",
+    "priority": "high",
+    "id": "1"
+  },
+  {
+    "content": "Add dashboard command to package.json",
+    "status": "completed",
+    "priority": "high",
+    "id": "2"
+  },
+  {
+    "content": "Create unified dashboard.html interface",
+    "status": "completed",
+    "priority": "high",
+    "id": "3"
+  },
+  {
+    "content": "Enhance artwork-manager-backend.js with new endpoints",
+    "status": "completed",
+    "priority": "high",
+    "id": "4"
+  },
+  {
+    "content": "Add artwork listing and editing features",
+    "status": "completed",
+    "priority": "medium",
+    "id": "5"
+  },
+  {
+    "content": "Add bulk price update functionality",
+    "status": "completed",
+    "priority": "medium",
+    "id": "6"
+  },
+  {
+    "content": "Test the complete dashboard system",
+    "status": "pending",
+    "priority": "low",
+    "id": "7"
+  }
+]

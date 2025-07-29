@@ -1,0 +1,80 @@
+[
+  {
+    "content": "Fix Oracle test issues for Lasso/Ridge intercept handling",
+    "status": "completed",
+    "priority": "high",
+    "id": "s6-1"
+  },
+  {
+    "content": "Implement L-BFGS-B solver in optimcore",
+    "status": "completed",
+    "priority": "high",
+    "id": "s6-2"
+  },
+  {
+    "content": "Run performance benchmarks against R baselines",
+    "status": "completed",
+    "priority": "high",
+    "id": "s6-3"
+  },
+  {
+    "content": "Verify Bootstrap achieves ≥10x speedup over R's boot package",
+    "status": "completed",
+    "priority": "high",
+    "id": "s6-4"
+  },
+  {
+    "content": "Verify Lasso/Ridge matches or exceeds glmnet performance",
+    "status": "completed",
+    "priority": "high",
+    "id": "s6-5"
+  },
+  {
+    "content": "Complete Take Stock assessment per Sprint protocol",
+    "status": "completed",
+    "priority": "medium",
+    "id": "s6-6"
+  },
+  {
+    "content": "Conduct mandatory code audit using zen mcp tools",
+    "status": "completed",
+    "priority": "medium",
+    "id": "s6-7"
+  },
+  {
+    "content": "Deep investigation: Match glmnet algorithm exactly for 1e-10 tolerance",
+    "status": "pending",
+    "priority": "low",
+    "id": "s6-8"
+  },
+  {
+    "content": "Fix bootstrap parallel reproducibility bug",
+    "status": "pending",
+    "priority": "high",
+    "id": "s6-fix-1"
+  },
+  {
+    "content": "Fix L-BFGS-B numerical bugs",
+    "status": "pending",
+    "priority": "high",
+    "id": "s6-fix-2"
+  },
+  {
+    "content": "Remove hardcoded seeds from bootstrap methods",
+    "status": "pending",
+    "priority": "high",
+    "id": "s6-fix-3"
+  },
+  {
+    "content": "Fix error masking - propagate errors properly",
+    "status": "pending",
+    "priority": "high",
+    "id": "s6-fix-4"
+  },
+  {
+    "content": "Add comprehensive test coverage for edge cases",
+    "status": "pending",
+    "priority": "high",
+    "id": "s6-fix-5"
+  }
+]

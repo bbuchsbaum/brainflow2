@@ -1,0 +1,32 @@
+[
+  {
+    "content": "Explore the render_loop directory structure and key files",
+    "status": "completed",
+    "priority": "high",
+    "id": "1"
+  },
+  {
+    "content": "Analyze the shader implementations and pipeline",
+    "status": "completed",
+    "priority": "high",
+    "id": "2"
+  },
+  {
+    "content": "Understand texture and resource management",
+    "status": "completed",
+    "priority": "medium",
+    "id": "3"
+  },
+  {
+    "content": "Document the layer system and uniforms",
+    "status": "completed",
+    "priority": "medium",
+    "id": "4"
+  },
+  {
+    "content": "Write comprehensive CLAUDE.md for rendering architecture",
+    "status": "completed",
+    "priority": "high",
+    "id": "5"
+  }
+]

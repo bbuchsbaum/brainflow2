@@ -1,0 +1,38 @@
+[
+  {
+    "content": "Analyze current fmrireg usage in hrfals package",
+    "status": "completed",
+    "priority": "high",
+    "id": "1"
+  },
+  {
+    "content": "Identify HRF-specific functionality to migrate to fmrihrf",
+    "status": "completed",
+    "priority": "high",
+    "id": "2"
+  },
+  {
+    "content": "Update DESCRIPTION file dependencies",
+    "status": "completed",
+    "priority": "medium",
+    "id": "3"
+  },
+  {
+    "content": "Refactor imports and function calls to use fmrihrf",
+    "status": "in_progress",
+    "priority": "high",
+    "id": "4"
+  },
+  {
+    "content": "Update tests for new dependencies",
+    "status": "pending",
+    "priority": "medium",
+    "id": "5"
+  },
+  {
+    "content": "Verify all functionality works with refactored code",
+    "status": "pending",
+    "priority": "high",
+    "id": "6"
+  }
+]

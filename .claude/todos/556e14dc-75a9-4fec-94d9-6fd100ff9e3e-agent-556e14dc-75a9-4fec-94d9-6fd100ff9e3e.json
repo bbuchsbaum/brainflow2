@@ -1,0 +1,38 @@
+[
+  {
+    "content": "Initialize sprint: assess current state and plan objectives",
+    "status": "completed",
+    "priority": "high",
+    "id": "sprint_init"
+  },
+  {
+    "content": "Run complete testing gate (oracle harness, unit tests, integration tests, linting)",
+    "status": "completed",
+    "priority": "high",
+    "id": "test_gate"
+  },
+  {
+    "content": "Conduct take stock assessment against R performance targets",
+    "status": "completed",
+    "priority": "high",
+    "id": "take_stock"
+  },
+  {
+    "content": "Perform mandatory code audit using zen mcp tools",
+    "status": "completed",
+    "priority": "high",
+    "id": "code_audit"
+  },
+  {
+    "content": "Make decision: PROCEED or COURSE CORRECT based on assessment",
+    "status": "in_progress",
+    "priority": "high",
+    "id": "decide_proceed"
+  },
+  {
+    "content": "Fix code formatting issues in optimcore",
+    "status": "completed",
+    "priority": "medium",
+    "id": "fix_formatting"
+  }
+]

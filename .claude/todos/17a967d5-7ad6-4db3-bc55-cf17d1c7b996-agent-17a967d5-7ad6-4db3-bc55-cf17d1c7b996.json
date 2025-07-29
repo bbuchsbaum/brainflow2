@@ -1,0 +1,32 @@
+[
+  {
+    "content": "Analyze current TemplateFlow initialization in template_flow.R",
+    "status": "completed",
+    "priority": "high",
+    "id": "1"
+  },
+  {
+    "content": "Investigate why templateflow needs to be installed every session",
+    "status": "completed",
+    "priority": "high",
+    "id": "2"
+  },
+  {
+    "content": "Design solution for persistent TemplateFlow installation",
+    "status": "completed",
+    "priority": "high",
+    "id": "3"
+  },
+  {
+    "content": "Fix deprecated function to work properly",
+    "status": "completed",
+    "priority": "medium",
+    "id": "4"
+  },
+  {
+    "content": "Implement and test the solution",
+    "status": "completed",
+    "priority": "high",
+    "id": "5"
+  }
+]

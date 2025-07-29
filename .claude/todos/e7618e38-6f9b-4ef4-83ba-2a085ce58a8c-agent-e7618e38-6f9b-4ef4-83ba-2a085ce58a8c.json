@@ -1,0 +1,26 @@
+[
+  {
+    "content": "Implement basic S3 download functionality in s3.rs",
+    "status": "completed",
+    "priority": "high",
+    "id": "s3-download"
+  },
+  {
+    "content": "Create download function with progress bar support",
+    "status": "completed",
+    "priority": "high",
+    "id": "download-progress"
+  },
+  {
+    "content": "Implement download_file function with caching",
+    "status": "completed",
+    "priority": "high",
+    "id": "download-cache"
+  },
+  {
+    "content": "Add tests for S3 download functionality",
+    "status": "completed",
+    "priority": "medium",
+    "id": "s3-tests"
+  }
+]

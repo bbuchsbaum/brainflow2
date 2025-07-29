@@ -1,0 +1,44 @@
+[
+  {
+    "content": "Add arithmetic operators for &DenseNeuroVol references",
+    "status": "completed",
+    "priority": "high",
+    "id": "1"
+  },
+  {
+    "content": "Add arithmetic operators for SparseNeuroVol (owned and references)",
+    "status": "completed",
+    "priority": "high",
+    "id": "2"
+  },
+  {
+    "content": "Fix LogicalNeuroVol::to_dense() to be generic",
+    "status": "completed",
+    "priority": "high",
+    "id": "3"
+  },
+  {
+    "content": "Add getter methods for DenseNeuroVol fields",
+    "status": "completed",
+    "priority": "medium",
+    "id": "4"
+  },
+  {
+    "content": "Fix 4D axes support in NeuroSpace",
+    "status": "completed",
+    "priority": "medium",
+    "id": "5"
+  },
+  {
+    "content": "Add concat() method for DenseNeuroVol",
+    "status": "completed",
+    "priority": "medium",
+    "id": "6"
+  },
+  {
+    "content": "Update golden tests to use the improved API",
+    "status": "completed",
+    "priority": "low",
+    "id": "7"
+  }
+]

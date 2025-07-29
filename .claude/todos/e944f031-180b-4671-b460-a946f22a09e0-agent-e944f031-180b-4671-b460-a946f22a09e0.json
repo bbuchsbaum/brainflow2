@@ -1,0 +1,8 @@
+[
+  {
+    "content": "Fix Package Dependencies & Type Compatibility (KER-006)",
+    "status": "pending",
+    "priority": "high",
+    "id": "fix-package-deps"
+  }
+]

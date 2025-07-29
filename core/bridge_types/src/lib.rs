@@ -247,6 +247,30 @@ pub struct SliceInfo {
     pub dimensions: [u32; 2],
 }
 
+/// Metadata about slices along a specific axis
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct SliceAxisMeta {
+    /// Total number of slices along this axis
+    pub slice_count: u32,
+    /// Spacing between slices in mm
+    pub slice_spacing: f32,
+    /// Total length of the axis in mm
+    pub axis_length_mm: f32,
+}
+
+/// Request for batch rendering multiple slices
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct BatchRenderRequest {
+    /// List of view states to render (JSON serialized ViewState array)
+    pub view_states_json: String,  // Will be ViewState[] from frontend
+    /// Width of each slice in pixels
+    pub width_per_slice: u32,
+    /// Height of each slice in pixels
+    pub height_per_slice: u32,
+}
+
 /// Texture coordinates within the atlas
 #[derive(Debug, Clone, Serialize, TS)]
 #[ts(export)]

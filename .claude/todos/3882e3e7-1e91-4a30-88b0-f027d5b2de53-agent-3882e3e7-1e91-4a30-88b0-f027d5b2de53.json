@@ -1,0 +1,122 @@
+[
+  {
+    "content": "Build ForgeRouter Service (SRV-001)",
+    "status": "completed",
+    "priority": "high",
+    "id": "sprint6-001"
+  },
+  {
+    "content": "Global State DB & Transactional Logic (SRV-002)",
+    "status": "completed",
+    "priority": "high",
+    "id": "sprint6-002"
+  },
+  {
+    "content": "Implement @psyforge/recruit-bridge for Prolific (URF-001)",
+    "status": "completed",
+    "priority": "high",
+    "id": "sprint6-003"
+  },
+  {
+    "content": "Provider-Meta Registry (URF-002)",
+    "status": "pending",
+    "priority": "medium",
+    "id": "sprint6-004"
+  },
+  {
+    "content": "OAuth2 PKCE Flow Implementation (SEC-001)",
+    "status": "completed",
+    "priority": "high",
+    "id": "sprint6-005"
+  },
+  {
+    "content": "Security Headers & CSP Implementation (SEC-002)",
+    "status": "pending",
+    "priority": "medium",
+    "id": "sprint6-006"
+  },
+  {
+    "content": "Create psycloud compatibility test suite - implement all examples in psyforge",
+    "status": "completed",
+    "priority": "high",
+    "id": "psycloud-compat-001"
+  },
+  {
+    "content": "Develop TrailsA/TrailsB interactive components for trail-making tasks",
+    "status": "completed",
+    "priority": "high",
+    "id": "psycloud-compat-002"
+  },
+  {
+    "content": "Create remaining psycloud examples (arithmetic_span, word_stroop, remote_associates)",
+    "status": "pending",
+    "priority": "high",
+    "id": "psycloud-compat-003"
+  },
+  {
+    "content": "Create psycloud to psyforge migration guide",
+    "status": "pending",
+    "priority": "medium",
+    "id": "psycloud-compat-004"
+  },
+  {
+    "content": "Performance benchmarks comparing psycloud vs psyforge timing precision",
+    "status": "pending",
+    "priority": "medium",
+    "id": "psycloud-compat-005"
+  },
+  {
+    "content": "Phase 1: Create Trial primitive with lifecycle management",
+    "status": "completed",
+    "priority": "high",
+    "id": "api-simplify-001"
+  },
+  {
+    "content": "Phase 1: Create Stimulus abstractions with layout system",
+    "status": "completed",
+    "priority": "high",
+    "id": "api-simplify-002"
+  },
+  {
+    "content": "Phase 1: Create Response abstractions with automatic RT",
+    "status": "completed",
+    "priority": "high",
+    "id": "api-simplify-003"
+  },
+  {
+    "content": "Phase 2: Implement TrialList container with randomization",
+    "status": "completed",
+    "priority": "high",
+    "id": "api-simplify-004"
+  },
+  {
+    "content": "Phase 2: Create factorial design generator",
+    "status": "completed",
+    "priority": "high",
+    "id": "api-simplify-005"
+  },
+  {
+    "content": "Phase 2: Hide engine details behind Experiment wrapper",
+    "status": "completed",
+    "priority": "high",
+    "id": "api-simplify-006"
+  },
+  {
+    "content": "Phase 3: Build core experiment templates (stroop, flanker, nback)",
+    "status": "in_progress",
+    "priority": "medium",
+    "id": "api-simplify-007"
+  },
+  {
+    "content": "Phase 4: Refactor complete-stroop-task.ts to use new API",
+    "status": "pending",
+    "priority": "medium",
+    "id": "api-simplify-008"
+  },
+  {
+    "content": "Convert example files to use new clean API",
+    "status": "completed",
+    "priority": "high",
+    "id": "api-simplify-009"
+  }
+]

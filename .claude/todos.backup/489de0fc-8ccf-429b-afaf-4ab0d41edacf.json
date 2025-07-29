@@ -1,0 +1,20 @@
+[
+  {
+    "content": "Review fmriproj's external interface for rMVPA integration",
+    "status": "completed",
+    "priority": "high",
+    "id": "1"
+  },
+  {
+    "content": "Identify integration points and potential improvements",
+    "status": "completed",
+    "priority": "high",
+    "id": "2"
+  },
+  {
+    "content": "Create integration plan based on rMVPA code",
+    "status": "completed",
+    "priority": "high",
+    "id": "3"
+  }
+]

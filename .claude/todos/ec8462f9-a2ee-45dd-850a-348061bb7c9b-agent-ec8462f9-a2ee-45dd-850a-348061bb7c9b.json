@@ -1,0 +1,68 @@
+[
+  {
+    "content": "Fix world_to_voxel transpose in layer_storage.rs",
+    "status": "completed",
+    "priority": "high",
+    "id": "FIX-LAYER-STORAGE"
+  },
+  {
+    "content": "Check and fix layer_uniforms_optimized.rs if it exists",
+    "status": "completed",
+    "priority": "high",
+    "id": "FIX-LAYER-OPTIMIZED"
+  },
+  {
+    "content": "Run test to verify fix works",
+    "status": "completed",
+    "priority": "high",
+    "id": "RUN-TEST-VERIFY"
+  },
+  {
+    "content": "Debug why only crosshair is rendering (39 pixels)",
+    "status": "completed",
+    "priority": "high",
+    "id": "DEBUG-CROSSHAIR-ONLY"
+  },
+  {
+    "content": "Fix crosshair rendering difference between APIs",
+    "status": "in_progress",
+    "priority": "high",
+    "id": "FIX-CROSSHAIR-DIFF"
+  },
+  {
+    "content": "Add test assertions for center pixel and crosshair",
+    "status": "pending",
+    "priority": "medium",
+    "id": "ADD-TEST-ASSERTIONS"
+  },
+  {
+    "content": "Document matrix layout convention",
+    "status": "pending",
+    "priority": "low",
+    "id": "DOCUMENT-MATRIX"
+  },
+  {
+    "content": "Update brain_center test to use declarative API",
+    "status": "pending",
+    "priority": "medium",
+    "id": "MIGRATE-BRAIN-CENTER"
+  },
+  {
+    "content": "Migrate remaining test locations",
+    "status": "pending",
+    "priority": "medium",
+    "id": "MIGRATE-ALL-TESTS"
+  },
+  {
+    "content": "Add deprecation warnings to imperative methods",
+    "status": "pending",
+    "priority": "low",
+    "id": "ADD-DEPRECATIONS"
+  },
+  {
+    "content": "Update documentation with declarative patterns",
+    "status": "pending",
+    "priority": "low",
+    "id": "UPDATE-DOCS"
+  }
+]

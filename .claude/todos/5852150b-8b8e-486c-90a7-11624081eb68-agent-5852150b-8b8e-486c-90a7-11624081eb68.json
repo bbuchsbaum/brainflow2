@@ -1,0 +1,38 @@
+[
+  {
+    "content": "Implement parallel downloads for multiple files",
+    "status": "completed",
+    "priority": "high",
+    "id": "1"
+  },
+  {
+    "content": "Optimize BIDS query performance",
+    "status": "in_progress",
+    "priority": "medium",
+    "id": "2"
+  },
+  {
+    "content": "Add caching for layout/metadata",
+    "status": "pending",
+    "priority": "medium",
+    "id": "3"
+  },
+  {
+    "content": "Create performance benchmarks vs Python version",
+    "status": "pending",
+    "priority": "low",
+    "id": "4"
+  },
+  {
+    "content": "Create additional example programs",
+    "status": "pending",
+    "priority": "low",
+    "id": "5"
+  },
+  {
+    "content": "Publish to crates.io",
+    "status": "pending",
+    "priority": "low",
+    "id": "6"
+  }
+]

@@ -1,0 +1,44 @@
+[
+  {
+    "content": "Fix unhandled promise rejection errors in utils tests",
+    "status": "completed",
+    "priority": "high",
+    "id": "fix-utils-tests"
+  },
+  {
+    "content": "Fix precision/tolerance issues in geometry tests",
+    "status": "completed",
+    "priority": "medium",
+    "id": "fix-geometry-tests"
+  },
+  {
+    "content": "Fix GPU render manager test failures",
+    "status": "completed",
+    "priority": "high",
+    "id": "fix-gpu-tests"
+  },
+  {
+    "content": "Fix API integration test failures - requires major refactoring",
+    "status": "completed",
+    "priority": "low",
+    "id": "fix-api-integration"
+  },
+  {
+    "content": "Fix ResilientService and ResilientVolumeService test failures",
+    "status": "completed",
+    "priority": "high",
+    "id": "fix-resilient-tests"
+  },
+  {
+    "content": "Fix remaining GpuResourceService test failures",
+    "status": "completed",
+    "priority": "high",
+    "id": "fix-gpuresource-tests"
+  },
+  {
+    "content": "Run full test suite and fix any remaining failures",
+    "status": "in_progress",
+    "priority": "high",
+    "id": "run-full-test-suite"
+  }
+]

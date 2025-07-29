@@ -1,0 +1,86 @@
+[
+  {
+    "content": "Review Sprint 4 requirements and create development plan",
+    "status": "completed",
+    "priority": "high",
+    "id": "sprint4-planning"
+  },
+  {
+    "content": "Create collaboration package structure for CRDT integration",
+    "status": "completed",
+    "priority": "high",
+    "id": "create-collab-package"
+  },
+  {
+    "content": "GUI-005: Integrate Y.js CRDT State Store (5 points)",
+    "status": "completed",
+    "priority": "high",
+    "id": "gui-005-crdt"
+  },
+  {
+    "content": "GUI-019: CRDT Performance Optimization (3 points)",
+    "status": "completed",
+    "priority": "high",
+    "id": "gui-019-perf"
+  },
+  {
+    "content": "GUI-006: Visual-to-AST Binding (5 points)",
+    "status": "completed",
+    "priority": "high",
+    "id": "gui-006-binding"
+  },
+  {
+    "content": "GUI-007: AST-to-Code Binding (4 points)",
+    "status": "completed",
+    "priority": "high",
+    "id": "gui-007-ast"
+  },
+  {
+    "content": "GUI-020: Multi-User Presence & Awareness (3 points)",
+    "status": "completed",
+    "priority": "high",
+    "id": "gui-020-presence"
+  },
+  {
+    "content": "GUI-021: Conflict Resolution UI (3 points)",
+    "status": "completed",
+    "priority": "medium",
+    "id": "gui-021-conflict"
+  },
+  {
+    "content": "INF-005b: Instrument Studio with Telemetry Hooks (2 points)",
+    "status": "completed",
+    "priority": "medium",
+    "id": "inf-005b-telemetry"
+  },
+  {
+    "content": "GUI-022: Offline Mode & Sync Recovery (2 points)",
+    "status": "completed",
+    "priority": "medium",
+    "id": "gui-022-offline"
+  },
+  {
+    "content": "Integrate collaboration package with GUI application",
+    "status": "completed",
+    "priority": "high",
+    "id": "gui-integration"
+  },
+  {
+    "content": "Create comprehensive test suite for all Sprint 4 features",
+    "status": "completed",
+    "priority": "high",
+    "id": "sprint4-tests"
+  },
+  {
+    "content": "Update progress.md with Sprint 4 completion",
+    "status": "completed",
+    "priority": "high",
+    "id": "sprint4-docs"
+  },
+  {
+    "content": "Request external AI audits (O3 and Gemini Pro)",
+    "status": "completed",
+    "priority": "high",
+    "id": "sprint4-audit"
+  }
+]

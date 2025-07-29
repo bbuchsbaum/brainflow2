@@ -1,0 +1,26 @@
+[
+  {
+    "content": "Complete T113: Implement as_character for remaining types",
+    "status": "completed",
+    "priority": "high",
+    "id": "1"
+  },
+  {
+    "content": "Complete T200: Implement base projector trait system",
+    "status": "completed",
+    "priority": "high",
+    "id": "2"
+  },
+  {
+    "content": "Update progress.md with completed implementations",
+    "status": "completed",
+    "priority": "medium",
+    "id": "3"
+  },
+  {
+    "content": "Move to next item after updating progress",
+    "status": "completed",
+    "priority": "medium",
+    "id": "4"
+  }
+]

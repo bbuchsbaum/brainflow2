@@ -66,94 +66,133 @@ export const MetadataPopover: React.FC<MetadataPopoverProps> = ({
         side="right" 
         align="center"
         className={cn(
-          "max-w-[18rem]",                 // flexible width
-          "rounded-lg",                    // softer corners
-          "border border-gray-700/40",     // lighter border
-          "bg-gray-900 text-gray-100",     // solid background
-          "shadow-xl shadow-black/20",     // refined shadow
-          // Enter animations
-          "animate-in fade-in-0 zoom-in-95",
+          // Layout and spacing
+          "!p-8",
+          "w-80 max-w-[90vw]",
+          // Appearance - with explicit full opacity
+          "bg-popover/100 text-popover-foreground/100",
+          "rounded-[var(--radius)]",
+          "border border-border",
+          "shadow-lg",
+          // Z-index to ensure visibility
+          "z-[100]",
+          // Animations
           "data-[state=open]:animate-in",
           "data-[state=closed]:animate-out",
           "data-[state=closed]:fade-out-0",
+          "data-[state=open]:fade-in-0",
           "data-[state=closed]:zoom-out-95",
-          "duration-200"                   // smooth transitions
+          "data-[state=open]:zoom-in-95",
+          "data-[side=right]:slide-in-from-left-2",
+          "data-[side=left]:slide-in-from-right-2",
+          "data-[side=top]:slide-in-from-bottom-2",
+          "data-[side=bottom]:slide-in-from-top-2"
         )}
-        style={{ backgroundColor: 'rgba(17, 24, 39, 0.95)' }}
-        sideOffset={8}
+        style={{
+          // Fallback inline styles with hardcoded dark theme colors
+          backgroundColor: 'rgba(15, 23, 42, 1)', // #0f172a with full opacity
+          color: 'rgba(226, 232, 240, 1)', // #e2e8f0 with full opacity
+          padding: '32px', // Force larger padding via inline style
+        }}
+        sideOffset={16}
+        collisionPadding={12}
+        avoidCollisions={true}
         aria-label="Metadata information"
         role="dialog"
         aria-describedby="metadata-content"
       >
-        <PopoverArrow className="fill-gray-900" />
+        <PopoverArrow className="fill-popover" />
         
-        {/* Inner wrapper div with padding - avoids Radix's all:unset */}
-        <div className="p-6">
-          {/* Header */}
-          <h3 className="text-sm font-semibold text-gray-100 mb-4">
-            Layer Metadata
-          </h3>
-          
-          {/* Definition list for semantic pairing */}
-          <dl id="metadata-content" className="grid grid-cols-[auto,1fr] gap-x-4 gap-y-3 text-sm">
-          <dt className="font-normal text-gray-400">Dimensions</dt>
-          <dd className="text-right font-medium text-gray-100 tabular-nums group/item relative">
-            <button
-              onClick={() => copyToClipboard(formatDimensions(), 'dimensions')}
-              className="inline-flex items-center gap-1 hover:text-gray-50 transition-colors"
-              aria-label="Copy dimensions to clipboard"
-            >
-              {formatDimensions()}
-              <span className="opacity-0 group-hover/item:opacity-100 transition-opacity">
-                {copiedField === 'dimensions' ? (
-                  <Check className="h-3 w-3 text-green-500" />
-                ) : (
-                  <Copy className="h-3 w-3" />
-                )}
-              </span>
-            </button>
-          </dd>
+        {/* Inner wrapper for additional padding */}
+        <div className="p-4">
+          {/* Header Section */}
+          <div className="mb-4 pb-4 border-b border-border/50">
+            <h3 className="text-sm font-semibold text-popover-foreground mb-1">
+              {layer?.name || 'Unknown Layer'}
+            </h3>
+            <p className="text-xs text-muted-foreground">
+              Layer Metadata
+            </p>
+          </div>
+            
+          {/* Metadata Content */}
+          <div className="space-y-4" id="metadata-content">
+            {/* Dimensions Section */}
+            <div className="space-y-2">
+              <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                Volume Properties
+              </h4>
+              <div className="space-y-1.5">
+                {/* Dimensions */}
+                <div className="flex items-center justify-between mx-2 px-3 py-2 rounded-md border border-accent/20 hover:border-accent/30 transition-colors">
+                  <span className="text-xs text-muted-foreground">Dimensions</span>
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-medium text-popover-foreground tabular-nums">
+                      {formatDimensions()}
+                    </span>
+                    <button
+                      onClick={() => copyToClipboard(formatDimensions(), 'dimensions')}
+                      className="ml-2 p-1 rounded hover:bg-accent/30 transition-colors"
+                      aria-label="Copy dimensions"
+                    >
+                      {copiedField === 'dimensions' ? (
+                        <Check className="h-3.5 w-3.5 text-green-500" />
+                      ) : (
+                        <Copy className="h-3.5 w-3.5 text-muted-foreground hover:text-popover-foreground" />
+                      )}
+                    </button>
+                  </div>
+                </div>
 
-          <dt className="font-normal text-gray-400">Resolution</dt>
-          <dd className="text-right font-medium text-gray-100 tabular-nums">
-            {formatSpacing()}
-          </dd>
-
-          <dt className="font-normal text-gray-400">Data Range</dt>
-          <dd className="text-right font-medium font-mono text-gray-100 text-xs">
-            {formatDataRange()}
-          </dd>
-
-          {metadata.dataType && (
-            <>
-              <dt className="font-normal text-gray-400">Type</dt>
-              <dd className="text-right font-medium font-mono text-gray-100 text-xs">
-                {metadata.dataType}
-              </dd>
-            </>
-          )}
-
-          {/* Voxel info */}
-          {metadata.totalVoxels && (
-            <>
-              <dt className="font-normal text-gray-400">Voxels</dt>
-              <dd className="text-right font-medium text-gray-100">
-                <span className="tabular-nums">
-                  {(metadata.totalVoxels / 1_000_000).toFixed(1)}M
-                </span>
-                {metadata.nonZeroVoxels && (
-                  <span className="text-gray-500 text-xs ml-1">
-                    ({((metadata.nonZeroVoxels / metadata.totalVoxels) * 100).toFixed(1)}%)
+                {/* Resolution */}
+                <div className="flex items-center justify-between mx-2 px-3 py-2 rounded-md border border-accent/20 hover:border-accent/30 transition-colors">
+                  <span className="text-xs text-muted-foreground">Resolution</span>
+                  <span className="text-sm font-medium text-popover-foreground tabular-nums">
+                    {formatSpacing()}
                   </span>
+                </div>
+
+                {/* Data Range */}
+                <div className="flex items-center justify-between mx-2 px-3 py-2 rounded-md border border-accent/20 hover:border-accent/30 transition-colors">
+                  <span className="text-xs text-muted-foreground">Data Range</span>
+                  <span className="text-sm font-medium font-mono text-popover-foreground">
+                    {formatDataRange()}
+                  </span>
+                </div>
+
+                {/* Data Type */}
+                {metadata.dataType && (
+                  <div className="flex items-center justify-between mx-2 px-3 py-2 rounded-md border border-accent/20 hover:border-accent/30 transition-colors">
+                    <span className="text-xs text-muted-foreground">Type</span>
+                    <span className="text-sm font-medium font-mono text-popover-foreground">
+                      {metadata.dataType}
+                    </span>
+                  </div>
                 )}
-              </dd>
-            </>
-          )}
-        </dl>
+
+                {/* Voxel info */}
+                {metadata.totalVoxels && (
+                  <div className="flex items-center justify-between mx-2 px-3 py-2 rounded-md border border-accent/20 hover:border-accent/30 transition-colors">
+                    <span className="text-xs text-muted-foreground">Voxels</span>
+                    <div className="text-sm font-medium text-popover-foreground">
+                      <span className="tabular-nums">
+                        {(metadata.totalVoxels / 1_000_000).toFixed(1)}M
+                      </span>
+                      {metadata.nonZeroVoxels && (
+                        <span className="text-muted-foreground text-xs ml-1">
+                          ({((metadata.nonZeroVoxels / metadata.totalVoxels) * 100).toFixed(1)}%)
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
 
           {/* Binary indicator badge */}
           {metadata.isBinaryLike && (
-            <div className="mt-4 px-3 py-1.5 bg-yellow-500/10 border border-yellow-500/20 text-yellow-600 text-xs rounded-md text-center font-medium">
+            <div className="mt-4 mx-2 px-3 py-1.5 bg-yellow-500/10 border border-yellow-500/20 text-yellow-600 text-xs rounded-md text-center font-medium">
               Binary mask detected
             </div>
           )}

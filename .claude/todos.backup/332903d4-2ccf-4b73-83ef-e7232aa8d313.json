@@ -1,0 +1,38 @@
+[
+  {
+    "content": "Add S3 methods for projecting_dataset class",
+    "status": "completed",
+    "priority": "high",
+    "id": "1"
+  },
+  {
+    "content": "Improve error handling and validation in the wrapper",
+    "status": "completed",
+    "priority": "high",
+    "id": "2"
+  },
+  {
+    "content": "Add projection diagnostics to rMVPA results",
+    "status": "completed",
+    "priority": "medium",
+    "id": "3"
+  },
+  {
+    "content": "Implement memory-efficient chunked projection",
+    "status": "completed",
+    "priority": "medium",
+    "id": "4"
+  },
+  {
+    "content": "Better integrate pp_feature_selector with rMVPA",
+    "status": "completed",
+    "priority": "low",
+    "id": "5"
+  },
+  {
+    "content": "Add comprehensive documentation for data flow",
+    "status": "completed",
+    "priority": "high",
+    "id": "6"
+  }
+]

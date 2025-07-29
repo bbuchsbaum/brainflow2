@@ -43,6 +43,7 @@ pub mod layer_uniforms_optimized;
 pub mod optimized_renderer;
 pub mod slice_adapter;
 pub mod slice_variant;
+pub mod render_target_pool;
 
 pub mod test_fixtures;
 
@@ -63,6 +64,10 @@ use render_state::{RenderState, RenderPassManager, LayerStateManager, FrameStats
 use layer_uniforms::LayerUniformManager;
 use texture_manager::TextureManager;
 use multi_texture_manager::MultiTextureManager;
+use render_target_pool::RenderTargetPool;
+
+// External logging
+extern crate log;
 
 /// Convert nalgebra Matrix4 to column-major array for GPU upload
 /// WGSL expects matrices in column-major order, but nalgebra's Into trait
@@ -317,10 +322,11 @@ pub struct RenderLoopService {
     volume_metadata: HashMap<u32, VolumeMetadata>, // atlas_index -> metadata
     // --- Current texture bind group ---
     texture_bind_group_id: Option<u64>,
-    // --- Offscreen render target ---
-    offscreen_texture: Option<wgpu::Texture>,
-    offscreen_view: Option<wgpu::TextureView>,
+    // --- Offscreen render target dimensions (used for backward compatibility) ---
     offscreen_dimensions: (u32, u32),
+    // --- Render target pooling ---
+    render_target_pool: Option<RenderTargetPool>,
+    current_render_target_key: Option<render_target_pool::RenderTargetKey>,
     // --- Current pipeline tracking ---
     current_pipeline: Option<String>,
     // --- View management ---
@@ -484,9 +490,9 @@ impl RenderLoopService {
             layer_storage_manager, // Initialized for world-space rendering
             volume_metadata: HashMap::new(),
             texture_bind_group_id: None,
-            offscreen_texture: None,
-            offscreen_view: None,
             offscreen_dimensions: (0, 0),
+            render_target_pool: None, // Will be initialized lazily
+            current_render_target_key: None,
             current_pipeline: None,
             views: HashMap::new(),
             world_space_enabled: true, // Default to world-space rendering
@@ -684,7 +690,7 @@ impl RenderLoopService {
         // Use surface format if available, otherwise use offscreen format
         let surface_format = if let Some(config) = self.surface_config.as_ref() {
             config.format
-        } else if self.offscreen_texture.is_some() {
+        } else if self.render_target_pool.is_some() {
             // For offscreen rendering, use RGBA8Unorm (linear color space)
             wgpu::TextureFormat::Rgba8Unorm
         } else {
@@ -762,7 +768,7 @@ impl RenderLoopService {
         // Use surface format if available, otherwise use offscreen format
         let surface_format = if let Some(config) = self.surface_config.as_ref() {
             config.format
-        } else if self.offscreen_texture.is_some() {
+        } else if self.render_target_pool.is_some() {
             // For offscreen rendering, use RGBA8Unorm (linear color space)
             wgpu::TextureFormat::Rgba8Unorm
         } else {
@@ -2266,8 +2272,9 @@ impl RenderLoopService {
     }
     
     /// Get the current render target dimensions
+    /// Note: This method is kept for backward compatibility with legacy API
     pub fn get_render_target_size(&self) -> Option<(u32, u32)> {
-        if self.offscreen_texture.is_some() {
+        if self.render_target_pool.is_some() && self.offscreen_dimensions != (0, 0) {
             Some(self.offscreen_dimensions)
         } else {
             None
@@ -2275,6 +2282,7 @@ impl RenderLoopService {
     }
     
     /// Create an offscreen render target for rendering without a window surface
+    /// Uses render target pooling to avoid expensive GPU texture creation/destruction
     pub fn create_offscreen_target(&mut self, width: u32, height: u32) -> Result<(), RenderLoopError> {
         if width == 0 || height == 0 {
             return Err(RenderLoopError::Internal {
@@ -2283,55 +2291,37 @@ impl RenderLoopService {
             });
         }
         
-        
-        // Create the offscreen texture
-        let texture = self.device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("Offscreen Render Target"),
-            size: wgpu::Extent3d {
-                width,
-                height,
-                depth_or_array_layers: 1,
-            },
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Rgba8Unorm,
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
-            view_formats: &[],
-        });
-        
-        let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
-        
-        // Clear the texture to ensure it starts with the proper background color
-        let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("Clear Offscreen Target"),
-        });
-        
-        // Get the clear color from render pass manager
-        let clear_color = self.render_pass_manager.get_config(RenderPassType::Main).clear_color;
-        
-        {
-            let _render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("Clear Pass"),
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &view,
-                    resolve_target: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(clear_color),
-                        store: wgpu::StoreOp::Store,
-                    },
-                })],
-                depth_stencil_attachment: None,
-                occlusion_query_set: None,
-                timestamp_writes: None,
-            });
-            // Just begin and end the pass to clear the texture
+        // Initialize render target pool lazily
+        if self.render_target_pool.is_none() {
+            const MAX_POOLED_TARGETS: usize = 16; // Cache up to 16 render targets
+            self.render_target_pool = Some(RenderTargetPool::new(
+                self.device.clone(),
+                self.queue.clone(),
+                MAX_POOLED_TARGETS,
+            ));
+            log::info!("Initialized render target pool with max {} entries", MAX_POOLED_TARGETS);
         }
         
-        self.queue.submit(std::iter::once(encoder.finish()));
+        // Get or create render target from pool
+        let pool = self.render_target_pool.as_mut().unwrap();
+        let format = wgpu::TextureFormat::Rgba8Unorm;
         
-        self.offscreen_texture = Some(texture);
-        self.offscreen_view = Some(view);
+        let (key, was_created) = pool.ensure_target(width, height, format)
+            .map_err(|e| RenderLoopError::Internal {
+                code: 7002,
+                details: format!("Failed to get render target from pool: {}", e),
+            })?;
+        
+        if was_created {
+            log::info!("Created new pooled render target: {}x{}", width, height);
+        } else {
+            log::debug!("Reused pooled render target: {}x{}", width, height);
+        }
+        
+        // Store the key for later access
+        self.current_render_target_key = Some(key);
+        
+        // Update legacy fields for backward compatibility
         self.offscreen_dimensions = (width, height);
         
         // Set up a surface config for offscreen rendering
@@ -2339,7 +2329,7 @@ impl RenderLoopService {
         if self.surface_config.is_none() {
             self.surface_config = Some(wgpu::SurfaceConfiguration {
                 usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
-                format: wgpu::TextureFormat::Rgba8Unorm,
+                format,
                 width,
                 height,
                 present_mode: wgpu::PresentMode::Fifo,
@@ -2347,6 +2337,13 @@ impl RenderLoopService {
                 alpha_mode: wgpu::CompositeAlphaMode::Auto,
                 view_formats: vec![],
             });
+        }
+        
+        // Log pool statistics periodically
+        let stats = pool.stats();
+        if was_created {
+            log::info!("Render target pool: {}/{} entries ({:.1}% full)", 
+                stats.cached_entries, stats.max_entries, stats.cache_utilization * 100.0);
         }
         
         Ok(())
@@ -2378,19 +2375,20 @@ impl RenderLoopService {
     
     /// Render to the offscreen target and return the image data
     pub fn render_to_buffer(&mut self) -> Result<Vec<u8>, RenderLoopError> {
-        // Ensure offscreen target exists
-        if self.offscreen_view.is_none() {
+        // Ensure render target pool exists and has current dimensions
+        let (width, height) = self.offscreen_dimensions;
+        if width == 0 || height == 0 {
             return Err(RenderLoopError::Internal {
                 code: 7002,
                 details: "Offscreen render target not created. Call create_offscreen_target first.".to_string(),
             });
         }
-            
-        let (width, height) = self.offscreen_dimensions;
-        if width == 0 || height == 0 {
+        
+        // Ensure we have the pooled render target for current dimensions
+        if self.render_target_pool.is_none() {
             return Err(RenderLoopError::Internal {
                 code: 7003,
-                details: "Invalid offscreen dimensions".to_string(),
+                details: "Render target pool not initialized. Call create_offscreen_target first.".to_string(),
             });
         }
         
@@ -2457,8 +2455,17 @@ impl RenderLoopService {
         // Ensure pipeline exists
         self.ensure_pipeline(&pipeline_name)?;
         
-        // Get the offscreen view after mutable operations
-        let offscreen_view = self.offscreen_view.as_ref().unwrap();
+        // Get the current render target from pool
+        let pool = self.render_target_pool.as_ref().unwrap();
+        let key = self.current_render_target_key.as_ref().ok_or_else(|| RenderLoopError::Internal {
+            code: 7004,
+            details: "No current render target key. Call create_offscreen_target first.".to_string(),
+        })?;
+        
+        let (offscreen_texture, offscreen_view) = pool.get_current_target(key).ok_or_else(|| RenderLoopError::Internal {
+            code: 7005,
+            details: "Current render target not found in pool.".to_string(),
+        })?;
         
         let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("Offscreen Render Encoder"),
@@ -2597,7 +2604,7 @@ impl RenderLoopService {
         // Copy texture to buffer
         encoder.copy_texture_to_buffer(
             wgpu::ImageCopyTexture {
-                texture: self.offscreen_texture.as_ref().unwrap(),
+                texture: offscreen_texture,
                 mip_level: 0,
                 origin: wgpu::Origin3d::ZERO,
                 aspect: wgpu::TextureAspect::All,
@@ -3382,3 +3389,6 @@ mod tests {
          }
      }
 }
+
+// Note: render_batch will be implemented in Phase 2 after ViewState API is stabilized
+// For now, batch_render_slices in api_bridge will render slices individually

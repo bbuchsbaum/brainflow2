@@ -1,0 +1,26 @@
+[
+  {
+    "content": "Update fmrireg HRF function references in main R files (cfals_wrapper.R)",
+    "status": "in_progress",
+    "priority": "high",
+    "id": "update_main_r_files"
+  },
+  {
+    "content": "Update fmrireg HRF function references in all test files",
+    "status": "pending",
+    "priority": "high",
+    "id": "update_test_files"
+  },
+  {
+    "content": "Update fmrireg HRF function references in show_results.R",
+    "status": "pending",
+    "priority": "medium",
+    "id": "update_show_results"
+  },
+  {
+    "content": "Verify all changes are complete and consistent",
+    "status": "pending",
+    "priority": "medium",
+    "id": "verify_changes"
+  }
+]

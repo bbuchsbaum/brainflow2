@@ -1,0 +1,20 @@
+[
+  {
+    "content": "test-scale_and_performance.R - fix all test failures",
+    "status": "completed",
+    "priority": "high",
+    "id": "1"
+  },
+  {
+    "content": "Fix undefined global functions NOTE from R CMD check",
+    "status": "completed",
+    "priority": "high",
+    "id": "2"
+  },
+  {
+    "content": "Fix vignette build error in H5ClusterExperiment.Rmd",
+    "status": "completed",
+    "priority": "high",
+    "id": "3"
+  }
+]

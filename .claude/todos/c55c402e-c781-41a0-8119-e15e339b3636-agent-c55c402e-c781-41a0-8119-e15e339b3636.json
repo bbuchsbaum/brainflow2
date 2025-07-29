@@ -1,0 +1,32 @@
+[
+  {
+    "content": "Implement template metadata (template_description.json) parsing",
+    "status": "completed",
+    "priority": "high",
+    "id": "1"
+  },
+  {
+    "content": "Create TemplateMetadata struct according to plan.md design",
+    "status": "completed",
+    "priority": "high",
+    "id": "2"
+  },
+  {
+    "content": "Add metadata loading to TemplateLayout",
+    "status": "completed",
+    "priority": "high",
+    "id": "3"
+  },
+  {
+    "content": "Implement get_metadata() API function",
+    "status": "completed",
+    "priority": "high",
+    "id": "4"
+  },
+  {
+    "content": "Write tests for metadata parsing",
+    "status": "completed",
+    "priority": "medium",
+    "id": "5"
+  }
+]
