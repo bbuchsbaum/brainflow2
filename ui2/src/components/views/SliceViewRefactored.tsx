@@ -225,8 +225,13 @@ export function SliceViewRefactored({ viewId, width, height, className = '' }: S
     
     if (worldCoord) {
       console.log(`[SliceViewRefactored ${viewId}] Setting crosshair to:`, worldCoord);
-      setCrosshair({ world_mm: worldCoord, visible: true });
-      getEventBus().emit('view.clicked', { viewType: viewId, worldCoord });
+      try {
+        await setCrosshair(worldCoord, true, true); // position, updateViews, immediate
+        console.log(`[SliceViewRefactored ${viewId}] Crosshair updated successfully`);
+        getEventBus().emit('view.clicked', { viewType: viewId, worldCoord });
+      } catch (error) {
+        console.error(`[SliceViewRefactored ${viewId}] Failed to update crosshair:`, error);
+      }
     } else {
       console.warn(`[SliceViewRefactored ${viewId}] Failed to calculate world coordinates`);
     }

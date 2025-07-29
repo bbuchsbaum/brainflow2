@@ -148,6 +148,13 @@ const createViewStateStore = () => create<ViewStateStore>()(
         }),
         
         setCrosshair: async (position, updateViews = false, immediate = false) => {
+          console.log('[viewStateStore] setCrosshair called with:', {
+            position,
+            updateViews,
+            immediate,
+            positionType: Array.isArray(position) ? 'array' : typeof position
+          });
+          
           // Wait for any pending resizes to complete before updating crosshair
           const currentState = get();
           const resizePromises = Object.values(currentState.resizeInFlight).filter(p => p !== null);
