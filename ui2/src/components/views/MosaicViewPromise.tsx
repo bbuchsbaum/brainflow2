@@ -56,6 +56,12 @@ function MosaicCellPromise({
   
   // Track if initial render has happened
   const hasRendered = useRef(false);
+  const renderToCanvasRef = useRef(renderToCanvas);
+  
+  // Update the ref when renderToCanvas changes
+  useEffect(() => {
+    renderToCanvasRef.current = renderToCanvas;
+  }, [renderToCanvas]);
   
   // Handle canvas sizing
   useEffect(() => {
@@ -65,11 +71,6 @@ function MosaicCellPromise({
       const rect = cellRef.current!.getBoundingClientRect();
       canvasRef.current!.width = Math.floor(rect.width);
       canvasRef.current!.height = Math.floor(rect.height);
-      
-      // Trigger render after resize
-      if (hasRendered.current) {
-        renderSlice();
-      }
     };
     
     updateCanvasSize();
@@ -81,7 +82,8 @@ function MosaicCellPromise({
     return () => observer.disconnect();
   }, []);
   
-  // Render the slice
+  
+  // Render the slice using ref to avoid dependency loops
   const renderSlice = useCallback(async () => {
     if (!canvasRef.current) return;
     
@@ -96,17 +98,17 @@ function MosaicCellPromise({
     };
     
     try {
-      await renderToCanvas(sliceViewState, viewType);
+      await renderToCanvasRef.current(sliceViewState, viewType);
       hasRendered.current = true;
     } catch (error) {
       console.error(`[MosaicCell] Failed to render slice ${sliceIndex}:`, error);
     }
-  }, [viewState, viewType, slicePosition, sliceIndex, renderToCanvas]);
+  }, [viewState, viewType, slicePosition, sliceIndex]); // Stable dependencies
   
-  // Trigger initial render
+  // Trigger render when viewState or slice position changes
   useEffect(() => {
     renderSlice();
-  }, [renderSlice]);
+  }, [viewState, slicePosition]); // Don't include renderSlice to avoid loops
   
   return (
     <div ref={cellRef} className="mosaic-cell">
