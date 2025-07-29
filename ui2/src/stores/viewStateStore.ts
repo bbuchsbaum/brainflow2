@@ -155,6 +155,11 @@ const createViewStateStore = () => create<ViewStateStore>()(
             positionType: Array.isArray(position) ? 'array' : typeof position
           });
           
+          // Validate position parameter
+          if (!Array.isArray(position) || position.length !== 3) {
+            throw new Error(`setCrosshair expects position as [x, y, z] array, got: ${JSON.stringify(position)}`);
+          }
+          
           // Wait for any pending resizes to complete before updating crosshair
           const currentState = get();
           const resizePromises = Object.values(currentState.resizeInFlight).filter(p => p !== null);
@@ -174,9 +179,13 @@ const createViewStateStore = () => create<ViewStateStore>()(
           const setter = immediate && storeWithCoalescing._originalSet ? storeWithCoalescing._originalSet : set;
           
           setter((state) => {
-            const [x, y, z] = position;
-            state.viewState.crosshair.world_mm = [x, y, z];
-            state.viewState.crosshair.visible = true;
+            try {
+              const [x, y, z] = position;
+              console.log(`[viewStateStore] Setting crosshair to: [${x}, ${y}, ${z}]`);
+              
+              // Create a new array to ensure we're not modifying a frozen object
+              state.viewState.crosshair.world_mm = [x, y, z];
+              state.viewState.crosshair.visible = true;
             
             if (updateViews) {
             // Update view plane positions to show the slice containing the crosshair
@@ -252,6 +261,10 @@ const createViewStateStore = () => create<ViewStateStore>()(
               });
             });
           }
+            } catch (error) {
+              console.error(`[viewStateStore] Error in setCrosshair:`, error);
+              throw error;
+            }
           });
         },
         

@@ -226,7 +226,7 @@ export function SliceViewRefactored({ viewId, width, height, className = '' }: S
     if (worldCoord) {
       console.log(`[SliceViewRefactored ${viewId}] Setting crosshair to:`, worldCoord);
       try {
-        await setCrosshair(worldCoord, true, true); // position, updateViews, immediate
+        await setCrosshair(worldCoord, true); // position, updateViews
         console.log(`[SliceViewRefactored ${viewId}] Crosshair updated successfully`);
         getEventBus().emit('view.clicked', { viewType: viewId, worldCoord });
       } catch (error) {
