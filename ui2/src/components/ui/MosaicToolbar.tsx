@@ -101,12 +101,12 @@ export function MosaicToolbar({
           onChange={(e) => onSliceChange(parseInt(e.target.value))}
           className="mosaic-slider flex-1"
           style={{
+            WebkitAppearance: 'none',
             appearance: 'none',
+            width: '100%',
             height: '4px',
-            background: 'var(--app-bg-active)',
-            borderRadius: '2px',
-            outline: 'none',
-            cursor: 'pointer'
+            background: 'transparent',
+            outline: 'none'
           }}
           aria-label="Slice navigation slider"
         />

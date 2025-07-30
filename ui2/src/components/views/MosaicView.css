@@ -78,7 +78,15 @@
 }
 
 /* Mosaic Slider Styles */
+.mosaic-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  background: transparent;
+  cursor: pointer;
+}
+
 .mosaic-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
   appearance: none;
   width: 12px;
   height: 12px;
@@ -86,6 +94,8 @@
   border-radius: 50%;
   cursor: pointer;
   transition: all var(--app-transition-fast);
+  /* Fix vertical centering */
+  margin-top: -4px; /* (12px - 4px) / 2 = 4px */
 }
 
 .mosaic-slider::-webkit-slider-thumb:hover {
