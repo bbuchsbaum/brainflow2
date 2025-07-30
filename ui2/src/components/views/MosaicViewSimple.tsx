@@ -13,12 +13,11 @@
  */
 
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { Button } from '@/components/ui/button';
-import { ChevronLeft, ChevronRight, Grid3x3 } from 'lucide-react';
 import { useViewStateStore } from '@/stores/viewStateStore';
 import { getMosaicRenderService } from '@/services/MosaicRenderService';
 import { getApiService } from '@/services/apiService';
 import { RenderCell } from './RenderCell';
+import { MosaicToolbar } from '@/components/ui/MosaicToolbar';
 import { calculateInitialPage, calculateVolumeCenter } from '@/utils/mosaicUtils';
 import './MosaicView.css';
 
@@ -225,80 +224,22 @@ export function MosaicViewSimple({ workspaceId }: MosaicViewSimpleProps) {
   
   return (
     <div className="mosaic-view h-full flex flex-col bg-gray-900">
-      {/* Header controls */}
-      <div className="mosaic-header flex items-center justify-between p-2 bg-gray-800 border-b border-gray-700">
-        <div className="flex items-center gap-4">
-          <div className="flex items-center gap-2">
-            <Grid3x3 className="w-5 h-5 text-gray-400" />
-            <span className="text-sm font-medium text-gray-300">
-              Mosaic View (Event-Driven)
-            </span>
-          </div>
-          
-          {/* Axis selector */}
-          <div className="flex items-center gap-2">
-            <label className="text-xs text-gray-400">Axis:</label>
-            <select
-              className="h-7 px-2 text-sm bg-gray-700 text-gray-300 border border-gray-600 rounded"
-              value={sliceAxis}
-              onChange={(e) => {
-                setSliceAxis(e.target.value as any);
-                // Page will be recalculated in useEffect based on crosshair position
-              }}
-            >
-              <option value="axial">Axial</option>
-              <option value="sagittal">Sagittal</option>
-              <option value="coronal">Coronal</option>
-            </select>
-          </div>
-          
-          {/* Grid size selector */}
-          <div className="flex items-center gap-2">
-            <label className="text-xs text-gray-400">Grid:</label>
-            <select
-              className="h-7 px-2 text-sm bg-gray-700 text-gray-300 border border-gray-600 rounded"
-              value={`${gridSize.rows}x${gridSize.cols}`}
-              onChange={(e) => {
-                const [rows, cols] = e.target.value.split('x').map(Number);
-                setGridSize({ rows, cols });
-                // Page will be recalculated in useEffect based on crosshair position
-              }}
-            >
-              <option value="2x2">2×2</option>
-              <option value="3x3">3×3</option>
-              <option value="4x4">4×4</option>
-              <option value="5x5">5×5</option>
-            </select>
-          </div>
-        </div>
-        
-        {/* Navigation controls */}
-        <div className="flex items-center gap-2">
-          <Button
-            size="sm"
-            variant="ghost"
-            onClick={handlePrevPage}
-            disabled={isPrevDisabled}
-            className="h-7"
-          >
-            <ChevronLeft className="w-4 h-4" />
-          </Button>
-          
-          <span className="text-sm text-gray-400 min-w-[100px] text-center">
-            Page {currentPage + 1} / {totalPages}
-          </span>
-          
-          <Button
-            size="sm"
-            variant="ghost"
-            onClick={handleNextPage}
-            disabled={isNextDisabled}
-            className="h-7"
-          >
-            <ChevronRight className="w-4 h-4" />
-          </Button>
-        </div>
-      </div>
+      {/* Sticky toolbar */}
+      <MosaicToolbar
+        axis={sliceAxis}
+        onAxisChange={setSliceAxis}
+        grid={`${gridSize.rows}x${gridSize.cols}`}
+        onGridChange={(value) => {
+          const [rows, cols] = value.split('x').map(Number);
+          setGridSize({ rows, cols });
+        }}
+        page={currentPage}
+        pageCount={totalPages}
+        canPrev={!isPrevDisabled}
+        canNext={!isNextDisabled}
+        onPrev={handlePrevPage}
+        onNext={handleNextPage}
+      />
 
       {/* Grid container */}
       <div 

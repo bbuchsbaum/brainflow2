@@ -6,7 +6,7 @@
   height: 100%;
   display: flex;
   flex-direction: column;
-  background-color: #111827; /* gray-900 */
+  background-color: var(--app-bg-secondary); /* Use theme variable */
 }
 
 .mosaic-container {
@@ -34,8 +34,8 @@
 .mosaic-cell {
   position: relative;
   overflow: hidden;
-  background-color: #000;
-  border: 1px solid #374151; /* gray-700 */
+  background-color: var(--app-bg-primary); /* Use theme variable */
+  border: 1px solid var(--app-border); /* Use theme variable */
   display: flex;
   align-items: center;
   justify-content: center;

@@ -100,33 +100,6 @@ class MosaicRenderService {
     }
   }
   
-  /**
-   * Calculate natural dimensions for a view based on anatomical extent
-   * This respects the volume's aspect ratio instead of forcing square dimensions
-   */
-  private async getNaturalDimensions(
-    volumeId: string,
-    axis: 'axial' | 'sagittal' | 'coronal',
-    maxSize: number
-  ): Promise<[number, number]> {
-    // Check cache first
-    const cacheKey = volumeId;
-    if (!this.viewCache.has(cacheKey)) {
-      // Get initial views from backend which properly calculates dimensions
-      const views = await this.apiService.getInitialViews(volumeId, [maxSize, maxSize]);
-      this.viewCache.set(cacheKey, views);
-    }
-    
-    const views = this.viewCache.get(cacheKey)!;
-    const view = views[axis];
-    
-    if (view && view.dim_px) {
-      return view.dim_px;
-    }
-    
-    // Fallback to square if something goes wrong
-    return [maxSize, maxSize];
-  }
   
   /**
    * Create a modified ViewState for a specific slice
@@ -262,25 +235,82 @@ class MosaicRenderService {
       visible: false // Hide crosshair for mosaic cells
     };
     
-    // CRITICAL: Update the view plane dimensions and vectors for the mosaic cell size
-    // We need to recalculate the view plane to show the full brain extent in the smaller cell
+    // CRITICAL: Update the view plane for the mosaic cell
+    // Instead of creating new views, we modify the existing one to show full brain extent
     const currentView = modifiedViewState.views[axis];
     if (currentView) {
-      // Calculate a suitable field of view for the mosaic cell
-      // We want to show more of the brain, not less
-      const fovScale = 1.5; // Show 1.5x more than the normal view
-      const extent_mm: [number, number] = [200 * fovScale, 200 * fovScale]; // Typical brain extent
+      // Calculate extent based on the actual volume bounds for this axis
+      let extent_mm: [number, number];
+      switch (axis) {
+        case 'axial':
+          // For axial view, we see X and Y axes
+          extent_mm = [
+            combinedBounds.max[0] - combinedBounds.min[0],  // X extent
+            combinedBounds.max[1] - combinedBounds.min[1]   // Y extent
+          ];
+          break;
+        case 'sagittal':
+          // For sagittal view, we see Y and Z axes
+          extent_mm = [
+            combinedBounds.max[1] - combinedBounds.min[1],  // Y extent
+            combinedBounds.max[2] - combinedBounds.min[2]   // Z extent
+          ];
+          break;
+        case 'coronal':
+          // For coronal view, we see X and Z axes
+          extent_mm = [
+            combinedBounds.max[0] - combinedBounds.min[0],  // X extent
+            combinedBounds.max[2] - combinedBounds.min[2]   // Z extent
+          ];
+          break;
+      }
       
-      // Use the CoordinateTransform utility to create proper view planes
-      const { CoordinateTransform } = await import('@/utils/coordinates');
-      const newViews = CoordinateTransform.createOrthogonalViews(
-        slicePosition,
-        extent_mm,
-        [width, height]
-      );
+      // Add small padding (10%) to avoid clipping edges
+      const padding = 1.1;
+      extent_mm[0] *= padding;
+      extent_mm[1] *= padding;
       
-      // Update only the requested axis view
-      modifiedViewState.views[axis] = newViews[axis];
+      // Calculate the center of the volume bounds
+      const volumeCenter: [number, number, number] = [
+        (combinedBounds.min[0] + combinedBounds.max[0]) / 2,
+        (combinedBounds.min[1] + combinedBounds.max[1]) / 2,
+        (combinedBounds.min[2] + combinedBounds.max[2]) / 2
+      ];
+      
+      // Use uniform pixel size to maintain aspect ratio
+      const pixelSize = Math.max(extent_mm[0] / width, extent_mm[1] / height);
+      
+      // Calculate actual rendered extents based on pixel size and canvas dimensions
+      const actualExtentX = pixelSize * width;
+      const actualExtentY = pixelSize * height;
+      
+      // Update the view to be centered on the volume with correct extent
+      // Keep the same vector directions but adjust origin and pixel size
+      const updatedView = { ...currentView };
+      
+      // Update pixel dimensions
+      updatedView.dim_px = [width, height];
+      
+      // Update vectors to use new pixel size
+      if (axis === 'axial') {
+        // Use actual rendered extent for proper centering
+        updatedView.origin_mm = [volumeCenter[0] - actualExtentX/2, volumeCenter[1] + actualExtentY/2, slicePosition[2]];
+        updatedView.u_mm = [pixelSize, 0, 0];
+        updatedView.v_mm = [0, -pixelSize, 0];
+      } else if (axis === 'sagittal') {
+        // For sagittal: Y and Z axes visible
+        updatedView.origin_mm = [slicePosition[0], volumeCenter[1] + actualExtentX/2, volumeCenter[2] + actualExtentY/2];
+        updatedView.u_mm = [0, -pixelSize, 0];
+        updatedView.v_mm = [0, 0, -pixelSize];
+      } else if (axis === 'coronal') {
+        // For coronal: X and Z axes visible
+        updatedView.origin_mm = [volumeCenter[0] - actualExtentX/2, slicePosition[1], volumeCenter[2] + actualExtentY/2];
+        updatedView.u_mm = [pixelSize, 0, 0];
+        updatedView.v_mm = [0, 0, -pixelSize];
+      }
+      
+      // Update the view in the state
+      modifiedViewState.views[axis] = updatedView;
       
       console.log(`[MosaicRenderService] createSliceViewState result for ${axis} slice ${sliceIndex}:`, {
         origin_mm: modifiedViewState.views[axis].origin_mm,
