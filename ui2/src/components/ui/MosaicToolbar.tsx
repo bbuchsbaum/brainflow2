@@ -110,7 +110,7 @@ export function MosaicToolbar({
           }}
           aria-label="Slice navigation slider"
         />
-        <span className="text-xs text-[var(--app-text-primary)] tabular-nums min-w-[48px] text-right" style={{ color: 'var(--app-text-primary)' }}>
+        <span className="text-xs text-[var(--app-text-primary)] tabular-nums min-w-[48px] text-right ml-2" style={{ color: 'var(--app-text-primary)' }}>
           {currentSlice + 1}/{totalSlices}
         </span>
       </div>
