@@ -89,7 +89,7 @@ export function MosaicToolbar({
       <div className="flex-1" />
 
       {/* Slice Slider */}
-      <div className="flex items-center gap-2 flex-1 max-w-[300px]">
+      <div className="flex items-center gap-3 flex-1 max-w-[300px]">
         <span className="text-xs text-[var(--app-text-secondary)] whitespace-nowrap" style={{ color: 'var(--app-text-secondary)' }}>
           Slice:
         </span>
