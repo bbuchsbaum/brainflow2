@@ -49,7 +49,7 @@ const WorkspaceComponent: React.FC<WorkspaceComponentProps> = ({ workspaceId, wo
     case 'orthogonal-flexible':
       return <FlexibleOrthogonalView workspaceId={workspaceId} />;
     case 'mosaic':
-      return <MosaicViewPromise viewType="axial" gridSize={{ rows: 4, cols: 4 }} />;
+      return <MosaicViewPromise />;
     case 'lightbox':
       return <LightboxView workspaceId={workspaceId} />;
     case 'roi-stats':

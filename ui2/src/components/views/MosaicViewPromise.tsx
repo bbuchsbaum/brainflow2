@@ -139,17 +139,17 @@ function MosaicCellPromise({
 }
 
 interface MosaicViewPromiseProps {
-  viewType: 'axial' | 'sagittal' | 'coronal';
-  gridSize?: { rows: number; cols: number };
+  viewType?: 'axial' | 'sagittal' | 'coronal'; // Optional, fallback to 'axial'
+  gridSize?: { rows: number; cols: number }; // Optional, fallback to 4x4
 }
 
 /**
  * Main MosaicView component using promise-based architecture
  */
 export function MosaicViewPromise({ 
-  viewType, 
+  viewType = 'axial', 
   gridSize = { rows: 4, cols: 4 } 
-}: MosaicViewPromiseProps) {
+}: MosaicViewPromiseProps = {}) {
   const viewState = useViewStateStore(state => state.viewState);
   const [currentPage, setCurrentPage] = useState(0);
   const [sliceMetadata, setSliceMetadata] = useState<{
@@ -157,6 +157,12 @@ export function MosaicViewPromise({
     sliceSpacing: number;
     axisLength: number;
   } | null>(null);
+  
+  // Internal state management (Phase 2)
+  const [sliceAxis, setSliceAxis] = useState<'axial' | 'sagittal' | 'coronal'>(viewType || 'axial');
+  const [internalGridSize, setInternalGridSize] = useState(gridSize);
+  const [totalSlices, setTotalSlices] = useState(100);
+  const [cellSize, setCellSize] = useState({ width: 256, height: 256 });
   
   // Get the first visible layer's volume ID
   const volumeId = useMemo(() => {
@@ -173,11 +179,12 @@ export function MosaicViewPromise({
     const fetchMetadata = async () => {
       try {
         const apiService = getApiService();
-        const metadata = await apiService.querySliceAxisMeta(volumeId, viewType);
+        const metadata = await apiService.querySliceAxisMeta(volumeId, sliceAxis);
         setSliceMetadata(metadata);
+        setTotalSlices(metadata.sliceCount);
         
         // Calculate initial page based on crosshair
-        const axisIndex = viewType === 'axial' ? 2 : viewType === 'sagittal' ? 0 : 1;
+        const axisIndex = sliceAxis === 'axial' ? 2 : sliceAxis === 'sagittal' ? 0 : 1;
         const currentPosition = viewState.crosshair.world_mm[axisIndex];
         // Calculate bounds from metadata
         const bounds = {
@@ -190,10 +197,10 @@ export function MosaicViewPromise({
         const initialPage = calculateInitialPage(
           viewState.crosshair.world_mm,
           bounds,
-          viewType,
+          sliceAxis,
           metadata.sliceCount,
-          gridSize.rows,
-          gridSize.cols
+          internalGridSize.rows,
+          internalGridSize.cols
         );
         setCurrentPage(initialPage);
       } catch (error) {
@@ -202,18 +209,18 @@ export function MosaicViewPromise({
     };
     
     fetchMetadata();
-  }, [volumeId, viewType]);
+  }, [volumeId, sliceAxis]);
   
   // Calculate slice indices for current page
   const sliceData = useMemo(() => {
     if (!sliceMetadata) return [];
     
-    const slicesPerPage = gridSize.rows * gridSize.cols;
+    const slicesPerPage = internalGridSize.rows * internalGridSize.cols;
     const startIndex = currentPage * slicesPerPage;
     const endIndex = Math.min(startIndex + slicesPerPage, sliceMetadata.sliceCount);
     
     const slices = [];
-    const axisIndex = getAxisIndex(viewType);
+    const axisIndex = getAxisIndex(sliceAxis);
     
     // Calculate slice positions based on the volume bounds
     const axisMin = -sliceMetadata.axisLength / 2;
@@ -232,11 +239,11 @@ export function MosaicViewPromise({
     }
     
     return slices;
-  }, [currentPage, gridSize, sliceMetadata, viewType]);
+  }, [currentPage, internalGridSize, sliceMetadata, sliceAxis]);
   
   // Handle page navigation
   const totalPages = sliceMetadata 
-    ? Math.ceil(sliceMetadata.sliceCount / (gridSize.rows * gridSize.cols))
+    ? Math.ceil(sliceMetadata.sliceCount / (internalGridSize.rows * internalGridSize.cols))
     : 0;
   
   const goToPreviousPage = () => {
@@ -259,7 +266,7 @@ export function MosaicViewPromise({
     <div className="mosaic-container">
       <div className="mosaic-header">
         <h3 className="text-sm font-medium">
-          {viewType.charAt(0).toUpperCase() + viewType.slice(1)} Mosaic
+          {sliceAxis.charAt(0).toUpperCase() + sliceAxis.slice(1)} Mosaic
         </h3>
         <div className="flex items-center gap-2">
           <button
@@ -285,15 +292,15 @@ export function MosaicViewPromise({
       <div 
         className="mosaic-grid"
         style={{
-          gridTemplateRows: `repeat(${gridSize.rows}, 1fr)`,
-          gridTemplateColumns: `repeat(${gridSize.cols}, 1fr)`
+          gridTemplateRows: `repeat(${internalGridSize.rows}, 1fr)`,
+          gridTemplateColumns: `repeat(${internalGridSize.cols}, 1fr)`
         }}
       >
         {sliceData.map((slice, index) => (
           <MosaicCellPromise
-            key={`${viewType}-${currentPage}-${index}`}
+            key={`${sliceAxis}-${currentPage}-${index}`}
             viewState={viewState}
-            viewType={viewType}
+            viewType={sliceAxis}
             sliceIndex={slice.index}
             slicePosition={slice.position}
             showLabel={false}
