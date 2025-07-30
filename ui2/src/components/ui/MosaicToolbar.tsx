@@ -90,7 +90,7 @@ export function MosaicToolbar({
 
       {/* Slice Slider */}
       <div className="flex items-center flex-1 max-w-[300px]">
-        <span className="text-xs text-[var(--app-text-secondary)] whitespace-nowrap mr-4" style={{ color: 'var(--app-text-secondary)' }}>
+        <span className="text-xs text-[var(--app-text-secondary)] whitespace-nowrap" style={{ color: 'var(--app-text-secondary)', marginRight: '16px' }}>
           Slice:
         </span>
         <input
@@ -106,11 +106,12 @@ export function MosaicToolbar({
             width: '100%',
             height: '4px',
             background: 'transparent',
-            outline: 'none'
+            outline: 'none',
+            marginRight: '16px'
           }}
           aria-label="Slice navigation slider"
         />
-        <span className="text-xs text-[var(--app-text-primary)] tabular-nums min-w-[48px] text-right ml-4" style={{ color: 'var(--app-text-primary)' }}>
+        <span className="text-xs text-[var(--app-text-primary)] tabular-nums min-w-[48px] text-right" style={{ color: 'var(--app-text-primary)' }}>
           {currentSlice + 1}/{totalSlices}
         </span>
       </div>
@@ -119,7 +120,7 @@ export function MosaicToolbar({
       <div className="ml-2" />
 
       {/* Navigation Controls */}
-      <div className="flex items-center gap-1">
+      <div className="flex items-center">
         <button
           type="button"
           disabled={!canPrev}
@@ -130,7 +131,7 @@ export function MosaicToolbar({
           <ArrowLeft className="h-3.5 w-3.5" />
         </button>
         
-        <span className="w-[64px] text-center text-xs font-medium text-[var(--app-text-primary)] tabular-nums">
+        <span className="mx-2 text-center text-xs font-medium text-[var(--app-text-primary)] tabular-nums">
           {page + 1} / {pageCount}
         </span>
         
