@@ -209,7 +209,7 @@ export function MosaicViewPromise({
     };
     
     fetchMetadata();
-  }, [volumeId, sliceAxis]);
+  }, [volumeId, sliceAxis, internalGridSize.rows, internalGridSize.cols]);
   
   // ResizeObserver for responsive cell sizing (Phase 4)
   const gridRef = useRef<HTMLDivElement>(null);
@@ -221,12 +221,21 @@ export function MosaicViewPromise({
       if (!gridRef.current) return;
       
       const rect = gridRef.current.getBoundingClientRect();
-      const cellWidth = (rect.width - (internalGridSize.cols - 1) * 4) / internalGridSize.cols; // 4px gap
-      const cellHeight = (rect.height - (internalGridSize.rows - 1) * 4) / internalGridSize.rows;
+      // Account for padding (p-2 = 8px) and gaps
+      const padding = 16; // 8px on each side
+      const gap = 4;
+      const availableWidth = rect.width - padding - (gap * (internalGridSize.cols - 1));
+      const availableHeight = rect.height - padding - (gap * (internalGridSize.rows - 1));
+      
+      const cellWidth = availableWidth / internalGridSize.cols;
+      const cellHeight = availableHeight / internalGridSize.rows;
+      
+      // Use the smaller dimension to maintain square cells
+      const cellSize = Math.min(cellWidth, cellHeight);
       
       setCellSize({
-        width: Math.max(100, Math.floor(cellWidth)),
-        height: Math.max(100, Math.floor(cellHeight))
+        width: Math.max(128, Math.floor(cellSize)),
+        height: Math.max(128, Math.floor(cellSize))
       });
     };
 
@@ -354,10 +363,12 @@ export function MosaicViewPromise({
       
       <div 
         ref={gridRef}
-        className="mosaic-grid"
+        className="mosaic-grid flex-1 p-2 overflow-auto"
         style={{
-          gridTemplateRows: `repeat(${internalGridSize.rows}, 1fr)`,
-          gridTemplateColumns: `repeat(${internalGridSize.cols}, 1fr)`
+          display: 'grid',
+          gridTemplateRows: `repeat(${internalGridSize.rows}, minmax(0, 1fr))`,
+          gridTemplateColumns: `repeat(${internalGridSize.cols}, minmax(0, 1fr))`,
+          gap: '4px'
         }}
       >
         {sliceData.map((slice, index) => (
