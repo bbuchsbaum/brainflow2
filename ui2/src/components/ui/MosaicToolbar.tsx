@@ -90,7 +90,7 @@ export function MosaicToolbar({
 
       {/* Slice Slider */}
       <div className="flex items-center gap-2 flex-1 max-w-[300px]">
-        <span className="text-xs text-[var(--app-text-secondary)] whitespace-nowrap">
+        <span className="text-xs text-[var(--app-text-secondary)] whitespace-nowrap" style={{ color: 'var(--app-text-secondary)' }}>
           Slice:
         </span>
         <input
@@ -99,31 +99,18 @@ export function MosaicToolbar({
           max={Math.max(0, totalSlices - 1)}
           value={currentSlice}
           onChange={(e) => onSliceChange(parseInt(e.target.value))}
-          className="flex-1 h-1 bg-[var(--app-bg-active)] rounded-full appearance-none cursor-pointer 
-                     [&::-webkit-slider-thumb]:appearance-none 
-                     [&::-webkit-slider-thumb]:w-3 
-                     [&::-webkit-slider-thumb]:h-3 
-                     [&::-webkit-slider-thumb]:bg-[var(--app-accent)] 
-                     [&::-webkit-slider-thumb]:rounded-full 
-                     [&::-webkit-slider-thumb]:cursor-pointer
-                     [&::-webkit-slider-thumb]:transition-all
-                     [&::-webkit-slider-thumb]:duration-[var(--app-transition-fast)]
-                     [&::-webkit-slider-thumb]:hover:bg-[var(--app-accent-hover)]
-                     [&::-webkit-slider-thumb]:hover:scale-125
-                     [&::-moz-range-thumb]:appearance-none 
-                     [&::-moz-range-thumb]:w-3 
-                     [&::-moz-range-thumb]:h-3 
-                     [&::-moz-range-thumb]:bg-[var(--app-accent)] 
-                     [&::-moz-range-thumb]:rounded-full 
-                     [&::-moz-range-thumb]:cursor-pointer
-                     [&::-moz-range-thumb]:border-none
-                     [&::-moz-range-thumb]:transition-all
-                     [&::-moz-range-thumb]:duration-[var(--app-transition-fast)]
-                     [&::-moz-range-thumb]:hover:bg-[var(--app-accent-hover)]
-                     [&::-moz-range-thumb]:hover:scale-125"
+          className="mosaic-slider flex-1"
+          style={{
+            appearance: 'none',
+            height: '4px',
+            background: 'var(--app-bg-active)',
+            borderRadius: '2px',
+            outline: 'none',
+            cursor: 'pointer'
+          }}
           aria-label="Slice navigation slider"
         />
-        <span className="text-xs text-[var(--app-text-primary)] tabular-nums min-w-[48px] text-right">
+        <span className="text-xs text-[var(--app-text-primary)] tabular-nums min-w-[48px] text-right" style={{ color: 'var(--app-text-primary)' }}>
           {currentSlice + 1}/{totalSlices}
         </span>
       </div>
