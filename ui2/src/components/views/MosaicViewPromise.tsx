@@ -264,27 +264,63 @@ export function MosaicViewPromise({
   
   return (
     <div className="mosaic-container">
-      <div className="mosaic-header">
-        <h3 className="text-sm font-medium">
-          {sliceAxis.charAt(0).toUpperCase() + sliceAxis.slice(1)} Mosaic
-        </h3>
+      <div className="mosaic-header flex items-center justify-between p-2 bg-gray-800 border-b border-gray-700">
+        <div className="flex items-center gap-4">
+          <h3 className="text-sm font-medium">
+            {sliceAxis.charAt(0).toUpperCase() + sliceAxis.slice(1)} Mosaic
+          </h3>
+          
+          {/* Axis Selector */}
+          <div className="flex items-center gap-2">
+            <label className="text-sm font-medium">Axis:</label>
+            <select 
+              value={sliceAxis} 
+              onChange={(e) => setSliceAxis(e.target.value as 'axial' | 'sagittal' | 'coronal')}
+              className="bg-gray-800 border border-gray-600 text-white px-2 py-1 rounded text-sm"
+            >
+              <option value="axial">Axial</option>
+              <option value="sagittal">Sagittal</option>
+              <option value="coronal">Coronal</option>
+            </select>
+          </div>
+          
+          {/* Grid Size Selector */}
+          <div className="flex items-center gap-2">
+            <label className="text-sm font-medium">Grid:</label>
+            <select 
+              value={`${internalGridSize.rows}x${internalGridSize.cols}`}
+              onChange={(e) => {
+                const [rows, cols] = e.target.value.split('x').map(Number);
+                setInternalGridSize({ rows, cols });
+              }}
+              className="bg-gray-800 border border-gray-600 text-white px-2 py-1 rounded text-sm"
+            >
+              <option value="2x2">2×2</option>
+              <option value="3x3">3×3</option>
+              <option value="4x4">4×4</option>
+              <option value="5x5">5×5</option>
+            </select>
+          </div>
+        </div>
+        
+        {/* Navigation Controls */}
         <div className="flex items-center gap-2">
           <button
             onClick={goToPreviousPage}
             disabled={currentPage === 0}
-            className="px-2 py-1 text-xs bg-gray-700 hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed rounded"
+            className="px-3 py-1 text-sm bg-gray-700 hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed rounded flex items-center gap-1"
           >
-            Previous
+            ← Previous
           </button>
-          <span className="text-sm">
+          <span className="text-sm px-2">
             Page {currentPage + 1} of {totalPages}
           </span>
           <button
             onClick={goToNextPage}
             disabled={currentPage === totalPages - 1}
-            className="px-2 py-1 text-xs bg-gray-700 hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed rounded"
+            className="px-3 py-1 text-sm bg-gray-700 hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed rounded flex items-center gap-1"
           >
-            Next
+            Next →
           </button>
         </div>
       </div>
