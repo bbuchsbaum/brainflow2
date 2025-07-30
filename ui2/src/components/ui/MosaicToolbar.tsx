@@ -89,8 +89,8 @@ export function MosaicToolbar({
       <div className="flex-1" />
 
       {/* Slice Slider */}
-      <div className="flex items-center gap-3 flex-1 max-w-[300px]">
-        <span className="text-xs text-[var(--app-text-secondary)] whitespace-nowrap" style={{ color: 'var(--app-text-secondary)' }}>
+      <div className="flex items-center flex-1 max-w-[300px]">
+        <span className="text-xs text-[var(--app-text-secondary)] whitespace-nowrap mr-4" style={{ color: 'var(--app-text-secondary)' }}>
           Slice:
         </span>
         <input
@@ -110,7 +110,7 @@ export function MosaicToolbar({
           }}
           aria-label="Slice navigation slider"
         />
-        <span className="text-xs text-[var(--app-text-primary)] tabular-nums min-w-[48px] text-right ml-2" style={{ color: 'var(--app-text-primary)' }}>
+        <span className="text-xs text-[var(--app-text-primary)] tabular-nums min-w-[48px] text-right ml-4" style={{ color: 'var(--app-text-primary)' }}>
           {currentSlice + 1}/{totalSlices}
         </span>
       </div>
