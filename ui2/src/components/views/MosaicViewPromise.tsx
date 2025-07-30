@@ -27,6 +27,8 @@ interface MosaicCellPromiseProps {
   sliceIndex: number;
   slicePosition: number;
   showLabel?: boolean;
+  width: number;
+  height: number;
 }
 
 /**
@@ -37,10 +39,10 @@ function MosaicCellPromise({
   viewType, 
   sliceIndex, 
   slicePosition,
-  showLabel = false 
+  showLabel = false,
+  width,
+  height
 }: MosaicCellPromiseProps) {
-  const cellRef = useRef<HTMLDivElement>(null);
-  
   // Use promise-based rendering with unique session per cell
   const {
     canvasRef,
@@ -62,25 +64,6 @@ function MosaicCellPromise({
   useEffect(() => {
     renderToCanvasRef.current = renderToCanvas;
   }, [renderToCanvas]);
-  
-  // Handle canvas sizing
-  useEffect(() => {
-    if (!canvasRef.current || !cellRef.current) return;
-    
-    const updateCanvasSize = () => {
-      const rect = cellRef.current!.getBoundingClientRect();
-      canvasRef.current!.width = Math.floor(rect.width);
-      canvasRef.current!.height = Math.floor(rect.height);
-    };
-    
-    updateCanvasSize();
-    
-    // Observe size changes
-    const observer = new ResizeObserver(updateCanvasSize);
-    observer.observe(cellRef.current);
-    
-    return () => observer.disconnect();
-  }, []);
   
   
   // Render the slice using ref to avoid dependency loops
@@ -111,10 +94,12 @@ function MosaicCellPromise({
   }, [viewState, slicePosition]); // Don't include renderSlice to avoid loops
   
   return (
-    <div ref={cellRef} className="mosaic-cell">
+    <div className="mosaic-cell">
       <canvas
         ref={canvasRef}
-        className="w-full h-full"
+        width={width}
+        height={height}
+        className="block"
       />
       
       {showLabel && (
@@ -379,6 +364,8 @@ export function MosaicViewPromise({
             sliceIndex={slice.index}
             slicePosition={slice.position}
             showLabel={false}
+            width={cellSize.width}
+            height={cellSize.height}
           />
         ))}
       </div>
