@@ -211,6 +211,33 @@ export function MosaicViewPromise({
     fetchMetadata();
   }, [volumeId, sliceAxis]);
   
+  // ResizeObserver for responsive cell sizing (Phase 4)
+  const gridRef = useRef<HTMLDivElement>(null);
+  
+  useEffect(() => {
+    if (!gridRef.current) return;
+
+    const updateCellSize = () => {
+      if (!gridRef.current) return;
+      
+      const rect = gridRef.current.getBoundingClientRect();
+      const cellWidth = (rect.width - (internalGridSize.cols - 1) * 4) / internalGridSize.cols; // 4px gap
+      const cellHeight = (rect.height - (internalGridSize.rows - 1) * 4) / internalGridSize.rows;
+      
+      setCellSize({
+        width: Math.max(100, Math.floor(cellWidth)),
+        height: Math.max(100, Math.floor(cellHeight))
+      });
+    };
+
+    updateCellSize();
+
+    const observer = new ResizeObserver(updateCellSize);
+    observer.observe(gridRef.current);
+
+    return () => observer.disconnect();
+  }, [internalGridSize.rows, internalGridSize.cols]);
+  
   // Calculate slice indices for current page
   const sliceData = useMemo(() => {
     if (!sliceMetadata) return [];
@@ -326,6 +353,7 @@ export function MosaicViewPromise({
       </div>
       
       <div 
+        ref={gridRef}
         className="mosaic-grid"
         style={{
           gridTemplateRows: `repeat(${internalGridSize.rows}, 1fr)`,
