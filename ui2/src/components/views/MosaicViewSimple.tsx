@@ -32,6 +32,7 @@ export function MosaicViewSimple({ workspaceId }: MosaicViewSimpleProps) {
   const [gridSize, setGridSize] = useState({ rows: 2, cols: 2 }); // Start with 2x2 for testing
   const [totalSlices, setTotalSlices] = useState(100); // Default
   const [cellSize, setCellSize] = useState({ width: 256, height: 256 });
+  const [currentSlice, setCurrentSlice] = useState(0);
   
   const gridRef = useRef<HTMLDivElement>(null);
   const mosaicRenderService = getMosaicRenderService();
@@ -212,6 +213,22 @@ export function MosaicViewSimple({ workspaceId }: MosaicViewSimpleProps) {
     setCurrentPage(prev => Math.min(maxPage, prev + 1));
   }, [gridSize, totalSlices]);
   
+  // Handle slice change from slider
+  const handleSliceChange = useCallback((newSlice: number) => {
+    setCurrentSlice(newSlice);
+    // Calculate which page this slice is on
+    const slicesPerPage = gridSize.rows * gridSize.cols;
+    const newPage = Math.floor(newSlice / slicesPerPage);
+    setCurrentPage(newPage);
+  }, [gridSize]);
+  
+  // Update current slice when page changes
+  useEffect(() => {
+    const slicesPerPage = gridSize.rows * gridSize.cols;
+    const firstSliceOnPage = currentPage * slicesPerPage;
+    setCurrentSlice(firstSliceOnPage);
+  }, [currentPage, gridSize]);
+  
   // Calculate navigation state
   const isPrevDisabled = currentPage === 0;
   const isNextDisabled = useMemo(() => {
@@ -239,6 +256,9 @@ export function MosaicViewSimple({ workspaceId }: MosaicViewSimpleProps) {
         canNext={!isNextDisabled}
         onPrev={handlePrevPage}
         onNext={handleNextPage}
+        currentSlice={currentSlice}
+        totalSlices={totalSlices}
+        onSliceChange={handleSliceChange}
       />
 
       {/* Grid container */}

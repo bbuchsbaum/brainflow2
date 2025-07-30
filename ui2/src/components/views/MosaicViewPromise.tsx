@@ -39,6 +39,7 @@ export function MosaicViewPromise({
   const [gridSize, setGridSize] = useState({ rows: 4, cols: 4 });
   const [totalSlices, setTotalSlices] = useState(100);
   const [cellSize, setCellSize] = useState({ width: 256, height: 256 });
+  const [currentSlice, setCurrentSlice] = useState(0);
   
   const gridRef = useRef<HTMLDivElement>(null);
   const mosaicRenderService = getMosaicRenderService();
@@ -220,6 +221,22 @@ export function MosaicViewPromise({
     setCurrentPage(prev => Math.min(totalPages - 1, prev + 1));
   };
   
+  // Handle slice change from slider
+  const handleSliceChange = (newSlice: number) => {
+    setCurrentSlice(newSlice);
+    // Calculate which page this slice is on
+    const slicesPerPage = gridSize.rows * gridSize.cols;
+    const newPage = Math.floor(newSlice / slicesPerPage);
+    setCurrentPage(newPage);
+  };
+  
+  // Update current slice when page changes
+  useEffect(() => {
+    const slicesPerPage = gridSize.rows * gridSize.cols;
+    const firstSliceOnPage = currentPage * slicesPerPage;
+    setCurrentSlice(firstSliceOnPage);
+  }, [currentPage, gridSize]);
+  
   if (!primaryVolumeId || totalSlices === 0) {
     return (
       <div className="flex items-center justify-center h-full text-gray-500">
@@ -245,6 +262,9 @@ export function MosaicViewPromise({
         canNext={currentPage < totalPages - 1}
         onPrev={goToPreviousPage}
         onNext={goToNextPage}
+        currentSlice={currentSlice}
+        totalSlices={totalSlices}
+        onSliceChange={handleSliceChange}
       />
       
       <div 
