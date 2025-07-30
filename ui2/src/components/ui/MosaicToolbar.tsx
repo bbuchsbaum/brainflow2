@@ -1,5 +1,4 @@
 import React from 'react';
-import { Button } from '@/components/ui/shadcn/button';
 import { 
   Select, 
   SelectContent, 
@@ -7,7 +6,7 @@ import {
   SelectTrigger, 
   SelectValue 
 } from '@/components/ui/shadcn/select';
-import { ArrowLeft, ArrowRight, LayoutGrid } from 'lucide-react';
+import { ArrowLeft, ArrowRight } from 'lucide-react';
 import { cn } from '@/utils/cn';
 
 // Export toolbar height for consistent spacing
@@ -53,17 +52,6 @@ export function MosaicToolbar({
       )}
       style={{ height: MOSAIC_TOOLBAR_HEIGHT }}
     >
-      {/* Brand / Title */}
-      <div className="flex items-center gap-2">
-        <LayoutGrid className="h-4 w-4 text-[var(--app-text-secondary)]" />
-        <span className="text-sm font-semibold text-[var(--app-text-primary)]">
-          Mosaic
-        </span>
-      </div>
-
-      {/* Divider */}
-      <div className="h-4 w-px bg-[var(--app-border)]" />
-
       {/* Axis Selector */}
       <Select value={axis} onValueChange={onAxisChange}>
         <SelectTrigger className="h-8 w-[88px] text-xs input-modern text-[var(--app-text-primary)]">
@@ -96,31 +84,29 @@ export function MosaicToolbar({
 
       {/* Navigation Controls */}
       <div className="flex items-center gap-1">
-        <Button
-          variant="ghost"
-          size="icon"
+        <button
+          type="button"
           disabled={!canPrev}
           onClick={onPrev}
-          className="h-7 w-7 rounded-md text-[var(--app-text-secondary)] hover:text-[var(--app-text-primary)] hover:bg-[var(--app-bg-hover)] disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-[var(--app-text-secondary)] transition-colors"
+          className="inline-flex items-center justify-center w-6 h-6 p-0 bg-transparent border-none text-[var(--app-text-secondary)] rounded-[var(--app-radius-sm)] cursor-pointer transition-all duration-[var(--app-transition-fast)] hover:bg-[var(--app-bg-hover)] hover:text-[var(--app-text-primary)] disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-[var(--app-text-secondary)]"
           aria-label="Previous page"
         >
           <ArrowLeft className="h-3.5 w-3.5" />
-        </Button>
+        </button>
         
         <span className="w-[64px] text-center text-xs font-medium text-[var(--app-text-primary)] tabular-nums">
           {page + 1} / {pageCount}
         </span>
         
-        <Button
-          variant="ghost"
-          size="icon"
+        <button
+          type="button"
           disabled={!canNext}
           onClick={onNext}
-          className="h-7 w-7 rounded-md text-[var(--app-text-secondary)] hover:text-[var(--app-text-primary)] hover:bg-[var(--app-bg-hover)] disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-[var(--app-text-secondary)] transition-colors"
+          className="inline-flex items-center justify-center w-6 h-6 p-0 bg-transparent border-none text-[var(--app-text-secondary)] rounded-[var(--app-radius-sm)] cursor-pointer transition-all duration-[var(--app-transition-fast)] hover:bg-[var(--app-bg-hover)] hover:text-[var(--app-text-primary)] disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-[var(--app-text-secondary)]"
           aria-label="Next page"
         >
           <ArrowRight className="h-3.5 w-3.5" />
-        </Button>
+        </button>
       </div>
     </header>
   );
