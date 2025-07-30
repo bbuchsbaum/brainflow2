@@ -54,7 +54,7 @@ export function MosaicToolbar({
     >
       {/* Axis Selector */}
       <Select value={axis} onValueChange={onAxisChange}>
-        <SelectTrigger className="h-8 w-[88px] text-xs input-modern text-[var(--app-text-primary)]">
+        <SelectTrigger className="h-8 w-[100px] text-xs input-modern text-[var(--app-text-primary)]">
           <SelectValue>
             {axis.charAt(0).toUpperCase() + axis.slice(1)}
           </SelectValue>
