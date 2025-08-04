@@ -137,8 +137,17 @@ const PlotPanelContent: React.FC<PlotPanelProps> = ({ containerWidth, containerH
   // Handle intensity window changes
   const handleIntensityChange = (window: [number, number]) => {
     if (selectedLayerId && layerRender) {
-      useLayerStore.getState().updateLayerRender(selectedLayerId, {
-        intensity: window
+      // Update ViewState (single source of truth)
+      useViewStateStore.getState().setViewState((state) => {
+        const layers = [...state.layers];
+        const layerIndex = layers.findIndex(l => l.id === selectedLayerId);
+        if (layerIndex !== -1) {
+          layers[layerIndex] = {
+            ...layers[layerIndex],
+            intensity: window
+          };
+        }
+        return { ...state, layers };
       });
     }
   };
@@ -146,8 +155,17 @@ const PlotPanelContent: React.FC<PlotPanelProps> = ({ containerWidth, containerH
   // Handle threshold changes
   const handleThresholdChange = (threshold: [number, number]) => {
     if (selectedLayerId && layerRender) {
-      useLayerStore.getState().updateLayerRender(selectedLayerId, {
-        threshold
+      // Update ViewState (single source of truth)
+      useViewStateStore.getState().setViewState((state) => {
+        const layers = [...state.layers];
+        const layerIndex = layers.findIndex(l => l.id === selectedLayerId);
+        if (layerIndex !== -1) {
+          layers[layerIndex] = {
+            ...layers[layerIndex],
+            threshold
+          };
+        }
+        return { ...state, layers };
       });
     }
   };
