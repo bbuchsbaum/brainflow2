@@ -1,6 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import type { Layer, LayerRender } from '@/types/layers';
 import { useLayerStore } from '@/stores/layerStore';
+import { useViewStateStore } from '@/stores/viewStateStore';
 import { Slider, RangeSlider, ColormapSelector, IconButton, Badge, Tooltip, DropdownMenu } from '../ui';
 
 interface LayerItemProps {
@@ -26,15 +27,33 @@ export const LayerItem: React.FC<LayerItemProps> = ({
   const isSelected = useLayerStore(state => state.selectedLayerId === layer.id);
   const isLoading = useLayerStore(state => state.loadingLayers.has(layer.id));
   const error = useLayerStore(state => state.errorLayers.get(layer.id));
-  const layerRender = useLayerStore(state => 
-    state.layerRender.get(layer.id) || {
+  
+  // Read render properties from ViewState instead of layerStore.layerRender
+  const viewState = useViewStateStore(state => state.viewState);
+  const layerRender = useMemo(() => {
+    // Find the layer in ViewState
+    const viewStateLayer = viewState.layers.find(l => l.id === layer.id);
+    
+    if (viewStateLayer) {
+      // Extract render properties from ViewState layer
+      return {
+        opacity: viewStateLayer.opacity ?? 1.0,
+        intensity: viewStateLayer.intensity ?? [0, 100] as [number, number],
+        threshold: viewStateLayer.threshold ?? [0, 100] as [number, number],
+        colormap: viewStateLayer.colormap ?? 'gray',
+        interpolation: 'linear' as const, // ViewState doesn't have interpolation, use default
+      };
+    }
+    
+    // Default values if layer not found in ViewState
+    return {
       opacity: 1.0,
       intensity: [0, 100] as [number, number],
       threshold: [0, 100] as [number, number],
       colormap: 'gray',
       interpolation: 'linear' as const,
-    }
-  );
+    };
+  }, [layer.id, viewState.layers]);
 
   const [showDetails, setShowDetails] = useState(false);
 
