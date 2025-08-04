@@ -117,9 +117,7 @@ const LayerPanelContent: React.FC = () => {
         return { ...state, layers };
       });
       
-      // CRITICAL FIX: Also update layerStore so StoreSyncService has correct values
-      // This prevents the snap-back issue where StoreSyncService reads stale 20-80% defaults
-      useLayer(state => state.updateLayerRender)(selectedLayerId, updates);
+      // ViewState is the single source of truth - no need to update layerStore
       
       // Emit event for render property changes
       getEventBus().emit('layer.render.changed', { 
