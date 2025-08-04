@@ -19,7 +19,10 @@ export class StoreSyncService {
   }
   
   private convertToViewLayer(storeLayer: StoreLayer): ViewLayer {
-    const layerRender = useLayerStore.getState().getLayerRender(storeLayer.id);
+    // Try to get existing render properties from ViewState first
+    const viewState = useViewStateStore.getState().viewState;
+    const existingViewLayer = viewState.layers.find(l => l.id === storeLayer.id);
+    
     const layerMetadata = useLayerStore.getState().getLayerMetadata(storeLayer.id);
     
     // Use data range from metadata if available
@@ -27,15 +30,25 @@ export class StoreSyncService {
     const defaultMin = dataRange?.min ?? 0;
     const defaultMax = dataRange?.max ?? 100;
     
+    // If layer already exists in ViewState, preserve its render properties
+    if (existingViewLayer) {
+      return {
+        ...existingViewLayer,
+        name: storeLayer.name,
+        volumeId: storeLayer.volumeId,
+      };
+    }
+    
+    // Otherwise create with defaults
     return {
       id: storeLayer.id,
       name: storeLayer.name,
       volumeId: storeLayer.volumeId,
-      visible: layerRender?.opacity ? layerRender.opacity > 0 : true,
-      opacity: layerRender?.opacity ?? 1.0,
-      colormap: layerRender?.colormap ?? 'gray',
-      intensity: layerRender?.intensity ?? [defaultMin, defaultMax],
-      threshold: layerRender?.threshold ?? [defaultMin, defaultMin],
+      visible: true,
+      opacity: 1.0,
+      colormap: 'gray',
+      intensity: [defaultMin, defaultMax],
+      threshold: [defaultMin, defaultMin],
       blendMode: 'alpha'
     };
   }
