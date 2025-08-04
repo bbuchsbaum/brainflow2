@@ -2,7 +2,6 @@ import React, { useCallback, useState } from 'react';
 import { useLayers, useSelectedLayerId, useSelectedLayer, layerSelectors, useLayer } from '@/stores/layerStore';
 import { useViewStateStore } from '@/stores/viewStateStore';
 import { getLayerService } from '@/services/LayerService';
-import { getStoreSyncService } from '@/services/StoreSyncService';
 import { LayerTable } from '../ui/LayerTable';
 import { MetadataDrawer } from '../ui/MetadataDrawer';
 import { useMetadataShortcut } from '@/hooks/useMetadataShortcut';
@@ -32,10 +31,6 @@ const LayerPanelContent: React.FC = () => {
   const selectedMetadata = useLayer(state => 
     selectedLayerId ? layerSelectors.getLayerMetadata(state, selectedLayerId) : undefined
   );
-  const selectedLayerRender = useLayer(state => 
-    selectedLayerId ? layerSelectors.getLayerRender(state, selectedLayerId) : undefined
-  );
-  
   // Service initialization hook
   const { isInitialized: serviceInitialized, error: initializationError } = useLayerPanelServices();
   
@@ -56,13 +51,6 @@ const LayerPanelContent: React.FC = () => {
     threshold: viewStateLayer.threshold,
     colormap: viewStateLayer.colormap,
     interpolation: 'linear' as const
-  } : selectedLayerRender ? {
-    // Fallback to layerStore render properties
-    opacity: selectedLayerRender.opacity,
-    intensity: selectedLayerRender.intensity || [0, 100],
-    threshold: selectedLayerRender.threshold || [0, 0],
-    colormap: selectedLayerRender.colormap || 'gray',
-    interpolation: selectedLayerRender.interpolation || 'linear' as const
   } : undefined;
 
   const toggleVisibility = useCallback((layerId: string) => {
@@ -82,8 +70,6 @@ const LayerPanelContent: React.FC = () => {
 
   const handleRenderUpdate = useCallback((updates: Partial<LayerRender>) => {
     if (selectedLayerId) {
-      // Mark layer as dirty to prevent StoreSyncService from overwriting user changes
-      getStoreSyncService().markLayerDirty(selectedLayerId);
       
       // Validate threshold values - just ensure min <= max
       if (updates.threshold) {
