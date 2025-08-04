@@ -56,6 +56,8 @@ bridge_types = { path = "../core/bridge_types" } # Added back
 nifti-loader = { path = "../core/loaders/nifti" } # Added back
 render_loop = { path = "../core/render_loop" } # Added back
 api-bridge = { path = "../core/api_bridge", package = "api-bridge" } # Added back
+atlases = { path = "../core/atlases" } # Atlas system
+templates = { path = "../core/templates" } # Template system
 
 [build-dependencies]
 tauri-build = { workspace = true } # Added back build dependency

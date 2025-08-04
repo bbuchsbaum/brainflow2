@@ -1,36 +1,41 @@
 use tauri::command;
-use tauri::Emitter; // Import Emitter trait for emit method
-// Import necessary volmath types directly
-use volmath::NeuroSpaceExt; // Import NeuroSpaceExt trait
+                    // Import necessary volmath types directly
+use volmath::DenseVolume3;
 use volmath::DenseVolumeExt; // Import DenseVolumeExt trait
-// use wgpu; // No longer needed directly
+use volmath::NeuroSpaceExt; // Import NeuroSpaceExt trait
+use volmath::NeuroVecTrait; // Import NeuroVecTrait for volume() method // Import DenseVolume3 type
+                                                                        // Import neuroim types through volmath re-exports
+                                                                        // use wgpu; // No longer needed directly
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::path::Path;
 use tauri::State; // Need State for accessing registry
-// Import types from bridge_types
-use bridge_types::{self, VolumeSendable, BridgeError, BridgeResult, VolumeLayerGpuInfo, GpuTextureFormat, FlatNode, TreePayload, icons, Loaded, Loader, SliceInfo, TextureCoordinates, LayerPatch, DataRange, SliceAxisMeta, BatchRenderRequest};
+                  // Import types from bridge_types
+use bridge_types::{
+    self, icons, BatchRenderRequest, BridgeError, BridgeResult, DataRange, FlatNode,
+    GpuTextureFormat, LayerPatch, Loader, SliceAxisMeta, SliceInfo, TextureCoordinates,
+    TreePayload, VolumeLayerGpuInfo, VolumeSendable, VolumeHandleInfo,
+};
 use colormap::colormap_by_name;
 // Import NiftiLoader for registration
 // use nifti_loader::NiftiLoader;
-use render_loop::{RenderLoopService}; // Remove unused RenderLoopError
-// Import async_trait attribute
-// use async_trait::async_trait;
-use log::{info, error, warn}; // Added error and warn
-use serde::{Serialize, Deserialize}; // Need Serialize/Deserialize for new types
+use render_loop::RenderLoopService; // Remove unused RenderLoopError
+                                    // Import async_trait attribute
+                                    // use async_trait::async_trait;
+use log::{debug, error, info, warn}; // Added error, warn, and debug
+use serde::{Deserialize, Serialize}; // Need Serialize/Deserialize for new types
 use serde_json; // For JSON parsing
-use uuid; // For generating unique IDs
-use ts_rs::TS; // Add TS trait
-// Use futures::executor::block_on when needed (now removed)
-// use futures;
-// Added imports for plugin creation
+use ts_rs::TS;
+use uuid; // For generating unique IDs // Add TS trait
+                                       // Use futures::executor::block_on when needed (now removed)
+                                       // use futures;
+                                       // Added imports for plugin creation
 use tauri::plugin::{Builder, TauriPlugin};
-use tauri::{Runtime, generate_handler, Manager};
+use tauri::{generate_handler, Manager, Runtime, AppHandle, Emitter};
 // Re-add tokio::sync::Mutex
+use nalgebra::{Affine3, Matrix4}; // Removed unused Vector4
+use neuro_types::{ViewOrientation, ViewRectMm, VolumeMetadata};
 use tokio::sync::Mutex;
-use nalgebra::Matrix4; // Removed unused Vector4
-use tracing; // Add tracing facade import
-use neuro_types::{ViewRectMm, ViewOrientation, VolumeMetadata}; // For get_initial_views
+use tracing; // Add tracing facade import // For get_initial_views
 
 // Imports for fs_list_directory
 use std::path::PathBuf;
@@ -39,11 +44,14 @@ use walkdir::WalkDir;
 use brainflow_loaders as core_loaders;
 
 // Import error helpers
-mod error_helpers;
 mod error_context;
+mod error_helpers;
 mod user_errors;
-use error_helpers::*;
 use error_context::*;
+use error_helpers::*;
+
+// Import atlas system
+use atlases::{AtlasService, AtlasConfig, AtlasFilter, AtlasCatalogEntry, AtlasLoadResult, AtlasLoadProgress};
 
 // --- Add Correlation ID Macro ---
 #[macro_export]
@@ -55,15 +63,7 @@ macro_rules! new_request_span {
 }
 // --- End Correlation ID Macro ---
 
-// --- Define Serializable API Handle Info ---
-#[derive(Debug, Clone, Serialize, Deserialize, TS)] // Add derives
-#[ts(export)]
-pub struct VolumeHandleInfo {
-    pub id: String,
-    pub name: String,
-    pub dims: [usize; 3], // Example field
-    pub dtype: String, // Example field
-}
+// Use VolumeHandleInfo from bridge_types instead of defining locally
 
 // Event payload for volume-loaded event
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -95,14 +95,14 @@ pub struct VolumeBounds {
 #[ts(export)]
 pub struct LayerGpuResources {
     pub layer_id: String, // Renamed field
-    // Add other relevant GPU resource identifiers if needed
+                          // Add other relevant GPU resource identifiers if needed
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)] // Add derives
 #[ts(export)]
 pub enum LayerSpec {
     Volume(VolumeLayerSpec), // Example variant
-    // Add other layer types (e.g., SurfaceLayerSpec)
+                             // Add other layer types (e.g., SurfaceLayerSpec)
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, TS)] // Add derives
@@ -122,9 +122,9 @@ impl Default for SliceAxis {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, TS)] // Add derives
 #[ts(export)]
 pub enum SliceIndex {
-    Fixed(usize),        // Specific slice index
-    Middle,              // Middle slice (default)
-    Relative(f32),       // Relative position (0.0 = first, 1.0 = last)
+    Fixed(usize),         // Specific slice index
+    Middle,               // Middle slice (default)
+    Relative(f32),        // Relative position (0.0 = first, 1.0 = last)
     WorldCoordinate(f32), // Slice at specific world coordinate
 }
 
@@ -136,8 +136,9 @@ impl Default for SliceIndex {
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)] // Add derives
 #[ts(export)]
-pub struct VolumeLayerSpec { // Example struct for Volume variant
-    pub id: String, // ID of the layer itself
+pub struct VolumeLayerSpec {
+    // Example struct for Volume variant
+    pub id: String,                 // ID of the layer itself
     pub source_resource_id: String, // ID of the underlying volume (from VolumeHandleInfo.id)
     pub colormap: String,
     pub slice_axis: Option<SliceAxis>, // Optional: axis for slice extraction (default: Axial)
@@ -156,6 +157,487 @@ pub struct ReleaseResult {
 
 // --- Helper Functions ---
 
+/// Extract affine transform from a VolumeSendable
+fn get_affine_from_volume(volume_data: &VolumeSendable) -> BridgeResult<Affine3<f32>> {
+    match volume_data {
+        // 3D volumes already have affine
+        VolumeSendable::VolF32(_, affine)
+        | VolumeSendable::VolI16(_, affine)
+        | VolumeSendable::VolU8(_, affine)
+        | VolumeSendable::VolI8(_, affine)
+        | VolumeSendable::VolU16(_, affine)
+        | VolumeSendable::VolI32(_, affine)
+        | VolumeSendable::VolU32(_, affine)
+        | VolumeSendable::VolF64(_, affine) => Ok(affine.clone()),
+        // 4D volumes - extract from space (TODO: implement proper access to DenseNeuroVec fields)
+        VolumeSendable::Vec4DF32(_vec) => {
+            // TODO: Access vec.space when api_bridge has neuroim dependency
+            // For now, return identity affine
+            Ok(Affine3::identity())
+        }
+        VolumeSendable::Vec4DI16(_vec) => {
+            // TODO: Access vec.space when api_bridge has neuroim dependency
+            // For now, return identity affine
+            Ok(Affine3::identity())
+        }
+        VolumeSendable::Vec4DU8(_vec) => {
+            // TODO: Access vec.space when api_bridge has neuroim dependency
+            // For now, return identity affine
+            Ok(Affine3::identity())
+        }
+        VolumeSendable::Vec4DI8(_vec) => {
+            // TODO: Access vec.space when api_bridge has neuroim dependency
+            // For now, return identity affine
+            Ok(Affine3::identity())
+        }
+        VolumeSendable::Vec4DU16(_vec) => {
+            // TODO: Access vec.space when api_bridge has neuroim dependency
+            // For now, return identity affine
+            Ok(Affine3::identity())
+        }
+        VolumeSendable::Vec4DI32(_vec) => {
+            // TODO: Access vec.space when api_bridge has neuroim dependency
+            // For now, return identity affine
+            Ok(Affine3::identity())
+        }
+        VolumeSendable::Vec4DU32(_vec) => {
+            // TODO: Access vec.space when api_bridge has neuroim dependency
+            // For now, return identity affine
+            Ok(Affine3::identity())
+        }
+        VolumeSendable::Vec4DF64(_vec) => {
+            // TODO: Access vec.space when api_bridge has neuroim dependency
+            // For now, return identity affine
+            Ok(Affine3::identity())
+        }
+    }
+}
+
+/// Get spatial dimensions (first 3 dimensions) from a VolumeSendable
+fn get_spatial_dims_from_volume(volume_data: &VolumeSendable) -> Vec<usize> {
+    match volume_data {
+        // 3D volumes
+        VolumeSendable::VolF32(vol, _) => vol.space().dims().to_vec(),
+        VolumeSendable::VolI16(vol, _) => vol.space().dims().to_vec(),
+        VolumeSendable::VolU8(vol, _) => vol.space().dims().to_vec(),
+        VolumeSendable::VolI8(vol, _) => vol.space().dims().to_vec(),
+        VolumeSendable::VolU16(vol, _) => vol.space().dims().to_vec(),
+        VolumeSendable::VolI32(vol, _) => vol.space().dims().to_vec(),
+        VolumeSendable::VolU32(vol, _) => vol.space().dims().to_vec(),
+        VolumeSendable::VolF64(vol, _) => vol.space().dims().to_vec(),
+        // 4D volumes - return first 3 dimensions
+        VolumeSendable::Vec4DF32(vec) => {
+            vec.space.dim.iter().take(3).map(|&d| d as usize).collect()
+        }
+        VolumeSendable::Vec4DI16(vec) => {
+            vec.space.dim.iter().take(3).map(|&d| d as usize).collect()
+        }
+        VolumeSendable::Vec4DU8(vec) => vec.space.dim.iter().take(3).map(|&d| d as usize).collect(),
+        VolumeSendable::Vec4DI8(vec) => vec.space.dim.iter().take(3).map(|&d| d as usize).collect(),
+        VolumeSendable::Vec4DU16(vec) => {
+            vec.space.dim.iter().take(3).map(|&d| d as usize).collect()
+        }
+        VolumeSendable::Vec4DI32(vec) => {
+            vec.space.dim.iter().take(3).map(|&d| d as usize).collect()
+        }
+        VolumeSendable::Vec4DU32(vec) => {
+            vec.space.dim.iter().take(3).map(|&d| d as usize).collect()
+        }
+        VolumeSendable::Vec4DF64(vec) => {
+            vec.space.dim.iter().take(3).map(|&d| d as usize).collect()
+        }
+    }
+}
+
+/// Convert world coordinates to grid coordinates
+fn coord_to_grid_for_volume(
+    volume_data: &VolumeSendable,
+    coords: &Vec<Vec<f64>>,
+) -> Result<Vec<Vec<i32>>, String> {
+    match volume_data {
+        // 3D volumes
+        VolumeSendable::VolF32(vol, _) => {
+            vol.space().coord_to_grid(coords).map_err(|e| e.to_string())
+        }
+        VolumeSendable::VolI16(vol, _) => {
+            vol.space().coord_to_grid(coords).map_err(|e| e.to_string())
+        }
+        VolumeSendable::VolU8(vol, _) => {
+            vol.space().coord_to_grid(coords).map_err(|e| e.to_string())
+        }
+        VolumeSendable::VolI8(vol, _) => {
+            vol.space().coord_to_grid(coords).map_err(|e| e.to_string())
+        }
+        VolumeSendable::VolU16(vol, _) => {
+            vol.space().coord_to_grid(coords).map_err(|e| e.to_string())
+        }
+        VolumeSendable::VolI32(vol, _) => {
+            vol.space().coord_to_grid(coords).map_err(|e| e.to_string())
+        }
+        VolumeSendable::VolU32(vol, _) => {
+            vol.space().coord_to_grid(coords).map_err(|e| e.to_string())
+        }
+        VolumeSendable::VolF64(vol, _) => {
+            vol.space().coord_to_grid(coords).map_err(|e| e.to_string())
+        }
+        // 4D volumes - use only spatial dimensions
+        VolumeSendable::Vec4DF32(_vec) => {
+            // TODO: Implement coordinate conversion for 4D volumes
+            Err("Coordinate conversion for 4D volumes not yet implemented".to_string())
+        }
+        VolumeSendable::Vec4DI16(_vec) => {
+            // TODO: Implement coordinate conversion for 4D volumes
+            Err("Coordinate conversion for 4D volumes not yet implemented".to_string())
+        }
+        VolumeSendable::Vec4DU8(_vec) => {
+            // TODO: Implement coordinate conversion for 4D volumes
+            Err("Coordinate conversion for 4D volumes not yet implemented".to_string())
+        }
+        VolumeSendable::Vec4DI8(_vec) => {
+            // TODO: Implement coordinate conversion for 4D volumes
+            Err("Coordinate conversion for 4D volumes not yet implemented".to_string())
+        }
+        VolumeSendable::Vec4DU16(_vec) => {
+            // TODO: Implement coordinate conversion for 4D volumes
+            Err("Coordinate conversion for 4D volumes not yet implemented".to_string())
+        }
+        VolumeSendable::Vec4DI32(_vec) => {
+            // TODO: Implement coordinate conversion for 4D volumes
+            Err("Coordinate conversion for 4D volumes not yet implemented".to_string())
+        }
+        VolumeSendable::Vec4DU32(_vec) => {
+            // TODO: Implement coordinate conversion for 4D volumes
+            Err("Coordinate conversion for 4D volumes not yet implemented".to_string())
+        }
+        VolumeSendable::Vec4DF64(_vec) => {
+            // TODO: Implement coordinate conversion for 4D volumes
+            Err("Coordinate conversion for 4D volumes not yet implemented".to_string())
+        }
+    }
+}
+
+/// Extract a single 3D volume from a 4D time series at a specific timepoint
+fn extract_3d_volume_at_timepoint(
+    volume_4d: &VolumeSendable,
+    timepoint: usize,
+) -> BridgeResult<VolumeSendable> {
+    use nalgebra::Matrix4;
+
+    match volume_4d {
+        // For 3D volumes, just return as-is (ignore timepoint)
+        VolumeSendable::VolF32(vol, affine) => {
+            Ok(VolumeSendable::VolF32(vol.clone(), affine.clone()))
+        }
+        VolumeSendable::VolI16(vol, affine) => {
+            Ok(VolumeSendable::VolI16(vol.clone(), affine.clone()))
+        }
+        VolumeSendable::VolU8(vol, affine) => {
+            Ok(VolumeSendable::VolU8(vol.clone(), affine.clone()))
+        }
+        VolumeSendable::VolI8(vol, affine) => {
+            Ok(VolumeSendable::VolI8(vol.clone(), affine.clone()))
+        }
+        VolumeSendable::VolU16(vol, affine) => {
+            Ok(VolumeSendable::VolU16(vol.clone(), affine.clone()))
+        }
+        VolumeSendable::VolI32(vol, affine) => {
+            Ok(VolumeSendable::VolI32(vol.clone(), affine.clone()))
+        }
+        VolumeSendable::VolU32(vol, affine) => {
+            Ok(VolumeSendable::VolU32(vol.clone(), affine.clone()))
+        }
+        VolumeSendable::VolF64(vol, affine) => {
+            Ok(VolumeSendable::VolF64(vol.clone(), affine.clone()))
+        }
+
+        // For 4D volumes, extract the requested timepoint
+        VolumeSendable::Vec4DF32(vec) => {
+            // Extract 3D volume at the specified timepoint
+            let neuro_vol = vec.volume(timepoint).map_err(|e| BridgeError::Internal {
+                code: 5011,
+                details: format!("Failed to extract timepoint {}: {}", timepoint, e),
+            })?;
+
+            // Convert neuroim-rs volume to our DenseVolume3
+            let dense_vol = DenseVolume3::new(neuro_vol);
+
+            // Extract affine transform from the 4D space (first 3x3 + translation)
+            let trans = &vec.space.trans;
+            let affine = if trans.nrows() >= 4 && trans.ncols() >= 4 {
+                let m = Matrix4::new(
+                    trans[(0, 0)] as f32,
+                    trans[(0, 1)] as f32,
+                    trans[(0, 2)] as f32,
+                    trans[(0, 3)] as f32,
+                    trans[(1, 0)] as f32,
+                    trans[(1, 1)] as f32,
+                    trans[(1, 2)] as f32,
+                    trans[(1, 3)] as f32,
+                    trans[(2, 0)] as f32,
+                    trans[(2, 1)] as f32,
+                    trans[(2, 2)] as f32,
+                    trans[(2, 3)] as f32,
+                    0.0,
+                    0.0,
+                    0.0,
+                    1.0,
+                );
+                Affine3::from_matrix_unchecked(m)
+            } else {
+                // Fallback to identity if transform is not available
+                Affine3::identity()
+            };
+
+            Ok(VolumeSendable::VolF32(dense_vol, affine))
+        }
+        VolumeSendable::Vec4DI16(vec) => {
+            let neuro_vol = vec.volume(timepoint).map_err(|e| BridgeError::Internal {
+                code: 5011,
+                details: format!("Failed to extract timepoint {}: {}", timepoint, e),
+            })?;
+
+            let dense_vol = DenseVolume3::new(neuro_vol);
+
+            let trans = &vec.space.trans;
+            let affine = if trans.nrows() >= 4 && trans.ncols() >= 4 {
+                let m = Matrix4::new(
+                    trans[(0, 0)] as f32,
+                    trans[(0, 1)] as f32,
+                    trans[(0, 2)] as f32,
+                    trans[(0, 3)] as f32,
+                    trans[(1, 0)] as f32,
+                    trans[(1, 1)] as f32,
+                    trans[(1, 2)] as f32,
+                    trans[(1, 3)] as f32,
+                    trans[(2, 0)] as f32,
+                    trans[(2, 1)] as f32,
+                    trans[(2, 2)] as f32,
+                    trans[(2, 3)] as f32,
+                    0.0,
+                    0.0,
+                    0.0,
+                    1.0,
+                );
+                Affine3::from_matrix_unchecked(m)
+            } else {
+                Affine3::identity()
+            };
+
+            Ok(VolumeSendable::VolI16(dense_vol, affine))
+        }
+        VolumeSendable::Vec4DU8(vec) => {
+            let neuro_vol = vec.volume(timepoint).map_err(|e| BridgeError::Internal {
+                code: 5011,
+                details: format!("Failed to extract timepoint {}: {}", timepoint, e),
+            })?;
+
+            let dense_vol = DenseVolume3::new(neuro_vol);
+
+            let trans = &vec.space.trans;
+            let affine = if trans.nrows() >= 4 && trans.ncols() >= 4 {
+                let m = Matrix4::new(
+                    trans[(0, 0)] as f32,
+                    trans[(0, 1)] as f32,
+                    trans[(0, 2)] as f32,
+                    trans[(0, 3)] as f32,
+                    trans[(1, 0)] as f32,
+                    trans[(1, 1)] as f32,
+                    trans[(1, 2)] as f32,
+                    trans[(1, 3)] as f32,
+                    trans[(2, 0)] as f32,
+                    trans[(2, 1)] as f32,
+                    trans[(2, 2)] as f32,
+                    trans[(2, 3)] as f32,
+                    0.0,
+                    0.0,
+                    0.0,
+                    1.0,
+                );
+                Affine3::from_matrix_unchecked(m)
+            } else {
+                Affine3::identity()
+            };
+
+            Ok(VolumeSendable::VolU8(dense_vol, affine))
+        }
+        VolumeSendable::Vec4DI8(vec) => {
+            let neuro_vol = vec.volume(timepoint).map_err(|e| BridgeError::Internal {
+                code: 5011,
+                details: format!("Failed to extract timepoint {}: {}", timepoint, e),
+            })?;
+
+            let dense_vol = DenseVolume3::new(neuro_vol);
+
+            let trans = &vec.space.trans;
+            let affine = if trans.nrows() >= 4 && trans.ncols() >= 4 {
+                let m = Matrix4::new(
+                    trans[(0, 0)] as f32,
+                    trans[(0, 1)] as f32,
+                    trans[(0, 2)] as f32,
+                    trans[(0, 3)] as f32,
+                    trans[(1, 0)] as f32,
+                    trans[(1, 1)] as f32,
+                    trans[(1, 2)] as f32,
+                    trans[(1, 3)] as f32,
+                    trans[(2, 0)] as f32,
+                    trans[(2, 1)] as f32,
+                    trans[(2, 2)] as f32,
+                    trans[(2, 3)] as f32,
+                    0.0,
+                    0.0,
+                    0.0,
+                    1.0,
+                );
+                Affine3::from_matrix_unchecked(m)
+            } else {
+                Affine3::identity()
+            };
+
+            Ok(VolumeSendable::VolI8(dense_vol, affine))
+        }
+        VolumeSendable::Vec4DU16(vec) => {
+            let neuro_vol = vec.volume(timepoint).map_err(|e| BridgeError::Internal {
+                code: 5011,
+                details: format!("Failed to extract timepoint {}: {}", timepoint, e),
+            })?;
+
+            let dense_vol = DenseVolume3::new(neuro_vol);
+
+            let trans = &vec.space.trans;
+            let affine = if trans.nrows() >= 4 && trans.ncols() >= 4 {
+                let m = Matrix4::new(
+                    trans[(0, 0)] as f32,
+                    trans[(0, 1)] as f32,
+                    trans[(0, 2)] as f32,
+                    trans[(0, 3)] as f32,
+                    trans[(1, 0)] as f32,
+                    trans[(1, 1)] as f32,
+                    trans[(1, 2)] as f32,
+                    trans[(1, 3)] as f32,
+                    trans[(2, 0)] as f32,
+                    trans[(2, 1)] as f32,
+                    trans[(2, 2)] as f32,
+                    trans[(2, 3)] as f32,
+                    0.0,
+                    0.0,
+                    0.0,
+                    1.0,
+                );
+                Affine3::from_matrix_unchecked(m)
+            } else {
+                Affine3::identity()
+            };
+
+            Ok(VolumeSendable::VolU16(dense_vol, affine))
+        }
+        VolumeSendable::Vec4DI32(vec) => {
+            let neuro_vol = vec.volume(timepoint).map_err(|e| BridgeError::Internal {
+                code: 5011,
+                details: format!("Failed to extract timepoint {}: {}", timepoint, e),
+            })?;
+
+            let dense_vol = DenseVolume3::new(neuro_vol);
+
+            let trans = &vec.space.trans;
+            let affine = if trans.nrows() >= 4 && trans.ncols() >= 4 {
+                let m = Matrix4::new(
+                    trans[(0, 0)] as f32,
+                    trans[(0, 1)] as f32,
+                    trans[(0, 2)] as f32,
+                    trans[(0, 3)] as f32,
+                    trans[(1, 0)] as f32,
+                    trans[(1, 1)] as f32,
+                    trans[(1, 2)] as f32,
+                    trans[(1, 3)] as f32,
+                    trans[(2, 0)] as f32,
+                    trans[(2, 1)] as f32,
+                    trans[(2, 2)] as f32,
+                    trans[(2, 3)] as f32,
+                    0.0,
+                    0.0,
+                    0.0,
+                    1.0,
+                );
+                Affine3::from_matrix_unchecked(m)
+            } else {
+                Affine3::identity()
+            };
+
+            Ok(VolumeSendable::VolI32(dense_vol, affine))
+        }
+        VolumeSendable::Vec4DU32(vec) => {
+            let neuro_vol = vec.volume(timepoint).map_err(|e| BridgeError::Internal {
+                code: 5011,
+                details: format!("Failed to extract timepoint {}: {}", timepoint, e),
+            })?;
+
+            let dense_vol = DenseVolume3::new(neuro_vol);
+
+            let trans = &vec.space.trans;
+            let affine = if trans.nrows() >= 4 && trans.ncols() >= 4 {
+                let m = Matrix4::new(
+                    trans[(0, 0)] as f32,
+                    trans[(0, 1)] as f32,
+                    trans[(0, 2)] as f32,
+                    trans[(0, 3)] as f32,
+                    trans[(1, 0)] as f32,
+                    trans[(1, 1)] as f32,
+                    trans[(1, 2)] as f32,
+                    trans[(1, 3)] as f32,
+                    trans[(2, 0)] as f32,
+                    trans[(2, 1)] as f32,
+                    trans[(2, 2)] as f32,
+                    trans[(2, 3)] as f32,
+                    0.0,
+                    0.0,
+                    0.0,
+                    1.0,
+                );
+                Affine3::from_matrix_unchecked(m)
+            } else {
+                Affine3::identity()
+            };
+
+            Ok(VolumeSendable::VolU32(dense_vol, affine))
+        }
+        VolumeSendable::Vec4DF64(vec) => {
+            let neuro_vol = vec.volume(timepoint).map_err(|e| BridgeError::Internal {
+                code: 5011,
+                details: format!("Failed to extract timepoint {}: {}", timepoint, e),
+            })?;
+
+            let dense_vol = DenseVolume3::new(neuro_vol);
+
+            let trans = &vec.space.trans;
+            let affine = if trans.nrows() >= 4 && trans.ncols() >= 4 {
+                let m = Matrix4::new(
+                    trans[(0, 0)] as f32,
+                    trans[(0, 1)] as f32,
+                    trans[(0, 2)] as f32,
+                    trans[(0, 3)] as f32,
+                    trans[(1, 0)] as f32,
+                    trans[(1, 1)] as f32,
+                    trans[(1, 2)] as f32,
+                    trans[(1, 3)] as f32,
+                    trans[(2, 0)] as f32,
+                    trans[(2, 1)] as f32,
+                    trans[(2, 2)] as f32,
+                    trans[(2, 3)] as f32,
+                    0.0,
+                    0.0,
+                    0.0,
+                    1.0,
+                );
+                Affine3::from_matrix_unchecked(m)
+            } else {
+                Affine3::identity()
+            };
+
+            Ok(VolumeSendable::VolF64(dense_vol, affine))
+        }
+    }
+}
+
 /// Calculate the actual slice index from a SliceIndex specification
 pub fn calculate_slice_index(
     slice_spec: &SliceIndex,
@@ -165,11 +647,11 @@ pub fn calculate_slice_index(
 ) -> BridgeResult<usize> {
     let axis_idx = axis as usize;
     let max_index = vol_dims[axis_idx];
-    
+
     if max_index == 0 {
-        return Err(BridgeError::Input { 
-            code: 2002, 
-            details: format!("Volume has zero size along {} axis. The volume may be corrupted or improperly loaded.", 
+        return Err(BridgeError::Input {
+            code: 2002,
+            details: format!("Volume has zero size along {} axis. The volume may be corrupted or improperly loaded.",
                 match axis {
                     SliceAxis::Axial => "Z (axial)",
                     SliceAxis::Coronal => "Y (coronal)",
@@ -177,42 +659,42 @@ pub fn calculate_slice_index(
                 })
         });
     }
-    
+
     let slice_idx = match slice_spec {
         SliceIndex::Fixed(idx) => {
             if *idx >= max_index {
-                return Err(BridgeError::Input { 
-                    code: 2003, 
-                    details: format!("Slice index {} is out of bounds for {} axis. Valid range is 0-{} for this volume.", 
+                return Err(BridgeError::Input {
+                    code: 2003,
+                    details: format!("Slice index {} is out of bounds for {} axis. Valid range is 0-{} for this volume.",
                         idx,
                         match axis {
                             SliceAxis::Axial => "axial",
-                            SliceAxis::Coronal => "coronal", 
+                            SliceAxis::Coronal => "coronal",
                             SliceAxis::Sagittal => "sagittal",
                         },
                         max_index - 1
-                    ) 
+                    )
                 });
             }
             *idx
-        },
+        }
         SliceIndex::Middle => max_index / 2,
         SliceIndex::Relative(position) => {
             if *position < 0.0 || *position > 1.0 {
-                return Err(BridgeError::Input { 
-                    code: 2004, 
-                    details: format!("Relative slice position {} is invalid. Please provide a value between 0.0 (first slice) and 1.0 (last slice).", position) 
+                return Err(BridgeError::Input {
+                    code: 2004,
+                    details: format!("Relative slice position {} is invalid. Please provide a value between 0.0 (first slice) and 1.0 (last slice).", position)
                 });
             }
             ((max_index - 1) as f32 * position) as usize
-        },
+        }
         SliceIndex::WorldCoordinate(world_coord) => {
             // Convert world coordinate to voxel index
             let voxel_coord = world_to_voxel_coord(world_coord, axis, volume_data)?;
             if voxel_coord >= max_index {
-                return Err(BridgeError::Input { 
-                    code: 2005, 
-                    details: format!("World coordinate {} mm is outside the volume bounds for {} axis. The coordinate maps to voxel index {}, but valid range is 0-{}.", 
+                return Err(BridgeError::Input {
+                    code: 2005,
+                    details: format!("World coordinate {} mm is outside the volume bounds for {} axis. The coordinate maps to voxel index {}, but valid range is 0-{}.",
                         world_coord,
                         match axis {
                             SliceAxis::Axial => "axial",
@@ -221,13 +703,13 @@ pub fn calculate_slice_index(
                         },
                         voxel_coord,
                         max_index - 1
-                    ) 
+                    )
                 });
             }
             voxel_coord
-        },
+        }
     };
-    
+
     Ok(slice_idx)
 }
 
@@ -238,33 +720,24 @@ fn world_to_voxel_coord(
     volume_data: &VolumeSendable,
 ) -> BridgeResult<usize> {
     // Get the affine transform
-    let affine = match volume_data {
-        VolumeSendable::VolF32(_, affine) |
-        VolumeSendable::VolI16(_, affine) |
-        VolumeSendable::VolU8(_, affine) |
-        VolumeSendable::VolI8(_, affine) |
-        VolumeSendable::VolU16(_, affine) |
-        VolumeSendable::VolI32(_, affine) |
-        VolumeSendable::VolU32(_, affine) |
-        VolumeSendable::VolF64(_, affine) => affine,
-    };
-    
+    let affine = get_affine_from_volume(volume_data)?;
+
     // Get world_to_voxel matrix (inverse of voxel_to_world)
     let voxel_to_world = affine.to_homogeneous();
     let world_to_voxel = voxel_to_world.try_inverse()
-        .ok_or_else(|| BridgeError::Internal { 
-            code: 5007, 
-            details: "Failed to invert affine transformation matrix. The volume's coordinate system may be corrupted.".to_string() 
+        .ok_or_else(|| BridgeError::Internal {
+            code: 5007,
+            details: "Failed to invert affine transformation matrix. The volume's coordinate system may be corrupted.".to_string()
         })?;
-    
+
     // Create a world point with the coordinate on the specified axis
     let mut world_point = nalgebra::Vector4::new(0.0, 0.0, 0.0, 1.0);
     world_point[axis as usize] = *world_coord;
-    
+
     // Transform to voxel space
     let voxel_point = world_to_voxel * world_point;
     let voxel_coord = voxel_point[axis as usize] / voxel_point[3];
-    
+
     // Round to nearest voxel
     Ok(voxel_coord.round() as usize)
 }
@@ -279,33 +752,183 @@ fn world_to_voxel_coord(
 // Removed LoaderRegistry struct definition
 // Removed LoaderRegistry impl block
 
+// --- Enhanced Volume Registry for 4D Support ---
+
+/// Stores volume data with timepoint tracking for 4D volumes
+#[derive(Debug)]
+pub struct VolumeEntry {
+    /// The actual volume data (3D or 4D)
+    pub data: VolumeSendable,
+    /// Current timepoint for 4D volumes (None for 3D)
+    pub current_timepoint: Option<usize>,
+    /// Metadata about the volume
+    pub metadata: VolumeMetadataInfo,
+}
+
+/// Enhanced metadata for volumes
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VolumeMetadataInfo {
+    pub name: String,
+    pub path: String,
+    pub dtype: String,
+    pub volume_type: bridge_types::VolumeType,
+    pub time_series_info: Option<bridge_types::TimeSeriesInfo>,
+}
+
+/// Registry that manages both 3D and 4D volumes with timepoint tracking
+#[derive(Debug)]
+pub struct VolumeRegistry {
+    volumes: HashMap<String, VolumeEntry>,
+}
+
+impl VolumeRegistry {
+    pub fn new() -> Self {
+        Self {
+            volumes: HashMap::new(),
+        }
+    }
+
+    /// Insert a new volume into the registry
+    pub fn insert(&mut self, id: String, data: VolumeSendable, metadata: VolumeMetadataInfo) {
+        let current_timepoint = if metadata.volume_type == bridge_types::VolumeType::TimeSeries4D {
+            Some(0) // Start at first timepoint
+        } else {
+            None
+        };
+
+        self.volumes.insert(
+            id,
+            VolumeEntry {
+                data,
+                current_timepoint,
+                metadata,
+            },
+        );
+    }
+
+    /// Get a volume by ID (returns the current timepoint for 4D)
+    pub fn get(&self, id: &str) -> Option<&VolumeSendable> {
+        self.volumes.get(id).map(|entry| &entry.data)
+    }
+
+    /// Get a volume entry with all metadata
+    pub fn get_entry(&self, id: &str) -> Option<&VolumeEntry> {
+        self.volumes.get(id)
+    }
+
+    /// Set the current timepoint for a 4D volume
+    pub fn set_timepoint(&mut self, id: &str, timepoint: usize) -> BridgeResult<()> {
+        let entry = self
+            .volumes
+            .get_mut(id)
+            .ok_or_else(|| BridgeError::VolumeNotFound {
+                code: 4041,
+                details: format!("Volume {} not found", id),
+            })?;
+
+        if entry.metadata.volume_type != bridge_types::VolumeType::TimeSeries4D {
+            return Err(BridgeError::Input {
+                code: 2006,
+                details: "Cannot set timepoint on a 3D volume".to_string(),
+            });
+        }
+
+        // Validate timepoint
+        if let Some(ts_info) = &entry.metadata.time_series_info {
+            if timepoint >= ts_info.num_timepoints {
+                return Err(BridgeError::Input {
+                    code: 2007,
+                    details: format!(
+                        "Timepoint {} out of range. Valid range: 0-{}",
+                        timepoint,
+                        ts_info.num_timepoints - 1
+                    ),
+                });
+            }
+        }
+
+        entry.current_timepoint = Some(timepoint);
+        Ok(())
+    }
+
+    /// Get the current timepoint for a 4D volume
+    pub fn get_timepoint(&self, id: &str) -> Option<usize> {
+        self.volumes
+            .get(id)
+            .and_then(|entry| entry.current_timepoint)
+    }
+
+    /// Remove a volume from the registry
+    pub fn remove(&mut self, id: &str) -> Option<VolumeEntry> {
+        self.volumes.remove(id)
+    }
+
+    /// Check if a volume exists
+    pub fn contains(&self, id: &str) -> bool {
+        self.volumes.contains_key(id)
+    }
+
+    /// Get all volume IDs
+    pub fn keys(&self) -> impl Iterator<Item = &String> {
+        self.volumes.keys()
+    }
+}
+
 // --- Define App State to hold the registry ---
 // This might conflict/need merging with AppState in src-tauri/lib.rs later
 pub struct BridgeState {
-   // Removed: pub loader_registry: Arc<Mutex<LoaderRegistry>>,
-   pub volume_registry: Arc<Mutex<HashMap<String, VolumeSendable>>>, 
-   pub render_loop_service: Arc<Mutex<Option<Arc<Mutex<RenderLoopService>>>>>, 
-   // NEW: Map UI layer ID to GPU texture atlas layer index
-   pub layer_to_atlas_map: Arc<Mutex<HashMap<String, u32>>>, 
+    // Removed: pub loader_registry: Arc<Mutex<LoaderRegistry>>,
+    pub volume_registry: Arc<Mutex<VolumeRegistry>>,
+    pub render_loop_service: Arc<Mutex<Option<Arc<Mutex<RenderLoopService>>>>>,
+    // NEW: Map UI layer ID to GPU texture atlas layer index
+    pub layer_to_atlas_map: Arc<Mutex<HashMap<String, u32>>>,
+    // Map UI layer ID to volume handle
+    pub layer_to_volume_map: Arc<Mutex<HashMap<String, String>>>,
+    // Atlas service for brain atlas management
+    pub atlas_service: Arc<Mutex<AtlasService>>,
+    // Template service for brain template management
+    pub template_service: Arc<Mutex<templates::TemplateService>>,
 }
 
 impl BridgeState {
     pub fn new(
         // Removed loader_registry parameter
-        volume_registry: Arc<Mutex<HashMap<String, VolumeSendable>>>,
+        volume_registry: Arc<Mutex<VolumeRegistry>>,
         render_loop_service: Arc<Mutex<Option<Arc<Mutex<RenderLoopService>>>>>,
-        layer_to_atlas_map: Arc<Mutex<HashMap<String, u32>>>
+        layer_to_atlas_map: Arc<Mutex<HashMap<String, u32>>>,
+        layer_to_volume_map: Arc<Mutex<HashMap<String, String>>>,
+        atlas_service: Arc<Mutex<AtlasService>>,
+        template_service: Arc<Mutex<templates::TemplateService>>,
     ) -> Self {
-        Self { /* Removed loader_registry field */ volume_registry, render_loop_service, layer_to_atlas_map }
-    }
-    
-    pub fn default() -> Self {
         Self {
-            // Removed loader_registry initialization
-            volume_registry: Arc::new(Mutex::new(HashMap::new())),
-            render_loop_service: Arc::new(Mutex::new(None)), 
-            layer_to_atlas_map: Arc::new(Mutex::new(HashMap::new())),
+            /* Removed loader_registry field */ volume_registry,
+            render_loop_service,
+            layer_to_atlas_map,
+            layer_to_volume_map,
+            atlas_service,
+            template_service,
         }
+    }
+
+    pub fn default() -> Result<Self, String> {
+        // Create cache directory for atlas data
+        let cache_dir = std::env::temp_dir().join("brainflow_atlas_cache");
+        
+        Ok(Self {
+            // Removed loader_registry initialization
+            volume_registry: Arc::new(Mutex::new(VolumeRegistry::new())),
+            render_loop_service: Arc::new(Mutex::new(None)),
+            layer_to_atlas_map: Arc::new(Mutex::new(HashMap::new())),
+            layer_to_volume_map: Arc::new(Mutex::new(HashMap::new())),
+            atlas_service: Arc::new(Mutex::new(
+                AtlasService::new(cache_dir.clone())
+                    .map_err(|e| format!("Failed to initialize atlas service: {}", e))?
+            )),
+            template_service: Arc::new(Mutex::new(
+                templates::TemplateService::new(cache_dir)
+                    .map_err(|e| format!("Failed to initialize template service: {}", e))?
+            )),
+        })
     }
 }
 
@@ -313,181 +936,132 @@ impl BridgeState {
 
 #[command]
 #[tracing::instrument(skip_all, err, name = "api.load_file")]
-#[allow(dead_code)] // Allow unused for now
-async fn load_file<R: Runtime>(
-    path: String, 
+async fn load_file(
+    path: String,
     state: State<'_, BridgeState>,
-    app: tauri::AppHandle<R>
-) -> BridgeResult<VolumeHandleInfo> { // Return VolumeHandleInfo
-    println!("Bridge: load_file called with path: {}", path);
-    let path_buf = Path::new(&path);
-    
-    // Generate task ID for progress tracking
-    let task_id = format!("load-file-{}", uuid::Uuid::new_v4());
-    let filename = path_buf.file_name()
-        .unwrap_or_default()
-        .to_string_lossy()
-        .to_string();
-    
-    // Emit progress start event
-    let _ = app.emit("progress:start", serde_json::json!({
-        "taskId": &task_id,
-        "type": "file-load",
-        "title": format!("Loading {}", filename),
-        "message": "Reading file...",
-        "cancellable": false
-    }));
-    
-    // Check if file exists first
-    if !path_buf.exists() {
-        let _ = app.emit("progress:error", serde_json::json!({
-            "taskId": &task_id,
-            "error": "File not found"
-        }));
-        return Err(file_not_found_error(&path));
+) -> BridgeResult<VolumeHandleInfo> {
+    info!("Bridge: load_file called with path: {}", path);
+
+    // Validate that the file exists and is loadable
+    let file_path = std::path::Path::new(&path);
+    if !file_path.exists() {
+        return Err(BridgeError::Io {
+            code: 1001,
+            details: format!("File not found: {}", path),
+        });
     }
-    
-    // Update progress - file found
-    let _ = app.emit("progress:update", serde_json::json!({
-        "taskId": &task_id,
-        "progress": 10,
-        "message": "File found, checking format..."
-    }));
-    
-    // Check if we can load this file type
-    if core_loaders::is_loadable(path_buf) {
-        // Update progress - reading file
-        let _ = app.emit("progress:update", serde_json::json!({
-            "taskId": &task_id,
-            "progress": 25,
-            "message": "Reading file data..."
-        }));
-        
-        // For now, we'll use spawn_blocking since NiftiLoader::load is sync
-        let path_clone = path_buf.to_path_buf();
-        let loaded_data = tokio::task::spawn_blocking(move || {
-            nifti_loader::NiftiLoader::load(&path_clone)
-        }).await
-        .map_err(|e| {
-            let _ = app.emit("progress:error", serde_json::json!({
-                "taskId": &task_id,
-                "error": format!("Task join error: {}", e)
-            }));
-            BridgeError::Internal { code: 5003, details: format!("Task join error: {}", e) }
-        })?
-        .map_err(|e| {
-            let _ = app.emit("progress:error", serde_json::json!({
-                "taskId": &task_id,
-                "error": e.to_string()
-            }));
-            volume_load_error(&path, &e.to_string())
+
+    if !core_loaders::is_loadable(file_path) {
+        return Err(BridgeError::Input {
+            code: 1002,
+            details: format!("File format not supported: {}", path),
+        });
+    }
+
+    // Load the volume data
+    let (volume_sendable, _affine) = nifti_loader::load_nifti_volume_auto(file_path)
+        .map_err(|e| BridgeError::Loader {
+            code: 1003,
+            details: format!("Failed to load file {}: {}", path, e),
         })?;
 
-        match loaded_data {
-            Loaded::Volume { dims, dtype, path: loaded_path } => {
-                // Update progress - parsing volume
-                let _ = app.emit("progress:update", serde_json::json!({
-                    "taskId": &task_id,
-                    "progress": 50,
-                    "message": "Parsing volume data..."
-                }));
-                
-                // Now we need to load the actual volume data
-                // Since load_nifti_volume is not exposed publicly, we need to read the file again
-                // This is inefficient but maintains the current architecture
-                let path_buf2 = path_buf.to_path_buf();
-                let app_clone = app.clone();
-                let task_id_clone = task_id.clone();
-                let volume_result = tokio::task::spawn_blocking(move || {
-                    // File operations handled by loaders
-                    
-                    nifti_loader::load_nifti_volume_auto(&path_buf2)
-                        .context_bridge(
-                            format!("parsing NIFTI volume from '{}'", path_buf2.display()), 
-                            5003
-                        )
-                }).await
-                .map_err(|e| {
-                    let _ = app_clone.emit("progress:error", serde_json::json!({
-                        "taskId": &task_id_clone,
-                        "error": format!("Task join error: {}", e)
-                    }));
-                    BridgeError::Internal { code: 5004, details: format!("Task join error: {}", e) }
-                })??;
+    // Extract metadata from the loaded volume
+    let loaded_data = nifti_loader::NiftiLoader::load(file_path)
+        .map_err(|e| BridgeError::Loader {
+            code: 1004,
+            details: format!("Failed to load metadata for {}: {}", path, e),
+        })?;
 
-                let (volume_sendable, _affine) = volume_result;
-                
-                // Update progress - storing volume
-                let _ = app.emit("progress:update", serde_json::json!({
-                    "taskId": &task_id,
-                    "progress": 75,
-                    "message": "Storing volume data..."
-                }));
-                
-                // Generate a unique ID for this volume
-                let volume_id = uuid::Uuid::new_v4().to_string();
-                
-                // Store the volume in the registry
-                {
-                    let mut registry = state.volume_registry.lock().await;
-                    registry.insert(volume_id.clone(), volume_sendable);
-                }
-                
-                let handle_info = VolumeHandleInfo {
-                    id: volume_id,
-                    name: Path::new(&loaded_path).file_name().unwrap_or_default().to_string_lossy().to_string(),
-                    dims: [dims[0] as usize, dims[1] as usize, dims[2] as usize],
-                    dtype,
-                };
-                
-                // Emit completion event
-                let _ = app.emit("progress:complete", serde_json::json!({
-                    "taskId": &task_id,
-                    "message": "Volume loaded successfully"
-                }));
-                
-                info!("Successfully loaded and stored volume with ID: {}", handle_info.id);
-                Ok(handle_info)
-            }
-            _ => {
-                let _ = app.emit("progress:error", serde_json::json!({
-                    "taskId": &task_id,
-                    "error": "Loader returned unexpected data type"
-                }));
-                Err(BridgeError::Internal { code: 500, details: "Loader returned unexpected data type".to_string() })
+    let (dims, dtype) = match loaded_data {
+        bridge_types::Loaded::Volume { dims, dtype, .. } => {
+            (dims, dtype)
+        }
+        _ => {
+            return Err(BridgeError::Input {
+                code: 1005,
+                details: "Only volume files are supported by load_file.".to_string(),
+            });
+        }
+    };
+
+    // Determine if this is a 4D volume by checking the VolumeSendable
+    let (volume_type, time_series_info) = match &volume_sendable {
+        bridge_types::VolumeSendable::VolF32(vol, _) => {
+            let vol_dims = vol.space().dims();
+            if vol_dims.len() > 3 && vol_dims[3] > 1 {
+                (bridge_types::VolumeType::TimeSeries4D, Some(bridge_types::TimeSeriesInfo {
+                    num_timepoints: vol_dims[3],
+                    tr: None,
+                    temporal_unit: None,
+                    acquisition_time: None,
+                }))
+            } else {
+                (bridge_types::VolumeType::Volume3D, None)
             }
         }
-    } else {
-        let _ = app.emit("progress:error", serde_json::json!({
-            "taskId": &task_id,
-            "error": "Unsupported file format"
-        }));
-        Err(unsupported_format_error(&path))
-    }
+        // For other types, assume 3D for now
+        _ => (bridge_types::VolumeType::Volume3D, None)
+    };
+
+    // Generate a unique handle ID based on the file name
+    let file_name = file_path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("unknown");
+    let handle_id = format!("volume_{}", uuid::Uuid::new_v4());
+
+    // Create volume metadata
+    let metadata = VolumeMetadataInfo {
+        name: file_name.to_string(),
+        path: path.clone(),
+        dtype: dtype.clone(),
+        volume_type: volume_type.clone(),
+        time_series_info: time_series_info.clone(),
+    };
+
+    // Register the volume in the state
+    let mut registry = state.volume_registry.lock().await;
+    registry.insert(handle_id.clone(), volume_sendable, metadata);
+    drop(registry);
+
+    info!("Bridge: Successfully loaded volume with handle: {}", handle_id);
+
+    // Return the handle
+    Ok(VolumeHandleInfo {
+        id: handle_id,
+        name: file_name.to_string(),
+        dims: dims.iter().map(|&d| d as usize).collect(),
+        dtype,
+        volume_type,
+        num_timepoints: time_series_info.as_ref().map(|ts| ts.num_timepoints),
+        current_timepoint: None,
+        time_series_info,
+    })
 }
 
 #[command]
 #[tracing::instrument(skip_all, err, name = "api.get_volume_bounds")]
-#[allow(dead_code)] // Allow unused for now
-async fn get_volume_bounds(volume_id: String, state: State<'_, BridgeState>) -> BridgeResult<VolumeBounds> {
-    println!("Bridge: get_volume_bounds called for {}", volume_id);
-    
+async fn get_volume_bounds(
+    volume_id: String,
+    state: State<'_, BridgeState>,
+) -> BridgeResult<VolumeBounds> {
+    info!("Bridge: get_volume_bounds called for {}", volume_id);
+
     let volume_registry = state.volume_registry.lock().await;
-    let volume_data = volume_registry.get(&volume_id)
-        .ok_or_else(|| BridgeError::VolumeNotFound { code: 4041, details: volume_id.clone() })?;
-    
+    let volume_data =
+        volume_registry
+            .get(&volume_id)
+            .ok_or_else(|| BridgeError::VolumeNotFound {
+                code: 4041,
+                details: volume_id.clone(),
+            })?;
+
     // Calculate world bounds from volume dimensions and affine transform
-    let (dims, voxel_to_world) = match volume_data {
-        VolumeSendable::VolF32(vol, affine) => (vol.space().dims(), affine.to_homogeneous()),
-        VolumeSendable::VolI16(vol, affine) => (vol.space().dims(), affine.to_homogeneous()),
-        VolumeSendable::VolU8(vol, affine) => (vol.space().dims(), affine.to_homogeneous()),
-        VolumeSendable::VolI8(vol, affine) => (vol.space().dims(), affine.to_homogeneous()),
-        VolumeSendable::VolU16(vol, affine) => (vol.space().dims(), affine.to_homogeneous()),
-        VolumeSendable::VolI32(vol, affine) => (vol.space().dims(), affine.to_homogeneous()),
-        VolumeSendable::VolU32(vol, affine) => (vol.space().dims(), affine.to_homogeneous()),
-        VolumeSendable::VolF64(vol, affine) => (vol.space().dims(), affine.to_homogeneous()),
-    };
-    
+    let dims_vec = get_spatial_dims_from_volume(volume_data);
+    let dims = [dims_vec[0], dims_vec[1], dims_vec[2]];
+    let affine = get_affine_from_volume(volume_data)?;
+    let voxel_to_world = affine.to_homogeneous();
+
     // Calculate the 8 corners of the volume in voxel space
     let corners_voxel = vec![
         nalgebra::Vector4::new(0.0, 0.0, 0.0, 1.0),
@@ -497,13 +1071,18 @@ async fn get_volume_bounds(volume_id: String, state: State<'_, BridgeState>) -> 
         nalgebra::Vector4::new(0.0, 0.0, (dims[2] - 1) as f32, 1.0),
         nalgebra::Vector4::new((dims[0] - 1) as f32, 0.0, (dims[2] - 1) as f32, 1.0),
         nalgebra::Vector4::new(0.0, (dims[1] - 1) as f32, (dims[2] - 1) as f32, 1.0),
-        nalgebra::Vector4::new((dims[0] - 1) as f32, (dims[1] - 1) as f32, (dims[2] - 1) as f32, 1.0),
+        nalgebra::Vector4::new(
+            (dims[0] - 1) as f32,
+            (dims[1] - 1) as f32,
+            (dims[2] - 1) as f32,
+            1.0,
+        ),
     ];
-    
+
     // Transform corners to world space and find min/max bounds
     let mut min_bounds = [f32::INFINITY; 3];
     let mut max_bounds = [f32::NEG_INFINITY; 3];
-    
+
     for corner_voxel in corners_voxel {
         let corner_world = voxel_to_world * corner_voxel;
         for i in 0..3 {
@@ -511,16 +1090,16 @@ async fn get_volume_bounds(volume_id: String, state: State<'_, BridgeState>) -> 
             max_bounds[i] = max_bounds[i].max(corner_world[i]);
         }
     }
-    
+
     // Calculate center in world space
     let center_voxel = nalgebra::Vector4::new(
         (dims[0] as f32 - 1.0) * 0.5,
         (dims[1] as f32 - 1.0) * 0.5,
         (dims[2] as f32 - 1.0) * 0.5,
-        1.0
+        1.0,
     );
     let center_world = voxel_to_world * center_voxel;
-    
+
     Ok(VolumeBounds {
         min: min_bounds,
         max: max_bounds,
@@ -529,84 +1108,80 @@ async fn get_volume_bounds(volume_id: String, state: State<'_, BridgeState>) -> 
     })
 }
 
+// --- 4D Volume Commands ---
+
 #[command]
-#[tracing::instrument(skip_all, err, name = "api.world_to_voxel")]
-#[allow(dead_code)] // Allow unused for now
-async fn world_to_voxel(volume_id: String, world_coord: [f32; 3], state: State<'_, BridgeState>) -> BridgeResult<Option<[usize; 3]>> { // Add state
-    println!("Bridge: world_to_voxel called for {} at {:?}", volume_id, world_coord);
+#[tracing::instrument(skip_all, err, name = "api.set_volume_timepoint")]
+async fn set_volume_timepoint(
+    volume_id: String,
+    timepoint: usize,
+    state: State<'_, BridgeState>,
+) -> BridgeResult<()> {
+    info!(
+        "Bridge: set_volume_timepoint called for {} at timepoint {}",
+        volume_id, timepoint
+    );
 
-    // 1. Get necessary volume info - Lock only to clone needed data
-    let (dims_vec, grid_coords_f32) = {
-        let volume_registry = state.volume_registry.lock().await; // Lock successful or panicked
-        let volume_data = volume_registry.get(&volume_id)
-            .ok_or_else(|| BridgeError::VolumeNotFound { code: 4041, details: volume_id.clone() })?;
+    let mut registry = state.volume_registry.lock().await;
+    registry.set_timepoint(&volume_id, timepoint)?;
 
-        // Calculate grid coords and clone dims while lock is held
-        let dims_vec = match volume_data {
-            VolumeSendable::VolF32(vol, _) => vol.space().dims().to_vec(),
-            VolumeSendable::VolI16(vol, _) => vol.space().dims().to_vec(),
-            VolumeSendable::VolU8(vol, _) => vol.space().dims().to_vec(),
-            VolumeSendable::VolI8(vol, _) => vol.space().dims().to_vec(),
-            VolumeSendable::VolU16(vol, _) => vol.space().dims().to_vec(),
-            VolumeSendable::VolI32(vol, _) => vol.space().dims().to_vec(),
-            VolumeSendable::VolU32(vol, _) => vol.space().dims().to_vec(),
-            VolumeSendable::VolF64(vol, _) => vol.space().dims().to_vec(),
-        };
-
-        let grid_coords_f32 = {
-            // Convert [f32; 3] to Vec<Vec<f64>> format expected by coord_to_grid
-            let coords_vec = vec![vec![world_coord[0] as f64, world_coord[1] as f64, world_coord[2] as f64]];
-            match volume_data { // Calculate using original volume_data
-                VolumeSendable::VolF32(vol, _) => vol.space().coord_to_grid(&coords_vec),
-                VolumeSendable::VolI16(vol, _) => vol.space().coord_to_grid(&coords_vec),
-                VolumeSendable::VolU8(vol, _) => vol.space().coord_to_grid(&coords_vec),
-                VolumeSendable::VolI8(vol, _) => vol.space().coord_to_grid(&coords_vec),
-                VolumeSendable::VolU16(vol, _) => vol.space().coord_to_grid(&coords_vec),
-                VolumeSendable::VolI32(vol, _) => vol.space().coord_to_grid(&coords_vec),
-                VolumeSendable::VolU32(vol, _) => vol.space().coord_to_grid(&coords_vec),
-                VolumeSendable::VolF64(vol, _) => vol.space().coord_to_grid(&coords_vec),
-            }
-        };
-
-        (dims_vec, grid_coords_f32)
-    }; // Lock dropped here
-
-    // 3. Extract grid coordinates from Result and convert to usize
-    let grid_coords_result = grid_coords_f32.map_err(|e| BridgeError::Internal {
-        code: 5011,
-        details: format!("Failed to convert world coordinates to grid coordinates: {:?}", e),
-    })?;
-    
-    let mut grid_coords_usize = [0usize; 3];
-    let dims = &dims_vec;
-
-    // grid_coords_result is Vec<Vec<i32>>, we want the first point's coordinates
-    let grid_coords_i32 = &grid_coords_result[0];
-    
-    for i in 0..3 {
-        let coord_floor = grid_coords_i32[i] as f32;
-        // Check for negative coordinates and NaNs
-        if coord_floor < 0.0 || coord_floor.is_nan() {
-            return Ok(None); // Coordinate is outside the grid
-        }
-        let coord_usize = coord_floor as usize;
-        // Check upper bounds
-        if coord_usize >= dims[i] {
-            return Ok(None); // Coordinate is outside the grid
-        }
-        grid_coords_usize[i] = coord_usize;
-    }
-
-    Ok(Some(grid_coords_usize))
+    info!(
+        "Successfully set timepoint {} for volume {}",
+        timepoint, volume_id
+    );
+    Ok(())
 }
 
 #[command]
-#[tracing::instrument(skip_all, err, name = "api.get_timeseries")]
-#[allow(dead_code)] // Allow unused for now
-async fn get_timeseries_matrix(volume_id: String, coords: Vec<[f32; 3]>, _state: State<'_, BridgeState>) -> BridgeResult<TimeSeriesResult> { // Add state
-    println!("Bridge: get_timeseries_matrix called for {} with {} coords", volume_id, coords.len());
-    // Placeholder implementation - requires actual volmath integration
-    Err(BridgeError::Internal { code: 5001, details: "get_timeseries_matrix not implemented".to_string() })
+#[tracing::instrument(skip_all, err, name = "api.get_volume_timepoint")]
+async fn get_volume_timepoint(
+    volume_id: String,
+    state: State<'_, BridgeState>,
+) -> BridgeResult<Option<usize>> {
+    info!("Bridge: get_volume_timepoint called for {}", volume_id);
+
+    let registry = state.volume_registry.lock().await;
+    let timepoint = registry.get_timepoint(&volume_id);
+
+    info!("Volume {} current timepoint: {:?}", volume_id, timepoint);
+    Ok(timepoint)
+}
+
+#[command]
+#[tracing::instrument(skip_all, err, name = "api.get_volume_info")]
+async fn get_volume_info(
+    volume_id: String,
+    state: State<'_, BridgeState>,
+) -> BridgeResult<VolumeHandleInfo> {
+    info!("Bridge: get_volume_info called for {}", volume_id);
+
+    let registry = state.volume_registry.lock().await;
+    let entry = registry
+        .get_entry(&volume_id)
+        .ok_or_else(|| BridgeError::VolumeNotFound {
+            code: 4041,
+            details: format!("Volume {} not found", volume_id),
+        })?;
+
+    // Extract dimensions based on volume type
+    let dims = get_spatial_dims_from_volume(&entry.data);
+
+    let handle_info = VolumeHandleInfo {
+        id: volume_id.clone(),
+        name: entry.metadata.name.clone(),
+        dims,
+        dtype: entry.metadata.dtype.clone(),
+        volume_type: entry.metadata.volume_type.clone(),
+        num_timepoints: entry
+            .metadata
+            .time_series_info
+            .as_ref()
+            .map(|ts| ts.num_timepoints),
+        current_timepoint: entry.current_timepoint,
+        time_series_info: entry.metadata.time_series_info.clone(),
+    };
+
+    Ok(handle_info)
 }
 
 #[command]
@@ -616,64 +1191,59 @@ async fn get_initial_views(
     max_px: Vec<u32>, // [width, height]
     state: State<'_, BridgeState>,
 ) -> BridgeResult<HashMap<String, ViewRectMm>> {
-    println!("Bridge: get_initial_views called for {} with max_px: {:?}", volume_id, max_px);
-    
+    info!(
+        "Bridge: get_initial_views called for {} with max_px: {:?}",
+        volume_id, max_px
+    );
+
     // Validate max_px input
     if max_px.len() != 2 {
-        return Err(BridgeError::Input { 
-            code: 4001, 
-            details: "max_px must have exactly 2 elements [width, height]".to_string() 
+        return Err(BridgeError::Input {
+            code: 4001,
+            details: "max_px must have exactly 2 elements [width, height]".to_string(),
         });
     }
     let screen_px_max = [max_px[0], max_px[1]];
-    
+
     // Get volume from registry
     let volume_registry = state.volume_registry.lock().await;
-    let volume_data = volume_registry.get(&volume_id)
-        .ok_or_else(|| BridgeError::VolumeNotFound { 
-            code: 4041, 
-            details: format!("Volume '{}' not found", volume_id) 
-        })?;
-    
+    let volume_data =
+        volume_registry
+            .get(&volume_id)
+            .ok_or_else(|| BridgeError::VolumeNotFound {
+                code: 4041,
+                details: format!("Volume '{}' not found", volume_id),
+            })?;
+
     // Extract dimensions and voxel_to_world transform
-    let (dims, voxel_to_world) = match volume_data {
-        VolumeSendable::VolF32(vol, affine) => (vol.space().dims(), affine.to_homogeneous()),
-        VolumeSendable::VolI16(vol, affine) => (vol.space().dims(), affine.to_homogeneous()),
-        VolumeSendable::VolU8(vol, affine) => (vol.space().dims(), affine.to_homogeneous()),
-        VolumeSendable::VolI8(vol, affine) => (vol.space().dims(), affine.to_homogeneous()),
-        VolumeSendable::VolU16(vol, affine) => (vol.space().dims(), affine.to_homogeneous()),
-        VolumeSendable::VolI32(vol, affine) => (vol.space().dims(), affine.to_homogeneous()),
-        VolumeSendable::VolU32(vol, affine) => (vol.space().dims(), affine.to_homogeneous()),
-        VolumeSendable::VolF64(vol, affine) => (vol.space().dims(), affine.to_homogeneous()),
-    };
-    
+    let dims_vec = get_spatial_dims_from_volume(volume_data);
+    let dims = [dims_vec[0], dims_vec[1], dims_vec[2]];
+    let affine = get_affine_from_volume(volume_data)?;
+    let voxel_to_world = affine.to_homogeneous();
+
     // Create VolumeMetadata for ViewRectMm calculations
     let volume_meta = VolumeMetadata {
         dimensions: [dims[0], dims[1], dims[2]],
         voxel_to_world,
     };
-    
+
     // Calculate center of volume in world coordinates
     let center_voxel = [
         (dims[0] as f32 - 1.0) / 2.0,
         (dims[1] as f32 - 1.0) / 2.0,
         (dims[2] as f32 - 1.0) / 2.0,
     ];
-    let center_world_point = voxel_to_world * nalgebra::Point4::new(
-        center_voxel[0], 
-        center_voxel[1], 
-        center_voxel[2], 
-        1.0
-    );
+    let center_world_point = voxel_to_world
+        * nalgebra::Point4::new(center_voxel[0], center_voxel[1], center_voxel[2], 1.0);
     let crosshair_world = [
         center_world_point[0] / center_world_point[3],
         center_world_point[1] / center_world_point[3],
         center_world_point[2] / center_world_point[3],
     ];
-    
+
     // Calculate views for all three orientations
     let mut views = HashMap::new();
-    
+
     // Axial view
     let axial_view = ViewRectMm::full_extent(
         &volume_meta,
@@ -682,7 +1252,7 @@ async fn get_initial_views(
         screen_px_max,
     );
     views.insert("axial".to_string(), axial_view);
-    
+
     // Sagittal view
     let sagittal_view = ViewRectMm::full_extent(
         &volume_meta,
@@ -691,7 +1261,7 @@ async fn get_initial_views(
         screen_px_max,
     );
     views.insert("sagittal".to_string(), sagittal_view);
-    
+
     // Coronal view
     let coronal_view = ViewRectMm::full_extent(
         &volume_meta,
@@ -700,7 +1270,7 @@ async fn get_initial_views(
         screen_px_max,
     );
     views.insert("coronal".to_string(), coronal_view);
-    
+
     Ok(views)
 }
 
@@ -708,133 +1278,143 @@ async fn get_initial_views(
 #[tracing::instrument(skip_all, err, name = "api.recalculate_view_for_dimensions")]
 async fn recalculate_view_for_dimensions(
     volume_id: String,
-    view_type: String, // "axial", "sagittal", or "coronal"
-    dimensions: Vec<u32>, // [width, height]
+    view_type: String,      // "axial", "sagittal", or "coronal"
+    dimensions: Vec<u32>,   // [width, height]
     crosshair_mm: Vec<f32>, // [x, y, z]
     state: State<'_, BridgeState>,
 ) -> BridgeResult<ViewRectMm> {
-    println!("[Backend] recalculate_view_for_dimensions called:");
-    println!("  - volume_id: {}", volume_id);
-    println!("  - view_type: {}", view_type);
-    println!("  - requested dimensions: {:?}", dimensions);
-    println!("  - crosshair_mm: {:?}", crosshair_mm);
-    
+    debug!("[Backend] recalculate_view_for_dimensions called:");
+    debug!("  - volume_id: {}", volume_id);
+    debug!("  - view_type: {}", view_type);
+    debug!("  - requested dimensions: {:?}", dimensions);
+    debug!("  - crosshair_mm: {:?}", crosshair_mm);
+
     // Validate inputs
     if dimensions.len() != 2 {
-        return Err(BridgeError::Input { 
-            code: 4001, 
-            details: "dimensions must have exactly 2 elements [width, height]".to_string() 
+        return Err(BridgeError::Input {
+            code: 4001,
+            details: "dimensions must have exactly 2 elements [width, height]".to_string(),
         });
     }
     if crosshair_mm.len() != 3 {
-        return Err(BridgeError::Input { 
-            code: 4001, 
-            details: "crosshair_mm must have exactly 3 elements [x, y, z]".to_string() 
+        return Err(BridgeError::Input {
+            code: 4001,
+            details: "crosshair_mm must have exactly 3 elements [x, y, z]".to_string(),
         });
     }
-    
+
     let screen_px_max = [dimensions[0], dimensions[1]];
     let crosshair_world = [crosshair_mm[0], crosshair_mm[1], crosshair_mm[2]];
-    
-    println!("[Backend] Parsed parameters:");
-    println!("  - screen_px_max: {:?}", screen_px_max);
-    println!("  - crosshair_world: {:?}", crosshair_world);
-    
+
+    debug!("[Backend] Parsed parameters:");
+    debug!("  - screen_px_max: {:?}", screen_px_max);
+    debug!("  - crosshair_world: {:?}", crosshair_world);
+
     // Parse view type
     let orientation = match view_type.as_str() {
         "axial" => ViewOrientation::Axial,
         "sagittal" => ViewOrientation::Sagittal,
         "coronal" => ViewOrientation::Coronal,
-        _ => return Err(BridgeError::Input { 
-            code: 4001, 
-            details: format!("Invalid view type: {}. Must be 'axial', 'sagittal', or 'coronal'", view_type) 
-        }),
+        _ => {
+            return Err(BridgeError::Input {
+                code: 4001,
+                details: format!(
+                    "Invalid view type: {}. Must be 'axial', 'sagittal', or 'coronal'",
+                    view_type
+                ),
+            })
+        }
     };
-    
+
     // Get volume from registry
     let volume_registry = state.volume_registry.lock().await;
-    let volume_data = volume_registry.get(&volume_id)
-        .ok_or_else(|| BridgeError::VolumeNotFound { 
-            code: 4041, 
-            details: format!("Volume '{}' not found", volume_id) 
-        })?;
-    
+    let volume_data =
+        volume_registry
+            .get(&volume_id)
+            .ok_or_else(|| BridgeError::VolumeNotFound {
+                code: 4041,
+                details: format!("Volume '{}' not found", volume_id),
+            })?;
+
     // Extract dimensions and voxel_to_world transform
-    let (dims, voxel_to_world) = match volume_data {
-        VolumeSendable::VolF32(vol, affine) => (vol.space().dims(), affine.to_homogeneous()),
-        VolumeSendable::VolI16(vol, affine) => (vol.space().dims(), affine.to_homogeneous()),
-        VolumeSendable::VolU8(vol, affine) => (vol.space().dims(), affine.to_homogeneous()),
-        VolumeSendable::VolI8(vol, affine) => (vol.space().dims(), affine.to_homogeneous()),
-        VolumeSendable::VolU16(vol, affine) => (vol.space().dims(), affine.to_homogeneous()),
-        VolumeSendable::VolI32(vol, affine) => (vol.space().dims(), affine.to_homogeneous()),
-        VolumeSendable::VolU32(vol, affine) => (vol.space().dims(), affine.to_homogeneous()),
-        VolumeSendable::VolF64(vol, affine) => (vol.space().dims(), affine.to_homogeneous()),
-    };
-    
-    println!("[Backend] Volume metadata:");
-    println!("  - volume dims: {:?}", dims);
-    println!("  - voxel_to_world transform: {:?}", voxel_to_world);
-    
+    let dims_vec = get_spatial_dims_from_volume(volume_data);
+    let dims = [dims_vec[0], dims_vec[1], dims_vec[2]];
+    let affine = get_affine_from_volume(volume_data)?;
+    let voxel_to_world = affine.to_homogeneous();
+
+    debug!("[Backend] Volume metadata:");
+    debug!("  - volume dims: {:?}", dims);
+    debug!("  - voxel_to_world transform: {:?}", voxel_to_world);
+
     // Create VolumeMetadata
     let volume_meta = VolumeMetadata {
         dimensions: [dims[0], dims[1], dims[2]],
         voxel_to_world,
     };
-    
+
     // Calculate view using the same logic as get_initial_views
-    println!("[Backend] Calling ViewRectMm::full_extent with:");
-    println!("  - orientation: {:?}", orientation);
-    println!("  - crosshair_world: {:?}", crosshair_world);
-    println!("  - screen_px_max: {:?}", screen_px_max);
-    
-    let view = ViewRectMm::full_extent(
-        &volume_meta,
-        orientation,
-        crosshair_world,
-        screen_px_max,
-    );
-    
-    println!("[Backend] Calculated ViewRectMm:");
-    println!("  - origin_mm: {:?}", view.origin_mm);
-    println!("  - u_mm: {:?}", view.u_mm);
-    println!("  - v_mm: {:?}", view.v_mm);
-    println!("  - width_px: {}", view.width_px);
-    println!("  - height_px: {}", view.height_px);
-    
+    debug!("[Backend] Calling ViewRectMm::full_extent with:");
+    debug!("  - orientation: {:?}", orientation);
+    debug!("  - crosshair_world: {:?}", crosshair_world);
+    debug!("  - screen_px_max: {:?}", screen_px_max);
+
+    let view = ViewRectMm::full_extent(&volume_meta, orientation, crosshair_world, screen_px_max);
+
+    debug!("[Backend] Calculated ViewRectMm:");
+    debug!("  - origin_mm: {:?}", view.origin_mm);
+    debug!("  - u_mm: {:?}", view.u_mm);
+    debug!("  - v_mm: {:?}", view.v_mm);
+    debug!("  - width_px: {}", view.width_px);
+    debug!("  - height_px: {}", view.height_px);
+
     // Log pixel sizes
     let u_pixel_size = (view.u_mm[0].powi(2) + view.u_mm[1].powi(2) + view.u_mm[2].powi(2)).sqrt();
     let v_pixel_size = (view.v_mm[0].powi(2) + view.v_mm[1].powi(2) + view.v_mm[2].powi(2)).sqrt();
-    println!("[Backend] Pixel sizes:");
-    println!("  - u pixel size: {} mm", u_pixel_size);
-    println!("  - v pixel size: {} mm", v_pixel_size);
-    
+    debug!("[Backend] Pixel sizes:");
+    debug!("  - u pixel size: {} mm", u_pixel_size);
+    debug!("  - v pixel size: {} mm", v_pixel_size);
+
     // CRITICAL: Check if calculated dimensions match requested
     if view.width_px != screen_px_max[0] || view.height_px != screen_px_max[1] {
-        println!("[Backend] ⚠️ WARNING: Calculated dimensions differ from requested!");
-        println!("  - Requested: {}x{}", screen_px_max[0], screen_px_max[1]);
-        println!("  - Calculated: {}x{}", view.width_px, view.height_px);
+        warn!("[Backend] ⚠️ WARNING: Calculated dimensions differ from requested!");
+        warn!("  - Requested: {}x{}", screen_px_max[0], screen_px_max[1]);
+        warn!("  - Calculated: {}x{}", view.width_px, view.height_px);
     }
-    
+
     Ok(view)
 }
 
 #[command]
 #[tracing::instrument(skip_all, err, name = "api.request_gpu")]
-#[allow(dead_code)] // Allow unused for now
-async fn request_layer_gpu_resources(layer_spec: LayerSpec, metadata_only: Option<bool>, state: State<'_, BridgeState>) -> BridgeResult<VolumeLayerGpuInfo> { // Update return type
-    println!("Bridge: request_layer_gpu_resources called with spec: {:?}", layer_spec);
+async fn request_layer_gpu_resources(
+    layer_spec: LayerSpec,
+    metadata_only: Option<bool>,
+    state: State<'_, BridgeState>,
+) -> BridgeResult<VolumeLayerGpuInfo> {
+    // Update return type
+    info!(
+        "Bridge: request_layer_gpu_resources called with spec: {:?}",
+        layer_spec
+    );
     info!("Bridge: request_layer_gpu_resources called");
     // error!("request_layer_gpu_resources is not implemented yet!"); // Remove error log
 
-    match layer_spec {
+    match &layer_spec {
         LayerSpec::Volume(vol_spec) => {
             let source_volume_id = vol_spec.source_resource_id.clone();
             let ui_layer_id = vol_spec.id.clone();
             let metadata_only_flag = metadata_only.unwrap_or(false);
-            
-            info!("Requesting {} for UI layer '{}' (source volume '{}')", 
-                  if metadata_only_flag { "metadata only" } else { "GPU resources" }, 
-                  ui_layer_id, source_volume_id);
+
+            info!(
+                "Requesting {} for UI layer '{}' (source volume '{}')",
+                if metadata_only_flag {
+                    "metadata only"
+                } else {
+                    "GPU resources"
+                },
+                ui_layer_id,
+                source_volume_id
+            );
 
             // --- 1. Get RenderLoopService (only if not metadata_only) ---
             // We need to keep the service guard alive if we're going to use it
@@ -843,14 +1423,14 @@ async fn request_layer_gpu_resources(layer_spec: LayerSpec, metadata_only: Optio
             } else {
                 None
             };
-            
+
             let mut render_loop_service = if let Some(ref guard) = service_guard {
                 let service_arc = guard.as_ref()
                     .ok_or_else(|| {
                         error!("RenderLoopService is not available.");
-                        BridgeError::ServiceNotInitialized { 
-                            code: 5002, 
-                            details: "GPU rendering service is not initialized. Please ensure the application has started correctly.".to_string() 
+                        BridgeError::ServiceNotInitialized {
+                            code: 5002,
+                            details: "GPU rendering service is not initialized. Please ensure the application has started correctly.".to_string()
                         }
                     })?;
                 Some(service_arc.lock().await)
@@ -860,123 +1440,271 @@ async fn request_layer_gpu_resources(layer_spec: LayerSpec, metadata_only: Optio
 
             // --- 2. Get VolumeSendable ---
             let volume_registry_guard = state.volume_registry.lock().await;
-            let volume_data = volume_registry_guard.get(&source_volume_id)
+            let volume_data = volume_registry_guard
+                .get(&source_volume_id)
                 .ok_or_else(|| {
                     error!("Volume not found in registry: {}", source_volume_id);
-                    BridgeError::VolumeNotFound { 
-                        code: 4042, 
-                        details: format!("Volume '{}' not found. Please load the volume first using load_file.", source_volume_id) 
+                    BridgeError::VolumeNotFound {
+                        code: 4042,
+                        details: format!(
+                            "Volume '{}' not found. Please load the volume first using load_file.",
+                            source_volume_id
+                        ),
                     }
                 })?;
-            
+
             // --- 3. Extract slice parameters from layer spec ---
             let slice_axis = vol_spec.slice_axis.unwrap_or_default();
             let slice_index_spec = vol_spec.slice_index.clone().unwrap_or_default();
-            
+
             // Get volume dimensions to calculate actual slice index
-            let vol_dims_temp = match volume_data {
-                VolumeSendable::VolF32(vol, _) => vol.space().dims(),
-                VolumeSendable::VolI16(vol, _) => vol.space().dims(),
-                VolumeSendable::VolU8(vol, _) => vol.space().dims(),
-                VolumeSendable::VolI8(vol, _) => vol.space().dims(),
-                VolumeSendable::VolU16(vol, _) => vol.space().dims(),
-                VolumeSendable::VolI32(vol, _) => vol.space().dims(),
-                VolumeSendable::VolU32(vol, _) => vol.space().dims(),
-                VolumeSendable::VolF64(vol, _) => vol.space().dims(),
-            };
-            
+            let vol_dims_temp = get_spatial_dims_from_volume(volume_data);
+
             // Calculate the actual slice index based on the specification
-            let _slice_idx = calculate_slice_index(&slice_index_spec, &vol_dims_temp, slice_axis, volume_data)?;
-            
+            let _slice_idx =
+                calculate_slice_index(&slice_index_spec, &vol_dims_temp, slice_axis, volume_data)?;
+
             // Upload the entire volume as a 3D texture and get the world-to-voxel transform
             // Skip if metadata_only is true
             let (atlas_layer_idx, volume_world_to_voxel) = if metadata_only_flag {
                 info!("Metadata-only mode: skipping GPU upload");
                 (u32::MAX, nalgebra::Matrix4::<f32>::identity()) // Dummy values
             } else {
-                println!("DEBUG: About to upload volume to GPU");
-                let render_service = render_loop_service.as_mut()
+                debug!("About to upload volume to GPU");
+                let render_service = render_loop_service
+                    .as_mut()
                     .expect("RenderLoopService should be available when not in metadata_only mode");
                 match volume_data {
-                VolumeSendable::VolF32(vol, _) => {
-                    println!("DEBUG: Uploading F32 volume with {} voxels", vol.data().len());
-                    render_service.upload_volume_3d(vol)
-                        .map_err(|e| gpu_allocation_error(&ui_layer_id, &e.to_string()))?
-                },
-                VolumeSendable::VolI16(vol, _) => {
-                    render_service.upload_volume_3d(vol)
-                        .map_err(|e| gpu_allocation_error(&ui_layer_id, &e.to_string()))?
-                },
-                VolumeSendable::VolU8(vol, _) => {
-                    render_service.upload_volume_3d(vol)
-                        .map_err(|e| gpu_allocation_error(&ui_layer_id, &e.to_string()))?
-                },
-                VolumeSendable::VolI8(vol, _) => {
-                    render_service.upload_volume_3d(vol)
-                        .map_err(|e| gpu_allocation_error(&ui_layer_id, &e.to_string()))?
-                },
-                VolumeSendable::VolU16(vol, _) => {
-                    render_service.upload_volume_3d(vol)
-                        .map_err(|e| gpu_allocation_error(&ui_layer_id, &e.to_string()))?
-                },
-                VolumeSendable::VolI32(vol, _) => {
-                    render_service.upload_volume_3d(vol)
-                        .map_err(|e| gpu_allocation_error(&ui_layer_id, &e.to_string()))?
-                },
-                VolumeSendable::VolU32(vol, _) => {
-                    render_service.upload_volume_3d(vol)
-                        .map_err(|e| gpu_allocation_error(&ui_layer_id, &e.to_string()))?
-                },
-                VolumeSendable::VolF64(vol, _) => {
-                    render_service.upload_volume_3d(vol)
-                        .map_err(|e| gpu_allocation_error(&ui_layer_id, &e.to_string()))?
-                },
+                    VolumeSendable::VolF32(vol, _) => {
+                        debug!("Uploading F32 volume with {} voxels", vol.data().len());
+                        render_service
+                            .upload_volume_3d(vol)
+                            .map_err(|e| gpu_allocation_error(&ui_layer_id, &e.to_string()))?
+                    }
+                    VolumeSendable::VolI16(vol, _) => render_service
+                        .upload_volume_3d(vol)
+                        .map_err(|e| gpu_allocation_error(&ui_layer_id, &e.to_string()))?,
+                    VolumeSendable::VolU8(vol, _) => render_service
+                        .upload_volume_3d(vol)
+                        .map_err(|e| gpu_allocation_error(&ui_layer_id, &e.to_string()))?,
+                    VolumeSendable::VolI8(vol, _) => render_service
+                        .upload_volume_3d(vol)
+                        .map_err(|e| gpu_allocation_error(&ui_layer_id, &e.to_string()))?,
+                    VolumeSendable::VolU16(vol, _) => render_service
+                        .upload_volume_3d(vol)
+                        .map_err(|e| gpu_allocation_error(&ui_layer_id, &e.to_string()))?,
+                    VolumeSendable::VolI32(vol, _) => render_service
+                        .upload_volume_3d(vol)
+                        .map_err(|e| gpu_allocation_error(&ui_layer_id, &e.to_string()))?,
+                    VolumeSendable::VolU32(vol, _) => render_service
+                        .upload_volume_3d(vol)
+                        .map_err(|e| gpu_allocation_error(&ui_layer_id, &e.to_string()))?,
+                    VolumeSendable::VolF64(vol, _) => render_service
+                        .upload_volume_3d(vol)
+                        .map_err(|e| gpu_allocation_error(&ui_layer_id, &e.to_string()))?,
+                    // 4D volumes - extract current timepoint
+                    VolumeSendable::Vec4DF32(_vec) => {
+                        // Get the current timepoint from the registry
+                        let timepoint = volume_registry_guard
+                            .get_timepoint(&source_volume_id)
+                            .unwrap_or(0);
+                        info!("Extracting timepoint {} from 4D F32 volume", timepoint);
+
+                        // Extract 3D volume at the specified timepoint
+                        let extracted = extract_3d_volume_at_timepoint(volume_data, timepoint)?;
+
+                        // Upload the extracted 3D volume
+                        match extracted {
+                            VolumeSendable::VolF32(vol, _) => render_service
+                                .upload_volume_3d(&vol)
+                                .map_err(|e| gpu_allocation_error(&ui_layer_id, &e.to_string()))?,
+                            _ => {
+                                return Err(BridgeError::Internal {
+                                    code: 5014,
+                                    details: "Unexpected volume type after 4D extraction"
+                                        .to_string(),
+                                })
+                            }
+                        }
+                    }
+                    VolumeSendable::Vec4DI16(_vec) => {
+                        let timepoint = volume_registry_guard
+                            .get_timepoint(&source_volume_id)
+                            .unwrap_or(0);
+                        info!("Extracting timepoint {} from 4D I16 volume", timepoint);
+                        let extracted = extract_3d_volume_at_timepoint(volume_data, timepoint)?;
+                        match extracted {
+                            VolumeSendable::VolI16(vol, _) => render_service
+                                .upload_volume_3d(&vol)
+                                .map_err(|e| gpu_allocation_error(&ui_layer_id, &e.to_string()))?,
+                            _ => {
+                                return Err(BridgeError::Internal {
+                                    code: 5014,
+                                    details: "Unexpected volume type after 4D extraction"
+                                        .to_string(),
+                                })
+                            }
+                        }
+                    }
+                    VolumeSendable::Vec4DU8(_vec) => {
+                        let timepoint = volume_registry_guard
+                            .get_timepoint(&source_volume_id)
+                            .unwrap_or(0);
+                        info!("Extracting timepoint {} from 4D U8 volume", timepoint);
+                        let extracted = extract_3d_volume_at_timepoint(volume_data, timepoint)?;
+                        match extracted {
+                            VolumeSendable::VolU8(vol, _) => render_service
+                                .upload_volume_3d(&vol)
+                                .map_err(|e| gpu_allocation_error(&ui_layer_id, &e.to_string()))?,
+                            _ => {
+                                return Err(BridgeError::Internal {
+                                    code: 5014,
+                                    details: "Unexpected volume type after 4D extraction"
+                                        .to_string(),
+                                })
+                            }
+                        }
+                    }
+                    VolumeSendable::Vec4DI8(_vec) => {
+                        let timepoint = volume_registry_guard
+                            .get_timepoint(&source_volume_id)
+                            .unwrap_or(0);
+                        info!("Extracting timepoint {} from 4D I8 volume", timepoint);
+                        let extracted = extract_3d_volume_at_timepoint(volume_data, timepoint)?;
+                        match extracted {
+                            VolumeSendable::VolI8(vol, _) => render_service
+                                .upload_volume_3d(&vol)
+                                .map_err(|e| gpu_allocation_error(&ui_layer_id, &e.to_string()))?,
+                            _ => {
+                                return Err(BridgeError::Internal {
+                                    code: 5014,
+                                    details: "Unexpected volume type after 4D extraction"
+                                        .to_string(),
+                                })
+                            }
+                        }
+                    }
+                    VolumeSendable::Vec4DU16(_vec) => {
+                        let timepoint = volume_registry_guard
+                            .get_timepoint(&source_volume_id)
+                            .unwrap_or(0);
+                        info!("Extracting timepoint {} from 4D U16 volume", timepoint);
+                        let extracted = extract_3d_volume_at_timepoint(volume_data, timepoint)?;
+                        match extracted {
+                            VolumeSendable::VolU16(vol, _) => render_service
+                                .upload_volume_3d(&vol)
+                                .map_err(|e| gpu_allocation_error(&ui_layer_id, &e.to_string()))?,
+                            _ => {
+                                return Err(BridgeError::Internal {
+                                    code: 5014,
+                                    details: "Unexpected volume type after 4D extraction"
+                                        .to_string(),
+                                })
+                            }
+                        }
+                    }
+                    VolumeSendable::Vec4DI32(_vec) => {
+                        let timepoint = volume_registry_guard
+                            .get_timepoint(&source_volume_id)
+                            .unwrap_or(0);
+                        info!("Extracting timepoint {} from 4D I32 volume", timepoint);
+                        let extracted = extract_3d_volume_at_timepoint(volume_data, timepoint)?;
+                        match extracted {
+                            VolumeSendable::VolI32(vol, _) => render_service
+                                .upload_volume_3d(&vol)
+                                .map_err(|e| gpu_allocation_error(&ui_layer_id, &e.to_string()))?,
+                            _ => {
+                                return Err(BridgeError::Internal {
+                                    code: 5014,
+                                    details: "Unexpected volume type after 4D extraction"
+                                        .to_string(),
+                                })
+                            }
+                        }
+                    }
+                    VolumeSendable::Vec4DU32(_vec) => {
+                        let timepoint = volume_registry_guard
+                            .get_timepoint(&source_volume_id)
+                            .unwrap_or(0);
+                        info!("Extracting timepoint {} from 4D U32 volume", timepoint);
+                        let extracted = extract_3d_volume_at_timepoint(volume_data, timepoint)?;
+                        match extracted {
+                            VolumeSendable::VolU32(vol, _) => render_service
+                                .upload_volume_3d(&vol)
+                                .map_err(|e| gpu_allocation_error(&ui_layer_id, &e.to_string()))?,
+                            _ => {
+                                return Err(BridgeError::Internal {
+                                    code: 5014,
+                                    details: "Unexpected volume type after 4D extraction"
+                                        .to_string(),
+                                })
+                            }
+                        }
+                    }
+                    VolumeSendable::Vec4DF64(_vec) => {
+                        let timepoint = volume_registry_guard
+                            .get_timepoint(&source_volume_id)
+                            .unwrap_or(0);
+                        info!("Extracting timepoint {} from 4D F64 volume", timepoint);
+                        let extracted = extract_3d_volume_at_timepoint(volume_data, timepoint)?;
+                        match extracted {
+                            VolumeSendable::VolF64(vol, _) => render_service
+                                .upload_volume_3d(&vol)
+                                .map_err(|e| gpu_allocation_error(&ui_layer_id, &e.to_string()))?,
+                            _ => {
+                                return Err(BridgeError::Internal {
+                                    code: 5014,
+                                    details: "Unexpected volume type after 4D extraction"
+                                        .to_string(),
+                                })
+                            }
+                        }
+                    }
                 }
             };
-            
+
             // For 3D textures, texture coordinates are always the full texture
             let (u_min, v_min, u_max, v_max) = (0.0, 0.0, 1.0, 1.0);
-            
+
             // Get volume dimensions and format for the response
-            let (vol_dims, gpu_format) = match volume_data {
-                VolumeSendable::VolF32(vol, _) => {
-                    let dims = vol.space().dims();
-                    ([dims[0] as u32, dims[1] as u32, dims[2] as u32], GpuTextureFormat::R32Float)
-                },
-                VolumeSendable::VolI16(vol, _) => {
-                    let dims = vol.space().dims();
-                    ([dims[0] as u32, dims[1] as u32, dims[2] as u32], GpuTextureFormat::R16Float)
-                },
-                VolumeSendable::VolU8(vol, _) => {
-                    let dims = vol.space().dims();
-                    ([dims[0] as u32, dims[1] as u32, dims[2] as u32], GpuTextureFormat::R8Unorm)
-                },
-                VolumeSendable::VolI8(vol, _) => {
-                    let dims = vol.space().dims();
-                    ([dims[0] as u32, dims[1] as u32, dims[2] as u32], GpuTextureFormat::R8Unorm)
-                },
-                VolumeSendable::VolU16(vol, _) => {
-                    let dims = vol.space().dims();
-                    ([dims[0] as u32, dims[1] as u32, dims[2] as u32], GpuTextureFormat::R16Float)
-                },
-                VolumeSendable::VolI32(vol, _) => {
-                    let dims = vol.space().dims();
-                    ([dims[0] as u32, dims[1] as u32, dims[2] as u32], GpuTextureFormat::R32Float)
-                },
-                VolumeSendable::VolU32(vol, _) => {
-                    let dims = vol.space().dims();
-                    ([dims[0] as u32, dims[1] as u32, dims[2] as u32], GpuTextureFormat::R32Float)
-                },
-                VolumeSendable::VolF64(vol, _) => {
-                    let dims = vol.space().dims();
-                    ([dims[0] as u32, dims[1] as u32, dims[2] as u32], GpuTextureFormat::R32Float)
-                },
+            let spatial_dims = get_spatial_dims_from_volume(volume_data);
+            let vol_dims = [
+                spatial_dims[0] as u32,
+                spatial_dims[1] as u32,
+                spatial_dims[2] as u32,
+            ];
+
+            let gpu_format = match volume_data {
+                VolumeSendable::VolF32(_, _) | VolumeSendable::Vec4DF32(_) => {
+                    GpuTextureFormat::R32Float
+                }
+                VolumeSendable::VolI16(_, _) | VolumeSendable::Vec4DI16(_) => {
+                    GpuTextureFormat::R16Float
+                }
+                VolumeSendable::VolU8(_, _) | VolumeSendable::Vec4DU8(_) => {
+                    GpuTextureFormat::R8Unorm
+                }
+                VolumeSendable::VolI8(_, _) | VolumeSendable::Vec4DI8(_) => {
+                    GpuTextureFormat::R8Unorm
+                }
+                VolumeSendable::VolU16(_, _) | VolumeSendable::Vec4DU16(_) => {
+                    GpuTextureFormat::R16Float
+                }
+                VolumeSendable::VolI32(_, _) | VolumeSendable::Vec4DI32(_) => {
+                    GpuTextureFormat::R32Float
+                }
+                VolumeSendable::VolU32(_, _) | VolumeSendable::Vec4DU32(_) => {
+                    GpuTextureFormat::R32Float
+                }
+                VolumeSendable::VolF64(_, _) | VolumeSendable::Vec4DF64(_) => {
+                    GpuTextureFormat::R32Float
+                }
             };
-            
+
             // Store the mapping from UI layer ID to atlas layer index (only if GPU was allocated)
             if !metadata_only_flag {
                 let mut layer_map = state.layer_to_atlas_map.lock().await;
-                
+
                 // Debug logging for layer ID storage
                 info!("🔍 DEBUG: request_layer_gpu_resources - Storing layer mapping:");
                 info!("  - UI Layer ID: '{}'", ui_layer_id);
@@ -988,122 +1716,283 @@ async fn request_layer_gpu_resources(layer_spec: LayerSpec, metadata_only: Optio
                     ui_layer_id.hash(&mut hasher);
                     hasher.finish()
                 });
-                
+
                 layer_map.insert(ui_layer_id.clone(), atlas_layer_idx);
-                
+
                 info!("  - Map size after insert: {}", layer_map.len());
                 info!("  - All entries in layer_to_atlas_map:");
                 for (key, value) in layer_map.iter() {
                     info!("    '{}' -> {}", key, value);
                 }
+
+                // Also store the volume handle mapping
+                let mut volume_map = state.layer_to_volume_map.lock().await;
+                let LayerSpec::Volume(vol_spec) = &layer_spec;
+                volume_map.insert(ui_layer_id.clone(), vol_spec.source_resource_id.clone());
             }
-            
+
             // Get the affine transform (voxel to world) and extract space info - clone before dropping the guard
-            let (affine, origin, spacing) = match volume_data {
-                VolumeSendable::VolF32(vol, affine) => {
+            let affine = get_affine_from_volume(volume_data)?;
+
+            let (origin, spacing) = match volume_data {
+                // 3D volumes
+                VolumeSendable::VolF32(vol, _) => {
                     let space = vol.space();
-                    (affine.clone(), space.origin().to_vec(), space.spacing().to_vec())
-                },
-                VolumeSendable::VolI16(vol, affine) => {
+                    (space.origin().to_vec(), space.spacing().to_vec())
+                }
+                VolumeSendable::VolI16(vol, _) => {
                     let space = vol.space();
-                    (affine.clone(), space.origin().to_vec(), space.spacing().to_vec())
-                },
-                VolumeSendable::VolU8(vol, affine) => {
+                    (space.origin().to_vec(), space.spacing().to_vec())
+                }
+                VolumeSendable::VolU8(vol, _) => {
                     let space = vol.space();
-                    (affine.clone(), space.origin().to_vec(), space.spacing().to_vec())
-                },
-                VolumeSendable::VolI8(vol, affine) => {
+                    (space.origin().to_vec(), space.spacing().to_vec())
+                }
+                VolumeSendable::VolI8(vol, _) => {
                     let space = vol.space();
-                    (affine.clone(), space.origin().to_vec(), space.spacing().to_vec())
-                },
-                VolumeSendable::VolU16(vol, affine) => {
+                    (space.origin().to_vec(), space.spacing().to_vec())
+                }
+                VolumeSendable::VolU16(vol, _) => {
                     let space = vol.space();
-                    (affine.clone(), space.origin().to_vec(), space.spacing().to_vec())
-                },
-                VolumeSendable::VolI32(vol, affine) => {
+                    (space.origin().to_vec(), space.spacing().to_vec())
+                }
+                VolumeSendable::VolI32(vol, _) => {
                     let space = vol.space();
-                    (affine.clone(), space.origin().to_vec(), space.spacing().to_vec())
-                },
-                VolumeSendable::VolU32(vol, affine) => {
+                    (space.origin().to_vec(), space.spacing().to_vec())
+                }
+                VolumeSendable::VolU32(vol, _) => {
                     let space = vol.space();
-                    (affine.clone(), space.origin().to_vec(), space.spacing().to_vec())
-                },
-                VolumeSendable::VolF64(vol, affine) => {
+                    (space.origin().to_vec(), space.spacing().to_vec())
+                }
+                VolumeSendable::VolF64(vol, _) => {
                     let space = vol.space();
-                    (affine.clone(), space.origin().to_vec(), space.spacing().to_vec())
-                },
+                    (space.origin().to_vec(), space.spacing().to_vec())
+                }
+                // 4D volumes
+                VolumeSendable::Vec4DF32(vec) => {
+                    let space = &vec.space;
+                    // Extract origin and spacing from first 3 dimensions, converting to f32
+                    let origin = vec![
+                        space.origin[0] as f32,
+                        space.origin[1] as f32,
+                        space.origin[2] as f32,
+                    ];
+                    let spacing = vec![
+                        space.spacing[0] as f32,
+                        space.spacing[1] as f32,
+                        space.spacing[2] as f32,
+                    ];
+                    (origin, spacing)
+                }
+                VolumeSendable::Vec4DI16(vec) => {
+                    let space = &vec.space;
+                    let origin = vec![
+                        space.origin[0] as f32,
+                        space.origin[1] as f32,
+                        space.origin[2] as f32,
+                    ];
+                    let spacing = vec![
+                        space.spacing[0] as f32,
+                        space.spacing[1] as f32,
+                        space.spacing[2] as f32,
+                    ];
+                    (origin, spacing)
+                }
+                VolumeSendable::Vec4DU8(vec) => {
+                    let space = &vec.space;
+                    let origin = vec![
+                        space.origin[0] as f32,
+                        space.origin[1] as f32,
+                        space.origin[2] as f32,
+                    ];
+                    let spacing = vec![
+                        space.spacing[0] as f32,
+                        space.spacing[1] as f32,
+                        space.spacing[2] as f32,
+                    ];
+                    (origin, spacing)
+                }
+                VolumeSendable::Vec4DI8(vec) => {
+                    let space = &vec.space;
+                    let origin = vec![
+                        space.origin[0] as f32,
+                        space.origin[1] as f32,
+                        space.origin[2] as f32,
+                    ];
+                    let spacing = vec![
+                        space.spacing[0] as f32,
+                        space.spacing[1] as f32,
+                        space.spacing[2] as f32,
+                    ];
+                    (origin, spacing)
+                }
+                VolumeSendable::Vec4DU16(vec) => {
+                    let space = &vec.space;
+                    let origin = vec![
+                        space.origin[0] as f32,
+                        space.origin[1] as f32,
+                        space.origin[2] as f32,
+                    ];
+                    let spacing = vec![
+                        space.spacing[0] as f32,
+                        space.spacing[1] as f32,
+                        space.spacing[2] as f32,
+                    ];
+                    (origin, spacing)
+                }
+                VolumeSendable::Vec4DI32(vec) => {
+                    let space = &vec.space;
+                    let origin = vec![
+                        space.origin[0] as f32,
+                        space.origin[1] as f32,
+                        space.origin[2] as f32,
+                    ];
+                    let spacing = vec![
+                        space.spacing[0] as f32,
+                        space.spacing[1] as f32,
+                        space.spacing[2] as f32,
+                    ];
+                    (origin, spacing)
+                }
+                VolumeSendable::Vec4DU32(vec) => {
+                    let space = &vec.space;
+                    let origin = vec![
+                        space.origin[0] as f32,
+                        space.origin[1] as f32,
+                        space.origin[2] as f32,
+                    ];
+                    let spacing = vec![
+                        space.spacing[0] as f32,
+                        space.spacing[1] as f32,
+                        space.spacing[2] as f32,
+                    ];
+                    (origin, spacing)
+                }
+                VolumeSendable::Vec4DF64(vec) => {
+                    let space = &vec.space;
+                    let origin = vec![
+                        space.origin[0] as f32,
+                        space.origin[1] as f32,
+                        space.origin[2] as f32,
+                    ];
+                    let spacing = vec![
+                        space.spacing[0] as f32,
+                        space.spacing[1] as f32,
+                        space.spacing[2] as f32,
+                    ];
+                    (origin, spacing)
+                }
             };
-            
+
             // Get world_to_voxel matrix (inverse of voxel_to_world affine)
             let voxel_to_world = affine.to_homogeneous();
-            let world_to_voxel = voxel_to_world.try_inverse()
+            let world_to_voxel = voxel_to_world
+                .try_inverse()
                 .unwrap_or_else(Matrix4::identity);
-            
+
             // CRITICAL FIX: Convert to column-major order for WGSL
             // WGSL expects mat4x4<f32> in column-major order
             // nalgebra uses column-major internally, but we need to flatten correctly
             let world_to_voxel_flat: [f32; 16] = [
-                world_to_voxel[(0, 0)], world_to_voxel[(1, 0)], world_to_voxel[(2, 0)], world_to_voxel[(3, 0)], // Column 0
-                world_to_voxel[(0, 1)], world_to_voxel[(1, 1)], world_to_voxel[(2, 1)], world_to_voxel[(3, 1)], // Column 1
-                world_to_voxel[(0, 2)], world_to_voxel[(1, 2)], world_to_voxel[(2, 2)], world_to_voxel[(3, 2)], // Column 2
-                world_to_voxel[(0, 3)], world_to_voxel[(1, 3)], world_to_voxel[(2, 3)], world_to_voxel[(3, 3)], // Column 3
+                world_to_voxel[(0, 0)],
+                world_to_voxel[(1, 0)],
+                world_to_voxel[(2, 0)],
+                world_to_voxel[(3, 0)], // Column 0
+                world_to_voxel[(0, 1)],
+                world_to_voxel[(1, 1)],
+                world_to_voxel[(2, 1)],
+                world_to_voxel[(3, 1)], // Column 1
+                world_to_voxel[(0, 2)],
+                world_to_voxel[(1, 2)],
+                world_to_voxel[(2, 2)],
+                world_to_voxel[(3, 2)], // Column 2
+                world_to_voxel[(0, 3)],
+                world_to_voxel[(1, 3)],
+                world_to_voxel[(2, 3)],
+                world_to_voxel[(3, 3)], // Column 3
             ];
-            
+
             // Convert voxel_to_world matrix to flat array (column-major for WGSL)
             let voxel_to_world_flat: [f32; 16] = [
-                voxel_to_world[(0, 0)], voxel_to_world[(1, 0)], voxel_to_world[(2, 0)], voxel_to_world[(3, 0)], // Column 0
-                voxel_to_world[(0, 1)], voxel_to_world[(1, 1)], voxel_to_world[(2, 1)], voxel_to_world[(3, 1)], // Column 1
-                voxel_to_world[(0, 2)], voxel_to_world[(1, 2)], voxel_to_world[(2, 2)], voxel_to_world[(3, 2)], // Column 2
-                voxel_to_world[(0, 3)], voxel_to_world[(1, 3)], voxel_to_world[(2, 3)], voxel_to_world[(3, 3)], // Column 3
+                voxel_to_world[(0, 0)],
+                voxel_to_world[(1, 0)],
+                voxel_to_world[(2, 0)],
+                voxel_to_world[(3, 0)], // Column 0
+                voxel_to_world[(0, 1)],
+                voxel_to_world[(1, 1)],
+                voxel_to_world[(2, 1)],
+                voxel_to_world[(3, 1)], // Column 1
+                voxel_to_world[(0, 2)],
+                voxel_to_world[(1, 2)],
+                voxel_to_world[(2, 2)],
+                voxel_to_world[(3, 2)], // Column 2
+                voxel_to_world[(0, 3)],
+                voxel_to_world[(1, 3)],
+                voxel_to_world[(2, 3)],
+                voxel_to_world[(3, 3)], // Column 3
             ];
-            
+
             // Calculate center world coordinates
             let center_voxel = nalgebra::Vector4::new(
                 (vol_dims[0] as f32 - 1.0) * 0.5,
                 (vol_dims[1] as f32 - 1.0) * 0.5,
                 (vol_dims[2] as f32 - 1.0) * 0.5,
-                1.0
+                1.0,
             );
             let center_world = voxel_to_world * center_voxel;
             let center_world_coords = [center_world.x, center_world.y, center_world.z];
-            
+
             info!("Volume center calculation: voxel [{:.1}, {:.1}, {:.1}] -> world [{:.1}, {:.1}, {:.1}]",
                   center_voxel.x, center_voxel.y, center_voxel.z,
                   center_world_coords[0], center_world_coords[1], center_world_coords[2]);
-            
+
             // Debug the transform matrices - log in column-major format for nalgebra
             info!("Voxel Dims: {:?}", vol_dims);
-            info!("Center Voxel Input: [{:.1}, {:.1}, {:.1}, {:.1}]", 
-                  center_voxel.x, center_voxel.y, center_voxel.z, center_voxel.w);
+            info!(
+                "Center Voxel Input: [{:.1}, {:.1}, {:.1}, {:.1}]",
+                center_voxel.x, center_voxel.y, center_voxel.z, center_voxel.w
+            );
             info!("Voxel-to-world transform matrix (column-major):");
             for i in 0..4 {
-                info!("  [{:.3}, {:.3}, {:.3}, {:.3}]", 
-                      voxel_to_world[(i,0)], voxel_to_world[(i,1)], 
-                      voxel_to_world[(i,2)], voxel_to_world[(i,3)]);
+                info!(
+                    "  [{:.3}, {:.3}, {:.3}, {:.3}]",
+                    voxel_to_world[(i, 0)],
+                    voxel_to_world[(i, 1)],
+                    voxel_to_world[(i, 2)],
+                    voxel_to_world[(i, 3)]
+                );
             }
             info!("World-to-voxel transform matrix (column-major):");
             for i in 0..4 {
-                info!("  [{:.3}, {:.3}, {:.3}, {:.3}]", 
-                      world_to_voxel[(i,0)], world_to_voxel[(i,1)], 
-                      world_to_voxel[(i,2)], world_to_voxel[(i,3)]);
+                info!(
+                    "  [{:.3}, {:.3}, {:.3}, {:.3}]",
+                    world_to_voxel[(i, 0)],
+                    world_to_voxel[(i, 1)],
+                    world_to_voxel[(i, 2)],
+                    world_to_voxel[(i, 3)]
+                );
             }
-            
+
             // Also log the affine directly
             info!("Original affine from NIfTI:");
             let affine_matrix = affine.to_homogeneous();
             for i in 0..4 {
-                info!("  [{:.3}, {:.3}, {:.3}, {:.3}]", 
-                      affine_matrix[(i,0)], affine_matrix[(i,1)], 
-                      affine_matrix[(i,2)], affine_matrix[(i,3)]);
+                info!(
+                    "  [{:.3}, {:.3}, {:.3}, {:.3}]",
+                    affine_matrix[(i, 0)],
+                    affine_matrix[(i, 1)],
+                    affine_matrix[(i, 2)],
+                    affine_matrix[(i, 3)]
+                );
             }
-            
+
             // Determine slice dimensions based on axis
             let _slice_dims = match slice_axis {
                 SliceAxis::Sagittal => [vol_dims[1], vol_dims[2]], // YZ plane
                 SliceAxis::Coronal => [vol_dims[0], vol_dims[2]],  // XZ plane
                 SliceAxis::Axial => [vol_dims[0], vol_dims[1]],    // XY plane
             };
-            
+
             // Create slice info - use axis 255 to indicate full 3D volume
             let slice_info = SliceInfo {
                 axis: 255, // Special value indicating 3D volume, not a slice
@@ -1111,7 +2000,7 @@ async fn request_layer_gpu_resources(layer_spec: LayerSpec, metadata_only: Optio
                 axis_name: "3D Volume".to_string(),
                 dimensions: [vol_dims[0], vol_dims[1]], // Just use first two dims for compatibility
             };
-            
+
             // Create texture coordinates
             let texture_coords = TextureCoordinates {
                 u_min,
@@ -1119,17 +2008,20 @@ async fn request_layer_gpu_resources(layer_spec: LayerSpec, metadata_only: Optio
                 u_max,
                 v_max,
             };
-            
+
             // Get current timestamp
             let allocated_at = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap_or_default()
                 .as_secs();
 
-            info!("Successfully uploaded volume to GPU - layer_id: {}, atlas_layer: {}, dims: {:?}, format: {:?}", 
+            info!("Successfully uploaded volume to GPU - layer_id: {}, atlas_layer: {}, dims: {:?}, format: {:?}",
                   ui_layer_id, atlas_layer_idx, vol_dims, gpu_format);
-            info!("Texture coordinates - u: [{:.4}, {:.4}], v: [{:.4}, {:.4}]", u_min, u_max, v_min, v_max);
-            
+            info!(
+                "Texture coordinates - u: [{:.4}, {:.4}], v: [{:.4}, {:.4}]",
+                u_min, u_max, v_min, v_max
+            );
+
             // --- Compute data range and binary-like flag ---
             let (min_val, max_val) = match volume_data {
                 VolumeSendable::VolF32(vol, _) => {
@@ -1140,7 +2032,7 @@ async fn request_layer_gpu_resources(layer_spec: LayerSpec, metadata_only: Optio
                         max = max.max(*v);
                     }
                     (min, max)
-                },
+                }
                 VolumeSendable::VolI16(vol, _) => {
                     let mut min = i16::MAX as f32;
                     let mut max = i16::MIN as f32;
@@ -1150,7 +2042,7 @@ async fn request_layer_gpu_resources(layer_spec: LayerSpec, metadata_only: Optio
                         max = max.max(val);
                     }
                     (min, max)
-                },
+                }
                 VolumeSendable::VolU8(vol, _) => {
                     let mut min = 255.0f32;
                     let mut max = 0.0f32;
@@ -1160,7 +2052,7 @@ async fn request_layer_gpu_resources(layer_spec: LayerSpec, metadata_only: Optio
                         max = max.max(val);
                     }
                     (min, max)
-                },
+                }
                 VolumeSendable::VolI8(vol, _) => {
                     let mut min = i8::MAX as f32;
                     let mut max = i8::MIN as f32;
@@ -1170,7 +2062,7 @@ async fn request_layer_gpu_resources(layer_spec: LayerSpec, metadata_only: Optio
                         max = max.max(val);
                     }
                     (min, max)
-                },
+                }
                 VolumeSendable::VolU16(vol, _) => {
                     let mut min = u16::MAX as f32;
                     let mut max = 0.0f32;
@@ -1180,7 +2072,7 @@ async fn request_layer_gpu_resources(layer_spec: LayerSpec, metadata_only: Optio
                         max = max.max(val);
                     }
                     (min, max)
-                },
+                }
                 VolumeSendable::VolI32(vol, _) => {
                     let mut min = i32::MAX as f32;
                     let mut max = i32::MIN as f32;
@@ -1190,7 +2082,7 @@ async fn request_layer_gpu_resources(layer_spec: LayerSpec, metadata_only: Optio
                         max = max.max(val);
                     }
                     (min, max)
-                },
+                }
                 VolumeSendable::VolU32(vol, _) => {
                     let mut min = u32::MAX as f32;
                     let mut max = 0.0f32;
@@ -1200,7 +2092,7 @@ async fn request_layer_gpu_resources(layer_spec: LayerSpec, metadata_only: Optio
                         max = max.max(val);
                     }
                     (min, max)
-                },
+                }
                 VolumeSendable::VolF64(vol, _) => {
                     let mut min = f32::MAX;
                     let mut max = f32::MIN;
@@ -1210,20 +2102,75 @@ async fn request_layer_gpu_resources(layer_spec: LayerSpec, metadata_only: Optio
                         max = max.max(val);
                     }
                     (min, max)
-                },
+                }
+                // 4D volumes - compute min/max across all timepoints for now
+                VolumeSendable::Vec4DF32(_vec) => {
+                    // TODO: Compute actual min/max from 4D data
+                    // For now, use placeholder values
+                    warn!("4D volume min/max computation not yet implemented, using placeholder values");
+                    (0.0, 1.0)
+                }
+                VolumeSendable::Vec4DI16(_vec) => {
+                    // TODO: Compute actual min/max from 4D data
+                    // For now, use placeholder values
+                    warn!("4D volume min/max computation not yet implemented, using placeholder values");
+                    (0.0, 1.0)
+                }
+                VolumeSendable::Vec4DU8(_vec) => {
+                    // TODO: Compute actual min/max from 4D data
+                    // For now, use placeholder values
+                    warn!("4D volume min/max computation not yet implemented, using placeholder values");
+                    (0.0, 1.0)
+                }
+                VolumeSendable::Vec4DI8(_vec) => {
+                    // TODO: Compute actual min/max from 4D data
+                    // For now, use placeholder values
+                    warn!("4D volume min/max computation not yet implemented, using placeholder values");
+                    (0.0, 1.0)
+                }
+                VolumeSendable::Vec4DU16(_vec) => {
+                    // TODO: Compute actual min/max from 4D data
+                    // For now, use placeholder values
+                    warn!("4D volume min/max computation not yet implemented, using placeholder values");
+                    (0.0, 1.0)
+                }
+                VolumeSendable::Vec4DI32(_vec) => {
+                    // TODO: Compute actual min/max from 4D data
+                    // For now, use placeholder values
+                    warn!("4D volume min/max computation not yet implemented, using placeholder values");
+                    (0.0, 1.0)
+                }
+                VolumeSendable::Vec4DU32(_vec) => {
+                    // TODO: Compute actual min/max from 4D data
+                    // For now, use placeholder values
+                    warn!("4D volume min/max computation not yet implemented, using placeholder values");
+                    (0.0, 1.0)
+                }
+                VolumeSendable::Vec4DF64(_vec) => {
+                    // TODO: Compute actual min/max from 4D data
+                    // For now, use placeholder values
+                    warn!("4D volume min/max computation not yet implemented, using placeholder values");
+                    (0.0, 1.0)
+                }
             };
             let is_binary_like = (min_val >= 0.0 && max_val <= 1.0) && ((max_val - min_val) <= 1.0);
-            let data_range = Some(DataRange { min: min_val, max: max_val });
+            let data_range = Some(DataRange {
+                min: min_val,
+                max: max_val,
+            });
 
             // Get colormap ID first
             let colormap_id = match colormap_by_name(&vol_spec.colormap) {
                 Some(id) => id.id() as u32,
                 None => {
-                    error!("Unknown colormap '{}', defaulting to grayscale", vol_spec.colormap);
+                    error!(
+                        "Unknown colormap '{}', defaulting to grayscale",
+                        vol_spec.colormap
+                    );
                     0 // Default to grayscale
                 }
             };
-            
+
             // Register the volume for the declarative API using the source volume ID
             // This enables request_frame to access this volume with correct data range
             // Skip if metadata_only mode
@@ -1231,40 +2178,51 @@ async fn request_layer_gpu_resources(layer_spec: LayerSpec, metadata_only: Optio
                 info!("Metadata-only mode: skipping volume registration and layer addition");
                 0 // Dummy value
             } else {
-                let render_service = render_loop_service.as_mut()
+                let render_service = render_loop_service
+                    .as_mut()
                     .expect("RenderLoopService should be available when not in metadata_only mode");
-                    
+
                 if let Err(e) = render_service.register_volume_with_range(
-                    source_volume_id.clone(), 
+                    source_volume_id.clone(),
                     atlas_layer_idx,
-                    (min_val, max_val)
+                    (min_val, max_val),
                 ) {
-                    warn!("Failed to register volume {} with atlas index {}: {:?}", source_volume_id, atlas_layer_idx, e);
+                    warn!(
+                        "Failed to register volume {} with atlas index {}: {:?}",
+                        source_volume_id, atlas_layer_idx, e
+                    );
                     // Continue anyway - the volume is uploaded and can be used imperatively
                 } else {
-                    info!("Successfully registered volume '{}' with atlas index {} for declarative API with data range ({}, {})", 
+                    info!("Successfully registered volume '{}' with atlas index {} for declarative API with data range ({}, {})",
                         source_volume_id, atlas_layer_idx, min_val, max_val);
                 }
-                
+
                 // Add the layer to the render state using world-space rendering
-                info!("Adding layer to render state: texture_index={}, dims={:?}", atlas_layer_idx, vol_dims);
-                let layer_idx = render_service.add_layer_3d(
-                    atlas_layer_idx,
-                    volume_world_to_voxel.clone(),
-                    (vol_dims[0], vol_dims[1], vol_dims[2]),
-                    1.0, // Initial opacity
-                    colormap_id
-                )
-                .map_err(|e| BridgeError::GpuError {
-                    code: 5012,
-                    details: format!("Failed to add layer to render state: {:?}", e),
-                })?;
+                info!(
+                    "Adding layer to render state: texture_index={}, dims={:?}",
+                    atlas_layer_idx, vol_dims
+                );
+                let layer_idx = render_service
+                    .add_layer_3d(
+                        atlas_layer_idx,
+                        volume_world_to_voxel.clone(),
+                        (vol_dims[0], vol_dims[1], vol_dims[2]),
+                        1.0, // Initial opacity
+                        colormap_id,
+                    )
+                    .map_err(|e| BridgeError::GpuError {
+                        code: 5012,
+                        details: format!("Failed to add layer to render state: {:?}", e),
+                    })?;
                 info!("Successfully added layer at index: {}", layer_idx);
-                
+
                 // Update intensity range - for binary masks, force 0-1 range
                 // IMPORTANT: For U8 volumes using R8Unorm texture format, the GPU automatically
                 // normalizes 0-255 to 0.0-1.0 when sampling. So we must use 0-1 range in shaders!
-                let is_u8 = matches!(&volume_data, VolumeSendable::VolU8(_, _));
+                let is_u8 = matches!(
+                    &volume_data,
+                    VolumeSendable::VolU8(_, _) | VolumeSendable::Vec4DU8(_)
+                );
                 let (display_min, display_max) = if is_u8 {
                     // For U8 data, always use 0-1 range because R8Unorm normalizes to this range
                     (0.0, 1.0)
@@ -1274,20 +2232,24 @@ async fn request_layer_gpu_resources(layer_spec: LayerSpec, metadata_only: Optio
                 } else {
                     (min_val, max_val)
                 };
-                
-                render_service.update_layer_intensity(layer_idx, display_min, display_max)
+
+                render_service
+                    .update_layer_intensity(layer_idx, display_min, display_max)
                     .map_err(|e| BridgeError::GpuError {
                         code: 5014,
                         details: format!("Failed to set layer intensity range: {:?}", e),
                     })?;
-                    
+
                 layer_idx
             };
-            
+
             // Log the layer addition (skip detailed logging in metadata_only mode)
             if !metadata_only_flag {
                 // Recalculate display_min/max for logging (they were in the else block scope)
-                let is_u8 = matches!(&volume_data, VolumeSendable::VolU8(_, _));
+                let is_u8 = matches!(
+                    &volume_data,
+                    VolumeSendable::VolU8(_, _) | VolumeSendable::Vec4DU8(_)
+                );
                 let (display_min, display_max) = if is_u8 {
                     (0.0, 1.0)
                 } else if is_binary_like && max_val <= 1.0 {
@@ -1295,8 +2257,8 @@ async fn request_layer_gpu_resources(layer_spec: LayerSpec, metadata_only: Optio
                 } else {
                     (min_val, max_val)
                 };
-                
-                info!("Added render layer {} with colormap {} (id {}) and intensity range ({}, {}) -> display range ({}, {})", 
+
+                info!("Added render layer {} with colormap {} (id {}) and intensity range ({}, {}) -> display range ({}, {})",
                       layer_index, vol_spec.colormap, colormap_id, min_val, max_val, display_min, display_max);
             }
             if is_binary_like {
@@ -1306,10 +2268,21 @@ async fn request_layer_gpu_resources(layer_spec: LayerSpec, metadata_only: Optio
             // Store the mapping between UI layer ID and atlas index (only if GPU was allocated)
             if !metadata_only_flag {
                 let mut layer_map = state.layer_to_atlas_map.lock().await;
-                info!("📌 STORING layer mapping: UI layer '{}' -> atlas index {}", ui_layer_id, atlas_layer_idx);
+                info!(
+                    "📌 STORING layer mapping: UI layer '{}' -> atlas index {}",
+                    ui_layer_id, atlas_layer_idx
+                );
                 layer_map.insert(ui_layer_id.clone(), atlas_layer_idx);
-                info!("📌 Layer map now contains {} entries: {:?}", 
-                      layer_map.len(), layer_map.keys().collect::<Vec<_>>());
+                info!(
+                    "📌 Layer map now contains {} entries: {:?}",
+                    layer_map.len(),
+                    layer_map.keys().collect::<Vec<_>>()
+                );
+
+                // Also store the volume handle mapping
+                let mut volume_map = state.layer_to_volume_map.lock().await;
+                let LayerSpec::Volume(vol_spec) = &layer_spec;
+                volume_map.insert(ui_layer_id.clone(), vol_spec.source_resource_id.clone());
             }
 
             Ok(VolumeLayerGpuInfo {
@@ -1330,17 +2303,21 @@ async fn request_layer_gpu_resources(layer_spec: LayerSpec, metadata_only: Optio
                 allocated_at,
                 is_binary_like,
             })
-        }
-        // Other layer types would go here
+        } // Other layer types would go here
     }
 }
 
 #[command]
 #[tracing::instrument(skip_all, err, name = "api.release_gpu")]
-#[allow(dead_code)] // Allow unused for now
-async fn release_layer_gpu_resources(layer_id: String, state: State<'_, BridgeState>) -> BridgeResult<ReleaseResult> {
-    println!("Bridge: release_layer_gpu_resources called for layer {}", layer_id);
-    
+async fn release_layer_gpu_resources(
+    layer_id: String,
+    state: State<'_, BridgeState>,
+) -> BridgeResult<ReleaseResult> {
+    info!(
+        "Bridge: release_layer_gpu_resources called for layer {}",
+        layer_id
+    );
+
     // Look up the atlas layer index for this UI layer
     let atlas_layer_idx = {
         let layer_map = state.layer_to_atlas_map.lock().await;
@@ -1354,61 +2331,74 @@ async fn release_layer_gpu_resources(layer_id: String, state: State<'_, BridgeSt
             }
         }
     };
-    
+
     // Get the render loop service
     let service_guard = state.render_loop_service.lock().await;
-    let service_arc = service_guard.as_ref()
-        .ok_or_else(|| BridgeError::ServiceNotInitialized { 
-            code: 5008, 
-            details: "GPU rendering service is not initialized. Cannot release GPU resources.".to_string() 
+    let service_arc = service_guard
+        .as_ref()
+        .ok_or_else(|| BridgeError::ServiceNotInitialized {
+            code: 5008,
+            details: "GPU rendering service is not initialized. Cannot release GPU resources."
+                .to_string(),
         })?;
     let mut render_loop_service = service_arc.lock().await;
-    
+
     // Release the atlas layer
     render_loop_service.volume_atlas.free_layer(atlas_layer_idx);
-    
+
     // Remove from our tracking map
     {
         let mut layer_map = state.layer_to_atlas_map.lock().await;
         layer_map.remove(&layer_id);
     }
-    
-    info!("Released GPU resources for layer {} (atlas layer {})", layer_id, atlas_layer_idx);
-    
+
+    info!(
+        "Released GPU resources for layer {} (atlas layer {})",
+        layer_id, atlas_layer_idx
+    );
+
     Ok(ReleaseResult {
         success: true,
-        message: format!("Released GPU resources for layer {} (atlas layer {})", layer_id, atlas_layer_idx),
+        message: format!(
+            "Released GPU resources for layer {} (atlas layer {})",
+            layer_id, atlas_layer_idx
+        ),
     })
 }
 
 // --- Directory Listing Command ---
 #[command]
 #[tracing::instrument(skip_all, err, name = "api.fs_list_directory")]
-#[allow(dead_code)] // Allow unused for now
 async fn fs_list_directory(
     path: String,
     _state: State<'_, BridgeState>, // Add state param even if unused
 ) -> BridgeResult<TreePayload> {
-    println!("Bridge: fs_list_directory called for path: {}", path);
-    
+    info!("Bridge: fs_list_directory called for path: {}", path);
+
     let root_path = PathBuf::from(&path);
     if !root_path.exists() {
-        return Err(BridgeError::Io { 
-            code: 1002, 
-            details: format!("Directory '{}' does not exist. Please check the path and try again.", path) 
+        return Err(BridgeError::Io {
+            code: 1002,
+            details: format!(
+                "Directory '{}' does not exist. Please check the path and try again.",
+                path
+            ),
         });
     }
-    
+
     if !root_path.is_dir() {
-        return Err(BridgeError::Input { 
-            code: 2001, 
-            details: format!("'{}' is not a directory. Please provide a valid directory path.", path) 
+        return Err(BridgeError::Input {
+            code: 2001,
+            details: format!(
+                "'{}' is not a directory. Please provide a valid directory path.",
+                path
+            ),
         });
     }
-    
+
     let mut nodes = Vec::new();
     let mut parent_map: HashMap<PathBuf, usize> = HashMap::new();
-    
+
     // Use walkdir to traverse directory
     for entry in WalkDir::new(&root_path)
         .max_depth(3) // Limit depth for performance
@@ -1420,7 +2410,7 @@ async fn fs_list_directory(
             Ok(m) => m,
             Err(_) => continue, // Skip files we can't read
         };
-        
+
         // Determine icon based on file type/extension
         let icon_id = if metadata.is_dir() {
             icons::FOLDER
@@ -1433,7 +2423,7 @@ async fn fs_list_directory(
                 _ => icons::FILE,
             }
         };
-        
+
         // Determine parent index
         let parent_idx = if path == root_path {
             None
@@ -1442,10 +2432,11 @@ async fn fs_list_directory(
                 .and_then(|parent| parent_map.get(parent))
                 .copied()
         };
-        
+
         let node = FlatNode {
             id: path.to_string_lossy().to_string(),
-            name: path.file_name()
+            name: path
+                .file_name()
                 .unwrap_or_default()
                 .to_string_lossy()
                 .to_string(),
@@ -1453,24 +2444,21 @@ async fn fs_list_directory(
             icon_id,
             is_dir: metadata.is_dir(),
         };
-        
+
         let idx = nodes.len();
         parent_map.insert(path.to_path_buf(), idx);
         nodes.push(node);
     }
-    
+
     Ok(TreePayload { nodes })
 }
 
 // --- GPU Service Commands ---
 #[command]
 #[tracing::instrument(skip_all, err, name = "api.init_render_loop")]
-async fn init_render_loop(
-    state: State<'_, BridgeState>
-) -> BridgeResult<()> {
-    
-    println!("Bridge: init_render_loop called");
-    
+async fn init_render_loop(state: State<'_, BridgeState>) -> BridgeResult<()> {
+    info!("Bridge: init_render_loop called");
+
     // Check if already initialized
     {
         let service_lock = state.render_loop_service.lock().await;
@@ -1479,46 +2467,51 @@ async fn init_render_loop(
             return Ok(());
         }
     }
-    
+
     // Initialize the service
-    let mut service = RenderLoopService::new().await
+    let mut service = RenderLoopService::new()
+        .await
         .context_bridge("initializing render loop service", 5005)?;
-    
+
     // Load shaders
-    service.load_shaders()
+    service
+        .load_shaders()
         .context_bridge("loading GPU shaders", 5011)?;
-    
+
     // We're using offscreen rendering approach:
     // The render loop is initialized without a window surface
     // Rendering happens to an offscreen texture that gets read back
     // and sent to the frontend as image data
-    
+
     info!("RenderLoopService initialized and shaders loaded successfully");
-    
+
     // Store in state
     {
         let mut service_lock = state.render_loop_service.lock().await;
         *service_lock = Some(Arc::new(Mutex::new(service)));
     }
-    
+
     Ok(())
 }
 
 #[command]
 #[tracing::instrument(skip_all, err, name = "api.resize_canvas")]
 async fn resize_canvas(width: u32, height: u32, state: State<'_, BridgeState>) -> BridgeResult<()> {
-    println!("Bridge: resize_canvas called with {}x{}", width, height);
-    
+    info!("Bridge: resize_canvas called with {}x{}", width, height);
+
     let service_guard = state.render_loop_service.lock().await;
-    let service_arc = service_guard.as_ref()
-        .ok_or_else(|| BridgeError::ServiceNotInitialized { 
-            code: 5006, 
-            details: "GPU rendering service is not initialized. Please initialize the render loop first.".to_string() 
+    let service_arc = service_guard
+        .as_ref()
+        .ok_or_else(|| BridgeError::ServiceNotInitialized {
+            code: 5006,
+            details:
+                "GPU rendering service is not initialized. Please initialize the render loop first."
+                    .to_string(),
         })?;
-    
+
     let mut service = service_arc.lock().await;
     service.resize(width, height);
-    
+
     Ok(())
 }
 
@@ -1526,68 +2519,64 @@ async fn resize_canvas(width: u32, height: u32, state: State<'_, BridgeState>) -
 #[tracing::instrument(skip_all, err, name = "api.update_frame_ubo")]
 async fn update_frame_ubo(
     origin_mm: Vec<f32>, // 4 elements - plane center in world mm
-    u_mm: Vec<f32>, // 4 elements - world vector for clip space +X
-    v_mm: Vec<f32>, // 4 elements - world vector for clip space +Y
-    state: State<'_, BridgeState>
+    u_mm: Vec<f32>,      // 4 elements - world vector for clip space +X
+    v_mm: Vec<f32>,      // 4 elements - world vector for clip space +Y
+    state: State<'_, BridgeState>,
 ) -> BridgeResult<()> {
     info!("Bridge: update_frame_ubo called with:");
     info!("  origin_mm: {:?}", origin_mm);
     info!("  u_mm: {:?}", u_mm);
     info!("  v_mm: {:?}", v_mm);
-    
+
     // Validate input arrays
     if origin_mm.len() != 4 {
         return Err(BridgeError::Input {
             code: 2010,
-            details: "origin_mm must be a 4-element array".to_string()
+            details: "origin_mm must be a 4-element array".to_string(),
         });
     }
     if u_mm.len() != 4 {
         return Err(BridgeError::Input {
             code: 2011,
-            details: "u_mm must be a 4-element array".to_string()
+            details: "u_mm must be a 4-element array".to_string(),
         });
     }
     if v_mm.len() != 4 {
         return Err(BridgeError::Input {
             code: 2012,
-            details: "v_mm must be a 4-element array".to_string()
+            details: "v_mm must be a 4-element array".to_string(),
         });
     }
-    
+
     // Get render loop service
     let service_guard = state.render_loop_service.lock().await;
-    let service_arc = service_guard.as_ref()
-        .ok_or_else(|| BridgeError::ServiceNotInitialized { 
-            code: 5006, 
-            details: "GPU rendering service is not initialized. Please initialize the render loop first.".to_string() 
+    let service_arc = service_guard
+        .as_ref()
+        .ok_or_else(|| BridgeError::ServiceNotInitialized {
+            code: 5006,
+            details:
+                "GPU rendering service is not initialized. Please initialize the render loop first."
+                    .to_string(),
         })?;
     let service = service_arc.lock().await;
-    
+
     // Convert Vec<f32> to fixed arrays
-    let origin_mm_arr: [f32; 4] = origin_mm.try_into()
-        .map_err(|_| BridgeError::Internal { 
-            code: 5008, 
-            details: "Failed to convert origin_mm to array".to_string() 
-        })?;
-    let u_mm_arr: [f32; 4] = u_mm.try_into()
-        .map_err(|_| BridgeError::Internal { 
-            code: 5009, 
-            details: "Failed to convert u_mm to array".to_string() 
-        })?;
-    let v_mm_arr: [f32; 4] = v_mm.try_into()
-        .map_err(|_| BridgeError::Internal { 
-            code: 5010, 
-            details: "Failed to convert v_mm to array".to_string() 
-        })?;
-    
+    let origin_mm_arr: [f32; 4] = origin_mm.try_into().map_err(|_| BridgeError::Internal {
+        code: 5008,
+        details: "Failed to convert origin_mm to array".to_string(),
+    })?;
+    let u_mm_arr: [f32; 4] = u_mm.try_into().map_err(|_| BridgeError::Internal {
+        code: 5009,
+        details: "Failed to convert u_mm to array".to_string(),
+    })?;
+    let v_mm_arr: [f32; 4] = v_mm.try_into().map_err(|_| BridgeError::Internal {
+        code: 5010,
+        details: "Failed to convert v_mm to array".to_string(),
+    })?;
+
     // Update the frame UBO
-    service.update_frame_ubo(
-        origin_mm_arr,
-        u_mm_arr,
-        v_mm_arr
-    );
-    
+    service.update_frame_ubo(origin_mm_arr, u_mm_arr, v_mm_arr);
+
     Ok(())
 }
 
@@ -1595,37 +2584,43 @@ async fn update_frame_ubo(
 #[tracing::instrument(skip_all, err, name = "api.set_crosshair")]
 async fn set_crosshair(
     world_coords: Vec<f32>, // 3 elements for world position
-    state: State<'_, BridgeState>
+    state: State<'_, BridgeState>,
 ) -> BridgeResult<()> {
-    info!("Bridge: set_crosshair called with coords: {:?}", world_coords);
-    
+    info!(
+        "Bridge: set_crosshair called with coords: {:?}",
+        world_coords
+    );
+
     // Validate input
     if world_coords.len() != 3 {
         return Err(BridgeError::Input {
             code: 2014,
-            details: "world_coords must be a 3-element array for [x, y, z] position".to_string()
+            details: "world_coords must be a 3-element array for [x, y, z] position".to_string(),
         });
     }
-    
+
     // Get render loop service
     let service_guard = state.render_loop_service.lock().await;
-    let service_arc = service_guard.as_ref()
-        .ok_or_else(|| BridgeError::ServiceNotInitialized { 
-            code: 5006, 
-            details: "GPU rendering service is not initialized. Please initialize the render loop first.".to_string() 
+    let service_arc = service_guard
+        .as_ref()
+        .ok_or_else(|| BridgeError::ServiceNotInitialized {
+            code: 5006,
+            details:
+                "GPU rendering service is not initialized. Please initialize the render loop first."
+                    .to_string(),
         })?;
     let service = service_arc.lock().await;
-    
+
     // Convert Vec<f32> to fixed array
-    let world_coords_arr: [f32; 3] = world_coords.try_into()
-        .map_err(|_| BridgeError::Internal { 
-            code: 5010, 
-            details: "Failed to convert world_coords to array".to_string() 
+    let world_coords_arr: [f32; 3] =
+        world_coords.try_into().map_err(|_| BridgeError::Internal {
+            code: 5010,
+            details: "Failed to convert world_coords to array".to_string(),
         })?;
-    
+
     // Update the crosshair UBO
     service.set_crosshair(world_coords_arr);
-    
+
     Ok(())
 }
 
@@ -1637,19 +2632,19 @@ async fn set_crosshair(
 //     state: State<'_, BridgeState>
 // ) -> BridgeResult<()> {
 //     info!("Bridge: set_view_plane called with plane_id: {}", plane_id);
-//     
+//
 //     // Get render loop service
 //     let service_guard = state.render_loop_service.lock().await;
 //     let service_arc = service_guard.as_ref()
-//         .map_err(|| BridgeError::ServiceNotInitialized { 
-//             code: 5006, 
-//             details: "GPU rendering service is not initialized. Please initialize the render loop first.".to_string() 
+//         .map_err(|| BridgeError::ServiceNotInitialized {
+//             code: 5006,
+//             details: "GPU rendering service is not initialized. Please initialize the render loop first.".to_string()
 //         })?;
 //     let service = service_arc.lock().await;
-//     
+//
 //     // Update the view plane UBO
 //     service.set_view_plane(plane_id);
-//     
+//
 //     Ok(())
 // }
 
@@ -1660,44 +2655,54 @@ async fn update_frame_for_synchronized_view(
     view_height_mm: f32,
     crosshair_world: Vec<f32>,
     plane_id: u32,
-    state: State<'_, BridgeState>
+    state: State<'_, BridgeState>,
 ) -> BridgeResult<()> {
-    info!("Bridge: update_frame_for_synchronized_view called - view: {}x{}mm, plane: {}", 
-        view_width_mm, view_height_mm, plane_id);
-    println!("API_BRIDGE: Received view dimensions: {}x{}mm", view_width_mm, view_height_mm);
-    
+    info!(
+        "Bridge: update_frame_for_synchronized_view called - view: {}x{}mm, plane: {}",
+        view_width_mm, view_height_mm, plane_id
+    );
+    debug!(
+        "API_BRIDGE: Received view dimensions: {}x{}mm",
+        view_width_mm, view_height_mm
+    );
+
     // Validate crosshair coordinates
     if crosshair_world.len() != 3 {
         return Err(BridgeError::Input {
             code: 2015,
-            details: "crosshair_world must be a 3-element array for [x, y, z] position".to_string()
+            details: "crosshair_world must be a 3-element array for [x, y, z] position".to_string(),
         });
     }
-    
+
     // Get render loop service
     let service_guard = state.render_loop_service.lock().await;
-    let service_arc = service_guard.as_ref()
-        .ok_or_else(|| BridgeError::ServiceNotInitialized { 
-            code: 5006, 
-            details: "GPU rendering service is not initialized. Please initialize the render loop first.".to_string() 
+    let service_arc = service_guard
+        .as_ref()
+        .ok_or_else(|| BridgeError::ServiceNotInitialized {
+            code: 5006,
+            details:
+                "GPU rendering service is not initialized. Please initialize the render loop first."
+                    .to_string(),
         })?;
     let service = service_arc.lock().await;
-    
+
     // Convert Vec<f32> to fixed array
-    let crosshair_arr: [f32; 3] = crosshair_world.try_into()
-        .map_err(|_| BridgeError::Internal { 
-            code: 5011, 
-            details: "Failed to convert crosshair_world to array".to_string() 
-        })?;
-    
+    let crosshair_arr: [f32; 3] =
+        crosshair_world
+            .try_into()
+            .map_err(|_| BridgeError::Internal {
+                code: 5011,
+                details: "Failed to convert crosshair_world to array".to_string(),
+            })?;
+
     // Update the frame for synchronized view
     service.update_frame_for_synchronized_view(
         view_width_mm,
         view_height_mm,
         crosshair_arr,
-        plane_id
+        plane_id,
     );
-    
+
     Ok(())
 }
 
@@ -1706,53 +2711,38 @@ async fn update_frame_for_synchronized_view(
 async fn create_offscreen_render_target(
     width: u32,
     height: u32,
-    state: State<'_, BridgeState>
+    state: State<'_, BridgeState>,
 ) -> BridgeResult<()> {
-    info!("Bridge: create_offscreen_render_target called with {}x{}", width, height);
-    
+    info!(
+        "Bridge: create_offscreen_render_target called with {}x{}",
+        width, height
+    );
+
     // Get render loop service
     let service_guard = state.render_loop_service.lock().await;
-    let service_arc = service_guard.as_ref()
-        .ok_or_else(|| BridgeError::ServiceNotInitialized { 
-            code: 5006, 
-            details: "GPU rendering service is not initialized. Please initialize the render loop first.".to_string() 
+    let service_arc = service_guard
+        .as_ref()
+        .ok_or_else(|| BridgeError::ServiceNotInitialized {
+            code: 5006,
+            details:
+                "GPU rendering service is not initialized. Please initialize the render loop first."
+                    .to_string(),
         })?;
     let mut service = service_arc.lock().await;
-    
+
     // Create the offscreen render target
-    service.create_offscreen_target(width, height)
+    service
+        .create_offscreen_target(width, height)
         .map_err(|e| BridgeError::Internal {
             code: 5013,
             details: format!("Failed to create offscreen render target: {}", e),
         })?;
-    
-    info!("Offscreen render target created successfully: {}x{}", width, height);
-    
-    Ok(())
-}
 
-#[command]
-#[tracing::instrument(skip_all, err, name = "api.render_frame")]
-async fn render_frame(state: State<'_, BridgeState>) -> BridgeResult<()> {
-    info!("Bridge: render_frame called");
-    
-    // Get render loop service
-    let service_guard = state.render_loop_service.lock().await;
-    let service_arc = service_guard.as_ref()
-        .ok_or_else(|| BridgeError::ServiceNotInitialized { 
-            code: 5006, 
-            details: "GPU rendering service is not initialized. Please initialize the render loop first.".to_string() 
-        })?;
-    let mut service = service_arc.lock().await;
-    
-    // Render the frame
-    service.render()
-        .map_err(|e| BridgeError::GpuError { 
-            code: 5012, 
-            details: format!("Failed to render frame: {}", e) 
-        })?;
-    
-    info!("Frame rendered successfully");
+    info!(
+        "Offscreen render target created successfully: {}x{}",
+        width, height
+    );
+
     Ok(())
 }
 
@@ -1762,44 +2752,55 @@ async fn add_render_layer(
     atlas_index: u32,
     opacity: f32,
     texture_coords: Vec<f32>, // 4 elements: u_min, v_min, u_max, v_max
-    state: State<'_, BridgeState>
+    state: State<'_, BridgeState>,
 ) -> BridgeResult<usize> {
-    info!("Bridge: add_render_layer called with atlas_index: {}, opacity: {}", atlas_index, opacity);
-    
+    info!(
+        "Bridge: add_render_layer called with atlas_index: {}, opacity: {}",
+        atlas_index, opacity
+    );
+
     // Validate texture_coords
     if texture_coords.len() != 4 {
         return Err(BridgeError::Input {
             code: 2015,
-            details: "texture_coords must be a 4-element array [u_min, v_min, u_max, v_max]".to_string()
+            details: "texture_coords must be a 4-element array [u_min, v_min, u_max, v_max]"
+                .to_string(),
         });
     }
-    
+
     // Get render loop service
     let service_guard = state.render_loop_service.lock().await;
-    let service_arc = service_guard.as_ref()
-        .ok_or_else(|| BridgeError::ServiceNotInitialized { 
-            code: 5006, 
-            details: "GPU rendering service is not initialized. Please initialize the render loop first.".to_string() 
+    let service_arc = service_guard
+        .as_ref()
+        .ok_or_else(|| BridgeError::ServiceNotInitialized {
+            code: 5006,
+            details:
+                "GPU rendering service is not initialized. Please initialize the render loop first."
+                    .to_string(),
         })?;
     let mut service = service_arc.lock().await;
-    
+
     // Convert Vec to tuple
     let texture_coords_tuple = (
         texture_coords[0],
         texture_coords[1],
         texture_coords[2],
-        texture_coords[3]
+        texture_coords[3],
     );
-    
+
     // Add the layer to render state
-    let layer_index = service.add_render_layer(atlas_index, opacity, texture_coords_tuple)
+    let layer_index = service
+        .add_render_layer(atlas_index, opacity, texture_coords_tuple)
         .map_err(|e| BridgeError::Internal {
             code: 5015,
             details: format!("Failed to add render layer: {}", e),
         })?;
-    
-    info!("Added render layer {} with atlas index {}", layer_index, atlas_index);
-    
+
+    info!(
+        "Added render layer {} with atlas index {}",
+        layer_index, atlas_index
+    );
+
     Ok(layer_index)
 }
 
@@ -1808,16 +2809,19 @@ async fn add_render_layer(
 async fn patch_layer(
     layer_id: String,
     patch: LayerPatch,
-    state: State<'_, BridgeState>
+    state: State<'_, BridgeState>,
 ) -> BridgeResult<()> {
-    info!("Bridge: patch_layer called for layer {} with patch: {:?}", layer_id, patch);
-    
+    info!(
+        "Bridge: patch_layer called for layer {} with patch: {:?}",
+        layer_id, patch
+    );
+
     // For now, we'll just log the patch since we don't have layer property storage yet
     // In a real implementation, this would:
     // 1. Update layer properties in a layer registry
     // 2. Update GPU uniforms for the layer
     // 3. Trigger a re-render if needed
-    
+
     // Look up the atlas layer index for this UI layer
     let atlas_layer_idx = {
         let layer_map = state.layer_to_atlas_map.lock().await;
@@ -1831,28 +2835,35 @@ async fn patch_layer(
             }
         }
     };
-    
+
     // Get mutable access to the service
     let service_guard = state.render_loop_service.lock().await;
-    let service_arc = service_guard.as_ref()
-        .ok_or_else(|| BridgeError::ServiceNotInitialized { 
-            code: 5006, 
-            details: "GPU rendering service is not initialized. Please initialize the render loop first.".to_string() 
+    let service_arc = service_guard
+        .as_ref()
+        .ok_or_else(|| BridgeError::ServiceNotInitialized {
+            code: 5006,
+            details:
+                "GPU rendering service is not initialized. Please initialize the render loop first."
+                    .to_string(),
         })?;
     let mut service = service_arc.lock().await;
-    
+
     // Update opacity if provided
     if let Some(opacity) = patch.opacity {
         // For now, we'll use colormap 0 (grayscale) as default
         // In a full implementation, we'd track the current colormap
-        service.update_layer(atlas_layer_idx as usize, opacity, 0)
+        service
+            .update_layer(atlas_layer_idx as usize, opacity, 0)
             .map_err(|e| BridgeError::GpuError {
                 code: 5007,
                 details: format!("Failed to update layer opacity: {:?}", e),
             })?;
-        info!("Updated layer {} (atlas {}) opacity to {}", layer_id, atlas_layer_idx, opacity);
+        info!(
+            "Updated layer {} (atlas {}) opacity to {}",
+            layer_id, atlas_layer_idx, opacity
+        );
     }
-    
+
     // Update colormap if provided
     if let Some(colormap) = patch.colormap {
         let colormap_id = match colormap_by_name(&colormap) {
@@ -1862,14 +2873,18 @@ async fn patch_layer(
                 0 // Default to grayscale
             }
         };
-        service.set_layer_colormap(atlas_layer_idx as usize, colormap_id)
+        service
+            .set_layer_colormap(atlas_layer_idx as usize, colormap_id)
             .map_err(|e| BridgeError::GpuError {
                 code: 5008,
                 details: format!("Failed to update layer colormap: {:?}", e),
             })?;
-        info!("Updated layer {} colormap to {} (id {})", layer_id, colormap, colormap_id);
+        info!(
+            "Updated layer {} colormap to {} (id {})",
+            layer_id, colormap, colormap_id
+        );
     }
-    
+
     // Update intensity window - prefer direct min/max over center/width
     let intensity_update = match (patch.intensity_min, patch.intensity_max) {
         (Some(min), Some(max)) => Some((min, max)),
@@ -1877,32 +2892,452 @@ async fn patch_layer(
             // Fall back to window_center/window_width if provided
             match (patch.window_center, patch.window_width) {
                 (Some(center), Some(width)) => Some((center - width / 2.0, center + width / 2.0)),
-                _ => None
+                _ => None,
             }
         }
     };
-    
+
     if let Some((intensity_min, intensity_max)) = intensity_update {
-        service.update_layer_intensity(atlas_layer_idx as usize, intensity_min, intensity_max)
+        service
+            .update_layer_intensity(atlas_layer_idx as usize, intensity_min, intensity_max)
             .map_err(|e| BridgeError::GpuError {
                 code: 5009,
                 details: format!("Failed to update layer intensity window: {:?}", e),
             })?;
-        info!("Updated layer {} intensity window: min={}, max={}", 
-            layer_id, intensity_min, intensity_max);
+        info!(
+            "Updated layer {} intensity window: min={}, max={}",
+            layer_id, intensity_min, intensity_max
+        );
     }
-    
+
     // Update threshold range if provided
     if let (Some(low), Some(high)) = (patch.threshold_low, patch.threshold_high) {
-        service.update_layer_threshold(atlas_layer_idx as usize, low, high)
+        service
+            .update_layer_threshold(atlas_layer_idx as usize, low, high)
             .map_err(|e| BridgeError::GpuError {
                 code: 5010,
                 details: format!("Failed to update layer threshold: {:?}", e),
             })?;
-        info!("Updated layer {} threshold: low={}, high={}", layer_id, low, high);
+        info!(
+            "Updated layer {} threshold: low={}, high={}",
+            layer_id, low, high
+        );
     }
-    
+
     Ok(())
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct HistogramBin {
+    pub x0: f32,
+    pub x1: f32,
+    pub count: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct HistogramResult {
+    pub bins: Vec<HistogramBin>,
+    pub total_count: u64,
+    pub min_value: f32,
+    pub max_value: f32,
+    pub mean: f32,
+    pub std: f32,
+    pub bin_count: u32,
+}
+
+#[command]
+#[tracing::instrument(skip_all, err, name = "api.compute_layer_histogram")]
+async fn compute_layer_histogram(
+    layer_id: String,
+    bin_count: Option<u32>,
+    range: Option<Vec<f32>>,
+    exclude_zeros: Option<bool>,
+    state: State<'_, BridgeState>,
+) -> BridgeResult<HistogramResult> {
+    info!(
+        "Bridge: compute_layer_histogram called for layer {}",
+        layer_id
+    );
+
+    let bin_count = bin_count.unwrap_or(256);
+    let exclude_zeros = exclude_zeros.unwrap_or(false);
+
+    info!(
+        "Histogram parameters: bin_count={}, exclude_zeros={}, range={:?}",
+        bin_count, exclude_zeros, range
+    );
+
+    // Look up the volume for this layer with fallback mechanisms
+    let volume_handle = {
+        let layer_map = state.layer_to_volume_map.lock().await;
+        match layer_map.get(&layer_id) {
+            Some(handle) => {
+                info!("Found volume handle {} for layer {} in layer_to_volume_map", handle, layer_id);
+                handle.clone()
+            },
+            None => {
+                warn!("Layer {} not found in layer_to_volume_map, attempting fallback mechanisms", layer_id);
+                
+                // Log available mappings for debugging
+                info!("Available layer mappings: {:?}", layer_map.keys().collect::<Vec<_>>());
+                
+                // Drop the lock before proceeding
+                drop(layer_map);
+                
+                // Fallback 1: Try using layer_id as volume_handle directly
+                // This works when the frontend uses volume_id as layer_id
+                let registry = state.volume_registry.lock().await;
+                if registry.contains(&layer_id) {
+                    info!("Fallback 1 succeeded: Found volume using layer_id {} as volume_handle", layer_id);
+                    drop(registry);
+                    layer_id.clone()
+                } else {
+                    // Fallback 2: Search registry for volumes that might match
+                    // This handles cases where there's a mismatch in ID formats
+                    let matching_volumes: Vec<String> = registry.keys()
+                        .filter(|k| {
+                            // Check if volume key contains layer_id or vice versa
+                            k.contains(&layer_id) || layer_id.contains(*k)
+                        })
+                        .cloned()
+                        .collect();
+                    
+                    if let Some(volume_handle) = matching_volumes.first() {
+                        info!("Fallback 2 succeeded: Found matching volume {} for layer {}", volume_handle, layer_id);
+                        drop(registry);
+                        volume_handle.clone()
+                    } else {
+                        // Log all available volumes for debugging
+                        error!("No volume found for layer {}. Available volumes: {:?}", 
+                               layer_id, registry.keys().collect::<Vec<_>>());
+                        drop(registry);
+                        
+                        return Err(BridgeError::VolumeNotFound {
+                            code: 4044,
+                            details: format!(
+                                "Volume for layer {} not found. Tried: layer_to_volume_map lookup, direct volume registry lookup, and pattern matching", 
+                                layer_id
+                            ),
+                        });
+                    }
+                }
+            }
+        }
+    };
+
+    // Get the volume from the registry
+    let volume = {
+        let registry = state.volume_registry.lock().await;
+        match registry.get(&volume_handle) {
+            Some(vol) => vol.clone(),
+            None => {
+                return Err(BridgeError::VolumeNotFound {
+                    code: 4045,
+                    details: format!("Volume {} not found in registry", volume_handle),
+                });
+            }
+        }
+    };
+
+    // Compute histogram - extract data based on volume type
+    let mut values: Vec<f32> = Vec::new();
+
+    match &volume {
+        VolumeSendable::VolF32(vol, _) => {
+            for &val in vol.data().iter() {
+                if !val.is_nan() && (!exclude_zeros || val != 0.0) {
+                    values.push(val);
+                }
+            }
+        }
+        VolumeSendable::VolF64(vol, _) => {
+            for &val in vol.data().iter() {
+                let val_f32 = val as f32;
+                if !val_f32.is_nan() && (!exclude_zeros || val_f32 != 0.0) {
+                    values.push(val_f32);
+                }
+            }
+        }
+        VolumeSendable::VolI16(vol, _) => {
+            for &val in vol.data().iter() {
+                let val_f32 = val as f32;
+                if !exclude_zeros || val != 0 {
+                    values.push(val_f32);
+                }
+            }
+        }
+        VolumeSendable::VolI32(vol, _) => {
+            for &val in vol.data().iter() {
+                let val_f32 = val as f32;
+                if !exclude_zeros || val != 0 {
+                    values.push(val_f32);
+                }
+            }
+        }
+        VolumeSendable::VolU8(vol, _) => {
+            for &val in vol.data().iter() {
+                let val_f32 = val as f32;
+                if !exclude_zeros || val != 0 {
+                    values.push(val_f32);
+                }
+            }
+        }
+        VolumeSendable::VolU16(vol, _) => {
+            for &val in vol.data().iter() {
+                let val_f32 = val as f32;
+                if !exclude_zeros || val != 0 {
+                    values.push(val_f32);
+                }
+            }
+        }
+        VolumeSendable::VolU32(vol, _) => {
+            for &val in vol.data().iter() {
+                let val_f32 = val as f32;
+                if !exclude_zeros || val != 0 {
+                    values.push(val_f32);
+                }
+            }
+        }
+        VolumeSendable::VolI8(vol, _) => {
+            for &val in vol.data().iter() {
+                let val_f32 = val as f32;
+                if !exclude_zeros || val != 0 {
+                    values.push(val_f32);
+                }
+            }
+        }
+        // 4D volumes - compute histogram from current timepoint
+        VolumeSendable::Vec4DF32(vec) => {
+            // Get the current timepoint from the registry
+            let timepoint = {
+                let registry = state.volume_registry.lock().await;
+                let volume_handle = {
+                    let layer_map = state.layer_to_volume_map.lock().await;
+                    layer_map.get(&layer_id).cloned().unwrap_or_default()
+                };
+                registry.get_timepoint(&volume_handle).unwrap_or(0)
+            };
+            
+            info!("Computing histogram for 4D F32 volume at timepoint {}", timepoint);
+            
+            // Extract the 3D volume at current timepoint
+            let vol_3d = vec.volume(timepoint).map_err(|e| BridgeError::Internal {
+                code: 5014,
+                details: format!("Failed to extract timepoint {} for histogram: {}", timepoint, e),
+            })?;
+            
+            // Compute histogram from the 3D volume
+            for &val in vol_3d.data().iter() {
+                if !val.is_nan() && (!exclude_zeros || val != 0.0) {
+                    values.push(val);
+                }
+            }
+        }
+        VolumeSendable::Vec4DI16(vec) => {
+            // Get the current timepoint from the registry
+            let timepoint = {
+                let registry = state.volume_registry.lock().await;
+                let volume_handle = {
+                    let layer_map = state.layer_to_volume_map.lock().await;
+                    layer_map.get(&layer_id).cloned().unwrap_or_default()
+                };
+                registry.get_timepoint(&volume_handle).unwrap_or(0)
+            };
+            
+            info!("Computing histogram for 4D I16 volume at timepoint {}", timepoint);
+            
+            // Extract the 3D volume at current timepoint
+            let vol_3d = vec.volume(timepoint).map_err(|e| BridgeError::Internal {
+                code: 5014,
+                details: format!("Failed to extract timepoint {} for histogram: {}", timepoint, e),
+            })?;
+            
+            // Compute histogram from the 3D volume
+            for &val in vol_3d.data().iter() {
+                let val_f32 = val as f32;
+                if !exclude_zeros || val != 0 {
+                    values.push(val_f32);
+                }
+            }
+        }
+        VolumeSendable::Vec4DU8(vec) => {
+            // Get the current timepoint from the registry
+            let timepoint = {
+                let registry = state.volume_registry.lock().await;
+                let volume_handle = {
+                    let layer_map = state.layer_to_volume_map.lock().await;
+                    layer_map.get(&layer_id).cloned().unwrap_or_default()
+                };
+                registry.get_timepoint(&volume_handle).unwrap_or(0)
+            };
+            
+            info!("Computing histogram for 4D U8 volume at timepoint {}", timepoint);
+            
+            // Extract the 3D volume at current timepoint
+            let vol_3d = vec.volume(timepoint).map_err(|e| BridgeError::Internal {
+                code: 5014,
+                details: format!("Failed to extract timepoint {} for histogram: {}", timepoint, e),
+            })?;
+            
+            // Compute histogram from the 3D volume
+            for &val in vol_3d.data().iter() {
+                let val_f32 = val as f32;
+                if !exclude_zeros || val != 0 {
+                    values.push(val_f32);
+                }
+            }
+        }
+        VolumeSendable::Vec4DI8(_vec) => {
+            // TODO: Implement histogram computation for 4D volumes
+            // For now, return empty histogram
+            warn!("Histogram computation for 4D volumes not yet implemented");
+            return Ok(HistogramResult {
+                bins: vec![],
+                total_count: 0,
+                min_value: 0.0,
+                max_value: 0.0,
+                mean: 0.0,
+                std: 0.0,
+                bin_count: 0,
+            });
+        }
+        VolumeSendable::Vec4DU16(_vec) => {
+            // TODO: Implement histogram computation for 4D volumes
+            // For now, return empty histogram
+            warn!("Histogram computation for 4D volumes not yet implemented");
+            return Ok(HistogramResult {
+                bins: vec![],
+                total_count: 0,
+                min_value: 0.0,
+                max_value: 0.0,
+                mean: 0.0,
+                std: 0.0,
+                bin_count: 0,
+            });
+        }
+        VolumeSendable::Vec4DI32(_vec) => {
+            // TODO: Implement histogram computation for 4D volumes
+            // For now, return empty histogram
+            warn!("Histogram computation for 4D volumes not yet implemented");
+            return Ok(HistogramResult {
+                bins: vec![],
+                total_count: 0,
+                min_value: 0.0,
+                max_value: 0.0,
+                mean: 0.0,
+                std: 0.0,
+                bin_count: 0,
+            });
+        }
+        VolumeSendable::Vec4DU32(_vec) => {
+            // TODO: Implement histogram computation for 4D volumes
+            // For now, return empty histogram
+            warn!("Histogram computation for 4D volumes not yet implemented");
+            return Ok(HistogramResult {
+                bins: vec![],
+                total_count: 0,
+                min_value: 0.0,
+                max_value: 0.0,
+                mean: 0.0,
+                std: 0.0,
+                bin_count: 0,
+            });
+        }
+        VolumeSendable::Vec4DF64(_vec) => {
+            // TODO: Implement histogram computation for 4D volumes
+            // For now, return empty histogram
+            warn!("Histogram computation for 4D volumes not yet implemented");
+            return Ok(HistogramResult {
+                bins: vec![],
+                total_count: 0,
+                min_value: 0.0,
+                max_value: 0.0,
+                mean: 0.0,
+                std: 0.0,
+                bin_count: 0,
+            });
+        }
+    }
+
+    if values.is_empty() {
+        return Ok(HistogramResult {
+            bins: vec![],
+            total_count: 0,
+            min_value: 0.0,
+            max_value: 0.0,
+            mean: 0.0,
+            std: 0.0,
+            bin_count: 0,
+        });
+    }
+
+    // Calculate statistics
+    let min_value = values.iter().cloned().fold(f32::INFINITY, f32::min);
+    let max_value = values.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
+    let total_count = values.len() as u64;
+    let mean = values.iter().sum::<f32>() / values.len() as f32;
+
+    info!(
+        "Histogram data stats: total_values={}, min={}, max={}, mean={}",
+        total_count, min_value, max_value, mean
+    );
+
+    // Calculate standard deviation
+    let variance = values.iter().map(|&v| (v - mean).powi(2)).sum::<f32>() / values.len() as f32;
+    let std = variance.sqrt();
+
+    // Determine range for binning
+    let (hist_min, hist_max) = if let Some(r) = range {
+        if r.len() >= 2 {
+            (r[0], r[1])
+        } else {
+            (min_value, max_value)
+        }
+    } else {
+        (min_value, max_value)
+    };
+
+    // Create bins
+    let bin_width = (hist_max - hist_min) / bin_count as f32;
+    let mut bins = vec![0u64; bin_count as usize];
+
+    // Fill bins
+    for &val in values.iter() {
+        if val >= hist_min && val <= hist_max {
+            let bin_idx = ((val - hist_min) / bin_width) as usize;
+            let bin_idx = bin_idx.min(bin_count as usize - 1); // Clamp to last bin
+            bins[bin_idx] += 1;
+        }
+    }
+
+    // Log bin distribution
+    let non_zero_bins = bins.iter().filter(|&&count| count > 0).count();
+    let max_bin_count = bins.iter().max().copied().unwrap_or(0);
+    info!("Histogram binning: hist_range=[{}, {}], bin_width={}, non_zero_bins={}/{}, max_bin_count={}",
+          hist_min, hist_max, bin_width, non_zero_bins, bin_count, max_bin_count);
+
+    // Convert to result format
+    let histogram_bins: Vec<HistogramBin> = bins
+        .iter()
+        .enumerate()
+        .map(|(i, &count)| HistogramBin {
+            x0: hist_min + (i as f32 * bin_width),
+            x1: hist_min + ((i + 1) as f32 * bin_width),
+            count,
+        })
+        .collect();
+
+    Ok(HistogramResult {
+        bins: histogram_bins,
+        total_count,
+        min_value,
+        max_value,
+        mean,
+        std,
+        bin_count,
+    })
 }
 
 #[command]
@@ -1910,56 +3345,54 @@ async fn patch_layer(
 async fn sample_world_coordinate(
     handle_id: String,
     world_coords: Vec<f32>, // 3 elements for world position
-    state: State<'_, BridgeState>
+    state: State<'_, BridgeState>,
 ) -> BridgeResult<f32> {
-    info!("Bridge: sample_world_coordinate called for handle {} at {:?}", handle_id, world_coords);
-    
+    info!(
+        "Bridge: sample_world_coordinate called for handle {} at {:?}",
+        handle_id, world_coords
+    );
+
     // Validate input
     if world_coords.len() != 3 {
         return Err(BridgeError::Input {
             code: 2016,
-            details: "world_coords must be a 3-element array for [x, y, z] position".to_string()
+            details: "world_coords must be a 3-element array for [x, y, z] position".to_string(),
         });
     }
-    
+
     // Get the volume handle
     let registry = state.volume_registry.lock().await;
-    let volume_data = registry.get(&handle_id)
-        .ok_or_else(|| BridgeError::VolumeNotFound { 
-            code: 4001, 
-            details: format!("Volume handle {} not found", handle_id) 
+    let volume_data = registry
+        .get(&handle_id)
+        .ok_or_else(|| BridgeError::VolumeNotFound {
+            code: 4001,
+            details: format!("Volume handle {} not found", handle_id),
         })?;
-    
+
     // Convert world coordinates to voxel coordinates
-    let world_to_voxel = match volume_data {
-        VolumeSendable::VolF32(_vol, affine) => affine.inverse(),
-        VolumeSendable::VolF64(_vol, affine) => affine.inverse(),
-        VolumeSendable::VolI16(_vol, affine) => affine.inverse(),
-        VolumeSendable::VolI32(_vol, affine) => affine.inverse(),
-        VolumeSendable::VolU8(_vol, affine) => affine.inverse(),
-        VolumeSendable::VolU16(_vol, affine) => affine.inverse(),
-        VolumeSendable::VolI8(_vol, affine) => affine.inverse(),
-        VolumeSendable::VolU32(_vol, affine) => affine.inverse(),
-    };
-    
+    let world_to_voxel = get_affine_from_volume(volume_data)?.inverse();
+
     // Transform world to voxel
     let world_point = nalgebra::Point3::new(world_coords[0], world_coords[1], world_coords[2]);
     let voxel_point = world_to_voxel.transform_point(&world_point);
-    let voxel_coords = [
-        voxel_point.x,
-        voxel_point.y,
-        voxel_point.z
-    ];
-    
-    info!("Transformed world {:?} to voxel {:?}", world_coords, voxel_coords);
-    
+    let voxel_coords = [voxel_point.x, voxel_point.y, voxel_point.z];
+
+    info!(
+        "Transformed world {:?} to voxel {:?}",
+        world_coords, voxel_coords
+    );
+
     // Check bounds and sample
     let value = match volume_data {
         VolumeSendable::VolF32(vol, _) => {
             let dims = vol.space().dims();
-            if voxel_coords[0] >= 0.0 && voxel_coords[0] < dims[0] as f32 &&
-               voxel_coords[1] >= 0.0 && voxel_coords[1] < dims[1] as f32 &&
-               voxel_coords[2] >= 0.0 && voxel_coords[2] < dims[2] as f32 {
+            if voxel_coords[0] >= 0.0
+                && voxel_coords[0] < dims[0] as f32
+                && voxel_coords[1] >= 0.0
+                && voxel_coords[1] < dims[1] as f32
+                && voxel_coords[2] >= 0.0
+                && voxel_coords[2] < dims[2] as f32
+            {
                 // Use nearest neighbor interpolation
                 let x = voxel_coords[0].round() as usize;
                 let y = voxel_coords[1].round() as usize;
@@ -1968,102 +3401,196 @@ async fn sample_world_coordinate(
             } else {
                 0.0 // Out of bounds
             }
-        },
+        }
         VolumeSendable::VolF64(vol, _) => {
             let dims = vol.space().dims();
-            if voxel_coords[0] >= 0.0 && voxel_coords[0] < dims[0] as f32 &&
-               voxel_coords[1] >= 0.0 && voxel_coords[1] < dims[1] as f32 &&
-               voxel_coords[2] >= 0.0 && voxel_coords[2] < dims[2] as f32 {
+            if voxel_coords[0] >= 0.0
+                && voxel_coords[0] < dims[0] as f32
+                && voxel_coords[1] >= 0.0
+                && voxel_coords[1] < dims[1] as f32
+                && voxel_coords[2] >= 0.0
+                && voxel_coords[2] < dims[2] as f32
+            {
                 let x = voxel_coords[0].round() as usize;
                 let y = voxel_coords[1].round() as usize;
                 let z = voxel_coords[2].round() as usize;
-                vol.get_at_coords(&[x, y, z]).map(|v| v as f32).unwrap_or(0.0)
+                vol.get_at_coords(&[x, y, z])
+                    .map(|v| v as f32)
+                    .unwrap_or(0.0)
             } else {
                 0.0
             }
-        },
+        }
         VolumeSendable::VolI16(vol, _) => {
             let dims = vol.space().dims();
-            if voxel_coords[0] >= 0.0 && voxel_coords[0] < dims[0] as f32 &&
-               voxel_coords[1] >= 0.0 && voxel_coords[1] < dims[1] as f32 &&
-               voxel_coords[2] >= 0.0 && voxel_coords[2] < dims[2] as f32 {
+            if voxel_coords[0] >= 0.0
+                && voxel_coords[0] < dims[0] as f32
+                && voxel_coords[1] >= 0.0
+                && voxel_coords[1] < dims[1] as f32
+                && voxel_coords[2] >= 0.0
+                && voxel_coords[2] < dims[2] as f32
+            {
                 let x = voxel_coords[0].round() as usize;
                 let y = voxel_coords[1].round() as usize;
                 let z = voxel_coords[2].round() as usize;
-                vol.get_at_coords(&[x, y, z]).map(|v| v as f32).unwrap_or(0.0)
+                vol.get_at_coords(&[x, y, z])
+                    .map(|v| v as f32)
+                    .unwrap_or(0.0)
             } else {
                 0.0
             }
-        },
+        }
         VolumeSendable::VolI32(vol, _) => {
             let dims = vol.space().dims();
-            if voxel_coords[0] >= 0.0 && voxel_coords[0] < dims[0] as f32 &&
-               voxel_coords[1] >= 0.0 && voxel_coords[1] < dims[1] as f32 &&
-               voxel_coords[2] >= 0.0 && voxel_coords[2] < dims[2] as f32 {
+            if voxel_coords[0] >= 0.0
+                && voxel_coords[0] < dims[0] as f32
+                && voxel_coords[1] >= 0.0
+                && voxel_coords[1] < dims[1] as f32
+                && voxel_coords[2] >= 0.0
+                && voxel_coords[2] < dims[2] as f32
+            {
                 let x = voxel_coords[0].round() as usize;
                 let y = voxel_coords[1].round() as usize;
                 let z = voxel_coords[2].round() as usize;
-                vol.get_at_coords(&[x, y, z]).map(|v| v as f32).unwrap_or(0.0)
+                vol.get_at_coords(&[x, y, z])
+                    .map(|v| v as f32)
+                    .unwrap_or(0.0)
             } else {
                 0.0
             }
-        },
+        }
         VolumeSendable::VolU8(vol, _) => {
             let dims = vol.space().dims();
-            if voxel_coords[0] >= 0.0 && voxel_coords[0] < dims[0] as f32 &&
-               voxel_coords[1] >= 0.0 && voxel_coords[1] < dims[1] as f32 &&
-               voxel_coords[2] >= 0.0 && voxel_coords[2] < dims[2] as f32 {
+            if voxel_coords[0] >= 0.0
+                && voxel_coords[0] < dims[0] as f32
+                && voxel_coords[1] >= 0.0
+                && voxel_coords[1] < dims[1] as f32
+                && voxel_coords[2] >= 0.0
+                && voxel_coords[2] < dims[2] as f32
+            {
                 let x = voxel_coords[0].round() as usize;
                 let y = voxel_coords[1].round() as usize;
                 let z = voxel_coords[2].round() as usize;
-                vol.get_at_coords(&[x, y, z]).map(|v| v as f32).unwrap_or(0.0)
+                vol.get_at_coords(&[x, y, z])
+                    .map(|v| v as f32)
+                    .unwrap_or(0.0)
             } else {
                 0.0
             }
-        },
+        }
         VolumeSendable::VolU16(vol, _) => {
             let dims = vol.space().dims();
-            if voxel_coords[0] >= 0.0 && voxel_coords[0] < dims[0] as f32 &&
-               voxel_coords[1] >= 0.0 && voxel_coords[1] < dims[1] as f32 &&
-               voxel_coords[2] >= 0.0 && voxel_coords[2] < dims[2] as f32 {
+            if voxel_coords[0] >= 0.0
+                && voxel_coords[0] < dims[0] as f32
+                && voxel_coords[1] >= 0.0
+                && voxel_coords[1] < dims[1] as f32
+                && voxel_coords[2] >= 0.0
+                && voxel_coords[2] < dims[2] as f32
+            {
                 let x = voxel_coords[0].round() as usize;
                 let y = voxel_coords[1].round() as usize;
                 let z = voxel_coords[2].round() as usize;
-                vol.get_at_coords(&[x, y, z]).map(|v| v as f32).unwrap_or(0.0)
+                vol.get_at_coords(&[x, y, z])
+                    .map(|v| v as f32)
+                    .unwrap_or(0.0)
             } else {
                 0.0
             }
-        },
+        }
         VolumeSendable::VolI8(vol, _) => {
             let dims = vol.space().dims();
-            if voxel_coords[0] >= 0.0 && voxel_coords[0] < dims[0] as f32 &&
-               voxel_coords[1] >= 0.0 && voxel_coords[1] < dims[1] as f32 &&
-               voxel_coords[2] >= 0.0 && voxel_coords[2] < dims[2] as f32 {
+            if voxel_coords[0] >= 0.0
+                && voxel_coords[0] < dims[0] as f32
+                && voxel_coords[1] >= 0.0
+                && voxel_coords[1] < dims[1] as f32
+                && voxel_coords[2] >= 0.0
+                && voxel_coords[2] < dims[2] as f32
+            {
                 let x = voxel_coords[0].round() as usize;
                 let y = voxel_coords[1].round() as usize;
                 let z = voxel_coords[2].round() as usize;
-                vol.get_at_coords(&[x, y, z]).map(|v| v as f32).unwrap_or(0.0)
+                vol.get_at_coords(&[x, y, z])
+                    .map(|v| v as f32)
+                    .unwrap_or(0.0)
             } else {
                 0.0
             }
-        },
+        }
         VolumeSendable::VolU32(vol, _) => {
             let dims = vol.space().dims();
-            if voxel_coords[0] >= 0.0 && voxel_coords[0] < dims[0] as f32 &&
-               voxel_coords[1] >= 0.0 && voxel_coords[1] < dims[1] as f32 &&
-               voxel_coords[2] >= 0.0 && voxel_coords[2] < dims[2] as f32 {
+            if voxel_coords[0] >= 0.0
+                && voxel_coords[0] < dims[0] as f32
+                && voxel_coords[1] >= 0.0
+                && voxel_coords[1] < dims[1] as f32
+                && voxel_coords[2] >= 0.0
+                && voxel_coords[2] < dims[2] as f32
+            {
                 let x = voxel_coords[0].round() as usize;
                 let y = voxel_coords[1].round() as usize;
                 let z = voxel_coords[2].round() as usize;
-                vol.get_at_coords(&[x, y, z]).map(|v| v as f32).unwrap_or(0.0)
+                vol.get_at_coords(&[x, y, z])
+                    .map(|v| v as f32)
+                    .unwrap_or(0.0)
             } else {
                 0.0
             }
-        },
+        }
+        // 4D volumes - sample from the current timepoint (or first if not set)
+        VolumeSendable::Vec4DF32(_vec) => {
+            // TODO: Extract the current timepoint from the volume registry
+            // For now, return 0.0 as we haven't implemented 4D sampling yet
+            warn!("4D volume sampling not yet implemented, returning 0.0");
+            0.0
+        }
+        VolumeSendable::Vec4DI16(_vec) => {
+            // TODO: Extract the current timepoint from the volume registry
+            // For now, return 0.0 as we haven't implemented 4D sampling yet
+            warn!("4D volume sampling not yet implemented, returning 0.0");
+            0.0
+        }
+        VolumeSendable::Vec4DU8(_vec) => {
+            // TODO: Extract the current timepoint from the volume registry
+            // For now, return 0.0 as we haven't implemented 4D sampling yet
+            warn!("4D volume sampling not yet implemented, returning 0.0");
+            0.0
+        }
+        VolumeSendable::Vec4DI8(_vec) => {
+            // TODO: Extract the current timepoint from the volume registry
+            // For now, return 0.0 as we haven't implemented 4D sampling yet
+            warn!("4D volume sampling not yet implemented, returning 0.0");
+            0.0
+        }
+        VolumeSendable::Vec4DU16(_vec) => {
+            // TODO: Extract the current timepoint from the volume registry
+            // For now, return 0.0 as we haven't implemented 4D sampling yet
+            warn!("4D volume sampling not yet implemented, returning 0.0");
+            0.0
+        }
+        VolumeSendable::Vec4DI32(_vec) => {
+            // TODO: Extract the current timepoint from the volume registry
+            // For now, return 0.0 as we haven't implemented 4D sampling yet
+            warn!("4D volume sampling not yet implemented, returning 0.0");
+            0.0
+        }
+        VolumeSendable::Vec4DU32(_vec) => {
+            // TODO: Extract the current timepoint from the volume registry
+            // For now, return 0.0 as we haven't implemented 4D sampling yet
+            warn!("4D volume sampling not yet implemented, returning 0.0");
+            0.0
+        }
+        VolumeSendable::Vec4DF64(_vec) => {
+            // TODO: Extract the current timepoint from the volume registry
+            // For now, return 0.0 as we haven't implemented 4D sampling yet
+            warn!("4D volume sampling not yet implemented, returning 0.0");
+            0.0
+        }
     };
-    
-    info!("Sampled value: {} at voxel coords {:?}", value, voxel_coords);
-    
+
+    info!(
+        "Sampled value: {} at voxel coords {:?}",
+        value, voxel_coords
+    );
+
     Ok(value)
 }
 
@@ -2071,19 +3598,22 @@ async fn sample_world_coordinate(
 #[tracing::instrument(skip_all, err, name = "api.clear_render_layers")]
 async fn clear_render_layers(state: State<'_, BridgeState>) -> BridgeResult<()> {
     info!("Bridge: clear_render_layers called");
-    
+
     // Get render loop service
     let service_guard = state.render_loop_service.lock().await;
-    let service_arc = service_guard.as_ref()
-        .ok_or_else(|| BridgeError::ServiceNotInitialized { 
-            code: 5006, 
-            details: "GPU rendering service is not initialized. Please initialize the render loop first.".to_string() 
+    let service_arc = service_guard
+        .as_ref()
+        .ok_or_else(|| BridgeError::ServiceNotInitialized {
+            code: 5006,
+            details:
+                "GPU rendering service is not initialized. Please initialize the render loop first."
+                    .to_string(),
         })?;
     let mut service = service_arc.lock().await;
-    
+
     // Clear all layers
     service.clear_render_layers();
-    
+
     info!("Cleared all render layers");
     Ok(())
 }
@@ -2093,34 +3623,43 @@ async fn clear_render_layers(state: State<'_, BridgeState>) -> BridgeResult<()> 
 async fn update_layer_opacity(
     layer_index: usize,
     opacity: f32,
-    state: State<'_, BridgeState>
+    state: State<'_, BridgeState>,
 ) -> BridgeResult<()> {
-    info!("Bridge: update_layer_opacity called for layer {} with opacity {}", layer_index, opacity);
-    
+    info!(
+        "Bridge: update_layer_opacity called for layer {} with opacity {}",
+        layer_index, opacity
+    );
+
     // Get render loop service
     let service_guard = state.render_loop_service.lock().await;
-    let service_arc = service_guard.as_ref()
-        .ok_or_else(|| BridgeError::ServiceNotInitialized { 
-            code: 5006, 
-            details: "GPU rendering service is not initialized. Please initialize the render loop first.".to_string() 
+    let service_arc = service_guard
+        .as_ref()
+        .ok_or_else(|| BridgeError::ServiceNotInitialized {
+            code: 5006,
+            details:
+                "GPU rendering service is not initialized. Please initialize the render loop first."
+                    .to_string(),
         })?;
     let mut service = service_arc.lock().await;
-    
+
     // Get current colormap ID to preserve it
-    let current_colormap = service.layer_state_manager.get_layer(layer_index)
+    let current_colormap = service
+        .layer_state_manager
+        .get_layer(layer_index)
         .ok_or_else(|| BridgeError::GpuError {
             code: 5016,
             details: format!("Layer {} not found", layer_index),
         })?
         .colormap_id;
-    
+
     // Update opacity while preserving colormap
-    service.update_layer(layer_index, opacity, current_colormap)
+    service
+        .update_layer(layer_index, opacity, current_colormap)
         .map_err(|e| BridgeError::GpuError {
             code: 5016,
             details: format!("Failed to update layer opacity: {:?}", e),
         })?;
-    
+
     Ok(())
 }
 
@@ -2129,26 +3668,33 @@ async fn update_layer_opacity(
 async fn update_layer_colormap(
     layer_index: usize,
     colormap_id: u32,
-    state: State<'_, BridgeState>
+    state: State<'_, BridgeState>,
 ) -> BridgeResult<()> {
-    info!("Bridge: update_layer_colormap called for layer {} with colormap {}", layer_index, colormap_id);
-    
+    info!(
+        "Bridge: update_layer_colormap called for layer {} with colormap {}",
+        layer_index, colormap_id
+    );
+
     // Get render loop service
     let service_guard = state.render_loop_service.lock().await;
-    let service_arc = service_guard.as_ref()
-        .ok_or_else(|| BridgeError::ServiceNotInitialized { 
-            code: 5006, 
-            details: "GPU rendering service is not initialized. Please initialize the render loop first.".to_string() 
+    let service_arc = service_guard
+        .as_ref()
+        .ok_or_else(|| BridgeError::ServiceNotInitialized {
+            code: 5006,
+            details:
+                "GPU rendering service is not initialized. Please initialize the render loop first."
+                    .to_string(),
         })?;
     let mut service = service_arc.lock().await;
-    
+
     // Update colormap
-    service.set_layer_colormap(layer_index, colormap_id)
+    service
+        .set_layer_colormap(layer_index, colormap_id)
         .map_err(|e| BridgeError::GpuError {
             code: 5017,
             details: format!("Failed to update layer colormap: {:?}", e),
         })?;
-    
+
     Ok(())
 }
 
@@ -2158,27 +3704,33 @@ async fn update_layer_intensity(
     layer_index: usize,
     intensity_min: f32,
     intensity_max: f32,
-    state: State<'_, BridgeState>
+    state: State<'_, BridgeState>,
 ) -> BridgeResult<()> {
-    info!("Bridge: update_layer_intensity called for layer {} with range [{}, {}]", 
-          layer_index, intensity_min, intensity_max);
-    
+    info!(
+        "Bridge: update_layer_intensity called for layer {} with range [{}, {}]",
+        layer_index, intensity_min, intensity_max
+    );
+
     // Get render loop service
     let service_guard = state.render_loop_service.lock().await;
-    let service_arc = service_guard.as_ref()
-        .ok_or_else(|| BridgeError::ServiceNotInitialized { 
-            code: 5006, 
-            details: "GPU rendering service is not initialized. Please initialize the render loop first.".to_string() 
+    let service_arc = service_guard
+        .as_ref()
+        .ok_or_else(|| BridgeError::ServiceNotInitialized {
+            code: 5006,
+            details:
+                "GPU rendering service is not initialized. Please initialize the render loop first."
+                    .to_string(),
         })?;
     let mut service = service_arc.lock().await;
-    
+
     // Update intensity range
-    service.update_layer_intensity(layer_index, intensity_min, intensity_max)
+    service
+        .update_layer_intensity(layer_index, intensity_min, intensity_max)
         .map_err(|e| BridgeError::GpuError {
             code: 5018,
             details: format!("Failed to update layer intensity: {:?}", e),
         })?;
-    
+
     Ok(())
 }
 
@@ -2188,27 +3740,33 @@ async fn update_layer_threshold(
     layer_index: usize,
     threshold_low: f32,
     threshold_high: f32,
-    state: State<'_, BridgeState>
+    state: State<'_, BridgeState>,
 ) -> BridgeResult<()> {
-    info!("Bridge: update_layer_threshold called for layer {} with range [{}, {}]", 
-          layer_index, threshold_low, threshold_high);
-    
+    info!(
+        "Bridge: update_layer_threshold called for layer {} with range [{}, {}]",
+        layer_index, threshold_low, threshold_high
+    );
+
     // Get render loop service
     let service_guard = state.render_loop_service.lock().await;
-    let service_arc = service_guard.as_ref()
-        .ok_or_else(|| BridgeError::ServiceNotInitialized { 
-            code: 5006, 
-            details: "GPU rendering service is not initialized. Please initialize the render loop first.".to_string() 
+    let service_arc = service_guard
+        .as_ref()
+        .ok_or_else(|| BridgeError::ServiceNotInitialized {
+            code: 5006,
+            details:
+                "GPU rendering service is not initialized. Please initialize the render loop first."
+                    .to_string(),
         })?;
     let mut service = service_arc.lock().await;
-    
+
     // Update threshold range
-    service.update_layer_threshold(layer_index, threshold_low, threshold_high)
+    service
+        .update_layer_threshold(layer_index, threshold_low, threshold_high)
         .map_err(|e| BridgeError::GpuError {
             code: 5019,
             details: format!("Failed to update layer threshold: {:?}", e),
         })?;
-    
+
     Ok(())
 }
 
@@ -2217,99 +3775,123 @@ async fn update_layer_threshold(
 async fn set_layer_mask(
     layer_index: usize,
     is_mask: bool,
-    state: State<'_, BridgeState>
+    state: State<'_, BridgeState>,
 ) -> BridgeResult<()> {
-    info!("Bridge: set_layer_mask called for layer {} with is_mask={}", layer_index, is_mask);
-    
+    info!(
+        "Bridge: set_layer_mask called for layer {} with is_mask={}",
+        layer_index, is_mask
+    );
+
     // Get render loop service
     let service_guard = state.render_loop_service.lock().await;
-    let service_arc = service_guard.as_ref()
-        .ok_or_else(|| BridgeError::ServiceNotInitialized { 
-            code: 5006, 
-            details: "GPU rendering service is not initialized. Please initialize the render loop first.".to_string() 
+    let service_arc = service_guard
+        .as_ref()
+        .ok_or_else(|| BridgeError::ServiceNotInitialized {
+            code: 5006,
+            details:
+                "GPU rendering service is not initialized. Please initialize the render loop first."
+                    .to_string(),
         })?;
     let mut service = service_arc.lock().await;
-    
+
     // Set mask flag
-    service.set_layer_mask(layer_index, is_mask)
+    service
+        .set_layer_mask(layer_index, is_mask)
         .map_err(|e| BridgeError::GpuError {
             code: 5020,
             details: format!("Failed to set layer mask flag: {:?}", e),
         })?;
-    
+
     Ok(())
 }
 
 #[command]
 #[tracing::instrument(skip_all, err, name = "api.request_frame")]
 async fn request_frame(
-    origin_mm: Vec<f32>,    // 3 elements - view origin in world mm
-    u_dir: Vec<f32>,        // 3 elements - unit vector for screen X
-    v_dir: Vec<f32>,        // 3 elements - unit vector for screen Y
-    pixels_per_mm: f32,     // Scale factor
-    viewport_width: u32,    // Viewport width in pixels
-    viewport_height: u32,   // Viewport height in pixels
-    state: State<'_, BridgeState>
+    origin_mm: Vec<f32>,  // 3 elements - view origin in world mm
+    u_dir: Vec<f32>,      // 3 elements - unit vector for screen X
+    v_dir: Vec<f32>,      // 3 elements - unit vector for screen Y
+    pixels_per_mm: f32,   // Scale factor
+    viewport_width: u32,  // Viewport width in pixels
+    viewport_height: u32, // Viewport height in pixels
+    state: State<'_, BridgeState>,
 ) -> BridgeResult<()> {
-    info!("Bridge: request_frame called - viewport {}x{}, scale {}", 
-          viewport_width, viewport_height, pixels_per_mm);
-    
+    info!(
+        "Bridge: request_frame called - viewport {}x{}, scale {}",
+        viewport_width, viewport_height, pixels_per_mm
+    );
+
     // Validate inputs
     if origin_mm.len() != 3 {
         return Err(BridgeError::Input {
             code: 2020,
-            details: "origin_mm must be a 3-element array".to_string()
+            details: "origin_mm must be a 3-element array".to_string(),
         });
     }
     if u_dir.len() != 3 {
         return Err(BridgeError::Input {
             code: 2021,
-            details: "u_dir must be a 3-element array".to_string()
+            details: "u_dir must be a 3-element array".to_string(),
         });
     }
     if v_dir.len() != 3 {
         return Err(BridgeError::Input {
             code: 2022,
-            details: "v_dir must be a 3-element array".to_string()
+            details: "v_dir must be a 3-element array".to_string(),
         });
     }
-    
+
     // Get render loop service
     let service_guard = state.render_loop_service.lock().await;
-    let service_arc = service_guard.as_ref()
-        .ok_or_else(|| BridgeError::ServiceNotInitialized { 
-            code: 5006, 
-            details: "GPU rendering service is not initialized. Please initialize the render loop first.".to_string() 
+    let service_arc = service_guard
+        .as_ref()
+        .ok_or_else(|| BridgeError::ServiceNotInitialized {
+            code: 5006,
+            details:
+                "GPU rendering service is not initialized. Please initialize the render loop first."
+                    .to_string(),
         })?;
     let service = service_arc.lock().await;
-    
+
     // Calculate frame parameters
     // The u and v vectors need to be scaled by viewport size and pixels_per_mm
     let u_mm = vec3::scale(
-        Vec3 { x: u_dir[0], y: u_dir[1], z: u_dir[2] },
-        viewport_width as f32 / pixels_per_mm
+        Vec3 {
+            x: u_dir[0],
+            y: u_dir[1],
+            z: u_dir[2],
+        },
+        viewport_width as f32 / pixels_per_mm,
     );
     let v_mm = vec3::scale(
-        Vec3 { x: v_dir[0], y: v_dir[1], z: v_dir[2] },
-        viewport_height as f32 / pixels_per_mm
+        Vec3 {
+            x: v_dir[0],
+            y: v_dir[1],
+            z: v_dir[2],
+        },
+        viewport_height as f32 / pixels_per_mm,
     );
-    
+
     // Update frame UBO
     service.update_frame_ubo(
         [origin_mm[0], origin_mm[1], origin_mm[2], 1.0],
         [u_mm.x, u_mm.y, u_mm.z, 0.0],
-        [v_mm.x, v_mm.y, v_mm.z, 0.0]
+        [v_mm.x, v_mm.y, v_mm.z, 0.0],
     );
-    
+
     Ok(())
 }
 
 // Helper module for vector math
 mod vec3 {
     use super::Vec3;
-    
+
     pub fn scale(v: Vec3, s: f32) -> Vec3 {
-        Vec3 { x: v.x * s, y: v.y * s, z: v.z * s }
+        Vec3 {
+            x: v.x * s,
+            y: v.y * s,
+            z: v.z * s,
+        }
     }
 }
 
@@ -2321,141 +3903,63 @@ struct Vec3 {
     z: f32,
 }
 
-#[command]
-#[tracing::instrument(skip_all, err, name = "api.render_to_image")]
-async fn render_to_image(state: State<'_, BridgeState>) -> BridgeResult<String> {
-    info!("Bridge: render_to_image called");
-    
-    // Get render loop service
-    let service_guard = state.render_loop_service.lock().await;
-    let service_arc = service_guard.as_ref()
-        .ok_or_else(|| BridgeError::ServiceNotInitialized { 
-            code: 5006, 
-            details: "GPU rendering service is not initialized. Please initialize the render loop first.".to_string() 
-        })?;
-    let mut service = service_arc.lock().await;
-    
-    // Render to buffer and get raw RGBA data
-    let image_data = service.render_to_buffer()
-        .map_err(|e| BridgeError::GpuError { 
-            code: 5014, 
-            details: format!("Failed to render to image buffer: {}", e) 
-        })?;
-    
-    // Convert RGBA to base64 data URL
-    // Format: data:image/png;base64,<base64-encoded-png>
-    // For now, we'll return raw RGBA as base64 (frontend can handle conversion)
-    use base64::{Engine as _, engine::general_purpose};
-    let base64_data = general_purpose::STANDARD.encode(&image_data);
-    let data_url = format!("data:image/raw-rgba;base64,{}", base64_data);
-    
-    info!("Rendered image to buffer, size: {} bytes", image_data.len());
-    
-    // Log first few pixels for debugging - check if all zeros
-    if image_data.len() >= 16 {
-        info!("First 4 pixels (RGBA): {:?}, {:?}, {:?}, {:?}",
-            &image_data[0..4], &image_data[4..8], &image_data[8..12], &image_data[12..16]);
-        
-        // Check if all pixels are black
-        let all_black = image_data.iter().all(|&x| x == 0);
-        if all_black {
-            log::warn!("WARNING: All pixels are black (0,0,0,0)!");
-        }
-        
-        // Log some non-zero pixels if they exist
-        let non_zero_count = image_data.iter().filter(|&&x| x != 0).count();
-        info!("Non-zero pixel values: {} out of {}", non_zero_count, image_data.len());
-    }
-    
-    Ok(data_url)
-}
-
-#[command]
-#[tracing::instrument(skip_all, err, name = "api.render_to_image_binary")]
-async fn render_to_image_binary(state: State<'_, BridgeState>) -> BridgeResult<Vec<u8>> {
-    info!("Bridge: render_to_image_binary called");
-    
-    // Get render loop service
-    let service_guard = state.render_loop_service.lock().await;
-    let service_arc = service_guard.as_ref()
-        .ok_or_else(|| BridgeError::ServiceNotInitialized { 
-            code: 5006, 
-            details: "GPU rendering service is not initialized. Please initialize the render loop first.".to_string() 
-        })?;
-    let mut service = service_arc.lock().await;
-    
-    // Get render target dimensions
-    let (width, height) = service.get_render_target_size()
-        .ok_or_else(|| BridgeError::Internal {
-            code: 5021,
-            details: "No render target created. Call create_offscreen_render_target first.".to_string()
-        })?;
-    
-    // Render to buffer and get raw RGBA data
-    let rgba_data = service.render_to_buffer()
-        .map_err(|e| BridgeError::GpuError { 
-            code: 5014, 
-            details: format!("Failed to render to image buffer: {}", e) 
-        })?;
-    
-    // Convert RGBA to PNG using the image crate
-    use image::{ImageBuffer, Rgba, ImageEncoder};
-    use image::codecs::png::PngEncoder;
-    use std::io::Cursor;
-    
-    // Create an image buffer from the RGBA data
-    let img_buffer: ImageBuffer<Rgba<u8>, Vec<u8>> = 
-        ImageBuffer::from_raw(width, height, rgba_data)
-            .ok_or_else(|| BridgeError::Internal {
-                code: 5022,
-                details: format!("Failed to create image buffer from RGBA data. Width: {}, Height: {}", width, height)
-            })?;
-    
-    info!("Created image buffer successfully");
-    
-    // Encode to PNG with fast compression settings
-    let mut png_data = Vec::new();
-    let mut encoder = PngEncoder::new_with_quality(
-        Cursor::new(&mut png_data),
-        image::codecs::png::CompressionType::Fast,
-        image::codecs::png::FilterType::NoFilter
-    );
-    encoder.write_image(
-        img_buffer.as_raw(),
-        width,
-        height,
-        image::ExtendedColorType::Rgba8
-    ).map_err(|e| BridgeError::Internal {
-        code: 5023,
-        details: format!("Failed to encode PNG: {}", e)
-    })?;
-    
-    info!("Encoded image to PNG, size: {} bytes ({}x{})", png_data.len(), width, height);
-    
-    Ok(png_data)
-}
-
 // Helper function to allocate GPU resources for a layer on-demand
 async fn allocate_gpu_resources_for_layer(
     layer_id: &str,
     volume_id: &str,
     state: &BridgeState,
     render_service: &mut RenderLoopService,
+    timepoint: Option<usize>,
 ) -> BridgeResult<VolumeLayerGpuInfo> {
-    info!("Allocating GPU resources on-demand for layer '{}' (volume '{}')", layer_id, volume_id);
-    
+    info!(
+        "Allocating GPU resources on-demand for layer '{}' (volume '{}', timepoint: {:?})",
+        layer_id, volume_id, timepoint
+    );
+
     // Get the volume data from registry
     let volume_registry_guard = state.volume_registry.lock().await;
-    let volume_data = volume_registry_guard.get(volume_id)
-        .ok_or_else(|| BridgeError::VolumeNotFound {
-            code: 4042,
-            details: format!("Volume '{}' not found. Please load the volume first.", volume_id)
-        })?;
-    
+    let volume_data =
+        volume_registry_guard
+            .get(volume_id)
+            .ok_or_else(|| BridgeError::VolumeNotFound {
+                code: 4042,
+                details: format!(
+                    "Volume '{}' not found. Please load the volume first.",
+                    volume_id
+                ),
+            })?;
+
+    // For 4D volumes, extract the appropriate timepoint
+    let volume_to_upload = if let Some(tp) = timepoint {
+        // Check if this is a 4D volume
+        match volume_data {
+            VolumeSendable::Vec4DF32(_)
+            | VolumeSendable::Vec4DI16(_)
+            | VolumeSendable::Vec4DU8(_)
+            | VolumeSendable::Vec4DI8(_)
+            | VolumeSendable::Vec4DU16(_)
+            | VolumeSendable::Vec4DI32(_)
+            | VolumeSendable::Vec4DU32(_)
+            | VolumeSendable::Vec4DF64(_) => {
+                info!("Extracting timepoint {} from 4D volume", tp);
+                // Extract 3D volume at the specified timepoint
+                let extracted = extract_3d_volume_at_timepoint(volume_data, tp)?;
+                // We need to store this extracted volume temporarily
+                std::borrow::Cow::Owned(extracted)
+            }
+            // For 3D volumes, just use as-is
+            _ => std::borrow::Cow::Borrowed(volume_data),
+        }
+    } else {
+        // No timepoint specified, use volume as-is
+        std::borrow::Cow::Borrowed(volume_data)
+    };
+
     // Calculate min/max values and upload to GPU
-    let (atlas_idx, world_to_voxel, min_val, max_val) = match volume_data {
+    let (atlas_idx, world_to_voxel, min_val, max_val) = match volume_to_upload.as_ref() {
         VolumeSendable::VolF32(vol, _) => {
-            let (idx, w2v) = render_service.upload_volume_3d(vol)
+            let (idx, w2v) = render_service
+                .upload_volume_3d(vol)
                 .map_err(|e| gpu_allocation_error(layer_id, &e.to_string()))?;
             let mut min = f32::MAX;
             let mut max = f32::MIN;
@@ -2466,9 +3970,10 @@ async fn allocate_gpu_resources_for_layer(
                 }
             }
             (idx, w2v, min, max)
-        },
+        }
         VolumeSendable::VolI16(vol, _) => {
-            let (idx, w2v) = render_service.upload_volume_3d(vol)
+            let (idx, w2v) = render_service
+                .upload_volume_3d(vol)
                 .map_err(|e| gpu_allocation_error(layer_id, &e.to_string()))?;
             let mut min = i16::MAX as f32;
             let mut max = i16::MIN as f32;
@@ -2478,9 +3983,10 @@ async fn allocate_gpu_resources_for_layer(
                 max = max.max(val);
             }
             (idx, w2v, min, max)
-        },
+        }
         VolumeSendable::VolU8(vol, _) => {
-            let (idx, w2v) = render_service.upload_volume_3d(vol)
+            let (idx, w2v) = render_service
+                .upload_volume_3d(vol)
                 .map_err(|e| gpu_allocation_error(layer_id, &e.to_string()))?;
             let mut min = 255.0f32;
             let mut max = 0.0f32;
@@ -2490,9 +3996,10 @@ async fn allocate_gpu_resources_for_layer(
                 max = max.max(val);
             }
             (idx, w2v, min, max)
-        },
+        }
         VolumeSendable::VolI8(vol, _) => {
-            let (idx, w2v) = render_service.upload_volume_3d(vol)
+            let (idx, w2v) = render_service
+                .upload_volume_3d(vol)
                 .map_err(|e| gpu_allocation_error(layer_id, &e.to_string()))?;
             let mut min = i8::MAX as f32;
             let mut max = i8::MIN as f32;
@@ -2502,9 +4009,10 @@ async fn allocate_gpu_resources_for_layer(
                 max = max.max(val);
             }
             (idx, w2v, min, max)
-        },
+        }
         VolumeSendable::VolU16(vol, _) => {
-            let (idx, w2v) = render_service.upload_volume_3d(vol)
+            let (idx, w2v) = render_service
+                .upload_volume_3d(vol)
                 .map_err(|e| gpu_allocation_error(layer_id, &e.to_string()))?;
             let mut min = u16::MAX as f32;
             let mut max = 0.0f32;
@@ -2514,9 +4022,10 @@ async fn allocate_gpu_resources_for_layer(
                 max = max.max(val);
             }
             (idx, w2v, min, max)
-        },
+        }
         VolumeSendable::VolI32(vol, _) => {
-            let (idx, w2v) = render_service.upload_volume_3d(vol)
+            let (idx, w2v) = render_service
+                .upload_volume_3d(vol)
                 .map_err(|e| gpu_allocation_error(layer_id, &e.to_string()))?;
             let mut min = i32::MAX as f32;
             let mut max = i32::MIN as f32;
@@ -2526,9 +4035,10 @@ async fn allocate_gpu_resources_for_layer(
                 max = max.max(val);
             }
             (idx, w2v, min, max)
-        },
+        }
         VolumeSendable::VolU32(vol, _) => {
-            let (idx, w2v) = render_service.upload_volume_3d(vol)
+            let (idx, w2v) = render_service
+                .upload_volume_3d(vol)
                 .map_err(|e| gpu_allocation_error(layer_id, &e.to_string()))?;
             let mut min = u32::MAX as f32;
             let mut max = 0.0f32;
@@ -2538,9 +4048,10 @@ async fn allocate_gpu_resources_for_layer(
                 max = max.max(val);
             }
             (idx, w2v, min, max)
-        },
+        }
         VolumeSendable::VolF64(vol, _) => {
-            let (idx, w2v) = render_service.upload_volume_3d(vol)
+            let (idx, w2v) = render_service
+                .upload_volume_3d(vol)
                 .map_err(|e| gpu_allocation_error(layer_id, &e.to_string()))?;
             let mut min = f32::MAX;
             let mut max = f32::MIN;
@@ -2550,42 +4061,76 @@ async fn allocate_gpu_resources_for_layer(
                 max = max.max(val);
             }
             (idx, w2v, min, max)
-        },
+        }
+        // 4D volumes should have been extracted to 3D already
+        VolumeSendable::Vec4DF32(_)
+        | VolumeSendable::Vec4DI16(_)
+        | VolumeSendable::Vec4DU8(_)
+        | VolumeSendable::Vec4DI8(_)
+        | VolumeSendable::Vec4DU16(_)
+        | VolumeSendable::Vec4DI32(_)
+        | VolumeSendable::Vec4DU32(_)
+        | VolumeSendable::Vec4DF64(_) => {
+            return Err(BridgeError::Internal {
+                code: 5013,
+                details:
+                    "Unexpected 4D volume in GPU allocation - should have been extracted to 3D"
+                        .to_string(),
+            });
+        }
     };
-    
-    info!("On-demand allocation computed data range: ({}, {})", min_val, max_val);
-    
+
+    info!(
+        "On-demand allocation computed data range: ({}, {})",
+        min_val, max_val
+    );
+
     // Store the mapping
     {
         let mut layer_map = state.layer_to_atlas_map.lock().await;
-        info!("📌 STORING in allocate_gpu_resources_for_layer: layer '{}' -> atlas index {}", layer_id, atlas_idx);
+        info!(
+            "📌 STORING in allocate_gpu_resources_for_layer: layer '{}' -> atlas index {}",
+            layer_id, atlas_idx
+        );
         layer_map.insert(layer_id.to_string(), atlas_idx);
-        info!("📌 Layer map now contains {} entries: {:?}", 
-              layer_map.len(), layer_map.keys().collect::<Vec<_>>());
+        info!(
+            "📌 Layer map now contains {} entries: {:?}",
+            layer_map.len(),
+            layer_map.keys().collect::<Vec<_>>()
+        );
+
+        // Also store the volume handle mapping
+        let mut volume_map = state.layer_to_volume_map.lock().await;
+        volume_map.insert(layer_id.to_string(), volume_id.to_string());
     }
-    
+
     // Register the volume with the correct data range
     if let Err(e) = render_service.register_volume_with_range(
-        volume_id.to_string(), 
+        volume_id.to_string(),
         atlas_idx,
-        (min_val, max_val)
+        (min_val, max_val),
     ) {
-        warn!("Failed to register volume {} with atlas index {} and range ({}, {}): {:?}", 
-              volume_id, atlas_idx, min_val, max_val, e);
+        warn!(
+            "Failed to register volume {} with atlas index {} and range ({}, {}): {:?}",
+            volume_id, atlas_idx, min_val, max_val, e
+        );
     } else {
-        info!("Successfully registered volume '{}' with atlas index {} and data range ({}, {})", 
-              volume_id, atlas_idx, min_val, max_val);
+        info!(
+            "Successfully registered volume '{}' with atlas index {} and data range ({}, {})",
+            volume_id, atlas_idx, min_val, max_val
+        );
     }
-    
+
     // Return minimal GPU info - we only need the atlas index for rendering
     Ok(VolumeLayerGpuInfo {
         layer_id: layer_id.to_string(),
         world_to_voxel: [0.0; 16], // Not needed for on-demand allocation
-        dim: [1, 1, 1], // Not needed
+        dim: [1, 1, 1],            // Not needed
         pad_slices: 0,
         tex_format: GpuTextureFormat::R32Float,
         atlas_layer_index: atlas_idx,
-        slice_info: SliceInfo { // Dummy slice info
+        slice_info: SliceInfo {
+            // Dummy slice info
             axis: 2, // Axial
             index: 0,
             axis_name: "Axial".to_string(),
@@ -2601,7 +4146,10 @@ async fn allocate_gpu_resources_for_layer(
         origin: [0.0, 0.0, 0.0],
         center_world: [0.0, 0.0, 0.0],
         spacing: [1.0, 1.0, 1.0],
-        data_range: Some(DataRange { min: min_val, max: max_val }),
+        data_range: Some(DataRange {
+            min: min_val,
+            max: max_val,
+        }),
         source_volume_id: volume_id.to_string(),
         allocated_at: std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -2619,73 +4167,110 @@ fn find_layer_atlas_index_robust(
 ) -> Option<u32> {
     // Strategy 1: Try exact match with layer_id
     if let Some(&idx) = layer_map.get(layer_id) {
-        info!("🔍 Found layer via exact layer_id match: '{}' -> {}", layer_id, idx);
+        info!(
+            "🔍 Found layer via exact layer_id match: '{}' -> {}",
+            layer_id, idx
+        );
         return Some(idx);
     }
-    
+
     // Strategy 2: Try exact match with volume_id
     if let Some(&idx) = layer_map.get(volume_id) {
-        info!("🔍 Found layer via exact volume_id match: '{}' -> {}", volume_id, idx);
+        info!(
+            "🔍 Found layer via exact volume_id match: '{}' -> {}",
+            volume_id, idx
+        );
         return Some(idx);
     }
-    
+
     // Strategy 3: Try case-insensitive match
     for (key, &idx) in layer_map.iter() {
         if key.eq_ignore_ascii_case(layer_id) {
-            warn!("🔍 Found layer via case-insensitive layer_id match: '{}' -> {} (actual key: '{}')", 
-                  layer_id, idx, key);
+            warn!(
+                "🔍 Found layer via case-insensitive layer_id match: '{}' -> {} (actual key: '{}')",
+                layer_id, idx, key
+            );
             return Some(idx);
         }
         if key.eq_ignore_ascii_case(volume_id) {
-            warn!("🔍 Found layer via case-insensitive volume_id match: '{}' -> {} (actual key: '{}')", 
+            warn!("🔍 Found layer via case-insensitive volume_id match: '{}' -> {} (actual key: '{}')",
                   volume_id, idx, key);
             return Some(idx);
         }
     }
-    
+
     // Strategy 4: Try trimmed match (in case of whitespace issues)
     let layer_id_trimmed = layer_id.trim();
     let volume_id_trimmed = volume_id.trim();
-    
+
     for (key, &idx) in layer_map.iter() {
         let key_trimmed = key.trim();
         if key_trimmed == layer_id_trimmed {
-            warn!("🔍 Found layer via trimmed layer_id match: '{}' -> {} (key had whitespace)", 
-                  layer_id, idx);
+            warn!(
+                "🔍 Found layer via trimmed layer_id match: '{}' -> {} (key had whitespace)",
+                layer_id, idx
+            );
             return Some(idx);
         }
         if key_trimmed == volume_id_trimmed {
-            warn!("🔍 Found layer via trimmed volume_id match: '{}' -> {} (key had whitespace)", 
-                  volume_id, idx);
+            warn!(
+                "🔍 Found layer via trimmed volume_id match: '{}' -> {} (key had whitespace)",
+                volume_id, idx
+            );
             return Some(idx);
         }
     }
-    
+
     // Strategy 5: Log detailed comparison for debugging
     error!("🔍 Layer lookup failed completely. Detailed comparison:");
-    error!("  Looking for layer_id: '{}' (len: {})", layer_id, layer_id.len());
-    error!("  Looking for volume_id: '{}' (len: {})", volume_id, volume_id.len());
+    error!(
+        "  Looking for layer_id: '{}' (len: {})",
+        layer_id,
+        layer_id.len()
+    );
+    error!(
+        "  Looking for volume_id: '{}' (len: {})",
+        volume_id,
+        volume_id.len()
+    );
     error!("  Keys in map:");
     for (key, idx) in layer_map.iter() {
         error!("    Key: '{}' (len: {}) -> idx: {}", key, key.len(), idx);
         error!("      layer_id == key: {}", layer_id == key);
         error!("      volume_id == key: {}", volume_id == key);
     }
-    
+
     None
 }
 
+// Render output format options
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum RenderFormat {
+    Png,
+    RawRgba,
+}
+
+impl RenderFormat {
+    fn from_str(s: &str) -> Option<Self> {
+        match s.to_lowercase().as_str() {
+            "png" => Some(RenderFormat::Png),
+            "rgba" | "raw" => Some(RenderFormat::RawRgba),
+            _ => None,
+        }
+    }
+}
+
 // Internal implementation that supports both PNG and raw RGBA output
-async fn apply_and_render_view_state_internal(
+async fn render_view_internal(
     view_state_json: String,
     state: State<'_, BridgeState>,
-    return_raw_rgba: bool
+    format: RenderFormat,
 ) -> BridgeResult<Vec<u8>> {
     // Note: This function is called both directly (JSON path) and from apply_and_render_view_state_binary
     // Check the caller to log appropriately
-    
+
     let total_start = std::time::Instant::now();
-    
+
     // Parse the frontend ViewState JSON
     let parse_start = std::time::Instant::now();
     #[derive(Deserialize, Debug)]
@@ -2695,8 +4280,10 @@ async fn apply_and_render_view_state_internal(
         layers: Vec<LayerState>,
         #[serde(rename = "requestedView")]
         requested_view: Option<RequestedView>,
+        // Current timepoint for 4D volumes
+        timepoint: Option<usize>,
     }
-    
+
     #[derive(Deserialize, Debug)]
     struct RequestedView {
         #[serde(rename = "type")]
@@ -2707,27 +4294,27 @@ async fn apply_and_render_view_state_internal(
         width: u32,
         height: u32,
     }
-    
+
     #[derive(Deserialize, Debug)]
     struct FrontendViews {
         axial: ViewPlane,
         sagittal: ViewPlane,
         coronal: ViewPlane,
     }
-    
+
     #[derive(Deserialize, Debug)]
     struct ViewPlane {
         origin_mm: [f32; 3],
         u_mm: [f32; 3],
         v_mm: [f32; 3],
     }
-    
+
     #[derive(Deserialize, Debug)]
     struct CrosshairState {
         world_mm: [f32; 3],
         visible: bool,
     }
-    
+
     #[derive(Deserialize, Debug)]
     struct LayerState {
         id: String,
@@ -2741,63 +4328,95 @@ async fn apply_and_render_view_state_internal(
         #[serde(rename = "blendMode")]
         blend_mode: String,
     }
-    
+
     // Log the first 500 chars of the JSON for debugging
-    info!("Received ViewState JSON (first 500 chars): {}", 
-          &view_state_json.chars().take(500).collect::<String>());
-    
-    let frontend_state: FrontendViewState = serde_json::from_str(&view_state_json)
-        .map_err(|e| {
-            error!("Failed to parse ViewState JSON: {}", e);
-            error!("JSON that failed to parse: {}", view_state_json);
-            BridgeError::Input {
-                code: 2016,
-                details: format!("Failed to parse view state JSON: {}", e)
-            }
-        })?;
+    info!(
+        "Received ViewState JSON (first 500 chars): {}",
+        &view_state_json.chars().take(500).collect::<String>()
+    );
+
+    let frontend_state: FrontendViewState = match serde_json::from_str::<FrontendViewState>(&view_state_json) {
+        Ok(state) => {
+            info!("🎨 Successfully parsed ViewState with {} layers", state.layers.len());
+            state
+        }
+        Err(e) => {
+            error!("🎨 Failed to parse ViewState JSON: {}", e);
+            error!("🎨 JSON content preview: {}", 
+                   view_state_json.chars().take(500).collect::<String>());
+            return Err(BridgeError::Internal {
+                code: 4001,
+                details: format!("ViewState JSON parsing failed: {}", e),
+            });
+        }
+    };
     let parse_time = parse_start.elapsed();
-    
+
     info!("⏱️  JSON parsing took: {:?}", parse_time);
-    info!("Parsed frontend ViewState with {} layers", frontend_state.layers.len());
-    
+    info!(
+        "Parsed frontend ViewState with {} layers",
+        frontend_state.layers.len()
+    );
+
     // Get render loop service
     let service_guard = state.render_loop_service.lock().await;
-    let service_arc = service_guard.as_ref()
-        .ok_or_else(|| BridgeError::ServiceNotInitialized { 
-            code: 5006, 
-            details: "GPU rendering service is not initialized. Please initialize the render loop first.".to_string() 
+    let service_arc = service_guard
+        .as_ref()
+        .ok_or_else(|| BridgeError::ServiceNotInitialized {
+            code: 5006,
+            details:
+                "GPU rendering service is not initialized. Please initialize the render loop first."
+                    .to_string(),
         })?;
     let mut service = service_arc.lock().await;
-    
+
     // Extract dimensions from requestedView if provided, otherwise use defaults
     // This supports per-view render targets instead of global render targets
     let (view_plane, width, height) = if let Some(req_view) = &frontend_state.requested_view {
-        info!("Using requested view '{}' with dimensions {}x{}", req_view.view_type, req_view.width, req_view.height);
+        info!(
+            "Using requested view '{}' with dimensions {}x{}",
+            req_view.view_type, req_view.width, req_view.height
+        );
         // The requested view already has the complete frame parameters, so we'll use them directly
         // For now, we still need a view_plane reference for compatibility
         match req_view.view_type.as_str() {
-            "sagittal" => (&frontend_state.views.sagittal, req_view.width, req_view.height),
-            "coronal" => (&frontend_state.views.coronal, req_view.width, req_view.height),
+            "sagittal" => (
+                &frontend_state.views.sagittal,
+                req_view.width,
+                req_view.height,
+            ),
+            "coronal" => (
+                &frontend_state.views.coronal,
+                req_view.width,
+                req_view.height,
+            ),
             _ => (&frontend_state.views.axial, req_view.width, req_view.height),
         }
     } else {
         info!("No specific view requested, using axial view with default dimensions");
         (&frontend_state.views.axial, 512u32, 512u32)
     };
-    
+
     // Create render target with the specific dimensions for this view
     // This replaces the global render target approach with per-view render targets
-    info!("Creating render target for dimensions: {}x{}", width, height);
-    service.create_offscreen_target(width, height)
+    info!(
+        "Creating render target for dimensions: {}x{}",
+        width, height
+    );
+    service
+        .create_offscreen_target(width, height)
         .map_err(|e| BridgeError::GpuError {
             code: 5021,
-            details: format!("Failed to create per-view render target ({}x{}): {}", width, height, e),
+            details: format!(
+                "Failed to create per-view render target ({}x{}): {}",
+                width, height, e
+            ),
         })?;
-    
+
     // Convert frontend ViewState to backend ViewState format
     // Build layers for backend ViewState
     let mut backend_layers = Vec::new();
-    
+
     // Debug: log the contents of layer_map
     {
         let layer_map = state.layer_to_atlas_map.lock().await;
@@ -2806,7 +4425,7 @@ async fn apply_and_render_view_state_internal(
             info!("  Layer ID '{}' -> atlas index {}", layer_id, atlas_idx);
         }
     }
-    
+
     let layer_processing_start = std::time::Instant::now();
     for layer in &frontend_state.layers {
         info!("🔍 DEBUG: apply_and_render_view_state_internal - Processing layer:");
@@ -2820,67 +4439,90 @@ async fn apply_and_render_view_state_internal(
             layer.id.hash(&mut hasher);
             hasher.finish()
         });
-        
+
         // Check both layer.id and layer.volume_id to ensure we find the layer
         if layer.visible && layer.opacity > 0.0 {
-            info!("  Layer passes visibility check (visible={}, opacity={})", layer.visible, layer.opacity);
+            info!(
+                "  Layer passes visibility check (visible={}, opacity={})",
+                layer.visible, layer.opacity
+            );
             // Check if this layer has GPU resources allocated
-            let atlas_idx = {
+            let _atlas_idx = {
                 let layer_map = state.layer_to_atlas_map.lock().await;
-                
-                info!("  - Searching in layer_map with {} entries", layer_map.len());
+
+                info!(
+                    "  - Searching in layer_map with {} entries",
+                    layer_map.len()
+                );
                 info!("  - All keys in map:");
                 for key in layer_map.keys() {
                     info!("    Key: '{}'", key);
                 }
-                
+
                 // Try multiple strategies to find the layer
-                let found_idx = find_layer_atlas_index_robust(&layer_map, &layer.id, &layer.volume_id);
-                
+                let found_idx =
+                    find_layer_atlas_index_robust(&layer_map, &layer.id, &layer.volume_id);
+
                 if let Some(idx) = found_idx {
-                    info!("✅ CACHE HIT: Layer {} already has GPU resources at atlas index {}", layer.id, idx);
+                    info!(
+                        "✅ CACHE HIT: Layer {} already has GPU resources at atlas index {}",
+                        layer.id, idx
+                    );
                     idx
                 } else {
-                    info!("❌ CACHE MISS: Layer '{}' not found in layer_map (tried keys: '{}' and '{}')", 
+                    info!("❌ CACHE MISS: Layer '{}' not found in layer_map (tried keys: '{}' and '{}')",
                           layer.id, layer.id, layer.volume_id);
-                    info!("❌ Current layer_map contains {} entries: {:?}", 
-                          layer_map.len(), layer_map.keys().collect::<Vec<_>>());
-                    
+                    info!(
+                        "❌ Current layer_map contains {} entries: {:?}",
+                        layer_map.len(),
+                        layer_map.keys().collect::<Vec<_>>()
+                    );
+
                     drop(layer_map); // Release the lock before allocating
-                    
+
                     // Allocate GPU resources on-demand
-                    info!("Allocating GPU resources on-demand for layer '{}', volume '{}'", 
-                          layer.id, layer.volume_id);
-                    
+                    info!(
+                        "Allocating GPU resources on-demand for layer '{}', volume '{}'",
+                        layer.id, layer.volume_id
+                    );
+
                     let gpu_alloc_start = std::time::Instant::now();
                     // Allocate GPU resources for this layer
                     let gpu_info = allocate_gpu_resources_for_layer(
                         &layer.id,
                         &layer.volume_id,
                         &state,
-                        &mut service
-                    ).await?;
+                        &mut service,
+                        frontend_state.timepoint,
+                    )
+                    .await?;
                     let gpu_alloc_time = gpu_alloc_start.elapsed();
                     info!("⏱️  GPU resource allocation took: {:?}", gpu_alloc_time);
-                    
+
                     let allocated_idx = gpu_info.atlas_layer_index;
-                    info!("Layer {} allocated GPU resources at atlas index {}", layer.id, allocated_idx);
+                    info!(
+                        "Layer {} allocated GPU resources at atlas index {}",
+                        layer.id, allocated_idx
+                    );
                     allocated_idx
                 }
             };
-            
+
             // Volume should already be registered by allocate_gpu_resources_for_layer
             // with the correct data range, so we don't need to register it again
-            
+
             // Map colormap name to ID using the centralized colormap system
             let colormap_id = match colormap_by_name(&layer.colormap) {
                 Some(id) => id.id() as u32,
                 None => {
-                    warn!("Unknown colormap '{}', defaulting to grayscale", layer.colormap);
+                    warn!(
+                        "Unknown colormap '{}', defaulting to grayscale",
+                        layer.colormap
+                    );
                     0 // Default to grayscale
                 }
             };
-            
+
             // Map blend mode
             let blend_mode = match layer.blend_mode.as_str() {
                 "alpha" => render_loop::render_state::BlendMode::Normal,
@@ -2889,7 +4531,7 @@ async fn apply_and_render_view_state_internal(
                 "minimum" => render_loop::render_state::BlendMode::Normal, // Minimum not implemented, use Normal
                 _ => render_loop::render_state::BlendMode::Normal,
             };
-            
+
             // Create backend layer config
             let mut backend_layer = render_loop::view_state::LayerConfig {
                 volume_id: layer.volume_id.clone(),
@@ -2907,85 +4549,102 @@ async fn apply_and_render_view_state_internal(
                 },
                 visible: layer.visible,
             };
-            
+
             info!("Adding layer to backend ViewState: volume_id={}, opacity={}, colormap={}, intensity=[{}, {}], threshold=[{}, {}]",
                 backend_layer.volume_id, backend_layer.opacity, backend_layer.colormap_id,
                 backend_layer.intensity_window.0, backend_layer.intensity_window.1,
                 layer.threshold[0], layer.threshold[1]);
-            
+
             // Use intensity values directly from frontend - frontend is the single source of truth
             // No validation or modification needed - trust the user's input
             backend_layer.intensity_window = (layer.intensity[0], layer.intensity[1]);
-            
-            info!("Layer {} using frontend intensity window: [{:.1}, {:.1}]", 
-                  backend_layer.volume_id, backend_layer.intensity_window.0, backend_layer.intensity_window.1);
-            
+
+            info!(
+                "Layer {} using frontend intensity window: [{:.1}, {:.1}]",
+                backend_layer.volume_id,
+                backend_layer.intensity_window.0,
+                backend_layer.intensity_window.1
+            );
+
             backend_layers.push(backend_layer);
         } else {
-            info!("  Layer skipped: visible={}, opacity={} (requires visible=true and opacity>0)", 
-                  layer.visible, layer.opacity);
+            info!(
+                "  Layer skipped: visible={}, opacity={} (requires visible=true and opacity>0)",
+                layer.visible, layer.opacity
+            );
         }
     }
-    
-    info!("Created {} backend layers for rendering", backend_layers.len());
-    
+
+    info!(
+        "Created {} backend layers for rendering",
+        backend_layers.len()
+    );
+
     // CRITICAL: Check if we have any layers before proceeding
     if backend_layers.is_empty() {
-        warn!("No backend layers created from {} frontend layers!", frontend_state.layers.len());
+        warn!(
+            "No backend layers created from {} frontend layers!",
+            frontend_state.layers.len()
+        );
         warn!("Frontend layer details:");
         for (idx, layer) in frontend_state.layers.iter().enumerate() {
-            warn!("  Layer {}: id='{}', volumeId='{}', visible={}, opacity={}", 
-                  idx, layer.id, layer.volume_id, layer.visible, layer.opacity);
+            warn!(
+                "  Layer {}: id='{}', volumeId='{}', visible={}, opacity={}",
+                idx, layer.id, layer.volume_id, layer.visible, layer.opacity
+            );
         }
-        
+
         // Return a dark image instead of erroring
         let width = width as usize;
         let height = height as usize;
         let mut dark_image = vec![30u8; width * height * 4]; // Dark gray RGBA
-        
+
         // Add a red border to indicate error state
         for y in 0..height {
             for x in 0..width {
                 if x < 2 || x >= width - 2 || y < 2 || y >= height - 2 {
                     let idx = (y * width + x) * 4;
-                    dark_image[idx] = 128;     // R
-                    dark_image[idx + 1] = 0;   // G
-                    dark_image[idx + 2] = 0;   // B
+                    dark_image[idx] = 128; // R
+                    dark_image[idx + 1] = 0; // G
+                    dark_image[idx + 2] = 0; // B
                     dark_image[idx + 3] = 255; // A
                 }
             }
         }
-        
+
         // Convert to PNG
-        use image::{ImageBuffer, Rgba, ImageEncoder};
         use image::codecs::png::PngEncoder;
+        use image::{ImageBuffer, ImageEncoder, Rgba};
         use std::io::Cursor;
-        
-        let img_buffer: ImageBuffer<Rgba<u8>, Vec<u8>> = 
-            ImageBuffer::from_raw(width as u32, height as u32, dark_image)
-                .ok_or_else(|| BridgeError::Internal {
+
+        let img_buffer: ImageBuffer<Rgba<u8>, Vec<u8>> =
+            ImageBuffer::from_raw(width as u32, height as u32, dark_image).ok_or_else(|| {
+                BridgeError::Internal {
                     code: 5024,
-                    details: "Failed to create error image buffer".to_string()
-                })?;
-        
+                    details: "Failed to create error image buffer".to_string(),
+                }
+            })?;
+
         let mut png_data = Vec::new();
         let encoder = PngEncoder::new(Cursor::new(&mut png_data));
-        encoder.write_image(
-            img_buffer.as_raw(),
-            width as u32,
-            height as u32,
-            image::ExtendedColorType::Rgba8
-        ).map_err(|e| BridgeError::Internal {
-            code: 5025,
-            details: format!("Failed to encode error PNG: {}", e)
-        })?;
-        
+        encoder
+            .write_image(
+                img_buffer.as_raw(),
+                width as u32,
+                height as u32,
+                image::ExtendedColorType::Rgba8,
+            )
+            .map_err(|e| BridgeError::Internal {
+                code: 5025,
+                details: format!("Failed to encode error PNG: {}", e),
+            })?;
+
         warn!("Returning error image (dark with red border) due to no layers");
         return Ok(png_data);
     }
-    
+
     // Create backend ViewState with exact frame parameters
-    let mut backend_view_state = render_loop::view_state::ViewState {
+    let backend_view_state = render_loop::view_state::ViewState {
         layout_version: render_loop::view_state::ViewState::CURRENT_VERSION,
         camera: render_loop::view_state::CameraState {
             world_center: frontend_state.crosshair.world_mm,
@@ -3003,28 +4662,47 @@ async fn apply_and_render_view_state_internal(
             frame_origin: if let Some(req_view) = &frontend_state.requested_view {
                 Some(req_view.origin_mm)
             } else {
-                Some([view_plane.origin_mm[0], view_plane.origin_mm[1], view_plane.origin_mm[2], 1.0])
+                Some([
+                    view_plane.origin_mm[0],
+                    view_plane.origin_mm[1],
+                    view_plane.origin_mm[2],
+                    1.0,
+                ])
             },
             frame_u_vec: if let Some(req_view) = &frontend_state.requested_view {
                 Some(req_view.u_mm)
             } else {
-                Some([view_plane.u_mm[0], view_plane.u_mm[1], view_plane.u_mm[2], 0.0])
+                Some([
+                    view_plane.u_mm[0],
+                    view_plane.u_mm[1],
+                    view_plane.u_mm[2],
+                    0.0,
+                ])
             },
             frame_v_vec: if let Some(req_view) = &frontend_state.requested_view {
                 Some(req_view.v_mm)
             } else {
-                Some([view_plane.v_mm[0], view_plane.v_mm[1], view_plane.v_mm[2], 0.0])
+                Some([
+                    view_plane.v_mm[0],
+                    view_plane.v_mm[1],
+                    view_plane.v_mm[2],
+                    0.0,
+                ])
             },
         },
         crosshair_world: frontend_state.crosshair.world_mm,
         layers: backend_layers,
         viewport_size: [width, height],
         show_crosshair: false, // Disabled per architecture decision - crosshairs should be UI-only
+        timepoint: frontend_state.timepoint,
     };
-    
-    info!("Created backend ViewState with {} layers, crosshair at {:?}", 
-        backend_view_state.layers.len(), backend_view_state.crosshair_world);
-    
+
+    info!(
+        "Created backend ViewState with {} layers, crosshair at {:?}",
+        backend_view_state.layers.len(),
+        backend_view_state.crosshair_world
+    );
+
     // Debug: Log the exact frame parameters being used
     if let (Some(origin), Some(u_vec), Some(v_vec)) = (
         backend_view_state.camera.frame_origin,
@@ -3032,20 +4710,31 @@ async fn apply_and_render_view_state_internal(
         backend_view_state.camera.frame_v_vec,
     ) {
         info!("Frame parameters for rendering:");
-        info!("  Origin: [{:.1}, {:.1}, {:.1}, {:.1}]", origin[0], origin[1], origin[2], origin[3]);
-        info!("  U vec: [{:.1}, {:.1}, {:.1}, {:.1}]", u_vec[0], u_vec[1], u_vec[2], u_vec[3]);
-        info!("  V vec: [{:.1}, {:.1}, {:.1}, {:.1}]", v_vec[0], v_vec[1], v_vec[2], v_vec[3]);
+        info!(
+            "  Origin: [{:.1}, {:.1}, {:.1}, {:.1}]",
+            origin[0], origin[1], origin[2], origin[3]
+        );
+        info!(
+            "  U vec: [{:.1}, {:.1}, {:.1}, {:.1}]",
+            u_vec[0], u_vec[1], u_vec[2], u_vec[3]
+        );
+        info!(
+            "  V vec: [{:.1}, {:.1}, {:.1}, {:.1}]",
+            v_vec[0], v_vec[1], v_vec[2], v_vec[3]
+        );
         info!("  Viewport: {}x{}", width, height);
     }
-    
+
     // Log frame parameters
-    info!("Frame parameters - origin: {:?}, u: {:?}, v: {:?}", 
-        view_plane.origin_mm, view_plane.u_mm, view_plane.v_mm);
-    
+    info!(
+        "Frame parameters - origin: {:?}, u: {:?}, v: {:?}",
+        view_plane.origin_mm, view_plane.u_mm, view_plane.v_mm
+    );
+
     // Stop layer processing timer
     let layer_processing_time = layer_processing_start.elapsed();
     info!("⏱️  Layer processing took: {:?}", layer_processing_time);
-    
+
     // Apply frame parameters from ViewState if available
     if let (Some(origin), Some(u_vec), Some(v_vec)) = (
         backend_view_state.camera.frame_origin,
@@ -3055,48 +4744,57 @@ async fn apply_and_render_view_state_internal(
         info!("Applying frame parameters before rendering");
         service.update_frame_ubo(origin, u_vec, v_vec);
     }
-    
+
     // Use request_frame API to render with the declarative ViewState
     let render_start = std::time::Instant::now();
-    let frame_result = service.request_frame(
-        render_loop::view_state::ViewId::new("frontend_view"),
-        backend_view_state
-    ).await.map_err(|e| BridgeError::GpuError {
-        code: 8011,
-        details: format!("Failed to render frame: {:?}", e),
-    })?;
+    let frame_result = service
+        .request_frame(
+            render_loop::view_state::ViewId::new("frontend_view"),
+            backend_view_state,
+        )
+        .await
+        .map_err(|e| BridgeError::GpuError {
+            code: 8011,
+            details: format!("Failed to render frame: {:?}", e),
+        })?;
     let render_time = render_start.elapsed();
     info!("⏱️  GPU render (request_frame) took: {:?}", render_time);
-    
-    info!("Frame rendered successfully: {}x{}, {} bytes, {} layers rendered",
-        frame_result.dimensions[0], frame_result.dimensions[1], 
-        frame_result.image_data.len(), frame_result.rendered_layers.len());
-    
+
+    info!(
+        "Frame rendered successfully: {}x{}, {} bytes, {} layers rendered",
+        frame_result.dimensions[0],
+        frame_result.dimensions[1],
+        frame_result.image_data.len(),
+        frame_result.rendered_layers.len()
+    );
+
     if !frame_result.warnings.is_empty() {
         info!("Render warnings: {:?}", frame_result.warnings);
     }
-    
+
     // Debug: Sample pixels to detect black images
     if frame_result.image_data.len() >= 400 {
         let width = frame_result.dimensions[0] as usize;
         let height = frame_result.dimensions[1] as usize;
-        
+
         // Sample center pixel
         let center_x = width / 2;
         let center_y = height / 2;
         let center_idx = (center_y * width + center_x) * 4;
-        
+
         if center_idx + 3 < frame_result.image_data.len() {
-            let center_pixel = &frame_result.image_data[center_idx..center_idx+4];
-            info!("Center pixel RGBA: [{}, {}, {}, {}]", 
-                center_pixel[0], center_pixel[1], center_pixel[2], center_pixel[3]);
+            let center_pixel = &frame_result.image_data[center_idx..center_idx + 4];
+            info!(
+                "Center pixel RGBA: [{}, {}, {}, {}]",
+                center_pixel[0], center_pixel[1], center_pixel[2], center_pixel[3]
+            );
         }
-        
+
         // Count non-black pixels in a 10x10 grid
         let mut non_black_count = 0;
         let mut max_value = 0u8;
         let sample_step = std::cmp::max(1, width / 10);
-        
+
         for y in (0..height).step_by(sample_step) {
             for x in (0..width).step_by(sample_step) {
                 let idx = (y * width + x) * 4;
@@ -3111,137 +4809,198 @@ async fn apply_and_render_view_state_internal(
                 }
             }
         }
-        
+
         let total_samples = ((height / sample_step) + 1) * ((width / sample_step) + 1);
         let non_black_percentage = (non_black_count as f32 / total_samples as f32) * 100.0;
-        
-        info!("Pixel sampling: {}/{} non-black pixels ({:.1}%), max value: {}", 
-            non_black_count, total_samples, non_black_percentage, max_value);
-        
+
+        info!(
+            "Pixel sampling: {}/{} non-black pixels ({:.1}%), max value: {}",
+            non_black_count, total_samples, non_black_percentage, max_value
+        );
+
         if non_black_percentage < 5.0 {
             warn!("Rendered image appears to be mostly black! Check intensity window settings.");
         }
     }
-    
+
     // Get dimensions from frame result
     let width = frame_result.dimensions[0];
     let height = frame_result.dimensions[1];
     let rgba_data = frame_result.image_data;
-    
+
     // Choose output format based on flag
-    let result = if return_raw_rgba {
+    let result = if format == RenderFormat::RawRgba {
         // Raw RGBA path - no PNG encoding
         info!("🚀 RAW RGBA: Skipping PNG encoding, returning raw pixel data");
-        
+
         // Create a buffer with format: [width: u32][height: u32][rgba_data...]
         let mut raw_buffer = Vec::with_capacity(8 + rgba_data.len());
-        
+
         // Write dimensions as little-endian u32
         raw_buffer.extend_from_slice(&width.to_le_bytes());
         raw_buffer.extend_from_slice(&height.to_le_bytes());
-        
+
         // Append RGBA data
         raw_buffer.extend_from_slice(&rgba_data);
-        
-        info!("🚀 RAW RGBA: Returning {} bytes (8 byte header + {} RGBA bytes)", 
-              raw_buffer.len(), rgba_data.len());
-        
+
+        info!(
+            "🚀 RAW RGBA: Returning {} bytes (8 byte header + {} RGBA bytes)",
+            raw_buffer.len(),
+            rgba_data.len()
+        );
+
         raw_buffer
     } else {
         // PNG encoding path
         let png_encode_start = std::time::Instant::now();
-        use image::{ImageBuffer, Rgba, ImageEncoder};
         use image::codecs::png::PngEncoder;
+        use image::{ImageBuffer, ImageEncoder, Rgba};
         use std::io::Cursor;
-        
+
         // Create an image buffer from the RGBA data
-        let img_buffer: ImageBuffer<Rgba<u8>, Vec<u8>> = 
-            ImageBuffer::from_raw(width, height, rgba_data)
-                .ok_or_else(|| BridgeError::Internal {
+        let img_buffer: ImageBuffer<Rgba<u8>, Vec<u8>> =
+            ImageBuffer::from_raw(width, height, rgba_data).ok_or_else(|| {
+                BridgeError::Internal {
                     code: 5022,
-                    details: format!("Failed to create image buffer from RGBA data. Width: {}, Height: {}", width, height)
-                })?;
-        
+                    details: format!(
+                        "Failed to create image buffer from RGBA data. Width: {}, Height: {}",
+                        width, height
+                    ),
+                }
+            })?;
+
         // Encode to PNG with fast compression settings
         let mut png_data = Vec::new();
-        let mut encoder = PngEncoder::new_with_quality(
+        let encoder = PngEncoder::new_with_quality(
             Cursor::new(&mut png_data),
             image::codecs::png::CompressionType::Fast,
-            image::codecs::png::FilterType::NoFilter
+            image::codecs::png::FilterType::NoFilter,
         );
-        encoder.write_image(
-            img_buffer.as_raw(),
-            width,
-            height,
-            image::ExtendedColorType::Rgba8
-        ).map_err(|e| BridgeError::Internal {
-            code: 5023,
-            details: format!("Failed to encode PNG: {}", e)
-        })?;
-        
+        encoder
+            .write_image(
+                img_buffer.as_raw(),
+                width,
+                height,
+                image::ExtendedColorType::Rgba8,
+            )
+            .map_err(|e| BridgeError::Internal {
+                code: 5023,
+                details: format!("Failed to encode PNG: {}", e),
+            })?;
+
         let png_encode_time = png_encode_start.elapsed();
         info!("⏱️  PNG encoding took: {:?}", png_encode_time);
-        info!("Backend: Encoded RGBA to PNG - {} bytes ({}x{})", png_data.len(), width, height);
-        
+        info!(
+            "Backend: Encoded RGBA to PNG - {} bytes ({}x{})",
+            png_data.len(),
+            width,
+            height
+        );
+
         png_data
     };
-    
+
     let total_time = total_start.elapsed();
-    info!("⏱️  TOTAL apply_and_render_view_state_internal time: {:?}", total_time);
-    info!("⏱️  Mode: {}, Total size: {} bytes", 
-          if return_raw_rgba { "RAW RGBA" } else { "PNG" }, 
-          result.len());
-    
+    info!(
+        "⏱️  TOTAL apply_and_render_view_state_internal time: {:?}",
+        total_time
+    );
+    info!(
+        "⏱️  Mode: {}, Total size: {} bytes",
+        if format == RenderFormat::RawRgba {
+            "RAW RGBA"
+        } else {
+            "PNG"
+        },
+        result.len()
+    );
+
     Ok(result)
 }
 
+// New unified render command with format parameter
+#[command]
+#[tracing::instrument(skip_all, err, name = "api.render_view")]
+async fn render_view(
+    state_json: String,
+    format: Option<String>,
+    state: State<'_, BridgeState>,
+) -> Result<tauri::ipc::Response, BridgeError> {
+    info!("🎨 render_view called with format: {:?}", format);
+    info!("🎨 state_json length: {} bytes", state_json.len());
+    
+    // Log first 200 chars of JSON for debugging
+    let preview = if state_json.len() > 200 {
+        format!("{}...", &state_json[..200])
+    } else {
+        state_json.clone()
+    };
+    info!("🎨 state_json preview: {}", preview);
+    
+    let render_format = format
+        .as_ref()
+        .and_then(|f| RenderFormat::from_str(f))
+        .unwrap_or(RenderFormat::RawRgba);
+    
+    info!("🎨 Using render format: {:?}", render_format);
+    
+    // Add timing and detailed error context
+    let start_time = std::time::Instant::now();
+    match render_view_internal(state_json, state, render_format).await {
+        Ok(result) => {
+            info!("🎨 render_view completed successfully in {}ms, result size: {} bytes", 
+                  start_time.elapsed().as_millis(), result.len());
+            Ok(tauri::ipc::Response::new(result))
+        }
+        Err(e) => {
+            error!("🎨 render_view failed after {}ms: {:?}", 
+                   start_time.elapsed().as_millis(), e);
+            error!("🎨 Error details: {}", e);
+            Err(e)
+        }
+    }
+}
+
+// DEPRECATED: Use render_view instead
 // Public command for PNG output (default, legacy path)
+// This method returns PNG data but serializes it as JSON, which is very inefficient
 #[command]
 #[tracing::instrument(skip_all, err, name = "api.apply_and_render_view_state")]
 async fn apply_and_render_view_state(
     view_state_json: String,
-    state: State<'_, BridgeState>
+    state: State<'_, BridgeState>,
 ) -> BridgeResult<Vec<u8>> {
-    info!("📊 PNG PATH: apply_and_render_view_state called (JSON serialization)");
-    apply_and_render_view_state_internal(view_state_json, state, false).await
+    info!("📊 LEGACY: apply_and_render_view_state called (PNG with JSON serialization)");
+    // Delegate to new internal implementation
+    render_view_internal(view_state_json, state, RenderFormat::Png).await
 }
 
+// DEPRECATED: Use render_view with format="png" instead
 // Binary-optimized version that returns PNG with binary IPC
+// Better than apply_and_render_view_state but still encodes to PNG
 #[command]
 #[tracing::instrument(skip_all, err, name = "api.apply_and_render_view_state_binary")]
 async fn apply_and_render_view_state_binary(
     view_state_json: String,
-    state: State<'_, BridgeState>
+    state: State<'_, BridgeState>,
 ) -> Result<tauri::ipc::Response, BridgeError> {
-    info!("🚀 BINARY IPC PATH: apply_and_render_view_state_binary called");
-    info!("🚀 This uses Tauri's raw binary transfer for PNG data");
-    
-    // Call internal implementation with PNG output
-    let png_data = apply_and_render_view_state_internal(view_state_json, state, false).await?;
-    
-    info!("🚀 BINARY IPC: PNG data size: {} bytes", png_data.len());
-    info!("🚀 BINARY IPC: Wrapping in tauri::ipc::Response for zero-copy transfer");
-    
-    // Wrap in Response to signal raw binary transfer (no JSON serialization)
-    Ok(tauri::ipc::Response::new(png_data))
+    info!("🚀 LEGACY: apply_and_render_view_state_binary called (PNG with binary IPC)");
+    // Delegate to render_view with PNG format
+    render_view(view_state_json, Some("png".to_string()), state).await
 }
 
+// DEPRECATED: Use render_view with format="rgba" instead
 // Raw RGBA version - no PNG encoding, just raw pixel data
+// This is the most efficient of the legacy methods
 #[command]
 #[tracing::instrument(skip_all, err, name = "api.apply_and_render_view_state_raw")]
 async fn apply_and_render_view_state_raw(
     view_state_json: String,
-    state: State<'_, BridgeState>
+    state: State<'_, BridgeState>,
 ) -> Result<tauri::ipc::Response, BridgeError> {
-    info!("🚀 RAW RGBA PATH: apply_and_render_view_state_raw called");
-    info!("🚀 This returns raw RGBA data without PNG encoding");
-    
-    // Call internal implementation with raw RGBA output
-    let raw_data = apply_and_render_view_state_internal(view_state_json, state, true).await?;
-    
-    info!("🚀 RAW RGBA: Returning {} bytes of raw pixel data", raw_data.len());
-    
-    Ok(tauri::ipc::Response::new(raw_data))
+    info!("🚀 LEGACY: apply_and_render_view_state_raw called");
+    // Delegate to render_view with RGBA format
+    render_view(view_state_json, Some("rgba".to_string()), state).await
 }
 
 // Query metadata about slices along a specific axis
@@ -3250,54 +5009,109 @@ async fn apply_and_render_view_state_raw(
 async fn query_slice_axis_meta(
     volume_id: String,
     axis: String, // "axial", "sagittal", or "coronal"
-    state: State<'_, BridgeState>
+    state: State<'_, BridgeState>,
 ) -> BridgeResult<SliceAxisMeta> {
-    info!("Bridge: query_slice_axis_meta called for volume {} axis {}", volume_id, axis);
-    
+    info!(
+        "Bridge: query_slice_axis_meta called for volume {} axis {}",
+        volume_id, axis
+    );
+
     // Get volume from registry
     let volume_registry = state.volume_registry.lock().await;
-    let volume_data = volume_registry.get(&volume_id)
-        .ok_or_else(|| BridgeError::VolumeNotFound { 
-            code: 5001, 
-            details: format!("Volume {} not found in registry", volume_id) 
-        })?;
-    
+    let volume_data =
+        volume_registry
+            .get(&volume_id)
+            .ok_or_else(|| BridgeError::VolumeNotFound {
+                code: 5001,
+                details: format!("Volume {} not found in registry", volume_id),
+            })?;
+
     // Extract shape and spacing information based on volume type
     let (shape, spacing) = match volume_data {
         VolumeSendable::VolF32(vol, _) => {
             let space = vol.space();
             (space.dims(), space.spacing())
-        },
+        }
         VolumeSendable::VolI16(vol, _) => {
             let space = vol.space();
             (space.dims(), space.spacing())
-        },
+        }
         VolumeSendable::VolU8(vol, _) => {
             let space = vol.space();
             (space.dims(), space.spacing())
-        },
+        }
         VolumeSendable::VolI8(vol, _) => {
             let space = vol.space();
             (space.dims(), space.spacing())
-        },
+        }
         VolumeSendable::VolU16(vol, _) => {
             let space = vol.space();
             (space.dims(), space.spacing())
-        },
+        }
         VolumeSendable::VolI32(vol, _) => {
             let space = vol.space();
             (space.dims(), space.spacing())
-        },
+        }
         VolumeSendable::VolU32(vol, _) => {
             let space = vol.space();
             (space.dims(), space.spacing())
-        },
+        }
         VolumeSendable::VolF64(vol, _) => {
             let space = vol.space();
             (space.dims(), space.spacing())
-        },
+        }
+        // 4D volumes - use first 3 dimensions
+        VolumeSendable::Vec4DF32(vec) => {
+            let space = &vec.space;
+            // For 4D, return only the first 3 spatial dimensions
+            let dims = &space.dim[0..3];
+            let spacing = space.spacing[0..3].iter().map(|&s| s as f32).collect();
+            (dims, spacing)
+        }
+        VolumeSendable::Vec4DI16(vec) => {
+            let space = &vec.space;
+            let dims = &space.dim[0..3];
+            let spacing = space.spacing[0..3].iter().map(|&s| s as f32).collect();
+            (dims, spacing)
+        }
+        VolumeSendable::Vec4DU8(vec) => {
+            let space = &vec.space;
+            let dims = &space.dim[0..3];
+            let spacing = space.spacing[0..3].iter().map(|&s| s as f32).collect();
+            (dims, spacing)
+        }
+        VolumeSendable::Vec4DI8(vec) => {
+            let space = &vec.space;
+            let dims = &space.dim[0..3];
+            let spacing = space.spacing[0..3].iter().map(|&s| s as f32).collect();
+            (dims, spacing)
+        }
+        VolumeSendable::Vec4DU16(vec) => {
+            let space = &vec.space;
+            let dims = &space.dim[0..3];
+            let spacing = space.spacing[0..3].iter().map(|&s| s as f32).collect();
+            (dims, spacing)
+        }
+        VolumeSendable::Vec4DI32(vec) => {
+            let space = &vec.space;
+            let dims = &space.dim[0..3];
+            let spacing = space.spacing[0..3].iter().map(|&s| s as f32).collect();
+            (dims, spacing)
+        }
+        VolumeSendable::Vec4DU32(vec) => {
+            let space = &vec.space;
+            let dims = &space.dim[0..3];
+            let spacing = space.spacing[0..3].iter().map(|&s| s as f32).collect();
+            (dims, spacing)
+        }
+        VolumeSendable::Vec4DF64(vec) => {
+            let space = &vec.space;
+            let dims = &space.dim[0..3];
+            let spacing = space.spacing[0..3].iter().map(|&s| s as f32).collect();
+            (dims, spacing)
+        }
     };
-    
+
     // Determine axis index and metadata based on orientation
     let (slice_count, slice_spacing, axis_length) = match axis.as_str() {
         "axial" => {
@@ -3306,27 +5120,32 @@ async fn query_slice_axis_meta(
             let spacing_mm = spacing[2];
             let length = count as f32 * spacing_mm;
             (count as u32, spacing_mm, length)
-        },
+        }
         "sagittal" => {
             // Sagittal slices along X axis (index 0)
             let count = shape[0];
             let spacing_mm = spacing[0];
             let length = count as f32 * spacing_mm;
             (count as u32, spacing_mm, length)
-        },
+        }
         "coronal" => {
             // Coronal slices along Y axis (index 1)
             let count = shape[1];
             let spacing_mm = spacing[1];
             let length = count as f32 * spacing_mm;
             (count as u32, spacing_mm, length)
-        },
-        _ => return Err(BridgeError::Input { 
-            code: 5002, 
-            details: format!("Invalid axis '{}'. Must be 'axial', 'sagittal', or 'coronal'", axis)
-        })
+        }
+        _ => {
+            return Err(BridgeError::Input {
+                code: 5002,
+                details: format!(
+                    "Invalid axis '{}'. Must be 'axial', 'sagittal', or 'coronal'",
+                    axis
+                ),
+            })
+        }
     };
-    
+
     Ok(SliceAxisMeta {
         slice_count,
         slice_spacing,
@@ -3339,16 +5158,24 @@ async fn query_slice_axis_meta(
 #[tracing::instrument(skip_all, err, name = "api.batch_render_slices")]
 async fn batch_render_slices(
     batch_request: BatchRenderRequest,
-    state: State<'_, BridgeState>
+    state: State<'_, BridgeState>,
 ) -> Result<tauri::ipc::Response, BridgeError> {
     info!("Bridge: batch_render_slices called");
-    
+
     // Add detailed logging for debugging
-    info!("Batch render: Received JSON (first 1000 chars): {}", 
-          batch_request.view_states_json.chars().take(1000).collect::<String>());
-    
+    info!(
+        "Batch render: Received JSON (first 1000 chars): {}",
+        batch_request
+            .view_states_json
+            .chars()
+            .take(1000)
+            .collect::<String>()
+    );
+
     // Parse view states from JSON string to ViewState structs
-    let view_states: Vec<render_loop::view_state::ViewState> = match serde_json::from_str(&batch_request.view_states_json) {
+    let view_states: Vec<render_loop::view_state::ViewState> = match serde_json::from_str(
+        &batch_request.view_states_json,
+    ) {
         Ok(states) => states,
         Err(e) => {
             // First try to parse as generic JSON to get better error info
@@ -3356,8 +5183,11 @@ async fn batch_render_slices(
                 Ok(json_value) => {
                     // JSON is valid, problem is with deserialization to ViewState
                     error!("JSON parsed successfully but failed to deserialize to ViewState");
-                    error!("Parsed JSON structure: {}", serde_json::to_string_pretty(&json_value).unwrap_or_default());
-                    
+                    error!(
+                        "Parsed JSON structure: {}",
+                        serde_json::to_string_pretty(&json_value).unwrap_or_default()
+                    );
+
                     // Try to identify the specific field that failed
                     if let Some(array) = json_value.as_array() {
                         for (idx, item) in array.iter().enumerate() {
@@ -3370,7 +5200,7 @@ async fn batch_render_slices(
                                             // Check threshold field specifically
                                             if let Some(threshold) = layer_obj.get("threshold") {
                                                 if !threshold.is_null() && !threshold.is_object() {
-                                                    error!("ViewState[{}].layers[{}].threshold has invalid type: {:?}", 
+                                                    error!("ViewState[{}].layers[{}].threshold has invalid type: {:?}",
                                                            idx, layer_idx, threshold);
                                                 }
                                             }
@@ -3380,96 +5210,122 @@ async fn batch_render_slices(
                             }
                         }
                     }
-                    
+
                     return Err(BridgeError::Input {
                         code: 7001,
-                        details: format!("JSON structure doesn't match ViewState schema: {}", e)
+                        details: format!("JSON structure doesn't match ViewState schema: {}", e),
                     });
-                },
+                }
                 Err(json_err) => {
                     // JSON itself is invalid
                     let column = json_err.column();
                     let line = json_err.line();
-                    let error_context = if column > 0 && column < batch_request.view_states_json.len() {
+                    let error_context = if column > 0
+                        && column < batch_request.view_states_json.len()
+                    {
                         let start = column.saturating_sub(100);
                         let end = std::cmp::min(column + 100, batch_request.view_states_json.len());
-                        format!("\nError at line {} column {}. Context: ...{}...", 
-                                line, column, &batch_request.view_states_json[start..end])
+                        format!(
+                            "\nError at line {} column {}. Context: ...{}...",
+                            line,
+                            column,
+                            &batch_request.view_states_json[start..end]
+                        )
                     } else {
                         String::new()
                     };
-                    
+
                     return Err(BridgeError::Input {
                         code: 7001,
-                        details: format!("Invalid JSON: {}{}", json_err, error_context)
+                        details: format!("Invalid JSON: {}{}", json_err, error_context),
                     });
                 }
             }
         }
     };
-    
+
     // Validate batch size
     if view_states.is_empty() {
         return Err(BridgeError::Input {
             code: 7002,
-            details: "Empty batch request - no view states provided".to_string()
+            details: "Empty batch request - no view states provided".to_string(),
         });
     }
-    
+
     if view_states.len() > 25 {
         return Err(BridgeError::Internal {
             code: 7010,
-            details: format!("Batch size {} exceeds GPU limits (max 25)", view_states.len())
+            details: format!(
+                "Batch size {} exceeds GPU limits (max 25)",
+                view_states.len()
+            ),
         });
     }
-    
-    info!("Batch render: {} slices at {}x{} each", 
-          view_states.len(), batch_request.width_per_slice, batch_request.height_per_slice);
-    
+
+    info!(
+        "Batch render: {} slices at {}x{} each",
+        view_states.len(),
+        batch_request.width_per_slice,
+        batch_request.height_per_slice
+    );
+
     // Verify render service is initialized (but we don't need to lock it here)
     let service_guard = state.render_loop_service.lock().await;
     if service_guard.is_none() {
-        return Err(BridgeError::ServiceNotInitialized { 
-            code: 5006, 
-            details: "GPU rendering service is not initialized. Please initialize the render loop first.".to_string() 
+        return Err(BridgeError::ServiceNotInitialized {
+            code: 5006,
+            details:
+                "GPU rendering service is not initialized. Please initialize the render loop first."
+                    .to_string(),
         });
     }
     drop(service_guard); // Release the lock early
-    
+
     let render_start = std::time::Instant::now();
-    
+
     // Calculate total buffer size
     let slice_count = view_states.len() as u32;
-    let bytes_per_slice = (batch_request.width_per_slice * batch_request.height_per_slice * 4) as usize; // RGBA
+    let bytes_per_slice =
+        (batch_request.width_per_slice * batch_request.height_per_slice * 4) as usize; // RGBA
     let total_buffer_size = 4 + 4 + 4 + (bytes_per_slice * slice_count as usize); // header + data
-    
+
     let mut result_buffer = Vec::with_capacity(total_buffer_size);
-    
+
     // Write header: [width][height][slice_count]
     result_buffer.extend_from_slice(&batch_request.width_per_slice.to_le_bytes());
     result_buffer.extend_from_slice(&batch_request.height_per_slice.to_le_bytes());
     result_buffer.extend_from_slice(&slice_count.to_le_bytes());
-    
+
     // Render each slice directly using the render_loop service
     for (idx, view_state) in view_states.iter().enumerate() {
-        info!("Rendering slice {} of {} with ViewState", idx + 1, view_states.len());
-        
+        info!(
+            "Rendering slice {} of {} with ViewState",
+            idx + 1,
+            view_states.len()
+        );
+
         // Get render loop service
         let service_guard = state.render_loop_service.lock().await;
-        let service_arc = service_guard.as_ref()
-            .ok_or_else(|| BridgeError::ServiceNotInitialized { 
-                code: 5006, 
-                details: "GPU rendering service is not initialized".to_string() 
-            })?;
+        let service_arc =
+            service_guard
+                .as_ref()
+                .ok_or_else(|| BridgeError::ServiceNotInitialized {
+                    code: 5006,
+                    details: "GPU rendering service is not initialized".to_string(),
+                })?;
         let mut service = service_arc.lock().await;
-        
+
         // Create render target for this slice
-        service.create_offscreen_target(batch_request.width_per_slice, batch_request.height_per_slice)
+        service
+            .create_offscreen_target(
+                batch_request.width_per_slice,
+                batch_request.height_per_slice,
+            )
             .map_err(|e| BridgeError::GpuError {
                 code: 5021,
                 details: format!("Failed to create render target: {}", e),
             })?;
-        
+
         // Apply frame parameters if available
         if let (Some(origin), Some(u_vec), Some(v_vec)) = (
             view_state.camera.frame_origin,
@@ -3478,44 +5334,469 @@ async fn batch_render_slices(
         ) {
             service.update_frame_ubo(origin, u_vec, v_vec);
         }
-        
+
         // Render using the ViewState directly
-        let frame_result = service.request_frame(
-            render_loop::view_state::ViewId::new(format!("batch_slice_{}", idx)),
-            view_state.clone()
-        ).await.map_err(|e| BridgeError::GpuError {
-            code: 8011,
-            details: format!("Failed to render slice {}: {:?}", idx, e),
-        })?;
-        
+        let frame_result = service
+            .request_frame(
+                render_loop::view_state::ViewId::new(format!("batch_slice_{}", idx)),
+                view_state.clone(),
+            )
+            .await
+            .map_err(|e| BridgeError::GpuError {
+                code: 8011,
+                details: format!("Failed to render slice {}: {:?}", idx, e),
+            })?;
+
         drop(service);
         drop(service_guard);
-        
+
         // Get the raw RGBA data
         let rgba_data = frame_result.image_data;
-        
+
         // Validate the data size
-        let expected_size = (batch_request.width_per_slice * batch_request.height_per_slice * 4) as usize;
+        let expected_size =
+            (batch_request.width_per_slice * batch_request.height_per_slice * 4) as usize;
         if rgba_data.len() != expected_size {
             return Err(BridgeError::Internal {
                 code: 7013,
-                details: format!("Invalid render result for slice {}: expected {} bytes, got {}", 
-                    idx, expected_size, rgba_data.len())
+                details: format!(
+                    "Invalid render result for slice {}: expected {} bytes, got {}",
+                    idx,
+                    expected_size,
+                    rgba_data.len()
+                ),
             });
         }
-        
+
         // Append the raw RGBA data directly (no header)
         result_buffer.extend_from_slice(&rgba_data);
     }
-    
+
     let render_duration = render_start.elapsed();
-    
-    info!("Batch render completed in {:?} ({:.2} ms per slice)", 
-          render_duration, 
-          render_duration.as_millis() as f64 / view_states.len() as f64);
-    
+
+    info!(
+        "Batch render completed in {:?} ({:.2} ms per slice)",
+        render_duration,
+        render_duration.as_millis() as f64 / view_states.len() as f64
+    );
+
     // Return the batch buffer as a binary response
     Ok(tauri::ipc::Response::new(result_buffer))
+}
+
+// --- Atlas Management Commands ---
+
+#[command]
+#[tracing::instrument(skip_all, err, name = "api.get_atlas_catalog")]
+async fn get_atlas_catalog(
+    state: State<'_, BridgeState>,
+) -> BridgeResult<Vec<AtlasCatalogEntry>> {
+    info!("Bridge: get_atlas_catalog called");
+    
+    let atlas_service = state.atlas_service.lock().await;
+    let catalog = atlas_service.get_catalog().await
+        .map_err(|e| BridgeError::Internal {
+            code: 6001,
+            details: format!("Failed to get atlas catalog: {}", e),
+        })?;
+    
+    Ok(catalog)
+}
+
+#[command]
+#[tracing::instrument(skip_all, err, name = "api.get_filtered_atlases")]
+async fn get_filtered_atlases(
+    filter: AtlasFilter,
+    state: State<'_, BridgeState>,
+) -> BridgeResult<Vec<AtlasCatalogEntry>> {
+    info!("Bridge: get_filtered_atlases called");
+    
+    let atlas_service = state.atlas_service.lock().await;
+    let atlases = atlas_service.get_filtered_atlases(&filter).await
+        .map_err(|e| BridgeError::Internal {
+            code: 6002,
+            details: format!("Failed to get filtered atlases: {}", e),
+        })?;
+    
+    Ok(atlases)
+}
+
+#[command]
+#[tracing::instrument(skip_all, err, name = "api.get_atlas_entry")]
+async fn get_atlas_entry(
+    atlas_id: String,
+    state: State<'_, BridgeState>,
+) -> BridgeResult<Option<AtlasCatalogEntry>> {
+    info!("Bridge: get_atlas_entry called for ID: {}", atlas_id);
+    
+    let atlas_service = state.atlas_service.lock().await;
+    let entry = atlas_service.get_atlas_entry(&atlas_id).await
+        .map_err(|e| BridgeError::Internal {
+            code: 6003,
+            details: format!("Failed to get atlas entry: {}", e),
+        })?;
+    
+    Ok(entry)
+}
+
+#[command]
+#[tracing::instrument(skip_all, err, name = "api.toggle_atlas_favorite")]
+async fn toggle_atlas_favorite(
+    atlas_id: String,
+    state: State<'_, BridgeState>,
+) -> BridgeResult<bool> {
+    info!("Bridge: toggle_atlas_favorite called for ID: {}", atlas_id);
+    
+    let atlas_service = state.atlas_service.lock().await;
+    let is_favorite = atlas_service.toggle_favorite(&atlas_id).await
+        .map_err(|e| BridgeError::Internal {
+            code: 6004,
+            details: format!("Failed to toggle favorite: {}", e),
+        })?;
+    
+    Ok(is_favorite)
+}
+
+#[command]
+#[tracing::instrument(skip_all, err, name = "api.get_recent_atlases")]
+async fn get_recent_atlases(
+    state: State<'_, BridgeState>,
+) -> BridgeResult<Vec<AtlasCatalogEntry>> {
+    info!("Bridge: get_recent_atlases called");
+    
+    let atlas_service = state.atlas_service.lock().await;
+    let recent = atlas_service.get_recent_atlases().await
+        .map_err(|e| BridgeError::Internal {
+            code: 6005,
+            details: format!("Failed to get recent atlases: {}", e),
+        })?;
+    
+    Ok(recent)
+}
+
+#[command]
+#[tracing::instrument(skip_all, err, name = "api.get_favorite_atlases")]
+async fn get_favorite_atlases(
+    state: State<'_, BridgeState>,
+) -> BridgeResult<Vec<AtlasCatalogEntry>> {
+    info!("Bridge: get_favorite_atlases called");
+    
+    let atlas_service = state.atlas_service.lock().await;
+    let favorites = atlas_service.get_favorite_atlases().await
+        .map_err(|e| BridgeError::Internal {
+            code: 6006,
+            details: format!("Failed to get favorite atlases: {}", e),
+        })?;
+    
+    Ok(favorites)
+}
+
+#[command]
+#[tracing::instrument(skip_all, err, name = "api.validate_atlas_config")]
+async fn validate_atlas_config(
+    config: AtlasConfig,
+    state: State<'_, BridgeState>,
+) -> BridgeResult<bool> {
+    info!("Bridge: validate_atlas_config called for atlas: {}", config.atlas_id);
+    
+    let atlas_service = state.atlas_service.lock().await;
+    atlas_service.validate_config(&config).await
+        .map_err(|e| BridgeError::Input {
+            code: 6007,
+            details: format!("Invalid atlas configuration: {}", e),
+        })?;
+    
+    Ok(true)
+}
+
+#[command]
+#[tracing::instrument(skip_all, err, name = "api.load_atlas")]
+async fn load_atlas(
+    config: AtlasConfig,
+    state: State<'_, BridgeState>,
+) -> BridgeResult<AtlasLoadResult> {
+    info!("Bridge: load_atlas called for atlas: {} in space: {}", config.atlas_id, config.space);
+    
+    let atlas_service = state.atlas_service.lock().await;
+    let result = atlas_service.load_atlas(config).await
+        .map_err(|e| BridgeError::Internal {
+            code: 6008,
+            details: format!("Failed to load atlas: {}", e),
+        })?;
+    
+    Ok(result)
+}
+
+/// Start monitoring atlas loading progress and emit events
+/// Note: This will start a background task that monitors progress until the service is dropped
+#[tauri::command]
+async fn start_atlas_progress_monitoring(
+    state: State<'_, BridgeState>,
+) -> BridgeResult<()> {
+    info!("Bridge: start_atlas_progress_monitoring called");
+    
+    let atlas_service = state.atlas_service.lock().await;
+    let _subscription_count = atlas_service.active_subscription_count();
+    info!("Progress monitoring started, active subscriptions: {}", _subscription_count);
+    
+    // For now, just indicate that monitoring is available
+    // The actual progress events will be sent when atlas operations occur
+    // Frontend can listen for 'atlas-progress' events
+    
+    Ok(())
+}
+
+/// Get the current number of active progress subscriptions for debugging
+#[tauri::command]
+async fn get_atlas_subscription_count(
+    state: State<'_, BridgeState>,
+) -> BridgeResult<usize> {
+    let atlas_service = state.atlas_service.lock().await;
+    Ok(atlas_service.active_subscription_count())
+}
+
+// --- Template Commands ---
+
+/// Get the complete template catalog
+#[command]
+#[tracing::instrument(skip_all, err, name = "api.get_template_catalog")]
+async fn get_template_catalog(
+    state: State<'_, BridgeState>,
+) -> BridgeResult<Vec<templates::TemplateCatalogEntry>> {
+    info!("Bridge: get_template_catalog called");
+    
+    let template_service = state.template_service.lock().await;
+    let catalog = template_service.get_catalog().await
+        .map_err(|e| BridgeError::Internal {
+            code: 7001,
+            details: format!("Failed to get template catalog: {}", e),
+        })?;
+    
+    Ok(catalog)
+}
+
+/// Get filtered template entries
+#[command]
+#[tracing::instrument(skip_all, err, name = "api.get_filtered_templates")]
+async fn get_filtered_templates(
+    filter: templates::TemplateFilter,
+    state: State<'_, BridgeState>,
+) -> BridgeResult<Vec<templates::TemplateCatalogEntry>> {
+    info!("Bridge: get_filtered_templates called");
+    
+    let template_service = state.template_service.lock().await;
+    let entries = template_service.get_filtered_templates(&filter).await
+        .map_err(|e| BridgeError::Internal {
+            code: 7002,
+            details: format!("Failed to get filtered templates: {}", e),
+        })?;
+    
+    Ok(entries)
+}
+
+/// Get a specific template entry by ID
+#[command]
+#[tracing::instrument(skip_all, err, name = "api.get_template_entry")]
+async fn get_template_entry(
+    template_id: String,
+    state: State<'_, BridgeState>,
+) -> BridgeResult<Option<templates::TemplateCatalogEntry>> {
+    info!("Bridge: get_template_entry called for template: {}", template_id);
+    
+    let template_service = state.template_service.lock().await;
+    let entry = template_service.get_template_entry(&template_id).await
+        .map_err(|e| BridgeError::Internal {
+            code: 7003,
+            details: format!("Failed to get template entry: {}", e),
+        })?;
+    
+    Ok(entry)
+}
+
+/// Validate a template configuration
+#[command]
+#[tracing::instrument(skip_all, err, name = "api.validate_template_config")]
+async fn validate_template_config(
+    config: templates::TemplateConfig,
+    state: State<'_, BridgeState>,
+) -> BridgeResult<bool> {
+    info!("Bridge: validate_template_config called for template: {}", config.id());
+    
+    let template_service = state.template_service.lock().await;
+    let is_valid = template_service.validate_config(&config).await
+        .map_err(|e| BridgeError::Internal {
+            code: 7004,
+            details: format!("Failed to validate template config: {}", e),
+        })?;
+    
+    Ok(is_valid)
+}
+
+/// Load a template and return the template metadata with volume handle
+#[command]
+#[tracing::instrument(skip_all, err, name = "api.load_template")]
+async fn load_template(
+    config: templates::TemplateConfig,
+    state: State<'_, BridgeState>,
+) -> BridgeResult<templates::TemplateLoadResult> {
+    info!("Bridge: load_template called for template: {}", config.id());
+    
+    let template_service = state.template_service.lock().await;
+    let result = template_service.load_template(config).await
+        .map_err(|e| BridgeError::Internal {
+            code: 7005,
+            details: format!("Failed to load template: {}", e),
+        })?;
+    
+    Ok(result)
+}
+
+/// Load a template by its menu ID (e.g., "MNI152NLin2009cAsym_T1w_1mm")
+#[command]
+#[tracing::instrument(skip_all, err, name = "api.load_template_by_id")]
+async fn load_template_by_id(
+    template_id: String,
+    state: State<'_, BridgeState>,
+) -> BridgeResult<templates::TemplateLoadResult> {
+    info!("Bridge: load_template_by_id called for template: {}", template_id);
+    
+    // Parse the template ID to create a TemplateConfig
+    let config = parse_template_id(&template_id)?;
+    
+    // Load the template through the template service
+    let template_service = state.template_service.lock().await;
+    let result = template_service.load_template(config).await
+        .map_err(|e| BridgeError::Internal {
+            code: 7006,
+            details: format!("Failed to load template by ID: {}", e),
+        })?;
+    
+    // Get the cache path from the template service
+    let cache_path = template_service.get_cache_path(&template_id)
+        .map_err(|e| BridgeError::Internal {
+            code: 7007,
+            details: format!("Failed to get template cache path: {}", e),
+        })?;
+    drop(template_service);
+    
+    // Load the volume data for the registry (similar to load_file)
+    let (volume_sendable, _affine) = nifti_loader::load_nifti_volume_auto(&cache_path)
+        .map_err(|e| BridgeError::Internal {
+            code: 7008,
+            details: format!("Failed to reload template volume for registry: {}", e),
+        })?;
+    
+    // Create volume metadata for the registry
+    let metadata = VolumeMetadataInfo {
+        name: result.template_metadata.name.clone(),
+        path: format!("template:{}", template_id),
+        dtype: result.volume_handle_info.dtype.clone(),
+        volume_type: result.volume_handle_info.volume_type.clone(),
+        time_series_info: result.volume_handle_info.time_series_info.clone(),
+    };
+    
+    // Register the volume in the volume registry
+    let mut registry = state.volume_registry.lock().await;
+    registry.insert(result.volume_handle_info.id.clone(), volume_sendable, metadata);
+    drop(registry);
+    
+    info!("Bridge: Successfully loaded and registered template volume with handle: {}", result.volume_handle_info.id);
+    
+    Ok(result)
+}
+
+/// Get template cache statistics
+#[command]
+#[tracing::instrument(skip_all, err, name = "api.get_template_cache_stats")]
+async fn get_template_cache_stats(
+    state: State<'_, BridgeState>,
+) -> BridgeResult<templates::TemplateCacheStats> {
+    info!("Bridge: get_template_cache_stats called");
+    
+    let template_service = state.template_service.lock().await;
+    let stats = template_service.get_cache_stats().await
+        .map_err(|e| BridgeError::Internal {
+            code: 7007,
+            details: format!("Failed to get template cache stats: {}", e),
+        })?;
+    
+    Ok(stats)
+}
+
+/// Clear the template cache
+#[command]
+#[tracing::instrument(skip_all, err, name = "api.clear_template_cache")]
+async fn clear_template_cache(
+    state: State<'_, BridgeState>,
+) -> BridgeResult<()> {
+    info!("Bridge: clear_template_cache called");
+    
+    let template_service = state.template_service.lock().await;
+    template_service.clear_cache().await
+        .map_err(|e| BridgeError::Internal {
+            code: 7008,
+            details: format!("Failed to clear template cache: {}", e),
+        })?;
+    
+    Ok(())
+}
+
+/// Parse a template menu ID into a TemplateConfig
+fn parse_template_id(template_id: &str) -> BridgeResult<templates::TemplateConfig> {
+    // Parse ID format: "MNI152NLin2009cAsym_T1w_1mm"
+    let parts: Vec<&str> = template_id.split('_').collect();
+    if parts.len() != 3 {
+        return Err(BridgeError::Internal {
+            code: 7009,
+            details: format!("Invalid template ID format: {}", template_id),
+        });
+    }
+    
+    let space_str = parts[0];
+    let type_str = parts[1];
+    let resolution_str = parts[2];
+    
+    // Parse space
+    let space = match space_str {
+        "MNI152NLin2009cAsym" => templates::TemplateSpace::MNI152NLin2009cAsym,
+        "MNI152NLin6Asym" => templates::TemplateSpace::MNI152NLin6Asym,
+        "fsaverage" => templates::TemplateSpace::FSAverage,
+        "fsaverage5" => templates::TemplateSpace::FSAverage5,
+        "fsaverage6" => templates::TemplateSpace::FSAverage6,
+        _ => return Err(BridgeError::Internal {
+            code: 7010,
+            details: format!("Unknown template space: {}", space_str),
+        }),
+    };
+    
+    // Parse template type
+    let template_type = match type_str {
+        "T1w" => templates::TemplateType::T1w,
+        "T2w" => templates::TemplateType::T2w,
+        "FLAIR" => templates::TemplateType::Flair,
+        "GM" => templates::TemplateType::GrayMatter,
+        "WM" => templates::TemplateType::WhiteMatter,
+        "CSF" => templates::TemplateType::Csf,
+        "mask" => templates::TemplateType::BrainMask,
+        "brain" => templates::TemplateType::Brain,
+        _ => return Err(BridgeError::Internal {
+            code: 7011,
+            details: format!("Unknown template type: {}", type_str),
+        }),
+    };
+    
+    // Parse resolution
+    let resolution = match resolution_str {
+        "1mm" => templates::TemplateResolution::MM1,
+        "2mm" => templates::TemplateResolution::MM2,
+        "native" => templates::TemplateResolution::Native,
+        _ => return Err(BridgeError::Internal {
+            code: 7012,
+            details: format!("Unknown template resolution: {}", resolution_str),
+        }),
+    };
+    
+    Ok(templates::TemplateConfig::new(template_type, space, resolution))
 }
 
 // --- Plugin Creation ---
@@ -3528,8 +5809,11 @@ pub fn plugin<R: Runtime>() -> TauriPlugin<R> {
         .invoke_handler(generate_handler![
             load_file,
             get_volume_bounds,
-            world_to_voxel,
-            get_timeseries_matrix,
+            // world_to_voxel, // REMOVED - Unused coordinate transformation
+            set_volume_timepoint,
+            get_volume_timepoint,
+            get_volume_info,
+            // get_timeseries_matrix, // REMOVED - Returns unimplemented
             get_initial_views,
             recalculate_view_for_dimensions,
             request_layer_gpu_resources,
@@ -3549,17 +5833,39 @@ pub fn plugin<R: Runtime>() -> TauriPlugin<R> {
             update_layer_threshold,
             set_layer_mask,
             request_frame,
-            render_frame,
+            // render_frame, // REMOVED - Redundant with apply_and_render_view_state
             add_render_layer,
             patch_layer,
+            compute_layer_histogram,
             sample_world_coordinate,
-            render_to_image,
-            render_to_image_binary,
+            // render_to_image, // REMOVED - Redundant with apply_and_render_view_state
+            // render_to_image_binary, // REMOVED - Redundant with apply_and_render_view_state
+            render_view, // New unified render method
             apply_and_render_view_state,
             apply_and_render_view_state_binary,
             apply_and_render_view_state_raw,
             query_slice_axis_meta,
             batch_render_slices,
+            // Atlas management commands
+            get_atlas_catalog,
+            get_filtered_atlases,
+            get_atlas_entry,
+            toggle_atlas_favorite,
+            get_recent_atlases,
+            get_favorite_atlases,
+            validate_atlas_config,
+            load_atlas,
+            start_atlas_progress_monitoring,
+            get_atlas_subscription_count,
+            // Template management commands
+            get_template_catalog,
+            get_filtered_templates,
+            get_template_entry,
+            validate_template_config,
+            load_template,
+            load_template_by_id,
+            get_template_cache_stats,
+            clear_template_cache,
         ])
         .setup(|app, _| {
             // Initialize the bridge state
@@ -3574,9 +5880,10 @@ pub fn plugin<R: Runtime>() -> TauriPlugin<R> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::path::PathBuf;
-    use volmath::{DenseVolume3, NeuroSpace3};
     use nalgebra::Affine3;
+    use std::path::PathBuf;
+    use volmath::{DenseVolume3, NeuroSpace3, NeuroSpace};
+    use log::{debug, info, warn};
 
     fn get_test_data_path() -> PathBuf {
         PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -3591,14 +5898,14 @@ mod tests {
         // Create test state
         let _state = BridgeState::default();
         let test_file = get_test_data_path().join("toy_t1w.nii.gz");
-        
+
         // Mock the State wrapper - this is a bit tricky since State is from Tauri
         // For unit testing, we'd need to refactor to make the functions testable
         // without Tauri's State wrapper
-        
+
         // For now, let's test the core functionality directly
         assert!(core_loaders::is_loadable(&test_file));
-        
+
         // Test that we can load the file
         let loaded_data = nifti_loader::NiftiLoader::load(&test_file).unwrap();
         match loaded_data {
@@ -3608,14 +5915,10 @@ mod tests {
             }
             _ => panic!("Expected Volume variant"),
         }
-        
+
         // Test loading the actual volume data
-        use std::fs::File;
-        use flate2::read::GzDecoder;
-        let file = File::open(&test_file).unwrap();
-        let reader = GzDecoder::new(file);
-        let (volume_sendable, _affine) = nifti_loader::load_nifti_volume(reader).unwrap();
-        
+        let (volume_sendable, _affine) = nifti_loader::load_nifti_volume_auto(&test_file).unwrap();
+
         // Verify we got the right type
         match volume_sendable {
             VolumeSendable::VolF32(vol, _) => {
@@ -3629,10 +5932,10 @@ mod tests {
     #[test]
     fn test_volume_registry() {
         let state = BridgeState::default();
-        
+
         // Test that registry starts empty
         let registry = state.volume_registry.try_lock().unwrap();
-        assert_eq!(registry.len(), 0);
+        assert_eq!(registry.volumes.len(), 0);
     }
 
     #[test]
@@ -3650,19 +5953,20 @@ mod tests {
         let dims = vec![100, 120, 80];
         let axis = SliceAxis::Axial;
         let slice_spec = SliceIndex::Middle;
-        
+
         // Create a dummy volume for testing
-        let space_impl = volmath::NeuroSpaceExt::from_dims_spacing_origin(
-            vec![100, 120, 80],       // dims
-            vec![1.0, 1.0, 1.0],      // spacing
-            vec![0.0, 0.0, 0.0],      // origin
-        ).expect("Failed to create NeuroSpace");
+        let space_impl = <NeuroSpace as volmath::NeuroSpaceExt>::from_dims_spacing_origin(
+            vec![100, 120, 80],  // dims
+            vec![1.0, 1.0, 1.0], // spacing
+            vec![0.0, 0.0, 0.0], // origin
+        )
+        .expect("Failed to create NeuroSpace");
         let space = NeuroSpace3::new(space_impl);
         let data = vec![0.0f32; 100 * 120 * 80];
         let volume = DenseVolume3::<f32>::from_data(space.0, data);
         let affine = Affine3::<f32>::identity();
         let volume_data = VolumeSendable::VolF32(volume, affine);
-        
+
         let result = calculate_slice_index(&slice_spec, &dims, axis, &volume_data).unwrap();
         assert_eq!(result, 40); // Middle of 80
     }
@@ -3672,19 +5976,20 @@ mod tests {
         let dims = vec![100, 120, 80];
         let axis = SliceAxis::Sagittal;
         let slice_spec = SliceIndex::Fixed(25);
-        
+
         // Create a dummy volume for testing
-        let space_impl = volmath::NeuroSpaceExt::from_dims_spacing_origin(
-            vec![100, 120, 80],       // dims
-            vec![1.0, 1.0, 1.0],      // spacing
-            vec![0.0, 0.0, 0.0],      // origin
-        ).expect("Failed to create NeuroSpace");
+        let space_impl = <NeuroSpace as volmath::NeuroSpaceExt>::from_dims_spacing_origin(
+            vec![100, 120, 80],  // dims
+            vec![1.0, 1.0, 1.0], // spacing
+            vec![0.0, 0.0, 0.0], // origin
+        )
+        .expect("Failed to create NeuroSpace");
         let space = NeuroSpace3::new(space_impl);
         let data = vec![0.0f32; 100 * 120 * 80];
         let volume = DenseVolume3::<f32>::from_data(space.0, data);
         let affine = Affine3::<f32>::identity();
         let volume_data = VolumeSendable::VolF32(volume, affine);
-        
+
         let result = calculate_slice_index(&slice_spec, &dims, axis, &volume_data).unwrap();
         assert_eq!(result, 25);
     }
@@ -3694,19 +5999,20 @@ mod tests {
         let dims = vec![100, 120, 80];
         let axis = SliceAxis::Coronal;
         let slice_spec = SliceIndex::Relative(0.25); // 25% along the axis
-        
+
         // Create a dummy volume for testing
-        let space_impl = volmath::NeuroSpaceExt::from_dims_spacing_origin(
-            vec![100, 120, 80],       // dims
-            vec![1.0, 1.0, 1.0],      // spacing
-            vec![0.0, 0.0, 0.0],      // origin
-        ).expect("Failed to create NeuroSpace");
+        let space_impl = <NeuroSpace as volmath::NeuroSpaceExt>::from_dims_spacing_origin(
+            vec![100, 120, 80],  // dims
+            vec![1.0, 1.0, 1.0], // spacing
+            vec![0.0, 0.0, 0.0], // origin
+        )
+        .expect("Failed to create NeuroSpace");
         let space = NeuroSpace3::new(space_impl);
         let data = vec![0.0f32; 100 * 120 * 80];
         let volume = DenseVolume3::<f32>::from_data(space.0, data);
         let affine = Affine3::<f32>::identity();
         let volume_data = VolumeSendable::VolF32(volume, affine);
-        
+
         let result = calculate_slice_index(&slice_spec, &dims, axis, &volume_data).unwrap();
         assert_eq!(result, 29); // (120-1) * 0.25 = 29.75 -> 29
     }
@@ -3716,19 +6022,20 @@ mod tests {
         let dims = vec![100, 120, 80];
         let axis = SliceAxis::Axial;
         let slice_spec = SliceIndex::Fixed(80); // Out of bounds
-        
+
         // Create a dummy volume for testing
-        let space_impl = volmath::NeuroSpaceExt::from_dims_spacing_origin(
-            vec![100, 120, 80],       // dims
-            vec![1.0, 1.0, 1.0],      // spacing
-            vec![0.0, 0.0, 0.0],      // origin
-        ).expect("Failed to create NeuroSpace");
+        let space_impl = <NeuroSpace as volmath::NeuroSpaceExt>::from_dims_spacing_origin(
+            vec![100, 120, 80],  // dims
+            vec![1.0, 1.0, 1.0], // spacing
+            vec![0.0, 0.0, 0.0], // origin
+        )
+        .expect("Failed to create NeuroSpace");
         let space = NeuroSpace3::new(space_impl);
         let data = vec![0.0f32; 100 * 120 * 80];
         let volume = DenseVolume3::<f32>::from_data(space.0, data);
         let affine = Affine3::<f32>::identity();
         let volume_data = VolumeSendable::VolF32(volume, affine);
-        
+
         let result = calculate_slice_index(&slice_spec, &dims, axis, &volume_data);
         assert!(result.is_err());
         match result {
@@ -3742,19 +6049,20 @@ mod tests {
         let dims = vec![100, 120, 80];
         let axis = SliceAxis::Axial;
         let slice_spec = SliceIndex::Relative(1.5); // Invalid relative position
-        
+
         // Create a dummy volume for testing
-        let space_impl = volmath::NeuroSpaceExt::from_dims_spacing_origin(
-            vec![100, 120, 80],       // dims
-            vec![1.0, 1.0, 1.0],      // spacing
-            vec![0.0, 0.0, 0.0],      // origin
-        ).expect("Failed to create NeuroSpace");
+        let space_impl = <NeuroSpace as volmath::NeuroSpaceExt>::from_dims_spacing_origin(
+            vec![100, 120, 80],  // dims
+            vec![1.0, 1.0, 1.0], // spacing
+            vec![0.0, 0.0, 0.0], // origin
+        )
+        .expect("Failed to create NeuroSpace");
         let space = NeuroSpace3::new(space_impl);
         let data = vec![0.0f32; 100 * 120 * 80];
         let volume = DenseVolume3::<f32>::from_data(space.0, data);
         let affine = Affine3::<f32>::identity();
         let volume_data = VolumeSendable::VolF32(volume, affine);
-        
+
         let result = calculate_slice_index(&slice_spec, &dims, axis, &volume_data);
         assert!(result.is_err());
         match result {
@@ -3766,7 +6074,7 @@ mod tests {
     #[test]
     fn test_layer_to_atlas_map() {
         let state = BridgeState::default();
-        
+
         // Test that map starts empty
         let layer_map = state.layer_to_atlas_map.try_lock().unwrap();
         assert_eq!(layer_map.len(), 0);
@@ -3781,12 +6089,12 @@ mod tests {
             slice_axis: Some(SliceAxis::Coronal),
             slice_index: Some(SliceIndex::Relative(0.75)),
         };
-        
+
         // Test serialization
         let json = serde_json::to_string(&spec).unwrap();
         assert!(json.contains("\"slice_axis\":\"Coronal\""));
         assert!(json.contains("\"slice_index\":{\"Relative\":0.75}"));
-        
+
         // Test deserialization
         let deserialized: VolumeLayerSpec = serde_json::from_str(&json).unwrap();
         assert_eq!(deserialized.id, "layer1");

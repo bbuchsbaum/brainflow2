@@ -71,9 +71,8 @@ export function drawScaledImage(
   canvasWidth: number,
   canvasHeight: number
 ): ImagePlacement {
-  // Clear canvas with black background
-  ctx.fillStyle = '#000000';
-  ctx.fillRect(0, 0, canvasWidth, canvasHeight);
+  // Don't clear the canvas - draw new image directly over old one to prevent flickering
+  // The new image will completely cover the old one
   
   // Calculate placement
   const placement = calculateImagePlacement(

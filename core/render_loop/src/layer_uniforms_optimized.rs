@@ -1,38 +1,38 @@
 // Optimized layer uniform buffer management with precomputed values
 
-use wgpu::{Device, Queue, Buffer, BindGroup, BindGroupLayout, util::DeviceExt};
 use crate::render_state::LayerInfo;
-use nalgebra::Matrix4;
 use bytemuck::{Pod, Zeroable};
+use nalgebra::Matrix4;
+use wgpu::{util::DeviceExt, BindGroup, BindGroupLayout, Buffer, Device, Queue};
 
 /// Optimized layer data structure with precomputed values for performance
 #[repr(C)]
 #[derive(Debug, Copy, Clone, Pod, Zeroable)]
 pub struct LayerDataOptimized {
     // --- 16-byte aligned types first ---
-    pub world_to_voxel: [[f32; 4]; 4],      // 64 bytes, offset 0
-    
+    pub world_to_voxel: [[f32; 4]; 4], // 64 bytes, offset 0
+
     // --- Volume info ---
-    pub dim: [u32; 3],                       // 12 bytes, offset 64
-    pub texture_index: u32,                  // 4 bytes, offset 76
-    
+    pub dim: [u32; 3],      // 12 bytes, offset 64
+    pub texture_index: u32, // 4 bytes, offset 76
+
     // --- Rendering parameters ---
-    pub colormap_id: u32,                    // 4 bytes, offset 80
-    pub blend_mode: u32,                     // 4 bytes, offset 84
-    pub threshold_mode: u32,                 // 4 bytes, offset 88
-    pub is_mask: u32,                        // 4 bytes, offset 92
-    
-    pub opacity: f32,                        // 4 bytes, offset 96
-    pub intensity_min: f32,                  // 4 bytes, offset 100
-    pub intensity_max: f32,                  // 4 bytes, offset 104
-    pub thresh_low: f32,                     // 4 bytes, offset 108
-    
-    pub thresh_high: f32,                    // 4 bytes, offset 112
+    pub colormap_id: u32,    // 4 bytes, offset 80
+    pub blend_mode: u32,     // 4 bytes, offset 84
+    pub threshold_mode: u32, // 4 bytes, offset 88
+    pub is_mask: u32,        // 4 bytes, offset 92
+
+    pub opacity: f32,       // 4 bytes, offset 96
+    pub intensity_min: f32, // 4 bytes, offset 100
+    pub intensity_max: f32, // 4 bytes, offset 104
+    pub thresh_low: f32,    // 4 bytes, offset 108
+
+    pub thresh_high: f32, // 4 bytes, offset 112
     // Performance optimization: precomputed values
-    pub inv_intensity_delta: f32,            // 4 bytes, offset 116
-    pub voxel_size_estimate: f32,            // 4 bytes, offset 120
-    pub _padding: f32,                       // 4 bytes, offset 124
-    // Total size: 128 bytes (8 * 16-byte blocks)
+    pub inv_intensity_delta: f32, // 4 bytes, offset 116
+    pub voxel_size_estimate: f32, // 4 bytes, offset 120
+    pub _padding: f32,            // 4 bytes, offset 124
+                                  // Total size: 128 bytes (8 * 16-byte blocks)
 }
 
 impl Default for LayerDataOptimized {
@@ -85,7 +85,7 @@ impl LayerStorageManagerOptimized {
     /// Create a new optimized layer storage manager
     pub fn new(device: &Device, initial_capacity: usize) -> Self {
         let capacity = initial_capacity.max(8);
-        
+
         // Create storage buffer for layers
         let layer_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("Optimized Layer Storage Buffer"),
@@ -93,7 +93,7 @@ impl LayerStorageManagerOptimized {
             usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
-        
+
         // Create metadata uniform buffer
         let metadata = LayerMetadata {
             active_count: 0,
@@ -104,7 +104,7 @@ impl LayerStorageManagerOptimized {
             contents: bytemuck::bytes_of(&metadata),
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
-        
+
         Self {
             layer_buffer,
             metadata_buffer,
@@ -114,7 +114,7 @@ impl LayerStorageManagerOptimized {
             capacity,
         }
     }
-    
+
     /// Create bind group layout for optimized storage buffers
     pub fn create_bind_group_layout(device: &Device) -> BindGroupLayout {
         device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -145,7 +145,7 @@ impl LayerStorageManagerOptimized {
             ],
         })
     }
-    
+
     /// Create bind group for layer data
     pub fn create_bind_group(&mut self, device: &Device, layout: &BindGroupLayout) {
         let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -162,21 +162,27 @@ impl LayerStorageManagerOptimized {
                 },
             ],
         });
-        
+
         self.bind_group = Some(bind_group);
     }
-    
+
     /// Compute voxel size estimate from transform matrix
     fn compute_voxel_size(transform: &Matrix4<f32>) -> f32 {
         // Extract scale factors from the transform matrix
-        let scale_x = (transform[(0, 0)].powi(2) + transform[(1, 0)].powi(2) + transform[(2, 0)].powi(2)).sqrt();
-        let scale_y = (transform[(0, 1)].powi(2) + transform[(1, 1)].powi(2) + transform[(2, 1)].powi(2)).sqrt();
-        let scale_z = (transform[(0, 2)].powi(2) + transform[(1, 2)].powi(2) + transform[(2, 2)].powi(2)).sqrt();
-        
+        let scale_x =
+            (transform[(0, 0)].powi(2) + transform[(1, 0)].powi(2) + transform[(2, 0)].powi(2))
+                .sqrt();
+        let scale_y =
+            (transform[(0, 1)].powi(2) + transform[(1, 1)].powi(2) + transform[(2, 1)].powi(2))
+                .sqrt();
+        let scale_z =
+            (transform[(0, 2)].powi(2) + transform[(1, 2)].powi(2) + transform[(2, 2)].powi(2))
+                .sqrt();
+
         // Return average voxel size
         (scale_x + scale_y + scale_z) / 3.0
     }
-    
+
     /// Update layer data with optimized precomputed values
     pub fn update_layers(
         &mut self,
@@ -188,24 +194,24 @@ impl LayerStorageManagerOptimized {
         world_to_voxel_transforms: &[Matrix4<f32>],
     ) {
         let layer_count = layers.len();
-        
+
         // Ensure capacity
         if layer_count > self.capacity {
             self.resize_buffer(device, layout, layer_count);
         }
-        
+
         // Clear and update layer data
         self.layer_data.clear();
         self.active_count = layer_count as u32;
-        
+
         let identity = Matrix4::identity();
         let default_dims = (1, 1, 1);
-        
+
         for i in 0..layer_count {
             let layer = &layers[i];
             let dims = volume_dimensions.get(i).unwrap_or(&default_dims);
             let transform = world_to_voxel_transforms.get(i).unwrap_or(&identity);
-            
+
             // Precompute optimization values
             let intensity_delta = layer.intensity_range.1 - layer.intensity_range.0;
             let inv_intensity_delta = if intensity_delta > 1e-9 {
@@ -213,12 +219,12 @@ impl LayerStorageManagerOptimized {
             } else {
                 1.0
             };
-            
+
             let voxel_size_estimate = Self::compute_voxel_size(transform);
-            
+
             // Use the is_mask field from LayerInfo
             let is_mask = if layer.is_mask { 1 } else { 0 };
-            
+
             let layer_data = LayerDataOptimized {
                 // Convert matrix to column-major format for GPU
                 world_to_voxel: crate::matrix_to_cols_array(transform),
@@ -237,10 +243,10 @@ impl LayerStorageManagerOptimized {
                 voxel_size_estimate,
                 _padding: 0.0,
             };
-            
+
             self.layer_data.push(layer_data);
         }
-        
+
         // Update GPU buffers
         if !self.layer_data.is_empty() {
             queue.write_buffer(
@@ -249,7 +255,7 @@ impl LayerStorageManagerOptimized {
                 bytemuck::cast_slice(&self.layer_data),
             );
         }
-        
+
         // Update metadata
         let metadata = LayerMetadata {
             active_count: self.active_count,
@@ -257,12 +263,12 @@ impl LayerStorageManagerOptimized {
         };
         queue.write_buffer(&self.metadata_buffer, 0, bytemuck::bytes_of(&metadata));
     }
-    
+
     /// Resize the storage buffer if needed
     fn resize_buffer(&mut self, device: &Device, layout: &BindGroupLayout, required: usize) {
         // Calculate new capacity (grow by 50% or to required size)
         let new_capacity = required.max(self.capacity + self.capacity / 2);
-        
+
         // Create new buffer
         self.layer_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("Optimized Layer Storage Buffer (Resized)"),
@@ -270,19 +276,20 @@ impl LayerStorageManagerOptimized {
             usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
-        
+
         self.capacity = new_capacity;
-        self.layer_data.reserve(new_capacity - self.layer_data.len());
-        
+        self.layer_data
+            .reserve(new_capacity - self.layer_data.len());
+
         // Recreate bind group with new buffer
         self.create_bind_group(device, layout);
     }
-    
+
     /// Get the current bind group
     pub fn bind_group(&self) -> Option<&BindGroup> {
         self.bind_group.as_ref()
     }
-    
+
     /// Get active layer count
     pub fn active_count(&self) -> u32 {
         self.active_count

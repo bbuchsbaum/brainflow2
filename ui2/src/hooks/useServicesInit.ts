@@ -7,6 +7,7 @@ import { initializeLayerService } from '@/services/LayerService';
 import { LayerApiImpl } from '@/services/LayerApiImpl';
 import { initializeFileLoadingService } from '@/services/FileLoadingService';
 import { initializeStoreSyncService } from '@/services/StoreSyncService';
+import { initializeTemplateService } from '@/services/TemplateService';
 import { getProgressService } from '@/services/ProgressService';
 import { getMetadataStatusService } from '@/services/MetadataStatusService';
 import { initializeViewRegistry } from '@/services/ViewRegistry';
@@ -66,18 +67,44 @@ export function useServicesInit() {
           // Don't throw - let the app continue and handle errors when actually trying to render
         }
     
-    // Initialize LayerService with backend API implementation
-    const layerApi = new LayerApiImpl();
-    initializeLayerService(layerApi);
-    console.log('[useServicesInit] LayerService initialized');
+    // 2. Initialize LayerService with error handling
+    try {
+      const layerApi = new LayerApiImpl();
+      initializeLayerService(layerApi);
+      console.log('[useServicesInit] LayerService initialized');
+      
+      // Emit specific event for LayerService
+      getEventBus().emit('services.initialized', { service: 'LayerService' });
+    } catch (error) {
+      console.error('[useServicesInit] LayerService initialization failed:', error);
+      // Emit error event that components can listen to
+      getEventBus().emit('services.error', { service: 'LayerService', error: error instanceof Error ? error.message : 'Unknown error' });
+      throw error; // Re-throw to prevent dependent services from initializing
+    }
     
-    // Initialize FileLoadingService
-    initializeFileLoadingService();
-    console.log('[useServicesInit] FileLoadingService initialized');
+    // 3. Initialize FileLoadingService (depends on LayerService)
+    try {
+      initializeFileLoadingService();
+      console.log('[useServicesInit] FileLoadingService initialized');
+    } catch (error) {
+      console.error('[useServicesInit] FileLoadingService initialization failed:', error);
+      getEventBus().emit('services.error', { service: 'FileLoadingService', error: error instanceof Error ? error.message : 'Unknown error' });
+      throw error;
+    }
     
-    // Initialize StoreSyncService to keep stores in sync
-    initializeStoreSyncService();
-    console.log('[useServicesInit] StoreSyncService initialized');
+    // 4. Initialize StoreSyncService last (depends on all above)
+    try {
+      initializeStoreSyncService();
+      console.log('[useServicesInit] StoreSyncService initialized');
+    } catch (error) {
+      console.error('[useServicesInit] StoreSyncService initialization failed:', error);
+      getEventBus().emit('services.error', { service: 'StoreSyncService', error: error instanceof Error ? error.message : 'Unknown error' });
+      throw error;
+    }
+    
+    // Initialize TemplateService to handle template menu events
+    initializeTemplateService();
+    console.log('[useServicesInit] TemplateService initialized');
     
     // Initialize ProgressService
     const progressService = getProgressService();
@@ -97,6 +124,9 @@ export function useServicesInit() {
     
     console.log('Setting up coalescing middleware callback...');
     coalesceUtils.setBackendCallback(async (viewState) => {
+      const callbackTime = performance.now();
+      console.log(`[useServicesInit ${callbackTime.toFixed(0)}ms] 🎯 Backend callback invoked!`);
+      console.log(`[useServicesInit] Crosshair position:`, viewState.crosshair.world_mm);
       console.log('Coalescing callback: ViewState update with', viewState.layers.length, 'layers');
       console.log('Layers:', viewState.layers);
       
@@ -171,6 +201,8 @@ export function useServicesInit() {
             eventBus.emit('render.error', { viewType, error: error as Error });
           }
         }
+        
+        console.log(`[useServicesInit ${performance.now().toFixed(0)}ms] ✅ All renders complete for crosshair at:`, viewState.crosshair.world_mm);
       } catch (error) {
         console.error('Failed to render ViewState:', error);
         eventBus.emit('render.error', { error: error as Error });
@@ -214,8 +246,19 @@ export function useServicesInit() {
         }, 2000);
         
         servicesInitialized = true;
+        console.log('[useServicesInit] All services initialized successfully');
+        
+        // Emit a global success event
+        getEventBus().emit('services.allInitialized', { success: true });
+        
       } catch (error) {
-        console.error('[useServicesInit] Error during initialization:', error);
+        console.error('[useServicesInit] Service initialization failed:', error);
+        // Emit a global error event that components can listen to
+        getEventBus().emit('services.error', { 
+          error: error instanceof Error ? error.message : 'Unknown error',
+          fatal: true 
+        });
+        // Don't set servicesInitialized to true if there was an error
       } finally {
         initializationInProgress = false;
       }

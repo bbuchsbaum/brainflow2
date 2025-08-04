@@ -16,9 +16,11 @@ if (typeof window !== 'undefined') {
     const current = counts.get(componentName) || 0;
     counts.set(componentName, current + 1);
     
-    if (current > 30) {
+    // Only warn after 1000 renders to avoid false alarms during normal usage
+    // (slider interactions can easily generate 50-100 renders)
+    if (current > 1000) {
       console.error(`[RENDER LOOP] ${componentName} has rendered ${current + 1} times!`);
-      if (current === 31) {
+      if (current === 1001) {
         console.trace(`First loop detection for ${componentName}`);
       }
     }

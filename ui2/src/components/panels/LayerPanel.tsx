@@ -1,29 +1,46 @@
-import React, { useCallback, useEffect, useState } from 'react';
-import { useLayerStore } from '@/stores/layerStore';
+import React, { useCallback, useState } from 'react';
+import { useLayers, useSelectedLayerId, useSelectedLayer, layerSelectors, useLayer } from '@/stores/layerStore';
 import { useViewStateStore } from '@/stores/viewStateStore';
 import { getLayerService } from '@/services/LayerService';
 import { getStoreSyncService } from '@/services/StoreSyncService';
 import { LayerTable } from '../ui/LayerTable';
-import { ProSlider } from '../ui/ProSlider';
-import { SingleSlider } from '../ui/SingleSlider';
-import { EnhancedColormapSelector } from './EnhancedColormapSelector';
 import { MetadataDrawer } from '../ui/MetadataDrawer';
 import { useMetadataShortcut } from '@/hooks/useMetadataShortcut';
+import { useLayerPanelServices } from '@/hooks/useLayerPanelServices';
+import { useFileLoadingStatus } from '@/hooks/useFileLoadingStatus';
+import { LayerControlsPanel } from './LayerControlsPanel';
+import { LayerEmptyState } from './LayerEmptyState';
+import { LayerStatusBar } from './LayerStatusBar';
+import { PanelErrorBoundary } from '../common/PanelErrorBoundary';
+import { getEventBus } from '@/events/EventBus';
 import type { LayerRender } from '@/types/layers';
 import './LayerPanel.css';
 
-export const LayerPanel: React.FC = () => {
-  // All hooks must be called before any conditional returns
-  const [serviceInitialized, setServiceInitialized] = useState(false);
+const LayerPanelContent: React.FC = () => {
+  console.log('[LayerPanel] LayerPanelContent component mounting');
+  
+  // State for metadata drawer
   const [metadataLayerId, setMetadataLayerId] = useState<string | null>(null);
   const [isMetadataPinned, setIsMetadataPinned] = useState(false);
-  const [syncRetries, setSyncRetries] = useState(0);
   
-  // Store subscriptions
-  const layers = useLayerStore(state => state.layers);
-  const selectedLayerId = useLayerStore(state => state.selectedLayerId);
-  const layerMetadata = useLayerStore(state => state.layerMetadata);
-  const selectLayer = useLayerStore(state => state.selectLayer);
+  // Use typed selectors
+  const layers = useLayers();
+  const selectedLayerId = useSelectedLayerId();
+  const selectedLayer = useSelectedLayer();
+  const layerMetadata = useLayer(layerSelectors.layerMetadata);
+  const selectLayer = useLayer(state => state.selectLayer);
+  const selectedMetadata = useLayer(state => 
+    selectedLayerId ? layerSelectors.getLayerMetadata(state, selectedLayerId) : undefined
+  );
+  const selectedLayerRender = useLayer(state => 
+    selectedLayerId ? layerSelectors.getLayerRender(state, selectedLayerId) : undefined
+  );
+  
+  // Service initialization hook
+  const { isInitialized: serviceInitialized, error: initializationError } = useLayerPanelServices();
+  
+  // File loading status hook
+  const fileLoadingStatus = useFileLoadingStatus();
   
   // Get layer render properties from ViewState (source of truth)
   const viewStateLayers = useViewStateStore(state => state.viewState.layers);
@@ -32,27 +49,7 @@ export const LayerPanel: React.FC = () => {
   // Keyboard shortcut for metadata
   useMetadataShortcut({ onShowMetadata: setMetadataLayerId });
   
-  // Check if LayerService is initialized
-  useEffect(() => {
-    const checkService = () => {
-      try {
-        getLayerService();
-        setServiceInitialized(true);
-      } catch (error) {
-        // Service not ready yet, try again
-        setTimeout(checkService, 100);
-      }
-    };
-    checkService();
-  }, []);
-  
-  // Get selected layer and metadata
-  const selectedLayer = layers.find(l => l.id === selectedLayerId);
-  const selectedMetadata = selectedLayerId ? layerMetadata.get(selectedLayerId) : undefined;
-  const layerStore = useLayerStore.getState();
-  const selectedLayerRender = selectedLayerId ? layerStore.getLayerRender(selectedLayerId) : undefined;
-  
-  // Convert ViewState layer to render properties format with fallback
+  // Convert ViewState layer to render properties format
   const selectedRender = viewStateLayer ? {
     opacity: viewStateLayer.opacity,
     intensity: viewStateLayer.intensity,
@@ -60,41 +57,28 @@ export const LayerPanel: React.FC = () => {
     colormap: viewStateLayer.colormap,
     interpolation: 'linear' as const
   } : selectedLayerRender ? {
-    // Fallback to layerStore render properties when ViewState is not yet synchronized
+    // Fallback to layerStore render properties
     opacity: selectedLayerRender.opacity,
     intensity: selectedLayerRender.intensity || [0, 100],
     threshold: selectedLayerRender.threshold || [0, 0],
     colormap: selectedLayerRender.colormap || 'gray',
     interpolation: selectedLayerRender.interpolation || 'linear' as const
   } : undefined;
-  
-  // Sync verification with retry logic
-  useEffect(() => {
-    if (selectedLayerId && !viewStateLayer && syncRetries < 3) {
-      const timer = setTimeout(() => {
-        const storeSyncService = getStoreSyncService();
-        // Force a manual sync by re-reading the layer store and updating ViewState
-        const layer = layers.find(l => l.id === selectedLayerId);
-        if (layer) {
-          // Emit a layer.added event to trigger sync
-          storeSyncService.getEventBus().emit('layer.added', { layer });
-        }
-        setSyncRetries(prev => prev + 1);
-      }, 100 * (syncRetries + 1)); // Exponential backoff: 100ms, 200ms, 300ms
-      
-      return () => clearTimeout(timer);
-    } else if (selectedLayerId && viewStateLayer && syncRetries > 0) {
-      // Reset retries on successful sync
-      setSyncRetries(0);
-    }
-  }, [selectedLayerId, viewStateLayer, syncRetries, layers]);
 
   const toggleVisibility = useCallback((layerId: string) => {
-    const layer = layers.find(l => l.id === layerId);
-    if (layer && serviceInitialized) {
-      getLayerService().updateLayer(layerId, { visible: !layer.visible });
+    try {
+      const layer = layers.find(l => l.id === layerId);
+      const viewStateLayer = viewStateLayers.find(l => l.id === layerId);
+      if (layer && serviceInitialized) {
+        // SINGLE SOURCE OF TRUTH: Use opacity to determine visibility
+        const currentOpacity = viewStateLayer?.opacity ?? 1.0;
+        const isCurrentlyVisible = currentOpacity > 0;
+        getLayerService().toggleVisibility(layerId, !isCurrentlyVisible);
+      }
+    } catch (error) {
+      console.error('[LayerPanel] Error in toggleVisibility:', error);
     }
-  }, [layers, serviceInitialized]);
+  }, [layers, viewStateLayers, serviceInitialized]);
 
   const handleRenderUpdate = useCallback((updates: Partial<LayerRender>) => {
     if (selectedLayerId) {
@@ -135,30 +119,18 @@ export const LayerPanel: React.FC = () => {
       
       // CRITICAL FIX: Also update layerStore so StoreSyncService has correct values
       // This prevents the snap-back issue where StoreSyncService reads stale 20-80% defaults
-      useLayerStore.getState().updateLayerRender(selectedLayerId, updates);
+      useLayer(state => state.updateLayerRender)(selectedLayerId, updates);
+      
+      // Emit event for render property changes
+      getEventBus().emit('layer.render.changed', { 
+        layerId: selectedLayerId, 
+        renderProps: updates 
+      });
       
       // ViewState changes will be automatically sent to backend via coalescing
     }
   }, [selectedLayerId]);
-
-  // Check if service is initialized - this must happen after all hooks
-  if (!serviceInitialized) {
-    return (
-      <div className="flex flex-col h-full items-center justify-center" 
-           style={{ backgroundColor: 'var(--layer-bg)', color: 'var(--layer-text)' }}>
-        <div className="text-center">
-          <div className="mb-4">
-            <svg className="animate-spin h-8 w-8 mx-auto" viewBox="0 0 24 24">
-              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none"></circle>
-              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-            </svg>
-          </div>
-          <p className="text-sm text-gray-400">Initializing layer service...</p>
-        </div>
-      </div>
-    );
-  }
-
+  
   return (
     <div 
       className="flex flex-col h-full overflow-hidden"
@@ -179,6 +151,12 @@ export const LayerPanel: React.FC = () => {
           paddingTop: '16px'
         }}
       >
+        {/* Status messages */}
+        <LayerStatusBar
+          error={initializationError}
+          isInitializing={!serviceInitialized}
+          fileLoadingStatus={fileLoadingStatus}
+        />
         
         {/* Layer selector table */}
         <LayerTable
@@ -187,48 +165,20 @@ export const LayerPanel: React.FC = () => {
           onSelect={selectLayer}
           onToggleVisibility={toggleVisibility}
           onShowMetadata={setMetadataLayerId}
+          getLayerVisibility={(layerId) => {
+            // SINGLE SOURCE OF TRUTH: Derive visibility from opacity
+            const viewStateLayer = viewStateLayers.find(l => l.id === layerId);
+            return viewStateLayer ? viewStateLayer.opacity > 0 : true;
+          }}
         />
 
-        {/* Layer controls - always visible */}
-        <div className={`${!selectedLayer || !selectedRender ? 'opacity-50 pointer-events-none' : ''}`}>
-          
-          {/* Intensity Window */}
-          <ProSlider
-            label="Intensity Window"
-            min={selectedMetadata?.dataRange?.min ?? 0}
-            max={selectedMetadata?.dataRange?.max ?? 10000}
-            value={selectedRender?.intensity || [0, 10000]}
-            onChange={(value) => selectedLayer && handleRenderUpdate({ intensity: value })}
-            precision={0}
-          />
-
-          {/* Threshold */}
-          <ProSlider
-            label="Threshold"
-            min={selectedMetadata?.dataRange?.min ?? 0}
-            max={selectedMetadata?.dataRange?.max ?? 10000}
-            value={selectedRender?.threshold || [0, 0]}
-            onChange={(value) => selectedLayer && handleRenderUpdate({ threshold: value })}
-            precision={0}
-          />
-
-          {/* Colormap */}
-          <EnhancedColormapSelector
-            value={selectedRender?.colormap || 'gray'}
-            onChange={(colormap) => selectedLayer && handleRenderUpdate({ colormap })}
-          />
-
-          {/* Opacity */}
-          <SingleSlider
-            label="Opacity"
-            min={0}
-            max={1}
-            value={selectedRender?.opacity || 1}
-            onChange={(opacity) => selectedLayer && handleRenderUpdate({ opacity })}
-            showPercentage={true}
-            className="mb-0"
-          />
-        </div>
+        {/* Layer controls */}
+        <LayerControlsPanel
+          selectedLayer={!!selectedLayer}
+          selectedRender={selectedRender}
+          selectedMetadata={selectedMetadata}
+          onRenderUpdate={handleRenderUpdate}
+        />
         
         {/* Show help text when no layer is selected */}
         {!selectedLayer && layers.length > 0 && (
@@ -238,6 +188,9 @@ export const LayerPanel: React.FC = () => {
             </p>
           </div>
         )}
+        
+        {/* Empty state */}
+        {layers.length === 0 && <LayerEmptyState />}
       </div>
       
       {/* Metadata Drawer */}
@@ -253,5 +206,14 @@ export const LayerPanel: React.FC = () => {
         onPinToggle={() => setIsMetadataPinned(!isMetadataPinned)}
       />
     </div>
+  );
+};
+
+// Export the wrapped component with error boundary
+export const LayerPanel: React.FC = () => {
+  return (
+    <PanelErrorBoundary panelName="LayerPanel">
+      <LayerPanelContent />
+    </PanelErrorBoundary>
   );
 };

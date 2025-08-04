@@ -1,5 +1,12 @@
 /* FlexibleOrthogonalView styles */
 
+/* Ensure the container layout works properly */
+.split-view-container {
+  position: relative;
+  height: 100%;
+  width: 100%;
+}
+
 /* Global styles for Allotment splitters */
 .split-view-container [class*="sash"] {
   background-color: #374151 !important; /* gray-700 */
@@ -24,10 +31,4 @@
 /* Alternative: target the split-view divider */
 .split-view-container .split-view-divider {
   background-color: #374151 !important;
-}
-
-/* Make sure the container fills space */
-.split-view-container > div {
-  height: 100%;
-  width: 100%;
 }

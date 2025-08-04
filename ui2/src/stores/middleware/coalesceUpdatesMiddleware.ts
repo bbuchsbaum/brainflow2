@@ -11,6 +11,7 @@
 import type { StateCreator } from 'zustand/vanilla';
 import type { ViewState } from '@/types/viewState';
 import { useLayoutDragStore } from '@/stores/layoutDragStore';
+import { useDragSourceStore } from '@/stores/dragSourceStore';
 
 // Global state for coalescing - persists across store instances
 let pendingState: ViewState | null = null;
@@ -66,16 +67,25 @@ function isDimensionOnlyChange(current: ViewState, previous: ViewState | null): 
 function flushState(forceDimensionUpdate = false) {
   const flushTime = performance.now();
   if (pendingState && backendUpdateCallback && isEnabled) {
-    // Check if we're currently dragging - if so, skip flush
-    const isDragging = useLayoutDragStore.getState().isDragging;
-    if (isDragging && !forceDimensionUpdate) {
-      console.log(`[coalesceMiddleware ${flushTime.toFixed(0)}ms] 🚧 Skipping flush - drag in progress`);
+    // Check for different types of dragging
+    const isLayoutDragging = useLayoutDragStore.getState().isDragging;
+    const dragSource = useDragSourceStore.getState().draggingSource;
+    const isSliderDragging = dragSource === 'slider';
+    
+    // Different behavior for different drag types
+    if (isLayoutDragging && !forceDimensionUpdate) {
+      console.log(`[coalesceMiddleware ${flushTime.toFixed(0)}ms] 🚧 Skipping flush - layout drag in progress`);
       // Don't clear pendingState - we want to flush it when drag ends
       rafId = null;
       // Important: Keep the pending state but schedule another check
       // This ensures we flush immediately when dragging stops
       rafId = requestAnimationFrame(() => flushState());
       return;
+    }
+    
+    // For slider dragging, we want immediate updates
+    if (isSliderDragging) {
+      console.log(`[coalesceMiddleware ${flushTime.toFixed(0)}ms] 🎛️ Slider drag detected - allowing immediate flush`);
     }
     
     // Check if this is a dimension-only update
@@ -91,13 +101,36 @@ function flushState(forceDimensionUpdate = false) {
       console.log(`[coalesceMiddleware ${flushTime.toFixed(0)}ms] 🚀 Flushing state with content changes to backend`);
     }
     
-    // Check for problematic intensity values
-    pendingState.layers.forEach(layer => {
-      if (layer.intensity && 
-          layer.intensity[0] > 1969 && layer.intensity[0] < 1970 &&
-          layer.intensity[1] > 7878 && layer.intensity[1] < 7879) {
-        console.error(`[coalesceMiddleware] 🚨 FLUSHING PROBLEMATIC INTENSITY VALUES for layer ${layer.id}:`, layer.intensity);
-        console.trace('Stack trace for problematic flush:');
+    // Add data source tracking
+    console.log(`[coalesceMiddleware] Flushing state with ${pendingState.layers.length} layers:`);
+    pendingState.layers.forEach((layer, index) => {
+      console.log(`[coalesceMiddleware] Layer ${index}: id=${layer.id}, type=${layer.type}, intensity=${JSON.stringify(layer.intensity)}`);
+    });
+    
+    // Enhanced intensity monitoring
+    pendingState.layers.forEach((layer, index) => {
+      if (layer.intensity && Array.isArray(layer.intensity) && layer.intensity.length >= 2) {
+        const [min, max] = layer.intensity;
+        
+        // Remove the false positive check for specific values - these are valid default values
+        // The old check was: if (min > 1969 && min < 1970 && max > 7878 && max < 7879)
+        // This triggered for valid 20%-80% default intensity ranges
+        
+        // Additional sanity checks for all intensity values
+        if (!isFinite(min) || !isFinite(max) || min >= max) {
+          console.warn(`[coalesceMiddleware] ⚠️ Suspicious intensity values for layer ${layer.id}:`, {
+            intensity: layer.intensity,
+            isMinFinite: isFinite(min),
+            isMaxFinite: isFinite(max),
+            validRange: min < max
+          });
+        }
+      } else if (layer.intensity) {
+        console.warn(`[coalesceMiddleware] ⚠️ Invalid intensity structure for layer ${layer.id}:`, {
+          intensity: layer.intensity,
+          isArray: Array.isArray(layer.intensity),
+          length: layer.intensity?.length
+        });
       }
     });
     
@@ -185,15 +218,9 @@ export const coalesceUpdatesMiddleware = <T extends { viewState: ViewState }>(
           //   colormap: l.colormap
           // })));
           
-          // Check for problematic intensity values being queued
-          newState.viewState.layers.forEach(layer => {
-            if (layer.intensity && 
-                layer.intensity[0] > 1969 && layer.intensity[0] < 1970 &&
-                layer.intensity[1] > 7878 && layer.intensity[1] < 7879) {
-              console.error(`[coalesceMiddleware] 📥 QUEUING PROBLEMATIC INTENSITY VALUES for layer ${layer.id}:`, layer.intensity);
-              console.trace('Stack trace for problematic queue:');
-            }
-          });
+          // Removed false positive tracking for specific intensity values
+          // The old check for values around 1969-1970 and 7878-7879 was triggering
+          // on valid default 20%-80% intensity ranges
           
           // Store the latest state for batching
           pendingState = newState.viewState;
@@ -214,8 +241,12 @@ export const coalesceUpdatesMiddleware = <T extends { viewState: ViewState }>(
           } else {
             // console.log(`[coalesceMiddleware ${queueTime.toFixed(0)}ms] Flush already scheduled, updating pending state`);
             // If we're dragging, we need to keep rescheduling to check when drag ends
-            const isDragging = useLayoutDragStore.getState().isDragging;
-            if (isDragging && pendingState) {
+            const isLayoutDragging = useLayoutDragStore.getState().isDragging;
+            const dragSource = useDragSourceStore.getState().draggingSource;
+            const isSliderDragging = dragSource === 'slider';
+            
+            // For layout dragging, keep rescheduling
+            if (isLayoutDragging && pendingState) {
               // Cancel current schedule and reschedule
               if (typeof rafId === 'number' && rafId > 0) {
                 cancelAnimationFrame(rafId);
@@ -223,6 +254,10 @@ export const coalesceUpdatesMiddleware = <T extends { viewState: ViewState }>(
                 clearTimeout(rafId as any);
               }
               rafId = requestAnimationFrame(() => flushState());
+            }
+            // For slider dragging, let the flush happen normally
+            else if (isSliderDragging) {
+              console.log(`[coalesceMiddleware ${queueTime.toFixed(0)}ms] 🎛️ Slider drag - allowing normal flush`);
             }
           }
         }
@@ -297,7 +332,8 @@ export const coalesceUtils = {
   flush: (forceDimensionUpdate = false) => {
     console.log('[coalesceUtils.flush] Force flush called with forceDimensionUpdate:', forceDimensionUpdate);
     console.log('[coalesceUtils.flush] Pending state exists:', pendingState !== null);
-    console.log('[coalesceUtils.flush] Is dragging:', useLayoutDragStore.getState().isDragging);
+    console.log('[coalesceUtils.flush] Layout dragging:', useLayoutDragStore.getState().isDragging);
+    console.log('[coalesceUtils.flush] Drag source:', useDragSourceStore.getState().draggingSource);
     
     // Cancel any scheduled flush
     if (rafId) {

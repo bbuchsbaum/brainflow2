@@ -47,9 +47,21 @@ declare global {
   }
 }
 
+// Extended layer info that includes volume metadata
+export interface LayerInfo extends Layer {
+  volumeType?: 'Volume3D' | 'TimeSeries4D';
+  timeSeriesInfo?: {
+    num_timepoints: number;
+    tr: number | null;
+    temporal_unit: string | null;
+    acquisition_time: number | null;
+  };
+  currentTimepoint?: number;
+}
+
 export interface LayerState {
   // Core state
-  layers: Layer[];
+  layers: LayerInfo[]; // Changed from Layer[] to LayerInfo[]
   selectedLayerId: string | null;
   
   // Layer render properties (stored separately for efficient updates)
@@ -63,10 +75,10 @@ export interface LayerState {
   errorLayers: Map<string, Error>;
   
   // Actions
-  addLayer: (layer: Layer, render?: LayerRender) => void;
+  addLayer: (layer: LayerInfo, render?: LayerRender) => void;
   removeLayer: (id: string) => void;
-  updateLayer: (id: string, updates: Partial<Layer>) => void;
-  reorderLayers: (layers: Layer[]) => void;
+  updateLayer: (id: string, updates: Partial<LayerInfo>) => void;
+  reorderLayers: (layers: LayerInfo[]) => void;
   clearLayers: () => void;
   
   // Selection
@@ -89,6 +101,10 @@ export interface LayerState {
   getLayerMetadata: (id: string) => VolumeMetadata | undefined;
   getVisibleLayers: () => Layer[];
   getLayersByType: (type: Layer['type']) => Layer[];
+  
+  // State validation and repair
+  validateState: () => string[];
+  repairState: () => void;
 }
 
 // Default render properties
@@ -97,9 +113,10 @@ const createDefaultRender = (dataRange?: { min: number; max: number }): LayerRen
   let intensity: [number, number];
   if (dataRange) {
     const range = dataRange.max - dataRange.min;
+    const precision = 100; // Round to 2 decimal places for better precision
     intensity = [
-      dataRange.min + (range * 0.20),
-      dataRange.min + (range * 0.80)
+      Math.round((dataRange.min + (range * 0.20)) * precision) / precision,
+      Math.round((dataRange.min + (range * 0.80)) * precision) / precision
     ];
   } else {
     intensity = [0, 100];
@@ -192,6 +209,14 @@ const createLayerStore = () => create<LayerState>()(
           const layer = state.layers.find(l => l.id === id);
           if (layer) {
             Object.assign(layer, updates);
+            
+            // SINGLE SOURCE OF TRUTH: If visible is being updated, sync it with opacity
+            if ('visible' in updates) {
+              const render = state.layerRender.get(id);
+              if (render) {
+                render.opacity = updates.visible ? 1.0 : 0.0;
+              }
+            }
           }
         });
         
@@ -273,8 +298,34 @@ const createLayerStore = () => create<LayerState>()(
         set((state) => {
           const currentRender = state.layerRender.get(id);
           if (currentRender) {
+            // CRITICAL FIX: Deep equality check to prevent circular updates
+            // This breaks the StoreSyncService feedback loop
             const newRender = { ...currentRender, ...updates };
-            state.layerRender.set(id, newRender);
+            
+            // Check if any values actually changed
+            let hasChanges = false;
+            for (const [key, value] of Object.entries(updates)) {
+              const currentValue = currentRender[key as keyof LayerRender];
+              
+              // Handle array comparisons (intensity, threshold)
+              if (Array.isArray(value) && Array.isArray(currentValue)) {
+                if (value.length !== currentValue.length || 
+                    !value.every((v, i) => v === currentValue[i])) {
+                  hasChanges = true;
+                  break;
+                }
+              } else if (value !== currentValue) {
+                hasChanges = true;
+                break;
+              }
+            }
+            
+            if (hasChanges) {
+              console.log(`[layerStore] updateLayerRender: Changes detected for ${id}, updating store`);
+              state.layerRender.set(id, newRender);
+            } else {
+              console.log(`[layerStore] updateLayerRender: No changes detected for ${id}, skipping update to prevent circular loop`);
+            }
           }
         });
         
@@ -317,7 +368,17 @@ const createLayerStore = () => create<LayerState>()(
       
       // Queries
       getLayer: (id) => {
-        return get().layers.find(l => l.id === id);
+        const state = get();
+        const layer = state.layers.find(l => l.id === id);
+        if (layer) {
+          // Ensure visible property is derived from opacity (single source of truth)
+          const render = state.layerRender.get(id);
+          return {
+            ...layer,
+            visible: render ? render.opacity > 0 : layer.visible
+          };
+        }
+        return layer;
       },
       
       getLayerRender: (id) => {
@@ -329,11 +390,135 @@ const createLayerStore = () => create<LayerState>()(
       },
       
       getVisibleLayers: () => {
-        return get().layers.filter(layer => layer.visible);
+        const state = get();
+        return state.layers.filter(layer => {
+          const render = state.layerRender.get(layer.id);
+          // Layer is visible if opacity > 0 (single source of truth)
+          return render && render.opacity > 0;
+        });
       },
       
       getLayersByType: (type) => {
         return get().layers.filter(layer => layer.type === type);
+      },
+      
+      // State validation
+      validateState: () => {
+        const state = get();
+        const issues: string[] = [];
+        
+        // Check for orphaned render properties
+        state.layerRender.forEach((_, layerId) => {
+          if (!state.layers.find(l => l.id === layerId)) {
+            issues.push(`Orphaned render properties for layer ${layerId}`);
+          }
+        });
+        
+        // Check for missing render properties
+        state.layers.forEach(layer => {
+          if (!state.layerRender.has(layer.id)) {
+            issues.push(`Missing render properties for layer ${layer.id}`);
+          }
+        });
+        
+        // Check for orphaned metadata
+        state.layerMetadata.forEach((_, layerId) => {
+          if (!state.layers.find(l => l.id === layerId)) {
+            issues.push(`Orphaned metadata for layer ${layerId}`);
+          }
+        });
+        
+        // Check for orphaned loading states
+        state.loadingLayers.forEach((layerId) => {
+          if (!state.layers.find(l => l.id === layerId)) {
+            issues.push(`Orphaned loading state for layer ${layerId}`);
+          }
+        });
+        
+        // Check for orphaned error states
+        state.errorLayers.forEach((_, layerId) => {
+          if (!state.layers.find(l => l.id === layerId)) {
+            issues.push(`Orphaned error state for layer ${layerId}`);
+          }
+        });
+        
+        if (issues.length > 0) {
+          console.warn('[LayerStore] State validation issues:', issues);
+        }
+        
+        return issues;
+      },
+      
+      // State repair
+      repairState: () => {
+        console.log('[LayerStore] Repairing state...');
+        
+        set((state) => {
+          // Remove orphaned render properties
+          const renderIdsToRemove: string[] = [];
+          state.layerRender.forEach((_, layerId) => {
+            if (!state.layers.find(l => l.id === layerId)) {
+              renderIdsToRemove.push(layerId);
+            }
+          });
+          renderIdsToRemove.forEach(id => state.layerRender.delete(id));
+          
+          // Remove orphaned metadata
+          const metadataIdsToRemove: string[] = [];
+          state.layerMetadata.forEach((_, layerId) => {
+            if (!state.layers.find(l => l.id === layerId)) {
+              metadataIdsToRemove.push(layerId);
+            }
+          });
+          metadataIdsToRemove.forEach(id => state.layerMetadata.delete(id));
+          
+          // Remove orphaned loading states
+          const loadingIdsToRemove: string[] = [];
+          state.loadingLayers.forEach((layerId) => {
+            if (!state.layers.find(l => l.id === layerId)) {
+              loadingIdsToRemove.push(layerId);
+            }
+          });
+          loadingIdsToRemove.forEach(id => state.loadingLayers.delete(id));
+          
+          // Remove orphaned error states
+          const errorIdsToRemove: string[] = [];
+          state.errorLayers.forEach((_, layerId) => {
+            if (!state.layers.find(l => l.id === layerId)) {
+              errorIdsToRemove.push(layerId);
+            }
+          });
+          errorIdsToRemove.forEach(id => state.errorLayers.delete(id));
+          
+          // Add missing render properties
+          state.layers.forEach(layer => {
+            if (!state.layerRender.has(layer.id)) {
+              const metadata = state.layerMetadata.get(layer.id);
+              state.layerRender.set(layer.id, createDefaultRender(metadata?.dataRange));
+              console.log(`[LayerStore] Added missing render properties for layer ${layer.id}`);
+            }
+          });
+          
+          // Validate selected layer ID
+          if (state.selectedLayerId && !state.layers.find(l => l.id === state.selectedLayerId)) {
+            console.log(`[LayerStore] Clearing invalid selected layer ID: ${state.selectedLayerId}`);
+            state.selectedLayerId = null;
+          }
+        });
+        
+        console.log('[LayerStore] State repair completed');
+      },
+
+      // Helper to get layers with computed visible property from opacity
+      getLayersWithComputedVisible: () => {
+        const state = get();
+        return state.layers.map(layer => {
+          const render = state.layerRender.get(layer.id);
+          return {
+            ...layer,
+            visible: render ? render.opacity > 0 : layer.visible
+          };
+        });
       },
     }))
   )
@@ -374,3 +559,63 @@ eventBus.on('layer.removed', ({ layerId }) => {
 eventBus.on('layer.error', ({ layerId, error }) => {
   useLayerStore.getState().setLayerError(layerId, error);
 });
+
+// Typed selectors to prevent property name errors
+export const layerSelectors = {
+  // Basic selectors
+  layers: (state: LayerState) => state.layers,
+  selectedLayerId: (state: LayerState) => state.selectedLayerId,
+  layerMetadata: (state: LayerState) => state.layerMetadata,
+  layerRender: (state: LayerState) => state.layerRender,
+  loadingLayers: (state: LayerState) => state.loadingLayers,
+  errorLayers: (state: LayerState) => state.errorLayers,
+  
+  // Computed selectors
+  getLayerById: (state: LayerState, id: string) => 
+    state.layers.find(l => l.id === id),
+  
+  getLayerMetadata: (state: LayerState, id: string) => 
+    state.layerMetadata.get(id),
+  
+  getLayerRender: (state: LayerState, id: string) => 
+    state.layerRender.get(id),
+  
+  getSelectedLayer: (state: LayerState) => 
+    state.selectedLayerId ? state.layers.find(l => l.id === state.selectedLayerId) : null,
+  
+  getSelectedLayerMetadata: (state: LayerState) => 
+    state.selectedLayerId ? state.layerMetadata.get(state.selectedLayerId) : null,
+  
+  getSelectedLayerRender: (state: LayerState) => 
+    state.selectedLayerId ? state.layerRender.get(state.selectedLayerId) : null,
+  
+  isLayerLoading: (state: LayerState, id: string) => 
+    state.loadingLayers.has(id),
+  
+  getLayerError: (state: LayerState, id: string) => 
+    state.errorLayers.get(id),
+  
+  getVisibleLayers: (state: LayerState) => 
+    state.layers.filter(layer => {
+      const render = state.layerRender.get(layer.id);
+      return render && render.opacity > 0;
+    }),
+  
+  getLayersByType: (state: LayerState, type: Layer['type']) => 
+    state.layers.filter(layer => layer.type === type),
+  
+  hasLayers: (state: LayerState) => 
+    state.layers.length > 0,
+};
+
+// Custom hook that enforces selector usage
+export const useLayer = <T>(selector: (state: LayerState) => T): T => {
+  return useLayerStore(selector);
+};
+
+// Export specific selector hooks for common use cases
+export const useLayers = () => useLayer(layerSelectors.layers);
+export const useSelectedLayerId = () => useLayer(layerSelectors.selectedLayerId);
+export const useSelectedLayer = () => useLayer(layerSelectors.getSelectedLayer);
+export const useLayerMetadata = (id: string) => useLayer(state => layerSelectors.getLayerMetadata(state, id));
+export const useLayerRender = (id: string) => useLayer(state => layerSelectors.getLayerRender(state, id));

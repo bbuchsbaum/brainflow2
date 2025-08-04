@@ -1,7 +1,7 @@
 //! Colormap metadata definitions
 
 use crate::data::BuiltinColormap;
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 
 /// Colormap category
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -22,23 +22,23 @@ impl ColormapFlags {
     pub const COLORBLIND_SAFE: u8 = 0b00000010;
     pub const CLINICAL_APPROVED: u8 = 0b00000100;
     pub const PRINT_FRIENDLY: u8 = 0b00001000;
-    
+
     pub const fn new(flags: u8) -> Self {
         Self(flags)
     }
-    
+
     pub const fn is_perceptually_uniform(&self) -> bool {
         self.0 & Self::PERCEPTUALLY_UNIFORM != 0
     }
-    
+
     pub const fn is_colorblind_safe(&self) -> bool {
         self.0 & Self::COLORBLIND_SAFE != 0
     }
-    
+
     pub const fn is_clinical_approved(&self) -> bool {
         self.0 & Self::CLINICAL_APPROVED != 0
     }
-    
+
     pub const fn is_print_friendly(&self) -> bool {
         self.0 & Self::PRINT_FRIENDLY != 0
     }
@@ -60,9 +60,9 @@ pub const COLORMAP_INFO: [ColormapInfo; 14] = [
         id: BuiltinColormap::Grayscale,
         category: ColormapCategory::Sequential,
         flags: ColormapFlags::new(
-            ColormapFlags::PERCEPTUALLY_UNIFORM | 
-            ColormapFlags::COLORBLIND_SAFE |
-            ColormapFlags::PRINT_FRIENDLY
+            ColormapFlags::PERCEPTUALLY_UNIFORM
+                | ColormapFlags::COLORBLIND_SAFE
+                | ColormapFlags::PRINT_FRIENDLY,
         ),
         name: "Grayscale",
     },
@@ -70,8 +70,7 @@ pub const COLORMAP_INFO: [ColormapInfo; 14] = [
         id: BuiltinColormap::Viridis,
         category: ColormapCategory::Sequential,
         flags: ColormapFlags::new(
-            ColormapFlags::PERCEPTUALLY_UNIFORM | 
-            ColormapFlags::COLORBLIND_SAFE
+            ColormapFlags::PERCEPTUALLY_UNIFORM | ColormapFlags::COLORBLIND_SAFE,
         ),
         name: "Viridis",
     },
@@ -91,8 +90,7 @@ pub const COLORMAP_INFO: [ColormapInfo; 14] = [
         id: BuiltinColormap::Plasma,
         category: ColormapCategory::Sequential,
         flags: ColormapFlags::new(
-            ColormapFlags::PERCEPTUALLY_UNIFORM | 
-            ColormapFlags::COLORBLIND_SAFE
+            ColormapFlags::PERCEPTUALLY_UNIFORM | ColormapFlags::COLORBLIND_SAFE,
         ),
         name: "Plasma",
     },
@@ -159,21 +157,24 @@ pub fn get_colormap_info(id: BuiltinColormap) -> Option<&'static ColormapInfo> {
 
 /// Get all colormaps in a category
 pub fn get_by_category(category: ColormapCategory) -> Vec<&'static ColormapInfo> {
-    COLORMAP_INFO.iter()
+    COLORMAP_INFO
+        .iter()
         .filter(|info| info.category == category)
         .collect()
 }
 
 /// Get all perceptually uniform colormaps
 pub fn get_perceptually_uniform() -> Vec<&'static ColormapInfo> {
-    COLORMAP_INFO.iter()
+    COLORMAP_INFO
+        .iter()
         .filter(|info| info.flags.is_perceptually_uniform())
         .collect()
 }
 
 /// Get all colorblind-safe colormaps
 pub fn get_colorblind_safe() -> Vec<&'static ColormapInfo> {
-    COLORMAP_INFO.iter()
+    COLORMAP_INFO
+        .iter()
         .filter(|info| info.flags.is_colorblind_safe())
         .collect()
 }

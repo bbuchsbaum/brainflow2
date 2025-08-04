@@ -45,7 +45,7 @@ export const EnhancedColormapSelector: React.FC<EnhancedColormapSelectorProps> =
   }, [isOpen]);
 
   return (
-    <div className="relative" style={{ marginBottom: '24px' }}>
+    <div className="relative" style={{ marginBottom: '16px' }}>
       <div className="flex justify-between text-[13px]" style={{ marginBottom: '6px' }}>
         <span style={{ color: 'var(--layer-text)' }}>Colormap</span>
         <span className="text-[11px]" style={{ color: '#94a3b8' }}>{selectedColormap.label}</span>

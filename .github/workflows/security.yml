@@ -1,0 +1,342 @@
+name: Security Scanning
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+  schedule:
+    # Run security scans daily at 2 AM UTC
+    - cron: '0 2 * * *'
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  # Comprehensive Rust security scanning
+  rust-security:
+    name: Rust Security
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+          
+      - name: Cache cargo dependencies
+        uses: Swatinem/rust-cache@v2
+        
+      - name: Install security tools
+        run: |
+          cargo install cargo-audit cargo-deny
+          
+      - name: Run cargo audit
+        run: cargo audit --deny warnings
+        
+      - name: Run cargo deny (comprehensive dependency policy)
+        run: cargo deny check
+        
+      - name: Install clippy-sarif and sarif-fmt for security linting
+        run: cargo install clippy-sarif sarif-fmt
+        
+      - name: Run security-focused clippy lints
+        run: |
+          cargo clippy --workspace --all-targets --message-format=json -- \
+            -W clippy::unwrap_used \
+            -W clippy::expect_used \
+            -W clippy::panic \
+            -W clippy::unimplemented \
+            -W clippy::todo \
+            -W clippy::mem_forget \
+            -W clippy::mem_replace_with_uninit \
+            -W clippy::cast_ptr_alignment \
+            -W clippy::fn_to_numeric_cast_with_truncation \
+            -W clippy::integer_arithmetic \
+            -W clippy::float_arithmetic \
+            -W clippy::as_conversions \
+            -W clippy::indexing_slicing \
+            -W clippy::print_stdout \
+            -W clippy::print_stderr \
+            -W clippy::dbg_macro \
+            -W clippy::wildcard_dependencies \
+            -W clippy::multiple_unsafe_ops_per_block \
+            -W clippy::undocumented_unsafe_blocks \
+            -D warnings \
+            | clippy-sarif | sarif-fmt > clippy-security.sarif
+            
+      - name: Upload Clippy SARIF results
+        uses: github/codeql-action/upload-sarif@v2
+        if: success() || failure()
+        with:
+          sarif_file: clippy-security.sarif
+          category: rust-clippy-security
+
+  # Frontend security scanning
+  frontend-security:
+    name: Frontend Security
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v3
+        with:
+          version: 8
+          
+      - name: Install dependencies
+        run: pnpm install
+        
+      - name: Run npm audit (high severity)
+        run: pnpm audit --audit-level=high
+        
+      - name: Install ESLint security plugin
+        working-directory: ui2
+        run: npm install --no-save eslint-plugin-security
+        
+      - name: Run ESLint security rules
+        working-directory: ui2
+        run: |
+          npx eslint src/ --ext .ts,.tsx --format=json \
+            --rule 'no-eval: error' \
+            --rule 'no-implied-eval: error' \
+            --rule 'no-new-func: error' \
+            --rule 'no-script-url: error' \
+            --rule 'security/detect-object-injection: error' \
+            --rule 'security/detect-non-literal-regexp: error' \
+            --rule 'security/detect-unsafe-regex: error' \
+            --rule 'security/detect-buffer-noassert: error' \
+            --rule 'security/detect-child-process: error' \
+            --rule 'security/detect-disable-mustache-escape: error' \
+            --rule 'security/detect-eval-with-expression: error' \
+            --rule 'security/detect-no-csrf-before-method-override: error' \
+            --rule 'security/detect-non-literal-fs-filename: error' \
+            --rule 'security/detect-non-literal-require: error' \
+            --rule 'security/detect-possible-timing-attacks: error' \
+            --rule 'security/detect-pseudoRandomBytes: error' \
+            > eslint-security-results.json || true
+            
+      - name: Upload ESLint security results
+        uses: actions/upload-artifact@v4
+        if: success() || failure()
+        with:
+          name: eslint-security-results
+          path: ui2/eslint-security-results.json
+
+  # SAST (Static Application Security Testing)
+  codeql-analysis:
+    name: CodeQL Analysis
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [ 'javascript', 'typescript' ]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v2
+        with:
+          languages: ${{ matrix.language }}
+          queries: security-extended,security-and-quality
+          
+      - name: Setup Node.js for analysis
+        if: matrix.language == 'javascript' || matrix.language == 'typescript'
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          
+      - name: Setup pnpm for analysis
+        if: matrix.language == 'javascript' || matrix.language == 'typescript'
+        uses: pnpm/action-setup@v3
+        with:
+          version: 8
+          
+      - name: Install dependencies for analysis
+        if: matrix.language == 'javascript' || matrix.language == 'typescript'
+        run: pnpm install
+        
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v2
+        with:
+          category: "/language:${{matrix.language}}"
+
+  # Dependency vulnerability scanning
+  dependency-security:
+    name: Dependency Security
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v3
+        with:
+          version: 8
+          
+      - name: Install dependencies
+        run: pnpm install
+        
+      - name: Check for known vulnerabilities in Rust deps
+        run: |
+          cargo install cargo-audit
+          cargo audit --deny warnings --output-format json > rust-vulnerabilities.json || true
+          
+      - name: Check for known vulnerabilities in npm deps
+        run: |
+          pnpm audit --audit-level=moderate --json > npm-vulnerabilities.json || true
+          
+      - name: Upload vulnerability reports
+        uses: actions/upload-artifact@v4
+        if: success() || failure()
+        with:
+          name: vulnerability-reports
+          path: |
+            rust-vulnerabilities.json
+            npm-vulnerabilities.json
+
+  # License compliance checking
+  license-compliance:
+    name: License Compliance
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        
+      - name: Install cargo-deny
+        run: cargo install cargo-deny
+        
+      - name: Check license compliance
+        run: cargo deny check licenses
+        
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v3
+        with:
+          version: 8
+          
+      - name: Install license checker
+        run: npm install -g license-checker
+        
+      - name: Check npm licenses
+        working-directory: ui2
+        run: |
+          npm install
+          license-checker --production --json > ../npm-licenses.json
+          
+      - name: Upload license reports
+        uses: actions/upload-artifact@v4
+        with:
+          name: license-reports
+          path: npm-licenses.json
+
+  # Security policy enforcement
+  security-policy:
+    name: Security Policy Check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Check for secrets in code
+        uses: trufflesecurity/trufflehog@main
+        with:
+          path: ./
+          base: ${{ github.event.repository.default_branch }}
+          head: HEAD
+          extra_args: --debug --only-verified
+          
+      - name: Validate SECURITY.md exists
+        run: |
+          if [ ! -f SECURITY.md ]; then
+            echo "::warning::SECURITY.md file not found. Consider adding security policy."
+          fi
+          
+      - name: Check for hardcoded secrets patterns
+        run: |
+          # Check for common secret patterns
+          if grep -r -E '(password|secret|key|token|api_key).*=.*["\'][^"\']{8,}["\']' --include="*.rs" --include="*.ts" --include="*.tsx" --include="*.js" --include="*.json" .; then
+            echo "::error::Potential hardcoded secrets found!"
+            exit 1
+          fi
+          echo "No obvious hardcoded secrets detected."
+
+  # Container security (if using containers)
+  container-security:
+    name: Container Security
+    runs-on: ubuntu-latest
+    if: false # Enable when Docker files are added
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: 'brainflow:latest'
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+          
+      - name: Upload Trivy scan results to GitHub Security tab
+        uses: github/codeql-action/upload-sarif@v2
+        if: always()
+        with:
+          sarif_file: 'trivy-results.sarif'
+
+  # Security summary report
+  security-summary:
+    name: Security Summary
+    runs-on: ubuntu-latest
+    needs: [rust-security, frontend-security, dependency-security, license-compliance, security-policy]
+    if: always()
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        
+      - name: Generate security summary
+        run: |
+          echo "# Security Scan Summary" > security-summary.md
+          echo "Date: $(date)" >> security-summary.md
+          echo "Commit: ${{ github.sha }}" >> security-summary.md
+          echo "" >> security-summary.md
+          
+          echo "## Scan Results" >> security-summary.md
+          echo "- Rust Security: ${{ needs.rust-security.result }}" >> security-summary.md
+          echo "- Frontend Security: ${{ needs.frontend-security.result }}" >> security-summary.md
+          echo "- Dependency Security: ${{ needs.dependency-security.result }}" >> security-summary.md
+          echo "- License Compliance: ${{ needs.license-compliance.result }}" >> security-summary.md
+          echo "- Security Policy: ${{ needs.security-policy.result }}" >> security-summary.md
+          
+      - name: Upload security summary
+        uses: actions/upload-artifact@v4
+        with:
+          name: security-summary
+          path: security-summary.md

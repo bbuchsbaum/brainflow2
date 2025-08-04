@@ -10,6 +10,7 @@ import 'allotment/dist/style.css';
 import { FlexibleSlicePanel } from './FlexibleSlicePanel';
 import { useLayoutDragStore } from '@/stores/layoutDragStore';
 import { useLayoutStateStore } from '@/stores/layoutStateStore';
+import { useViewStateStore } from '@/stores/viewStateStore';
 import { coalesceUtils } from '@/stores/middleware/coalesceUpdatesMiddleware';
 import './FlexibleOrthogonalView.css';
 
@@ -82,6 +83,18 @@ export function FlexibleOrthogonalView({ workspaceId }: FlexibleOrthogonalViewPr
         clearTimeout(dragTimeoutRef.current);
       }
     };
+  }, []);
+  
+  // Force initial render when component mounts
+  useEffect(() => {
+    const hasLayers = useViewStateStore.getState().viewState.layers.length > 0;
+    if (hasLayers) {
+      console.log('[FlexibleOrthogonalView] Component mounted with layers, forcing initial render');
+      // Small delay to ensure all views are mounted
+      setTimeout(() => {
+        coalesceUtils.flush(true);
+      }, 100);
+    }
   }, []);
 
   // FlexibleSlicePanel now handles all dimension updates via ResizeObserver

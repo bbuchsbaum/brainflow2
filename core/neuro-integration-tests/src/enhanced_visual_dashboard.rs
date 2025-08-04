@@ -1,12 +1,12 @@
 //! Enhanced visual dashboard with ellipsoid visualization integration
 
-use crate::simple_visual_dashboard::SimpleTestResult;
 use crate::ellipsoid_visualizer::EllipsoidVisualizer;
+use crate::simple_visual_dashboard::SimpleTestResult;
+use anyhow::Result;
+use nalgebra::{Point3, Rotation3, Vector3};
 use neuro_types::{OrientedEllipsoid, OverlapMetrics};
-use nalgebra::{Point3, Vector3, Rotation3};
 use std::fs;
 use std::path::Path;
-use anyhow::Result;
 
 /// Enhanced dashboard with ellipsoid visualizations
 pub struct EnhancedVisualDashboard {
@@ -18,21 +18,21 @@ impl EnhancedVisualDashboard {
     pub fn new(output_dir: String) -> Self {
         let images_dir = format!("{}/images", output_dir);
         fs::create_dir_all(&images_dir).unwrap();
-        
-        Self { 
+
+        Self {
             output_dir: output_dir.clone(),
             visualizer: EllipsoidVisualizer::new(images_dir),
         }
     }
-    
+
     /// Generate dashboard with ellipsoid visualizations
     pub fn generate_dashboard_with_visuals(
-        &self, 
-        test_results: &[EnhancedTestResult]
+        &self,
+        test_results: &[EnhancedTestResult],
     ) -> Result<String> {
         // Create output directory
         fs::create_dir_all(&self.output_dir)?;
-        
+
         // Generate ellipsoid images for each test
         let mut image_paths = Vec::new();
         for (i, result) in test_results.iter().enumerate() {
@@ -48,25 +48,26 @@ impl EnhancedVisualDashboard {
                 image_paths.push(None);
             }
         }
-        
+
         // Generate HTML with embedded images
         let html = self.generate_html_with_images(test_results, &image_paths)?;
         let html_path = format!("{}/enhanced_dashboard.html", self.output_dir);
         fs::write(&html_path, html)?;
-        
+
         // Copy CSS and JS
         self.generate_assets()?;
-        
+
         Ok(html_path)
     }
-    
+
     fn generate_html_with_images(
         &self,
         test_results: &[EnhancedTestResult],
         image_paths: &[Option<crate::ellipsoid_visualizer::SliceImagePaths>],
     ) -> Result<String> {
         let mut html = String::new();
-        html.push_str(r#"<!DOCTYPE html>
+        html.push_str(
+            r#"<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -82,27 +83,36 @@ impl EnhancedVisualDashboard {
         </header>
         
         <div class="results-grid">
-"#);
-        
+"#,
+        );
+
         // Generate enhanced result cards
         for (i, (result, paths)) in test_results.iter().zip(image_paths.iter()).enumerate() {
-            let status = if result.base.passed { "passed" } else { "failed" };
-            
-            html.push_str(&format!(r#"
+            let status = if result.base.passed {
+                "passed"
+            } else {
+                "failed"
+            };
+
+            html.push_str(&format!(
+                r#"
             <div class="result-card-enhanced {}" data-test-index="{}">
                 <h3>{}</h3>
                 
                 <div class="visualization-section">
-"#, status, i, result.base.test_name));
-            
+"#,
+                status, i, result.base.test_name
+            ));
+
             // Add slice images if available
             if let Some(ref img_paths) = paths {
                 // Make paths relative to dashboard location
                 let axial_rel = img_paths.axial.replace(&self.output_dir, ".");
                 let coronal_rel = img_paths.coronal.replace(&self.output_dir, ".");
                 let sagittal_rel = img_paths.sagittal.replace(&self.output_dir, ".");
-                
-                html.push_str(&format!(r#"
+
+                html.push_str(&format!(
+                    r#"
                     <div class="slice-grid">
                         <div class="slice-item">
                             <img src="{}" alt="Axial slice" class="slice-image">
@@ -117,16 +127,21 @@ impl EnhancedVisualDashboard {
                             <p class="slice-label">Sagittal</p>
                         </div>
                     </div>
-"#, axial_rel, coronal_rel, sagittal_rel));
+"#,
+                    axial_rel, coronal_rel, sagittal_rel
+                ));
             } else {
-                html.push_str(r#"
+                html.push_str(
+                    r#"
                     <div class="no-visualization">
                         <p>No visualization available</p>
                     </div>
-"#);
+"#,
+                );
             }
-            
-            html.push_str(&format!(r#"
+
+            html.push_str(&format!(
+                r#"
                 </div>
                 
                 <div class="metrics-section">
@@ -146,39 +161,48 @@ impl EnhancedVisualDashboard {
                 
                 <div class="ellipsoid-params">
                     <h4>Ellipsoid Parameters</h4>
-"#, 
+"#,
                 result.base.metrics.dice_coefficient,
                 result.base.metrics.hausdorff_distance_mm,
                 result.base.metrics.volume_difference_percent
             ));
-            
+
             if let Some(ref ellipsoid) = result.ellipsoid {
-                html.push_str(&format!(r#"
+                html.push_str(&format!(
+                    r#"
                     <p>Center: ({:.1}, {:.1}, {:.1})</p>
                     <p>Radii: ({:.1}, {:.1}, {:.1})</p>
-"#, 
-                    ellipsoid.center.x, ellipsoid.center.y, ellipsoid.center.z,
-                    ellipsoid.radii.x, ellipsoid.radii.y, ellipsoid.radii.z
+"#,
+                    ellipsoid.center.x,
+                    ellipsoid.center.y,
+                    ellipsoid.center.z,
+                    ellipsoid.radii.x,
+                    ellipsoid.radii.y,
+                    ellipsoid.radii.z
                 ));
             }
-            
-            html.push_str(r#"
+
+            html.push_str(
+                r#"
                 </div>
             </div>
-"#);
+"#,
+            );
         }
-        
-        html.push_str(r#"
+
+        html.push_str(
+            r#"
         </div>
     </div>
     
     <script src="enhanced_dashboard.js"></script>
 </body>
-</html>"#);
-        
+</html>"#,
+        );
+
         Ok(html)
     }
-    
+
     fn generate_assets(&self) -> Result<()> {
         // Enhanced CSS
         let css = r#"
@@ -320,7 +344,7 @@ header h1 {
     color: #9ca3af;
 }
 "#;
-        
+
         let js = r#"
 // Enhanced dashboard interactivity
 document.addEventListener('DOMContentLoaded', function() {
@@ -394,10 +418,10 @@ style.textContent = `
 `;
 document.head.appendChild(style);
 "#;
-        
+
         fs::write(format!("{}/enhanced_dashboard.css", self.output_dir), css)?;
         fs::write(format!("{}/enhanced_dashboard.js", self.output_dir), js)?;
-        
+
         Ok(())
     }
 }

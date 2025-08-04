@@ -5,6 +5,7 @@
 
 import React, { useState } from 'react';
 import type { ViewType } from '@/types/coordinates';
+import { useDragSourceStore } from '@/stores/dragSourceStore';
 
 interface SliceSliderProps {
   viewType: ViewType;
@@ -27,6 +28,7 @@ export function SliceSlider({
 }: SliceSliderProps) {
   const [showValue, setShowValue] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
+  const { setDraggingSource } = useDragSourceStore();
   
   // Debug logging
   React.useEffect(() => {
@@ -38,22 +40,76 @@ export function SliceSlider({
   
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const newValue = parseFloat(e.target.value);
-    console.log(`SliceSlider ${viewType}: value changed from ${value} to ${newValue}`);
-    onChange(newValue);
+    
+    // Prevent feedback loops - only update if value actually changed
+    if (Math.abs(newValue - value) < 0.01) {
+      console.log(`SliceSlider ${viewType}: onChange fired but value unchanged (${newValue} ≈ ${value}), skipping update`);
+      return;
+    }
+    
+    console.log(`SliceSlider ${viewType}: onChange fired - value changed from ${value} to ${newValue}`);
+    onChange(newValue);       // Trigger parent update
   };
   
-  // Handle drag state
-  React.useEffect(() => {
-    const handleMouseUp = () => setIsDragging(false);
-    if (isDragging) {
-      window.addEventListener('mouseup', handleMouseUp);
-      window.addEventListener('touchend', handleMouseUp);
-      return () => {
-        window.removeEventListener('mouseup', handleMouseUp);
-        window.removeEventListener('touchend', handleMouseUp);
-      };
+  
+  // Handle pointer events for better drag support
+  const handlePointerDown = (e: React.PointerEvent<HTMLInputElement>) => {
+    console.log(`SliceSlider ${viewType}: Pointer down - setting drag source`);
+    setIsDragging(true);
+    setDraggingSource('slider');  // Notify global state
+    // Capture pointer for consistent drag behavior
+    e.currentTarget.setPointerCapture(e.pointerId);
+  };
+
+  const handlePointerUp = (e: React.PointerEvent<HTMLInputElement>) => {
+    console.log(`SliceSlider ${viewType}: Pointer up - clearing drag source`);
+    setIsDragging(false);
+    setDraggingSource(null);  // Clear global state
+    // Release pointer capture
+    e.currentTarget.releasePointerCapture(e.pointerId);
+  };
+
+  const handlePointerMove = (e: React.PointerEvent<HTMLInputElement>) => {
+    if (!isDragging) return;
+    
+    // Calculate value from pointer position during drag
+    const input = e.currentTarget;
+    const rect = input.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const percentage = Math.max(0, Math.min(1, x / rect.width));
+    const newValue = min + (max - min) * percentage;
+    
+    // Snap to step
+    const steppedValue = Math.round(newValue / step) * step;
+    const clampedValue = Math.max(min, Math.min(max, steppedValue));
+    
+    // Prevent excessive updates during drag - only update if value actually changed
+    if (Math.abs(clampedValue - value) < 0.01) {
+      return; // Skip update if value hasn't changed meaningfully
     }
-  }, [isDragging]);
+    
+    console.log(`SliceSlider ${viewType}: Pointer move - value changed from ${value} to ${clampedValue}`);
+    onChange(clampedValue);
+  };
+
+  const handlePointerCancel = (e: React.PointerEvent<HTMLInputElement>) => {
+    // Ensure cleanup if pointer is cancelled
+    if (isDragging) {
+      console.log(`SliceSlider ${viewType}: Pointer cancel - clearing state`);
+      setIsDragging(false);
+      setDraggingSource(null);
+      e.currentTarget.releasePointerCapture(e.pointerId);
+    }
+  };
+
+  // Clean up drag state on unmount
+  React.useEffect(() => {
+    return () => {
+      if (isDragging) {
+        setDraggingSource(null);
+      }
+    };
+  }, []);
   
   // Format the value for display
   const displayValue = value.toFixed(1);
@@ -89,9 +145,11 @@ export function SliceSlider({
         value={value}
         disabled={disabled}
         onChange={handleChange}
-        onMouseDown={() => setIsDragging(true)}
-        onTouchStart={() => setIsDragging(true)}
-        className="w-full h-5 bg-gray-700 rounded accent-blue-500"
+        onPointerDown={handlePointerDown}
+        onPointerUp={handlePointerUp}
+        onPointerMove={handlePointerMove}
+        onPointerCancel={handlePointerCancel}
+        className="w-full h-5 bg-gray-700 rounded accent-blue-500 cursor-pointer disabled:cursor-not-allowed disabled:opacity-50 slider-custom"
       />
     </div>
   );

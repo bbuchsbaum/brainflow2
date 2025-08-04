@@ -8,14 +8,42 @@ export default {
     extend: {
       colors: {
         // Support for CSS variables with opacity
-        popover: 'hsl(var(--popover) / <alpha-value>)',
-        'popover-foreground': 'hsl(var(--popover-foreground) / <alpha-value>)',
+        border: 'hsl(var(--border) / <alpha-value>)',
+        input: 'hsl(var(--input) / <alpha-value>)',
+        ring: 'hsl(var(--ring) / <alpha-value>)',
         background: 'hsl(var(--background) / <alpha-value>)',
         foreground: 'hsl(var(--foreground) / <alpha-value>)',
-        muted: 'hsl(var(--muted) / <alpha-value>)',
-        'muted-foreground': 'hsl(var(--muted-foreground) / <alpha-value>)',
-        accent: 'hsl(var(--accent) / <alpha-value>)',
-        'accent-foreground': 'hsl(var(--accent-foreground) / <alpha-value>)',
+        card: {
+          DEFAULT: 'hsl(var(--card) / <alpha-value>)',
+          foreground: 'hsl(var(--card-foreground) / <alpha-value>)',
+        },
+        popover: {
+          DEFAULT: 'hsl(var(--popover) / <alpha-value>)',
+          foreground: 'hsl(var(--popover-foreground) / <alpha-value>)',
+        },
+        primary: {
+          DEFAULT: 'hsl(var(--primary) / <alpha-value>)',
+          foreground: 'hsl(var(--primary-foreground) / <alpha-value>)',
+        },
+        secondary: {
+          DEFAULT: 'hsl(var(--secondary) / <alpha-value>)',
+          foreground: 'hsl(var(--secondary-foreground) / <alpha-value>)',
+        },
+        muted: {
+          DEFAULT: 'hsl(var(--muted) / <alpha-value>)',
+          foreground: 'hsl(var(--muted-foreground) / <alpha-value>)',
+        },
+        accent: {
+          DEFAULT: 'hsl(var(--accent) / <alpha-value>)',
+          foreground: 'hsl(var(--accent-foreground) / <alpha-value>)',
+          400: '#fbbf24', // Medical yellow
+          500: '#f59e0b',
+          600: '#d97706',
+        },
+        destructive: {
+          DEFAULT: 'hsl(var(--destructive) / <alpha-value>)',
+          foreground: 'hsl(var(--destructive-foreground) / <alpha-value>)',
+        },
         // Neuroimaging-specific color palette
         brain: {
           50: '#f0f9ff',

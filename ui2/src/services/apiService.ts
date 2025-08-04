@@ -1,6 +1,23 @@
 /**
  * API Service - High-level interface to backend commands
  * Uses the transport layer and provides typed methods
+ * 
+ * MIGRATION GUIDE - New Unified render_view API:
+ * 
+ * The backend now provides a cleaner render_view API that replaces the
+ * confusing apply_and_render_view_state family of methods.
+ * 
+ * To enable the new API:
+ * - In code: setUseNewRenderAPI(true)
+ * - In console: window.setUseNewRenderAPI(true)
+ * 
+ * Benefits:
+ * - Single method with format parameter instead of 3 variants
+ * - Cleaner naming (render_view vs apply_and_render_view_state)
+ * - Extensible to new formats
+ * - Backward compatible - old methods still work
+ * 
+ * The new API defaults to raw RGBA (fastest) but supports PNG as well.
  */
 
 import type { BackendTransport } from './transport';
@@ -40,12 +57,13 @@ export class ApiService {
   private useBinaryIPC: boolean = true; // Set to false to revert to slow JSON path
   private useRawRGBA: boolean = true; // Set to true to use raw RGBA instead of PNG
   private debugBrighten: boolean = false; // Set to true to artificially brighten raw RGBA for debugging
+  private useNewRenderAPI: boolean = true; // Use the new cleaner render_view API
   
   // Note: Render target state is now managed by RenderCoordinator
   
   constructor(transport: BackendTransport = getTransport()) {
     this.transport = transport;
-    console.log(`[ApiService] Initialized with RGBA mode: ${this.useRawRGBA ? 'ENABLED' : 'DISABLED'}`);
+    console.log(`[ApiService] Initialized with unified render_view API (RGBA mode: ${this.useRawRGBA ? 'ENABLED' : 'DISABLED'})`);
   }
   
   /**
@@ -230,101 +248,115 @@ export class ApiService {
     // Track which format we're actually using for decoding
     let isRawRGBAFormat = false;
     
-    if (this.useRawRGBA) {
-      // Use the raw RGBA command that avoids PNG encoding
-      console.log(`🚀 [ApiService] RAW RGBA PATH - Calling apply_and_render_view_state_raw`);
-      console.log(`🚀 [ApiService] This avoids PNG encoding entirely!`);
+    // NEW UNIFIED API PATH
+    if (this.useNewRenderAPI) {
+      const format = this.useRawRGBA ? 'rgba' : 'png';
       try {
+        console.log(`[ApiService] Attempting render_view with format: ${format}`);
+        const result = await this.transport.invoke<Uint8Array>(
+          'render_view',
+          { 
+            stateJson: JSON.stringify(declarativeViewState),
+            format: format
+          }
+        );
+        
+        console.log(`[ApiService] render_view completed in ${(performance.now() - backendCallTime).toFixed(0)}ms (${format})`);
+        
+        // Robust result handling
+        if (result instanceof Uint8Array && result.length > 0) {
+          imageData = result;
+          isRawRGBAFormat = (format === 'rgba');
+          console.log(`[ApiService] render_view success: ${imageData.length} bytes, format: ${format}`);
+        } else if (result instanceof ArrayBuffer && result.byteLength > 0) {
+          imageData = new Uint8Array(result);
+          isRawRGBAFormat = (format === 'rgba');
+          console.log(`[ApiService] render_view success (ArrayBuffer): ${imageData.length} bytes`);
+        } else if (Array.isArray(result) && result.length > 0) {
+          imageData = new Uint8Array(result);
+          isRawRGBAFormat = (format === 'rgba');
+          console.log(`[ApiService] render_view success (Array): ${imageData.length} bytes`);
+        } else {
+          throw new Error(`render_view returned invalid or empty result: ${typeof result}, length: ${result?.length || 'N/A'}`);
+        }
+      } catch (error) {
+        console.error(`[ApiService] render_view failed:`, error);
+        console.error(`[ApiService] Error type: ${error?.constructor?.name}`);
+        console.error(`[ApiService] Error message: ${error?.message}`);
+        
+        // Don't permanently disable new API - allow retries
+        console.warn(`[ApiService] Falling back to legacy API for this request only`);
+        // Note: NOT setting this.useNewRenderAPI = false permanently
+      }
+    }
+    
+    // LEGACY API PATHS - Only if render_view failed or not using new API
+    if (!imageData && this.useRawRGBA) {
+      try {
+        console.log(`[ApiService] Attempting legacy raw RGBA fallback`);
         const rawResult = await this.transport.invoke<Uint8Array>(
           'apply_and_render_view_state_raw',
           { viewStateJson: JSON.stringify(declarativeViewState) }
         );
-        console.log(`🚀 [ApiService ${performance.now() - startTime}ms] SUCCESS: Raw RGBA returned after ${(performance.now() - backendCallTime).toFixed(0)}ms`);
-        console.log(`🚀 [ApiService] Raw result type: ${Object.prototype.toString.call(rawResult)}`);
-        console.log(`🚀 [ApiService] Is Uint8Array: ${rawResult instanceof Uint8Array}`);
-        console.log(`🚀 [ApiService] Raw result:`, rawResult);
         
-        // Convert to Uint8Array if needed
-        if (rawResult instanceof Uint8Array) {
+        if (rawResult instanceof Uint8Array && rawResult.length > 0) {
           imageData = rawResult;
-        } else if (rawResult instanceof ArrayBuffer) {
-          // Convert ArrayBuffer to Uint8Array
-          console.log(`🚀 [ApiService] Converting ArrayBuffer to Uint8Array`);
+          isRawRGBAFormat = true;
+          console.log(`[ApiService] Legacy raw RGBA success: ${imageData.length} bytes`);
+        } else if (rawResult instanceof ArrayBuffer && rawResult.byteLength > 0) {
           imageData = new Uint8Array(rawResult);
-        } else if (rawResult && typeof rawResult === 'object' && 'data' in rawResult) {
-          // Check if it's wrapped in an object
-          console.log(`🚀 [ApiService] Result appears to be wrapped, extracting data property`);
-          imageData = new Uint8Array(rawResult.data);
-        } else if (Array.isArray(rawResult)) {
-          // Convert array to Uint8Array
-          console.log(`🚀 [ApiService] Converting array to Uint8Array`);
+          isRawRGBAFormat = true;
+          console.log(`[ApiService] Legacy raw RGBA success (ArrayBuffer): ${imageData.length} bytes`);
+        } else if (Array.isArray(rawResult) && rawResult.length > 0) {
           imageData = new Uint8Array(rawResult);
+          isRawRGBAFormat = true;
+          console.log(`[ApiService] Legacy raw RGBA success (Array): ${imageData.length} bytes`);
         } else {
-          console.error(`❌ [ApiService] Unexpected result type:`, typeof rawResult);
-          throw new Error(`Raw RGBA returned unexpected type: ${typeof rawResult}`);
-        }
-        
-        console.log(`🚀 [ApiService] Final data size: ${imageData?.length || 'undefined'} bytes`);
-        
-        // When using raw RGBA path, we should always get raw RGBA format
-        // The backend is supposed to return raw RGBA when this command is used
-        isRawRGBAFormat = true;
-        console.log(`🚀 [ApiService] Set isRawRGBAFormat = true`);
-        console.log(`🚀 [ApiService] Using raw RGBA format (as requested)`);
-        
-        // Optionally check if we accidentally got PNG
-        if (imageData.length > 8 && imageData[0] === 0x89 && imageData[1] === 0x50) {
-          console.warn(`⚠️ [ApiService] WARNING: Data appears to be PNG despite raw RGBA request!`);
-          console.warn(`⚠️ [ApiService] Backend might not be honoring the raw RGBA flag`);
+          throw new Error(`Legacy raw command returned invalid result: ${typeof rawResult}`);
         }
       } catch (error) {
-        console.error(`❌ [ApiService] RAW RGBA FAILED! Error:`, error);
-        console.error(`❌ [ApiService] Falling back to binary PNG path...`);
-        // Fall back to binary PNG path
-        imageData = await this.transport.invoke<Uint8Array>(
-          'apply_and_render_view_state_binary',
-          { viewStateJson: JSON.stringify(declarativeViewState) }
-        );
+        console.error(`[ApiService] Legacy raw RGBA fallback failed:`, error);
       }
-    } else if (this.useBinaryIPC) {
-      // Use the new binary-optimized command that returns Uint8Array directly
-      console.log(`🚀 [ApiService] BINARY IPC ENABLED - Calling apply_and_render_view_state_binary`);
-      console.log(`🚀 [ApiService] This should avoid JSON serialization of PNG data`);
+    }
+    
+    // Final PNG fallback
+    if (!imageData) {
       try {
-        imageData = await this.transport.invoke<Uint8Array>(
+        console.log(`[ApiService] Attempting final PNG fallback`);
+        const pngResult = await this.transport.invoke<Uint8Array>(
           'apply_and_render_view_state_binary',
           { viewStateJson: JSON.stringify(declarativeViewState) }
         );
-        console.log(`🚀 [ApiService ${performance.now() - startTime}ms] SUCCESS: Binary IPC returned Uint8Array directly after ${(performance.now() - backendCallTime).toFixed(0)}ms`);
-        console.log(`🚀 [ApiService] Data type check:`, Object.prototype.toString.call(imageData));
+        
+        if (pngResult instanceof Uint8Array && pngResult.length > 0) {
+          imageData = pngResult;
+          isRawRGBAFormat = false; // PNG format
+          console.log(`[ApiService] PNG fallback success: ${imageData.length} bytes`);
+        } else if (pngResult instanceof ArrayBuffer && pngResult.byteLength > 0) {
+          imageData = new Uint8Array(pngResult);
+          isRawRGBAFormat = false;
+          console.log(`[ApiService] PNG fallback success (ArrayBuffer): ${imageData.length} bytes`);
+        } else if (Array.isArray(pngResult) && pngResult.length > 0) {
+          imageData = new Uint8Array(pngResult);
+          isRawRGBAFormat = false;
+          console.log(`[ApiService] PNG fallback success (Array): ${imageData.length} bytes`);
+        } else {
+          throw new Error(`PNG fallback returned invalid result: ${typeof pngResult}`);
+        }
       } catch (error) {
-        console.error(`❌ [ApiService] BINARY IPC FAILED! Error:`, error);
-        console.error(`❌ [ApiService] Falling back to slow JSON path...`);
-        // Fall back to the slow JSON path
-        const jsonData = await this.transport.invoke<number[]>(
-          'apply_and_render_view_state',
-          { viewStateJson: JSON.stringify(declarativeViewState) }
-        );
-        imageData = new Uint8Array(jsonData);
-        console.log(`📊 [ApiService ${performance.now() - startTime}ms] FALLBACK: Used JSON path, returned number[] after ${(performance.now() - backendCallTime).toFixed(0)}ms`);
+        console.error(`[ApiService] All rendering methods failed:`, error);
+        throw new Error(`Complete rendering failure: ${error?.message}`);
       }
-    } else {
-      // Use the original slow JSON path
-      console.log(`📊 [ApiService] JSON PATH SELECTED (binary IPC disabled by user)`);
-      console.log(`📊 [ApiService] WARNING: This will serialize PNG as JSON array - SLOW!`);
-      const jsonData = await this.transport.invoke<number[]>(
-        'apply_and_render_view_state',
-        { viewStateJson: JSON.stringify(declarativeViewState) }
-      );
-      imageData = new Uint8Array(jsonData);
-      console.log(`📊 [ApiService ${performance.now() - startTime}ms] JSON PATH: Returned number[] after ${(performance.now() - backendCallTime).toFixed(0)}ms`);
-      console.log(`📊 [ApiService] Had to convert number[] to Uint8Array - extra overhead!`);
     }
     
     // Check if we got valid data
     if (!imageData || imageData.length === 0) {
       console.error('❌ Backend returned empty image data!');
       console.error('❌ This means the backend render failed completely');
+      console.error('❌ View state sent:', declarativeViewState);
+      console.error('❌ isRawRGBAFormat:', isRawRGBAFormat);
+      console.error('❌ useRawRGBA:', this.useRawRGBA);
+      console.error('❌ useNewRenderAPI:', this.useNewRenderAPI);
       // Return a red error image
       const canvas = new OffscreenCanvas(width, height);
       const ctx = canvas.getContext('2d');
@@ -346,22 +378,27 @@ export class ApiService {
     console.log(`  isRawRGBAFormat: ${isRawRGBAFormat}`);
     console.log(`  useRawRGBA: ${this.useRawRGBA}`);
     
-    // imageData is already a Uint8Array from either path
+    // Defensive byteArray assignment
     const byteArray = imageData;
+    
+    // Comprehensive validation before proceeding
+    if (!byteArray || !(byteArray instanceof Uint8Array) || byteArray.length === 0) {
+      console.error(`[ApiService] CRITICAL: Invalid imageData received`);
+      console.error(`[ApiService] imageData type: ${typeof imageData}`);
+      console.error(`[ApiService] imageData constructor: ${imageData?.constructor?.name}`);
+      console.error(`[ApiService] imageData length: ${imageData?.length}`);
+      console.error(`[ApiService] isRawRGBAFormat: ${isRawRGBAFormat}`);
+      throw new Error(`Invalid or empty image data received from backend`);
+    }
+    
+    console.log(`[ApiService] Processing valid byteArray: ${byteArray.length} bytes, format: ${isRawRGBAFormat ? 'RGBA' : 'PNG'}`);
     
     // Check if this is raw RGBA data or PNG
     let bitmap: ImageBitmap;
     
     // Debug: Log the first few bytes to understand the format
-    if (byteArray && byteArray.length > 0) {
-      console.log(`🔍 First 8 bytes (hex): ${Array.from(byteArray.slice(0, 8)).map(b => b.toString(16).padStart(2, '0')).join(' ')}`);
-      console.log(`🔍 First 8 bytes (decimal): ${Array.from(byteArray.slice(0, 8)).join(', ')}`);
-    } else {
-      console.error(`🔍 ERROR: byteArray is undefined or empty!`);
-    }
-    console.log(`🔍 isRawRGBAFormat flag: ${isRawRGBAFormat}`);
-    console.log(`🔍 useRawRGBA setting: ${this.useRawRGBA}`);
-    console.log(`🔍 Total data length: ${byteArray?.length || 'undefined'} bytes`);
+    console.log(`🔍 First 16 bytes (hex): ${Array.from(byteArray.slice(0, 16)).map(b => b.toString(16).padStart(2, '0')).join(' ')}`);
+    console.log(`🔍 Processing data: ${byteArray.length} bytes, isRawRGBA: ${isRawRGBAFormat}`);
     
     if (isRawRGBAFormat && byteArray.length > 8) {
       try {
@@ -425,46 +462,61 @@ export class ApiService {
       }
     }
     
-    // Otherwise, it's PNG data
-    // Check PNG signature (89 50 4E 47 0D 0A 1A 0A)
-    const pngSignature = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A];
-    const first8Bytes = Array.from(byteArray.slice(0, 8));
-    const isPNG = pngSignature.every((byte, i) => byte === first8Bytes[i]);
-    
-    if (!isPNG) {
-      console.error('Data is not a valid PNG file!');
-      console.log('Expected PNG signature:', pngSignature.map(b => b.toString(16).padStart(2, '0')).join(' '));
-      console.log('Actual first 8 bytes:', first8Bytes.map(b => b.toString(16).padStart(2, '0')).join(' '));
-      console.log('First 32 bytes:', Array.from(byteArray.slice(0, 32)).map(b => b.toString(16).padStart(2, '0')).join(' '));
-    } else {
-      // Check if this is a valid PNG with actual content
-      // IHDR chunk should be at bytes 12-29
-      const width = (byteArray[16] << 24) | (byteArray[17] << 16) | (byteArray[18] << 8) | byteArray[19];
-      const height = (byteArray[20] << 24) | (byteArray[21] << 16) | (byteArray[22] << 8) | byteArray[23];
-      console.log(`PNG dimensions from header: ${width}x${height}`);
-    }
-    
-    // Decode image off main thread - use the Uint8Array to prevent string coercion
-    const blob = new Blob([byteArray], { type: 'image/png' });
-    
-    try {
-      return await createImageBitmap(blob);
-    } catch (error) {
-      console.error('Failed to decode PNG data:', error);
-      console.log('Image data type:', Object.prototype.toString.call(imageData));
-      console.log('Image data length:', imageData.length);
-      console.log('Blob size:', blob.size);
-      console.log('First 64 bytes as numbers:', Array.from(byteArray.slice(0, 64)));
-      console.log('First 64 bytes as hex:', Array.from(byteArray.slice(0, 64)).map(b => b.toString(16).padStart(2, '0')).join(' '));
+    if (!isRawRGBAFormat) {
+      // Handle PNG format
+      const pngSignature = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A];
+      const first8Bytes = Array.from(byteArray.slice(0, 8));
+      const isPNG = pngSignature.every((byte, i) => byte === first8Bytes[i]);
       
-      // Return a 1x1 transparent image as fallback
-      const canvas = new OffscreenCanvas(1, 1);
-      const ctx = canvas.getContext('2d');
-      if (ctx) {
-        ctx.clearRect(0, 0, 1, 1);
+      if (!isPNG) {
+        console.error('🔍 PNG signature validation failed');
+        console.error('🔍 Expected:', pngSignature.map(b => b.toString(16).padStart(2, '0')).join(' '));
+        console.error('🔍 Actual:', first8Bytes.map(b => b.toString(16).padStart(2, '0')).join(' '));
+        
+        // Try to detect if this might be raw RGBA that slipped through
+        if (byteArray.length > 8) {
+          const view = new DataView(byteArray.buffer, byteArray.byteOffset);
+          const possibleWidth = view.getUint32(0, true);
+          const possibleHeight = view.getUint32(4, true);
+          
+          if (possibleWidth > 0 && possibleWidth < 10000 && 
+              possibleHeight > 0 && possibleHeight < 10000) {
+            console.warn('🔍 Data appears to be raw RGBA despite PNG expectation - attempting recovery');
+            isRawRGBAFormat = true;
+            
+            try {
+              const rgbaData = byteArray.slice(8);
+              const imageData = new ImageData(new Uint8ClampedArray(rgbaData), possibleWidth, possibleHeight);
+              bitmap = await createImageBitmap(imageData);
+              return bitmap;
+            } catch (recoveryError) {
+              throw new Error(`Format detection failed and recovery attempt unsuccessful: ${recoveryError.message}`);
+            }
+          } else {
+            throw new Error(`Data is not valid PNG and doesn't appear to be raw RGBA either`);
+          }
+        } else {
+          throw new Error(`Data too short to be valid PNG or raw RGBA: ${byteArray.length} bytes`);
+        }
+      } else {
+        // Valid PNG
+        try {
+          const blob = new Blob([byteArray], { type: 'image/png' });
+          bitmap = await createImageBitmap(blob);
+          console.log(`🔍 PNG processed successfully: ${bitmap.width}x${bitmap.height}`);
+          return bitmap;
+        } catch (error) {
+          throw new Error(`PNG decoding failed: ${error.message}`);
+        }
       }
-      return createImageBitmap(canvas);
     }
+    
+    // We should have a valid bitmap by now
+    if (!bitmap) {
+      throw new Error('Failed to create bitmap from image data');
+    }
+    
+    return bitmap;
   }
   
   /**
@@ -735,6 +787,24 @@ export class ApiService {
   async patchLayer(layerId: string, patch: Record<string, any>): Promise<void> {
     // Tauri expects camelCase parameter names from JS and converts to snake_case for Rust
     return this.transport.invoke('patch_layer', { layerId, patch });
+  }
+
+  /**
+   * Add a render layer
+   * @deprecated Use layer service instead
+   */
+  async addRenderLayer(layerId: string, volumeId: string): Promise<void> {
+    // This is a simplified mock for testing - the actual implementation
+    // would need to manage texture atlas indices
+    await this.transport.invoke('add_render_layer', { layerId, volumeId });
+  }
+
+  /**
+   * Remove a render layer
+   * @deprecated Use layer service instead
+   */
+  async removeRenderLayer(layerId: string): Promise<void> {
+    await this.transport.invoke('remove_render_layer', { layerId });
   }
   
   /**
@@ -1084,6 +1154,15 @@ export class ApiService {
   }
   
   /**
+   * Enable or disable the new unified render_view API
+   * @param enable - true to use new API, false to use legacy apply_and_render methods
+   */
+  setUseNewRenderAPI(enable: boolean) {
+    this.useNewRenderAPI = enable;
+    console.log(`[ApiService] New render_view API ${enable ? 'enabled' : 'disabled'}`);
+  }
+  
+  /**
    * Create a new isolated render session
    * Part of the new architecture for better render isolation
    */
@@ -1139,9 +1218,20 @@ export function setDebugBrighten(enable: boolean) {
   apiService.setDebugBrighten(enable);
 }
 
+/**
+ * Enable or disable the new unified render_view API globally
+ * @param enable - true to use new API, false to use legacy apply_and_render methods
+ */
+export function setUseNewRenderAPI(enable: boolean) {
+  const apiService = getApiService();
+  apiService.setUseNewRenderAPI(enable);
+}
+
 // Export for debugging in console
 if (typeof window !== 'undefined') {
   (window as any).setBinaryIPC = setBinaryIPC;
   (window as any).setRawRGBA = setRawRGBA;
   (window as any).setDebugBrighten = setDebugBrighten;
+  (window as any).setUseNewRenderAPI = setUseNewRenderAPI;
+  (window as any).getApiService = getApiService;
 }

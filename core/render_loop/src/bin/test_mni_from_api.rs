@@ -1,41 +1,43 @@
-use render_loop::RenderLoopService;
 use image::{ImageBuffer, Rgba, RgbaImage};
-use std::path::Path;
+use render_loop::RenderLoopService;
 use std::fs;
+use std::path::Path;
 use volmath::space::GridSpace;
 
 #[tokio::main]
 async fn main() {
     println!("Starting MNI brain slice extraction test using API approach...");
-    
+
     // Path to MNI brain template
     let mni_path = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .parent().unwrap()
-        .parent().unwrap()
+        .parent()
+        .unwrap()
+        .parent()
+        .unwrap()
         .join("test-data/unit/tpl-MNI152NLin2009cAsym_res-01_desc-brain_T1w.nii");
-    
+
     if !mni_path.exists() {
         eprintln!("MNI file not found at {:?}", mni_path);
         eprintln!("Please ensure the MNI brain template is in the test-data/unit directory");
         return;
     }
-    
+
     println!("MNI file found at: {:?}", mni_path);
     println!("\nNOTE: This test requires the full NIfTI loading infrastructure.");
     println!("To properly load and render the MNI brain, we need to:");
     println!("1. Use the api_bridge load_file command from the UI");
     println!("2. Or refactor the test to avoid cyclic dependencies");
     println!("\nFor now, this test demonstrates the issue and provides guidance.");
-    
+
     // The proper way to load NIfTI files is through the api_bridge
     // which avoids cyclic dependencies but requires the full Tauri app context
-    
+
     println!("\nTo test with real MNI data:");
     println!("1. Run: cargo tauri dev");
     println!("2. In the UI console, run:");
     println!("   await coreApi.load_file('{}');", mni_path.display());
     println!("3. Use the returned volume handle for rendering");
-    
+
     // For now, let's document what the fixed test would look like
     create_documentation();
 }
@@ -79,10 +81,10 @@ api_bridge (orchestrator)
 
 This separation ensures that the rendering pipeline remains independent of specific file formats.
 "#;
-    
+
     let doc_path = Path::new("target/test-output/mni_loading_guide.md");
     fs::create_dir_all(doc_path.parent().unwrap()).ok();
     fs::write(doc_path, doc_content).ok();
-    
+
     println!("\nDocumentation written to: {:?}", doc_path);
 }

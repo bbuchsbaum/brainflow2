@@ -8,6 +8,8 @@ members = [
   "core/volmath",
   "core/api_bridge",
   "core/bridge_types",
+  "core/atlases",
+  "core/templates",
   "xtask", "core/colormap", "core/neuro-core", "core/neuro-cpu", "core/neuro-types", "core/neuro-integration-tests",
 ]
 resolver = "2"
@@ -21,20 +23,30 @@ tauri-plugin-log = "^2.2"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt", "json"] }
 
-# --- Graphics dependencies (Pinning to WGPU 0.25 stack) ---
-wgpu = "0.20.0"
-# wgpu-core = "25.0.0"
-# wgpu-hal = "25.0.0"
-# wgpu-types = "25.0.0"
-# naga = "25.0.0"
+# --- Graphics dependencies (Pinning to WGPU 0.20 stack for stability) ---
+wgpu = "=0.20.1"
+wgpu-core = "=0.20.1"
+wgpu-hal = "=0.20.1"
+wgpu-types = "=0.20.1"
+naga = "=0.20.1"
 
-# --- Other common dependencies can be added here ---
-nalgebra = "0.32"
-serde = { version = "1.0", features = ["derive"] }
-ts-rs = "10.1"
-anyhow = "1.0"
-tokio = { version = "1.40", features = ["full"] }
-# thiserror = "1.0"
+# --- Pinned core dependencies for reproducible builds ---
+nalgebra = "=0.32.6"
+serde = { version = "=1.0.215", features = ["derive"] }
+serde_json = "=1.0.133"
+ts-rs = "=10.1.0"
+anyhow = "=1.0.93"
+tokio = { version = "=1.40.0", features = ["full"] }
+thiserror = "=1.0.69"
+futures = "=0.3.31"
+# Additional pinned dependencies for security and stability
+chrono = { version = "=0.4.38", features = ["serde"] }
+uuid = { version = "=1.11.0", features = ["v4", "serde"] }
+log = "=0.4.22"
+env_logger = "=0.11.5"
+
+# --- Atlas and Template dependencies ---
+neuroatlas = { path = "/Users/bbuchsbaum/code/rust/neuroatlas-rs", features = ["surface"] }
 
 [profile.release]
 lto = true

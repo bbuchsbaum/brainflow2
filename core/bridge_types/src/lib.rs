@@ -2,19 +2,20 @@
 // This crate will hold shared types and traits to break the cyclic dependency
 // between api_bridge and loader crates.
 
-use serde::{Serialize, Deserialize};
+use nalgebra::Affine3;
+use render_loop::RenderLoopError;
+use serde::{Deserialize, Serialize};
+use std::path::Path;
 use thiserror::Error;
 use volmath::{DenseVolume3, VolumeMathError};
-use render_loop::RenderLoopError;
-use nalgebra::Affine3;
-use std::path::Path;
 
 // --- Import for ts-rs ---
 use ts_rs::TS;
 
-// --- Moved from nifti_loader --- 
+// --- Moved from nifti_loader ---
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub enum VolumeSendable {
+    // 3D volume variants
     VolF32(DenseVolume3<f32>, Affine3<f32>),
     VolI16(DenseVolume3<i16>, Affine3<f32>),
     VolU8(DenseVolume3<u8>, Affine3<f32>),
@@ -23,9 +24,19 @@ pub enum VolumeSendable {
     VolI32(DenseVolume3<i32>, Affine3<f32>),
     VolU32(DenseVolume3<u32>, Affine3<f32>),
     VolF64(DenseVolume3<f64>, Affine3<f32>),
+
+    // 4D time series variants (storing full neuroim DenseNeuroVec)
+    Vec4DF32(neuroim::DenseNeuroVec<f32>),
+    Vec4DI16(neuroim::DenseNeuroVec<i16>),
+    Vec4DU8(neuroim::DenseNeuroVec<u8>),
+    Vec4DI8(neuroim::DenseNeuroVec<i8>),
+    Vec4DU16(neuroim::DenseNeuroVec<u16>),
+    Vec4DI32(neuroim::DenseNeuroVec<i32>),
+    Vec4DU32(neuroim::DenseNeuroVec<u32>),
+    Vec4DF64(neuroim::DenseNeuroVec<f64>),
 }
 
-// --- Moved/Defined Shared API Types --- 
+// --- Moved/Defined Shared API Types ---
 
 // --- BridgeError (Replaced with BF-TB-01 / Plan v1.2 definition) ---
 #[derive(Debug, Error, Serialize, Clone, TS)]
@@ -71,25 +82,31 @@ impl From<RenderLoopError> for BridgeError {
     fn from(err: RenderLoopError) -> Self {
         // Map RenderLoopError variants to appropriate BridgeError::GpuError variants
         // Add codes as needed
-        BridgeError::GpuError { code: 6001, details: err.to_string() }
+        BridgeError::GpuError {
+            code: 6001,
+            details: err.to_string(),
+        }
     }
 }
 
 // Add From<GpuUploadError>
 impl From<GpuUploadError> for BridgeError {
     fn from(err: GpuUploadError) -> Self {
-         // Map GpuUploadError variants to appropriate BridgeError::GpuError variants
-         // Add codes as needed
-         BridgeError::GpuError { code: 6002, details: err.to_string() }
+        // Map GpuUploadError variants to appropriate BridgeError::GpuError variants
+        // Add codes as needed
+        BridgeError::GpuError {
+            code: 6002,
+            details: err.to_string(),
+        }
     }
 }
 
 // Add From<std::io::Error>
 impl From<std::io::Error> for BridgeError {
     fn from(err: std::io::Error) -> Self {
-        BridgeError::Io { 
-            code: 1001, 
-            details: err.to_string() 
+        BridgeError::Io {
+            code: 1001,
+            details: err.to_string(),
         }
     }
 }
@@ -97,9 +114,9 @@ impl From<std::io::Error> for BridgeError {
 // Add From<VolumeMathError>
 impl From<VolumeMathError> for BridgeError {
     fn from(err: VolumeMathError) -> Self {
-        BridgeError::VolumeError { 
-            code: 5001, 
-            details: err.to_string() 
+        BridgeError::VolumeError {
+            code: 5001,
+            details: err.to_string(),
         }
     }
 }
@@ -114,36 +131,57 @@ pub type BridgeResult<T> = Result<T, BridgeError>;
 #[ts(export)]
 #[serde(tag = "type", content = "data")] // Use type/data for clarity
 pub enum Loaded {
-    Volume { dims: [u16; 3], dtype: String, path: String },
-    Table { rows: usize, cols: usize, path: String },
-    Image2D { width: u32, height: u32, path: String },
-    Metadata { path: String, loader_type: String },
+    Volume {
+        dims: [u16; 3],
+        dtype: String,
+        path: String,
+    },
+    Table {
+        rows: usize,
+        cols: usize,
+        path: String,
+    },
+    Image2D {
+        width: u32,
+        height: u32,
+        path: String,
+    },
+    Metadata {
+        path: String,
+        loader_type: String,
+    },
 }
 
 impl Loaded {
-   // Helper to get the kind easily if needed, though serde tag handles it
-   pub fn kind(&self) -> &'static str {
-       match self {
-           Loaded::Volume { .. } => "Volume",
-           Loaded::Table { .. } => "Table",
-           Loaded::Image2D { .. } => "Image2D",
-           Loaded::Metadata { .. } => "Metadata",
-       }
-   }
+    // Helper to get the kind easily if needed, though serde tag handles it
+    pub fn kind(&self) -> &'static str {
+        match self {
+            Loaded::Volume { .. } => "Volume",
+            Loaded::Table { .. } => "Table",
+            Loaded::Image2D { .. } => "Image2D",
+            Loaded::Metadata { .. } => "Metadata",
+        }
+    }
 }
 
 // --- Loader Trait (Replaced with BF-TB-01 / Plan v1.2 definition) ---
 
 // Sealed trait pattern
-pub mod private { pub trait Sealed {} } // Make module public for impl in other crates
+pub mod private {
+    pub trait Sealed {}
+} // Make module public for impl in other crates
 
 pub trait Loader: private::Sealed + Send + Sync + 'static {
     /// Returns true if the loader can handle the file at the given path.
     /// Checks extensions, magic bytes, etc. Should be fast.
-    fn can_load(path: &Path) -> bool where Self: Sized;
+    fn can_load(path: &Path) -> bool
+    where
+        Self: Sized;
 
     /// Loads the file, returning structured metadata.
-    fn load(path: &Path) -> BridgeResult<Loaded> where Self: Sized;
+    fn load(path: &Path) -> BridgeResult<Loaded>
+    where
+        Self: Sized;
 
     // Optional: Add methods for file type ID, supported extensions etc.
     // const TYPE_ID: u8;
@@ -163,13 +201,15 @@ pub enum GpuUploadError {
     UnsupportedFormat { dtype: String }, // Based on Volume<D>::Scalar
     #[error("Volume not found in registry: {volume_id}")]
     VolumeNotFound { volume_id: String }, // volume_id likely comes from VolumeHandle
-    #[error("Volume data is not stored densely and cannot be directly uploaded to GPU: {volume_id}")]
+    #[error(
+        "Volume data is not stored densely and cannot be directly uploaded to GPU: {volume_id}"
+    )]
     NotDense { volume_id: String }, // When as_bytes() returns None
     #[error("WGPU Error: {message}")]
     WgpuError { message: String },
 }
 
-// --- Structures for API Communication --- 
+// --- Structures for API Communication ---
 
 /// GPU texture format strings (matching ADR-002)
 #[derive(Debug, Clone, Serialize, TS)]
@@ -196,36 +236,35 @@ pub struct VolumeLayerGpuInfo {
     pub pad_slices: u32,
     /// Actual GPU texture format used
     pub tex_format: GpuTextureFormat,
-    
+
     // --- Enhanced metadata fields ---
-    
     /// GPU atlas layer index (which layer in the texture array)
     pub atlas_layer_index: u32,
-    
+
     /// Slice information
     pub slice_info: SliceInfo,
-    
+
     /// Texture coordinates within the atlas layer
     pub texture_coords: TextureCoordinates,
-    
+
     /// Voxel to world transformation matrix (row-major)
     pub voxel_to_world: [f32; 16],
-    
+
     /// Volume origin in world coordinates
     pub origin: [f32; 3],
-    
+
     /// World-space centre of the volume (handy for initial cross-hair)
     pub center_world: [f32; 3],
-    
+
     /// Voxel spacing in mm
     pub spacing: [f32; 3],
-    
+
     /// Data range (min, max values in the slice)
     pub data_range: Option<DataRange>,
-    
+
     /// Source volume ID that this layer was created from
     pub source_volume_id: String,
-    
+
     /// Timestamp when this GPU resource was allocated
     pub allocated_at: u64,
 
@@ -264,7 +303,7 @@ pub struct SliceAxisMeta {
 #[ts(export)]
 pub struct BatchRenderRequest {
     /// List of view states to render (JSON serialized ViewState array)
-    pub view_states_json: String,  // Will be ViewState[] from frontend
+    pub view_states_json: String, // Will be ViewState[] from frontend
     /// Width of each slice in pixels
     pub width_per_slice: u32,
     /// Height of each slice in pixels
@@ -317,10 +356,10 @@ pub struct LayerPatch {
 #[derive(Debug, Serialize, Clone, TS)]
 #[ts(export)]
 pub struct FlatNode {
-    pub id: String,           // Full path (unique identifier)
-    pub name: String,         // File/Dir name
+    pub id: String,                // Full path (unique identifier)
+    pub name: String,              // File/Dir name
     pub parent_idx: Option<usize>, // Index of the parent in the flat list, None for roots
-    pub icon_id: u8,          // Numeric ID for icon type (mapped in Rust)
+    pub icon_id: u8,               // Numeric ID for icon type (mapped in Rust)
     pub is_dir: bool,
     // Add other minimal metadata needed for display (e.g., file size, modified date)
     // pub size: Option<u64>,
@@ -348,4 +387,44 @@ pub mod icons {
     pub const IMAGE: u8 = 5; // Example
 }
 
-// TODO: Move VolumeHandleInfo and other placeholder types here if needed by loaders. 
+// --- Volume Type Definitions ---
+
+/// Enum to distinguish between 3D volumes and 4D time series
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, TS)]
+#[ts(export)]
+pub enum VolumeType {
+    Volume3D,
+    TimeSeries4D,
+}
+
+/// Metadata for 4D time series
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct TimeSeriesInfo {
+    /// Number of time points in the series
+    pub num_timepoints: usize,
+    /// Repetition time in seconds (if available)
+    pub tr: Option<f32>,
+    /// Time unit (e.g., "seconds", "milliseconds")
+    pub temporal_unit: Option<String>,
+    /// Total acquisition time in seconds
+    pub acquisition_time: Option<f32>,
+}
+
+/// Information about a loaded volume (supports both 3D and 4D)
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct VolumeHandleInfo {
+    pub id: String,
+    pub name: String,
+    /// Variable dimensions to support both 3D [x,y,z] and 4D [x,y,z,t]
+    pub dims: Vec<usize>,
+    pub dtype: String,
+    pub volume_type: VolumeType,
+    /// For 4D volumes: number of timepoints
+    pub num_timepoints: Option<usize>,
+    /// For 4D volumes: current timepoint being displayed
+    pub current_timepoint: Option<usize>,
+    /// Additional time series metadata (if applicable)
+    pub time_series_info: Option<TimeSeriesInfo>,
+}

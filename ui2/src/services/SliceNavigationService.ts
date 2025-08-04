@@ -106,6 +106,13 @@ export class SliceNavigationService {
     const currentCrosshair = useViewStateStore.getState().viewState.crosshair.world_mm;
     const newCrosshair: [number, number, number] = [...currentCrosshair];
     
+    console.log(`[SliceNavigationService] updateSlicePosition called:`, {
+      viewType,
+      worldPosition,
+      currentCrosshair,
+      axis: viewType === 'axial' ? 'Z' : viewType === 'sagittal' ? 'X' : 'Y'
+    });
+    
     switch (viewType) {
       case 'axial':
         newCrosshair[2] = worldPosition; // Z axis
@@ -118,8 +125,16 @@ export class SliceNavigationService {
         break;
     }
     
+    console.log(`[SliceNavigationService] New crosshair will be:`, newCrosshair);
+    
     // Update the crosshair position with immediate flag for responsive slider
-    useViewStateStore.getState().setCrosshair(newCrosshair, true, true);
+    // Fire-and-forget to avoid blocking the UI thread
+    // IMPORTANT: Set updateViews to true - slider movement requires slice plane updates
+    // When crosshair moves to new position, slice plane must move to show that position
+    useViewStateStore.getState().setCrosshair(newCrosshair, true, true)
+      .catch(error => {
+        console.error(`[SliceNavigationService] Failed to update crosshair:`, error);
+      });
   }
 }
 

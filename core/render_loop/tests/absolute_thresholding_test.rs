@@ -1,8 +1,11 @@
 #[cfg(test)]
 mod tests {
-    use render_loop::{RenderLoopService, render_state::{LayerInfo, BlendMode, ThresholdMode}};
     use nalgebra::Matrix4;
     use pollster;
+    use render_loop::{
+        render_state::{BlendMode, LayerInfo, ThresholdMode},
+        RenderLoopService,
+    };
 
     #[test]
     fn test_absolute_value_thresholding_support() {
@@ -18,7 +21,7 @@ mod tests {
             texture_coords: (0.0, 0.0, 1.0, 1.0),
             is_mask: false,
         };
-        
+
         assert_eq!(layer.threshold_mode, ThresholdMode::Absolute);
     }
 
@@ -32,7 +35,7 @@ mod tests {
     #[test]
     fn test_layer_ubo_includes_threshold_mode() {
         use render_loop::LayerUboStd140;
-        
+
         let ubo = LayerUboStd140 {
             world_to_voxel: Matrix4::identity().into(),
             texture_coords: [0.0, 0.0, 1.0, 1.0],
@@ -50,7 +53,7 @@ mod tests {
             is_mask: 0,
             _pad: [0.0; 2],
         };
-        
+
         assert_eq!(ubo.threshold_mode, 1);
         assert_eq!(std::mem::size_of::<LayerUboStd140>(), 144);
     }

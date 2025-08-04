@@ -11,6 +11,7 @@ import { OrthogonalViewContainer } from '@/components/views/OrthogonalViewContai
 import { FlexibleSlicePanel } from '@/components/views/FlexibleSlicePanel';
 import { FileBrowserPanel } from '@/components/panels/FileBrowserPanel';
 import { LayerPanel } from '@/components/panels/LayerPanel';
+import { PlotPanel } from '@/components/panels/PlotPanel';
 import { useViewLayoutStore } from '@/stores/viewLayoutStore';
 import { useViewStateStore } from '@/stores/viewStateStore';
 import { getRenderCoordinator } from '@/services/RenderCoordinator';
@@ -25,14 +26,7 @@ interface GoldenLayoutWrapperProps {
 }
 
 
-function PlotPanel() {
-  return (
-    <div className="h-full bg-gray-900 text-gray-300 p-4">
-      <h3 className="text-lg font-semibold text-blue-400 mb-2">Plot Panel</h3>
-      <p className="text-sm">Time series plotting (Sprint 2)</p>
-    </div>
-  );
-}
+// PlotPanel is now imported from @/components/panels/PlotPanel
 
 function ThreeDViewPanel() {
   return (
@@ -372,6 +366,19 @@ function ReactComponentWrapper({ component, container, goldenContainer }: {
   
   if (safeWidth !== dimensions.width || safeHeight !== dimensions.height) {
     console.warn(`[ReactComponentWrapper] Clamping dimensions for ${Component.name}: ${dimensions.width}x${dimensions.height} -> ${safeWidth}x${safeHeight}`);
+  }
+  
+  // Debug logging for PlotPanel specifically
+  if (Component.name === 'PlotPanel' || component.name === 'PlotPanel') {
+    console.log(`[ReactComponentWrapper] PlotPanel dimensions:`, {
+      raw: { width: dimensions.width, height: dimensions.height },
+      safe: { width: safeWidth, height: safeHeight },
+      goldenContainer: {
+        width: goldenContainer.width,
+        height: goldenContainer.height,
+        element: goldenContainer.element?.getBoundingClientRect()
+      }
+    });
   }
   
   return <Component {...state} containerWidth={safeWidth} containerHeight={safeHeight} />;

@@ -27,6 +27,7 @@ Default permissions for api-bridge plugin
 - `allow-remove-render-layer`
 - `allow-clear-render-layers`
 - `allow-patch-layer`
+- `allow-compute-layer-histogram`
 - `allow-update-layer-opacity`
 - `allow-update-layer-colormap`
 - `allow-update-layer-intensity`
@@ -37,6 +38,27 @@ Default permissions for api-bridge plugin
 - `allow-apply-and-render-view-state-raw`
 - `allow-query-slice-axis-meta`
 - `allow-batch-render-slices`
+- `allow-get-atlas-catalog`
+- `allow-get-filtered-atlases`
+- `allow-get-atlas-entry`
+- `allow-toggle-atlas-favorite`
+- `allow-get-recent-atlases`
+- `allow-get-favorite-atlases`
+- `allow-validate-atlas-config`
+- `allow-load-atlas`
+- `allow-start-atlas-progress-monitoring`
+- `allow-get-atlas-subscription-count`
+- `allow-set-volume-timepoint`
+- `allow-get-volume-timepoint`
+- `allow-render-view`
+- `allow-get-template-catalog`
+- `allow-get-filtered-templates`
+- `allow-get-template-entry`
+- `allow-validate-template-config`
+- `allow-load-template`
+- `allow-load-template-by-id`
+- `allow-get-template-cache-stats`
+- `allow-clear-template-cache`
 
 ## Permission Table
 
@@ -206,6 +228,58 @@ Denies the clear_render_layers command without any pre-configured scope.
 <tr>
 <td>
 
+`api-bridge:allow-clear-template-cache`
+
+</td>
+<td>
+
+Enables the clear_template_cache command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:deny-clear-template-cache`
+
+</td>
+<td>
+
+Denies the clear_template_cache command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:allow-compute-layer-histogram`
+
+</td>
+<td>
+
+Enables the compute_layer_histogram command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:deny-compute-layer-histogram`
+
+</td>
+<td>
+
+Denies the compute_layer_histogram command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
 `api-bridge:allow-create-offscreen-render-target`
 
 </td>
@@ -336,6 +410,162 @@ Denies the generate_orthogonal_slice_test command without any pre-configured sco
 <tr>
 <td>
 
+`api-bridge:allow-get-atlas-catalog`
+
+</td>
+<td>
+
+Enables the get_atlas_catalog command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:deny-get-atlas-catalog`
+
+</td>
+<td>
+
+Denies the get_atlas_catalog command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:allow-get-atlas-entry`
+
+</td>
+<td>
+
+Enables the get_atlas_entry command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:deny-get-atlas-entry`
+
+</td>
+<td>
+
+Denies the get_atlas_entry command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:allow-get-atlas-subscription-count`
+
+</td>
+<td>
+
+Enables the get_atlas_subscription_count command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:deny-get-atlas-subscription-count`
+
+</td>
+<td>
+
+Denies the get_atlas_subscription_count command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:allow-get-favorite-atlases`
+
+</td>
+<td>
+
+Enables the get_favorite_atlases command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:deny-get-favorite-atlases`
+
+</td>
+<td>
+
+Denies the get_favorite_atlases command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:allow-get-filtered-atlases`
+
+</td>
+<td>
+
+Enables the get_filtered_atlases command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:deny-get-filtered-atlases`
+
+</td>
+<td>
+
+Denies the get_filtered_atlases command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:allow-get-filtered-templates`
+
+</td>
+<td>
+
+Enables the get_filtered_templates command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:deny-get-filtered-templates`
+
+</td>
+<td>
+
+Denies the get_filtered_templates command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
 `api-bridge:allow-get-initial-views`
 
 </td>
@@ -388,6 +618,32 @@ Denies the get_layer_info command without any pre-configured scope.
 <tr>
 <td>
 
+`api-bridge:allow-get-recent-atlases`
+
+</td>
+<td>
+
+Enables the get_recent_atlases command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:deny-get-recent-atlases`
+
+</td>
+<td>
+
+Denies the get_recent_atlases command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
 `api-bridge:allow-get-render-statistics`
 
 </td>
@@ -407,6 +663,84 @@ Enables the get_render_statistics command without any pre-configured scope.
 <td>
 
 Denies the get_render_statistics command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:allow-get-template-cache-stats`
+
+</td>
+<td>
+
+Enables the get_template_cache_stats command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:deny-get-template-cache-stats`
+
+</td>
+<td>
+
+Denies the get_template_cache_stats command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:allow-get-template-catalog`
+
+</td>
+<td>
+
+Enables the get_template_catalog command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:deny-get-template-catalog`
+
+</td>
+<td>
+
+Denies the get_template_catalog command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:allow-get-template-entry`
+
+</td>
+<td>
+
+Enables the get_template_entry command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:deny-get-template-entry`
+
+</td>
+<td>
+
+Denies the get_template_entry command without any pre-configured scope.
 
 </td>
 </tr>
@@ -518,6 +852,32 @@ Denies the get_volume_info command without any pre-configured scope.
 <tr>
 <td>
 
+`api-bridge:allow-get-volume-timepoint`
+
+</td>
+<td>
+
+Enables the get_volume_timepoint command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:deny-get-volume-timepoint`
+
+</td>
+<td>
+
+Denies the get_volume_timepoint command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
 `api-bridge:allow-init-render-loop`
 
 </td>
@@ -570,6 +930,32 @@ Denies the list_volumes command without any pre-configured scope.
 <tr>
 <td>
 
+`api-bridge:allow-load-atlas`
+
+</td>
+<td>
+
+Enables the load_atlas command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:deny-load-atlas`
+
+</td>
+<td>
+
+Denies the load_atlas command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
 `api-bridge:allow-load-file`
 
 </td>
@@ -615,6 +1001,58 @@ Enables the load_nifti_file command without any pre-configured scope.
 <td>
 
 Denies the load_nifti_file command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:allow-load-template`
+
+</td>
+<td>
+
+Enables the load_template command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:deny-load-template`
+
+</td>
+<td>
+
+Denies the load_template command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:allow-load-template-by-id`
+
+</td>
+<td>
+
+Enables the load_template_by_id command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:deny-load-template-by-id`
+
+</td>
+<td>
+
+Denies the load_template_by_id command without any pre-configured scope.
 
 </td>
 </tr>
@@ -882,6 +1320,32 @@ Denies the render_to_image_binary command without any pre-configured scope.
 <tr>
 <td>
 
+`api-bridge:allow-render-view`
+
+</td>
+<td>
+
+Enables the render_view command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:deny-render-view`
+
+</td>
+<td>
+
+Denies the render_view command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
 `api-bridge:allow-request-frame`
 
 </td>
@@ -1057,6 +1521,84 @@ Enables the set_view_plane command without any pre-configured scope.
 <td>
 
 Denies the set_view_plane command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:allow-set-volume-timepoint`
+
+</td>
+<td>
+
+Enables the set_volume_timepoint command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:deny-set-volume-timepoint`
+
+</td>
+<td>
+
+Denies the set_volume_timepoint command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:allow-start-atlas-progress-monitoring`
+
+</td>
+<td>
+
+Enables the start_atlas_progress_monitoring command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:deny-start-atlas-progress-monitoring`
+
+</td>
+<td>
+
+Denies the start_atlas_progress_monitoring command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:allow-toggle-atlas-favorite`
+
+</td>
+<td>
+
+Enables the toggle_atlas_favorite command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:deny-toggle-atlas-favorite`
+
+</td>
+<td>
+
+Denies the toggle_atlas_favorite command without any pre-configured scope.
 
 </td>
 </tr>
@@ -1265,6 +1807,58 @@ Enables the upload_volume_layer command without any pre-configured scope.
 <td>
 
 Denies the upload_volume_layer command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:allow-validate-atlas-config`
+
+</td>
+<td>
+
+Enables the validate_atlas_config command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:deny-validate-atlas-config`
+
+</td>
+<td>
+
+Denies the validate_atlas_config command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:allow-validate-template-config`
+
+</td>
+<td>
+
+Enables the validate_template_config command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:deny-validate-template-config`
+
+</td>
+<td>
+
+Denies the validate_template_config command without any pre-configured scope.
 
 </td>
 </tr>

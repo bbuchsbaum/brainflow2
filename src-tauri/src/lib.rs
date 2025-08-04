@@ -1,18 +1,20 @@
-use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
-use std::sync::{Mutex, Arc};
-use std::collections::HashMap;
-use tauri::{State, Manager, Runtime};
-use api_bridge::{BridgeState};
-use tokio::sync::Mutex as TokioMutex;
+use api_bridge::BridgeState;
+use atlases::AtlasService;
+use templates::TemplateService;
+use log::{error, info};
 use nifti_loader::NiftiLoader;
+use raw_window_handle::{HasDisplayHandle, HasWindowHandle};
 use render_loop::RenderLoopService;
-use raw_window_handle::{HasWindowHandle, HasDisplayHandle};
-use log::{info, error};
-// --- Add tracing imports --- 
-use tracing_subscriber::{fmt, prelude::*, EnvFilter};
-use tracing_log::LogTracer;
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
+use tauri::{Manager, Runtime, State};
+use tokio::sync::Mutex as TokioMutex;
+// --- Add tracing imports ---
 use tracing::Instrument;
+use tracing_log::LogTracer;
+use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 
 // Define structures for our domain
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -46,7 +48,7 @@ fn list_volumes(state: State<AppState>) -> Result<Vec<VolumeInfo>, String> {
 #[tauri::command]
 fn can_load_file(file_path: &str) -> Result<bool, String> {
     let path = PathBuf::from(file_path);
-    
+
     // Check file extension (simplistic implementation)
     if let Some(ext) = path.extension() {
         let ext_str = ext.to_string_lossy().to_lowercase();
@@ -54,7 +56,7 @@ fn can_load_file(file_path: &str) -> Result<bool, String> {
             return Ok(true);
         }
     }
-    
+
     Ok(false)
 }
 
@@ -62,37 +64,38 @@ fn can_load_file(file_path: &str) -> Result<bool, String> {
 #[tauri::command]
 fn load_volume(file_path: &str, state: State<AppState>) -> Result<VolumeInfo, String> {
     let path = PathBuf::from(file_path);
-    
+
     // Create a dummy volume info based on filename
-    let filename = path.file_name()
+    let filename = path
+        .file_name()
         .map(|f| f.to_string_lossy().to_string())
         .unwrap_or_else(|| "unknown.nii".to_string());
-    
+
     let id = uuid::Uuid::new_v4().to_string();
     let volume_info = VolumeInfo {
         id: id.clone(),
         name: filename,
-        dimensions: [64, 64, 64], // Dummy dimensions
-        voxel_size: [1.0, 1.0, 1.0], // Dummy voxel size
+        dimensions: [64, 64, 64],         // Dummy dimensions
+        voxel_size: [1.0, 1.0, 1.0],      // Dummy voxel size
         data_type: "float32".to_string(), // Dummy data type
     };
-    
+
     // Store in our state
     let mut volumes = state.loaded_volumes.lock().map_err(|e| e.to_string())?;
     volumes.insert(id, volume_info.clone());
-    
+
     Ok(volume_info)
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     // Initialize basic app state (placeholder)
-    let app_state = AppState { 
+    let app_state = AppState {
         loaded_volumes: Mutex::new(HashMap::new()),
     };
 
     // Shared state setup is deferred until after RenderLoopService initialization
-    let volume_registry_arc = Arc::new(TokioMutex::new(HashMap::new()));
+    let volume_registry_arc = Arc::new(TokioMutex::new(api_bridge::VolumeRegistry::new()));
     let layer_map_arc = Arc::new(TokioMutex::new(HashMap::<String, u32>::new()));
 
     tauri::Builder::default()
@@ -144,11 +147,30 @@ pub fn run() {
                             // The frontend will call create_offscreen_render_target when ready
 
                             // Create the final BridgeState with the initialized service
-                            let bridge_state = BridgeState {
-                                volume_registry: volume_registry.clone(),
-                                render_loop_service: Arc::new(TokioMutex::new(Some(Arc::new(TokioMutex::new(service))))),
-                                layer_to_atlas_map: layer_to_atlas_map.clone(),
+                            let cache_dir = std::env::temp_dir().join("brainflow");
+                            let atlas_service = match AtlasService::new(cache_dir.clone()) {
+                                Ok(service) => Arc::new(TokioMutex::new(service)),
+                                Err(e) => {
+                                    tracing::error!("Failed to initialize atlas service: {}", e);
+                                    return;
+                                }
                             };
+                            let template_service = match TemplateService::new(cache_dir) {
+                                Ok(service) => Arc::new(TokioMutex::new(service)),
+                                Err(e) => {
+                                    tracing::error!("Failed to initialize template service: {}", e);
+                                    return;
+                                }
+                            };
+                            
+                            let bridge_state = BridgeState::new(
+                                volume_registry.clone(),
+                                Arc::new(TokioMutex::new(Some(Arc::new(TokioMutex::new(service))))),
+                                layer_to_atlas_map.clone(),
+                                Arc::new(TokioMutex::new(HashMap::new())),
+                                atlas_service,
+                                template_service,
+                            );
                             // Manage the state AFTER async initialization is complete
                             app_handle.manage(bridge_state);
                             tracing::info!("BridgeState with RenderLoopService managed.");
@@ -156,11 +178,30 @@ pub fn run() {
                         Err(e) => {
                             tracing::error!("Failed to initialize RenderLoopService: {:?}. BridgeState will not have GPU capabilities.", e);
                             // Create BridgeState without the service
-                             let bridge_state = BridgeState {
-                                volume_registry: volume_registry.clone(),
-                                render_loop_service: Arc::new(TokioMutex::new(None)),
-                                layer_to_atlas_map: layer_to_atlas_map.clone(),
+                            let cache_dir = std::env::temp_dir().join("brainflow");
+                            let atlas_service = match AtlasService::new(cache_dir.clone()) {
+                                Ok(service) => Arc::new(TokioMutex::new(service)),
+                                Err(e) => {
+                                    tracing::error!("Failed to initialize atlas service: {}", e);
+                                    return;
+                                }
                             };
+                            let template_service = match TemplateService::new(cache_dir) {
+                                Ok(service) => Arc::new(TokioMutex::new(service)),
+                                Err(e) => {
+                                    tracing::error!("Failed to initialize template service: {}", e);
+                                    return;
+                                }
+                            };
+                            
+                            let bridge_state = BridgeState::new(
+                                volume_registry.clone(),
+                                Arc::new(TokioMutex::new(None)),
+                                layer_to_atlas_map.clone(),
+                                Arc::new(TokioMutex::new(HashMap::new())),
+                                atlas_service,
+                                template_service,
+                            );
                             app_handle.manage(bridge_state);
                         }
                     }
@@ -182,4 +223,4 @@ pub fn run() {
         )
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
-} 
+}

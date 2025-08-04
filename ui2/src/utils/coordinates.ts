@@ -89,6 +89,54 @@ export class CoordinateTransform {
   }
   
   /**
+   * Project world coordinates to screen pixel coordinates without plane tolerance check
+   * Used for crosshair projections where we want to show the crosshair even if it's not exactly on the plane
+   */
+  static worldToScreenUnchecked(
+    world_mm: WorldCoordinates,
+    plane: ViewPlane
+  ): ScreenCoordinates {
+    const [worldX, worldY, worldZ] = world_mm;
+    const [originX, originY, originZ] = plane.origin_mm;
+    const [uX, uY, uZ] = plane.u_mm;
+    const [vX, vY, vZ] = plane.v_mm;
+    
+    // Vector from origin to world point
+    const deltaX = worldX - originX;
+    const deltaY = worldY - originY;
+    const deltaZ = worldZ - originZ;
+    
+    // Solve for screen coordinates using least squares
+    const det = uX * vY - uY * vX;
+    if (Math.abs(det) < 1e-10) {
+      // Try Y-Z plane
+      const detYZ = uY * vZ - uZ * vY;
+      if (Math.abs(detYZ) > 1e-10) {
+        const x = (deltaY * vZ - deltaZ * vY) / detYZ;
+        const y = (deltaZ * uY - deltaY * uZ) / detYZ;
+        return [x, y];
+      }
+      
+      // Try X-Z plane  
+      const detXZ = uX * vZ - uZ * vX;
+      if (Math.abs(detXZ) > 1e-10) {
+        const x = (deltaX * vZ - deltaZ * vX) / detXZ;
+        const y = (deltaZ * uX - deltaX * uZ) / detXZ;
+        return [x, y];
+      }
+      
+      // Degenerate case - return center
+      return [plane.dim_px[0] / 2, plane.dim_px[1] / 2];
+    }
+    
+    // Use X-Y plane
+    const x = (deltaX * vY - deltaY * vX) / det;
+    const y = (deltaY * uX - deltaX * uY) / det;
+    
+    return [x, y];
+  }
+  
+  /**
    * Check if a world point is within tolerance of the view plane
    */
   static isPointOnPlane(

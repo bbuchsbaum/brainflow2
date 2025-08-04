@@ -4,7 +4,7 @@
  */
 
 import React, { useState } from 'react';
-import { useLayerStore } from '@/stores/layerStore';
+import { useLayer, layerSelectors } from '@/stores/layerStore';
 import type { VolumeMetadata } from '@/stores/layerStore';
 import { 
   VscChevronDown,
@@ -39,9 +39,9 @@ export function MetadataDrawer({ layerId, isOpen, onOpenChange, isPinned = false
   const [expandedSections, setExpandedSections] = useState<Set<string>>(new Set(['basic', 'spatial']));
   const [copiedField, setCopiedField] = useState<string | null>(null);
   
-  // Get layer and metadata
-  const layer = useLayerStore(state => state.getLayer(layerId));
-  const metadata = useLayerStore(state => state.getLayerMetadata(layerId));
+  // Get layer and metadata using typed selectors
+  const layer = useLayer(state => layerSelectors.getLayerById(state, layerId));
+  const metadata = useLayer(state => layerSelectors.getLayerMetadata(state, layerId)) || null;
   
   if (!layer || !metadata) {
     return null;

@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-validate-template-config"
+description = "Enables the validate_template_config command without any pre-configured scope."
+commands.allow = ["validate_template_config"]
+
+[[permission]]
+identifier = "deny-validate-template-config"
+description = "Denies the validate_template_config command without any pre-configured scope."
+commands.deny = ["validate_template_config"]

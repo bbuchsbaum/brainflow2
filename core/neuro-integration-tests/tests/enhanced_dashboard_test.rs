@@ -1,10 +1,10 @@
 //! Test for enhanced visual dashboard with ellipsoid visualizations
 
-use neuro_integration_tests::{EnhancedVisualDashboard, EnhancedTestResult};
-use neuro_integration_tests::simple_visual_dashboard::SimpleTestResult;
+use nalgebra::{Point3, Rotation3, Vector3};
 use neuro_integration_tests::enhanced_visual_dashboard::VolumeConfig;
-use neuro_types::{OverlapMetrics, OrientedEllipsoid};
-use nalgebra::{Point3, Vector3, Rotation3};
+use neuro_integration_tests::simple_visual_dashboard::SimpleTestResult;
+use neuro_integration_tests::{EnhancedTestResult, EnhancedVisualDashboard};
+use neuro_types::{OrientedEllipsoid, OverlapMetrics};
 
 #[test]
 fn test_generate_enhanced_dashboard() {
@@ -30,12 +30,15 @@ fn test_generate_enhanced_dashboard() {
                 passed: true,
                 execution_time_ms: 25,
             },
-            ellipsoid: Some(OrientedEllipsoid::new(
-                Point3::new(50.0, 50.0, 50.0),
-                Vector3::new(20.0, 20.0, 20.0),
-                Rotation3::identity(),
-                1.0,
-            ).unwrap()),
+            ellipsoid: Some(
+                OrientedEllipsoid::new(
+                    Point3::new(50.0, 50.0, 50.0),
+                    Vector3::new(20.0, 20.0, 20.0),
+                    Rotation3::identity(),
+                    1.0,
+                )
+                .unwrap(),
+            ),
             volume_config: Some(VolumeConfig {
                 dimensions: [100, 100, 100],
                 spacing: [1.0, 1.0, 1.0],
@@ -62,12 +65,15 @@ fn test_generate_enhanced_dashboard() {
                 passed: true,
                 execution_time_ms: 45,
             },
-            ellipsoid: Some(OrientedEllipsoid::new(
-                Point3::new(50.0, 50.0, 50.0),
-                Vector3::new(35.0, 20.0, 10.0),
-                Rotation3::from_axis_angle(&Vector3::y_axis(), std::f64::consts::PI / 6.0),
-                1.0,
-            ).unwrap()),
+            ellipsoid: Some(
+                OrientedEllipsoid::new(
+                    Point3::new(50.0, 50.0, 50.0),
+                    Vector3::new(35.0, 20.0, 10.0),
+                    Rotation3::from_axis_angle(&Vector3::y_axis(), std::f64::consts::PI / 6.0),
+                    1.0,
+                )
+                .unwrap(),
+            ),
             volume_config: Some(VolumeConfig {
                 dimensions: [100, 100, 100],
                 spacing: [1.0, 1.0, 1.0],
@@ -94,12 +100,15 @@ fn test_generate_enhanced_dashboard() {
                 passed: false,
                 execution_time_ms: 67,
             },
-            ellipsoid: Some(OrientedEllipsoid::new(
-                Point3::new(45.0, 55.0, 48.0),
-                Vector3::new(25.0, 18.0, 30.0),
-                Rotation3::from_euler_angles(0.3, 0.5, 0.7),
-                1.0,
-            ).unwrap()),
+            ellipsoid: Some(
+                OrientedEllipsoid::new(
+                    Point3::new(45.0, 55.0, 48.0),
+                    Vector3::new(25.0, 18.0, 30.0),
+                    Rotation3::from_euler_angles(0.3, 0.5, 0.7),
+                    1.0,
+                )
+                .unwrap(),
+            ),
             volume_config: Some(VolumeConfig {
                 dimensions: [100, 100, 100],
                 spacing: [1.0, 1.0, 1.0],
@@ -130,23 +139,43 @@ fn test_generate_enhanced_dashboard() {
             volume_config: None,
         },
     ];
-    
+
     // Create dashboard generator
     let dashboard = EnhancedVisualDashboard::new("enhanced_dashboard_output".to_string());
-    
+
     // Generate the dashboard
-    let html_path = dashboard.generate_dashboard_with_visuals(&test_results).unwrap();
-    
+    let html_path = dashboard
+        .generate_dashboard_with_visuals(&test_results)
+        .unwrap();
+
     // Verify files were created
-    assert!(std::path::Path::new(&html_path).exists(), "HTML file should exist");
-    assert!(std::path::Path::new("enhanced_dashboard_output/enhanced_dashboard.css").exists(), "CSS file should exist");
-    assert!(std::path::Path::new("enhanced_dashboard_output/enhanced_dashboard.js").exists(), "JS file should exist");
-    
+    assert!(
+        std::path::Path::new(&html_path).exists(),
+        "HTML file should exist"
+    );
+    assert!(
+        std::path::Path::new("enhanced_dashboard_output/enhanced_dashboard.css").exists(),
+        "CSS file should exist"
+    );
+    assert!(
+        std::path::Path::new("enhanced_dashboard_output/enhanced_dashboard.js").exists(),
+        "JS file should exist"
+    );
+
     // Verify some images were generated
-    assert!(std::path::Path::new("enhanced_dashboard_output/images/test_0_axial.png").exists(), "First test axial image should exist");
-    assert!(std::path::Path::new("enhanced_dashboard_output/images/test_1_coronal.png").exists(), "Second test coronal image should exist");
-    
+    assert!(
+        std::path::Path::new("enhanced_dashboard_output/images/test_0_axial.png").exists(),
+        "First test axial image should exist"
+    );
+    assert!(
+        std::path::Path::new("enhanced_dashboard_output/images/test_1_coronal.png").exists(),
+        "Second test coronal image should exist"
+    );
+
     println!("\n✅ Enhanced visual dashboard generated successfully!");
     println!("📊 Dashboard location: {}", html_path);
-    println!("🌐 Open {} in a web browser to view the results with ellipsoid visualizations", html_path);
+    println!(
+        "🌐 Open {} in a web browser to view the results with ellipsoid visualizations",
+        html_path
+    );
 }

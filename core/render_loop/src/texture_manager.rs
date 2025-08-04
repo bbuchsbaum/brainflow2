@@ -1,8 +1,8 @@
 // Texture manager for handling volume atlas and colormap textures
 
-use wgpu::{Device, Queue, Sampler, BindGroup, BindGroupLayout, Texture, TextureView};
+use colormap::{BuiltinColormap, BUILTIN_COLORMAPS};
 use std::collections::HashMap;
-use colormap::{BUILTIN_COLORMAPS, BuiltinColormap};
+use wgpu::{BindGroup, BindGroupLayout, Device, Queue, Sampler, Texture, TextureView};
 
 /// Manages texture resources and bind groups
 pub struct TextureManager {
@@ -24,8 +24,10 @@ impl TextureManager {
     /// Create a new texture manager
     pub fn new(device: &Device) -> Self {
         // Check if device supports float32-filterable
-        let supports_float32_filterable = device.features().contains(wgpu::Features::FLOAT32_FILTERABLE);
-        
+        let supports_float32_filterable = device
+            .features()
+            .contains(wgpu::Features::FLOAT32_FILTERABLE);
+
         // Create appropriate sampler based on feature support
         let filter_mode = if supports_float32_filterable {
             wgpu::FilterMode::Linear
@@ -33,7 +35,7 @@ impl TextureManager {
             println!("WARNING: Using nearest neighbor sampling for volume textures because FLOAT32_FILTERABLE is not supported");
             wgpu::FilterMode::Nearest
         };
-        
+
         // Create linear sampler for volume data
         let linear_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             label: Some("Linear Sampler"),
@@ -49,7 +51,7 @@ impl TextureManager {
             anisotropy_clamp: 1,
             border_color: None,
         });
-        
+
         // Create nearest sampler for colormaps
         let nearest_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             label: Some("Nearest Sampler"),
@@ -65,7 +67,7 @@ impl TextureManager {
             anisotropy_clamp: 1,
             border_color: None,
         });
-        
+
         Self {
             linear_sampler,
             nearest_sampler,
@@ -75,7 +77,7 @@ impl TextureManager {
             next_bind_group_id: 0,
         }
     }
-    
+
     /// Initialize colormap texture array
     pub fn init_colormaps(&mut self, device: &Device, queue: &Queue) {
         // Create colormap texture array (256x1xN for N colormaps)
@@ -85,7 +87,7 @@ impl TextureManager {
             height: 1,
             depth_or_array_layers: num_colormaps,
         };
-        
+
         let colormap_texture = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("Colormap Texture Array"),
             size: colormap_size,
@@ -96,33 +98,38 @@ impl TextureManager {
             usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
             view_formats: &[],
         });
-        
+
         let colormap_view = colormap_texture.create_view(&wgpu::TextureViewDescriptor {
             label: Some("Colormap Array View"),
             dimension: Some(wgpu::TextureViewDimension::D2Array),
             ..Default::default()
         });
-        
+
         // Upload all builtin colormaps
         for (i, colormap) in BUILTIN_COLORMAPS.iter().enumerate() {
             // Flatten the colormap data into a contiguous buffer
-            let data: Vec<u8> = colormap.iter()
+            let data: Vec<u8> = colormap
+                .iter()
                 .flat_map(|pixel| pixel.iter().copied())
                 .collect();
-            
+
             // Debug: Print first few values of each colormap
             if i < 3 {
-                println!("Colormap {}: First pixel = {:?}, Middle pixel = {:?}", 
-                    i, 
-                    &colormap[0],
-                    &colormap[128]);
+                println!(
+                    "Colormap {}: First pixel = {:?}, Middle pixel = {:?}",
+                    i, &colormap[0], &colormap[128]
+                );
             }
-            
+
             queue.write_texture(
                 wgpu::ImageCopyTexture {
                     texture: &colormap_texture,
                     mip_level: 0,
-                    origin: wgpu::Origin3d { x: 0, y: 0, z: i as u32 },
+                    origin: wgpu::Origin3d {
+                        x: 0,
+                        y: 0,
+                        z: i as u32,
+                    },
                     aspect: wgpu::TextureAspect::All,
                 },
                 &data,
@@ -138,27 +145,36 @@ impl TextureManager {
                 },
             );
         }
-        
+
         self.colormap_texture = Some(colormap_texture);
         self.colormap_view = Some(colormap_view);
     }
-    
+
     /// Upload a colormap to a specific layer
-    pub fn upload_colormap(&self, queue: &Queue, colormap_id: u32, data: &[u8]) -> Result<(), &'static str> {
+    pub fn upload_colormap(
+        &self,
+        queue: &Queue,
+        colormap_id: u32,
+        data: &[u8],
+    ) -> Result<(), &'static str> {
         if colormap_id >= BuiltinColormap::COUNT as u32 {
             return Err("Colormap ID exceeds maximum");
         }
-        
+
         if data.len() != 256 * 4 {
             return Err("Colormap data must be 256 RGBA values (1024 bytes)");
         }
-        
+
         if let Some(texture) = &self.colormap_texture {
             queue.write_texture(
                 wgpu::ImageCopyTexture {
                     texture,
                     mip_level: 0,
-                    origin: wgpu::Origin3d { x: 0, y: 0, z: colormap_id },
+                    origin: wgpu::Origin3d {
+                        x: 0,
+                        y: 0,
+                        z: colormap_id,
+                    },
                     aspect: wgpu::TextureAspect::All,
                 },
                 data,
@@ -178,7 +194,7 @@ impl TextureManager {
             Err("Colormap texture not initialized")
         }
     }
-    
+
     /// Create texture bind group
     pub fn create_bind_group(
         &mut self,
@@ -186,9 +202,11 @@ impl TextureManager {
         layout: &BindGroupLayout,
         atlas_view: &TextureView,
     ) -> u64 {
-        let colormap_view = self.colormap_view.as_ref()
+        let colormap_view = self
+            .colormap_view
+            .as_ref()
             .expect("Colormap texture not initialized");
-        
+
         let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("Texture Bind Group"),
             layout,
@@ -211,34 +229,34 @@ impl TextureManager {
                 },
             ],
         });
-        
+
         let id = self.next_bind_group_id;
         self.next_bind_group_id += 1;
         self.bind_groups.insert(id, bind_group);
-        
+
         id
     }
-    
+
     /// Get bind group by ID
     pub fn get_bind_group(&self, id: u64) -> Option<&BindGroup> {
         self.bind_groups.get(&id)
     }
-    
+
     /// Get linear sampler
     pub fn linear_sampler(&self) -> &Sampler {
         &self.linear_sampler
     }
-    
+
     /// Get colormap texture view
     pub fn colormap_view(&self) -> Option<&TextureView> {
         self.colormap_view.as_ref()
     }
-    
+
     /// Get colormap sampler (nearest)
     pub fn colormap_sampler(&self) -> &Sampler {
         &self.nearest_sampler
     }
-    
+
     /// Get nearest sampler
     pub fn nearest_sampler(&self) -> &Sampler {
         &self.nearest_sampler

@@ -18,4 +18,5 @@ volmath = { path = "../volmath" }             # For types used in VolumeSendable
 # Add dependency needed for From<RenderLoopError>
 render_loop = { path = "../render_loop" } 
 nalgebra = { version = "0.32", features = ["serde-serialize"] } # Add nalgebra 
-ts-rs = { workspace = true } # For generating TypeScript types 
+ts-rs = { workspace = true } # For generating TypeScript types
+neuroim = { path = "/Users/bbuchsbaum/code/rust/neuroim-rs" } # For 4D volume support (DenseNeuroVec) 

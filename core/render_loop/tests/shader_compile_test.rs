@@ -7,13 +7,21 @@ mod shader_compile_tests {
 
     async fn headless_device() -> wgpu::Device {
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::default());
-        let adapter = instance.request_adapter(&wgpu::RequestAdapterOptions::default())
+        let adapter = instance
+            .request_adapter(&wgpu::RequestAdapterOptions::default())
             .await
             .expect("Failed to find an appropriate adapter");
-        let (device, _queue) = adapter.request_device(
-            &wgpu::DeviceDescriptor { label: None, required_features: wgpu::Features::empty(), required_limits: wgpu::Limits::downlevel_webgl2_defaults() },
-            None,
-        ).await.expect("Failed to create device");
+        let (device, _queue) = adapter
+            .request_device(
+                &wgpu::DeviceDescriptor {
+                    label: None,
+                    required_features: wgpu::Features::empty(),
+                    required_limits: wgpu::Limits::downlevel_webgl2_defaults(),
+                },
+                None,
+            )
+            .await
+            .expect("Failed to create device");
         device
     }
 
@@ -35,4 +43,4 @@ mod shader_compile_tests {
         // If create_shader_module doesn't panic, the shader compiled successfully (syntax check).
         println!("Shader module created successfully. WGSL syntax OK.");
     }
-} 
+}

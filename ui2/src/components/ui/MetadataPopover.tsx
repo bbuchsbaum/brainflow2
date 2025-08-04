@@ -67,7 +67,7 @@ export const MetadataPopover: React.FC<MetadataPopoverProps> = ({
         align="center"
         className={cn(
           // Layout and spacing
-          "!p-8",
+          "!p-4",
           "w-80 max-w-[90vw]",
           // Appearance - with explicit full opacity
           "bg-popover/100 text-popover-foreground/100",
@@ -92,7 +92,7 @@ export const MetadataPopover: React.FC<MetadataPopoverProps> = ({
           // Fallback inline styles with hardcoded dark theme colors
           backgroundColor: 'rgba(15, 23, 42, 1)', // #0f172a with full opacity
           color: 'rgba(226, 232, 240, 1)', // #e2e8f0 with full opacity
-          padding: '32px', // Force larger padding via inline style
+          padding: '16px', // Reduced padding by half
         }}
         sideOffset={16}
         collisionPadding={12}
@@ -104,7 +104,7 @@ export const MetadataPopover: React.FC<MetadataPopoverProps> = ({
         <PopoverArrow className="fill-popover" />
         
         {/* Inner wrapper for additional padding */}
-        <div className="p-4">
+        <div className="p-2">
           {/* Header Section */}
           <div className="mb-4 pb-4 border-b border-border/50">
             <h3 className="text-sm font-semibold text-popover-foreground mb-1">

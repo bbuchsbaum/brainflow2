@@ -14,27 +14,28 @@ impl RoiOverlayDashboard {
             output_dir: output_dir.into(),
         }
     }
-    
+
     /// Generate HTML dashboard for ROI overlay test results
     pub fn generate_dashboard(&self) -> Result<String, Box<dyn std::error::Error>> {
         let dashboard_path = Path::new(&self.output_dir);
-        
+
         // Ensure output directory exists
         fs::create_dir_all(dashboard_path)?;
-        
+
         // Generate HTML content
         let html_content = self.generate_html()?;
-        
+
         // Write HTML file
         let html_file = dashboard_path.join("roi_overlay_dashboard.html");
         fs::write(&html_file, html_content)?;
-        
+
         println!("Dashboard generated at: {:?}", html_file.canonicalize()?);
         Ok(html_file.to_string_lossy().into_owned())
     }
-    
+
     fn generate_html(&self) -> Result<String, Box<dyn std::error::Error>> {
-        let html = format!(r#"<!DOCTYPE html>
+        let html = format!(
+            r#"<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -422,7 +423,8 @@ impl RoiOverlayDashboard {
         }});
     </script>
 </body>
-</html>"#);
+</html>"#
+        );
 
         Ok(html)
     }

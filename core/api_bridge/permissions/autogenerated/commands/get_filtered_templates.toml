@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-get-filtered-templates"
+description = "Enables the get_filtered_templates command without any pre-configured scope."
+commands.allow = ["get_filtered_templates"]
+
+[[permission]]
+identifier = "deny-get-filtered-templates"
+description = "Denies the get_filtered_templates command without any pre-configured scope."
+commands.deny = ["get_filtered_templates"]

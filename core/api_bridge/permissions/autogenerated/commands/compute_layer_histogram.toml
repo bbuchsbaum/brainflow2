@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-compute-layer-histogram"
+description = "Enables the compute_layer_histogram command without any pre-configured scope."
+commands.allow = ["compute_layer_histogram"]
+
+[[permission]]
+identifier = "deny-compute-layer-histogram"
+description = "Denies the compute_layer_histogram command without any pre-configured scope."
+commands.deny = ["compute_layer_histogram"]

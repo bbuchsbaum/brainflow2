@@ -14,7 +14,7 @@
 
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useViewStateStore } from '@/stores/viewStateStore';
-import { RenderCell } from './RenderCell';
+import { MosaicCell } from './MosaicCell';
 import { getMosaicRenderService } from '@/services/MosaicRenderService';
 import { calculateInitialPage, calculateVolumeCenter, getAxisIndex } from '@/utils/mosaicUtils';
 import { getApiService } from '@/services/apiService';
@@ -34,6 +34,7 @@ export function MosaicViewPromise({
   workspaceId = 'mosaic-default'
 }: MosaicViewPromiseProps) {
   const viewState = useViewStateStore(state => state.viewState);
+  const setCrosshair = useViewStateStore(state => state.setCrosshair);
   const [currentPage, setCurrentPage] = useState(0);
   const [sliceAxis, setSliceAxis] = useState<'axial' | 'sagittal' | 'coronal'>('axial');
   const [gridSize, setGridSize] = useState({ rows: 4, cols: 4 });
@@ -279,11 +280,13 @@ export function MosaicViewPromise({
       >
         {sliceIndices.map((sliceIndex, i) => (
           <div key={cellIds[i]} className="mosaic-cell">
-            <RenderCell
+            <MosaicCell
               width={cellSize.width}
               height={cellSize.height}
               tag={cellIds[i]}
-              showLabel={false}
+              sliceIndex={sliceIndex}
+              axis={sliceAxis}
+              onCrosshairClick={setCrosshair}
             />
           </div>
         ))}

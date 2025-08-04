@@ -1,9 +1,10 @@
-import React, { useRef, useEffect } from 'react';
+import React, { useRef, useEffect, useState } from 'react';
 import type { Layer } from '@/types/layers';
 import { VscEye, VscEyeClosed } from 'react-icons/vsc';
 import { Info } from 'lucide-react';
 import { MetadataPopover } from './MetadataPopover';
 import { cn } from '@/utils/cn';
+import { Tooltip } from './Tooltip';
 
 interface LayerTableProps {
   layers: Layer[];
@@ -11,14 +12,58 @@ interface LayerTableProps {
   onSelect: (layerId: string) => void;
   onToggleVisibility: (layerId: string) => void;
   onShowMetadata?: (layerId: string) => void;
+  // Function to get visibility state from opacity (single source of truth)
+  getLayerVisibility?: (layerId: string) => boolean;
 }
+
+// Component to handle layer name with tooltip on truncation
+const LayerNameWithTooltip: React.FC<{ name: string; isSelected: boolean }> = ({ name, isSelected }) => {
+  const [isTruncated, setIsTruncated] = useState(false);
+  const textRef = useRef<HTMLSpanElement>(null);
+
+  useEffect(() => {
+    const checkTruncation = () => {
+      if (textRef.current) {
+        setIsTruncated(textRef.current.scrollWidth > textRef.current.clientWidth);
+      }
+    };
+
+    checkTruncation();
+    // Check again on window resize
+    window.addEventListener('resize', checkTruncation);
+    return () => window.removeEventListener('resize', checkTruncation);
+  }, [name]);
+
+  const content = (
+    <span 
+      ref={textRef}
+      className={cn(
+        "flex-1 text-[13px] font-medium truncate",
+        isSelected ? "text-accent" : "text-foreground"
+      )}
+    >
+      {name}
+    </span>
+  );
+
+  if (isTruncated) {
+    return (
+      <Tooltip content={name} position="top" delay={300}>
+        {content}
+      </Tooltip>
+    );
+  }
+
+  return content;
+};
 
 export const LayerTable: React.FC<LayerTableProps> = ({
   layers,
   selectedLayerId,
   onSelect,
   onToggleVisibility,
-  onShowMetadata
+  onShowMetadata,
+  getLayerVisibility
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const selectedRef = useRef<HTMLDivElement>(null);
@@ -76,10 +121,6 @@ export const LayerTable: React.FC<LayerTableProps> = ({
 
   return (
     <div className="w-full">
-      <label className="block text-[13px] font-medium mb-3 text-foreground">
-        Layers
-      </label>
-      
       <div 
         ref={containerRef}
         className="space-y-1" 
@@ -89,6 +130,8 @@ export const LayerTable: React.FC<LayerTableProps> = ({
       >
         {layers.map((layer) => {
           const isSelected = layer.id === selectedLayerId;
+          // SINGLE SOURCE OF TRUTH: Use derived visibility from opacity
+          const isVisible = getLayerVisibility ? getLayerVisibility(layer.id) : layer.visible;
           return (
             <div
               key={layer.id}
@@ -106,34 +149,29 @@ export const LayerTable: React.FC<LayerTableProps> = ({
               <button
                 className={cn(
                   "icon-btn",
-                  layer.visible && "active"
+                  isVisible && "active"
                 )}
                 onClick={(e) => {
                   e.stopPropagation();
                   onToggleVisibility(layer.id);
                 }}
-                aria-label={layer.visible ? `Hide ${layer.name}` : `Show ${layer.name}`}
-                aria-pressed={layer.visible}
-                data-state={layer.visible ? "on" : "off"}
+                aria-label={isVisible ? `Hide ${layer.name}` : `Show ${layer.name}`}
+                aria-pressed={isVisible}
+                data-state={isVisible ? "on" : "off"}
                 tabIndex={-1}
               >
-                {layer.visible ? (
+                {isVisible ? (
                   <VscEye className="h-4 w-4" />
                 ) : (
                   <VscEyeClosed className="h-4 w-4" />
                 )}
               </button>
 
-              {/* Layer name */}
-              <span 
-                className={cn(
-                  "flex-1 text-[13px] font-medium truncate",
-                  isSelected ? "text-accent" : "text-foreground"
-                )}
-                title={layer.name}
-              >
-                {layer.name}
-              </span>
+              {/* Layer name with smart tooltip */}
+              <LayerNameWithTooltip
+                name={layer.name}
+                isSelected={isSelected}
+              />
 
               {/* Info button - modern design with improved hover states */}
               <MetadataPopover layerId={layer.id}>

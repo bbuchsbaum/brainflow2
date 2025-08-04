@@ -8,10 +8,10 @@
 pub use neuroim::*;
 
 // Import key dependencies for reuse in downstream crates
-use serde::{Serialize, Deserialize};
-use ts_rs::TS;
-use std::any::TypeId;
 use nalgebra::Affine3;
+use serde::{Deserialize, Serialize};
+use std::any::TypeId;
+use ts_rs::TS;
 
 // === COMPATIBILITY LAYER ===
 
@@ -24,9 +24,9 @@ pub use neuroim::{NeuroSpace as NeuroSpace2, NeuroSpace as NeuroSpace4};
 
 // Create compatibility modules for old imports
 pub mod space {
-    pub use super::{NeuroSpace3, NeuroSpaceWrapper, NeuroSpaceExt};
     pub use super::NeuroSpace as NeuroSpaceImpl;
     pub use super::NeuroSpaceWrapper as GridSpace;
+    pub use super::{NeuroSpace3, NeuroSpaceExt, NeuroSpaceWrapper};
 }
 
 // Wrapper to provide the old API structure that render_loop expects
@@ -37,19 +37,19 @@ impl NeuroSpaceWrapper {
     pub fn new(space: NeuroSpace) -> Self {
         Self(space)
     }
-    
+
     pub fn dims(&self) -> &[usize] {
         &self.0.dim
     }
-    
+
     pub fn spacing(&self) -> Vec<f32> {
         self.0.spacing.iter().map(|&x| x as f32).collect()
     }
-    
+
     pub fn origin(&self) -> Vec<f32> {
         self.0.origin.iter().map(|&x| x as f32).collect()
     }
-    
+
     // Provide access to the transformation matrices that render_loop expects
     pub fn world_to_voxel(&self) -> nalgebra::Matrix4<f32> {
         // Use the inverse transform from the NeuroSpace
@@ -58,7 +58,11 @@ impl NeuroSpaceWrapper {
             // DEBUG: Check if this is actually the inverse
             let voxel_to_world = self.voxel_to_world();
             println!("DEBUG NeuroSpace3 world_to_voxel:");
-            println!("  Original trans matrix dims: {}x{}", self.0.trans.nrows(), self.0.trans.ncols());
+            println!(
+                "  Original trans matrix dims: {}x{}",
+                self.0.trans.nrows(),
+                self.0.trans.ncols()
+            );
             println!("  voxel_to_world: {:?}", voxel_to_world);
             println!("  world_to_voxel (from inverse): {:?}", result);
             // Verify it's actually the inverse
@@ -78,9 +82,9 @@ impl NeuroSpaceWrapper {
             inverse
         }
     }
-    
+
     pub fn voxel_to_world(&self) -> nalgebra::Matrix4<f32> {
-        // Use the forward transform from the NeuroSpace  
+        // Use the forward transform from the NeuroSpace
         self.0.trans.clone().fixed_resize::<4, 4>(0.0).cast::<f32>()
     }
 }
@@ -92,23 +96,30 @@ pub trait NeuroSpaceExt {
     fn origin(&self) -> Vec<f32>;
     fn world_to_voxel(&self) -> nalgebra::Matrix4<f32>;
     fn voxel_to_world(&self) -> nalgebra::Matrix4<f32>;
-    fn from_affine_matrix4(dims: Vec<usize>, transform: nalgebra::Matrix4<f32>) -> std::result::Result<NeuroSpace, VolumeMathError>;
-    fn from_dims_spacing_origin(dims: Vec<usize>, spacing: Vec<f64>, origin: Vec<f64>) -> std::result::Result<NeuroSpace, VolumeMathError>;
+    fn from_affine_matrix4(
+        dims: Vec<usize>,
+        transform: nalgebra::Matrix4<f32>,
+    ) -> std::result::Result<NeuroSpace, VolumeMathError>;
+    fn from_dims_spacing_origin(
+        dims: Vec<usize>,
+        spacing: Vec<f64>,
+        origin: Vec<f64>,
+    ) -> std::result::Result<NeuroSpace, VolumeMathError>;
 }
 
 impl NeuroSpaceExt for NeuroSpace {
     fn dims(&self) -> &[usize] {
         &self.dim
     }
-    
+
     fn spacing(&self) -> Vec<f32> {
         self.spacing.iter().map(|&x| x as f32).collect()
     }
-    
+
     fn origin(&self) -> Vec<f32> {
         self.origin.iter().map(|&x| x as f32).collect()
     }
-    
+
     fn world_to_voxel(&self) -> nalgebra::Matrix4<f32> {
         if let Some(inv) = &self.inverse {
             let result = inv.clone().fixed_resize::<4, 4>(0.0).cast::<f32>();
@@ -123,71 +134,88 @@ impl NeuroSpaceExt for NeuroSpace {
             nalgebra::Matrix4::identity()
         }
     }
-    
+
     fn voxel_to_world(&self) -> nalgebra::Matrix4<f32> {
         println!("DEBUG NeuroSpaceExt voxel_to_world:");
-        println!("  Original trans matrix size: {}x{}", self.trans.nrows(), self.trans.ncols());
+        println!(
+            "  Original trans matrix size: {}x{}",
+            self.trans.nrows(),
+            self.trans.ncols()
+        );
         println!("  Spacing: {:?}", self.spacing);
         println!("  Origin: {:?}", self.origin);
         println!("  Trans matrix:");
         for i in 0..self.trans.nrows().min(4) {
             if self.trans.ncols() >= 4 {
-                println!("    [{:.3}, {:.3}, {:.3}, {:.3}]", 
-                      self.trans[(i,0)], self.trans[(i,1)], 
-                      self.trans[(i,2)], self.trans[(i,3)]);
+                println!(
+                    "    [{:.3}, {:.3}, {:.3}, {:.3}]",
+                    self.trans[(i, 0)],
+                    self.trans[(i, 1)],
+                    self.trans[(i, 2)],
+                    self.trans[(i, 3)]
+                );
             }
         }
         let result = self.trans.clone().fixed_resize::<4, 4>(0.0).cast::<f32>();
         println!("  Result 4x4 matrix: {:?}", result);
         result
     }
-    
-    fn from_affine_matrix4(dims: Vec<usize>, transform: nalgebra::Matrix4<f32>) -> std::result::Result<NeuroSpace, VolumeMathError> {
+
+    fn from_affine_matrix4(
+        dims: Vec<usize>,
+        transform: nalgebra::Matrix4<f32>,
+    ) -> std::result::Result<NeuroSpace, VolumeMathError> {
         // Convert f32 matrix to f64 for neuroim
         let transform_f64 = transform.cast::<f64>();
         let transform_dmatrix = nalgebra::DMatrix::from_fn(4, 4, |i, j| transform_f64[(i, j)]);
-        
+
         NeuroSpace::new(
             dims,
             None, // spacing
-            None, // origin  
+            None, // origin
             None, // axes
             Some(transform_dmatrix),
-        ).map_err(|e| VolumeMathError::NeuroImError(e.to_string()))
+        )
+        .map_err(|e| VolumeMathError::NeuroImError(e.to_string()))
     }
-    
-    fn from_dims_spacing_origin(dims: Vec<usize>, spacing: Vec<f64>, origin: Vec<f64>) -> std::result::Result<NeuroSpace, VolumeMathError> {
+
+    fn from_dims_spacing_origin(
+        dims: Vec<usize>,
+        spacing: Vec<f64>,
+        origin: Vec<f64>,
+    ) -> std::result::Result<NeuroSpace, VolumeMathError> {
         NeuroSpace::new(
             dims,
             Some(spacing),
             Some(origin),
             None, // axes
             None, // transform
-        ).map_err(|e| VolumeMathError::NeuroImError(e.to_string()))
+        )
+        .map_err(|e| VolumeMathError::NeuroImError(e.to_string()))
     }
 }
 
 pub mod dense_vol {
-    pub use super::{DenseVolume3, CompatibleVolume, DataRange, VoxelData, DataRangeStruct};
+    pub use super::{CompatibleVolume, DataRange, DataRangeStruct, DenseVolume3, VoxelData};
 }
 
 pub mod traits {
-    pub use super::{Volume, VolumeHandle, DynVolumeF32, VoxelData};
     pub use super::NumericType;
+    pub use super::{DynVolumeF32, Volume, VolumeHandle, VoxelData};
 }
 
 pub mod axis {
-    pub use super::{AxisName, NamedAxis, AxisSet3D};
+    pub use super::{AxisName, AxisSet3D, NamedAxis};
 }
 
 pub mod view_frame {
-    pub use super::{ViewFrame, Viewport, Plane, VolumeMeta, RenderLayer};
-    pub use super::{make_frame, screen_to_world, world_to_screen, calculate_field_of_view};
+    pub use super::{calculate_field_of_view, make_frame, screen_to_world, world_to_screen};
+    pub use super::{Plane, RenderLayer, ViewFrame, Viewport, VolumeMeta};
 }
 
 // Legacy volume types - now using neuroim equivalents
 pub type VolumeF32_3D = DenseVolume3<f32>;
-pub type VolumeI16_3D = DenseVolume3<i16>; 
+pub type VolumeI16_3D = DenseVolume3<i16>;
 pub type VolumeU8_3D = DenseVolume3<u8>;
 
 // Alias for slices
@@ -208,7 +236,7 @@ pub type DynVolumeF32 = Box<dyn Volume<Dtype = f32>>;
 pub trait VoxelData: neuroim::Numeric {}
 impl<T: neuroim::Numeric> VoxelData for T {}
 
-// Error types 
+// Error types
 #[derive(Debug, Serialize, Deserialize, TS, thiserror::Error)]
 #[ts(export, export_to = "../../packages/api/src/generated/volmath.ts")]
 pub enum VolumeMathError {
@@ -233,24 +261,39 @@ impl From<neuroim::Error> for VolumeMathError {
 }
 
 // Numeric type enum for TypeScript bindings
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)] 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[ts(export, export_to = "../../packages/api/src/generated/volmath.ts")]
-pub enum NumericType { 
-    F32, I16, U8, I8, U16, I32, U32, F64 
+pub enum NumericType {
+    F32,
+    I16,
+    U8,
+    I8,
+    U16,
+    I32,
+    U32,
+    F64,
 }
 
 impl NumericType {
     pub fn from_typeid<T: 'static>() -> Self {
         let type_id = TypeId::of::<T>();
-        if type_id == TypeId::of::<f32>() { NumericType::F32 }
-        else if type_id == TypeId::of::<i16>() { NumericType::I16 }
-        else if type_id == TypeId::of::<u8>() { NumericType::U8 }
-        else if type_id == TypeId::of::<i8>() { NumericType::I8 }
-        else if type_id == TypeId::of::<u16>() { NumericType::U16 }
-        else if type_id == TypeId::of::<i32>() { NumericType::I32 }
-        else if type_id == TypeId::of::<u32>() { NumericType::U32 }
-        else if type_id == TypeId::of::<f64>() { NumericType::F64 }
-        else {
+        if type_id == TypeId::of::<f32>() {
+            NumericType::F32
+        } else if type_id == TypeId::of::<i16>() {
+            NumericType::I16
+        } else if type_id == TypeId::of::<u8>() {
+            NumericType::U8
+        } else if type_id == TypeId::of::<i8>() {
+            NumericType::I8
+        } else if type_id == TypeId::of::<u16>() {
+            NumericType::U16
+        } else if type_id == TypeId::of::<i32>() {
+            NumericType::I32
+        } else if type_id == TypeId::of::<u32>() {
+            NumericType::U32
+        } else if type_id == TypeId::of::<f64>() {
+            NumericType::F64
+        } else {
             panic!("Unsupported type for NumericType::from_typeid");
         }
     }
@@ -277,14 +320,14 @@ impl<T> DataRangeStruct<T> {
 }
 
 // Implement the trait for volume types that need it
-impl<T: Copy> DataRange<T> for DenseVolume3<T> 
+impl<T: Copy> DataRange<T> for DenseVolume3<T>
 where
     T: neuroim::Numeric + PartialOrd + Serialize + PartialEq,
 {
     fn min_value(&self) -> T {
         neuroim::NeuroVol::min(&self.inner).unwrap_or_else(|| T::zero())
     }
-    
+
     fn max_value(&self) -> T {
         neuroim::NeuroVol::max(&self.inner).unwrap_or_else(|| T::zero())
     }
@@ -292,43 +335,75 @@ where
 
 // Implement DataRange for individual numeric types (needed by smart_texture_manager tests)
 impl DataRange<u8> for u8 {
-    fn min_value(&self) -> u8 { *self }
-    fn max_value(&self) -> u8 { *self }
+    fn min_value(&self) -> u8 {
+        *self
+    }
+    fn max_value(&self) -> u8 {
+        *self
+    }
 }
 
 impl DataRange<i8> for i8 {
-    fn min_value(&self) -> i8 { *self }
-    fn max_value(&self) -> i8 { *self }
+    fn min_value(&self) -> i8 {
+        *self
+    }
+    fn max_value(&self) -> i8 {
+        *self
+    }
 }
 
 impl DataRange<u16> for u16 {
-    fn min_value(&self) -> u16 { *self }
-    fn max_value(&self) -> u16 { *self }
+    fn min_value(&self) -> u16 {
+        *self
+    }
+    fn max_value(&self) -> u16 {
+        *self
+    }
 }
 
 impl DataRange<i16> for i16 {
-    fn min_value(&self) -> i16 { *self }
-    fn max_value(&self) -> i16 { *self }
+    fn min_value(&self) -> i16 {
+        *self
+    }
+    fn max_value(&self) -> i16 {
+        *self
+    }
 }
 
 impl DataRange<u32> for u32 {
-    fn min_value(&self) -> u32 { *self }
-    fn max_value(&self) -> u32 { *self }
+    fn min_value(&self) -> u32 {
+        *self
+    }
+    fn max_value(&self) -> u32 {
+        *self
+    }
 }
 
 impl DataRange<i32> for i32 {
-    fn min_value(&self) -> i32 { *self }
-    fn max_value(&self) -> i32 { *self }
+    fn min_value(&self) -> i32 {
+        *self
+    }
+    fn max_value(&self) -> i32 {
+        *self
+    }
 }
 
 impl DataRange<f32> for f32 {
-    fn min_value(&self) -> f32 { *self }
-    fn max_value(&self) -> f32 { *self }
+    fn min_value(&self) -> f32 {
+        *self
+    }
+    fn max_value(&self) -> f32 {
+        *self
+    }
 }
 
 impl DataRange<f64> for f64 {
-    fn min_value(&self) -> f64 { *self }
-    fn max_value(&self) -> f64 { *self }
+    fn min_value(&self) -> f64 {
+        *self
+    }
+    fn max_value(&self) -> f64 {
+        *self
+    }
 }
 
 // Point3D compatibility
@@ -344,21 +419,24 @@ impl Point3D {
     pub fn new(x: f64, y: f64, z: f64) -> Self {
         Self { x, y, z }
     }
-    
+
     pub fn distance(&self, other: &Point3D) -> f64 {
-        ((self.x - other.x).powi(2) + 
-         (self.y - other.y).powi(2) + 
-         (self.z - other.z).powi(2)).sqrt()
+        ((self.x - other.x).powi(2) + (self.y - other.y).powi(2) + (self.z - other.z).powi(2))
+            .sqrt()
     }
 }
 
 // Axis compatibility - re-export neuroim types with legacy names
-pub use neuroim::{NamedAxis, AxisSet3D};
+pub use neuroim::{AxisSet3D, NamedAxis};
 
 // For backward compatibility, create AxisName enum
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum AxisName {
-    X, Y, Z, Time, Unknown
+    X,
+    Y,
+    Z,
+    Time,
+    Unknown,
 }
 
 // === VIEW FRAME COMPATIBILITY ===
@@ -440,15 +518,15 @@ impl<T: neuroim::Numeric + Serialize + PartialEq> DenseVolumeExt<T> for DenseVol
     fn from_data(space: NeuroSpace, data: Vec<T>) -> Self {
         Self::from_data(space, data)
     }
-    
+
     fn space(&self) -> &NeuroSpace {
         self.space()
     }
-    
+
     fn data(&self) -> Vec<T> {
         self.values()
     }
-    
+
     fn range(&self) -> Option<(T, T)> {
         self.range()
     }
@@ -456,7 +534,10 @@ impl<T: neuroim::Numeric + Serialize + PartialEq> DenseVolumeExt<T> for DenseVol
 
 // Enhanced compatibility wrapper for render_loop integration
 #[derive(Debug, Clone, Serialize, PartialEq)]
-pub struct CompatibleVolume<T: neuroim::Numeric> where T: Serialize + PartialEq {
+pub struct CompatibleVolume<T: neuroim::Numeric>
+where
+    T: Serialize + PartialEq,
+{
     pub space: NeuroSpaceWrapper,
     inner: neuroim::DenseNeuroVol<T>,
 }
@@ -464,22 +545,25 @@ pub struct CompatibleVolume<T: neuroim::Numeric> where T: Serialize + PartialEq 
 impl<T: neuroim::Numeric + Serialize + PartialEq> CompatibleVolume<T> {
     pub fn new(volume: neuroim::DenseNeuroVol<T>) -> Self {
         let space = NeuroSpaceWrapper::new(volume.space().clone());
-        Self { space, inner: volume }
+        Self {
+            space,
+            inner: volume,
+        }
     }
-    
+
     pub fn range(&self) -> Option<(T, T)> {
         let min = neuroim::NeuroVol::min(&self.inner)?;
         let max = neuroim::NeuroVol::max(&self.inner)?;
         Some((min, max))
     }
-    
+
     pub fn data_slice(&self, axis: usize, index: usize) -> Vec<T> {
         // Extract slice along the specified axis at the given index
         let dims = &self.inner.space().dim;
         if axis >= 3 || index >= dims[axis] {
             return Vec::new(); // Return empty vec on error for now
         }
-        
+
         // Use neuroim's underlying array access
         let array = &self.inner.data;
         match axis {
@@ -487,98 +571,106 @@ impl<T: neuroim::Numeric + Serialize + PartialEq> CompatibleVolume<T> {
                 // Sagittal slice (YZ plane)
                 let slice = array.index_axis(ndarray::Axis(0), index);
                 slice.iter().cloned().collect()
-            },
+            }
             1 => {
                 // Coronal slice (XZ plane)
                 let slice = array.index_axis(ndarray::Axis(1), index);
                 slice.iter().cloned().collect()
-            },
+            }
             2 => {
                 // Axial slice (XY plane)
                 let slice = array.index_axis(ndarray::Axis(2), index);
                 slice.iter().cloned().collect()
-            },
-            _ => Vec::new()
+            }
+            _ => Vec::new(),
         }
     }
-    
+
     pub fn voxel_type(&self) -> NumericType {
         NumericType::from_typeid::<T>()
     }
-    
+
     pub fn from_data(space: NeuroSpace, data: Vec<T>) -> Self {
         // Convert Vec to Array3 with proper shape - use Fortran order to match neuroim
         let dims = space.dim.clone();
-        
+
         use ndarray::ShapeBuilder;
         let array = ndarray::Array3::from_shape_vec((dims[0], dims[1], dims[2]).f(), data)
             .expect("Data shape mismatch");
-        
-        let volume = neuroim::DenseNeuroVol::new(array, space)
-            .expect("Failed to create DenseNeuroVol");
-            
+
+        let volume =
+            neuroim::DenseNeuroVol::new(array, space).expect("Failed to create DenseNeuroVol");
+
         Self::new(volume)
     }
-    
-    pub fn from_affine_matrix4(space: NeuroSpace, data: Vec<T>, _transform: nalgebra::Matrix4<f32>) -> Self {
+
+    pub fn from_affine_matrix4(
+        space: NeuroSpace,
+        data: Vec<T>,
+        _transform: nalgebra::Matrix4<f32>,
+    ) -> Self {
         // For now, delegate to from_data - the transform is typically handled by the space
         Self::from_data(space, data)
     }
-    
+
     // Provide access to the inner volume for compatibility
     pub fn inner(&self) -> &neuroim::DenseNeuroVol<T> {
         &self.inner
     }
-    
+
     // Delegate common NeuroVol methods
     pub fn space(&self) -> &NeuroSpace {
         self.inner.space()
     }
-    
+
     pub fn values(&self) -> Vec<T> {
         neuroim::NeuroVol::values(&self.inner)
     }
-    
+
     // Additional methods expected by render_loop
-    pub fn get_slice_as_f16_bytes(&self, axis: usize, index: usize) -> std::result::Result<Vec<u8>, VolumeMathError> {
+    pub fn get_slice_as_f16_bytes(
+        &self,
+        axis: usize,
+        index: usize,
+    ) -> std::result::Result<Vec<u8>, VolumeMathError> {
         // Get slice data and convert to f16 bytes
         let slice_data = self.data_slice(axis, index);
         let mut bytes = Vec::with_capacity(slice_data.len() * 2);
-        
+
         for value in slice_data {
             // Convert to f32 first, then to f16, then to bytes
             let f32_val = value.to_f32().unwrap_or(0.0);
             let f16_val = half::f16::from_f32(f32_val);
             bytes.extend_from_slice(&f16_val.to_ne_bytes());
         }
-        
+
         Ok(bytes)
     }
-    
+
     pub fn to_f16_bytes(&self) -> Vec<u8> {
         let data = self.values();
         let mut bytes = Vec::with_capacity(data.len() * 2);
-        
+
         for value in data {
             let f32_val = value.to_f32().unwrap_or(0.0);
             let f16_val = half::f16::from_f32(f32_val);
             bytes.extend_from_slice(&f16_val.to_ne_bytes());
         }
-        
+
         bytes
     }
-    
+
     pub fn get_at_coords(&self, coords: &[usize]) -> Option<T> {
         // Get value at the given coordinates [x, y, z]
         if coords.len() != 3 {
             return None;
         }
-        
+
         let dims = &self.inner.space().dim;
         if coords[0] >= dims[0] || coords[1] >= dims[1] || coords[2] >= dims[2] {
             return None;
         }
-        
+
         // Use the neuroim API directly which handles the correct memory layout
         self.inner.get_at(coords[0], coords[1], coords[2])
     }
@@ -593,14 +685,14 @@ mod tests {
         let result = add(2, 2);
         assert_eq!(result, 4);
     }
-    
+
     #[test]
     fn test_point_distance() {
         let p1 = Point3D::new(0.0, 0.0, 0.0);
         let p2 = Point3D::new(1.0, 1.0, 1.0);
         assert_eq!(p1.distance(&p2), 3.0_f64.sqrt());
     }
-    
+
     #[test]
     fn test_neuroim_integration() {
         // Test that we can create a NeuroSpace using neuroim
@@ -610,8 +702,9 @@ mod tests {
             None,
             None,
             None,
-        ).expect("Failed to create NeuroSpace");
-        
+        )
+        .expect("Failed to create NeuroSpace");
+
         assert_eq!(space.dim, vec![10, 10, 10]);
     }
 }

@@ -32,4 +32,8 @@ export interface ViewState {
   
   // Layer stack with render properties
   layers: ViewLayer[];
+  
+  // Current timepoint for 4D volumes (0-indexed)
+  // Only used when displaying 4D time series data
+  timepoint?: number;
 }

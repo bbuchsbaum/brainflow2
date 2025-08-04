@@ -5,24 +5,24 @@ use nalgebra::Matrix4; // Assuming nalgebra is used for matrices/vectors
 #[repr(C)]
 #[derive(Debug, Copy, Clone, Pod, Zeroable)]
 pub struct FrameUbo {
-    pub origin_mm: [f32; 4],   // Plane center in world mm (homogeneous, w = 1)
-    pub u_mm: [f32; 4],        // World vector mapping to clip space +X (vector, w = 0)
-    pub v_mm: [f32; 4],        // World vector mapping to clip space +Y (vector, w = 0)
-    pub atlas_dim: [u32; 3],   // Dimensions of the 3D texture atlas
-    pub _padding_frame: u32,   // Padding to maintain alignment
-    pub target_dim: [u32; 2],  // Dimensions of the render target
+    pub origin_mm: [f32; 4],  // Plane center in world mm (homogeneous, w = 1)
+    pub u_mm: [f32; 4],       // World vector mapping to clip space +X (vector, w = 0)
+    pub v_mm: [f32; 4],       // World vector mapping to clip space +Y (vector, w = 0)
+    pub atlas_dim: [u32; 3],  // Dimensions of the 3D texture atlas
+    pub _padding_frame: u32,  // Padding to maintain alignment
+    pub target_dim: [u32; 2], // Dimensions of the render target
     pub _padding_target: [u32; 2], // Padding to maintain 16-byte alignment
 }
 
 impl Default for FrameUbo {
     fn default() -> Self {
         Self {
-            origin_mm: [0.0, 0.0, 0.0, 1.0],  // Default origin at world center
-            u_mm: [1.0, 0.0, 0.0, 0.0],       // Default to X axis
-            v_mm: [0.0, 1.0, 0.0, 0.0],       // Default to Y axis
-            atlas_dim: [256, 256, 256],       // Default atlas dimensions
+            origin_mm: [0.0, 0.0, 0.0, 1.0], // Default origin at world center
+            u_mm: [1.0, 0.0, 0.0, 0.0],      // Default to X axis
+            v_mm: [0.0, 1.0, 0.0, 0.0],      // Default to Y axis
+            atlas_dim: [256, 256, 256],      // Default atlas dimensions
             _padding_frame: 0,
-            target_dim: [512, 512],           // Default render target dimensions
+            target_dim: [512, 512], // Default render target dimensions
             _padding_target: [0, 0],
         }
     }
@@ -48,7 +48,6 @@ impl Default for CrosshairUbo {
     }
 }
 
-
 // ViewPlane uniform buffer object - needs 16-byte minimum size
 #[repr(C)]
 #[derive(Debug, Copy, Clone, Pod, Zeroable)]
@@ -61,13 +60,12 @@ pub struct ViewPlaneUbo {
 
 impl Default for ViewPlaneUbo {
     fn default() -> Self {
-        Self { 
+        Self {
             plane_id: 0, // Default to Axial
             _padding: [0; 3],
         }
     }
 }
-
 
 // Verify this matches the WGSL definition (80 bytes total assumed).
 #[repr(C)]
@@ -81,7 +79,7 @@ pub struct LayerUbo {
     // Using nalgebra Vector3<u32> - needs checking for alignment/Pod compatibility
     // Explicit array is safer for bytemuck unless Vector3<u32> is repr(C) and Pod
     // pub dim: Vector3<u32>, // Potential issue: nalgebra Vector3 might not be Pod/repr(C)
-    pub dim: [u32; 3], // Safer alternative
+    pub dim: [u32; 3],   // Safer alternative
     pub pad_slices: u32, // Explicit u32 for padding after dim
     pub opacity: f32,
     pub intensity_min: f32,
@@ -115,7 +113,6 @@ pub struct LayerUbo {
     // We define the fields in Rust matching WGSL order. Bytemuck requires careful alignment.
 }
 
-
 // Updated CrosshairUbo to include show_crosshair flag
 #[repr(C)]
 #[derive(Debug, Copy, Clone, Pod, Zeroable)]
@@ -145,26 +142,26 @@ impl Default for CrosshairUboUpdated {
 pub struct LayerUboStd140 {
     // --- 16-byte aligned types first ---
     pub world_to_voxel: [[f32; 4]; 4], // 64 bytes, offset 0
-    pub texture_coords: [f32; 4],       // 16 bytes, offset 64 (vec4<f32>)
-    
+    pub texture_coords: [f32; 4],      // 16 bytes, offset 64 (vec4<f32>)
+
     // --- Pack scalars and vec3 carefully ---
-    pub dim: [u32; 3],                  // 12 bytes, offset 80
-    pub pad_slices: u32,                // 4 bytes, offset 92 (completes 16-byte block)
-    
-    pub colormap_id: u32,               // 4 bytes, offset 96
-    pub blend_mode: u32,                // 4 bytes, offset 100
-    pub texture_index: u32,             // 4 bytes, offset 104 (matches WGSL field name)
-    pub threshold_mode: u32,            // 4 bytes, offset 108 (completes 16-byte block)
-    
-    pub opacity: f32,                   // 4 bytes, offset 112
-    pub intensity_min: f32,             // 4 bytes, offset 116
-    pub intensity_max: f32,             // 4 bytes, offset 120
-    pub thresh_low: f32,                // 4 bytes, offset 124 (completes 16-byte block)
-    
-    pub thresh_high: f32,               // 4 bytes
-    pub is_mask: u32,                   // 4 bytes
-    pub _pad: [f32; 2],                 // 8 bytes to complete 16-byte block
-    // Total size: 64 + 16 + 16 + 16 + 16 + 16 = 144 bytes (9 * 16-byte blocks)
+    pub dim: [u32; 3],   // 12 bytes, offset 80
+    pub pad_slices: u32, // 4 bytes, offset 92 (completes 16-byte block)
+
+    pub colormap_id: u32,    // 4 bytes, offset 96
+    pub blend_mode: u32,     // 4 bytes, offset 100
+    pub texture_index: u32,  // 4 bytes, offset 104 (matches WGSL field name)
+    pub threshold_mode: u32, // 4 bytes, offset 108 (completes 16-byte block)
+
+    pub opacity: f32,       // 4 bytes, offset 112
+    pub intensity_min: f32, // 4 bytes, offset 116
+    pub intensity_max: f32, // 4 bytes, offset 120
+    pub thresh_low: f32,    // 4 bytes, offset 124 (completes 16-byte block)
+
+    pub thresh_high: f32, // 4 bytes
+    pub is_mask: u32,     // 4 bytes
+    pub _pad: [f32; 2],   // 8 bytes to complete 16-byte block
+                          // Total size: 64 + 16 + 16 + 16 + 16 + 16 = 144 bytes (9 * 16-byte blocks)
 }
 
 impl Default for LayerUboStd140 {
@@ -196,28 +193,28 @@ impl Default for LayerUboStd140 {
 pub struct LayerDataOptimized {
     // --- 16-byte aligned types first ---
     pub world_to_voxel: [[f32; 4]; 4], // 64 bytes, offset 0
-    
+
     // --- Volume info ---
-    pub dim: [u32; 3],                  // 12 bytes, offset 64
-    pub texture_index: u32,             // 4 bytes, offset 76 (completes 16-byte block)
-    
+    pub dim: [u32; 3],      // 12 bytes, offset 64
+    pub texture_index: u32, // 4 bytes, offset 76 (completes 16-byte block)
+
     // --- Rendering parameters ---
-    pub colormap_id: u32,               // 4 bytes, offset 80
-    pub blend_mode: u32,                // 4 bytes, offset 84
-    pub threshold_mode: u32,            // 4 bytes, offset 88
-    pub is_mask: u32,                   // 4 bytes, offset 92 (completes 16-byte block)
-    
-    pub opacity: f32,                   // 4 bytes, offset 96
-    pub intensity_min: f32,             // 4 bytes, offset 100
-    pub intensity_max: f32,             // 4 bytes, offset 104
-    pub thresh_low: f32,                // 4 bytes, offset 108 (completes 16-byte block)
-    
-    pub thresh_high: f32,               // 4 bytes, offset 112
+    pub colormap_id: u32,    // 4 bytes, offset 80
+    pub blend_mode: u32,     // 4 bytes, offset 84
+    pub threshold_mode: u32, // 4 bytes, offset 88
+    pub is_mask: u32,        // 4 bytes, offset 92 (completes 16-byte block)
+
+    pub opacity: f32,       // 4 bytes, offset 96
+    pub intensity_min: f32, // 4 bytes, offset 100
+    pub intensity_max: f32, // 4 bytes, offset 104
+    pub thresh_low: f32,    // 4 bytes, offset 108 (completes 16-byte block)
+
+    pub thresh_high: f32, // 4 bytes, offset 112
     // Performance optimization: precomputed values
-    pub inv_intensity_delta: f32,       // 4 bytes, offset 116 - 1.0 / (intensity_max - intensity_min)
-    pub voxel_size_estimate: f32,       // 4 bytes, offset 120 - Approximate voxel size for LOD
-    pub _padding: f32,                  // 4 bytes, offset 124 (completes 16-byte block)
-    // Total size: 64 + 16 + 16 + 16 + 16 = 128 bytes (8 * 16-byte blocks)
+    pub inv_intensity_delta: f32, // 4 bytes, offset 116 - 1.0 / (intensity_max - intensity_min)
+    pub voxel_size_estimate: f32, // 4 bytes, offset 120 - Approximate voxel size for LOD
+    pub _padding: f32,            // 4 bytes, offset 124 (completes 16-byte block)
+                                  // Total size: 64 + 16 + 16 + 16 + 16 = 128 bytes (8 * 16-byte blocks)
 }
 
 impl Default for LayerDataOptimized {
@@ -227,7 +224,7 @@ impl Default for LayerDataOptimized {
             dim: [0; 3],
             texture_index: 0,
             colormap_id: 0,
-            blend_mode: 0, // Default to alpha
+            blend_mode: 0,     // Default to alpha
             threshold_mode: 0, // Default to range thresholding
             is_mask: 0,
             opacity: 1.0,
@@ -240,4 +237,4 @@ impl Default for LayerDataOptimized {
             _padding: 0.0,
         }
     }
-} 
+}

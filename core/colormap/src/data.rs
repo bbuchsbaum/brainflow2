@@ -45,12 +45,12 @@ impl BuiltinColormap {
             Self::Reserved15 => &GRAYSCALE, // fallback
         }
     }
-    
+
     /// Get the numeric ID for this colormap
     pub const fn id(&self) -> u8 {
         *self as u8
     }
-    
+
     /// Total count of builtin colormaps
     pub const COUNT: usize = 16;
 }
@@ -97,12 +97,7 @@ pub const COOL: [[u8; 4]; 256] = {
     let mut i = 0;
     while i < 256 {
         let t = i as f32 / 255.0;
-        lut[i] = [
-            (t * 255.0) as u8,
-            ((1.0 - t) * 255.0) as u8,
-            255,
-            255
-        ];
+        lut[i] = [(t * 255.0) as u8, ((1.0 - t) * 255.0) as u8, 255, 255];
         i += 1;
     }
     lut
@@ -136,11 +131,10 @@ pub const PET_HOT_METAL: [[u8; 4]; 256] = {
 /// fMRI activation map - blue (negative) to red (positive) with white at zero
 pub const FMRI_RED_BLUE: [[u8; 4]; 256] = include!("colormaps/fmri_redblue.rs");
 
-
 /// Phase colormap for complex-valued data (circular HSV)
 pub const PHASE: [[u8; 4]; 256] = include!("colormaps/phase.rs");
 
-/// HSV colormap 
+/// HSV colormap
 pub const HSV: [[u8; 4]; 256] = PHASE; // Same as phase for now
 
 /// Placeholder for scientific colormaps - will be loaded from include files
@@ -154,20 +148,20 @@ pub const JET: [[u8; 4]; 256] = include!("colormaps/jet.rs");
 
 /// All builtin colormaps packed for GPU upload
 pub const BUILTIN_COLORMAPS: [[[u8; 4]; 256]; 16] = [
-    GRAYSCALE,      // 0
-    VIRIDIS,        // 1
-    HOT,            // 2
-    COOL,           // 3
-    PLASMA,         // 4
-    INFERNO,        // 5
-    MAGMA,          // 6
-    TURBO,          // 7
-    PET_HOT_METAL,  // 8
-    FMRI_RED_BLUE,  // 9
-    JET,            // 10
-    PARULA,         // 11
-    HSV,            // 12
-    PHASE,          // 13
-    GRAYSCALE,      // 14 (reserved)
-    GRAYSCALE,      // 15 (reserved)
+    GRAYSCALE,     // 0
+    VIRIDIS,       // 1
+    HOT,           // 2
+    COOL,          // 3
+    PLASMA,        // 4
+    INFERNO,       // 5
+    MAGMA,         // 6
+    TURBO,         // 7
+    PET_HOT_METAL, // 8
+    FMRI_RED_BLUE, // 9
+    JET,           // 10
+    PARULA,        // 11
+    HSV,           // 12
+    PHASE,         // 13
+    GRAYSCALE,     // 14 (reserved)
+    GRAYSCALE,     // 15 (reserved)
 ];

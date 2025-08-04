@@ -6,7 +6,7 @@ mod integration_tests {
     use std::path::PathBuf;
     use volmath::space::GridSpace;
     use volmath::traits::Volume;
-    
+
     // Helper to get test data path
     fn test_data_path() -> PathBuf {
         let mut path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
@@ -20,19 +20,19 @@ mod integration_tests {
     #[test]
     fn test_nifti_loader_integration() {
         let test_file = test_data_path().join("toy_t1w.nii.gz");
-        
+
         if !test_file.exists() {
             println!("Skipping test - test file not found at {:?}", test_file);
             return;
         }
-        
+
         // Test can_load
         assert!(NiftiLoader::can_load(&test_file));
-        
+
         // Test load
         let result = NiftiLoader::load(&test_file);
         assert!(result.is_ok());
-        
+
         match result.unwrap() {
             Loaded::Volume { dims, dtype, path } => {
                 assert_eq!(dims, [10, 10, 10]);
@@ -46,34 +46,34 @@ mod integration_tests {
     #[test]
     fn test_load_nifti_volume_data() {
         let test_file = test_data_path().join("toy_t1w.nii.gz");
-        
+
         if !test_file.exists() {
             println!("Skipping test - test file not found at {:?}", test_file);
             return;
         }
-        
-        use std::fs::File;
+
         use flate2::read::GzDecoder;
-        
+        use std::fs::File;
+
         let file = File::open(&test_file).unwrap();
         let reader = GzDecoder::new(file);
         let result = nifti_loader::load_nifti_volume(reader);
-        
+
         assert!(result.is_ok());
         let (volume_sendable, affine) = result.unwrap();
-        
+
         match volume_sendable {
             VolumeSendable::VolF32(vol, _) => {
                 let dims = vol.space().dims();
                 assert_eq!(dims, &[10, 10, 10]);
-                
+
                 // Test that we can access the volume data
                 let dims_prod = dims[0] * dims[1] * dims[2];
                 assert_eq!(dims_prod, 1000); // 10 * 10 * 10
             }
             _ => panic!("Expected VolF32 variant"),
         }
-        
+
         // Test that affine is valid (4x4 matrix)
         let matrix = affine.to_homogeneous();
         assert_eq!(matrix.nrows(), 4);
@@ -89,7 +89,7 @@ mod integration_tests {
             slice_axis: None,
             slice_index: None,
         });
-        
+
         match spec {
             LayerSpec::Volume(vol_spec) => {
                 assert_eq!(vol_spec.id, "layer-1");

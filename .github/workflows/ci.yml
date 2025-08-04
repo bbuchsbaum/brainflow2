@@ -154,6 +154,28 @@ jobs:
     - name: Run Playwright E2E Tests
       if: matrix.os == 'ubuntu-latest' # Only run E2E on Linux for now
       run: pnpm test:e2e
+      
+    - name: Run Atlas Menu System E2E Tests
+      if: matrix.os == 'ubuntu-latest'
+      run: |
+        cd e2e
+        npm ci
+        npx playwright test atlas-menu-system.spec.ts --reporter=html
+        
+    - name: Run Security Validation E2E Tests
+      if: matrix.os == 'ubuntu-latest'
+      run: |
+        cd e2e
+        npx playwright test security-validation.spec.ts --reporter=html
+        
+    - name: Upload E2E Test Results
+      if: failure() && matrix.os == 'ubuntu-latest'
+      uses: actions/upload-artifact@v4
+      with:
+        name: e2e-test-results
+        path: |
+          e2e/playwright-report/
+          e2e/test-results/
 
     - name: Build WASM Target (for volmath - adjust if needed)
       run: cargo build --package volmath --target wasm32-unknown-unknown --verbose

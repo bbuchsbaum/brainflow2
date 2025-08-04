@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-toggle-atlas-favorite"
+description = "Enables the toggle_atlas_favorite command without any pre-configured scope."
+commands.allow = ["toggle_atlas_favorite"]
+
+[[permission]]
+identifier = "deny-toggle-atlas-favorite"
+description = "Denies the toggle_atlas_favorite command without any pre-configured scope."
+commands.deny = ["toggle_atlas_favorite"]

@@ -21,6 +21,7 @@ import './FileBrowserPanel.css';
 import { useFileBrowserStore } from '@/stores/fileBrowserStore';
 import type { FileTreeNode, DragFileData } from '@/types/filesystem';
 import { getEventBus } from '@/events/EventBus';
+import { PanelErrorBoundary } from '../common/PanelErrorBoundary';
 
 interface FileNodeData {
   id: string;
@@ -252,7 +253,7 @@ const PanelHeader: React.FC<{
   );
 };
 
-export const FileBrowserPanel: React.FC = () => {
+const FileBrowserPanelContent: React.FC = () => {
   const fileBrowserStore = useFileBrowserStore();
   const [searchInput, setSearchInput] = useState('');
   const [, forceUpdate] = useState({});
@@ -563,5 +564,14 @@ export const FileBrowserPanel: React.FC = () => {
         )}
       </div>
     </div>
+  );
+};
+
+// Export wrapped component with error boundary
+export const FileBrowserPanel: React.FC = () => {
+  return (
+    <PanelErrorBoundary panelName="FileBrowserPanel">
+      <FileBrowserPanelContent />
+    </PanelErrorBoundary>
   );
 };

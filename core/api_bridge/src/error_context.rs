@@ -7,7 +7,7 @@ pub trait ErrorContext<T> {
     fn context_any<C>(self, context: C) -> Result<T>
     where
         C: std::fmt::Display + Send + Sync + 'static;
-        
+
     /// Add context and convert to BridgeResult
     fn context_bridge<C>(self, context: C, code: u16) -> bridge_types::BridgeResult<T>
     where
@@ -24,7 +24,7 @@ where
     {
         self.context(context)
     }
-    
+
     fn context_bridge<C>(self, context: C, code: u16) -> bridge_types::BridgeResult<T>
     where
         C: std::fmt::Display + Send + Sync + 'static,
@@ -71,24 +71,19 @@ macro_rules! context_here {
 pub fn volume_not_found_context(volume_id: &str, operation: &str) -> BridgeError {
     BridgeError::VolumeNotFound {
         code: 4040,
-        details: format!(
-            "Volume '{}' not found while {}", 
-            volume_id, 
-            operation
-        ),
+        details: format!("Volume '{}' not found while {}", volume_id, operation),
     }
 }
 
 /// Helper for layer-specific errors with context
-pub fn layer_error_context(layer_id: &str, operation: &str, error: impl std::fmt::Display) -> BridgeError {
+pub fn layer_error_context(
+    layer_id: &str,
+    operation: &str,
+    error: impl std::fmt::Display,
+) -> BridgeError {
     BridgeError::Internal {
         code: 5050,
-        details: format!(
-            "Layer '{}' error during {}: {}", 
-            layer_id, 
-            operation,
-            error
-        ),
+        details: format!("Layer '{}' error during {}: {}", layer_id, operation, error),
     }
 }
 
@@ -96,25 +91,23 @@ pub fn layer_error_context(layer_id: &str, operation: &str, error: impl std::fmt
 pub fn gpu_error_context(operation: &str, error: impl std::fmt::Display) -> BridgeError {
     BridgeError::GpuError {
         code: 5060,
-        details: format!(
-            "GPU error during {}: {}", 
-            operation,
-            error
-        ),
+        details: format!("GPU error during {}: {}", operation, error),
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_error_context() {
-        let result: std::result::Result<i32, std::io::Error> = 
-            Err(std::io::Error::new(std::io::ErrorKind::NotFound, "file missing"));
-            
+        let result: std::result::Result<i32, std::io::Error> = Err(std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            "file missing",
+        ));
+
         let bridge_result = result.context_bridge("loading configuration", 1001);
-        
+
         match bridge_result {
             Err(BridgeError::Internal { code, details }) => {
                 assert_eq!(code, 1001);
@@ -124,12 +117,12 @@ mod tests {
             _ => panic!("Expected Internal error"),
         }
     }
-    
+
     #[test]
     fn test_option_context() {
         let option: Option<i32> = None;
         let result = option.context_bridge("value not found", 2002);
-        
+
         match result {
             Err(BridgeError::Internal { code, details }) => {
                 assert_eq!(code, 2002);

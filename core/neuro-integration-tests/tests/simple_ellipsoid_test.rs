@@ -1,16 +1,16 @@
 //! Simple ellipsoid test to verify the core functionality works
 
+use nalgebra::{Point3, Rotation3, Vector3};
 use neuro_types::{OrientedEllipsoid, OverlapMetrics};
-use nalgebra::{Point3, Vector3, Rotation3};
 
 #[test]
 fn test_basic_ellipsoid_creation() {
     let center = Point3::new(0.0, 0.0, 0.0);
     let radii = Vector3::new(5.0, 3.0, 2.0);
     let rotation = Rotation3::identity();
-    
+
     let ellipsoid = OrientedEllipsoid::new(center, radii, rotation, 1.0).unwrap();
-    
+
     // Basic properties
     assert_eq!(ellipsoid.center, center);
     assert_eq!(ellipsoid.radii, radii);
@@ -23,10 +23,10 @@ fn test_ellipsoid_overlap_metrics() {
     let center = Point3::new(0.0, 0.0, 0.0);
     let radii = Vector3::new(5.0, 5.0, 5.0);
     let rotation = Rotation3::identity();
-    
+
     let ellipsoid1 = OrientedEllipsoid::new(center, radii, rotation, 1.0).unwrap();
     let ellipsoid2 = OrientedEllipsoid::new(center, radii, rotation, 1.0).unwrap();
-    
+
     // For now, just test that the ellipsoids are created successfully
     // Full comparison would require volume rasterization which we'll add later
     assert_eq!(ellipsoid1.center, ellipsoid2.center);
@@ -49,7 +49,7 @@ fn test_basic_overlap_metrics() {
         contains_nan: false,
         contains_inf: false,
     };
-    
+
     assert_eq!(metrics.dice_coefficient, 0.95);
     assert_eq!(metrics.hausdorff_distance_mm, 1.2);
     assert_eq!(metrics.average_symmetric_surface_distance_mm, 0.8);

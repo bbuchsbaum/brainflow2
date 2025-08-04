@@ -1,0 +1,85 @@
+/* Custom slider styles for SliceSlider component */
+
+/* Base slider reset and track */
+input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+  background: transparent;
+  cursor: pointer;
+}
+
+/* Specific styles for our custom slider to ensure it's interactive */
+input[type="range"].slider-custom {
+  -webkit-appearance: none !important;
+  appearance: none !important;
+  background: transparent;
+  cursor: pointer;
+  position: relative;
+  z-index: 1;
+}
+
+/* Track styles */
+input[type="range"]::-webkit-slider-track {
+  background: #374151; /* gray-700 */
+  height: 4px;
+  border-radius: 2px;
+}
+
+input[type="range"]::-moz-range-track {
+  background: #374151; /* gray-700 */
+  height: 4px;
+  border-radius: 2px;
+}
+
+/* Thumb styles */
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  background: #3b82f6; /* blue-500 */
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  margin-top: -6px; /* Center thumb on track */
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+input[type="range"]::-moz-range-thumb {
+  border: none;
+  background: #3b82f6; /* blue-500 */
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+/* Hover states */
+input[type="range"]:hover::-webkit-slider-thumb {
+  background: #60a5fa; /* blue-400 */
+  transform: scale(1.1);
+}
+
+input[type="range"]:hover::-moz-range-thumb {
+  background: #60a5fa; /* blue-400 */
+  transform: scale(1.1);
+}
+
+/* Disabled states */
+input[type="range"]:disabled::-webkit-slider-thumb {
+  background: #6b7280; /* gray-500 */
+  cursor: not-allowed;
+}
+
+input[type="range"]:disabled::-moz-range-thumb {
+  background: #6b7280; /* gray-500 */
+  cursor: not-allowed;
+}
+
+input[type="range"]:disabled::-webkit-slider-track {
+  background: #1f2937; /* gray-800 */
+}
+
+input[type="range"]:disabled::-moz-range-track {
+  background: #1f2937; /* gray-800 */
+}

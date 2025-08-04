@@ -1,8 +1,8 @@
-use std::path::Path;
 use bridge_types::{BridgeResult, Loaded};
-use std::sync::{Arc, OnceLock};
-use std::collections::HashMap;
 use log::debug;
+use std::collections::HashMap;
+use std::path::Path;
+use std::sync::{Arc, OnceLock};
 
 // --- Loader Trait (Re-exported or Defined) ---
 // Assuming the Loader trait is defined in bridge_types as planned.
@@ -46,14 +46,17 @@ impl LoaderRegistry {
     /// Finds the appropriate load function for a given path.
     /// Returns the first matching loader's load function.
     pub fn find_loader_for(&self, path: &Path) -> Option<LoadFn> {
-        self.loaders.values()
+        self.loaders
+            .values()
             .find(|(can_load_fn, _)| can_load_fn(path))
             .map(|(_, load_fn)| *load_fn)
     }
 
     /// Checks if any registered loader can handle the path.
     pub fn is_loadable(&self, path: &Path) -> bool {
-        self.loaders.values().any(|(can_load_fn, _)| can_load_fn(path))
+        self.loaders
+            .values()
+            .any(|(can_load_fn, _)| can_load_fn(path))
     }
 }
 
@@ -114,4 +117,4 @@ pub fn find_loader_for(path: &Path) -> Option<LoadFn> {
 //     else {
 //         None
 //     }
-// } 
+// }

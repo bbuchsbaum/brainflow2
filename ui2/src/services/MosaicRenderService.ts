@@ -10,6 +10,7 @@ import { useViewStateStore } from '@/stores/viewStateStore';
 import { getEventBus } from '@/events/EventBus';
 import type { ViewState } from '@/types/viewState';
 import type { ViewPlane } from '@/types/coordinates';
+import { CoordinateTransform } from '@/utils/coordinates';
 
 export interface MosaicRenderRequest {
   sliceIndex: number;
@@ -17,6 +18,11 @@ export interface MosaicRenderRequest {
   cellId: string;
   width: number;
   height: number;
+}
+
+export interface CrosshairInfo {
+  screenCoord: [number, number] | null;
+  isActive: boolean; // true if this slice contains the global crosshair
 }
 
 class MosaicRenderService {
@@ -97,6 +103,88 @@ class MosaicRenderService {
   cancelRenders(cellIds: string[]): void {
     for (const cellId of cellIds) {
       this.activeRenders.delete(cellId);
+    }
+  }
+  
+  /**
+   * Calculate crosshair information for a mosaic cell
+   * Returns screen coordinates if the global crosshair should be visible on this slice
+   */
+  calculateCrosshairForCell(
+    globalCrosshair: [number, number, number],
+    axis: 'axial' | 'sagittal' | 'coronal',
+    slicePosition: number,
+    viewPlane: ViewPlane
+  ): CrosshairInfo {
+    console.log(`[MosaicRenderService] calculateCrosshairForCell:`, {
+      globalCrosshair,
+      axis,
+      slicePosition,
+      viewPlane: {
+        origin_mm: viewPlane.origin_mm,
+        u_mm: viewPlane.u_mm,
+        v_mm: viewPlane.v_mm,
+        dim_px: viewPlane.dim_px
+      }
+    });
+    
+    // Check if the crosshair is on this slice (within 1mm tolerance)
+    let isOnSlice = false;
+    let diff = 0;
+    switch (axis) {
+      case 'axial':
+        diff = Math.abs(globalCrosshair[2] - slicePosition);
+        isOnSlice = diff < 1.0;
+        break;
+      case 'sagittal':
+        diff = Math.abs(globalCrosshair[0] - slicePosition);
+        isOnSlice = diff < 1.0;
+        break;
+      case 'coronal':
+        diff = Math.abs(globalCrosshair[1] - slicePosition);
+        isOnSlice = diff < 1.0;
+        break;
+    }
+    console.log(`[MosaicRenderService] Slice at ${slicePosition}, crosshair diff: ${diff}, isOnSlice: ${isOnSlice}`);
+    
+    if (!isOnSlice) {
+      // This is a mirror crosshair - project the global crosshair onto this slice
+      let projectedCrosshair: [number, number, number];
+      switch (axis) {
+        case 'axial':
+          projectedCrosshair = [globalCrosshair[0], globalCrosshair[1], slicePosition];
+          break;
+        case 'sagittal':
+          projectedCrosshair = [slicePosition, globalCrosshair[1], globalCrosshair[2]];
+          break;
+        case 'coronal':
+          projectedCrosshair = [globalCrosshair[0], slicePosition, globalCrosshair[2]];
+          break;
+      }
+      
+      // Transform to screen coordinates without plane tolerance check
+      const screenCoord = CoordinateTransform.worldToScreenUnchecked(projectedCrosshair, viewPlane);
+      console.log(`[MosaicRenderService] Mirror crosshair:`, {
+        projectedCrosshair,
+        screenCoord,
+        isActive: false
+      });
+      return {
+        screenCoord,
+        isActive: false
+      };
+    } else {
+      // This is the active crosshair slice
+      const screenCoord = CoordinateTransform.worldToScreenUnchecked(globalCrosshair, viewPlane);
+      console.log(`[MosaicRenderService] Active crosshair:`, {
+        globalCrosshair,
+        screenCoord,
+        isActive: true
+      });
+      return {
+        screenCoord,
+        isActive: true
+      };
     }
   }
   
@@ -230,9 +318,10 @@ class MosaicRenderService {
     
     
     // Update crosshair to the slice position
+    // Keep the original crosshair for coordinate calculations but hide it from rendering
     modifiedViewState.crosshair = {
       world_mm: slicePosition,
-      visible: false // Hide crosshair for mosaic cells
+      visible: false // Hide crosshair for mosaic cells - we'll draw it ourselves
     };
     
     // CRITICAL: Update the view plane for the mosaic cell

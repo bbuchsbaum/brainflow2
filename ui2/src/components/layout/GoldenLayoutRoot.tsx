@@ -10,6 +10,7 @@ import { useWorkspaceStore } from '@/stores/workspaceStore';
 import { listen } from '@tauri-apps/api/event';
 import { debounce } from 'lodash';
 import type { WorkspaceType } from '@/types/workspace';
+import { CrosshairProvider } from '@/contexts/CrosshairContext';
 
 // Import workspace components
 import { OrthogonalViewContainer } from '@/components/views/OrthogonalViewContainer';
@@ -22,6 +23,8 @@ import { CoordinateConverterWorkspace } from '@/components/tools/CoordinateConve
 // Import side panel components
 import { FileBrowserPanel } from '@/components/panels/FileBrowserPanel';
 import { LayerPanel } from '@/components/panels/LayerPanel';
+import { PlotPanel } from '@/components/panels/PlotPanel';
+import { AtlasPanel } from '@/components/panels/AtlasPanel';
 
 // Import GoldenLayout styles
 import 'golden-layout/dist/css/goldenlayout-base.css';
@@ -178,10 +181,12 @@ export function GoldenLayoutRoot() {
       
       root.render(
         <React.StrictMode>
-          <WorkspaceComponent 
-            workspaceId={workspaceId} 
-            workspaceType={workspaceType}
-          />
+          <CrosshairProvider>
+            <WorkspaceComponent 
+              workspaceId={workspaceId} 
+              workspaceType={workspaceType}
+            />
+          </CrosshairProvider>
         </React.StrictMode>
       );
 
@@ -210,10 +215,22 @@ export function GoldenLayoutRoot() {
         container.element.appendChild(rootElement);
 
         const root = ReactDOM.createRoot(rootElement);
-        root.render(
-          <React.StrictMode>
+        
+        // Skip StrictMode for AtlasPanel and LayerPanel to prevent double-mounting race conditions
+        const shouldUseStrictMode = name !== 'AtlasPanel' && name !== 'LayerPanel';
+        
+        const componentElement = (
+          <CrosshairProvider>
             <Component {...(state || {})} />
-          </React.StrictMode>
+          </CrosshairProvider>
+        );
+        
+        root.render(
+          shouldUseStrictMode ? (
+            <React.StrictMode>
+              {componentElement}
+            </React.StrictMode>
+          ) : componentElement
         );
 
         container.on('destroy', () => {
@@ -227,6 +244,8 @@ export function GoldenLayoutRoot() {
 
     registerSidePanelComponent('FileBrowser', FileBrowserPanel);
     registerSidePanelComponent('LayerPanel', LayerPanel);
+    registerSidePanelComponent('PlotPanel', PlotPanel);
+    registerSidePanelComponent('AtlasPanel', AtlasPanel);
 
     // Listen for active tab changes
     goldenLayout.on('activeContentItemChanged', (item) => {
@@ -265,12 +284,33 @@ export function GoldenLayoutRoot() {
           {
             type: 'column',
             width: 20,
-            content: [{
-              type: 'component',
-              componentType: 'LayerPanel',
-              title: 'Layers',
-              componentState: {}
-            }]
+            content: [
+              {
+                type: 'stack',
+                height: 70,
+                content: [
+                  {
+                    type: 'component',
+                    componentType: 'LayerPanel',
+                    title: 'Layers',
+                    componentState: {}
+                  },
+                  {
+                    type: 'component',
+                    componentType: 'AtlasPanel',
+                    title: 'Atlases',
+                    componentState: {}
+                  }
+                ]
+              },
+              {
+                type: 'component',
+                componentType: 'PlotPanel',
+                title: 'Plots',
+                height: 30,
+                componentState: {}
+              }
+            ]
           }
         ]
       }
@@ -278,12 +318,77 @@ export function GoldenLayoutRoot() {
     
     goldenLayout.loadLayout(config);
     
+    // Add panel event listener for menu-triggered panel additions
+    const handlePanelAdd = (event: CustomEvent) => {
+      const { panelType } = event.detail;
+      console.log(`[GoldenLayoutRoot] Adding panel: ${panelType}`);
+      
+      try {
+        // Find the right column to add to (right column is at index 2 in the row)
+        const root = goldenLayout.rootItem;
+        if (!root || root.type !== 'row') {
+          console.error('[GoldenLayoutRoot] Root is not a row');
+          return;
+        }
+        
+        const rightColumn = root.contentItems[2]; // Right column (third item in row)
+        if (!rightColumn || rightColumn.type !== 'column') {
+          console.error('[GoldenLayoutRoot] Could not find right column');
+          return;
+        }
+        
+        const panelConfig = {
+          type: 'component' as const,
+          componentType: panelType,
+          title: getPanelTitle(panelType),
+          componentState: {}
+        };
+        
+        // Determine where to add the panel based on its type
+        const newItem = goldenLayout.newItem(panelConfig);
+        
+        if (panelType === 'LayerPanel' || panelType === 'AtlasPanel') {
+          // Add to the tabbed stack (first item in right column)
+          const tabbedStack = rightColumn.contentItems[0];
+          if (tabbedStack && tabbedStack.type === 'stack') {
+            tabbedStack.addChild(newItem);
+            console.log(`[GoldenLayoutRoot] Panel ${panelType} added to tabbed stack`);
+          } else {
+            console.error('[GoldenLayoutRoot] Could not find tabbed stack for LayerPanel/AtlasPanel');
+            rightColumn.addChild(newItem); // Fallback: add to column
+          }
+        } else {
+          // Add other panels directly to the column
+          rightColumn.addChild(newItem);
+          console.log(`[GoldenLayoutRoot] Panel ${panelType} added to column`);
+        }
+      } catch (error) {
+        console.error(`[GoldenLayoutRoot] Failed to add panel ${panelType}:`, error);
+      }
+    };
+    
+    // Helper function to get panel titles
+    const getPanelTitle = (panelType: string): string => {
+      switch (panelType) {
+        case 'FileBrowser': return 'Files';
+        case 'LayerPanel': return 'Layers';
+        case 'AtlasPanel': return 'Atlases';
+        case 'PlotPanel': return 'Plots';
+        default: return panelType;
+      }
+    };
+    
+    window.addEventListener('golden-layout-add-panel', handlePanelAdd);
+    
     // Mark layout as ready after a small delay
     setTimeout(() => {
       setIsLayoutReady(true);
     }, 50);
 
     return () => {
+      // Remove panel event listener
+      window.removeEventListener('golden-layout-add-panel', handlePanelAdd);
+      
       // First destroy GoldenLayout which will trigger component destroy events
       if (layoutRef.current) {
         layoutRef.current.destroy();

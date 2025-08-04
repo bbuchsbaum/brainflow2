@@ -8,7 +8,7 @@ import { temporal } from 'zundo';
 import { immer } from 'zustand/middleware/immer';
 import type { ViewState } from '@/types/viewState';
 import type { ViewType, ViewPlane, WorldCoordinates } from '@/types/coordinates';
-import { coalesceUpdatesMiddleware } from './middleware/coalesceUpdatesMiddleware';
+import { coalesceUpdatesMiddleware, coalesceUtils } from './middleware/coalesceUpdatesMiddleware';
 import { getApiService } from '@/services/apiService';
 
 // Declare global interface for store
@@ -62,6 +62,7 @@ interface ViewStateStore {
   // Actions
   setViewState: (updater: (state: ViewState) => ViewState | void) => void;
   setCrosshair: (world_mm: WorldCoordinates, updateViews?: boolean, immediate?: boolean) => Promise<void>;
+  setCrosshairVisible: (visible: boolean) => void;
   updateView: (viewType: ViewType, plane: ViewPlane) => void;
   updateViewDimensions: (viewType: ViewType, dimensions: [number, number]) => Promise<void>;
   updateDimensionsAndPreserveScale: (viewType: ViewType, dimensions: [number, number]) => Promise<void>;
@@ -136,6 +137,12 @@ const createViewStateStore = () => create<ViewStateStore>()(
                     layer.intensity[1] > 7878 && layer.intensity[1] < 7879) {
                   console.error(`[viewStateStore] ❌ WARNING: 20-80% default intensity detected for layer ${layer.id}!`);
                   console.error(`[viewStateStore] This update is resetting user's intensity values!`);
+                  console.error(`[viewStateStore] Update details:`, {
+                    layerId: layer.id,
+                    intensity: layer.intensity,
+                    caller: caller,
+                    timestamp: timestamp
+                  });
                   console.trace('Stack trace for problematic intensity update:');
                 }
               }
@@ -146,6 +153,12 @@ const createViewStateStore = () => create<ViewStateStore>()(
             console.log(`[viewStateStore ${performance.now() - timestamp}ms] No state update (updater returned void)`);
           }
         }),
+        
+        setCrosshairVisible: (visible) => {
+          set((state) => {
+            state.viewState.crosshair.visible = visible;
+          });
+        },
         
         setCrosshair: async (position, updateViews = false, immediate = false) => {
           console.log('[viewStateStore] setCrosshair called with:', {
@@ -174,16 +187,13 @@ const createViewStateStore = () => create<ViewStateStore>()(
             }
           }
           
-          // For immediate updates (like slider drags), bypass coalescing
-          const storeWithCoalescing = get() as ViewStateStore & { _originalSet?: typeof set };
-          const setter = immediate && storeWithCoalescing._originalSet ? storeWithCoalescing._originalSet : set;
-          
-          setter((state) => {
+          // Normal update path (with Immer)
+          set((state) => {
             try {
               const [x, y, z] = position;
-              console.log(`[viewStateStore] Setting crosshair to: [${x}, ${y}, ${z}]`);
+              console.log(`[viewStateStore] Setting crosshair via normal path to: [${x}, ${y}, ${z}]`);
               
-              // Create a new array to ensure we're not modifying a frozen object
+              // With Immer, we can mutate the draft
               state.viewState.crosshair.world_mm = [x, y, z];
               state.viewState.crosshair.visible = true;
             
@@ -237,35 +247,18 @@ const createViewStateStore = () => create<ViewStateStore>()(
             views.coronal.origin_mm = updateSlicePosition(views.coronal, [x, y, z]);
             
             console.log(`[viewStateStore] Updated slice positions for crosshair at [${x.toFixed(1)}, ${y.toFixed(1)}, ${z.toFixed(1)}]`);
-            
-            // Notify backend about crosshair update for each view
-            // This ensures the backend knows the current view dimensions when reslicing
-            const viewTypes: ViewType[] = ['axial', 'sagittal', 'coronal'];
-            viewTypes.forEach(viewType => {
-              const view = views[viewType];
-              const pixelWidth = Math.sqrt(view.u_mm[0]**2 + view.u_mm[1]**2 + view.u_mm[2]**2);
-              const pixelHeight = Math.sqrt(view.v_mm[0]**2 + view.v_mm[1]**2 + view.v_mm[2]**2);
-              const widthMm = pixelWidth * view.dim_px[0];
-              const heightMm = pixelHeight * view.dim_px[1];
-              
-              const planeId = { axial: 0, coronal: 1, sagittal: 2 }[viewType];
-              
-              // Don't await - fire and forget for performance
-              getApiService().updateFrameForSynchronizedView(
-                widthMm,
-                heightMm,
-                [x, y, z],
-                planeId
-              ).catch(error => {
-                console.error(`[viewStateStore] Failed to update backend for ${viewType} crosshair:`, error);
-              });
-            });
-          }
+            }
             } catch (error) {
               console.error(`[viewStateStore] Error in setCrosshair:`, error);
               throw error;
             }
           });
+          
+          // If immediate update requested (e.g., for slider drags), force flush
+          if (immediate) {
+            console.log(`[viewStateStore] Immediate update requested - forcing flush`);
+            coalesceUtils.flush(true);
+          }
         },
         
         updateView: (viewType, plane) => set((state) => {

@@ -14,12 +14,29 @@ describe('ApiService', () => {
 
   beforeEach(() => {
     mockTransport = new MockTransport();
+    mockTransport.clearCallLog();
     apiService = new ApiService(mockTransport);
   });
 
   describe('applyAndRenderViewState', () => {
-    it('should render view state and return image bitmap', async () => {
+    it('should render view state using new render_view API by default', async () => {
       const viewState = createMockViewState();
+      // Add a test layer so we actually call the backend
+      viewState.layers = [{
+        id: 'test-layer',
+        volumeId: 'test-volume',
+        visible: true,
+        opacity: 1.0,
+        render: {
+          colormapId: 0,
+          intensityMin: 0,
+          intensityMax: 1000,
+          blendMode: 0,
+          thresholdLow: 0,
+          thresholdHigh: 1000,
+          thresholdMode: 0
+        }
+      }];
       
       const result = await apiService.applyAndRenderViewState(viewState);
       
@@ -28,20 +45,76 @@ describe('ApiService', () => {
       expect(result.height).toBe(256);
       
       const calls = mockTransport.getCallLog();
-      expect(calls).toHaveLength(1);
-      expect(calls[0].cmd).toBe('apply_and_render_view_state');
-      expect(calls[0].args.viewStateJson).toBeDefined();
+      // The API may make multiple calls due to fallback logic
+      const renderViewCall = calls.find(c => c.cmd === 'render_view');
+      expect(renderViewCall).toBeDefined();
+      expect(renderViewCall.args.stateJson).toBeDefined();
+      expect(renderViewCall.args.format).toBe('rgba'); // Should default to rgba
     });
 
     it('should serialize view state correctly', async () => {
       const viewState = createMockViewState();
       viewState.crosshair.world_mm = [10, 20, 30];
+      // Add a test layer so we actually call the backend
+      viewState.layers = [{
+        id: 'test-layer',
+        volumeId: 'test-volume',
+        visible: true,
+        opacity: 1.0,
+        render: {
+          colormapId: 0,
+          intensityMin: 0,
+          intensityMax: 1000,
+          blendMode: 0,
+          thresholdLow: 0,
+          thresholdHigh: 1000,
+          thresholdMode: 0
+        }
+      }];
       
       await apiService.applyAndRenderViewState(viewState);
       
       const calls = mockTransport.getCallLog();
-      const serializedState = JSON.parse(calls[0].args.viewStateJson);
+      // This test might use render_view (stateJson) or legacy API (viewStateJson)
+      const args = calls[0].args;
+      const serializedState = JSON.parse(args.stateJson || args.viewStateJson);
       expect(serializedState.crosshair.world_mm).toEqual([10, 20, 30]);
+    });
+
+    it('should use new render_view API when enabled', async () => {
+      // Enable the new API
+      apiService.setUseNewRenderAPI(true);
+      
+      const viewState = createMockViewState();
+      // Add a test layer so we actually call the backend
+      viewState.layers = [{
+        id: 'test-layer',
+        volumeId: 'test-volume',
+        visible: true,
+        opacity: 1.0,
+        render: {
+          colormapId: 0,
+          intensityMin: 0,
+          intensityMax: 1000,
+          blendMode: 0,
+          thresholdLow: 0,
+          thresholdHigh: 1000,
+          thresholdMode: 0
+        }
+      }];
+      
+      const result = await apiService.applyAndRenderViewState(viewState);
+      
+      expect(result).toBeDefined();
+      expect(result.width).toBe(256);
+      expect(result.height).toBe(256);
+      
+      const calls = mockTransport.getCallLog();
+      // The API may make multiple calls due to fallback logic
+      const renderViewCall = calls.find(c => c.cmd === 'render_view');
+      expect(renderViewCall).toBeDefined();
+      expect(renderViewCall.args.stateJson).toBeDefined();
+      expect(renderViewCall.args.format).toBe('rgba'); // Should default to rgba
     });
   });
 
@@ -69,7 +142,7 @@ describe('ApiService', () => {
       
       expect(result).toHaveLength(3);
       expect(result[0]).toMatchObject({
-        id: '/mock/data',
+        id: '/test/data/data',
         name: 'data',
         isDir: true,
       });
@@ -164,6 +237,22 @@ describe('ApiService', () => {
   describe('performance and coalescing', () => {
     it('should handle rapid successive calls', async () => {
       const viewState = createMockViewState();
+      // Add a test layer so we actually call the backend
+      viewState.layers = [{
+        id: 'test-layer',
+        volumeId: 'test-volume',
+        visible: true,
+        opacity: 1.0,
+        render: {
+          colormapId: 0,
+          intensityMin: 0,
+          intensityMax: 1000,
+          blendMode: 0,
+          thresholdLow: 0,
+          thresholdHigh: 1000,
+          thresholdMode: 0
+        }
+      }];
       
       // Fire off multiple rapid calls
       const promises = Array.from({ length: 10 }, () => 

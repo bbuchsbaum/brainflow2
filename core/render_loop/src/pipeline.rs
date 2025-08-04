@@ -1,9 +1,9 @@
 // Pipeline management module for render loop
 
+use crate::RenderLoopError;
 use std::collections::HashMap;
 use std::sync::Arc;
-use wgpu::{Device, RenderPipeline, PipelineLayout, BindGroupLayout, ShaderModule};
-use crate::RenderLoopError;
+use wgpu::{BindGroupLayout, Device, PipelineLayout, RenderPipeline, ShaderModule};
 
 /// Identifies a specific pipeline configuration
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
@@ -77,34 +77,37 @@ pub struct PipelineManager {
 impl PipelineManager {
     pub fn new() -> Self {
         let mut default_configs = HashMap::new();
-        
+
         // Default configuration for slice rendering
         default_configs.insert("slice".to_string(), PipelineConfig::default());
-        
+
         // Configuration for volume rendering (future)
-        default_configs.insert("volume".to_string(), PipelineConfig {
-            vertex_entry: "vs_main".to_string(),
-            fragment_entry: "fs_main".to_string(),
-            topology: wgpu::PrimitiveTopology::TriangleList,
-            cull_mode: Some(wgpu::Face::Back),
-            blend_state: Some(wgpu::BlendState::ALPHA_BLENDING),
-            depth_stencil: Some(wgpu::DepthStencilState {
-                format: wgpu::TextureFormat::Depth32Float,
-                depth_write_enabled: true,
-                depth_compare: wgpu::CompareFunction::Less,
-                stencil: wgpu::StencilState::default(),
-                bias: wgpu::DepthBiasState::default(),
-            }),
-            multisample_count: 1,
-        });
-        
+        default_configs.insert(
+            "volume".to_string(),
+            PipelineConfig {
+                vertex_entry: "vs_main".to_string(),
+                fragment_entry: "fs_main".to_string(),
+                topology: wgpu::PrimitiveTopology::TriangleList,
+                cull_mode: Some(wgpu::Face::Back),
+                blend_state: Some(wgpu::BlendState::ALPHA_BLENDING),
+                depth_stencil: Some(wgpu::DepthStencilState {
+                    format: wgpu::TextureFormat::Depth32Float,
+                    depth_write_enabled: true,
+                    depth_compare: wgpu::CompareFunction::Less,
+                    stencil: wgpu::StencilState::default(),
+                    bias: wgpu::DepthBiasState::default(),
+                }),
+                multisample_count: 1,
+            },
+        );
+
         Self {
             pipelines: HashMap::new(),
             layouts: HashMap::new(),
             default_configs,
         }
     }
-    
+
     /// Create or retrieve a pipeline layout for a shader
     pub fn get_or_create_layout(
         &mut self,
@@ -112,15 +115,20 @@ impl PipelineManager {
         shader_name: &str,
         bind_group_layouts: &[&BindGroupLayout],
     ) -> Arc<PipelineLayout> {
-        self.layouts.entry(shader_name.to_string()).or_insert_with(|| {
-            Arc::new(device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                label: Some(&format!("{} Pipeline Layout", shader_name)),
-                bind_group_layouts,
-                push_constant_ranges: &[],
-            }))
-        }).clone()
+        self.layouts
+            .entry(shader_name.to_string())
+            .or_insert_with(|| {
+                Arc::new(
+                    device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                        label: Some(&format!("{} Pipeline Layout", shader_name)),
+                        bind_group_layouts,
+                        push_constant_ranges: &[],
+                    }),
+                )
+            })
+            .clone()
     }
-    
+
     /// Get or create a render pipeline
     pub fn get_or_create_pipeline(
         &mut self,
@@ -133,7 +141,7 @@ impl PipelineManager {
         if self.pipelines.contains_key(&key) {
             return Ok(());
         }
-        
+
         // Use provided config or default for this shader type
         let config = config.unwrap_or_else(|| {
             self.default_configs
@@ -141,7 +149,7 @@ impl PipelineManager {
                 .cloned()
                 .unwrap_or_default()
         });
-        
+
         // Create the pipeline
         let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some(&format!("{} Render Pipeline", key.shader_name)),
@@ -179,26 +187,27 @@ impl PipelineManager {
             },
             multiview: None,
         });
-        
+
         self.pipelines.insert(key, pipeline);
         Ok(())
     }
-    
+
     /// Clear all cached pipelines (useful when surface format changes)
     pub fn clear_pipelines(&mut self) {
         self.pipelines.clear();
     }
-    
+
     /// Clear pipelines for a specific shader
     pub fn clear_shader_pipelines(&mut self, shader_name: &str) {
-        self.pipelines.retain(|key, _| key.shader_name != shader_name);
+        self.pipelines
+            .retain(|key, _| key.shader_name != shader_name);
     }
-    
+
     /// Get an existing pipeline if cached
     pub fn get_pipeline(&self, key: &PipelineKey) -> Option<&RenderPipeline> {
         self.pipelines.get(key)
     }
-    
+
     /// Update default configuration for a shader type
     pub fn set_default_config(&mut self, shader_name: impl Into<String>, config: PipelineConfig) {
         self.default_configs.insert(shader_name.into(), config);
@@ -208,19 +217,19 @@ impl PipelineManager {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_pipeline_key() {
         let key1 = PipelineKey::new("slice", wgpu::TextureFormat::Bgra8UnormSrgb);
         let key2 = PipelineKey::new("slice", wgpu::TextureFormat::Bgra8UnormSrgb)
             .with_variant("wireframe");
-        
+
         assert_eq!(key1.shader_name, "slice");
         assert_eq!(key1.variant, None);
         assert_eq!(key2.variant, Some("wireframe".to_string()));
         assert_ne!(key1, key2);
     }
-    
+
     #[test]
     fn test_pipeline_config_default() {
         let config = PipelineConfig::default();

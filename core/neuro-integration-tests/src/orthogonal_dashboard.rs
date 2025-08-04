@@ -1,12 +1,12 @@
 //! Orthogonal slice differential testing dashboard
-//! 
+//!
 //! Generates HTML dashboards showing CPU vs GPU orthogonal slice comparisons
 //! with crosshair visualization at specified world coordinates.
 
-use crate::{OrthogonalTestResult, DifferentialMetrics};
+use crate::{DifferentialMetrics, OrthogonalTestResult};
+use neuro_types::Result as NeuroResult;
 use std::fs;
 use std::path::Path;
-use neuro_types::Result as NeuroResult;
 
 /// Dashboard generator for orthogonal differential tests
 pub struct OrthogonalDashboard {
@@ -20,7 +20,7 @@ impl OrthogonalDashboard {
             output_dir: output_dir.to_string(),
         }
     }
-    
+
     /// Generate a comprehensive dashboard from orthogonal test results
     pub async fn generate_dashboard(
         &self,
@@ -30,75 +30,76 @@ impl OrthogonalDashboard {
         fs::create_dir_all(&self.output_dir)?;
         let images_dir = Path::new(&self.output_dir).join("images");
         fs::create_dir_all(&images_dir)?;
-        
+
         // Generate HTML
         let html_content = self.generate_html(test_results)?;
-        
+
         // Save images for each test
         for (idx, result) in test_results.iter().enumerate() {
             self.save_test_images(idx, result)?;
         }
-        
+
         // Write HTML file
         let html_path = Path::new(&self.output_dir).join("orthogonal_dashboard.html");
         fs::write(&html_path, html_content)?;
-        
+
         // Copy CSS
         self.generate_css()?;
-        
+
         Ok(html_path.to_string_lossy().into_owned())
     }
-    
+
     /// Save all images for a single test
     fn save_test_images(&self, test_idx: usize, result: &OrthogonalTestResult) -> NeuroResult<()> {
         let images_dir = Path::new(&self.output_dir).join("images");
-        
+
         // Save CPU slices with proper dimensions
         crate::image_utils::save_rgba_image_with_dimensions(
             &result.cpu_slices.axial,
             result.cpu_slices.axial_dims.width,
             result.cpu_slices.axial_dims.height,
-            &images_dir.join(format!("test_{}_cpu_axial.png", test_idx))
+            &images_dir.join(format!("test_{}_cpu_axial.png", test_idx)),
         )?;
         crate::image_utils::save_rgba_image_with_dimensions(
             &result.cpu_slices.sagittal,
             result.cpu_slices.sagittal_dims.width,
             result.cpu_slices.sagittal_dims.height,
-            &images_dir.join(format!("test_{}_cpu_sagittal.png", test_idx))
+            &images_dir.join(format!("test_{}_cpu_sagittal.png", test_idx)),
         )?;
         crate::image_utils::save_rgba_image_with_dimensions(
             &result.cpu_slices.coronal,
             result.cpu_slices.coronal_dims.width,
             result.cpu_slices.coronal_dims.height,
-            &images_dir.join(format!("test_{}_cpu_coronal.png", test_idx))
+            &images_dir.join(format!("test_{}_cpu_coronal.png", test_idx)),
         )?;
-        
+
         // Save GPU slices with proper dimensions
         crate::image_utils::save_rgba_image_with_dimensions(
             &result.gpu_slices.axial,
             result.gpu_slices.axial_dims.width,
             result.gpu_slices.axial_dims.height,
-            &images_dir.join(format!("test_{}_gpu_axial.png", test_idx))
+            &images_dir.join(format!("test_{}_gpu_axial.png", test_idx)),
         )?;
         crate::image_utils::save_rgba_image_with_dimensions(
             &result.gpu_slices.sagittal,
             result.gpu_slices.sagittal_dims.width,
             result.gpu_slices.sagittal_dims.height,
-            &images_dir.join(format!("test_{}_gpu_sagittal.png", test_idx))
+            &images_dir.join(format!("test_{}_gpu_sagittal.png", test_idx)),
         )?;
         crate::image_utils::save_rgba_image_with_dimensions(
             &result.gpu_slices.coronal,
             result.gpu_slices.coronal_dims.width,
             result.gpu_slices.coronal_dims.height,
-            &images_dir.join(format!("test_{}_gpu_coronal.png", test_idx))
+            &images_dir.join(format!("test_{}_gpu_coronal.png", test_idx)),
         )?;
-        
+
         Ok(())
     }
-    
+
     /// Generate the HTML content
     fn generate_html(&self, test_results: &[OrthogonalTestResult]) -> NeuroResult<String> {
-        let mut html = String::from(r#"<!DOCTYPE html>
+        let mut html = String::from(
+            r#"<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -115,14 +116,16 @@ impl OrthogonalDashboard {
         
         <div class="summary-section">
             <h2>Test Summary</h2>
-"#);
-        
+"#,
+        );
+
         // Calculate summary statistics
         let total = test_results.len();
         let passed = test_results.iter().filter(|r| r.passed).count();
         let failed = total - passed;
-        
-        html.push_str(&format!(r#"
+
+        html.push_str(&format!(
+            r#"
             <div class="summary-grid">
                 <div class="summary-card">
                     <div class="metric-value">{}</div>
@@ -141,14 +144,17 @@ impl OrthogonalDashboard {
         
         <div class="tests-section">
             <h2>Orthogonal Test Results</h2>
-"#, total, passed, failed));
-        
+"#,
+            total, passed, failed
+        ));
+
         // Generate test result sections
         for (idx, result) in test_results.iter().enumerate() {
             self.generate_test_section(&mut html, idx, result);
         }
-        
-        html.push_str(r#"
+
+        html.push_str(
+            r#"
         </div>
         
         <footer>
@@ -157,16 +163,17 @@ impl OrthogonalDashboard {
         </footer>
     </div>
 </body>
-</html>"#);
-        
+</html>"#,
+        );
+
         Ok(html)
     }
-    
+
     /// Generate HTML for a single test section
     fn generate_test_section(&self, html: &mut String, idx: usize, result: &OrthogonalTestResult) {
         let status_class = if result.passed { "passed" } else { "failed" };
         let status_icon = if result.passed { "✅" } else { "❌" };
-        
+
         html.push_str(&format!(r#"
             <div class="test-section {}">
                 <div class="test-header">
@@ -242,27 +249,30 @@ impl OrthogonalDashboard {
             self.format_metrics("Sagittal", &result.sagittal_metrics),
             self.format_metrics("Coronal", &result.coronal_metrics),
         ));
-        
+
         // Add failure reasons if any
         if !result.failure_reasons.is_empty() {
-            html.push_str(r#"
+            html.push_str(
+                r#"
                 <div class="failure-section">
                     <h4>Failure Analysis</h4>
-                    <ul>"#);
-            
+                    <ul>"#,
+            );
+
             for reason in &result.failure_reasons {
                 html.push_str(&format!("<li>{}</li>", reason));
             }
-            
+
             html.push_str("</ul></div>");
         }
-        
+
         html.push_str("</div>");
     }
-    
+
     /// Format metrics for a single plane
     fn format_metrics(&self, plane_name: &str, metrics: &DifferentialMetrics) -> String {
-        format!(r#"
+        format!(
+            r#"
             <div class="metric-card">
                 <div class="metric-title">{} Plane</div>
                 <div class="metric-row">
@@ -282,9 +292,15 @@ impl OrthogonalDashboard {
                     <span class="metric-value">{}</span>
                 </div>
             </div>
-        "#, plane_name, metrics.dice_coefficient, metrics.ssim, metrics.rmse, metrics.max_absolute_difference)
+        "#,
+            plane_name,
+            metrics.dice_coefficient,
+            metrics.ssim,
+            metrics.rmse,
+            metrics.max_absolute_difference
+        )
     }
-    
+
     /// Generate CSS file
     fn generate_css(&self) -> NeuroResult<()> {
         let css_content = r#"
@@ -553,27 +569,26 @@ footer p {
     }
 }
 "#;
-        
+
         let css_path = Path::new(&self.output_dir).join("orthogonal_dashboard.css");
         fs::write(css_path, css_content)?;
-        
+
         Ok(())
     }
 }
 
-
 /// Run orthogonal differential testing and generate dashboard
 pub async fn run_orthogonal_testing_with_dashboard(output_dir: &str) -> NeuroResult<String> {
     use crate::DifferentialTestHarness;
-    
+
     let mut harness = DifferentialTestHarness::new();
-    
+
     // Initialize GPU
     harness.init_gpu().await?;
-    
+
     // Run orthogonal test suite
     let test_results = harness.run_orthogonal_suite().await?;
-    
+
     // Generate dashboard
     let dashboard = OrthogonalDashboard::new(output_dir);
     dashboard.generate_dashboard(&test_results).await

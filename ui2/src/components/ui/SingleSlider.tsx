@@ -95,9 +95,9 @@ export const SingleSlider: React.FC<SingleSliderProps> = ({
   const displayValue = showPercentage ? Math.round(localValue * 100) : localValue.toFixed(1);
 
   return (
-    <div className={`single-slider ${className}`} style={{ marginBottom: className?.includes('mb-0') ? '0' : '24px' }}>
+    <div className={`single-slider ${className}`} style={{ marginBottom: className?.includes('mb-0') ? '0' : '16px' }}>
       {/* Label and value display */}
-      <div className="flex justify-between items-center" style={{ marginBottom: '12px' }}>
+      <div className="flex justify-between items-center" style={{ marginBottom: '8px' }}>
         <label className="text-[13px] font-medium" style={{ color: 'var(--layer-text)' }}>
           {label}
         </label>

@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-validate-atlas-config"
+description = "Enables the validate_atlas_config command without any pre-configured scope."
+commands.allow = ["validate_atlas_config"]
+
+[[permission]]
+identifier = "deny-validate-atlas-config"
+description = "Denies the validate_atlas_config command without any pre-configured scope."
+commands.deny = ["validate_atlas_config"]

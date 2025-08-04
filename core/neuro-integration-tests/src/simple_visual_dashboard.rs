@@ -1,12 +1,12 @@
 //! Simple visual dashboard for ellipsoid tests
-//! 
+//!
 //! This provides a basic HTML dashboard to visualize ellipsoid test results
 
+use anyhow::Result;
+use nalgebra::{Point3, Rotation3, Vector3};
 use neuro_types::{OrientedEllipsoid, OverlapMetrics};
-use nalgebra::{Point3, Vector3, Rotation3};
 use std::fs;
 use std::path::Path;
-use anyhow::Result;
 
 /// Simple visual dashboard generator
 pub struct SimpleVisualDashboard {
@@ -17,33 +17,34 @@ impl SimpleVisualDashboard {
     pub fn new(output_dir: String) -> Self {
         Self { output_dir }
     }
-    
+
     /// Generate a simple HTML dashboard showing test results
     pub fn generate_dashboard(&self, test_results: &[SimpleTestResult]) -> Result<String> {
         // Create output directory
         fs::create_dir_all(&self.output_dir)?;
-        
+
         // Generate HTML
         let html = self.generate_html(test_results)?;
         let html_path = format!("{}/dashboard.html", self.output_dir);
         fs::write(&html_path, html)?;
-        
+
         // Generate CSS
         let css = self.generate_css();
         let css_path = format!("{}/dashboard.css", self.output_dir);
         fs::write(&css_path, css)?;
-        
+
         // Generate JavaScript
         let js = self.generate_javascript();
         let js_path = format!("{}/dashboard.js", self.output_dir);
         fs::write(&js_path, js)?;
-        
+
         Ok(html_path)
     }
-    
+
     fn generate_html(&self, test_results: &[SimpleTestResult]) -> Result<String> {
         let mut html = String::new();
-        html.push_str(r#"<!DOCTYPE html>
+        html.push_str(
+            r#"<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -61,21 +62,25 @@ impl SimpleVisualDashboard {
         <div class="summary-section">
             <h2>Test Summary</h2>
             <div class="summary-stats">
-"#);
-        
+"#,
+        );
+
         // Calculate summary statistics
         let total = test_results.len();
         let passed = test_results.iter().filter(|r| r.passed).count();
         let failed = total - passed;
         let avg_dice = if total > 0 {
-            test_results.iter()
+            test_results
+                .iter()
                 .map(|r| r.metrics.dice_coefficient)
-                .sum::<f64>() / total as f64
+                .sum::<f64>()
+                / total as f64
         } else {
             0.0
         };
-        
-        html.push_str(&format!(r#"
+
+        html.push_str(&format!(
+            r#"
                 <div class="stat-card">
                     <div class="stat-value">{}</div>
                     <div class="stat-label">Total Tests</div>
@@ -98,12 +103,15 @@ impl SimpleVisualDashboard {
         <div class="results-section">
             <h2>Test Results</h2>
             <div class="results-grid">
-"#, total, passed, failed, avg_dice));
-        
+"#,
+            total, passed, failed, avg_dice
+        ));
+
         // Generate result cards
         for (i, result) in test_results.iter().enumerate() {
             let status_class = if result.passed { "passed" } else { "failed" };
-            html.push_str(&format!(r#"
+            html.push_str(&format!(
+                r#"
                 <div class="result-card {}" data-test-index="{}">
                     <h3>{}</h3>
                     <div class="metrics">
@@ -128,8 +136,8 @@ impl SimpleVisualDashboard {
                         <span class="time-icon">⏱</span> {} ms
                     </div>
                 </div>
-"#, 
-                status_class, 
+"#,
+                status_class,
                 i,
                 result.test_name,
                 result.metrics.dice_coefficient,
@@ -139,8 +147,9 @@ impl SimpleVisualDashboard {
                 result.execution_time_ms
             ));
         }
-        
-        html.push_str(r#"
+
+        html.push_str(
+            r#"
             </div>
         </div>
         
@@ -156,11 +165,12 @@ impl SimpleVisualDashboard {
     
     <script src="dashboard.js"></script>
 </body>
-</html>"#);
-        
+</html>"#,
+        );
+
         Ok(html)
     }
-    
+
     fn generate_css(&self) -> &'static str {
         r#"
 * {
@@ -341,7 +351,7 @@ footer {
 }
 "#
     }
-    
+
     fn generate_javascript(&self) -> &'static str {
         r#"
 // Add click handlers to result cards

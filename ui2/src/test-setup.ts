@@ -15,11 +15,37 @@ vi.mock('@tauri-apps/api/core', () => ({
 }));
 
 // Mock ImageBitmap for tests
-global.createImageBitmap = vi.fn().mockResolvedValue({
-  width: 256,
-  height: 256,
-  close: vi.fn(),
-});
+global.ImageBitmap = class ImageBitmap {
+  width: number;
+  height: number;
+  constructor() {
+    this.width = 256;
+    this.height = 256;
+  }
+  close() {}
+} as any;
+
+global.createImageBitmap = vi.fn().mockResolvedValue(new global.ImageBitmap());
+
+// Mock OffscreenCanvas for tests
+global.OffscreenCanvas = vi.fn().mockImplementation((width, height) => ({
+  width,
+  height,
+  getContext: vi.fn(() => ({
+    fillRect: vi.fn(),
+    clearRect: vi.fn(),
+    fillStyle: '',
+    fillText: vi.fn(),
+    textAlign: '',
+    font: '',
+    drawImage: vi.fn(),
+    getImageData: vi.fn(() => ({
+      data: new Uint8ClampedArray(width * height * 4),
+      width,
+      height,
+    })),
+  })),
+})) as any;
 
 // Mock canvas for coordinate transform tests
 Object.defineProperty(HTMLCanvasElement.prototype, 'getContext', {

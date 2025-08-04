@@ -6,7 +6,10 @@
 
 import React from 'react';
 import { useStatusBarStore } from '@/stores/statusBarStore';
+import { useLayerStore } from '@/stores/layerStore';
 import { StatusBarProgress } from './StatusBarProgress';
+import { TimeSlider } from './TimeSlider';
+import { getTimeNavigationService } from '@/services/TimeNavigationService';
 
 interface StatusBarProps {
   className?: string;
@@ -65,11 +68,31 @@ export function StatusBar({
   slots = ['coordSys', 'crosshair', 'mouse', 'layer', 'fps', 'gpu'],
   rightContent 
 }: StatusBarProps) {
+  // Subscribe to layer changes to properly detect 4D volumes
+  const layers = useLayerStore(state => state.layers);
+  const has4DVolume = React.useMemo(() => {
+    try {
+      return layers.some(layer => 
+        layer.volumeType === 'TimeSeries4D' && 
+        layer.timeSeriesInfo && 
+        layer.timeSeriesInfo.num_timepoints > 1
+      );
+    } catch (error) {
+      console.warn('Failed to detect 4D volume:', error);
+      return false;
+    }
+  }, [layers]);
+
   return (
     <div className={`status-bar ${className}`}>
       {slots.map(id => (
         <StatusBarSlot key={id} id={id} />
       ))}
+      
+      {/* Time slider for 4D volumes */}
+      {has4DVolume && (
+        <TimeSlider className="flex-1 max-w-xs" />
+      )}
       
       {/* Progress indicator */}
       <StatusBarProgress />

@@ -1,4 +1,5 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
+import { useDragSourceStore } from '@/stores/dragSourceStore';
 
 interface ProSliderProps {
   min: number;
@@ -131,6 +132,9 @@ export const ProSlider: React.FC<ProSliderProps> = ({
         setIsDragging(false);
         setActiveThumb(null);
         
+        // Clear drag source
+        useDragSourceStore.getState().setDraggingSource(null);
+        
         // Clear any pending throttled update
         if (throttleTimeoutRef.current) {
           clearTimeout(throttleTimeoutRef.current);
@@ -160,6 +164,9 @@ export const ProSlider: React.FC<ProSliderProps> = ({
     activeThumbRef.current = thumb;
     setIsDragging(true);
     setActiveThumb(thumb);
+    
+    // Notify drag source store
+    useDragSourceStore.getState().setDraggingSource('slider');
   };
 
   // Update tooltip positions
@@ -190,14 +197,14 @@ export const ProSlider: React.FC<ProSliderProps> = ({
   const rightPercent = valueToPercent(localValue[1]);
 
   return (
-    <div className={`pro-slider ${className}`} style={{ marginBottom: '24px' }}>
+    <div className={`pro-slider ${className}`} style={{ marginBottom: '16px' }}>
       {/* Label */}
-      <label className="block text-[13px] font-medium" style={{ color: 'var(--layer-text)', marginBottom: '8px' }}>
+      <label className="block text-[13px] font-medium" style={{ color: 'var(--layer-text)', marginBottom: '6px' }}>
         {label}
       </label>
       
       {/* Value display */}
-      <div className="flex justify-between text-[11px] font-mono tabular-nums text-neutral-400" style={{ marginBottom: '12px' }}>
+      <div className="flex justify-between text-[11px] font-mono tabular-nums text-neutral-400" style={{ marginBottom: '8px' }}>
         <span>{formatValue(localValue[0])}</span>
         <span>{formatValue(localValue[1])}</span>
       </div>

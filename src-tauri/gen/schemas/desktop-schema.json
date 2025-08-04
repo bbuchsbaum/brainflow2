@@ -2187,10 +2187,10 @@
       "description": "Permission identifier",
       "oneOf": [
         {
-          "description": "Default permissions for api-bridge plugin\n#### This default permission set includes:\n\n- `allow-load-file`\n- `allow-get-volume-bounds`\n- `allow-world-to-voxel`\n- `allow-get-timeseries-matrix`\n- `allow-get-initial-views`\n- `allow-recalculate-view-for-dimensions`\n- `allow-request-layer-gpu-resources`\n- `allow-release-layer-gpu-resources`\n- `allow-fs-list-directory`\n- `allow-init-render-loop`\n- `allow-resize-canvas`\n- `allow-update-frame-ubo`\n- `allow-update-frame-for-synchronized-view`\n- `allow-set-crosshair`\n- `allow-set-view-plane`\n- `allow-render-frame`\n- `allow-create-offscreen-render-target`\n- `allow-render-to-image`\n- `allow-render-to-image-binary`\n- `allow-add-render-layer`\n- `allow-remove-render-layer`\n- `allow-clear-render-layers`\n- `allow-patch-layer`\n- `allow-update-layer-opacity`\n- `allow-update-layer-colormap`\n- `allow-update-layer-intensity`\n- `allow-update-layer-threshold`\n- `allow-sample-world-coordinate`\n- `allow-apply-and-render-view-state`\n- `allow-apply-and-render-view-state-binary`\n- `allow-apply-and-render-view-state-raw`\n- `allow-query-slice-axis-meta`\n- `allow-batch-render-slices`",
+          "description": "Default permissions for api-bridge plugin\n#### This default permission set includes:\n\n- `allow-load-file`\n- `allow-get-volume-bounds`\n- `allow-world-to-voxel`\n- `allow-get-timeseries-matrix`\n- `allow-get-initial-views`\n- `allow-recalculate-view-for-dimensions`\n- `allow-request-layer-gpu-resources`\n- `allow-release-layer-gpu-resources`\n- `allow-fs-list-directory`\n- `allow-init-render-loop`\n- `allow-resize-canvas`\n- `allow-update-frame-ubo`\n- `allow-update-frame-for-synchronized-view`\n- `allow-set-crosshair`\n- `allow-set-view-plane`\n- `allow-render-frame`\n- `allow-create-offscreen-render-target`\n- `allow-render-to-image`\n- `allow-render-to-image-binary`\n- `allow-add-render-layer`\n- `allow-remove-render-layer`\n- `allow-clear-render-layers`\n- `allow-patch-layer`\n- `allow-compute-layer-histogram`\n- `allow-update-layer-opacity`\n- `allow-update-layer-colormap`\n- `allow-update-layer-intensity`\n- `allow-update-layer-threshold`\n- `allow-sample-world-coordinate`\n- `allow-apply-and-render-view-state`\n- `allow-apply-and-render-view-state-binary`\n- `allow-apply-and-render-view-state-raw`\n- `allow-query-slice-axis-meta`\n- `allow-batch-render-slices`\n- `allow-get-atlas-catalog`\n- `allow-get-filtered-atlases`\n- `allow-get-atlas-entry`\n- `allow-toggle-atlas-favorite`\n- `allow-get-recent-atlases`\n- `allow-get-favorite-atlases`\n- `allow-validate-atlas-config`\n- `allow-load-atlas`\n- `allow-start-atlas-progress-monitoring`\n- `allow-get-atlas-subscription-count`\n- `allow-set-volume-timepoint`\n- `allow-get-volume-timepoint`\n- `allow-render-view`\n- `allow-get-template-catalog`\n- `allow-get-filtered-templates`\n- `allow-get-template-entry`\n- `allow-validate-template-config`\n- `allow-load-template`\n- `allow-load-template-by-id`\n- `allow-get-template-cache-stats`\n- `allow-clear-template-cache`",
           "type": "string",
           "const": "api-bridge:default",
-          "markdownDescription": "Default permissions for api-bridge plugin\n#### This default permission set includes:\n\n- `allow-load-file`\n- `allow-get-volume-bounds`\n- `allow-world-to-voxel`\n- `allow-get-timeseries-matrix`\n- `allow-get-initial-views`\n- `allow-recalculate-view-for-dimensions`\n- `allow-request-layer-gpu-resources`\n- `allow-release-layer-gpu-resources`\n- `allow-fs-list-directory`\n- `allow-init-render-loop`\n- `allow-resize-canvas`\n- `allow-update-frame-ubo`\n- `allow-update-frame-for-synchronized-view`\n- `allow-set-crosshair`\n- `allow-set-view-plane`\n- `allow-render-frame`\n- `allow-create-offscreen-render-target`\n- `allow-render-to-image`\n- `allow-render-to-image-binary`\n- `allow-add-render-layer`\n- `allow-remove-render-layer`\n- `allow-clear-render-layers`\n- `allow-patch-layer`\n- `allow-update-layer-opacity`\n- `allow-update-layer-colormap`\n- `allow-update-layer-intensity`\n- `allow-update-layer-threshold`\n- `allow-sample-world-coordinate`\n- `allow-apply-and-render-view-state`\n- `allow-apply-and-render-view-state-binary`\n- `allow-apply-and-render-view-state-raw`\n- `allow-query-slice-axis-meta`\n- `allow-batch-render-slices`"
+          "markdownDescription": "Default permissions for api-bridge plugin\n#### This default permission set includes:\n\n- `allow-load-file`\n- `allow-get-volume-bounds`\n- `allow-world-to-voxel`\n- `allow-get-timeseries-matrix`\n- `allow-get-initial-views`\n- `allow-recalculate-view-for-dimensions`\n- `allow-request-layer-gpu-resources`\n- `allow-release-layer-gpu-resources`\n- `allow-fs-list-directory`\n- `allow-init-render-loop`\n- `allow-resize-canvas`\n- `allow-update-frame-ubo`\n- `allow-update-frame-for-synchronized-view`\n- `allow-set-crosshair`\n- `allow-set-view-plane`\n- `allow-render-frame`\n- `allow-create-offscreen-render-target`\n- `allow-render-to-image`\n- `allow-render-to-image-binary`\n- `allow-add-render-layer`\n- `allow-remove-render-layer`\n- `allow-clear-render-layers`\n- `allow-patch-layer`\n- `allow-compute-layer-histogram`\n- `allow-update-layer-opacity`\n- `allow-update-layer-colormap`\n- `allow-update-layer-intensity`\n- `allow-update-layer-threshold`\n- `allow-sample-world-coordinate`\n- `allow-apply-and-render-view-state`\n- `allow-apply-and-render-view-state-binary`\n- `allow-apply-and-render-view-state-raw`\n- `allow-query-slice-axis-meta`\n- `allow-batch-render-slices`\n- `allow-get-atlas-catalog`\n- `allow-get-filtered-atlases`\n- `allow-get-atlas-entry`\n- `allow-toggle-atlas-favorite`\n- `allow-get-recent-atlases`\n- `allow-get-favorite-atlases`\n- `allow-validate-atlas-config`\n- `allow-load-atlas`\n- `allow-start-atlas-progress-monitoring`\n- `allow-get-atlas-subscription-count`\n- `allow-set-volume-timepoint`\n- `allow-get-volume-timepoint`\n- `allow-render-view`\n- `allow-get-template-catalog`\n- `allow-get-filtered-templates`\n- `allow-get-template-entry`\n- `allow-validate-template-config`\n- `allow-load-template`\n- `allow-load-template-by-id`\n- `allow-get-template-cache-stats`\n- `allow-clear-template-cache`"
         },
         {
           "description": "Enables the add_render_layer command without any pre-configured scope.",
@@ -2229,6 +2229,18 @@
           "markdownDescription": "Enables the clear_render_layers command without any pre-configured scope."
         },
         {
+          "description": "Enables the clear_template_cache command without any pre-configured scope.",
+          "type": "string",
+          "const": "api-bridge:allow-clear-template-cache",
+          "markdownDescription": "Enables the clear_template_cache command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the compute_layer_histogram command without any pre-configured scope.",
+          "type": "string",
+          "const": "api-bridge:allow-compute-layer-histogram",
+          "markdownDescription": "Enables the compute_layer_histogram command without any pre-configured scope."
+        },
+        {
           "description": "Enables the create_offscreen_render_target command without any pre-configured scope.",
           "type": "string",
           "const": "api-bridge:allow-create-offscreen-render-target",
@@ -2259,6 +2271,42 @@
           "markdownDescription": "Enables the generate_orthogonal_slice_test command without any pre-configured scope."
         },
         {
+          "description": "Enables the get_atlas_catalog command without any pre-configured scope.",
+          "type": "string",
+          "const": "api-bridge:allow-get-atlas-catalog",
+          "markdownDescription": "Enables the get_atlas_catalog command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the get_atlas_entry command without any pre-configured scope.",
+          "type": "string",
+          "const": "api-bridge:allow-get-atlas-entry",
+          "markdownDescription": "Enables the get_atlas_entry command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the get_atlas_subscription_count command without any pre-configured scope.",
+          "type": "string",
+          "const": "api-bridge:allow-get-atlas-subscription-count",
+          "markdownDescription": "Enables the get_atlas_subscription_count command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the get_favorite_atlases command without any pre-configured scope.",
+          "type": "string",
+          "const": "api-bridge:allow-get-favorite-atlases",
+          "markdownDescription": "Enables the get_favorite_atlases command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the get_filtered_atlases command without any pre-configured scope.",
+          "type": "string",
+          "const": "api-bridge:allow-get-filtered-atlases",
+          "markdownDescription": "Enables the get_filtered_atlases command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the get_filtered_templates command without any pre-configured scope.",
+          "type": "string",
+          "const": "api-bridge:allow-get-filtered-templates",
+          "markdownDescription": "Enables the get_filtered_templates command without any pre-configured scope."
+        },
+        {
           "description": "Enables the get_initial_views command without any pre-configured scope.",
           "type": "string",
           "const": "api-bridge:allow-get-initial-views",
@@ -2271,10 +2319,34 @@
           "markdownDescription": "Enables the get_layer_info command without any pre-configured scope."
         },
         {
+          "description": "Enables the get_recent_atlases command without any pre-configured scope.",
+          "type": "string",
+          "const": "api-bridge:allow-get-recent-atlases",
+          "markdownDescription": "Enables the get_recent_atlases command without any pre-configured scope."
+        },
+        {
           "description": "Enables the get_render_statistics command without any pre-configured scope.",
           "type": "string",
           "const": "api-bridge:allow-get-render-statistics",
           "markdownDescription": "Enables the get_render_statistics command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the get_template_cache_stats command without any pre-configured scope.",
+          "type": "string",
+          "const": "api-bridge:allow-get-template-cache-stats",
+          "markdownDescription": "Enables the get_template_cache_stats command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the get_template_catalog command without any pre-configured scope.",
+          "type": "string",
+          "const": "api-bridge:allow-get-template-catalog",
+          "markdownDescription": "Enables the get_template_catalog command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the get_template_entry command without any pre-configured scope.",
+          "type": "string",
+          "const": "api-bridge:allow-get-template-entry",
+          "markdownDescription": "Enables the get_template_entry command without any pre-configured scope."
         },
         {
           "description": "Enables the get_time_series command without any pre-configured scope.",
@@ -2301,6 +2373,12 @@
           "markdownDescription": "Enables the get_volume_info command without any pre-configured scope."
         },
         {
+          "description": "Enables the get_volume_timepoint command without any pre-configured scope.",
+          "type": "string",
+          "const": "api-bridge:allow-get-volume-timepoint",
+          "markdownDescription": "Enables the get_volume_timepoint command without any pre-configured scope."
+        },
+        {
           "description": "Enables the init_render_loop command without any pre-configured scope.",
           "type": "string",
           "const": "api-bridge:allow-init-render-loop",
@@ -2313,6 +2391,12 @@
           "markdownDescription": "Enables the list_volumes command without any pre-configured scope."
         },
         {
+          "description": "Enables the load_atlas command without any pre-configured scope.",
+          "type": "string",
+          "const": "api-bridge:allow-load-atlas",
+          "markdownDescription": "Enables the load_atlas command without any pre-configured scope."
+        },
+        {
           "description": "Enables the load_file command without any pre-configured scope.",
           "type": "string",
           "const": "api-bridge:allow-load-file",
@@ -2323,6 +2407,18 @@
           "type": "string",
           "const": "api-bridge:allow-load-nifti-file",
           "markdownDescription": "Enables the load_nifti_file command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the load_template command without any pre-configured scope.",
+          "type": "string",
+          "const": "api-bridge:allow-load-template",
+          "markdownDescription": "Enables the load_template command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the load_template_by_id command without any pre-configured scope.",
+          "type": "string",
+          "const": "api-bridge:allow-load-template-by-id",
+          "markdownDescription": "Enables the load_template_by_id command without any pre-configured scope."
         },
         {
           "description": "Enables the patch_layer command without any pre-configured scope.",
@@ -2385,6 +2481,12 @@
           "markdownDescription": "Enables the render_to_image_binary command without any pre-configured scope."
         },
         {
+          "description": "Enables the render_view command without any pre-configured scope.",
+          "type": "string",
+          "const": "api-bridge:allow-render-view",
+          "markdownDescription": "Enables the render_view command without any pre-configured scope."
+        },
+        {
           "description": "Enables the request_frame command without any pre-configured scope.",
           "type": "string",
           "const": "api-bridge:allow-request-frame",
@@ -2425,6 +2527,24 @@
           "type": "string",
           "const": "api-bridge:allow-set-view-plane",
           "markdownDescription": "Enables the set_view_plane command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the set_volume_timepoint command without any pre-configured scope.",
+          "type": "string",
+          "const": "api-bridge:allow-set-volume-timepoint",
+          "markdownDescription": "Enables the set_volume_timepoint command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the start_atlas_progress_monitoring command without any pre-configured scope.",
+          "type": "string",
+          "const": "api-bridge:allow-start-atlas-progress-monitoring",
+          "markdownDescription": "Enables the start_atlas_progress_monitoring command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the toggle_atlas_favorite command without any pre-configured scope.",
+          "type": "string",
+          "const": "api-bridge:allow-toggle-atlas-favorite",
+          "markdownDescription": "Enables the toggle_atlas_favorite command without any pre-configured scope."
         },
         {
           "description": "Enables the update_frame_for_synchronized_view command without any pre-configured scope.",
@@ -2475,6 +2595,18 @@
           "markdownDescription": "Enables the upload_volume_layer command without any pre-configured scope."
         },
         {
+          "description": "Enables the validate_atlas_config command without any pre-configured scope.",
+          "type": "string",
+          "const": "api-bridge:allow-validate-atlas-config",
+          "markdownDescription": "Enables the validate_atlas_config command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the validate_template_config command without any pre-configured scope.",
+          "type": "string",
+          "const": "api-bridge:allow-validate-template-config",
+          "markdownDescription": "Enables the validate_template_config command without any pre-configured scope."
+        },
+        {
           "description": "Enables the world_to_voxel command without any pre-configured scope.",
           "type": "string",
           "const": "api-bridge:allow-world-to-voxel",
@@ -2517,6 +2649,18 @@
           "markdownDescription": "Denies the clear_render_layers command without any pre-configured scope."
         },
         {
+          "description": "Denies the clear_template_cache command without any pre-configured scope.",
+          "type": "string",
+          "const": "api-bridge:deny-clear-template-cache",
+          "markdownDescription": "Denies the clear_template_cache command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the compute_layer_histogram command without any pre-configured scope.",
+          "type": "string",
+          "const": "api-bridge:deny-compute-layer-histogram",
+          "markdownDescription": "Denies the compute_layer_histogram command without any pre-configured scope."
+        },
+        {
           "description": "Denies the create_offscreen_render_target command without any pre-configured scope.",
           "type": "string",
           "const": "api-bridge:deny-create-offscreen-render-target",
@@ -2547,6 +2691,42 @@
           "markdownDescription": "Denies the generate_orthogonal_slice_test command without any pre-configured scope."
         },
         {
+          "description": "Denies the get_atlas_catalog command without any pre-configured scope.",
+          "type": "string",
+          "const": "api-bridge:deny-get-atlas-catalog",
+          "markdownDescription": "Denies the get_atlas_catalog command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the get_atlas_entry command without any pre-configured scope.",
+          "type": "string",
+          "const": "api-bridge:deny-get-atlas-entry",
+          "markdownDescription": "Denies the get_atlas_entry command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the get_atlas_subscription_count command without any pre-configured scope.",
+          "type": "string",
+          "const": "api-bridge:deny-get-atlas-subscription-count",
+          "markdownDescription": "Denies the get_atlas_subscription_count command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the get_favorite_atlases command without any pre-configured scope.",
+          "type": "string",
+          "const": "api-bridge:deny-get-favorite-atlases",
+          "markdownDescription": "Denies the get_favorite_atlases command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the get_filtered_atlases command without any pre-configured scope.",
+          "type": "string",
+          "const": "api-bridge:deny-get-filtered-atlases",
+          "markdownDescription": "Denies the get_filtered_atlases command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the get_filtered_templates command without any pre-configured scope.",
+          "type": "string",
+          "const": "api-bridge:deny-get-filtered-templates",
+          "markdownDescription": "Denies the get_filtered_templates command without any pre-configured scope."
+        },
+        {
           "description": "Denies the get_initial_views command without any pre-configured scope.",
           "type": "string",
           "const": "api-bridge:deny-get-initial-views",
@@ -2559,10 +2739,34 @@
           "markdownDescription": "Denies the get_layer_info command without any pre-configured scope."
         },
         {
+          "description": "Denies the get_recent_atlases command without any pre-configured scope.",
+          "type": "string",
+          "const": "api-bridge:deny-get-recent-atlases",
+          "markdownDescription": "Denies the get_recent_atlases command without any pre-configured scope."
+        },
+        {
           "description": "Denies the get_render_statistics command without any pre-configured scope.",
           "type": "string",
           "const": "api-bridge:deny-get-render-statistics",
           "markdownDescription": "Denies the get_render_statistics command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the get_template_cache_stats command without any pre-configured scope.",
+          "type": "string",
+          "const": "api-bridge:deny-get-template-cache-stats",
+          "markdownDescription": "Denies the get_template_cache_stats command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the get_template_catalog command without any pre-configured scope.",
+          "type": "string",
+          "const": "api-bridge:deny-get-template-catalog",
+          "markdownDescription": "Denies the get_template_catalog command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the get_template_entry command without any pre-configured scope.",
+          "type": "string",
+          "const": "api-bridge:deny-get-template-entry",
+          "markdownDescription": "Denies the get_template_entry command without any pre-configured scope."
         },
         {
           "description": "Denies the get_time_series command without any pre-configured scope.",
@@ -2589,6 +2793,12 @@
           "markdownDescription": "Denies the get_volume_info command without any pre-configured scope."
         },
         {
+          "description": "Denies the get_volume_timepoint command without any pre-configured scope.",
+          "type": "string",
+          "const": "api-bridge:deny-get-volume-timepoint",
+          "markdownDescription": "Denies the get_volume_timepoint command without any pre-configured scope."
+        },
+        {
           "description": "Denies the init_render_loop command without any pre-configured scope.",
           "type": "string",
           "const": "api-bridge:deny-init-render-loop",
@@ -2601,6 +2811,12 @@
           "markdownDescription": "Denies the list_volumes command without any pre-configured scope."
         },
         {
+          "description": "Denies the load_atlas command without any pre-configured scope.",
+          "type": "string",
+          "const": "api-bridge:deny-load-atlas",
+          "markdownDescription": "Denies the load_atlas command without any pre-configured scope."
+        },
+        {
           "description": "Denies the load_file command without any pre-configured scope.",
           "type": "string",
           "const": "api-bridge:deny-load-file",
@@ -2611,6 +2827,18 @@
           "type": "string",
           "const": "api-bridge:deny-load-nifti-file",
           "markdownDescription": "Denies the load_nifti_file command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the load_template command without any pre-configured scope.",
+          "type": "string",
+          "const": "api-bridge:deny-load-template",
+          "markdownDescription": "Denies the load_template command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the load_template_by_id command without any pre-configured scope.",
+          "type": "string",
+          "const": "api-bridge:deny-load-template-by-id",
+          "markdownDescription": "Denies the load_template_by_id command without any pre-configured scope."
         },
         {
           "description": "Denies the patch_layer command without any pre-configured scope.",
@@ -2673,6 +2901,12 @@
           "markdownDescription": "Denies the render_to_image_binary command without any pre-configured scope."
         },
         {
+          "description": "Denies the render_view command without any pre-configured scope.",
+          "type": "string",
+          "const": "api-bridge:deny-render-view",
+          "markdownDescription": "Denies the render_view command without any pre-configured scope."
+        },
+        {
           "description": "Denies the request_frame command without any pre-configured scope.",
           "type": "string",
           "const": "api-bridge:deny-request-frame",
@@ -2713,6 +2947,24 @@
           "type": "string",
           "const": "api-bridge:deny-set-view-plane",
           "markdownDescription": "Denies the set_view_plane command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the set_volume_timepoint command without any pre-configured scope.",
+          "type": "string",
+          "const": "api-bridge:deny-set-volume-timepoint",
+          "markdownDescription": "Denies the set_volume_timepoint command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the start_atlas_progress_monitoring command without any pre-configured scope.",
+          "type": "string",
+          "const": "api-bridge:deny-start-atlas-progress-monitoring",
+          "markdownDescription": "Denies the start_atlas_progress_monitoring command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the toggle_atlas_favorite command without any pre-configured scope.",
+          "type": "string",
+          "const": "api-bridge:deny-toggle-atlas-favorite",
+          "markdownDescription": "Denies the toggle_atlas_favorite command without any pre-configured scope."
         },
         {
           "description": "Denies the update_frame_for_synchronized_view command without any pre-configured scope.",
@@ -2761,6 +3013,18 @@
           "type": "string",
           "const": "api-bridge:deny-upload-volume-layer",
           "markdownDescription": "Denies the upload_volume_layer command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the validate_atlas_config command without any pre-configured scope.",
+          "type": "string",
+          "const": "api-bridge:deny-validate-atlas-config",
+          "markdownDescription": "Denies the validate_atlas_config command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the validate_template_config command without any pre-configured scope.",
+          "type": "string",
+          "const": "api-bridge:deny-validate-template-config",
+          "markdownDescription": "Denies the validate_template_config command without any pre-configured scope."
         },
         {
           "description": "Denies the world_to_voxel command without any pre-configured scope.",

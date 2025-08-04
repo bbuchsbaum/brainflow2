@@ -6,6 +6,8 @@ This file provides guidance to Claude Code when working with the UI2 React front
 
 The Brainflow2 architecture uses a **declarative API** pattern to minimize coupling between the frontend and backend. This approach was introduced during the Rust backend refactoring to create a cleaner, more maintainable interface.
 
+**Note**: As of the latest cleanup (2025-08), all legacy procedural API components have been removed. The codebase now exclusively uses the declarative API pattern.
+
 ### What is the Declarative API?
 
 Instead of the frontend making multiple imperative commands to update individual backend properties:
@@ -126,6 +128,23 @@ setViewState(s => ({ ...s, crosshair: { ...s.crosshair, x: 30 }}));
 
 // Only sends final state { crosshair: { x: 30 } } to backend
 ```
+
+## Active Components
+
+### Imaging Components (Post-Cleanup)
+The following components are **actively used** in the application:
+
+- **SliceView.tsx** - Primary slice view component with 4D time navigation
+- **MosaicViewPromise.tsx** - Promise-based mosaic view for grid slice display
+
+**Removed Components** (2025-08 cleanup):
+- `SliceViewPromise.tsx` - Unused variant 
+- `SliceViewRefactored.tsx` - Unused refactored version
+- `SliceViewComparison.tsx` - Test-only component
+- `MosaicViewSimple.tsx` - Event-driven mosaic view (superseded by Promise version)
+- `RenderCell.tsx` - Only used by removed MosaicViewSimple
+
+All remaining components follow the **declarative API** pattern exclusively.
 
 ## Component Guidelines
 

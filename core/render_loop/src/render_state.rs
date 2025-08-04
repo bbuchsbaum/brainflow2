@@ -1,8 +1,8 @@
 // Render state management module
 
+use crate::pipeline::PipelineKey;
 use std::collections::HashMap;
 use wgpu::{BindGroup, Buffer, TextureView};
-use crate::pipeline::PipelineKey;
 
 /// Tracks the current render state to minimize redundant state changes
 #[derive(Default)]
@@ -25,7 +25,7 @@ impl RenderState {
     pub fn new() -> Self {
         Self::default()
     }
-    
+
     /// Begin a new frame
     pub fn begin_frame(&mut self) {
         self.frame_count += 1;
@@ -33,7 +33,7 @@ impl RenderState {
         self.pipeline_switches = 0;
         self.bind_group_changes = 0;
     }
-    
+
     /// End current frame and return statistics
     pub fn end_frame(&self) -> FrameStats {
         FrameStats {
@@ -43,12 +43,12 @@ impl RenderState {
             bind_group_changes: self.bind_group_changes,
         }
     }
-    
+
     /// Check if pipeline needs to be set
     pub fn should_set_pipeline(&self, key: &PipelineKey) -> bool {
         self.active_pipeline.as_ref() != Some(key)
     }
-    
+
     /// Record pipeline change
     pub fn set_pipeline(&mut self, key: PipelineKey) {
         if self.active_pipeline.as_ref() != Some(&key) {
@@ -56,12 +56,12 @@ impl RenderState {
             self.active_pipeline = Some(key);
         }
     }
-    
+
     /// Check if bind group needs to be set
     pub fn should_set_bind_group(&self, slot: u32, bind_group_id: u64) -> bool {
         self.bound_bind_groups.get(&slot) != Some(&bind_group_id)
     }
-    
+
     /// Record bind group change
     pub fn set_bind_group(&mut self, slot: u32, bind_group_id: u64) {
         if self.bound_bind_groups.get(&slot) != Some(&bind_group_id) {
@@ -69,18 +69,18 @@ impl RenderState {
             self.bound_bind_groups.insert(slot, bind_group_id);
         }
     }
-    
+
     /// Record a draw call
     pub fn record_draw(&mut self) {
         self.draw_calls += 1;
     }
-    
+
     /// Clear all cached state (e.g., after render pass change)
     pub fn clear_state(&mut self) {
         self.active_pipeline = None;
         self.bound_bind_groups.clear();
     }
-    
+
     /// Get current frame statistics
     pub fn current_stats(&self) -> FrameStats {
         FrameStats {
@@ -165,75 +165,85 @@ impl Default for RenderPassConfig {
 impl RenderPassManager {
     pub fn new() -> Self {
         let mut pass_configs = HashMap::new();
-        
+
         // Default configurations for different pass types
         pass_configs.insert(RenderPassType::Main, RenderPassConfig::default());
-        
-        pass_configs.insert(RenderPassType::Overlay, RenderPassConfig {
-            clear_color: wgpu::Color::TRANSPARENT,
-            clear: false,
-            depth_test: false,
-            stencil_test: false,
-        });
-        
-        pass_configs.insert(RenderPassType::Debug, RenderPassConfig {
-            clear_color: wgpu::Color::TRANSPARENT,
-            clear: false,
-            depth_test: false,
-            stencil_test: false,
-        });
-        
-        pass_configs.insert(RenderPassType::PostProcess, RenderPassConfig {
-            clear_color: wgpu::Color::BLACK,
-            clear: true,
-            depth_test: false,
-            stencil_test: false,
-        });
-        
+
+        pass_configs.insert(
+            RenderPassType::Overlay,
+            RenderPassConfig {
+                clear_color: wgpu::Color::TRANSPARENT,
+                clear: false,
+                depth_test: false,
+                stencil_test: false,
+            },
+        );
+
+        pass_configs.insert(
+            RenderPassType::Debug,
+            RenderPassConfig {
+                clear_color: wgpu::Color::TRANSPARENT,
+                clear: false,
+                depth_test: false,
+                stencil_test: false,
+            },
+        );
+
+        pass_configs.insert(
+            RenderPassType::PostProcess,
+            RenderPassConfig {
+                clear_color: wgpu::Color::BLACK,
+                clear: true,
+                depth_test: false,
+                stencil_test: false,
+            },
+        );
+
         Self {
             current_pass: RenderPassType::Main,
             pass_configs,
         }
     }
-    
+
     /// Get configuration for a pass type
     pub fn get_config(&self, pass_type: RenderPassType) -> &RenderPassConfig {
-        self.pass_configs.get(&pass_type)
+        self.pass_configs
+            .get(&pass_type)
             .unwrap_or(&self.pass_configs[&RenderPassType::Main])
     }
-    
+
     /// Update configuration for a pass type
     pub fn set_config(&mut self, pass_type: RenderPassType, config: RenderPassConfig) {
         self.pass_configs.insert(pass_type, config);
     }
-    
+
     /// Set the current render pass
     pub fn set_current_pass(&mut self, pass_type: RenderPassType) {
         self.current_pass = pass_type;
     }
-    
+
     /// Get the current render pass type
     pub fn current_pass(&self) -> RenderPassType {
         self.current_pass
     }
-    
+
     /// Get render pass load/store operations for current pass
     pub fn get_pass_operations(&self) -> (wgpu::LoadOp<wgpu::Color>, wgpu::StoreOp) {
         let config = self.get_config(self.current_pass);
-        
+
         let load = if config.clear {
             wgpu::LoadOp::Clear(config.clear_color)
         } else {
             wgpu::LoadOp::Load
         };
-        
+
         (load, wgpu::StoreOp::Store)
     }
-    
+
     /// Get depth operations for current pass
     pub fn get_depth_operations(&self) -> Option<wgpu::Operations<f32>> {
         let config = self.get_config(self.current_pass);
-        
+
         if config.depth_test {
             Some(wgpu::Operations {
                 load: wgpu::LoadOp::Clear(1.0),
@@ -243,11 +253,11 @@ impl RenderPassManager {
             None
         }
     }
-    
+
     /// Get stencil operations for current pass
     pub fn get_stencil_operations(&self) -> Option<wgpu::Operations<u32>> {
         let config = self.get_config(self.current_pass);
-        
+
         if config.stencil_test {
             Some(wgpu::Operations {
                 load: wgpu::LoadOp::Clear(0),
@@ -257,7 +267,7 @@ impl RenderPassManager {
             None
         }
     }
-    
+
     /// Get label for current pass
     pub fn get_pass_label(&self) -> String {
         format!("{:?} Render Pass", self.current_pass)
@@ -331,17 +341,17 @@ impl LayerStateManager {
             count_buffer: None,
         }
     }
-    
+
     /// Add a layer to the active set
     pub fn add_layer(&mut self, layer: LayerInfo) -> Result<usize, &'static str> {
         if self.active_layers.len() >= self.max_layers {
             return Err("Maximum layer count exceeded");
         }
-        
+
         self.active_layers.push(layer);
         Ok(self.active_layers.len() - 1)
     }
-    
+
     /// Remove a layer by index
     pub fn remove_layer(&mut self, index: usize) -> Option<LayerInfo> {
         if index < self.active_layers.len() {
@@ -350,37 +360,37 @@ impl LayerStateManager {
             None
         }
     }
-    
+
     /// Clear all layers
     pub fn clear_layers(&mut self) {
         self.active_layers.clear();
     }
-    
+
     /// Get active layer count
     pub fn layer_count(&self) -> usize {
         self.active_layers.len()
     }
-    
+
     /// Get layer at index
     pub fn get_layer(&self, index: usize) -> Option<&LayerInfo> {
         self.active_layers.get(index)
     }
-    
+
     /// Get mutable layer at index
     pub fn get_layer_mut(&mut self, index: usize) -> Option<&mut LayerInfo> {
         self.active_layers.get_mut(index)
     }
-    
+
     /// Get all active layers
     pub fn layers(&self) -> &[LayerInfo] {
         &self.active_layers
     }
-    
+
     /// Set the layer uniform buffer
     pub fn set_layer_buffer(&mut self, buffer: Buffer) {
         self.layer_buffer = Some(buffer);
     }
-    
+
     /// Set the count uniform buffer
     pub fn set_count_buffer(&mut self, buffer: Buffer) {
         self.count_buffer = Some(buffer);
@@ -390,43 +400,43 @@ impl LayerStateManager {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_render_state_tracking() {
         let mut state = RenderState::new();
         state.begin_frame();
-        
+
         let key1 = PipelineKey::new("test", wgpu::TextureFormat::Bgra8UnormSrgb);
         let key2 = PipelineKey::new("test2", wgpu::TextureFormat::Bgra8UnormSrgb);
-        
+
         // First pipeline set
         assert!(state.should_set_pipeline(&key1));
         state.set_pipeline(key1.clone());
         assert!(!state.should_set_pipeline(&key1));
-        
+
         // Different pipeline
         assert!(state.should_set_pipeline(&key2));
         state.set_pipeline(key2);
-        
+
         // Bind groups
         assert!(state.should_set_bind_group(0, 12345));
         state.set_bind_group(0, 12345);
         assert!(!state.should_set_bind_group(0, 12345));
-        
+
         // Draw calls
         state.record_draw();
         state.record_draw();
-        
+
         let stats = state.end_frame();
         assert_eq!(stats.draw_calls, 2);
         assert_eq!(stats.pipeline_switches, 2);
         assert_eq!(stats.bind_group_changes, 1);
     }
-    
+
     #[test]
     fn test_layer_manager() {
         let mut manager = LayerStateManager::new(4);
-        
+
         let layer1 = LayerInfo {
             atlas_index: 0,
             opacity: 1.0,
@@ -438,11 +448,11 @@ mod tests {
             texture_coords: (0.0, 0.0, 1.0, 1.0),
             is_mask: false,
         };
-        
+
         let idx = manager.add_layer(layer1.clone()).unwrap();
         assert_eq!(idx, 0);
         assert_eq!(manager.layer_count(), 1);
-        
+
         // Remove layer
         let removed = manager.remove_layer(0).unwrap();
         assert_eq!(removed.atlas_index, layer1.atlas_index);

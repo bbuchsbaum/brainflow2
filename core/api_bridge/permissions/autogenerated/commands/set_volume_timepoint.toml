@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-set-volume-timepoint"
+description = "Enables the set_volume_timepoint command without any pre-configured scope."
+commands.allow = ["set_volume_timepoint"]
+
+[[permission]]
+identifier = "deny-set-volume-timepoint"
+description = "Denies the set_volume_timepoint command without any pre-configured scope."
+commands.deny = ["set_volume_timepoint"]

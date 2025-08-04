@@ -23,11 +23,14 @@ fn test_missing_entry_point_warning() {
         }
         // Missing entry point decorators
     "#;
-    
+
     let validation = ShaderManager::validate_shader(shader_code, "test");
-    
+
     assert!(validation.valid); // Still valid, just a warning
-    assert!(!validation.warnings.is_empty(), "Expected warnings but got none");
+    assert!(
+        !validation.warnings.is_empty(),
+        "Expected warnings but got none"
+    );
     assert!(validation.warnings[0].contains("entry points"));
 }
 
@@ -43,7 +46,7 @@ fn test_switch_syntax_validation() {
             }
         }
     "#;
-    
+
     let validation = ShaderManager::validate_shader(bad_switch, "test");
     assert!(!validation.valid);
     assert!(!validation.errors.is_empty());
@@ -65,11 +68,14 @@ fn test_vec3_alignment_warning() {
             return vec4<f32>(uniforms.position, 1.0);
         }
     "#;
-    
+
     let validation = ShaderManager::validate_shader(shader_with_vec3, "test");
     assert!(validation.valid);
     assert!(!validation.warnings.is_empty());
-    assert!(validation.warnings.iter().any(|w| w.contains("vec3") && w.contains("padding")));
+    assert!(validation
+        .warnings
+        .iter()
+        .any(|w| w.contains("vec3") && w.contains("padding")));
 }
 
 #[test]
@@ -81,7 +87,7 @@ fn test_slice_shader_requirements() {
             return vec4<f32>(0.0);
         }
     "#;
-    
+
     let validation = ShaderManager::validate_shader(incomplete_slice, "slice");
     assert!(!validation.valid);
     assert!(validation.errors.iter().any(|e| e.contains("vs_main")));
@@ -101,7 +107,7 @@ fn test_valid_shader_passes() {
             return vec4<f32>(1.0, 0.0, 0.0, 1.0);
         }
     "#;
-    
+
     let validation = ShaderManager::validate_shader(valid_shader, "test");
     assert!(validation.valid);
     assert!(validation.errors.is_empty());
@@ -111,12 +117,12 @@ fn test_valid_shader_passes() {
 fn test_shader_compilation_error_handling() {
     // Test our validation catches errors before wgpu compilation
     let _shader_manager = ShaderManager::new();
-    
+
     // Try to validate an empty shader
     let result = ShaderManager::validate_shader("", "test");
     assert!(!result.valid);
     assert!(result.errors.iter().any(|e| e.contains("empty")));
-    
+
     // Try to validate a shader with bad switch syntax
     let bad_shader = r#"
         @fragment
@@ -126,7 +132,7 @@ fn test_shader_compilation_error_handling() {
             }
         }
     "#;
-    
+
     let result = ShaderManager::validate_shader(bad_shader, "test");
     assert!(!result.valid);
     assert!(result.errors.iter().any(|e| e.contains("switch")));

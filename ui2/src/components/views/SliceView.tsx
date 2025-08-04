@@ -4,7 +4,7 @@
  * Handles mouse interactions and coordinate transforms
  */
 
-import React, { useRef, useEffect, useCallback, useState } from 'react';
+import React, { useRef, useEffect, useCallback, useState, useMemo } from 'react';
 import { useViewStateStore } from '@/stores/viewStateStore';
 import { useLayerStore } from '@/stores/layerStore';
 import { CoordinateTransform } from '@/utils/coordinates';
@@ -16,6 +16,13 @@ import { getSliceNavigationService } from '@/services/SliceNavigationService';
 import { coalesceUtils } from '@/stores/middleware/coalesceUpdatesMiddleware';
 import type { ViewPlane } from '@/types/coordinates';
 import { drawScaledImage } from '@/utils/canvasUtils';
+import { drawCrosshair, transformCrosshairCoordinates, getLineDash } from '@/utils/crosshairUtils';
+import { useViewCrosshairSettings } from '@/contexts/CrosshairContext';
+import type { CrosshairStyle } from '@/utils/crosshairUtils';
+import { useTimeNavigation } from '@/hooks/useTimeNavigation';
+import { useTransientOverlay } from '@/components/ui/TransientOverlay';
+import { getTimeNavigationService } from '@/services/TimeNavigationService';
+import { throttle } from 'lodash';
 
 interface SliceViewProps {
   viewId: 'axial' | 'sagittal' | 'coronal';
@@ -25,6 +32,14 @@ interface SliceViewProps {
 }
 
 export function SliceView({ viewId, width, height, className = '' }: SliceViewProps) {
+  const crosshairSettings = useViewCrosshairSettings(viewId);
+  const timeNav = useTimeNavigation();
+  const timeNavService = getTimeNavigationService(); // Keep for mode navigation until fully migrated
+  const { show: showTimeOverlay, overlay: timeOverlay } = useTransientOverlay({
+    duration: 500,
+    position: 'center'
+  });
+  
   // Validate props using useMemo to ensure stable values
   const { validWidth, validHeight } = React.useMemo(() => {
     const w = (width > 0 && width <= 8192) ? width : 512;
@@ -45,6 +60,9 @@ export function SliceView({ viewId, width, height, className = '' }: SliceViewPr
   // Store the last rendered image to redraw on canvas resize
   const lastImageRef = useRef<ImageBitmap | null>(null);
   
+  // Memory monitoring for ImageBitmaps
+  const memoryMonitorRef = useRef({ allocatedBitmaps: 0, totalMemory: 0 });
+  
   // Store refs to avoid recreation of functions
   const redrawCanvasRef = useRef<() => void>();
   const renderCrosshairRef = useRef<() => void>();
@@ -59,12 +77,23 @@ export function SliceView({ viewId, width, height, className = '' }: SliceViewPr
     imageHeight: number;
   } | null>(null);
   
-  const { viewState, setCrosshair } = useViewStateStore();
+  // Cache for expensive computations used in wheel event handling
+  const timeNavCacheRef = useRef({
+    has4DVolume: false,
+    mode: 'slice' as 'time' | 'slice',
+    lastUpdate: 0
+  });
+  
+  // Use selective store subscriptions to reduce unnecessary re-renders
+  const viewPlane = useViewStateStore(state => state.viewState.views[viewId]);
+  const crosshair = useViewStateStore(state => state.viewState.crosshair);
+  const viewStateLayers = useViewStateStore(state => state.viewState.layers);
+  const setCrosshair = useViewStateStore(state => state.setCrosshair);
+  
   const layers = useLayerStore(state => state.layers);
   const loadingLayers = useLayerStore(state => state.loadingLayers);
   const renderLoopState = useRenderLoopInit(validWidth, validHeight);
   
-  const viewPlane: ViewPlane = viewState.views[viewId];
   const hasLayers = layers.length > 0;
   const isLoadingAnyLayer = loadingLayers.size > 0;
   
@@ -81,8 +110,13 @@ export function SliceView({ viewId, width, height, className = '' }: SliceViewPr
     const canvas = canvasRef.current;
     const currentViewState = useViewStateStore.getState().viewState;
     const currentViewPlane = currentViewState.views[viewId];
+    const currentCrosshairSettings = crosshairSettings;
     
-    if (!canvas || !currentViewState.crosshair.visible) return;
+    // Only check for canvas existence, not crosshair visibility
+    if (!canvas) return;
+    
+    // If crosshair is not visible, we don't need to draw it but don't block other rendering
+    if (!currentViewState.crosshair.visible || !currentCrosshairSettings.visible) return;
     
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
@@ -95,39 +129,26 @@ export function SliceView({ viewId, width, height, className = '' }: SliceViewPr
       );
       
       if (screenCoord && imagePlacementRef.current) {
-        const [screenX, screenY] = screenCoord;
-        const placement = imagePlacementRef.current;
+        const coords = transformCrosshairCoordinates(
+          screenCoord,
+          imagePlacementRef.current
+        );
         
-        // Transform screen coordinates to account for image placement
-        // The screenCoord is relative to the original image dimensions
-        const scaleX = placement.width / placement.imageWidth;
-        const scaleY = placement.height / placement.imageHeight;
-        
-        const canvasX = placement.x + screenX * scaleX;
-        const canvasY = placement.y + screenY * scaleY;
-        
-        // Only draw if crosshair is within the image bounds
-        if (canvasX >= placement.x && canvasX <= placement.x + placement.width &&
-            canvasY >= placement.y && canvasY <= placement.y + placement.height) {
-          // Draw crosshair
-          ctx.save();
-          ctx.strokeStyle = '#00ff00';
-          ctx.lineWidth = 1;
-          ctx.setLineDash([5, 5]);
+        if (coords) {
+          const style: CrosshairStyle = {
+            color: currentCrosshairSettings.activeColor,
+            lineWidth: currentCrosshairSettings.activeThickness,
+            lineDash: getLineDash(currentCrosshairSettings.activeStyle, currentCrosshairSettings.activeThickness),
+            opacity: 1
+          };
           
-          // Horizontal line (only within image bounds)
-          ctx.beginPath();
-          ctx.moveTo(placement.x, canvasY);
-          ctx.lineTo(placement.x + placement.width, canvasY);
-          ctx.stroke();
-          
-          // Vertical line (only within image bounds)
-          ctx.beginPath();
-          ctx.moveTo(canvasX, placement.y);
-          ctx.lineTo(canvasX, placement.y + placement.height);
-          ctx.stroke();
-          
-          ctx.restore();
+          drawCrosshair({
+            ctx,
+            canvasX: coords.canvasX,
+            canvasY: coords.canvasY,
+            bounds: imagePlacementRef.current,
+            style
+          });
         }
       }
     } catch (err) {
@@ -156,12 +177,12 @@ export function SliceView({ viewId, width, height, className = '' }: SliceViewPr
           timestamp: performance.now()
         });
         
-        // Clear and draw the new image
-        ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
+        // Draw the new image directly without clearing to prevent flickering
+        // The new image will overwrite the previous one
         
         try {
           // Store the image for redrawing on canvas resize
-          lastImageRef.current = data.imageBitmap;
+          setImageBitmap(data.imageBitmap);
           
           // Use the redraw function to draw the image
           if (redrawCanvasRef.current) {
@@ -198,13 +219,20 @@ export function SliceView({ viewId, width, height, className = '' }: SliceViewPr
     }
   }, [viewId]));
   
-  // Listen for render start
-  useEvent('render.start', useCallback(() => {
-    setIsRendering(true);
-  }, []));
+  // Removed render.start listener to prevent rapid state changes during slider dragging
+  // This was causing unnecessary re-renders and contributing to flickering
 
   // This component now only displays images
   // Dimension updates are handled by FlexibleSlicePanel
+  
+  // Force initial render when component mounts and render loop is ready
+  useEffect(() => {
+    if (renderLoopState.isInitialized && hasLayers && canvasWidth > 0 && canvasHeight > 0) {
+      console.log(`[SliceView ${viewId}] Forcing initial render on mount`);
+      // Just log - the coalescing middleware will trigger render automatically
+      // when ViewState changes
+    }
+  }, [renderLoopState.isInitialized, hasLayers, viewId]);
 
   // Handle mouse clicks to update crosshair
   const handleMouseClick = useCallback(async (event: React.MouseEvent<HTMLCanvasElement>) => {
@@ -291,12 +319,122 @@ export function SliceView({ viewId, width, height, className = '' }: SliceViewPr
     eventBus.emit('mouse.leave', { viewType: viewId });
   }, [viewId, eventBus]);
 
-  // Draw crosshair when it changes
+  // Update cache periodically to avoid expensive computations on every wheel event
   useEffect(() => {
-    if (renderCrosshairRef.current) {
-      renderCrosshairRef.current();
+    const updateCache = () => {
+      timeNavCacheRef.current = {
+        has4DVolume: timeNav.has4DVolume(),
+        mode: timeNavService.getMode(),
+        lastUpdate: Date.now()
+      };
+    };
+    
+    updateCache();
+    const interval = setInterval(updateCache, 1000); // Cache for 1s
+    return () => clearInterval(interval);
+  }, [layers, timeNav, timeNavService]);
+
+  // Proper ImageBitmap lifecycle management
+  const setImageBitmap = useCallback((newBitmap: ImageBitmap | null) => {
+    // Dispose of previous bitmap
+    if (lastImageRef.current) {
+      lastImageRef.current.close();
+      memoryMonitorRef.current.allocatedBitmaps--;
+      console.debug(`[SliceView ${viewId}] Disposed previous ImageBitmap`);
     }
-  }, [viewState.crosshair]);
+    
+    lastImageRef.current = newBitmap;
+    if (newBitmap) {
+      memoryMonitorRef.current.allocatedBitmaps++;
+      memoryMonitorRef.current.totalMemory += newBitmap.width * newBitmap.height * 4; // RGBA
+      console.debug(`[SliceView ${viewId}] New ImageBitmap allocated: ${newBitmap.width}x${newBitmap.height}`);
+    }
+  }, [viewId]);
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      if (lastImageRef.current) {
+        lastImageRef.current.close();
+        lastImageRef.current = null;
+        memoryMonitorRef.current.allocatedBitmaps--;
+        console.debug(`[SliceView ${viewId}] Cleaned up ImageBitmap on unmount`);
+      }
+    };
+  }, [viewId]);
+
+  // Automatic cleanup for old bitmaps
+  useEffect(() => {
+    const cleanupTimer = setInterval(() => {
+      // Cleanup if too many bitmaps allocated
+      if (memoryMonitorRef.current.allocatedBitmaps > 10) {
+        console.warn(`[SliceView] High ImageBitmap memory usage detected (${memoryMonitorRef.current.allocatedBitmaps} bitmaps), triggering cleanup`);
+        // Force garbage collection hint (if available)
+        if ('gc' in window && typeof (window as any).gc === 'function') {
+          (window as any).gc();
+        }
+      }
+    }, 30000); // Check every 30 seconds
+    
+    return () => clearInterval(cleanupTimer);
+  }, []);
+
+  // Handle mouse wheel for time navigation (4D volumes) or slice navigation (3D volumes)
+  const handleWheelImpl = useCallback((event: React.WheelEvent<HTMLCanvasElement>) => {
+    event.preventDefault();
+    
+    // Use cached values for expensive computations
+    const has4D = timeNavCacheRef.current.has4DVolume;
+    const navMode = timeNavCacheRef.current.mode;
+    
+    // Determine if we should navigate time or slices
+    const shouldNavigateTime = has4D && (
+      (navMode === 'time' && !event.shiftKey) || 
+      (navMode === 'slice' && event.shiftKey)
+    );
+    
+    if (shouldNavigateTime) {
+      // Navigate time
+      const delta = event.deltaY > 0 ? 1 : -1;
+      timeNav.jumpTimepoints(delta);
+      
+      // Show transient overlay
+      const display = timeNav.formatTimepointDisplay();
+      if (display) {
+        showTimeOverlay(display);
+      }
+    } else {
+      // Navigate slices (existing behavior)
+      const sliceNavService = getSliceNavigationService();
+      const delta = event.deltaY > 0 ? 1 : -1;
+      sliceNavService.navigateSliceByDelta(viewId, delta);
+    }
+  }, [viewId, timeNav, showTimeOverlay]);
+
+  // Create throttled wheel handler to prevent flooding with events
+  const throttledHandleWheel = useMemo(
+    () => throttle(handleWheelImpl, 200), // 5 events/sec max instead of unlimited
+    [handleWheelImpl]
+  );
+
+  // Cleanup throttled function on unmount
+  useEffect(() => {
+    return () => {
+      throttledHandleWheel.cancel();
+    };
+  }, [throttledHandleWheel]);
+
+  // Redraw canvas (image + crosshair) when crosshair changes
+  useEffect(() => {
+    if (redrawCanvasRef.current && lastImageRef.current) {
+      // Redraw the entire canvas to avoid crosshair artifacts
+      requestAnimationFrame(() => {
+        if (redrawCanvasRef.current) {
+          redrawCanvasRef.current();
+        }
+      });
+    }
+  }, [crosshair, crosshairSettings]);
   
   // Create a stable redraw function
   const redrawCanvasImpl = () => {
@@ -386,13 +524,13 @@ export function SliceView({ viewId, width, height, className = '' }: SliceViewPr
         // Force a render by triggering coalescing flush
         const viewState = useViewStateStore.getState().viewState;
         console.log(`[SliceView ${viewId}] Current state:`, {
-          layerCount: viewState.layers.length,
-          hasVisibleLayers: viewState.layers.some(l => l.visible && l.opacity > 0),
+          layerCount: viewStateLayers.length,
+          hasVisibleLayers: viewStateLayers.some(l => l.visible && l.opacity > 0),
           timestamp: performance.now()
         });
         
-        if (viewState.layers.length > 0) {
-          console.log(`[SliceView ${viewId}] Found ${viewState.layers.length} layers, forcing render`);
+        if (viewStateLayers.length > 0) {
+          console.log(`[SliceView ${viewId}] Found ${viewStateLayers.length} layers, forcing render`);
           coalesceUtils.flush(true);
         }
       } else {
@@ -449,19 +587,39 @@ export function SliceView({ viewId, width, height, className = '' }: SliceViewPr
 
   // Get slice range for the slider
   const sliceNavService = getSliceNavigationService();
-  const sliceRange = React.useMemo(() => {
+  
+  // Get min/max/step (only depends on layers, not crosshair)
+  const sliderBounds = React.useMemo(() => {
     try {
-      return sliceNavService.getSliceRange(viewId);
+      const range = sliceNavService.getSliceRange(viewId);
+      return {
+        min: range.min,
+        max: range.max,
+        step: range.step
+      };
     } catch (error) {
       console.warn(`SliceView ${viewId}: Failed to get slice range, using defaults`, error);
       return {
         min: -100,
         max: 100,
-        step: 1,
-        current: 0
+        step: 1
       };
     }
-  }, [viewId, layers, viewState.crosshair.world_mm]);
+  }, [viewId, layers]);
+  
+  // Get current value from crosshair
+  const sliderValue = React.useMemo(() => {
+    switch (viewId) {
+      case 'axial':
+        return crosshair.world_mm[2];
+      case 'sagittal':
+        return crosshair.world_mm[0];
+      case 'coronal':
+        return crosshair.world_mm[1];
+      default:
+        return 0;
+    }
+  }, [viewId, crosshair.world_mm]);
   
   const handleSliderChange = useCallback((value: number) => {
     console.log(`[SliceView ${viewId}] Slider changed to: ${value}`);
@@ -481,20 +639,22 @@ export function SliceView({ viewId, width, height, className = '' }: SliceViewPr
   // Debug logging
   useEffect(() => {
     console.log(`SliceView ${viewId}: hasLayers=${hasLayers}, renderLoopState.isInitialized=${renderLoopState.isInitialized}`);
-    console.log(`SliceView ${viewId}: sliceRange=`, sliceRange);
-    console.log(`SliceView ${viewId}: current slider value=${sliceRange.current}`);
+    console.log(`SliceView ${viewId}: sliderBounds=`, sliderBounds);
+    console.log(`SliceView ${viewId}: current slider value=${sliderValue}`);
     console.log(`SliceView ${viewId}: slider disabled=${!renderLoopState.isInitialized || isRendering} (isInitialized=${renderLoopState.isInitialized}, isRendering=${isRendering})`);
     console.log(`SliceView ${viewId}: using dimensions ${validWidth}x${validHeight} (requested: ${width}x${height})`);
-  }, [viewId, hasLayers, renderLoopState.isInitialized, sliceRange, isRendering, validWidth, validHeight, width, height]);
+  }, [viewId, hasLayers, renderLoopState.isInitialized, sliderBounds, sliderValue, isRendering, validWidth, validHeight, width, height]);
 
   // Filter out h-full from className to allow flex container to accommodate slider
   const filteredClassName = className?.replace(/\bh-full\b/g, '').trim() || '';
   
   return (
-    <div className={`relative h-full ${filteredClassName}`}>
+    <>
+      {timeOverlay}
+      <div className={`flex flex-col h-full ${filteredClassName}`}>
       <div 
         ref={containerRef}
-        className={`h-full relative overflow-hidden`}
+        className={`flex-1 relative overflow-hidden`}
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
@@ -509,6 +669,7 @@ export function SliceView({ viewId, width, height, className = '' }: SliceViewPr
             onClick={handleMouseClick}
             onMouseMove={handleMouseMove}
             onMouseLeave={handleMouseLeave}
+            onWheel={throttledHandleWheel}
           />
         </div>
       
@@ -529,12 +690,7 @@ export function SliceView({ viewId, width, height, className = '' }: SliceViewPr
           </div>
         )}
         
-        {/* Loading overlay */}
-        {isRendering && renderLoopState.isInitialized && (
-          <div className="absolute inset-0 bg-black bg-opacity-50 flex items-center justify-center">
-            <div className="text-white text-sm">Rendering...</div>
-          </div>
-        )}
+        {/* Loading overlay - Removed to prevent flickering during rapid updates */}
         
         {/* Error overlay */}
         {(error || renderLoopState.error) && (
@@ -576,20 +732,19 @@ export function SliceView({ viewId, width, height, className = '' }: SliceViewPr
         )}
       </div>
       
-      {/* Slice navigation slider - absolutely positioned at bottom */}
+      {/* Slice navigation slider - part of flex layout */}
       {hasLayers && (
-        <div className="absolute bottom-0 left-0 right-0 p-2 bg-gray-900 bg-opacity-75">
-          <SliceSlider
-            viewType={viewId}
-            value={sliceRange.current}
-            min={sliceRange.min}
-            max={sliceRange.max}
-            step={sliceRange.step}
-            disabled={!renderLoopState.isInitialized || isRendering}
-            onChange={handleSliderChange}
-          />
-        </div>
+        <SliceSlider
+          viewType={viewId}
+          value={sliderValue}
+          min={sliderBounds.min}
+          max={sliderBounds.max}
+          step={sliderBounds.step}
+          disabled={!renderLoopState.isInitialized || isRendering}
+          onChange={handleSliderChange}
+        />
       )}
     </div>
+    </>
   );
 }

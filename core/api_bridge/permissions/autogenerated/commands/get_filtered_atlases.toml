@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-get-filtered-atlases"
+description = "Enables the get_filtered_atlases command without any pre-configured scope."
+commands.allow = ["get_filtered_atlases"]
+
+[[permission]]
+identifier = "deny-get-filtered-atlases"
+description = "Denies the get_filtered_atlases command without any pre-configured scope."
+commands.deny = ["get_filtered_atlases"]

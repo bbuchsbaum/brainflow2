@@ -1,23 +1,23 @@
 #[cfg(test)]
 mod crosshair_tests {
     // Use re-exported UBO struct
-    use render_loop::{RenderLoopService, CrosshairUbo};
-    use wgpu::Maintain;
-    use pollster; // For blocking on async futures in tests
-    use bytemuck;
     use approx::assert_abs_diff_eq; // Import for float comparisons
-    use futures_intrusive::channel::shared::oneshot_channel; // For callback
+    use bytemuck;
+    use futures_intrusive::channel::shared::oneshot_channel;
+    use pollster; // For blocking on async futures in tests
+    use render_loop::{CrosshairUbo, RenderLoopService};
+    use wgpu::Maintain; // For callback
 
     #[test] // Use standard sync test
-    fn writes_crosshair_to_uniform_buffer() { // Rename test
-        let service = pollster::block_on(RenderLoopService::new())
-            .expect("init");
+    fn writes_crosshair_to_uniform_buffer() {
+        // Rename test
+        let service = pollster::block_on(RenderLoopService::new()).expect("init");
 
         let coords = [10.0, -20.5, 30.0];
         service.set_crosshair(coords);
 
         let device = &service.device;
-        let queue  = &service.queue;
+        let queue = &service.queue;
 
         // staging buffer for read-back
         let staging = device.create_buffer(&wgpu::BufferDescriptor {
@@ -28,7 +28,8 @@ mod crosshair_tests {
         });
 
         // copy UBO → staging
-        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
+        let mut encoder =
+            device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
         encoder.copy_buffer_to_buffer(
             &service.crosshair_ubo_buffer,
             0,
@@ -45,7 +46,9 @@ mod crosshair_tests {
         let slice = staging.slice(..);
         let (sender, receiver) = oneshot_channel();
         slice.map_async(wgpu::MapMode::Read, move |res| {
-            sender.send(res).expect("Failed to send map_async result via channel");
+            sender
+                .send(res)
+                .expect("Failed to send map_async result via channel");
         });
 
         // 7. drive the GPU and wait for the callback to execute
