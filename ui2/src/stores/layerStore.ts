@@ -451,4 +451,4 @@ export const useLayers = () => useLayer(layerSelectors.layers);
 export const useSelectedLayerId = () => useLayer(layerSelectors.selectedLayerId);
 export const useSelectedLayer = () => useLayer(layerSelectors.getSelectedLayer);
 export const useLayerMetadata = (id: string) => useLayer(state => layerSelectors.getLayerMetadata(state, id));
-export const useLayerRender = (id: string) => useLayer(state => layerSelectors.getLayerRender(state, id));
+// NOTE: useLayerRender has been removed - render properties are now in ViewState

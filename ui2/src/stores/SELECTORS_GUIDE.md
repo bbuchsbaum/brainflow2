@@ -37,7 +37,10 @@ const selectedLayer = useSelectedLayer();
 const metadata = useLayerMetadata(layerId);
 
 // Get render properties for a specific layer
-const renderProps = useLayerRender(layerId);
+// NOTE: Render properties have been moved to ViewState
+// const renderProps = useViewStateStore(state => 
+//   state.viewState.layers.find(l => l.id === layerId)
+// );
 ```
 
 ### Custom Selectors
@@ -60,17 +63,17 @@ const layerWithMetadata = useLayer(state => {
 - `layers` - All layers array
 - `selectedLayerId` - Currently selected layer ID
 - `layerMetadata` - Map of layer metadata
-- `layerRender` - Map of render properties
+// NOTE: layerRender has been removed - render properties are now in ViewState
 - `loadingLayers` - Set of loading layer IDs
 - `errorLayers` - Map of layer errors
 
 ### Computed Selectors
 - `getLayerById(state, id)` - Get specific layer
 - `getLayerMetadata(state, id)` - Get metadata for layer
-- `getLayerRender(state, id)` - Get render props for layer
+// NOTE: getLayerRender has been removed - render properties are now in ViewState
 - `getSelectedLayer(state)` - Get selected layer object
 - `getSelectedLayerMetadata(state)` - Get selected layer metadata
-- `getSelectedLayerRender(state)` - Get selected layer render props
+// NOTE: getSelectedLayerRender has been removed - render properties are now in ViewState
 - `isLayerLoading(state, id)` - Check if layer is loading
 - `getLayerError(state, id)` - Get error for layer
 - `getVisibleLayers(state)` - Get layers with opacity > 0

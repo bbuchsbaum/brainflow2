@@ -181,7 +181,7 @@ export class VolumeLoadingService {
       
       // Clean up any partial state
       try {
-        VolumeHandleStore.removeVolumeHandle(volumeHandle.id);
+        VolumeHandleStore.clearVolumeHandle(volumeHandle.id);
         useLayerStore.getState().clearLayerMetadata(volumeHandle.id);
       } catch (cleanupError) {
         console.error('[VolumeLoadingService] Cleanup error:', cleanupError);

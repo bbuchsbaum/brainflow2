@@ -64,31 +64,23 @@ export class LayerApiImpl implements LayerApi {
         console.log(`[LayerApiImpl ${performance.now() - addLayerStartTime}ms] Setting layer metadata:`, JSON.stringify(metadata));
         useLayerStore.getState().setLayerMetadata(newLayer.id, metadata);
         
-        // Check if there's already render properties for this layer (shouldn't happen but be safe)
-        const existingRender = useLayerStore.getState().getLayerRender(newLayer.id);
+        // Create render properties with 20-80% of data range for better default contrast
+        // Note: Render properties are now managed in ViewState, not layerStore
+        const min = gpuInfo.data_range.min;
+        const max = gpuInfo.data_range.max;
+        const range = max - min;
         
-        if (existingRender && existingRender.intensity) {
-          // Preserve existing render properties if they exist
-          console.log(`[LayerApiImpl] Found existing render properties, preserving user values`);
-          renderProps = existingRender;
-        } else {
-          // Create render properties with 20-80% of data range for better default contrast
-          const min = gpuInfo.data_range.min;
-          const max = gpuInfo.data_range.max;
-          const range = max - min;
-          
-          // Use 20-80% of the range for initial display
-          const intensityMin = min + (range * 0.20);
-          const intensityMax = min + (range * 0.80);
-          
-          renderProps = {
+        // Use 20-80% of the range for initial display
+        const intensityMin = min + (range * 0.20);
+        const intensityMax = min + (range * 0.80);
+        
+        renderProps = {
             opacity: 1.0,
             intensity: [intensityMin, intensityMax],
-            threshold: [min + (range / 2), min + (range / 2)],  // Default to midpoint
-            colormap: 'gray',
-            interpolation: 'linear',
-          };
-        }
+          threshold: [min + (range / 2), min + (range / 2)],  // Default to midpoint
+          colormap: 'gray',
+          interpolation: 'linear',
+        };
         
         console.log(`[LayerApiImpl ${performance.now() - addLayerStartTime}ms] Created render properties:`, JSON.stringify(renderProps));
       } else {
