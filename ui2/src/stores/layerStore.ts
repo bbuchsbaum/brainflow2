@@ -70,6 +70,7 @@ export interface LayerState {
   layerMetadata: Map<string, VolumeMetadata>;
   
   // Loading and error state
+  // @deprecated - Use LoadingQueueStore instead for loading state
   loadingLayers: Set<string>;
   errorLayers: Map<string, Error>;
   
@@ -89,6 +90,7 @@ export interface LayerState {
   setLayerMetadata: (id: string, metadata: VolumeMetadata) => void;
   
   // Loading and error state
+  // @deprecated setLayerLoading - Use LoadingQueueStore instead
   setLayerLoading: (id: string, loading: boolean) => void;
   setLayerError: (id: string, error: Error | null) => void;
   
@@ -232,6 +234,7 @@ const createLayerStore = () => create<LayerState>()(
       },
       
       // Loading and error state
+      // @deprecated - Use LoadingQueueStore instead
       setLayerLoading: (id, loading) => {
         set((state) => {
           if (loading) {
@@ -424,6 +427,7 @@ export const layerSelectors = {
   
   // NOTE: getSelectedLayerRender selector moved to ViewState
   
+  // @deprecated - Use LoadingQueueStore.isLoading instead
   isLayerLoading: (state: LayerState, id: string) => 
     state.loadingLayers.has(id),
   
