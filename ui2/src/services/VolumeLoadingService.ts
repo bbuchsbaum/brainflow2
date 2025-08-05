@@ -160,8 +160,8 @@ export class VolumeLoadingService {
       console.log(`[VolumeLoadingService ${performance.now() - startTime}ms] Post-addition state:`, {
         totalLayers: state.layers.length,
         selectedLayerId: state.selectedLayerId,
-        layerMetadata: state.layerMetadata.has(layer.id),
-        layerRender: state.layerRender.has(layer.id)
+        layerMetadata: state.layerMetadata.has(layer.id)
+        // NOTE: layerRender has been moved to ViewState
       });
       
       // 10. Emit completion event
