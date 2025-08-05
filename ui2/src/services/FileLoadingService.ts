@@ -5,7 +5,7 @@
 
 import { getEventBus, type EventBus } from '@/events/EventBus';
 import { getApiService, type ApiService, type VolumeHandle } from './apiService';
-import { useLayerStore } from '@/stores/layerStore';
+import { useLoadingQueueStore } from '@/stores/loadingQueueStore';
 import { getVolumeLoadingService, type VolumeLoadingService } from './VolumeLoadingService';
 import type { Layer } from '@/types/layers';
 import type { LayerInfo } from '@/stores/layerStore';
@@ -61,21 +61,40 @@ export class FileLoadingService {
     const filename = path.split('/').pop() || path;
     console.log(`[FileLoadingService ${performance.now() - startTime}ms] Loading file:`, filename);
     
+    // Check if already loading
+    if (useLoadingQueueStore.getState().isLoading(path)) {
+      console.warn(`[FileLoadingService] File already loading:`, path);
+      this.eventBus.emit('ui.notification', {
+        type: 'info',
+        message: `File is already being loaded: ${filename}`
+      });
+      return;
+    }
+    
+    // Add to loading queue
+    const queueId = useLoadingQueueStore.getState().enqueue({
+      type: 'file',
+      path: path,
+      displayName: filename
+    });
+    
     try {
-      // Emit loading event
+      // Start loading
+      useLoadingQueueStore.getState().startLoading(queueId);
+      
+      // Emit loading event for backward compatibility
       this.eventBus.emit('file.loading', { path });
       
-      // Create temporary layer ID
-      const tempLayerId = `loading-${Date.now()}`;
-      
-      // Set loading state
-      console.log(`[FileLoadingService ${performance.now() - startTime}ms] Setting loading state for tempLayerId:`, tempLayerId);
-      useLayerStore.getState().setLayerLoading(tempLayerId, true);
+      // Update progress: starting backend load
+      useLoadingQueueStore.getState().updateProgress(queueId, 10);
       
       // Load file via backend
       console.log(`[FileLoadingService ${performance.now() - startTime}ms] Calling backend loadFile...`);
       const volumeHandle = await this.apiService.loadFile(path);
       console.log(`[FileLoadingService ${performance.now() - startTime}ms] Volume loaded:`, JSON.stringify(volumeHandle));
+      
+      // Update progress: backend load complete
+      useLoadingQueueStore.getState().updateProgress(queueId, 50);
       
       // Use unified volume loading service
       const addedLayer = await this.volumeLoadingService.loadVolume({
@@ -89,28 +108,29 @@ export class FileLoadingService {
       
       console.log(`[FileLoadingService ${performance.now() - startTime}ms] Layer added successfully with ID: ${addedLayer.id}`);
       
-      // Clear temporary loading state
-      useLayerStore.getState().setLayerLoading(tempLayerId, false);
+      // Mark as complete in queue
+      useLoadingQueueStore.getState().markComplete(queueId, {
+        layerId: addedLayer.id,
+        volumeId: volumeHandle.id
+      });
       
-      // Emit success event
+      // Emit success event for backward compatibility
       this.eventBus.emit('file.loaded', { path, volumeId: volumeHandle.id });
       console.log('FileLoadingService: File load complete');
       
       // Show success notification
       this.eventBus.emit('ui.notification', {
-        type: 'info',
-        message: `Loaded ${filename}`
+        type: 'success',
+        message: `Loaded: ${filename}`
       });
       
     } catch (error) {
-      console.error('Failed to load file:', error);
+      console.error(`[FileLoadingService] Failed to load file:`, error);
       
-      // Clear any loading states
-      useLayerStore.getState().loadingLayers.forEach(id => {
-        useLayerStore.getState().setLayerLoading(id, false);
-      });
+      // Mark as error in queue
+      useLoadingQueueStore.getState().markError(queueId, error as Error);
       
-      // Emit error event
+      // Emit error event for backward compatibility
       this.eventBus.emit('file.error', { path, error: error as Error });
       
       // Show error notification
@@ -121,25 +141,6 @@ export class FileLoadingService {
     }
   }
   
-  /**
-   * Load file from drag-and-drop
-   * In Tauri, drag-and-drop provides file paths directly
-   */
-  async loadDroppedFile(file: File): Promise<void> {
-    // In a real Tauri app, we'd get the file path from the drop event
-    // For now, we'll show a notification that this needs Tauri file handling
-    this.eventBus.emit('ui.notification', {
-      type: 'warning',
-      message: 'File drag-and-drop requires Tauri file path handling. Please use the file browser for now.'
-    });
-    
-    // TODO: Implement Tauri file drop handling
-    // This would involve:
-    // 1. Getting the actual file path from the drop event
-    // 2. Calling loadFile with that path
-  }
-  
-
   /**
    * Infer layer type from filename
    */
@@ -156,12 +157,9 @@ export class FileLoadingService {
   }
 }
 
-// Singleton instance
+// Singleton accessor functions
 let fileLoadingServiceInstance: FileLoadingService | null = null;
 
-/**
- * Get the singleton FileLoadingService instance
- */
 export function getFileLoadingService(): FileLoadingService {
   if (!fileLoadingServiceInstance) {
     fileLoadingServiceInstance = new FileLoadingService();
@@ -169,10 +167,6 @@ export function getFileLoadingService(): FileLoadingService {
   return fileLoadingServiceInstance;
 }
 
-/**
- * Initialize the file loading service
- * Should be called on app startup
- */
 export function initializeFileLoadingService(): FileLoadingService {
   return getFileLoadingService();
 }

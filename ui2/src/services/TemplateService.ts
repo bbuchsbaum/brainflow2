@@ -1,50 +1,43 @@
 /**
- * TemplateService - Handles template loading from menu events
- * Listens for template-action events from Tauri menu and loads templates
+ * TemplateService - Service for loading brain templates like MNI152
+ * Templates are pre-registered volumes that can be loaded from the backend
  */
 
-import { listen } from '@tauri-apps/api/event';
 import { invoke } from '@tauri-apps/api/core';
-import { getEventBus, type EventBus } from '@/events/EventBus';
-import { getVolumeLoadingService, type VolumeLoadingService } from './VolumeLoadingService';
-import { getApiService, type ApiService } from './apiService';
-import { useLayerStore } from '@/stores/layerStore';
-import { VolumeHandleStore } from './VolumeHandleStore';
-import { useViewStateStore } from '@/stores/viewStateStore';
+import { listen, type UnlistenFn } from '@tauri-apps/api/event';
+import type { VolumeHandle } from './apiService';
 import type { LayerInfo } from '@/stores/layerStore';
+import { getEventBus, type EventBus } from '@/events/EventBus';
+import { useLoadingQueueStore } from '@/stores/loadingQueueStore';
+import { getVolumeLoadingService, type VolumeLoadingService } from './VolumeLoadingService';
 
+// Template metadata from backend
+interface TemplateMetadata {
+  id: string;
+  name: string;
+  description?: string;
+  resolution?: string;
+  template_type: string;
+}
+
+// Result from load_template_by_id command
 interface TemplateLoadResult {
-  template_metadata: {
-    id: string;
-    name: string;
-    description: string;
-    space: string;
-    resolution: string;
-    template_type: string;
-    bounds_mm?: number[];
-    data_range?: [number, number];
-  };
+  template_id: string;
+  template_metadata: TemplateMetadata;
   volume_handle_info: {
     id: string;
     name: string;
     dims: number[];
     dtype: string;
     volume_type: 'Volume3D' | 'TimeSeries4D';
-    num_timepoints?: number;
     current_timepoint?: number;
+    num_timepoints?: number;
     time_series_info?: {
       num_timepoints: number;
-      tr?: number;
-      temporal_unit?: string;
-      acquisition_time?: number;
+      tr: number | null;
+      temporal_unit: string | null;
+      acquisition_time: number | null;
     };
-  };
-}
-
-interface TemplateActionEvent {
-  action: string;
-  payload: {
-    template_id: string;
   };
 }
 
@@ -52,36 +45,38 @@ export class TemplateService {
   private static instance: TemplateService | null = null;
   private eventBus: EventBus;
   private volumeLoadingService: VolumeLoadingService;
-  private apiService: ApiService;
-  private unlistenFn: (() => void) | null = null;
+  private unlistenFn: UnlistenFn | null = null;
   private initialized = false;
-
+  
   private constructor() {
     this.eventBus = getEventBus();
     this.volumeLoadingService = getVolumeLoadingService();
-    this.apiService = getApiService();
-    this.initializeEventListeners();
   }
-
+  
   public static getInstance(): TemplateService {
     if (!TemplateService.instance) {
       TemplateService.instance = new TemplateService();
     }
     return TemplateService.instance;
   }
-
-  private async initializeEventListeners() {
+  
+  /**
+   * Initialize event listeners
+   */
+  async initialize() {
     if (this.initialized) {
-      console.warn('[TemplateService] Already initialized, skipping...');
       return;
     }
-
+    
     try {
-      // Listen for template-action events from Tauri menu
-      this.unlistenFn = await listen<TemplateActionEvent>('template-action', async (event) => {
-        console.log('[TemplateService] Received template-action event:', event.payload);
+      // Listen for template menu action events from backend
+      this.unlistenFn = await listen('template-menu-action', async (event) => {
+        console.log('[TemplateService] Received template menu action:', event.payload);
         
-        const { action, payload } = event.payload;
+        const { action, payload } = event.payload as {
+          action: string;
+          payload: any;
+        };
         
         if (action === 'load-template') {
           await this.loadTemplate(payload.template_id);
@@ -102,13 +97,33 @@ export class TemplateService {
     const startTime = performance.now();
     console.log(`[TemplateService ${startTime.toFixed(0)}ms] Loading template: ${templateId}`);
 
+    // Check if already loading
+    const templatePath = `template:${templateId}`;
+    if (useLoadingQueueStore.getState().isLoading(templatePath)) {
+      console.warn(`[TemplateService] Template already loading:`, templateId);
+      this.eventBus.emit('ui.notification', {
+        type: 'info',
+        message: `Template is already being loaded: ${templateId}`
+      });
+      return;
+    }
+    
+    // Add to loading queue
+    const queueId = useLoadingQueueStore.getState().enqueue({
+      type: 'template',
+      path: templatePath,
+      displayName: templateId
+    });
+
     try {
-      // Emit loading event
-      this.eventBus.emit('file.loading', { path: `template:${templateId}` });
+      // Start loading
+      useLoadingQueueStore.getState().startLoading(queueId);
       
-      // Create temporary layer ID for loading state
-      const tempLayerId = `template-loading-${Date.now()}`;
-      useLayerStore.getState().setLayerLoading(tempLayerId, true);
+      // Emit loading event for backward compatibility
+      this.eventBus.emit('file.loading', { path: templatePath });
+      
+      // Update progress: starting backend load
+      useLoadingQueueStore.getState().updateProgress(queueId, 10);
 
       // Load template via backend
       console.log(`[TemplateService ${performance.now() - startTime}ms] Calling backend load_template_by_id...`);
@@ -118,6 +133,9 @@ export class TemplateService {
       
       console.log(`[TemplateService ${performance.now() - startTime}ms] Template loaded:`, JSON.stringify(templateResult));
 
+      // Update progress: backend load complete
+      useLoadingQueueStore.getState().updateProgress(queueId, 50);
+
       // Extract volume handle info from the result
       const volumeHandleInfo = templateResult.volume_handle_info;
       
@@ -125,7 +143,7 @@ export class TemplateService {
       const volumeHandle = {
         id: volumeHandleInfo.id,
         name: volumeHandleInfo.name,
-        path: `template:${templateId}`,
+        path: templatePath,
         dims: volumeHandleInfo.dims as [number, number, number],
         dtype: volumeHandleInfo.dtype,
         volume_type: volumeHandleInfo.volume_type,
@@ -139,19 +157,22 @@ export class TemplateService {
         volumeHandle: volumeHandle,
         displayName: templateResult.template_metadata.name,
         source: 'template',
-        sourcePath: `template:${templateId}`,
+        sourcePath: templatePath,
         layerType: this.inferLayerType(templateResult.template_metadata.template_type),
         visible: true
       });
       
       console.log(`[TemplateService ${performance.now() - startTime}ms] Layer added successfully with ID: ${addedLayer.id}`);
 
-      // Clear temporary loading state
-      useLayerStore.getState().setLayerLoading(tempLayerId, false);
+      // Mark as complete in queue
+      useLoadingQueueStore.getState().markComplete(queueId, {
+        layerId: addedLayer.id,
+        volumeId: volumeHandle.id
+      });
 
-      // Emit success events
+      // Emit success events for backward compatibility
       this.eventBus.emit('file.loaded', { 
-        path: `template:${templateId}`, 
+        path: templatePath, 
         volumeId: volumeHandle.id 
       });
       
@@ -165,14 +186,12 @@ export class TemplateService {
     } catch (error) {
       console.error('[TemplateService] Failed to load template:', error);
       
-      // Clear any loading states
-      useLayerStore.getState().loadingLayers.forEach(id => {
-        useLayerStore.getState().setLayerLoading(id, false);
-      });
+      // Mark as error in queue
+      useLoadingQueueStore.getState().markError(queueId, error as Error);
 
-      // Emit error events
+      // Emit error events for backward compatibility
       this.eventBus.emit('file.error', { 
-        path: `template:${templateId}`, 
+        path: templatePath, 
         error: error as Error 
       });
       
