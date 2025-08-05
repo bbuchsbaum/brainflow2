@@ -2410,6 +2410,7 @@ dependencies = [
  "ndarray 0.15.6",
  "quick-xml 0.31.0",
  "serde",
+ "serde_json",
  "thiserror 1.0.69",
 ]
 
