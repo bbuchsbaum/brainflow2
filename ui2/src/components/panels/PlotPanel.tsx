@@ -39,8 +39,9 @@ const PlotPanelContent: React.FC<PlotPanelProps> = ({ containerWidth, containerH
       };
     }
     
-    // Fallback to layerStore if not in ViewState (during transitions)
-    return useLayerStore.getState().getLayerRender(selectedLayerId);
+    // During transitions, ViewState might not have the layer yet
+    // Return undefined to indicate no render properties available
+    return undefined;
   }, [selectedLayerId, viewState.layers]);
 
   // Simple dimension handling with reasonable defaults
