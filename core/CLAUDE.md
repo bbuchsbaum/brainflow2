@@ -2,6 +2,50 @@
 
 This document provides a comprehensive overview of the rendering architecture in the Brainflow2 core module, focusing on the WebGPU-based render_loop system.
 
+## Adding New Brain Templates
+
+To add a new brain template (e.g., MNIColin27, MNIPediatric, etc.), you need to update 4 files:
+
+### 1. Add Template Space (`core/templates/src/types.rs`)
+```rust
+pub enum TemplateSpace {
+    // ... existing spaces
+    MNIColin27,  // Add your new template space
+}
+```
+Update the implementation methods: `as_str()`, `display_name()`, and `is_volume_space()`.
+
+### 2. Add Template Entries (`core/templates/src/catalog.rs`)
+Create a new method like `add_mnicolin27_templates()` with the template files:
+```rust
+fn add_mnicolin27_templates(&mut self) {
+    let space = TemplateSpace::MNIColin27;
+    self.add_template_entry(TemplateCatalogEntry {
+        id: "MNIColin27_T1w_native".to_string(),
+        download_url: Some("https://templateflow.s3.amazonaws.com/..."),
+        // ... other fields
+    });
+}
+```
+
+### 3. Update Parser (`core/api_bridge/src/lib.rs`)
+Add the new space to `parse_template_id()`:
+```rust
+"MNIColin27" => templates::TemplateSpace::MNIColin27,
+```
+
+### 4. Add Menu Items (`src-tauri/src/main.rs`)
+Add the template submenu in the template menu builder:
+```rust
+let mut mnicolin27 = SubmenuBuilder::new(app, "MNI Colin27");
+mnicolin27 = mnicolin27
+    .item(&MenuItemBuilder::new("T1w")
+        .id("template_MNIColin27_T1w_native")
+        .build(app)?);
+```
+
+**Note**: We're working on dynamic template discovery using the `templateflow-rs` library which will eliminate the need for these manual updates.
+
 ## Overview
 
 The render_loop module implements a high-performance GPU rendering system for neuroimaging visualization. It uses WebGPU for cross-platform compatibility and provides efficient multi-layer volume rendering with real-time interactivity.

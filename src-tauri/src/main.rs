@@ -165,6 +165,33 @@ fn main() {
                 // Add MNI152 2009c directly to templates menu (no MNI Space intermediate level)
                 templates_menu = templates_menu.item(&mni152_2009c.build()?);
                 
+                // MNIColin27 - directly under Templates
+                let mut mnicolin27 = SubmenuBuilder::new(app, "MNI Colin27");
+                mnicolin27 = mnicolin27
+                    .item(&MenuItemBuilder::new("T1w")
+                        .id("template_MNIColin27_T1w_native")
+                        .build(app)?)
+                    .item(&MenuItemBuilder::new("Brain Mask")
+                        .id("template_MNIColin27_mask_native")
+                        .build(app)?);
+                
+                templates_menu = templates_menu.item(&mnicolin27.build()?);
+                
+                // MNI305 - directly under Templates
+                let mut mni305 = SubmenuBuilder::new(app, "MNI305");
+                mni305 = mni305
+                    .item(&MenuItemBuilder::new("T1w")
+                        .id("template_MNI305_T1w_native")
+                        .build(app)?)
+                    .item(&MenuItemBuilder::new("T2w")
+                        .id("template_MNI305_T2w_native")
+                        .build(app)?)
+                    .item(&MenuItemBuilder::new("Brain Mask")
+                        .id("template_MNI305_mask_native")
+                        .build(app)?);
+                
+                templates_menu = templates_menu.item(&mni305.build()?);
+                
                 templates_menu.build()?
             };
 
@@ -410,7 +437,7 @@ fn main() {
                         if let Some(template_id) = id.strip_prefix("template_") {
                             // Emit template loading event to frontend
                             match app.emit(
-                                "template-action",
+                                "template-menu-action",
                                 serde_json::json!({
                                     "action": "load-template",
                                     "payload": {

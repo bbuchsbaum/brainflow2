@@ -42,28 +42,6 @@ export class LayerApiImpl implements LayerApi {
       if (gpuInfo.data_range) {
         console.log(`[LayerApiImpl ${performance.now() - addLayerStartTime}ms] Volume data range: [${gpuInfo.data_range.min}, ${gpuInfo.data_range.max}]`);
         
-        // Get existing metadata to preserve worldBounds that was set earlier
-        const existingMetadata = useLayerStore.getState().getLayerMetadata(newLayer.id) || {};
-        
-        // Merge with new metadata from GPU info
-        const metadata = {
-          ...existingMetadata,  // Preserve existing metadata like worldBounds
-          dataRange: gpuInfo.data_range,
-          centerWorld: gpuInfo.center_world,
-          isBinaryLike: gpuInfo.is_binary_like,
-          // Add new metadata fields
-          dimensions: gpuInfo.dim,
-          spacing: gpuInfo.spacing,
-          origin: gpuInfo.origin,
-          voxelToWorld: gpuInfo.voxel_to_world,
-          worldToVoxel: gpuInfo.world_to_voxel,
-          // Map texture format to readable string
-          dataType: gpuInfo.tex_format,
-          // TODO: Add file path and format when available from volume handle
-        };
-        console.log(`[LayerApiImpl ${performance.now() - addLayerStartTime}ms] Setting layer metadata:`, JSON.stringify(metadata));
-        useLayerStore.getState().setLayerMetadata(newLayer.id, metadata);
-        
         // Create render properties with 20-80% of data range for better default contrast
         // Note: Render properties are now managed in ViewState, not layerStore
         const min = gpuInfo.data_range.min;
@@ -83,6 +61,30 @@ export class LayerApiImpl implements LayerApi {
         };
         
         console.log(`[LayerApiImpl ${performance.now() - addLayerStartTime}ms] Created render properties:`, JSON.stringify(renderProps));
+        
+        // Get existing metadata to preserve worldBounds that was set earlier
+        const existingMetadata = useLayerStore.getState().getLayerMetadata(newLayer.id) || {};
+        
+        // Merge with new metadata from GPU info
+        const metadata = {
+          ...existingMetadata,  // Preserve existing metadata like worldBounds
+          dataRange: gpuInfo.data_range,
+          centerWorld: gpuInfo.center_world,
+          isBinaryLike: gpuInfo.is_binary_like,
+          // Add new metadata fields
+          dimensions: gpuInfo.dim,
+          spacing: gpuInfo.spacing,
+          origin: gpuInfo.origin,
+          voxelToWorld: gpuInfo.voxel_to_world,
+          worldToVoxel: gpuInfo.world_to_voxel,
+          // Map texture format to readable string
+          dataType: gpuInfo.tex_format,
+          // Store render properties in metadata for StoreSyncService to use
+          renderProps: renderProps,
+          // TODO: Add file path and format when available from volume handle
+        };
+        console.log(`[LayerApiImpl ${performance.now() - addLayerStartTime}ms] Setting layer metadata:`, JSON.stringify(metadata));
+        useLayerStore.getState().setLayerMetadata(newLayer.id, metadata);
       } else {
         console.warn(`[LayerApiImpl ${performance.now() - addLayerStartTime}ms] No data_range in GPU info!`);
       }

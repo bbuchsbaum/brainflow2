@@ -1,13 +1,14 @@
 /**
  * CrosshairService - Manages crosshair state and view synchronization
  * 
- * Handles coordinate transformations between screen positions and world coordinates,
- * synchronizes orthogonal views, and emits events for other services to consume.
+ * Phase 3A Migration: Now backed by ViewState as single source of truth.
+ * The public API remains unchanged for backward compatibility.
  */
 
 import { getEventBus } from '@/events/EventBus';
 import type { EventBus } from '@/events/EventBus';
 import type { ViewType, ViewPlane, WorldCoordinates } from '@/types/coordinates';
+import { useViewStateStore } from '@/stores/viewStateStore';
 
 export interface VolumeInfo {
   dimensions: [number, number, number];
@@ -27,16 +28,60 @@ export interface CrosshairState {
 
 export class CrosshairService {
   private eventBus: EventBus;
-  private crosshairState: CrosshairState;
   private volumeInfo: VolumeInfo | null = null;
   private viewPlanes: Map<ViewType, ViewPlane> = new Map();
+  private subscriptionInitialized = false;
   
   constructor() {
     this.eventBus = getEventBus();
-    this.crosshairState = {
-      world_mm: [0, 0, 0],
-      isVisible: true
-    };
+    // Note: ViewState subscription is now lazy-initialized to avoid race conditions
+  }
+  
+  /**
+   * Lazily initialize ViewState subscription to avoid race conditions
+   */
+  private ensureSubscriptionInitialized(): void {
+    if (this.subscriptionInitialized) {
+      return;
+    }
+    
+    this.subscriptionInitialized = true;
+    
+    // Get initial state safely
+    let lastCrosshair;
+    try {
+      lastCrosshair = useViewStateStore.getState().viewState.crosshair;
+    } catch (error) {
+      console.warn('[CrosshairService] Failed to get initial ViewState, subscription deferred');
+      this.subscriptionInitialized = false;
+      return;
+    }
+    
+    useViewStateStore.subscribe((state) => {
+      const currentCrosshair = state.viewState.crosshair;
+      
+      // Use more robust comparison to avoid infinite loops
+      const positionChanged = (
+        currentCrosshair.world_mm[0] !== lastCrosshair.world_mm[0] ||
+        currentCrosshair.world_mm[1] !== lastCrosshair.world_mm[1] ||
+        currentCrosshair.world_mm[2] !== lastCrosshair.world_mm[2]
+      );
+      
+      if (positionChanged) {
+        this.eventBus.emit('crosshair.updated', { world_mm: [...currentCrosshair.world_mm] });
+      }
+      
+      // Check if visibility changed
+      if (currentCrosshair.visible !== lastCrosshair.visible) {
+        this.eventBus.emit('crosshair.visibility', { visible: currentCrosshair.visible });
+      }
+      
+      // Update reference safely
+      lastCrosshair = {
+        world_mm: [...currentCrosshair.world_mm] as WorldCoordinates,
+        visible: currentCrosshair.visible
+      };
+    });
   }
 
   /**
@@ -63,33 +108,40 @@ export class CrosshairService {
   }
 
   /**
-   * Get current crosshair state
+   * Get current crosshair state (now backed by ViewState)
    */
   getCrosshairState(): CrosshairState {
-    return { ...this.crosshairState };
+    // Ensure subscription is initialized when CrosshairService is actually used
+    this.ensureSubscriptionInitialized();
+    
+    const viewState = useViewStateStore.getState().viewState;
+    return {
+      world_mm: [...viewState.crosshair.world_mm] as WorldCoordinates,
+      isVisible: viewState.crosshair.visible,
+      // Legacy field - no longer tracked
+      lastUpdatedView: undefined
+    };
   }
 
   /**
-   * Set crosshair position directly in world coordinates
+   * Set crosshair position directly in world coordinates (now updates ViewState)
    */
   setCrosshair(world_mm: WorldCoordinates, fromView?: ViewType): void {
+    // Ensure subscription is initialized when CrosshairService is actually used
+    this.ensureSubscriptionInitialized();
+    
     // Validate position is within volume bounds
     if (!this.isWithinVolume(world_mm)) {
       // Clamp to volume bounds
       world_mm = this.clampToVolume(world_mm);
     }
 
-    this.crosshairState = {
-      world_mm: [...world_mm] as WorldCoordinates,
-      lastUpdatedView: fromView,
-      isVisible: this.crosshairState.isVisible
-    };
+    // Update ViewState (single source of truth)
+    // The subscription will emit the crosshair.updated event
+    useViewStateStore.getState().setCrosshair(world_mm, true, false);
 
     // Synchronize all views
     this.synchronizeViews(world_mm);
-
-    // Emit event
-    this.eventBus.emit('crosshair.updated', { world_mm });
   }
 
   /**
@@ -206,13 +258,15 @@ export class CrosshairService {
   }
 
   /**
-   * Set crosshair visibility
+   * Set crosshair visibility (now updates ViewState)
    */
   setVisible(visible: boolean): void {
-    if (this.crosshairState.isVisible !== visible) {
-      this.crosshairState.isVisible = visible;
-      this.eventBus.emit('crosshair.visibility', { visible });
-    }
+    // Ensure subscription is initialized when CrosshairService is actually used
+    this.ensureSubscriptionInitialized();
+    
+    // Update ViewState (single source of truth)
+    // The subscription will emit the crosshair.visibility event
+    useViewStateStore.getState().setCrosshairVisible(visible);
   }
 
   /**
@@ -230,7 +284,7 @@ export class CrosshairService {
   }
 
   /**
-   * Reset crosshair to volume center
+   * Reset crosshair to volume center (now updates ViewState)
    */
   resetToCenter(): void {
     if (this.volumeInfo) {

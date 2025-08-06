@@ -39,7 +39,25 @@ export class StoreSyncService {
       };
     }
     
+    // Check if metadata contains render properties calculated by LayerApiImpl
+    const metadataRenderProps = (layerMetadata as any)?.renderProps;
+    if (metadataRenderProps) {
+      console.log('[StoreSyncService] Using render properties from metadata:', metadataRenderProps);
+      return {
+        id: storeLayer.id,
+        name: storeLayer.name,
+        volumeId: storeLayer.volumeId,
+        visible: true,
+        opacity: metadataRenderProps.opacity ?? 1.0,
+        colormap: metadataRenderProps.colormap ?? 'gray',
+        intensity: metadataRenderProps.intensity ?? [defaultMin, defaultMax],
+        threshold: metadataRenderProps.threshold ?? [defaultMin, defaultMin],
+        blendMode: 'alpha'
+      };
+    }
+    
     // Otherwise create with defaults
+    console.log('[StoreSyncService] Using default intensity range:', [defaultMin, defaultMax]);
     return {
       id: storeLayer.id,
       name: storeLayer.name,
@@ -63,7 +81,7 @@ export class StoreSyncService {
       const storeLayer = useLayerStore.getState().layers.find(l => l.id === layerId);
       if (!storeLayer) return;
       
-      // Convert and add to ViewState
+      // Convert and add to ViewState (renderProps will be read from metadata)
       const viewLayer = this.convertToViewLayer(storeLayer);
       
       useViewStateStore.getState().setViewState((state) => ({

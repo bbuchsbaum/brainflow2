@@ -79,6 +79,10 @@ pub enum TemplateSpace {
     MNI152NLin2009cAsym,
     #[serde(rename = "MNI152NLin6Asym")]
     MNI152NLin6Asym,
+    #[serde(rename = "MNIColin27")]
+    MNIColin27,
+    #[serde(rename = "MNI305")]
+    MNI305,
     #[serde(rename = "fsaverage")]
     FSAverage,
     #[serde(rename = "fsaverage5")]
@@ -91,7 +95,9 @@ impl TemplateSpace {
     pub fn as_str(&self) -> &'static str {
         match self {
             Self::MNI152NLin2009cAsym => "MNI152NLin2009cAsym",
-            Self::MNI152NLin6Asym => "MNI152NLin6Asym", 
+            Self::MNI152NLin6Asym => "MNI152NLin6Asym",
+            Self::MNIColin27 => "MNIColin27",
+            Self::MNI305 => "MNI305",
             Self::FSAverage => "fsaverage",
             Self::FSAverage5 => "fsaverage5",
             Self::FSAverage6 => "fsaverage6",
@@ -102,6 +108,8 @@ impl TemplateSpace {
         match self {
             Self::MNI152NLin2009cAsym => "MNI152 2009c Asymmetric",
             Self::MNI152NLin6Asym => "MNI152 6th Gen Asymmetric",
+            Self::MNIColin27 => "MNI Colin27",
+            Self::MNI305 => "MNI305",
             Self::FSAverage => "FreeSurfer Average",
             Self::FSAverage5 => "FreeSurfer Average (5k vertices)",
             Self::FSAverage6 => "FreeSurfer Average (41k vertices)",
@@ -109,7 +117,7 @@ impl TemplateSpace {
     }
     
     pub fn is_volume_space(&self) -> bool {
-        matches!(self, Self::MNI152NLin2009cAsym | Self::MNI152NLin6Asym)
+        matches!(self, Self::MNI152NLin2009cAsym | Self::MNI152NLin6Asym | Self::MNIColin27 | Self::MNI305)
     }
     
     pub fn is_surface_space(&self) -> bool {

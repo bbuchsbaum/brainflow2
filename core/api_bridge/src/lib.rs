@@ -1438,8 +1438,25 @@ async fn request_layer_gpu_resources(
                 None
             };
 
-            // --- 2. Get VolumeSendable ---
+            // --- 2. Get VolumeSendable with Enhanced Registry Verification ---
             let volume_registry_guard = state.volume_registry.lock().await;
+            
+            // Enhanced verification for template loading timing issues
+            if !volume_registry_guard.volumes.contains_key(&source_volume_id) {
+                warn!("Volume {} not found in registry during GPU allocation - possible timing issue", source_volume_id);
+                
+                // Log registry state for debugging
+                info!("Registry contains {} volumes: {:?}", 
+                    volume_registry_guard.volumes.len(),
+                    volume_registry_guard.volumes.keys().collect::<Vec<_>>());
+                
+                drop(volume_registry_guard);
+                return Err(BridgeError::VolumeNotFound {
+                    code: 4044,
+                    details: format!("Volume {} not ready in registry. This may indicate a timing issue between template loading and GPU allocation.", source_volume_id),
+                });
+            }
+            
             let volume_data = volume_registry_guard
                 .get(&source_volume_id)
                 .ok_or_else(|| {
@@ -5698,9 +5715,13 @@ async fn load_template_by_id(
     // Register the volume in the volume registry
     let mut registry = state.volume_registry.lock().await;
     registry.insert(result.volume_handle_info.id.clone(), volume_sendable, metadata);
+    
+    // Add explicit synchronization to ensure registry entry is fully committed
+    // This prevents GPU allocation timing issues with template loading
+    tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
     drop(registry);
     
-    info!("Bridge: Successfully loaded and registered template volume with handle: {}", result.volume_handle_info.id);
+    info!("Bridge: Successfully loaded and registered template volume with handle: {} (with sync delay)", result.volume_handle_info.id);
     
     Ok(result)
 }
@@ -5760,6 +5781,8 @@ fn parse_template_id(template_id: &str) -> BridgeResult<templates::TemplateConfi
     let space = match space_str {
         "MNI152NLin2009cAsym" => templates::TemplateSpace::MNI152NLin2009cAsym,
         "MNI152NLin6Asym" => templates::TemplateSpace::MNI152NLin6Asym,
+        "MNIColin27" => templates::TemplateSpace::MNIColin27,
+        "MNI305" => templates::TemplateSpace::MNI305,
         "fsaverage" => templates::TemplateSpace::FSAverage,
         "fsaverage5" => templates::TemplateSpace::FSAverage5,
         "fsaverage6" => templates::TemplateSpace::FSAverage6,

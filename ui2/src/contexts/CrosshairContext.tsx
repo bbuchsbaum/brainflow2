@@ -8,6 +8,7 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { useViewStateStore } from '@/stores/viewStateStore';
+import { getEventBus } from '@/events/EventBus';
 
 // Color presets for medical imaging
 export const MEDICAL_COLOR_PRESETS = [
@@ -149,13 +150,20 @@ export function CrosshairProvider({ children }: { children: ReactNode }) {
   }, [settings, isLoading]);
   
   const updateSettings = (updates: Partial<CrosshairSettings>) => {
+    console.log('[CrosshairContext] updateSettings called with:', updates);
     setSettings(prev => {
       const newSettings = { ...prev, ...updates };
+      console.log('[CrosshairContext] New settings:', newSettings);
       
       // Sync visibility with view state if it changed
       if (updates.visible !== undefined) {
+        console.log('[CrosshairContext] Updating visibility in ViewStateStore:', updates.visible);
         setViewCrosshairVisible(updates.visible);
       }
+      
+      // Emit an event to force views to redraw with new settings
+      // This ensures the crosshair appearance updates immediately
+      getEventBus().emit('crosshair.settings.updated', newSettings);
       
       return newSettings;
     });

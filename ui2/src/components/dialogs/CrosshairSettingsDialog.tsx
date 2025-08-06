@@ -22,32 +22,31 @@ interface CrosshairSettingsDialogProps {
 export function CrosshairSettingsDialog({ onClose }: CrosshairSettingsDialogProps) {
   const { settings: currentSettings, updateSettings } = useCrosshairSettings();
   const [localSettings, setLocalSettings] = useState<CrosshairSettings>(currentSettings);
-  const [hasChanges, setHasChanges] = useState(false);
   const [mirrorExpanded, setMirrorExpanded] = useState(localSettings.showMirror);
   const dialogRef = useRef<HTMLDivElement>(null);
-
-  // Track changes
-  useEffect(() => {
-    const changed = JSON.stringify(localSettings) !== JSON.stringify(currentSettings);
-    setHasChanges(changed);
-  }, [localSettings, currentSettings]);
+  // Store the initial settings to revert on cancel
+  const initialSettingsRef = useRef<CrosshairSettings>(currentSettings);
 
   const updateLocalSetting = <K extends keyof CrosshairSettings>(
     key: K,
     value: CrosshairSettings[K]
   ) => {
+    console.log('[CrosshairSettingsDialog] Updating setting:', key, '=', value);
     setLocalSettings(prev => ({ ...prev, [key]: value }));
+    // Immediately update the actual settings for real-time preview
+    updateSettings({ [key]: value } as Partial<CrosshairSettings>);
   };
 
-  const handleApply = useCallback(() => {
-    updateSettings(localSettings);
+  const handleDone = useCallback(() => {
+    // Settings have been applied in real-time, just close the dialog
     onClose();
-  }, [localSettings, updateSettings, onClose]);
+  }, [onClose]);
 
   const handleCancel = useCallback(() => {
-    setLocalSettings(currentSettings);
+    // Revert to the original settings that were active when dialog opened
+    updateSettings(initialSettingsRef.current);
     onClose();
-  }, [currentSettings, onClose]);
+  }, [updateSettings, onClose]);
 
   const handleReset = () => {
     const defaults: CrosshairSettings = {
@@ -66,6 +65,8 @@ export function CrosshairSettingsDialog({ onClose }: CrosshairSettingsDialogProp
       coordinateFormat: 'mm'
     };
     setLocalSettings(defaults);
+    // Apply the reset immediately
+    updateSettings(defaults);
   };
 
   // Keyboard shortcuts
@@ -73,14 +74,14 @@ export function CrosshairSettingsDialog({ onClose }: CrosshairSettingsDialogProp
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         handleCancel();
-      } else if ((e.metaKey || e.ctrlKey) && e.key === 'Enter' && hasChanges) {
-        handleApply();
+      } else if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+        handleDone();
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [handleCancel, handleApply, hasChanges]);
+  }, [handleCancel, handleDone]);
 
   // Click outside to close
   useEffect(() => {
@@ -269,12 +270,11 @@ export function CrosshairSettingsDialog({ onClose }: CrosshairSettingsDialogProp
               Cancel
             </Button>
             <Button
-              onClick={handleApply}
-              disabled={!hasChanges}
-              variant={hasChanges ? 'default' : 'secondary'}
+              onClick={handleDone}
+              variant="default"
               size="sm"
             >
-              Apply
+              Done
             </Button>
           </div>
         </div>

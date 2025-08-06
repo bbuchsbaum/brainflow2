@@ -103,7 +103,7 @@ export function useServicesInit() {
     }
     
     // Initialize TemplateService to handle template menu events
-    initializeTemplateService();
+    await initializeTemplateService();
     console.log('[useServicesInit] TemplateService initialized');
     
     // Initialize ProgressService

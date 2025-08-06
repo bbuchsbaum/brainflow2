@@ -25,7 +25,7 @@ export const LayerItem: React.FC<LayerItemProps> = ({
 }) => {
   const layerStore = useLayerStore();
   const isSelected = useLayerStore(state => state.selectedLayerId === layer.id);
-  const isLoading = useLayerStore(state => state.loadingLayers.has(layer.id));
+  const isLoading = useLayerStore(state => state.loadingLayers.has(layer.id)); // VolumeLoadingService now sets this properly
   const error = useLayerStore(state => state.errorLayers.get(layer.id));
   
   // Read render properties from ViewState instead of layerStore.layerRender

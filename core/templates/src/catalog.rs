@@ -97,6 +97,12 @@ impl TemplateCatalog {
         // MNI152NLin6Asym templates  
         self.add_mni_6_templates();
         
+        // MNIColin27 templates
+        self.add_mnicolin27_templates();
+        
+        // MNI305 templates
+        self.add_mni305_templates();
+        
         // FreeSurfer templates
         self.add_freesurfer_templates();
     }
@@ -248,6 +254,81 @@ impl TemplateCatalog {
         });
     }
     
+    /// Add MNIColin27 templates
+    fn add_mnicolin27_templates(&mut self) {
+        let space = TemplateSpace::MNIColin27;
+        
+        // T1w template
+        self.add_template_entry(TemplateCatalogEntry {
+            id: "MNIColin27_T1w_native".to_string(),
+            config: TemplateConfig::new(TemplateType::T1w, space.clone(), TemplateResolution::Native),
+            name: "MNI Colin27 T1w".to_string(),
+            description: "MNI Colin27 T1-weighted template (single subject)".to_string(),
+            download_url: Some("https://templateflow.s3.amazonaws.com/tpl-MNIColin27/tpl-MNIColin27_T1w.nii.gz".to_string()),
+            file_size_mb: Some(10.0),
+            checksum: None,
+            is_cached: false,
+            last_accessed: None,
+        });
+        
+        // Brain mask
+        self.add_template_entry(TemplateCatalogEntry {
+            id: "MNIColin27_mask_native".to_string(),
+            config: TemplateConfig::new(TemplateType::BrainMask, space, TemplateResolution::Native),
+            name: "MNI Colin27 Brain Mask".to_string(),
+            description: "MNI Colin27 brain mask".to_string(),
+            download_url: Some("https://templateflow.s3.amazonaws.com/tpl-MNIColin27/tpl-MNIColin27_desc-brain_mask.nii.gz".to_string()),
+            file_size_mb: Some(0.5),
+            checksum: None,
+            is_cached: false,
+            last_accessed: None,
+        });
+    }
+    
+    /// Add MNI305 templates
+    fn add_mni305_templates(&mut self) {
+        let space = TemplateSpace::MNI305;
+        
+        // T1w template
+        self.add_template_entry(TemplateCatalogEntry {
+            id: "MNI305_T1w_native".to_string(),
+            config: TemplateConfig::new(TemplateType::T1w, space.clone(), TemplateResolution::Native),
+            name: "MNI305 T1w".to_string(),
+            description: "MNI305 T1-weighted template (average of 305 subjects)".to_string(),
+            download_url: Some("https://templateflow.s3.amazonaws.com/tpl-MNI305/tpl-MNI305_T1w.nii.gz".to_string()),
+            file_size_mb: Some(8.0),
+            checksum: None,
+            is_cached: false,
+            last_accessed: None,
+        });
+        
+        // Brain mask
+        self.add_template_entry(TemplateCatalogEntry {
+            id: "MNI305_mask_native".to_string(),
+            config: TemplateConfig::new(TemplateType::BrainMask, space.clone(), TemplateResolution::Native),
+            name: "MNI305 Brain Mask".to_string(),
+            description: "MNI305 brain mask".to_string(),
+            download_url: Some("https://templateflow.s3.amazonaws.com/tpl-MNI305/tpl-MNI305_desc-brain_mask.nii.gz".to_string()),
+            file_size_mb: Some(0.4),
+            checksum: None,
+            is_cached: false,
+            last_accessed: None,
+        });
+        
+        // T2w template
+        self.add_template_entry(TemplateCatalogEntry {
+            id: "MNI305_T2w_native".to_string(),
+            config: TemplateConfig::new(TemplateType::T2w, space, TemplateResolution::Native),
+            name: "MNI305 T2w".to_string(),
+            description: "MNI305 T2-weighted template".to_string(),
+            download_url: Some("https://templateflow.s3.amazonaws.com/tpl-MNI305/tpl-MNI305_T2w.nii.gz".to_string()),
+            file_size_mb: Some(8.0),
+            checksum: None,
+            is_cached: false,
+            last_accessed: None,
+        });
+    }
+    
     /// Add FreeSurfer surface templates
     fn add_freesurfer_templates(&mut self) {
         // FreeSurfer templates would be surface-based and require different handling
@@ -282,6 +363,8 @@ impl TemplateCatalog {
         vec![
             TemplateSpace::MNI152NLin2009cAsym,
             TemplateSpace::MNI152NLin6Asym,
+            TemplateSpace::MNIColin27,
+            TemplateSpace::MNI305,
         ]
     }
     

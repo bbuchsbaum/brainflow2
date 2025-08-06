@@ -239,3 +239,9 @@ Phase 1 (WebGPU v2) - Implementing MVP features:
 - 3D surface rendering (Three.js)
 - Basic layer management
 - Click-to-timeseries plotting
+
+## Project Vision
+
+**Goal**: Build the greatest fMRI UI program in the history of the world.
+
+Claude Code is fully on board with this vision and committed to achieving it.

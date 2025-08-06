@@ -16,9 +16,8 @@ import { getSliceNavigationService } from '@/services/SliceNavigationService';
 import { coalesceUtils } from '@/stores/middleware/coalesceUpdatesMiddleware';
 import type { ViewPlane } from '@/types/coordinates';
 import { drawScaledImage } from '@/utils/canvasUtils';
-import { drawCrosshair, transformCrosshairCoordinates, getLineDash } from '@/utils/crosshairUtils';
+import { drawCrosshair, transformCrosshairCoordinates, getLineDash, type CrosshairStyle } from '@/utils/crosshairUtils';
 import { useViewCrosshairSettings } from '@/contexts/CrosshairContext';
-import type { CrosshairStyle } from '@/utils/crosshairUtils';
 import { useTimeNavigation } from '@/hooks/useTimeNavigation';
 import { useTransientOverlay } from '@/components/ui/TransientOverlay';
 import { getTimeNavigationService } from '@/services/TimeNavigationService';
@@ -156,7 +155,7 @@ export function SliceView({ viewId, width, height, className = '' }: SliceViewPr
     }
   };
   
-  // Store the function in ref to keep it stable
+  // Store the function in ref
   renderCrosshairRef.current = renderCrosshairImpl;
   
   // Create stable event handler
@@ -426,15 +425,22 @@ export function SliceView({ viewId, width, height, className = '' }: SliceViewPr
 
   // Redraw canvas (image + crosshair) when crosshair changes
   useEffect(() => {
-    if (redrawCanvasRef.current && lastImageRef.current) {
+    if (lastImageRef.current) {
       // Redraw the entire canvas to avoid crosshair artifacts
       requestAnimationFrame(() => {
-        if (redrawCanvasRef.current) {
-          redrawCanvasRef.current();
-        }
+        redrawCanvasImpl();
       });
     }
   }, [crosshair, crosshairSettings]);
+  
+  // Listen for crosshair settings updates to force redraw
+  useEvent('crosshair.settings.updated', (newSettings) => {
+    if (lastImageRef.current && canvasRef.current) {
+      requestAnimationFrame(() => {
+        redrawCanvasImpl();
+      });
+    }
+  });
   
   // Create a stable redraw function
   const redrawCanvasImpl = () => {
@@ -492,7 +498,7 @@ export function SliceView({ viewId, width, height, className = '' }: SliceViewPr
     }
   };
   
-  // Store the redraw function in ref
+  // Update the redraw function in ref 
   redrawCanvasRef.current = redrawCanvasImpl;
   
   // Redraw when canvas dimensions change

@@ -79,7 +79,12 @@ export class TemplateService {
         };
         
         if (action === 'load-template') {
-          await this.loadTemplate(payload.template_id);
+          console.log('[TemplateService] Loading template with ID:', payload.template_id);
+          try {
+            await this.loadTemplate(payload.template_id);
+          } catch (error) {
+            console.error('[TemplateService] Failed to load template from menu:', error);
+          }
         }
       });
 
@@ -126,7 +131,7 @@ export class TemplateService {
       useLoadingQueueStore.getState().updateProgress(queueId, 10);
 
       // Load template via backend
-      console.log(`[TemplateService ${performance.now() - startTime}ms] Calling backend load_template_by_id...`);
+      console.log(`[TemplateService ${performance.now() - startTime}ms] Calling backend load_template_by_id with templateId:`, templateId);
       const templateResult = await invoke('plugin:api-bridge|load_template_by_id', {
         templateId: templateId
       }) as TemplateLoadResult;
@@ -252,6 +257,8 @@ export function getTemplateService(): TemplateService {
   return templateServiceInstance;
 }
 
-export function initializeTemplateService(): TemplateService {
-  return getTemplateService();
+export async function initializeTemplateService(): Promise<TemplateService> {
+  const service = getTemplateService();
+  await service.initialize();
+  return service;
 }

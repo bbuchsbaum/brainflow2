@@ -62,6 +62,7 @@ export class VolumeLoadingService {
     this.ensureInitialized();
     
     const startTime = performance.now();
+    console.log(`[VolumeLoadingService] Starting loadVolume with config:`, JSON.stringify(config));
     const { volumeHandle, displayName, source, sourcePath, layerType, visible = true } = config;
     
     console.log(`[VolumeLoadingService ${startTime.toFixed(0)}ms] Loading volume from ${source}:`, {
@@ -115,6 +116,21 @@ export class VolumeLoadingService {
       
       // 4. Set layer metadata BEFORE adding layer - CRITICAL TIMING
       console.log(`[VolumeLoadingService ${performance.now() - startTime}ms] Setting layer metadata with worldBounds`);
+      console.log(`[VolumeLoadingService] DIAGNOSTIC - volumeHandle:`, {
+        id: volumeHandle.id,
+        name: volumeHandle.name,
+        path: volumeHandle.path,
+        dims: volumeHandle.dims,
+        dtype: volumeHandle.dtype,
+        volume_type: volumeHandle.volume_type
+      });
+      console.log(`[VolumeLoadingService] DIAGNOSTIC - layer:`, {
+        id: layer.id,
+        volumeId: layer.volumeId,
+        source: source,
+        sourcePath: sourcePath
+      });
+      
       useLayerStore.getState().setLayerMetadata(layer.id, {
         worldBounds: {
           min: volumeBounds.min,
@@ -135,49 +151,69 @@ export class VolumeLoadingService {
       console.log(`[VolumeLoadingService ${performance.now() - startTime}ms] Initializing views`);
       await this.initializeViews(volumeHandle, volumeBounds);
       
-      // 7. Add layer through layer service
+      // 7. Add layer through layer service  
       console.log(`[VolumeLoadingService ${performance.now() - startTime}ms] Adding layer through LayerService`);
-      const addedLayer = await this.layerService!.addLayer(layer);
       
-      // 8. Force a render to ensure layer_to_volume_map is populated in backend
-      // This is critical for histogram computation to work
-      console.log(`[VolumeLoadingService ${performance.now() - startTime}ms] Forcing immediate render to populate backend mappings`);
+      // Set loading state for UI feedback (backward compatibility with LayerItem)
+      useLayerStore.getState().setLayerLoading(layer.id, true);
       
-      // Force an immediate flush to ensure the backend populates layer_to_volume_map
-      coalesceUtils.flush();
-      
-      // Wait for backend state to be ready instead of using a fixed delay
+      let addedLayer: Layer | undefined;
       try {
-        await this.waitForBackendStateReady(layer.id, 5000); // 5 second timeout
-        console.log(`[VolumeLoadingService ${performance.now() - startTime}ms] Backend state confirmed ready`);
-      } catch (error) {
-        console.warn(`[VolumeLoadingService ${performance.now() - startTime}ms] Backend state readiness check failed, proceeding anyway:`, error);
-        // Continue anyway - the fallback mechanisms in the backend should handle this
+        addedLayer = await this.layerService!.addLayer(layer);
+        
+        // 8. Force a render to ensure layer_to_volume_map is populated in backend
+        // This is critical for histogram computation to work
+        console.log(`[VolumeLoadingService ${performance.now() - startTime}ms] Forcing immediate render to populate backend mappings`);
+        
+        // Force an immediate flush to ensure the backend populates layer_to_volume_map
+        coalesceUtils.flush();
+        
+        // Wait for backend state to be ready instead of using a fixed delay
+        try {
+          await this.waitForBackendStateReady(addedLayer.id, 5000); // 5 second timeout
+          console.log(`[VolumeLoadingService ${performance.now() - startTime}ms] Backend state confirmed ready`);
+        } catch (error) {
+          console.warn(`[VolumeLoadingService ${performance.now() - startTime}ms] Backend state readiness check failed, proceeding anyway:`, error);
+          // Continue anyway - the fallback mechanisms in the backend should handle this
+        }
+        
+        // 9. Verify layer was added and selected
+        const state = useLayerStore.getState();
+        console.log(`[VolumeLoadingService ${performance.now() - startTime}ms] Post-addition state:`, {
+          totalLayers: state.layers.length,
+          selectedLayerId: state.selectedLayerId,
+          layerMetadata: state.layerMetadata.has(addedLayer.id)
+          // NOTE: layerRender has been moved to ViewState
+        });
+        
+        // 10. Emit completion event
+        this.eventBus!.emit('volume.load.complete', {
+          volumeId: volumeHandle.id,
+          layerId: addedLayer.id,
+          source: source,
+          duration: performance.now() - startTime
+        });
+        
+        console.log(`[VolumeLoadingService ${performance.now() - startTime}ms] Volume loading complete`);
+        
+        return addedLayer;
+        
+      } catch (layerError) {
+        // Handle layer addition or GPU allocation errors
+        console.error(`[VolumeLoadingService] Failed to add layer or allocate GPU resources for ${displayName}:`, layerError);
+        throw layerError;
+      } finally {
+        // Clear loading state regardless of success or failure
+        // Use the addedLayer.id if available, otherwise fall back to layer.id
+        const layerIdToClean = addedLayer?.id || layer.id;
+        useLayerStore.getState().setLayerLoading(layerIdToClean, false);
+        console.log(`[VolumeLoadingService] Cleared loading state for layer: ${layerIdToClean}`);
       }
-      
-      // 9. Verify layer was added and selected
-      const state = useLayerStore.getState();
-      console.log(`[VolumeLoadingService ${performance.now() - startTime}ms] Post-addition state:`, {
-        totalLayers: state.layers.length,
-        selectedLayerId: state.selectedLayerId,
-        layerMetadata: state.layerMetadata.has(layer.id)
-        // NOTE: layerRender has been moved to ViewState
-      });
-      
-      // 10. Emit completion event
-      this.eventBus!.emit('volume.load.complete', {
-        volumeId: volumeHandle.id,
-        layerId: addedLayer.id,
-        source: source,
-        duration: performance.now() - startTime
-      });
-      
-      console.log(`[VolumeLoadingService ${performance.now() - startTime}ms] Volume loading complete`);
-      
-      return addedLayer;
       
     } catch (error) {
       console.error(`[VolumeLoadingService] Failed to load volume:`, error);
+      
+      // NOTE: Loading state cleanup is now handled by the inner finally block
       
       // Clean up any partial state
       try {
@@ -283,27 +319,24 @@ export class VolumeLoadingService {
         // Test if backend state is ready by attempting minimal histogram computation
         await histogramService.computeHistogram({
           layerId,
-          binCount: 2, // Minimal computation - just 2 bins
-          excludeZeros: false
+          bins: 10, // Minimal bins for quick test
+          range: undefined // Let backend use defaults
         });
         
-        console.log(`[VolumeLoadingService] Backend state ready for layer ${layerId} after ${Date.now() - startTime}ms`);
-        return; // Success - backend state is ready
-      } catch (error: any) {
-        if (error?.code === 4044 || error?.message?.includes('not found')) {
-          // VolumeNotFound - backend state not ready yet
-          console.log(`[VolumeLoadingService] Backend state not ready yet for layer ${layerId}, retrying...`);
-          await new Promise(resolve => setTimeout(resolve, pollInterval));
-          continue;
-        }
-        // Other errors should be thrown
-        console.error(`[VolumeLoadingService] Unexpected error while checking backend state:`, error);
-        throw error;
+        // If successful, backend state is ready
+        console.log(`[VolumeLoadingService] Backend state ready for layer ${layerId}`);
+        return;
+      } catch (error) {
+        // Backend not ready yet, wait and retry
+        await new Promise(resolve => setTimeout(resolve, pollInterval));
       }
     }
     
-    throw new Error(`Backend state not ready within ${timeoutMs}ms for layer ${layerId}`);
+    // Timeout reached
+    console.warn(`[VolumeLoadingService] Backend state readiness check timed out for layer ${layerId}`);
+    throw new Error(`Backend state not ready after ${timeoutMs}ms`);
   }
+  
   
   /**
    * Infer layer type from name and source
