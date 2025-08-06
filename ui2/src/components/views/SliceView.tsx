@@ -32,6 +32,14 @@ interface SliceViewProps {
 
 export function SliceView({ viewId, width, height, className = '' }: SliceViewProps) {
   const crosshairSettings = useViewCrosshairSettings(viewId);
+  
+  // Keep crosshair settings in a ref so render function always gets latest values
+  // This solves the stale closure problem when the function is stored in a ref
+  const crosshairSettingsRef = useRef(crosshairSettings);
+  useEffect(() => {
+    crosshairSettingsRef.current = crosshairSettings;
+  }, [crosshairSettings]);
+  
   const timeNav = useTimeNavigation();
   const timeNavService = getTimeNavigationService(); // Keep for mode navigation until fully migrated
   const { show: showTimeOverlay, overlay: timeOverlay } = useTransientOverlay({
@@ -109,7 +117,8 @@ export function SliceView({ viewId, width, height, className = '' }: SliceViewPr
     const canvas = canvasRef.current;
     const currentViewState = useViewStateStore.getState().viewState;
     const currentViewPlane = currentViewState.views[viewId];
-    const currentCrosshairSettings = crosshairSettings;
+    // Always read from ref to get latest settings (avoids stale closure)
+    const currentCrosshairSettings = crosshairSettingsRef.current;
     
     // Only check for canvas existence, not crosshair visibility
     if (!canvas) return;
