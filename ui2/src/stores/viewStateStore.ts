@@ -10,6 +10,7 @@ import type { ViewState } from '@/types/viewState';
 import type { ViewType, ViewPlane, WorldCoordinates } from '@/types/coordinates';
 import { coalesceUpdatesMiddleware, coalesceUtils } from './middleware/coalesceUpdatesMiddleware';
 import { getApiService } from '@/services/apiService';
+import { getViewPlaneService } from '@/services/ViewPlaneService';
 
 // Declare global interface for store
 declare global {
@@ -398,8 +399,9 @@ const createViewStateStore = () => create<ViewStateStore>()(
                   break;
               }
               
-              // Calculate uniform pixel size to maintain square pixels
-              const pixelSize = Math.max(widthMm / newWidth, heightMm / newHeight);
+              // Use ViewPlaneService for consistent pixel size calculation
+              const viewPlaneService = getViewPlaneService();
+              const pixelSize = viewPlaneService.calculatePixelSize(widthMm, heightMm, newWidth, newHeight);
               
               console.log(`[viewStateStore] Frontend calculation:`, {
                 extentMm: { width: widthMm, height: heightMm },
