@@ -5,14 +5,15 @@
  * Wraps SliceRenderer and adds crosshair rendering functionality.
  */
 
-import React, { useCallback, useRef, useState, useEffect } from 'react';
+import React, { useCallback, useRef, useState, useEffect, useMemo } from 'react';
 import { SliceRenderer } from './SliceRenderer';
 import { useViewStateStore } from '@/stores/viewStateStore';
+import { useRenderStateStore } from '@/stores/renderStateStore';
 import { getMosaicRenderService } from '@/services/MosaicRenderService';
 import { drawCrosshair, getLineDash } from '@/utils/crosshairUtils';
 import { CoordinateTransform } from '@/utils/coordinates';
 import { useCrosshairSettingsStore } from '@/stores/crosshairSettingsStore';
-import { ResourceMonitor } from '@/utils/ResourceMonitor';
+import { RenderContextFactory } from '@/types/renderContext';
 import type { ViewPlane } from '@/types/coordinates';
 import type { CrosshairStyle } from '@/utils/crosshairUtils';
 
@@ -43,10 +44,38 @@ export function MosaicCell({
     );
   }
   
+  // Extract workspaceId from tag for RenderContext
+  // Tag format: "mosaic-{workspaceId}-{axis}-{sliceIndex}"
+  const workspaceId = useMemo(() => {
+    const parts = tag.split('-');
+    // Remove 'mosaic' prefix and extract workspaceId
+    // If tag is "mosaic-default-axial-0", workspaceId is "default"
+    return parts[1] || 'default';
+  }, [tag]);
+  
+  // Create RenderContext using the tag as the ID
+  const renderContext = useMemo(() => ({
+    id: tag,  // Use the tag directly as ID
+    type: 'mosaic-cell' as const,
+    dimensions: { width, height },
+    metadata: {
+      workspaceId,
+      viewType: axis,
+      sliceIndex
+    }
+  }), [tag, width, height, workspaceId, axis, sliceIndex]);
+  
   const mosaicRenderService = getMosaicRenderService();
   const viewState = useViewStateStore(state => state.viewState);
   // Use Zustand store for crosshair settings - works across all React roots
   const crosshairSettings = useCrosshairSettingsStore(state => state.getViewSettings(axis));
+  
+  // Register context with the store for type-safe rendering
+  const registerContext = useRenderStateStore(state => state.registerContext);
+  useEffect(() => {
+    registerContext(renderContext);
+    console.log(`[MosaicCell] Registered context for ${renderContext.id} (slice ${sliceIndex})`);
+  }, [renderContext, registerContext, sliceIndex]);
   
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const imagePlacementRef = useRef<{
@@ -61,7 +90,6 @@ export function MosaicCell({
   const slicePositionRef = useRef<number>(0);
   const [debugInfo, setDebugInfo] = useState<string>('');
   const lastImageRef = useRef<ImageBitmap | null>(null);
-  const resourceMonitor = useRef(ResourceMonitor.getInstance());
   // Store the redraw function from SliceRenderer
   const redrawCanvasRef = useRef<(() => void) | null>(null);
   // Custom render function to draw crosshairs
@@ -255,19 +283,16 @@ export function MosaicCell({
     // Store new bitmap
     lastImageRef.current = imageBitmap;
     
-    // Track allocation (for monitoring only, don't block)
-    resourceMonitor.current.allocate();
-    const status = resourceMonitor.current.getStatus();
-    if (status.utilizationPercent > 80) {
-      console.warn(`[MosaicCell ${tag}] High GPU resource usage: ${status.allocated}/${status.max} bitmaps`);
-    }
+    // Browser handles memory management automatically
+    console.debug(`[MosaicCell ${tag}] Received new image ${imageBitmap.width}x${imageBitmap.height}`);
   }, [tag]);
   
   return (
     <SliceRenderer
       width={width}
       height={height}
-      tag={tag}
+      context={renderContext}  // NEW: Pass structured context instead of tag string
+      tag={tag}                // Keep for now for backward compatibility during transition
       customRender={customRender}
       onMouseDown={handleMouseDown}
       onCanvasReady={handleCanvasReady}

@@ -22,6 +22,9 @@ import { useTimeNavigation } from '@/hooks/useTimeNavigation';
 import { useTransientOverlay } from '@/components/ui/TransientOverlay';
 import { getTimeNavigationService } from '@/services/TimeNavigationService';
 import { throttle } from 'lodash';
+import { RenderErrorBoundary } from '@/components/ui/RenderErrorBoundary';
+import { RenderContextFactory } from '@/types/renderContext';
+import type { RenderContext } from '@/types/renderContext';
 
 interface SliceViewProps {
   viewId: 'axial' | 'sagittal' | 'coronal';
@@ -30,7 +33,24 @@ interface SliceViewProps {
   className?: string;
 }
 
-export function SliceView({ viewId, width, height, className = '' }: SliceViewProps) {
+function SliceViewRaw({ viewId, width, height, className = '' }: SliceViewProps) {
+  // Create RenderContext using viewId as the ID
+  const renderContext = useMemo(() => ({
+    id: viewId,  // Use viewType directly as ID
+    type: 'slice' as const,
+    dimensions: { width, height },
+    metadata: {
+      viewType: viewId
+    }
+  } as RenderContext), [viewId, width, height]);
+  
+  // Register context with the store for type-safe rendering
+  const registerContext = useRenderStateStore(state => state.registerContext);
+  useEffect(() => {
+    registerContext(renderContext);
+    console.log(`[SliceView] Registered context for ${renderContext.id}`);
+  }, [renderContext, registerContext]);
+  
   // Use Zustand store for crosshair settings - works across all React roots
   const crosshairSettings = useCrosshairSettingsStore(state => state.getViewSettings(viewId));
   
@@ -61,8 +81,9 @@ export function SliceView({ viewId, width, height, className = '' }: SliceViewPr
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   
-  // Use RenderStateStore instead of local state
-  const renderState = useRenderState(viewId);
+  // Use RenderStateStore with context ID
+  // The store will automatically map legacy IDs to context IDs
+  const renderState = useRenderState(renderContext.id);
   const { isRendering, error, lastImage } = renderState;
   
   // Note: Memory monitoring is now handled by RenderStateStore
@@ -680,3 +701,18 @@ export function SliceView({ viewId, width, height, className = '' }: SliceViewPr
     </>
   );
 }
+
+// Export the wrapped version with error boundary
+// DEPRECATED: This is the legacy implementation
+// Keeping for reference but not exported
+function SliceViewLegacy(props: SliceViewProps) {
+  return (
+    <RenderErrorBoundary viewId={props.viewId}>
+      <SliceViewRaw {...props} />
+    </RenderErrorBoundary>
+  );
+}
+
+// Import and re-export the new unified implementation
+import { SliceViewCanvas } from './SliceViewCanvas';
+export const SliceView = SliceViewCanvas;

@@ -22,6 +22,7 @@ import { getApiService } from '@/services/apiService';
 import { MosaicToolbar } from '@/components/ui/MosaicToolbar';
 import type { ViewState } from '@/types/viewState';
 import type { WorldCoordinates } from '@/types/coordinates';
+import { RenderErrorBoundary } from '@/components/ui/RenderErrorBoundary';
 import './MosaicView.css';
 
 interface MosaicViewPromiseProps {
@@ -31,7 +32,7 @@ interface MosaicViewPromiseProps {
 /**
  * Main MosaicView component using event-based architecture with MosaicRenderService
  */
-export function MosaicViewPromise({ 
+function MosaicViewPromiseRaw({ 
   workspaceId = 'mosaic-default'
 }: MosaicViewPromiseProps) {
   console.log('[MosaicViewPromise] Component rendering/mounting');
@@ -215,11 +216,13 @@ export function MosaicViewPromise({
     return indices;
   }, [currentPage, gridSize, totalSlices]);
   
-  // Generate unique cell IDs
-  const cellIds = useMemo(() => 
-    sliceIndices.map(idx => `mosaic-${workspaceId}-${sliceAxis}-${idx}`),
-    [sliceIndices, workspaceId, sliceAxis]
-  );
+  // Generate cell IDs for each mosaic cell
+  // These are used as tags for MosaicCell and for the render service
+  const cellIds = useMemo(() => {
+    return sliceIndices.map(idx => 
+      `mosaic-${workspaceId}-${sliceAxis}-${idx}`
+    );
+  }, [sliceIndices, workspaceId, sliceAxis]);
   
   // Trigger renders when slice indices or layer parameters change
   useEffect(() => {
@@ -241,7 +244,7 @@ export function MosaicViewPromise({
     const renderRequests = sliceIndices.map((sliceIndex, i) => ({
       sliceIndex,
       axis: sliceAxis,
-      cellId: cellIds[i],
+      cellId: cellIds[i],  // Tag for this cell
       width: cellSize.width,
       height: cellSize.height
     }));
@@ -363,7 +366,7 @@ export function MosaicViewPromise({
               <MosaicCell
                 width={cellSize.width}
                 height={cellSize.height}
-                tag={cellIds[i]}
+                tag={cellIds[i]}  // Pass tag for this cell
                 sliceIndex={sliceIndex}
                 axis={sliceAxis}
                 onCrosshairClick={setCrosshair}
@@ -373,5 +376,14 @@ export function MosaicViewPromise({
         ))}
       </div>
     </div>
+  );
+}
+
+// Export the wrapped version with error boundary
+export function MosaicViewPromise(props: MosaicViewPromiseProps) {
+  return (
+    <RenderErrorBoundary viewId={`mosaic-${props.workspaceId || 'default'}`}>
+      <MosaicViewPromiseRaw {...props} />
+    </RenderErrorBoundary>
   );
 }

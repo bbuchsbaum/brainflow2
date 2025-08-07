@@ -10,10 +10,15 @@
  * - Provides consistent error handling
  * - Manages ImageBitmap lifecycle centrally
  * - Enables better debugging and monitoring
+ * 
+ * MIGRATION: Adding RenderContext support alongside legacy string keys
+ * to enable gradual migration from brittle tag/viewType system to
+ * type-safe RenderContext system.
  */
 
 import { create } from 'zustand';
 import { immer } from 'zustand/middleware/immer';
+import type { RenderContext } from '@/types/renderContext';
 
 export interface RenderState {
   isRendering: boolean;
@@ -27,7 +32,11 @@ interface RenderStateStore {
   // State per identifier (tag or viewType) - using plain object for React reactivity
   states: { [id: string]: RenderState };
   
-  // Actions
+  // NEW: Context registry for type-safe rendering
+  // Maps context ID to full context object
+  contexts: { [id: string]: RenderContext };
+  
+  // Actions - Legacy (still supported)
   setRendering: (id: string, isRendering: boolean) => void;
   setError: (id: string, error: Error | null) => void;
   setImage: (id: string, image: ImageBitmap | null) => void;
@@ -35,9 +44,17 @@ interface RenderStateStore {
   clearState: (id: string) => void;
   clearAllStates: () => void;
   
+  // NEW: Context-aware actions
+  registerContext: (context: RenderContext) => void;
+  getContext: (id: string) => RenderContext | undefined;
+  setRenderingWithContext: (context: RenderContext, isRendering: boolean) => void;
+  setImageWithContext: (context: RenderContext, image: ImageBitmap | null) => void;
+  getContextsOfType: (type: 'slice' | 'mosaic-cell') => RenderContext[];
+  
   // Debugging helpers
   getAllStates: () => { [id: string]: RenderState };
   getActiveRenders: () => string[];
+  getAllContexts: () => { [id: string]: RenderContext };
 }
 
 // Default state for new views
@@ -52,6 +69,7 @@ const defaultRenderState: RenderState = {
 export const useRenderStateStore = create<RenderStateStore>()(
   immer((set, get) => ({
     states: {},
+    contexts: {},  // NEW: Initialize context registry
     
     setRendering: (id, isRendering) => {
       set((state) => {
@@ -104,20 +122,8 @@ export const useRenderStateStore = create<RenderStateStore>()(
         
         const renderState = state.states[id];
         
-        // Clean up old image if it exists
-        if (renderState.lastImage && renderState.lastImage !== image) {
-          // Note: ImageBitmap.close() is not available in all browsers
-          // but we should call it if available to free memory
-          if ('close' in renderState.lastImage && typeof renderState.lastImage.close === 'function') {
-            try {
-              renderState.lastImage.close();
-              console.log(`[RenderStateStore] Disposed old image for ${id}`);
-            } catch (e) {
-              console.warn(`[RenderStateStore] Failed to close ImageBitmap for ${id}:`, e);
-            }
-          }
-        }
-        
+        // Trust browser GC to handle ImageBitmap lifecycle
+        // Manual close() was causing crashes when React effects still held references
         renderState.lastImage = image;
         
         if (image) {
@@ -145,16 +151,8 @@ export const useRenderStateStore = create<RenderStateStore>()(
         const renderState = state.states[id];
         
         if (renderState) {
-          // Clean up ImageBitmap if it exists
-          if (renderState.lastImage && 'close' in renderState.lastImage) {
-            try {
-              renderState.lastImage.close();
-              console.log(`[RenderStateStore] Disposed image for ${id} during clear`);
-            } catch (e) {
-              console.warn(`[RenderStateStore] Failed to close ImageBitmap for ${id}:`, e);
-            }
-          }
-          
+          // Trust browser GC to handle ImageBitmap cleanup
+          // Manual close() was causing crashes
           delete state.states[id];
           console.log(`[RenderStateStore] Cleared state for ${id}`);
         }
@@ -163,18 +161,8 @@ export const useRenderStateStore = create<RenderStateStore>()(
     
     clearAllStates: () => {
       set((state) => {
-        // Clean up all ImageBitmaps
-        Object.entries(state.states).forEach(([id, renderState]) => {
-          if (renderState.lastImage && 'close' in renderState.lastImage) {
-            try {
-              renderState.lastImage.close();
-              console.log(`[RenderStateStore] Disposed image for ${id} during clear all`);
-            } catch (e) {
-              console.warn(`[RenderStateStore] Failed to close ImageBitmap for ${id}:`, e);
-            }
-          }
-        });
-        
+        // Trust browser GC to handle all ImageBitmap cleanup
+        // Manual close() was causing crashes
         state.states = {};
         console.log(`[RenderStateStore] Cleared all render states`);
       });
@@ -195,6 +183,61 @@ export const useRenderStateStore = create<RenderStateStore>()(
       });
       
       return active;
+    },
+    
+    // NEW: Context-aware methods for type-safe rendering
+    registerContext: (context) => {
+      set((state) => {
+        state.contexts[context.id] = context;
+        
+        // Also ensure state exists for this context
+        if (!(context.id in state.states)) {
+          state.states[context.id] = { ...defaultRenderState };
+        }
+        
+        console.log(`[RenderStateStore] Registered context ${context.id} (type: ${context.type})`);
+      });
+    },
+    
+    getContext: (id) => {
+      return get().contexts[id];
+    },
+    
+    setRenderingWithContext: (context, isRendering) => {
+      // Register context if not already registered
+      if (!get().contexts[context.id]) {
+        get().registerContext(context);
+      }
+      
+      // Use existing setRendering with context ID
+      get().setRendering(context.id, isRendering);
+    },
+    
+    setImageWithContext: (context, image) => {
+      // Register context if not already registered  
+      if (!get().contexts[context.id]) {
+        get().registerContext(context);
+      }
+      
+      // Use existing setImage with context ID
+      get().setImage(context.id, image);
+    },
+    
+    getContextsOfType: (type) => {
+      const contexts = get().contexts;
+      const result: RenderContext[] = [];
+      
+      Object.values(contexts).forEach((context) => {
+        if (context.type === type) {
+          result.push(context);
+        }
+      });
+      
+      return result;
+    },
+    
+    getAllContexts: () => {
+      return get().contexts;
     }
   }))
 );
@@ -220,4 +263,22 @@ export function useLastImage(id: string): ImageBitmap | null {
 // Debug helper for development
 if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
   (window as any).__renderStateStore = useRenderStateStore;
+  
+  // Add debug method to inspect contexts
+  (window as any).__debugRenderContexts = () => {
+    const store = useRenderStateStore.getState();
+    const contexts = store.getAllContexts();
+    console.table(Object.values(contexts).map(c => ({
+      id: c.id,
+      type: c.type,
+      width: c.dimensions?.width,
+      height: c.dimensions?.height,
+      workspaceId: c.metadata?.workspaceId,
+      viewType: c.metadata?.viewType,
+      sliceIndex: c.metadata?.sliceIndex
+    })));
+    console.log('Total contexts registered:', Object.keys(contexts).length);
+    console.log('Mosaic contexts:', store.getContextsOfType('mosaic-cell').length);
+    console.log('Slice contexts:', store.getContextsOfType('slice').length);
+  };
 }

@@ -2,99 +2,161 @@
  * useRenderCanvas Hook
  * 
  * Shared hook for canvas-based image rendering using RenderStateStore.
- * Replaces EventBus pattern with centralized state management.
+ * Supports both the new unified RenderContext and legacy tag/viewType for backward compatibility.
+ * Includes comprehensive error handling and recovery.
  */
 
 import { useRef, useCallback, useEffect } from 'react';
-import { useRenderState } from '@/stores/renderStateStore';
+import { useRenderState, useRenderStateStore } from '@/stores/renderStateStore';
 import { drawScaledImage } from '@/utils/canvasUtils';
-import { ResourceMonitor } from '@/utils/ResourceMonitor';
 import type { ImagePlacement } from '@/utils/canvasUtils';
+import type { RenderContext } from '@/types/renderContext';
+import { RenderContextFactory } from '@/types/renderContext';
 
 interface UseRenderCanvasOptions {
+  // New unified approach
+  context?: RenderContext;
+  
+  // Legacy approach (backward compatibility)
   tag?: string;
   viewType?: 'axial' | 'sagittal' | 'coronal';
+  
+  // Callbacks
   onImageReceived?: (imageBitmap: ImageBitmap) => void;
   customRender?: (ctx: CanvasRenderingContext2D, placement: ImagePlacement) => void;
 }
 
 export function useRenderCanvas(options: UseRenderCanvasOptions = {}) {
-  const { tag, viewType, onImageReceived, customRender } = options;
+  const { context, tag, viewType, onImageReceived, customRender } = options;
   
-  // Use tag or viewType as the store key
-  const storeKey = tag || viewType || 'default';
+  // Use context ID if provided, otherwise fall back to tag/viewType
+  const storeKey = context?.id || tag || viewType || 'default';
   
   // Get render state from centralized store
   const { lastImage, isRendering: isLoading, error: errorObj } = useRenderState(storeKey);
   const error = errorObj?.message || null;
   
+  // Get store methods for error handling
+  const { setError } = useRenderStateStore();
+  
   // Refs
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const imagePlacementRef = useRef<ImagePlacement | null>(null);
-  const resourceMonitor = useRef(ResourceMonitor.getInstance());
+  const retryCountRef = useRef(0);
+  const maxRetries = 3;
   
   // Redraw function that can be called when canvas resizes
   const redrawCanvas = useCallback(() => {
     if (!canvasRef.current || !lastImage) return;
     
-    const ctx = canvasRef.current.getContext('2d');
-    if (!ctx) return;
+    const canvas = canvasRef.current;
+    
+    // Validate canvas dimensions
+    if (canvas.width === 0 || canvas.height === 0) {
+      console.warn(`[useRenderCanvas ${storeKey}] Canvas has zero dimensions, skipping draw`);
+      return;
+    }
+    
+    const ctx = canvas.getContext('2d');
+    if (!ctx) {
+      const errorMsg = 'Failed to get 2D context from canvas';
+      console.error(`[useRenderCanvas ${storeKey}] ${errorMsg}`);
+      setError(storeKey, new Error(errorMsg));
+      return;
+    }
     
     try {
+      // Clear any previous error on successful draw attempt
+      if (error) {
+        setError(storeKey, null);
+      }
+      
+      // Reset retry count on new image
+      retryCountRef.current = 0;
+      
       // Clear the canvas first
-      ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      
+      // Validate ImageBitmap before drawing
+      if (!lastImage.width || !lastImage.height) {
+        throw new Error(`Invalid ImageBitmap dimensions: ${lastImage.width}x${lastImage.height}`);
+      }
       
       // Use the shared canvas utility to draw the image with proper scaling
-      const placement = drawScaledImage(ctx, lastImage, canvasRef.current.width, canvasRef.current.height);
+      const placement = drawScaledImage(ctx, lastImage, canvas.width, canvas.height);
       
       // Store placement for potential future use
       imagePlacementRef.current = placement;
       
       // Call custom render if provided (e.g., for crosshair)
       if (customRender) {
-        customRender(ctx, placement);
+        try {
+          customRender(ctx, placement);
+        } catch (customError) {
+          // Don't fail the entire render if custom render fails
+          console.error(`[useRenderCanvas ${storeKey}] Custom render failed:`, customError);
+        }
       }
       
       // Call callback if provided
       if (onImageReceived && lastImage) {
-        onImageReceived(lastImage);
+        try {
+          onImageReceived(lastImage);
+        } catch (callbackError) {
+          // Don't fail the render if callback fails
+          console.error(`[useRenderCanvas ${storeKey}] Image callback failed:`, callbackError);
+        }
       }
       
       return placement;
     } catch (error) {
-      console.error(`[useRenderCanvas${tag ? ` ${tag}` : ''}] Failed to draw image:`, error);
-      // Note: Error is now managed by RenderStateStore
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      console.error(`[useRenderCanvas ${storeKey}] Failed to draw image:`, error);
+      
+      // Update error state in store
+      setError(storeKey, new Error(`Render failed: ${errorMessage}`));
+      
+      // Attempt retry for transient errors
+      if (retryCountRef.current < maxRetries) {
+        retryCountRef.current++;
+        console.log(`[useRenderCanvas ${storeKey}] Retrying render (attempt ${retryCountRef.current}/${maxRetries})`);
+        
+        // Retry after a short delay
+        setTimeout(() => {
+          redrawCanvas();
+        }, 100 * retryCountRef.current); // Exponential backoff
+      }
+      
       return null;
     }
-  }, [tag, onImageReceived, customRender, lastImage]);
+  }, [storeKey, onImageReceived, customRender, lastImage, error, setError]);
   
   // React to changes in lastImage from the store
   // When RenderStateStore updates with a new image, draw it to the canvas
   useEffect(() => {
     if (lastImage && canvasRef.current) {
-      console.log(`[useRenderCanvas${tag ? ` ${tag}` : viewType ? ` ${viewType}` : ''}] New image from store, drawing to canvas`);
+      const contextInfo = context ? `(${context.type})` : tag ? `(tag)` : viewType ? `(view)` : '';
+      console.log(`[useRenderCanvas ${storeKey}${contextInfo}] New image from store, drawing to canvas`);
       
-      // Track resource allocation
-      resourceMonitor.current.allocate();
-      const status = resourceMonitor.current.getStatus();
-      if (status.utilizationPercent > 80) {
-        console.warn(`[useRenderCanvas${tag ? ` ${tag}` : ''}] High memory usage:`, status);
+      try {
+        // Draw the image with error handling
+        // Browser handles memory management automatically
+        redrawCanvas();
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        console.error(`[useRenderCanvas ${storeKey}] Failed to process new image:`, error);
+        setError(storeKey, new Error(`Failed to process image: ${errorMessage}`));
       }
-      
-      // Draw the image
-      redrawCanvas();
     }
-  }, [lastImage, tag, viewType, redrawCanvas]);
+  }, [lastImage, storeKey, context, tag, viewType, redrawCanvas, setError]);
   
   // Cleanup is now handled by RenderStateStore
   // When the component unmounts, the store manages ImageBitmap lifecycle
   useEffect(() => {
     return () => {
-      // Deallocate from resource monitor when unmounting
-      resourceMonitor.current.deallocate();
-      console.debug(`[useRenderCanvas${tag ? ` ${tag}` : ''}] Component unmounted`);
+      console.debug(`[useRenderCanvas ${storeKey}] Component unmounted`);
     };
-  }, [tag]);
+  }, [storeKey]);
   
   return {
     canvasRef,

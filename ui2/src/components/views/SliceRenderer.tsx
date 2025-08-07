@@ -15,13 +15,17 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { useRenderCanvas } from '@/hooks/useRenderCanvas';
 import { RenderOverlays, CoordinateDisplay, NoLayersOverlay, LoadingVolumeOverlay } from '@/components/ui/RenderOverlays';
+import type { RenderContext } from '@/types/renderContext';
 
 export interface SliceRendererProps {
   // Dimensions
   width: number;
   height: number;
   
-  // Rendering
+  // Rendering - NEW unified context option
+  context?: RenderContext; // Unified render context (preferred)
+  
+  // Rendering - Legacy options (backward compatibility)
   tag?: string; // For RenderCell-style tagged rendering
   viewType?: 'axial' | 'sagittal' | 'coronal'; // For SliceView-style rendering
   
@@ -66,6 +70,7 @@ export interface SliceRendererProps {
 export function SliceRenderer({
   width,
   height,
+  context,
   tag,
   viewType,
   showLoading = true,
@@ -92,14 +97,20 @@ export function SliceRenderer({
   className = '',
   canvasClassName = ''
 }: SliceRendererProps) {
-  // Use the shared rendering hook
+  // Use the shared rendering hook - pass context if available, otherwise legacy props
   const { 
     canvasRef, 
     isLoading, 
     error, 
     lastImage,
     redrawCanvas 
-  } = useRenderCanvas({ tag, viewType, onImageReceived, customRender });
+  } = useRenderCanvas({ 
+    context,  // NEW: Pass unified context if provided
+    tag,      // Legacy: Still support tag
+    viewType, // Legacy: Still support viewType
+    onImageReceived, 
+    customRender 
+  });
   
   // Drag and drop state
   const [isDragging, setIsDragging] = useState(false);

@@ -5,9 +5,9 @@
 
 import { useEffect, useRef } from 'react';
 import { useViewStateStore } from '@/stores/viewStateStore';
+import { useRenderStateStore } from '@/stores/renderStateStore';
 import { coalesceUtils } from '@/stores/middleware/coalesceUpdatesMiddleware';
 import { getApiService } from '@/services/apiService';
-import { getEventBus } from '@/events/EventBus';
 import type { ViewState } from '@/types/viewState';
 
 export function useBackendSync() {
@@ -17,78 +17,36 @@ export function useBackendSync() {
   
   // Set up the backend update callback
   useEffect(() => {
-    const updateBackend = async (state: ViewState, tag?: string) => {
-      const updateTime = performance.now();
-      try {
-        // For now, render all three views when state changes
-        // In the future, this should be optimized to only render visible views
-        const viewTypes: Array<'axial' | 'sagittal' | 'coronal'> = ['axial', 'sagittal', 'coronal'];
-        
-        // console.log(`[useBackendSync ${updateTime.toFixed(0)}ms] 🎯 SENDING TO BACKEND:`, {
-        //   layers: state.layers.length,
-        //   layerDetails: state.layers.map(l => ({ 
-        //     id: l.id, 
-        //     visible: l.visible, 
-        //     opacity: l.opacity,
-        //     intensity: l.intensity,
-        //     colormap: l.colormap,
-        //     threshold: l.threshold
-        //   })),
-        //   visibleLayers: state.layers.filter(l => l.visible).length,
-        //   crosshair: state.crosshair.world_mm
-        // });
-        
-        // Check for problematic intensity values being sent
-        state.layers.forEach(layer => {
-          if (layer.intensity && 
-              layer.intensity[0] > 1969 && layer.intensity[0] < 1971 &&
-              layer.intensity[1] > 7878 && layer.intensity[1] < 7879) {
-            console.error(`[useBackendSync] 🎯 SENDING PROBLEMATIC INTENSITY TO BACKEND for layer ${layer.id}:`, layer.intensity);
-            console.trace('Stack trace for problematic backend update:');
+    // Import and use OptimizedRenderService for intelligent rendering
+    import('@/services/OptimizedRenderService').then(({ getOptimizedRenderService }) => {
+      const optimizedRenderService = getOptimizedRenderService();
+      
+      const updateBackend = async (state: ViewState, tag?: string) => {
+        const updateTime = performance.now();
+        try {
+          // Use OptimizedRenderService for intelligent view-specific rendering
+          await optimizedRenderService.renderChangedViews(state, tag);
+          
+          // Log optimization metrics periodically
+          const metrics = optimizedRenderService.getMetrics();
+          if (metrics.totalRenders > 0 && metrics.totalRenders % 20 === 0) {
+            console.log(`[useBackendSync] Optimization stats: Saved ${metrics.skippedRenders} renders (${(metrics.skippedRenders / (metrics.totalRenders + metrics.skippedRenders) * 100).toFixed(1)}% reduction)`);
           }
-        });
-        
-        for (const viewType of viewTypes) {
-          try {
-            // console.log(`[useBackendSync] Starting render for ${viewType} view`);
-            const imageBitmap = await apiService.applyAndRenderViewState(state, viewType);
-            
-            if (imageBitmap) {
-              // console.log(`[useBackendSync] ${viewType} view rendered successfully, dimensions:`, imageBitmap.width, 'x', imageBitmap.height);
-              
-              // Emit render complete event so SliceView can display it
-              const eventBus = getEventBus();
-              eventBus.emit('render.complete', {
-                viewType,
-                imageBitmap,
-                ...(tag && { tag })
-              });
-              
-              // Don't close the bitmap - SliceView needs it!
-              // The SliceView will handle cleanup when it receives a new image
-            } else {
-              console.warn(`[useBackendSync] ${viewType} view render returned null`);
+        } catch (error) {
+          // Check if it's a render target error
+          if (error && typeof error === 'object' && 'message' in error) {
+            const errorMessage = (error as any).message || '';
+            if (errorMessage.includes('No render target created')) {
+              console.warn('Render target not yet created, skipping update');
+              return;
             }
-          } catch (error) {
-            console.error(`[useBackendSync] Failed to render ${viewType} view:`, error);
           }
+          console.error('Backend update failed:', error);
         }
-        
-        // console.log('[useBackendSync] Backend update completed');
-      } catch (error) {
-        // Check if it's a render target error
-        if (error && typeof error === 'object' && 'message' in error) {
-          const errorMessage = (error as any).message || '';
-          if (errorMessage.includes('No render target created')) {
-            console.warn('Render target not yet created, skipping update');
-            return;
-          }
-        }
-        console.error('Backend update failed:', error);
-      }
-    };
-    
-    coalesceUtils.setBackendCallback(updateBackend);
+      };
+      
+      coalesceUtils.setBackendCallback(updateBackend);
+    });
   }, [apiService]);
   
   // Schedule backend updates when ViewState changes

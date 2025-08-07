@@ -123,104 +123,33 @@ export function useServicesInit() {
     // Set up coalescing middleware callback
     // apiService is already declared above
     
-    console.log('Setting up coalescing middleware callback...');
+    // Import OptimizedRenderService
+    const { getOptimizedRenderService } = await import('@/services/OptimizedRenderService');
+    const optimizedRenderService = getOptimizedRenderService();
+    
+    console.log('Setting up coalescing middleware callback with optimized rendering...');
     coalesceUtils.setBackendCallback(async (viewState) => {
       const callbackTime = performance.now();
       console.log(`[useServicesInit ${callbackTime.toFixed(0)}ms] 🎯 Backend callback invoked!`);
       console.log(`[useServicesInit] Crosshair position:`, viewState.crosshair.world_mm);
       console.log('Coalescing callback: ViewState update with', viewState.layers.length, 'layers');
-      console.log('Layers:', viewState.layers);
       
-      // Log layer details including intensity
-      viewState.layers.forEach(layer => {
-        console.log(`[useServicesInit] Layer ${layer.id}:`, {
-          visible: layer.visible,
-          opacity: layer.opacity,
-          colormap: layer.colormap,
-          intensity: layer.intensity,
-          threshold: layer.threshold
-        });
-      });
-      
-      // CRITICAL: Skip rendering if no layers are present
-      if (!viewState.layers || viewState.layers.length === 0) {
-        console.warn('[useServicesInit] Skipping render - no layers in ViewState');
-        return;
-      }
-      
-      // Additional check: ensure at least one layer has a volumeId
-      const layersWithVolumes = viewState.layers.filter(l => l.volumeId);
-      if (layersWithVolumes.length === 0) {
-        console.warn('[useServicesInit] Skipping render - no layers have volumeId');
-        console.log('Layer details:', viewState.layers.map(l => ({
-          id: l.id,
-          volumeId: l.volumeId,
-          visible: l.visible
-        })));
-        return;
-      }
-      
+      // Use OptimizedRenderService to intelligently render only changed views
       try {
-        eventBus.emit('render.start', {});
+        await optimizedRenderService.renderChangedViews(viewState);
         
-        // For now, render each view separately
-        // TODO: Eventually the backend should return all three views at once
-        const viewTypes: Array<'axial' | 'sagittal' | 'coronal'> = ['axial', 'sagittal', 'coronal'];
-        
-        for (const viewType of viewTypes) {
-          try {
-            // Get the dimensions from the view state
-            const view = viewState.views[viewType];
-            const [width, height] = view.dim_px;
-            
-            console.log(`Rendering ${viewType} view: ${width}x${height} via RenderCoordinator`);
-            
-            // Mark as rendering in RenderStateStore
-            useRenderStateStore.getState().setRendering(viewType, true);
-            
-            // ⭐ UNIFIED RENDER PATHWAY: Use RenderCoordinator for ALL renders
-            const imageBitmap = await renderCoordinator.requestRender({
-              viewState,
-              viewType,
-              width,
-              height,
-              reason: 'layer_change', // Could be layer_change, crosshair, etc.
-              priority: 'normal'
-            });
-            
-            console.log(`[useServicesInit] Render ${viewType} complete via RenderCoordinator:`, {
-              imageBitmap,
-              isImageBitmap: imageBitmap instanceof ImageBitmap,
-              type: imageBitmap ? Object.prototype.toString.call(imageBitmap) : 'null',
-              hasImage: !!imageBitmap
-            });
-            
-            if (imageBitmap) {
-              console.log(`[useServicesInit] ImageBitmap dimensions: ${imageBitmap.width}x${imageBitmap.height}`);
-            }
-            
-            // Update RenderStateStore with the new image
-            const { setImage, setRendering, setError } = useRenderStateStore.getState();
-            setImage(viewType, imageBitmap);
-            setRendering(viewType, false);
-            setError(viewType, null);
-            
-            eventBus.emit('render.complete', { viewType, imageBitmap });
-          } catch (error) {
-            console.error(`Failed to render ${viewType} view:`, error);
-            
-            // Update RenderStateStore with error
-            const { setError, setRendering } = useRenderStateStore.getState();
-            setError(viewType, error as Error);
-            setRendering(viewType, false);
-            
-            eventBus.emit('render.error', { viewType, error: error as Error });
-          }
+        // Log metrics periodically
+        const metrics = optimizedRenderService.getMetrics();
+        if (metrics.totalRenders % 10 === 0 && metrics.totalRenders > 0) {
+          console.log('[useServicesInit] Render optimization metrics:', {
+            totalRenders: metrics.totalRenders,
+            skippedRenders: metrics.skippedRenders,
+            savingsPercent: `${(metrics.skippedRenders / (metrics.totalRenders + metrics.skippedRenders) * 100).toFixed(1)}%`,
+            avgRenderTimes: metrics.averageRenderTimes
+          });
         }
-        
-        console.log(`[useServicesInit ${performance.now().toFixed(0)}ms] ✅ All renders complete for crosshair at:`, viewState.crosshair.world_mm);
       } catch (error) {
-        console.error('Failed to render ViewState:', error);
+        console.error('[useServicesInit] Optimized render failed:', error);
         eventBus.emit('render.error', { error: error as Error });
       }
     });
