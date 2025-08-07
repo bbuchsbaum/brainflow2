@@ -8,6 +8,7 @@ import { useEffect, useCallback } from 'react';
 import { useViewStateStore } from '@/stores/viewStateStore';
 import { useEvent } from '@/events/EventBus';
 import { useStatusUpdater } from '@/contexts/StatusContext';
+import { useMouseCoordinateStore } from '@/stores/mouseCoordinateStore';
 
 /**
  * Format coordinates for display
@@ -39,15 +40,23 @@ export function useStatusBarUpdates() {
     return unsubscribe;
   }, [setValue]);
   
-  // Create stable event handlers with useCallback
-  const handleMouseCoordinate = useCallback((data: { world_mm: [number, number, number] }) => {
-    setValue('mouse', formatCoord(data.world_mm));
+  // Subscribe to mouse coordinates from Zustand store
+  useEffect(() => {
+    const unsubscribe = useMouseCoordinateStore.subscribe(
+      state => state.worldCoordinates,
+      worldCoordinates => {
+        if (worldCoordinates) {
+          setValue('mouse', formatCoord(worldCoordinates));
+        } else {
+          setValue('mouse', '--');
+        }
+      }
+    );
+    
+    return unsubscribe;
   }, [setValue]);
   
-  const handleMouseLeave = useCallback(() => {
-    setValue('mouse', '--');
-  }, [setValue]);
-  
+  // Create stable event handlers for remaining EventBus events
   const handleFpsUpdate = useCallback((data: { fps: number }) => {
     setValue('fps', `${data.fps.toFixed(1)} fps`);
   }, [setValue]);
@@ -55,10 +64,6 @@ export function useStatusBarUpdates() {
   const handleGpuStatus = useCallback((data: { status: string }) => {
     setValue('gpu', data.status);
   }, [setValue]);
-  
-  // Listen for mouse coordinate events
-  useEvent('mouse.worldCoordinate', handleMouseCoordinate);
-  useEvent('mouse.leave', handleMouseLeave);
   
   // Listen for FPS updates (if available)
   useEvent('render.fps', handleFpsUpdate);

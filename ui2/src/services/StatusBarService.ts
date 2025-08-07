@@ -7,6 +7,7 @@ import { throttle, debounce } from 'lodash';
 import { getEventBus } from '@/events/EventBus';
 import { useViewStateStore } from '@/stores/viewStateStore';
 import { useStatusBarStore } from '@/stores/statusBarStore';
+import { useMouseCoordinateStore } from '@/stores/mouseCoordinateStore';
 
 /**
  * Format coordinates for display
@@ -114,22 +115,23 @@ export class StatusBarService {
     );
     this.unsubscribers.push(unsubscribeLayers);
 
-    // Subscribe to mouse events
-    const eventBus = getEventBus();
-    
-    const unsubscribeMouseCoord = eventBus.on('mouse.worldCoordinate', (data) => {
-      if (isCurrentInit()) {
-        this.updateMousePosition(data.world_mm);
+    // Subscribe to mouse coordinate changes from Zustand store
+    const unsubscribeMouseCoord = useMouseCoordinateStore.subscribe(
+      state => state.worldCoordinates,
+      worldCoordinates => {
+        if (isCurrentInit()) {
+          if (worldCoordinates) {
+            this.updateMousePosition(worldCoordinates);
+          } else {
+            setValue('mouse', '--');
+          }
+        }
       }
-    });
+    );
     this.unsubscribers.push(unsubscribeMouseCoord);
-
-    const unsubscribeMouseLeave = eventBus.on('mouse.leave', () => {
-      if (isCurrentInit()) {
-        setValue('mouse', '--');
-      }
-    });
-    this.unsubscribers.push(unsubscribeMouseLeave);
+    
+    // Note: We still need EventBus for legacy events, but mouse coordinates now use Zustand
+    const eventBus = getEventBus();
 
     // Subscribe to FPS updates with throttling
     const unsubscribeFps = eventBus.on('render.fps', (data: any) => {

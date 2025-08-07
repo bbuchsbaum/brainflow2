@@ -10,7 +10,7 @@ import { useLayerStore } from '@/stores/layerStore';
 import { useRenderStateStore, useRenderState } from '@/stores/renderStateStore';
 import { CoordinateTransform } from '@/utils/coordinates';
 import { useRenderLoopInit } from '@/hooks/useRenderLoopInit';
-import { getEventBus } from '@/events/EventBus';
+import { useMouseCoordinateStore } from '@/stores/mouseCoordinateStore';
 import { SliceSlider } from '@/components/ui/SliceSlider';
 import { getSliceNavigationService } from '@/services/SliceNavigationService';
 import { coalesceUtils } from '@/stores/middleware/coalesceUpdatesMiddleware';
@@ -251,7 +251,8 @@ export function SliceView({ viewId, width, height, className = '' }: SliceViewPr
 
   // Handle mouse move for hover coordinates
   const [hoverCoord, setHoverCoord] = useState<[number, number, number] | null>(null);
-  const eventBus = getEventBus();
+  const setMousePositionThrottled = useMouseCoordinateStore(state => state.setMousePositionThrottled);
+  const clearMousePosition = useMouseCoordinateStore(state => state.clearMousePosition);
   
   const handleMouseMove = useCallback((event: React.MouseEvent<HTMLCanvasElement>) => {
     const canvas = canvasRef.current;
@@ -270,15 +271,15 @@ export function SliceView({ viewId, width, height, className = '' }: SliceViewPr
     const worldCoord = CoordinateTransform.screenToWorld(viewX, viewY, viewPlane);
     setHoverCoord(worldCoord);
     
-    // Emit event for StatusBar
-    eventBus.emit('mouse.worldCoordinate', { world_mm: worldCoord, viewType: viewId });
-  }, [viewPlane, viewId, eventBus]);
+    // Update global mouse coordinate store (throttled)
+    setMousePositionThrottled(worldCoord, viewId);
+  }, [viewPlane, viewId, setMousePositionThrottled]);
 
   const handleMouseLeave = useCallback(() => {
     setHoverCoord(null);
-    // Emit event for StatusBar
-    eventBus.emit('mouse.leave', { viewType: viewId });
-  }, [viewId, eventBus]);
+    // Clear global mouse position
+    clearMousePosition();
+  }, [clearMousePosition]);
 
   // Update cache periodically to avoid expensive computations on every wheel event
   useEffect(() => {
