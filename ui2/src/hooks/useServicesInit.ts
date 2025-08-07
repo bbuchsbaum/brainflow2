@@ -18,6 +18,7 @@ import { getRenderCoordinator } from '@/services/RenderCoordinator';
 import { getEventBus } from '@/events/EventBus';
 import { useLayerStore } from '@/stores/layerStore';
 import { useViewStateStore } from '@/stores/viewStateStore';
+import { useRenderStateStore } from '@/stores/renderStateStore';
 import { markRenderLoopAsInitialized } from './useRenderLoopInit';
 
 // Global flag to prevent double initialization in React StrictMode
@@ -174,6 +175,9 @@ export function useServicesInit() {
             
             console.log(`Rendering ${viewType} view: ${width}x${height} via RenderCoordinator`);
             
+            // Mark as rendering in RenderStateStore
+            useRenderStateStore.getState().setRendering(viewType, true);
+            
             // ⭐ UNIFIED RENDER PATHWAY: Use RenderCoordinator for ALL renders
             const imageBitmap = await renderCoordinator.requestRender({
               viewState,
@@ -195,9 +199,21 @@ export function useServicesInit() {
               console.log(`[useServicesInit] ImageBitmap dimensions: ${imageBitmap.width}x${imageBitmap.height}`);
             }
             
+            // Update RenderStateStore with the new image
+            const { setImage, setRendering, setError } = useRenderStateStore.getState();
+            setImage(viewType, imageBitmap);
+            setRendering(viewType, false);
+            setError(viewType, null);
+            
             eventBus.emit('render.complete', { viewType, imageBitmap });
           } catch (error) {
             console.error(`Failed to render ${viewType} view:`, error);
+            
+            // Update RenderStateStore with error
+            const { setError, setRendering } = useRenderStateStore.getState();
+            setError(viewType, error as Error);
+            setRendering(viewType, false);
+            
             eventBus.emit('render.error', { viewType, error: error as Error });
           }
         }

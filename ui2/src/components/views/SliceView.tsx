@@ -7,9 +7,9 @@
 import React, { useRef, useEffect, useCallback, useState, useMemo } from 'react';
 import { useViewStateStore } from '@/stores/viewStateStore';
 import { useLayerStore } from '@/stores/layerStore';
+import { useRenderStateStore, useRenderState } from '@/stores/renderStateStore';
 import { CoordinateTransform } from '@/utils/coordinates';
 import { useRenderLoopInit } from '@/hooks/useRenderLoopInit';
-import { useEvent } from '@/events/EventBus';
 import { getEventBus } from '@/events/EventBus';
 import { SliceSlider } from '@/components/ui/SliceSlider';
 import { getSliceNavigationService } from '@/services/SliceNavigationService';
@@ -62,14 +62,12 @@ export function SliceView({ viewId, width, height, className = '' }: SliceViewPr
   
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
-  const [isRendering, setIsRendering] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   
-  // Store the last rendered image to redraw on canvas resize
-  const lastImageRef = useRef<ImageBitmap | null>(null);
+  // Use RenderStateStore instead of local state
+  const renderState = useRenderState(viewId);
+  const { isRendering, error, lastImage } = renderState;
   
-  // Memory monitoring for ImageBitmaps
-  const memoryMonitorRef = useRef({ allocatedBitmaps: 0, totalMemory: 0 });
+  // Note: Memory monitoring is now handled by RenderStateStore
   
   // Store refs to avoid recreation of functions
   const redrawCanvasRef = useRef<() => void>();
@@ -171,65 +169,14 @@ export function SliceView({ viewId, width, height, className = '' }: SliceViewPr
     renderCrosshairRef.current = renderCrosshairImpl;
   });
   
-  // Create stable event handler
-  const handleRenderComplete = React.useCallback((data: any) => {
-    console.log(`[SliceView ${viewId}] render.complete event received:`, {
-      timestamp: performance.now(),
-      viewType: data.viewType,
-      hasImageBitmap: !!data.imageBitmap,
-      imageBitmapType: data.imageBitmap ? Object.prototype.toString.call(data.imageBitmap) : 'null'
-    });
-    
-    if (data.viewType === viewId && canvasRef.current) {
-      const ctx = canvasRef.current.getContext('2d');
-      if (ctx && data.imageBitmap) {
-        console.log(`[SliceView ${viewId}] Drawing image to canvas:`, {
-          canvasSize: `${canvasRef.current.width}x${canvasRef.current.height}`,
-          imageBitmapSize: `${data.imageBitmap.width}x${data.imageBitmap.height}`,
-          timestamp: performance.now()
-        });
-        
-        // Draw the new image directly without clearing to prevent flickering
-        // The new image will overwrite the previous one
-        
-        try {
-          // Store the image for redrawing on canvas resize
-          setImageBitmap(data.imageBitmap);
-          
-          // Use the redraw function to draw the image
-          if (redrawCanvasRef.current) {
-            redrawCanvasRef.current();
-          }
-          
-          console.log(`[SliceView ${viewId}] New image received and drawn successfully`);
-        } catch (error) {
-          console.error(`[SliceView ${viewId}] Failed to draw image:`, error);
-        }
-        
-        setIsRendering(false);
-        setError(null);
-      } else {
-        console.warn(`[SliceView ${viewId}] Missing context or imageBitmap:`, {
-          hasCanvas: !!canvasRef.current,
-          hasContext: !!ctx,
-          hasImageBitmap: !!data.imageBitmap
-        });
-      }
-    } else if (data.viewType !== viewId) {
-      console.log(`[SliceView ${viewId}] Ignoring render.complete for different view: ${data.viewType}`);
+  // React to changes in lastImage from the store
+  // When RenderStateStore updates with a new image, redraw the canvas
+  useEffect(() => {
+    if (lastImage && canvasRef.current && redrawCanvasRef.current) {
+      console.log(`[SliceView ${viewId}] New image from store, redrawing canvas`);
+      redrawCanvasRef.current();
     }
-  }, [viewId]); // Only depend on viewId which is stable
-  
-  // Listen for render complete events
-  useEvent('render.complete', handleRenderComplete);
-  
-  // Listen for render errors
-  useEvent('render.error', useCallback((data) => {
-    if (!data.viewType || data.viewType === viewId) {
-      setError(data.error.message);
-      setIsRendering(false);
-    }
-  }, [viewId]));
+  }, [lastImage, viewId]);
   
   // Removed render.start listener to prevent rapid state changes during slider dragging
   // This was causing unnecessary re-renders and contributing to flickering
@@ -347,49 +294,14 @@ export function SliceView({ viewId, width, height, className = '' }: SliceViewPr
   }, [layers, timeNav, timeNavService]);
 
   // Proper ImageBitmap lifecycle management
-  const setImageBitmap = useCallback((newBitmap: ImageBitmap | null) => {
-    // Dispose of previous bitmap
-    if (lastImageRef.current) {
-      lastImageRef.current.close();
-      memoryMonitorRef.current.allocatedBitmaps--;
-      console.debug(`[SliceView ${viewId}] Disposed previous ImageBitmap`);
-    }
-    
-    lastImageRef.current = newBitmap;
-    if (newBitmap) {
-      memoryMonitorRef.current.allocatedBitmaps++;
-      memoryMonitorRef.current.totalMemory += newBitmap.width * newBitmap.height * 4; // RGBA
-      console.debug(`[SliceView ${viewId}] New ImageBitmap allocated: ${newBitmap.width}x${newBitmap.height}`);
-    }
-  }, [viewId]);
-
-  // Cleanup on unmount
+  // Cleanup on unmount - clear state from store
   useEffect(() => {
     return () => {
-      if (lastImageRef.current) {
-        lastImageRef.current.close();
-        lastImageRef.current = null;
-        memoryMonitorRef.current.allocatedBitmaps--;
-        console.debug(`[SliceView ${viewId}] Cleaned up ImageBitmap on unmount`);
-      }
+      // Clear render state for this view when unmounting
+      useRenderStateStore.getState().clearState(viewId);
+      console.debug(`[SliceView ${viewId}] Cleared render state on unmount`);
     };
   }, [viewId]);
-
-  // Automatic cleanup for old bitmaps
-  useEffect(() => {
-    const cleanupTimer = setInterval(() => {
-      // Cleanup if too many bitmaps allocated
-      if (memoryMonitorRef.current.allocatedBitmaps > 10) {
-        console.warn(`[SliceView] High ImageBitmap memory usage detected (${memoryMonitorRef.current.allocatedBitmaps} bitmaps), triggering cleanup`);
-        // Force garbage collection hint (if available)
-        if ('gc' in window && typeof (window as any).gc === 'function') {
-          (window as any).gc();
-        }
-      }
-    }, 30000); // Check every 30 seconds
-    
-    return () => clearInterval(cleanupTimer);
-  }, []);
 
   // Handle mouse wheel for time navigation (4D volumes) or slice navigation (3D volumes)
   const handleWheelImpl = useCallback((event: React.WheelEvent<HTMLCanvasElement>) => {
@@ -441,10 +353,10 @@ export function SliceView({ viewId, width, height, className = '' }: SliceViewPr
     console.log(`[SliceView ${viewId}] crosshair/settings useEffect triggered:`, {
       crosshair,
       crosshairSettings,
-      hasLastImage: !!lastImageRef.current
+      hasLastImage: !!lastImage
     });
     
-    if (lastImageRef.current) {
+    if (lastImage) {
       // Redraw the entire canvas to avoid crosshair artifacts
       requestAnimationFrame(() => {
         redrawCanvasImpl();
@@ -457,7 +369,7 @@ export function SliceView({ viewId, width, height, className = '' }: SliceViewPr
     console.log(`[SliceView ${viewId}] Received settings update event:`, newSettings);
     console.log(`[SliceView ${viewId}] Current settings ref:`, crosshairSettingsRef.current);
     
-    if (lastImageRef.current && canvasRef.current) {
+    if (lastImage && canvasRef.current) {
       requestAnimationFrame(() => {
         console.log(`[SliceView ${viewId}] Executing redraw with settings:`, crosshairSettingsRef.current);
         redrawCanvasImpl();
@@ -469,10 +381,10 @@ export function SliceView({ viewId, width, height, className = '' }: SliceViewPr
   const redrawCanvasImpl = () => {
     const startTime = performance.now();
     
-    if (!canvasRef.current || !lastImageRef.current) {
+    if (!canvasRef.current || !lastImage) {
       console.warn(`[SliceView ${viewId}] Cannot redraw - canvas or image missing:`, {
         hasCanvas: !!canvasRef.current,
-        hasLastImage: !!lastImageRef.current,
+        hasLastImage: !!lastImage,
         timestamp: startTime
       });
       return;
@@ -484,7 +396,7 @@ export function SliceView({ viewId, width, height, className = '' }: SliceViewPr
       return;
     }
     
-    const imageBitmap = lastImageRef.current;
+    const imageBitmap = lastImage;
     const imageWidth = imageBitmap.width;
     const imageHeight = imageBitmap.height;
     
@@ -521,12 +433,14 @@ export function SliceView({ viewId, width, height, className = '' }: SliceViewPr
     }
   };
   
-  // Update the redraw function in ref 
-  redrawCanvasRef.current = redrawCanvasImpl;
+  // Update the redraw function in ref whenever lastImage changes
+  useEffect(() => {
+    redrawCanvasRef.current = redrawCanvasImpl;
+  }, [lastImage]);
   
   // Redraw when canvas dimensions change
   useEffect(() => {
-    if (!canvasRef.current || !lastImageRef.current) return;
+    if (!canvasRef.current || !lastImage) return;
     
     // Canvas dimensions have changed - the drawing buffer is now blank
     // Schedule a redraw in the next animation frame
@@ -548,7 +462,7 @@ export function SliceView({ viewId, width, height, className = '' }: SliceViewPr
     
     // Give a small delay to ensure event listeners are set up
     const timer = setTimeout(() => {
-      if (!lastImageRef.current) {
+      if (!lastImage) {
         console.log(`[SliceView ${viewId}] No image on mount - checking state`);
         // Force a render by triggering coalescing flush
         const viewState = useViewStateStore.getState().viewState;
