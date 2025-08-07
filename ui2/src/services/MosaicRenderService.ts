@@ -8,6 +8,7 @@
 import { getApiService } from '@/services/apiService';
 import { useViewStateStore } from '@/stores/viewStateStore';
 import { getEventBus } from '@/events/EventBus';
+import { useRenderStateStore } from '@/stores/renderStateStore';
 import type { ViewState } from '@/types/viewState';
 import type { ViewPlane } from '@/types/coordinates';
 import { CoordinateTransform } from '@/utils/coordinates';
@@ -52,8 +53,9 @@ class MosaicRenderService {
     this.activeRenders.set(cellId, request);
     
     try {
-      // Emit render start event with tag
-      this.eventBus.emit('render.start', { tag: cellId });
+      // Update store to indicate rendering started
+      const renderStore = useRenderStateStore.getState();
+      renderStore.setRendering(cellId, true);
       
       // Get current view state
       const currentViewState = useViewStateStore.getState().viewState;
@@ -112,12 +114,11 @@ class MosaicRenderService {
       });
       
       if (imageBitmap) {
-        // Emit render complete event with tag (no viewType for tagged events)
-        this.eventBus.emit('render.complete', {
-          imageBitmap,
-          tag: cellId
-        });
-        console.log(`[MosaicRenderService] DEBUG - Emitted render.complete for ${cellId}`);
+        // Update store with the rendered image
+        const renderStore = useRenderStateStore.getState();
+        renderStore.setImage(cellId, imageBitmap);
+        renderStore.setRendering(cellId, false);
+        console.log(`[MosaicRenderService] DEBUG - Updated store with image for ${cellId}`);
       } else {
         throw new Error('No image returned from backend');
       }
@@ -130,11 +131,10 @@ class MosaicRenderService {
         axis
       });
       
-      // Emit render error event with tag (no viewType for tagged events)
-      this.eventBus.emit('render.error', {
-        error: error instanceof Error ? error : new Error(String(error)),
-        tag: cellId
-      });
+      // Update store with the error
+      const renderStore = useRenderStateStore.getState();
+      renderStore.setError(cellId, error instanceof Error ? error : new Error(String(error)));
+      renderStore.setRendering(cellId, false);
     } finally {
       this.activeRenders.delete(cellId);
       console.log(`[MosaicRenderService] DEBUG - Finished processing ${cellId}`);

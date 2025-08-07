@@ -1,12 +1,12 @@
 /**
  * useRenderCanvas Hook
  * 
- * Shared hook for canvas-based image rendering from backend events.
- * Extracts common logic from SliceView and RenderCell components.
+ * Shared hook for canvas-based image rendering using RenderStateStore.
+ * Replaces EventBus pattern with centralized state management.
  */
 
-import { useRef, useCallback, useState, useEffect } from 'react';
-import { useEvent } from '@/events/EventBus';
+import { useRef, useCallback, useEffect } from 'react';
+import { useRenderState } from '@/stores/renderStateStore';
 import { drawScaledImage } from '@/utils/canvasUtils';
 import { ResourceMonitor } from '@/utils/ResourceMonitor';
 import type { ImagePlacement } from '@/utils/canvasUtils';
@@ -21,19 +21,21 @@ interface UseRenderCanvasOptions {
 export function useRenderCanvas(options: UseRenderCanvasOptions = {}) {
   const { tag, viewType, onImageReceived, customRender } = options;
   
+  // Use tag or viewType as the store key
+  const storeKey = tag || viewType || 'default';
+  
+  // Get render state from centralized store
+  const { lastImage, isRendering: isLoading, error: errorObj } = useRenderState(storeKey);
+  const error = errorObj?.message || null;
+  
   // Refs
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const lastImageRef = useRef<ImageBitmap | null>(null);
   const imagePlacementRef = useRef<ImagePlacement | null>(null);
   const resourceMonitor = useRef(ResourceMonitor.getInstance());
   
-  // State
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  
   // Redraw function that can be called when canvas resizes
   const redrawCanvas = useCallback(() => {
-    if (!canvasRef.current || !lastImageRef.current) return;
+    if (!canvasRef.current || !lastImage) return;
     
     const ctx = canvasRef.current.getContext('2d');
     if (!ctx) return;
@@ -43,140 +45,54 @@ export function useRenderCanvas(options: UseRenderCanvasOptions = {}) {
       ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
       
       // Use the shared canvas utility to draw the image with proper scaling
-      const placement = drawScaledImage(ctx, lastImageRef.current, canvasRef.current.width, canvasRef.current.height);
+      const placement = drawScaledImage(ctx, lastImage, canvasRef.current.width, canvasRef.current.height);
       
       // Store placement for potential future use
       imagePlacementRef.current = placement;
       
-      // Call custom render function if provided
+      // Call custom render if provided (e.g., for crosshair)
       if (customRender) {
         customRender(ctx, placement);
       }
       
       // Call callback if provided
-      if (onImageReceived) {
-        onImageReceived(lastImageRef.current);
+      if (onImageReceived && lastImage) {
+        onImageReceived(lastImage);
       }
       
       return placement;
     } catch (error) {
       console.error(`[useRenderCanvas${tag ? ` ${tag}` : ''}] Failed to draw image:`, error);
-      setError('Failed to draw image');
+      // Note: Error is now managed by RenderStateStore
       return null;
     }
-  }, [tag, onImageReceived, customRender]);
+  }, [tag, onImageReceived, customRender, lastImage]);
   
-  // Handle render complete events
-  const handleRenderComplete = useCallback((data: any) => {
-    console.log(`[useRenderCanvas] DEBUG - render.complete event received:`, {
-      myTag: tag,
-      eventTag: data.tag,
-      myViewType: viewType,
-      eventViewType: data.viewType,
-      hasImageBitmap: !!data.imageBitmap
-    });
-    
-    // Filter based on tag or viewType
-    // If we're looking for a specific tag, only match that tag
-    if (tag && data.tag !== tag) {
-      console.log(`[useRenderCanvas] DEBUG - Ignoring event: tag mismatch (${tag} !== ${data.tag})`);
-      return;
-    }
-    
-    // If we're looking for a viewType without a tag, don't match events that have tags
-    if (viewType && !tag && data.tag) {
-      console.log(`[useRenderCanvas] DEBUG - Ignoring event: viewType mode but event has tag`);
-      return;
-    }
-    
-    // If we're looking for a viewType, it must match
-    if (viewType && data.viewType !== viewType) {
-      console.log(`[useRenderCanvas] DEBUG - Ignoring event: viewType mismatch`);
-      return;
-    }
-    
-    // If we have neither tag nor viewType, only match events without tags or viewTypes
-    if (!tag && !viewType && (data.tag || data.viewType)) {
-      console.log(`[useRenderCanvas] DEBUG - Ignoring event: no filter but event has tag/viewType`);
-      return;
-    }
-    
-    console.log(`[useRenderCanvas${tag ? ` ${tag}` : viewType ? ` ${viewType}` : ''}] DEBUG - Event matched! Processing render.complete`);
-    
-    if (data.imageBitmap && canvasRef.current) {
-      console.log(`[useRenderCanvas${tag ? ` ${tag}` : ''}] DEBUG - Drawing image to canvas`);
-      setIsLoading(false);
-      setError(null);
+  // React to changes in lastImage from the store
+  // When RenderStateStore updates with a new image, draw it to the canvas
+  useEffect(() => {
+    if (lastImage && canvasRef.current) {
+      console.log(`[useRenderCanvas${tag ? ` ${tag}` : viewType ? ` ${viewType}` : ''}] New image from store, drawing to canvas`);
       
-      // Dispose previous bitmap before storing new one
-      if (lastImageRef.current) {
-        lastImageRef.current.close();
-        resourceMonitor.current.deallocate();
-        console.debug(`[useRenderCanvas${tag ? ` ${tag}` : ''}] Disposed previous ImageBitmap`);
-      }
-      
-      // Store the image for redrawing
-      lastImageRef.current = data.imageBitmap;
-      
-      // Track allocation (but don't block rendering)
+      // Track resource allocation
       resourceMonitor.current.allocate();
       const status = resourceMonitor.current.getStatus();
       if (status.utilizationPercent > 80) {
-        console.warn(`[useRenderCanvas${tag ? ` ${tag}` : ''}] High GPU resource usage: ${status.allocated}/${status.max} bitmaps`);
+        console.warn(`[useRenderCanvas${tag ? ` ${tag}` : ''}] High memory usage:`, status);
       }
       
       // Draw the image
-      const result = redrawCanvas();
-      console.log(`[useRenderCanvas${tag ? ` ${tag}` : ''}] DEBUG - Draw result:`, result ? 'success' : 'failed');
-    } else {
-      console.log(`[useRenderCanvas${tag ? ` ${tag}` : ''}] DEBUG - Cannot draw:`, {
-        hasImageBitmap: !!data.imageBitmap,
-        hasCanvas: !!canvasRef.current
-      });
+      redrawCanvas();
     }
-  }, [tag, viewType, redrawCanvas]);
+  }, [lastImage, tag, viewType, redrawCanvas]);
   
-  // Listen for render events
-  useEvent('render.complete', handleRenderComplete);
-  
-  useEvent('render.start', useCallback((data: any) => {
-    // Apply same filtering logic as render.complete
-    if (tag && data.tag !== tag) return;
-    if (viewType && !tag && data.tag) return;
-    if (viewType && data.viewType !== viewType) return;
-    if (!tag && !viewType && (data.tag || data.viewType)) return;
-    
-    setIsLoading(true);
-    setError(null);
-  }, [tag, viewType]));
-  
-  useEvent('render.error', useCallback((data: any) => {
-    console.log(`[useRenderCanvas] DEBUG - render.error event received:`, {
-      myTag: tag,
-      eventTag: data.tag,
-      error: data.error
-    });
-    
-    // Apply same filtering logic as render.complete
-    if (tag && data.tag !== tag) return;
-    if (viewType && !tag && data.tag) return;
-    if (viewType && data.viewType !== viewType) return;
-    if (!tag && !viewType && (data.tag || data.viewType)) return;
-    
-    console.error(`[useRenderCanvas${tag ? ` ${tag}` : ''}] DEBUG - Error matched for this canvas:`, data.error);
-    setError(data.error?.message || 'Render error');
-    setIsLoading(false);
-  }, [tag, viewType]));
-  
-  // Cleanup ImageBitmap on unmount to prevent memory leaks
+  // Cleanup is now handled by RenderStateStore
+  // When the component unmounts, the store manages ImageBitmap lifecycle
   useEffect(() => {
     return () => {
-      if (lastImageRef.current) {
-        lastImageRef.current.close();
-        lastImageRef.current = null;
-        resourceMonitor.current.deallocate();
-        console.debug(`[useRenderCanvas${tag ? ` ${tag}` : ''}] Cleaned up ImageBitmap on unmount`);
-      }
+      // Deallocate from resource monitor when unmounting
+      resourceMonitor.current.deallocate();
+      console.debug(`[useRenderCanvas${tag ? ` ${tag}` : ''}] Component unmounted`);
     };
   }, [tag]);
   
@@ -184,9 +100,7 @@ export function useRenderCanvas(options: UseRenderCanvasOptions = {}) {
     canvasRef,
     isLoading,
     error,
-    imagePlacement: imagePlacementRef.current,
-    lastImage: lastImageRef.current,
     redrawCanvas,
-    setError
+    imagePlacement: imagePlacementRef.current
   };
 }
