@@ -24,8 +24,8 @@ export interface RenderState {
 }
 
 interface RenderStateStore {
-  // State per identifier (tag or viewType)
-  states: Map<string, RenderState>;
+  // State per identifier (tag or viewType) - using plain object for React reactivity
+  states: { [id: string]: RenderState };
   
   // Actions
   setRendering: (id: string, isRendering: boolean) => void;
@@ -36,7 +36,7 @@ interface RenderStateStore {
   clearAllStates: () => void;
   
   // Debugging helpers
-  getAllStates: () => Map<string, RenderState>;
+  getAllStates: () => { [id: string]: RenderState };
   getActiveRenders: () => string[];
 }
 
@@ -51,16 +51,16 @@ const defaultRenderState: RenderState = {
 
 export const useRenderStateStore = create<RenderStateStore>()(
   immer((set, get) => ({
-    states: new Map(),
+    states: {},
     
     setRendering: (id, isRendering) => {
       set((state) => {
         // Ensure state exists for this ID
-        if (!state.states.has(id)) {
-          state.states.set(id, { ...defaultRenderState });
+        if (!(id in state.states)) {
+          state.states[id] = { ...defaultRenderState };
         }
         
-        const renderState = state.states.get(id)!;
+        const renderState = state.states[id];
         renderState.isRendering = isRendering;
         
         if (isRendering) {
@@ -79,11 +79,11 @@ export const useRenderStateStore = create<RenderStateStore>()(
     setError: (id, error) => {
       set((state) => {
         // Ensure state exists for this ID
-        if (!state.states.has(id)) {
-          state.states.set(id, { ...defaultRenderState });
+        if (!(id in state.states)) {
+          state.states[id] = { ...defaultRenderState };
         }
         
-        const renderState = state.states.get(id)!;
+        const renderState = state.states[id];
         renderState.error = error;
         renderState.isRendering = false; // Error stops rendering
         
@@ -98,11 +98,11 @@ export const useRenderStateStore = create<RenderStateStore>()(
     setImage: (id, image) => {
       set((state) => {
         // Ensure state exists for this ID
-        if (!state.states.has(id)) {
-          state.states.set(id, { ...defaultRenderState });
+        if (!(id in state.states)) {
+          state.states[id] = { ...defaultRenderState };
         }
         
-        const renderState = state.states.get(id)!;
+        const renderState = state.states[id];
         
         // Clean up old image if it exists
         if (renderState.lastImage && renderState.lastImage !== image) {
@@ -132,8 +132,8 @@ export const useRenderStateStore = create<RenderStateStore>()(
       const states = get().states;
       
       // Return existing state or default
-      if (states.has(id)) {
-        return states.get(id)!;
+      if (id in states) {
+        return states[id];
       }
       
       // Return a copy of default state for new IDs
@@ -142,7 +142,7 @@ export const useRenderStateStore = create<RenderStateStore>()(
     
     clearState: (id) => {
       set((state) => {
-        const renderState = state.states.get(id);
+        const renderState = state.states[id];
         
         if (renderState) {
           // Clean up ImageBitmap if it exists
@@ -155,7 +155,7 @@ export const useRenderStateStore = create<RenderStateStore>()(
             }
           }
           
-          state.states.delete(id);
+          delete state.states[id];
           console.log(`[RenderStateStore] Cleared state for ${id}`);
         }
       });
@@ -164,7 +164,7 @@ export const useRenderStateStore = create<RenderStateStore>()(
     clearAllStates: () => {
       set((state) => {
         // Clean up all ImageBitmaps
-        state.states.forEach((renderState, id) => {
+        Object.entries(state.states).forEach(([id, renderState]) => {
           if (renderState.lastImage && 'close' in renderState.lastImage) {
             try {
               renderState.lastImage.close();
@@ -175,7 +175,7 @@ export const useRenderStateStore = create<RenderStateStore>()(
           }
         });
         
-        state.states.clear();
+        state.states = {};
         console.log(`[RenderStateStore] Cleared all render states`);
       });
     },
@@ -188,7 +188,7 @@ export const useRenderStateStore = create<RenderStateStore>()(
       const states = get().states;
       const active: string[] = [];
       
-      states.forEach((state, id) => {
+      Object.entries(states).forEach(([id, state]) => {
         if (state.isRendering) {
           active.push(id);
         }
@@ -201,19 +201,20 @@ export const useRenderStateStore = create<RenderStateStore>()(
 
 // Helper hooks for component usage
 export function useRenderState(id: string): RenderState {
-  return useRenderStateStore((state) => state.getState(id));
+  // Subscribe directly to the state object for proper reactivity
+  return useRenderStateStore((state) => state.states[id] || defaultRenderState);
 }
 
 export function useIsRendering(id: string): boolean {
-  return useRenderStateStore((state) => state.getState(id).isRendering);
+  return useRenderStateStore((state) => state.states[id]?.isRendering || false);
 }
 
 export function useRenderError(id: string): Error | null {
-  return useRenderStateStore((state) => state.getState(id).error);
+  return useRenderStateStore((state) => state.states[id]?.error || null);
 }
 
 export function useLastImage(id: string): ImageBitmap | null {
-  return useRenderStateStore((state) => state.getState(id).lastImage);
+  return useRenderStateStore((state) => state.states[id]?.lastImage || null);
 }
 
 // Debug helper for development

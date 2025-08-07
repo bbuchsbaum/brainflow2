@@ -172,29 +172,9 @@ export function SliceView({ viewId, width, height, className = '' }: SliceViewPr
   // React to changes in lastImage from the store
   // When RenderStateStore updates with a new image, redraw the canvas
   useEffect(() => {
-    if (lastImage && canvasRef.current) {
+    if (lastImage && canvasRef.current && redrawCanvasRef.current) {
       console.log(`[SliceView ${viewId}] New image from store, redrawing canvas`);
-      
-      // Call redrawCanvasImpl directly since it's defined in this scope
-      const ctx = canvasRef.current.getContext('2d');
-      if (ctx) {
-        try {
-          // Use the shared canvas utility to draw the image with proper scaling
-          const placement = drawScaledImage(ctx, lastImage, canvasRef.current.width, canvasRef.current.height);
-          
-          console.log(`[SliceView ${viewId}] Image drawn successfully`);
-          
-          // Update image placement for crosshair
-          imagePlacementRef.current = placement;
-          
-          // Redraw crosshair on top
-          if (renderCrosshairRef.current) {
-            renderCrosshairRef.current();
-          }
-        } catch (error) {
-          console.error(`[SliceView ${viewId}] Failed to draw image:`, error);
-        }
-      }
+      redrawCanvasRef.current();
     }
   }, [lastImage, viewId]);
   
