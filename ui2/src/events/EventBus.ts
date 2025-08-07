@@ -271,3 +271,21 @@ export function useEvent<K extends keyof EventMap>(
     return eventBus.on(event, handler);
   }, [event, handler]);
 }
+
+/**
+ * Type-safe emit helper
+ * Provides compile-time type checking for event names and payloads
+ * This is a thin wrapper that adds no runtime overhead
+ * 
+ * @example
+ * ```typescript
+ * // Instead of: eventBus.emit('render.complete', data)
+ * // Use: emitTyped('render.complete', { viewType: 'axial', imageBitmap })
+ * ```
+ */
+export function emitTyped<K extends keyof EventMap>(
+  event: K,
+  data: EventMap[K]
+): void {
+  getEventBus().emit(event, data);
+}
