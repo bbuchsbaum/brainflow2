@@ -9,6 +9,7 @@ import { GoldenLayout, LayoutConfig, ComponentContainer } from 'golden-layout';
 import { SliceView } from '@/components/views/SliceView';
 import { OrthogonalViewContainer } from '@/components/views/OrthogonalViewContainer';
 import { FlexibleSlicePanel } from '@/components/views/FlexibleSlicePanel';
+import { MosaicViewPromise } from '@/components/views/MosaicViewPromise';
 import { FileBrowserPanel } from '@/components/panels/FileBrowserPanel';
 import { LayerPanel } from '@/components/panels/LayerPanel';
 import { PlotPanel } from '@/components/panels/PlotPanel';
@@ -489,6 +490,9 @@ export function GoldenLayoutWrapper({
     componentRegistry.set('SagittalView', FlexibleSlicePanel);
     componentRegistry.set('CoronalView', FlexibleSlicePanel);
     
+    // Register MosaicView synchronously
+    componentRegistry.set('MosaicView', MosaicViewPromise);
+    
     // Register empty view as fallback
     componentRegistry.set('EmptyView', () => (
       <div className="h-full flex items-center justify-center text-gray-500">
@@ -496,11 +500,7 @@ export function GoldenLayoutWrapper({
       </div>
     ));
     
-    // Import and register additional components dynamically
-    import('@/components/views/MosaicViewPromise').then(module => {
-      componentRegistry.set('MosaicView', module.MosaicViewPromise);
-    });
-    
+    // Note: Other components can still be loaded dynamically as they're less critical
     import('@/components/analysis/ROIStatsWorkspace').then(module => {
       componentRegistry.set('ROIStatsWorkspace', module.ROIStatsWorkspace);
     });

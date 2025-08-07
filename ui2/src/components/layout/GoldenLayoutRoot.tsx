@@ -10,7 +10,7 @@ import { useWorkspaceStore } from '@/stores/workspaceStore';
 import { listen } from '@tauri-apps/api/event';
 import { debounce } from 'lodash';
 import type { WorkspaceType } from '@/types/workspace';
-import { CrosshairProvider } from '@/contexts/CrosshairContext';
+// Removed duplicate CrosshairProvider - using the one from App.tsx
 
 // Import workspace components
 import { OrthogonalViewContainer } from '@/components/views/OrthogonalViewContainer';
@@ -181,12 +181,10 @@ export function GoldenLayoutRoot() {
       
       root.render(
         <React.StrictMode>
-          <CrosshairProvider>
-            <WorkspaceComponent 
-              workspaceId={workspaceId} 
-              workspaceType={workspaceType}
-            />
-          </CrosshairProvider>
+          <WorkspaceComponent 
+            workspaceId={workspaceId} 
+            workspaceType={workspaceType}
+          />
         </React.StrictMode>
       );
 
@@ -220,9 +218,7 @@ export function GoldenLayoutRoot() {
         const shouldUseStrictMode = name !== 'AtlasPanel' && name !== 'LayerPanel';
         
         const componentElement = (
-          <CrosshairProvider>
-            <Component {...(state || {})} />
-          </CrosshairProvider>
+          <Component {...(state || {})} />
         );
         
         root.render(

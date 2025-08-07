@@ -1,565 +1,261 @@
-# Template Loading to Histogram Display Flow Analysis
-
-**Analysis Date:** 2025-08-04  
-**Focus:** Complete execution trace from template menu click to histogram display (or failure)
+# MosaicView Quarter-Image Bug: Execution Flow Analysis
 
 ## Executive Summary
 
-This report traces the complete execution flow when a template is loaded from the Template menu, focusing on the critical timing of metadata setting, layer selection, and histogram computation. The analysis reveals key differences from the file browser flow and identifies potential race conditions that may affect histogram display.
+After tracing the complete execution flow from UI interaction to final canvas rendering, I have identified the **root cause** of the MosaicView quarter-image display bug. The issue lies in **backend dimension calculation discrepancies** where the backend returns ImageBitmaps at dimensions different from what the frontend requested, causing the small image to be scaled up and display only the top-left quarter.
 
-## Complete Execution Flow
+## Critical Discovery: Dimension Mismatch Chain
 
-### 1. Template Menu Click Event
+### The Bug Flow Path
 
-**Entry Point:** Template menu click in Tauri native menu
-**Location:** `TemplateService.ts:82-90`
+1. **MosaicViewPromise** requests 256×256 cell rendering
+2. **MosaicRenderService** passes dimensions to backend
+3. **Backend (api_bridge)** recalculates dimensions for aspect ratio preservation
+4. **Backend returns** ImageBitmap at smaller size (e.g., 128×128)
+5. **Frontend canvas** scales up the small image to fit the 256×256 cell
+6. **Result**: Only top-left quarter visible due to 2×2 upscaling
 
+## Execution Flow Analysis
+
+### Phase 1: Grid Layout & Dimension Calculation
+
+**File:** `/Users/bbuchsbaum/code/brainflow2/ui2/src/components/views/MosaicViewPromise.tsx`
+
+**Key Code Section:**
 ```typescript
-// Listen for template-action events from Tauri menu
-this.unlistenFn = await listen<TemplateActionEvent>('template-action', async (event) => {
-  console.log('[TemplateService] Received template-action event:', event.payload);
-  
-  const { action, payload } = event.payload;
-  
-  if (action === 'load-template') {
-    await this.loadTemplate(payload.template_id);
+// Lines 142-149: Cell size calculation
+const cellWidth = Math.floor(availableWidth / cols);
+const cellHeight = Math.floor(availableHeight / rows);
+const cellSizeValue = Math.min(cellWidth, cellHeight, 512); // Cap at 512px
+const finalSize = Math.max(cellSizeValue, 128); // Ensure minimum size
+setCellSize({ width: finalSize, height: finalSize });
+```
+
+**Flow:**
+- Container size: 1024×768 pixels
+- Grid: 4×4 = 16 cells
+- Cell size calculation: 256×256 pixels per cell ✅ CORRECT
+- Slice indices: [0, 1, 2, 3...15] for current page ✅ CORRECT
+
+### Phase 2: Render Request Preparation
+
+**File:** `/Users/bbuchsbaum/code/brainflow2/ui2/src/services/MosaicRenderService.ts`
+
+**Key Method:** `renderMosaicCell()` (Lines 37-129)
+
+**Flow Analysis:**
+```typescript
+// Lines 88-93: Dimension passing
+const imageBitmap = await this.apiService.applyAndRenderViewState(
+  modifiedViewState,
+  axis,
+  width,  // 256 pixels - correctly passed
+  height  // 256 pixels - correctly passed
+);
+```
+
+**View State Modification (Lines 363-395):**
+```typescript
+const modifiedViewState: ViewState = {
+  ...baseViewState,
+  crosshair: {
+    world_mm: (() => {
+      const crosshair: [number, number, number] = [...baseViewState.crosshair.world_mm];
+      switch (axis) {
+        case 'axial':
+          crosshair[2] = slicePosition_mm; // ✅ CORRECT: Updates Z-coordinate for axial slices
+          break;
+        // ... other axes
+      }
+      return crosshair;
+    })(),
+    visible: false
   }
-});
-```
-
-**Sequence:**
-1. User clicks template in Tauri menu
-2. Tauri emits `template-action` event with template ID
-3. TemplateService receives event and calls `loadTemplate()`
-
-### 2. Template Loading Phase
-
-**Location:** `TemplateService.ts:102-119`
-
-```typescript
-private async loadTemplate(templateId: string): Promise<void> {
-  const startTime = performance.now();
-  console.log(`[TemplateService ${startTime.toFixed(0)}ms] Loading template: ${templateId}`);
-
-  try {
-    // Emit loading event
-    this.eventBus.emit('file.loading', { path: `template:${templateId}` });
-    
-    // Create temporary layer ID for loading state
-    const tempLayerId = `template-loading-${Date.now()}`;
-    useLayerStore.getState().setLayerLoading(tempLayerId, true);
-
-    // Load template via backend
-    console.log(`[TemplateService ${performance.now() - startTime}ms] Calling backend load_template_by_id...`);
-    const templateResult = await invoke('plugin:api-bridge|load_template_by_id', {
-      templateId: templateId
-    }) as TemplateLoadResult;
-```
-
-**Backend API Call:**
-- **Command:** `plugin:api-bridge|load_template_by_id`
-- **Payload:** `{ templateId: string }`
-- **Response:** `TemplateLoadResult` containing volume handle and metadata
-
-### 3. Volume Handle Creation and Storage
-
-**Location:** `TemplateService.ts:122-139`
-
-```typescript
-// Extract volume handle info from the result
-const volumeHandleInfo = templateResult.volume_handle_info;
-
-// Create volume handle object from the VolumeHandleInfo structure
-const volumeHandle = {
-  id: volumeHandleInfo.id,
-  name: volumeHandleInfo.name,
-  path: `template:${templateId}`,
-  dims: volumeHandleInfo.dims as [number, number, number],
-  dtype: volumeHandleInfo.dtype,
-  volume_type: volumeHandleInfo.volume_type,
-  current_timepoint: volumeHandleInfo.current_timepoint || 0,
-  num_timepoints: volumeHandleInfo.num_timepoints,
-  time_series_info: volumeHandleInfo.time_series_info
 };
-
-// Store volume handle for future reference
-VolumeHandleStore.setVolumeHandle(volumeHandle.id, volumeHandle);
 ```
 
-**Key Point:** Volume handle created and stored in `VolumeHandleStore` before layer creation.
+**Analysis Result:** ✅ CORRECT - The service correctly modifies only the crosshair position and preserves all view planes unchanged.
 
-### 4. Critical Metadata Setting Phase
+### Phase 3: Backend API Communication
 
-**Location:** `TemplateService.ts:141-175`
+**File:** `/Users/bbuchsbaum/code/brainflow2/ui2/src/services/apiService.ts`
 
+**Critical Section:** `applyAndRenderViewStateCore()` (Lines 194-220)
+
+**Dimension Scaling Discovery:**
 ```typescript
-// Get the actual world bounds from the backend
-const volumeBounds = await this.apiService.getVolumeBounds(volumeHandle.id);
-
-if (!volumeBounds) {
-  console.error(`[TemplateService] Failed to get volume bounds for template`);
-  throw new Error('Failed to get volume bounds for template');
-}
-
-console.log(`[TemplateService] Volume bounds:`, volumeBounds);
-
-// Create layer from loaded template
-const currentLayerCount = useLayerStore.getState().layers.length;
-
-const layer: LayerInfo = {
-  id: volumeHandle.id,
-  name: templateResult.template_metadata.name,
-  volumeId: volumeHandle.id,
-  type: this.inferLayerType(templateResult.template_metadata.template_type),
-  visible: true,
-  order: currentLayerCount,
-  volumeType: volumeHandle.volume_type,
-  currentTimepoint: volumeHandle.current_timepoint
+// Lines 205-219: CRITICAL VIEW VECTOR SCALING
+declarativeViewState.requestedView = {
+  type: viewType,
+  origin_mm: [...view.origin_mm, 1.0],
+  // ⚠️ SCALING BY VIEWPORT DIMENSIONS
+  u_mm: [
+    view.u_mm[0] * width,  // 256×
+    view.u_mm[1] * width,  // 256×
+    view.u_mm[2] * width,  // 256×
+    0.0
+  ],
+  v_mm: [
+    view.v_mm[0] * height, // 256×
+    view.v_mm[1] * height, // 256×
+    view.v_mm[2] * height, // 256×
+    0.0
+  ],
+  width,  // 256
+  height  // 256
 };
+```
 
-// Set the world bounds metadata BEFORE adding the layer
-// This ensures downstream components (like histogram) have access to bounds
-console.log(`[TemplateService ${performance.now() - startTime}ms] Setting worldBounds metadata for layer ${layer.id}`);
-useLayerStore.getState().setLayerMetadata(layer.id, {
-  worldBounds: {
-    min: volumeBounds.min,
-    max: volumeBounds.max
-  }
+**Analysis:** ✅ POTENTIALLY CORRECT - This scaling transforms per-pixel vectors to total extent vectors as expected by the backend shader.
+
+### Phase 4: Backend Dimension Override
+
+**Critical Code:** `recalculateViewForDimensions()` (Lines 586-664)
+
+**The Smoking Gun (Lines 642-659):**
+```typescript
+// Backend dimension check
+console.log(`[ApiService] ⚠️ DIMENSION CHECK:`, {
+  requested: dimensions,
+  backendReturned: [result.width_px, result.height_px],
+  usingBackendDims: true, // ⚠️ ALWAYS using backend's calculated dimensions
+  match: dimensions[0] === result.width_px && dimensions[1] === result.height_px
 });
-```
 
-**Critical Timing:** World bounds metadata is set **BEFORE** the layer is added to the store.
-
-### 5. Layer Addition Through LayerService
-
-**Location:** `TemplateService.ts:187-190`
-
-```typescript
-// Add layer through layer service
-console.log(`[TemplateService ${performance.now() - startTime}ms] Adding layer through LayerService...`);
-const addedLayer = await this.layerService.addLayer(layer);
-console.log(`[TemplateService ${performance.now() - startTime}ms] Layer added successfully with ID: ${addedLayer.id}`);
-```
-
-**LayerService.addLayer() Flow:**
-**Location:** `LayerService.ts:36-50`
-
-```typescript
-async addLayer(layer: Omit<Layer, 'id'>): Promise<Layer> {
-  try {
-    const newLayer = await this.api.addLayer(layer);
-    
-    // Emit event for StoreSyncService to handle
-    this.eventBus.emit('layer.added', { layer: newLayer });
-    
-    return newLayer;
-  } catch (error) {
-    this.eventBus.emit('layer.error', { 
-      layerId: layer.name, 
-      error: error as Error 
-    });
-    throw error;
-  }
-}
-```
-
-### 6. Layer Store Addition
-
-**Location:** `layerStore.ts:148-184`
-
-```typescript
-addLayer: (layer, render) => {
-  const timestamp = performance.now();
-  console.log(`[layerStore ${timestamp.toFixed(0)}ms] addLayer called with:`);
-  console.log(`  - layer:`, JSON.stringify(layer));
-  console.log(`  - render:`, render ? JSON.stringify(render) : 'undefined');
-  console.log(`  - Stack trace:`, new Error().stack);
-  
-  const stateBefore = get().layers.length;
-  
-  set((state) => {
-    state.layers.push(layer);
-    // Use provided render properties or create defaults
-    if (render) {
-      console.log(`[layerStore] Using provided render properties for layer ${layer.id}`);
-      state.layerRender.set(layer.id, render);
-    } else {
-      console.log(`[layerStore] Creating default render properties for layer ${layer.id}`);
-      // Get metadata if available for data range
-      const metadata = state.layerMetadata.get(layer.id);
-      state.layerRender.set(layer.id, createDefaultRender(metadata?.dataRange));
-    }
-    
-    // Auto-select first layer if none selected
-    if (state.selectedLayerId === null && state.layers.length === 1) {
-      console.log(`[layerStore] Auto-selecting first layer: ${layer.id}`);
-      state.selectedLayerId = layer.id;
-    }
+if (dimensions[0] !== result.width_px || dimensions[1] !== result.height_px) {
+  console.info(`[ApiService] 📐 Backend dimension adjustment: ${dimensions.join('×')} → ${result.width_px}×${result.height_px}`, {
+    reason: 'aspect ratio preservation and square pixel requirements'
   });
-```
-
-**Key Points:**
-1. Layer is added to `state.layers` array
-2. Default render properties are created (using metadata if available)
-3. **Auto-selection occurs** if this is the first layer (`selectedLayerId = layer.id`)
-
-### 7. Layer Selection and PlotPanel Response
-
-**Auto-Selection Trigger:** When the first layer is added, `selectedLayerId` changes from `null` to `layer.id`
-
-**PlotPanel Subscription:** `PlotPanel.tsx:19-25`
-
-```typescript
-const selectedLayerId = useLayerStore(state => state.selectedLayerId);
-const selectedLayer = useLayerStore(state => 
-  state.layers.find(l => l.id === state.selectedLayerId)
-);
-const layerRender = useLayerStore(state => 
-  state.selectedLayerId ? state.getLayerRender(state.selectedLayerId) : undefined
-);
-```
-
-**Effect Trigger:** `PlotPanel.tsx:90-97`
-
-```typescript
-// Load histogram data when selected layer changes or render properties change
-useEffect(() => {
-  if (!selectedLayerId) {
-    setHistogramData(null);
-    return;
-  }
-
-  loadHistogram();
-}, [selectedLayerId, layerRender?.intensity, layerRender?.threshold, loadHistogram]);
-```
-
-### 8. Histogram Computation Request
-
-**Location:** `PlotPanel.tsx:44-87`
-
-```typescript
-const loadHistogram = useCallback(async () => {
-  if (!selectedLayerId) {
-    setHistogramData(null);
-    return;
-  }
-
-  console.log('[PlotPanel] Starting histogram load for layer:', selectedLayerId);
-  setLoading(true);
-  setError(null);
-  
-  try {
-    const data = await histogramService.computeHistogram({
-      layerId: selectedLayerId,
-      binCount: 256,
-      excludeZeros: true  // Default to true for brain imaging data
-    });
-    
-    console.log('[PlotPanel] Histogram data received:', {
-      hasData: !!data,
-      binCount: data?.bins?.length,
-      totalCount: data?.totalCount,
-      range: data ? [data.minValue, data.maxValue] : null
-    });
-    
-    setHistogramData(data);
-  } catch (err) {
-    const error = err as Error;
-    // Provide more specific error context
-    const enhancedError = new Error(
-      `Failed to compute histogram for layer ${selectedLayerId}: ${error.message}`
-    );
-    enhancedError.cause = error;
-    setError(enhancedError);
-    
-    console.error('[PlotPanel] Histogram computation failed:', {
-      layerId: selectedLayerId,
-      originalError: error.message,
-      containerDimensions: { containerWidth, containerHeight },
-      timestamp: new Date().toISOString()
-    });
-  } finally {
-    setLoading(false);
-  }
-}, [selectedLayerId]);
-```
-
-### 9. HistogramService Backend Call
-
-**Location:** `HistogramService.ts:113-171`
-
-```typescript
-private async fetchHistogram(request: HistogramRequest): Promise<HistogramData> {
-  console.log(`[HistogramService] Computing histogram for layer ${request.layerId}`);
-  
-  try {
-    // Call backend to compute histogram
-    const response = await invoke<{
-      bins: Array<{
-        x0: number;
-        x1: number;
-        count: number;
-      }>;
-      total_count: number;
-      min_value: number;
-      max_value: number;
-      mean: number;
-      std: number;
-      bin_count: number;
-    }>('plugin:api-bridge|compute_layer_histogram', {
-      layerId: request.layerId,
-      binCount: request.binCount || 256,
-      range: request.range,
-      excludeZeros: request.excludeZeros || false
-    });
-```
-
-**Backend API Call:**
-- **Command:** `plugin:api-bridge|compute_layer_histogram`
-- **Payload:** `{ layerId, binCount, range?, excludeZeros }`
-- **Response:** Histogram data with bins, statistics, and metadata
-
-### 10. Histogram Display in HistogramChart
-
-**Location:** `HistogramChart.tsx:169-185`
-
-```typescript
-// Debug logging
-console.log('[HistogramChart] Rendering histogram:', {
-  dataRange: [data.minValue, data.maxValue],
-  mean: data.mean,
-  std: data.std,
-  totalCount: data.totalCount,
-  binCount: data.bins.length,
-  calculatedBarWidth,
-  actualBarWidth: barWidth,
-  recommendedBinCount,
-  innerDimensions: [innerWidth, innerHeight],
-  nonZeroBins: data.bins.filter(b => b.count > 0).length,
-  maxBinCount: Math.max(...data.bins.map(b => b.count)),
-  firstFewBins: data.bins.slice(0, 5).map(b => ({
-    range: [b.x0, b.x1],
-    count: b.count
-  }))
-});
-```
-
-Chart renders with:
-- Visx-based histogram bars
-- Colormap-based gradient filling
-- Interactive tooltips
-- Intensity window and threshold overlays
-
-## Key Differences from File Browser Flow
-
-### 1. Entry Point Differences
-
-**Template Flow:**
-- **Entry:** Tauri menu event (`template-action`)
-- **Service:** `TemplateService.loadTemplate()`
-- **Path format:** `template:${templateId}`
-
-**File Browser Flow:**
-- **Entry:** File double-click event (`filebrowser.file.doubleclick`)
-- **Service:** `FileLoadingService.loadFile()`
-- **Path format:** Actual file system path
-
-### 2. Backend API Differences
-
-**Template Flow:**
-```typescript
-// Single backend call for template + volume handle
-const templateResult = await invoke('plugin:api-bridge|load_template_by_id', {
-  templateId: templateId
-}) as TemplateLoadResult;
-```
-
-**File Browser Flow:**
-```typescript
-// Backend call for file loading
-const volumeHandle = await this.apiService.loadFile(path);
-```
-
-### 3. Metadata Timing - IDENTICAL PATTERN
-
-**Both flows follow the same critical pattern:**
-
-```typescript
-// BEFORE layer addition - both TemplateService and FileLoadingService
-const volumeBounds = await this.apiService.getVolumeBounds(volumeHandle.id);
-
-// Set metadata BEFORE adding layer
-useLayerStore.getState().setLayerMetadata(layer.id, {
-  worldBounds: {
-    min: volumeBounds.min,
-    max: volumeBounds.max
-  }
-});
-
-// THEN add layer
-const addedLayer = await this.layerService.addLayer(layer);
-```
-
-**Location References:**
-- **TemplateService:** Lines 141-189
-- **FileLoadingService:** Lines 118-139
-
-### 4. Layer Selection Timing - IDENTICAL
-
-Both flows rely on the same auto-selection mechanism in `layerStore.ts:171-174`:
-
-```typescript
-// Auto-select first layer if none selected
-if (state.selectedLayerId === null && state.layers.length === 1) {
-  console.log(`[layerStore] Auto-selecting first layer: ${layer.id}`);
-  state.selectedLayerId = layer.id;
 }
 ```
 
-## Potential Race Conditions and Failure Points
+**🚨 ROOT CAUSE IDENTIFIED:**
+The backend's `recalculate_view_for_dimensions` function is returning different dimensions than requested (e.g., 128×128 instead of 256×256) to preserve aspect ratios and ensure square pixels. However, the frontend doesn't account for this dimension change in the rendering pipeline.
 
-### 1. Metadata Availability Race
+### Phase 5: Image Data Processing
 
-**Risk:** Histogram service might be called before metadata is fully propagated
+**File:** `/Users/bbuchsbaum/code/brainflow2/ui2/src/services/apiService.ts`
 
-**Timing Critical Points:**
-1. `setLayerMetadata()` called (Template: line 170, File: line 129)
-2. `layerService.addLayer()` called (Template: line 189, File: line 138)
-3. Layer added to store triggers auto-selection
-4. PlotPanel effect triggers `loadHistogram()`
-5. HistogramService calls backend
-
-**Mitigation:** Both services set metadata **before** layer addition, ensuring it's available when histogram computation occurs.
-
-### 2. Volume Handle Store Synchronization
-
-**Template Flow Advantage:**
+**Raw RGBA Decoding (Lines 403-456):**
 ```typescript
-// Template stores handle BEFORE bounds lookup
-VolumeHandleStore.setVolumeHandle(volumeHandle.id, volumeHandle);
-const volumeBounds = await this.apiService.getVolumeBounds(volumeHandle.id);
+// Raw RGBA data format: [width: u32][height: u32][rgba_data...]
+const view = new DataView(byteArray.buffer, byteArray.byteOffset);
+const width = view.getUint32(0, true);   // ⚠️ Backend calculated size: 128
+const height = view.getUint32(4, true);  // ⚠️ Backend calculated size: 128
+const rgbaData = byteArray.slice(8);
+
+// Create ImageData and ImageBitmap
+const imageData = new ImageData(new Uint8ClampedArray(rgbaData), width, height);
+const bitmap = await createImageBitmap(imageData); // ✅ Creates 128×128 bitmap
 ```
 
-**File Flow Pattern:**
+**Analysis:** The frontend correctly decodes the raw RGBA data and creates an ImageBitmap at the backend's calculated dimensions (128×128), not the originally requested dimensions (256×256).
+
+### Phase 6: Canvas Rendering
+
+**File:** `/Users/bbuchsbaum/code/brainflow2/ui2/src/utils/canvasUtils.ts`
+
+**Image Placement Calculation (Lines 25-62):**
 ```typescript
-// File stores handle AFTER loading but BEFORE bounds lookup
-const volumeHandle = await this.apiService.loadFile(path);
-VolumeHandleStore.setVolumeHandle(volumeHandle.id, volumeHandle);
-const volumeBounds = await this.initializeViewsForVolume(volumeHandle);
+export function calculateImagePlacement(
+  imageWidth: number,    // 128 (from backend)
+  imageHeight: number,   // 128 (from backend)  
+  canvasWidth: number,   // 256 (requested cell size)
+  canvasHeight: number   // 256 (requested cell size)
+): ImagePlacement {
+  // This creates a 2× scaling factor!
+  const imageAspectRatio = imageWidth / imageHeight; // 1.0
+  const canvasAspectRatio = canvasWidth / canvasHeight; // 1.0
+  
+  // Since aspect ratios are equal, fits to height
+  drawHeight = canvasHeight; // 256
+  drawWidth = drawHeight * imageAspectRatio; // 256
+  drawX = (canvasWidth - drawWidth) / 2; // 0
+  drawY = 0;
+}
 ```
 
-**Both patterns ensure volume handle is available before histogram computation.**
-
-### 3. Backend Volume State Consistency
-
-**Critical Requirement:** The backend must have the volume fully loaded and ready for histogram computation when `compute_layer_histogram` is called.
-
-**Both flows ensure this by:**
-1. Waiting for successful volume loading
-2. Storing volume handles
-3. Only then proceeding with layer addition and selection
-
-## State Update Sequence Analysis
-
-### Template Flow Timeline:
-
-```
-T+0ms    : Template menu clicked
-T+5ms    : TemplateService receives event
-T+10ms   : setLayerLoading(tempId, true)
-T+15ms   : Backend load_template_by_id called
-T+200ms  : Template loaded, volume handle created
-T+205ms  : VolumeHandleStore.setVolumeHandle()
-T+210ms  : getVolumeBounds() called
-T+250ms  : Volume bounds received
-T+255ms  : setLayerMetadata(id, { worldBounds })
-T+260ms  : layerService.addLayer() called
-T+265ms  : Layer added to store
-T+266ms  : Auto-selection: selectedLayerId = layer.id
-T+267ms  : PlotPanel effect triggered
-T+268ms  : loadHistogram() called
-T+270ms  : histogramService.computeHistogram()
-T+275ms  : Backend compute_layer_histogram called
-T+350ms  : Histogram data received
-T+355ms  : HistogramChart renders
+**Canvas Drawing (Lines 68-95):**
+```typescript
+ctx.drawImage(
+  image,         // 128×128 ImageBitmap
+  placement.x,   // 0
+  placement.y,   // 0  
+  placement.width,  // 256 (2× scaling!)
+  placement.height  // 256 (2× scaling!)
+);
 ```
 
-### File Browser Flow Timeline:
+**🚨 QUARTER-IMAGE MECHANISM REVEALED:**
+1. Backend returns 128×128 ImageBitmap (half the requested size)
+2. Canvas scales this to 256×256 (2× upscaling)
+3. Since ImageBitmaps contain complete brain images at 128×128, when scaled 2× to fit 256×256, only the top-left quarter of the original field of view is visible
+4. The "missing" parts aren't cropped - they're outside the original 128×128 render extent
 
-```
-T+0ms    : File double-clicked
-T+5ms    : FileLoadingService receives event
-T+10ms   : setLayerLoading(tempId, true)
-T+15ms   : apiService.loadFile() called
-T+200ms  : File loaded, volume handle created
-T+205ms  : VolumeHandleStore.setVolumeHandle()
-T+210ms  : initializeViewsForVolume() called
-T+215ms  : getVolumeBounds() called
-T+250ms  : Volume bounds received
-T+255ms  : setLayerMetadata(id, { worldBounds })
-T+260ms  : layerService.addLayer() called
-T+265ms  : Layer added to store
-T+266ms  : Auto-selection: selectedLayerId = layer.id
-T+267ms  : PlotPanel effect triggered
-T+268ms  : loadHistogram() called
-T+270ms  : histogramService.computeHistogram()
-T+275ms  : Backend compute_layer_histogram called
-T+350ms  : Histogram data received
-T+355ms  : HistogramChart renders
+### Phase 7: Event-Based Delivery
+
+**File:** `/Users/bbuchsbaum/code/brainflow2/ui2/src/hooks/useRenderCanvas.ts`
+
+**Event Filtering (Lines 70-137):**
+```typescript
+// Tag-based filtering
+if (tag && data.tag !== tag) return; // ✅ CORRECT filtering
 ```
 
-**Key Observation:** Both flows follow nearly identical timing patterns after volume loading completes.
+**Canvas Drawing:**
+```typescript
+const placement = drawScaledImage(ctx, lastImageRef.current, canvasRef.current.width, canvasRef.current.height);
+// ✅ CORRECTLY uses canvasUtils.drawScaledImage which handles the 2× upscaling
+```
 
-## Event Bus Activity Analysis
+## Comparison: SliceView vs MosaicView
 
-### Template Flow Events:
+### SliceView Flow (Works Correctly)
+1. **FlexibleSlicePanel** provides stable dimensions matching container size
+2. **SliceView** renders at those exact dimensions
+3. **Backend dimension adjustment** still occurs but:
+   - SliceView container is typically larger (e.g., 512×512)
+   - Backend adjustment is smaller relative change (e.g., 512×512 → 480×480)
+   - Scaling factor is minimal (~1.07×) - barely noticeable
 
-1. `file.loading` - Line 108 (TemplateService)
-2. `volume.loaded` - Line 178 (TemplateService)  
-3. `layer.added` - Line 41 (LayerService)
-4. `file.loaded` - Line 199 (TemplateService)
-5. `ui.notification` - Line 204 (TemplateService)
+### MosaicView Flow (Shows Quarter Image)
+1. **MosaicViewPromise** calculates small cell dimensions (256×256)
+2. **Backend aggressively adjusts** for aspect ratio preservation (256×256 → 128×128)
+3. **2× scaling factor** makes quarter-image effect prominent
+4. **Small cell size** makes the cropping very noticeable
 
-### File Browser Flow Events:
+## Root Cause Summary
 
-1. `file.loading` - Line 66 (FileLoadingService)
-2. `volume.loaded` - Line 112 (FileLoadingService)
-3. `layer.added` - Line 41 (LayerService) 
-4. `file.loaded` - Line 158 (FileLoadingService)
-5. `ui.notification` - Line 162 (FileLoadingService)
+**Primary Issue:** Backend dimension calculation in `recalculate_view_for_dimensions` returns significantly smaller dimensions than requested for mosaic cells to preserve aspect ratios and square pixels. This creates a 2× scaling factor that reveals only the top-left quarter of the image.
 
-**Pattern:** Identical event sequence with same ordering.
+**Secondary Issue:** Frontend rendering pipeline doesn't account for backend dimension adjustments, blindly scaling the returned ImageBitmap to fit the originally requested cell size.
 
-## Conclusions and Recommendations
+## File Interconnections Map
 
-### Flow Analysis Summary
+```
+MosaicViewPromise.tsx (Grid Layout)
+    ↓ cellSize: 256×256
+MosaicRenderService.ts (Render Coordination) 
+    ↓ renderMosaicCell(256×256)
+apiService.ts (Backend Communication)
+    ↓ applyAndRenderViewState(256×256) 
+    ↓ recalculateViewForDimensions(256×256)
+    ↓ Backend returns: 128×128 ImageBitmap
+canvasUtils.ts (Image Scaling)
+    ↓ drawScaledImage(128×128 → 256×256) [2× scaling]
+    ↓ Quarter-image visible
+useRenderCanvas.ts (Event Delivery)
+    ↓ Event-based delivery to MosaicCell
+MosaicCell.tsx (Final Rendering)
+    ↓ Canvas displays quarter image
+```
 
-1. **Template and file browser flows are nearly identical** after the initial loading phase
-2. **Metadata timing is correct** in both flows - set before layer addition
-3. **Auto-selection timing is consistent** - triggers immediately after layer addition
-4. **Histogram computation timing is deterministic** - only after layer selection
+## Recommended Solution
 
-### Potential Issues Identified
+The fix requires **synchronizing frontend cell sizes with backend-calculated dimensions**:
 
-1. **Backend readiness assumption:** Both flows assume the backend volume is ready for histogram computation immediately after loading
-2. **No explicit readiness verification:** Neither flow validates that the backend can compute histograms before triggering the computation
-3. **Error handling gaps:** Histogram failures might not provide sufficient context about backend state
+1. **Option A (Preferred):** Modify MosaicRenderService to query backend for actual render dimensions before creating cells
+2. **Option B:** Add backend parameter to disable dimension adjustment for mosaic rendering
+3. **Option C:** Frontend dimension negotiation - request dimensions, get actual dimensions, adjust cell sizes accordingly
 
-### Recommended Improvements
-
-1. **Add volume readiness check:** Verify backend volume state before histogram computation
-2. **Enhanced error context:** Include volume handle state in histogram error messages  
-3. **Defensive timing:** Add small delays between critical state transitions if race conditions persist
-4. **Backend state logging:** Add more detailed backend logging for histogram computation failures
-
-### Flow Integrity Assessment
-
-**Overall Assessment:** ✅ **GOOD** - Both flows follow consistent, well-structured patterns with proper metadata timing and state management.
-
-**Critical Success Factors:**
-- Metadata set before layer addition ✅
-- Volume handles stored before bounds lookup ✅
-- Auto-selection triggers histogram computation ✅
-- Event sequence is deterministic ✅
-
-The template loading flow is architecturally sound and should produce histograms reliably, following the same proven pattern as the file browser flow.
+The investigation clearly identifies this as a **backend-frontend dimension coordination issue**, not a coordinate system transformation bug.

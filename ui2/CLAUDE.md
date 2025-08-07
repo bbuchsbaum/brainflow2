@@ -197,3 +197,96 @@ When migrating from the old UI:
 2. Replace EventBus with Zustand subscriptions
 3. Update components from .svelte to .tsx
 4. Maintain the same service interfaces where possible
+
+## MosaicView Rendering System (Critical Knowledge)
+
+### The Two-Path Rendering Architecture
+
+The rendering system has **two parallel pathways** that share the EventBus but must remain isolated:
+
+#### Path 1: SliceView (Single Slice)
+```
+SliceView.tsx → coalesceUtils.flush() → apiService.applyAndRenderViewState(viewState, viewType, width, height)
+→ Backend renders single slice at crosshair position
+→ EventBus.emit('render.complete', { viewType: 'axial', imageBitmap })
+→ useRenderCanvas filters by viewType
+→ Canvas displays single slice
+```
+
+#### Path 2: MosaicView (Grid of Slices)
+```
+MosaicViewPromise.tsx → mosaicRenderService.renderMosaicGrid(requests)
+→ For each cell:
+  → createSliceViewState(sliceIndex) creates custom ViewPlane
+  → apiService.applyAndRenderViewState(modifiedState, axis, width, height)
+  → EventBus.emit('render.complete', { tag: 'mosaic-default-axial-96', imageBitmap })
+→ useRenderCanvas filters by tag
+→ Each canvas displays its specific slice
+```
+
+### Critical Rules - NEVER BREAK THESE
+
+#### 1. Event Filtering Rule
+- Components with `tag` ONLY respond to events with matching tag
+- Components with `viewType` ONLY respond to events with matching viewType
+- NEVER mix tags and viewTypes in the same component
+- This isolation prevents cross-contamination between the two paths
+
+#### 2. ViewPlane Calculation for MosaicView
+Each mosaic cell MUST have its own ViewPlane with the correct slice position:
+
+```typescript
+// In MosaicRenderService.createSliceViewState()
+// This is THE critical calculation:
+const slicePosition_mm = sliceMin + (sliceIndex * (sliceRange / totalSlices));
+
+// Pixel size must be uniform (square pixels for medical imaging)
+const pixelSize = Math.max(widthMm / width, heightMm / height);
+
+// Non-square volumes need centering
+const xCenterOffset = (width - actualWidthPx) * pixelSize / 2;
+const yCenterOffset = (height - actualHeightPx) * pixelSize / 2;
+
+// Create ViewPlane with correct origin for THIS slice
+newOrigin = [
+  combinedBounds.min[0] - xCenterOffset,  // Centered X
+  combinedBounds.max[1] + yCenterOffset,  // Centered Y (Y inverted)
+  slicePosition_mm                        // THIS slice's Z position
+];
+```
+
+#### 3. ImageBitmap Lifecycle Rule
+- NEVER call `imageBitmap.close()` while React effects might still use it
+- Let JavaScript garbage collection handle cleanup
+- React's async nature means effects can fire after new data arrives
+- Closing bitmaps manually causes "InvalidStateError: The object is in an invalid state"
+
+#### 4. Cell Size Timing Rule
+- Container MUST have non-zero dimensions before calculating cell sizes
+- Use `useLayoutEffect` or check dimensions > 0
+- Use ResizeObserver for dynamic updates
+- Initial render with wrong size causes cramped display
+
+### How We Fixed MosaicView Issues
+
+1. **Images off-center/zoomed**: Each cell gets custom ViewPlane with its slice position (not global ViewPlane)
+2. **Non-square volumes shifted**: Calculate centering offsets in createSliceViewState
+3. **Initial 4x4 grid cramped**: Check container has dimensions before calculating cell sizes
+4. **Click causes crashes**: Don't manually dispose ImageBitmaps - let GC handle it
+5. **Wrong axis rendering**: Ensure event filtering prevents SliceView events from affecting MosaicView
+
+### Why The System Is Brittle
+
+The tag/viewType system relies on string matching and proper event filtering. Common failure modes:
+- Tag undefined/null in events
+- SliceView events (with viewType) contaminating MosaicView (with tags)
+- Race conditions when crosshair updates trigger both paths simultaneously
+- ImageBitmap disposal while React effects are pending
+
+### Safe Improvements
+
+When improving this system:
+- Add type definitions but don't change event flow
+- Add debug logging but don't change filtering logic
+- Document contracts but don't change the two-path architecture
+- The system works - respect its rules rather than redesigning it

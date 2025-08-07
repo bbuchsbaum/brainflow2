@@ -159,7 +159,7 @@ export function SliceRenderer({
   
   return (
     <div 
-      className={`relative flex items-center justify-center ${className}`}
+      className={`relative w-full h-full ${className}`}
       onMouseMove={onMouseMove}
       onMouseDown={onMouseDown}
       onMouseUp={onMouseUp}
@@ -169,13 +169,15 @@ export function SliceRenderer({
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
     >
-      {/* Canvas as flex child */}
-      <canvas
-        ref={canvasRef}
-        width={width}
-        height={height}
-        className={`block ${canvasClassName}`}
-      />
+      {/* Canvas wrapper for centering - matches SliceView structure */}
+      <div className="w-full h-full flex items-center justify-center">
+        <canvas
+          ref={canvasRef}
+          width={width}
+          height={height}
+          className={`block ${canvasClassName}`}
+        />
+      </div>
       
       {/* Overlays */}
       <RenderOverlays

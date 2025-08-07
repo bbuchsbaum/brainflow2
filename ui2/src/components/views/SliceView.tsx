@@ -37,8 +37,9 @@ export function SliceView({ viewId, width, height, className = '' }: SliceViewPr
   // This solves the stale closure problem when the function is stored in a ref
   const crosshairSettingsRef = useRef(crosshairSettings);
   useEffect(() => {
+    console.log(`[SliceView ${viewId}] Updating crosshairSettingsRef:`, crosshairSettings);
     crosshairSettingsRef.current = crosshairSettings;
-  }, [crosshairSettings]);
+  }, [crosshairSettings, viewId]);
   
   const timeNav = useTimeNavigation();
   const timeNavService = getTimeNavigationService(); // Keep for mode navigation until fully migrated
@@ -164,8 +165,11 @@ export function SliceView({ viewId, width, height, className = '' }: SliceViewPr
     }
   };
   
-  // Store the function in ref
-  renderCrosshairRef.current = renderCrosshairImpl;
+  // Update the function in ref whenever it changes
+  // This ensures we always have the latest version with fresh closures
+  useEffect(() => {
+    renderCrosshairRef.current = renderCrosshairImpl;
+  });
   
   // Create stable event handler
   const handleRenderComplete = React.useCallback((data: any) => {
@@ -434,18 +438,28 @@ export function SliceView({ viewId, width, height, className = '' }: SliceViewPr
 
   // Redraw canvas (image + crosshair) when crosshair changes
   useEffect(() => {
+    console.log(`[SliceView ${viewId}] crosshair/settings useEffect triggered:`, {
+      crosshair,
+      crosshairSettings,
+      hasLastImage: !!lastImageRef.current
+    });
+    
     if (lastImageRef.current) {
       // Redraw the entire canvas to avoid crosshair artifacts
       requestAnimationFrame(() => {
         redrawCanvasImpl();
       });
     }
-  }, [crosshair, crosshairSettings]);
+  }, [crosshair, crosshairSettings, viewId]);
   
   // Listen for crosshair settings updates to force redraw
   useEvent('crosshair.settings.updated', (newSettings) => {
+    console.log(`[SliceView ${viewId}] Received settings update event:`, newSettings);
+    console.log(`[SliceView ${viewId}] Current settings ref:`, crosshairSettingsRef.current);
+    
     if (lastImageRef.current && canvasRef.current) {
       requestAnimationFrame(() => {
+        console.log(`[SliceView ${viewId}] Executing redraw with settings:`, crosshairSettingsRef.current);
         redrawCanvasImpl();
       });
     }

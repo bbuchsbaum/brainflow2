@@ -206,6 +206,11 @@ export function useCrosshairSettings() {
 export function useViewCrosshairSettings(viewType?: 'axial' | 'sagittal' | 'coronal') {
   const { settings } = useCrosshairSettings();
   
+  // Debug: Track when hook updates
+  React.useEffect(() => {
+    console.log('[useViewCrosshairSettings] Hook updated for', viewType, 'with settings:', settings);
+  }, [settings, viewType]);
+  
   if (!viewType) {
     return settings;
   }

@@ -8,6 +8,7 @@
 import { useRef, useCallback, useState, useEffect } from 'react';
 import { useEvent } from '@/events/EventBus';
 import { drawScaledImage } from '@/utils/canvasUtils';
+import { ResourceMonitor } from '@/utils/ResourceMonitor';
 import type { ImagePlacement } from '@/utils/canvasUtils';
 
 interface UseRenderCanvasOptions {
@@ -24,6 +25,7 @@ export function useRenderCanvas(options: UseRenderCanvasOptions = {}) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const lastImageRef = useRef<ImageBitmap | null>(null);
   const imagePlacementRef = useRef<ImagePlacement | null>(null);
+  const resourceMonitor = useRef(ResourceMonitor.getInstance());
   
   // State
   const [isLoading, setIsLoading] = useState(false);
@@ -66,35 +68,71 @@ export function useRenderCanvas(options: UseRenderCanvasOptions = {}) {
   
   // Handle render complete events
   const handleRenderComplete = useCallback((data: any) => {
+    console.log(`[useRenderCanvas] DEBUG - render.complete event received:`, {
+      myTag: tag,
+      eventTag: data.tag,
+      myViewType: viewType,
+      eventViewType: data.viewType,
+      hasImageBitmap: !!data.imageBitmap
+    });
+    
     // Filter based on tag or viewType
     // If we're looking for a specific tag, only match that tag
-    if (tag && data.tag !== tag) return;
-    
-    // If we're looking for a viewType without a tag, don't match events that have tags
-    if (viewType && !tag && data.tag) return;
-    
-    // If we're looking for a viewType, it must match
-    if (viewType && data.viewType !== viewType) return;
-    
-    // If we have neither tag nor viewType, only match events without tags or viewTypes
-    if (!tag && !viewType && (data.tag || data.viewType)) return;
-    
-    // Log only in development
-    if (process.env.NODE_ENV === 'development') {
-      console.log(`[useRenderCanvas${tag ? ` ${tag}` : viewType ? ` ${viewType}` : ''}] render.complete`, {
-        hasImage: !!data.imageBitmap
-      });
+    if (tag && data.tag !== tag) {
+      console.log(`[useRenderCanvas] DEBUG - Ignoring event: tag mismatch (${tag} !== ${data.tag})`);
+      return;
     }
     
+    // If we're looking for a viewType without a tag, don't match events that have tags
+    if (viewType && !tag && data.tag) {
+      console.log(`[useRenderCanvas] DEBUG - Ignoring event: viewType mode but event has tag`);
+      return;
+    }
+    
+    // If we're looking for a viewType, it must match
+    if (viewType && data.viewType !== viewType) {
+      console.log(`[useRenderCanvas] DEBUG - Ignoring event: viewType mismatch`);
+      return;
+    }
+    
+    // If we have neither tag nor viewType, only match events without tags or viewTypes
+    if (!tag && !viewType && (data.tag || data.viewType)) {
+      console.log(`[useRenderCanvas] DEBUG - Ignoring event: no filter but event has tag/viewType`);
+      return;
+    }
+    
+    console.log(`[useRenderCanvas${tag ? ` ${tag}` : viewType ? ` ${viewType}` : ''}] DEBUG - Event matched! Processing render.complete`);
+    
     if (data.imageBitmap && canvasRef.current) {
+      console.log(`[useRenderCanvas${tag ? ` ${tag}` : ''}] DEBUG - Drawing image to canvas`);
       setIsLoading(false);
       setError(null);
+      
+      // Dispose previous bitmap before storing new one
+      if (lastImageRef.current) {
+        lastImageRef.current.close();
+        resourceMonitor.current.deallocate();
+        console.debug(`[useRenderCanvas${tag ? ` ${tag}` : ''}] Disposed previous ImageBitmap`);
+      }
       
       // Store the image for redrawing
       lastImageRef.current = data.imageBitmap;
       
+      // Track allocation (but don't block rendering)
+      resourceMonitor.current.allocate();
+      const status = resourceMonitor.current.getStatus();
+      if (status.utilizationPercent > 80) {
+        console.warn(`[useRenderCanvas${tag ? ` ${tag}` : ''}] High GPU resource usage: ${status.allocated}/${status.max} bitmaps`);
+      }
+      
       // Draw the image
-      redrawCanvas();
+      const result = redrawCanvas();
+      console.log(`[useRenderCanvas${tag ? ` ${tag}` : ''}] DEBUG - Draw result:`, result ? 'success' : 'failed');
+    } else {
+      console.log(`[useRenderCanvas${tag ? ` ${tag}` : ''}] DEBUG - Cannot draw:`, {
+        hasImageBitmap: !!data.imageBitmap,
+        hasCanvas: !!canvasRef.current
+      });
     }
   }, [tag, viewType, redrawCanvas]);
   
@@ -113,15 +151,34 @@ export function useRenderCanvas(options: UseRenderCanvasOptions = {}) {
   }, [tag, viewType]));
   
   useEvent('render.error', useCallback((data: any) => {
+    console.log(`[useRenderCanvas] DEBUG - render.error event received:`, {
+      myTag: tag,
+      eventTag: data.tag,
+      error: data.error
+    });
+    
     // Apply same filtering logic as render.complete
     if (tag && data.tag !== tag) return;
     if (viewType && !tag && data.tag) return;
     if (viewType && data.viewType !== viewType) return;
     if (!tag && !viewType && (data.tag || data.viewType)) return;
     
+    console.error(`[useRenderCanvas${tag ? ` ${tag}` : ''}] DEBUG - Error matched for this canvas:`, data.error);
     setError(data.error?.message || 'Render error');
     setIsLoading(false);
   }, [tag, viewType]));
+  
+  // Cleanup ImageBitmap on unmount to prevent memory leaks
+  useEffect(() => {
+    return () => {
+      if (lastImageRef.current) {
+        lastImageRef.current.close();
+        lastImageRef.current = null;
+        resourceMonitor.current.deallocate();
+        console.debug(`[useRenderCanvas${tag ? ` ${tag}` : ''}] Cleaned up ImageBitmap on unmount`);
+      }
+    };
+  }, [tag]);
   
   return {
     canvasRef,

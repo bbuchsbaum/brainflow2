@@ -35,7 +35,7 @@
   position: relative;
   overflow: hidden;
   background-color: var(--app-bg-primary); /* Use theme variable */
-  border: 1px solid var(--app-border); /* Use theme variable */
+  /* border removed - canvas already has border for consistency with SliceView */
   display: flex;
   align-items: center;
   justify-content: center;
@@ -43,6 +43,7 @@
 }
 
 .mosaic-cell canvas {
+  border: 1px solid #d1d5db; /* gray-300 equivalent for consistency with SliceView */
   image-rendering: pixelated; /* Prevent blurring of medical images */
   image-rendering: -moz-crisp-edges;
   image-rendering: crisp-edges;

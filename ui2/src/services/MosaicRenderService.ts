@@ -29,12 +29,23 @@ class MosaicRenderService {
   private apiService = getApiService();
   private eventBus = getEventBus();
   private activeRenders = new Map<string, MosaicRenderRequest>();
+  private static readonly MAX_CONCURRENT_RENDERS = 4;
+  // Store actual slice positions for each cell tag
+  private slicePositions = new Map<string, number>();
   
   /**
    * Render a single mosaic cell
    */
   async renderMosaicCell(request: MosaicRenderRequest): Promise<void> {
     const { sliceIndex, axis, cellId, width, height } = request;
+    
+    console.log(`[MosaicRenderService] DEBUG - Starting render for cell:`, {
+      cellId,
+      sliceIndex,
+      axis,
+      width,
+      height
+    });
     
     // Store active render
     this.activeRenders.set(cellId, request);
@@ -46,6 +57,16 @@ class MosaicRenderService {
       // Get current view state
       const currentViewState = useViewStateStore.getState().viewState;
       
+      console.log(`[MosaicRenderService] DEBUG - Current ViewState structure:`, {
+        cellId,
+        hasLayers: !!currentViewState.layers,
+        layerCount: currentViewState.layers?.length,
+        firstLayer: currentViewState.layers?.[0],
+        hasCrosshair: !!currentViewState.crosshair,
+        hasViews: !!currentViewState.views,
+        viewKeys: Object.keys(currentViewState.views || {})
+      });
+      
       // Create a modified view state for this specific slice WITH correct dimensions
       const modifiedViewState = await this.createSliceViewState(
         currentViewState,
@@ -55,46 +76,129 @@ class MosaicRenderService {
         height
       );
       
-      // Render using the normal pipeline with dimensions
+      // Store the actual slice position for this cell
+      // This is needed for correct crosshair calculation
+      const slicePosition = await this.getSlicePositionForIndex(
+        currentViewState,
+        axis,
+        sliceIndex
+      );
+      this.slicePositions.set(cellId, slicePosition);
+      console.log(`[MosaicRenderService] Stored slice position ${slicePosition}mm for cell ${cellId}`);
+      
+      console.log(`[MosaicRenderService] DEBUG - Modified ViewState for slice ${sliceIndex}:`, {
+        cellId,
+        hasModifiedViews: !!modifiedViewState.views,
+        modifiedViewKeys: Object.keys(modifiedViewState.views || {}),
+        axialView: modifiedViewState.views?.axial
+      });
+      
+      // Render using the normal pipeline with correct cell dimensions
+      // This ensures backend renders at the exact size needed for the canvas
+      console.log(`[MosaicRenderService] DEBUG - Calling applyAndRenderViewState for ${cellId} WITH dimensions ${width}x${height}`);
+      
       const imageBitmap = await this.apiService.applyAndRenderViewState(
         modifiedViewState,
         axis,
-        width,
-        height
+        width,  // Pass actual cell width to match canvas size
+        height  // Pass actual cell height to match canvas size
       );
       
+      console.log(`[MosaicRenderService] DEBUG - Render result for ${cellId}:`, {
+        hasImageBitmap: !!imageBitmap,
+        imageBitmapType: imageBitmap ? imageBitmap.constructor.name : 'null',
+        imageBitmapSize: imageBitmap ? `${imageBitmap.width}x${imageBitmap.height}` : 'N/A'
+      });
+      
       if (imageBitmap) {
-        // Emit render complete event with tag
+        // Emit render complete event with tag (no viewType for tagged events)
         this.eventBus.emit('render.complete', {
-          viewType: axis,
           imageBitmap,
           tag: cellId
         });
+        console.log(`[MosaicRenderService] DEBUG - Emitted render.complete for ${cellId}`);
       } else {
         throw new Error('No image returned from backend');
       }
     } catch (error) {
-      // Emit render error event with tag
+      console.error(`[MosaicRenderService] DEBUG - Error rendering ${cellId}:`, {
+        error,
+        errorMessage: error instanceof Error ? error.message : String(error),
+        errorStack: error instanceof Error ? error.stack : undefined,
+        sliceIndex,
+        axis
+      });
+      
+      // Emit render error event with tag (no viewType for tagged events)
       this.eventBus.emit('render.error', {
-        viewType: axis,
         error: error instanceof Error ? error : new Error(String(error)),
         tag: cellId
       });
     } finally {
       this.activeRenders.delete(cellId);
+      console.log(`[MosaicRenderService] DEBUG - Finished processing ${cellId}`);
     }
   }
   
   /**
-   * Render multiple mosaic cells
+   * Render multiple mosaic cells with batched processing for controlled concurrency
    */
   async renderMosaicGrid(requests: MosaicRenderRequest[]): Promise<void> {
-    // Render cells in parallel for better performance
-    const renderPromises = requests.map(request => 
-      this.renderMosaicCell(request)
-    );
+    console.log(`[MosaicRenderService] Starting batched rendering: ${requests.length} requests, max concurrent: ${MosaicRenderService.MAX_CONCURRENT_RENDERS}`);
+    console.log('[MosaicRenderService] Request details:', requests.map(r => ({
+      cellId: r.cellId,
+      sliceIndex: r.sliceIndex,
+      axis: r.axis,
+      dimensions: `${r.width}x${r.height}`
+    })));
     
-    await Promise.all(renderPromises);
+    const batches = this.createBatches(requests, MosaicRenderService.MAX_CONCURRENT_RENDERS);
+    const results = { successful: 0, failed: 0, errors: [] as Array<{cellId: string, error: any}> };
+    
+    // Process batches sequentially, but items within each batch in parallel
+    for (let batchIndex = 0; batchIndex < batches.length; batchIndex++) {
+      const batch = batches[batchIndex];
+      console.log(`[MosaicRenderService] Processing batch ${batchIndex + 1}/${batches.length} with ${batch.length} renders`);
+      
+      // Process batch with controlled concurrency
+      const batchPromises = batch.map(async (request) => {
+        try {
+          await this.renderMosaicCell(request);
+          results.successful++;
+          return { success: true, cellId: request.cellId };
+        } catch (error) {
+          results.failed++;
+          results.errors.push({ cellId: request.cellId, error });
+          return { success: false, cellId: request.cellId, error };
+        }
+      });
+      
+      // Wait for all renders in this batch to complete
+      const batchResults = await Promise.all(batchPromises);
+      
+      // Log batch results
+      const batchSuccessful = batchResults.filter(r => r.success).length;
+      const batchFailed = batchResults.filter(r => !r.success).length;
+      console.log(`[MosaicRenderService] Batch ${batchIndex + 1} complete: ${batchSuccessful} successful, ${batchFailed} failed. Running total: ${results.successful}/${requests.length} successful`);
+    }
+    
+    console.log(`[MosaicRenderService] All batches complete: ${results.successful}/${requests.length} successful`);
+    
+    if (results.failed > 0) {
+      console.warn('[MosaicRenderService] Some cells failed to render:', results.errors);
+      // Don't throw - allow partial success
+    }
+  }
+  
+  /**
+   * Create batches from an array of items
+   */
+  private createBatches<T>(items: T[], batchSize: number): T[][] {
+    const batches: T[][] = [];
+    for (let i = 0; i < items.length; i += batchSize) {
+      batches.push(items.slice(i, i + batchSize));
+    }
+    return batches;
   }
   
   /**
@@ -104,6 +208,13 @@ class MosaicRenderService {
     for (const cellId of cellIds) {
       this.activeRenders.delete(cellId);
     }
+  }
+  
+  /**
+   * Get the actual slice position for a given cell tag
+   */
+  getSlicePositionForTag(tag: string): number | undefined {
+    return this.slicePositions.get(tag);
   }
   
   /**
@@ -205,33 +316,6 @@ class MosaicRenderService {
       return baseViewState;
     }
     
-    // Clone the view state
-    const modifiedViewState: ViewState = {
-      ...baseViewState,
-      views: { ...baseViewState.views }
-    };
-    
-    // Get the base view plane for the requested axis
-    const baseViewPlane = baseViewState.views[axis];
-    if (!baseViewPlane) {
-      return baseViewState;
-    }
-    
-    // Calculate the normal vector (cross product of u and v)
-    const normal = [
-      baseViewPlane.u_mm[1] * baseViewPlane.v_mm[2] - baseViewPlane.u_mm[2] * baseViewPlane.v_mm[1],
-      baseViewPlane.u_mm[2] * baseViewPlane.v_mm[0] - baseViewPlane.u_mm[0] * baseViewPlane.v_mm[2],
-      baseViewPlane.u_mm[0] * baseViewPlane.v_mm[1] - baseViewPlane.u_mm[1] * baseViewPlane.v_mm[0]
-    ];
-    
-    // Normalize
-    const mag = Math.sqrt(normal[0]**2 + normal[1]**2 + normal[2]**2);
-    const normalizedNormal = [
-      normal[0] / mag,
-      normal[1] / mag,
-      normal[2] / mag
-    ];
-    
     // Calculate combined bounds from all visible layers
     let combinedBounds = {
       min: [Infinity, Infinity, Infinity],
@@ -293,125 +377,204 @@ class MosaicRenderService {
     // sliceIndex 0 should be at sliceMin (most inferior for axial)
     const slicePosition_mm = sliceMin + (sliceIndex * (sliceRange / totalSlices));
     
-    // Get the current crosshair position as the center reference
-    const crosshair = baseViewState.crosshair.world_mm;
-    
-    // Calculate the slice position based on axis
-    // Use the absolute slice position we calculated above
-    let slicePosition: [number, number, number];
-    switch (axis) {
-      case 'axial':
-        // For axial, set Z to the calculated position, keep X and Y from crosshair
-        slicePosition = [crosshair[0], crosshair[1], slicePosition_mm];
-        break;
-      case 'sagittal':
-        // For sagittal, set X to the calculated position
-        slicePosition = [slicePosition_mm, crosshair[1], crosshair[2]];
-        break;
-      case 'coronal':
-        // For coronal, set Y to the calculated position
-        slicePosition = [crosshair[0], slicePosition_mm, crosshair[2]];
-        break;
-    }
-    
     console.log(`[MosaicRenderService] Slice ${sliceIndex} position: ${slicePosition_mm}mm (range: ${sliceMin} to ${sliceMax})`);
     
+    // CRITICAL FIX: Calculate proper ViewPlane for this cell's dimensions
+    // This ensures the entire slice fits within the cell, not a zoomed portion
     
-    // Update crosshair to the slice position
-    // Keep the original crosshair for coordinate calculations but hide it from rendering
-    modifiedViewState.crosshair = {
-      world_mm: slicePosition,
-      visible: false // Hide crosshair for mosaic cells - we'll draw it ourselves
-    };
-    
-    // CRITICAL: Update the view plane for the mosaic cell
-    // Instead of creating new views, we modify the existing one to show full brain extent
-    const currentView = modifiedViewState.views[axis];
-    if (currentView) {
-      // Calculate extent based on the actual volume bounds for this axis
-      let extent_mm: [number, number];
-      switch (axis) {
-        case 'axial':
-          // For axial view, we see X and Y axes
-          extent_mm = [
-            combinedBounds.max[0] - combinedBounds.min[0],  // X extent
-            combinedBounds.max[1] - combinedBounds.min[1]   // Y extent
-          ];
-          break;
-        case 'sagittal':
-          // For sagittal view, we see Y and Z axes
-          extent_mm = [
-            combinedBounds.max[1] - combinedBounds.min[1],  // Y extent
-            combinedBounds.max[2] - combinedBounds.min[2]   // Z extent
-          ];
-          break;
-        case 'coronal':
-          // For coronal view, we see X and Z axes
-          extent_mm = [
-            combinedBounds.max[0] - combinedBounds.min[0],  // X extent
-            combinedBounds.max[2] - combinedBounds.min[2]   // Z extent
-          ];
-          break;
-      }
-      
-      // Add small padding (10%) to avoid clipping edges
-      const padding = 1.1;
-      extent_mm[0] *= padding;
-      extent_mm[1] *= padding;
-      
-      // Calculate the center of the volume bounds
-      const volumeCenter: [number, number, number] = [
-        (combinedBounds.min[0] + combinedBounds.max[0]) / 2,
-        (combinedBounds.min[1] + combinedBounds.max[1]) / 2,
-        (combinedBounds.min[2] + combinedBounds.max[2]) / 2
-      ];
-      
-      // Use uniform pixel size to maintain aspect ratio
-      const pixelSize = Math.max(extent_mm[0] / width, extent_mm[1] / height);
-      
-      // Calculate actual rendered extents based on pixel size and canvas dimensions
-      const actualExtentX = pixelSize * width;
-      const actualExtentY = pixelSize * height;
-      
-      // Update the view to be centered on the volume with correct extent
-      // Keep the same vector directions but adjust origin and pixel size
-      const updatedView = { ...currentView };
-      
-      // Update pixel dimensions
-      updatedView.dim_px = [width, height];
-      
-      // Update vectors to use new pixel size
-      if (axis === 'axial') {
-        // Use actual rendered extent for proper centering
-        updatedView.origin_mm = [volumeCenter[0] - actualExtentX/2, volumeCenter[1] + actualExtentY/2, slicePosition[2]];
-        updatedView.u_mm = [pixelSize, 0, 0];
-        updatedView.v_mm = [0, -pixelSize, 0];
-      } else if (axis === 'sagittal') {
-        // For sagittal: Y and Z axes visible
-        updatedView.origin_mm = [slicePosition[0], volumeCenter[1] + actualExtentX/2, volumeCenter[2] + actualExtentY/2];
-        updatedView.u_mm = [0, -pixelSize, 0];
-        updatedView.v_mm = [0, 0, -pixelSize];
-      } else if (axis === 'coronal') {
-        // For coronal: X and Z axes visible
-        updatedView.origin_mm = [volumeCenter[0] - actualExtentX/2, slicePosition[1], volumeCenter[2] + actualExtentY/2];
-        updatedView.u_mm = [pixelSize, 0, 0];
-        updatedView.v_mm = [0, 0, -pixelSize];
-      }
-      
-      // Update the view in the state
-      modifiedViewState.views[axis] = updatedView;
-      
-      console.log(`[MosaicRenderService] createSliceViewState result for ${axis} slice ${sliceIndex}:`, {
-        origin_mm: modifiedViewState.views[axis].origin_mm,
-        u_mm: modifiedViewState.views[axis].u_mm,
-        v_mm: modifiedViewState.views[axis].v_mm,
-        dim_px: modifiedViewState.views[axis].dim_px,
-        crosshair: modifiedViewState.crosshair.world_mm,
-        layers: modifiedViewState.layers.length
-      });
+    // Calculate the field of view in mm from the volume bounds
+    let widthMm: number, heightMm: number;
+    switch (axis) {
+      case 'axial': // XY plane
+        widthMm = combinedBounds.max[0] - combinedBounds.min[0]; // X extent
+        heightMm = combinedBounds.max[1] - combinedBounds.min[1]; // Y extent
+        break;
+      case 'sagittal': // YZ plane
+        widthMm = combinedBounds.max[1] - combinedBounds.min[1]; // Y extent
+        heightMm = combinedBounds.max[2] - combinedBounds.min[2]; // Z extent
+        break;
+      case 'coronal': // XZ plane
+        widthMm = combinedBounds.max[0] - combinedBounds.min[0]; // X extent
+        heightMm = combinedBounds.max[2] - combinedBounds.min[2]; // Z extent
+        break;
     }
     
+    // Calculate uniform pixel size to maintain aspect ratio and square pixels
+    // This is the key to showing the entire slice within the cell
+    const pixelSize = Math.max(widthMm / width, heightMm / height);
+    
+    // Calculate how many pixels the actual anatomy needs
+    const actualWidthPx = widthMm / pixelSize;
+    const actualHeightPx = heightMm / pixelSize;
+    
+    // Calculate centering offsets when anatomy doesn't fill the entire canvas
+    // This happens when one dimension is smaller than the other
+    const xCenterOffset = (width - actualWidthPx) * pixelSize / 2;
+    const yCenterOffset = (height - actualHeightPx) * pixelSize / 2;
+    
+    // Calculate new origin and basis vectors for this cell's ViewPlane
+    let newOrigin: [number, number, number];
+    let newU: [number, number, number];
+    let newV: [number, number, number];
+    
+    switch (axis) {
+      case 'axial':
+        // Center the view within the canvas
+        newOrigin = [
+          combinedBounds.min[0] - xCenterOffset,  // Center X if narrower
+          combinedBounds.max[1] + yCenterOffset,  // Center Y if shorter (Y inverted)
+          slicePosition_mm
+        ];
+        newU = [pixelSize, 0, 0];      // +X right
+        newV = [0, -pixelSize, 0];     // -Y down (neurological view)
+        break;
+      case 'sagittal':
+        // For sagittal, Y is horizontal and Z is vertical
+        const sagYOffset = xCenterOffset;  // Y maps to horizontal
+        const sagZOffset = yCenterOffset;  // Z maps to vertical
+        newOrigin = [
+          slicePosition_mm,
+          combinedBounds.max[1] + sagYOffset,  // Center Y if narrower
+          combinedBounds.max[2] + sagZOffset   // Center Z if shorter
+        ];
+        newU = [0, -pixelSize, 0];     // -Y right
+        newV = [0, 0, -pixelSize];     // -Z down
+        break;
+      case 'coronal':
+        // For coronal, X is horizontal and Z is vertical
+        newOrigin = [
+          combinedBounds.min[0] - xCenterOffset,  // Center X if narrower
+          slicePosition_mm,
+          combinedBounds.max[2] + yCenterOffset   // Center Z if shorter
+        ];
+        newU = [pixelSize, 0, 0];      // +X right
+        newV = [0, 0, -pixelSize];     // -Z down
+        break;
+    }
+    
+    // Create the new ViewPlane for this specific slice
+    // Use actual dimensions needed for the anatomy, not the full canvas size
+    // This prevents the backend from rendering beyond what's needed
+    const actualDimPx: [number, number] = [
+      Math.ceil(actualWidthPx),
+      Math.ceil(actualHeightPx)
+    ];
+    
+    const newViewPlane: ViewPlane = {
+      origin_mm: newOrigin,
+      u_mm: newU,
+      v_mm: newV,
+      dim_px: actualDimPx  // Use actual anatomy dimensions, not canvas dimensions
+    };
+    
+    // Create the modified ViewState with both crosshair and proper ViewPlane
+    const modifiedViewState: ViewState = {
+      ...baseViewState,
+      crosshair: {
+        world_mm: (() => {
+          // Create crosshair at the slice position
+          const crosshair: [number, number, number] = [...baseViewState.crosshair.world_mm];
+          switch (axis) {
+            case 'axial':
+              crosshair[2] = slicePosition_mm;
+              break;
+            case 'sagittal':
+              crosshair[0] = slicePosition_mm;
+              break;
+            case 'coronal':
+              crosshair[1] = slicePosition_mm;
+              break;
+          }
+          return crosshair;
+        })(),
+        visible: false // Let cells draw crosshairs themselves
+      },
+      // Add the correctly framed ViewPlane for this axis
+      views: {
+        ...baseViewState.views,
+        [axis]: newViewPlane
+      }
+    };
+    
+    console.log(`[MosaicRenderService] Correctly framed ViewState for ${axis} slice ${sliceIndex}:`, {
+      slicePosition_mm,
+      crosshair: modifiedViewState.crosshair.world_mm,
+      newViewPlane,
+      pixelSize
+    });
+    
     return modifiedViewState;
+  }
+  
+  /**
+   * Get the actual slice position for a given slice index
+   * This calculates the exact mm position without any centering offsets
+   */
+  private async getSlicePositionForIndex(
+    baseViewState: ViewState,
+    axis: 'axial' | 'sagittal' | 'coronal',
+    sliceIndex: number
+  ): Promise<number> {
+    // Get all visible layers to calculate combined bounds
+    const visibleLayers = baseViewState.layers.filter(l => l.visible && l.opacity > 0);
+    if (visibleLayers.length === 0) {
+      return 0;
+    }
+    
+    // Calculate combined bounds from all visible layers
+    let combinedBounds = {
+      min: [Infinity, Infinity, Infinity],
+      max: [-Infinity, -Infinity, -Infinity]
+    };
+    
+    const apiService = getApiService();
+    for (const layer of visibleLayers) {
+      if (layer.volumeId) {
+        try {
+          const bounds = await apiService.getVolumeBounds(layer.volumeId);
+          for (let i = 0; i < 3; i++) {
+            combinedBounds.min[i] = Math.min(combinedBounds.min[i], bounds.min[i]);
+            combinedBounds.max[i] = Math.max(combinedBounds.max[i], bounds.max[i]);
+          }
+        } catch (error) {
+          console.warn(`[MosaicRenderService] Failed to get bounds for volume ${layer.volumeId}:`, error);
+        }
+      }
+    }
+    
+    // Use default MNI bounds if we couldn't get any bounds
+    if (!isFinite(combinedBounds.min[0])) {
+      combinedBounds = {
+        min: [-96, -132, -78],
+        max: [96, 96, 114]
+      };
+    }
+    
+    // Calculate the range for each axis
+    let sliceMin: number, sliceMax: number;
+    switch (axis) {
+      case 'axial':
+        sliceMin = combinedBounds.min[2];
+        sliceMax = combinedBounds.max[2];
+        break;
+      case 'sagittal':
+        sliceMin = combinedBounds.min[0];
+        sliceMax = combinedBounds.max[0];
+        break;
+      case 'coronal':
+        sliceMin = combinedBounds.min[1];
+        sliceMax = combinedBounds.max[1];
+        break;
+    }
+    
+    // Calculate total number of slices
+    const sliceRange = sliceMax - sliceMin;
+    const totalSlices = Math.ceil(sliceRange);
+    
+    // Map slice index to actual position
+    const slicePosition_mm = sliceMin + (sliceIndex * (sliceRange / totalSlices));
+    
+    return slicePosition_mm;
   }
 }
 

@@ -12,9 +12,10 @@
  * - Built-in performance tracking
  */
 
-import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useCallback, useRef, useMemo } from 'react';
 import { useViewStateStore } from '@/stores/viewStateStore';
 import { MosaicCell } from './MosaicCell';
+import { MosaicCellErrorBoundary } from './MosaicCellErrorBoundary';
 import { getMosaicRenderService } from '@/services/MosaicRenderService';
 import { calculateInitialPage, calculateVolumeCenter, getAxisIndex } from '@/utils/mosaicUtils';
 import { getApiService } from '@/services/apiService';
@@ -33,18 +34,27 @@ interface MosaicViewPromiseProps {
 export function MosaicViewPromise({ 
   workspaceId = 'mosaic-default'
 }: MosaicViewPromiseProps) {
+  console.log('[MosaicViewPromise] Component rendering/mounting');
+  
   const viewState = useViewStateStore(state => state.viewState);
   const setCrosshair = useViewStateStore(state => state.setCrosshair);
   const [currentPage, setCurrentPage] = useState(0);
   const [sliceAxis, setSliceAxis] = useState<'axial' | 'sagittal' | 'coronal'>('axial');
   const [gridSize, setGridSize] = useState({ rows: 4, cols: 4 });
-  const [totalSlices, setTotalSlices] = useState(100);
-  const [cellSize, setCellSize] = useState({ width: 256, height: 256 });
+  const [totalSlices, setTotalSlices] = useState(0); // Start with 0, will be set when metadata loads
+  const [cellSize, setCellSize] = useState({ width: 128, height: 128 }); // Start with minimum size
   const [currentSlice, setCurrentSlice] = useState(0);
+  const [hasInitialized, setHasInitialized] = useState(false);
   
   const gridRef = useRef<HTMLDivElement>(null);
   const mosaicRenderService = getMosaicRenderService();
   const apiService = getApiService();
+  
+  // Log component lifecycle
+  useEffect(() => {
+    console.log('[MosaicViewPromise] Component mounted');
+    return () => console.log('[MosaicViewPromise] Component unmounting');
+  }, []);
   
   // Get visible layers
   const visibleLayers = useMemo(() => 
@@ -68,6 +78,7 @@ export function MosaicViewPromise({
           return;
         }
         
+        console.log('[MosaicViewPromise] Setting totalSlices to:', meta.sliceCount);
         setTotalSlices(meta.sliceCount);
         
         // Get volume bounds for coordinate calculations
@@ -112,7 +123,7 @@ export function MosaicViewPromise({
     fetchMetadataAndSetInitialPage();
   }, [primaryVolumeId, sliceAxis, gridSize.rows, gridSize.cols, apiService]);
   
-  // Auto-resize cells based on container size
+  // Calculate cell dimensions based on container size
   useEffect(() => {
     if (!gridRef.current) return;
 
@@ -121,6 +132,12 @@ export function MosaicViewPromise({
       
       const { rows, cols } = gridSize;
       const containerRect = gridRef.current.getBoundingClientRect();
+      
+      // Skip if container has no dimensions yet
+      if (containerRect.width === 0 || containerRect.height === 0) {
+        console.log('[MosaicViewPromise] Container has no dimensions yet, waiting...');
+        return;
+      }
       
       // Account for gaps and padding
       const gap = 4;
@@ -136,10 +153,27 @@ export function MosaicViewPromise({
       // Ensure minimum size
       const finalSize = Math.max(cellSizeValue, 128);
       
+      console.log('[MosaicViewPromise] Calculating cell dimensions:', {
+        containerSize: { width: containerRect.width, height: containerRect.height },
+        gridSize: { rows, cols },
+        availableSpace: { width: availableWidth, height: availableHeight },
+        calculatedCellSize: { width: cellWidth, height: cellHeight },
+        finalSize
+      });
+      
       setCellSize({ width: finalSize, height: finalSize });
+      setHasInitialized(true);
     };
 
+    // Try to calculate dimensions immediately
     updateCellDimensions();
+    
+    // If not initialized yet, try again after a frame
+    if (!hasInitialized) {
+      requestAnimationFrame(() => {
+        updateCellDimensions();
+      });
+    }
     
     // Use ResizeObserver to detect container size changes
     const resizeObserver = new ResizeObserver(updateCellDimensions);
@@ -152,12 +186,21 @@ export function MosaicViewPromise({
       resizeObserver.disconnect();
       window.removeEventListener('resize', updateCellDimensions);
     };
-  }, [gridSize]);
+  }, [gridSize, hasInitialized]);
   
   // Calculate slice indices for current page
   const sliceIndices = useMemo(() => {
     const slicesPerPage = gridSize.rows * gridSize.cols;
     const startIdx = currentPage * slicesPerPage;
+    
+    console.log('[MosaicViewPromise] DEBUG - Calculating slice indices:', {
+      currentPage,
+      gridSize,
+      totalSlices,
+      slicesPerPage,
+      startIdx,
+      endIdx: startIdx + slicesPerPage - 1
+    });
     
     const indices: number[] = [];
     for (let i = 0; i < slicesPerPage; i++) {
@@ -166,6 +209,8 @@ export function MosaicViewPromise({
         indices.push(idx);
       }
     }
+    
+    console.log('[MosaicViewPromise] DEBUG - Calculated indices:', indices);
     
     return indices;
   }, [currentPage, gridSize, totalSlices]);
@@ -178,7 +223,20 @@ export function MosaicViewPromise({
   
   // Trigger renders when slice indices or layer parameters change
   useEffect(() => {
-    if (sliceIndices.length === 0 || visibleLayers.length === 0) return;
+    console.log('[MosaicViewPromise] DEBUG - Render trigger effect:', {
+      sliceIndicesLength: sliceIndices.length,
+      visibleLayersLength: visibleLayers.length,
+      sliceAxis,
+      cellSize,
+      viewStateKeys: Object.keys(viewState),
+      hasLayers: !!viewState.layers,
+      layerCount: viewState.layers?.length
+    });
+    
+    if (sliceIndices.length === 0 || visibleLayers.length === 0) {
+      console.log('[MosaicViewPromise] DEBUG - Skipping render: no slices or layers');
+      return;
+    }
     
     const renderRequests = sliceIndices.map((sliceIndex, i) => ({
       sliceIndex,
@@ -188,25 +246,29 @@ export function MosaicViewPromise({
       height: cellSize.height
     }));
     
+    console.log('[MosaicViewPromise] DEBUG - Sending render requests:', renderRequests);
+    
     mosaicRenderService.renderMosaicGrid(renderRequests);
     
     // Cleanup: cancel renders when component unmounts or indices change
     return () => {
       mosaicRenderService.cancelRenders(cellIds);
     };
-  }, [sliceIndices, sliceAxis, cellIds, cellSize, mosaicRenderService, 
-      // Add dependencies for layer parameters to trigger re-renders
-      visibleLayers.length,
-      // Include layer properties that should trigger updates
-      ...visibleLayers.map(layer => [
-        layer.intensity?.[0], 
-        layer.intensity?.[1],
-        layer.threshold?.enabled,
-        layer.threshold?.min,
-        layer.threshold?.max,
-        layer.opacity,
-        layer.colormap
-      ]).flat()
+  }, [
+    sliceIndices, 
+    sliceAxis, 
+    cellIds, 
+    cellSize.width,
+    cellSize.height,
+    visibleLayers.length,
+    // Use JSON.stringify to detect deep changes in layer properties
+    JSON.stringify(visibleLayers.map(l => ({
+      id: l.id,
+      intensity: l.intensity,
+      threshold: l.threshold,
+      colormap: l.colormap,
+      opacity: l.opacity
+    })))
   ]);
   
   // Handle page navigation
@@ -231,20 +293,37 @@ export function MosaicViewPromise({
     setCurrentPage(newPage);
   };
   
-  // Update current slice when page changes
+  // Update current slice when page changes (only if out of range)
   useEffect(() => {
     const slicesPerPage = gridSize.rows * gridSize.cols;
     const firstSliceOnPage = currentPage * slicesPerPage;
-    setCurrentSlice(firstSliceOnPage);
-  }, [currentPage, gridSize]);
+    const lastSliceOnPage = Math.min(firstSliceOnPage + slicesPerPage - 1, totalSlices - 1);
+    
+    // Only reset slice if it's outside the current page's range
+    if (currentSlice < firstSliceOnPage || currentSlice > lastSliceOnPage) {
+      console.log('[MosaicViewPromise] Resetting slice to first on page:', firstSliceOnPage);
+      setCurrentSlice(firstSliceOnPage);
+    }
+  }, [currentPage, gridSize, totalSlices, currentSlice]);
   
   if (!primaryVolumeId || totalSlices === 0) {
+    console.log('[MosaicViewPromise] No volume to display:', { primaryVolumeId, totalSlices });
     return (
       <div className="flex items-center justify-center h-full text-gray-500">
         No volume loaded
       </div>
     );
   }
+  
+  // Log what we're about to render
+  console.log('[MosaicViewPromise] Rendering mosaic grid:', {
+    sliceCount: sliceIndices.length,
+    gridSize: `${gridSize.rows}x${gridSize.cols}`,
+    cellSize: `${cellSize.width}x${cellSize.height}`,
+    axis: sliceAxis,
+    currentPage,
+    totalPages
+  });
   
   return (
     <div className="mosaic-container">
@@ -280,14 +359,16 @@ export function MosaicViewPromise({
       >
         {sliceIndices.map((sliceIndex, i) => (
           <div key={cellIds[i]} className="mosaic-cell">
-            <MosaicCell
-              width={cellSize.width}
-              height={cellSize.height}
-              tag={cellIds[i]}
-              sliceIndex={sliceIndex}
-              axis={sliceAxis}
-              onCrosshairClick={setCrosshair}
-            />
+            <MosaicCellErrorBoundary cellId={cellIds[i]} sliceIndex={sliceIndex}>
+              <MosaicCell
+                width={cellSize.width}
+                height={cellSize.height}
+                tag={cellIds[i]}
+                sliceIndex={sliceIndex}
+                axis={sliceAxis}
+                onCrosshairClick={setCrosshair}
+              />
+            </MosaicCellErrorBoundary>
           </div>
         ))}
       </div>

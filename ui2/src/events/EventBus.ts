@@ -6,6 +6,13 @@
 import type { ViewType } from '@/types/viewState';
 import type { Layer, LayerRender } from '@/types/layers';
 import type { Annotation } from '@/types/annotations';
+import type { CrosshairSettings } from '@/contexts/CrosshairContext';
+import type { 
+  RenderCompleteEvent, 
+  RenderErrorEvent, 
+  RenderStartEvent,
+  CrosshairRenderEvent 
+} from '@/types/renderEvents';
 
 // Define all events in the system
 export interface EventMap {
@@ -13,6 +20,7 @@ export interface EventMap {
   'crosshair.updated': { world_mm: [number, number, number] };
   'crosshair.clicked': { world_mm: [number, number, number]; button: number };
   'crosshair.visibility': { visible: boolean };
+  'crosshair.settings.updated': CrosshairSettings;
 
   // Layer events  
   'layer.added': { layer: Layer };
@@ -37,10 +45,10 @@ export interface EventMap {
   'view.mouse.leave': { viewType: ViewType };
   'view.plane.updated': { viewType: ViewType; plane: any };
   
-  // Render events
-  'render.complete': { viewType?: ViewType; imageBitmap: ImageBitmap; tag?: string };
-  'render.error': { viewType?: ViewType; error: Error; tag?: string };
-  'render.start': { viewType?: ViewType; tag?: string };
+  // Render events (using type-safe definitions)
+  'render.complete': RenderCompleteEvent;
+  'render.error': RenderErrorEvent;
+  'render.start': RenderStartEvent;
   
   // Volume events
   'volume.loaded': { volumeId: string; metadata: any };
