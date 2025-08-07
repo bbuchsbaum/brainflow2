@@ -407,6 +407,10 @@ class MosaicRenderService {
     // This is the key to showing the entire slice within the cell
     const pixelSize = viewPlaneService.calculatePixelSize(widthMm, heightMm, width, height);
     
+    // Calculate how many pixels the actual anatomy needs
+    const actualWidthPx = widthMm / pixelSize;
+    const actualHeightPx = heightMm / pixelSize;
+    
     // Calculate centering offsets when anatomy doesn't fill the entire canvas
     // This happens when one dimension is smaller than the other
     const offsets = viewPlaneService.calculateCenteringOffsets(
