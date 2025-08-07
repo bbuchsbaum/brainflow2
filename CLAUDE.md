@@ -240,6 +240,24 @@ Phase 1 (WebGPU v2) - Implementing MVP features:
 - Basic layer management
 - Click-to-timeseries plotting
 
+## Lessons Learned: State Management with GoldenLayout
+
+### React Root Isolation Issue
+GoldenLayout creates **isolated React roots** for each docked panel. This means:
+- React Context providers in one panel don't affect other panels
+- Components in different panels can't share React Context state
+- Updates in one root (e.g., settings dialog) won't propagate to other roots (e.g., view panels)
+
+### Solution: Use Zustand for Cross-Root State
+For any state that needs to be shared across panels:
+- ❌ **Don't use React Context** - It only works within a single React tree
+- ✅ **Use Zustand stores** - They're global singletons that work across all React roots
+
+Example: Crosshair settings must update immediately in all views when changed in the settings dialog. Using React Context failed because each panel has its own root. Switching to Zustand fixed this instantly.
+
+### Key Principle
+If state needs to be visible across multiple GoldenLayout panels, it MUST use Zustand, not React Context.
+
 ## Project Vision
 
 **Goal**: Build the greatest fMRI UI program in the history of the world.

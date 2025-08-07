@@ -17,7 +17,7 @@ import { coalesceUtils } from '@/stores/middleware/coalesceUpdatesMiddleware';
 import type { ViewPlane } from '@/types/coordinates';
 import { drawScaledImage } from '@/utils/canvasUtils';
 import { drawCrosshair, transformCrosshairCoordinates, getLineDash, type CrosshairStyle } from '@/utils/crosshairUtils';
-import { useViewCrosshairSettings } from '@/contexts/CrosshairContext';
+import { useCrosshairSettingsStore } from '@/stores/crosshairSettingsStore';
 import { useTimeNavigation } from '@/hooks/useTimeNavigation';
 import { useTransientOverlay } from '@/components/ui/TransientOverlay';
 import { getTimeNavigationService } from '@/services/TimeNavigationService';
@@ -31,14 +31,12 @@ interface SliceViewProps {
 }
 
 export function SliceView({ viewId, width, height, className = '' }: SliceViewProps) {
-  const crosshairSettings = useViewCrosshairSettings(viewId);
+  // Use Zustand store for crosshair settings - works across all React roots
+  const crosshairSettings = useCrosshairSettingsStore(state => state.getViewSettings(viewId));
   
-  // Keep crosshair settings in a ref so render function always gets latest values
-  // This solves the stale closure problem when the function is stored in a ref
-  const crosshairSettingsRef = useRef(crosshairSettings);
+  // Debug: Log when settings change
   useEffect(() => {
-    console.log(`[SliceView ${viewId}] Updating crosshairSettingsRef:`, crosshairSettings);
-    crosshairSettingsRef.current = crosshairSettings;
+    console.log(`[SliceView ${viewId}] Crosshair settings updated:`, crosshairSettings);
   }, [crosshairSettings, viewId]);
   
   const timeNav = useTimeNavigation();
@@ -116,8 +114,12 @@ export function SliceView({ viewId, width, height, className = '' }: SliceViewPr
     const canvas = canvasRef.current;
     const currentViewState = useViewStateStore.getState().viewState;
     const currentViewPlane = currentViewState.views[viewId];
-    // Always read from ref to get latest settings (avoids stale closure)
-    const currentCrosshairSettings = crosshairSettingsRef.current;
+    // Use settings directly from closure - Zustand ensures they're always current
+    const currentCrosshairSettings = crosshairSettings;
+    console.log(`[SliceView ${viewId}] renderCrosshairImpl using settings:`, {
+      activeColor: currentCrosshairSettings?.activeColor,
+      activeThickness: currentCrosshairSettings?.activeThickness
+    });
     
     // Only check for canvas existence, not crosshair visibility
     if (!canvas) return;

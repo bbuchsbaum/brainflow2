@@ -11,7 +11,7 @@ import { useViewStateStore } from '@/stores/viewStateStore';
 import { getMosaicRenderService } from '@/services/MosaicRenderService';
 import { drawCrosshair, getLineDash } from '@/utils/crosshairUtils';
 import { CoordinateTransform } from '@/utils/coordinates';
-import { useViewCrosshairSettings } from '@/contexts/CrosshairContext';
+import { useCrosshairSettingsStore } from '@/stores/crosshairSettingsStore';
 import { ResourceMonitor } from '@/utils/ResourceMonitor';
 import type { ViewPlane } from '@/types/coordinates';
 import type { CrosshairStyle } from '@/utils/crosshairUtils';
@@ -45,14 +45,8 @@ export function MosaicCell({
   
   const mosaicRenderService = getMosaicRenderService();
   const viewState = useViewStateStore(state => state.viewState);
-  const crosshairSettings = useViewCrosshairSettings(axis);
-  
-  // Keep crosshair settings in a ref so we always have latest values
-  // This solves the stale closure problem in event handlers
-  const crosshairSettingsRef = useRef(crosshairSettings);
-  useEffect(() => {
-    crosshairSettingsRef.current = crosshairSettings;
-  }, [crosshairSettings]);
+  // Use Zustand store for crosshair settings - works across all React roots
+  const crosshairSettings = useCrosshairSettingsStore(state => state.getViewSettings(axis));
   
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const imagePlacementRef = useRef<{
@@ -139,10 +133,8 @@ export function MosaicCell({
     console.log(`[MosaicCell] Distance from crosshair: ${diff.toFixed(1)}mm`);
     
     // Draw crosshair if visible and we have screen coordinates
-    // Always read from ref to get latest settings
-    const currentSettings = crosshairSettingsRef.current;
-    if (currentSettings.visible && viewState.crosshair.visible && crosshairInfo.screenCoord && 
-        (crosshairInfo.isActive || currentSettings.showMirror)) {
+    if (crosshairSettings.visible && viewState.crosshair.visible && crosshairInfo.screenCoord && 
+        (crosshairInfo.isActive || crosshairSettings.showMirror)) {
       const [screenX, screenY] = crosshairInfo.screenCoord;
       
       console.log(`[MosaicCell] Drawing crosshair at screen: ${screenX.toFixed(1)}, ${screenY.toFixed(1)}, isActive: ${crosshairInfo.isActive}`);
@@ -156,21 +148,19 @@ export function MosaicCell({
       
       console.log(`[MosaicCell] Canvas coords: ${canvasX.toFixed(1)}, ${canvasY.toFixed(1)}, bounds: ${placement.x},${placement.y} ${placement.width}x${placement.height}`);
       
-      // Choose style based on whether this is the active slice and current settings
-      // Always read from ref to get latest settings (avoids stale closure)
-      const currentSettings = crosshairSettingsRef.current;
+      // Choose style based on whether this is the active slice
       const style: CrosshairStyle = crosshairInfo.isActive 
         ? {
-            color: currentSettings.activeColor,
-            lineWidth: currentSettings.activeThickness,
-            lineDash: getLineDash(currentSettings.activeStyle, currentSettings.activeThickness),
+            color: crosshairSettings.activeColor,
+            lineWidth: crosshairSettings.activeThickness,
+            lineDash: getLineDash(crosshairSettings.activeStyle, crosshairSettings.activeThickness),
             opacity: 1
           }
         : {
-            color: currentSettings.mirrorColor,
-            lineWidth: currentSettings.mirrorThickness,
-            lineDash: getLineDash(currentSettings.mirrorStyle, currentSettings.mirrorThickness),
-            opacity: currentSettings.mirrorOpacity
+            color: crosshairSettings.mirrorColor,
+            lineWidth: crosshairSettings.mirrorThickness,
+            lineDash: getLineDash(crosshairSettings.mirrorStyle, crosshairSettings.mirrorThickness),
+            opacity: crosshairSettings.mirrorOpacity
           };
       
       drawCrosshair({
@@ -183,18 +173,9 @@ export function MosaicCell({
     }
   }, [axis, sliceIndex, viewState.crosshair, viewState.views, mosaicRenderService, crosshairSettings]);
   
-  // Trigger redraw when crosshair or settings change
-  useEffect(() => {
-    // Use the redraw function from SliceRenderer if available
-    if (redrawCanvasRef.current) {
-      console.log(`[MosaicCell ${tag}] Triggering redraw for crosshair/settings change`);
-      redrawCanvasRef.current();
-    }
-  }, [viewState.crosshair, crosshairSettings, tag]);
-  
-  // Note: We no longer need to listen to 'crosshair.settings.updated' event
-  // because crosshairSettings from useViewCrosshairSettings already triggers
-  // the above useEffect when settings change
+  // Note: We no longer need manual redraw triggers for settings changes
+  // The customRender dependency on crosshairSettings ensures SliceRenderer
+  // will automatically redraw when settings change via Zustand
   
   // Cleanup on unmount
   useEffect(() => {
