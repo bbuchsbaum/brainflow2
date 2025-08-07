@@ -12,7 +12,6 @@ import { getMosaicRenderService } from '@/services/MosaicRenderService';
 import { drawCrosshair, getLineDash } from '@/utils/crosshairUtils';
 import { CoordinateTransform } from '@/utils/coordinates';
 import { useViewCrosshairSettings } from '@/contexts/CrosshairContext';
-import { useEvent } from '@/events/EventBus';
 import { ResourceMonitor } from '@/utils/ResourceMonitor';
 import type { ViewPlane } from '@/types/coordinates';
 import type { CrosshairStyle } from '@/utils/crosshairUtils';
@@ -193,16 +192,9 @@ export function MosaicCell({
     }
   }, [viewState.crosshair, crosshairSettings, tag]);
   
-  // Listen for crosshair settings updates to trigger redraw
-  useEvent('crosshair.settings.updated', (newSettings) => {
-    console.log('[MosaicCell] Crosshair settings updated:', newSettings);
-    
-    // Use the redraw function from SliceRenderer
-    if (redrawCanvasRef.current) {
-      console.log(`[MosaicCell ${tag}] Triggering redraw from settings event`);
-      redrawCanvasRef.current();
-    }
-  });
+  // Note: We no longer need to listen to 'crosshair.settings.updated' event
+  // because crosshairSettings from useViewCrosshairSettings already triggers
+  // the above useEffect when settings change
   
   // Cleanup on unmount
   useEffect(() => {

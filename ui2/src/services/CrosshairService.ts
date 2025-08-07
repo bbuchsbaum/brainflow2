@@ -57,21 +57,12 @@ export class CrosshairService {
       return;
     }
     
+    // No longer emit events - components should subscribe directly to ViewStateStore
+    // This subscription is kept only for potential future use
     useViewStateStore.subscribe((state) => {
       const currentCrosshair = state.viewState.crosshair;
       
-      // Use more robust comparison to avoid infinite loops
-      const positionChanged = (
-        currentCrosshair.world_mm[0] !== lastCrosshair.world_mm[0] ||
-        currentCrosshair.world_mm[1] !== lastCrosshair.world_mm[1] ||
-        currentCrosshair.world_mm[2] !== lastCrosshair.world_mm[2]
-      );
-      
-      if (positionChanged) {
-        this.eventBus.emit('crosshair.updated', { world_mm: [...currentCrosshair.world_mm] });
-      }
-      
-      // Check if visibility changed
+      // Check if visibility changed (for potential future use)
       if (currentCrosshair.visible !== lastCrosshair.visible) {
         this.eventBus.emit('crosshair.visibility', { visible: currentCrosshair.visible });
       }
@@ -137,7 +128,7 @@ export class CrosshairService {
     }
 
     // Update ViewState (single source of truth)
-    // The subscription will emit the crosshair.updated event
+    // Components subscribe directly to ViewStateStore for updates
     useViewStateStore.getState().setCrosshair(world_mm, true, false);
 
     // Synchronize all views

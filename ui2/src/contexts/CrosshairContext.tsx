@@ -8,7 +8,6 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { useViewStateStore } from '@/stores/viewStateStore';
-import { getEventBus } from '@/events/EventBus';
 
 // Color presets for medical imaging
 export const MEDICAL_COLOR_PRESETS = [
@@ -161,9 +160,8 @@ export function CrosshairProvider({ children }: { children: ReactNode }) {
         setViewCrosshairVisible(updates.visible);
       }
       
-      // Emit an event to force views to redraw with new settings
-      // This ensures the crosshair appearance updates immediately
-      getEventBus().emit('crosshair.settings.updated', newSettings);
+      // Components now get updates through React context
+      // No need to emit events - React will re-render automatically
       
       return newSettings;
     });
