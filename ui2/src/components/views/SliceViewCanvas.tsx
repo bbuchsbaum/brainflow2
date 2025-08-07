@@ -257,6 +257,8 @@ function SliceViewCanvasRaw({ viewId, width, height, className = '' }: SliceView
         <div className="flex-1 relative">
           <SliceRenderer
             context={renderContext}
+            width={width}    // CRITICAL: Pass dimensions to SliceRenderer
+            height={height}  // Without these, canvas size is undefined
             customRender={customRender}
             onMouseDown={handleMouseClick}
             onWheel={throttledHandleWheel}
