@@ -11,6 +11,7 @@ import { getEventBus } from '@/events/EventBus';
 import type { ViewState } from '@/types/viewState';
 import type { ViewPlane } from '@/types/coordinates';
 import { CoordinateTransform } from '@/utils/coordinates';
+import { getViewPlaneService } from '@/services/ViewPlaneService';
 
 export interface MosaicRenderRequest {
   sliceIndex: number;
@@ -399,18 +400,20 @@ class MosaicRenderService {
         break;
     }
     
+    // Use ViewPlaneService for consistent pixel size and centering calculations
+    const viewPlaneService = getViewPlaneService();
+    
     // Calculate uniform pixel size to maintain aspect ratio and square pixels
     // This is the key to showing the entire slice within the cell
-    const pixelSize = Math.max(widthMm / width, heightMm / height);
-    
-    // Calculate how many pixels the actual anatomy needs
-    const actualWidthPx = widthMm / pixelSize;
-    const actualHeightPx = heightMm / pixelSize;
+    const pixelSize = viewPlaneService.calculatePixelSize(widthMm, heightMm, width, height);
     
     // Calculate centering offsets when anatomy doesn't fill the entire canvas
     // This happens when one dimension is smaller than the other
-    const xCenterOffset = (width - actualWidthPx) * pixelSize / 2;
-    const yCenterOffset = (height - actualHeightPx) * pixelSize / 2;
+    const offsets = viewPlaneService.calculateCenteringOffsets(
+      widthMm, heightMm, width, height, pixelSize
+    );
+    const xCenterOffset = offsets.x;
+    const yCenterOffset = offsets.y;
     
     // Calculate new origin and basis vectors for this cell's ViewPlane
     let newOrigin: [number, number, number];
