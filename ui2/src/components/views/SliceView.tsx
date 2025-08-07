@@ -364,19 +364,6 @@ export function SliceView({ viewId, width, height, className = '' }: SliceViewPr
     }
   }, [crosshair, crosshairSettings, viewId]);
   
-  // Listen for crosshair settings updates to force redraw
-  useEvent('crosshair.settings.updated', (newSettings) => {
-    console.log(`[SliceView ${viewId}] Received settings update event:`, newSettings);
-    console.log(`[SliceView ${viewId}] Current settings ref:`, crosshairSettingsRef.current);
-    
-    if (lastImage && canvasRef.current) {
-      requestAnimationFrame(() => {
-        console.log(`[SliceView ${viewId}] Executing redraw with settings:`, crosshairSettingsRef.current);
-        redrawCanvasImpl();
-      });
-    }
-  });
-  
   // Create a stable redraw function
   const redrawCanvasImpl = () => {
     const startTime = performance.now();
