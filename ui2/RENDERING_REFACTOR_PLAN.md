@@ -3,15 +3,132 @@
 ## Overview
 This plan addresses the critical brittleness in the MosaicView/SliceView rendering system through surgical, incremental improvements. Each ticket is designed to be completed independently while keeping the system functional.
 
+## Current Status (2025-01-07)
+✅ **Phase 1**: Type-Safe Event System - ATTEMPTED, REVERTED (stale closure issues)  
+✅ **Phase 2**: ViewPlane Service - COMPLETED  
+✅ **Phase 4**: Render State Store - COMPLETED (skipped Phase 3)  
+
+### What We Actually Built
+Instead of the complex TypedEventBus wrapper, we implemented:
+1. **Minimal type safety**: Simple `emitTyped()` helper function
+2. **ViewPlaneService**: Successfully centralized all ViewPlane calculations
+3. **RenderStateStore**: Centralized state management with Zustand
+4. **Migrated components**: Both SliceView and MosaicView now use RenderStateStore
+
+### Key Discoveries
+- **Map + Immer doesn't trigger React re-renders** - Must use plain objects
+- **Stale closure problem** - Our ref-based optimization broke React's dependency tracking
+- **Simple is better** - RenderStateStore eliminated ~200+ lines of brittle event code
+
 ## Guiding Principles
 - **Never break working code** - System must work after each ticket
 - **Test after each change** - Run `cargo tauri dev` and verify all views work
 - **Commit after each ticket** - Create atomic, reversible changes
 - **Add before removing** - New code coexists with old during migration
+- **Simplicity over cleverness** - Avoid complex patterns that fight React
 
 ---
 
-## Phase 1: Type-Safe Event System (Foundation)
+## Remaining High-Value Improvements
+
+### Priority 1: Complete EventBus Elimination
+**Goal**: Remove EventBus entirely from the rendering pipeline
+
+**Current State**:
+- SliceView: Uses RenderStateStore ✅
+- MosaicView: Uses RenderStateStore ✅  
+- CrosshairService: Still uses EventBus for crosshair updates
+- MouseCoordinateService: Still uses EventBus
+
+**Next Steps**:
+1. Create CrosshairStore to replace crosshair events
+2. Integrate mouse coordinates into ViewStateStore
+3. Remove EventBus from rendering components entirely
+
+**Impact**: High - Removes last source of brittleness
+
+---
+
+### Priority 2: Resource Management Service
+**Goal**: Prevent memory leaks and GPU exhaustion
+
+**Current State**:
+- ResourceMonitor exists but isn't enforced
+- ImageBitmaps aren't properly disposed
+- No automatic cleanup under memory pressure
+
+**Implementation**:
+```typescript
+class ResourceManager {
+  private bitmaps = new Map<string, WeakRef<ImageBitmap>>();
+  private registry = new FinalizationRegistry((id: string) => {
+    this.bitmaps.delete(id);
+  });
+  
+  track(id: string, bitmap: ImageBitmap) {
+    this.bitmaps.set(id, new WeakRef(bitmap));
+    this.registry.register(bitmap, id);
+  }
+  
+  cleanup() {
+    // Called on memory pressure
+    for (const [id, ref] of this.bitmaps) {
+      const bitmap = ref.deref();
+      if (!bitmap) {
+        this.bitmaps.delete(id);
+      }
+    }
+  }
+}
+```
+
+**Impact**: High - Prevents crashes from GPU memory exhaustion
+
+---
+
+### Priority 3: Unified Render Pipeline
+**Goal**: Single render path for all view types
+
+**Current State**:
+- Two parallel paths: SliceView (viewType) and MosaicView (tag)
+- Different code paths for essentially the same operation
+
+**Proposed Solution**:
+1. Create unified `RenderContext` interface
+2. Both views use same rendering pipeline
+3. Differentiation only in ViewPlane calculation
+
+**Impact**: Medium-High - Reduces complexity significantly
+
+---
+
+### Priority 4: Performance Optimizations
+**Goal**: Improve rendering performance
+
+**Opportunities**:
+1. **Render coalescing**: Batch rapid state changes
+2. **Selective re-rendering**: Only update changed cells in MosaicView
+3. **WebWorker for calculations**: Move ViewPlane math off main thread
+4. **Canvas pooling**: Reuse canvas elements
+
+**Impact**: Medium - Better user experience
+
+---
+
+### Priority 5: Developer Experience
+**Goal**: Make the system easier to understand and modify
+
+**Tasks**:
+1. Add comprehensive JSDoc comments
+2. Create architectural diagram
+3. Add debug mode with visual overlays
+4. Create performance profiler
+
+**Impact**: Medium - Easier maintenance
+
+---
+
+## Phase 1: Type-Safe Event System (Foundation) [COMPLETED - REVERTED]
 
 ### Ticket 1.1: Create Event Type Definitions
 **Goal**: Define all event types as TypeScript discriminated unions
@@ -650,14 +767,19 @@ If any ticket breaks the system:
 
 ## Success Criteria
 
-After all tickets:
-- [ ] No string-based event errors
-- [ ] No duplicated calculations
-- [ ] Consistent render patterns
-- [ ] Centralized state management
-- [ ] No memory leaks
-- [ ] Cleaner component hierarchy
-- [ ] All existing features work
+Completed:
+- [x] No duplicated calculations (ViewPlaneService)
+- [x] Centralized state management (RenderStateStore)
+- [x] Consistent render patterns (both views use store)
+- [x] Cleaner component hierarchy (~200 lines removed)
+- [x] All existing features work
+
+Remaining:
+- [ ] Complete EventBus elimination
+- [ ] No memory leaks (ResourceManager)
+- [ ] Unified render pipeline
+- [ ] Performance optimizations
+- [ ] Better developer experience
 
 ## Notes
 
