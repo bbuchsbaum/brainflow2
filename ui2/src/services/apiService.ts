@@ -174,6 +174,7 @@ export class ApiService {
           opacity: layer.opacity,
           intensity: layer.intensity,
           threshold: layer.threshold,
+          interpolation: layer.interpolation || 'linear',  // Add interpolation support
           visible: true  // Always true since we pre-filtered for visible layers
         };
       })

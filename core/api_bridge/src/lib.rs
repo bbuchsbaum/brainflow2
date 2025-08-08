@@ -42,6 +42,8 @@ use std::path::PathBuf;
 use walkdir::WalkDir;
 // Assuming core_loaders is the crate name for the new module
 use brainflow_loaders as core_loaders;
+// GIFTI support
+use gifti_loader;
 
 // Import error helpers
 mod error_context;
@@ -874,11 +876,96 @@ impl VolumeRegistry {
     }
 }
 
+// --- Surface Registry for GIFTI Support ---
+
+/// Stores surface geometry data
+#[derive(Debug)]
+pub struct SurfaceEntry {
+    /// The surface geometry from neurosurf-rs
+    pub geometry: neurosurf_rs::geometry::SurfaceGeometry,
+    /// Transformation matrix
+    pub transform: Affine3<f32>,
+    /// Metadata about the surface
+    pub metadata: SurfaceMetadataInfo,
+}
+
+/// Metadata for surfaces
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SurfaceMetadataInfo {
+    pub name: String,
+    pub path: String,
+    pub hemisphere: Option<String>,
+    pub surface_type: Option<String>,
+    pub vertex_count: usize,
+    pub face_count: usize,
+}
+
+/// Registry that manages surface geometries and data
+#[derive(Debug)]
+pub struct SurfaceRegistry {
+    surfaces: HashMap<String, SurfaceEntry>,
+    surface_data: HashMap<String, Vec<f64>>,
+}
+
+impl SurfaceRegistry {
+    pub fn new() -> Self {
+        Self {
+            surfaces: HashMap::new(),
+            surface_data: HashMap::new(),
+        }
+    }
+
+    /// Insert a new surface into the registry
+    pub fn insert_surface(&mut self, id: String, geometry: neurosurf_rs::geometry::SurfaceGeometry, transform: Affine3<f32>, metadata: SurfaceMetadataInfo) {
+        self.surfaces.insert(id, SurfaceEntry {
+            geometry,
+            transform,
+            metadata,
+        });
+    }
+
+    /// Insert surface data into the registry
+    pub fn insert_data(&mut self, id: String, data: Vec<f64>) {
+        self.surface_data.insert(id, data);
+    }
+
+    /// Get a surface by ID
+    pub fn get_surface(&self, id: &str) -> Option<&SurfaceEntry> {
+        self.surfaces.get(id)
+    }
+
+    /// Get surface data by ID
+    pub fn get_data(&self, id: &str) -> Option<&Vec<f64>> {
+        self.surface_data.get(id)
+    }
+
+    /// Remove a surface from the registry
+    pub fn remove_surface(&mut self, id: &str) -> Option<SurfaceEntry> {
+        self.surfaces.remove(id)
+    }
+
+    /// Remove surface data from the registry
+    pub fn remove_data(&mut self, id: &str) -> Option<Vec<f64>> {
+        self.surface_data.remove(id)
+    }
+
+    /// Check if a surface exists
+    pub fn contains_surface(&self, id: &str) -> bool {
+        self.surfaces.contains_key(id)
+    }
+
+    /// Check if surface data exists
+    pub fn contains_data(&self, id: &str) -> bool {
+        self.surface_data.contains_key(id)
+    }
+}
+
 // --- Define App State to hold the registry ---
 // This might conflict/need merging with AppState in src-tauri/lib.rs later
 pub struct BridgeState {
     // Removed: pub loader_registry: Arc<Mutex<LoaderRegistry>>,
     pub volume_registry: Arc<Mutex<VolumeRegistry>>,
+    pub surface_registry: Arc<Mutex<SurfaceRegistry>>,
     pub render_loop_service: Arc<Mutex<Option<Arc<Mutex<RenderLoopService>>>>>,
     // NEW: Map UI layer ID to GPU texture atlas layer index
     pub layer_to_atlas_map: Arc<Mutex<HashMap<String, u32>>>,
@@ -894,6 +981,7 @@ impl BridgeState {
     pub fn new(
         // Removed loader_registry parameter
         volume_registry: Arc<Mutex<VolumeRegistry>>,
+        surface_registry: Arc<Mutex<SurfaceRegistry>>,
         render_loop_service: Arc<Mutex<Option<Arc<Mutex<RenderLoopService>>>>>,
         layer_to_atlas_map: Arc<Mutex<HashMap<String, u32>>>,
         layer_to_volume_map: Arc<Mutex<HashMap<String, String>>>,
@@ -902,6 +990,7 @@ impl BridgeState {
     ) -> Self {
         Self {
             /* Removed loader_registry field */ volume_registry,
+            surface_registry,
             render_loop_service,
             layer_to_atlas_map,
             layer_to_volume_map,
@@ -917,6 +1006,7 @@ impl BridgeState {
         Ok(Self {
             // Removed loader_registry initialization
             volume_registry: Arc::new(Mutex::new(VolumeRegistry::new())),
+            surface_registry: Arc::new(Mutex::new(SurfaceRegistry::new())),
             render_loop_service: Arc::new(Mutex::new(None)),
             layer_to_atlas_map: Arc::new(Mutex::new(HashMap::new())),
             layer_to_volume_map: Arc::new(Mutex::new(HashMap::new())),
@@ -1036,6 +1126,154 @@ async fn load_file(
         num_timepoints: time_series_info.as_ref().map(|ts| ts.num_timepoints),
         current_timepoint: None,
         time_series_info,
+    })
+}
+
+#[command]
+#[tracing::instrument(skip_all, err, name = "api.load_surface")]
+async fn load_surface(
+    path: String,
+    state: State<'_, BridgeState>,
+) -> BridgeResult<bridge_types::LoadedContent> {
+    info!("Bridge: load_surface called with path: {}", path);
+
+    // Validate that the file exists and is loadable
+    let file_path = std::path::Path::new(&path);
+    if !file_path.exists() {
+        return Err(BridgeError::Io {
+            code: 1001,
+            details: format!("File not found: {}", path),
+        });
+    }
+
+    // Check if this is a GIFTI file
+    if !gifti_loader::GiftiLoader::can_load(file_path) {
+        return Err(BridgeError::Input {
+            code: 1002,
+            details: format!("File is not a GIFTI file: {}", path),
+        });
+    }
+
+    // Load the file using the GIFTI loader
+    let loaded = gifti_loader::GiftiLoader::load(file_path)?;
+    
+    match loaded {
+        bridge_types::Loaded::Surface { handle, vertex_count, face_count, path: loaded_path } => {
+            // Load the actual surface geometry
+            let geometry = gifti_loader::load_gifti_surface(file_path)?;
+            
+            // Create an identity transform for now
+            let transform = Affine3::identity();
+            
+            // Extract metadata
+            let hemisphere = match geometry.hemisphere() {
+                neurosurf_rs::geometry::Hemisphere::Left => Some("left".to_string()),
+                neurosurf_rs::geometry::Hemisphere::Right => Some("right".to_string()),
+                neurosurf_rs::geometry::Hemisphere::Both => Some("both".to_string()),
+                neurosurf_rs::geometry::Hemisphere::Unknown => None,
+            };
+            
+            let surface_type = match geometry.surface_type() {
+                neurosurf_rs::geometry::SurfaceType::White => Some("white".to_string()),
+                neurosurf_rs::geometry::SurfaceType::Pial => Some("pial".to_string()),
+                neurosurf_rs::geometry::SurfaceType::Inflated => Some("inflated".to_string()),
+                _ => None,  // Handle any other surface types
+            };
+            
+            // Create metadata
+            let metadata = SurfaceMetadataInfo {
+                name: file_path
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or("unknown")
+                    .to_string(),
+                path: path.clone(),
+                hemisphere: hemisphere.clone(),
+                surface_type: surface_type.clone(),
+                vertex_count,
+                face_count,
+            };
+            
+            // Register the surface
+            let mut registry = state.surface_registry.lock().await;
+            registry.insert_surface(handle.0.clone(), geometry, transform, metadata);
+            drop(registry);
+            
+            info!("Bridge: Successfully loaded surface with handle: {}", handle.0);
+            
+            // Return the loaded content
+            Ok(bridge_types::LoadedContent::Surface {
+                handle: handle.0,
+                vertex_count,
+                face_count,
+                hemisphere,
+                surface_type,
+            })
+        }
+        bridge_types::Loaded::SurfaceData { handle, data_count, path: loaded_path } => {
+            // For surface data, we'll need to implement loading the actual data
+            // For now, return a placeholder
+            Ok(bridge_types::LoadedContent::SurfaceData {
+                handle: handle.0,
+                data_count,
+                intent: "unknown".to_string(), // TODO: Extract intent from GIFTI
+            })
+        }
+        _ => {
+            Err(BridgeError::Internal {
+                code: 1006,
+                details: "Unexpected loaded content type from GIFTI loader".to_string(),
+            })
+        }
+    }
+}
+
+#[command]
+#[tracing::instrument(skip_all, err, name = "api.get_surface_geometry")]
+async fn get_surface_geometry(
+    handle: String,
+    state: State<'_, BridgeState>,
+) -> BridgeResult<bridge_types::SurfaceGeometryData> {
+    info!("Bridge: get_surface_geometry called for handle: {}", handle);
+    
+    // Get the surface from registry
+    let registry = state.surface_registry.lock().await;
+    let surface_entry = registry.get_surface(&handle)
+        .ok_or_else(|| BridgeError::Input {
+            code: 2001,
+            details: format!("Surface not found: {}", handle),
+        })?;
+    
+    // Extract vertices and faces
+    // vertices() returns Result<Array2<f64>> where each row is [x, y, z]
+    let vertices_array = surface_entry.geometry.vertices()
+        .map_err(|e| BridgeError::Internal {
+            code: 2002,
+            details: format!("Failed to get vertices: {}", e),
+        })?;
+    let mut vertices = Vec::with_capacity(vertices_array.nrows() * 3);
+    for row in vertices_array.rows() {
+        vertices.push(row[0] as f32);
+        vertices.push(row[1] as f32);
+        vertices.push(row[2] as f32);
+    }
+    
+    // faces() returns Result<Array2<usize>> where each row is [v0, v1, v2]
+    let faces_array = surface_entry.geometry.faces()
+        .map_err(|e| BridgeError::Internal {
+            code: 2003,
+            details: format!("Failed to get faces: {}", e),
+        })?;
+    let mut faces = Vec::with_capacity(faces_array.nrows() * 3);
+    for row in faces_array.rows() {
+        faces.push(row[0] as u32);
+        faces.push(row[1] as u32);
+        faces.push(row[2] as u32);
+    }
+    
+    Ok(bridge_types::SurfaceGeometryData {
+        vertices,
+        faces,
     })
 }
 
@@ -2219,6 +2457,10 @@ async fn request_layer_gpu_resources(
                     "Adding layer to render state: texture_index={}, dims={:?}",
                     atlas_layer_idx, vol_dims
                 );
+                // Default to linear interpolation for initial load
+                // The actual interpolation mode will be set when layers are configured
+                let interpolation_mode_u32 = 1; // Linear interpolation
+                
                 let layer_idx = render_service
                     .add_layer_3d(
                         atlas_layer_idx,
@@ -2226,6 +2468,7 @@ async fn request_layer_gpu_resources(
                         (vol_dims[0], vol_dims[1], vol_dims[2]),
                         1.0, // Initial opacity
                         colormap_id,
+                        interpolation_mode_u32,
                     )
                     .map_err(|e| BridgeError::GpuError {
                         code: 5012,
@@ -4344,6 +4587,12 @@ async fn render_view_internal(
         threshold: [f32; 2],
         #[serde(rename = "blendMode")]
         blend_mode: String,
+        #[serde(default = "default_interpolation")]
+        interpolation: String,
+    }
+    
+    fn default_interpolation() -> String {
+        "linear".to_string()
     }
 
     // Log the first 500 chars of the JSON for debugging
@@ -4549,6 +4798,13 @@ async fn render_view_internal(
                 _ => render_loop::render_state::BlendMode::Normal,
             };
 
+            // Parse interpolation mode
+            let interpolation = match layer.interpolation.as_str() {
+                "nearest" => render_loop::view_state::InterpolationMode::Nearest,
+                "cubic" => render_loop::view_state::InterpolationMode::Cubic,
+                _ => render_loop::view_state::InterpolationMode::Linear, // Default to linear
+            };
+
             // Create backend layer config
             let mut backend_layer = render_loop::view_state::LayerConfig {
                 volume_id: layer.volume_id.clone(),
@@ -4565,6 +4821,7 @@ async fn render_view_internal(
                     None
                 },
                 visible: layer.visible,
+                interpolation,
             };
 
             info!("Adding layer to backend ViewState: volume_id={}, opacity={}, colormap={}, intensity=[{}, {}], threshold=[{}, {}]",
@@ -5831,6 +6088,8 @@ pub fn plugin<R: Runtime>() -> TauriPlugin<R> {
     Builder::<R>::new("api-bridge")
         .invoke_handler(generate_handler![
             load_file,
+            load_surface,
+            get_surface_geometry,
             get_volume_bounds,
             // world_to_voxel, // REMOVED - Unused coordinate transformation
             set_volume_timepoint,

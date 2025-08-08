@@ -51,7 +51,8 @@ struct LayerData {
     
     thresh_high    : f32,              // Threshold upper bound
     is_mask        : u32,              // 1 if binary mask
-    _pad           : vec2<f32>,        // 8 bytes to complete 16-byte block
+    interpolation_mode : u32,          // 0=nearest, 1=linear, 2=cubic (future)
+    _pad           : f32,              // 4 bytes to complete 16-byte block
 };
 
 // --- Layer metadata ---
@@ -88,6 +89,7 @@ struct LayerMetadata {
 @group(2) @binding(15) var samplerLinear: sampler;
 @group(2) @binding(16) var colormapLutTexture: texture_2d_array<f32>;
 @group(2) @binding(17) var cmSampler: sampler;
+@group(2) @binding(18) var samplerNearest: sampler;
 
 // --- Vertex Shader Output ---
 struct VsOut {
@@ -126,26 +128,50 @@ fn vs_main(@builtin(vertex_index) vid: u32) -> VsOut {
 
 // --- Fragment Shader Helpers ---
 
-// Optimized texture sampling with LOD support
-fn sampleVolumeTextureOptimized(texture_index: u32, coord: vec3<f32>, lod: f32) -> f32 {
-    // Use textureSampleLevel for explicit LOD control
-    switch (texture_index) {
-        case 0u: { return textureSampleLevel(volumeTexture0, samplerLinear, coord, lod).r; }
-        case 1u: { return textureSampleLevel(volumeTexture1, samplerLinear, coord, lod).r; }
-        case 2u: { return textureSampleLevel(volumeTexture2, samplerLinear, coord, lod).r; }
-        case 3u: { return textureSampleLevel(volumeTexture3, samplerLinear, coord, lod).r; }
-        case 4u: { return textureSampleLevel(volumeTexture4, samplerLinear, coord, lod).r; }
-        case 5u: { return textureSampleLevel(volumeTexture5, samplerLinear, coord, lod).r; }
-        case 6u: { return textureSampleLevel(volumeTexture6, samplerLinear, coord, lod).r; }
-        case 7u: { return textureSampleLevel(volumeTexture7, samplerLinear, coord, lod).r; }
-        case 8u: { return textureSampleLevel(volumeTexture8, samplerLinear, coord, lod).r; }
-        case 9u: { return textureSampleLevel(volumeTexture9, samplerLinear, coord, lod).r; }
-        case 10u: { return textureSampleLevel(volumeTexture10, samplerLinear, coord, lod).r; }
-        case 11u: { return textureSampleLevel(volumeTexture11, samplerLinear, coord, lod).r; }
-        case 12u: { return textureSampleLevel(volumeTexture12, samplerLinear, coord, lod).r; }
-        case 13u: { return textureSampleLevel(volumeTexture13, samplerLinear, coord, lod).r; }
-        case 14u: { return textureSampleLevel(volumeTexture14, samplerLinear, coord, lod).r; }
-        default: { return 0.0; }
+// Optimized texture sampling with LOD support and interpolation mode
+fn sampleVolumeTextureOptimized(texture_index: u32, coord: vec3<f32>, lod: f32, interpolation_mode: u32) -> f32 {
+    // Select sampler based on interpolation mode
+    // 0 = nearest, 1 = linear, 2+ = linear (future cubic will fallback to linear)
+    if (interpolation_mode == 0u) {
+        // Use nearest neighbor sampling
+        switch (texture_index) {
+            case 0u: { return textureSampleLevel(volumeTexture0, samplerNearest, coord, lod).r; }
+            case 1u: { return textureSampleLevel(volumeTexture1, samplerNearest, coord, lod).r; }
+            case 2u: { return textureSampleLevel(volumeTexture2, samplerNearest, coord, lod).r; }
+            case 3u: { return textureSampleLevel(volumeTexture3, samplerNearest, coord, lod).r; }
+            case 4u: { return textureSampleLevel(volumeTexture4, samplerNearest, coord, lod).r; }
+            case 5u: { return textureSampleLevel(volumeTexture5, samplerNearest, coord, lod).r; }
+            case 6u: { return textureSampleLevel(volumeTexture6, samplerNearest, coord, lod).r; }
+            case 7u: { return textureSampleLevel(volumeTexture7, samplerNearest, coord, lod).r; }
+            case 8u: { return textureSampleLevel(volumeTexture8, samplerNearest, coord, lod).r; }
+            case 9u: { return textureSampleLevel(volumeTexture9, samplerNearest, coord, lod).r; }
+            case 10u: { return textureSampleLevel(volumeTexture10, samplerNearest, coord, lod).r; }
+            case 11u: { return textureSampleLevel(volumeTexture11, samplerNearest, coord, lod).r; }
+            case 12u: { return textureSampleLevel(volumeTexture12, samplerNearest, coord, lod).r; }
+            case 13u: { return textureSampleLevel(volumeTexture13, samplerNearest, coord, lod).r; }
+            case 14u: { return textureSampleLevel(volumeTexture14, samplerNearest, coord, lod).r; }
+            default: { return 0.0; }
+        }
+    } else {
+        // Use linear sampling (default)
+        switch (texture_index) {
+            case 0u: { return textureSampleLevel(volumeTexture0, samplerLinear, coord, lod).r; }
+            case 1u: { return textureSampleLevel(volumeTexture1, samplerLinear, coord, lod).r; }
+            case 2u: { return textureSampleLevel(volumeTexture2, samplerLinear, coord, lod).r; }
+            case 3u: { return textureSampleLevel(volumeTexture3, samplerLinear, coord, lod).r; }
+            case 4u: { return textureSampleLevel(volumeTexture4, samplerLinear, coord, lod).r; }
+            case 5u: { return textureSampleLevel(volumeTexture5, samplerLinear, coord, lod).r; }
+            case 6u: { return textureSampleLevel(volumeTexture6, samplerLinear, coord, lod).r; }
+            case 7u: { return textureSampleLevel(volumeTexture7, samplerLinear, coord, lod).r; }
+            case 8u: { return textureSampleLevel(volumeTexture8, samplerLinear, coord, lod).r; }
+            case 9u: { return textureSampleLevel(volumeTexture9, samplerLinear, coord, lod).r; }
+            case 10u: { return textureSampleLevel(volumeTexture10, samplerLinear, coord, lod).r; }
+            case 11u: { return textureSampleLevel(volumeTexture11, samplerLinear, coord, lod).r; }
+            case 12u: { return textureSampleLevel(volumeTexture12, samplerLinear, coord, lod).r; }
+            case 13u: { return textureSampleLevel(volumeTexture13, samplerLinear, coord, lod).r; }
+            case 14u: { return textureSampleLevel(volumeTexture14, samplerLinear, coord, lod).r; }
+            default: { return 0.0; }
+        }
     }
 }
 
@@ -183,8 +209,8 @@ fn sampleLayerOptimized(layer: LayerData, world_mm: vec3<f32>, pixel_size: f32) 
     // DISABLED LOD for debugging - use 0.0 to match standard shader
     let lod = 0.0; // log2(max(1.0, pixel_size / max(voxel_size_estimate, 1e-6)));
     
-    // Sample from texture with LOD
-    let raw_value = sampleVolumeTextureOptimized(layer.texture_index, tex_coord, lod);
+    // Sample from texture with LOD and interpolation mode
+    let raw_value = sampleVolumeTextureOptimized(layer.texture_index, tex_coord, lod, layer.interpolation_mode);
     
     // Fast path for binary masks
     if (layer.is_mask == 1u) {

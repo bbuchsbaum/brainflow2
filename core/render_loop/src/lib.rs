@@ -1097,6 +1097,7 @@ impl RenderLoopService {
                 &self.device,
                 texture_layout,
                 linear_sampler,
+                self.texture_manager.nearest_sampler(),
                 colormap_view,
                 colormap_sampler,
             )?;
@@ -1183,6 +1184,7 @@ impl RenderLoopService {
                         &self.device,
                         texture_layout,
                         self.texture_manager.linear_sampler(),
+                        self.texture_manager.nearest_sampler(),
                         colormap_view,
                         self.texture_manager.colormap_sampler(),
                     )?;
@@ -1624,6 +1626,7 @@ impl RenderLoopService {
                     multi_texture_manager.create_bind_group(
                         &self.device,
                         layout,
+                        self.texture_manager.linear_sampler(),
                         self.texture_manager.nearest_sampler(),
                         colormap_view,
                         self.texture_manager.colormap_sampler(),
@@ -2286,10 +2289,11 @@ impl RenderLoopService {
         volume_dims: (u32, u32, u32),
         opacity: f32,
         colormap_id: u32,
+        interpolation_mode: u32,
     ) -> Result<usize, RenderLoopError> {
         println!(
-            "add_layer_3d: Adding layer with texture_index={}, dims={:?}, opacity={}",
-            texture_index, volume_dims, opacity
+            "add_layer_3d: Adding layer with texture_index={}, dims={:?}, opacity={}, interpolation={}",
+            texture_index, volume_dims, opacity, interpolation_mode
         );
 
         // For world-space rendering, we need to store the texture index and transform
@@ -2303,6 +2307,7 @@ impl RenderLoopService {
             threshold_range: (-f32::INFINITY, f32::INFINITY),
             threshold_mode: crate::render_state::ThresholdMode::Range,
             is_mask: false,
+            interpolation_mode,
         };
 
         let layer_index = self
@@ -2411,6 +2416,7 @@ impl RenderLoopService {
             threshold_mode: ThresholdMode::Range,
             texture_coords,
             is_mask: false,
+            interpolation_mode: 1, // Default to linear for legacy method
         };
 
         let index =
@@ -2933,6 +2939,7 @@ impl RenderLoopService {
                                 &self.device,
                                 texture_layout,
                                 self.texture_manager.linear_sampler(),
+                                self.texture_manager.nearest_sampler(),
                                 colormap_view,
                                 self.texture_manager.colormap_sampler(),
                             )
@@ -3290,6 +3297,13 @@ impl RenderLoopService {
             })?;
 
             // Create layer info
+            // Convert interpolation mode to u32
+            let interpolation_mode_u32 = match layer_config.interpolation {
+                view_state::InterpolationMode::Nearest => 0,
+                view_state::InterpolationMode::Linear => 1,
+                view_state::InterpolationMode::Cubic => 2,
+            };
+            
             let layer_info = LayerInfo {
                 atlas_index: vol_entry.atlas_index,
                 opacity: layer_config.opacity,
@@ -3308,6 +3322,7 @@ impl RenderLoopService {
                     .unwrap_or(ThresholdMode::Range),
                 texture_coords: (0.0, 0.0, 1.0, 1.0),
                 is_mask: false, // TODO: determine from volume metadata
+                interpolation_mode: interpolation_mode_u32,
             };
 
             layer_infos.push(layer_info);
@@ -3640,6 +3655,7 @@ impl RenderLoopService {
             manager.create_bind_group(
                 &self.device,
                 texture_layout,
+                self.texture_manager.linear_sampler(),
                 self.texture_manager.nearest_sampler(),
                 colormap_view,
                 self.texture_manager.colormap_sampler(),

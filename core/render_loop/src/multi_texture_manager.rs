@@ -276,6 +276,15 @@ impl MultiTextureManager {
             count: None,
         });
 
+        // Nearest sampler at binding 18 (samplerNearest in shader)
+        // Using NonFiltering for nearest neighbor interpolation
+        entries.push(BindGroupLayoutEntry {
+            binding: 18,
+            visibility: ShaderStages::FRAGMENT,
+            ty: BindingType::Sampler(SamplerBindingType::NonFiltering),
+            count: None,
+        });
+
         device.create_bind_group_layout(&BindGroupLayoutDescriptor {
             label: Some("Multi-Texture Bind Group Layout"),
             entries: &entries,
@@ -288,6 +297,7 @@ impl MultiTextureManager {
         device: &Device,
         layout: &BindGroupLayout,
         linear_sampler: &wgpu::Sampler,
+        nearest_sampler: &wgpu::Sampler,
         colormap_texture: &TextureView,
         colormap_sampler: &wgpu::Sampler,
     ) -> Result<(), RenderLoopError> {
@@ -331,6 +341,12 @@ impl MultiTextureManager {
         entries.push(wgpu::BindGroupEntry {
             binding: 17,
             resource: wgpu::BindingResource::Sampler(colormap_sampler),
+        });
+
+        // Nearest sampler at binding 18 (samplerNearest in shader)
+        entries.push(wgpu::BindGroupEntry {
+            binding: 18,
+            resource: wgpu::BindingResource::Sampler(nearest_sampler),
         });
 
         let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {

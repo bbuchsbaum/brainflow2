@@ -306,6 +306,8 @@ pub struct LayerInfo {
     pub texture_coords: (f32, f32, f32, f32),
     /// Whether this layer is a binary mask (true) or continuous data (false)
     pub is_mask: bool,
+    /// Interpolation mode (0=nearest, 1=linear, 2=cubic)
+    pub interpolation_mode: u32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]

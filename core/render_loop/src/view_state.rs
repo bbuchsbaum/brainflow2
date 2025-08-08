@@ -3,6 +3,22 @@
 use crate::render_state::{BlendMode, ThresholdMode};
 use serde::{Deserialize, Serialize};
 
+/// Interpolation modes for volume sampling
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum InterpolationMode {
+    Nearest,
+    Linear,
+    #[serde(rename = "cubic")]
+    Cubic,  // Future support - will fall back to linear for now
+}
+
+impl Default for InterpolationMode {
+    fn default() -> Self {
+        Self::Linear
+    }
+}
+
 /// Unique identifier for a view
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct ViewId(pub String);
@@ -99,6 +115,10 @@ pub struct LayerConfig {
 
     /// Layer visibility
     pub visible: bool,
+
+    /// Interpolation mode for sampling
+    #[serde(default)]
+    pub interpolation: InterpolationMode,
 }
 
 /// Threshold configuration
@@ -119,6 +139,7 @@ impl LayerConfig {
             intensity_window: (0.0, 1.0),
             threshold: None,
             visible: true,
+            interpolation: InterpolationMode::default(),
         }
     }
 
@@ -158,6 +179,12 @@ impl LayerConfig {
     /// Builder-style method to set visibility
     pub fn with_visibility(mut self, visible: bool) -> Self {
         self.visible = visible;
+        self
+    }
+
+    /// Builder-style method to set interpolation mode
+    pub fn with_interpolation(mut self, interpolation: InterpolationMode) -> Self {
+        self.interpolation = interpolation;
         self
     }
 }
@@ -216,6 +243,7 @@ impl ViewState {
                 intensity_window: (0.0, 1.0),
                 threshold: None,
                 visible: true,
+                interpolation: InterpolationMode::default(),
             }],
             viewport_size: [512, 512],
             show_crosshair: true,
@@ -325,6 +353,7 @@ impl ViewState {
                 intensity_window,
                 threshold: None,
                 visible: true,
+                interpolation: InterpolationMode::Linear,
             }],
             viewport_size,
             show_crosshair: true,
@@ -407,6 +436,7 @@ impl ViewState {
                 intensity_window,
                 threshold: None,
                 visible: true,
+                interpolation: InterpolationMode::Linear,
             }],
             viewport_size: [view_rect.width_px, view_rect.height_px],
             show_crosshair: true,
