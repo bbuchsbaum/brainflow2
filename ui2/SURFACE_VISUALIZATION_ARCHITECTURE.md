@@ -1,18 +1,26 @@
 # Surface Visualization Architecture Plan
 
-**Status**: Planning Phase  
+**Status**: Architecture Finalized  
 **Date**: 2025-08-05  
 **Reviewed by**: O3 (OpenAI) and Gemini-2.5-Pro expert analysis  
+**Updated**: 2025-01-08 - LayerPanel separation pattern based on expert consensus
 
 ## Executive Summary
 
 This document outlines the architectural plan for adding 3D surface visualization capabilities to the Brainflow neuroimaging application, which currently supports only volumetric data visualization. The plan enables:
 
-1. **3D Brain Surface Meshes**: Multi-layer surface support with shared controls
+1. **3D Brain Surface Meshes**: Multi-layer surface support with dedicated controls
 2. **Volume-to-Surface Mapping (vol2surf)**: Dynamic projection of volume data onto surface vertices
-3. **Hybrid Visualization**: Surface backgrounds with volume data mapped dynamically
-4. **Unified Layer Management**: Single LayerPanel handling both volumes and surfaces
+3. **Separate Panel Architecture**: Dedicated panels for volumes and surfaces with shared components
+4. **Composition Pattern**: Vol2surf as a relationship between types, not a new type
 5. **Performance-Optimized**: GPU-accelerated vol2surf mapping for real-time updates
+
+### Key Architecture Decision: Separate Panels with Manager
+Based on expert consensus from O3 and Gemini-2.5-Pro:
+- **Separate panels** for volumes and surfaces prevent conditional complexity
+- **Manager/dispatcher pattern** maintains UX consistency
+- **Shared controls** extracted into reusable components
+- **Composition over inheritance** for vol2surf hybrid layers
 
 ## Expert Review Summary
 
@@ -36,6 +44,60 @@ This document outlines the architectural plan for adding 3D surface visualizatio
 
 **ELIMINATED**: `LayerDataType = 'volume' | 'surface' | 'hybrid'` (hybrid is anti-pattern)  
 **ADOPTED**: Surface layers with optional volume reference for mapping
+
+## LayerPanel Architecture Decision
+
+### Expert Consensus: Separate Panels with Manager Pattern
+
+After extensive analysis by O3 (OpenAI) and Gemini-2.5-Pro, the consensus is clear: **separate panels with a manager component** provides superior maintainability, extensibility, and user experience compared to a unified panel approach.
+
+#### Key Insights from Expert Analysis:
+- **O3**: "Unified approach leads to if-else sprawl and conditional complexity"
+- **Gemini**: "Composition beats conditionals for maintainability and extensibility"
+- Both experts agree that separate panels with shared components is the optimal pattern
+
+### The Manager/Dispatcher Pattern
+
+The architecture uses a central manager that dispatches to type-specific panels while maintaining UX consistency:
+
+```typescript
+// LayerPropertiesManager.tsx - The dispatcher
+const LayerPropertiesManager: React.FC = () => {
+  const selectedLayer = useLayerStore(state => state.selectedLayer);
+  
+  if (!selectedLayer) return <EmptyState />;
+  
+  switch (selectedLayer.dataType) {
+    case 'volume':
+      return <VolumePanel layer={selectedLayer as VolumeViewLayer} />;
+    case 'surface':
+      return <SurfacePanel layer={selectedLayer as SurfaceViewLayer} />;
+    default:
+      return <UnknownLayerType />;
+  }
+};
+```
+
+### Benefits of This Architecture:
+
+1. **Clean Separation**: Each panel handles only its specific concerns
+2. **Easy Extension**: New layer types just add a new panel + one line in manager
+3. **Composition-Friendly**: Vol2surf can compose controls from both domains
+4. **Testable**: Each panel can be tested in isolation
+5. **UX Consistency**: User sees one panel area, shared controls look identical
+6. **No Conditional Complexity**: No cascading if-else chains
+7. **Type Safety**: TypeScript discriminated unions work perfectly
+
+### Shared Controls for All Layer Types:
+
+All panels share common controls through composition:
+- Opacity (0-1 range)
+- Colormap selection
+- Intensity windowing
+- Threshold settings
+- Visibility toggle
+
+These are implemented once in `SharedControls.tsx` and used by all panel types.
 
 ### Phase 1: Refined Type System
 
@@ -93,46 +155,101 @@ interface VolumeRenderProperties {
 **Solution**: Dedicated control components with shared/specific separation
 
 ```typescript
-// Decouple control components to prevent conditional explosion
-const CONTROLS_MAP = {
-  volume: VolumeControls,
-  surface: SurfaceControls,
-} as const;
-
-export const LayerControlsPanel: React.FC<LayerControlsPanelProps> = ({ 
-  selectedLayer 
+// SharedControls.tsx - Extracted from current LayerControlsPanel
+// These controls work for ALL layer types (volumes and surfaces)
+export const SharedControls: React.FC<SharedControlsProps> = ({
+  layer,
+  metadata,
+  onRenderUpdate
 }) => {
-  if (!selectedLayer) return <NoLayerSelected />;
+  return (
+    <>
+      {/* Intensity Window - applies to data values */}
+      <ProSlider
+        label="Intensity Window"
+        min={metadata?.dataRange?.min ?? 0}
+        max={metadata?.dataRange?.max ?? 10000}
+        value={layer.intensity}
+        onChange={(value) => onRenderUpdate({ intensity: value })}
+        precision={0}
+      />
+
+      {/* Threshold - filters data visibility */}
+      <ProSlider
+        label="Threshold"
+        min={metadata?.dataRange?.min ?? 0}
+        max={metadata?.dataRange?.max ?? 10000}
+        value={layer.threshold}
+        onChange={(value) => onRenderUpdate({ threshold: value })}
+        precision={0}
+      />
+
+      {/* Colormap - maps values to colors */}
+      <EnhancedColormapSelector
+        value={layer.colormap}
+        onChange={(colormap) => onRenderUpdate({ colormap })}
+      />
+
+      {/* Opacity - layer transparency */}
+      <SingleSlider
+        label="Opacity"
+        min={0}
+        max={1}
+        value={layer.opacity}
+        onChange={(opacity) => onRenderUpdate({ opacity })}
+        showPercentage={true}
+      />
+    </>
+  );
+};
+
+// LayerPropertiesManager.tsx - Central dispatcher
+export const LayerPropertiesManager: React.FC = () => {
+  const selectedLayer = useLayerStore(state => state.selectedLayer);
   
-  const ControlsComponent = CONTROLS_MAP[selectedLayer.dataType];
+  if (!selectedLayer) {
+    return <EmptyState message="Select a layer to view properties" />;
+  }
+  
+  // Dispatch to appropriate panel based on layer type
+  switch (selectedLayer.dataType) {
+    case 'volume':
+      return <VolumePanel layer={selectedLayer as VolumeViewLayer} />;
+    case 'surface':
+      // Check if it's a vol2surf layer
+      if (selectedLayer.sourceVolumeId) {
+        return <Vol2SurfPanel layer={selectedLayer as SurfaceViewLayer} />;
+      }
+      return <SurfacePanel layer={selectedLayer as SurfaceViewLayer} />;
+    default:
+      return <div>Unknown layer type: {selectedLayer.dataType}</div>;
+  }
+};
+
+// VolumePanel.tsx - Volume-specific controls
+export const VolumePanel: React.FC<{ layer: VolumeViewLayer }> = ({ layer }) => {
+  const handleUpdate = useLayerUpdate(layer.id);
   
   return (
     <div className="space-y-4">
-      {/* Shared controls rendered for ALL layer types */}
-      <SharedControls 
-        layer={selectedLayer}
-        onOpacityChange={handleOpacityChange}
-        onColormapChange={handleColormapChange}
-        onIntensityChange={handleIntensityChange}
-        onThresholdChange={handleThresholdChange}
-      />
-      
-      {/* Type-specific controls */}
-      {ControlsComponent && (
-        <ControlsComponent 
-          layer={selectedLayer} 
-          onPropertiesChange={handlePropertiesChange}
-        />
-      )}
-      
-      {/* Vol2Surf mapping controls (if applicable) */}
-      {selectedLayer.dataType === 'surface' && selectedLayer.sourceVolumeId && (
-        <Vol2SurfControls
-          surfaceLayer={selectedLayer}
-          sourceVolumeId={selectedLayer.sourceVolumeId}
-          onMappingChange={handleMappingChange}
-        />
-      )}
+      <h3 className="text-sm font-medium">Volume Properties</h3>
+      <SharedControls layer={layer} onUpdate={handleUpdate} />
+      <Divider />
+      <VolumeSpecificControls layer={layer} onUpdate={handleUpdate} />
+    </div>
+  );
+};
+
+// SurfacePanel.tsx - Surface-specific controls  
+export const SurfacePanel: React.FC<{ layer: SurfaceViewLayer }> = ({ layer }) => {
+  const handleUpdate = useLayerUpdate(layer.id);
+  
+  return (
+    <div className="space-y-4">
+      <h3 className="text-sm font-medium">Surface Properties</h3>
+      <SharedControls layer={layer} onUpdate={handleUpdate} />
+      <Divider />
+      <SurfaceSpecificControls layer={layer} onUpdate={handleUpdate} />
     </div>
   );
 };
@@ -174,6 +291,78 @@ export const SurfaceControls: React.FC<{
   );
 };
 ```
+
+## Vol2Surf Workflow: Volume-to-Surface Mapping
+
+### User Interaction Flow
+
+Vol2surf represents a **relationship** between existing data types, not a new data type. The workflow emphasizes this relationship:
+
+1. **Load Surface Geometry First**
+   - User loads `.gii` file containing brain surface mesh
+   - Creates `SurfaceViewLayer` with just geometry (no data values)
+   - Surface appears with uniform color or intrinsic properties
+
+2. **Drop Volume onto Surface**
+   - User drags NIfTI volume onto surface viewer
+   - System detects volume-on-surface operation
+   - **Mapping Dialog** appears with parameters:
+     ```typescript
+     interface Vol2SurfMappingOptions {
+       method: 'nearest' | 'trilinear' | 'weighted';
+       projectionDepth: number;      // mm from surface
+       smoothingKernel: number;       // spatial smoothing
+       threshold: [number, number];   // value range to map
+     }
+     ```
+
+3. **Vol2Surf Computation**
+   - For each vertex in surface mesh:
+     - Transform vertex to volume coordinate space
+     - Sample volume data at that location
+     - Store sampled value as vertex color/intensity
+   - Creates new `SurfaceViewLayer` with `sourceVolumeId` set
+
+4. **Result: Hybrid Layer**
+   - Surface geometry provides 3D shape
+   - Volume data provides color values at vertices
+   - User can adjust both surface AND data properties
+
+### Vol2SurfPanel: Composition of Controls
+
+The Vol2SurfPanel demonstrates the power of the composition pattern:
+
+```typescript
+const Vol2SurfPanel: React.FC<{ layer: Vol2SurfLayer }> = ({ layer }) => {
+  const sourceVolume = useLayerStore(state => 
+    state.layers.find(l => l.id === layer.sourceVolumeId)
+  );
+
+  return (
+    <div className="space-y-4">
+      {/* Relationship header */}
+      <RelationshipBadge surface={layer} volume={sourceVolume} />
+      
+      {/* Data visualization controls (from volume domain) */}
+      <SharedControls layer={layer} />
+      
+      {/* Surface rendering controls (from surface domain) */}
+      <SurfaceSpecificControls layer={layer} />
+      
+      {/* Vol2surf-specific mapping controls */}
+      <MappingControls layer={layer} onRemap={handleRemap} />
+    </div>
+  );
+};
+```
+
+### Why Vol2Surf is Special
+
+Vol2surf is distinct because it:
+1. **Manages Two Data Sources**: Surface geometry AND volume data
+2. **Has Unique Controls**: Projection depth, sampling method
+3. **Different Mental Model**: "Volume data ON surface" relationship
+4. **Special Operations**: Remapping, resampling, projection adjustments
 
 ### Phase 3: Performance-First Vol2Surf Strategy
 
@@ -627,21 +816,23 @@ export const SurfaceView: React.FC<SurfaceViewProps> = ({
 
 ## Implementation Timeline
 
-### Phase 1: Foundation (2-3 weeks)
+### Phase 1: Foundation & Refactoring (1-2 weeks)
+- Extract `SharedControls` component from current `LayerControlsPanel`
 - Extend type system with `SurfaceViewLayer` interface
 - Update `ViewState` to handle discriminated union
 - Add surface-specific state selectors
-- **Deliverable**: Type-safe foundation with no UI changes
+- **Deliverable**: Type-safe foundation with refactored controls, no breaking changes
 
 ### Phase 2: Basic Surface Loading (2-3 weeks)  
 - Implement `SurfaceHandle` and basic surface loading
 - Extend `LayerService` with `addSurfaceLayer()`
 - Create basic `SurfaceView` component with uniform coloring
+- Update `LayerTable` with surface indicators
 - **Deliverable**: Can load and display static surface meshes
 
 ### Phase 3: Surface Controls (1-2 weeks)
-- Implement component composition pattern for `LayerControlsPanel`
-- Create `SurfaceControls` component
+- Implement `SurfaceControls` component for surface-specific properties
+- Update `LayerControlsPanel` to use composition pattern
 - Add wireframe, lighting, and smoothing controls
 - **Deliverable**: Interactive surface layer controls
 
@@ -716,7 +907,54 @@ export const SurfaceView: React.FC<SurfaceViewProps> = ({
 - **Animation**: Temporal data playback, morphing between surfaces
 - **AR/VR support**: Immersive surface exploration
 
+## Migration Path
+
+### Step-by-Step Migration Strategy
+
+1. **Phase 0: Preparation (No breaking changes)**
+   - Create `SharedControls.tsx` by extracting content from `LayerControlsPanel.tsx`
+   - Keep `LayerControlsPanel` working exactly as before
+   - Add unit tests for shared controls
+
+2. **Phase 1: Type System Extension**
+   - Add discriminated union types to `viewState.ts`
+   - Maintain backward compatibility with type aliases
+   - Update TypeScript configs if needed
+
+3. **Phase 2: Component Refactoring**
+   - Update `LayerControlsPanel` to use `SharedControls`
+   - Add empty `SurfaceControls` component (placeholder)
+   - Ensure all existing functionality unchanged
+
+4. **Phase 3: Surface Support**
+   - Implement surface loading in backend
+   - Add `SurfaceView` component
+   - Enable surface layers in UI
+
+5. **Phase 4: Progressive Enhancement**
+   - Add vol2surf mapping
+   - Optimize performance with GPU shaders
+   - Add advanced surface features
+
+### Backward Compatibility Guarantees
+
+- All existing volume functionality remains unchanged
+- No breaking changes to public APIs
+- Gradual opt-in for surface features
+- Type aliases maintain compatibility:
+  ```typescript
+  // For backward compatibility
+  export type VolumeLayer = VolumeViewLayer;  // Alias
+  export type Layer = ViewLayer;  // Works with existing code
+  ```
+
 ---
 
-**Document Status**: Architecture planning complete, ready for implementation  
-**Next Steps**: Begin Phase 1 implementation with type system extensions
+**Document Status**: Architecture finalized with separate panels pattern  
+**Updated**: 2025-01-08 - Expert consensus achieved on LayerPanel separation  
+**Key Decision**: Separate VolumePanel and SurfacePanel with LayerPropertiesManager  
+**Next Steps**: 
+1. Extract SharedControls from existing LayerPanel
+2. Create LayerPropertiesManager as central dispatcher
+3. Implement VolumePanel and SurfacePanel components
+4. Begin surface geometry loading implementation

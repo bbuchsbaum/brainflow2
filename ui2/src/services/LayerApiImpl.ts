@@ -85,6 +85,27 @@ export class LayerApiImpl implements LayerApi {
         };
         console.log(`[LayerApiImpl ${performance.now() - addLayerStartTime}ms] Setting layer metadata:`, JSON.stringify(metadata));
         useLayerStore.getState().setLayerMetadata(newLayer.id, metadata);
+        
+        // Validate render properties were created
+        if (!renderProps) {
+          const error = `[LayerApiImpl] Failed to create render properties for layer: ${newLayer.id}`;
+          console.error(error);
+          throw new Error(error);
+        }
+        
+        // Validate metadata was stored
+        const storedMetadata = useLayerStore.getState().layerMetadata.get(newLayer.id);
+        if (!storedMetadata) {
+          const error = `[LayerApiImpl] Failed to store metadata for layer: ${newLayer.id}`;
+          console.error(error);
+          throw new Error(error);
+        }
+        
+        console.log(`[LayerApiImpl] Successfully created render properties for layer ${newLayer.id}:`, {
+          intensityRange: [renderProps.intensity.min, renderProps.intensity.max],
+          thresholdRange: [renderProps.threshold.low, renderProps.threshold.high],
+          opacity: renderProps.opacity
+        });
       } else {
         console.warn(`[LayerApiImpl ${performance.now() - addLayerStartTime}ms] No data_range in GPU info!`);
       }
@@ -110,7 +131,8 @@ export class LayerApiImpl implements LayerApi {
     console.log(`  - layerStore: ${stateBefore} layers`);
     console.log(`  - viewStateStore: ${viewStateBefore} layers`);
     
-    useLayerStore.getState().addLayer(newLayer, renderProps);
+    // Fix: Only pass the layer - renderProps are already in metadata
+    useLayerStore.getState().addLayer(newLayer);
     
     const stateAfter = useLayerStore.getState().layers.length;
     const viewStateAfter = useViewStateStore.getState().viewState.layers.length;

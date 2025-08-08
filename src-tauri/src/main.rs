@@ -4,7 +4,7 @@
 )]
 
 // Learn more about Tauri commands at https://tauri.app/v1/guides/features/command
-use api_bridge::{self, BridgeState};
+use api_bridge::{self, BridgeState, SurfaceRegistry};
 use atlases::AtlasService;
 use templates::{TemplateService, TemplateSpace, TemplateType};
 use futures::executor::block_on;
@@ -484,10 +484,11 @@ fn main() {
             ));
             
             let bridge_state = BridgeState::new(
-                volume_registry.clone(),                        // Clone Arc
-                Arc::new(TokioMutex::new(render_loop_service)), // Wrap in Arc<Mutex<...>>
-                layer_to_atlas_map,                             // Pass the new map
-                Arc::new(TokioMutex::new(HashMap::new())),      // layer_to_volume_map
+                volume_registry.clone(),                        // Volume registry
+                Arc::new(TokioMutex::new(SurfaceRegistry::new())), // Surface registry
+                Arc::new(TokioMutex::new(render_loop_service)), // Render loop service
+                layer_to_atlas_map,                             // Layer to atlas map
+                Arc::new(TokioMutex::new(HashMap::new())),      // Layer to volume map
                 atlas_service,                                  // Atlas service
                 template_service,                               // Template service
             );

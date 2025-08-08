@@ -8,6 +8,7 @@ import { useMetadataShortcut } from '@/hooks/useMetadataShortcut';
 import { useLayerPanelServices } from '@/hooks/useLayerPanelServices';
 import { useFileLoadingStatus } from '@/hooks/useFileLoadingStatus';
 import { LayerControlsPanel } from './LayerControlsPanel';
+import { LayerPropertiesManager } from './LayerPropertiesManager';
 import { LayerEmptyState } from './LayerEmptyState';
 import { LayerStatusBar } from './LayerStatusBar';
 import { PanelErrorBoundary } from '../common/PanelErrorBoundary';
@@ -50,7 +51,7 @@ const LayerPanelContent: React.FC = () => {
     intensity: viewStateLayer.intensity,
     threshold: viewStateLayer.threshold,
     colormap: viewStateLayer.colormap,
-    interpolation: 'linear' as const
+    interpolation: (viewStateLayer.interpolation || 'linear') as 'nearest' | 'linear'
   } : undefined;
 
   const toggleVisibility = useCallback((layerId: string) => {
@@ -98,6 +99,9 @@ const LayerPanelContent: React.FC = () => {
           }
           if (updates.opacity !== undefined) {
             layers[layerIndex].opacity = updates.opacity;
+          }
+          if (updates.interpolation) {
+            layers[layerIndex].interpolation = updates.interpolation;
           }
         }
         return { ...state, layers };
@@ -156,9 +160,9 @@ const LayerPanelContent: React.FC = () => {
           }}
         />
 
-        {/* Layer controls */}
-        <LayerControlsPanel
-          selectedLayer={!!selectedLayer}
+        {/* Layer controls - Now using LayerPropertiesManager dispatcher */}
+        <LayerPropertiesManager
+          selectedLayer={selectedLayer || false}
           selectedRender={selectedRender}
           selectedMetadata={selectedMetadata}
           onRenderUpdate={handleRenderUpdate}

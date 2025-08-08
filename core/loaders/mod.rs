@@ -13,7 +13,7 @@ pub use bridge_types::Loader;
 // Import concrete loader types. Each loader should live in its own crate/module.
 // Assuming nifti_loader is a sibling crate in the workspace.
 use nifti_loader::NiftiLoader;
-// Example: use gifti_loader::GiftiLoader;
+use gifti_loader::GiftiLoader;
 
 // --- Type Aliases for Function Pointers ---
 type CanLoadFn = fn(&Path) -> bool;
@@ -71,7 +71,7 @@ pub fn get_registry() -> &'static Arc<LoaderRegistry> {
         let mut registry = LoaderRegistry::new();
         // Register known loaders here
         registry.register::<NiftiLoader>("nifti");
-        // registry.register::<GiftiLoader>("gifti"); // Example
+        registry.register::<GiftiLoader>("gifti");
         Arc::new(registry)
     })
 }

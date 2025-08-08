@@ -1,4 +1,4 @@
-use api_bridge::BridgeState;
+use api_bridge::{BridgeState, SurfaceRegistry};
 use atlases::AtlasService;
 use templates::TemplateService;
 use log::{error, info};
@@ -165,6 +165,7 @@ pub fn run() {
                             
                             let bridge_state = BridgeState::new(
                                 volume_registry.clone(),
+                                Arc::new(TokioMutex::new(SurfaceRegistry::new())),
                                 Arc::new(TokioMutex::new(Some(Arc::new(TokioMutex::new(service))))),
                                 layer_to_atlas_map.clone(),
                                 Arc::new(TokioMutex::new(HashMap::new())),
@@ -196,6 +197,7 @@ pub fn run() {
                             
                             let bridge_state = BridgeState::new(
                                 volume_registry.clone(),
+                                Arc::new(TokioMutex::new(SurfaceRegistry::new())),
                                 Arc::new(TokioMutex::new(None)),
                                 layer_to_atlas_map.clone(),
                                 Arc::new(TokioMutex::new(HashMap::new())),

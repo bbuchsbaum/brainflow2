@@ -1,12 +1,13 @@
 /**
- * LayerControlsPanel - Extracted UI controls from LayerPanel
- * Focused component for layer property editing
+ * LayerControlsPanel - Layer property editing panel for volumes
+ * Now uses SharedControls for the common data layer controls
+ * 
+ * This component maintains backward compatibility while using
+ * the new SharedControls component internally.
  */
 
 import React from 'react';
-import { ProSlider } from '../ui/ProSlider';
-import { SingleSlider } from '../ui/SingleSlider';
-import { EnhancedColormapSelector } from './EnhancedColormapSelector';
+import { SharedControls, type DataLayerRender, type DataLayerMetadata } from './SharedControls';
 import type { LayerRender } from '@/types/layers';
 import type { VolumeMetadata } from '@/stores/layerStore';
 
@@ -17,52 +18,39 @@ interface LayerControlsPanelProps {
   onRenderUpdate: (updates: Partial<LayerRender>) => void;
 }
 
+/**
+ * LayerControlsPanel - Maintains backward compatibility while using SharedControls
+ * 
+ * This component acts as an adapter between the existing layer system
+ * and the new SharedControls component.
+ */
 export const LayerControlsPanel: React.FC<LayerControlsPanelProps> = ({
   selectedLayer,
   selectedRender,
   selectedMetadata,
   onRenderUpdate
 }) => {
-  const isDisabled = !selectedLayer || !selectedRender;
+  // Adapt LayerRender to DataLayerRender format for SharedControls
+  const adaptedRender: DataLayerRender | undefined = selectedRender ? {
+    intensity: selectedRender.intensity || [0, 10000],
+    threshold: selectedRender.threshold || [0, 0],
+    colormap: selectedRender.colormap || 'gray',
+    opacity: selectedRender.opacity ?? 1
+  } : undefined;
+  
+  // Adapt VolumeMetadata to DataLayerMetadata format
+  const adaptedMetadata: DataLayerMetadata | undefined = selectedMetadata ? {
+    dataRange: selectedMetadata.dataRange,
+    dataType: selectedMetadata.dataType,
+    units: selectedMetadata.units
+  } : undefined;
   
   return (
-    <div className={`space-y-4 ${isDisabled ? 'opacity-50 pointer-events-none' : ''}`}>
-      {/* Intensity Window */}
-      <ProSlider
-        label="Intensity Window"
-        min={selectedMetadata?.dataRange?.min ?? 0}
-        max={selectedMetadata?.dataRange?.max ?? 10000}
-        value={selectedRender?.intensity || [0, 10000]}
-        onChange={(value) => onRenderUpdate({ intensity: value })}
-        precision={0}
-      />
-
-      {/* Threshold */}
-      <ProSlider
-        label="Threshold"
-        min={selectedMetadata?.dataRange?.min ?? 0}
-        max={selectedMetadata?.dataRange?.max ?? 10000}
-        value={selectedRender?.threshold || [0, 0]}
-        onChange={(value) => onRenderUpdate({ threshold: value })}
-        precision={0}
-      />
-
-      {/* Colormap */}
-      <EnhancedColormapSelector
-        value={selectedRender?.colormap || 'gray'}
-        onChange={(colormap) => onRenderUpdate({ colormap })}
-      />
-
-      {/* Opacity */}
-      <SingleSlider
-        label="Opacity"
-        min={0}
-        max={1}
-        value={selectedRender?.opacity || 1}
-        onChange={(opacity) => onRenderUpdate({ opacity })}
-        showPercentage={true}
-        className="mb-0"
-      />
-    </div>
+    <SharedControls
+      render={adaptedRender}
+      metadata={adaptedMetadata}
+      onRenderUpdate={onRenderUpdate}
+      disabled={!selectedLayer || !selectedRender}
+    />
   );
 };

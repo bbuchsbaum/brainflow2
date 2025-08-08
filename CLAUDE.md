@@ -258,6 +258,40 @@ Example: Crosshair settings must update immediately in all views when changed in
 ### Key Principle
 If state needs to be visible across multiple GoldenLayout panels, it MUST use Zustand, not React Context.
 
+## Lessons Learned: Allotment Split Pane Compatibility
+
+### Issue: Flexbox Layouts Don't Work Within Allotment Panes
+When using the Allotment library for resizable split panes, **flexbox layouts don't work correctly** within the panes. This caused the slice slider to be completely invisible in SliceViewCanvas.
+
+### Problem Details
+- **What failed**: Using `flex`, `flex-col`, and `flex-1` classes within Allotment.Pane components
+- **Symptom**: Child components (especially those at bottom of flex containers) become invisible
+- **Root cause**: Allotment manages its own layout system that conflicts with flexbox
+
+### Solution: Use Absolute Positioning
+Instead of flexbox, use absolute positioning for layout within Allotment panes:
+
+```typescript
+// ❌ WRONG - Flexbox doesn't work in Allotment
+<div className="flex flex-col h-full">
+  <div className="flex-1"><SliceRenderer /></div>
+  <div className="h-8"><SliceSlider /></div>
+</div>
+
+// ✅ CORRECT - Use absolute positioning
+<div className="relative h-full">
+  <div className="absolute inset-0" style={{ bottom: '32px' }}>
+    <SliceRenderer />
+  </div>
+  <div className="absolute bottom-0 left-0 right-0" style={{ height: '32px' }}>
+    <SliceSlider />
+  </div>
+</div>
+```
+
+### Key Principle
+When components are inside Allotment panes (like FlexibleSlicePanel), avoid flexbox for internal layout. Use absolute positioning or other CSS techniques instead.
+
 ## Project Vision
 
 **Goal**: Build the greatest fMRI UI program in the history of the world.

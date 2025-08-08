@@ -147,12 +147,11 @@ export const FlexibleSlicePanel = memo(function FlexibleSlicePanel({
   }, [viewId, throttledUpdateDimensions]);
   
   return (
-    <div ref={containerRef} className="h-full w-full bg-gray-900 flex flex-col">
+    <div ref={containerRef} className="h-full w-full bg-gray-900">
       <SliceView
         viewId={viewId}
         width={dimensions.width}
         height={dimensions.height}
-        className="flex-1"
       />
     </div>
   );

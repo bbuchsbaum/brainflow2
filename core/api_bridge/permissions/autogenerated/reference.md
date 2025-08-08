@@ -5,6 +5,8 @@ Default permissions for api-bridge plugin
 #### This default permission set includes the following:
 
 - `allow-load-file`
+- `allow-load-surface`
+- `allow-get-surface-geometry`
 - `allow-get-volume-bounds`
 - `allow-world-to-voxel`
 - `allow-get-timeseries-matrix`
@@ -670,6 +672,32 @@ Denies the get_render_statistics command without any pre-configured scope.
 <tr>
 <td>
 
+`api-bridge:allow-get-surface-geometry`
+
+</td>
+<td>
+
+Enables the get_surface_geometry command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:deny-get-surface-geometry`
+
+</td>
+<td>
+
+Denies the get_surface_geometry command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
 `api-bridge:allow-get-template-cache-stats`
 
 </td>
@@ -1001,6 +1029,32 @@ Enables the load_nifti_file command without any pre-configured scope.
 <td>
 
 Denies the load_nifti_file command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:allow-load-surface`
+
+</td>
+<td>
+
+Enables the load_surface command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:deny-load-surface`
+
+</td>
+<td>
+
+Denies the load_surface command without any pre-configured scope.
 
 </td>
 </tr>

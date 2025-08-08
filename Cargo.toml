@@ -48,6 +48,10 @@ env_logger = "=0.11.5"
 # --- Atlas and Template dependencies ---
 neuroatlas = { path = "/Users/bbuchsbaum/code/rust/neuroatlas-rs", features = ["surface"] }
 
+# --- Surface and GIFTI support ---
+neurosurf-rs = { path = "/Users/bbuchsbaum/code/rust/neurosurf-rs", features = ["gifti-support"] }
+gifti = { path = "/Users/bbuchsbaum/code/rust/gifti-rs" }
+
 [profile.release]
 lto = true
 codegen-units = 1

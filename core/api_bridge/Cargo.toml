@@ -31,7 +31,9 @@ uuid = { version = "1.4", features = ["v4"] } # For generating IDs
 futures = "0.3" # For block_on (though consider replacing with async runtime)
 bridge_types = { path = "../bridge_types" } # NEW: Shared types/traits
 nifti_loader = { path = "../loaders/nifti", package = "nifti-loader" } # Keep for NiftiLoader registration
+gifti_loader = { path = "../loaders/gifti", package = "gifti-loader" } # GIFTI support
 brainflow-loaders = { path = "../loaders" } # CORRECTED: Match package name
+neurosurf-rs = { workspace = true } # For surface geometry types
 log = "0.4" # Add log crate dependency
 tokio = { version = "1", features = ["sync", "test-util", "macros"] } # Add tokio for async Mutex and tests
 nalgebra = { version = "0.32", features = ["serde-serialize"] } # Added dependency for matrix math

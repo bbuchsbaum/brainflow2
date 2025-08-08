@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE GIFTI SYSTEM "http://www.nitrc.org/frs/download.php/115/gifti.dtd">
+<GIFTI xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+       xsi:noNamespaceSchemaLocation="http://www.nitrc.org/frs/download.php/115/gifti.xsd">
+  <MetaData>
+    <MD>
+      <Name><![CDATA[Description]]></Name>
+      <Value><![CDATA[1D shape data for testing]]></Value>
+    </MD>
+    <MD>
+      <Name><![CDATA[Creator]]></Name>
+      <Value><![CDATA[Manual-test-creation]]></Value>
+    </MD>
+  </MetaData>
+  
+  <!-- 1D Shape data: 8 float values -->
+  <DataArray Intent="NIFTI_INTENT_SHAPE"
+             DataType="NIFTI_TYPE_FLOAT32"
+             ArrayIndexingOrder="RowMajorOrder"
+             Dimensionality="1"
+             Dim0="8"
+             Encoding="ASCII"
+             Endian="LittleEndian"
+             ExternalFileName=""
+             ExternalFileOffset="">
+    <MetaData>
+      <MD>
+        <Name><![CDATA[Name]]></Name>
+        <Value><![CDATA[ShapeValues]]></Value>
+      </MD>
+      <MD>
+        <Name><![CDATA[Units]]></Name>
+        <Value><![CDATA[mm]]></Value>
+      </MD>
+    </MetaData>
+    <Data>-2.5 -1.0 0.0 0.5 1.0 1.5 2.0 3.14159</Data>
+  </DataArray>
+</GIFTI>

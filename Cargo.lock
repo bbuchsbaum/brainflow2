@@ -195,10 +195,12 @@ dependencies = [
  "colormap",
  "flate2",
  "futures",
+ "gifti-loader",
  "image 0.25.6",
  "log",
  "nalgebra 0.32.6",
  "neuro-types",
+ "neurosurf-rs",
  "nifti-loader",
  "render_loop",
  "serde",
@@ -717,6 +719,7 @@ name = "brainflow-loaders"
 version = "0.1.0"
 dependencies = [
  "bridge_types",
+ "gifti-loader",
  "log",
  "nifti-loader",
 ]
@@ -2417,6 +2420,19 @@ dependencies = [
 [[package]]
 name = "gifti-loader"
 version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "bridge_types",
+ "gifti",
+ "log",
+ "nalgebra 0.32.6",
+ "neurosurf-rs",
+ "serde",
+ "serde_json",
+ "thiserror 1.0.69",
+ "uuid",
+ "volmath",
+]
 
 [[package]]
 name = "gimli"
@@ -3604,9 +3620,9 @@ dependencies = [
 
 [[package]]
 name = "log"
-version = "0.4.27"
+version = "0.4.22"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "13dc2df351e3202783a1fe0d44375f7295ffb4049267b0f3018346dc122a1d94"
+checksum = "a7a70ba024b9dc04c27ea2f0c0548feb474ec5c54bba33a7f72f873a39d07b24"
 dependencies = [
  "value-bag",
 ]
@@ -6444,9 +6460,9 @@ dependencies = [
 
 [[package]]
 name = "serde_json"
-version = "1.0.140"
+version = "1.0.133"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "20068b6e96dc6c9bd23e01df8827e6c7e1f2fddd43c21810382803c136b99373"
+checksum = "c7fceb2473b9166b2294ef05efcb65a3db80803f0b03ef86a5fc88a2b85ee377"
 dependencies = [
  "itoa 1.0.15",
  "memchr",
@@ -8113,11 +8129,11 @@ checksum = "06abde3611657adf66d383f00b093d7faecc7fa57071cce2578660c9f1010821"
 
 [[package]]
 name = "uuid"
-version = "1.16.0"
+version = "1.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "458f7a779bf54acc9f347480ac654f68407d3aab21269a6e3c9f922acd9e2da9"
+checksum = "f8c5f0a0af699448548ad1a2fbf920fb4bee257eae39953ba95cb84891a0446a"
 dependencies = [
- "getrandom 0.3.2",
+ "getrandom 0.2.16",
  "serde",
 ]
 

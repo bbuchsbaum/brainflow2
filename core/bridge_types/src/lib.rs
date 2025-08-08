@@ -36,6 +36,44 @@ pub enum VolumeSendable {
     Vec4DF64(neuroim::DenseNeuroVec<f64>),
 }
 
+// --- Surface types for GIFTI support ---
+/// Handle for referencing a surface geometry in the registry
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct SurfaceHandle(pub String);
+
+/// Handle for referencing surface data in the registry
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct SurfaceDataHandle(pub String);
+
+/// Content loaded from a GIFTI file
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
+#[serde(tag = "type")]
+pub enum LoadedContent {
+    /// Volume data (NIfTI, etc.)
+    Volume {
+        handle: String,
+        dimensions: [u32; 3],
+        voxel_size: [f32; 3],
+    },
+    /// Surface geometry (GIFTI mesh)
+    Surface {
+        handle: String,
+        vertex_count: usize,
+        face_count: usize,
+        hemisphere: Option<String>,
+        surface_type: Option<String>,
+    },
+    /// Surface data (activation maps, etc.)
+    SurfaceData {
+        handle: String,
+        data_count: usize,
+        intent: String,
+    },
+}
+
 // --- Moved/Defined Shared API Types ---
 
 // --- BridgeError (Replaced with BF-TB-01 / Plan v1.2 definition) ---
@@ -70,6 +108,9 @@ pub enum BridgeError {
 
     #[error("Service not initialized: {details}")]
     ServiceNotInitialized { code: u16, details: String },
+    
+    #[error("Loader error: {0}")]
+    LoaderError(String),
 }
 
 // --- From Implementations for BridgeError ---
@@ -150,6 +191,17 @@ pub enum Loaded {
         path: String,
         loader_type: String,
     },
+    Surface {
+        handle: SurfaceHandle,
+        vertex_count: usize,
+        face_count: usize,
+        path: String,
+    },
+    SurfaceData {
+        handle: SurfaceDataHandle,
+        data_count: usize,
+        path: String,
+    },
 }
 
 impl Loaded {
@@ -160,6 +212,8 @@ impl Loaded {
             Loaded::Table { .. } => "Table",
             Loaded::Image2D { .. } => "Image2D",
             Loaded::Metadata { .. } => "Metadata",
+            Loaded::Surface { .. } => "Surface",
+            Loaded::SurfaceData { .. } => "SurfaceData",
         }
     }
 }
@@ -427,4 +481,12 @@ pub struct VolumeHandleInfo {
     pub current_timepoint: Option<usize>,
     /// Additional time series metadata (if applicable)
     pub time_series_info: Option<TimeSeriesInfo>,
+}
+
+/// Surface geometry data for frontend
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct SurfaceGeometryData {
+    pub vertices: Vec<f32>,
+    pub faces: Vec<u32>,
 }

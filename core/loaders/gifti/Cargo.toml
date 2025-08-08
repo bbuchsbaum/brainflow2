@@ -4,3 +4,27 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+# Core dependencies
+bridge_types = { path = "../../bridge_types" }
+volmath = { path = "../../volmath" }
+
+# Surface and GIFTI support
+neurosurf-rs = { workspace = true }
+gifti = { workspace = true }
+
+# Serialization
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+# Math and transforms
+nalgebra = { workspace = true }
+
+# Error handling
+thiserror = { workspace = true }
+anyhow = { workspace = true }
+
+# Logging
+log = { workspace = true }
+
+# UUID generation for handles
+uuid = { workspace = true }

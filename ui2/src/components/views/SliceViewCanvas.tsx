@@ -81,6 +81,7 @@ function SliceViewCanvasRaw({ viewId, width, height, className = '' }: SliceView
   const hasLayers = layers.length > 0;
   const isLoadingAnyLayer = loadingLayers.size > 0;
   
+  
   // Slider navigation using the same approach as original SliceView
   const sliceNavService = getSliceNavigationService();
   
@@ -250,22 +251,31 @@ function SliceViewCanvasRaw({ viewId, width, height, className = '' }: SliceView
     await fileService.loadFile(file);
   }, []);
   
+  // For Allotment compatibility, we need proper height inheritance
+  // The component must fill the Allotment.Pane completely
+  
+  const containerRef = React.useRef<HTMLDivElement>(null);
+
+  // Calculate slider height to properly position canvas
+  const SLIDER_HEIGHT = 32; // Height of the slider area in pixels
+
   return (
-    <>
+    <div ref={containerRef} className="h-full w-full relative" data-view-id={viewId}>
       {timeOverlay}
-      <div className={`flex flex-col h-full ${className}`}>
-        <div className="flex-1 relative">
-          <SliceRenderer
+      
+      {/* Canvas area - positioned absolutely to leave room for slider */}
+      <div className="absolute inset-0" style={{ bottom: hasLayers ? `${SLIDER_HEIGHT}px` : '0' }}>
+        <SliceRenderer
             context={renderContext}
-            width={width}    // CRITICAL: Pass dimensions to SliceRenderer
-            height={height}  // Without these, canvas size is undefined
+            width={width}
+            height={height}
             customRender={customRender}
             onMouseDown={handleMouseClick}
             onWheel={throttledHandleWheel}
             onCanvasReady={handleCanvasReady}
             enableDragDrop={true}
             onFileDrop={handleFileDrop}
-            showLoading={false}  // We handle loading state differently
+            showLoading={false}
             showError={true}
             showLabel={true}
             label={viewId.charAt(0).toUpperCase() + viewId.slice(1)}
@@ -275,10 +285,11 @@ function SliceViewCanvasRaw({ viewId, width, height, className = '' }: SliceView
             className=""
             canvasClassName="border border-gray-300 cursor-crosshair"
           />
-        </div>
-        
-        {/* Slice navigation slider */}
-        {hasLayers && (
+      </div>
+      
+      {/* Slider positioned at the bottom */}
+      {hasLayers && (
+        <div className="absolute bottom-0 left-0 right-0" style={{ height: `${SLIDER_HEIGHT}px` }}>
           <SliceSlider
             viewType={viewId}
             value={sliderValue}
@@ -288,9 +299,9 @@ function SliceViewCanvasRaw({ viewId, width, height, className = '' }: SliceView
             disabled={false}
             onChange={handleSliderChange}
           />
-        )}
-      </div>
-    </>
+        </div>
+      )}
+    </div>
   );
 }
 

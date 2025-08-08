@@ -3369,28 +3369,22 @@ impl RenderLoopService {
             }
         }
 
-        for (i, layer_info) in layer_infos.iter().enumerate() {
-            self.add_render_layer(
-                layer_info.atlas_index,
-                layer_info.opacity,
-                layer_info.texture_coords,
-            )?;
-
-            // Update layer settings - use layer index, not atlas index!
-            self.set_layer_colormap(i, layer_info.colormap_id)?;
-            self.update_layer_intensity(
-                i,
-                layer_info.intensity_range.0,
-                layer_info.intensity_range.1,
-            )?;
-            self.update_layer_threshold(
-                i,
-                layer_info.threshold_range.0,
-                layer_info.threshold_range.1,
-            )?;
+        // Add layers directly with complete LayerInfo to preserve all properties including interpolation
+        for layer_info in layer_infos.iter() {
+            // Directly add the complete LayerInfo instead of going through add_render_layer
+            // This preserves the interpolation mode which was being lost before
+            self.layer_state_manager
+                .add_layer(layer_info.clone())
+                .map_err(|e| RenderLoopError::Internal {
+                    code: 8001,
+                    details: format!("Failed to add layer: {}", e),
+                })?;
         }
 
-        // Update all layer uniforms AFTER layers have been added
+        // Update all layer uniforms (replicates what add_render_layer was doing)
+        self.update_all_layer_uniforms()?;
+        
+        // Update layer uniforms with world transforms
         self.update_layer_uniforms_direct(&layer_infos, &layer_dims, &world_to_voxels);
 
         // Update view's last state

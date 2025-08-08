@@ -143,7 +143,8 @@ impl LayerUniformManager {
                 thresh_low: layer.threshold_range.0,
                 thresh_high: layer.threshold_range.1,
                 is_mask: if layer.is_mask { 1 } else { 0 },
-                _pad: [0.0; 2],
+                interpolation_mode: layer.interpolation_mode,
+                _pad: 0.0,
             };
         }
 
@@ -215,7 +216,8 @@ impl LayerUniformManager {
             thresh_low: layer.threshold_range.0,
             thresh_high: layer.threshold_range.1,
             is_mask: if layer.is_mask { 1 } else { 0 },
-            _pad: [0.0; 2],
+            interpolation_mode: layer.interpolation_mode,
+            _pad: 0.0,
         };
 
         // Upload just the updated layer
@@ -294,6 +296,7 @@ mod tests {
             threshold_mode: ThresholdMode::Range,
             texture_coords: (0.0, 0.0, 1.0, 1.0),
             is_mask: false,
+            interpolation_mode: 1,
         }];
 
         let dims = vec![(256, 256, 128)];

@@ -12,4 +12,4 @@ log = "0.4"
 bridge_types = { path = "../bridge_types" }
 # Need to list the sub-crates as dependencies here too
 nifti-loader = { path = "./nifti" }
-# gifti-loader = { path = "./gifti" } # Uncomment when gifti is ready 
+gifti-loader = { path = "./gifti" } 

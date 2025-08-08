@@ -30,10 +30,6 @@ export function SliceSlider({
   const [isDragging, setIsDragging] = useState(false);
   const { setDraggingSource } = useDragSourceStore();
   
-  // Debug logging
-  React.useEffect(() => {
-    console.log(`SliceSlider ${viewType}: value=${value}, min=${min}, max=${max}, step=${step}`);
-  }, [viewType, value, min, max, step]);
   
   // Get the axis label based on view type
   const axisLabel = viewType === 'axial' ? 'Z' : viewType === 'sagittal' ? 'X' : 'Y';
@@ -121,7 +117,7 @@ export function SliceSlider({
   
   return (
     <div 
-      className="relative p-1.5 bg-gray-800 border-t border-gray-600 flex-shrink-0"
+      className="relative h-full bg-gray-800 border-t border-gray-600 flex items-center px-2"
       onMouseEnter={() => setShowValue(true)}
       onMouseLeave={() => setShowValue(false)}
     >

@@ -4,7 +4,7 @@
 //! enabling differential testing against CPU implementations.
 
 use crate::render_state::{BlendMode as GpuBlendMode, ThresholdMode};
-use crate::view_state::{CameraState, LayerConfig, SliceOrientation, ThresholdConfig, ViewState};
+use crate::view_state::{CameraState, InterpolationMode, LayerConfig, SliceOrientation, ThresholdConfig, ViewState};
 use crate::{RenderLoopError, RenderLoopService};
 use nalgebra::Vector3;
 use neuro_types::{
@@ -102,6 +102,7 @@ impl GpuSliceAdapter {
                 None
             },
             visible: layer.visual.opacity > 0.0,
+            interpolation: InterpolationMode::Linear, // Default to linear
         })
     }
 
@@ -210,6 +211,7 @@ impl SliceSpecMapper {
                 intensity_window: layer.visual.intensity_range,
                 threshold: None, // Simplified for now
                 visible: layer.visual.opacity > 0.0,
+                interpolation: InterpolationMode::Linear, // Default to linear
             })
             .collect();
 

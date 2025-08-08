@@ -4,6 +4,8 @@
 description = "Default permissions for api-bridge plugin"
 permissions = [
     "allow-load-file",
+    "allow-load-surface",
+    "allow-get-surface-geometry",
     "allow-get-volume-bounds",
     "allow-world-to-voxel", 
     "allow-get-timeseries-matrix",

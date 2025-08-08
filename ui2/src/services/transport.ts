@@ -32,6 +32,8 @@ export class TauriTransport implements BackendTransport {
       'apply_and_render_view_state_binary',
       'apply_and_render_view_state_raw',
       'load_file',
+      'load_surface',
+      'get_surface_geometry',
       'get_volume_bounds',
       'get_volume_info',
       'set_volume_timepoint',

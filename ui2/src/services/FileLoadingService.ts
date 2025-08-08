@@ -13,6 +13,8 @@ import { VolumeHandleStore } from './VolumeHandleStore';
 import { useViewStateStore } from '@/stores/viewStateStore';
 import { CoordinateTransform } from '@/utils/coordinates';
 import type { VolumeBounds } from '@brainflow/api';
+import { useSurfaceStore } from '@/stores/surfaceStore';
+import { getLayoutService } from './layoutService';
 
 export class FileLoadingService {
   private eventBus: EventBus;
@@ -59,6 +61,12 @@ export class FileLoadingService {
     
     // Extract filename from path
     const filename = path.split('/').pop() || path;
+    
+    // Check if this is a surface file (.gii)
+    if (path.toLowerCase().endsWith('.gii')) {
+      await this.loadSurfaceFile(path, filename);
+      return;
+    }
     console.log(`[FileLoadingService ${performance.now() - startTime}ms] Loading file:`, filename);
     
     // Check if already loading
@@ -137,6 +145,52 @@ export class FileLoadingService {
       this.eventBus.emit('ui.notification', {
         type: 'error',
         message: `Failed to load ${filename}: ${(error as Error).message}`
+      });
+    }
+  }
+  
+  /**
+   * Load a surface file (.gii) and open it in a new surface viewer panel
+   */
+  private async loadSurfaceFile(path: string, filename: string): Promise<void> {
+    console.log(`[FileLoadingService] Loading surface file:`, filename);
+    
+    try {
+      // Show loading notification
+      this.eventBus.emit('ui.notification', {
+        type: 'info',
+        message: `Loading surface: ${filename}`
+      });
+      
+      // Load surface via surface store
+      const surfaceHandle = await useSurfaceStore.getState().loadSurface(path);
+      console.log(`[FileLoadingService] Surface loaded with handle:`, surfaceHandle);
+      
+      // Open a new surface viewer panel in GoldenLayout
+      const layoutService = getLayoutService();
+      layoutService.addComponent({
+        type: 'component',
+        componentType: 'surfaceView',
+        title: filename,
+        componentState: {
+          surfaceHandle,
+          path
+        }
+      });
+      
+      // Show success notification
+      this.eventBus.emit('ui.notification', {
+        type: 'success',
+        message: `Surface loaded: ${filename}`
+      });
+      
+    } catch (error) {
+      console.error(`[FileLoadingService] Failed to load surface:`, error);
+      
+      // Show error notification
+      this.eventBus.emit('ui.notification', {
+        type: 'error',
+        message: `Failed to load surface ${filename}: ${(error as Error).message}`
       });
     }
   }

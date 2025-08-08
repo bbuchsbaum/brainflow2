@@ -21,6 +21,7 @@ export interface ViewLayer {
   intensity: [number, number];  // [min, max]
   threshold: [number, number];  // [low, high]
   blendMode?: 'alpha' | 'additive' | 'max' | 'min';
+  interpolation?: 'nearest' | 'linear';  // Texture sampling mode
 }
 
 export interface ViewState {

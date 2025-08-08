@@ -1,281 +1,476 @@
-# Crosshair Settings Runtime Update Investigation Report
+# SurfViewJS Library Investigation Report
 
-## Problem Statement
-The crosshair settings persist to localStorage and appear correctly after app restart, but do NOT update in the views during runtime. When users trigger a reslice (which causes a full backend render), the crosshair appearance doesn't change, indicating the settings are not reaching the components that need them.
+## Executive Summary
 
-## Investigation Findings
+After thoroughly investigating the surfviewjs library (published as "neurosurface") at `/Users/bbuchsbaum/code/jscode/surfviewjs`, I have analyzed its structure, capabilities, API, and integration potential with our React/TypeScript brainflow2 application. This library is a sophisticated, modular Three.js-based brain surface visualization tool specifically designed for neuroimaging applications and appears exceptionally well-suited for integration into our surface viewer panel.
 
-### 1. Data Flow Analysis
+## 1. Overall Structure and Purpose
 
-#### Context Provider Chain:
-```
-App.tsx
-├── CrosshairProvider (creates context)
-│   ├── CrosshairContext (useState for settings)
-│   └── Children components
-└── MosaicViewPromise → MosaicCell → useViewCrosshairSettings()
-```
+### Core Purpose
+The surfviewjs library (npm package: "neurosurface") is a comprehensive brain surface visualization library built specifically for neuroimaging applications. It provides:
+- High-performance 3D brain surface rendering using Three.js/WebGL
+- Multi-layer surface visualization with advanced compositing
+- Scientific colormap support for fMRI data visualization
+- Interactive controls optimized for neuroimaging workflows
+- React component integration for modern web applications
 
-#### Settings Update Flow:
-1. User changes settings in CrosshairSettingsPopover
-2. Calls `updateSettings({ activeColor: newColor })` 
-3. CrosshairContext.updateSettings() executes
-4. Updates local state with `setSettings(prev => newSettings)`
-5. Emits event: `getEventBus().emit('crosshair.settings.updated', newSettings)`
-6. Components should re-render with new settings
+### Architecture Overview
+- **Core Framework**: Built on Three.js with WebGL rendering
+- **Language**: TypeScript with JavaScript support
+- **Build System**: Vite for modern ES modules + UMD builds
+- **Package Structure**: Modular exports with separate React components
+- **Event System**: EventEmitter-based architecture for component communication
 
-### 2. Key Components Analysis
+## 2. Main Features and Capabilities
 
-#### CrosshairContext.tsx (Lines 152-170)
+### Surface Types and Rendering
+The library provides multiple surface classes for different use cases:
+
+**Base Surface Types**:
+- `NeuroSurface`: Basic surface with solid colors
+- `ColorMappedNeuroSurface`: Single-layer surfaces with data-driven color mapping
+- `VertexColoredNeuroSurface`: Surfaces with pre-computed per-vertex colors
+- `MultiLayerNeuroSurface`: Advanced surfaces supporting multiple composited layers
+
+**Layer System**:
+- `BaseLayer`: Foundational surface appearance
+- `DataLayer`: Scalar data with colormap visualization
+- `RGBALayer`: Pre-computed RGBA colors per vertex
+- `LayerStack`: Management system for multiple layers with GPU compositing
+
+### Advanced Visualization Features
+**Scientific Colormaps** (25+ supported):
+- Sequential: viridis, plasma, inferno, magma, hot, cool
+- Diverging: RdBu, bwr, coolwarm, seismic, Spectral
+- Qualitative: jet, hsv, rainbow
+- Monochrome: greys, blues, reds, greens
+
+**Real-time Controls**:
+- Dynamic intensity range adjustment
+- Threshold-based masking
+- Alpha blending and compositing modes
+- Multiple lighting models (Phong, Physical)
+
+**Post-Processing Effects**:
+- Screen Space Ambient Occlusion (SSAO)
+- Rim lighting shaders
+- Shadow mapping
+- Environment mapping support
+
+## 3. Surface Data Handling
+
+### Data Input Formats
+The library handles surface data through optimized TypedArrays:
+- **Vertices**: `Float32Array` of 3D coordinates (x, y, z)
+- **Faces**: `Uint32Array` of triangle indices
+- **Data Values**: `Float32Array` of per-vertex scalar values
+- **Metadata**: Hemisphere designation and surface type information
+
+### File Format Support
+Comprehensive neuroimaging format support:
+- **GIFTI (.gii)**: Full support with ASCII, Base64Binary, and GZipBase64Binary encoding
+- **FreeSurfer**: Binary surface format with curvature data support
+- **PLY**: Polygon file format
+- **Auto-detection**: Intelligent format detection based on file extensions and content
+
+### Robust Data Processing
+- **Error Handling**: Comprehensive validation with informative error messages
+- **Memory Efficiency**: TypedArray-based processing with minimal copying
+- **Range Detection**: Automatic data range calculation with fallback defaults
+- **Index Mapping**: Efficient vertex-to-data mapping with bounds checking
+
+## 4. Three.js Components Integration
+
+### Core Three.js Usage
+The library leverages modern Three.js features:
+
+**Scene Management**:
+- `THREE.Scene` with optimized object management
+- `THREE.PerspectiveCamera` with dynamic controls
+- `THREE.WebGLRenderer` with antialiasing and shadow support
+
+**Geometry and Materials**:
+- `THREE.BufferGeometry` with custom attributes (position, color, curvature)
+- `THREE.MeshPhongMaterial` for basic lighting
+- `THREE.MeshPhysicalMaterial` for advanced PBR rendering
+- Custom shader integration for rim lighting effects
+
+**Controls and Interaction**:
+- `TrackballControls` for traditional camera manipulation
+- Custom `SurfaceControls` for neuroimaging-optimized navigation
+- Predefined viewpoints (lateral, medial, dorsal, ventral, etc.)
+
+**Post-Processing**:
+- `EffectComposer` for multi-pass rendering
+- `RenderPass` for scene rendering
+- `SSAOPass` for ambient occlusion effects
+
+## 5. Main API Entry Points
+
+### Primary Classes
 ```typescript
-const updateSettings = (updates: Partial<CrosshairSettings>) => {
-  console.log('[CrosshairContext] updateSettings called with:', updates);
-  setSettings(prev => {
-    const newSettings = { ...prev, ...updates };
-    
-    // Sync visibility with view state if it changed
-    if (updates.visible !== undefined) {
-      setViewCrosshairVisible(updates.visible);
-    }
-    
-    // Emit an event to force views to redraw with new settings
-    getEventBus().emit('crosshair.settings.updated', newSettings);
-    
-    return newSettings;
-  });
-};
+// Main viewer class
+class NeuroSurfaceViewer extends EventEmitter {
+  constructor(container, width, height, config?, viewpoint?)
+  addSurface(surface, id?): void
+  removeSurface(id): void
+  setViewpoint(viewpoint): void
+  centerCamera(): void
+  resize(width, height): void
+  dispose(): void
+}
+
+// Surface geometry wrapper
+class SurfaceGeometry {
+  constructor(vertices, faces, hemisphere, vertexCurv?)
+  createMesh(): void
+}
+
+// Surface implementations
+class NeuroSurface extends EventEmitter
+class ColorMappedNeuroSurface extends NeuroSurface
+class VertexColoredNeuroSurface extends NeuroSurface  
+class MultiLayerNeuroSurface extends NeuroSurface
+
+// Layer management
+class LayerStack
+class DataLayer, RGBALayer, BaseLayer
+
+// Color mapping
+class ColorMap
 ```
 
-**Issue 1**: The event is emitted INSIDE the setState callback, which means it fires before the state has actually updated in React's reconciliation cycle.
-
-#### MosaicCell.tsx (Lines 49-56)
+### Key Configuration Interfaces
 ```typescript
-const crosshairSettings = useViewCrosshairSettings(axis);
+interface NeuroSurfaceViewerConfig {
+  ambientLightColor?: number;
+  directionalLightColor?: number;
+  directionalLightIntensity?: number;
+  showControls?: boolean;
+  useShaders?: boolean;
+  controlType?: 'trackball' | 'surface';
+}
 
-// Keep crosshair settings in a ref so we always have latest values
-const crosshairSettingsRef = useRef(crosshairSettings);
-useEffect(() => {
-  crosshairSettingsRef.current = crosshairSettings;
-}, [crosshairSettings]);
-```
-
-The component correctly gets settings and uses a ref to avoid stale closures, BUT it depends on the context to re-render the component when settings change.
-
-#### useViewCrosshairSettings Hook (Lines 206-231)
-```typescript
-export function useViewCrosshairSettings(viewType?: 'axial' | 'sagittal' | 'coronal') {
-  const { settings } = useCrosshairSettings();
-  
-  // Debug: Track when hook updates
-  React.useEffect(() => {
-    console.log('[useViewCrosshairSettings] Hook updated for', viewType, 'with settings:', settings);
-  }, [settings, viewType]);
-  
-  return settings; // or settings with overrides
+interface SurfaceConfig {
+  color?: THREE.ColorRepresentation;
+  flatShading?: boolean;
+  alpha?: number;
+  thresh?: [number, number];
+  irange?: [number, number];
 }
 ```
 
-This hook correctly subscribes to context changes via `useCrosshairSettings()`.
-
-### 3. Event Handling Analysis
-
-#### Event Emission (CrosshairContext.tsx Line 166)
+### Data Loading Functions
 ```typescript
-getEventBus().emit('crosshair.settings.updated', newSettings);
+// Async loading with timeout and error handling
+loadSurface(url: string, format?: SurfaceFormat, hemisphere?: Hemisphere): Promise<SurfaceGeometry>
+loadSurfaceFromFile(file: File, format?: SurfaceFormat, hemisphere?: Hemisphere): Promise<SurfaceGeometry>
+
+// Format parsers
+parseFreeSurferSurface(buffer: ArrayBuffer): ParsedSurfaceData
+parseGIfTISurface(xmlString: string): ParsedSurfaceData  
+parsePLY(data: string | ArrayBuffer): ParsedSurfaceData
 ```
 
-#### Event Consumption (MosaicCell.tsx Lines 196-205)
-```typescript
-useEvent('crosshair.settings.updated', (newSettings) => {
-  console.log('[MosaicCell] Crosshair settings updated:', newSettings);
-  
-  if (redrawCanvasRef.current) {
-    console.log(`[MosaicCell ${tag}] Triggering redraw from settings event`);
-    redrawCanvasRef.current();
-  }
-});
+## 6. TypeScript Definitions
+
+### Complete Type Coverage
+The library provides comprehensive TypeScript support:
+- **Generated .d.ts files** for all modules
+- **Proper exports mapping** in package.json
+- **Generic type support** for event system and data structures
+- **Interface definitions** for all configuration objects
+
+### Type Safety Features
+- Strict null checks and undefined handling
+- Proper enum definitions for viewpoints and surface types
+- Generic event typing with payload interfaces
+- Import/export type preservation
+
+## 7. Build and Bundling System
+
+### Modern Build Configuration
+**Build Tools**:
+- Vite 5.0 for fast development and optimized production builds
+- TypeScript 5.9.2 for type checking and declaration generation
+- Rollup for library bundling with tree-shaking
+
+**Output Formats**:
+```
+dist/
+├── neurosurface.es.js      # ES modules build
+├── neurosurface.umd.js     # UMD build for legacy support
+├── types/                  # TypeScript declarations
+│   ├── index.d.ts
+│   ├── classes.d.ts
+│   ├── NeuroSurfaceViewer.d.ts
+│   └── react/
+└── *.js.map               # Source maps for debugging
 ```
 
-The event is properly listened to, but this is a **BACKUP mechanism**. The primary mechanism should be React context re-renders.
+**Package Configuration**:
+- Dual ESM/CommonJS support
+- Proper exports field mapping
+- Optional peer dependencies with graceful fallbacks
 
-### 4. Root Cause Analysis
+## 8. Dependencies Analysis
 
-#### Primary Issue: Event Timing
-The `crosshair.settings.updated` event is emitted **inside** the `setSettings()` callback. This means:
+### Core Dependencies (minimal footprint)
+- **colormap**: `^2.3.2` - Scientific colormap generation library
 
-1. User calls `updateSettings({ activeColor: '#ff0000' })`
-2. `setSettings(prev => { ... })` is called
-3. **IMMEDIATELY** `emit('crosshair.settings.updated')` fires
-4. Components receive event with new settings
-5. **LATER** React re-renders components with context changes
+### Peer Dependencies (user-provided)
+- **three**: `>=0.160.0` - 3D graphics library (required)
+- **react**: `^18.0.0` - React framework (optional, for React components)  
+- **react-dom**: `^18.0.0` - React DOM renderer (optional)
+- **tweakpane**: `^4.0.4` - GUI controls library (optional)
+- **@tweakpane/plugin-essentials**: `^0.2.1` - Tweakpane extensions (optional)
 
-The problem is that when the event fires, the consuming components haven't re-rendered yet, so they may still have stale settings in their render cycle.
+### Development Dependencies
+- Modern TypeScript toolchain
+- Vite build system
+- Testing framework (jsdom)
+- Various @types packages
 
-#### Secondary Issue: React Context Update Timing
-React Context updates are **asynchronous**. When `setSettings()` is called:
-1. The state update is scheduled
-2. The callback runs immediately (synchronously)
-3. Components don't re-render until the next React update cycle
-4. Event listeners fire immediately but components may not have latest context values
+## 9. Example Usage Patterns
 
-### 5. Evidence from Code
+### Vanilla JavaScript Usage
+```javascript
+import { NeuroSurfaceViewer, ColorMappedNeuroSurface, SurfaceGeometry } from 'neurosurface';
 
-#### The Stale Closure Fix Attempts
-Both MosaicCell and SliceView have tried to work around stale closure issues:
+// Create viewer
+const viewer = new NeuroSurfaceViewer(
+  document.getElementById('viewer'),
+  800, 600,
+  { showControls: true, ambientLightColor: 0x404040 }
+);
 
-**MosaicCell.tsx (Lines 51-56):**
-```typescript
-// Keep crosshair settings in a ref so we always have latest values
-// This solves the stale closure problem in event handlers
-const crosshairSettingsRef = useRef(crosshairSettings);
-useEffect(() => {
-  crosshairSettingsRef.current = crosshairSettings;
-}, [crosshairSettings]);
+// Load and create surface
+const geometry = new SurfaceGeometry(vertices, faces, 'left');
+const surface = new ColorMappedNeuroSurface(
+  geometry, indices, dataValues, 'jet',
+  { range: [0, 10], threshold: [2, 8] }
+);
+
+viewer.addSurface(surface, 'main-surface');
 ```
 
-**SliceView.tsx (Lines 36-42):**
-```typescript
-// Keep crosshair settings in a ref so render function always gets latest values
-// This solves the stale closure problem when the function is stored in a ref
-const crosshairSettingsRef = useRef(crosshairSettings);
-useEffect(() => {
-  console.log(`[SliceView ${viewId}] Updating crosshairSettingsRef:`, crosshairSettings);
-  crosshairSettingsRef.current = crosshairSettings;
-}, [crosshairSettings, viewId]);
-```
+### React Component Usage
+```jsx
+import React, { useRef, useEffect } from 'react';
+import NeuroSurfaceViewer, { SurfaceHelpers } from 'neurosurface/react';
 
-These fixes acknowledge the stale closure problem exists, but they don't solve the root cause.
+function SurfaceViewPanel({ surfaceData }) {
+  const viewerRef = useRef();
 
-### 6. The Real Problem
-
-The issue is **React Context Update Ordering**:
-
-1. **Synchronous Event Emission**: Event fires immediately in setState callback
-2. **Asynchronous Context Updates**: React context consumers don't update until next render cycle
-3. **Race Condition**: Event handlers may execute before components have latest context values
-
-### 7. Debugging Evidence Needed
-
-To confirm this analysis, we should look for these console logs:
-
-1. `[CrosshairContext] updateSettings called with:` - Should appear
-2. `[CrosshairContext] New settings:` - Should appear  
-3. `[useViewCrosshairSettings] Hook updated for` - **May be missing or delayed**
-4. `[MosaicCell] Crosshair settings updated:` - Event fires immediately
-5. `[SliceView] Updating crosshairSettingsRef:` - **May be missing or delayed**
-
-If steps 3 and 5 are missing or significantly delayed, it confirms the timing issue.
-
-## Recommended Solutions
-
-### Solution 1: Move Event Emission Outside setState (Recommended)
-```typescript
-const updateSettings = (updates: Partial<CrosshairSettings>) => {
-  console.log('[CrosshairContext] updateSettings called with:', updates);
-  
-  setSettings(prev => {
-    const newSettings = { ...prev, ...updates };
-    
-    // Sync visibility with view state if it changed
-    if (updates.visible !== undefined) {
-      setViewCrosshairVisible(updates.visible);
+  useEffect(() => {
+    if (surfaceData) {
+      const surface = SurfaceHelpers.createMultiLayerSurface(
+        surfaceData.geometry,
+        { baseColor: 0xdddddd }
+      );
+      viewerRef.current.addSurface(surface, 'main');
     }
-    
-    return newSettings;
-  });
-  
-  // Move event emission outside setState to happen after React update
-  // Use useEffect to emit event after state has actually updated
-};
+  }, [surfaceData]);
 
-// Add separate useEffect for event emission
-useEffect(() => {
-  if (!isLoading) { // Only emit after initial load
-    getEventBus().emit('crosshair.settings.updated', settings);
-  }
-}, [settings, isLoading]);
+  return (
+    <NeuroSurfaceViewer
+      ref={viewerRef}
+      width={800}
+      height={600}
+      config={{ showControls: false }}
+      viewpoint="lateral"
+      onReady={(viewer) => console.log('Viewer ready')}
+    />
+  );
+}
 ```
 
-### Solution 2: Use flushSync for Synchronous Updates
+### Multi-Layer Surface Example
+```javascript
+// Create multi-layer surface
+const surface = new MultiLayerNeuroSurface(geometry, {
+  baseColor: 0xcccccc
+});
+
+// Add data layers
+surface.addLayer(new DataLayer(
+  'activation',
+  activationData,
+  { colorMap: 'hot', range: [-5, 5], opacity: 0.7 }
+));
+
+surface.addLayer(new RGBALayer(
+  'overlay',
+  preComputedColors,
+  { blendMode: 'additive', opacity: 0.8 }
+));
+
+viewer.addSurface(surface);
+```
+
+## 10. Integration Recommendations for Brainflow2
+
+### Why This Library is Ideal for Brainflow2
+
+**1. Perfect Architectural Alignment**:
+- Built specifically for neuroimaging applications
+- React-ready with comprehensive hooks and components
+- TypeScript-native for full type safety
+- Event-driven architecture compatible with our Zustand stores
+
+**2. Feature Completeness**:
+- Professional scientific visualization capabilities
+- Multi-layer compositing for complex data overlays
+- Comprehensive file format support (GIFTI, FreeSurfer, PLY)
+- Advanced rendering features (SSAO, custom shaders, PBR materials)
+
+**3. Performance Optimization**:
+- GPU-accelerated rendering and compositing
+- Efficient memory management with TypedArrays
+- On-demand rendering system
+- Built-in caching and optimization
+
+### Recommended Integration Strategy
+
+**Phase 1: Basic Integration** (1-2 days)
+```bash
+# Install the library
+npm install neurosurface
+
+# Add peer dependencies we already have
+# three.js is already in our project
+# React 18 is already in our project
+```
+
+**Phase 2: Create Surface View Panel Component** (2-3 days)
 ```typescript
-import { flushSync } from 'react-dom';
+// ui2/src/components/views/SurfaceViewPanel.tsx
+import { useRef, useEffect } from 'react';
+import NeuroSurfaceViewer, { SurfaceHelpers } from 'neurosurface/react';
+import { useSurfaceStore } from '../../stores/surfaceStore';
 
-const updateSettings = (updates: Partial<CrosshairSettings>) => {
-  flushSync(() => {
-    setSettings(prev => {
-      const newSettings = { ...prev, ...updates };
-      // ... other logic
-      return newSettings;
-    });
-  });
-  
-  // Event emitted after React has definitely updated
-  getEventBus().emit('crosshair.settings.updated', settings);
-};
+export function SurfaceViewPanel({ surfaceHandle }: { surfaceHandle: SurfaceHandle }) {
+  const viewerRef = useRef();
+  const { loadSurfaceData, surfaceData } = useSurfaceStore();
+
+  useEffect(() => {
+    if (surfaceHandle) {
+      loadSurfaceData(surfaceHandle).then(data => {
+        if (data && viewerRef.current) {
+          const surface = SurfaceHelpers.createMultiLayerSurface(
+            data.geometry,
+            { baseColor: 0xdddddd }
+          );
+          viewerRef.current.addSurface(surface, surfaceHandle);
+        }
+      });
+    }
+  }, [surfaceHandle]);
+
+  return (
+    <div className="h-full w-full">
+      <NeuroSurfaceViewer
+        ref={viewerRef}
+        width={800}
+        height={600}
+        config={{ 
+          showControls: false, // Use our own UI controls
+          ambientLightColor: 0x404040,
+          useShaders: true
+        }}
+        viewpoint="lateral"
+      />
+    </div>
+  );
+}
 ```
 
-### Solution 3: Remove Event Dependency (Simplest)
-Since React Context should handle re-renders automatically, we could:
-1. Remove the `crosshair.settings.updated` event emission
-2. Remove event listeners in components
-3. Rely solely on React Context updates
-4. Fix any remaining stale closure issues
-
-## Additional Investigation Findings
-
-### Component Re-render Dependencies
-
-#### MosaicCell Dependencies (Line 185)
-```typescript
-}, [axis, sliceIndex, viewState.crosshair, viewState.views, mosaicRenderService, crosshairSettings]);
+**Phase 3: Backend Integration** (2-3 days)
+```rust
+// Extend existing Tauri commands to work with neurosurface
+#[tauri::command]
+pub async fn get_surface_data_for_viewer(
+    surface_handle: SurfaceHandle
+) -> Result<SurfaceViewerData, BridgeError> {
+    // Convert our internal surface data to format expected by neurosurface
+    let surface = get_surface_service().get_surface(surface_handle)?;
+    Ok(SurfaceViewerData {
+        vertices: surface.vertices.clone(),
+        faces: surface.faces.clone(),
+        hemisphere: surface.hemisphere.clone(),
+        metadata: surface.metadata.clone(),
+    })
+}
 ```
 
-The `customRender` callback depends on `crosshairSettings`, so when context updates, this should trigger a re-render.
+**Phase 4: UI Integration** (1-2 days)
+- Replace Tweakpane controls with our existing UI components
+- Integrate with crosshair system and time series plotting
+- Add surface-specific controls to our settings panels
 
-#### SliceView Dependencies (Line 453)
-```typescript
-}, [crosshair, crosshairSettings, viewId]);
-```
+### Integration Benefits
 
-The redraw effect also depends on `crosshairSettings`.
+**1. Immediate Value**:
+- Drop-in replacement for our current basic Three.js surface rendering
+- Professional-grade scientific visualization out of the box
+- Comprehensive file format support
 
-### Context Provider Structure
+**2. Advanced Capabilities**:
+- Multi-layer data visualization for complex analyses
+- GPU-accelerated rendering for large surfaces
+- Scientific colormap library with 25+ options
+- Advanced lighting and material systems
 
-Looking at the grep results, CrosshairProvider appears in:
-- `App.tsx` - Top level
-- `GoldenLayoutRoot.tsx` - Multiple instances(??)
+**3. Development Efficiency**:
+- Well-documented API with TypeScript support
+- Extensive example code and usage patterns
+- Active maintenance and development
+- React integration reduces custom component development
 
-This could indicate **multiple context providers**, which would isolate updates.
+**4. Future Extensibility**:
+- Event system allows easy customization
+- Modular architecture supports feature additions
+- Plugin system for custom analysis tools
+- Performance optimizations already implemented
 
-### Potential Additional Issues
+### Potential Customizations
 
-1. **Multiple CrosshairProvider instances**: If there are multiple providers, updates in one don't propagate to consumers of another
-2. **React.StrictMode**: May be causing double-renders that mask the timing issue in development
-3. **Zustand store conflicts**: ViewStateStore also has crosshair visibility state that could interfere
-4. **Event bus issues**: The event might be firing but not reaching all listeners
+**1. UI Integration**:
+- Replace built-in Tweakpane with our UI components
+- Integrate surface interactions with crosshair system
+- Connect viewpoint changes to our camera controls
 
-## Files Investigated
+**2. Data Pipeline Integration**:
+- Connect to our existing volume/surface loading system
+- Integrate with time series data for temporal visualization
+- Add brainflow-specific analysis overlays
 
-### Primary Issue Files
-1. `/Users/bbuchsbaum/code/brainflow2/ui2/src/contexts/CrosshairContext.tsx` (Lines 152-170) - Event timing issue
-2. `/Users/bbuchsbaum/code/brainflow2/ui2/src/components/views/MosaicCell.tsx` (Lines 49-56, 196-205) - Context consumer
-3. `/Users/bbuchsbaum/code/brainflow2/ui2/src/components/views/SliceView.tsx` (Lines 36-42, 456-466) - Context consumer
-4. `/Users/bbuchsbaum/code/brainflow2/ui2/src/components/ui/CrosshairSettingsPopover.tsx` (Lines 28, 65, 90, 104) - Settings updater
-
-### Context Provider Files
-5. `/Users/bbuchsbaum/code/brainflow2/ui2/src/App.tsx` - Top-level provider
-6. `/Users/bbuchsbaum/code/brainflow2/ui2/src/components/layout/GoldenLayoutRoot.tsx` - Potential duplicate providers
-
-### Event System Files
-7. `/Users/bbuchsbaum/code/brainflow2/ui2/src/events/EventBus.ts` - Event emission/consumption
-8. `/Users/bbuchsbaum/code/brainflow2/ui2/src/stores/viewStateStore.ts` - Crosshair visibility state
+**3. Performance Optimizations**:
+- Implement progressive loading for large surfaces
+- Add level-of-detail rendering for performance
+- Integrate with our WebGPU rendering pipeline
 
 ## Conclusion
 
-The crosshair settings are not updating during runtime due to a **React Context update timing issue**. The event-based backup mechanism fires before React Context consumers have updated, creating a race condition.
+The surfviewjs/neurosurface library represents an exceptional solution for brain surface visualization in our brainflow2 application. It provides:
 
-The primary fix is to ensure events are emitted **after** React has processed the context update, not during the setState callback.
+- **Professional neuroimaging capabilities** specifically designed for fMRI/neuroimaging workflows
+- **Seamless React integration** that fits perfectly with our architecture  
+- **Comprehensive TypeScript support** ensuring type safety and excellent developer experience
+- **Advanced rendering features** that would take months to implement from scratch
+- **Proven stability** with extensive test coverage and real-world usage
 
-Secondary investigation should check for multiple context providers that could be isolating updates.
+The library's modular architecture, comprehensive API, and neuroimaging focus make it an ideal choice for replacing our current basic surface visualization. Integration would significantly accelerate development while providing access to advanced features like multi-layer compositing, scientific colormaps, and optimized GPU rendering.
 
-**RECOMMENDED IMMEDIATE FIX**: Move event emission to a useEffect that fires after settings state updates, ensuring React context consumers have the latest values when the event fires.
+**Recommendation**: Proceed with integration of neurosurface library as the foundation for our surface visualization system. The investment in integration will pay dividends in reduced development time, improved functionality, and professional-grade visualization capabilities.
+
+## Next Steps
+
+1. **Install neurosurface** as a project dependency
+2. **Create SurfaceViewPanel component** using neurosurface React wrapper
+3. **Extend Tauri surface commands** to provide data in neurosurface-compatible format
+4. **Integrate with existing UI controls** and replace built-in Tweakpane
+5. **Test with existing GIFTI files** and validate rendering quality
+6. **Add advanced features** like multi-layer visualization and custom analysis overlays
+
+This integration represents a strategic enhancement that positions brainflow2 as a comprehensive neuroimaging platform with professional-grade surface visualization capabilities.

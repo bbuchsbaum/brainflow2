@@ -11,6 +11,7 @@ import { listen } from '@tauri-apps/api/event';
 import { debounce } from 'lodash';
 import type { WorkspaceType } from '@/types/workspace';
 import { CrosshairProvider } from '@/contexts/CrosshairContext';
+import { getLayoutService } from '@/services/layoutService';
 
 // Import workspace components
 import { OrthogonalViewContainer } from '@/components/views/OrthogonalViewContainer';
@@ -19,6 +20,7 @@ import { MosaicViewPromise } from '@/components/views/MosaicViewPromise';
 import { LightboxView } from '@/components/views/LightboxView';
 import { ROIStatsWorkspace } from '@/components/analysis/ROIStatsWorkspace';
 import { CoordinateConverterWorkspace } from '@/components/tools/CoordinateConverterWorkspace';
+import { SurfaceViewPanel } from '@/components/views/SurfaceViewPanel';
 
 // Import side panel components
 import { FileBrowserPanel } from '@/components/panels/FileBrowserPanel';
@@ -155,6 +157,9 @@ export function GoldenLayoutRoot() {
 
     const goldenLayout = new GoldenLayout(containerRef.current);
     layoutRef.current = goldenLayout;
+    
+    // Set the layout reference in the layout service for external access
+    getLayoutService().setLayoutRef(goldenLayout);
 
     // Register the unified workspace component
     goldenLayout.registerComponent('Workspace', (container: ComponentContainer, state: any) => {
@@ -244,6 +249,44 @@ export function GoldenLayoutRoot() {
     registerSidePanelComponent('LayerPanel', LayerPanel);
     registerSidePanelComponent('PlotPanel', PlotPanel);
     registerSidePanelComponent('AtlasPanel', AtlasPanel);
+    
+    // Register surface view component
+    goldenLayout.registerComponent('surfaceView', (container: ComponentContainer, state: any) => {
+      console.log('[GoldenLayoutRoot] SurfaceView component created, state:', state);
+      
+      const { surfaceHandle, path } = state || {};
+      
+      if (!surfaceHandle) {
+        console.error('[GoldenLayoutRoot] Invalid surface configuration:', state);
+        container.element.innerHTML = '<div class="error">Invalid surface configuration</div>';
+        return;
+      }
+
+      // Create a div for React to render into
+      const rootElement = document.createElement('div');
+      rootElement.style.height = '100%';
+      rootElement.style.width = '100%';
+      container.element.appendChild(rootElement);
+
+      // Create React root and render the surface view
+      const root = ReactDOM.createRoot(rootElement);
+      
+      root.render(
+        <React.StrictMode>
+          <SurfaceViewPanel 
+            surfaceHandle={surfaceHandle}
+            path={path}
+          />
+        </React.StrictMode>
+      );
+
+      // Cleanup on destroy
+      container.on('destroy', () => {
+        setTimeout(() => {
+          root.unmount();
+        }, 0);
+      });
+    });
 
     // Listen for active tab changes
     goldenLayout.on('activeContentItemChanged', (item) => {

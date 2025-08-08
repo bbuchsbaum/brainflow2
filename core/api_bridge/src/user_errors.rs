@@ -90,6 +90,10 @@ impl UserFriendly for BridgeError {
                     "An unexpected error occurred.".to_string()
                 }
             }
+            
+            BridgeError::LoaderError(details) => {
+                format!("Failed to load file: {}", details)
+            }
         }
     }
 
@@ -176,6 +180,14 @@ impl UserFriendly for BridgeError {
                     vec!["Restart the application and try again".to_string()]
                 }
             }
+            
+            BridgeError::LoaderError(_) => {
+                vec![
+                    "Check that the file format is supported".to_string(),
+                    "Ensure the file is not corrupted".to_string(),
+                    "Try loading a different file".to_string(),
+                ]
+            }
         }
     }
 }
@@ -239,6 +251,7 @@ fn error_title(error: &BridgeError) -> String {
         BridgeError::VolumeNotFound { .. } => "Volume Not Found".to_string(),
         BridgeError::ServiceNotInitialized { .. } => "Not Ready".to_string(),
         BridgeError::Internal { .. } => "System Error".to_string(),
+        BridgeError::LoaderError(_) => "Loading Error".to_string(),
     }
 }
 
@@ -254,6 +267,7 @@ fn error_code(error: &BridgeError) -> u16 {
         | BridgeError::GpuError { code, .. }
         | BridgeError::VolumeNotFound { code, .. }
         | BridgeError::ServiceNotInitialized { code, .. } => *code,
+        BridgeError::LoaderError(_) => 1000, // Default code for LoaderError
     }
 }
 
