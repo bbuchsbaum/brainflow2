@@ -258,7 +258,9 @@ impl LayerStorageManager {
                 thresh_high: layer.threshold_range.1,
                 is_mask: if layer.is_mask { 1 } else { 0 },
                 interpolation_mode: layer.interpolation_mode,
-                _pad: 0.0,
+                draw_slice_border: 0,
+                border_thickness_px: 1.0,
+                _pad: [0],
             };
 
             self.layer_data.push(layer_data);
@@ -330,7 +332,9 @@ impl LayerStorageManager {
             thresh_high: layer.threshold_range.1,
             is_mask: if layer.is_mask { 1 } else { 0 },
             interpolation_mode: layer.interpolation_mode,
-            _pad: 0.0,
+            draw_slice_border: 0,
+            border_thickness_px: 1.0,
+            _pad: [0],
         };
 
         if index < self.layer_data.len() {

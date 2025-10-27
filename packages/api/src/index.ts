@@ -4,6 +4,7 @@
 
 // Import and re-export generated types
 export * from './generated';
+export * from './helpers';
 
 // Import specific types we need to reference
 import type { 

@@ -2831,6 +2831,28 @@ impl RenderLoopService {
         }
     }
 
+    /// Enable/disable slice border and set thickness in pixels
+    pub fn set_layer_border(
+        &mut self,
+        index: usize,
+        enabled: bool,
+        thickness_px: f32,
+    ) -> Result<(), RenderLoopError> {
+        // TODO: Wire per-layer border settings into UBOs.
+        let _ = (index, enabled, thickness_px);
+        Ok(())
+    }
+
+    /// Find the render-layer index by atlas (texture) index
+    pub fn find_layer_index_by_atlas(&self, atlas_index: u32) -> Option<usize> {
+        self.layer_state_manager
+            .layers()
+            .iter()
+            .enumerate()
+            .find(|(_, l)| l.atlas_index == atlas_index)
+            .map(|(i, _)| i)
+    }
+
     /// Update layer uniforms directly with provided data
 
     /// Update all layer uniforms from current layer state

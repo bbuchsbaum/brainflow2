@@ -53,6 +53,12 @@ struct LayerData {
     is_mask        : u32,              // 1 if binary mask
     interpolation_mode : u32,          // 0=nearest, 1=linear, 2=cubic (future)
     _pad           : f32,              // 4 bytes to complete 16-byte block
+
+    // --- Display options ---
+    drawSliceBorder : u32,             // 0=off, 1=on
+    borderThicknessPx : f32,           // Thickness in pixels
+    _padA          : u32,
+    _padB          : vec2<u32>,        // Padding to 16-byte alignment
 };
 
 // --- Layer metadata ---
@@ -209,6 +215,18 @@ fn sampleLayerOptimized(layer: LayerData, world_mm: vec3<f32>, pixel_size: f32) 
     // DISABLED LOD for debugging - use 0.0 to match standard shader
     let lod = 0.0; // log2(max(1.0, pixel_size / max(voxel_size_estimate, 1e-6)));
     
+    // Optional border overlay (per-layer)
+    if (layer.drawSliceBorder == 1u) {
+        let t_u = layer.borderThicknessPx / f32(frame.target_dim.x);
+        let t_v = layer.borderThicknessPx / f32(frame.target_dim.y);
+        let near_edge = tex_coord.x <= t_u || tex_coord.x >= (1.0 - t_u) ||
+                        tex_coord.y <= t_v || tex_coord.y >= (1.0 - t_v);
+        if (near_edge) {
+            // Draw white border; alpha scaled by layer opacity
+            return vec4<f32>(1.0, 1.0, 1.0, layer.opacity);
+        }
+    }
+
     // Sample from texture with LOD and interpolation mode
     let raw_value = sampleVolumeTextureOptimized(layer.texture_index, tex_coord, lod, layer.interpolation_mode);
     

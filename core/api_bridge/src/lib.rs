@@ -4508,6 +4508,77 @@ async fn clear_render_layers(state: State<'_, BridgeState>) -> BridgeResult<()> 
     Ok(())
 }
 
+/// Sample a voxel value at world-space position for a given UI layer id.
+/// Resolves the UI layer to its volume handle and performs nearest-neighbour sampling on CPU.
+#[command]
+#[tracing::instrument(skip_all, err, name = "api.sample_layer_value_at_world")]
+async fn sample_layer_value_at_world(
+    layer_id: String,
+    world_coords: Vec<f32>,
+    state: State<'_, BridgeState>,
+) -> BridgeResult<f32> {
+    if world_coords.len() != 3 {
+        return Err(BridgeError::Input {
+            code: 2016,
+            details: "world_coords must be [x, y, z] in mm".to_string(),
+        });
+    }
+
+    let handle_id = {
+        let map = state.layer_to_volume_map.lock().await;
+        map.get(&layer_id).cloned().ok_or_else(|| BridgeError::Input {
+            code: 2017,
+            details: format!(
+                "No volume handle mapped for layer '{}'. Ensure the layer is registered.",
+                layer_id
+            ),
+        })?
+    };
+
+    // Reuse the sampling logic from sample_world_coordinate
+    sample_world_coordinate(handle_id, world_coords, state).await
+}
+
+/// Set per-layer slice border settings by UI layer id
+#[command]
+#[tracing::instrument(skip_all, err, name = "api.set_layer_border")]
+async fn set_layer_border(
+    layer_id: String,
+    enabled: bool,
+    thickness_px: f32,
+    state: State<'_, BridgeState>,
+) -> BridgeResult<()> {
+    let atlas_idx = {
+        let map = state.layer_to_atlas_map.lock().await;
+        *map.get(&layer_id).ok_or_else(|| BridgeError::Input {
+            code: 2018,
+            details: format!("Layer '{}' not mapped to an atlas index", layer_id),
+        })?
+    };
+
+    let service_arc_opt = { state.render_loop_service.lock().await.clone() };
+    let Some(service_arc) = service_arc_opt else {
+        return Err(BridgeError::ServiceNotInitialized { code: 5006, details: "Render loop not initialized".into() });
+    };
+    let mut service = service_arc.lock().await;
+    let index = service
+        .find_layer_index_by_atlas(atlas_idx)
+        .ok_or_else(|| BridgeError::Internal {
+            code: 8008,
+            details: format!(
+                "No active render layer found for atlas index {} (layer '{}')",
+                atlas_idx, layer_id
+            ),
+        })?;
+    service
+        .set_layer_border(index, enabled, thickness_px)
+        .map_err(|e| BridgeError::GpuError {
+            code: 5016,
+            details: format!("Failed to set layer border: {}", e),
+        })?;
+    Ok(())
+}
+
 #[command]
 #[tracing::instrument(skip_all, err, name = "api.update_layer_opacity")]
 async fn update_layer_opacity(
@@ -7024,6 +7095,8 @@ pub fn plugin<R: Runtime>() -> TauriPlugin<R> {
             update_layer_intensity,
             update_layer_threshold,
             set_layer_mask,
+            set_layer_border,
+            sample_layer_value_at_world,
             request_frame,
             // render_frame, // REMOVED - Redundant with apply_and_render_view_state
             add_render_layer,

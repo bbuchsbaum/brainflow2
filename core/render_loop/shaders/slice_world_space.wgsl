@@ -46,7 +46,14 @@ struct LayerData {
     
     thresh_high    : f32,              // 4 bytes, offset 128
     is_mask        : u32,              // 4 bytes, offset 132
-    _pad           : vec2<f32>,        // 8 bytes, offset 136 (pad to 144)
+    interpolation_mode : u32,          // 4 bytes, offset 136
+    _pad0          : f32,              // 4 bytes, offset 140 (pad)
+
+    // --- Display options --- (next 16-byte block)
+    drawSliceBorder : u32,             // 4 bytes, offset 144
+    borderThicknessPx : f32,           // 4 bytes, offset 148
+    _padA          : u32,              // 4 bytes, offset 152
+    _padB          : vec2<u32>,        // 8 bytes, offset 156 (pad to 168, but std140 will pack to 160 due to struct size)
 };
 
 // --- Layer metadata ---
@@ -162,6 +169,18 @@ fn sampleLayer(layer: LayerData, world_mm: vec3<f32>) -> vec4<f32> {
     
     // Convert voxel coordinates to normalized texture coordinates [0,1]
     let tex_coord = voxel_coord / dim_f;
+
+    // Optional border overlay (per-layer)
+    if (layer.drawSliceBorder == 1u) {
+        let t_u = layer.borderThicknessPx / f32(frame.target_dim.x);
+        let t_v = layer.borderThicknessPx / f32(frame.target_dim.y);
+        let near_edge = tex_coord.x <= t_u || tex_coord.x >= (1.0 - t_u) ||
+                        tex_coord.y <= t_v || tex_coord.y >= (1.0 - t_v);
+        if (near_edge) {
+            // White border with layer opacity
+            return vec4<f32>(1.0, 1.0, 1.0, layer.opacity);
+        }
+    }
     
     // Sample from the appropriate texture
     let raw_value = sampleVolumeTexture(layer.texture_index, tex_coord);

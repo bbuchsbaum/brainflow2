@@ -566,10 +566,10 @@ mod tests {
         // Verify uniform buffer sizes match WGSL expectations
         assert_eq!(mem::size_of::<uniforms::ActiveLayerCount>(), 16); // u32 + pad
 
-        // Test sizes of UBOs from ubo module
+        // Test sizes of UBOs from ubo module (update if LayerUboStd140 changes)
         assert_eq!(mem::size_of::<crate::FrameUbo>(), 80); // 3 * vec4 + atlas_dim + target_dim + padding
         assert_eq!(mem::size_of::<crate::CrosshairUbo>(), 16); // vec3 + pad
         assert_eq!(mem::size_of::<crate::ubo::ViewPlaneUbo>(), 16); // u32 + pad
-        assert_eq!(mem::size_of::<crate::LayerUboStd140>(), 144); // std140 layout
+        assert_eq!(mem::size_of::<crate::LayerUboStd140>(), 160); // std140 layout
     }
 }
