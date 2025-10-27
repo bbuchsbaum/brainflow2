@@ -36,47 +36,79 @@ interface VolumePanelProps {
 }
 
 /**
- * Interpolation mode selector component
+ * Compact interpolation mode selector
  */
-const InterpolationSelector: React.FC<{
+const CompactInterpolationSelector: React.FC<{
   value: 'nearest' | 'linear';
   onChange: (value: 'nearest' | 'linear') => void;
   disabled?: boolean;
 }> = ({ value, onChange, disabled }) => {
   return (
-    <div className="space-y-2">
-      <label className="text-xs font-medium text-muted-foreground">
-        Interpolation Mode
+    <div className="flex items-center justify-between">
+      <label className="text-xs text-muted-foreground">
+        Interpolation
       </label>
-      <div className="flex gap-2">
+      <div className="flex gap-1">
         <button
-          className={`flex-1 px-3 py-1.5 text-xs border rounded transition-colors ${
+          className={`px-2 py-0.5 text-xs border rounded transition-colors ${
             value === 'nearest'
               ? 'bg-primary text-primary-foreground border-primary'
               : 'bg-background hover:bg-accent border-input'
           }`}
           onClick={() => onChange('nearest')}
           disabled={disabled}
+          title="Blocky appearance, preserves exact values"
         >
           Nearest
         </button>
         <button
-          className={`flex-1 px-3 py-1.5 text-xs border rounded transition-colors ${
+          className={`px-2 py-0.5 text-xs border rounded transition-colors ${
             value === 'linear'
               ? 'bg-primary text-primary-foreground border-primary'
               : 'bg-background hover:bg-accent border-input'
           }`}
           onClick={() => onChange('linear')}
           disabled={disabled}
+          title="Smooth appearance, interpolates between voxels"
         >
           Linear
         </button>
       </div>
-      <p className="text-xs text-muted-foreground">
-        {value === 'nearest' 
-          ? 'Blocky appearance, preserves exact values'
-          : 'Smooth appearance, interpolates between voxels'}
-      </p>
+    </div>
+  );
+};
+
+/**
+ * Compact toggle switch component
+ */
+const CompactToggle: React.FC<{
+  label: string;
+  value: boolean;
+  onChange: (value: boolean) => void;
+  disabled?: boolean;
+  title?: string;
+}> = ({ label, value, onChange, disabled, title }) => {
+  return (
+    <div className="flex items-center justify-between" title={title}>
+      <label className="text-xs text-muted-foreground">
+        {label}
+      </label>
+      <button
+        className={`relative inline-flex h-4 w-8 items-center rounded-full transition-colors ${
+          value
+            ? 'bg-primary'
+            : 'bg-input'
+        }`}
+        onClick={() => onChange(!value)}
+        disabled={disabled}
+        aria-pressed={value}
+      >
+        <span
+          className={`inline-block h-3 w-3 transform rounded-full bg-white transition-transform ${
+            value ? 'translate-x-4' : 'translate-x-0.5'
+          }`}
+        />
+      </button>
     </div>
   );
 };
@@ -145,7 +177,12 @@ export const VolumePanel: React.FC<VolumePanelProps> = ({
   const handleInterpolationChange = (interpolation: 'nearest' | 'linear') => {
     onRenderUpdate({ interpolation });
   };
-  
+
+  // Per-layer display settings state (future: move to layer state/metadata)
+  const [showBorder, setShowBorder] = React.useState(false);
+  const [showOrientationMarkers, setShowOrientationMarkers] = React.useState(true);
+  const [showValueOnHover, setShowValueOnHover] = React.useState(true);
+
   return (
     <div className="space-y-4">
       {/* Header */}
@@ -158,7 +195,7 @@ export const VolumePanel: React.FC<VolumePanelProps> = ({
           {layer.type || 'volume'}
         </span>
       </div>
-      
+
       {/* Volume Info */}
       <div className="text-xs text-muted-foreground space-y-1 p-2 bg-accent/30 rounded">
         <div className="flex justify-between">
@@ -180,22 +217,46 @@ export const VolumePanel: React.FC<VolumePanelProps> = ({
           </div>
         )}
       </div>
-      
-      {/* Volume-Specific Settings */}
-      <CollapsibleSection 
-        title="Volume Settings" 
+
+      {/* Display Settings - Compact */}
+      <CollapsibleSection
+        title="Display Settings"
         icon={<Settings className="w-4 h-4" />}
-        defaultOpen={true}
+        defaultOpen={false}
       >
-        <div className="space-y-4 pt-2">
-          <InterpolationSelector
+        <div className="space-y-2 pt-2">
+          <CompactInterpolationSelector
             value={render?.interpolation || 'linear'}
             onChange={handleInterpolationChange}
             disabled={!render}
           />
-          
+
+          <CompactToggle
+            label="Slice Border"
+            value={showBorder}
+            onChange={setShowBorder}
+            disabled={!render}
+            title="Show border around slice extent (useful for multi-volume viewing)"
+          />
+
+          <CompactToggle
+            label="Orientation Markers"
+            value={showOrientationMarkers}
+            onChange={setShowOrientationMarkers}
+            disabled={!render}
+            title="Show L/R/A/P markers on slice views"
+          />
+
+          <CompactToggle
+            label="Value on Hover"
+            value={showValueOnHover}
+            onChange={setShowValueOnHover}
+            disabled={!render}
+            title="Display voxel values when hovering over the slice"
+          />
+
           {/* Future: Add slice thickness control here */}
-          {/* Future: Add resampling options here */}
+          {/* Future: Add resampling quality here */}
         </div>
       </CollapsibleSection>
       

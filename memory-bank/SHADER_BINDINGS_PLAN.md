@@ -53,14 +53,10 @@ Preliminary results (Upload throughput)
 
 Preliminary results (Render time)
 - Environment: same as above; offscreen 512×512 RGBA target, Criterion quick mode.
-- Runtime path: RenderFrame/request_frame_512_rgba ≈ 2.93–3.55 ms (no significant change across reruns).
-- Typed path: current bench fails during bind group creation with a wgpu validation error:
-  - “Texture binding 16 expects dimension = D2, but given a view with dimension = D2Array.”
-- Interpretation: typed slice shader bind-group layout expects a 2D texture view for one binding, but the bench (or typed wiring) supplies a 2D array view. Likely a mismatch in the optimized typed slice module bindings vs. how the bench constructs views.
-- Next steps to unblock typed render-time numbers:
-  1) Audit typed bind-group construction for the slice pipeline and ensure the bench uses matching view dimensions (2D vs 2DArray) for volume and LUT bindings.
-  2) Add an assertion/unit test around the typed bind-group creator to catch dimension mismatches earlier.
-  3) Re-run: `cargo bench -p render_loop_benches --bench render_time --features render_loop/typed-shaders` and append numbers here.
+- Runtime path: RenderFrame/request_frame_512_rgba ≈ 2.93–3.55 ms.
+- Typed path: RenderFrame/request_frame_512_rgba ≈ 2.87–2.98 ms (slight improvement in this run).
+- Fix applied: worked around a wgsl_to_wgpu layout bug by using a manual wgpu bind group for BindGroup(2) with a D2Array colormap view (matching WGSL’s `texture_2d_array<f32>`). The generated layout had `D2` for binding 16; we now bypass it for textures under the `typed-shaders` feature while keeping typed buffers for groups 0/1.
+- Follow‑up: Upstream an issue to wgsl_to_wgpu about array texture view_dimension for `texture_2d_array<f32>`; keep our manual layout until a fix lands.
 
 Steps
 - Compatibility sweep (T-020)

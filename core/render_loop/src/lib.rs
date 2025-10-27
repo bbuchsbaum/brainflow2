@@ -1215,7 +1215,10 @@ impl RenderLoopService {
             layer_storage::LayerStorageManager::create_bind_group_layout(&self.device);
 
         #[cfg(feature = "typed-shaders")]
-        let texture_layout = shaders::typed::slice_world_space_optimized::bind_groups::BindGroup2::get_bind_group_layout(&self.device);
+        let texture_layout = MultiTextureManager::create_bind_group_layout(
+            &self.device,
+            multi_texture_manager::MAX_TEXTURES as u32,
+        );
         #[cfg(not(feature = "typed-shaders"))]
         let texture_layout = MultiTextureManager::create_bind_group_layout(
             &self.device,
@@ -3302,14 +3305,8 @@ impl RenderLoopService {
 
                 if let Some(multi_texture) = &self.multi_texture_manager {
                     if let Some(texture_bind_group) = multi_texture.bind_group() {
-                        #[cfg(feature = "typed-shaders")]
-                        {
-                            texture_bind_group.set(&mut render_pass);
-                        }
-                        #[cfg(not(feature = "typed-shaders"))]
-                        {
-                            render_pass.set_bind_group(2, texture_bind_group, &[]);
-                        }
+                        // For typed-shaders, we use a manual bind group for textures
+                        render_pass.set_bind_group(2, texture_bind_group, &[]);
                         println!("render_to_buffer: Multi-texture bind group set");
                     } else {
                         println!("render_to_buffer: No multi-texture bind group available");
@@ -3819,14 +3816,8 @@ impl RenderLoopService {
             // Set texture bind group
             if let Some(multi_texture_manager) = &self.multi_texture_manager {
                 if let Some(texture_bind_group) = multi_texture_manager.bind_group() {
-                    #[cfg(feature = "typed-shaders")]
-                    {
-                        texture_bind_group.set(&mut render_pass);
-                    }
-                    #[cfg(not(feature = "typed-shaders"))]
-                    {
-                        render_pass.set_bind_group(2, texture_bind_group, &[]);
-                    }
+                    // Typed path also uses manual bind group for textures
+                    render_pass.set_bind_group(2, texture_bind_group, &[]);
                 }
             }
 

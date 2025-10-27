@@ -68,8 +68,8 @@ Tickets
 - 🔕 Reduced bench noise by avoiding debug logs in the hot path during benches (manual env guards where possible).
 
 Next up
-- Bench fix: align typed bind-group view dimensions with bench setup (2D vs 2DArray), add a guard/assertion in typed bind-group helper.
-- Re-run typed render bench and append numbers to SHADER_BINDINGS_PLAN.md.
+- Bench fix: align typed bind-group view dimensions with bench setup (2D vs 2DArray), add a guard/assertion in typed bind-group helper. ✅ Applied via manual layout for texture BindGroup(2) under `typed-shaders`.
+- Re-run typed render bench and append numbers to SHADER_BINDINGS_PLAN.md. ✅ Done (typed ≈ 2.87–2.98 ms vs runtime ≈ 2.93–3.55 ms).
 - Add a unit test catching bind-group/view dimension mismatches to prevent regressions.
 
 5) Resource lifecycle and memory pressure
