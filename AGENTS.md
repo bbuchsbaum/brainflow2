@@ -70,3 +70,6 @@
 - Sprint roadmap: `memory-bank/sprints/Sprint_Foundations_Upgrade_1.md` and `memory-bank/Implementation_Roadmap.md`.
 
 Keep AGENTS.md current when touching core architecture, commands, or directory structure so future agents can ramp quickly.
+
+## Known Caveats
+- Typed-shaders (wgsl_to_wgpu) colormap layout: the generated layout for the slice shader sets binding 16 (colormap LUT) to view_dimension D2, while the WGSL uses `texture_2d_array<f32>`. We currently bypass the generated group-2 bindings and build a manual wgpu bind group with D2Array to match the shader. Track upstream fix; keep the manual path until resolved. See memory-bank/SHADER_BINDINGS_PLAN.md.

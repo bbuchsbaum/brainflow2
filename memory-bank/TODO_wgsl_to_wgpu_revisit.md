@@ -32,6 +32,9 @@ We're currently using runtime shader loading which:
 ## Implementation Plan (When Ready)
 
 1. Add `wgsl_to_wgpu` to build dependencies
+
+## Known Issues (2025-10-28)
+- Slice shader colormap binding dimension: In our trial on the current stack (wgpu 0.20.x), the generated typed layout for the optimized slice shader sets binding 16 (colormap LUT) to `D2` even though the WGSL declares `texture_2d_array<f32>`. This caused a validation error when providing a `D2Array` view. Workaround in place: under `render_loop/typed-shaders`, we construct the texture bind group (group 2) manually with `D2Array` for the LUT while keeping typed buffers for groups 0/1. Track an upstream fix in wgsl_to_wgpu and remove the manual path when resolved.
 2. Update `build.rs` to compile shaders
 3. Keep runtime loading as fallback for development
 4. Benchmark startup time difference
