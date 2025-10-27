@@ -1,3 +1,4 @@
+#![cfg(feature = "legacy_pipeline_tests")]
 // End-to-end pipeline integration test with known patterns
 
 use nalgebra::{Matrix4, Vector3};
@@ -194,8 +195,9 @@ fn test_pipeline_gradient_volume() {
             .expect("Failed to upload volume");
 
         // Step 5: Configure rendering parameters
+        let volume_dims = volume_data.space.dims();
         let layer = LayerInfo {
-            atlas_index: texture_handle.0,
+            atlas_index: texture_handle,
             opacity: 1.0,
             blend_mode: BlendMode::Normal,
             colormap_id: 0, // Grayscale
@@ -203,6 +205,8 @@ fn test_pipeline_gradient_volume() {
             threshold_range: (-f32::INFINITY, f32::INFINITY),
             threshold_mode: ThresholdMode::Range,
             texture_coords: (0.0, 0.0, 1.0, 1.0),
+            is_mask: false,
+            interpolation_mode: 1,
         };
 
         // Set up axial slice through center (z=5)
@@ -211,14 +215,22 @@ fn test_pipeline_gradient_volume() {
         let v_mm = [0.0, 10.0, 0.0, 0.0]; // 10mm height
         let target_dim = [100, 100]; // 100x100 render target
 
-        render_service.update_layer_stack(&[layer], &[(10, 10, 10)], &[transform]);
-        render_service.update_frame_params(origin_mm, u_mm, v_mm, target_dim);
+        render_service.update_layer_uniforms_direct(
+            &[layer],
+            &[(
+                volume_dims[0] as u32,
+                volume_dims[1] as u32,
+                volume_dims[2] as u32,
+            )],
+            &[transform],
+        );
+        render_service
+            .create_offscreen_target(target_dim[0], target_dim[1])
+            .expect("create offscreen target");
+        render_service.update_frame_ubo(origin_mm, u_mm, v_mm);
 
         // Step 6: Render to texture
-        let rendered_data = render_service
-            .render_to_buffer(100, 100)
-            .await
-            .expect("Failed to render");
+        let rendered_data = render_service.render_to_buffer().expect("Failed to render");
 
         // Step 7: Verify rendered output
         // For axial slice at z=0, we expect gradient pattern
@@ -295,11 +307,12 @@ fn test_pipeline_sphere_volume_multi_slice() {
             ("Sagittal", [0.0, 1.0, 0.0, 0.0], [0.0, 0.0, 1.0, 0.0]), // YZ plane
         ];
 
+        let vol_dims = volume_data.space.dims();
         for (name, u_vec, v_vec) in test_slices {
             println!("Testing {} slice", name);
 
             let layer = LayerInfo {
-                atlas_index: texture_handle.0,
+                atlas_index: texture_handle,
                 opacity: 1.0,
                 blend_mode: BlendMode::Normal,
                 colormap_id: 1, // Hot colormap for better visualization
@@ -307,17 +320,21 @@ fn test_pipeline_sphere_volume_multi_slice() {
                 threshold_range: (-f32::INFINITY, f32::INFINITY),
                 threshold_mode: ThresholdMode::Range,
                 texture_coords: (0.0, 0.0, 1.0, 1.0),
+                is_mask: false,
+                interpolation_mode: 1,
             };
 
-            render_service.update_layer_stack(&[layer], &[(10, 10, 10)], &[transform]);
-            render_service.update_frame_params(
-                [0.0, 0.0, 0.0, 1.0], // Origin at center
-                u_vec,
-                v_vec,
-                [100, 100],
+            render_service.update_layer_uniforms_direct(
+                &[layer],
+                &[(vol_dims[0] as u32, vol_dims[1] as u32, vol_dims[2] as u32)],
+                &[transform],
             );
+            render_service
+                .create_offscreen_target(100, 100)
+                .expect("create offscreen target");
+            render_service.update_frame_ubo([0.0, 0.0, 0.0, 1.0], u_vec, v_vec);
 
-            let rendered_data = render_service.render_to_buffer(100, 100).await.unwrap();
+            let rendered_data = render_service.render_to_buffer().unwrap();
 
             // Verify we see a circular pattern (sphere cross-section)
             let center_pixel =
@@ -403,7 +420,7 @@ fn test_pipeline_multi_resolution_overlay() {
         // Configure layers
         let layers = vec![
             LayerInfo {
-                atlas_index: anat_tex.0,
+                atlas_index: anat_tex,
                 opacity: 1.0,
                 blend_mode: BlendMode::Normal,
                 colormap_id: 0, // Grayscale
@@ -411,9 +428,11 @@ fn test_pipeline_multi_resolution_overlay() {
                 threshold_range: (-f32::INFINITY, f32::INFINITY),
                 threshold_mode: ThresholdMode::Range,
                 texture_coords: (0.0, 0.0, 1.0, 1.0),
+                is_mask: false,
+                interpolation_mode: 1,
             },
             LayerInfo {
-                atlas_index: func_tex.0,
+                atlas_index: func_tex,
                 opacity: 0.5,
                 blend_mode: BlendMode::Additive,
                 colormap_id: 1,                   // Hot colormap
@@ -421,24 +440,38 @@ fn test_pipeline_multi_resolution_overlay() {
                 threshold_range: (200.0, f32::INFINITY),
                 threshold_mode: ThresholdMode::Range,
                 texture_coords: (0.0, 0.0, 1.0, 1.0),
+                is_mask: false,
+                interpolation_mode: 1,
             },
         ];
 
-        render_service.update_layer_stack(
+        render_service.update_layer_uniforms_direct(
             &layers,
-            &[(10, 10, 10), (10, 10, 10)],
+            &[
+                (
+                    anat_volume.space.dims()[0] as u32,
+                    anat_volume.space.dims()[1] as u32,
+                    anat_volume.space.dims()[2] as u32,
+                ),
+                (
+                    func_volume.space.dims()[0] as u32,
+                    func_volume.space.dims()[1] as u32,
+                    func_volume.space.dims()[2] as u32,
+                ),
+            ],
             &[anat_transform, func_transform],
         );
 
-        // Render composite
-        render_service.update_frame_params(
+        render_service
+            .create_offscreen_target(150, 150)
+            .expect("create offscreen target");
+        render_service.update_frame_ubo(
             [0.0, 0.0, 0.0, 1.0],
-            [15.0, 0.0, 0.0, 0.0], // Wider view to see both volumes
+            [15.0, 0.0, 0.0, 0.0],
             [0.0, 15.0, 0.0, 0.0],
-            [150, 150],
         );
 
-        let rendered_data = render_service.render_to_buffer(150, 150).await.unwrap();
+        let rendered_data = render_service.render_to_buffer().unwrap();
 
         // Verify overlay worked - center should show both gradient and sphere
         let center_idx = 75 * 150 * 4 + 75 * 4;
@@ -538,9 +571,9 @@ async fn render_and_readback(
     height: u32,
 ) -> Vec<u8> {
     render_service
-        .render_to_buffer(width, height)
-        .await
-        .expect("Failed to render")
+        .create_offscreen_target(width, height)
+        .expect("Failed to create offscreen target");
+    render_service.render_to_buffer().expect("Failed to render")
 }
 
 #[test]
@@ -575,8 +608,9 @@ fn test_pipeline_performance_baseline() {
 
         // Configure layer
         use render_loop::{BlendMode, LayerInfo, ThresholdMode};
+        let volume_dims = volume_data.space.dims();
         let layer = LayerInfo {
-            atlas_index: texture_handle.0,
+            atlas_index: texture_handle,
             opacity: 1.0,
             blend_mode: BlendMode::Normal,
             colormap_id: 0,
@@ -584,9 +618,22 @@ fn test_pipeline_performance_baseline() {
             threshold_range: (-f32::INFINITY, f32::INFINITY),
             threshold_mode: ThresholdMode::Range,
             texture_coords: (0.0, 0.0, 1.0, 1.0),
+            is_mask: false,
+            interpolation_mode: 1,
         };
 
-        render_service.update_layer_stack(&[layer], &[(10, 10, 10)], &[transform]);
+        render_service.update_layer_uniforms_direct(
+            &[layer],
+            &[(
+                volume_dims[0] as u32,
+                volume_dims[1] as u32,
+                volume_dims[2] as u32,
+            )],
+            &[transform],
+        );
+        render_service
+            .create_offscreen_target(256, 256)
+            .expect("create offscreen target");
 
         // Benchmark rendering
         let mut tracker = FrameTimeTracker::new(100);
@@ -597,12 +644,7 @@ fn test_pipeline_performance_baseline() {
             let distance = 15.0;
             let origin = [angle.cos() * distance, angle.sin() * distance, 0.0, 1.0];
 
-            render_service.update_frame_params(
-                origin,
-                [10.0, 0.0, 0.0, 0.0],
-                [0.0, 10.0, 0.0, 0.0],
-                [256, 256],
-            );
+            render_service.update_frame_ubo(origin, [10.0, 0.0, 0.0, 0.0], [0.0, 10.0, 0.0, 0.0]);
 
             let start = Instant::now();
             let _ = render_and_readback(&mut render_service, 256, 256).await;

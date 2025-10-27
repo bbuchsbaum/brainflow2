@@ -23,12 +23,14 @@
 import type { BackendTransport } from './transport';
 import { getTransport } from './transport';
 import type { ViewState } from '@/types/viewState';
-import type { WorldCoordinates, ViewPlane } from '@/types/coordinates';
+import type { WorldCoordinates, ViewPlane, ViewType } from '@/types/coordinates';
 import type { VolumeBounds } from '@brainflow/api';
 import { useRenderStore } from '@/stores/renderStore';
 import type { RustViewState } from '@/types/rustViewState';
 import { isValidRustViewState } from '@/types/rustViewState';
 import { RenderSession, createRenderSession } from './RenderSession';
+import { validateRenderViewPayload } from '@/utils/validateRenderViewPayload';
+import type { AtlasStats } from '@/types/atlas';
 
 export interface VolumeHandle {
   id: string;
@@ -50,6 +52,19 @@ export interface SampleResult {
   coordinate: WorldCoordinates;
 }
 
+interface RawAtlasStats {
+  total_layers: number;
+  used_layers: number;
+  free_layers: number;
+  allocations: number;
+  releases: number;
+  high_watermark: number;
+  full_events: number;
+  is_3d: boolean;
+  last_allocation_ms?: number;
+  last_release_ms?: number;
+}
+
 export class ApiService {
   private transport: BackendTransport;
   private lastLayerState: string = ''; // Track last layer state to avoid redundant updates
@@ -58,6 +73,7 @@ export class ApiService {
   private useRawRGBA: boolean = true; // Set to true to use raw RGBA instead of PNG
   private debugBrighten: boolean = false; // Set to true to artificially brighten raw RGBA for debugging
   private useNewRenderAPI: boolean = true; // Use the new cleaner render_view API
+  private legacyRenderFallbackEnabled: boolean = false; // Gate legacy apply_and_render_* fallbacks
   
   // Note: Render target state is now managed by RenderCoordinator
   
@@ -240,11 +256,32 @@ export class ApiService {
     }
     
     console.log(`  - Full ViewState:`, JSON.stringify(declarativeViewState, null, 2));
+
+    const validation = validateRenderViewPayload(declarativeViewState);
+    if (!validation.ok) {
+      console.error('[ApiService] Invalid render_view payload detected:', validation.errors);
+      if (import.meta.env.DEV) {
+        throw new Error(`render_view payload validation failed: ${validation.errors.join('; ')}`);
+      }
+
+      const canvas = new OffscreenCanvas(width, height);
+      const ctx = canvas.getContext('2d');
+      if (ctx) {
+        ctx.fillStyle = '#401010';
+        ctx.fillRect(0, 0, width, height);
+        ctx.fillStyle = '#ff8080';
+        ctx.font = '16px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText('Invalid render payload', width / 2, height / 2 - 10);
+        ctx.fillText('Check console logs', width / 2, height / 2 + 16);
+      }
+      return createImageBitmap(canvas);
+    }
     
     // Note: Render target dimension validation is now handled by RenderCoordinator
     
     const backendCallTime = performance.now();
-    let imageData: Uint8Array;
+    let imageData: Uint8Array | undefined;
     
     // Track which format we're actually using for decoding
     let isRawRGBAFormat = false;
@@ -254,13 +291,10 @@ export class ApiService {
       const format = this.useRawRGBA ? 'rgba' : 'png';
       try {
         console.log(`[ApiService] Attempting render_view with format: ${format}`);
-        const result = await this.transport.invoke<Uint8Array>(
-          'render_view',
-          { 
-            stateJson: JSON.stringify(declarativeViewState),
-            format: format
-          }
-        );
+        const result = await this.transport.invoke<Uint8Array>('render_view', {
+          stateJson: JSON.stringify(declarativeViewState),
+          format
+        });
         
         console.log(`[ApiService] render_view completed in ${(performance.now() - backendCallTime).toFixed(0)}ms (${format})`);
         
@@ -292,12 +326,12 @@ export class ApiService {
     }
     
     // LEGACY API PATHS - Only if render_view failed or not using new API
-    if (!imageData && this.useRawRGBA) {
+    if (!imageData && this.legacyRenderFallbackEnabled && this.useRawRGBA) {
       try {
         console.log(`[ApiService] Attempting legacy raw RGBA fallback`);
         const rawResult = await this.transport.invoke<Uint8Array>(
           'apply_and_render_view_state_raw',
-          { viewStateJson: JSON.stringify(declarativeViewState) }
+          { view_state_json: JSON.stringify(declarativeViewState) }
         );
         
         if (rawResult instanceof Uint8Array && rawResult.length > 0) {
@@ -318,15 +352,17 @@ export class ApiService {
       } catch (error) {
         console.error(`[ApiService] Legacy raw RGBA fallback failed:`, error);
       }
+    } else if (!imageData && !this.legacyRenderFallbackEnabled) {
+      console.warn('[ApiService] Legacy raw RGBA fallback skipped (disabled by configuration)');
     }
-    
+
     // Final PNG fallback
-    if (!imageData) {
+    if (!imageData && this.legacyRenderFallbackEnabled) {
       try {
         console.log(`[ApiService] Attempting final PNG fallback`);
         const pngResult = await this.transport.invoke<Uint8Array>(
           'apply_and_render_view_state_binary',
-          { viewStateJson: JSON.stringify(declarativeViewState) }
+          { view_state_json: JSON.stringify(declarativeViewState) }
         );
         
         if (pngResult instanceof Uint8Array && pngResult.length > 0) {
@@ -348,6 +384,8 @@ export class ApiService {
         console.error(`[ApiService] All rendering methods failed:`, error);
         throw new Error(`Complete rendering failure: ${error?.message}`);
       }
+    } else if (!imageData) {
+      console.warn('[ApiService] PNG fallback skipped (legacy fallback disabled)');
     }
     
     // Check if we got valid data
@@ -372,154 +410,111 @@ export class ApiService {
       return createImageBitmap(canvas);
     }
     
-    // Log the data type and size
+    return this.decodeImageBuffer(imageData, isRawRGBAFormat);
+  }
+  
+  private async decodeImageBuffer(imageData: Uint8Array, isRawRGBAFormat: boolean): Promise<ImageBitmap> {
     console.log(`📍 [Decoding Section] Starting decode with:`);
     console.log(`  Image data type: ${Object.prototype.toString.call(imageData)}`);
     console.log(`  Image data size: ${imageData?.length || 'undefined'} bytes`);
     console.log(`  isRawRGBAFormat: ${isRawRGBAFormat}`);
     console.log(`  useRawRGBA: ${this.useRawRGBA}`);
-    
-    // Defensive byteArray assignment
-    const byteArray = imageData;
-    
-    // Comprehensive validation before proceeding
-    if (!byteArray || !(byteArray instanceof Uint8Array) || byteArray.length === 0) {
-      console.error(`[ApiService] CRITICAL: Invalid imageData received`);
+
+    if (!imageData || !(imageData instanceof Uint8Array) || imageData.length === 0) {
+      console.error('[ApiService] CRITICAL: Invalid imageData received');
       console.error(`[ApiService] imageData type: ${typeof imageData}`);
       console.error(`[ApiService] imageData constructor: ${imageData?.constructor?.name}`);
       console.error(`[ApiService] imageData length: ${imageData?.length}`);
       console.error(`[ApiService] isRawRGBAFormat: ${isRawRGBAFormat}`);
-      throw new Error(`Invalid or empty image data received from backend`);
+      throw new Error('Invalid or empty image data received from backend');
     }
-    
+
+    const byteArray = imageData;
     console.log(`[ApiService] Processing valid byteArray: ${byteArray.length} bytes, format: ${isRawRGBAFormat ? 'RGBA' : 'PNG'}`);
-    
-    // Check if this is raw RGBA data or PNG
-    let bitmap: ImageBitmap;
-    
-    // Debug: Log the first few bytes to understand the format
     console.log(`🔍 First 16 bytes (hex): ${Array.from(byteArray.slice(0, 16)).map(b => b.toString(16).padStart(2, '0')).join(' ')}`);
     console.log(`🔍 Processing data: ${byteArray.length} bytes, isRawRGBA: ${isRawRGBAFormat}`);
-    
+
     if (isRawRGBAFormat && byteArray.length > 8) {
       try {
-        // Raw RGBA data format: [width: u32][height: u32][rgba_data...]
-        const view = new DataView(byteArray.buffer, byteArray.byteOffset);
-        const width = view.getUint32(0, true);  // little-endian
-        const height = view.getUint32(4, true); // little-endian
-        
-        // Sanity check dimensions
+        const view = new DataView(byteArray.buffer, byteArray.byteOffset, byteArray.byteLength);
+        const width = view.getUint32(0, true);
+        const height = view.getUint32(4, true);
+
         if (width > 10000 || height > 10000 || width === 0 || height === 0) {
           console.error(`❌ Invalid dimensions read from raw RGBA header: ${width}x${height}`);
-          console.error(`❌ This suggests we're not getting raw RGBA format`);
           throw new Error(`Invalid raw RGBA dimensions: ${width}x${height}`);
         }
-        
+
         const rgbaData = byteArray.slice(8);
-        
         console.log(`🚀 Raw RGBA dimensions: ${width}x${height}, data size: ${rgbaData.length} bytes`);
-        console.log(`🚀 Expected size: ${width * height * 4} bytes`);
-        
-        // Validate dimensions
+
         if (rgbaData.length !== width * height * 4) {
           console.error(`❌ Invalid raw RGBA data: expected ${width * height * 4} bytes, got ${rgbaData.length}`);
-          console.error(`❌ This likely means we're getting PNG data instead of raw RGBA`);
-          // Don't fall back to PNG decoding - return error
           throw new Error(`Raw RGBA validation failed: size mismatch. Expected ${width * height * 4}, got ${rgbaData.length}`);
-        } else {
-          let processedRgba = rgbaData;
-          
-          // Optional debug brightening to diagnose very dark images
-          if (this.debugBrighten) {
-            console.log(`🔆 DEBUG: Artificially brightening raw RGBA data`);
-            const brightenedRgba = new Uint8ClampedArray(rgbaData.length);
-            const brightenFactor = 10; // Multiply RGB values by this factor
-            
-            for (let i = 0; i < rgbaData.length; i += 4) {
-              // Brighten RGB channels, preserve alpha
-              brightenedRgba[i]   = Math.min(255, rgbaData[i] * brightenFactor);   // R
-              brightenedRgba[i+1] = Math.min(255, rgbaData[i+1] * brightenFactor); // G
-              brightenedRgba[i+2] = Math.min(255, rgbaData[i+2] * brightenFactor); // B
-              brightenedRgba[i+3] = rgbaData[i+3];                                 // A (unchanged)
-            }
-            processedRgba = brightenedRgba;
-          }
-          
-          // Create ImageData from raw RGBA
-          const imageData = new ImageData(new Uint8ClampedArray(processedRgba), width, height);
-          
-          // Convert to ImageBitmap using default browser color space handling
-          // This allows the browser to properly convert from linear RGB to sRGB
-          // and handle alpha premultiplication correctly
-          bitmap = await createImageBitmap(imageData);
-          console.log(`🚀 Successfully created ImageBitmap from raw RGBA data (using browser defaults for color space and alpha)`);
-          return bitmap;
         }
+
+        let processedRgba = rgbaData;
+        if (this.debugBrighten) {
+          console.log('🔆 DEBUG: Artificially brightening raw RGBA data');
+          const brightenedRgba = new Uint8ClampedArray(rgbaData.length);
+          const brightenFactor = 10;
+          for (let i = 0; i < rgbaData.length; i += 4) {
+            brightenedRgba[i] = Math.min(255, rgbaData[i] * brightenFactor);
+            brightenedRgba[i + 1] = Math.min(255, rgbaData[i + 1] * brightenFactor);
+            brightenedRgba[i + 2] = Math.min(255, rgbaData[i + 2] * brightenFactor);
+            brightenedRgba[i + 3] = rgbaData[i + 3];
+          }
+          processedRgba = brightenedRgba;
+        }
+
+        const imageDataObj = new ImageData(new Uint8ClampedArray(processedRgba), width, height);
+        const bitmap = await createImageBitmap(imageDataObj);
+        console.log('🚀 Successfully created ImageBitmap from raw RGBA data (using browser defaults for color space and alpha)');
+        return bitmap;
       } catch (error) {
         console.error('❌ Raw RGBA decoding failed:', error);
-        console.error('❌ Data might be corrupted or in wrong format');
-        // Re-throw the error to propagate it up
         throw error;
       }
     }
-    
+
     if (!isRawRGBAFormat) {
-      // Handle PNG format
       const pngSignature = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A];
       const first8Bytes = Array.from(byteArray.slice(0, 8));
       const isPNG = pngSignature.every((byte, i) => byte === first8Bytes[i]);
-      
+
       if (!isPNG) {
         console.error('🔍 PNG signature validation failed');
         console.error('🔍 Expected:', pngSignature.map(b => b.toString(16).padStart(2, '0')).join(' '));
         console.error('🔍 Actual:', first8Bytes.map(b => b.toString(16).padStart(2, '0')).join(' '));
-        
-        // Try to detect if this might be raw RGBA that slipped through
+
         if (byteArray.length > 8) {
-          const view = new DataView(byteArray.buffer, byteArray.byteOffset);
+          const view = new DataView(byteArray.buffer, byteArray.byteOffset, byteArray.byteLength);
           const possibleWidth = view.getUint32(0, true);
           const possibleHeight = view.getUint32(4, true);
-          
-          if (possibleWidth > 0 && possibleWidth < 10000 && 
-              possibleHeight > 0 && possibleHeight < 10000) {
+
+          if (possibleWidth > 0 && possibleWidth < 10000 && possibleHeight > 0 && possibleHeight < 10000) {
             console.warn('🔍 Data appears to be raw RGBA despite PNG expectation - attempting recovery');
-            isRawRGBAFormat = true;
-            
-            try {
-              const rgbaData = byteArray.slice(8);
-              const imageData = new ImageData(new Uint8ClampedArray(rgbaData), possibleWidth, possibleHeight);
-              bitmap = await createImageBitmap(imageData);
-              return bitmap;
-            } catch (recoveryError) {
-              throw new Error(`Format detection failed and recovery attempt unsuccessful: ${recoveryError.message}`);
-            }
-          } else {
-            throw new Error(`Data is not valid PNG and doesn't appear to be raw RGBA either`);
+            const rgbaData = byteArray.slice(8);
+            const imageDataObj = new ImageData(new Uint8ClampedArray(rgbaData), possibleWidth, possibleHeight);
+            return createImageBitmap(imageDataObj);
           }
-        } else {
-          throw new Error(`Data too short to be valid PNG or raw RGBA: ${byteArray.length} bytes`);
         }
-      } else {
-        // Valid PNG
-        try {
-          const blob = new Blob([byteArray], { type: 'image/png' });
-          bitmap = await createImageBitmap(blob);
-          console.log(`🔍 PNG processed successfully: ${bitmap.width}x${bitmap.height}`);
-          return bitmap;
-        } catch (error) {
-          throw new Error(`PNG decoding failed: ${error.message}`);
-        }
+        throw new Error(`Data is not valid PNG and doesn't appear to be raw RGBA either`);
+      }
+
+      try {
+        const blob = new Blob([byteArray], { type: 'image/png' });
+        const bitmap = await createImageBitmap(blob);
+        console.log(`🔍 PNG processed successfully: ${bitmap.width}x${bitmap.height}`);
+        return bitmap;
+      } catch (error) {
+        throw new Error(`PNG decoding failed: ${error instanceof Error ? error.message : String(error)}`);
       }
     }
-    
-    // We should have a valid bitmap by now
-    if (!bitmap) {
-      throw new Error('Failed to create bitmap from image data');
-    }
-    
-    return bitmap;
+
+    throw new Error('Failed to create bitmap from image data');
   }
-  
+
   /**
    * Convert colormap name to ID
    */
@@ -663,6 +658,42 @@ export class ApiService {
     
     return viewPlane;
   }
+
+  async recalculateAllViews(
+    volumeId: string,
+    dimensionsByView: Record<ViewType, [number, number]>,
+    crosshairMm: [number, number, number]
+  ): Promise<Record<ViewType, ViewPlane>> {
+    console.log('[ApiService] recalculateAllViews called:', {
+      volumeId,
+      dimensionsByView,
+      crosshairMm
+    });
+
+    const response = await this.transport.invoke<Record<string, any>>(
+      'recalculate_all_views',
+      {
+        volumeId,
+        dimensionsByView,
+        crosshairMm
+      }
+    );
+
+    const result: Partial<Record<ViewType, ViewPlane>> = {};
+    (['axial', 'sagittal', 'coronal'] as ViewType[]).forEach((viewType) => {
+      const backendView = response?.[viewType];
+      if (backendView) {
+        result[viewType] = {
+          origin_mm: backendView.origin_mm,
+          u_mm: backendView.u_mm,
+          v_mm: backendView.v_mm,
+          dim_px: [backendView.width_px, backendView.height_px]
+        } as ViewPlane;
+      }
+    });
+
+    return result as Record<ViewType, ViewPlane>;
+  }
   
   /**
    * List directory contents
@@ -683,6 +714,50 @@ export class ApiService {
       'sample_world_coordinate',
       { worldCoord }
     );
+  }
+
+  /**
+   * Set current timepoint for a 4D volume
+   */
+  async setVolumeTimepoint(volumeId: string, timepoint: number): Promise<void> {
+    await this.transport.invoke('set_volume_timepoint', {
+      volumeId,
+      timepoint
+    });
+  }
+
+  /**
+   * Fetch current timepoint for a 4D volume
+   */
+  async getVolumeTimepoint(volumeId: string): Promise<number | null> {
+    const result = await this.transport.invoke<number | null>(
+      'get_volume_timepoint',
+      { volumeId }
+    );
+    return result === undefined ? null : result;
+  }
+
+  /**
+   * Query current GPU atlas usage statistics
+   */
+  async getAtlasStats(): Promise<AtlasStats> {
+    const raw = await this.transport.invoke<RawAtlasStats>('get_atlas_stats');
+    return this.mapAtlasStats(raw);
+  }
+
+  private mapAtlasStats(raw: RawAtlasStats): AtlasStats {
+    return {
+      totalLayers: raw.total_layers,
+      usedLayers: raw.used_layers,
+      freeLayers: raw.free_layers,
+      allocations: raw.allocations,
+      releases: raw.releases,
+      highWatermark: raw.high_watermark,
+      fullEvents: raw.full_events,
+      is3D: raw.is_3d,
+      lastAllocationMs: raw.last_allocation_ms,
+      lastReleaseMs: raw.last_release_ms
+    };
   }
   
   /**
@@ -1059,6 +1134,153 @@ export class ApiService {
     // Call the core method directly - no event emission
     return this.applyAndRenderViewStateCore(viewState, viewType, width, height);
   }
+
+  async renderViewStateMulti(
+    viewState: ViewState,
+    viewTypes: ViewType[]
+  ): Promise<Record<ViewType, ImageBitmap | null>> {
+    const startTime = performance.now();
+    const visibleLayers = viewState.layers.filter(layer => layer.visible && layer.opacity > 0);
+
+    if (visibleLayers.length === 0) {
+      console.warn('[ApiService] renderViewStateMulti called with no visible layers');
+      const empty: Record<ViewType, ImageBitmap | null> = {
+        axial: null,
+        sagittal: null,
+        coronal: null
+      };
+      return empty;
+    }
+
+    const payload = {
+      views: viewState.views,
+      crosshair: viewState.crosshair,
+      layers: visibleLayers.map(layer => ({
+        id: layer.id,
+        volumeId: layer.volumeId,
+        colormap: layer.colormap,
+        blendMode: layer.blendMode || 'alpha',
+        opacity: layer.opacity,
+        intensity: layer.intensity,
+        threshold: layer.threshold,
+        interpolation: layer.interpolation || 'linear',
+        visible: true
+      })),
+      requestedViews: viewTypes.map((viewType) => {
+        const view = viewState.views[viewType];
+        if (!view) {
+          throw new Error(`Requested view '${viewType}' missing from view state`);
+        }
+        const [width, height] = view.dim_px || [512, 512];
+        return {
+          type: viewType,
+          origin_mm: [...view.origin_mm, 1.0] as [number, number, number, number],
+          u_mm: [
+            view.u_mm[0] * width,
+            view.u_mm[1] * width,
+            view.u_mm[2] * width,
+            0.0
+          ] as [number, number, number, number],
+          v_mm: [
+            view.v_mm[0] * height,
+            view.v_mm[1] * height,
+            view.v_mm[2] * height,
+            0.0
+          ] as [number, number, number, number],
+          width,
+          height
+        };
+      })
+    };
+
+    const validation = validateRenderViewPayload(payload);
+    if (!validation.ok) {
+      console.error('[ApiService] Invalid multi-view render payload detected:', validation.errors);
+      throw new Error(`render_views payload validation failed: ${validation.errors.join('; ')}`);
+    }
+
+    const format = this.useRawRGBA ? 'rgba' : 'png';
+    const response = await this.transport.invoke<Uint8Array>('render_views', {
+      stateJson: JSON.stringify(payload),
+      format
+    });
+
+    const byteArray = response instanceof Uint8Array ? response : new Uint8Array(response);
+    if (byteArray.length < 4) {
+      throw new Error('render_views returned an empty payload');
+    }
+
+    const viewCount = new DataView(byteArray.buffer, byteArray.byteOffset, byteArray.byteLength).getUint32(0, true);
+    let offset = 4;
+
+    type ViewMeta = {
+      viewType: ViewType;
+      width: number;
+      height: number;
+      length: number;
+    };
+
+    const codeToView: Record<number, ViewType> = {
+      0: 'axial',
+      1: 'sagittal',
+      2: 'coronal'
+    };
+
+    const segments: ViewMeta[] = [];
+    for (let i = 0; i < viewCount; i++) {
+      const code = byteArray[offset];
+      offset += 1;
+      const width = new DataView(byteArray.buffer, byteArray.byteOffset + offset, 4).getUint32(0, true);
+      offset += 4;
+      const height = new DataView(byteArray.buffer, byteArray.byteOffset + offset, 4).getUint32(0, true);
+      offset += 4;
+      const length = new DataView(byteArray.buffer, byteArray.byteOffset + offset, 4).getUint32(0, true);
+      offset += 4;
+
+      const viewType = codeToView[code];
+      if (!viewType) {
+        throw new Error(`Unknown view code returned from backend: ${code}`);
+      }
+
+      segments.push({ viewType, width, height, length });
+    }
+
+    const results: Partial<Record<ViewType, ImageBitmap | null>> = {};
+
+    for (const segment of segments) {
+      const { viewType, width, height, length } = segment;
+      const end = offset + length;
+      if (end > byteArray.length) {
+        throw new Error(`render_views payload truncated for view ${viewType}`);
+      }
+
+      const slice = byteArray.slice(offset, end);
+      offset = end;
+
+      try {
+        let bitmap: ImageBitmap;
+        if (format === 'rgba') {
+          const buffer = new ArrayBuffer(8 + slice.length);
+          const dv = new DataView(buffer);
+          dv.setUint32(0, width, true);
+          dv.setUint32(4, height, true);
+          new Uint8Array(buffer, 8).set(slice);
+          bitmap = await this.decodeImageBuffer(new Uint8Array(buffer), true);
+        } else {
+          bitmap = await this.decodeImageBuffer(slice, false);
+        }
+        results[viewType] = bitmap;
+      } catch (error) {
+        console.error(`[ApiService] Failed to decode ${viewType} view from render_views:`, error);
+        results[viewType] = null;
+      }
+    }
+
+    const elapsed = performance.now() - startTime;
+    console.log(`[ApiService] renderViewStateMulti decoded ${segments.length} views in ${elapsed.toFixed(1)}ms`);
+
+    return results as Record<ViewType, ImageBitmap | null>;
+  }
   
   /**
    * Promise-based batch rendering for MosaicView
@@ -1162,6 +1384,15 @@ export class ApiService {
     this.useNewRenderAPI = enable;
     console.log(`[ApiService] New render_view API ${enable ? 'enabled' : 'disabled'}`);
   }
+
+  /**
+   * Enable or disable legacy apply_and_render_* fallbacks.
+   * When disabled (default), render_view failures bubble up for visibility.
+   */
+  setLegacyRenderFallbackEnabled(enable: boolean) {
+    this.legacyRenderFallbackEnabled = enable;
+    console.log(`[ApiService] Legacy render fallbacks ${enable ? 'enabled' : 'disabled'}`);
+  }
   
   /**
    * Create a new isolated render session
@@ -1228,11 +1459,17 @@ export function setUseNewRenderAPI(enable: boolean) {
   apiService.setUseNewRenderAPI(enable);
 }
 
+export function setLegacyRenderFallbackEnabled(enable: boolean) {
+  const apiService = getApiService();
+  apiService.setLegacyRenderFallbackEnabled(enable);
+}
+
 // Export for debugging in console
 if (typeof window !== 'undefined') {
   (window as any).setBinaryIPC = setBinaryIPC;
   (window as any).setRawRGBA = setRawRGBA;
   (window as any).setDebugBrighten = setDebugBrighten;
   (window as any).setUseNewRenderAPI = setUseNewRenderAPI;
+  (window as any).setLegacyRenderFallbackEnabled = setLegacyRenderFallbackEnabled;
   (window as any).getApiService = getApiService;
 }

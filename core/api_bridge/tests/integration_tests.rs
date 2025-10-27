@@ -1,11 +1,10 @@
 #[cfg(test)]
 mod integration_tests {
-    use api_bridge::*;
-    use bridge_types::*;
+    use api_bridge::{LayerSpec, VolumeLayerSpec};
+    use bridge_types::{Loaded, Loader, VolumeSendable};
     use nifti_loader::NiftiLoader;
     use std::path::PathBuf;
-    use volmath::space::GridSpace;
-    use volmath::traits::Volume;
+    use volmath::NeuroSpaceExt;
 
     // Helper to get test data path
     fn test_data_path() -> PathBuf {
@@ -52,12 +51,7 @@ mod integration_tests {
             return;
         }
 
-        use flate2::read::GzDecoder;
-        use std::fs::File;
-
-        let file = File::open(&test_file).unwrap();
-        let reader = GzDecoder::new(file);
-        let result = nifti_loader::load_nifti_volume(reader);
+        let result = nifti_loader::load_nifti_volume_auto(&test_file);
 
         assert!(result.is_ok());
         let (volume_sendable, affine) = result.unwrap();

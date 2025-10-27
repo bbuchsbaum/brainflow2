@@ -1,0 +1,27 @@
+name: Typed Shader Check
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - develop
+
+jobs:
+  typed-shader:
+    name: render_loop typed-shaders sanity
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          profile: minimal
+          override: true
+
+      - name: Run typed shader checks
+        run: ./tools/run-typed-shader-check.sh

@@ -3,6 +3,7 @@ import { ErrorBoundary } from 'react-error-boundary';
 import { GoldenLayoutRoot } from '@/components/layout/GoldenLayoutRoot';
 import { NotificationToast } from '@/components/ui/NotificationToast';
 import { StatusBar } from '@/components/ui/StatusBar';
+import { MultiViewBatchToggle } from '@/components/ui/MultiViewBatchToggle';
 import { GlobalProgressBar } from '@/components/ui/GlobalProgressBar';
 import { StatusProvider } from '@/contexts/StatusContext';
 import { CrosshairProvider } from '@/contexts/CrosshairContext';
@@ -60,6 +61,20 @@ function AppContent() {
   
   // All hooks must be called before any conditional returns
   const renderTimes = useRef<number[]>([]);
+  const renderLoopGuard = useRef<{
+    lastWindowId: number | null;
+    consecutiveHighSeconds: number;
+    lastTriggerWindow: number | null;
+    lastMetrics?: {
+      rendersPerSecond: number;
+      avgIntervalMs: number;
+      sampleCount: number;
+    };
+  }>({
+    lastWindowId: null,
+    consecutiveHighSeconds: 0,
+    lastTriggerWindow: null,
+  });
   const [showCrosshairSettings, setShowCrosshairSettings] = useState(false);
   
   // Initialize services first - this is the root of all initialization
@@ -138,13 +153,46 @@ function AppContent() {
   // Keep only renders from the last 1 second
   renderTimes.current = renderTimes.current.filter(time => now - time < 1000);
   
-  // Detect render loop: more than 120 renders in 1 second (allows for rapid slider interactions)
+  // Detect render loop: compare render rate and cadence to avoid false positives
   const rendersPerSecond = renderTimes.current.length;
-  if (rendersPerSecond > 120) {
-    console.error('[AppContent] RENDER LOOP DETECTED! Renders in last second:', rendersPerSecond);
-    console.trace('Stack trace:');
-    // Bail out to prevent browser crash - but with higher threshold for time-based detection
-    if (rendersPerSecond > 200) {
+  const guard = renderLoopGuard.current;
+  const windowId = Math.floor(now / 1000);
+  const intervals = renderTimes.current.length > 1
+    ? renderTimes.current.slice(1).map((time, idx) => time - renderTimes.current[idx])
+    : [];
+  const avgIntervalMs = intervals.length
+    ? intervals.reduce((sum, value) => sum + value, 0) / intervals.length
+    : Number.POSITIVE_INFINITY;
+  const renderRateSuspicious = rendersPerSecond >= 240 && avgIntervalMs < 6;
+  const thresholdSeconds = 6;
+
+  if (guard.lastWindowId === null || guard.lastWindowId !== windowId) {
+    guard.lastWindowId = windowId;
+    guard.consecutiveHighSeconds = renderRateSuspicious ? guard.consecutiveHighSeconds + 1 : 0;
+  } else if (!renderRateSuspicious) {
+    guard.consecutiveHighSeconds = 0;
+    guard.lastTriggerWindow = null;
+  }
+
+  if (renderRateSuspicious) {
+    guard.lastMetrics = {
+      rendersPerSecond,
+      avgIntervalMs,
+      sampleCount: intervals.length,
+    };
+    console.warn(
+      '[AppContent] Render rate spike detected:',
+      `${rendersPerSecond}/s avgInterval=${avgIntervalMs.toFixed(2)}ms consecutiveHighSeconds=${guard.consecutiveHighSeconds}`,
+    );
+    if (guard.consecutiveHighSeconds >= thresholdSeconds && guard.lastTriggerWindow !== windowId) {
+      guard.lastTriggerWindow = windowId;
+      console.error('[AppContent] RENDER LOOP DETECTED! Renders in last second:', rendersPerSecond);
+      console.error('[AppContent] Render loop diagnostics:', guard.lastMetrics);
+      console.trace('Stack trace:');
+      (window as any).__renderLoopDiagnostics = {
+        triggeredAt: now,
+        ...guard.lastMetrics,
+      };
       return (
         <div className="h-screen bg-gray-950 flex items-center justify-center text-red-500">
           <div className="text-center">
@@ -176,7 +224,7 @@ function AppContent() {
       <div className="flex-1 overflow-hidden">
         <GoldenLayoutRoot />
       </div>
-      <StatusBar />
+      <StatusBar rightContent={<MultiViewBatchToggle />} />
       <NotificationToast />
       
       {/* Crosshair Settings Dialog */}

@@ -4,6 +4,7 @@
 **Date**: 2025-08-05  
 **Reviewed by**: O3 (OpenAI) and Gemini-2.5-Pro expert analysis  
 **Updated**: 2025-01-08 - LayerPanel separation pattern based on expert consensus
+**Updated**: 2025-01-09 - Pivoted to separate panels based on user feedback
 
 ## Executive Summary
 
@@ -11,16 +12,32 @@ This document outlines the architectural plan for adding 3D surface visualizatio
 
 1. **3D Brain Surface Meshes**: Multi-layer surface support with dedicated controls
 2. **Volume-to-Surface Mapping (vol2surf)**: Dynamic projection of volume data onto surface vertices
-3. **Separate Panel Architecture**: Dedicated panels for volumes and surfaces with shared components
+3. **Separate Panel Architecture**: Dedicated panels for volumes and surfaces (LayerPanel and SurfaceListPanel)
 4. **Composition Pattern**: Vol2surf as a relationship between types, not a new type
 5. **Performance-Optimized**: GPU-accelerated vol2surf mapping for real-time updates
 
-### Key Architecture Decision: Separate Panels with Manager
-Based on expert consensus from O3 and Gemini-2.5-Pro:
-- **Separate panels** for volumes and surfaces prevent conditional complexity
-- **Manager/dispatcher pattern** maintains UX consistency
-- **Shared controls** extracted into reusable components
-- **Composition over inheritance** for vol2surf hybrid layers
+### Architecture Evolution (2025-01-09)
+
+The architecture evolved through two phases:
+
+**Phase 1: Unified Facade Pattern**
+- Implemented UnifiedLayerService and useUnifiedLayers hook
+- Designed for displaying all layers in a single LayerPanel
+- Type-safe discriminated unions for volumes and surfaces
+
+**Phase 2: Separate UI Panels** (Current)
+- User feedback: "we don't actually overlay surfaces over volumes"
+- Pivoted to: LayerPanel (volumes) and SurfaceListPanel (surfaces)
+- Retained facade infrastructure for future programmatic features
+- Clear UI separation while maintaining architectural flexibility
+
+### Key Architecture Decision: Separate Panels (Current Implementation)
+Initially based on expert consensus, then refined by user feedback:
+- **Separate panels** - LayerPanel for volumes, SurfaceListPanel for surfaces
+- **No overlay relationship** - Volumes (2D slices) and surfaces (3D meshes) are distinct
+- **Tabbed interface** - Both panels available as tabs in GoldenLayout
+- **Direct store access** - Each panel uses its respective store directly
+- **Facade available** - UnifiedLayerService exists for future programmatic needs
 
 ## Expert Review Summary
 
@@ -44,6 +61,98 @@ Based on expert consensus from O3 and Gemini-2.5-Pro:
 
 **ELIMINATED**: `LayerDataType = 'volume' | 'surface' | 'hybrid'` (hybrid is anti-pattern)  
 **ADOPTED**: Surface layers with optional volume reference for mapping
+
+## Facade Pattern Implementation (Available for Future Use)
+
+After deeper analysis with both Gemini-2.5-Pro and O3, we've identified that the original plan to unify surfaces into the layer system would introduce significant complexity:
+
+### The Problem with Unification
+1. **Backend Incompatibility**: ViewState is sent to Rust backend which only handles volumes
+2. **Three-Store Synchronization**: Would require syncing layerStore, viewStateStore, AND surfaceStore
+3. **Existing Code**: SurfaceViewPanel already works perfectly with surfaceStore
+4. **Type Explosion**: Discriminated unions would require conditionals everywhere
+
+### The Solution: Facade Pattern
+Instead of forcing unification at the store level, we implement a **facade service** that provides a unified interface while keeping stores separate internally:
+
+```typescript
+// UnifiedLayerService.ts - The Facade
+export type ManagedLayer = 
+  | { id: string; type: 'volume'; data: VolumeLayer }
+  | { id: string; type: 'surface'; data: Surface };
+
+class UnifiedLayerService {
+  // Combine layers for UI presentation
+  getAllLayers(): ManagedLayer[] {
+    const volumes = useLayerStore.getState().layers;
+    const surfaces = Array.from(useSurfaceStore.getState().surfaces.values());
+    
+    return [
+      ...volumes.map(v => ({ id: v.id, type: 'volume' as const, data: v })),
+      ...surfaces.map(s => ({ id: s.handle, type: 'surface' as const, data: s }))
+    ];
+  }
+  
+  // Delegate updates to appropriate store
+  updateLayerProperty(id: string, property: string, value: any) {
+    const layer = this.getAllLayers().find(l => l.id === id);
+    if (!layer) return;
+    
+    if (layer.type === 'volume') {
+      useLayerStore.getState().updateLayer(id, { [property]: value });
+    } else {
+      // Update surface in surfaceStore
+      const surface = layer.data as Surface;
+      useSurfaceStore.getState().updateLayerProperty(surface.handle, property, value);
+    }
+  }
+  
+  // Natural vol2surf coordination
+  createVol2SurfMapping(volumeId: string, surfaceId: string) {
+    const volume = useLayerStore.getState().layers.find(l => l.id === volumeId);
+    const surface = useSurfaceStore.getState().surfaces.get(surfaceId);
+    
+    if (!volume || !surface) return;
+    
+    // Coordinate mapping between stores
+    // Add sourceVolumeId to surface metadata
+    // Update surface with mapped data
+  }
+}
+```
+
+### Benefits of Facade Pattern
+1. **No Backend Changes**: ViewState continues to send only volumes
+2. **Clean Architecture**: Stores remain separate and focused
+3. **Unified UX**: Single layer panel for users
+4. **Type Safety**: Discriminated unions provide compile-time safety
+5. **Incremental Migration**: Can implement gradually
+6. **Future-Proof**: Easy to add new visualization types
+
+### Current Implementation: Separate Panels
+
+Based on user feedback, we now use separate panels:
+
+```typescript
+// GoldenLayoutWrapper.tsx registration
+componentRegistry.set('LayerPanel', LayerPanel);      // Volumes only
+componentRegistry.set('SurfacePanel', SurfaceListPanel); // Surfaces only
+
+// Layout configuration with tabs
+{
+  type: 'stack',
+  content: [
+    { type: 'component', componentType: 'LayerPanel', title: 'Volumes' },
+    { type: 'component', componentType: 'SurfacePanel', title: 'Surfaces' }
+  ]
+}
+```
+
+### Why This Approach Works Better
+1. **Clear Mental Models**: Users understand volumes and surfaces are different
+2. **No Type Confusion**: Each panel handles one type, no conditionals
+3. **Independent Evolution**: Panels can evolve separately
+4. **Better UX**: Dedicated interfaces for each visualization type
 
 ## LayerPanel Architecture Decision
 
@@ -516,46 +625,52 @@ class Vol2SurfGPUService {
 }
 ```
 
-### Phase 4: State Management with Dedicated Selectors
+### Phase 4: Facade-Based State Management
 
-**Problem**: Components littered with `layers.filter(l => l.dataType === 'surface')`  
-**Solution**: Dedicated hooks encapsulate filtering logic
+**Problem**: Need unified layer access without store coupling  
+**Solution**: Facade service with dedicated hooks
 
 ```typescript
-// Dedicated state selectors to avoid repetitive filtering
-export const useSurfaceLayers = (): SurfaceViewLayer[] => {
-  return useViewStateStore(state => 
-    state.viewState.layers.filter(l => l.dataType === 'surface') as SurfaceViewLayer[]
-  );
-};
+// useUnifiedLayers.ts - Hook that uses the facade
+import { useMemo } from 'react';
+import { useLayerStore } from '@/stores/layerStore';
+import { useSurfaceStore } from '@/stores/surfaceStore';
+import { UnifiedLayerService } from '@/services/UnifiedLayerService';
 
-export const useVolumeLayers = (): VolumeViewLayer[] => {
-  return useViewStateStore(state => 
-    state.viewState.layers.filter(l => l.dataType === 'volume') as VolumeViewLayer[]
+export function useUnifiedLayers() {
+  const volumeLayers = useLayerStore(state => state.layers);
+  const surfaces = useSurfaceStore(state => state.surfaces);
+  const service = useMemo(() => new UnifiedLayerService(), []);
+  
+  // Combine layers with proper typing
+  const allLayers = useMemo(() => {
+    return service.getAllLayers();
+  }, [volumeLayers, surfaces]);
+  
+  // Filtered accessors
+  const surfaceLayers = useMemo(() => 
+    allLayers.filter(l => l.type === 'surface'), [allLayers]
   );
-};
-
-export const useVol2SurfLayers = (): SurfaceViewLayer[] => {
-  return useViewStateStore(state => 
-    state.viewState.layers.filter(l => 
-      l.dataType === 'surface' && l.sourceVolumeId
-    ) as SurfaceViewLayer[]
+  
+  const volumeLayers = useMemo(() => 
+    allLayers.filter(l => l.type === 'volume'), [allLayers]
   );
-};
-
-export const useLayerById = (id: string): ViewLayer | undefined => {
-  return useViewStateStore(state => 
-    state.viewState.layers.find(l => l.id === id)
+  
+  const vol2surfLayers = useMemo(() => 
+    allLayers.filter(l => 
+      l.type === 'surface' && l.data.sourceVolumeId
+    ), [allLayers]
   );
-};
-
-export const useAvailableVolumesForMapping = (): VolumeViewLayer[] => {
-  return useViewStateStore(state => 
-    state.viewState.layers.filter(l => 
-      l.dataType === 'volume' && l.visible
-    ) as VolumeViewLayer[]
-  );
-};
+  
+  return {
+    allLayers,
+    surfaceLayers,
+    volumeLayers,
+    vol2surfLayers,
+    updateLayer: service.updateLayerProperty.bind(service),
+    createVol2Surf: service.createVol2SurfMapping.bind(service)
+  };
+}
 ```
 
 ### Phase 5: Unified Resource Loading Strategy
@@ -907,6 +1022,238 @@ export const SurfaceView: React.FC<SurfaceViewProps> = ({
 - **Animation**: Temporal data playback, morphing between surfaces
 - **AR/VR support**: Immersive surface exploration
 
+## Surface Data Overlay Architecture (NEW)
+
+### Overview
+GIFTI files come in multiple types:
+- `.surf.gii` - Surface geometry (vertices and faces)
+- `.func.gii` - Functional data overlays (statistical maps, activation)
+- `.shape.gii` - Morphometric data (thickness, curvature, etc.)
+- `.label.gii` - Parcellation labels
+
+Currently, the system only supports `.surf.gii` geometry files. We need to extend support for data overlays.
+
+### The Problem
+When attempting to load a `.func.gii` file, the system returns:
+```
+LoaderError: "GIFTI loader error: Content type detection failed: 
+Unable to determine GIFTI content type: No coordinate data found in GIFTI file"
+```
+
+This occurs because:
+1. Backend GIFTI loader only expects geometry data
+2. No separate loading path for overlay files
+3. File routing doesn't distinguish between GIFTI types
+
+### Architectural Solution
+
+#### Phase 1: Backend Support
+Extend the GIFTI loader to handle functional data:
+
+```rust
+// core/loaders/gifti/src/lib.rs
+pub enum GiftiContentType {
+    Geometry { ... },
+    SurfaceData { 
+        data_count: usize,
+        intent: String,  // "NIFTI_INTENT_TTEST", etc.
+    },
+}
+
+// New Tauri command
+#[command]
+async fn load_surface_overlay(
+    path: String,
+    target_surface_id: String
+) -> Result<SurfaceDataHandle> {
+    // Load functional GIFTI data
+    let data = load_gifti_functional(&path)?;
+    
+    // Validate vertex count matches target surface
+    let surface = get_surface(&target_surface_id)?;
+    if data.len() != surface.vertex_count {
+        return Err("Vertex count mismatch");
+    }
+    
+    // Store data and return handle
+    let handle = store_surface_data(data);
+    Ok(handle)
+}
+```
+
+#### Phase 2: Frontend Service Layer
+Create dedicated overlay loading service:
+
+```typescript
+// services/SurfaceOverlayService.ts
+export class SurfaceOverlayService {
+  async loadSurfaceOverlay(
+    filePath: string,
+    targetSurfaceId: string
+  ): Promise<SurfaceDataLayer> {
+    // Validate file is overlay type
+    if (!this.isOverlayFile(filePath)) {
+      throw new Error("Not a valid overlay file");
+    }
+    
+    // Load data via Tauri
+    const dataHandle = await invoke('load_surface_overlay', {
+      path: filePath,
+      targetSurfaceId
+    });
+    
+    // Create data layer
+    return {
+      id: nanoid(),
+      name: path.basename(filePath),
+      dataHandle,
+      surfaceId: targetSurfaceId,
+      colormap: 'viridis',
+      range: await this.getDataRange(dataHandle),
+      opacity: 1.0
+    };
+  }
+  
+  private isOverlayFile(path: string): boolean {
+    return path.includes('.func.gii') || 
+           path.includes('.shape.gii');
+  }
+}
+```
+
+#### Phase 3: UI Workflow
+
+##### Option A: Drag-Drop Workflow
+1. User loads surface geometry first (`.surf.gii`)
+2. User drags overlay file onto surface viewer
+3. System detects overlay type and prompts for mapping
+4. Overlay applied to surface vertices
+
+##### Option B: Context Menu Workflow
+1. Right-click on loaded surface in SurfaceListPanel
+2. Select "Add Data Overlay..."
+3. File dialog filters for `.func.gii`, `.shape.gii`
+4. Load and apply overlay
+
+##### Option C: Automatic Detection
+1. When loading any `.gii` file, detect type
+2. If overlay, show surface selection dialog
+3. User picks target surface from loaded surfaces
+4. Apply overlay automatically
+
+#### Phase 4: Rendering Integration
+
+```typescript
+// In SurfaceViewCanvas.tsx
+const applyOverlayToSurface = (
+  surface: NeuroSurface,
+  overlayData: Float32Array,
+  colormap: string,
+  range: [number, number]
+) => {
+  // Create data layer on surface
+  surface.setDataLayer(overlayData, {
+    colormap,
+    intensityRange: range,
+    opacity: 1.0
+  });
+  
+  // Update material to use vertex colors
+  surface.mesh.material.vertexColors = true;
+  surface.mesh.material.needsUpdate = true;
+};
+```
+
+### Data Flow Architecture
+
+```
+GIFTI Overlay File (.func.gii)
+    ↓
+Backend GIFTI Loader (detect as SurfaceData)
+    ↓
+load_surface_overlay Command
+    ↓
+Validate Vertex Count Match
+    ↓
+Store Data with Handle
+    ↓
+Frontend SurfaceOverlayService
+    ↓
+Create SurfaceDataLayer
+    ↓
+Apply to NeuroSurface via setDataLayer
+    ↓
+Render with Vertex Colors
+```
+
+### Store Updates
+
+```typescript
+// surfaceStore.ts additions
+interface SurfaceDataLayer {
+  id: string;
+  name: string;
+  dataHandle: string;
+  surfaceId: string;
+  colormap: string;
+  range: [number, number];
+  threshold?: [number, number];
+  opacity: number;
+  showOnlyPositive?: boolean;
+  showOnlyNegative?: boolean;
+}
+
+interface SurfaceStore {
+  // Existing
+  surfaces: Map<string, Surface>;
+  
+  // New
+  dataLayers: Map<string, SurfaceDataLayer>;
+  
+  // Methods
+  addDataLayer(layer: SurfaceDataLayer): void;
+  updateDataLayer(id: string, updates: Partial<SurfaceDataLayer>): void;
+  removeDataLayer(id: string): void;
+  getDataLayersForSurface(surfaceId: string): SurfaceDataLayer[];
+}
+```
+
+### File Type Detection Strategy
+
+```typescript
+// utils/giftiTypeDetection.ts
+export function detectGiftiType(filename: string): 'geometry' | 'overlay' | 'unknown' {
+  // Check file naming conventions
+  if (filename.includes('.surf.gii')) return 'geometry';
+  if (filename.includes('.func.gii')) return 'overlay';
+  if (filename.includes('.shape.gii')) return 'overlay';
+  if (filename.includes('.label.gii')) return 'overlay';
+  
+  // Fallback: try to load and detect from content
+  return 'unknown';
+}
+```
+
+### Implementation Priority
+
+1. **Critical Path** (Sprint 3.0):
+   - Backend: Extend GIFTI loader for functional data
+   - Backend: Add load_surface_overlay command
+   - Frontend: Create SurfaceOverlayService
+   - Frontend: Basic overlay application to surface
+
+2. **Enhanced UX** (Sprint 3.1):
+   - Drag-drop overlay support
+   - Surface selection dialog
+   - Overlay management in SurfaceListPanel
+   - SurfaceDataLayerControls component
+
+3. **Advanced Features** (Future):
+   - Multiple overlays per surface
+   - Overlay blending modes
+   - Statistical thresholding
+   - Cluster-based filtering
+
 ## Migration Path
 
 ### Step-by-Step Migration Strategy
@@ -950,11 +1297,14 @@ export const SurfaceView: React.FC<SurfaceViewProps> = ({
 
 ---
 
-**Document Status**: Architecture finalized with separate panels pattern  
-**Updated**: 2025-01-08 - Expert consensus achieved on LayerPanel separation  
-**Key Decision**: Separate VolumePanel and SurfacePanel with LayerPropertiesManager  
-**Next Steps**: 
-1. Extract SharedControls from existing LayerPanel
-2. Create LayerPropertiesManager as central dispatcher
-3. Implement VolumePanel and SurfacePanel components
-4. Begin surface geometry loading implementation
+**Document Status**: Architecture Implemented with Separate Panels  
+**Updated**: 2025-01-09 - Pivoted from unified to separate panels based on user feedback  
+**Key Decision**: Separate panels for volumes (LayerPanel) and surfaces (SurfaceListPanel)  
+**Critical Insight**: Surfaces and volumes are fundamentally different visualization paradigms  
+**Implementation Complete**: 
+1. ✅ UnifiedLayerService facade created (reserved for future use)
+2. ✅ useUnifiedLayers hook implemented (available but not used)
+3. ✅ LayerPanel updated to show volumes only
+4. ✅ SurfaceListPanel created for surface management
+5. ✅ Both panels registered in GoldenLayout as tabs
+6. ✅ Architecture allows future use of facade for programmatic features

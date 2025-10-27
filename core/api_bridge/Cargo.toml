@@ -8,6 +8,10 @@ links = "api-bridge"
 name = "api_bridge"
 crate-type = ["cdylib", "rlib"]
 
+[features]
+default = []
+legacy_pipeline_tests = []
+
 [[bin]]
 name = "export_types"
 path = "src/bin/export_types.rs"
@@ -50,3 +54,4 @@ templates = { path = "../templates" } # Template service
 
 [dev-dependencies]
 serde_json = "1.0" # For testing serialization
+pollster = "0.3"

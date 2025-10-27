@@ -1,6 +1,5 @@
 use api_bridge::{BridgeState, SurfaceRegistry};
 use atlases::AtlasService;
-use templates::TemplateService;
 use log::{error, info};
 use nifti_loader::NiftiLoader;
 use raw_window_handle::{HasDisplayHandle, HasWindowHandle};
@@ -10,6 +9,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use tauri::{Manager, Runtime, State};
+use templates::TemplateService;
 use tokio::sync::Mutex as TokioMutex;
 // --- Add tracing imports ---
 use tracing::Instrument;
@@ -172,6 +172,7 @@ pub fn run() {
                                 atlas_service,
                                 template_service,
                             );
+                            bridge_state.start_layer_watchdog();
                             // Manage the state AFTER async initialization is complete
                             app_handle.manage(bridge_state);
                             tracing::info!("BridgeState with RenderLoopService managed.");
@@ -204,6 +205,7 @@ pub fn run() {
                                 atlas_service,
                                 template_service,
                             );
+                            bridge_state.start_layer_watchdog();
                             app_handle.manage(bridge_state);
                         }
                     }

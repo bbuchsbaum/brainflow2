@@ -14,16 +14,18 @@ import { initializeViewRegistry } from '@/services/ViewRegistry';
 // import { initializeViewStateRenderService } from '@/services/ViewStateRenderService'; // Removed - redundant with coalescing
 import { coalesceUtils } from '@/stores/middleware/coalesceUpdatesMiddleware';
 import { getApiService } from '@/services/apiService';
-import { getRenderCoordinator } from '@/services/RenderCoordinator';
+import { getRenderCoordinator, setMultiViewBatchEnabled } from '@/services/RenderCoordinator';
 import { getEventBus } from '@/events/EventBus';
 import { useLayerStore } from '@/stores/layerStore';
 import { useViewStateStore } from '@/stores/viewStateStore';
 import { useRenderStateStore } from '@/stores/renderStateStore';
 import { markRenderLoopAsInitialized } from './useRenderLoopInit';
+import { useFeatureFlagStore } from '@/stores/featureFlagStore';
 
 // Global flag to prevent double initialization in React StrictMode
 let servicesInitialized = false;
 let initializationInProgress = false;
+let featureFlagSubscription: (() => void) | null = null;
 
 export function useServicesInit() {
   useEffect(() => {
@@ -55,6 +57,17 @@ export function useServicesInit() {
         // This must be done early so GPU resources are available for file loading
         const apiService = getApiService();
         const renderCoordinator = getRenderCoordinator();
+        const featureFlags = useFeatureFlagStore.getState();
+
+        // Ensure coordinator reflects persisted flag state before any renders
+        setMultiViewBatchEnabled(featureFlags.multiViewBatch);
+
+        if (!featureFlagSubscription) {
+          featureFlagSubscription = useFeatureFlagStore.subscribe(
+            (state) => state.multiViewBatch,
+            (enabled) => setMultiViewBatchEnabled(enabled)
+          );
+        }
         try {
           console.log('[useServicesInit] Initializing RenderLoop...');
           await apiService.initRenderLoop(512, 512);
@@ -126,6 +139,9 @@ export function useServicesInit() {
     // Import OptimizedRenderService
     const { getOptimizedRenderService } = await import('@/services/OptimizedRenderService');
     const optimizedRenderService = getOptimizedRenderService();
+
+    const { initializeAtlasPressureMonitor } = await import('@/services/AtlasPressureMonitor');
+    const atlasPressureMonitor = initializeAtlasPressureMonitor();
     
     console.log('Setting up coalescing middleware callback with optimized rendering...');
     coalesceUtils.setBackendCallback(async (viewState) => {
@@ -153,6 +169,13 @@ export function useServicesInit() {
         eventBus.emit('render.error', { error: error as Error });
       }
     });
+
+    if (typeof window !== 'undefined') {
+      (window as any).setRenderMultiViewEnabled = (enabled: boolean) => {
+        useFeatureFlagStore.getState().setMultiViewBatchEnabled(Boolean(enabled));
+      };
+      (window as any).isRenderMultiViewEnabled = () => useFeatureFlagStore.getState().multiViewBatch;
+    }
     
     // ViewStateRenderService removed - coalescing middleware handles ViewState updates
     
@@ -165,6 +188,7 @@ export function useServicesInit() {
         console.log('- ProgressService: initialized');
         console.log('- MetadataStatusService: initialized');
         console.log('- Coalescing middleware: configured');
+        console.log('- AtlasPressureMonitor: started');
     
     // Expose services to window for debugging/testing in development
     if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
@@ -172,6 +196,7 @@ export function useServicesInit() {
         apiService,
         progressService,
         eventBus,
+        atlasPressureMonitor,
         // Add getters for other services to avoid double initialization
         get fileLoadingService() {
           return require('@/services/FileLoadingService').getFileLoadingService();

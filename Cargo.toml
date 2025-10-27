@@ -2,6 +2,7 @@
 members = [
   "src-tauri",
   "core/render_loop",
+  "core/render_loop_benches",
   "core/filesystem",
   "core/loaders/nifti",
   "core/loaders/gifti",

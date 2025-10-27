@@ -18,6 +18,7 @@ use nalgebra::Matrix4;
 use raw_window_handle::{HasDisplayHandle, HasWindowHandle}; // Add for surface creation
 use std::collections::HashMap;
 use std::sync::Arc; // Re-add Arc import
+use std::time::SystemTime;
 use thiserror::Error; // Add for error handling
 use volmath::{DataRange, DenseVolume3, NeuroSpaceExt, NumericType, VoxelData}; // Import DataRange directly
 use wgpu;
@@ -61,7 +62,7 @@ use pipeline::{PipelineKey, PipelineManager};
 use render_state::{FrameStats, LayerStateManager, RenderPassManager, RenderState};
 use render_target_pool::RenderTargetPool;
 use shader_watcher::{ShaderWatchEvent, ShaderWatcher};
-use shaders::ShaderManager;
+use shaders::{ShaderManager, SliceShaderDescriptors};
 use texture_manager::TextureManager;
 
 // External logging
@@ -116,6 +117,33 @@ pub enum RenderLoopError {
 
 // --- Texture Atlas ---
 
+const ATLAS_LOW_WATERMARK: u32 = 2;
+
+#[derive(Debug, Clone)]
+pub struct AtlasMetrics {
+    pub total_layers: u32,
+    pub used_layers: u32,
+    pub free_layers: u32,
+    pub allocations: u64,
+    pub releases: u64,
+    pub high_watermark: u32,
+    pub full_events: u64,
+    pub is_3d: bool,
+    pub last_allocation: Option<SystemTime>,
+    pub last_release: Option<SystemTime>,
+}
+
+#[derive(Debug, Clone)]
+struct AtlasCounters {
+    total_layers: u32,
+    allocations: u64,
+    releases: u64,
+    high_watermark: u32,
+    full_events: u64,
+    last_allocation: Option<SystemTime>,
+    last_release: Option<SystemTime>,
+}
+
 pub struct TextureAtlas {
     texture: wgpu::Texture,
     view: wgpu::TextureView,
@@ -123,6 +151,7 @@ pub struct TextureAtlas {
     size: wgpu::Extent3d,
     is_3d: bool,           // Track if this is a 3D texture
     free_layers: Vec<u32>, // Track available layers (for 2D array mode)
+    counters: AtlasCounters,
 }
 
 impl TextureAtlas {
@@ -156,6 +185,15 @@ impl TextureAtlas {
             size,
             is_3d: true,
             free_layers: vec![], // Not used for 3D textures
+            counters: AtlasCounters {
+                total_layers: size.depth_or_array_layers.max(1),
+                allocations: 0,
+                releases: 0,
+                high_watermark: 0,
+                full_events: 0,
+                last_allocation: None,
+                last_release: None,
+            },
         }
     }
 
@@ -192,28 +230,52 @@ impl TextureAtlas {
             size,
             is_3d: false,
             free_layers,
+            counters: AtlasCounters {
+                total_layers: size.depth_or_array_layers,
+                allocations: 0,
+                releases: 0,
+                high_watermark: 0,
+                full_events: 0,
+                last_allocation: None,
+                last_release: None,
+            },
         }
     }
 
     /// Allocates the next available layer index from the atlas.
     /// Returns `None` if the atlas is full.
     pub fn allocate_layer(&mut self) -> Option<u32> {
-        // if self.next_free_layer < self.size.depth_or_array_layers { // Old logic
-        //     let layer_index = self.next_free_layer;
-        //     self.next_free_layer += 1;
-        //     println!("Allocated atlas layer: {}", layer_index);
-        //     Some(layer_index)
-        // } else {
-        //     println!("Texture atlas is full!");
-        //     None
-        // }
-        let layer_index = self.free_layers.pop(); // Get the last index from the free list
-        if let Some(index) = layer_index {
-            println!("Allocated atlas layer: {}", index);
-        } else {
-            println!("Texture atlas is full!");
+        match self.free_layers.pop() {
+            Some(index) => {
+                println!("Allocated atlas layer: {}", index);
+                self.counters.allocations += 1;
+                self.counters.last_allocation = Some(SystemTime::now());
+                let used_layers = self
+                    .counters
+                    .total_layers
+                    .saturating_sub(self.free_layers.len() as u32);
+                if used_layers > self.counters.high_watermark {
+                    self.counters.high_watermark = used_layers;
+                }
+                if used_layers
+                    >= self
+                        .counters
+                        .total_layers
+                        .saturating_sub(ATLAS_LOW_WATERMARK)
+                {
+                    log::warn!(
+                        "Texture atlas low watermark reached ({} free layers remaining)",
+                        self.free_layers.len()
+                    );
+                }
+                Some(index)
+            }
+            None => {
+                println!("Texture atlas is full!");
+                self.counters.full_events += 1;
+                None
+            }
         }
-        layer_index
     }
 
     /// Marks a layer index as free and adds it back to the available list.
@@ -231,12 +293,62 @@ impl TextureAtlas {
         if !self.free_layers.contains(&layer_index) {
             println!("Freeing atlas layer: {}", layer_index);
             self.free_layers.push(layer_index);
+            self.counters.releases += 1;
+            self.counters.last_release = Some(SystemTime::now());
         } else {
             eprintln!(
                 "Warning: Attempted to free layer {} which is already free.",
                 layer_index
             );
         }
+    }
+
+    pub fn metrics(&self) -> AtlasMetrics {
+        let total_layers = if self.is_3d {
+            1
+        } else {
+            self.counters.total_layers
+        };
+        let free_layers = if self.is_3d {
+            if self.free_layers.is_empty() {
+                0
+            } else {
+                1
+            }
+        } else {
+            self.free_layers.len() as u32
+        };
+        let used_layers = total_layers.saturating_sub(free_layers);
+        let high_watermark = if self.is_3d {
+            self.counters.high_watermark.min(1)
+        } else {
+            self.counters.high_watermark
+        };
+
+        AtlasMetrics {
+            total_layers,
+            used_layers,
+            free_layers,
+            allocations: self.counters.allocations,
+            releases: self.counters.releases,
+            high_watermark,
+            full_events: self.counters.full_events,
+            is_3d: self.is_3d,
+            last_allocation: self.counters.last_allocation,
+            last_release: self.counters.last_release,
+        }
+    }
+
+    pub fn mark_3d_allocation(&mut self) {
+        if !self.is_3d {
+            return;
+        }
+        self.counters.allocations += 1;
+        self.counters.last_allocation = Some(SystemTime::now());
+        if self.counters.high_watermark < 1 {
+            self.counters.high_watermark = 1;
+        }
+        self.free_layers.clear();
     }
 
     // --- Getters ---
@@ -584,43 +696,61 @@ impl RenderLoopService {
 
     /// Load all required shaders with validation
     pub fn load_shaders(&mut self) -> Result<(), RenderLoopError> {
-        // Load the world-space shader for multi-texture rendering
-        let (_shader, validation) = self
-            .shader_manager
-            .load_shader_validated(
-                &self.device,
-                "slice_world_space",
-                shaders::sources::SLICE_WORLD_SPACE,
-            )
-            .map_err(|e| RenderLoopError::Internal {
-                code: 9020,
-                details: format!("Failed to load slice_world_space shader: {}", e),
-            })?;
+        #[cfg(feature = "typed-shaders")]
+        {
+            use shaders::typed::{slice_world_space, slice_world_space_optimized};
 
-        // Report world-space shader warnings
-        for warning in &validation.warnings {
-            println!("Slice world-space shader warning: {}", warning);
+            let module = slice_world_space::create_shader_module(&self.device);
+            self.shader_manager
+                .insert_shader("slice_world_space", module);
+
+            let module_opt = slice_world_space_optimized::create_shader_module(&self.device);
+            self.shader_manager
+                .insert_shader("slice_world_space_optimized", module_opt);
+
+            println!("Typed shader bindings registered (feature: typed-shaders).");
         }
 
-        // Load the optimized world-space shader
-        let (_shader_opt, validation_opt) = self
-            .shader_manager
-            .load_shader_validated(
-                &self.device,
-                "slice_world_space_optimized",
-                shaders::sources::SLICE_WORLD_SPACE_OPTIMIZED,
-            )
-            .map_err(|e| RenderLoopError::Internal {
-                code: 9021,
-                details: format!("Failed to load slice_world_space_optimized shader: {}", e),
-            })?;
+        #[cfg(not(feature = "typed-shaders"))]
+        {
+            // Load the world-space shader for multi-texture rendering
+            let (_shader, validation) = self
+                .shader_manager
+                .load_shader_validated(
+                    &self.device,
+                    "slice_world_space",
+                    shaders::sources::SLICE_WORLD_SPACE,
+                )
+                .map_err(|e| RenderLoopError::Internal {
+                    code: 9020,
+                    details: format!("Failed to load slice_world_space shader: {}", e),
+                })?;
 
-        // Report optimized shader warnings
-        for warning in &validation_opt.warnings {
-            println!("Slice world-space optimized shader warning: {}", warning);
+            // Report world-space shader warnings
+            for warning in &validation.warnings {
+                println!("Slice world-space shader warning: {}", warning);
+            }
+
+            // Load the optimized world-space shader
+            let (_shader_opt, validation_opt) = self
+                .shader_manager
+                .load_shader_validated(
+                    &self.device,
+                    "slice_world_space_optimized",
+                    shaders::sources::SLICE_WORLD_SPACE_OPTIMIZED,
+                )
+                .map_err(|e| RenderLoopError::Internal {
+                    code: 9021,
+                    details: format!("Failed to load slice_world_space_optimized shader: {}", e),
+                })?;
+
+            // Report optimized shader warnings
+            for warning in &validation_opt.warnings {
+                println!("Slice world-space optimized shader warning: {}", warning);
+            }
+
+            println!("Shaders loaded and validated successfully.");
         }
-
-        println!("Shaders loaded and validated successfully.");
 
         // Initialize colormaps
         self.texture_manager
@@ -746,6 +876,14 @@ impl RenderLoopService {
 
         // Create pipeline key
         let key = PipelineKey::new(shader_name, surface_format);
+        let slice_descriptors = if matches!(
+            shader_name,
+            "slice_world_space" | "slice_world_space_optimized"
+        ) {
+            Some(SliceShaderDescriptors::new(surface_format))
+        } else {
+            None
+        };
 
         println!(
             "ensure_pipeline: Creating pipeline for shader '{}' with format {:?}",
@@ -784,8 +922,11 @@ impl RenderLoopService {
         let shader = match self.shader_manager.get_shader(&shader_name_owned) {
             Some(shader) => shader,
             None => {
-                println!("WARNING: Shader '{}' not found in cache, attempting to load it", shader_name_owned);
-                
+                println!(
+                    "WARNING: Shader '{}' not found in cache, attempting to load it",
+                    shader_name_owned
+                );
+
                 // Try to load the shader on-demand
                 let shader_source = match shader_name_owned.as_str() {
                     "slice_world_space" => shaders::sources::SLICE_WORLD_SPACE,
@@ -793,26 +934,38 @@ impl RenderLoopService {
                     _ => {
                         return Err(RenderLoopError::Internal {
                             code: 9003,
-                            details: format!("Unknown shader '{}' - no source available", shader_name_owned),
+                            details: format!(
+                                "Unknown shader '{}' - no source available",
+                                shader_name_owned
+                            ),
                         });
                     }
                 };
-                
+
                 // Load the shader
                 let (shader, validation) = self
                     .shader_manager
                     .load_shader_validated(device, &shader_name_owned, shader_source)
                     .map_err(|e| RenderLoopError::Internal {
                         code: 9004,
-                        details: format!("Failed to load shader '{}' on-demand: {}", shader_name_owned, e),
+                        details: format!(
+                            "Failed to load shader '{}' on-demand: {}",
+                            shader_name_owned, e
+                        ),
                     })?;
-                
+
                 // Report warnings
                 for warning in &validation.warnings {
-                    println!("On-demand shader '{}' warning: {}", shader_name_owned, warning);
+                    println!(
+                        "On-demand shader '{}' warning: {}",
+                        shader_name_owned, warning
+                    );
                 }
-                
-                println!("Successfully loaded shader '{}' on-demand", shader_name_owned);
+
+                println!(
+                    "Successfully loaded shader '{}' on-demand",
+                    shader_name_owned
+                );
                 shader
             }
         };
@@ -826,10 +979,18 @@ impl RenderLoopService {
             &bind_group_layouts[..],
         );
 
-        // Create pipeline
-        self.pipeline_manager.get_or_create_pipeline(
-            device, key, shader, &layout, None, // Use default config
-        )?;
+        match slice_descriptors {
+            Some(descriptors) => self.pipeline_manager.get_or_create_slice_pipeline(
+                device,
+                key,
+                shader,
+                &layout,
+                &descriptors,
+            )?,
+            None => self
+                .pipeline_manager
+                .get_or_create_pipeline(device, key, shader, &layout, None)?,
+        }
 
         // Track the current pipeline
         self.current_pipeline = Some(shader_name.to_string());
@@ -1042,9 +1203,20 @@ impl RenderLoopService {
         }
 
         // Create bind group layouts for world-space rendering
+        #[cfg(feature = "typed-shaders")]
+        let frame_layout = shaders::typed::slice_world_space_optimized::bind_groups::BindGroup0::get_bind_group_layout(&self.device);
+        #[cfg(not(feature = "typed-shaders"))]
         let frame_layout = shaders::layouts::create_frame_layout(&self.device);
+
+        #[cfg(feature = "typed-shaders")]
+        let layer_storage_layout = shaders::typed::slice_world_space_optimized::bind_groups::BindGroup1::get_bind_group_layout(&self.device);
+        #[cfg(not(feature = "typed-shaders"))]
         let layer_storage_layout =
             layer_storage::LayerStorageManager::create_bind_group_layout(&self.device);
+
+        #[cfg(feature = "typed-shaders")]
+        let texture_layout = shaders::typed::slice_world_space_optimized::bind_groups::BindGroup2::get_bind_group_layout(&self.device);
+        #[cfg(not(feature = "typed-shaders"))]
         let texture_layout = MultiTextureManager::create_bind_group_layout(
             &self.device,
             multi_texture_manager::MAX_TEXTURES as u32,
@@ -1223,6 +1395,10 @@ impl RenderLoopService {
                     atlas_dims.depth_or_array_layers
                 ),
             });
+        }
+
+        if self.volume_atlas.is_3d {
+            self.volume_atlas.mark_3d_allocation();
         }
 
         // Convert entire volume to f16 bytes
@@ -1677,21 +1853,41 @@ impl RenderLoopService {
                         });
 
                 // --- Create Global Bind Group --- ADDED ---
-                let global_bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-                    label: Some("Global Bind Group"),
-                    layout: &self.global_bind_group_layout,
-                    entries: &[
-                        wgpu::BindGroupEntry {
-                            binding: 0,
-                            resource: self.frame_ubo_buffer.as_entire_binding(),
+                #[cfg(feature = "typed-shaders")]
+                let frame_bind_group =
+                    shaders::typed::slice_world_space_optimized::bind_groups::BindGroup0::from_bindings(
+                        &self.device,
+                        shaders::typed::slice_world_space_optimized::bind_groups::BindGroupLayout0 {
+                            frame: wgpu::BufferBinding {
+                                buffer: &self.frame_ubo_buffer,
+                                offset: 0,
+                                size: None,
+                            },
+                            crosshair: wgpu::BufferBinding {
+                                buffer: &self.crosshair_ubo_buffer,
+                                offset: 0,
+                                size: None,
+                            },
                         },
-                        wgpu::BindGroupEntry {
-                            binding: 1,
-                            resource: self.crosshair_ubo_buffer.as_entire_binding(),
-                        },
-                        // ViewPlaneUbo removed - view plane info is now encoded in frame vectors
-                    ],
-                });
+                    );
+                #[cfg(not(feature = "typed-shaders"))]
+                let global_bind_group =
+                    self.device
+                        .create_bind_group(&wgpu::BindGroupDescriptor {
+                            label: Some("Global Bind Group"),
+                            layout: &self.global_bind_group_layout,
+                            entries: &[
+                                wgpu::BindGroupEntry {
+                                    binding: 0,
+                                    resource: self.frame_ubo_buffer.as_entire_binding(),
+                                },
+                                wgpu::BindGroupEntry {
+                                    binding: 1,
+                                    resource: self.crosshair_ubo_buffer.as_entire_binding(),
+                                },
+                                // ViewPlaneUbo removed - view plane info is now encoded in frame vectors
+                            ],
+                        });
 
                 // Create render pass using the pass manager operations
                 let (load_op, store_op) = self.render_pass_manager.get_pass_operations();
@@ -1720,7 +1916,14 @@ impl RenderLoopService {
                     render_pass.set_pipeline(pipeline);
 
                     // Set bind groups
-                    render_pass.set_bind_group(0, &global_bind_group, &[]);
+                    #[cfg(feature = "typed-shaders")]
+                    {
+                        frame_bind_group.set(&mut render_pass);
+                    }
+                    #[cfg(not(feature = "typed-shaders"))]
+                    {
+                        render_pass.set_bind_group(0, &global_bind_group, &[]);
+                    }
 
                     // Set layer bind group if available
                     if let Some(layer_bind_group) = self.layer_uniform_manager.bind_group() {
@@ -1809,8 +2012,49 @@ impl RenderLoopService {
 
     /// Placeholder for handling device loss.
     pub fn handle_device_loss(&mut self) {
-        eprintln!("Device loss detected! Attempting basic recovery (Not implemented yet).");
-        // TODO: Implement robust device/resource recreation.
+        eprintln!("Device loss detected! Attempting basic recovery.");
+
+        // Best-effort reconfigure surface if present
+        if let (Some(surface), Some(config)) = (self.surface.as_ref(), self.surface_config.as_ref()) {
+            eprintln!("Reconfiguring surface after device loss ({}x{})", config.width, config.height);
+            surface.configure(&self.device, config);
+        } else {
+            eprintln!("No surface configured; skipping surface reconfiguration.");
+        }
+
+        // Clear pipeline cache to force recreation on next render
+        self.pipeline_manager.clear_pipelines();
+
+        // Recreate bind group layouts if needed
+        self.ensure_bind_group_layouts();
+
+        // Attempt to rebuild texture bind groups if we have layout + colormap
+        if let (Some(layout), Some(colormap_view)) = (
+            self.texture_bind_group_layout.as_ref(),
+            self.texture_manager.colormap_view(),
+        ) {
+            if let Some(multi) = self.multi_texture_manager.as_mut() {
+                let _ = multi.create_bind_group(
+                    &self.device,
+                    layout,
+                    self.texture_manager.linear_sampler(),
+                    self.texture_manager.nearest_sampler(),
+                    colormap_view,
+                    self.texture_manager.colormap_sampler(),
+                );
+            } else if let Some(id) = self.texture_bind_group_id {
+                // Legacy atlas path: refresh bind group id if needed
+                if self.texture_manager.get_bind_group(id).is_none() {
+                    let _ = self.texture_manager.create_bind_group(
+                        &self.device,
+                        layout,
+                        self.volume_atlas.view(),
+                    );
+                }
+            }
+        }
+
+        eprintln!("Basic recovery complete. Pipelines will be recreated on next render.");
     }
 
     // --- Method to update the frame UBO ---
@@ -2090,7 +2334,7 @@ impl RenderLoopService {
                 u_mm = [u_mm[0] * scale, u_mm[1] * scale, u_mm[2] * scale, u_mm[3]];
                 v_mm = [v_mm[0] * scale, v_mm[1] * scale, v_mm[2] * scale, v_mm[3]];
 
-                println!("RENDER_LOOP: Applied uniform scaling: scale={:.3}, scale_x={:.3}, scale_y={:.3}", 
+                println!("RENDER_LOOP: Applied uniform scaling: scale={:.3}, scale_x={:.3}, scale_y={:.3}",
                     scale, scale_x, scale_y);
             }
         }
@@ -2099,8 +2343,8 @@ impl RenderLoopService {
             "RENDER_LOOP: Received dimensions: {}x{}mm",
             view_width_mm, view_height_mm
         );
-        println!("update_frame_for_synchronized_view: plane_id={}, view_size={}x{}mm, crosshair=[{:.1}, {:.1}, {:.1}]", 
-            plane_id, view_width_mm, view_height_mm, 
+        println!("update_frame_for_synchronized_view: plane_id={}, view_size={}x{}mm, crosshair=[{:.1}, {:.1}, {:.1}]",
+            plane_id, view_width_mm, view_height_mm,
             crosshair_world[0], crosshair_world[1], crosshair_world[2]);
         println!(
             "  Frame origin_mm: [{:.1}, {:.1}, {:.1}, {:.1}]",
@@ -2451,6 +2695,23 @@ impl RenderLoopService {
         result
     }
 
+    /// Remove a render layer by its atlas index.
+    /// Returns `true` when a matching layer was removed.
+    pub fn remove_layer_by_atlas(&mut self, atlas_index: u32) -> Result<bool, RenderLoopError> {
+        if let Some((idx, _)) = self
+            .layer_state_manager
+            .layers()
+            .iter()
+            .enumerate()
+            .find(|(_, layer)| layer.atlas_index == atlas_index)
+        {
+            let removed = self.remove_render_layer(idx);
+            Ok(removed.is_some())
+        } else {
+            Ok(false)
+        }
+    }
+
     /// Clear all render layers
     pub fn clear_render_layers(&mut self) {
         self.layer_state_manager.clear_layers();
@@ -2461,6 +2722,15 @@ impl RenderLoopService {
     /// Get number of active layers
     pub fn active_layer_count(&self) -> usize {
         self.layer_state_manager.layer_count()
+    }
+
+    /// Return the atlas indices for all active render layers.
+    pub fn active_atlas_indices(&self) -> Vec<u32> {
+        self.layer_state_manager
+            .layers()
+            .iter()
+            .map(|layer| layer.atlas_index)
+            .collect()
     }
 
     /// Update layer properties
@@ -2853,6 +3123,16 @@ impl RenderLoopService {
         }
 
         // Get the current pipeline name based on rendering mode
+        #[cfg(feature = "typed-shaders")]
+        let pipeline_name = if self.world_space_enabled {
+            "slice_world_space_optimized".to_string()
+        } else {
+            self.current_pipeline
+                .clone()
+                .unwrap_or_else(|| "slice_simplified".to_string())
+        };
+
+        #[cfg(not(feature = "typed-shaders"))]
         let pipeline_name = if self.world_space_enabled {
             // If we have a current pipeline set and it's a world-space shader, use it
             if let Some(ref current) = self.current_pipeline {
@@ -2900,6 +3180,24 @@ impl RenderLoopService {
             });
 
         // Create global bind group
+        #[cfg(feature = "typed-shaders")]
+        let frame_bind_group =
+            shaders::typed::slice_world_space_optimized::bind_groups::BindGroup0::from_bindings(
+                &self.device,
+                shaders::typed::slice_world_space_optimized::bind_groups::BindGroupLayout0 {
+                    frame: wgpu::BufferBinding {
+                        buffer: &self.frame_ubo_buffer,
+                        offset: 0,
+                        size: None,
+                    },
+                    crosshair: wgpu::BufferBinding {
+                        buffer: &self.crosshair_ubo_buffer,
+                        offset: 0,
+                        size: None,
+                    },
+                },
+            );
+        #[cfg(not(feature = "typed-shaders"))]
         let global_bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("Global Bind Group"),
             layout: &self.global_bind_group_layout,
@@ -2972,14 +3270,28 @@ impl RenderLoopService {
             render_pass.set_pipeline(pipeline);
 
             // Set bind groups
-            render_pass.set_bind_group(0, &global_bind_group, &[]);
+            #[cfg(feature = "typed-shaders")]
+            {
+                frame_bind_group.set(&mut render_pass);
+            }
+            #[cfg(not(feature = "typed-shaders"))]
+            {
+                render_pass.set_bind_group(0, &global_bind_group, &[]);
+            }
 
             // Set layer and texture bind groups based on rendering mode
             if self.world_space_enabled {
                 // World-space rendering: use storage buffer and multi-texture bind groups
                 if let Some(layer_storage) = &self.layer_storage_manager {
                     if let Some(layer_bind_group) = layer_storage.bind_group() {
-                        render_pass.set_bind_group(1, layer_bind_group, &[]);
+                        #[cfg(feature = "typed-shaders")]
+                        {
+                            layer_bind_group.set(&mut render_pass);
+                        }
+                        #[cfg(not(feature = "typed-shaders"))]
+                        {
+                            render_pass.set_bind_group(1, layer_bind_group, &[]);
+                        }
                         println!("render_to_buffer: Layer storage bind group set");
                     } else {
                         println!("render_to_buffer: No layer storage bind group available");
@@ -2990,7 +3302,14 @@ impl RenderLoopService {
 
                 if let Some(multi_texture) = &self.multi_texture_manager {
                     if let Some(texture_bind_group) = multi_texture.bind_group() {
-                        render_pass.set_bind_group(2, texture_bind_group, &[]);
+                        #[cfg(feature = "typed-shaders")]
+                        {
+                            texture_bind_group.set(&mut render_pass);
+                        }
+                        #[cfg(not(feature = "typed-shaders"))]
+                        {
+                            render_pass.set_bind_group(2, texture_bind_group, &[]);
+                        }
                         println!("render_to_buffer: Multi-texture bind group set");
                     } else {
                         println!("render_to_buffer: No multi-texture bind group available");
@@ -3303,7 +3622,7 @@ impl RenderLoopService {
                 view_state::InterpolationMode::Linear => 1,
                 view_state::InterpolationMode::Cubic => 2,
             };
-            
+
             let layer_info = LayerInfo {
                 atlas_index: vol_entry.atlas_index,
                 opacity: layer_config.opacity,
@@ -3343,6 +3662,9 @@ impl RenderLoopService {
         let viewport_size = state.viewport_size;
 
         // Ensure pipeline exists
+        #[cfg(feature = "typed-shaders")]
+        self.ensure_pipeline("slice_world_space_optimized")?;
+        #[cfg(not(feature = "typed-shaders"))]
         self.ensure_pipeline("slice_world_space")?;
 
         // Configure render state for layers
@@ -3383,7 +3705,7 @@ impl RenderLoopService {
 
         // Update all layer uniforms (replicates what add_render_layer was doing)
         self.update_all_layer_uniforms()?;
-        
+
         // Update layer uniforms with world transforms
         self.update_layer_uniforms_direct(&layer_infos, &layer_dims, &world_to_voxels);
 
@@ -3393,6 +3715,24 @@ impl RenderLoopService {
         }
 
         // Create global bind group before render pass
+        #[cfg(feature = "typed-shaders")]
+        let frame_bind_group =
+            shaders::typed::slice_world_space_optimized::bind_groups::BindGroup0::from_bindings(
+                &self.device,
+                shaders::typed::slice_world_space_optimized::bind_groups::BindGroupLayout0 {
+                    frame: wgpu::BufferBinding {
+                        buffer: &self.frame_ubo_buffer,
+                        offset: 0,
+                        size: None,
+                    },
+                    crosshair: wgpu::BufferBinding {
+                        buffer: &self.crosshair_ubo_buffer,
+                        offset: 0,
+                        size: None,
+                    },
+                },
+            );
+        #[cfg(not(feature = "typed-shaders"))]
         let global_bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("Global Bind Group"),
             layout: &self.global_bind_group_layout,
@@ -3446,23 +3786,47 @@ impl RenderLoopService {
             });
 
             // Get and set pipeline
+            #[cfg(feature = "typed-shaders")]
+            let pipeline = self.get_pipeline("slice_world_space_optimized")?;
+            #[cfg(not(feature = "typed-shaders"))]
             let pipeline = self.get_pipeline("slice_world_space")?;
             render_pass.set_pipeline(pipeline);
 
             // Set global bind group
-            render_pass.set_bind_group(0, &global_bind_group, &[]);
+            #[cfg(feature = "typed-shaders")]
+            {
+                frame_bind_group.set(&mut render_pass);
+            }
+            #[cfg(not(feature = "typed-shaders"))]
+            {
+                render_pass.set_bind_group(0, &global_bind_group, &[]);
+            }
 
             // Set layer bind group if available
             if let Some(layer_storage) = &self.layer_storage_manager {
                 if let Some(layer_bind_group) = layer_storage.bind_group() {
-                    render_pass.set_bind_group(1, layer_bind_group, &[]);
+                    #[cfg(feature = "typed-shaders")]
+                    {
+                        layer_bind_group.set(&mut render_pass);
+                    }
+                    #[cfg(not(feature = "typed-shaders"))]
+                    {
+                        render_pass.set_bind_group(1, layer_bind_group, &[]);
+                    }
                 }
             }
 
             // Set texture bind group
             if let Some(multi_texture_manager) = &self.multi_texture_manager {
                 if let Some(texture_bind_group) = multi_texture_manager.bind_group() {
-                    render_pass.set_bind_group(2, texture_bind_group, &[]);
+                    #[cfg(feature = "typed-shaders")]
+                    {
+                        texture_bind_group.set(&mut render_pass);
+                    }
+                    #[cfg(not(feature = "typed-shaders"))]
+                    {
+                        render_pass.set_bind_group(2, texture_bind_group, &[]);
+                    }
                 }
             }
 
@@ -3817,6 +4181,10 @@ impl RenderLoopService {
 
         // Render to buffer and return RGBA data
         self.render_to_buffer()
+    }
+
+    pub fn atlas_metrics(&self) -> AtlasMetrics {
+        self.volume_atlas.metrics()
     }
 }
 

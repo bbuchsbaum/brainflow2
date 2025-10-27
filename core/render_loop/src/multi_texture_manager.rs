@@ -5,7 +5,19 @@ use nalgebra::Matrix4;
 use serde::Serialize;
 use std::collections::HashMap;
 use volmath::{DataRange, DenseVolume3, NeuroSpaceExt, VoxelData};
-use wgpu::{BindGroup, BindGroupLayout, Device, Queue, Texture, TextureView};
+use wgpu::{BindGroupLayout, Device, Queue, Texture, TextureView};
+
+#[cfg(feature = "typed-shaders")]
+use std::convert::TryInto;
+#[cfg(feature = "typed-shaders")]
+use crate::shaders::typed::slice_world_space_optimized;
+#[cfg(not(feature = "typed-shaders"))]
+use wgpu::BindGroup;
+
+#[cfg(feature = "typed-shaders")]
+type TextureBindGroup = slice_world_space_optimized::bind_groups::BindGroup2;
+#[cfg(not(feature = "typed-shaders"))]
+type TextureBindGroup = BindGroup;
 
 /// Maximum number of textures supported (GPU limit - 1 for colormap)
 pub const MAX_TEXTURES: usize = 15;
@@ -19,7 +31,7 @@ pub struct MultiTextureManager {
     /// Maximum number of textures supported
     max_textures: u32,
     /// Texture bind group
-    bind_group: Option<BindGroup>,
+    bind_group: Option<TextureBindGroup>,
     /// Dummy texture for unused slots
     dummy_texture: Option<Texture>,
     /// Dummy texture view
@@ -228,70 +240,147 @@ impl MultiTextureManager {
 
     /// Create bind group layout for multi-texture rendering
     pub fn create_bind_group_layout(device: &Device, max_textures: u32) -> BindGroupLayout {
-        use wgpu::*;
+        #[cfg(feature = "typed-shaders")]
+        {
+            let _ = max_textures;
+            return slice_world_space_optimized::bind_groups::BindGroup2::get_bind_group_layout(
+                device,
+            );
+        }
 
-        let mut entries = Vec::new();
+        #[cfg(not(feature = "typed-shaders"))]
+        {
+            use wgpu::*;
 
-        // Individual texture bindings (0-14)
-        // Use filterable: true for linear sampling support
-        for i in 0..max_textures {
+            let mut entries = Vec::new();
+
+            // Individual texture bindings (0-14)
+            // Use filterable: true for linear sampling support
+            for i in 0..max_textures {
+                entries.push(BindGroupLayoutEntry {
+                    binding: i,
+                    visibility: ShaderStages::FRAGMENT,
+                    ty: BindingType::Texture {
+                        multisampled: false,
+                        view_dimension: TextureViewDimension::D3,
+                        sample_type: TextureSampleType::Float { filterable: true },
+                    },
+                    count: None,
+                });
+            }
+
+            // Linear sampler at binding 15 (samplerLinear in shader)
+            // Using Filtering for linear interpolation
             entries.push(BindGroupLayoutEntry {
-                binding: i,
+                binding: 15,
+                visibility: ShaderStages::FRAGMENT,
+                ty: BindingType::Sampler(SamplerBindingType::Filtering),
+                count: None,
+            });
+
+            // Colormap LUT texture at binding 16
+            entries.push(BindGroupLayoutEntry {
+                binding: 16,
                 visibility: ShaderStages::FRAGMENT,
                 ty: BindingType::Texture {
                     multisampled: false,
-                    view_dimension: TextureViewDimension::D3,
+                    view_dimension: TextureViewDimension::D2Array,
                     sample_type: TextureSampleType::Float { filterable: true },
                 },
                 count: None,
             });
+
+            // Colormap sampler at binding 17 (cmSampler in shader)
+            entries.push(BindGroupLayoutEntry {
+                binding: 17,
+                visibility: ShaderStages::FRAGMENT,
+                ty: BindingType::Sampler(SamplerBindingType::Filtering),
+                count: None,
+            });
+
+            // Nearest sampler at binding 18 (samplerNearest in shader)
+            // Using NonFiltering for nearest neighbor interpolation
+            entries.push(BindGroupLayoutEntry {
+                binding: 18,
+                visibility: ShaderStages::FRAGMENT,
+                ty: BindingType::Sampler(SamplerBindingType::NonFiltering),
+                count: None,
+            });
+
+            device.create_bind_group_layout(&BindGroupLayoutDescriptor {
+                label: Some("Multi-Texture Bind Group Layout"),
+                entries: &entries,
+            })
         }
-
-        // Linear sampler at binding 15 (samplerLinear in shader)
-        // Using Filtering for linear interpolation
-        entries.push(BindGroupLayoutEntry {
-            binding: 15,
-            visibility: ShaderStages::FRAGMENT,
-            ty: BindingType::Sampler(SamplerBindingType::Filtering),
-            count: None,
-        });
-
-        // Colormap LUT texture at binding 16
-        entries.push(BindGroupLayoutEntry {
-            binding: 16,
-            visibility: ShaderStages::FRAGMENT,
-            ty: BindingType::Texture {
-                multisampled: false,
-                view_dimension: TextureViewDimension::D2Array,
-                sample_type: TextureSampleType::Float { filterable: true },
-            },
-            count: None,
-        });
-
-        // Colormap sampler at binding 17 (cmSampler in shader)
-        entries.push(BindGroupLayoutEntry {
-            binding: 17,
-            visibility: ShaderStages::FRAGMENT,
-            ty: BindingType::Sampler(SamplerBindingType::Filtering),
-            count: None,
-        });
-
-        // Nearest sampler at binding 18 (samplerNearest in shader)
-        // Using NonFiltering for nearest neighbor interpolation
-        entries.push(BindGroupLayoutEntry {
-            binding: 18,
-            visibility: ShaderStages::FRAGMENT,
-            ty: BindingType::Sampler(SamplerBindingType::NonFiltering),
-            count: None,
-        });
-
-        device.create_bind_group_layout(&BindGroupLayoutDescriptor {
-            label: Some("Multi-Texture Bind Group Layout"),
-            entries: &entries,
-        })
     }
 
     /// Create bind group with current textures
+    #[cfg(feature = "typed-shaders")]
+    pub fn create_bind_group(
+        &mut self,
+        device: &Device,
+        _layout: &BindGroupLayout,
+        linear_sampler: &wgpu::Sampler,
+        nearest_sampler: &wgpu::Sampler,
+        colormap_texture: &TextureView,
+        colormap_sampler: &wgpu::Sampler,
+    ) -> Result<(), RenderLoopError> {
+        if self.dummy_view.is_none() {
+            self.create_dummy_texture(device);
+        }
+
+        debug_assert_eq!(
+            self.max_textures as usize,
+            MAX_TEXTURES,
+            "typed shader bindings assume {} volume texture slots",
+            MAX_TEXTURES
+        );
+
+        let dummy_view = self.dummy_view.as_ref().unwrap();
+
+        let views_vec: Vec<&TextureView> = (0..MAX_TEXTURES)
+            .map(|i| {
+                let idx = i as u32;
+                self.textures
+                    .get(&idx)
+                    .map(|entry| &entry.view)
+                    .unwrap_or(dummy_view)
+            })
+            .collect();
+        let views: [&TextureView; MAX_TEXTURES] = views_vec
+            .try_into()
+            .expect("MAX_TEXTURES should remain constant at shader generation time");
+
+        let bind_group = slice_world_space_optimized::bind_groups::BindGroup2::from_bindings(
+            device,
+            slice_world_space_optimized::bind_groups::BindGroupLayout2 {
+                volumeTexture0: views[0],
+                volumeTexture1: views[1],
+                volumeTexture2: views[2],
+                volumeTexture3: views[3],
+                volumeTexture4: views[4],
+                volumeTexture5: views[5],
+                volumeTexture6: views[6],
+                volumeTexture7: views[7],
+                volumeTexture8: views[8],
+                volumeTexture9: views[9],
+                volumeTexture10: views[10],
+                volumeTexture11: views[11],
+                volumeTexture12: views[12],
+                volumeTexture13: views[13],
+                volumeTexture14: views[14],
+                samplerLinear: linear_sampler,
+                colormapLutTexture: colormap_texture,
+                cmSampler: colormap_sampler,
+                samplerNearest: nearest_sampler,
+            },
+        );
+
+        self.bind_group = Some(bind_group);
+        Ok(())
+    }
+
+    #[cfg(not(feature = "typed-shaders"))]
     pub fn create_bind_group(
         &mut self,
         device: &Device,
@@ -360,7 +449,7 @@ impl MultiTextureManager {
     }
 
     /// Get bind group for rendering
-    pub fn bind_group(&self) -> Option<&BindGroup> {
+    pub fn bind_group(&self) -> Option<&TextureBindGroup> {
         self.bind_group.as_ref()
     }
 

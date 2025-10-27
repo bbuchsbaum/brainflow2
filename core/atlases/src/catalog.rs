@@ -26,7 +26,7 @@ impl AtlasCatalog {
             entries: Vec::new(),
             favorites: std::collections::HashSet::new(),
         };
-        
+
         catalog.populate_builtin_atlases();
         catalog
     }
@@ -34,7 +34,7 @@ impl AtlasCatalog {
     /// Get all atlas entries, optionally filtered
     pub fn get_entries(&self, filter: Option<&AtlasFilter>) -> Vec<AtlasCatalogEntry> {
         let mut entries = self.entries.clone();
-        
+
         if let Some(filter) = filter {
             entries = self.apply_filter(entries, filter);
         }
@@ -68,13 +68,13 @@ impl AtlasCatalog {
     pub fn toggle_favorite(&mut self, id: &str) -> Result<bool> {
         if let Some(entry) = self.entries.iter_mut().find(|e| e.id == id) {
             entry.is_favorite = !entry.is_favorite;
-            
+
             if entry.is_favorite {
                 self.favorites.insert(id.to_string());
             } else {
                 self.favorites.remove(id);
             }
-            
+
             info!("Toggled favorite for atlas {}: {}", id, entry.is_favorite);
             Ok(entry.is_favorite)
         } else {
@@ -95,16 +95,20 @@ impl AtlasCatalog {
 
     /// Get recent atlas entries (last 5 used)
     pub fn get_recent(&self) -> Vec<AtlasCatalogEntry> {
-        let mut recent: Vec<_> = self.entries
+        let mut recent: Vec<_> = self
+            .entries
             .iter()
             .filter(|e| e.last_used.is_some())
             .cloned()
             .collect();
-        
+
         recent.sort_by(|a, b| {
-            b.last_used.as_ref().unwrap().cmp(a.last_used.as_ref().unwrap())
+            b.last_used
+                .as_ref()
+                .unwrap()
+                .cmp(a.last_used.as_ref().unwrap())
         });
-        
+
         recent.truncate(5);
         recent
     }
@@ -128,12 +132,16 @@ impl AtlasCatalog {
     }
 
     /// Apply filters to atlas entries
-    fn apply_filter(&self, mut entries: Vec<AtlasCatalogEntry>, filter: &AtlasFilter) -> Vec<AtlasCatalogEntry> {
+    fn apply_filter(
+        &self,
+        mut entries: Vec<AtlasCatalogEntry>,
+        filter: &AtlasFilter,
+    ) -> Vec<AtlasCatalogEntry> {
         if let Some(query) = &filter.search_query {
             let query = query.to_lowercase();
             entries.retain(|e| {
-                e.name.to_lowercase().contains(&query) ||
-                e.description.to_lowercase().contains(&query)
+                e.name.to_lowercase().contains(&query)
+                    || e.description.to_lowercase().contains(&query)
             });
         }
 
@@ -150,9 +158,7 @@ impl AtlasCatalog {
         }
 
         if let Some(data_type) = &filter.data_type {
-            entries.retain(|e| {
-                e.allowed_spaces.iter().any(|s| s.data_type == *data_type)
-            });
+            entries.retain(|e| e.allowed_spaces.iter().any(|s| s.data_type == *data_type));
         }
 
         if filter.show_favorites_only {
@@ -290,6 +296,9 @@ impl AtlasCatalog {
             download_size_mb: Some(3.0),
         });
 
-        info!("Populated atlas catalog with {} built-in atlases", self.entries.len());
+        info!(
+            "Populated atlas catalog with {} built-in atlases",
+            self.entries.len()
+        );
     }
 }

@@ -7,6 +7,7 @@
 import { useCallback, useMemo, useRef, useEffect } from 'react';
 import { useViewStateStore } from '../stores/viewStateStore';
 import { useLayerStore } from '../stores/layerStore';
+import { getTimeNavigationService } from '@/services/TimeNavigationService';
 
 export interface TimeInfo {
   currentTimepoint: number;
@@ -30,8 +31,8 @@ export interface TimeNavigationActions {
 export function useTimeNavigation(): TimeNavigationActions {
   // Subscribe to relevant store slices
   const viewState = useViewStateStore(state => state.viewState);
-  const setViewState = useViewStateStore(state => state.setViewState);
   const layers = useLayerStore(state => state.layers);
+  const timeNavService = useMemo(() => getTimeNavigationService(), []);
 
   // Performance monitoring for development
   const performanceRef = useRef({
@@ -93,46 +94,23 @@ export function useTimeNavigation(): TimeNavigationActions {
 
   // Navigate to a specific timepoint
   const setTimepoint = useCallback((timepoint: number) => {
-    const timeInfo = getTimeInfo();
-    if (!timeInfo) return;
-
-    // Clamp to valid range
-    const clampedTimepoint = Math.max(0, Math.min(timepoint, timeInfo.totalTimepoints - 1));
-    
-    // Update ViewState
-    setViewState(state => {
-      state.timepoint = clampedTimepoint;
-    });
-  }, [setViewState, getTimeInfo]);
+    timeNavService.setTimepoint(timepoint);
+  }, [timeNavService]);
 
   // Navigate to next timepoint
   const nextTimepoint = useCallback(() => {
-    const timeInfo = getTimeInfo();
-    if (!timeInfo) return;
-
-    const nextTime = (timeInfo.currentTimepoint + 1) % timeInfo.totalTimepoints;
-    setTimepoint(nextTime);
-  }, [setTimepoint, getTimeInfo]);
+    timeNavService.nextTimepoint();
+  }, [timeNavService]);
 
   // Navigate to previous timepoint
   const previousTimepoint = useCallback(() => {
-    const timeInfo = getTimeInfo();
-    if (!timeInfo) return;
-
-    const prevTime = timeInfo.currentTimepoint === 0 
-      ? timeInfo.totalTimepoints - 1 
-      : timeInfo.currentTimepoint - 1;
-    setTimepoint(prevTime);
-  }, [setTimepoint, getTimeInfo]);
+    timeNavService.previousTimepoint();
+  }, [timeNavService]);
 
   // Jump forward/backward by delta timepoints
   const jumpTimepoints = useCallback((delta: number) => {
-    const timeInfo = getTimeInfo();
-    if (!timeInfo) return;
-
-    const newTimepoint = timeInfo.currentTimepoint + delta;
-    setTimepoint(newTimepoint);
-  }, [setTimepoint, getTimeInfo]);
+    timeNavService.jumpTimepoints(delta);
+  }, [timeNavService]);
 
   // Format time for display
   const formatTime = useCallback((seconds: number): string => {

@@ -11,6 +11,7 @@ import type { ViewType, ViewPlane, WorldCoordinates } from '@/types/coordinates'
 import { coalesceUpdatesMiddleware, coalesceUtils } from './middleware/coalesceUpdatesMiddleware';
 import { getApiService } from '@/services/apiService';
 import { getViewPlaneService } from '@/services/ViewPlaneService';
+import { useViewLayoutStore } from './viewLayoutStore';
 
 // Declare global interface for store
 declare global {
@@ -342,10 +343,62 @@ const createViewStateStore = () => create<ViewStateStore>()(
           console.log(`[viewStateStore] Using volume ${visibleLayer.volumeId} for recalculation`)
           
           try {
-            // Try backend first
-            console.log(`[viewStateStore] Attempting backend recalculation...`);
-            
+            const layoutStoreState = useViewLayoutStore.getState();
+            const isLockedLayout = layoutStoreState.isLocked();
             const apiService = getApiService();
+
+            if (isLockedLayout) {
+              console.log('[viewStateStore] Layout locked - recalculating all views atomically');
+
+              const currentViews = currentState.viewState.views;
+              const widthScale = oldWidth > 0 ? newWidth / oldWidth : 1;
+              const heightScale = oldHeight > 0 ? newHeight / oldHeight : 1;
+
+              const dimsByView: Record<ViewType, [number, number]> = {
+                axial: [...currentViews.axial.dim_px],
+                sagittal: [...currentViews.sagittal.dim_px],
+                coronal: [...currentViews.coronal.dim_px]
+              };
+
+              dimsByView[viewType] = [newWidth, newHeight];
+
+              (['axial', 'sagittal', 'coronal'] as ViewType[]).forEach((vt) => {
+                if (vt === viewType) {
+                  return;
+                }
+                const currentDims = currentViews[vt].dim_px;
+                const scaledDims: [number, number] = [
+                  Math.max(1, Math.round(currentDims[0] * widthScale)),
+                  Math.max(1, Math.round(currentDims[1] * heightScale))
+                ];
+                dimsByView[vt] = scaledDims;
+              });
+
+              const backendViews = await apiService.recalculateAllViews(
+                visibleLayer.volumeId,
+                dimsByView,
+                currentState.viewState.crosshair.world_mm as [number, number, number]
+              );
+
+              console.log('[viewStateStore] Backend response for locked layout:', backendViews);
+
+              set((state) => {
+                (['axial', 'sagittal', 'coronal'] as ViewType[]).forEach((vt) => {
+                  const backendView = backendViews[vt];
+                  if (backendView) {
+                    state.viewState.views[vt] = backendView;
+                  } else {
+                    state.viewState.views[vt].dim_px = dimsByView[vt];
+                  }
+                });
+              });
+
+              return;
+            }
+
+            // unlocked layout - single view update
+            console.log(`[viewStateStore] Attempting backend recalculation for ${viewType}...`);
+
             const newView = await apiService.recalculateViewForDimensions(
               visibleLayer.volumeId,
               viewType,

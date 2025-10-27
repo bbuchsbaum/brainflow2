@@ -4,12 +4,12 @@
 //! enabling differential testing against CPU implementations.
 
 use crate::render_state::{BlendMode as GpuBlendMode, ThresholdMode};
-use crate::view_state::{CameraState, InterpolationMode, LayerConfig, SliceOrientation, ThresholdConfig, ViewState};
+use crate::view_state::{
+    CameraState, InterpolationMode, LayerConfig, SliceOrientation, ThresholdConfig, ViewState,
+};
 use crate::{RenderLoopError, RenderLoopService};
 use nalgebra::Vector3;
-use neuro_types::{
-    CompositeRequest, LayerSpec, Result as NeuroResult, RgbaImage, SliceProvider,
-};
+use neuro_types::{CompositeRequest, LayerSpec, Result as NeuroResult, RgbaImage, SliceProvider};
 
 /// Error conversion from RenderLoop to neuro-types
 impl From<RenderLoopError> for neuro_types::Error {

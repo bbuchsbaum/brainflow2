@@ -449,6 +449,7 @@ mod tests {
             threshold_mode: ThresholdMode::Range,
             texture_coords: (0.0, 0.0, 1.0, 1.0),
             is_mask: false,
+            interpolation_mode: 0, // nearest neighbor
         };
 
         let idx = manager.add_layer(layer1.clone()).unwrap();

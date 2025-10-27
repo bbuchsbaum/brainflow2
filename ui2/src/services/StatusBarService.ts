@@ -8,12 +8,32 @@ import { getEventBus } from '@/events/EventBus';
 import { useViewStateStore } from '@/stores/viewStateStore';
 import { useStatusBarStore } from '@/stores/statusBarStore';
 import { useMouseCoordinateStore } from '@/stores/mouseCoordinateStore';
+import type { AtlasStats } from '@/types/atlas';
 
 /**
  * Format coordinates for display
  */
 const formatCoord = (coord: [number, number, number]): string => {
   return `(${coord[0].toFixed(1)}, ${coord[1].toFixed(1)}, ${coord[2].toFixed(1)})`;
+};
+
+type AtlasSeverity = 'warning' | 'critical' | 'recovered' | undefined;
+
+const formatAtlasSummary = (stats: AtlasStats, severity: AtlasSeverity = undefined): string => {
+  const base = `Atlas ${stats.usedLayers}/${stats.totalLayers}`;
+  const free = `${stats.freeLayers} free`;
+  const events = stats.fullEvents > 0 ? `full x${stats.fullEvents}` : null;
+
+  let status: string | null = null;
+  if (severity === 'critical') {
+    status = 'CRITICAL';
+  } else if (severity === 'warning') {
+    status = 'Warning';
+  } else if (severity === 'recovered') {
+    status = 'Recovered';
+  }
+
+  return [base, free, events, status].filter(Boolean).join(' · ');
 };
 
 export class StatusBarService {
@@ -132,6 +152,33 @@ export class StatusBarService {
     
     // Note: We still need EventBus for legacy events, but mouse coordinates now use Zustand
     const eventBus = getEventBus();
+    let atlasSeverity: AtlasSeverity = undefined;
+
+    const updateAtlasSlot = (stats: AtlasStats, severity: AtlasSeverity = atlasSeverity) => {
+      atlasSeverity = severity;
+      setValue('atlas', formatAtlasSummary(stats, severity));
+    };
+
+    const unsubscribeAtlasMetrics = eventBus.on('atlas.metrics', ({ stats }) => {
+      if (isCurrentInit()) {
+        updateAtlasSlot(stats);
+      }
+    });
+    this.unsubscribers.push(unsubscribeAtlasMetrics);
+
+    const unsubscribeAtlasPressure = eventBus.on('atlas.pressure', ({ stats, level }) => {
+      if (isCurrentInit()) {
+        updateAtlasSlot(stats, level);
+      }
+    });
+    this.unsubscribers.push(unsubscribeAtlasPressure);
+
+    const unsubscribeAtlasEviction = eventBus.on('atlas.eviction', ({ stats }) => {
+      if (isCurrentInit() && stats) {
+        updateAtlasSlot(stats, 'warning');
+      }
+    });
+    this.unsubscribers.push(unsubscribeAtlasEviction);
 
     // Subscribe to FPS updates with throttling
     const unsubscribeFps = eventBus.on('render.fps', (data: any) => {

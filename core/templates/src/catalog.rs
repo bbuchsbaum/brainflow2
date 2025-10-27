@@ -16,21 +16,21 @@ impl TemplateCatalog {
         let mut catalog = Self {
             entries: HashMap::new(),
         };
-        
+
         catalog.populate_standard_templates();
         catalog
     }
-    
+
     /// Get all template entries
     pub fn get_all(&self) -> Vec<TemplateCatalogEntry> {
         self.entries.values().cloned().collect()
     }
-    
+
     /// Get a specific template entry by ID
     pub fn get_by_id(&self, id: &str) -> Option<&TemplateCatalogEntry> {
         self.entries.get(id)
     }
-    
+
     /// Get templates filtered by criteria
     pub fn get_filtered(&self, filter: &TemplateFilter) -> Vec<TemplateCatalogEntry> {
         self.entries
@@ -39,29 +39,38 @@ impl TemplateCatalog {
             .cloned()
             .collect()
     }
-    
+
     /// Get templates organized by space and type for menu building
-    pub fn get_organized_for_menu(&self) -> HashMap<TemplateSpace, HashMap<TemplateType, Vec<TemplateCatalogEntry>>> {
+    pub fn get_organized_for_menu(
+        &self,
+    ) -> HashMap<TemplateSpace, HashMap<TemplateType, Vec<TemplateCatalogEntry>>> {
         let mut organized = HashMap::new();
-        
+
         for entry in self.entries.values() {
-            let space_map = organized.entry(entry.config.space.clone()).or_insert_with(HashMap::new);
-            let type_vec = space_map.entry(entry.config.template_type.clone()).or_insert_with(Vec::new);
+            let space_map = organized
+                .entry(entry.config.space.clone())
+                .or_insert_with(HashMap::new);
+            let type_vec = space_map
+                .entry(entry.config.template_type.clone())
+                .or_insert_with(Vec::new);
             type_vec.push(entry.clone());
         }
-        
+
         // Sort templates within each type by resolution
         for space_map in organized.values_mut() {
             for type_vec in space_map.values_mut() {
                 type_vec.sort_by(|a, b| {
-                    a.config.resolution.as_str().cmp(b.config.resolution.as_str())
+                    a.config
+                        .resolution
+                        .as_str()
+                        .cmp(b.config.resolution.as_str())
                 });
             }
         }
-        
+
         organized
     }
-    
+
     /// Check if a template entry matches the filter criteria
     fn matches_filter(&self, entry: &TemplateCatalogEntry, filter: &TemplateFilter) -> bool {
         if let Some(template_type) = &filter.template_type {
@@ -69,48 +78,48 @@ impl TemplateCatalog {
                 return false;
             }
         }
-        
+
         if let Some(space) = &filter.space {
             if &entry.config.space != space {
                 return false;
             }
         }
-        
+
         if let Some(resolution) = &filter.resolution {
             if &entry.config.resolution != resolution {
                 return false;
             }
         }
-        
+
         if filter.show_cached_only && !entry.is_cached {
             return false;
         }
-        
+
         true
     }
-    
+
     /// Populate the catalog with standard templates
     fn populate_standard_templates(&mut self) {
         // MNI152NLin2009cAsym templates
         self.add_mni_2009c_templates();
-        
-        // MNI152NLin6Asym templates  
+
+        // MNI152NLin6Asym templates
         self.add_mni_6_templates();
-        
+
         // MNIColin27 templates
         self.add_mnicolin27_templates();
-        
+
         // MNI305 templates
         self.add_mni305_templates();
-        
+
         // FreeSurfer templates
         self.add_freesurfer_templates();
     }
-    
+
     /// Add MNI152NLin2009cAsym templates
     fn add_mni_2009c_templates(&mut self) {
         let space = TemplateSpace::MNI152NLin2009cAsym;
-        
+
         // T1w templates
         self.add_template_entry(TemplateCatalogEntry {
             id: "MNI152NLin2009cAsym_T1w_1mm".to_string(),
@@ -123,7 +132,7 @@ impl TemplateCatalog {
             is_cached: false,
             last_accessed: None,
         });
-        
+
         self.add_template_entry(TemplateCatalogEntry {
             id: "MNI152NLin2009cAsym_T1w_2mm".to_string(),
             config: TemplateConfig::new(TemplateType::T1w, space.clone(), TemplateResolution::MM2),
@@ -135,7 +144,7 @@ impl TemplateCatalog {
             is_cached: false,
             last_accessed: None,
         });
-        
+
         // T2w templates
         self.add_template_entry(TemplateCatalogEntry {
             id: "MNI152NLin2009cAsym_T2w_1mm".to_string(),
@@ -148,7 +157,7 @@ impl TemplateCatalog {
             is_cached: false,
             last_accessed: None,
         });
-        
+
         self.add_template_entry(TemplateCatalogEntry {
             id: "MNI152NLin2009cAsym_T2w_2mm".to_string(),
             config: TemplateConfig::new(TemplateType::T2w, space.clone(), TemplateResolution::MM2),
@@ -160,7 +169,7 @@ impl TemplateCatalog {
             is_cached: false,
             last_accessed: None,
         });
-        
+
         // Tissue probability maps
         self.add_template_entry(TemplateCatalogEntry {
             id: "MNI152NLin2009cAsym_GM_1mm".to_string(),
@@ -173,7 +182,7 @@ impl TemplateCatalog {
             is_cached: false,
             last_accessed: None,
         });
-        
+
         self.add_template_entry(TemplateCatalogEntry {
             id: "MNI152NLin2009cAsym_WM_1mm".to_string(),
             config: TemplateConfig::new(TemplateType::WhiteMatter, space.clone(), TemplateResolution::MM1),
@@ -185,7 +194,7 @@ impl TemplateCatalog {
             is_cached: false,
             last_accessed: None,
         });
-        
+
         self.add_template_entry(TemplateCatalogEntry {
             id: "MNI152NLin2009cAsym_CSF_1mm".to_string(),
             config: TemplateConfig::new(TemplateType::Csf, space.clone(), TemplateResolution::MM1),
@@ -197,7 +206,7 @@ impl TemplateCatalog {
             is_cached: false,
             last_accessed: None,
         });
-        
+
         // Brain mask
         self.add_template_entry(TemplateCatalogEntry {
             id: "MNI152NLin2009cAsym_mask_1mm".to_string(),
@@ -210,7 +219,7 @@ impl TemplateCatalog {
             is_cached: false,
             last_accessed: None,
         });
-        
+
         self.add_template_entry(TemplateCatalogEntry {
             id: "MNI152NLin2009cAsym_mask_2mm".to_string(),
             config: TemplateConfig::new(TemplateType::BrainMask, space, TemplateResolution::MM2),
@@ -223,11 +232,11 @@ impl TemplateCatalog {
             last_accessed: None,
         });
     }
-    
+
     /// Add MNI152NLin6Asym templates
     fn add_mni_6_templates(&mut self) {
         let space = TemplateSpace::MNI152NLin6Asym;
-        
+
         // Add key MNI6 templates
         self.add_template_entry(TemplateCatalogEntry {
             id: "MNI152NLin6Asym_T1w_1mm".to_string(),
@@ -240,7 +249,7 @@ impl TemplateCatalog {
             is_cached: false,
             last_accessed: None,
         });
-        
+
         self.add_template_entry(TemplateCatalogEntry {
             id: "MNI152NLin6Asym_T1w_2mm".to_string(),
             config: TemplateConfig::new(TemplateType::T1w, space, TemplateResolution::MM2),
@@ -253,24 +262,31 @@ impl TemplateCatalog {
             last_accessed: None,
         });
     }
-    
+
     /// Add MNIColin27 templates
     fn add_mnicolin27_templates(&mut self) {
         let space = TemplateSpace::MNIColin27;
-        
+
         // T1w template
         self.add_template_entry(TemplateCatalogEntry {
             id: "MNIColin27_T1w_native".to_string(),
-            config: TemplateConfig::new(TemplateType::T1w, space.clone(), TemplateResolution::Native),
+            config: TemplateConfig::new(
+                TemplateType::T1w,
+                space.clone(),
+                TemplateResolution::Native,
+            ),
             name: "MNI Colin27 T1w".to_string(),
             description: "MNI Colin27 T1-weighted template (single subject)".to_string(),
-            download_url: Some("https://templateflow.s3.amazonaws.com/tpl-MNIColin27/tpl-MNIColin27_T1w.nii.gz".to_string()),
+            download_url: Some(
+                "https://templateflow.s3.amazonaws.com/tpl-MNIColin27/tpl-MNIColin27_T1w.nii.gz"
+                    .to_string(),
+            ),
             file_size_mb: Some(10.0),
             checksum: None,
             is_cached: false,
             last_accessed: None,
         });
-        
+
         // Brain mask
         self.add_template_entry(TemplateCatalogEntry {
             id: "MNIColin27_mask_native".to_string(),
@@ -284,24 +300,31 @@ impl TemplateCatalog {
             last_accessed: None,
         });
     }
-    
+
     /// Add MNI305 templates
     fn add_mni305_templates(&mut self) {
         let space = TemplateSpace::MNI305;
-        
+
         // T1w template
         self.add_template_entry(TemplateCatalogEntry {
             id: "MNI305_T1w_native".to_string(),
-            config: TemplateConfig::new(TemplateType::T1w, space.clone(), TemplateResolution::Native),
+            config: TemplateConfig::new(
+                TemplateType::T1w,
+                space.clone(),
+                TemplateResolution::Native,
+            ),
             name: "MNI305 T1w".to_string(),
             description: "MNI305 T1-weighted template (average of 305 subjects)".to_string(),
-            download_url: Some("https://templateflow.s3.amazonaws.com/tpl-MNI305/tpl-MNI305_T1w.nii.gz".to_string()),
+            download_url: Some(
+                "https://templateflow.s3.amazonaws.com/tpl-MNI305/tpl-MNI305_T1w.nii.gz"
+                    .to_string(),
+            ),
             file_size_mb: Some(8.0),
             checksum: None,
             is_cached: false,
             last_accessed: None,
         });
-        
+
         // Brain mask
         self.add_template_entry(TemplateCatalogEntry {
             id: "MNI305_mask_native".to_string(),
@@ -314,35 +337,38 @@ impl TemplateCatalog {
             is_cached: false,
             last_accessed: None,
         });
-        
+
         // T2w template
         self.add_template_entry(TemplateCatalogEntry {
             id: "MNI305_T2w_native".to_string(),
             config: TemplateConfig::new(TemplateType::T2w, space, TemplateResolution::Native),
             name: "MNI305 T2w".to_string(),
             description: "MNI305 T2-weighted template".to_string(),
-            download_url: Some("https://templateflow.s3.amazonaws.com/tpl-MNI305/tpl-MNI305_T2w.nii.gz".to_string()),
+            download_url: Some(
+                "https://templateflow.s3.amazonaws.com/tpl-MNI305/tpl-MNI305_T2w.nii.gz"
+                    .to_string(),
+            ),
             file_size_mb: Some(8.0),
             checksum: None,
             is_cached: false,
             last_accessed: None,
         });
     }
-    
+
     /// Add FreeSurfer surface templates
     fn add_freesurfer_templates(&mut self) {
         // FreeSurfer templates would be surface-based and require different handling
         // For now, we'll focus on volume templates
-        
+
         // Note: Surface templates would need different download URLs and handling
         // They would typically be mesh files (.gii, .surf, etc.) rather than volumes
     }
-    
+
     /// Add a template entry to the catalog
     fn add_template_entry(&mut self, entry: TemplateCatalogEntry) {
         self.entries.insert(entry.id.clone(), entry);
     }
-    
+
     /// Mark a template as cached
     pub fn mark_as_cached(&mut self, template_id: &str) {
         if let Some(entry) = self.entries.get_mut(template_id) {
@@ -350,14 +376,14 @@ impl TemplateCatalog {
             entry.last_accessed = Some(chrono::Utc::now().to_rfc3339());
         }
     }
-    
+
     /// Update last accessed time for a template
     pub fn update_last_accessed(&mut self, template_id: &str) {
         if let Some(entry) = self.entries.get_mut(template_id) {
             entry.last_accessed = Some(chrono::Utc::now().to_rfc3339());
         }
     }
-    
+
     /// Get templates organized by space for menu construction
     pub fn get_volume_spaces(&self) -> Vec<TemplateSpace> {
         vec![
@@ -367,32 +393,36 @@ impl TemplateCatalog {
             TemplateSpace::MNI305,
         ]
     }
-    
+
     /// Get template types available in a given space
     pub fn get_types_for_space(&self, space: &TemplateSpace) -> Vec<TemplateType> {
-        let mut types: Vec<TemplateType> = self.entries
+        let mut types: Vec<TemplateType> = self
+            .entries
             .values()
             .filter(|entry| &entry.config.space == space)
             .map(|entry| entry.config.template_type.clone())
             .collect();
-        
+
         types.sort_by_key(|t| t.as_str());
         types.dedup();
         types
     }
-    
+
     /// Get resolutions available for a given space and type
     pub fn get_resolutions_for_space_and_type(
-        &self, 
-        space: &TemplateSpace, 
-        template_type: &TemplateType
+        &self,
+        space: &TemplateSpace,
+        template_type: &TemplateType,
     ) -> Vec<TemplateResolution> {
-        let mut resolutions: Vec<TemplateResolution> = self.entries
+        let mut resolutions: Vec<TemplateResolution> = self
+            .entries
             .values()
-            .filter(|entry| &entry.config.space == space && &entry.config.template_type == template_type)
+            .filter(|entry| {
+                &entry.config.space == space && &entry.config.template_type == template_type
+            })
             .map(|entry| entry.config.resolution.clone())
             .collect();
-        
+
         resolutions.sort_by_key(|r| r.as_str());
         resolutions.dedup();
         resolutions

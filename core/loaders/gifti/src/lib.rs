@@ -1,4 +1,4 @@
-use bridge_types::{BridgeError, BridgeResult, Loaded, Loader, SurfaceHandle, SurfaceDataHandle};
+use bridge_types::{BridgeError, BridgeResult, Loaded, Loader, SurfaceDataHandle, SurfaceHandle};
 use log::{debug, error, info, warn};
 use neurosurf_rs::{
     geometry::{Hemisphere, SurfaceGeometry, SurfaceType},
@@ -15,16 +15,16 @@ use thiserror::Error;
 pub enum GiftiError {
     #[error("GIFTI I/O error: {0}")]
     Io(#[from] std::io::Error),
-    
+
     #[error("NeuroSurf error: {0}")]
     NeuroSurf(#[from] NeuroSurfError),
-    
+
     #[error("Unsupported file format: {0}")]
     UnsupportedFormat(String),
-    
+
     #[error("Invalid GIFTI content: {0}")]
     InvalidContent(String),
-    
+
     #[error("Content type detection failed: {0}")]
     ContentDetectionFailed(String),
 }
@@ -42,10 +42,7 @@ pub enum GiftiContentType {
         surface_type: Option<String>,
     },
     /// Surface data (scalar values mapped to vertices)
-    SurfaceData {
-        data_count: usize,
-        intent: String,
-    },
+    SurfaceData { data_count: usize, intent: String },
     /// Combined geometry and data in one file
     Combined {
         vertex_count: usize,
@@ -73,9 +70,38 @@ pub enum GiftiContent {
 /// Detects the content type of a GIFTI file without fully loading it
 pub fn detect_gifti_content_type(path: &Path) -> Result<GiftiContentType, GiftiError> {
     info!("Detecting GIFTI content type: {}", path.display());
-    
-    // For now, we'll use neurosurf-rs to load and inspect the file
-    // In the future, we could optimize this to only read metadata
+
+    // First, try to detect based on filename patterns
+    let filename = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+
+    // Check for functional/shape data patterns
+    if filename.contains(".func.gii") || filename.contains(".shape.gii") {
+        info!("Detected as functional/shape data based on filename pattern");
+
+        // Try to parse the GIFTI file to get data array info
+        if let Ok(gifti_data) = gifti::read_gifti(path) {
+            // Check for data arrays without coordinate data
+            let has_coordinates = gifti_data.data_arrays.iter().any(|da| {
+                // Check if this is coordinate data (points/vertices)
+                match &da.attributes.intent {
+                    gifti::Intent::Pointset => true,
+                    _ => false,
+                }
+            });
+
+            if !has_coordinates {
+                // This is a data overlay file
+                if let Some(first_array) = gifti_data.data_arrays.first() {
+                    let data_count = first_array.data.len();
+                    let intent = format!("{:?}", first_array.attributes.intent);
+
+                    return Ok(GiftiContentType::SurfaceData { data_count, intent });
+                }
+            }
+        }
+    }
+
+    // Try to load as surface geometry
     match read_surface(path) {
         Ok(surface) => {
             // Successfully loaded as surface geometry
@@ -85,14 +111,14 @@ pub fn detect_gifti_content_type(path: &Path) -> Result<GiftiContentType, GiftiE
                 Hemisphere::Both => Some("both".to_string()),
                 Hemisphere::Unknown => None,
             };
-            
+
             let surface_type = match surface.surface_type() {
                 SurfaceType::White => Some("white".to_string()),
                 SurfaceType::Pial => Some("pial".to_string()),
                 SurfaceType::Inflated => Some("inflated".to_string()),
-                _ => None,  // Handle any other variants
+                _ => None, // Handle any other variants
             };
-            
+
             Ok(GiftiContentType::Geometry {
                 vertex_count: surface.vertex_count(),
                 face_count: surface.face_count(),
@@ -101,14 +127,36 @@ pub fn detect_gifti_content_type(path: &Path) -> Result<GiftiContentType, GiftiE
             })
         }
         Err(e) => {
-            // Could not load as surface, might be data file
-            // For now, we'll return an error, but in the future
-            // we should try to load as data array
-            warn!("Could not load as surface geometry: {}", e);
-            Err(GiftiError::ContentDetectionFailed(format!(
-                "Unable to determine GIFTI content type: {}",
-                e
-            )))
+            // Could not load as surface geometry
+            // Try to load as data array using gifti crate directly
+            match gifti::read_gifti(path) {
+                Ok(gifti_data) => {
+                    // Check if this is a data-only file
+                    if let Some(first_array) = gifti_data.data_arrays.first() {
+                        let data_count = first_array.data.len();
+                        let intent = format!("{:?}", first_array.attributes.intent);
+
+                        info!(
+                            "Detected as surface data: {} values, intent: {}",
+                            data_count, intent
+                        );
+                        Ok(GiftiContentType::SurfaceData { data_count, intent })
+                    } else {
+                        Err(GiftiError::ContentDetectionFailed(
+                            "GIFTI file contains no data arrays".to_string(),
+                        ))
+                    }
+                }
+                Err(gifti_err) => {
+                    warn!(
+                        "Could not load as surface or data: surface error: {}, gifti error: {}",
+                        e, gifti_err
+                    );
+                    Err(GiftiError::ContentDetectionFailed(format!(
+                        "Unable to determine GIFTI content type: No coordinate data found in GIFTI file",
+                    )))
+                }
+            }
         }
     }
 }
@@ -116,10 +164,10 @@ pub fn detect_gifti_content_type(path: &Path) -> Result<GiftiContentType, GiftiE
 /// Loads a GIFTI file and returns its content
 pub fn load_gifti_file(path: &Path) -> Result<GiftiContent, GiftiError> {
     info!("Loading GIFTI file: {}", path.display());
-    
+
     // First, try to detect the content type
     let content_type = detect_gifti_content_type(path)?;
-    
+
     match content_type {
         GiftiContentType::Geometry { .. } => {
             // Load as surface geometry
@@ -131,14 +179,24 @@ pub fn load_gifti_file(path: &Path) -> Result<GiftiContent, GiftiError> {
             );
             Ok(GiftiContent::Surface(surface))
         }
-        GiftiContentType::SurfaceData { .. } => {
-            // TODO: Implement loading of pure data files
-            // This will require direct access to gifti-rs library
-            // to read data arrays without geometry
-            error!("Loading pure surface data files not yet implemented");
-            Err(GiftiError::InvalidContent(
-                "Pure surface data loading not yet implemented".to_string(),
-            ))
+        GiftiContentType::SurfaceData { data_count, .. } => {
+            // Load surface data using gifti crate directly
+            let gifti_data = gifti::read_gifti(path).map_err(|e| {
+                GiftiError::InvalidContent(format!("Failed to read GIFTI data: {}", e))
+            })?;
+
+            // Extract the scalar data from the first data array
+            if let Some(first_array) = gifti_data.data_arrays.first() {
+                // Convert data to f64 vector
+                let data: Vec<f64> = first_array.data.iter().map(|&v| v as f64).collect();
+
+                info!("Loaded surface data: {} values", data.len());
+                Ok(GiftiContent::Data(data))
+            } else {
+                Err(GiftiError::InvalidContent(
+                    "No data arrays found in GIFTI file".to_string(),
+                ))
+            }
         }
         GiftiContentType::Combined { .. } => {
             // TODO: Implement loading of combined files
@@ -152,13 +210,36 @@ pub fn load_gifti_file(path: &Path) -> Result<GiftiContent, GiftiError> {
     }
 }
 
+/// Loads surface data from a GIFTI overlay file
+pub fn load_gifti_surface_data(path: &Path) -> Result<Vec<f32>, GiftiError> {
+    info!("Loading GIFTI surface data: {}", path.display());
+
+    // Load using gifti crate
+    let gifti_data = gifti::read_gifti(path)
+        .map_err(|e| GiftiError::InvalidContent(format!("Failed to read GIFTI data: {}", e)))?;
+
+    // Extract the first data array
+    if let Some(first_array) = gifti_data.data_arrays.first() {
+        // The gifti crate has already parsed the data as Vec<f64>
+        // We need to convert it to f32
+        let data: Vec<f32> = first_array.data.iter().map(|&v| v as f32).collect();
+
+        info!("Loaded {} surface data values", data.len());
+        Ok(data)
+    } else {
+        Err(GiftiError::InvalidContent(
+            "No data arrays found in GIFTI file".to_string(),
+        ))
+    }
+}
+
 /// Loads a GIFTI surface geometry file
 pub fn load_gifti_surface(path: &Path) -> Result<SurfaceGeometry, GiftiError> {
     info!("Loading GIFTI surface: {}", path.display());
-    
+
     // Load the surface using neurosurf-rs
     let surface = read_surface(path)?;
-    
+
     debug!(
         "Loaded GIFTI surface: {} vertices, {} faces, hemisphere: {:?}, type: {:?}",
         surface.vertex_count(),
@@ -166,7 +247,7 @@ pub fn load_gifti_surface(path: &Path) -> Result<SurfaceGeometry, GiftiError> {
         surface.hemisphere(),
         surface.surface_type()
     );
-    
+
     Ok(surface)
 }
 
@@ -192,13 +273,15 @@ pub fn get_surface_info(surface: &SurfaceGeometry) -> SurfaceInfo {
     // Extract coordinates without directly using nalgebra types to avoid version conflicts
     let (min_coords, max_coords) = if let Ok((min_pt, max_pt)) = surface.bounding_box() {
         // Access coordinates using array indexing to avoid nalgebra type issues
-        ([min_pt[0], min_pt[1], min_pt[2]],
-         [max_pt[0], max_pt[1], max_pt[2]])
+        (
+            [min_pt[0], min_pt[1], min_pt[2]],
+            [max_pt[0], max_pt[1], max_pt[2]],
+        )
     } else {
         // Return default bounding box on error
         ([0.0, 0.0, 0.0], [0.0, 0.0, 0.0])
     };
-    
+
     SurfaceInfo {
         vertex_count: surface.vertex_count(),
         face_count: surface.face_count(),
@@ -227,7 +310,7 @@ pub struct GiftiLoader;
 impl bridge_types::private::Sealed for GiftiLoader {}
 
 impl Loader for GiftiLoader {
-    fn can_load(path: &Path) -> bool 
+    fn can_load(path: &Path) -> bool
     where
         Self: Sized,
     {
@@ -245,19 +328,19 @@ impl Loader for GiftiLoader {
         Self: Sized,
     {
         info!("GiftiLoader: Loading file: {}", path.display());
-        
+
         // Detect content type first
         let content_type = detect_gifti_content_type(path)?;
-        
+
         match content_type {
-            GiftiContentType::Geometry { 
-                vertex_count, 
+            GiftiContentType::Geometry {
+                vertex_count,
                 face_count,
-                .. 
+                ..
             } => {
                 // Create a handle for the surface
                 let handle = SurfaceHandle(format!("surface_{}", uuid::Uuid::new_v4()));
-                
+
                 Ok(Loaded::Surface {
                     handle,
                     vertex_count,
@@ -265,13 +348,10 @@ impl Loader for GiftiLoader {
                     path: path.to_string_lossy().to_string(),
                 })
             }
-            GiftiContentType::SurfaceData { 
-                data_count,
-                .. 
-            } => {
+            GiftiContentType::SurfaceData { data_count, .. } => {
                 // Create a handle for the surface data
                 let handle = SurfaceDataHandle(format!("surfdata_{}", uuid::Uuid::new_v4()));
-                
+
                 Ok(Loaded::SurfaceData {
                     handle,
                     data_count,
@@ -281,10 +361,9 @@ impl Loader for GiftiLoader {
             GiftiContentType::Combined { .. } => {
                 // For now, treat combined files as surfaces
                 // In the future, we might want to return both components
-                let surface = read_surface(path)
-                    .map_err(|e| GiftiError::NeuroSurf(e))?;
+                let surface = read_surface(path).map_err(|e| GiftiError::NeuroSurf(e))?;
                 let handle = SurfaceHandle(format!("surface_{}", uuid::Uuid::new_v4()));
-                
+
                 Ok(Loaded::Surface {
                     handle,
                     vertex_count: surface.vertex_count(),
@@ -300,7 +379,7 @@ impl Loader for GiftiLoader {
 mod tests {
     use super::*;
     use std::path::PathBuf;
-    
+
     #[test]
     fn test_error_conversion() {
         let err = GiftiError::UnsupportedFormat("test.xyz".to_string());
@@ -312,7 +391,7 @@ mod tests {
             _ => panic!("Expected LoaderError variant"),
         }
     }
-    
+
     #[test]
     fn test_can_load() {
         assert!(GiftiLoader::can_load(Path::new("test.gii")));
@@ -321,7 +400,7 @@ mod tests {
         assert!(!GiftiLoader::can_load(Path::new("test.nii")));
         assert!(!GiftiLoader::can_load(Path::new("test.txt")));
     }
-    
+
     #[test]
     #[ignore] // Requires actual GIFTI test files
     fn test_detect_content_type() {

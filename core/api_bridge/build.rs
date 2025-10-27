@@ -1,6 +1,8 @@
 const COMMANDS: &[&str] = &[
     "load_file",
     "load_surface",
+    "load_surface_overlay",
+    "get_surface_overlay_data",
     "get_surface_geometry",
     "get_volume_bounds",
     // "world_to_voxel", // REMOVED - Unused coordinate transformation

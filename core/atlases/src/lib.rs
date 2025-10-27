@@ -1,6 +1,6 @@
 /*!
  * Atlas and Template Service for Brainflow
- * 
+ *
  * Provides organized access to brain atlases and templates without requiring file browser navigation.
  * Integrates with neuroatlas-rs for standardized atlas loading and management.
  */
@@ -18,7 +18,7 @@ pub use types::*;
 
 // Re-export commonly used neuroatlas types for convenience
 pub use neuroatlas::{
-    atlas::{Atlas, SchaeferAtlas, GlasserAtlas, ASEGAtlas, OlsenMTLAtlas},
-    core::types::{Space, Resolution, Hemisphere, Network},
+    atlas::{ASEGAtlas, Atlas, GlasserAtlas, OlsenMTLAtlas, SchaeferAtlas},
+    core::types::{Hemisphere, Network, Resolution, Space},
     templateflow::TemplateFlowAtlas,
 };

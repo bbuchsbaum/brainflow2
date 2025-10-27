@@ -1,5 +1,5 @@
 use image::{imageops, ImageBuffer, Rgba, RgbaImage};
-use nifti_loader::load_nifti_volume;
+use nifti_loader::load_nifti_volume_auto;
 use render_loop::RenderLoopService;
 use std::fs;
 use std::path::Path;
@@ -40,10 +40,8 @@ async fn test_mni_brain_slices() {
     println!("Loading MNI brain template from: {:?}", mni_path);
 
     // Load the NIfTI file using the existing loader
-    let file = std::fs::File::open(&mni_path).expect("Failed to open file");
-    let reader = std::io::BufReader::new(file);
-
-    let (volume_sendable, affine) = load_nifti_volume(reader).expect("Failed to load NIfTI file");
+    let (volume_sendable, affine) =
+        load_nifti_volume_auto(&mni_path).expect("Failed to load NIfTI file");
 
     // Extract the DenseVolume3<f32>
     let volume = match volume_sendable {

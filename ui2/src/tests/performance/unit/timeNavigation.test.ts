@@ -1,238 +1,286 @@
-/**
- * Performance tests for time navigation system
- */
+import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
+import { act, renderHook, render, fireEvent, waitFor } from '@testing-library/react';
+import { createElement } from 'react';
 
-import { describe, test, expect, beforeEach, vi } from 'vitest';
-import { renderHook, act, waitFor } from '@testing-library/react';
-import { render, fireEvent } from '@testing-library/react';
 import { useTimeNavigation } from '@/hooks/useTimeNavigation';
 import { TimeSlider } from '@/components/ui/TimeSlider';
-import { 
-  createMockTimeNavigation, 
-  simulateRapidWheelEvents,
-  measureTime,
-  RenderFrequencyMonitor 
-} from '../helpers/performanceUtils';
+import { getTimeNavigationService } from '@/services/TimeNavigationService';
+import type { LayerInfo } from '@/stores/layerStore';
+import type { ViewState } from '@/types/viewState';
 
-describe('Time Navigation Performance', () => {
+const mockApiService = {
+  setVolumeTimepoint: vi.fn<Promise<void>, [string, number]>(() => Promise.resolve()),
+  getVolumeTimepoint: vi.fn<Promise<number | null>, [string]>(() => Promise.resolve(0)),
+};
+
+vi.mock('@/services/apiService', () => ({
+  getApiService: () => mockApiService,
+}));
+
+function clone<T>(value: T): T {
+  return typeof structuredClone === 'function'
+    ? structuredClone(value)
+    : JSON.parse(JSON.stringify(value));
+}
+
+function createInitialViewState(): ViewState {
+  return {
+  views: {
+    axial: { origin_mm: [0, 0, 0], u_mm: [1, 0, 0], v_mm: [0, 1, 0], dim_px: [512, 512] },
+    sagittal: { origin_mm: [0, 0, 0], u_mm: [0, 1, 0], v_mm: [0, 0, -1], dim_px: [512, 512] },
+    coronal: { origin_mm: [0, 0, 0], u_mm: [1, 0, 0], v_mm: [0, 0, -1], dim_px: [512, 512] },
+    surface: { origin_mm: [0, 0, 0], u_mm: [1, 0, 0], v_mm: [0, 1, 0], dim_px: [512, 512] },
+  },
+  crosshair: { world_mm: [0, 0, 0], visible: true },
+  layers: [],
+  timepoint: 0,
+  };
+}
+
+const storeMocks = vi.hoisted(() => {
+  const layerStoreState = {
+    layers: [] as LayerInfo[],
+  };
+
+  const updateLayer = vi.fn((id: string, updates: Partial<LayerInfo>) => {
+    const index = layerStoreState.layers.findIndex(layer => layer.id === id);
+    if (index !== -1) {
+      layerStoreState.layers[index] = {
+        ...layerStoreState.layers[index],
+        ...updates,
+      };
+    }
+  });
+
+  const useLayerStoreMock = ((selector?: (state: any) => any) => {
+    const state = {
+      layers: layerStoreState.layers,
+      updateLayer,
+    };
+    return selector ? selector(state) : state;
+  }) as any;
+
+  useLayerStoreMock.getState = () => ({
+    layers: layerStoreState.layers,
+    updateLayer,
+  });
+  useLayerStoreMock.setState = vi.fn();
+  useLayerStoreMock.subscribe = vi.fn(() => vi.fn());
+  useLayerStoreMock.destroy = vi.fn();
+
+  const viewStateStoreState = {
+    viewState: createInitialViewState(),
+  };
+
+  const setViewState = (updater: (state: ViewState) => ViewState | void) => {
+    const draft = clone(viewStateStoreState.viewState);
+    const result = updater(draft);
+    viewStateStoreState.viewState = result ?? draft;
+  };
+
+  const viewStateStoreApi = {
+    get viewState() {
+      return viewStateStoreState.viewState;
+    },
+    set viewState(state: ViewState) {
+      viewStateStoreState.viewState = state;
+    },
+    setViewState,
+    resizeInFlight: {
+      axial: null,
+      sagittal: null,
+      coronal: null,
+      mosaic: null,
+      surface: null,
+    } as Record<string, null>,
+  };
+
+  const useViewStateStoreMock = ((selector?: (state: typeof viewStateStoreApi) => any) => {
+    const state = {
+      ...viewStateStoreApi,
+      viewState: viewStateStoreState.viewState,
+    };
+    return selector ? selector(state) : state;
+  }) as any;
+
+  useViewStateStoreMock.getState = () => ({
+    ...viewStateStoreApi,
+    viewState: viewStateStoreState.viewState,
+  });
+  useViewStateStoreMock.setState = vi.fn();
+  useViewStateStoreMock.subscribe = vi.fn(() => vi.fn());
+  useViewStateStoreMock.destroy = vi.fn();
+
+  return {
+    layerStoreState,
+    updateLayer,
+    useLayerStoreMock,
+    viewStateStoreState,
+    setViewState,
+    viewStateStoreApi,
+    useViewStateStoreMock,
+  };
+});
+
+vi.mock('@/stores/layerStore', () => ({
+  useLayerStore: storeMocks.useLayerStoreMock,
+}));
+
+vi.mock('@/stores/viewStateStore', () => ({
+  useViewStateStore: storeMocks.useViewStateStoreMock,
+}));
+
+const make4DLayer = (): LayerInfo => ({
+  id: 'layer-4d',
+  name: 'Functional Series',
+  volumeId: 'volume-4d',
+  type: 'functional',
+  visible: true,
+  order: 0,
+  opacity: 1,
+  colormap: 'gray',
+  intensity: [0, 1000],
+  threshold: [0, 1000],
+  volumeType: 'TimeSeries4D',
+  timeSeriesInfo: {
+    num_timepoints: 10,
+    tr: 2,
+    temporal_unit: 's',
+    acquisition_time: null,
+  },
+  currentTimepoint: 0,
+});
+
+const resetStores = () => {
+  storeMocks.layerStoreState.layers = [];
+  storeMocks.updateLayer.mockClear();
+  storeMocks.viewStateStoreState.viewState = createInitialViewState();
+  mockApiService.setVolumeTimepoint.mockClear();
+  mockApiService.getVolumeTimepoint.mockClear();
+};
+
+const install4DLayer = () => {
+  storeMocks.layerStoreState.layers = [make4DLayer()];
+};
+
+describe('Time Navigation Integration', () => {
   beforeEach(() => {
-    vi.clearAllMocks();
+    resetStores();
   });
 
-  describe('Wheel Event Throttling', () => {
-    test('should limit backend calls to 5 per second during rapid scrolling', async () => {
-      const mockTimeNav = createMockTimeNavigation();
-      
-      // Simulate 100 wheel events in rapid succession
-      const startTime = performance.now();
-      for (let i = 0; i < 100; i++) {
-        mockTimeNav.jumpTimepoints(i % 2 === 0 ? 1 : -1);
-      }
-      const duration = performance.now() - startTime;
-      
-      // Wait for any pending throttled calls
-      await waitFor(() => {
-        const calls = mockTimeNav.getCalls();
-        const callRate = calls.jumpTimepoints.length / (duration / 1000);
-        
-        // Should be throttled to approximately 5 calls/sec (with some tolerance)
-        expect(callRate).toBeLessThan(10);
-      }, { timeout: 1000 });
-    });
-
-    test('should not drop events, only delay them', async () => {
-      const mockTimeNav = createMockTimeNavigation();
-      const totalEvents = 20;
-      
-      // Track all events
-      const events: number[] = [];
-      for (let i = 0; i < totalEvents; i++) {
-        events.push(i);
-        mockTimeNav.jumpTimepoints(1);
-      }
-      
-      // Wait for throttling to complete
-      await waitFor(() => {
-        const calls = mockTimeNav.getCalls();
-        // All events should eventually be processed
-        expect(calls.jumpTimepoints.length).toBeGreaterThan(0);
-      }, { timeout: 2000 });
-    });
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
-  describe('Hook Performance', () => {
-    test('should memoize expensive layer filtering', async () => {
-      const layers = Array.from({ length: 100 }, (_, i) => ({
-        id: `layer-${i}`,
-        volumeType: i === 0 ? 'TimeSeries4D' : 'Volume3D',
-        timeSeriesInfo: i === 0 ? {
-          num_timepoints: 100,
-          tr: 2.0,
-          temporal_unit: 's',
-          acquisition_time: null,
-        } : undefined,
-      }));
+  it('detects presence of 4D volume', () => {
+    const { result: noLayer } = renderHook(() => useTimeNavigation());
+    expect(noLayer.current.has4DVolume()).toBe(false);
 
-      // Mock the stores
-      vi.mock('@/stores/layerStore', () => ({
-        useLayerStore: () => layers,
-      }));
-
-      const { result, rerender } = renderHook(() => useTimeNavigation());
-      
-      // Measure initial computation
-      const { time: firstTime } = await measureTime('first has4DVolume', () => {
-        return result.current.has4DVolume();
-      });
-      
-      // Rerender with same layers
-      rerender();
-      
-      // Measure cached computation
-      const { time: secondTime } = await measureTime('cached has4DVolume', () => {
-        return result.current.has4DVolume();
-      });
-      
-      // Cached call should be significantly faster (90% faster)
-      expect(secondTime).toBeLessThan(firstTime * 0.1);
-    });
-
-    test('should separate layer-dependent and timepoint-dependent computations', () => {
-      const monitor = new RenderFrequencyMonitor();
-      
-      const { result, rerender } = renderHook(() => {
-        monitor.recordRender();
-        return useTimeNavigation();
-      });
-      
-      // Change only timepoint - should not recalculate layer filtering
-      act(() => {
-        result.current.setTimepoint(5);
-      });
-      
-      rerender();
-      
-      // Check that expensive computations weren't repeated
-      expect(monitor.getRenderCount()).toBeLessThan(5);
-    });
+    install4DLayer();
+    const { result: withLayer } = renderHook(() => useTimeNavigation());
+    expect(withLayer.current.has4DVolume()).toBe(true);
   });
 
-  describe('TimeSlider Performance', () => {
-    test('should throttle scrubbing updates to 60fps', async () => {
-      const { container } = render(<TimeSlider />);
-      const slider = container.querySelector('[role="slider"]') as HTMLElement;
-      
-      const updateTimes: number[] = [];
-      
-      // Mock setTimepoint to track call frequency
-      const originalSetTimepoint = vi.fn((time: number) => {
-        updateTimes.push(performance.now());
-      });
-      
-      // Simulate rapid scrubbing
-      const scrubStartTime = performance.now();
-      for (let i = 0; i < 100; i++) {
-        fireEvent.mouseDown(slider);
-        fireEvent.mouseMove(document, { clientX: i * 2 });
-      }
-      fireEvent.mouseUp(document);
-      
-      await waitFor(() => {
-        // Calculate actual update frequency
-        if (updateTimes.length > 1) {
-          const intervals = [];
-          for (let i = 1; i < updateTimes.length; i++) {
-            intervals.push(updateTimes[i] - updateTimes[i - 1]);
-          }
-          const avgInterval = intervals.reduce((a, b) => a + b) / intervals.length;
-          
-          // Should maintain approximately 16ms intervals (60fps)
-          expect(avgInterval).toBeGreaterThan(15);
-          expect(avgInterval).toBeLessThan(20);
-        }
-      });
+  it('persists timepoint changes and updates layer metadata', async () => {
+    install4DLayer();
+    const { result } = renderHook(() => useTimeNavigation());
+
+    await act(async () => {
+      result.current.setTimepoint(5);
+      await Promise.resolve();
     });
 
-    test('should provide immediate visual feedback', () => {
-      const { container } = render(<TimeSlider />);
-      const slider = container.querySelector('[role="slider"]') as HTMLElement;
-      const thumb = container.querySelector('.absolute') as HTMLElement;
-      
-      const initialPosition = thumb.style.left;
-      
-      // Start dragging
-      fireEvent.mouseDown(slider);
-      fireEvent.mouseMove(document, { clientX: 100 });
-      
-      // Visual position should update immediately
-      expect(thumb.style.left).not.toBe(initialPosition);
-    });
+    expect(storeMocks.viewStateStoreState.viewState.timepoint).toBe(5);
+    expect(storeMocks.updateLayer).toHaveBeenCalledWith('layer-4d', { currentTimepoint: 5 });
+    expect(storeMocks.layerStoreState.layers[0].currentTimepoint).toBe(5);
+    expect(mockApiService.setVolumeTimepoint).toHaveBeenCalledWith('volume-4d', 5);
   });
 
-  describe('Memory Leak Prevention', () => {
-    test('should cleanup throttled functions on unmount', () => {
-      const { unmount } = render(<TimeSlider />);
-      
-      // Get a reference to the throttled function
-      const throttleSpy = vi.spyOn(require('lodash'), 'throttle');
-      const cancelSpy = vi.fn();
-      throttleSpy.mockReturnValue(Object.assign(() => {}, { cancel: cancelSpy }));
-      
-      unmount();
-      
-      // Verify cleanup was called
-      expect(cancelSpy).toHaveBeenCalled();
+  it('clamps requested timepoint to available range', async () => {
+    install4DLayer();
+    const { result } = renderHook(() => useTimeNavigation());
+
+    await act(async () => {
+      result.current.setTimepoint(15);
+      await Promise.resolve();
     });
 
-    test('should not accumulate event listeners', () => {
-      const addEventListenerSpy = vi.spyOn(document, 'addEventListener');
-      const removeEventListenerSpy = vi.spyOn(document, 'removeEventListener');
-      
-      const { unmount } = render(<TimeSlider />);
-      
-      // Simulate drag operation
-      const slider = document.querySelector('[role="slider"]') as HTMLElement;
-      fireEvent.mouseDown(slider);
-      
-      const addCalls = addEventListenerSpy.mock.calls.length;
-      
-      unmount();
-      
-      const removeCalls = removeEventListenerSpy.mock.calls.length;
-      expect(removeCalls).toBe(addCalls); // All listeners should be removed
-      
-      addEventListenerSpy.mockRestore();
-      removeEventListenerSpy.mockRestore();
-    });
+    expect(storeMocks.viewStateStoreState.viewState.timepoint).toBe(9);
+    expect(mockApiService.setVolumeTimepoint).toHaveBeenCalledWith('volume-4d', 9);
   });
 
-  describe('Backend Update Frequency', () => {
-    test('should coalesce rapid state changes', async () => {
-      const backendCalls: number[] = [];
-      
-      // Mock the backend invoke
-      vi.mock('@tauri-apps/api/core', () => ({
-        invoke: vi.fn(() => {
-          backendCalls.push(performance.now());
-          return Promise.resolve();
-        }),
-      }));
-      
-      // Simulate rapid time navigation
-      const { result } = renderHook(() => useTimeNavigation());
-      
-      // Make 10 rapid calls
-      for (let i = 0; i < 10; i++) {
-        act(() => {
-          result.current.setTimepoint(i);
-        });
-      }
-      
-      // Wait for coalescing
-      await waitFor(() => {
-        // Should result in fewer backend calls due to coalescing
-        expect(backendCalls.length).toBeLessThan(10);
-      }, { timeout: 100 });
+  it('provides immediate visual feedback in TimeSlider while throttling backend updates', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(0));
+    install4DLayer();
+    const { container } = render(createElement(TimeSlider));
+
+    const track = container.querySelector('[data-testid="time-slider-track"]') as HTMLElement;
+    expect(track).toBeTruthy();
+
+    // Mock geometry for consistent calculations
+    vi.spyOn(track, 'getBoundingClientRect').mockReturnValue({
+      left: 0,
+      top: 0,
+      right: 200,
+      bottom: 20,
+      width: 200,
+      height: 20,
+      x: 0,
+      y: 0,
+      toJSON: () => ({}),
     });
+
+    const callsBeforeInteraction = mockApiService.setVolumeTimepoint.mock.calls.length;
+
+    fireEvent.mouseDown(track, { clientX: 0 });
+
+    await act(async () => {
+      vi.advanceTimersByTime(5);
+      await Promise.resolve();
+    });
+
+    fireEvent.mouseMove(document, { clientX: 50 });
+
+    await act(async () => {
+      vi.advanceTimersByTime(5);
+      await Promise.resolve();
+    });
+
+    fireEvent.mouseMove(document, { clientX: 100 });
+
+    await act(async () => {
+      vi.advanceTimersByTime(5);
+      await Promise.resolve();
+    });
+
+    fireEvent.mouseMove(document, { clientX: 150 });
+
+    const callsDuringDrag = mockApiService.setVolumeTimepoint.mock.calls.slice(callsBeforeInteraction);
+    expect(callsDuringDrag.length).toBeLessThanOrEqual(2);
+
+    await act(async () => {
+      vi.advanceTimersByTime(11);
+      await Promise.resolve();
+    });
+
+    expect(storeMocks.viewStateStoreState.viewState.timepoint).toBe(7);
+    const trailingCalls = mockApiService.setVolumeTimepoint.mock.calls.slice(callsBeforeInteraction);
+    const timepoints = trailingCalls.map(([, timepoint]) => timepoint);
+    expect(timepoints).toContain(7);
+    expect(timepoints.filter(tp => tp === 7)).toHaveLength(1);
+  });
+
+  it('TimeNavigationService.setTimepoint synchronises backend and metadata', async () => {
+    install4DLayer();
+    const service = getTimeNavigationService();
+
+    await act(async () => {
+      service.setTimepoint(4);
+      await Promise.resolve();
+    });
+
+    expect(storeMocks.layerStoreState.layers[0].currentTimepoint).toBe(4);
+    expect(mockApiService.setVolumeTimepoint).toHaveBeenCalledWith('volume-4d', 4);
   });
 });

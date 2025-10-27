@@ -6,7 +6,6 @@
 // Learn more about Tauri commands at https://tauri.app/v1/guides/features/command
 use api_bridge::{self, BridgeState, SurfaceRegistry};
 use atlases::AtlasService;
-use templates::{TemplateService, TemplateSpace, TemplateType};
 use futures::executor::block_on;
 use render_loop::RenderLoopService;
 use std::collections::HashMap;
@@ -14,6 +13,7 @@ use std::sync::Arc;
 use tauri::menu::{Menu, MenuItemBuilder, PredefinedMenuItem, SubmenuBuilder};
 use tauri::AppHandle;
 use tauri::{Emitter, Manager};
+use templates::{TemplateService, TemplateSpace, TemplateType};
 use tokio::sync::Mutex as TokioMutex;
 
 #[derive(Clone, serde::Serialize, serde::Deserialize)]
@@ -73,7 +73,6 @@ async fn update_dynamic_menus(
     Ok(())
 }
 
-
 fn main() {
     // Initialize state components BEFORE the builder
 
@@ -94,104 +93,142 @@ fn main() {
                 .accelerator("CmdOrCtrl+O")
                 .build(app)?;
 
-            // Build templates menu directly 
+            // Build templates menu directly
             let templates_menu = {
                 // Create main Templates submenu
                 let mut templates_menu = SubmenuBuilder::new(app, "Templates");
-                
+
                 // MNI152 2009c Asymmetric - directly under Templates
                 let mut mni152_2009c = SubmenuBuilder::new(app, "MNI152 2009c Asymmetric");
-                
+
                 // Add T1 and T2 templates directly (flattened)
                 mni152_2009c = mni152_2009c
-                    .item(&MenuItemBuilder::new("T1 1mm")
-                        .id("template_MNI152NLin2009cAsym_T1w_1mm")
-                        .build(app)?)
-                    .item(&MenuItemBuilder::new("T1 2mm")
-                        .id("template_MNI152NLin2009cAsym_T1w_2mm")
-                        .build(app)?)
-                    .item(&MenuItemBuilder::new("T2 1mm")
-                        .id("template_MNI152NLin2009cAsym_T2w_1mm")
-                        .build(app)?)
-                    .item(&MenuItemBuilder::new("T2 2mm")
-                        .id("template_MNI152NLin2009cAsym_T2w_2mm")
-                        .build(app)?)
+                    .item(
+                        &MenuItemBuilder::new("T1 1mm")
+                            .id("template_MNI152NLin2009cAsym_T1w_1mm")
+                            .build(app)?,
+                    )
+                    .item(
+                        &MenuItemBuilder::new("T1 2mm")
+                            .id("template_MNI152NLin2009cAsym_T1w_2mm")
+                            .build(app)?,
+                    )
+                    .item(
+                        &MenuItemBuilder::new("T2 1mm")
+                            .id("template_MNI152NLin2009cAsym_T2w_1mm")
+                            .build(app)?,
+                    )
+                    .item(
+                        &MenuItemBuilder::new("T2 2mm")
+                            .id("template_MNI152NLin2009cAsym_T2w_2mm")
+                            .build(app)?,
+                    )
                     .separator();
-                
+
                 // Tissue probability maps
                 let mut tissue_menu = SubmenuBuilder::new(app, "Tissue Probability");
                 tissue_menu = tissue_menu
-                    .item(&MenuItemBuilder::new("Gray Matter (1mm)")
-                        .id("template_MNI152NLin2009cAsym_GM_1mm")
-                        .build(app)?)
-                    .item(&MenuItemBuilder::new("Gray Matter (2mm)")
-                        .id("template_MNI152NLin2009cAsym_GM_2mm")
-                        .build(app)?)
-                    .item(&MenuItemBuilder::new("White Matter (1mm)")
-                        .id("template_MNI152NLin2009cAsym_WM_1mm")
-                        .build(app)?)
-                    .item(&MenuItemBuilder::new("White Matter (2mm)")
-                        .id("template_MNI152NLin2009cAsym_WM_2mm")
-                        .build(app)?)
-                    .item(&MenuItemBuilder::new("CSF (1mm)")
-                        .id("template_MNI152NLin2009cAsym_CSF_1mm")
-                        .build(app)?)
-                    .item(&MenuItemBuilder::new("CSF (2mm)")
-                        .id("template_MNI152NLin2009cAsym_CSF_2mm")
-                        .build(app)?);
-                
+                    .item(
+                        &MenuItemBuilder::new("Gray Matter (1mm)")
+                            .id("template_MNI152NLin2009cAsym_GM_1mm")
+                            .build(app)?,
+                    )
+                    .item(
+                        &MenuItemBuilder::new("Gray Matter (2mm)")
+                            .id("template_MNI152NLin2009cAsym_GM_2mm")
+                            .build(app)?,
+                    )
+                    .item(
+                        &MenuItemBuilder::new("White Matter (1mm)")
+                            .id("template_MNI152NLin2009cAsym_WM_1mm")
+                            .build(app)?,
+                    )
+                    .item(
+                        &MenuItemBuilder::new("White Matter (2mm)")
+                            .id("template_MNI152NLin2009cAsym_WM_2mm")
+                            .build(app)?,
+                    )
+                    .item(
+                        &MenuItemBuilder::new("CSF (1mm)")
+                            .id("template_MNI152NLin2009cAsym_CSF_1mm")
+                            .build(app)?,
+                    )
+                    .item(
+                        &MenuItemBuilder::new("CSF (2mm)")
+                            .id("template_MNI152NLin2009cAsym_CSF_2mm")
+                            .build(app)?,
+                    );
+
                 // Brain masks
                 let mut mask_menu = SubmenuBuilder::new(app, "Brain Masks");
                 mask_menu = mask_menu
-                    .item(&MenuItemBuilder::new("Brain Mask (1mm)")
-                        .id("template_MNI152NLin2009cAsym_mask_1mm")
-                        .build(app)?)
-                    .item(&MenuItemBuilder::new("Brain Mask (2mm)")
-                        .id("template_MNI152NLin2009cAsym_mask_2mm")
-                        .build(app)?)
-                    .item(&MenuItemBuilder::new("Skull-stripped Brain (1mm)")
-                        .id("template_MNI152NLin2009cAsym_brain_1mm")
-                        .build(app)?)
-                    .item(&MenuItemBuilder::new("Skull-stripped Brain (2mm)")
-                        .id("template_MNI152NLin2009cAsym_brain_2mm")
-                        .build(app)?);
-                
+                    .item(
+                        &MenuItemBuilder::new("Brain Mask (1mm)")
+                            .id("template_MNI152NLin2009cAsym_mask_1mm")
+                            .build(app)?,
+                    )
+                    .item(
+                        &MenuItemBuilder::new("Brain Mask (2mm)")
+                            .id("template_MNI152NLin2009cAsym_mask_2mm")
+                            .build(app)?,
+                    )
+                    .item(
+                        &MenuItemBuilder::new("Skull-stripped Brain (1mm)")
+                            .id("template_MNI152NLin2009cAsym_brain_1mm")
+                            .build(app)?,
+                    )
+                    .item(
+                        &MenuItemBuilder::new("Skull-stripped Brain (2mm)")
+                            .id("template_MNI152NLin2009cAsym_brain_2mm")
+                            .build(app)?,
+                    );
+
                 // Build MNI152 2009c submenu with flattened structure
                 mni152_2009c = mni152_2009c
                     .item(&tissue_menu.build()?)
-                    .separator() 
+                    .separator()
                     .item(&mask_menu.build()?);
-                
+
                 // Add MNI152 2009c directly to templates menu (no MNI Space intermediate level)
                 templates_menu = templates_menu.item(&mni152_2009c.build()?);
-                
+
                 // MNIColin27 - directly under Templates
                 let mut mnicolin27 = SubmenuBuilder::new(app, "MNI Colin27");
                 mnicolin27 = mnicolin27
-                    .item(&MenuItemBuilder::new("T1w")
-                        .id("template_MNIColin27_T1w_native")
-                        .build(app)?)
-                    .item(&MenuItemBuilder::new("Brain Mask")
-                        .id("template_MNIColin27_mask_native")
-                        .build(app)?);
-                
+                    .item(
+                        &MenuItemBuilder::new("T1w")
+                            .id("template_MNIColin27_T1w_native")
+                            .build(app)?,
+                    )
+                    .item(
+                        &MenuItemBuilder::new("Brain Mask")
+                            .id("template_MNIColin27_mask_native")
+                            .build(app)?,
+                    );
+
                 templates_menu = templates_menu.item(&mnicolin27.build()?);
-                
+
                 // MNI305 - directly under Templates
                 let mut mni305 = SubmenuBuilder::new(app, "MNI305");
                 mni305 = mni305
-                    .item(&MenuItemBuilder::new("T1w")
-                        .id("template_MNI305_T1w_native")
-                        .build(app)?)
-                    .item(&MenuItemBuilder::new("T2w")
-                        .id("template_MNI305_T2w_native")
-                        .build(app)?)
-                    .item(&MenuItemBuilder::new("Brain Mask")
-                        .id("template_MNI305_mask_native")
-                        .build(app)?);
-                
+                    .item(
+                        &MenuItemBuilder::new("T1w")
+                            .id("template_MNI305_T1w_native")
+                            .build(app)?,
+                    )
+                    .item(
+                        &MenuItemBuilder::new("T2w")
+                            .id("template_MNI305_T2w_native")
+                            .build(app)?,
+                    )
+                    .item(
+                        &MenuItemBuilder::new("Brain Mask")
+                            .id("template_MNI305_mask_native")
+                            .build(app)?,
+                    );
+
                 templates_menu = templates_menu.item(&mni305.build()?);
-                
+
                 templates_menu.build()?
             };
 
@@ -432,7 +469,7 @@ fn main() {
                     // Handle template menu items
                     id if id.starts_with("template_") => {
                         println!("Template menu item clicked: {}", id);
-                        
+
                         // Parse template ID: "template_MNI152NLin2009cAsym_T1w_1mm"
                         if let Some(template_id) = id.strip_prefix("template_") {
                             // Emit template loading event to frontend
@@ -473,25 +510,29 @@ fn main() {
 
             // --- Create and manage final BridgeState ---
             // Create atlas and template services
-            let cache_dir = app.path().app_cache_dir().unwrap_or_else(|_| std::env::temp_dir().join("brainflow"));
+            let cache_dir = app
+                .path()
+                .app_cache_dir()
+                .unwrap_or_else(|_| std::env::temp_dir().join("brainflow"));
             let atlas_service = Arc::new(TokioMutex::new(
                 AtlasService::new(cache_dir.clone())
-                    .map_err(|e| format!("Failed to initialize atlas service: {}", e))?
+                    .map_err(|e| format!("Failed to initialize atlas service: {}", e))?,
             ));
             let template_service = Arc::new(TokioMutex::new(
                 TemplateService::new(cache_dir)
-                    .map_err(|e| format!("Failed to initialize template service: {}", e))?
+                    .map_err(|e| format!("Failed to initialize template service: {}", e))?,
             ));
-            
+
             let bridge_state = BridgeState::new(
-                volume_registry.clone(),                        // Volume registry
+                volume_registry.clone(),                           // Volume registry
                 Arc::new(TokioMutex::new(SurfaceRegistry::new())), // Surface registry
-                Arc::new(TokioMutex::new(render_loop_service)), // Render loop service
-                layer_to_atlas_map,                             // Layer to atlas map
-                Arc::new(TokioMutex::new(HashMap::new())),      // Layer to volume map
-                atlas_service,                                  // Atlas service
-                template_service,                               // Template service
+                Arc::new(TokioMutex::new(render_loop_service)),    // Render loop service
+                layer_to_atlas_map,                                // Layer to atlas map
+                Arc::new(TokioMutex::new(HashMap::new())),         // Layer to volume map
+                atlas_service,                                     // Atlas service
+                template_service,                                  // Template service
             );
+            bridge_state.start_layer_watchdog();
             app.manage(bridge_state); // Manage the fully initialized state
 
             // Initialize logging based on debug/release mode

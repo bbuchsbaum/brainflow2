@@ -1,22 +1,22 @@
 #[cfg(test)]
 mod tests {
-    use api_bridge::*;
+    use api_bridge::BridgeState;
     use brainflow_loaders as core_loaders;
-    use bridge_types::*;
+    use bridge_types::{icons, FlatNode, VolumeHandleInfo, VolumeType};
     use std::path::PathBuf;
 
     // Helper function to create a test BridgeState
     fn create_test_state() -> BridgeState {
-        BridgeState::default()
+        BridgeState::default().expect("bridge state")
     }
 
     #[test]
     fn test_bridge_state_creation() {
         let state = create_test_state();
 
-        // Test that the state is created with empty registries
+        // Ensure volume registry starts empty
         let volume_registry = state.volume_registry.try_lock().unwrap();
-        assert_eq!(volume_registry.len(), 0);
+        assert!(volume_registry.get("nonexistent").is_none());
         drop(volume_registry);
 
         let layer_map = state.layer_to_atlas_map.try_lock().unwrap();
@@ -55,8 +55,12 @@ mod tests {
         let handle = VolumeHandleInfo {
             id: "test-id".to_string(),
             name: "test.nii.gz".to_string(),
-            dims: [256, 256, 128],
+            dims: vec![256, 256, 128],
             dtype: "f32".to_string(),
+            volume_type: VolumeType::Volume3D,
+            num_timepoints: None,
+            current_timepoint: None,
+            time_series_info: None,
         };
 
         assert_eq!(handle.dims[0], 256);

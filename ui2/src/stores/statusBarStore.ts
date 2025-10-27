@@ -22,6 +22,7 @@ export const useStatusBarStore = create<StatusBarState>()(
       crosshair: '(0.0, 0.0, 0.0)',
       mouse: '--',
       layer: 'None',
+      atlas: 'Atlas --/--',
       fps: '--',
       gpu: 'Ready'
     },
@@ -41,6 +42,7 @@ export const useStatusBarStore = create<StatusBarState>()(
         crosshair: '(0.0, 0.0, 0.0)',
         mouse: '--',
         layer: 'None',
+        atlas: 'Atlas --/--',
         fps: '--',
         gpu: 'Ready'
       }

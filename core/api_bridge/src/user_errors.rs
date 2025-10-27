@@ -90,7 +90,7 @@ impl UserFriendly for BridgeError {
                     "An unexpected error occurred.".to_string()
                 }
             }
-            
+
             BridgeError::LoaderError(details) => {
                 format!("Failed to load file: {}", details)
             }
@@ -180,7 +180,7 @@ impl UserFriendly for BridgeError {
                     vec!["Restart the application and try again".to_string()]
                 }
             }
-            
+
             BridgeError::LoaderError(_) => {
                 vec![
                     "Check that the file format is supported".to_string(),

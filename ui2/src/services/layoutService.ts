@@ -7,6 +7,7 @@ import type { ComponentItem, ItemConfig } from 'golden-layout';
 export interface LayoutService {
   addComponent(config: ItemConfig): void;
   setLayoutRef(layout: any): void;
+  focusSurfacePanel(): void;
 }
 
 class LayoutServiceImpl implements LayoutService {
@@ -45,6 +46,54 @@ class LayoutServiceImpl implements LayoutService {
       console.log('[LayoutService] Component added:', config);
     } catch (error) {
       console.error('[LayoutService] Failed to add component:', error);
+    }
+  }
+
+  focusSurfacePanel(): void {
+    if (!this.layoutRef) {
+      console.warn('[LayoutService] Cannot focus Surfaces panel - layout not initialized');
+      return;
+    }
+
+    try {
+      const root = this.layoutRef.rootItem;
+      if (!root || root.type !== 'row') {
+        console.warn('[LayoutService] Cannot focus Surfaces panel - root is not a row');
+        return;
+      }
+
+      // Right column is the third item (index 2) in the root row
+      const rightColumn = root.contentItems[2];
+      if (!rightColumn || rightColumn.type !== 'column') {
+        console.warn('[LayoutService] Cannot focus Surfaces panel - right column not found');
+        return;
+      }
+
+      // The tabbed stack is the first item in the right column
+      const tabbedStack = rightColumn.contentItems[0];
+      if (!tabbedStack || tabbedStack.type !== 'stack') {
+        console.warn('[LayoutService] Cannot focus Surfaces panel - tabbed stack not found');
+        return;
+      }
+
+      // Find the SurfacePanel component in the stack
+      const surfacePanel = tabbedStack.contentItems.find(
+        (item: any) => item.componentType === 'SurfacePanel'
+      );
+
+      if (surfacePanel) {
+        // Use setActiveComponentItem to focus the Surfaces tab
+        try {
+          tabbedStack.setActiveComponentItem(surfacePanel);
+          console.log('[LayoutService] Focused Surfaces tab');
+        } catch (error) {
+          console.warn('[LayoutService] Could not focus Surfaces tab:', error);
+        }
+      } else {
+        console.warn('[LayoutService] SurfacePanel not found in tabbed stack');
+      }
+    } catch (error) {
+      console.error('[LayoutService] Failed to focus Surfaces panel:', error);
     }
   }
 }

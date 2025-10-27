@@ -2,9 +2,7 @@ use bridge_types::{BridgeError, BridgeResult, Loaded, Loader, VolumeSendable};
 use log::{error, info};
 use nalgebra::Affine3;
 use serde::Serialize;
-use std::{
-    path::Path,
-};
+use std::path::Path;
 use thiserror::Error;
 use volmath::DenseVolume3;
 

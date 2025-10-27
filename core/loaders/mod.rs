@@ -12,8 +12,8 @@ pub use bridge_types::Loader;
 // --- Loader Implementations ---
 // Import concrete loader types. Each loader should live in its own crate/module.
 // Assuming nifti_loader is a sibling crate in the workspace.
-use nifti_loader::NiftiLoader;
 use gifti_loader::GiftiLoader;
+use nifti_loader::NiftiLoader;
 
 // --- Type Aliases for Function Pointers ---
 type CanLoadFn = fn(&Path) -> bool;

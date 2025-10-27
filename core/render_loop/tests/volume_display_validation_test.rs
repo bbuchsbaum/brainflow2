@@ -47,6 +47,7 @@ fn test_volume_renders_not_black() {
             threshold_mode: ThresholdMode::Range,
             texture_coords: (0.0, 0.0, 1.0, 1.0),
             is_mask: false,
+            interpolation_mode: 1, // linear
         };
 
         // Configure world-to-voxel transform
@@ -111,6 +112,7 @@ fn test_binary_mask_renders_correctly() {
             threshold_mode: ThresholdMode::Range,
             texture_coords: (0.0, 0.0, 1.0, 1.0),
             is_mask: false,
+            interpolation_mode: 0, // nearest (for masks)
         };
 
         let world_to_voxel = Matrix4::new(
@@ -157,6 +159,7 @@ fn test_crosshair_position() {
             threshold_mode: ThresholdMode::Range,
             texture_coords: (0.0, 0.0, 1.0, 1.0),
             is_mask: false,
+            interpolation_mode: 1, // linear
         };
 
         let world_to_voxel = Matrix4::new(
@@ -212,9 +215,11 @@ fn create_binary_mask() -> DenseVolume3<u8> {
     }
 
     use volmath::space::{NeuroSpace3, NeuroSpaceImpl};
-    let space_impl =
-        <volmath::NeuroSpace as NeuroSpaceExt>::from_affine_matrix4(dims, Matrix4::identity())
-            .expect("Failed to create NeuroSpace");
+    let space_impl = <volmath::NeuroSpace as NeuroSpaceExt>::from_affine_matrix4(
+        dims.to_vec(),
+        Matrix4::identity(),
+    )
+    .expect("Failed to create NeuroSpace");
     let space = NeuroSpace3::new(space_impl);
     DenseVolume3::from_data(space.0, data)
 }

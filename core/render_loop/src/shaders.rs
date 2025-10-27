@@ -2,7 +2,15 @@
 // This replaces the build-time wgsl_to_wgpu approach for compatibility
 
 use std::collections::HashMap;
-use wgpu::{Device, ShaderModule, ShaderModuleDescriptor, ShaderSource};
+use wgpu::{
+    BindGroupLayout, BlendState, ColorTargetState, ColorWrites, Device, ShaderModule,
+    ShaderModuleDescriptor, ShaderSource,
+};
+
+#[cfg(feature = "typed-shaders")]
+pub mod typed {
+    include!(concat!(env!("OUT_DIR"), "/typed_shaders.rs"));
+}
 
 /// Shader loading errors
 #[derive(Debug, thiserror::Error)]
@@ -33,6 +41,11 @@ impl ShaderManager {
         Self {
             shaders: HashMap::new(),
         }
+    }
+
+    /// Register a shader module that was created externally (e.g. via wgsl_to_wgpu).
+    pub fn insert_shader(&mut self, name: &str, module: ShaderModule) {
+        self.shaders.insert(name.to_string(), module);
     }
 
     /// Load a shader from embedded WGSL source
@@ -177,6 +190,115 @@ impl ShaderManager {
     }
 }
 
+/// Helper descriptors for slice shader pipeline creation.
+pub struct SliceShaderDescriptors {
+    fragment_targets: [Option<ColorTargetState>; 1],
+    #[cfg(feature = "typed-shaders")]
+    typed_vertex_entry: typed::slice_world_space_optimized::VertexEntry<0>,
+    #[cfg(feature = "typed-shaders")]
+    typed_fragment_entry: typed::slice_world_space_optimized::FragmentEntry<1>,
+}
+
+impl SliceShaderDescriptors {
+    pub fn new(target_format: wgpu::TextureFormat) -> Self {
+        let color_target = ColorTargetState {
+            format: target_format,
+            blend: Some(BlendState::ALPHA_BLENDING),
+            write_mask: ColorWrites::ALL,
+        };
+        let fragment_targets = [Some(color_target.clone())];
+
+        #[cfg(feature = "typed-shaders")]
+        {
+            let typed_vertex_entry = typed::slice_world_space_optimized::vs_main_entry();
+            let typed_fragment_entry =
+                typed::slice_world_space_optimized::fs_main_entry(fragment_targets.clone());
+            Self {
+                fragment_targets,
+                typed_vertex_entry,
+                typed_fragment_entry,
+            }
+        }
+
+        #[cfg(not(feature = "typed-shaders"))]
+        Self { fragment_targets }
+    }
+
+    pub fn vertex_entry(&self) -> &'static str {
+        "vs_main"
+    }
+
+    pub fn fragment_entry(&self) -> &'static str {
+        "fs_main"
+    }
+
+    pub fn vertex_state<'a>(&'a self, module: &'a ShaderModule) -> wgpu::VertexState<'a> {
+        #[cfg(feature = "typed-shaders")]
+        {
+            typed::slice_world_space_optimized::vertex_state(module, &self.typed_vertex_entry)
+        }
+        #[cfg(not(feature = "typed-shaders"))]
+        {
+            wgpu::VertexState {
+                module,
+                entry_point: self.vertex_entry(),
+                buffers: &[],
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+            }
+        }
+    }
+
+    pub fn fragment_state<'a>(&'a self, module: &'a ShaderModule) -> wgpu::FragmentState<'a> {
+        #[cfg(feature = "typed-shaders")]
+        {
+            typed::slice_world_space_optimized::fragment_state(
+                module,
+                &self.typed_fragment_entry,
+            )
+        }
+        #[cfg(not(feature = "typed-shaders"))]
+        {
+            wgpu::FragmentState {
+                module,
+                entry_point: self.fragment_entry(),
+                targets: &self.fragment_targets,
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+            }
+        }
+    }
+
+    pub fn color_targets(&self) -> &[Option<ColorTargetState>; 1] {
+        &self.fragment_targets
+    }
+}
+
+pub fn create_slice_pipeline_layout(
+    device: &Device,
+    global: &BindGroupLayout,
+    layer: &BindGroupLayout,
+    texture: &BindGroupLayout,
+) -> wgpu::PipelineLayout {
+    device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+        label: Some("slice_world_space Pipeline Layout"),
+        bind_group_layouts: &[global, layer, texture],
+        push_constant_ranges: &[],
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn slice_descriptors_provide_default_entries() {
+        let descriptors = SliceShaderDescriptors::new(wgpu::TextureFormat::Rgba8Unorm);
+        assert_eq!(descriptors.vertex_entry(), "vs_main");
+        assert_eq!(descriptors.fragment_entry(), "fs_main");
+        let targets = descriptors.color_targets();
+        assert!(targets[0].is_some());
+    }
+}
+
 // Embedded shader sources
 pub mod sources {
     /// World-space slice shader with multi-texture support
@@ -219,6 +341,12 @@ pub mod layouts {
 
     /// Create bind group layout for per-frame globals (Group 0)
     pub fn create_frame_layout(device: &Device) -> BindGroupLayout {
+        #[cfg(feature = "typed-shaders")]
+        {
+            return crate::shaders::typed::slice_world_space_optimized::bind_groups::BindGroup0::get_bind_group_layout(device);
+        }
+
+        #[cfg(not(feature = "typed-shaders"))]
         device.create_bind_group_layout(&BindGroupLayoutDescriptor {
             label: Some("Frame Bind Group Layout"),
             entries: &[

@@ -2283,6 +2283,12 @@
           "markdownDescription": "Enables the get_atlas_entry command without any pre-configured scope."
         },
         {
+          "description": "Enables the get_atlas_stats command without any pre-configured scope.",
+          "type": "string",
+          "const": "api-bridge:allow-get-atlas-stats",
+          "markdownDescription": "Enables the get_atlas_stats command without any pre-configured scope."
+        },
+        {
           "description": "Enables the get_atlas_subscription_count command without any pre-configured scope.",
           "type": "string",
           "const": "api-bridge:allow-get-atlas-subscription-count",
@@ -2335,6 +2341,12 @@
           "type": "string",
           "const": "api-bridge:allow-get-surface-geometry",
           "markdownDescription": "Enables the get_surface_geometry command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the get_surface_overlay_data command without any pre-configured scope.",
+          "type": "string",
+          "const": "api-bridge:allow-get-surface-overlay-data",
+          "markdownDescription": "Enables the get_surface_overlay_data command without any pre-configured scope."
         },
         {
           "description": "Enables the get_template_cache_stats command without any pre-configured scope.",
@@ -2421,6 +2433,12 @@
           "markdownDescription": "Enables the load_surface command without any pre-configured scope."
         },
         {
+          "description": "Enables the load_surface_overlay command without any pre-configured scope.",
+          "type": "string",
+          "const": "api-bridge:allow-load-surface-overlay",
+          "markdownDescription": "Enables the load_surface_overlay command without any pre-configured scope."
+        },
+        {
           "description": "Enables the load_template command without any pre-configured scope.",
           "type": "string",
           "const": "api-bridge:allow-load-template",
@@ -2497,6 +2515,12 @@
           "type": "string",
           "const": "api-bridge:allow-render-view",
           "markdownDescription": "Enables the render_view command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the render_views command without any pre-configured scope.",
+          "type": "string",
+          "const": "api-bridge:allow-render-views",
+          "markdownDescription": "Enables the render_views command without any pre-configured scope."
         },
         {
           "description": "Enables the request_frame command without any pre-configured scope.",
@@ -2715,6 +2739,12 @@
           "markdownDescription": "Denies the get_atlas_entry command without any pre-configured scope."
         },
         {
+          "description": "Denies the get_atlas_stats command without any pre-configured scope.",
+          "type": "string",
+          "const": "api-bridge:deny-get-atlas-stats",
+          "markdownDescription": "Denies the get_atlas_stats command without any pre-configured scope."
+        },
+        {
           "description": "Denies the get_atlas_subscription_count command without any pre-configured scope.",
           "type": "string",
           "const": "api-bridge:deny-get-atlas-subscription-count",
@@ -2767,6 +2797,12 @@
           "type": "string",
           "const": "api-bridge:deny-get-surface-geometry",
           "markdownDescription": "Denies the get_surface_geometry command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the get_surface_overlay_data command without any pre-configured scope.",
+          "type": "string",
+          "const": "api-bridge:deny-get-surface-overlay-data",
+          "markdownDescription": "Denies the get_surface_overlay_data command without any pre-configured scope."
         },
         {
           "description": "Denies the get_template_cache_stats command without any pre-configured scope.",
@@ -2853,6 +2889,12 @@
           "markdownDescription": "Denies the load_surface command without any pre-configured scope."
         },
         {
+          "description": "Denies the load_surface_overlay command without any pre-configured scope.",
+          "type": "string",
+          "const": "api-bridge:deny-load-surface-overlay",
+          "markdownDescription": "Denies the load_surface_overlay command without any pre-configured scope."
+        },
+        {
           "description": "Denies the load_template command without any pre-configured scope.",
           "type": "string",
           "const": "api-bridge:deny-load-template",
@@ -2929,6 +2971,12 @@
           "type": "string",
           "const": "api-bridge:deny-render-view",
           "markdownDescription": "Denies the render_view command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the render_views command without any pre-configured scope.",
+          "type": "string",
+          "const": "api-bridge:deny-render-views",
+          "markdownDescription": "Denies the render_views command without any pre-configured scope."
         },
         {
           "description": "Denies the request_frame command without any pre-configured scope.",

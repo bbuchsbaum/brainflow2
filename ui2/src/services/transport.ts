@@ -33,6 +33,8 @@ export class TauriTransport implements BackendTransport {
       'apply_and_render_view_state_raw',
       'load_file',
       'load_surface',
+      'load_surface_overlay',
+      'get_surface_overlay_data',
       'get_surface_geometry',
       'get_volume_bounds',
       'get_volume_info',
@@ -53,6 +55,7 @@ export class TauriTransport implements BackendTransport {
       'release_layer_gpu_resources',
       'update_frame_ubo',
       'update_frame_for_synchronized_view',
+      'recalculate_all_views',
       'recalculate_view_for_dimensions',
       'query_slice_axis_meta',
       'batch_render_slices',
@@ -66,7 +69,8 @@ export class TauriTransport implements BackendTransport {
       'validate_atlas_config',
       'load_atlas',
       'start_atlas_progress_monitoring',
-      'get_atlas_subscription_count'
+      'get_atlas_subscription_count',
+      'get_atlas_stats'
     ];
     
     if (apiBridgeCommands.includes(cmd)) {
@@ -138,18 +142,27 @@ export class MockTransport implements BackendTransport {
           // Return mock PNG data
           return new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]); // PNG header
         } else {
-          // Return mock RGBA data directly as Uint8Array
+          // Return mock RGBA data with proper header (8 bytes: width + height as uint32)
           const width = 256;
           const height = 256;
-          const rgba = new Uint8Array(width * height * 4);
-          // Fill with mock data (semi-transparent gray)
-          for (let i = 0; i < rgba.length; i += 4) {
-            rgba[i] = 128;     // R
-            rgba[i + 1] = 128; // G
-            rgba[i + 2] = 128; // B
-            rgba[i + 3] = 200; // A
+          const headerSize = 8;
+          const pixelDataSize = width * height * 4;
+          const totalSize = headerSize + pixelDataSize;
+          const buffer = new Uint8Array(totalSize);
+
+          // Write header: width and height as uint32 little-endian
+          const view = new DataView(buffer.buffer);
+          view.setUint32(0, width, true);  // width at offset 0, little-endian
+          view.setUint32(4, height, true); // height at offset 4, little-endian
+
+          // Fill pixel data with mock data (semi-transparent gray)
+          for (let i = headerSize; i < totalSize; i += 4) {
+            buffer[i] = 128;     // R
+            buffer[i + 1] = 128; // G
+            buffer[i + 2] = 128; // B
+            buffer[i + 3] = 200; // A
           }
-          return rgba;
+          return buffer;
         }
         
       case 'apply_and_render_view_state':
@@ -173,6 +186,56 @@ export class MockTransport implements BackendTransport {
           raw[i + 3] = 200; // A
         }
         return raw;
+      case 'recalculate_view_for_dimensions': {
+        const dims = args?.dimensions || [256, 256];
+        return {
+          origin_mm: [0, 0, 0],
+          u_mm: [1, 0, 0],
+          v_mm: [0, 1, 0],
+          width_px: dims[0],
+          height_px: dims[1]
+        };
+      }
+      case 'recalculate_all_views': {
+        const dimsByView = args?.dimensionsByView || {};
+        const buildView = (key: string) => {
+          const dim = dimsByView[key] || [256, 256];
+          return {
+            origin_mm: [0, 0, 0],
+            u_mm: [1, 0, 0],
+            v_mm: [0, 1, 0],
+            width_px: dim[0],
+            height_px: dim[1]
+          };
+        };
+        return {
+          axial: buildView('axial'),
+          sagittal: buildView('sagittal'),
+          coronal: buildView('coronal')
+        };
+      }
+
+      case 'set_volume_timepoint':
+        return null;
+
+      case 'get_volume_timepoint':
+        return 0;
+
+      case 'get_atlas_stats': {
+        const now = Date.now();
+        return {
+          total_layers: 16,
+          used_layers: 4,
+          free_layers: 12,
+          allocations: 4,
+          releases: 0,
+          high_watermark: 4,
+          full_events: 0,
+          is_3d: false,
+          last_allocation_ms: now,
+          last_release_ms: now
+        };
+      }
         
       case 'load_file':
         return {

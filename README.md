@@ -2,9 +2,17 @@
 
 **High-performance, cross-platform desktop application for neuroimaging visualization and analysis.**
 
-Built using **Tauri (Rust backend)** and **Svelte (TypeScript frontend with WebGPU for 2D rendering)**.
+Built using **Tauri (Rust backend)** and **React (TypeScript frontend with WebGPU for 2D rendering)**.
 
 **Current Status:** Phase 1 (WebGPU v2) - Sprint 1 Complete / Starting Sprint 2 (M4 Kickoff)
+
+## Long‑Term Direction
+
+- Typed shader bindings (wgsl_to_wgpu) behind a `typed-shaders` feature; keep runtime WGSL as default until parity is proven. CI leg runs feature-flagged checks (`.github/workflows/typed-shader-check.yml`). See memory-bank/SHADER_BINDINGS_PLAN.md:1.
+- Three‑view sync and multi‑view batching: coalesce updates and enable batched rendering when toggled from the UI; keep legacy per‑view pipeline as default.
+- Robust GPU resource lifecycle: RAII `LayerLease`, watchdog reclamation, and atlas pressure monitoring with hysteresis and telemetry.
+- 4D/time series: consistent timepoint APIs and metadata propagation across UI/bridge/render paths.
+- Performance & QA: reproducible benches and render QA checklists; keep typed vs runtime performance deltas recorded before flips.
 
 ## Key Goals (Phase 1)
 
@@ -71,15 +79,15 @@ cargo tauri dev
 # Run Rust tests
 cargo test --workspace
 
-# Run UI unit tests
-pnpm --filter ui test:unit
+# Run UI unit tests (React app under ui2)
+pnpm --filter temp-ui test
 
-# Run E2E tests (requires UI dev server running, see playwright.config.ts)
-pnpm --filter ui test:e2e
+# Run E2E tests (requires UI dev server running; see e2e/README)
+pnpm -C e2e test
 
 # Run Texture Upload Benchmark
-cargo bench -p render_loop --bench upload
+cargo bench -p render_loop_benches --bench upload
 
 # Build the application
 cargo tauri build 
-``` 
+```

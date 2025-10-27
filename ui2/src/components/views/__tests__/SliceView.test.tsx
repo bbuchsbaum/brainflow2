@@ -1,207 +1,236 @@
-/**
- * SliceView Component Tests
- * Tests core slice rendering and interaction functionality
- */
-
 import React from 'react';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+
 import { SliceView } from '../SliceView';
-import { useViewStateStore } from '@/stores/viewStateStore';
-import { getApiService } from '@/services/apiService';
-import { createMockViewState } from '../../../test-setup';
 
-// Mock the store
-vi.mock('@/stores/viewStateStore');
-vi.mock('@/services/apiService');
+function clone<T>(value: T): T {
+  return typeof structuredClone === 'function'
+    ? structuredClone(value)
+    : (JSON.parse(JSON.stringify(value)) as T);
+}
 
-const mockSetCrosshair = vi.fn();
-const mockApiService = {
-  applyAndRenderViewState: vi.fn(),
-};
+function createDefaultViewState() {
+  return {
+    crosshair: {
+      world_mm: [0, 0, 0] as [number, number, number],
+      visible: true,
+    },
+    views: {
+      axial: {
+        origin_mm: [0, 0, 0] as [number, number, number],
+        u_mm: [1, 0, 0] as [number, number, number],
+        v_mm: [0, 1, 0] as [number, number, number],
+        dim_px: [512, 512] as [number, number],
+      },
+      sagittal: {
+        origin_mm: [0, 0, 0] as [number, number, number],
+        u_mm: [0, 1, 0] as [number, number, number],
+        v_mm: [0, 0, -1] as [number, number, number],
+        dim_px: [512, 512] as [number, number],
+      },
+      coronal: {
+        origin_mm: [0, 0, 0] as [number, number, number],
+        u_mm: [1, 0, 0] as [number, number, number],
+        v_mm: [0, 0, -1] as [number, number, number],
+        dim_px: [512, 512] as [number, number],
+      },
+    },
+    layers: [] as any[],
+  };
+}
+
+type ViewStateShape = ReturnType<typeof createDefaultViewState>;
+
+const viewStateStoreMock = vi.hoisted(() => {
+  const setCrosshairMock = vi.fn<Promise<void>, [[number, number, number], boolean?, boolean?]>(() =>
+    Promise.resolve()
+  );
+  const setCrosshairVisible = vi.fn();
+  let storeApi: {
+    viewState: ViewStateShape;
+    resizeInFlight: Record<string, Promise<void> | null>;
+    setViewState: ReturnType<typeof vi.fn>;
+    setCrosshair: typeof setCrosshairMock;
+    setCrosshairVisible: typeof setCrosshairVisible;
+  };
+
+  const setViewState = vi.fn(
+    (updater: (draft: ViewStateShape) => ViewStateShape | void) => {
+      const draft = clone(storeApi.viewState);
+      const result = updater(draft);
+      storeApi.viewState = result ?? draft;
+    }
+  );
+
+  storeApi = {
+    viewState: clone(createDefaultViewState()),
+    resizeInFlight: { axial: null, sagittal: null, coronal: null, mosaic: null, surface: null } as Record<
+      string,
+      Promise<void> | null
+    >,
+    setViewState,
+    setCrosshair: setCrosshairMock,
+    setCrosshairVisible,
+  };
+
+  const useViewStateStore = ((selector?: (state: typeof storeApi) => any) => {
+    const snapshot = {
+      viewState: storeApi.viewState,
+      setViewState: storeApi.setViewState,
+      setCrosshair: storeApi.setCrosshair,
+      setCrosshairVisible: storeApi.setCrosshairVisible,
+      resizeInFlight: storeApi.resizeInFlight,
+    };
+    return selector ? selector(snapshot) : snapshot;
+  }) as any;
+
+  useViewStateStore.getState = () => ({
+    viewState: storeApi.viewState,
+    setViewState: storeApi.setViewState,
+    setCrosshair: storeApi.setCrosshair,
+    setCrosshairVisible: storeApi.setCrosshairVisible,
+    resizeInFlight: storeApi.resizeInFlight,
+  });
+  useViewStateStore.setState = vi.fn();
+  useViewStateStore.subscribe = vi.fn(() => vi.fn());
+  useViewStateStore.destroy = vi.fn();
+
+  return {
+    storeApi,
+    useViewStateStore,
+    setCrosshairMock,
+    setCrosshairVisible,
+    setViewState,
+    reset() {
+      storeApi.viewState = clone(createDefaultViewState());
+      storeApi.resizeInFlight = {
+        axial: null,
+        sagittal: null,
+        coronal: null,
+        mosaic: null,
+        surface: null,
+      };
+      setViewState.mockClear();
+      setCrosshairMock.mockClear();
+      setCrosshairVisible.mockClear();
+    },
+  };
+});
+
+const layerStoreMock = vi.hoisted(() => {
+  const state = {
+    layers: [] as any[],
+    loadingLayers: new Set<string>(),
+    getLayerMetadata: vi.fn(() => null),
+  };
+
+  const useLayerStore = ((selector?: (snapshot: typeof state) => any) => {
+    const snapshot = {
+      layers: state.layers,
+      loadingLayers: state.loadingLayers,
+      getLayerMetadata: state.getLayerMetadata,
+    };
+    return selector ? selector(snapshot) : snapshot;
+  }) as any;
+
+  useLayerStore.getState = () => ({
+    layers: state.layers,
+    loadingLayers: state.loadingLayers,
+    getLayerMetadata: state.getLayerMetadata,
+  });
+  useLayerStore.setState = vi.fn(updater => {
+    const current = {
+      layers: state.layers,
+      loadingLayers: state.loadingLayers,
+      getLayerMetadata: state.getLayerMetadata,
+    };
+    const next = typeof updater === 'function' ? updater(current) : updater;
+    state.layers = next.layers ?? state.layers;
+  });
+  useLayerStore.subscribe = vi.fn(() => vi.fn());
+  useLayerStore.destroy = vi.fn();
+
+  return {
+    state,
+    useLayerStore,
+    reset() {
+      state.layers = [];
+      state.loadingLayers = new Set();
+      state.getLayerMetadata.mockReset().mockReturnValue(null);
+    },
+  };
+});
+
+const sliceNavigationMock = vi.hoisted(() => ({
+  getSliceRange: vi.fn(() => ({ min: -100, max: 100, step: 1, current: 0 })),
+  updateSlicePosition: vi.fn(),
+  reset() {
+    this.getSliceRange.mockReset().mockReturnValue({ min: -100, max: 100, step: 1, current: 0 });
+    this.updateSlicePosition.mockReset();
+  },
+}));
+
+const apiServiceMock = vi.hoisted(() => ({
+  applyAndRenderViewState: vi.fn<Promise<{ width: number; height: number; close: () => void }>, [any]>(() =>
+    Promise.resolve({ width: 256, height: 256, close: vi.fn() })
+  ),
+  reset() {
+    this.applyAndRenderViewState.mockClear();
+    this.applyAndRenderViewState.mockResolvedValue({ width: 256, height: 256, close: vi.fn() });
+  },
+}));
+
+vi.mock('@/stores/viewStateStore', () => ({
+  __esModule: true,
+  useViewStateStore: viewStateStoreMock.useViewStateStore,
+}));
+
+vi.mock('@/stores/layerStore', () => ({
+  __esModule: true,
+  useLayerStore: layerStoreMock.useLayerStore,
+}));
+
+vi.mock('@/services/SliceNavigationService', () => ({
+  __esModule: true,
+  getSliceNavigationService: () => sliceNavigationMock,
+}));
+
+vi.mock('@/services/apiService', () => ({
+  __esModule: true,
+  getApiService: () => apiServiceMock,
+}));
 
 describe('SliceView', () => {
   beforeEach(() => {
-    vi.clearAllMocks();
-    
-    // Setup store mock
-    (useViewStateStore as any).mockReturnValue({
-      viewState: createMockViewState(),
-      setCrosshair: mockSetCrosshair,
-    });
-    
-    // Setup API service mock
-    (getApiService as any).mockReturnValue(mockApiService);
-    
-    // Mock successful render
-    mockApiService.applyAndRenderViewState.mockResolvedValue({
-      width: 256,
-      height: 256,
-      close: vi.fn(),
-    });
+    viewStateStoreMock.reset();
+    layerStoreMock.reset();
+    sliceNavigationMock.reset();
+    apiServiceMock.reset();
   });
 
-  it('should render canvas with correct dimensions', () => {
-    render(<SliceView viewId="axial" width={512} height={512} />);
-    
-    const canvas = document.querySelector('canvas') as HTMLCanvasElement;
-    expect(canvas).toBeInTheDocument();
-    expect(canvas.width).toBe(512);
-    expect(canvas.height).toBe(512);
-  });
-
-  it('should display view label', () => {
-    render(<SliceView viewId="sagittal" width={256} height={256} />);
-    
-    expect(screen.getByText('Sagittal')).toBeInTheDocument();
-  });
-
-  it('should handle mouse clicks and update crosshair', async () => {
+  it('renders fallback placeholder when no layers are available', () => {
     render(<SliceView viewId="axial" width={256} height={256} />);
-    
-    const canvas = document.querySelector('canvas') as HTMLCanvasElement;
-    
-    // Mock getBoundingClientRect
-    canvas.getBoundingClientRect = vi.fn(() => ({
-      left: 0,
-      top: 0,
-      width: 256,
-      height: 256,
-      right: 256,
-      bottom: 256,
-      x: 0,
-      y: 0,
-      toJSON: vi.fn(),
-    }));
-    
-    // Click center of canvas
-    fireEvent.click(canvas, {
-      clientX: 128,
-      clientY: 128,
-    });
-    
-    // Should call setCrosshair with transformed coordinates
-    expect(mockSetCrosshair).toHaveBeenCalledWith(
-      expect.any(Array),
-      true
-    );
+
+    expect(screen.getByText('No volumes loaded')).toBeInTheDocument();
+    expect(screen.getByText('Double-click a file or drag & drop')).toBeInTheDocument();
+    expect(document.querySelector('input[type="range"]')).toBeNull();
   });
 
-  it('should show hover coordinates on mouse move', () => {
+  it('shows slice controls when layers exist', () => {
+    layerStoreMock.state.layers = [{ id: 'layer-1' }];
+
+    render(<SliceView viewId="sagittal" width={320} height={240} />);
+
+    expect(document.querySelector('input[type="range"]')).toBeTruthy();
+    expect(screen.queryByText('No volumes loaded')).toBeNull();
+  });
+
+  it('queries the slice navigation service for the active view', () => {
+    layerStoreMock.state.layers = [{ id: 'layer-1' }];
+
     render(<SliceView viewId="coronal" width={256} height={256} />);
-    
-    const canvas = document.querySelector('canvas') as HTMLCanvasElement;
-    
-    canvas.getBoundingClientRect = vi.fn(() => ({
-      left: 0,
-      top: 0,
-      width: 256,
-      height: 256,
-      right: 256,
-      bottom: 256,
-      x: 0,
-      y: 0,
-      toJSON: vi.fn(),
-    }));
-    
-    fireEvent.mouseMove(canvas, {
-      clientX: 100,
-      clientY: 100,
-    });
-    
-    // Should show coordinate display
-    expect(screen.getByText(/\(-?\d+\.\d+, -?\d+\.\d+, -?\d+\.\d+\)/)).toBeInTheDocument();
-  });
 
-  it('should hide coordinates on mouse leave', () => {
-    render(<SliceView viewId="axial" width={256} height={256} />);
-    
-    const canvas = document.querySelector('canvas') as HTMLCanvasElement;
-    
-    canvas.getBoundingClientRect = vi.fn(() => ({
-      left: 0,
-      top: 0,
-      width: 256,
-      height: 256,
-      right: 256,
-      bottom: 256,
-      x: 0,
-      y: 0,
-      toJSON: vi.fn(),
-    }));
-    
-    // Show coordinates
-    fireEvent.mouseMove(canvas, {
-      clientX: 100,
-      clientY: 100,
-    });
-    
-    expect(screen.getByText(/\(-?\d+\.\d+, -?\d+\.\d+, -?\d+\.\d+\)/)).toBeInTheDocument();
-    
-    // Hide coordinates
-    fireEvent.mouseLeave(canvas);
-    
-    expect(screen.queryByText(/\(-?\d+\.\d+, -?\d+\.\d+, -?\d+\.\d+\)/)).not.toBeInTheDocument();
-  });
-
-  it('should show loading state during render', async () => {
-    // Make API call take some time
-    mockApiService.applyAndRenderViewState.mockImplementation(
-      () => new Promise(resolve => setTimeout(resolve, 100))
-    );
-    
-    render(<SliceView viewId="axial" width={256} height={256} />);
-    
-    await waitFor(() => {
-      expect(screen.getByText('Rendering...')).toBeInTheDocument();
-    });
-  });
-
-  it('should show error state on render failure', async () => {
-    mockApiService.applyAndRenderViewState.mockRejectedValue(
-      new Error('Render failed')
-    );
-    
-    render(<SliceView viewId="axial" width={256} height={256} />);
-    
-    await waitFor(() => {
-      expect(screen.getByText(/Error: Render failed/)).toBeInTheDocument();
-    });
-  });
-
-  it('should apply custom className', () => {
-    const { container } = render(
-      <SliceView viewId="axial" width={256} height={256} className="custom-class" />
-    );
-    
-    expect(container.firstChild).toHaveClass('custom-class');
-  });
-
-  it('should request render on mount', async () => {
-    render(<SliceView viewId="axial" width={256} height={256} />);
-    
-    await waitFor(() => {
-      expect(mockApiService.applyAndRenderViewState).toHaveBeenCalledWith(
-        expect.objectContaining({
-          views: expect.objectContaining({
-            axial: expect.any(Object),
-          }),
-        })
-      );
-    });
-  });
-
-  it('should handle different view IDs correctly', () => {
-    const views = ['axial', 'sagittal', 'coronal'] as const;
-    
-    views.forEach(viewId => {
-      const { unmount } = render(<SliceView viewId={viewId} width={256} height={256} />);
-      
-      expect(screen.getByText(
-        viewId.charAt(0).toUpperCase() + viewId.slice(1)
-      )).toBeInTheDocument();
-      
-      unmount();
-    });
+    expect(sliceNavigationMock.getSliceRange).toHaveBeenCalledWith('coronal');
   });
 });

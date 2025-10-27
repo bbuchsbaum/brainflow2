@@ -7,6 +7,8 @@ edition = "2021"
 default = []
 hot-reload = []
 precomputed-shader = []
+typed-shaders = ["dep:encase", "wgsl_to_wgpu"]
+dev-bins = []
 
 [dependencies]
 # wgpu = { workspace = true } # Inherit version from workspace - REMOVE THIS
@@ -32,6 +34,7 @@ clap = { version = "4", features = ["derive"] } # For command line parsing
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] } # For async runtime
 flume = "0.11" # For async channel communication
 log = "0.4" # For logging
+encase = { version = "0.12", optional = true } # Generated shader structs (typed path)
 
 [build-dependencies]
 # wgsl_to_wgpu = "0.13.1" # Version compatible with wgpu 0.24
@@ -52,6 +55,7 @@ log = "0.4" # For logging
 # 2. Uncomment the dependency above and set the correct version.
 # 3. Uncomment and potentially adapt the code in `build.rs`.
 # 4. Remove manual shader loading/type definitions from `src/lib.rs` and use the generated `shaders` module.
+wgsl_to_wgpu = { version = "0.8.1", optional = true }
 
 [dev-dependencies]
 criterion = { version = "0.5", default-features = false, features = ["html_reports"] }
@@ -72,11 +76,14 @@ harness = false    # Tells cargo criterion provides the main function
 [[bin]]
 name = "test_render"
 path = "src/bin/test_render.rs"
+required-features = ["dev-bins"]
 
 [[bin]]
 name = "test_nifti_e2e"
 path = "src/bin/test_nifti_e2e.rs"
+required-features = ["dev-bins"]
 
 [[bin]]
 name = "test_mni_slices"
 path = "src/bin/test_mni_slices.rs"
+required-features = ["dev-bins"]

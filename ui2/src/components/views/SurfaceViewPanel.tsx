@@ -62,21 +62,34 @@ export const SurfaceViewPanel: React.FC<SurfaceViewPanelProps> = ({
     const updateDimensions = () => {
       if (containerRef.current) {
         const rect = containerRef.current.getBoundingClientRect();
-        // Only update if dimensions actually changed to avoid loops
-        setDimensions(prev => {
-          if (prev.width === rect.width && prev.height === rect.height) {
-            return prev;
-          }
-          return {
-            width: Math.floor(rect.width),
-            height: Math.floor(rect.height),
-          };
-        });
+        const newWidth = Math.floor(rect.width);
+        const newHeight = Math.floor(rect.height);
+        
+        // Only update if dimensions actually changed and are valid
+        if (newWidth > 0 && newHeight > 0) {
+          setDimensions(prev => {
+            if (prev.width === newWidth && prev.height === newHeight) {
+              return prev;
+            }
+            return { width: newWidth, height: newHeight };
+          });
+        }
       }
     };
     
-    // Initial measurement
-    updateDimensions();
+    // Wait for container to be ready with valid dimensions
+    const waitForDimensions = () => {
+      const rect = containerRef.current?.getBoundingClientRect();
+      if (rect && rect.width > 0 && rect.height > 0) {
+        updateDimensions();
+      } else {
+        // Try again next frame
+        requestAnimationFrame(waitForDimensions);
+      }
+    };
+    
+    // Start dimension detection
+    waitForDimensions();
     
     // Create ResizeObserver with error handling
     const resizeObserver = new ResizeObserver((entries) => {
@@ -89,7 +102,9 @@ export const SurfaceViewPanel: React.FC<SurfaceViewPanelProps> = ({
       });
     });
     
-    resizeObserver.observe(containerRef.current);
+    if (containerRef.current) {
+      resizeObserver.observe(containerRef.current);
+    }
     
     return () => {
       resizeObserver.disconnect();

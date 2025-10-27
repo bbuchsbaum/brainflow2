@@ -58,24 +58,21 @@ describe('CrosshairService', () => {
 
       const state = crosshairService.getCrosshairState();
       expect(state.world_mm).toEqual([0, 0, 0]); // Center of volume
-      expect(mockEventBus.emit).toHaveBeenCalledWith('crosshair.updated', {
-        world_mm: [0, 0, 0],
-      });
+      // CrosshairService no longer emits events - updates ViewState directly
     });
   });
 
   describe('crosshair positioning', () => {
     it('should set crosshair position directly', () => {
       const position: WorldCoordinates = [10, 20, 30];
-      
+
       crosshairService.setCrosshair(position, 'axial');
-      
+
       const state = crosshairService.getCrosshairState();
       expect(state.world_mm).toEqual([10, 20, 30]);
-      expect(state.lastUpdatedView).toBe('axial');
-      expect(mockEventBus.emit).toHaveBeenCalledWith('crosshair.updated', {
-        world_mm: [10, 20, 30],
-      });
+      // lastUpdatedView is a legacy field, no longer tracked
+      expect(state.lastUpdatedView).toBeUndefined();
+      // CrosshairService no longer emits events - updates ViewState directly
     });
 
     it('should clamp position to volume bounds', () => {
@@ -128,14 +125,15 @@ describe('CrosshairService', () => {
 
     it('should update from screen position', () => {
       crosshairService.setViewPlane('axial', axialPlane);
-      
+
       // Click at pixel position (10, 20)
       crosshairService.updateFromScreenPos(10, 20, 'axial');
-      
+
       const state = crosshairService.getCrosshairState();
       // Using the view plane's vectors: origin + 10*u_mm + 20*v_mm
       expect(state.world_mm).toEqual([10, 20, 0]);
-      expect(state.lastUpdatedView).toBe('axial');
+      // lastUpdatedView is a legacy field, no longer tracked
+      expect(state.lastUpdatedView).toBeUndefined();
     });
   });
 
@@ -206,8 +204,11 @@ describe('CrosshairService', () => {
 
     it('should not emit event if visibility unchanged', () => {
       crosshairService.setVisible(true); // Already true by default
-      
-      expect(mockEventBus.emit).not.toHaveBeenCalledWith('crosshair.visibility', expect.any(Object));
+
+      // CrosshairService no longer emits events - updates ViewState directly
+      // Just verify the state is correct
+      const state = crosshairService.getCrosshairState();
+      expect(state.isVisible).toBe(true);
     });
   });
 

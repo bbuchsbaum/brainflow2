@@ -2,18 +2,18 @@
  * Atlas Service - handles atlas loading and management operations
  */
 
-use crate::types::*;
 use crate::catalog::AtlasCatalog;
+use crate::types::*;
 use neuroatlas::{
-    atlas::{Atlas, SchaeferAtlas, GlasserAtlas, ASEGAtlas, OlsenMTLAtlas},
-    core::types::{Space, Resolution, Hemisphere, Network},
+    atlas::{ASEGAtlas, Atlas, GlasserAtlas, OlsenMTLAtlas, SchaeferAtlas},
+    core::types::{Hemisphere, Network, Resolution, Space},
 };
-use std::sync::Arc;
-use std::path::{Path, Component};
 use std::fs;
+use std::path::{Component, Path};
+use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::sync::{broadcast, RwLock};
-use tracing::{debug, info, warn, error};
+use tracing::{debug, error, info, warn};
 
 /// Service for managing atlas operations
 pub struct AtlasService {
@@ -28,10 +28,10 @@ impl AtlasService {
     /// Create a new atlas service
     pub fn new(cache_dir: std::path::PathBuf) -> Result<Self, AtlasError> {
         let (progress_tx, _) = broadcast::channel(32);
-        
+
         // Validate and canonicalize the cache directory path
         let cache_dir = Self::sanitize_cache_dir(cache_dir)?;
-        
+
         Ok(Self {
             catalog: Arc::new(RwLock::new(AtlasCatalog::new())),
             progress_tx,
@@ -44,24 +44,25 @@ impl AtlasService {
     fn sanitize_cache_dir(cache_dir: std::path::PathBuf) -> Result<std::path::PathBuf, AtlasError> {
         // Create the directory if it doesn't exist
         if !cache_dir.exists() {
-            std::fs::create_dir_all(&cache_dir)
-                .map_err(|e| AtlasError::IoError(
-                    format!("Failed to create cache directory: {}", e)
-                ))?;
+            std::fs::create_dir_all(&cache_dir).map_err(|e| {
+                AtlasError::IoError(format!("Failed to create cache directory: {}", e))
+            })?;
         }
 
         // Convert to absolute path to resolve any relative components
-        let abs_path = cache_dir.canonicalize()
-            .map_err(|e| AtlasError::PathSecurityViolation(
-                format!("Failed to canonicalize cache directory: {}", e)
-            ))?;
+        let abs_path = cache_dir.canonicalize().map_err(|e| {
+            AtlasError::PathSecurityViolation(format!(
+                "Failed to canonicalize cache directory: {}",
+                e
+            ))
+        })?;
 
         // Check for directory traversal attempts in the original path
         for component in cache_dir.components() {
             match component {
                 Component::ParentDir => {
                     return Err(AtlasError::PathSecurityViolation(
-                        "Parent directory traversal (..) not allowed in cache path".to_string()
+                        "Parent directory traversal (..) not allowed in cache path".to_string(),
                     ));
                 }
                 Component::CurDir => {
@@ -77,14 +78,16 @@ impl AtlasService {
 
         // Ensure the path is within expected bounds (not system directories)
         let path_str = abs_path.to_string_lossy();
-        if path_str.starts_with("/System/") || 
-           path_str.starts_with("/usr/") || 
-           path_str.starts_with("/bin/") ||
-           path_str.starts_with("/sbin/") ||
-           path_str.starts_with("/etc/") {
-            return Err(AtlasError::PathSecurityViolation(
-                format!("Cache directory cannot be in system path: {}", path_str)
-            ));
+        if path_str.starts_with("/System/")
+            || path_str.starts_with("/usr/")
+            || path_str.starts_with("/bin/")
+            || path_str.starts_with("/sbin/")
+            || path_str.starts_with("/etc/")
+        {
+            return Err(AtlasError::PathSecurityViolation(format!(
+                "Cache directory cannot be in system path: {}",
+                path_str
+            )));
         }
 
         info!("Atlas cache directory validated: {}", abs_path.display());
@@ -95,38 +98,38 @@ impl AtlasService {
     fn get_cache_path(&self, relative_path: &str) -> Result<std::path::PathBuf, AtlasError> {
         // Sanitize the relative path
         let sanitized_relative = Self::sanitize_relative_path(relative_path)?;
-        
+
         // Join with cache directory
         let full_path = self.cache_dir.join(sanitized_relative);
-        
+
         // Ensure the result is still within the cache directory
-        let canonical_path = full_path.canonicalize()
-            .unwrap_or(full_path); // If path doesn't exist yet, that's okay
-            
+        let canonical_path = full_path.canonicalize().unwrap_or(full_path); // If path doesn't exist yet, that's okay
+
         if !canonical_path.starts_with(&self.cache_dir) {
-            return Err(AtlasError::PathSecurityViolation(
-                format!("Path escapes cache directory: {}", canonical_path.display())
-            ));
+            return Err(AtlasError::PathSecurityViolation(format!(
+                "Path escapes cache directory: {}",
+                canonical_path.display()
+            )));
         }
-        
+
         Ok(canonical_path)
     }
 
     /// Sanitize a relative path to prevent directory traversal
     fn sanitize_relative_path(path: &str) -> Result<std::path::PathBuf, AtlasError> {
         let path_buf = std::path::PathBuf::from(path);
-        
+
         // Check each component for security violations
         for component in path_buf.components() {
             match component {
                 Component::ParentDir => {
                     return Err(AtlasError::PathSecurityViolation(
-                        "Parent directory traversal (..) not allowed in relative path".to_string()
+                        "Parent directory traversal (..) not allowed in relative path".to_string(),
                     ));
                 }
                 Component::RootDir | Component::Prefix(_) => {
                     return Err(AtlasError::PathSecurityViolation(
-                        "Absolute paths not allowed in relative path".to_string()
+                        "Absolute paths not allowed in relative path".to_string(),
                     ));
                 }
                 Component::Normal(name) => {
@@ -134,7 +137,7 @@ impl AtlasService {
                     let name_str = name.to_string_lossy();
                     if name_str.contains('\0') || name_str.len() > 255 {
                         return Err(AtlasError::PathSecurityViolation(
-                            "Invalid filename in path".to_string()
+                            "Invalid filename in path".to_string(),
                         ));
                     }
                 }
@@ -144,7 +147,7 @@ impl AtlasService {
                 }
             }
         }
-        
+
         Ok(path_buf)
     }
 
@@ -155,7 +158,10 @@ impl AtlasService {
     }
 
     /// Get filtered atlas entries
-    pub async fn get_filtered_atlases(&self, filter: &AtlasFilter) -> Result<Vec<AtlasCatalogEntry>, AtlasError> {
+    pub async fn get_filtered_atlases(
+        &self,
+        filter: &AtlasFilter,
+    ) -> Result<Vec<AtlasCatalogEntry>, AtlasError> {
         let catalog = self.catalog.read().await;
         Ok(catalog.get_entries(Some(filter)))
     }
@@ -169,7 +175,9 @@ impl AtlasService {
     /// Toggle favorite status for an atlas
     pub async fn toggle_favorite(&self, id: &str) -> Result<bool, AtlasError> {
         let mut catalog = self.catalog.write().await;
-        catalog.toggle_favorite(id).map_err(|e| AtlasError::ValidationFailed(e.to_string()))
+        catalog
+            .toggle_favorite(id)
+            .map_err(|e| AtlasError::ValidationFailed(e.to_string()))
     }
 
     /// Get recent atlases
@@ -187,14 +195,15 @@ impl AtlasService {
     /// Check if atlas configuration is valid
     pub async fn validate_config(&self, config: &AtlasConfig) -> Result<(), AtlasError> {
         let catalog = self.catalog.read().await;
-        
+
         // Validate and parse the configuration using type-safe enums
         let atlas_type = config.parse_atlas_type()?;
         let _space = config.parse_space()?;
         let _resolution = config.parse_resolution()?;
-        
+
         // Check if atlas exists
-        let entry = catalog.get_entry(&config.atlas_id)
+        let entry = catalog
+            .get_entry(&config.atlas_id)
             .ok_or_else(|| AtlasError::AtlasNotFound(config.atlas_id.clone()))?;
 
         // Check if space is compatible
@@ -203,7 +212,11 @@ impl AtlasService {
         }
 
         // Check if resolution is available
-        if !entry.resolutions.iter().any(|r| r.value == config.resolution) {
+        if !entry
+            .resolutions
+            .iter()
+            .any(|r| r.value == config.resolution)
+        {
             return Err(AtlasError::UnsupportedResolution(config.resolution.clone()));
         }
 
@@ -218,7 +231,9 @@ impl AtlasService {
                         });
                     }
                 } else {
-                    return Err(AtlasError::ValidationFailed("Network options not available for this atlas".to_string()));
+                    return Err(AtlasError::ValidationFailed(
+                        "Network options not available for this atlas".to_string(),
+                    ));
                 }
             }
 
@@ -231,7 +246,9 @@ impl AtlasService {
                         });
                     }
                 } else {
-                    return Err(AtlasError::ValidationFailed("Parcel options not available for this atlas".to_string()));
+                    return Err(AtlasError::ValidationFailed(
+                        "Parcel options not available for this atlas".to_string(),
+                    ));
                 }
             }
         }
@@ -241,11 +258,14 @@ impl AtlasService {
 
     /// Load an atlas with the given configuration
     pub async fn load_atlas(&self, config: AtlasConfig) -> Result<AtlasLoadResult, AtlasError> {
-        info!("Loading atlas: {} in space {} at {}", config.atlas_id, config.space, config.resolution);
+        info!(
+            "Loading atlas: {} in space {} at {}",
+            config.atlas_id, config.space, config.resolution
+        );
 
         // Validate configuration first - this will parse and validate the enum types
         self.validate_config(&config).await?;
-        
+
         // Parse the atlas type for type-safe dispatch
         let atlas_type = config.parse_atlas_type()?;
 
@@ -301,16 +321,21 @@ impl AtlasService {
     /// Returns a receiver that will receive progress updates
     pub fn subscribe_progress(&self) -> broadcast::Receiver<AtlasLoadProgress> {
         // Track active subscription
-        self.active_subscriptions.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        debug!("Progress subscription created, active subscriptions: {}", 
-               self.active_subscriptions.load(std::sync::atomic::Ordering::Relaxed));
-        
+        self.active_subscriptions
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        debug!(
+            "Progress subscription created, active subscriptions: {}",
+            self.active_subscriptions
+                .load(std::sync::atomic::Ordering::Relaxed)
+        );
+
         self.progress_tx.subscribe()
     }
 
     /// Get the number of active progress subscriptions
     pub fn active_subscription_count(&self) -> usize {
-        self.active_subscriptions.load(std::sync::atomic::Ordering::Relaxed)
+        self.active_subscriptions
+            .load(std::sync::atomic::Ordering::Relaxed)
     }
 
     /// Send a progress update with subscription tracking
@@ -320,21 +345,28 @@ impl AtlasService {
             let receiver_count = self.progress_tx.receiver_count();
             if receiver_count > 0 {
                 if let Err(e) = self.progress_tx.send(progress) {
-                    debug!("Failed to send progress update: {} (no active receivers)", e);
+                    debug!(
+                        "Failed to send progress update: {} (no active receivers)",
+                        e
+                    );
                     // Update subscription count if send failed due to no receivers
-                    self.active_subscriptions.store(0, std::sync::atomic::Ordering::Relaxed);
+                    self.active_subscriptions
+                        .store(0, std::sync::atomic::Ordering::Relaxed);
                 }
             } else {
                 // No receivers, reset subscription count
-                self.active_subscriptions.store(0, std::sync::atomic::Ordering::Relaxed);
+                self.active_subscriptions
+                    .store(0, std::sync::atomic::Ordering::Relaxed);
             }
         }
     }
 
     /// Cleanup method to be called when service is being dropped
     pub fn cleanup(&self) {
-        debug!("AtlasService cleanup: {} active subscriptions", 
-               self.active_subscription_count());
+        debug!(
+            "AtlasService cleanup: {} active subscriptions",
+            self.active_subscription_count()
+        );
         // The broadcast channel will be dropped automatically, closing all receivers
     }
 
@@ -347,7 +379,8 @@ impl AtlasService {
 
     /// Generate a unique cache key for the given configuration
     fn generate_cache_key(&self, config: &AtlasConfig) -> String {
-        format!("{}_{}_{}_{}_{}",
+        format!(
+            "{}_{}_{}_{}_{}",
             config.atlas_id,
             config.space,
             config.resolution,
@@ -369,28 +402,35 @@ impl AtlasService {
     }
 
     /// Cache atlas data to disk
-    async fn cache_atlas_data(&self, config: &AtlasConfig, data: &[u8], metadata: &AtlasMetadata) -> Result<(), AtlasError> {
+    async fn cache_atlas_data(
+        &self,
+        config: &AtlasConfig,
+        data: &[u8],
+        metadata: &AtlasMetadata,
+    ) -> Result<(), AtlasError> {
         let cache_file = self.get_cache_file_path(config);
         let meta_file = self.get_cache_metadata_path(config);
-        
+
         // Write data to cache in blocking task
         let cache_file_clone = cache_file.clone();
         let data_vec = data.to_vec();
         tokio::task::spawn_blocking(move || {
             fs::write(&cache_file_clone, data_vec)
                 .map_err(|e| AtlasError::IoError(format!("Failed to write cache file: {}", e)))
-        }).await
+        })
+        .await
         .map_err(|e| AtlasError::IoError(format!("Cache write task failed: {}", e)))??;
 
         // Write metadata to cache
         let meta_file_clone = meta_file.clone();
         let metadata_json = serde_json::to_string_pretty(metadata)
             .map_err(|e| AtlasError::IoError(format!("Failed to serialize metadata: {}", e)))?;
-        
+
         tokio::task::spawn_blocking(move || {
             fs::write(&meta_file_clone, metadata_json)
                 .map_err(|e| AtlasError::IoError(format!("Failed to write metadata file: {}", e)))
-        }).await
+        })
+        .await
         .map_err(|e| AtlasError::IoError(format!("Metadata write task failed: {}", e)))??;
 
         info!("Atlas data cached successfully: {}", cache_file.display());
@@ -398,7 +438,10 @@ impl AtlasService {
     }
 
     /// Load atlas data from cache
-    async fn load_from_cache(&self, config: &AtlasConfig) -> Result<Option<(Vec<u8>, AtlasMetadata)>, AtlasError> {
+    async fn load_from_cache(
+        &self,
+        config: &AtlasConfig,
+    ) -> Result<Option<(Vec<u8>, AtlasMetadata)>, AtlasError> {
         let cache_file = self.get_cache_file_path(config);
         let meta_file = self.get_cache_metadata_path(config);
 
@@ -422,19 +465,20 @@ impl AtlasService {
         // Load data from cache in blocking task
         let cache_file_clone = cache_file.clone();
         let meta_file_clone = meta_file.clone();
-        
+
         let (data, metadata) = tokio::task::spawn_blocking(move || {
             let data = fs::read(&cache_file_clone)
                 .map_err(|e| AtlasError::IoError(format!("Failed to read cache file: {}", e)))?;
-            
+
             let metadata_str = fs::read_to_string(&meta_file_clone)
                 .map_err(|e| AtlasError::IoError(format!("Failed to read metadata file: {}", e)))?;
-            
+
             let metadata: AtlasMetadata = serde_json::from_str(&metadata_str)
                 .map_err(|e| AtlasError::IoError(format!("Failed to parse metadata: {}", e)))?;
-            
+
             Ok::<(Vec<u8>, AtlasMetadata), AtlasError>((data, metadata))
-        }).await
+        })
+        .await
         .map_err(|e| AtlasError::IoError(format!("Cache read task failed: {}", e)))??;
 
         info!("Atlas data loaded from cache: {}", cache_file.display());
@@ -448,20 +492,23 @@ impl AtlasService {
 
         let cache_file_clone = cache_file.clone();
         let meta_file_clone = meta_file.clone();
-        
+
         tokio::task::spawn_blocking(move || {
             if cache_file_clone.exists() {
-                fs::remove_file(&cache_file_clone)
-                    .map_err(|e| AtlasError::IoError(format!("Failed to remove cache file: {}", e)))?;
+                fs::remove_file(&cache_file_clone).map_err(|e| {
+                    AtlasError::IoError(format!("Failed to remove cache file: {}", e))
+                })?;
             }
-            
+
             if meta_file_clone.exists() {
-                fs::remove_file(&meta_file_clone)
-                    .map_err(|e| AtlasError::IoError(format!("Failed to remove metadata file: {}", e)))?;
+                fs::remove_file(&meta_file_clone).map_err(|e| {
+                    AtlasError::IoError(format!("Failed to remove metadata file: {}", e))
+                })?;
             }
-            
+
             Ok::<(), AtlasError>(())
-        }).await
+        })
+        .await
         .map_err(|e| AtlasError::IoError(format!("Cache clear task failed: {}", e)))??;
 
         info!("Cache cleared for atlas: {}", config.atlas_id);
@@ -471,26 +518,31 @@ impl AtlasService {
     /// Clear all cached atlas data
     pub async fn clear_all_cache(&self) -> Result<(), AtlasError> {
         let cache_dir = self.cache_dir.clone();
-        
+
         tokio::task::spawn_blocking(move || {
             if cache_dir.exists() {
-                for entry in fs::read_dir(&cache_dir)
-                    .map_err(|e| AtlasError::IoError(format!("Failed to read cache directory: {}", e)))? 
-                {
-                    let entry = entry
-                        .map_err(|e| AtlasError::IoError(format!("Failed to read directory entry: {}", e)))?;
+                for entry in fs::read_dir(&cache_dir).map_err(|e| {
+                    AtlasError::IoError(format!("Failed to read cache directory: {}", e))
+                })? {
+                    let entry = entry.map_err(|e| {
+                        AtlasError::IoError(format!("Failed to read directory entry: {}", e))
+                    })?;
                     let path = entry.path();
-                    
-                    if path.is_file() && (path.extension() == Some(std::ffi::OsStr::new("cache")) || 
-                                         path.extension() == Some(std::ffi::OsStr::new("meta"))) {
-                        fs::remove_file(&path)
-                            .map_err(|e| AtlasError::IoError(format!("Failed to remove file: {}", e)))?;
+
+                    if path.is_file()
+                        && (path.extension() == Some(std::ffi::OsStr::new("cache"))
+                            || path.extension() == Some(std::ffi::OsStr::new("meta")))
+                    {
+                        fs::remove_file(&path).map_err(|e| {
+                            AtlasError::IoError(format!("Failed to remove file: {}", e))
+                        })?;
                     }
                 }
             }
-            
+
             Ok::<(), AtlasError>(())
-        }).await
+        })
+        .await
         .map_err(|e| AtlasError::IoError(format!("Cache clear all task failed: {}", e)))??;
 
         info!("All atlas cache cleared");
@@ -500,25 +552,26 @@ impl AtlasService {
     /// Get cache statistics
     pub async fn get_cache_stats(&self) -> Result<CacheStats, AtlasError> {
         let cache_dir = self.cache_dir.clone();
-        
+
         let stats = tokio::task::spawn_blocking(move || {
             let mut total_size = 0u64;
             let mut file_count = 0usize;
             let mut cache_files = Vec::new();
-            
+
             if cache_dir.exists() {
-                for entry in fs::read_dir(&cache_dir)
-                    .map_err(|e| AtlasError::IoError(format!("Failed to read cache directory: {}", e)))? 
-                {
-                    let entry = entry
-                        .map_err(|e| AtlasError::IoError(format!("Failed to read directory entry: {}", e)))?;
+                for entry in fs::read_dir(&cache_dir).map_err(|e| {
+                    AtlasError::IoError(format!("Failed to read cache directory: {}", e))
+                })? {
+                    let entry = entry.map_err(|e| {
+                        AtlasError::IoError(format!("Failed to read directory entry: {}", e))
+                    })?;
                     let path = entry.path();
-                    
+
                     if path.is_file() {
                         if let Ok(metadata) = fs::metadata(&path) {
                             total_size += metadata.len();
                             file_count += 1;
-                            
+
                             if path.extension() == Some(std::ffi::OsStr::new("cache")) {
                                 if let Some(stem) = path.file_stem() {
                                     cache_files.push(stem.to_string_lossy().to_string());
@@ -528,20 +581,24 @@ impl AtlasService {
                     }
                 }
             }
-            
+
             Ok::<CacheStats, AtlasError>(CacheStats {
                 total_size_bytes: total_size,
                 file_count,
                 cached_atlases: cache_files,
             })
-        }).await
+        })
+        .await
         .map_err(|e| AtlasError::IoError(format!("Cache stats task failed: {}", e)))??;
 
         Ok(stats)
     }
 
     /// Load Schaefer atlas
-    async fn load_schaefer_atlas(&self, config: AtlasConfig) -> Result<AtlasLoadResult, AtlasError> {
+    async fn load_schaefer_atlas(
+        &self,
+        config: AtlasConfig,
+    ) -> Result<AtlasLoadResult, AtlasError> {
         self.send_progress(AtlasLoadProgress {
             atlas_id: config.atlas_id.clone(),
             stage: LoadingStage::Loading,
@@ -552,7 +609,7 @@ impl AtlasService {
         // Parse and validate configuration using type-safe enums
         let _space_enum = config.parse_space()?;
         let _resolution_enum = config.parse_resolution()?;
-        
+
         // Convert string values to neuroatlas types (validated above)
         let space = match config.space.as_str() {
             "MNI152NLin2009cAsym" => Space::MNI152NLin2009cAsym,
@@ -577,13 +634,16 @@ impl AtlasService {
             atlas_id: config.atlas_id.clone(),
             stage: LoadingStage::Processing,
             progress: 0.7,
-            message: format!("Processing Schaefer {} parcels, {} networks...", parcels, networks),
+            message: format!(
+                "Processing Schaefer {} parcels, {} networks...",
+                parcels, networks
+            ),
         });
 
         // Move CPU-heavy atlas creation and loading to blocking thread
         let atlas_id = config.atlas_id.clone();
         let progress_tx = self.progress_tx.clone();
-        
+
         let atlas_result = tokio::task::spawn_blocking(move || {
             // Create the atlas using neuroatlas-rs builder pattern
             let atlas_result = if networks == 7 {
@@ -591,7 +651,7 @@ impl AtlasService {
             } else {
                 SchaeferAtlas::new_17_network(parcels)
             };
-            
+
             match atlas_result {
                 Ok(mut atlas) => {
                     // Load the atlas data (blocking operation)
@@ -600,7 +660,7 @@ impl AtlasService {
                         Err(e) => {
                             let error_msg = format!("Failed to load Schaefer atlas data: {}", e);
                             error!("{}", error_msg);
-                            
+
                             let _ = progress_tx.send(AtlasLoadProgress {
                                 atlas_id: atlas_id.clone(),
                                 stage: LoadingStage::Error,
@@ -615,7 +675,7 @@ impl AtlasService {
                 Err(e) => {
                     let error_msg = format!("Failed to create Schaefer atlas: {}", e);
                     error!("{}", error_msg);
-                    
+
                     let _ = progress_tx.send(AtlasLoadProgress {
                         atlas_id: atlas_id.clone(),
                         stage: LoadingStage::Error,
@@ -626,8 +686,10 @@ impl AtlasService {
                     Err(AtlasError::LoadFailed(error_msg))
                 }
             }
-        }).await.map_err(|e| AtlasError::LoadFailed(format!("Atlas loading task failed: {}", e)))?;
-        
+        })
+        .await
+        .map_err(|e| AtlasError::LoadFailed(format!("Atlas loading task failed: {}", e)))?;
+
         match atlas_result {
             Ok(atlas) => {
                 self.send_progress(AtlasLoadProgress {
@@ -658,7 +720,7 @@ impl AtlasService {
                     volume_handle,
                 })
             }
-            Err(e) => Err(e)
+            Err(e) => Err(e),
         }
     }
 
@@ -698,7 +760,7 @@ impl AtlasService {
         // Move CPU-heavy atlas creation and loading to blocking thread
         let atlas_id = config.atlas_id.clone();
         let progress_tx = self.progress_tx.clone();
-        
+
         let atlas_result = tokio::task::spawn_blocking(move || {
             // Create the atlas using neuroatlas-rs
             match GlasserAtlas::new() {
@@ -709,7 +771,7 @@ impl AtlasService {
                         Err(e) => {
                             let error_msg = format!("Failed to load Glasser atlas data: {}", e);
                             error!("{}", error_msg);
-                            
+
                             let _ = progress_tx.send(AtlasLoadProgress {
                                 atlas_id: atlas_id.clone(),
                                 stage: LoadingStage::Error,
@@ -724,7 +786,7 @@ impl AtlasService {
                 Err(e) => {
                     let error_msg = format!("Failed to create Glasser atlas: {}", e);
                     error!("{}", error_msg);
-                    
+
                     let _ = progress_tx.send(AtlasLoadProgress {
                         atlas_id: atlas_id.clone(),
                         stage: LoadingStage::Error,
@@ -735,8 +797,10 @@ impl AtlasService {
                     Err(AtlasError::LoadFailed(error_msg))
                 }
             }
-        }).await.map_err(|e| AtlasError::LoadFailed(format!("Atlas loading task failed: {}", e)))?;
-        
+        })
+        .await
+        .map_err(|e| AtlasError::LoadFailed(format!("Atlas loading task failed: {}", e)))?;
+
         match atlas_result {
             Ok(atlas) => {
                 self.send_progress(AtlasLoadProgress {
@@ -765,7 +829,7 @@ impl AtlasService {
                     volume_handle,
                 })
             }
-            Err(e) => Err(e)
+            Err(e) => Err(e),
         }
     }
 
@@ -801,7 +865,7 @@ impl AtlasService {
         // Move CPU-heavy atlas creation and loading to blocking thread
         let atlas_id = config.atlas_id.clone();
         let progress_tx = self.progress_tx.clone();
-        
+
         let atlas_result = tokio::task::spawn_blocking(move || {
             match ASEGAtlas::new() {
                 Ok(mut atlas) => {
@@ -811,7 +875,7 @@ impl AtlasService {
                         Err(e) => {
                             let error_msg = format!("Failed to load ASEG atlas data: {}", e);
                             error!("{}", error_msg);
-                            
+
                             let _ = progress_tx.send(AtlasLoadProgress {
                                 atlas_id: atlas_id.clone(),
                                 stage: LoadingStage::Error,
@@ -826,7 +890,7 @@ impl AtlasService {
                 Err(e) => {
                     let error_msg = format!("Failed to create ASEG atlas: {}", e);
                     error!("{}", error_msg);
-                    
+
                     let _ = progress_tx.send(AtlasLoadProgress {
                         atlas_id: atlas_id.clone(),
                         stage: LoadingStage::Error,
@@ -837,8 +901,10 @@ impl AtlasService {
                     Err(AtlasError::LoadFailed(error_msg))
                 }
             }
-        }).await.map_err(|e| AtlasError::LoadFailed(format!("Atlas loading task failed: {}", e)))?;
-        
+        })
+        .await
+        .map_err(|e| AtlasError::LoadFailed(format!("Atlas loading task failed: {}", e)))?;
+
         match atlas_result {
             Ok(atlas) => {
                 self.send_progress(AtlasLoadProgress {
@@ -855,7 +921,9 @@ impl AtlasService {
                     n_regions: atlas.n_regions(),
                     space: config.space,
                     resolution: config.resolution,
-                    citation: Some("Fischl et al. (2002). Whole brain segmentation. Neuron.".to_string()),
+                    citation: Some(
+                        "Fischl et al. (2002). Whole brain segmentation. Neuron.".to_string(),
+                    ),
                     bounds_mm: None,
                     data_range: None,
                 };
@@ -867,12 +935,15 @@ impl AtlasService {
                     volume_handle,
                 })
             }
-            Err(e) => Err(e)
+            Err(e) => Err(e),
         }
     }
 
     /// Load Olsen MTL atlas
-    async fn load_olsen_mtl_atlas(&self, config: AtlasConfig) -> Result<AtlasLoadResult, AtlasError> {
+    async fn load_olsen_mtl_atlas(
+        &self,
+        config: AtlasConfig,
+    ) -> Result<AtlasLoadResult, AtlasError> {
         self.send_progress(AtlasLoadProgress {
             atlas_id: config.atlas_id.clone(),
             stage: LoadingStage::Loading,
@@ -902,7 +973,7 @@ impl AtlasService {
         // Move CPU-heavy atlas creation and loading to blocking thread
         let atlas_id = config.atlas_id.clone();
         let progress_tx = self.progress_tx.clone();
-        
+
         let atlas_result = tokio::task::spawn_blocking(move || {
             match OlsenMTLAtlas::new() {
                 Ok(mut atlas) => {
@@ -912,7 +983,7 @@ impl AtlasService {
                         Err(e) => {
                             let error_msg = format!("Failed to load Olsen MTL atlas data: {}", e);
                             error!("{}", error_msg);
-                            
+
                             let _ = progress_tx.send(AtlasLoadProgress {
                                 atlas_id: atlas_id.clone(),
                                 stage: LoadingStage::Error,
@@ -927,7 +998,7 @@ impl AtlasService {
                 Err(e) => {
                     let error_msg = format!("Failed to create Olsen MTL atlas: {}", e);
                     error!("{}", error_msg);
-                    
+
                     let _ = progress_tx.send(AtlasLoadProgress {
                         atlas_id: atlas_id.clone(),
                         stage: LoadingStage::Error,
@@ -938,8 +1009,10 @@ impl AtlasService {
                     Err(AtlasError::LoadFailed(error_msg))
                 }
             }
-        }).await.map_err(|e| AtlasError::LoadFailed(format!("Atlas loading task failed: {}", e)))?;
-        
+        })
+        .await
+        .map_err(|e| AtlasError::LoadFailed(format!("Atlas loading task failed: {}", e)))?;
+
         match atlas_result {
             Ok(atlas) => {
                 self.send_progress(AtlasLoadProgress {
@@ -968,7 +1041,7 @@ impl AtlasService {
                     volume_handle,
                 })
             }
-            Err(e) => Err(e)
+            Err(e) => Err(e),
         }
     }
 }

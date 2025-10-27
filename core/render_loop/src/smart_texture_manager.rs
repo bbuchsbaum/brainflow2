@@ -794,7 +794,7 @@ mod tests {
             let volume = DenseVolume3::from_data(space.0, data);
 
             // Upload the volume
-            let (_index1, _) = manager
+            let (index1, _) = manager
                 .upload_volume(&device, &queue, &volume, None)
                 .expect("Failed to upload volume");
 
@@ -812,7 +812,7 @@ mod tests {
             assert_eq!(manager.texture_pool.len(), 1);
 
             // Upload same size volume again - should use pooled texture
-            let (_index2, _) = manager
+            let (index2, _) = manager
                 .upload_volume(&device, &queue, &volume, None)
                 .expect("Failed to upload volume again");
 

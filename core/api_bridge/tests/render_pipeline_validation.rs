@@ -113,9 +113,9 @@ async fn test_complete_render_pipeline() {
         assert!(image_data.starts_with("data:image/raw-rgba;base64,"));
 
         // Clean up - release GPU resources
-        let release_result = release_layer_gpu_resources(
+        let release_result = release_layer_gpu_resources_for_testing(
             format!("test_layer_{}", name),
-            tauri::State(state.clone())
+            &state
         ).await;
         assert!(release_result.is_ok(), "Failed to release GPU resources: {:?}", release_result);
     }
@@ -277,7 +277,7 @@ async fn test_colormap_switching() {
         render_frame(tauri::State(state.clone())).await.unwrap();
 
         // Clean up
-        release_layer_gpu_resources(
+        release_layer_gpu_resources_for_testing(
             format!("layer_{}", colormap),
             tauri::State(state.clone())
         ).await.unwrap();

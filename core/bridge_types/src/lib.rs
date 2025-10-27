@@ -108,7 +108,7 @@ pub enum BridgeError {
 
     #[error("Service not initialized: {details}")]
     ServiceNotInitialized { code: u16, details: String },
-    
+
     #[error("Loader error: {0}")]
     LoaderError(String),
 }

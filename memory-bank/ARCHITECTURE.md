@@ -15,10 +15,10 @@ This document describes the architecture of Brainflow, a high-performance neuroi
 
 Brainflow is a cross-platform desktop application that leverages:
 - **Rust backend** for heavy computation, file I/O, and GPU management
-- **TypeScript/Svelte frontend** for UI orchestration and user interaction
-- **WebGPU** for high-performance 2D slice rendering
+- **TypeScript/React frontend** for UI orchestration and user interaction
+- **WebGPU (via wgpu)** for high-performance 2D slice rendering
 - **Three.js/WebGL** for 3D surface visualization
-- **Zero-copy architecture** with handles and SharedArrayBuffers
+- **Binary IPC** with typed bindings; SharedArrayBuffer is a future optimization
 
 ### Core Principles
 
@@ -41,13 +41,13 @@ Brainflow is a cross-platform desktop application that leverages:
   - serde/ts-rs (serialization & TypeScript type generation)
 
 ### Frontend (TypeScript/JavaScript)
-- **Framework**: SvelteKit ~2.x with Svelte 5 runes
-- **State Management**: Zustand ~4.x (clean store pattern)
-- **Layout**: GoldenLayout ~2.x (dockable panels)
-- **3D Graphics**: Three.js ~0.16x
-- **Plotting**: Plotly.js (Web Worker)
-- **Styling**: Tailwind CSS
-- **UI Components**: Custom components with shadcn-svelte patterns
+- **Framework**: React 19 + Vite
+- **State Management**: Zustand (with coalescing middleware)
+- **Layout**: GoldenLayout (dockable panels)
+- **3D Graphics**: Three.js (via `neurosurface`)
+- **Plotting**: Planned (no Plotly worker currently wired)
+- **Styling**: Tailwind CSS + Radix UI
+- **Events**: Central EventBus for decoupled comms
 
 ## Core Design Patterns
 
@@ -146,30 +146,7 @@ core/                     # Rust backend
 
 ### Component Patterns
 
-#### Svelte 5 Components
-```svelte
-<script lang="ts">
-  import { onMount } from 'svelte';
-  import { getService } from '$lib/di/Container';
-  
-  // Props with Svelte 5 syntax
-  let { volumeId }: { volumeId: string } = $props();
-  
-  // Services
-  let layerService: LayerService | null = null;
-  
-  // Reactive state
-  let isLoading = $state(false);
-  let opacity = $state(1.0);
-  
-  // Derived state
-  let displayOpacity = $derived(Math.round(opacity * 100) + '%');
-  
-  onMount(async () => {
-    layerService = await getService<LayerService>('layerService');
-  });
-</script>
-```
+Note: The frontend was migrated from Svelte to React. Component examples and patterns in this document refer to React and the current `ui2/` codebase.
 
 ## Data Flow
 
@@ -247,6 +224,16 @@ All transformations happen in GPU shaders:
 - Volumes normalized to canonical world space (LPI orientation)
 - Per-layer world_to_voxel matrices handle orientation
 - No CPU-side resampling
+
+### Shader Loading
+- Current approach: runtime WGSL loading and validation (no build-time `wgsl_to_wgpu`).
+- Hot-reload: simple polling-based shader watcher for development.
+- See: `core/render_loop/src/shaders.rs`, `core/render_loop/src/shader_watcher.rs`.
+
+### Typed Shader Bindings (optional)
+- We plan a safe, feature-gated trial of `wgsl_to_wgpu` to generate strongly-typed Rust bindings from WGSL.
+- Default remains runtime shader loading; the typed path will be enabled via a crate feature and separate CI job.
+- Rollback: disable the feature or revert the branch/tag; runtime path remains intact.
 
 ## Plugin Architecture
 

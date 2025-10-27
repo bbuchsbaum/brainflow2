@@ -3,8 +3,8 @@
  */
 
 use serde::{Deserialize, Serialize};
-use ts_rs::TS;
 use std::collections::HashMap;
+use ts_rs::TS;
 
 /// Source of an atlas
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -75,7 +75,7 @@ impl AtlasType {
             AtlasType::OlsenMtl => "olsen_mtl",
         }
     }
-    
+
     /// Parse from string (for backward compatibility)
     pub fn from_str(s: &str) -> Result<Self, AtlasError> {
         match s {
@@ -138,7 +138,7 @@ impl TemplateSpace {
             TemplateSpace::FSAverage6 => "fsaverage6",
         }
     }
-    
+
     pub fn from_str(s: &str) -> Result<Self, AtlasError> {
         match s {
             "MNI152NLin2009cAsym" => Ok(TemplateSpace::MNI152NLin2009cAsym),
@@ -174,7 +174,7 @@ impl TemplateResolution {
             TemplateResolution::MM2 => "2mm",
         }
     }
-    
+
     pub fn from_str(s: &str) -> Result<Self, AtlasError> {
         match s {
             "1mm" => Ok(TemplateResolution::MM1),
@@ -211,12 +211,12 @@ impl AtlasConfig {
     pub fn parse_atlas_type(&self) -> Result<AtlasType, AtlasError> {
         AtlasType::from_str(&self.atlas_id)
     }
-    
+
     /// Parse space from string (validates it's a known space)
     pub fn parse_space(&self) -> Result<TemplateSpace, AtlasError> {
         TemplateSpace::from_str(&self.space)
     }
-    
+
     /// Parse resolution from string (validates it's a known resolution)
     pub fn parse_resolution(&self) -> Result<TemplateResolution, AtlasError> {
         TemplateResolution::from_str(&self.resolution)

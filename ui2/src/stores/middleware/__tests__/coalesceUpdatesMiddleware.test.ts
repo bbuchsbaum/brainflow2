@@ -369,7 +369,7 @@ describe('CoalesceUpdatesMiddleware', () => {
       await new Promise(resolve => setTimeout(resolve, 20));
       
       // Should log error
-      expect(consoleSpy).toHaveBeenCalledWith('Error flushing state to backend:', expect.any(Error));
+      expect(consoleSpy).toHaveBeenCalledWith('[coalesceMiddleware] Error flushing state to backend:', expect.any(Error));
       
       consoleSpy.mockRestore();
     });

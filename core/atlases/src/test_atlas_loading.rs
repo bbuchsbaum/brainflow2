@@ -1,6 +1,6 @@
 /*!
  * Atlas Loading Integration Test
- * 
+ *
  * This test verifies the atlas loading functionality and provides detailed
  * error reporting to help diagnose issues with the neuroatlas library.
  */
@@ -10,7 +10,7 @@ use crate::types::*;
 use std::collections::HashMap;
 use tempfile::TempDir;
 use tokio;
-use tracing::{info, error, warn};
+use tracing::{error, info, warn};
 
 /// Test configuration for atlas loading
 pub struct AtlasLoadingTest {
@@ -23,14 +23,11 @@ impl AtlasLoadingTest {
     pub fn new() -> Result<Self, AtlasError> {
         let temp_dir = tempfile::tempdir()
             .map_err(|e| AtlasError::IoError(format!("Failed to create temp dir: {}", e)))?;
-        
+
         let cache_path = temp_dir.path().to_path_buf();
         let service = AtlasService::new(cache_path)?;
-        
-        Ok(Self {
-            service,
-            temp_dir,
-        })
+
+        Ok(Self { service, temp_dir })
     }
 
     /// Test basic atlas service functionality
@@ -40,7 +37,7 @@ impl AtlasLoadingTest {
         // Test catalog retrieval
         let catalog = self.service.get_catalog().await?;
         info!("Retrieved {} atlas entries from catalog", catalog.len());
-        
+
         if catalog.is_empty() {
             return Err(AtlasError::ValidationFailed("Empty catalog".to_string()));
         }
@@ -70,10 +67,10 @@ impl AtlasLoadingTest {
         info!("Testing atlas configuration validation...");
 
         let catalog = self.service.get_catalog().await?;
-        
+
         for atlas in &catalog {
             info!("Testing validation for atlas: {}", atlas.id);
-            
+
             // Test valid configuration
             let valid_config = AtlasConfig {
                 atlas_id: atlas.id.clone(),
@@ -104,14 +101,22 @@ impl AtlasLoadingTest {
 
             match self.service.validate_config(&invalid_config).await {
                 Ok(_) => {
-                    error!("✗ Invalid space configuration should have failed for {}", atlas.id);
-                    return Err(AtlasError::ValidationFailed("Invalid config passed validation".to_string()));
+                    error!(
+                        "✗ Invalid space configuration should have failed for {}",
+                        atlas.id
+                    );
+                    return Err(AtlasError::ValidationFailed(
+                        "Invalid config passed validation".to_string(),
+                    ));
                 }
                 Err(AtlasError::UnsupportedSpace(_)) => {
                     info!("✓ Invalid space correctly rejected for {}", atlas.id);
                 }
                 Err(e) => {
-                    warn!("Unexpected error for invalid space test on {}: {}", atlas.id, e);
+                    warn!(
+                        "Unexpected error for invalid space test on {}: {}",
+                        atlas.id, e
+                    );
                 }
             }
         }
@@ -128,7 +133,7 @@ impl AtlasLoadingTest {
 
         for atlas in &catalog {
             info!("Attempting to load atlas: {} ({})", atlas.name, atlas.id);
-            
+
             let config = AtlasConfig {
                 atlas_id: atlas.id.clone(),
                 space: atlas.allowed_spaces[0].id.clone(),
@@ -139,24 +144,25 @@ impl AtlasLoadingTest {
             };
 
             let start_time = std::time::Instant::now();
-            
+
             // Subscribe to progress updates
             let mut progress_rx = self.service.subscribe_progress();
-            
+
             // Spawn progress monitoring task
             let atlas_id_clone = atlas.id.clone();
             let progress_task = tokio::spawn(async move {
                 let mut progress_updates = Vec::new();
                 while let Ok(progress) = progress_rx.recv().await {
                     if progress.atlas_id == atlas_id_clone {
-                        info!("Progress for {}: {} - {} ({}%)", 
-                            progress.atlas_id, 
-                            progress.stage, 
-                            progress.message, 
+                        info!(
+                            "Progress for {}: {} - {} ({}%)",
+                            progress.atlas_id,
+                            progress.stage,
+                            progress.message,
                             (progress.progress * 100.0) as u32
                         );
                         progress_updates.push(progress.clone());
-                        
+
                         if matches!(progress.stage, LoadingStage::Complete | LoadingStage::Error) {
                             break;
                         }
@@ -171,9 +177,11 @@ impl AtlasLoadingTest {
 
             // Wait for progress monitoring to complete
             let progress_updates = match tokio::time::timeout(
-                std::time::Duration::from_secs(1), 
-                progress_task
-            ).await {
+                std::time::Duration::from_secs(1),
+                progress_task,
+            )
+            .await
+            {
                 Ok(Ok(updates)) => updates,
                 Ok(Err(e)) => {
                     warn!("Progress monitoring task failed for {}: {}", atlas.id, e);
@@ -202,7 +210,7 @@ impl AtlasLoadingTest {
                 }
                 Err(e) => {
                     error!("✗ Failed to load {} in {:?}: {}", atlas.id, duration, e);
-                    
+
                     // Provide detailed error analysis
                     self.analyze_loading_error(&atlas.id, e).await;
                 }
@@ -218,14 +226,16 @@ impl AtlasLoadingTest {
     async fn analyze_loading_error(&self, atlas_id: &str, error: &AtlasError) {
         error!("=== DETAILED ERROR ANALYSIS FOR {} ===", atlas_id);
         error!("Error type: {:?}", error);
-        
+
         match error {
             AtlasError::LoadFailed(msg) => {
                 error!("Load failure details: {}", msg);
-                
+
                 // Check if it's a network/download error
                 if msg.contains("404") || msg.contains("Not Found") {
-                    error!("⚠️  NETWORK ERROR: The atlas files are not available at the expected URLs");
+                    error!(
+                        "⚠️  NETWORK ERROR: The atlas files are not available at the expected URLs"
+                    );
                     error!("   This indicates that the neuroatlas library is trying to download");
                     error!("   atlas data from URLs that no longer exist or are inaccessible.");
                     error!("   Solutions:");
@@ -234,7 +244,7 @@ impl AtlasLoadingTest {
                     error!("   3. Consider using cached atlas data if available");
                     error!("   4. Check network connectivity and firewall settings");
                 }
-                
+
                 if msg.contains("HTTP error") {
                     error!("⚠️  HTTP ERROR: Network request failed");
                     error!("   The atlas service cannot download required atlas files.");
@@ -244,7 +254,7 @@ impl AtlasLoadingTest {
                     error!("   - Network connectivity issues");
                     error!("   - Firewall blocking external requests");
                 }
-                
+
                 if msg.contains("Failed to load") && msg.contains("atlas data") {
                     error!("⚠️  ATLAS DATA ERROR: The atlas library failed to load data");
                     error!("   This is likely due to the neuroatlas-rs library being unable");
@@ -256,7 +266,10 @@ impl AtlasLoadingTest {
                 error!("   The requested coordinate space is not supported by this atlas.");
             }
             AtlasError::UnsupportedResolution(resolution) => {
-                error!("⚠️  RESOLUTION ERROR: Unsupported resolution '{}'", resolution);
+                error!(
+                    "⚠️  RESOLUTION ERROR: Unsupported resolution '{}'",
+                    resolution
+                );
                 error!("   The requested resolution is not available for this atlas.");
             }
             AtlasError::AtlasNotFound(id) => {
@@ -279,10 +292,10 @@ impl AtlasLoadingTest {
                 error!("⚠️  UNKNOWN ATLAS ERROR: Atlas '{}' not recognized", id);
             }
         }
-        
+
         // Cache directory info would be useful but it's private
         error!("Cache directory information not accessible (private field)");
-        
+
         error!("=== END ERROR ANALYSIS ===");
     }
 
@@ -326,21 +339,28 @@ impl AtlasLoadingTest {
         match self.test_atlas_loading().await {
             Ok(results) => {
                 report.atlas_loading = results;
-                
-                let successful_loads = report.atlas_loading.iter()
+
+                let successful_loads = report
+                    .atlas_loading
+                    .iter()
                     .filter(|r| r.result.is_ok())
                     .count();
                 let total_attempts = report.atlas_loading.len();
-                
+
                 report.summary.successful_loads = successful_loads;
                 report.summary.total_atlas_attempts = total_attempts;
                 report.summary.any_atlas_loaded = successful_loads > 0;
-                
+
                 if successful_loads > 0 {
-                    info!("✓ Atlas loading test PARTIALLY PASSED: {}/{} atlases loaded successfully", 
-                        successful_loads, total_attempts);
+                    info!(
+                        "✓ Atlas loading test PARTIALLY PASSED: {}/{} atlases loaded successfully",
+                        successful_loads, total_attempts
+                    );
                 } else {
-                    error!("✗ Atlas loading test FAILED: 0/{} atlases loaded successfully", total_attempts);
+                    error!(
+                        "✗ Atlas loading test FAILED: 0/{} atlases loaded successfully",
+                        total_attempts
+                    );
                 }
             }
             Err(e) => {
@@ -349,15 +369,39 @@ impl AtlasLoadingTest {
         }
 
         // Generate summary
-        report.summary.overall_success = report.summary.basic_tests_passed && 
-                                      report.summary.config_validation_passed && 
-                                      report.summary.any_atlas_loaded;
+        report.summary.overall_success = report.summary.basic_tests_passed
+            && report.summary.config_validation_passed
+            && report.summary.any_atlas_loaded;
 
         info!("=== TEST SUMMARY ===");
-        info!("Basic functionality: {}", if report.summary.basic_tests_passed { "PASS" } else { "FAIL" });
-        info!("Config validation: {}", if report.summary.config_validation_passed { "PASS" } else { "FAIL" });
-        info!("Atlas loading: {}/{} successful", report.summary.successful_loads, report.summary.total_atlas_attempts);
-        info!("Overall result: {}", if report.summary.overall_success { "SUCCESS" } else { "PARTIAL/FAILURE" });
+        info!(
+            "Basic functionality: {}",
+            if report.summary.basic_tests_passed {
+                "PASS"
+            } else {
+                "FAIL"
+            }
+        );
+        info!(
+            "Config validation: {}",
+            if report.summary.config_validation_passed {
+                "PASS"
+            } else {
+                "FAIL"
+            }
+        );
+        info!(
+            "Atlas loading: {}/{} successful",
+            report.summary.successful_loads, report.summary.total_atlas_attempts
+        );
+        info!(
+            "Overall result: {}",
+            if report.summary.overall_success {
+                "SUCCESS"
+            } else {
+                "PARTIAL/FAILURE"
+            }
+        );
         info!("=== END COMPREHENSIVE TEST ===");
 
         report
@@ -405,31 +449,42 @@ mod tests {
     async fn test_atlas_service_comprehensive() {
         let test = AtlasLoadingTest::new().expect("Failed to create test instance");
         let report = test.run_comprehensive_test().await;
-        
+
         // Print detailed results
         println!("=== ATLAS LOADING TEST RESULTS ===");
         println!("Basic functionality: {:?}", report.basic_functionality);
         println!("Config validation: {:?}", report.config_validation);
         println!("Atlas loading attempts: {}", report.atlas_loading.len());
-        
+
         for result in &report.atlas_loading {
-            println!("  {} ({}): {}", 
-                result.atlas_name, 
+            println!(
+                "  {} ({}): {}",
+                result.atlas_name,
                 result.atlas_id,
-                if result.result.is_ok() { "SUCCESS" } else { "FAILED" }
+                if result.result.is_ok() {
+                    "SUCCESS"
+                } else {
+                    "FAILED"
+                }
             );
             if let Err(e) = &result.result {
                 println!("    Error: {}", e);
             }
         }
-        
+
         println!("Summary: {:?}", report.summary);
-        
+
         // The test passes if basic functionality works, even if atlas loading fails
         // This allows us to identify infrastructure issues vs. code issues
-        assert!(report.summary.basic_tests_passed, "Basic functionality should work");
-        assert!(report.summary.config_validation_passed, "Config validation should work");
-        
+        assert!(
+            report.summary.basic_tests_passed,
+            "Basic functionality should work"
+        );
+        assert!(
+            report.summary.config_validation_passed,
+            "Config validation should work"
+        );
+
         // Don't fail the test if atlas loading fails due to network issues
         // Instead, we'll report the issue for manual investigation
         if !report.summary.any_atlas_loaded {

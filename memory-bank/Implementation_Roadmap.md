@@ -5,6 +5,14 @@
 **Timeline:** 8-10 weeks  
 **Current Completion:** ~15%
 
+## Reality Check (2025-10-28)
+- Three‑view sync core is in place: backend `recalculate_all_views` computes per‑view rectangles atomically and the UI locked‑layout path consumes it.
+- Multi‑view batch rendering exists behind a feature flag; legacy per‑view render remains default for safety.
+- GPU resource lifecycle hardened: `LayerLease` RAII + watchdog + atlas pressure telemetry and auto‑eviction with backoff.
+- Typed shader bindings trial (feature `typed-shaders`) is live for the optimized slice shader; runtime WGSL remains default. CI check and benches exist.
+- Benches moved to `core/render_loop_benches`; upload numbers show parity runtime vs typed; typed render bench needs a small fix (texture view dimension).
+- See sprint notes: `memory-bank/sprints/Sprint_Foundations_Upgrade_1.md` and shader plan: `memory-bank/SHADER_BINDINGS_PLAN.md`.
+
 ## Overview
 
 This roadmap provides a structured path from the current state (partially implemented infrastructure) to a fully functional Phase 1 MVP that meets the blueprint requirements. The approach prioritizes establishing core functionality before adding advanced features.
@@ -24,27 +32,24 @@ This roadmap provides a structured path from the current state (partially implem
 **Goal:** Fix critical infrastructure issues blocking all progress
 
 ### Week 1 Tasks:
-- [ ] **Fix Shader Compilation** (CD-001)
-  - Re-enable wgsl_to_wgpu in build.rs
-  - Update to compatible wgpu version
-  - Create basic vertex/fragment shaders
-  - Add shader hot-reload for development
+- [x] **Shader Pipeline (Runtime)** (CD-001)
+  - Switch to runtime WGSL loading and validation
+  - Keep wgpu pinned (0.20.x) for stability
+  - Basic slice shaders in repo (WGSL)
+  - Add hot-reload in dev via polling watcher
 
-- [ ] **Fix Type Generation** (CD-004)
-  - Fix xtask ts-bindings implementation
-  - Ensure ts-rs exports are generated
-  - Update API package to use generated types
-  - Add CI check for type generation
+- [x] **Fix Type Generation** (CD-004)
+  - xtask ts-bindings operational (ts-rs exports)
+  - API package consumes generated types
+  - Add CI check for drift (planned)
 
-- [ ] **Create Root package.json** (HD-002)
-  - Add monorepo coordination scripts
-  - Fix CI script references
-  - Add dev convenience commands
+- [x] **Create Root package.json** (HD-002)
+  - Monorepo scripts present; update to reflect `ui2`
+  - Align CI references (planned)
 
-- [ ] **Fix Missing API Function** (CD-003)
-  - Add `update_frame_ubo` to api_bridge
-  - Expose in Tauri command handler
-  - Update TypeScript API wrapper
+- [x] **Fix Missing API Function** (CD-003)
+  - `update_frame_ubo` implemented and exposed
+  - TypeScript API wrapper calls unified `render_view`
 
 ### Week 1 Deliverable:
 - Shaders compile
@@ -52,23 +57,20 @@ This roadmap provides a structured path from the current state (partially implem
 - CI fully green
 
 ### Week 2 Tasks:
-- [ ] **Complete NIfTI Loader** (CD-007)
-  - Implement actual data loading in `load` method
-  - Store VolumeSendable in registry
-  - Return proper volume handle
-  - Add integration test
+- [x] **Complete NIfTI Loader** (CD-007)
+  - neuroim-based loader implemented; unit tests present
+  - VolumeSendable stored in registry
+  - Handles returned with metadata
 
-- [ ] **Fix Data Flow Path** (CD-002)
-  - Connect loader → registry → GPU
-  - Implement volume data storage
-  - Complete `request_layer_gpu_resources`
-  - Add data flow integration test
+- [x] **Fix Data Flow Path** (CD-002)
+  - loader → registry → GPU path working
+  - `request_layer_gpu_resources` implemented
+  - Add/expand integration tests (planned)
 
-- [ ] **WebGPU Pipeline Setup** (CD-001)
-  - Create render pipeline
-  - Implement bind groups
-  - Connect texture atlas to pipeline
-  - Basic slice rendering (even if incorrect)
+- [x] **WebGPU Pipeline Setup** (CD-001)
+  - Render pipeline in place
+  - Bind groups and atlas integration present
+  - Slice rendering functional and optimized path available
 
 ### Week 2 Deliverable:
 - Can load a NIfTI file
@@ -151,6 +153,10 @@ This roadmap provides a structured path from the current state (partially implem
 - Can load multiple volumes
 - Basic layer compositing works
 - 60+ FPS maintained
+
+Notes (sync + batching)
+- View sync status: Crosshair and dimension updates coalesce; locked‑layout resizing updates all panels consistently using `recalculate_all_views`.
+- Batch rendering status: `render_views` path is gated behind a feature flag; verify via status bar toggle. Keep legacy per‑view path as default until more QA and perf data lands.
 
 ---
 

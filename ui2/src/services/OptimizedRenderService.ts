@@ -6,9 +6,9 @@
  */
 
 import type { ViewState, ViewType } from '@/types/viewState';
-import { getApiService } from './apiService';
 import { useRenderStateStore } from '@/stores/renderStateStore';
 import { getRenderCoordinator } from './RenderCoordinator';
+import type { RenderRequest } from './RenderCoordinator';
 
 interface ViewChangeSet {
   axial: boolean;
@@ -123,6 +123,13 @@ export class OptimizedRenderService {
       .filter(([_, changed]) => changed)
       .map(([viewType]) => viewType as ViewType);
     
+    if (viewsToRender.length === 0) {
+      console.log('[OptimizedRenderService] No views required rendering after diff');
+      this.lastViewState = JSON.parse(JSON.stringify(viewState));
+      this.metrics.lastRenderTimestamp = performance.now();
+      return;
+    }
+    
     // Track metrics
     const skipped = 3 - viewsToRender.length;
     this.metrics.skippedRenders += skipped;
@@ -136,51 +143,76 @@ export class OptimizedRenderService {
     
     // Render only changed views
     const renderCoordinator = getRenderCoordinator();
-    const renderPromises = viewsToRender.map(async (viewType) => {
-      const viewStartTime = performance.now();
-      
-      try {
-        // Mark as rendering
-        useRenderStateStore.getState().setRendering(viewType, true);
+    const { setImage, setRendering, setError } = useRenderStateStore.getState();
+    const renderReason = this.determineRenderReason(viewState, this.lastViewState);
+    const startTimes = new Map<ViewType, number>();
+    const storeKeyFor = (viewType: ViewType) => tag || viewType;
+    
+    // Mark all pending views as rendering before dispatching work
+    viewsToRender.forEach((viewType) => {
+      const key = storeKeyFor(viewType);
+      setRendering(key, true);
+      startTimes.set(viewType, performance.now());
+    });
+    
+    try {
+      if (viewsToRender.length > 1) {
+        console.log('[OptimizedRenderService] Batch rendering multiple views via RenderCoordinator');
+        const results = await renderCoordinator.requestMultiViewRender({
+          viewState,
+          viewTypes: viewsToRender,
+          reason: renderReason,
+          priority: 'normal'
+        });
         
-        // Get dimensions from view state
+        viewsToRender.forEach((viewType) => {
+          const imageBitmap = results?.[viewType] ?? null;
+          const key = storeKeyFor(viewType);
+          const duration = performance.now() - (startTimes.get(viewType) ?? startTime);
+          
+          setImage(key, imageBitmap);
+          setRendering(key, false);
+          setError(key, null);
+          this.recordRenderTime(viewType, duration);
+          
+          if (imageBitmap) {
+            console.log(`[OptimizedRenderService] ${viewType} rendered via batch in ${duration.toFixed(1)}ms`);
+          } else {
+            console.log(`[OptimizedRenderService] ${viewType} returned null image via batch`);
+          }
+        });
+      } else {
+        const viewType = viewsToRender[0];
+        const viewStartTime = startTimes.get(viewType) ?? performance.now();
         const view = viewState.views[viewType];
         const [width, height] = view.dim_px;
         
-        // Use RenderCoordinator for unified rendering
         const imageBitmap = await renderCoordinator.requestRender({
           viewState,
           viewType,
           width,
           height,
-          reason: this.determineRenderReason(viewState, this.lastViewState),
+          reason: renderReason,
           priority: 'normal'
-        });
+        }) as ImageBitmap | null;
         
-        // Update RenderStateStore
-        const { setImage, setRendering, setError } = useRenderStateStore.getState();
-        const storeKey = tag || viewType;
-        setImage(storeKey, imageBitmap);
-        setRendering(storeKey, false);
-        setError(storeKey, null);
+        const key = storeKeyFor(viewType);
+        setImage(key, imageBitmap);
+        setRendering(key, false);
+        setError(key, null);
+        const duration = performance.now() - viewStartTime;
+        this.recordRenderTime(viewType, duration);
         
-        // Track render time
-        const renderTime = performance.now() - viewStartTime;
-        this.metrics.renderTimes[viewType].push(renderTime);
-        if (this.metrics.renderTimes[viewType].length > 100) {
-          this.metrics.renderTimes[viewType].shift(); // Keep last 100 times
-        }
-        
-        console.log(`[OptimizedRenderService] ${viewType} rendered in ${renderTime.toFixed(1)}ms`);
-      } catch (error) {
-        console.error(`[OptimizedRenderService] Failed to render ${viewType}:`, error);
-        const { setError, setRendering } = useRenderStateStore.getState();
-        setError(viewType, error as Error);
-        setRendering(viewType, false);
+        console.log(`[OptimizedRenderService] ${viewType} rendered in ${duration.toFixed(1)}ms`);
       }
-    });
-    
-    await Promise.all(renderPromises);
+    } catch (error) {
+      console.error('[OptimizedRenderService] Batch render failed:', error);
+      viewsToRender.forEach((viewType) => {
+        const key = storeKeyFor(viewType);
+        setError(key, error as Error);
+        setRendering(key, false);
+      });
+    }
     
     // Update state tracking
     this.lastViewState = JSON.parse(JSON.stringify(viewState)); // Deep clone
@@ -193,7 +225,7 @@ export class OptimizedRenderService {
   /**
    * Determine the reason for rendering based on what changed
    */
-  private determineRenderReason(current: ViewState, previous: ViewState | null): string {
+  private determineRenderReason(current: ViewState, previous: ViewState | null): RenderRequest['reason'] {
     if (!previous) return 'initial';
     
     if (JSON.stringify(current.layers) !== JSON.stringify(previous.layers)) {
@@ -209,6 +241,13 @@ export class OptimizedRenderService {
     }
     
     return 'unknown';
+  }
+
+  private recordRenderTime(viewType: ViewType, duration: number): void {
+    this.metrics.renderTimes[viewType].push(duration);
+    if (this.metrics.renderTimes[viewType].length > 100) {
+      this.metrics.renderTimes[viewType].shift();
+    }
   }
   
   /**

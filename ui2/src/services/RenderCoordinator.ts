@@ -14,9 +14,10 @@ import type { RenderSession } from './RenderSession';
 export interface RenderRequest {
   viewState: ViewState;
   viewType?: ViewType;
-  width: number;
-  height: number;
-  reason: 'resize' | 'crosshair' | 'layer_change' | 'initial';
+  viewTypes?: ViewType[];
+  width?: number;
+  height?: number;
+  reason: 'resize' | 'crosshair' | 'layer_change' | 'initial' | 'view_change' | 'unknown';
   priority: 'normal' | 'high';
   sliceOverride?: {
     axis: 'x' | 'y' | 'z';
@@ -24,10 +25,12 @@ export interface RenderRequest {
   };
 }
 
+type RenderJobResult = ImageBitmap | null | Record<ViewType, ImageBitmap | null>;
+
 interface QueuedJob extends RenderRequest {
   id: string;
   timestamp: number;
-  resolve: (result: ImageBitmap | null) => void;
+  resolve: (result: RenderJobResult) => void;
   reject: (error: Error) => void;
 }
 
@@ -35,6 +38,17 @@ interface QueuedJob extends RenderRequest {
  * Central coordinator for all render operations
  */
 export class RenderCoordinator {
+  private static multiViewBatchEnabled = false;
+
+  static setMultiViewBatchEnabled(enabled: boolean): void {
+    RenderCoordinator.multiViewBatchEnabled = enabled;
+    console.log(`[RenderCoordinator] Multi-view batch mode ${enabled ? 'ENABLED' : 'disabled'}`);
+  }
+
+  static isMultiViewBatchEnabled(): boolean {
+    return RenderCoordinator.multiViewBatchEnabled;
+  }
+
   private queue: QueuedJob[] = [];
   private processing = false;
   private jobIdCounter = 0;
@@ -52,12 +66,12 @@ export class RenderCoordinator {
     const apiService = getApiService();
     this.renderSession = apiService.createRenderSession('render-coordinator');
   }
-  
+
   /**
    * Request a render operation - the unified entry point
    */
-  async requestRender(request: RenderRequest): Promise<ImageBitmap | null> {
-    return new Promise((resolve, reject) => {
+  async requestRender(request: RenderRequest): Promise<RenderJobResult> {
+    return new Promise<RenderJobResult>((resolve, reject) => {
       const job: QueuedJob = {
         ...request,
         id: `job_${++this.jobIdCounter}`,
@@ -66,7 +80,13 @@ export class RenderCoordinator {
         reject
       };
       
-      console.log(`[RenderCoordinator] Queuing job ${job.id}: ${job.reason} ${job.width}x${job.height}`);
+      const logDims = job.viewTypes && job.viewTypes.length > 1
+        ? job.viewTypes.map((vt) => {
+            const view = job.viewState.views[vt];
+            return `${vt}:${view?.dim_px?.[0] ?? '??'}x${view?.dim_px?.[1] ?? '??'}`;
+          }).join(', ')
+        : `${job.width ?? '??'}x${job.height ?? '??'}`;
+      console.log(`[RenderCoordinator] Queuing job ${job.id}: ${job.reason} ${logDims}`);
       
       // Handle debouncing for resize operations
       if (job.reason === 'resize') {
@@ -130,7 +150,7 @@ export class RenderCoordinator {
         (existingJob.width !== job.width || existingJob.height !== job.height)
       );
     }
-    
+
     this.queue.push(job);
     useRenderStore.getState()._setRenderState({ queuedJobs: this.queue.length });
   }
@@ -149,7 +169,13 @@ export class RenderCoordinator {
         const job = this.queue.shift()!;
         useRenderStore.getState()._setRenderState({ queuedJobs: this.queue.length });
         
-        console.log(`[RenderCoordinator] Processing job ${job.id}: ${job.reason} ${job.width}x${job.height}`);
+        const jobDims = job.viewTypes && job.viewTypes.length > 1
+          ? job.viewTypes.map((vt) => {
+              const view = job.viewState.views[vt];
+              return `${vt}:${view?.dim_px?.[0] ?? '??'}x${view?.dim_px?.[1] ?? '??'}`;
+            }).join(', ')
+          : `${job.width ?? '??'}x${job.height ?? '??'}`;
+        console.log(`[RenderCoordinator] Processing job ${job.id}: ${job.reason} ${jobDims}`);
         
         try {
           const result = await this.executeRenderJob(job);
@@ -253,21 +279,34 @@ export class RenderCoordinator {
     };
   }
 
-  private async executeRenderJob(job: QueuedJob): Promise<ImageBitmap | null> {
+  private async executeRenderJob(job: QueuedJob): Promise<RenderJobResult> {
+    if (job.viewTypes && job.viewTypes.length > 0) {
+      const multiJob = job as QueuedJob & { viewTypes: ViewType[] };
+      if (RenderCoordinator.isMultiViewBatchEnabled()) {
+        return this.executeMultiViewBatch(multiJob);
+      }
+      return this.executeSequentialMultiView(multiJob);
+    }
+
+    if (!job.viewType) {
+      throw new Error('Render job missing viewType information');
+    }
+
+    return this.executeSingleViewJob(job as QueuedJob & { viewType: ViewType; width: number; height: number });
+  }
+
+  private async executeSingleViewJob(job: QueuedJob & { viewType: ViewType; width: number; height: number }): Promise<ImageBitmap | null> {
     const startTime = performance.now();
-    
+
     try {
-      // Validate view parameters before rendering
       if (!this.validateViewParameters(job.viewState, job.viewType)) {
         console.error(`[RenderCoordinator] Rejecting render job ${job.id} due to invalid view parameters`);
         throw new Error('Invalid view parameters detected - corrupted vectors or dimensions');
       }
-      
-      // Use promise-based rendering if we have a render session
+
       let result: ImageBitmap | null;
-      
-      if (this.renderSession && job.viewType) {
-        // Use the new promise-based API for better isolation
+
+      if (this.renderSession) {
         const renderResult = await this.renderSession.render(
           job.viewState,
           job.viewType,
@@ -275,10 +314,8 @@ export class RenderCoordinator {
           job.height
         );
         result = renderResult.bitmap;
-        
-        console.log(`[RenderCoordinator] Job ${job.id} completed via RenderSession in ${renderResult.renderTime.toFixed(1)}ms`);
+        console.log(`[RenderCoordinator] Job ${job.id} (${job.viewType}) completed via RenderSession in ${renderResult.renderTime.toFixed(1)}ms`);
       } else {
-        // Fallback to direct API call for backward compatibility
         const apiService = getApiService();
         result = await apiService.applyAndRenderViewStateCore(
           job.viewState,
@@ -288,25 +325,46 @@ export class RenderCoordinator {
           job.sliceOverride
         );
       }
-      
-      // Update success state
+
       useRenderStore.getState()._setLastRender(performance.now(), {
         width: job.width,
         height: job.height
       });
-      
+
       const duration = performance.now() - startTime;
-      console.log(`[RenderCoordinator] Job ${job.id} completed in ${duration.toFixed(1)}ms`);
-      
+      console.log(`[RenderCoordinator] Job ${job.id} (${job.viewType}) completed in ${duration.toFixed(1)}ms`);
+
       return result;
     } catch (error) {
-      // Create detailed error context for debugging
       const errorContext = this.createRenderErrorContext(job, error);
-      console.error(`[RenderCoordinator] Job ${job.id} failed with detailed context:`, errorContext);
-      
+      console.error(`[RenderCoordinator] Job ${job.id} (${job.viewType}) failed with detailed context:`, errorContext);
+
       useRenderStore.getState()._setRenderState({ renderError: error as Error });
       throw error;
     }
+  }
+
+  async requestMultiViewRender(params: {
+    viewState: ViewState;
+    viewTypes: ViewType[];
+    reason: RenderRequest['reason'];
+    priority?: RenderRequest['priority'];
+  }): Promise<Record<ViewType, ImageBitmap | null>> {
+    const { viewState, viewTypes, reason, priority = 'normal' } = params;
+    const firstView = viewState.views[viewTypes[0]];
+    const baseWidth = firstView?.dim_px?.[0] ?? 0;
+    const baseHeight = firstView?.dim_px?.[1] ?? 0;
+    const mode = RenderCoordinator.isMultiViewBatchEnabled() ? 'batch' : 'sequential';
+    console.log(`[RenderCoordinator] requestMultiViewRender using ${mode} mode for views: ${viewTypes.join(', ')}`);
+
+    return this.requestRender({
+      viewState,
+      viewTypes,
+      reason,
+      priority,
+      width: baseWidth,
+      height: baseHeight
+    }) as Promise<Record<ViewType, ImageBitmap | null>>;
   }
   
   // Removed ensureRenderTarget method - backend now creates per-view render targets
@@ -314,6 +372,73 @@ export class RenderCoordinator {
   private clearAllDebounces(): void {
     this.resizeDebounceMap.forEach(timeout => clearTimeout(timeout));
     this.resizeDebounceMap.clear();
+  }
+
+  private async executeSequentialMultiView(job: QueuedJob & { viewTypes: ViewType[] }): Promise<Record<ViewType, ImageBitmap | null>> {
+    const results: Partial<Record<ViewType, ImageBitmap | null>> = {};
+
+    for (const viewType of job.viewTypes) {
+      const view = job.viewState.views[viewType];
+      if (!view) {
+        results[viewType] = null;
+        continue;
+      }
+
+      const width = view.dim_px?.[0] ?? job.width ?? 0;
+      const height = view.dim_px?.[1] ?? job.height ?? 0;
+      const subJob = {
+        ...job,
+        viewType,
+        viewTypes: undefined,
+        width,
+        height
+      } as QueuedJob & { viewType: ViewType; width: number; height: number };
+
+      results[viewType] = await this.executeSingleViewJob(subJob);
+    }
+
+    return results as Record<ViewType, ImageBitmap | null>;
+  }
+
+  private async executeMultiViewBatch(job: QueuedJob & { viewTypes: ViewType[] }): Promise<Record<ViewType, ImageBitmap | null>> {
+    if (!this.renderSession) {
+      console.warn('[RenderCoordinator] No render session available for multi-view batch; falling back to sequential path');
+      return this.executeSequentialMultiView(job);
+    }
+
+    try {
+      const requests = job.viewTypes.map((viewType) => {
+        const view = job.viewState.views[viewType];
+        const width = view?.dim_px?.[0] ?? job.width ?? 0;
+        const height = view?.dim_px?.[1] ?? job.height ?? 0;
+        return {
+          viewState: job.viewState,
+          viewType,
+          width,
+          height
+        };
+      });
+
+      const batchResults = await this.renderSession.renderBatch(requests);
+      const results: Partial<Record<ViewType, ImageBitmap | null>> = {};
+
+      batchResults.forEach((result, index) => {
+        const viewType = job.viewTypes[index];
+        results[viewType] = result?.bitmap ?? null;
+      });
+
+      // Fill any missing entries with null to keep contract stable
+      job.viewTypes.forEach((viewType) => {
+        if (!(viewType in results)) {
+          results[viewType] = null;
+        }
+      });
+
+      return results as Record<ViewType, ImageBitmap | null>;
+    } catch (error) {
+      console.error('[RenderCoordinator] Multi-view batch render failed, reverting to sequential fallback:', error);
+      return this.executeSequentialMultiView(job);
+    }
   }
 }
 
@@ -338,4 +463,12 @@ export function setRenderCoordinator(coordinator: RenderCoordinator): void {
     globalCoordinator.dispose();
   }
   globalCoordinator = coordinator;
+}
+
+export function setMultiViewBatchEnabled(enabled: boolean): void {
+  RenderCoordinator.setMultiViewBatchEnabled(enabled);
+}
+
+export function isMultiViewBatchEnabled(): boolean {
+  return RenderCoordinator.isMultiViewBatchEnabled();
 }

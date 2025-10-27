@@ -4,7 +4,20 @@ use crate::render_state::LayerInfo;
 use crate::LayerUboStd140;
 use bytemuck;
 use nalgebra::Matrix4;
-use wgpu::{util::DeviceExt, BindGroup, BindGroupLayout, Buffer, Device, Queue};
+use wgpu::{util::DeviceExt, BindGroupLayout, Buffer, Device, Queue};
+
+#[cfg(feature = "typed-shaders")]
+use crate::shaders::typed::slice_world_space_optimized;
+#[cfg(feature = "typed-shaders")]
+use wgpu::BufferBinding;
+
+#[cfg(not(feature = "typed-shaders"))]
+use wgpu::BindGroup;
+
+#[cfg(feature = "typed-shaders")]
+type LayerBindGroup = slice_world_space_optimized::bind_groups::BindGroup1;
+#[cfg(not(feature = "typed-shaders"))]
+type LayerBindGroup = BindGroup;
 
 /// Layer metadata for shader
 #[repr(C)]
@@ -21,7 +34,7 @@ pub struct LayerStorageManager {
     /// Uniform buffer containing metadata
     metadata_buffer: Buffer,
     /// Bind group for layer data
-    bind_group: Option<BindGroup>,
+    bind_group: Option<LayerBindGroup>,
     /// Current layer data
     layer_data: Vec<LayerUboStd140>,
     /// Active layer count
@@ -66,6 +79,14 @@ impl LayerStorageManager {
 
     /// Create bind group layout for storage buffers
     pub fn create_bind_group_layout(device: &Device) -> BindGroupLayout {
+        #[cfg(feature = "typed-shaders")]
+        {
+            return slice_world_space_optimized::bind_groups::BindGroup1::get_bind_group_layout(
+                device,
+            );
+        }
+
+        #[cfg(not(feature = "typed-shaders"))]
         device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("Layer Storage Bind Group Layout"),
             entries: &[
@@ -96,6 +117,29 @@ impl LayerStorageManager {
     }
 
     /// Create bind group for layer data
+    #[cfg(feature = "typed-shaders")]
+    pub fn create_bind_group(&mut self, device: &Device, _layout: &BindGroupLayout) {
+        let bind_group = slice_world_space_optimized::bind_groups::BindGroup1::from_bindings(
+            device,
+            slice_world_space_optimized::bind_groups::BindGroupLayout1 {
+                layer_data: BufferBinding {
+                    buffer: &self.layer_buffer,
+                    offset: 0,
+                    size: None,
+                },
+                layer_metadata: BufferBinding {
+                    buffer: &self.metadata_buffer,
+                    offset: 0,
+                    size: None,
+                },
+            },
+        );
+
+        self.bind_group = Some(bind_group);
+    }
+
+    /// Create bind group for layer data
+    #[cfg(not(feature = "typed-shaders"))]
     pub fn create_bind_group(&mut self, device: &Device, layout: &BindGroupLayout) {
         let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("Layer Storage Bind Group"),
@@ -315,7 +359,7 @@ impl LayerStorageManager {
     }
 
     /// Get the bind group for rendering
-    pub fn bind_group(&self) -> Option<&BindGroup> {
+    pub fn bind_group(&self) -> Option<&LayerBindGroup> {
         self.bind_group.as_ref()
     }
 

@@ -113,6 +113,19 @@ export interface AtlasFilter {
   show_cached_only: boolean;
 }
 
+export interface AtlasStats {
+  totalLayers: number;
+  usedLayers: number;
+  freeLayers: number;
+  allocations: number;
+  releases: number;
+  highWatermark: number;
+  fullEvents: number;
+  is3D: boolean;
+  lastAllocationMs?: number;
+  lastReleaseMs?: number;
+}
+
 // Default filter for initializing the UI
 export const createDefaultAtlasFilter = (): AtlasFilter => ({
   show_favorites_only: false,

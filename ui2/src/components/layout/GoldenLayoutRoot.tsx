@@ -24,7 +24,8 @@ import { SurfaceViewPanel } from '@/components/views/SurfaceViewPanel';
 
 // Import side panel components
 import { FileBrowserPanel } from '@/components/panels/FileBrowserPanel';
-import { LayerPanel } from '@/components/panels/LayerPanel';
+import { VolumeLayerPanel } from '@/components/panels/VolumeLayerPanel';
+import { SurfaceLayerPanel } from '@/components/panels/SurfaceLayerPanel';
 import { PlotPanel } from '@/components/panels/PlotPanel';
 import { AtlasPanel } from '@/components/panels/AtlasPanel';
 
@@ -221,8 +222,8 @@ export function GoldenLayoutRoot() {
 
         const root = ReactDOM.createRoot(rootElement);
         
-        // Skip StrictMode for AtlasPanel and LayerPanel to prevent double-mounting race conditions
-        const shouldUseStrictMode = name !== 'AtlasPanel' && name !== 'LayerPanel';
+        // Skip StrictMode for AtlasPanel and VolumeLayerPanel to prevent double-mounting race conditions
+        const shouldUseStrictMode = name !== 'AtlasPanel' && name !== 'VolumeLayerPanel' && name !== 'LayerPanel';
         
         const componentElement = (
           <Component {...(state || {})} />
@@ -246,7 +247,8 @@ export function GoldenLayoutRoot() {
     };
 
     registerSidePanelComponent('FileBrowser', FileBrowserPanel);
-    registerSidePanelComponent('LayerPanel', LayerPanel);
+    registerSidePanelComponent('LayerPanel', VolumeLayerPanel);  // Keep old name for compatibility
+    registerSidePanelComponent('SurfacePanel', SurfaceLayerPanel);  // Surface management panel
     registerSidePanelComponent('PlotPanel', PlotPanel);
     registerSidePanelComponent('AtlasPanel', AtlasPanel);
     
@@ -333,13 +335,19 @@ export function GoldenLayoutRoot() {
                   {
                     type: 'component',
                     componentType: 'LayerPanel',
-                    title: 'Layers',
+                    title: 'Volumes',
                     componentState: {}
                   },
                   {
                     type: 'component',
                     componentType: 'AtlasPanel',
                     title: 'Atlases',
+                    componentState: {}
+                  },
+                  {
+                    type: 'component',
+                    componentType: 'SurfacePanel',
+                    title: 'Surfaces',
                     componentState: {}
                   }
                 ]
@@ -388,14 +396,14 @@ export function GoldenLayoutRoot() {
         // Determine where to add the panel based on its type
         const newItem = goldenLayout.newItem(panelConfig);
         
-        if (panelType === 'LayerPanel' || panelType === 'AtlasPanel') {
+        if (panelType === 'LayerPanel' || panelType === 'SurfacePanel' || panelType === 'AtlasPanel') {
           // Add to the tabbed stack (first item in right column)
           const tabbedStack = rightColumn.contentItems[0];
           if (tabbedStack && tabbedStack.type === 'stack') {
             tabbedStack.addChild(newItem);
             console.log(`[GoldenLayoutRoot] Panel ${panelType} added to tabbed stack`);
           } else {
-            console.error('[GoldenLayoutRoot] Could not find tabbed stack for LayerPanel/AtlasPanel');
+            console.error('[GoldenLayoutRoot] Could not find tabbed stack for VolumePanel/AtlasPanel');
             rightColumn.addChild(newItem); // Fallback: add to column
           }
         } else {
@@ -412,7 +420,8 @@ export function GoldenLayoutRoot() {
     const getPanelTitle = (panelType: string): string => {
       switch (panelType) {
         case 'FileBrowser': return 'Files';
-        case 'LayerPanel': return 'Layers';
+        case 'LayerPanel': return 'Volumes';  // Updated to match new naming
+        case 'SurfacePanel': return 'Surfaces';
         case 'AtlasPanel': return 'Atlases';
         case 'PlotPanel': return 'Plots';
         default: return panelType;

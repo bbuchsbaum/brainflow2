@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-render-views"
+description = "Enables the render_views command without any pre-configured scope."
+commands.allow = ["render_views"]
+
+[[permission]]
+identifier = "deny-render-views"
+description = "Denies the render_views command without any pre-configured scope."
+commands.deny = ["render_views"]

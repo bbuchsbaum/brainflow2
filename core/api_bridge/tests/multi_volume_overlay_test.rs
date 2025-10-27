@@ -1,11 +1,33 @@
 #[cfg(test)]
 mod multi_volume_overlay_tests {
-    use api_bridge::*;
-    use bridge_types::*;
+    use api_bridge::{calculate_slice_index, SliceAxis, SliceIndex};
+    use bridge_types::VolumeSendable;
     use nalgebra::{Affine3, Matrix4};
-    use volmath::space::{GridSpace, NeuroSpaceImpl};
-    use volmath::traits::Volume;
-    use volmath::{DenseVolume3, NeuroSpace3};
+    use volmath::space::NeuroSpaceImpl;
+    use volmath::{DenseVolume3, NeuroSpace3, NeuroSpaceExt};
+
+    fn make_blank_volume(
+        dims: [usize; 3],
+        spacing: [f64; 3],
+        origin: [f64; 3],
+    ) -> DenseVolume3<f32> {
+        let space_impl = NeuroSpaceImpl::from_dims_spacing_origin(
+            dims.to_vec(),
+            spacing.iter().copied().collect(),
+            origin.iter().copied().collect(),
+        )
+        .expect("neuro space");
+        let data = vec![0.0f32; dims.iter().product::<usize>()];
+        DenseVolume3::<f32>::from_data(space_impl, data)
+    }
+
+    fn coord_to_voxel_vec(space: &NeuroSpace3, world_point: [f32; 3]) -> Vec<f32> {
+        let coords = space
+            .0
+            .coord_to_grid(&[world_point.iter().map(|v| *v as f64).collect::<Vec<_>>()])
+            .expect("coord_to_grid");
+        coords[0].iter().map(|v| *v as f32).collect::<Vec<_>>()
+    }
 
     /// Test that multiple volumes with different orientations can be overlaid correctly
     #[test]
@@ -13,12 +35,7 @@ mod multi_volume_overlay_tests {
         // Create three volumes with different orientations and resolutions
 
         // Volume 1: RPI orientation, 64x64x32 resolution
-        let space1 = NeuroSpace3(NeuroSpaceImpl::from_dims_spacing_origin(
-            [64, 64, 32],
-            [3.0, 3.0, 4.0],       // 3mm x 3mm x 4mm voxels
-            [-96.0, -96.0, -64.0], // Origin offset
-        ));
-        let volume1 = DenseVolume3::<f32>::new(space1);
+        let volume1 = make_blank_volume([64, 64, 32], [3.0, 3.0, 4.0], [-96.0, -96.0, -64.0]);
 
         // RPI to LPI transform (flip X axis)
         let affine1 = Affine3::<f32>::from_matrix_unchecked(Matrix4::new(
@@ -31,12 +48,7 @@ mod multi_volume_overlay_tests {
         let vol1_sendable = VolumeSendable::VolF32(volume1, affine1);
 
         // Volume 2: ASI orientation, 128x128x64 resolution
-        let space2 = NeuroSpace3(NeuroSpaceImpl::from_dims_spacing_origin(
-            [128, 128, 64],
-            [1.5, 1.5, 2.0],       // 1.5mm x 1.5mm x 2mm voxels
-            [-96.0, -96.0, -64.0], // Same world space coverage
-        ));
-        let volume2 = DenseVolume3::<f32>::new(space2);
+        let volume2 = make_blank_volume([128, 128, 64], [1.5, 1.5, 2.0], [-96.0, -96.0, -64.0]);
 
         // ASI to LPI transform
         let affine2 = Affine3::<f32>::from_matrix_unchecked(Matrix4::new(
@@ -53,13 +65,13 @@ mod multi_volume_overlay_tests {
 
         // For volume 1 (RPI->LPI)
         let voxel1 = match &vol1_sendable {
-            VolumeSendable::VolF32(vol, _) => vol.space().coord_to_grid(&world_point),
+            VolumeSendable::VolF32(vol, _) => coord_to_voxel_vec(&vol.space, world_point),
             _ => panic!("Unexpected volume type"),
         };
 
         // For volume 2 (ASI->LPI)
         let voxel2 = match &vol2_sendable {
-            VolumeSendable::VolF32(vol, _) => vol.space().coord_to_grid(&world_point),
+            VolumeSendable::VolF32(vol, _) => coord_to_voxel_vec(&vol.space, world_point),
             _ => panic!("Unexpected volume type"),
         };
 
@@ -93,23 +105,13 @@ mod multi_volume_overlay_tests {
         let dims2 = [20, 20, 20];
 
         // Volume 1: Lower resolution, each voxel = 2mm
-        let space1 = NeuroSpace3(NeuroSpaceImpl::from_dims_spacing_origin(
-            dims1,
-            [2.0, 2.0, 2.0],
-            [-10.0, -10.0, -10.0],
-        ));
-        let volume1 = DenseVolume3::<f32>::new(space1);
+        let volume1 = make_blank_volume(dims1, [2.0, 2.0, 2.0], [-10.0, -10.0, -10.0]);
         let affine1 = Affine3::<f32>::from_matrix_unchecked(nalgebra::Matrix4::new(
             2.0, 0.0, 0.0, -10.0, 0.0, 2.0, 0.0, -10.0, 0.0, 0.0, 2.0, -10.0, 0.0, 0.0, 0.0, 1.0,
         ));
 
         // Volume 2: Higher resolution, each voxel = 1mm
-        let space2 = NeuroSpace3(NeuroSpaceImpl::from_dims_spacing_origin(
-            dims2,
-            [1.0, 1.0, 1.0],
-            [-10.0, -10.0, -10.0],
-        ));
-        let volume2 = DenseVolume3::<f32>::new(space2);
+        let volume2 = make_blank_volume(dims2, [1.0, 1.0, 1.0], [-10.0, -10.0, -10.0]);
         let affine2 = Affine3::<f32>::from_matrix_unchecked(nalgebra::Matrix4::new(
             1.0, 0.0, 0.0, -10.0, 0.0, 1.0, 0.0, -10.0, 0.0, 0.0, 1.0, -10.0, 0.0, 0.0, 0.0, 1.0,
         ));
@@ -137,20 +139,10 @@ mod multi_volume_overlay_tests {
     #[test]
     fn test_multi_volume_edge_cases() {
         // Test 1: Volumes with non-overlapping fields of view
-        let space1 = NeuroSpace3(NeuroSpaceImpl::from_dims_spacing_origin(
-            [50, 50, 30],
-            [1.0, 1.0, 1.0],
-            [0.0, 0.0, 0.0], // Origin at [0,0,0]
-        ));
-        let volume1 = DenseVolume3::<f32>::new(space1);
+        let volume1 = make_blank_volume([50, 50, 30], [1.0, 1.0, 1.0], [0.0, 0.0, 0.0]);
         let affine1 = Affine3::<f32>::identity();
 
-        let space2 = NeuroSpace3(NeuroSpaceImpl::from_dims_spacing_origin(
-            [50, 50, 30],
-            [1.0, 1.0, 1.0],
-            [100.0, 100.0, 100.0], // Origin at [100,100,100] - no overlap
-        ));
-        let volume2 = DenseVolume3::<f32>::new(space2);
+        let volume2 = make_blank_volume([50, 50, 30], [1.0, 1.0, 1.0], [100.0, 100.0, 100.0]);
         let affine2 = Affine3::<f32>::from_matrix_unchecked(Matrix4::new(
             1.0, 0.0, 0.0, 100.0, 0.0, 1.0, 0.0, 100.0, 0.0, 0.0, 1.0, 100.0, 0.0, 0.0, 0.0, 1.0,
         ));
@@ -173,19 +165,13 @@ mod multi_volume_overlay_tests {
         let origin = [-64.0, -64.0, -48.0];
 
         // Standard LPI volume
-        let space_lpi = NeuroSpace3(NeuroSpaceImpl::from_dims_spacing_origin(
-            dims, spacing, origin,
-        ));
-        let volume_lpi = DenseVolume3::<f32>::new(space_lpi);
+        let volume_lpi = make_blank_volume(dims, spacing, origin);
         let affine_lpi = Affine3::<f32>::from_matrix_unchecked(nalgebra::Matrix4::new(
             2.0, 0.0, 0.0, -64.0, 0.0, 2.0, 0.0, -64.0, 0.0, 0.0, 3.0, -48.0, 0.0, 0.0, 0.0, 1.0,
         ));
 
         // Same volume but stored as RAI on disk
-        let space_rai = NeuroSpace3(NeuroSpaceImpl::from_dims_spacing_origin(
-            dims, spacing, origin,
-        ));
-        let volume_rai = DenseVolume3::<f32>::new(space_rai);
+        let volume_rai = make_blank_volume(dims, spacing, origin);
         let affine_rai = Affine3::<f32>::from_matrix_unchecked(nalgebra::Matrix4::new(
             -2.0, 0.0, 0.0, 62.0, // R->L flip
             0.0, -2.0, 0.0, 62.0, // A->P flip
@@ -236,26 +222,27 @@ mod multi_volume_overlay_tests {
     }
 
     fn world_to_voxel_safe(volume: &VolumeSendable, world_point: [f32; 3]) -> Option<[usize; 3]> {
-        let (dims, voxel_coords) = match volume {
+        let (dims, voxel_vec) = match volume {
             VolumeSendable::VolF32(vol, _) => {
                 let dims = vol.space().dims();
-                let coords = vol.space().coord_to_grid(&world_point);
-                (dims, coords)
+                let vec = coord_to_voxel_vec(&vol.space, world_point);
+                (dims, vec)
             }
             _ => panic!("Unsupported volume type"),
         };
 
-        // Check bounds
-        for i in 0..3 {
-            if voxel_coords[i] < 0.0 || voxel_coords[i] >= dims[i] as f32 {
-                return None;
-            }
+        if voxel_vec
+            .iter()
+            .enumerate()
+            .any(|(i, v)| *v < 0.0 || *v >= dims[i] as f32)
+        {
+            return None;
         }
 
         Some([
-            voxel_coords[0] as usize,
-            voxel_coords[1] as usize,
-            voxel_coords[2] as usize,
+            voxel_vec[0] as usize,
+            voxel_vec[1] as usize,
+            voxel_vec[2] as usize,
         ])
     }
 }

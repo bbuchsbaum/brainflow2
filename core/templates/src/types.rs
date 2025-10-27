@@ -3,8 +3,8 @@
  */
 
 use serde::{Deserialize, Serialize};
-use ts_rs::TS;
 use std::collections::HashMap;
+use ts_rs::TS;
 
 /// Types of brain templates available
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, TS)]
@@ -41,7 +41,7 @@ impl TemplateType {
     pub fn as_str(&self) -> &'static str {
         match self {
             Self::T1w => "T1w",
-            Self::T2w => "T2w", 
+            Self::T2w => "T2w",
             Self::Flair => "FLAIR",
             Self::GrayMatter => "GM",
             Self::WhiteMatter => "WM",
@@ -50,14 +50,14 @@ impl TemplateType {
             Self::Brain => "brain",
         }
     }
-    
+
     pub fn display_name(&self) -> &'static str {
         match self {
             Self::T1w => "T1-weighted",
             Self::T2w => "T2-weighted",
             Self::Flair => "FLAIR",
             Self::GrayMatter => "Gray Matter",
-            Self::WhiteMatter => "White Matter", 
+            Self::WhiteMatter => "White Matter",
             Self::Csf => "CSF",
             Self::BrainMask => "Brain Mask",
             Self::Brain => "Brain",
@@ -103,7 +103,7 @@ impl TemplateSpace {
             Self::FSAverage6 => "fsaverage6",
         }
     }
-    
+
     pub fn display_name(&self) -> &'static str {
         match self {
             Self::MNI152NLin2009cAsym => "MNI152 2009c Asymmetric",
@@ -115,11 +115,14 @@ impl TemplateSpace {
             Self::FSAverage6 => "FreeSurfer Average (41k vertices)",
         }
     }
-    
+
     pub fn is_volume_space(&self) -> bool {
-        matches!(self, Self::MNI152NLin2009cAsym | Self::MNI152NLin6Asym | Self::MNIColin27 | Self::MNI305)
+        matches!(
+            self,
+            Self::MNI152NLin2009cAsym | Self::MNI152NLin6Asym | Self::MNIColin27 | Self::MNI305
+        )
     }
-    
+
     pub fn is_surface_space(&self) -> bool {
         matches!(self, Self::FSAverage | Self::FSAverage5 | Self::FSAverage6)
     }
@@ -151,11 +154,11 @@ impl TemplateResolution {
             Self::Native => "native",
         }
     }
-    
+
     pub fn display_name(&self) -> &'static str {
         match self {
             Self::MM1 => "1mm",
-            Self::MM2 => "2mm", 
+            Self::MM2 => "2mm",
             Self::Native => "Native",
         }
     }
@@ -172,7 +175,7 @@ impl std::fmt::Display for TemplateResolution {
 #[ts(export)]
 pub struct TemplateConfig {
     pub template_type: TemplateType,
-    pub space: TemplateSpace,  
+    pub space: TemplateSpace,
     pub resolution: TemplateResolution,
     /// Additional parameters for template variants
     pub params: Option<HashMap<String, String>>,
@@ -191,7 +194,7 @@ impl TemplateConfig {
             params: None,
         }
     }
-    
+
     /// Generate a unique identifier for this template configuration
     pub fn id(&self) -> String {
         format!(
@@ -201,7 +204,7 @@ impl TemplateConfig {
             self.resolution.as_str()
         )
     }
-    
+
     /// Generate a human-readable name for this template
     pub fn display_name(&self) -> String {
         format!(

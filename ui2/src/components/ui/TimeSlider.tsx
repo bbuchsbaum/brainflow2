@@ -123,6 +123,7 @@ export function TimeSlider({ className = '' }: TimeSliderProps) {
       {/* Micro-slider */}
       <div 
         ref={sliderRef}
+        data-testid="time-slider-track"
         className="relative flex-1 h-4 cursor-pointer group"
         onMouseDown={handleMouseDown}
         title={`${isPlaying ? 'Playing' : 'Paused'} - Click to scrub, Ctrl/Cmd+Click to ${isPlaying ? 'pause' : 'play'}`}
@@ -156,6 +157,7 @@ export function TimeSlider({ className = '' }: TimeSliderProps) {
             ${isDragging ? 'opacity-100 scale-125' : 'opacity-0 group-hover:opacity-100'}
           `}
           style={{ left: `${percentage}%` }}
+          data-testid="time-slider-thumb"
         />
       </div>
 

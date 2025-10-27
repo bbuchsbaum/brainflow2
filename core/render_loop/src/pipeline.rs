@@ -1,6 +1,9 @@
 // Pipeline management module for render loop
 
-use crate::RenderLoopError;
+use crate::{
+    shaders::{create_slice_pipeline_layout, SliceShaderDescriptors},
+    RenderLoopError,
+};
 use std::collections::HashMap;
 use std::sync::Arc;
 use wgpu::{BindGroupLayout, Device, PipelineLayout, RenderPipeline, ShaderModule};
@@ -118,13 +121,24 @@ impl PipelineManager {
         self.layouts
             .entry(shader_name.to_string())
             .or_insert_with(|| {
-                Arc::new(
+                let layout = if matches!(
+                    shader_name,
+                    "slice_world_space" | "slice_world_space_optimized"
+                ) {
+                    create_slice_pipeline_layout(
+                        device,
+                        bind_group_layouts[0],
+                        bind_group_layouts[1],
+                        bind_group_layouts[2],
+                    )
+                } else {
                     device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                         label: Some(&format!("{} Pipeline Layout", shader_name)),
                         bind_group_layouts,
                         push_constant_ranges: &[],
-                    }),
-                )
+                    })
+                };
+                Arc::new(layout)
             })
             .clone()
     }
@@ -170,6 +184,54 @@ impl PipelineManager {
                 })],
                 compilation_options: wgpu::PipelineCompilationOptions::default(),
             }),
+            primitive: wgpu::PrimitiveState {
+                topology: config.topology,
+                strip_index_format: None,
+                front_face: wgpu::FrontFace::Ccw,
+                cull_mode: config.cull_mode,
+                polygon_mode: wgpu::PolygonMode::Fill,
+                unclipped_depth: false,
+                conservative: false,
+            },
+            depth_stencil: config.depth_stencil,
+            multisample: wgpu::MultisampleState {
+                count: config.multisample_count,
+                mask: !0,
+                alpha_to_coverage_enabled: false,
+            },
+            multiview: None,
+        });
+
+        self.pipelines.insert(key, pipeline);
+        Ok(())
+    }
+
+    pub fn get_or_create_slice_pipeline(
+        &mut self,
+        device: &Device,
+        key: PipelineKey,
+        shader: &ShaderModule,
+        layout: &PipelineLayout,
+        descriptors: &SliceShaderDescriptors,
+    ) -> Result<(), RenderLoopError> {
+        if self.pipelines.contains_key(&key) {
+            return Ok(());
+        }
+
+        let config = self
+            .default_configs
+            .get(&key.shader_name)
+            .cloned()
+            .unwrap_or_default();
+
+        let vertex_state = descriptors.vertex_state(shader);
+        let fragment_state = descriptors.fragment_state(shader);
+
+        let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some(&format!("{} Render Pipeline", key.shader_name)),
+            layout: Some(layout),
+            vertex: vertex_state,
+            fragment: Some(fragment_state),
             primitive: wgpu::PrimitiveState {
                 topology: config.topology,
                 strip_index_format: None,

@@ -158,11 +158,11 @@ pub struct LayerUboStd140 {
     pub intensity_max: f32, // 4 bytes, offset 120
     pub thresh_low: f32,    // 4 bytes, offset 124 (completes 16-byte block)
 
-    pub thresh_high: f32,     // 4 bytes
-    pub is_mask: u32,         // 4 bytes
+    pub thresh_high: f32,        // 4 bytes
+    pub is_mask: u32,            // 4 bytes
     pub interpolation_mode: u32, // 4 bytes (0=nearest, 1=linear, 2=cubic)
-    pub _pad: f32,            // 4 bytes to complete 16-byte block
-                              // Total size: 64 + 16 + 16 + 16 + 16 + 16 = 144 bytes (9 * 16-byte blocks)
+    pub _pad: f32,               // 4 bytes to complete 16-byte block
+                                 // Total size: 64 + 16 + 16 + 16 + 16 + 16 = 144 bytes (9 * 16-byte blocks)
 }
 
 impl Default for LayerUboStd140 {

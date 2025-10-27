@@ -24,6 +24,13 @@ export interface SurfaceDataLayer {
   range: [number, number];
   threshold?: [number, number];
   opacity: number;
+  // Statistical properties
+  showOnlyPositive?: boolean;
+  showOnlyNegative?: boolean;
+  clusterThreshold?: number;
+  smoothingKernel?: number;
+  mean?: number;
+  std?: number;
 }
 
 export interface LoadedSurface {
@@ -40,10 +47,33 @@ export interface LoadedSurface {
   };
 }
 
+interface SurfaceRenderSettings {
+  wireframe: boolean;
+  opacity: number;
+  smoothing: number;
+  flatShading: boolean;
+  showNormals: boolean;
+  // Scene Lighting
+  ambientLightIntensity: number;
+  directionalLightIntensity: number;
+  fillLightIntensity?: number; // Secondary directional light
+  lightPosition: [number, number, number];
+  // Material Properties
+  surfaceColor: string;
+  shininess: number;
+  specularColor: string;
+  emissiveColor: string;
+  emissiveIntensity: number;
+}
+
 interface SurfaceState {
   // Surface storage
   surfaces: Map<string, LoadedSurface>;
   activeSurfaceId: string | null;
+  
+  // Selection state
+  selectedItemType: 'geometry' | 'dataLayer' | null;
+  selectedLayerId: string | null;
   
   // Loading state
   isLoading: boolean;
@@ -52,7 +82,9 @@ interface SurfaceState {
   // View settings
   viewpoint: string;
   showControls: boolean;
-  ambientLight: number;
+  
+  // Rendering settings
+  renderSettings: SurfaceRenderSettings;
   
   // Actions
   loadSurface: (path: string) => Promise<string>;
@@ -63,6 +95,8 @@ interface SurfaceState {
   setActiveSurface: (surfaceId: string | null) => void;
   removeSurface: (surfaceId: string) => void;
   setViewpoint: (viewpoint: string) => void;
+  updateRenderSettings: (settings: Partial<SurfaceRenderSettings>) => void;
+  setSelectedItem: (itemType: 'geometry' | 'dataLayer' | null, layerId?: string | null) => void;
   clearError: () => void;
 }
 
@@ -72,11 +106,32 @@ export const useSurfaceStore = create<SurfaceState>()(
       // Initial state
       surfaces: new Map(),
       activeSurfaceId: null,
+      selectedItemType: null,
+      selectedLayerId: null,
       isLoading: false,
       loadError: null,
       viewpoint: 'lateral',
       showControls: false,
-      ambientLight: 0x404040,
+      
+      // Default rendering settings
+      renderSettings: {
+        wireframe: false,
+        opacity: 1.0,
+        smoothing: 0.0, // Start with no smoothing
+        flatShading: false,
+        showNormals: false,
+        // Scene Lighting
+        ambientLightIntensity: 0.4,
+        directionalLightIntensity: 1.0,
+        fillLightIntensity: 0.5, // Default fill light
+        lightPosition: [100, 100, 100],
+        // Material Properties
+        surfaceColor: '#CCCCCC', // Light gray default
+        shininess: 30,
+        specularColor: '#ffffff',
+        emissiveColor: '#000000',
+        emissiveIntensity: 0.0,
+      },
       
       // Load surface from file
       loadSurface: async (path: string) => {
@@ -237,6 +292,24 @@ export const useSurfaceStore = create<SurfaceState>()(
       // Set viewpoint
       setViewpoint: (viewpoint: string) => {
         set({ viewpoint });
+      },
+      
+      // Update render settings
+      updateRenderSettings: (settings: Partial<SurfaceRenderSettings>) => {
+        set((state) => ({
+          renderSettings: {
+            ...state.renderSettings,
+            ...settings,
+          },
+        }));
+      },
+      
+      // Set selected item (geometry or data layer)
+      setSelectedItem: (itemType, layerId = null) => {
+        set({
+          selectedItemType: itemType,
+          selectedLayerId: itemType === 'dataLayer' ? layerId : null,
+        });
       },
       
       // Clear error

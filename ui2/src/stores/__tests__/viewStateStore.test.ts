@@ -1,18 +1,35 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import { useViewStateStore } from '../viewStateStore';
+import { useViewLayoutStore } from '../viewLayoutStore';
 import { coalesceUtils } from '../middleware/coalesceUpdatesMiddleware';
 import type { ViewType, WorldCoordinates } from '@/types/coordinates';
 import type { Layer } from '@/types/layer';
 
+const recalcAllViewsMock = vi.fn();
+const recalcViewForDimensionsMock = vi.fn();
+const getVolumeBoundsMock = vi.fn();
+const initRenderLoopMock = vi.fn();
+
+vi.mock('@/services/apiService', () => ({
+  getApiService: () => ({
+    recalculateAllViews: recalcAllViewsMock,
+    recalculateViewForDimensions: recalcViewForDimensionsMock,
+    getVolumeBounds: getVolumeBoundsMock,
+    initRenderLoop: initRenderLoopMock
+  })
+}));
+
 describe('ViewStateStore', () => {
-  let store: ReturnType<typeof useViewStateStore>;
+  let store: ReturnType<typeof useViewStateStore.getState>;
   let mockBackendCallback: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
-    // Reset store to initial state
+    // Get the store state (which contains both state and methods)
     store = useViewStateStore.getState();
+
+    // Reset store to initial state
     store.resetToDefaults();
-    
+
     // Clear any pending coalescing updates
     coalesceUtils.clearPending();
     
@@ -20,6 +37,26 @@ describe('ViewStateStore', () => {
     mockBackendCallback = vi.fn();
     coalesceUtils.setBackendCallback(mockBackendCallback);
     coalesceUtils.setEnabled(true);
+
+    recalcAllViewsMock.mockReset();
+    recalcViewForDimensionsMock.mockReset();
+    getVolumeBoundsMock.mockReset();
+    initRenderLoopMock.mockReset();
+
+    recalcAllViewsMock.mockResolvedValue({
+      axial: useViewStateStore.getState().viewState.views.axial,
+      sagittal: useViewStateStore.getState().viewState.views.sagittal,
+      coronal: useViewStateStore.getState().viewState.views.coronal
+    });
+
+    recalcViewForDimensionsMock.mockResolvedValue(
+      useViewStateStore.getState().viewState.views.axial
+    );
+
+    getVolumeBoundsMock.mockResolvedValue({
+      min: [-100, -100, -100],
+      max: [100, 100, 100]
+    });
   });
 
   afterEach(() => {
@@ -27,9 +64,54 @@ describe('ViewStateStore', () => {
     vi.clearAllTimers();
   });
 
+  describe('Locked layout fallbacks', () => {
+    it('falls back to volume bounds when multi-view recalculation fails', async () => {
+      recalcAllViewsMock.mockRejectedValueOnce(new Error('backend unavailable'));
+      getVolumeBoundsMock.mockResolvedValueOnce({
+        min: [-96, -132, -78],
+        max: [96, 132, 78]
+      });
+
+      useViewLayoutStore.getState().setMode('locked');
+
+      const testLayer = {
+        id: 'layer-1',
+        name: 'Test Layer',
+        volumeId: 'vol-1',
+        visible: true,
+        opacity: 1,
+        isSelected: false,
+        gpuStatus: 'ready',
+        render: {
+          opacity: 1,
+          colormap: 'gray',
+          intensityMin: 0,
+          intensityMax: 1000,
+          thresholdLow: 0,
+          thresholdHigh: 0
+        }
+      } as unknown as Layer;
+
+      store.setViewState((state) => {
+        state.layers = [testLayer];
+        return state;
+      });
+
+      await store.updateDimensionsAndPreserveScale('axial', [640, 480]);
+
+      expect(recalcAllViewsMock).toHaveBeenCalledTimes(1);
+      expect(getVolumeBoundsMock).toHaveBeenCalledTimes(1);
+
+      const updatedView = useViewStateStore.getState().viewState.views.axial;
+      expect(updatedView.dim_px).toEqual([640, 480]);
+      expect(updatedView.u_mm).not.toEqual([0, 0, 0]);
+      expect(updatedView.v_mm).not.toEqual([0, 0, 0]);
+    });
+  });
+
   describe('Initial State', () => {
     it('should have correct initial view state', () => {
-      const state = store.viewState;
+      const state = useViewStateStore.getState().viewState;
       
       expect(state.crosshair.world_mm).toEqual([0, 0, 0]);
       expect(state.crosshair.visible).toBe(true);
@@ -39,40 +121,42 @@ describe('ViewStateStore', () => {
       expect(state.views).toHaveProperty('axial');
       expect(state.views).toHaveProperty('sagittal');
       expect(state.views).toHaveProperty('coronal');
-      
+
       // All views should be properly initialized
       Object.values(state.views).forEach(view => {
         expect(view.dim_px).toEqual([512, 512]);
-        expect(view.fov_mm).toEqual([200, 200]);
-        expect(view.center_mm).toEqual([0, 0, 0]);
+        // fov_mm and center_mm properties no longer exist after refactoring
       });
     });
   });
 
   describe('Crosshair Management', () => {
-    it('should update crosshair position and sync view origins', () => {
+    it('should update crosshair position and sync view origins', async () => {
       const newPosition: WorldCoordinates = [10, 20, 30];
-      
-      // Act
-      store.setCrosshair(newPosition);
-      
+
+      // Act - Pass updateViews=true to sync view origins
+      await store.setCrosshair(newPosition, true);
+
       // Assert - Crosshair should be updated
-      const state = store.viewState;
+      // Get fresh state after update
+      const state = useViewStateStore.getState().viewState;
       expect(state.crosshair.world_mm).toEqual(newPosition);
       expect(state.crosshair.visible).toBe(true);
-      
+
       // View origins should be updated to intersect at crosshair
       expect(state.views.axial.origin_mm[2]).toBe(30); // Z-coordinate
       expect(state.views.sagittal.origin_mm[0]).toBe(10); // X-coordinate
       expect(state.views.coronal.origin_mm[1]).toBe(20); // Y-coordinate
     });
 
-    it('should handle crosshair visibility changes', () => {
-      // Act
-      store.setCrosshair([5, 10, 15], false);
-      
+    it('should handle crosshair visibility changes', async () => {
+      // Act - Set position first, then change visibility
+      await store.setCrosshair([5, 10, 15]);
+      store.setCrosshairVisible(false);
+
       // Assert
-      const state = store.viewState;
+      // Get fresh state after update
+      const state = useViewStateStore.getState().viewState;
       expect(state.crosshair.world_mm).toEqual([5, 10, 15]);
       expect(state.crosshair.visible).toBe(false);
     });
@@ -86,12 +170,17 @@ describe('ViewStateStore', () => {
         [4, 4, 4],
         [5, 5, 5]
       ];
-      
+
+      // Fire all updates without awaiting (rapid succession)
       positions.forEach(pos => store.setCrosshair(pos));
-      
+
+      // Wait for last one to complete
+      await store.setCrosshair([5, 5, 5]);
+
       // Assert - UI should show latest position immediately
-      expect(store.viewState.crosshair.world_mm).toEqual([5, 5, 5]);
-      
+      // Get fresh state after update
+      expect(useViewStateStore.getState().viewState.crosshair.world_mm).toEqual([5, 5, 5]);
+
       // Backend should not be called yet
       expect(mockBackendCallback).not.toHaveBeenCalled();
       expect(coalesceUtils.hasPendingUpdate()).toBe(true);
@@ -109,12 +198,16 @@ describe('ViewStateStore', () => {
 
     it('should add layers correctly', () => {
       const layer = createTestLayer('layer1');
-      
-      // Act
-      store.addLayer(layer);
-      
+
+      // Act - Use setViewState with Immer direct mutation
+      store.setViewState((state) => {
+        state.layers.push(layer);
+        return state;
+      });
+
       // Assert
-      const state = store.viewState;
+      // Get fresh state after update
+      const state = useViewStateStore.getState().viewState;
       expect(state.layers).toHaveLength(1);
       expect(state.layers[0]).toEqual(layer);
     });
@@ -122,35 +215,49 @@ describe('ViewStateStore', () => {
     it('should remove layers correctly', () => {
       const layer1 = createTestLayer('layer1');
       const layer2 = createTestLayer('layer2');
-      
-      // Arrange
-      store.addLayer(layer1);
-      store.addLayer(layer2);
-      expect(store.viewState.layers).toHaveLength(2);
-      
-      // Act
-      store.removeLayer('layer1');
-      
+
+      // Arrange - Add both layers with Immer direct mutation
+      store.setViewState((state) => {
+        state.layers.push(layer1, layer2);
+        return state;
+      });
+      expect(useViewStateStore.getState().viewState.layers).toHaveLength(2);
+
+      // Act - Remove layer1 with Immer direct mutation
+      store.setViewState((state) => {
+        state.layers = state.layers.filter(l => l.id !== 'layer1');
+        return state;
+      });
+
       // Assert
-      const state = store.viewState;
+      // Get fresh state after update
+      const state = useViewStateStore.getState().viewState;
       expect(state.layers).toHaveLength(1);
       expect(state.layers[0].id).toBe('layer2');
     });
 
     it('should update layers correctly', () => {
       const layer = createTestLayer('updateLayer');
-      
-      // Arrange
-      store.addLayer(layer);
-      
-      // Act
-      store.updateLayer('updateLayer', { 
-        visible: false, 
-        name: 'Updated Layer' 
+
+      // Arrange - Add layer with Immer direct mutation
+      store.setViewState((state) => {
+        state.layers.push(layer);
+        return state;
       });
-      
+
+      // Act - Update layer with Immer direct mutation
+      store.setViewState((state) => {
+        const layerToUpdate = state.layers.find(l => l.id === 'updateLayer');
+        if (layerToUpdate) {
+          layerToUpdate.visible = false;
+          layerToUpdate.name = 'Updated Layer';
+        }
+        return state;
+      });
+
       // Assert
-      const state = store.viewState;
+      // Get fresh state after update
+      const state = useViewStateStore.getState().viewState;
       const updatedLayer = state.layers.find(l => l.id === 'updateLayer');
       expect(updatedLayer?.visible).toBe(false);
       expect(updatedLayer?.name).toBe('Updated Layer');
@@ -159,46 +266,50 @@ describe('ViewStateStore', () => {
     it('should handle updating non-existent layer gracefully', () => {
       // Act & Assert - Should not throw
       expect(() => {
-        store.updateLayer('nonexistent', { visible: false });
+        store.setViewState((state) => {
+          const layer = state.layers.find(l => l.id === 'nonexistent');
+          if (layer) {
+            layer.visible = false;
+          }
+          return state;
+        });
       }).not.toThrow();
-      
+
       // State should remain unchanged
-      expect(store.viewState.layers).toHaveLength(0);
+      expect(useViewStateStore.getState().viewState.layers).toHaveLength(0);
     });
   });
 
   describe('View Management', () => {
     it('should update individual views', () => {
+      // After refactoring, ViewPlane no longer has: type, slice_mm, center_mm, normal_mm, fov_mm, origin_px
       const newAxialView = {
-        type: 'axial' as ViewType,
-        slice_mm: 25,
-        center_mm: [10, 20, 30] as WorldCoordinates,
         u_mm: [1, 0, 0] as WorldCoordinates,
         v_mm: [0, 1, 0] as WorldCoordinates,
-        normal_mm: [0, 0, 1] as WorldCoordinates,
         dim_px: [256, 256] as [number, number],
-        fov_mm: [128, 128] as [number, number],
         origin_mm: [10, 20, 30] as WorldCoordinates,
-        origin_px: [128, 128] as [number, number]
       };
-      
+
       // Act
       store.updateView('axial', newAxialView);
-      
+
       // Assert
-      const state = store.viewState;
+      // Get fresh state after update
+      const state = useViewStateStore.getState().viewState;
       expect(state.views.axial).toEqual(newAxialView);
-      
-      // Other views should remain unchanged
-      expect(state.views.sagittal.slice_mm).toBe(0);
-      expect(state.views.coronal.slice_mm).toBe(0);
+
+      // Other views should remain unchanged (check initial values from getInitialViewState)
+      expect(state.views.sagittal.origin_mm).toEqual([0, 100, 100]);
+      expect(state.views.coronal.origin_mm).toEqual([-100, 0, 100]);
     });
 
     it('should provide helper methods for views', () => {
       // Test getView
       const axialView = store.getView('axial');
-      expect(axialView.type).toBe('axial');
-      
+      // ViewPlane no longer has 'type' property after refactoring
+      expect(axialView).toBeDefined();
+      expect(axialView.dim_px).toEqual([512, 512]);
+
       // Test getViews
       const allViews = store.getViews();
       expect(allViews).toHaveProperty('axial');
@@ -210,20 +321,19 @@ describe('ViewStateStore', () => {
   describe('State Management', () => {
     it('should support custom state updates', () => {
       const customUpdate = (state: any) => {
-        return {
-          ...state,
-          crosshair: {
-            world_mm: [100, 200, 300],
-            visible: false
-          }
+        state.crosshair = {
+          world_mm: [100, 200, 300],
+          visible: false
         };
+        return state;
       };
-      
+
       // Act
       store.setViewState(customUpdate);
-      
+
       // Assert
-      const state = store.viewState;
+      // Get fresh state after update
+      const state = useViewStateStore.getState().viewState;
       expect(state.crosshair.world_mm).toEqual([100, 200, 300]);
       expect(state.crosshair.visible).toBe(false);
     });
@@ -240,19 +350,23 @@ describe('ViewStateStore', () => {
       }).not.toThrow();
     });
 
-    it('should reset to defaults correctly', () => {
+    it('should reset to defaults correctly', async () => {
       // Arrange - Modify state
-      store.setCrosshair([50, 60, 70]);
-      store.addLayer(createTestLayer('testLayer'));
-      
-      expect(store.viewState.crosshair.world_mm).toEqual([50, 60, 70]);
-      expect(store.viewState.layers).toHaveLength(1);
-      
+      await store.setCrosshair([50, 60, 70]);
+      store.setViewState((state) => {
+        state.layers.push(createTestLayer('testLayer'));
+        return state;
+      });
+
+      expect(useViewStateStore.getState().viewState.crosshair.world_mm).toEqual([50, 60, 70]);
+      expect(useViewStateStore.getState().viewState.layers).toHaveLength(1);
+
       // Act
       store.resetToDefaults();
-      
+
       // Assert - Should be back to initial state
-      const state = store.viewState;
+      // Get fresh state after reset
+      const state = useViewStateStore.getState().viewState;
       expect(state.crosshair.world_mm).toEqual([0, 0, 0]);
       expect(state.crosshair.visible).toBe(true);
       expect(state.layers).toHaveLength(0);
@@ -285,27 +399,32 @@ describe('ViewStateStore', () => {
       // Act - Make multiple rapid changes
       store.setCrosshair([1, 1, 1]);
       store.setCrosshair([2, 2, 2]);
-      store.addLayer(createTestLayer('layer1'));
-      store.setCrosshair([3, 3, 3]);
-      
+      store.setViewState((state) => {
+        state.layers.push(createTestLayer('layer1'));
+        return state;
+      });
+      // Await the last setCrosshair
+      await store.setCrosshair([3, 3, 3]);
+
       // Assert - Should have pending update
       expect(coalesceUtils.hasPendingUpdate()).toBe(true);
       expect(mockBackendCallback).not.toHaveBeenCalled();
-      
+
       // UI should show latest state immediately
-      const state = store.viewState;
+      // Get fresh state after updates
+      const state = useViewStateStore.getState().viewState;
       expect(state.crosshair.world_mm).toEqual([3, 3, 3]);
       expect(state.layers).toHaveLength(1);
     });
 
-    it('should allow manual flushing of coalesced updates', () => {
+    it('should allow manual flushing of coalesced updates', async () => {
       // Arrange
-      store.setCrosshair([10, 20, 30]);
+      await store.setCrosshair([10, 20, 30]);
       expect(coalesceUtils.hasPendingUpdate()).toBe(true);
-      
+
       // Act
       coalesceUtils.flush();
-      
+
       // Assert
       expect(mockBackendCallback).toHaveBeenCalledTimes(1);
       expect(mockBackendCallback).toHaveBeenCalledWith(

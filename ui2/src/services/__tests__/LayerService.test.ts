@@ -7,7 +7,14 @@ import { LayerService, initializeLayerService, getLayerService, type LayerApi } 
 import { getEventBus } from '@/events/EventBus';
 import type { Layer, LayerRender } from '@/types/layers';
 
-vi.mock('@/events/EventBus');
+// Mock EventBus with default implementation to prevent undefined errors at module initialization
+vi.mock('@/events/EventBus', () => ({
+  getEventBus: vi.fn(() => ({
+    emit: vi.fn(),
+    on: vi.fn(),
+    off: vi.fn(),
+  }))
+}));
 
 // Mock requestAnimationFrame
 global.requestAnimationFrame = vi.fn((cb) => {

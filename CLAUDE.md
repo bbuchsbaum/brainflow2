@@ -22,10 +22,10 @@ cargo tauri dev
 cargo test --workspace
 
 # Run UI unit tests
-pnpm --filter ui2 test:unit
+pnpm --filter ui2 test
 
-# Run E2E tests (requires UI dev server)
-pnpm --filter ui2 test:e2e
+# Run UI tests with UI
+pnpm --filter ui2 test:ui
 
 # Build application
 cargo tauri build
@@ -44,37 +44,19 @@ cargo xtask ts-bindings
 cargo fmt --all
 cargo clippy --workspace --all-targets
 
-# TypeScript formatting and linting (in UI directory)
+# TypeScript formatting and linting
 pnpm format
 pnpm lint
+
+# Run full test suite
+pnpm test  # runs UI tests + cargo test
 ```
 
-### E2E Testing & Debugging
+### Benchmarking
 ```bash
-# Setup E2E testing framework (first time only)
-cd e2e && ./setup-e2e.sh
-
-# Run all E2E tests
-cd e2e && ./run-e2e.sh
-
-# Run tests with interactive UI (for debugging)
-cd e2e && ./run-e2e.sh --ui
-
-# Run tests in debug mode (opens devtools)
-cd e2e && ./run-e2e.sh --debug
-
-# Update visual snapshots
-cd e2e && ./run-e2e.sh --update-snapshots
+# Run texture upload benchmark
+cargo bench -p render_loop --bench upload
 ```
-
-The E2E framework uses Playwright to:
-- Automatically launch and test the Tauri application
-- Capture screenshots for visual debugging
-- Validate GPU rendering output
-- Test volume loading and rendering features
-- Enable step-by-step debugging with screenshots
-
-See `/e2e/DEBUG_GUIDE.md` for detailed debugging workflows.
 
 ### Setup
 ```bash
@@ -100,17 +82,42 @@ The project uses a dual-workspace architecture:
 ### Key Components
 
 **Rust Core (`/core/`)**:
-- `api_bridge/` - Tauri command implementations
-- `bridge_types/` - Shared types between Rust components  
+- `api_bridge/` - Tauri command implementations and permission system
+- `bridge_types/` - Shared types between Rust components
 - `filesystem/` - File operations, BIDS scanning
 - `loaders/` - File format loaders (NIfTI, GIfTI)
-- `render_loop/` - WebGPU rendering service with shaders
+  - `nifti/` - NIfTI volume loading
+  - `gifti/` - GIfTI surface mesh loading
+- `render_loop/` - WebGPU rendering service with runtime WGSL shaders
+- `neuro-types/` - Core types for neuroimaging (slice specs, view rects, coordinate systems)
+- `neuro-core/` - Core neuroimaging utilities and shared logic
+- `neuro-cpu/` - CPU-based volume rendering fallback
 - `volmath/` - Core math, volume operations, spatial utilities
+- `colormap/` - Color mapping functionality
+- `atlases/` - Brain atlas support
 
 **Frontend (`/ui2/`)**:
-- React application with WebGPU 2D and Three.js 3D rendering
-- Zustand stores for state management
-- Golden Layout for dockable panels
+- React application with:
+  - WebGPU for 2D orthogonal slices
+  - Three.js/WebGL for 3D surface rendering
+  - Zustand stores for state management (cross-panel state)
+  - Golden Layout v2 for dockable panels (isolated React roots per panel)
+  - Vitest for unit testing
+
+**Key Frontend Services (`/ui2/src/services/`)**:
+- `FileLoadingService.ts` - Orchestrates file loading operations
+- `SurfaceLoadingService.ts` - Surface geometry loading
+- `SurfaceOverlayService.ts` - Surface data overlay management
+- `VolumeLoadingService.ts` - Volume data loading
+- `UnifiedLayerService.ts` - Unified layer management for volumes and surfaces
+- `ViewRegistry.ts` - View component registration and management
+- `RenderCoordinator.ts` - Coordinates rendering across multiple views
+- `OptimizedRenderService.ts` - Optimized rendering with batching
+- `MosaicRenderService.ts` - Multi-slice mosaic view rendering
+- `CrosshairService.ts` - Crosshair synchronization across views
+- `LayerApiImpl.ts` - Layer API implementation
+- `apiService.ts` - Main API service (49KB - extensive command implementations)
+- `transport.ts` - Tauri command transport layer
 
 **Shared (`/packages/`)**:
 - `api/` - Core TypeScript interfaces (@brainflow/api)
@@ -233,16 +240,56 @@ Always use the larger of the two pixel sizes to ensure the entire extent fits wi
 
 ## Current Status
 
-Phase 1 (WebGPU v2) - Implementing MVP features:
-- NIfTI/GIfTI loading
-- Orthogonal slice viewing (WebGPU)
-- 3D surface rendering (Three.js)
-- Basic layer management
-- Click-to-timeseries plotting
+Phase 1 (WebGPU v2) - Sprint 1 Complete / Starting Sprint 2 (M4 Kickoff):
 
-## Lessons Learned: State Management with GoldenLayout
+**Implemented Features:**
+- ✅ NIfTI volume loading and caching
+- ✅ GIfTI surface geometry loading
+- ✅ Orthogonal slice viewing (WebGPU)
+- ✅ 3D surface rendering (Three.js)
+- ✅ Surface data overlay visualization
+- ✅ Unified layer management (volumes + surfaces)
+- ✅ Mosaic view for multi-slice visualization
+- ✅ Flexible slice panel with navigation
+- ✅ Crosshair synchronization across views
+- ✅ Interpolation mode toggle (nearest/linear)
+- ✅ File browser with directory navigation
+- ✅ Layer properties panel with controls
+- ✅ Atlas support and overlays
+- ✅ Progress tracking and loading queue
+- ✅ Template service for standard brain spaces
 
-### React Root Isolation Issue
+**Current Focus:**
+- Surface visualization enhancements
+- Unified layer system refinements
+- Performance optimization
+- Testing and stability improvements
+
+## State Management Architecture
+
+### Zustand Stores (`/ui2/src/stores/`)
+The application uses Zustand for all cross-component state management:
+
+**Core Stores:**
+- `layerStore.ts` - Layer management (volumes, surfaces, overlays)
+- `surfaceStore.ts` - Surface geometry and data visualization
+- `viewStateStore.ts` - View state (slice positions, orientations, zoom)
+- `renderStateStore.ts` - Render state and frame tracking
+- `crosshairSettingsStore.ts` - Crosshair configuration and visibility
+- `mouseCoordinateStore.ts` - Mouse position tracking across views
+- `loadingQueueStore.ts` - File loading queue and progress
+- `progressStore.ts` - Progress tracking for async operations
+- `fileBrowserStore.ts` - File browser state and navigation
+- `workspaceStore.ts` - Workspace and session management
+- `annotationStore.ts` - Annotation data and tools
+- `statusBarStore.ts` - Status bar content and updates
+
+**Store Patterns:**
+- Stores use middleware for batching and performance optimization
+- Selectors are used to prevent unnecessary re-renders (see `SELECTORS_GUIDE.md`)
+- Stores are documented in `MIGRATION_NOTES.md`
+
+### React Root Isolation Issue (GoldenLayout)
 GoldenLayout creates **isolated React roots** for each docked panel. This means:
 - React Context providers in one panel don't affect other panels
 - Components in different panels can't share React Context state
@@ -292,8 +339,86 @@ Instead of flexbox, use absolute positioning for layout within Allotment panes:
 ### Key Principle
 When components are inside Allotment panes (like FlexibleSlicePanel), avoid flexbox for internal layout. Use absolute positioning or other CSS techniques instead.
 
+## Rendering Architecture
+
+### Dual Rendering Path
+The application supports both GPU and CPU rendering:
+
+**GPU Rendering (Primary):**
+- WebGPU via `render_loop` crate
+- Runtime-loaded WGSL shaders (not build-time compiled)
+- Shader sources in [core/render_loop/src/shaders/](core/render_loop/src/shaders/)
+- Y-flip happens at buffer readback boundary only
+- Consistent world-to-pixel transforms
+
+**CPU Rendering (Fallback):**
+- `neuro-cpu` crate provides software rendering
+- Used when WebGPU is unavailable
+- Matches GPU output exactly (no Y-flip in renderer itself)
+- Image convention internally (Y=0 at top)
+
+### Future: Typed Shader Bindings
+A plan exists to trial `wgsl_to_wgpu` for build-time typed shader bindings:
+- Feature-gated: `typed-shaders` feature flag
+- No change to default build until proven stable
+- See [memory-bank/SHADER_BINDINGS_PLAN.md](memory-bank/SHADER_BINDINGS_PLAN.md)
+
+### Render Coordination
+- `RenderCoordinator` manages multiple views
+- `OptimizedRenderService` batches render calls
+- Frame-based rendering with render state tracking
+- Crosshair synchronization across all views
+
+## Testing Strategy
+
+### Unit Tests
+- Rust: `cargo test --workspace`
+- UI: `pnpm --filter ui2 test` (Vitest)
+- UI with UI: `pnpm --filter ui2 test:ui`
+
+### Integration Tests
+- `neuro-integration-tests` crate for cross-component testing
+- Tests rendering consistency between CPU and GPU paths
+- Tests coordinate system transformations
+
+### Test Data
+- Test data in [test-data/](test-data/) directory
+- Includes sample NIfTI volumes and GIfTI surfaces
+- Example: `bilateral_frontal_roi.func.gii`
+
+## Documentation Structure
+
+### Memory Bank (`/memory-bank/`)
+Key architectural documentation:
+- `ADR-001-architecture.md` - Core architecture decisions
+- `projectbrief.md` - Project goals and vision
+- `PLAN-phase1-milestones.md` - Current development phase
+- `DEV-bootstrap-guide.md` - Detailed setup instructions
+- `repository_structure.md` - Complete directory layout
+- `ARCHITECTURE.md` - Overall system architecture
+- `Implementation_Roadmap.md` - Implementation plan and roadmap
+- `SHADER_BINDINGS_PLAN.md` - Future shader compilation strategy
+
+### UI Documentation (`/ui2/docs/`)
+- Component documentation
+- Service layer documentation
+- Store usage patterns
+
+### Sprint Documentation (`/ui2/` and `/memory-bank/sprints/`)
+- `SURFACE_SPRINTS.md` - Surface visualization sprint plans
+- `SURFACE_VISUALIZATION_ARCHITECTURE.md` - Surface rendering architecture
+- Sprint-specific plans in `memory-bank/sprints/`
+
 ## Project Vision
 
 **Goal**: Build the greatest fMRI UI program in the history of the world.
+
+This means:
+- **Performance**: Sub-frame rendering times, smooth 60fps interaction
+- **Correctness**: Pixel-perfect medical imaging with preserved aspect ratios
+- **Usability**: Intuitive, researcher-friendly interface
+- **Extensibility**: Plugin system for custom analysis pipelines
+- **Reliability**: Stable, tested, production-ready code
+- **Cross-platform**: Native performance on macOS, Windows, Linux
 
 Claude Code is fully on board with this vision and committed to achieving it.

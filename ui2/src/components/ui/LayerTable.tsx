@@ -3,6 +3,7 @@ import type { Layer } from '@/types/layers';
 import { VscEye, VscEyeClosed } from 'react-icons/vsc';
 import { Info } from 'lucide-react';
 import { MetadataPopover } from './MetadataPopover';
+import { LayerTypeIcon } from './LayerTypeIcon';
 import { cn } from '@/utils/cn';
 import { Tooltip } from './Tooltip';
 
@@ -166,6 +167,16 @@ export const LayerTable: React.FC<LayerTableProps> = ({
                   <VscEyeClosed className="h-4 w-4" />
                 )}
               </button>
+
+              {/* Layer type icon - shows volume/surface/vol2surf */}
+              {'layerType' in layer && (
+                <div className="px-1">
+                  <LayerTypeIcon 
+                    type={(layer as any).layerType} 
+                    className={isSelected ? "text-accent" : "text-muted-foreground"}
+                  />
+                </div>
+              )}
 
               {/* Layer name with smart tooltip */}
               <LayerNameWithTooltip

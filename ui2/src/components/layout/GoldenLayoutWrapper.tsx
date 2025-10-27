@@ -11,8 +11,10 @@ import { OrthogonalViewContainer } from '@/components/views/OrthogonalViewContai
 import { FlexibleSlicePanel } from '@/components/views/FlexibleSlicePanel';
 import { MosaicViewPromise } from '@/components/views/MosaicViewPromise';
 import { FileBrowserPanel } from '@/components/panels/FileBrowserPanel';
-import { LayerPanel } from '@/components/panels/LayerPanel';
+import { VolumeLayerPanel } from '@/components/panels/VolumeLayerPanel';
+import { SurfaceLayerPanel } from '@/components/panels/SurfaceLayerPanel';
 import { PlotPanel } from '@/components/panels/PlotPanel';
+import { SurfaceViewPanel } from '@/components/views/SurfaceViewPanel';
 import { useViewLayoutStore } from '@/stores/viewLayoutStore';
 import { useViewStateStore } from '@/stores/viewStateStore';
 import { getRenderCoordinator } from '@/services/RenderCoordinator';
@@ -66,11 +68,22 @@ const lockedLayout: LayoutConfig = {
         width: 20,
         content: [
           {
-            type: 'component',
-            componentType: 'LayerPanel',
-            title: 'Layers',
+            type: 'stack',
             height: 60,
-            componentState: {}
+            content: [
+              {
+                type: 'component',
+                componentType: 'LayerPanel',
+                title: 'Volumes',
+                componentState: {}
+              },
+              {
+                type: 'component',
+                componentType: 'SurfacePanel',
+                title: 'Surfaces',
+                componentState: {}
+              }
+            ]
           },
           {
             type: 'component',
@@ -138,11 +151,22 @@ const flexibleLayout: LayoutConfig = {
         width: 20,
         content: [
           {
-            type: 'component',
-            componentType: 'LayerPanel',
-            title: 'Layers',
+            type: 'stack',
             height: 60,
-            componentState: {}
+            content: [
+              {
+                type: 'component',
+                componentType: 'LayerPanel',
+                title: 'Volumes',
+                componentState: {}
+              },
+              {
+                type: 'component',
+                componentType: 'SurfacePanel',
+                title: 'Surfaces',
+                componentState: {}
+              }
+            ]
           },
           {
             type: 'component',
@@ -481,9 +505,12 @@ export function GoldenLayoutWrapper({
     componentRegistry.set('SliceView', SliceView);
     componentRegistry.set('OrthogonalView', OrthogonalViewContainer);
     componentRegistry.set('FileBrowser', FileBrowserPanel);
-    componentRegistry.set('LayerPanel', LayerPanel);
+    componentRegistry.set('LayerPanel', VolumeLayerPanel);  // For backward compatibility
+    componentRegistry.set('VolumePanel', VolumeLayerPanel);  // New preferred name
+    componentRegistry.set('SurfacePanel', SurfaceLayerPanel);
     componentRegistry.set('PlotPanel', PlotPanel);
     componentRegistry.set('ThreeDView', ThreeDViewPanel);
+    componentRegistry.set('surfaceView', SurfaceViewPanel);  // Add surface viewer (lowercase for compatibility)
     
     // Register flexible view components
     componentRegistry.set('AxialView', FlexibleSlicePanel);

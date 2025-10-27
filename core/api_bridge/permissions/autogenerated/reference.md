@@ -464,6 +464,32 @@ Denies the get_atlas_entry command without any pre-configured scope.
 <tr>
 <td>
 
+`api-bridge:allow-get-atlas-stats`
+
+</td>
+<td>
+
+Enables the get_atlas_stats command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:deny-get-atlas-stats`
+
+</td>
+<td>
+
+Denies the get_atlas_stats command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
 `api-bridge:allow-get-atlas-subscription-count`
 
 </td>
@@ -691,6 +717,32 @@ Enables the get_surface_geometry command without any pre-configured scope.
 <td>
 
 Denies the get_surface_geometry command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:allow-get-surface-overlay-data`
+
+</td>
+<td>
+
+Enables the get_surface_overlay_data command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:deny-get-surface-overlay-data`
+
+</td>
+<td>
+
+Denies the get_surface_overlay_data command without any pre-configured scope.
 
 </td>
 </tr>
@@ -1062,6 +1114,32 @@ Denies the load_surface command without any pre-configured scope.
 <tr>
 <td>
 
+`api-bridge:allow-load-surface-overlay`
+
+</td>
+<td>
+
+Enables the load_surface_overlay command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:deny-load-surface-overlay`
+
+</td>
+<td>
+
+Denies the load_surface_overlay command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
 `api-bridge:allow-load-template`
 
 </td>
@@ -1393,6 +1471,32 @@ Enables the render_view command without any pre-configured scope.
 <td>
 
 Denies the render_view command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:allow-render-views`
+
+</td>
+<td>
+
+Enables the render_views command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:deny-render-views`
+
+</td>
+<td>
+
+Denies the render_views command without any pre-configured scope.
 
 </td>
 </tr>

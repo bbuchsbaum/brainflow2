@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { useLayerStore } from '@/stores/layerStore';
+import { useViewStateStore } from '@/stores/viewStateStore';
 import type { Layer } from '@/types/layers';
 
 // Mock the LayerService
@@ -25,6 +26,9 @@ describe('LayerPanel', () => {
     // Reset store state
     const { clearLayers } = useLayerStore.getState();
     clearLayers();
+
+    // Reset ViewStateStore as well
+    useViewStateStore.getState().resetToDefaults();
   });
 
   it('should handle empty state', () => {
@@ -163,19 +167,28 @@ describe('LayerPanel', () => {
   });
 
   it('should handle layer render properties', () => {
-    const { addLayer, setLayerRender } = useLayerStore.getState();
-    
-    const testLayer: Layer = {
-      id: 'test-layer',
-      name: 'Test Layer',
-      type: 'volume',
-      visible: true,
-      handle: 'handle-1'
-    };
+    // Layer render properties are now stored in ViewState, not LayerStore
+    // Use setViewState to update layer render properties
+    const viewStateStore = useViewStateStore.getState();
 
-    addLayer(testLayer);
+    // Add a layer to ViewState with initial render properties
+    viewStateStore.setViewState((state) => {
+      state.layers.push({
+        id: 'test-layer',
+        name: 'Test Layer',
+        volumeId: 'volume-1',
+        visible: true,
+        opacity: 1.0,
+        intensity: [0, 255] as [number, number],
+        threshold: [0, 255] as [number, number],
+        colormap: 'gray',
+        interpolation: 'nearest' as const
+      });
+      return state;
+    });
 
-    const renderProps = {
+    // Update render properties
+    const newRenderProps = {
       opacity: 0.8,
       intensity: [10, 200] as [number, number],
       threshold: [50, 150] as [number, number],
@@ -183,11 +196,27 @@ describe('LayerPanel', () => {
       interpolation: 'linear' as const
     };
 
-    setLayerRender('test-layer', renderProps);
+    viewStateStore.setViewState((state) => {
+      const layer = state.layers.find(l => l.id === 'test-layer');
+      if (layer) {
+        layer.opacity = newRenderProps.opacity;
+        layer.intensity = newRenderProps.intensity;
+        layer.threshold = newRenderProps.threshold;
+        layer.colormap = newRenderProps.colormap;
+        layer.interpolation = newRenderProps.interpolation;
+      }
+      return state;
+    });
 
-    const state = useLayerStore.getState();
-    const layerRender = state.layerRender.get('test-layer');
-    expect(layerRender).toEqual(renderProps);
+    // Verify the render properties were updated
+    const viewState = useViewStateStore.getState().viewState;
+    const layer = viewState.layers.find(l => l.id === 'test-layer');
+    expect(layer).toBeDefined();
+    expect(layer?.opacity).toBe(0.8);
+    expect(layer?.intensity).toEqual([10, 200]);
+    expect(layer?.threshold).toEqual([50, 150]);
+    expect(layer?.colormap).toBe('viridis');
+    expect(layer?.interpolation).toBe('linear');
   });
 
   it('should handle loading and error states', () => {

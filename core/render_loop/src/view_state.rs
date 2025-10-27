@@ -10,7 +10,7 @@ pub enum InterpolationMode {
     Nearest,
     Linear,
     #[serde(rename = "cubic")]
-    Cubic,  // Future support - will fall back to linear for now
+    Cubic, // Future support - will fall back to linear for now
 }
 
 impl Default for InterpolationMode {
@@ -367,7 +367,6 @@ impl ViewState {
         volume_id: String,
         intensity_window: (f32, f32),
     ) -> Self {
-
         // Determine orientation from view rect vectors
         let orientation = match (view_rect.u_mm, view_rect.v_mm) {
             ([u, 0.0, 0.0], [0.0, v, 0.0]) if u != 0.0 && v != 0.0 => SliceOrientation::Axial,

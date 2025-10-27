@@ -1,12 +1,15 @@
-use api_bridge::{request_layer_gpu_resources, BridgeState};
-use bridge_types::{LayerSpec, SliceAxis, SliceIndex, VolumeLayerSpec};
+use api_bridge::{
+    request_layer_gpu_resources_for_testing, BridgeState, LayerSpec, SliceAxis, SliceIndex,
+    VolumeLayerSpec, VolumeMetadataInfo,
+};
+use bridge_types::{VolumeSendable, VolumeType};
 use nalgebra::Matrix4;
 use render_loop::RenderLoopService;
 use std::sync::Arc;
-use tauri::State;
 use tokio::sync::Mutex;
 use volmath::dense_vol::DenseVolume3;
-use volmath::space::{NeuroSpace3, NeuroSpaceImpl};
+use volmath::space::NeuroSpaceImpl;
+use volmath::{NeuroSpace3, NeuroSpaceExt};
 
 #[tokio::test]
 async fn test_affine_transform_passed_to_gpu() {
@@ -22,42 +25,48 @@ async fn test_affine_transform_passed_to_gpu() {
     affine[(1, 0)] = angle.sin();
     affine[(1, 1)] = angle.cos();
 
-    let space = NeuroSpaceImpl::from_affine_matrix4(dims, affine.clone());
-    let neuro_space = NeuroSpace3(space);
-    let volume = DenseVolume3::<f32>::from_data(neuro_space, data);
+    let space =
+        NeuroSpaceImpl::from_affine_matrix4(dims.to_vec(), affine.clone()).expect("neuro space");
+    let volume = DenseVolume3::<f32>::from_data(space.clone(), data);
+    let _neuro_space = NeuroSpace3::new(space);
 
     // Set up bridge state
-    let mut bridge_state = BridgeState::default();
+    let bridge_state = BridgeState::default().expect("bridge state");
 
     // Initialize render service
     let render_service = RenderLoopService::new().await.unwrap();
-    bridge_state.render_loop_service =
-        Arc::new(Mutex::new(Some(Arc::new(Mutex::new(render_service)))));
+    {
+        let mut guard = bridge_state.render_loop_service.lock().await;
+        *guard = Some(Arc::new(Mutex::new(render_service)));
+    }
 
     // Add volume to registry
     let volume_id = "test_volume_1".to_string();
     let affine3 = nalgebra::Affine3::from_matrix_unchecked(affine.clone());
+    let metadata = VolumeMetadataInfo {
+        name: volume_id.clone(),
+        path: "<memory>".to_string(),
+        dtype: "f32".to_string(),
+        volume_type: VolumeType::Volume3D,
+        time_series_info: None,
+    };
     bridge_state.volume_registry.lock().await.insert(
         volume_id.clone(),
-        bridge_types::VolumeSendable::VolF32(volume, affine3),
+        VolumeSendable::VolF32(volume, affine3),
+        metadata,
     );
 
     // Create layer spec
     let layer_spec = LayerSpec::Volume(VolumeLayerSpec {
         id: "layer_1".to_string(),
         source_resource_id: volume_id,
+        colormap: "gray".to_string(),
         slice_axis: Some(SliceAxis::Axial),
-        slice_index: Some(SliceIndex::Center),
-        intensity_range: None,
-        opacity: 1.0,
-        colormap_id: 0,
-        threshold_range: None,
-        visible: true,
+        slice_index: Some(SliceIndex::Middle),
     });
 
     // Request GPU resources
-    let state = State::new(bridge_state);
-    let result = request_layer_gpu_resources(layer_spec, state).await;
+    let result = request_layer_gpu_resources_for_testing(layer_spec, None, &bridge_state).await;
 
     assert!(
         result.is_ok(),
@@ -84,42 +93,48 @@ async fn test_identity_affine_transform() {
     let data = vec![2.0f32; 27];
 
     let affine = Matrix4::<f32>::identity();
-    let space = NeuroSpaceImpl::from_affine_matrix4(dims, affine.clone());
-    let neuro_space = NeuroSpace3(space);
-    let volume = DenseVolume3::<f32>::from_data(neuro_space, data);
+    let space =
+        NeuroSpaceImpl::from_affine_matrix4(dims.to_vec(), affine.clone()).expect("neuro space");
+    let volume = DenseVolume3::<f32>::from_data(space.clone(), data);
+    let _neuro_space = NeuroSpace3::new(space);
 
     // Set up bridge state
-    let mut bridge_state = BridgeState::default();
+    let bridge_state = BridgeState::default().expect("bridge state");
 
     // Initialize render service
     let render_service = RenderLoopService::new().await.unwrap();
-    bridge_state.render_loop_service =
-        Arc::new(Mutex::new(Some(Arc::new(Mutex::new(render_service)))));
+    {
+        let mut guard = bridge_state.render_loop_service.lock().await;
+        *guard = Some(Arc::new(Mutex::new(render_service)));
+    }
 
     // Add volume to registry
     let volume_id = "test_volume_2".to_string();
     let affine3 = nalgebra::Affine3::from_matrix_unchecked(affine);
+    let metadata = VolumeMetadataInfo {
+        name: volume_id.clone(),
+        path: "<memory>".to_string(),
+        dtype: "f32".to_string(),
+        volume_type: VolumeType::Volume3D,
+        time_series_info: None,
+    };
     bridge_state.volume_registry.lock().await.insert(
         volume_id.clone(),
-        bridge_types::VolumeSendable::VolF32(volume, affine3),
+        VolumeSendable::VolF32(volume, affine3),
+        metadata,
     );
 
     // Create layer spec
     let layer_spec = LayerSpec::Volume(VolumeLayerSpec {
         id: "layer_2".to_string(),
         source_resource_id: volume_id,
+        colormap: "viridis".to_string(),
         slice_axis: Some(SliceAxis::Coronal),
-        slice_index: Some(SliceIndex::Index(1)),
-        intensity_range: None,
-        opacity: 0.8,
-        colormap_id: 1,
-        threshold_range: None,
-        visible: true,
+        slice_index: Some(SliceIndex::Fixed(1)),
     });
 
     // Request GPU resources
-    let state = State::new(bridge_state);
-    let result = request_layer_gpu_resources(layer_spec, state).await;
+    let result = request_layer_gpu_resources_for_testing(layer_spec, None, &bridge_state).await;
 
     assert!(
         result.is_ok(),

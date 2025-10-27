@@ -96,7 +96,7 @@ export class OrthogonalLockedFactory implements ViewFactory {
               {
                 type: 'component',
                 componentType: 'LayerPanel',
-                title: 'Layers',
+                title: 'Volumes',
                 height: 60,
                 componentState: {}
               },
@@ -183,7 +183,7 @@ export class OrthogonalFlexibleFactory implements ViewFactory {
               {
                 type: 'component',
                 componentType: 'LayerPanel',
-                title: 'Layers',
+                title: 'Volumes',
                 height: 60,
                 componentState: {}
               },
@@ -251,7 +251,7 @@ export class MosaicViewFactory implements ViewFactory {
               {
                 type: 'component',
                 componentType: 'LayerPanel',
-                title: 'Layers',
+                title: 'Volumes',
                 height: 60,
                 componentState: {}
               },
@@ -316,7 +316,7 @@ export class LightboxViewFactory implements ViewFactory {
               {
                 type: 'component',
                 componentType: 'LayerPanel',
-                title: 'Layers',
+                title: 'Volumes',
                 height: 60,
                 componentState: {}
               },

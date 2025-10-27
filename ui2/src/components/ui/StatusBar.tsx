@@ -65,7 +65,7 @@ StatusBarSlot.displayName = 'StatusBarSlot';
 
 export function StatusBar({ 
   className = '', 
-  slots = ['coordSys', 'crosshair', 'mouse', 'layer', 'fps', 'gpu'],
+  slots = ['coordSys', 'crosshair', 'mouse', 'layer', 'atlas', 'fps', 'gpu'],
   rightContent 
 }: StatusBarProps) {
   // Subscribe to layer changes to properly detect 4D volumes

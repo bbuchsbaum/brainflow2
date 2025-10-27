@@ -1,9 +1,9 @@
 use image::{imageops, ImageBuffer, Rgba, RgbaImage};
-use nifti_loader::load_nifti_volume;
+use nifti_loader::load_nifti_volume_auto;
 use render_loop::RenderLoopService;
 use std::fs;
 use std::path::Path;
-use volmath::{space::GridSpace, Volume};
+use volmath::{space::GridSpace, NeuroSpaceExt, Volume};
 
 #[tokio::test]
 async fn test_mni_brain_slices_fixed_orientation() {
@@ -27,10 +27,8 @@ async fn test_mni_brain_slices_fixed_orientation() {
     println!("Loading MNI brain template from: {:?}", mni_path);
 
     // Load the NIfTI file
-    let file = std::fs::File::open(&mni_path).expect("Failed to open file");
-    let reader = std::io::BufReader::new(file);
-
-    let (volume_sendable, _affine) = load_nifti_volume(reader).expect("Failed to load NIfTI file");
+    let (volume_sendable, _affine) =
+        load_nifti_volume_auto(&mni_path).expect("Failed to load NIfTI file");
 
     let volume = match volume_sendable {
         bridge_types::VolumeSendable::VolF32(vol, _) => vol,
@@ -54,8 +52,8 @@ async fn test_mni_brain_slices_fixed_orientation() {
     let data_range = volume.range().unwrap_or((0.0, 1.0));
 
     // Get world bounds
-    let origin = volume.space.0.origin();
-    let spacing = volume.space.0.spacing();
+    let origin = volume.space.origin();
+    let spacing = volume.space.spacing();
     let world_min = origin;
     let world_max = [
         origin[0] + (dims[0] as f32 - 1.0) * spacing[0],

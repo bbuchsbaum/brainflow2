@@ -27,6 +27,9 @@ describe('ApiService', () => {
         volumeId: 'test-volume',
         visible: true,
         opacity: 1.0,
+        colormap: 'gray',
+        intensity: [0, 1000] as [number, number],
+        threshold: [0, 1000] as [number, number],
         render: {
           colormapId: 0,
           intensityMin: 0,
@@ -61,6 +64,9 @@ describe('ApiService', () => {
         volumeId: 'test-volume',
         visible: true,
         opacity: 1.0,
+        colormap: 'gray',
+        intensity: [0, 1000] as [number, number],
+        threshold: [0, 1000] as [number, number],
         render: {
           colormapId: 0,
           intensityMin: 0,
@@ -84,7 +90,7 @@ describe('ApiService', () => {
     it('should use new render_view API when enabled', async () => {
       // Enable the new API
       apiService.setUseNewRenderAPI(true);
-      
+
       const viewState = createMockViewState();
       // Add a test layer so we actually call the backend
       viewState.layers = [{
@@ -92,6 +98,9 @@ describe('ApiService', () => {
         volumeId: 'test-volume',
         visible: true,
         opacity: 1.0,
+        colormap: 'gray',
+        intensity: [0, 1000] as [number, number],
+        threshold: [0, 1000] as [number, number],
         render: {
           colormapId: 0,
           intensityMin: 0,
@@ -177,6 +186,44 @@ describe('ApiService', () => {
     });
   });
 
+  describe('time navigation', () => {
+    it('should set volume timepoint', async () => {
+      await apiService.setVolumeTimepoint('vol-123', 7);
+
+      const calls = mockTransport.getCallLog();
+      expect(calls[0].cmd).toBe('set_volume_timepoint');
+      expect(calls[0].args).toEqual({ volumeId: 'vol-123', timepoint: 7 });
+    });
+
+    it('should get volume timepoint', async () => {
+      mockTransport.setMockResponse('get_volume_timepoint', 5);
+      const timepoint = await apiService.getVolumeTimepoint('vol-456');
+
+      expect(timepoint).toBe(5);
+      const calls = mockTransport.getCallLog();
+      expect(calls[0].cmd).toBe('get_volume_timepoint');
+      expect(calls[0].args).toEqual({ volumeId: 'vol-456' });
+    });
+  });
+
+  describe('atlas metrics', () => {
+    it('should normalize atlas stats response', async () => {
+      const stats = await apiService.getAtlasStats();
+
+      expect(stats).toMatchObject({
+        totalLayers: 16,
+        usedLayers: 4,
+        freeLayers: 12,
+        highWatermark: 4,
+        fullEvents: 0,
+        is3D: false
+      });
+
+      const calls = mockTransport.getCallLog();
+      expect(calls[0].cmd).toBe('get_atlas_stats');
+    });
+  });
+
   describe('render loop operations', () => {
     it('should initialize render loop', async () => {
       await apiService.initRenderLoop(512, 512);
@@ -243,6 +290,9 @@ describe('ApiService', () => {
         volumeId: 'test-volume',
         visible: true,
         opacity: 1.0,
+        colormap: 'gray',
+        intensity: [0, 1000] as [number, number],
+        threshold: [0, 1000] as [number, number],
         render: {
           colormapId: 0,
           intensityMin: 0,

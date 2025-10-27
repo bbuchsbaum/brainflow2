@@ -1,19 +1,22 @@
 use tauri::command;
-                    // Import necessary volmath types directly
+// Import necessary volmath types directly
 use volmath::DenseVolume3;
 use volmath::DenseVolumeExt; // Import DenseVolumeExt trait
 use volmath::NeuroSpaceExt; // Import NeuroSpaceExt trait
 use volmath::NeuroVecTrait; // Import NeuroVecTrait for volume() method // Import DenseVolume3 type
-                                                                        // Import neuroim types through volmath re-exports
-                                                                        // use wgpu; // No longer needed directly
-use std::collections::HashMap;
+                            // Import neuroim types through volmath re-exports
+                            // use wgpu; // No longer needed directly
+use std::collections::{HashMap, HashSet};
+use std::convert::TryInto;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tauri::State; // Need State for accessing registry
                   // Import types from bridge_types
 use bridge_types::{
     self, icons, BatchRenderRequest, BridgeError, BridgeResult, DataRange, FlatNode,
-    GpuTextureFormat, LayerPatch, Loader, SliceAxisMeta, SliceInfo, TextureCoordinates,
-    TreePayload, VolumeLayerGpuInfo, VolumeSendable, VolumeHandleInfo,
+    GpuTextureFormat, LayerPatch, Loaded, Loader, SliceAxisMeta, SliceInfo, TextureCoordinates,
+    TreePayload, VolumeHandleInfo, VolumeLayerGpuInfo, VolumeSendable,
 };
 use colormap::colormap_by_name;
 // Import NiftiLoader for registration
@@ -23,18 +26,20 @@ use render_loop::RenderLoopService; // Remove unused RenderLoopError
                                     // use async_trait::async_trait;
 use log::{debug, error, info, warn}; // Added error, warn, and debug
 use serde::{Deserialize, Serialize}; // Need Serialize/Deserialize for new types
-use serde_json; // For JSON parsing
+use serde_json::{self, Value as JsonValue}; // For JSON parsing
 use ts_rs::TS;
 use uuid; // For generating unique IDs // Add TS trait
-                                       // Use futures::executor::block_on when needed (now removed)
-                                       // use futures;
-                                       // Added imports for plugin creation
+          // Use futures::executor::block_on when needed (now removed)
+          // use futures;
+          // Added imports for plugin creation
 use tauri::plugin::{Builder, TauriPlugin};
-use tauri::{generate_handler, Manager, Runtime, AppHandle, Emitter};
+use tauri::{generate_handler, Manager, Runtime};
 // Re-add tokio::sync::Mutex
 use nalgebra::{Affine3, Matrix4}; // Removed unused Vector4
 use neuro_types::{ViewOrientation, ViewRectMm, VolumeMetadata};
+use tokio::runtime::Handle;
 use tokio::sync::Mutex;
+use tokio::time::{interval, MissedTickBehavior};
 use tracing; // Add tracing facade import // For get_initial_views
 
 // Imports for fs_list_directory
@@ -53,7 +58,9 @@ use error_context::*;
 use error_helpers::*;
 
 // Import atlas system
-use atlases::{AtlasService, AtlasConfig, AtlasFilter, AtlasCatalogEntry, AtlasLoadResult, AtlasLoadProgress};
+use atlases::{
+    AtlasCatalogEntry, AtlasConfig, AtlasFilter, AtlasLoadProgress, AtlasLoadResult, AtlasService,
+};
 
 // --- Add Correlation ID Macro ---
 #[macro_export]
@@ -152,6 +159,171 @@ pub struct VolumeLayerSpec {
 pub struct ReleaseResult {
     pub success: bool,
     pub message: String,
+}
+
+#[derive(Debug, Clone)]
+struct ReleaseOutcome {
+    atlas_index: u32,
+    render_state_entry_removed: bool,
+}
+
+#[derive(Clone)]
+struct LayerLease {
+    inner: Arc<LayerLeaseInner>,
+}
+
+struct LayerLeaseInner {
+    layer_id: String,
+    atlas_index: u32,
+    render_loop_service: Arc<Mutex<Option<Arc<Mutex<RenderLoopService>>>>>,
+    layer_to_atlas_map: Arc<Mutex<HashMap<String, u32>>>,
+    layer_to_volume_map: Arc<Mutex<HashMap<String, String>>>,
+    is_released: AtomicBool,
+    created_at: Instant,
+}
+
+const LAYER_WATCHDOG_INTERVAL: Duration = Duration::from_secs(60);
+const LAYER_WATCHDOG_STALE_AGE: Duration = Duration::from_secs(5 * 60);
+
+impl LayerLease {
+    fn new(
+        layer_id: String,
+        atlas_index: u32,
+        render_loop_service: Arc<Mutex<Option<Arc<Mutex<RenderLoopService>>>>>,
+        layer_to_atlas_map: Arc<Mutex<HashMap<String, u32>>>,
+        layer_to_volume_map: Arc<Mutex<HashMap<String, String>>>,
+    ) -> Self {
+        Self {
+            inner: Arc::new(LayerLeaseInner {
+                layer_id,
+                atlas_index,
+                render_loop_service,
+                layer_to_atlas_map,
+                layer_to_volume_map,
+                is_released: AtomicBool::new(false),
+                created_at: Instant::now(),
+            }),
+        }
+    }
+
+    fn atlas_index(&self) -> u32 {
+        self.inner.atlas_index
+    }
+
+    fn layer_id(&self) -> &str {
+        &self.inner.layer_id
+    }
+
+    fn is_released(&self) -> bool {
+        self.inner.is_released.load(Ordering::SeqCst)
+    }
+
+    fn age(&self) -> Duration {
+        self.inner.created_at.elapsed()
+    }
+
+    async fn release(&self, reason: &'static str) -> BridgeResult<Option<ReleaseOutcome>> {
+        self.inner.release(reason).await
+    }
+}
+
+impl LayerLeaseInner {
+    async fn release(&self, reason: &'static str) -> BridgeResult<Option<ReleaseOutcome>> {
+        if self.is_released.swap(true, Ordering::SeqCst) {
+            return Ok(None);
+        }
+
+        // Remove from front-end tracking maps. If the entries are already gone,
+        // fall back to the original atlas index stored on the lease.
+        let atlas_index = {
+            let mut layer_map = self.layer_to_atlas_map.lock().await;
+            layer_map.remove(&self.layer_id).unwrap_or(self.atlas_index)
+        };
+
+        {
+            let mut volume_map = self.layer_to_volume_map.lock().await;
+            volume_map.remove(&self.layer_id);
+        }
+
+        let service_option = {
+            let guard = self.render_loop_service.lock().await;
+            guard.clone()
+        };
+
+        let service_arc = service_option.ok_or_else(|| BridgeError::ServiceNotInitialized {
+            code: 5008,
+            details: format!(
+                "GPU rendering service is not initialized. Cannot release layer {}.",
+                self.layer_id
+            ),
+        })?;
+
+        let mut render_service = service_arc.lock().await;
+        let removed_from_render_state = match render_service.remove_layer_by_atlas(atlas_index) {
+            Ok(removed) => removed,
+            Err(err) => {
+                warn!(
+                    "LayerLease({}) failed to remove render state entry for atlas index {}: {:?}",
+                    self.layer_id, atlas_index, err
+                );
+                false
+            }
+        };
+
+        render_service.volume_atlas.free_layer(atlas_index);
+        info!(
+            "LayerLease({}) released atlas index {} (reason: {})",
+            self.layer_id, atlas_index, reason
+        );
+
+        Ok(Some(ReleaseOutcome {
+            atlas_index,
+            render_state_entry_removed: removed_from_render_state,
+        }))
+    }
+}
+
+impl Drop for LayerLease {
+    fn drop(&mut self) {
+        if self.inner.is_released.load(Ordering::SeqCst) {
+            return;
+        }
+
+        let inner = Arc::clone(&self.inner);
+        match Handle::try_current() {
+            Ok(handle) => {
+                handle.spawn(async move {
+                    if let Err(err) = inner.release("drop").await {
+                        warn!("LayerLease drop release failed: {:?}", err);
+                    }
+                });
+            }
+            Err(_) => {
+                std::thread::spawn(move || {
+                    if let Ok(rt) = tokio::runtime::Runtime::new() {
+                        if let Err(err) = rt.block_on(inner.release("drop")) {
+                            eprintln!("LayerLease drop release failed (thread): {:?}", err);
+                        }
+                    }
+                });
+            }
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct AtlasStats {
+    pub total_layers: u32,
+    pub used_layers: u32,
+    pub free_layers: u32,
+    pub allocations: u64,
+    pub releases: u64,
+    pub high_watermark: u32,
+    pub full_events: u64,
+    pub is_3d: bool,
+    pub last_allocation_ms: Option<u64>,
+    pub last_release_ms: Option<u64>,
 }
 
 // Helper alias for Result
@@ -256,6 +428,30 @@ fn coord_to_grid_for_volume(
     volume_data: &VolumeSendable,
     coords: &Vec<Vec<f64>>,
 ) -> Result<Vec<Vec<i32>>, String> {
+    fn ensure_4d_coords(
+        coords: &Vec<Vec<f64>>,
+        target_dims: usize,
+    ) -> Result<Vec<Vec<f64>>, String> {
+        let mut adapted = Vec::with_capacity(coords.len());
+        for coord in coords {
+            match coord.len() {
+                len if len == target_dims => adapted.push(coord.clone()),
+                3 if target_dims == 4 => {
+                    let mut extended = coord.clone();
+                    extended.push(0.0);
+                    adapted.push(extended);
+                }
+                other => {
+                    return Err(format!(
+                        "Coordinates must have {} dimensions (received {} values)",
+                        target_dims, other
+                    ))
+                }
+            }
+        }
+        Ok(adapted)
+    }
+
     match volume_data {
         // 3D volumes
         VolumeSendable::VolF32(vol, _) => {
@@ -283,37 +479,61 @@ fn coord_to_grid_for_volume(
             vol.space().coord_to_grid(coords).map_err(|e| e.to_string())
         }
         // 4D volumes - use only spatial dimensions
-        VolumeSendable::Vec4DF32(_vec) => {
-            // TODO: Implement coordinate conversion for 4D volumes
-            Err("Coordinate conversion for 4D volumes not yet implemented".to_string())
+        VolumeSendable::Vec4DF32(vec) => {
+            let prepared = ensure_4d_coords(coords, vec.space.ndim())
+                .map_err(|e| format!("Invalid 4D coordinate: {e}"))?;
+            vec.space
+                .coord_to_grid(&prepared)
+                .map_err(|e| e.to_string())
         }
-        VolumeSendable::Vec4DI16(_vec) => {
-            // TODO: Implement coordinate conversion for 4D volumes
-            Err("Coordinate conversion for 4D volumes not yet implemented".to_string())
+        VolumeSendable::Vec4DI16(vec) => {
+            let prepared = ensure_4d_coords(coords, vec.space.ndim())
+                .map_err(|e| format!("Invalid 4D coordinate: {e}"))?;
+            vec.space
+                .coord_to_grid(&prepared)
+                .map_err(|e| e.to_string())
         }
-        VolumeSendable::Vec4DU8(_vec) => {
-            // TODO: Implement coordinate conversion for 4D volumes
-            Err("Coordinate conversion for 4D volumes not yet implemented".to_string())
+        VolumeSendable::Vec4DU8(vec) => {
+            let prepared = ensure_4d_coords(coords, vec.space.ndim())
+                .map_err(|e| format!("Invalid 4D coordinate: {e}"))?;
+            vec.space
+                .coord_to_grid(&prepared)
+                .map_err(|e| e.to_string())
         }
-        VolumeSendable::Vec4DI8(_vec) => {
-            // TODO: Implement coordinate conversion for 4D volumes
-            Err("Coordinate conversion for 4D volumes not yet implemented".to_string())
+        VolumeSendable::Vec4DI8(vec) => {
+            let prepared = ensure_4d_coords(coords, vec.space.ndim())
+                .map_err(|e| format!("Invalid 4D coordinate: {e}"))?;
+            vec.space
+                .coord_to_grid(&prepared)
+                .map_err(|e| e.to_string())
         }
-        VolumeSendable::Vec4DU16(_vec) => {
-            // TODO: Implement coordinate conversion for 4D volumes
-            Err("Coordinate conversion for 4D volumes not yet implemented".to_string())
+        VolumeSendable::Vec4DU16(vec) => {
+            let prepared = ensure_4d_coords(coords, vec.space.ndim())
+                .map_err(|e| format!("Invalid 4D coordinate: {e}"))?;
+            vec.space
+                .coord_to_grid(&prepared)
+                .map_err(|e| e.to_string())
         }
-        VolumeSendable::Vec4DI32(_vec) => {
-            // TODO: Implement coordinate conversion for 4D volumes
-            Err("Coordinate conversion for 4D volumes not yet implemented".to_string())
+        VolumeSendable::Vec4DI32(vec) => {
+            let prepared = ensure_4d_coords(coords, vec.space.ndim())
+                .map_err(|e| format!("Invalid 4D coordinate: {e}"))?;
+            vec.space
+                .coord_to_grid(&prepared)
+                .map_err(|e| e.to_string())
         }
-        VolumeSendable::Vec4DU32(_vec) => {
-            // TODO: Implement coordinate conversion for 4D volumes
-            Err("Coordinate conversion for 4D volumes not yet implemented".to_string())
+        VolumeSendable::Vec4DU32(vec) => {
+            let prepared = ensure_4d_coords(coords, vec.space.ndim())
+                .map_err(|e| format!("Invalid 4D coordinate: {e}"))?;
+            vec.space
+                .coord_to_grid(&prepared)
+                .map_err(|e| e.to_string())
         }
-        VolumeSendable::Vec4DF64(_vec) => {
-            // TODO: Implement coordinate conversion for 4D volumes
-            Err("Coordinate conversion for 4D volumes not yet implemented".to_string())
+        VolumeSendable::Vec4DF64(vec) => {
+            let prepared = ensure_4d_coords(coords, vec.space.ndim())
+                .map_err(|e| format!("Invalid 4D coordinate: {e}"))?;
+            vec.space
+                .coord_to_grid(&prepared)
+                .map_err(|e| e.to_string())
         }
     }
 }
@@ -916,12 +1136,21 @@ impl SurfaceRegistry {
     }
 
     /// Insert a new surface into the registry
-    pub fn insert_surface(&mut self, id: String, geometry: neurosurf_rs::geometry::SurfaceGeometry, transform: Affine3<f32>, metadata: SurfaceMetadataInfo) {
-        self.surfaces.insert(id, SurfaceEntry {
-            geometry,
-            transform,
-            metadata,
-        });
+    pub fn insert_surface(
+        &mut self,
+        id: String,
+        geometry: neurosurf_rs::geometry::SurfaceGeometry,
+        transform: Affine3<f32>,
+        metadata: SurfaceMetadataInfo,
+    ) {
+        self.surfaces.insert(
+            id,
+            SurfaceEntry {
+                geometry,
+                transform,
+                metadata,
+            },
+        );
     }
 
     /// Insert surface data into the registry
@@ -971,6 +1200,8 @@ pub struct BridgeState {
     pub layer_to_atlas_map: Arc<Mutex<HashMap<String, u32>>>,
     // Map UI layer ID to volume handle
     pub layer_to_volume_map: Arc<Mutex<HashMap<String, String>>>,
+    // Active leases guarding atlas allocations
+    pub layer_leases: Arc<Mutex<HashMap<String, LayerLease>>>,
     // Atlas service for brain atlas management
     pub atlas_service: Arc<Mutex<AtlasService>>,
     // Template service for brain template management
@@ -994,6 +1225,7 @@ impl BridgeState {
             render_loop_service,
             layer_to_atlas_map,
             layer_to_volume_map,
+            layer_leases: Arc::new(Mutex::new(HashMap::new())),
             atlas_service,
             template_service,
         }
@@ -1002,7 +1234,7 @@ impl BridgeState {
     pub fn default() -> Result<Self, String> {
         // Create cache directory for atlas data
         let cache_dir = std::env::temp_dir().join("brainflow_atlas_cache");
-        
+
         Ok(Self {
             // Removed loader_registry initialization
             volume_registry: Arc::new(Mutex::new(VolumeRegistry::new())),
@@ -1010,15 +1242,104 @@ impl BridgeState {
             render_loop_service: Arc::new(Mutex::new(None)),
             layer_to_atlas_map: Arc::new(Mutex::new(HashMap::new())),
             layer_to_volume_map: Arc::new(Mutex::new(HashMap::new())),
+            layer_leases: Arc::new(Mutex::new(HashMap::new())),
             atlas_service: Arc::new(Mutex::new(
                 AtlasService::new(cache_dir.clone())
-                    .map_err(|e| format!("Failed to initialize atlas service: {}", e))?
+                    .map_err(|e| format!("Failed to initialize atlas service: {}", e))?,
             )),
             template_service: Arc::new(Mutex::new(
                 templates::TemplateService::new(cache_dir)
-                    .map_err(|e| format!("Failed to initialize template service: {}", e))?
+                    .map_err(|e| format!("Failed to initialize template service: {}", e))?,
             )),
         })
+    }
+
+    pub fn start_layer_watchdog(&self) {
+        let leases = Arc::clone(&self.layer_leases);
+        let layer_map = Arc::clone(&self.layer_to_atlas_map);
+        let render_loop_service = Arc::clone(&self.render_loop_service);
+
+        tauri::async_runtime::spawn(async move {
+            let mut ticker = interval(LAYER_WATCHDOG_INTERVAL);
+            ticker.set_missed_tick_behavior(MissedTickBehavior::Skip);
+
+            loop {
+                ticker.tick().await;
+
+                let service_arc_option = {
+                    let guard = render_loop_service.lock().await;
+                    guard.clone()
+                };
+
+                let Some(service_arc) = service_arc_option else {
+                    continue;
+                };
+
+                let active_indices: HashSet<u32> = {
+                    let service_guard = service_arc.lock().await;
+                    service_guard.active_atlas_indices().into_iter().collect()
+                };
+
+                let layer_map_snapshot: HashMap<String, u32> = {
+                    let guard = layer_map.lock().await;
+                    guard.clone()
+                };
+
+                let leases_snapshot: Vec<(String, LayerLease)> = {
+                    let guard = leases.lock().await;
+                    guard
+                        .iter()
+                        .map(|(layer_id, lease)| (layer_id.clone(), lease.clone()))
+                        .collect()
+                };
+
+                if leases_snapshot.is_empty() {
+                    continue;
+                }
+
+                let mut to_remove = Vec::new();
+
+                for (layer_id, lease) in leases_snapshot {
+                    if lease.is_released() {
+                        to_remove.push(layer_id);
+                        continue;
+                    }
+
+                    let atlas_index = lease.atlas_index();
+                    let atlas_active = active_indices.contains(&atlas_index);
+                    let has_mapping = layer_map_snapshot.contains_key(&layer_id);
+
+                    if atlas_active {
+                        continue;
+                    }
+
+                    if !has_mapping || lease.age() >= LAYER_WATCHDOG_STALE_AGE {
+                        match lease.release("watchdog").await {
+                            Ok(_) => {
+                                info!(
+                                    "Layer watchdog released stale layer '{}' (atlas index {})",
+                                    layer_id, atlas_index
+                                );
+                                to_remove.push(layer_id);
+                            }
+                            Err(err) => {
+                                warn!(
+                                    "Layer watchdog failed to release layer '{}': {:?}",
+                                    layer_id, err
+                                );
+                            }
+                        }
+                    }
+                }
+
+                if !to_remove.is_empty() {
+                    let mut guard = leases.lock().await;
+                    for id in to_remove {
+                        guard.remove(&id);
+                    }
+                }
+            }
+        });
     }
 }
 
@@ -1026,10 +1347,7 @@ impl BridgeState {
 
 #[command]
 #[tracing::instrument(skip_all, err, name = "api.load_file")]
-async fn load_file(
-    path: String,
-    state: State<'_, BridgeState>,
-) -> BridgeResult<VolumeHandleInfo> {
+async fn load_file(path: String, state: State<'_, BridgeState>) -> BridgeResult<VolumeHandleInfo> {
     info!("Bridge: load_file called with path: {}", path);
 
     // Validate that the file exists and is loadable
@@ -1049,23 +1367,21 @@ async fn load_file(
     }
 
     // Load the volume data
-    let (volume_sendable, _affine) = nifti_loader::load_nifti_volume_auto(file_path)
-        .map_err(|e| BridgeError::Loader {
+    let (volume_sendable, _affine) =
+        nifti_loader::load_nifti_volume_auto(file_path).map_err(|e| BridgeError::Loader {
             code: 1003,
             details: format!("Failed to load file {}: {}", path, e),
         })?;
 
     // Extract metadata from the loaded volume
-    let loaded_data = nifti_loader::NiftiLoader::load(file_path)
-        .map_err(|e| BridgeError::Loader {
+    let loaded_data =
+        nifti_loader::NiftiLoader::load(file_path).map_err(|e| BridgeError::Loader {
             code: 1004,
             details: format!("Failed to load metadata for {}: {}", path, e),
         })?;
 
     let (dims, dtype) = match loaded_data {
-        bridge_types::Loaded::Volume { dims, dtype, .. } => {
-            (dims, dtype)
-        }
+        bridge_types::Loaded::Volume { dims, dtype, .. } => (dims, dtype),
         _ => {
             return Err(BridgeError::Input {
                 code: 1005,
@@ -1079,18 +1395,21 @@ async fn load_file(
         bridge_types::VolumeSendable::VolF32(vol, _) => {
             let vol_dims = vol.space().dims();
             if vol_dims.len() > 3 && vol_dims[3] > 1 {
-                (bridge_types::VolumeType::TimeSeries4D, Some(bridge_types::TimeSeriesInfo {
-                    num_timepoints: vol_dims[3],
-                    tr: None,
-                    temporal_unit: None,
-                    acquisition_time: None,
-                }))
+                (
+                    bridge_types::VolumeType::TimeSeries4D,
+                    Some(bridge_types::TimeSeriesInfo {
+                        num_timepoints: vol_dims[3],
+                        tr: None,
+                        temporal_unit: None,
+                        acquisition_time: None,
+                    }),
+                )
             } else {
                 (bridge_types::VolumeType::Volume3D, None)
             }
         }
         // For other types, assume 3D for now
-        _ => (bridge_types::VolumeType::Volume3D, None)
+        _ => (bridge_types::VolumeType::Volume3D, None),
     };
 
     // Generate a unique handle ID based on the file name
@@ -1114,7 +1433,10 @@ async fn load_file(
     registry.insert(handle_id.clone(), volume_sendable, metadata);
     drop(registry);
 
-    info!("Bridge: Successfully loaded volume with handle: {}", handle_id);
+    info!(
+        "Bridge: Successfully loaded volume with handle: {}",
+        handle_id
+    );
 
     // Return the handle
     Ok(VolumeHandleInfo {
@@ -1156,15 +1478,20 @@ async fn load_surface(
 
     // Load the file using the GIFTI loader
     let loaded = gifti_loader::GiftiLoader::load(file_path)?;
-    
+
     match loaded {
-        bridge_types::Loaded::Surface { handle, vertex_count, face_count, path: loaded_path } => {
+        bridge_types::Loaded::Surface {
+            handle,
+            vertex_count,
+            face_count,
+            path: loaded_path,
+        } => {
             // Load the actual surface geometry
             let geometry = gifti_loader::load_gifti_surface(file_path)?;
-            
+
             // Create an identity transform for now
             let transform = Affine3::identity();
-            
+
             // Extract metadata
             let hemisphere = match geometry.hemisphere() {
                 neurosurf_rs::geometry::Hemisphere::Left => Some("left".to_string()),
@@ -1172,14 +1499,14 @@ async fn load_surface(
                 neurosurf_rs::geometry::Hemisphere::Both => Some("both".to_string()),
                 neurosurf_rs::geometry::Hemisphere::Unknown => None,
             };
-            
+
             let surface_type = match geometry.surface_type() {
                 neurosurf_rs::geometry::SurfaceType::White => Some("white".to_string()),
                 neurosurf_rs::geometry::SurfaceType::Pial => Some("pial".to_string()),
                 neurosurf_rs::geometry::SurfaceType::Inflated => Some("inflated".to_string()),
-                _ => None,  // Handle any other surface types
+                _ => None, // Handle any other surface types
             };
-            
+
             // Create metadata
             let metadata = SurfaceMetadataInfo {
                 name: file_path
@@ -1193,14 +1520,17 @@ async fn load_surface(
                 vertex_count,
                 face_count,
             };
-            
+
             // Register the surface
             let mut registry = state.surface_registry.lock().await;
             registry.insert_surface(handle.0.clone(), geometry, transform, metadata);
             drop(registry);
-            
-            info!("Bridge: Successfully loaded surface with handle: {}", handle.0);
-            
+
+            info!(
+                "Bridge: Successfully loaded surface with handle: {}",
+                handle.0
+            );
+
             // Return the loaded content
             Ok(bridge_types::LoadedContent::Surface {
                 handle: handle.0,
@@ -1210,7 +1540,11 @@ async fn load_surface(
                 surface_type,
             })
         }
-        bridge_types::Loaded::SurfaceData { handle, data_count, path: loaded_path } => {
+        bridge_types::Loaded::SurfaceData {
+            handle,
+            data_count,
+            path: loaded_path,
+        } => {
             // For surface data, we'll need to implement loading the actual data
             // For now, return a placeholder
             Ok(bridge_types::LoadedContent::SurfaceData {
@@ -1219,12 +1553,10 @@ async fn load_surface(
                 intent: "unknown".to_string(), // TODO: Extract intent from GIFTI
             })
         }
-        _ => {
-            Err(BridgeError::Internal {
-                code: 1006,
-                details: "Unexpected loaded content type from GIFTI loader".to_string(),
-            })
-        }
+        _ => Err(BridgeError::Internal {
+            code: 1006,
+            details: "Unexpected loaded content type from GIFTI loader".to_string(),
+        }),
     }
 }
 
@@ -1235,18 +1567,21 @@ async fn get_surface_geometry(
     state: State<'_, BridgeState>,
 ) -> BridgeResult<bridge_types::SurfaceGeometryData> {
     info!("Bridge: get_surface_geometry called for handle: {}", handle);
-    
+
     // Get the surface from registry
     let registry = state.surface_registry.lock().await;
-    let surface_entry = registry.get_surface(&handle)
+    let surface_entry = registry
+        .get_surface(&handle)
         .ok_or_else(|| BridgeError::Input {
             code: 2001,
             details: format!("Surface not found: {}", handle),
         })?;
-    
+
     // Extract vertices and faces
     // vertices() returns Result<Array2<f64>> where each row is [x, y, z]
-    let vertices_array = surface_entry.geometry.vertices()
+    let vertices_array = surface_entry
+        .geometry
+        .vertices()
         .map_err(|e| BridgeError::Internal {
             code: 2002,
             details: format!("Failed to get vertices: {}", e),
@@ -1257,9 +1592,11 @@ async fn get_surface_geometry(
         vertices.push(row[1] as f32);
         vertices.push(row[2] as f32);
     }
-    
+
     // faces() returns Result<Array2<usize>> where each row is [v0, v1, v2]
-    let faces_array = surface_entry.geometry.faces()
+    let faces_array = surface_entry
+        .geometry
+        .faces()
         .map_err(|e| BridgeError::Internal {
             code: 2003,
             details: format!("Failed to get faces: {}", e),
@@ -1270,11 +1607,8 @@ async fn get_surface_geometry(
         faces.push(row[1] as u32);
         faces.push(row[2] as u32);
     }
-    
-    Ok(bridge_types::SurfaceGeometryData {
-        vertices,
-        faces,
-    })
+
+    Ok(bridge_types::SurfaceGeometryData { vertices, faces })
 }
 
 #[command]
@@ -1623,12 +1957,103 @@ async fn recalculate_view_for_dimensions(
 }
 
 #[command]
-#[tracing::instrument(skip_all, err, name = "api.request_gpu")]
-async fn request_layer_gpu_resources(
+#[tracing::instrument(skip_all, err, name = "api.recalculate_all_views")]
+async fn recalculate_all_views(
+    volume_id: String,
+    dimensions_by_view: HashMap<String, Vec<u32>>,
+    crosshair_mm: Vec<f32>, // [x, y, z]
+    state: State<'_, BridgeState>,
+) -> BridgeResult<HashMap<String, ViewRectMm>> {
+    info!(
+        "Bridge: recalculate_all_views called for {} with dims {:?} and crosshair {:?}",
+        volume_id, dimensions_by_view, crosshair_mm
+    );
+
+    if crosshair_mm.len() != 3 {
+        return Err(BridgeError::Input {
+            code: 4001,
+            details: "crosshair_mm must have exactly 3 elements [x, y, z]".to_string(),
+        });
+    }
+
+    let crosshair_world = [crosshair_mm[0], crosshair_mm[1], crosshair_mm[2]];
+
+    let mut resolved_dims: HashMap<&str, [u32; 2]> = HashMap::new();
+    for key in ["axial", "sagittal", "coronal"] {
+        let dims_vec = dimensions_by_view
+            .get(key)
+            .ok_or_else(|| BridgeError::Input {
+                code: 4001,
+                details: format!(
+                    "dimensions missing for view '{}'. Expected keys: axial, sagittal, coronal",
+                    key
+                ),
+            })?;
+        if dims_vec.len() != 2 {
+            return Err(BridgeError::Input {
+                code: 4001,
+                details: format!(
+                    "dimensions for view '{}' must have exactly 2 elements [width, height]",
+                    key
+                ),
+            });
+        }
+        resolved_dims.insert(key, [dims_vec[0], dims_vec[1]]);
+    }
+
+    let volume_registry = state.volume_registry.lock().await;
+    let volume_data =
+        volume_registry
+            .get(&volume_id)
+            .ok_or_else(|| BridgeError::VolumeNotFound {
+                code: 4041,
+                details: format!("Volume '{}' not found", volume_id),
+            })?;
+
+    let dims_vec = get_spatial_dims_from_volume(volume_data);
+    let dims = [dims_vec[0], dims_vec[1], dims_vec[2]];
+    let affine = get_affine_from_volume(volume_data)?;
+    let voxel_to_world = affine.to_homogeneous();
+
+    let volume_meta = VolumeMetadata {
+        dimensions: [dims[0], dims[1], dims[2]],
+        voxel_to_world,
+    };
+
+    let mut views = HashMap::new();
+
+    for (key, orientation) in [
+        ("axial", ViewOrientation::Axial),
+        ("sagittal", ViewOrientation::Sagittal),
+        ("coronal", ViewOrientation::Coronal),
+    ] {
+        let dims = resolved_dims
+            .get(key)
+            .copied()
+            .ok_or_else(|| BridgeError::Input {
+                code: 4001,
+                details: format!(
+                    "Internal error - missing resolved dimensions for view '{}'",
+                    key
+                ),
+            })?;
+        let view = ViewRectMm::full_extent(&volume_meta, orientation, crosshair_world, dims);
+        debug!(
+            "[recalculate_all_views] {:?} view -> origin {:?}, dims {}x{}",
+            orientation, view.origin_mm, view.width_px, view.height_px
+        );
+        views.insert(key.to_string(), view);
+    }
+
+    Ok(views)
+}
+
+pub async fn request_layer_gpu_resources_for_testing(
     layer_spec: LayerSpec,
     metadata_only: Option<bool>,
-    state: State<'_, BridgeState>,
+    bridge_state: &BridgeState,
 ) -> BridgeResult<VolumeLayerGpuInfo> {
+    let state = bridge_state;
     // Update return type
     info!(
         "Bridge: request_layer_gpu_resources called with spec: {:?}",
@@ -1678,23 +2103,31 @@ async fn request_layer_gpu_resources(
 
             // --- 2. Get VolumeSendable with Enhanced Registry Verification ---
             let volume_registry_guard = state.volume_registry.lock().await;
-            
+
             // Enhanced verification for template loading timing issues
-            if !volume_registry_guard.volumes.contains_key(&source_volume_id) {
-                warn!("Volume {} not found in registry during GPU allocation - possible timing issue", source_volume_id);
-                
+            if !volume_registry_guard
+                .volumes
+                .contains_key(&source_volume_id)
+            {
+                warn!(
+                    "Volume {} not found in registry during GPU allocation - possible timing issue",
+                    source_volume_id
+                );
+
                 // Log registry state for debugging
-                info!("Registry contains {} volumes: {:?}", 
+                info!(
+                    "Registry contains {} volumes: {:?}",
                     volume_registry_guard.volumes.len(),
-                    volume_registry_guard.volumes.keys().collect::<Vec<_>>());
-                
+                    volume_registry_guard.volumes.keys().collect::<Vec<_>>()
+                );
+
                 drop(volume_registry_guard);
                 return Err(BridgeError::VolumeNotFound {
                     code: 4044,
                     details: format!("Volume {} not ready in registry. This may indicate a timing issue between template loading and GPU allocation.", source_volume_id),
                 });
             }
-            
+
             let volume_data = volume_registry_guard
                 .get(&source_volume_id)
                 .ok_or_else(|| {
@@ -1958,32 +2391,49 @@ async fn request_layer_gpu_resources(
 
             // Store the mapping from UI layer ID to atlas layer index (only if GPU was allocated)
             if !metadata_only_flag {
-                let mut layer_map = state.layer_to_atlas_map.lock().await;
+                {
+                    let mut layer_map = state.layer_to_atlas_map.lock().await;
 
-                // Debug logging for layer ID storage
-                info!("🔍 DEBUG: request_layer_gpu_resources - Storing layer mapping:");
-                info!("  - UI Layer ID: '{}'", ui_layer_id);
-                info!("  - Atlas Index: {}", atlas_layer_idx);
-                info!("  - UI Layer ID hash: {:x}", {
-                    use std::collections::hash_map::DefaultHasher;
-                    use std::hash::{Hash, Hasher};
-                    let mut hasher = DefaultHasher::new();
-                    ui_layer_id.hash(&mut hasher);
-                    hasher.finish()
-                });
+                    // Debug logging for layer ID storage
+                    info!("🔍 DEBUG: request_layer_gpu_resources - Storing layer mapping:");
+                    info!("  - UI Layer ID: '{}'", ui_layer_id);
+                    info!("  - Atlas Index: {}", atlas_layer_idx);
+                    info!("  - UI Layer ID hash: {:x}", {
+                        use std::collections::hash_map::DefaultHasher;
+                        use std::hash::{Hash, Hasher};
+                        let mut hasher = DefaultHasher::new();
+                        ui_layer_id.hash(&mut hasher);
+                        hasher.finish()
+                    });
 
-                layer_map.insert(ui_layer_id.clone(), atlas_layer_idx);
+                    layer_map.insert(ui_layer_id.clone(), atlas_layer_idx);
 
-                info!("  - Map size after insert: {}", layer_map.len());
-                info!("  - All entries in layer_to_atlas_map:");
-                for (key, value) in layer_map.iter() {
-                    info!("    '{}' -> {}", key, value);
+                    info!("  - Map size after insert: {}", layer_map.len());
+                    info!("  - All entries in layer_to_atlas_map:");
+                    for (key, value) in layer_map.iter() {
+                        info!("    '{}' -> {}", key, value);
+                    }
                 }
 
-                // Also store the volume handle mapping
-                let mut volume_map = state.layer_to_volume_map.lock().await;
-                let LayerSpec::Volume(vol_spec) = &layer_spec;
-                volume_map.insert(ui_layer_id.clone(), vol_spec.source_resource_id.clone());
+                {
+                    // Also store the volume handle mapping
+                    let mut volume_map = state.layer_to_volume_map.lock().await;
+                    let LayerSpec::Volume(vol_spec) = &layer_spec;
+                    volume_map.insert(ui_layer_id.clone(), vol_spec.source_resource_id.clone());
+                }
+
+                let lease = LayerLease::new(
+                    ui_layer_id.clone(),
+                    atlas_layer_idx,
+                    Arc::clone(&state.render_loop_service),
+                    Arc::clone(&state.layer_to_atlas_map),
+                    Arc::clone(&state.layer_to_volume_map),
+                );
+
+                {
+                    let mut lease_map = state.layer_leases.lock().await;
+                    lease_map.insert(ui_layer_id.clone(), lease);
+                }
             }
 
             // Get the affine transform (voxel to world) and extract space info - clone before dropping the guard
@@ -2460,7 +2910,7 @@ async fn request_layer_gpu_resources(
                 // Default to linear interpolation for initial load
                 // The actual interpolation mode will be set when layers are configured
                 let interpolation_mode_u32 = 1; // Linear interpolation
-                
+
                 let layer_idx = render_service
                     .add_layer_3d(
                         atlas_layer_idx,
@@ -2527,22 +2977,39 @@ async fn request_layer_gpu_resources(
 
             // Store the mapping between UI layer ID and atlas index (only if GPU was allocated)
             if !metadata_only_flag {
-                let mut layer_map = state.layer_to_atlas_map.lock().await;
-                info!(
-                    "📌 STORING layer mapping: UI layer '{}' -> atlas index {}",
-                    ui_layer_id, atlas_layer_idx
-                );
-                layer_map.insert(ui_layer_id.clone(), atlas_layer_idx);
-                info!(
-                    "📌 Layer map now contains {} entries: {:?}",
-                    layer_map.len(),
-                    layer_map.keys().collect::<Vec<_>>()
+                {
+                    let mut layer_map = state.layer_to_atlas_map.lock().await;
+                    info!(
+                        "📌 STORING layer mapping: UI layer '{}' -> atlas index {}",
+                        ui_layer_id, atlas_layer_idx
+                    );
+                    layer_map.insert(ui_layer_id.clone(), atlas_layer_idx);
+                    info!(
+                        "📌 Layer map now contains {} entries: {:?}",
+                        layer_map.len(),
+                        layer_map.keys().collect::<Vec<_>>()
+                    );
+                }
+
+                {
+                    // Also store the volume handle mapping
+                    let mut volume_map = state.layer_to_volume_map.lock().await;
+                    let LayerSpec::Volume(vol_spec) = &layer_spec;
+                    volume_map.insert(ui_layer_id.clone(), vol_spec.source_resource_id.clone());
+                }
+
+                let lease = LayerLease::new(
+                    ui_layer_id.clone(),
+                    atlas_layer_idx,
+                    Arc::clone(&state.render_loop_service),
+                    Arc::clone(&state.layer_to_atlas_map),
+                    Arc::clone(&state.layer_to_volume_map),
                 );
 
-                // Also store the volume handle mapping
-                let mut volume_map = state.layer_to_volume_map.lock().await;
-                let LayerSpec::Volume(vol_spec) = &layer_spec;
-                volume_map.insert(ui_layer_id.clone(), vol_spec.source_resource_id.clone());
+                {
+                    let mut lease_map = state.layer_leases.lock().await;
+                    lease_map.insert(ui_layer_id.clone(), lease);
+                }
             }
 
             Ok(VolumeLayerGpuInfo {
@@ -2568,19 +3035,54 @@ async fn request_layer_gpu_resources(
 }
 
 #[command]
-#[tracing::instrument(skip_all, err, name = "api.release_gpu")]
-async fn release_layer_gpu_resources(
-    layer_id: String,
+#[tracing::instrument(skip_all, err, name = "api.request_gpu")]
+async fn request_layer_gpu_resources(
+    layer_spec: LayerSpec,
+    metadata_only: Option<bool>,
     state: State<'_, BridgeState>,
+) -> BridgeResult<VolumeLayerGpuInfo> {
+    request_layer_gpu_resources_for_testing(layer_spec, metadata_only, state.inner()).await
+}
+
+async fn release_layer_gpu_resources_internal(
+    layer_id: String,
+    bridge_state: &BridgeState,
 ) -> BridgeResult<ReleaseResult> {
     info!(
         "Bridge: release_layer_gpu_resources called for layer {}",
         layer_id
     );
 
+    // Prefer the RAII-managed lease path when available.
+    if let Some(lease) = {
+        let mut leases = bridge_state.layer_leases.lock().await;
+        leases.remove(&layer_id)
+    } {
+        match lease.release("manual").await? {
+            Some(outcome) => {
+                return Ok(ReleaseResult {
+                    success: true,
+                    message: format!(
+                        "Released GPU resources for layer {} (atlas layer {})",
+                        layer_id, outcome.atlas_index
+                    ),
+                });
+            }
+            None => {
+                return Ok(ReleaseResult {
+                    success: true,
+                    message: format!(
+                        "Layer {} was already released; no GPU resources were active",
+                        layer_id
+                    ),
+                });
+            }
+        }
+    }
+
     // Look up the atlas layer index for this UI layer
     let atlas_layer_idx = {
-        let layer_map = state.layer_to_atlas_map.lock().await;
+        let layer_map = bridge_state.layer_to_atlas_map.lock().await;
         match layer_map.get(&layer_id) {
             Some(&idx) => idx,
             None => {
@@ -2593,7 +3095,7 @@ async fn release_layer_gpu_resources(
     };
 
     // Get the render loop service
-    let service_guard = state.render_loop_service.lock().await;
+    let service_guard = bridge_state.render_loop_service.lock().await;
     let service_arc = service_guard
         .as_ref()
         .ok_or_else(|| BridgeError::ServiceNotInitialized {
@@ -2604,12 +3106,37 @@ async fn release_layer_gpu_resources(
     let mut render_loop_service = service_arc.lock().await;
 
     // Release the atlas layer
+    let removed_from_render_state = render_loop_service
+        .remove_layer_by_atlas(atlas_layer_idx)
+        .map_err(|e| BridgeError::GpuError {
+            code: 5080,
+            details: format!(
+                "Failed to remove layer {} from render state: {:?}",
+                layer_id, e
+            ),
+        })?;
+
+    if !removed_from_render_state {
+        warn!(
+            "Release requested for layer '{}' but no render-state entry matched atlas index {}",
+            layer_id, atlas_layer_idx
+        );
+    }
+
     render_loop_service.volume_atlas.free_layer(atlas_layer_idx);
 
     // Remove from our tracking map
     {
-        let mut layer_map = state.layer_to_atlas_map.lock().await;
+        let mut layer_map = bridge_state.layer_to_atlas_map.lock().await;
         layer_map.remove(&layer_id);
+    }
+    {
+        let mut volume_map = bridge_state.layer_to_volume_map.lock().await;
+        volume_map.remove(&layer_id);
+    }
+    {
+        let mut lease_map = bridge_state.layer_leases.lock().await;
+        lease_map.remove(&layer_id);
     }
 
     info!(
@@ -2619,10 +3146,71 @@ async fn release_layer_gpu_resources(
 
     Ok(ReleaseResult {
         success: true,
-        message: format!(
-            "Released GPU resources for layer {} (atlas layer {})",
-            layer_id, atlas_layer_idx
-        ),
+        message: if removed_from_render_state {
+            format!(
+                "Released GPU resources and render state for layer {} (atlas layer {})",
+                layer_id, atlas_layer_idx
+            )
+        } else {
+            format!(
+                "Released GPU resources for layer {} (atlas layer {}), but no render state entry was found",
+                layer_id, atlas_layer_idx
+            )
+        },
+    })
+}
+
+#[command]
+#[tracing::instrument(skip_all, err, name = "api.release_gpu")]
+async fn release_layer_gpu_resources(
+    layer_id: String,
+    state: State<'_, BridgeState>,
+) -> BridgeResult<ReleaseResult> {
+    release_layer_gpu_resources_internal(layer_id, state.inner()).await
+}
+
+#[doc(hidden)]
+pub async fn release_layer_gpu_resources_for_testing(
+    layer_id: String,
+    bridge_state: &BridgeState,
+) -> BridgeResult<ReleaseResult> {
+    release_layer_gpu_resources_internal(layer_id, bridge_state).await
+}
+
+#[command]
+#[tracing::instrument(skip_all, err, name = "api.get_atlas_stats")]
+async fn get_atlas_stats(state: State<'_, BridgeState>) -> BridgeResult<AtlasStats> {
+    let service_guard = state.render_loop_service.lock().await;
+    let service_arc = service_guard
+        .as_ref()
+        .ok_or_else(|| BridgeError::ServiceNotInitialized {
+            code: 5008,
+            details: "GPU rendering service is not initialized. Cannot query atlas stats."
+                .to_string(),
+        })?;
+    let service = service_arc.lock().await;
+    let metrics = service.atlas_metrics();
+
+    let last_allocation_ms = metrics
+        .last_allocation
+        .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
+        .map(|d| d.as_millis() as u64);
+    let last_release_ms = metrics
+        .last_release
+        .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
+        .map(|d| d.as_millis() as u64);
+
+    Ok(AtlasStats {
+        total_layers: metrics.total_layers,
+        used_layers: metrics.used_layers,
+        free_layers: metrics.free_layers,
+        allocations: metrics.allocations,
+        releases: metrics.releases,
+        high_watermark: metrics.high_watermark,
+        full_events: metrics.full_events,
+        is_3d: metrics.is_3d,
+        last_allocation_ms,
+        last_release_ms,
     })
 }
 
@@ -2759,7 +3347,8 @@ async fn init_render_loop(state: State<'_, BridgeState>) -> BridgeResult<()> {
 async fn resize_canvas(width: u32, height: u32, state: State<'_, BridgeState>) -> BridgeResult<()> {
     info!("Bridge: resize_canvas called with {}x{}", width, height);
 
-    let service_guard = state.render_loop_service.lock().await;
+    let bridge_state = state.inner();
+    let service_guard = bridge_state.render_loop_service.lock().await;
     let service_arc = service_guard
         .as_ref()
         .ok_or_else(|| BridgeError::ServiceNotInitialized {
@@ -2788,6 +3377,8 @@ async fn update_frame_ubo(
     info!("  u_mm: {:?}", u_mm);
     info!("  v_mm: {:?}", v_mm);
 
+    let bridge_state = state.inner();
+
     // Validate input arrays
     if origin_mm.len() != 4 {
         return Err(BridgeError::Input {
@@ -2809,7 +3400,7 @@ async fn update_frame_ubo(
     }
 
     // Get render loop service
-    let service_guard = state.render_loop_service.lock().await;
+    let service_guard = bridge_state.render_loop_service.lock().await;
     let service_arc = service_guard
         .as_ref()
         .ok_or_else(|| BridgeError::ServiceNotInitialized {
@@ -2851,6 +3442,8 @@ async fn set_crosshair(
         world_coords
     );
 
+    let bridge_state = state.inner();
+
     // Validate input
     if world_coords.len() != 3 {
         return Err(BridgeError::Input {
@@ -2860,7 +3453,7 @@ async fn set_crosshair(
     }
 
     // Get render loop service
-    let service_guard = state.render_loop_service.lock().await;
+    let service_guard = bridge_state.render_loop_service.lock().await;
     let service_arc = service_guard
         .as_ref()
         .ok_or_else(|| BridgeError::ServiceNotInitialized {
@@ -3234,46 +3827,65 @@ async fn compute_layer_histogram(
         let layer_map = state.layer_to_volume_map.lock().await;
         match layer_map.get(&layer_id) {
             Some(handle) => {
-                info!("Found volume handle {} for layer {} in layer_to_volume_map", handle, layer_id);
+                info!(
+                    "Found volume handle {} for layer {} in layer_to_volume_map",
+                    handle, layer_id
+                );
                 handle.clone()
-            },
+            }
             None => {
-                warn!("Layer {} not found in layer_to_volume_map, attempting fallback mechanisms", layer_id);
-                
+                warn!(
+                    "Layer {} not found in layer_to_volume_map, attempting fallback mechanisms",
+                    layer_id
+                );
+
                 // Log available mappings for debugging
-                info!("Available layer mappings: {:?}", layer_map.keys().collect::<Vec<_>>());
-                
+                info!(
+                    "Available layer mappings: {:?}",
+                    layer_map.keys().collect::<Vec<_>>()
+                );
+
                 // Drop the lock before proceeding
                 drop(layer_map);
-                
+
                 // Fallback 1: Try using layer_id as volume_handle directly
                 // This works when the frontend uses volume_id as layer_id
                 let registry = state.volume_registry.lock().await;
                 if registry.contains(&layer_id) {
-                    info!("Fallback 1 succeeded: Found volume using layer_id {} as volume_handle", layer_id);
+                    info!(
+                        "Fallback 1 succeeded: Found volume using layer_id {} as volume_handle",
+                        layer_id
+                    );
                     drop(registry);
                     layer_id.clone()
                 } else {
                     // Fallback 2: Search registry for volumes that might match
                     // This handles cases where there's a mismatch in ID formats
-                    let matching_volumes: Vec<String> = registry.keys()
+                    let matching_volumes: Vec<String> = registry
+                        .keys()
                         .filter(|k| {
                             // Check if volume key contains layer_id or vice versa
                             k.contains(&layer_id) || layer_id.contains(*k)
                         })
                         .cloned()
                         .collect();
-                    
+
                     if let Some(volume_handle) = matching_volumes.first() {
-                        info!("Fallback 2 succeeded: Found matching volume {} for layer {}", volume_handle, layer_id);
+                        info!(
+                            "Fallback 2 succeeded: Found matching volume {} for layer {}",
+                            volume_handle, layer_id
+                        );
                         drop(registry);
                         volume_handle.clone()
                     } else {
                         // Log all available volumes for debugging
-                        error!("No volume found for layer {}. Available volumes: {:?}", 
-                               layer_id, registry.keys().collect::<Vec<_>>());
+                        error!(
+                            "No volume found for layer {}. Available volumes: {:?}",
+                            layer_id,
+                            registry.keys().collect::<Vec<_>>()
+                        );
                         drop(registry);
-                        
+
                         return Err(BridgeError::VolumeNotFound {
                             code: 4044,
                             details: format!(
@@ -3379,15 +3991,21 @@ async fn compute_layer_histogram(
                 };
                 registry.get_timepoint(&volume_handle).unwrap_or(0)
             };
-            
-            info!("Computing histogram for 4D F32 volume at timepoint {}", timepoint);
-            
+
+            info!(
+                "Computing histogram for 4D F32 volume at timepoint {}",
+                timepoint
+            );
+
             // Extract the 3D volume at current timepoint
             let vol_3d = vec.volume(timepoint).map_err(|e| BridgeError::Internal {
                 code: 5014,
-                details: format!("Failed to extract timepoint {} for histogram: {}", timepoint, e),
+                details: format!(
+                    "Failed to extract timepoint {} for histogram: {}",
+                    timepoint, e
+                ),
             })?;
-            
+
             // Compute histogram from the 3D volume
             for &val in vol_3d.data().iter() {
                 if !val.is_nan() && (!exclude_zeros || val != 0.0) {
@@ -3405,15 +4023,21 @@ async fn compute_layer_histogram(
                 };
                 registry.get_timepoint(&volume_handle).unwrap_or(0)
             };
-            
-            info!("Computing histogram for 4D I16 volume at timepoint {}", timepoint);
-            
+
+            info!(
+                "Computing histogram for 4D I16 volume at timepoint {}",
+                timepoint
+            );
+
             // Extract the 3D volume at current timepoint
             let vol_3d = vec.volume(timepoint).map_err(|e| BridgeError::Internal {
                 code: 5014,
-                details: format!("Failed to extract timepoint {} for histogram: {}", timepoint, e),
+                details: format!(
+                    "Failed to extract timepoint {} for histogram: {}",
+                    timepoint, e
+                ),
             })?;
-            
+
             // Compute histogram from the 3D volume
             for &val in vol_3d.data().iter() {
                 let val_f32 = val as f32;
@@ -3432,15 +4056,21 @@ async fn compute_layer_histogram(
                 };
                 registry.get_timepoint(&volume_handle).unwrap_or(0)
             };
-            
-            info!("Computing histogram for 4D U8 volume at timepoint {}", timepoint);
-            
+
+            info!(
+                "Computing histogram for 4D U8 volume at timepoint {}",
+                timepoint
+            );
+
             // Extract the 3D volume at current timepoint
             let vol_3d = vec.volume(timepoint).map_err(|e| BridgeError::Internal {
                 code: 5014,
-                details: format!("Failed to extract timepoint {} for histogram: {}", timepoint, e),
+                details: format!(
+                    "Failed to extract timepoint {} for histogram: {}",
+                    timepoint, e
+                ),
             })?;
-            
+
             // Compute histogram from the 3D volume
             for &val in vol_3d.data().iter() {
                 let val_f32 = val as f32;
@@ -4521,11 +5151,12 @@ impl RenderFormat {
 }
 
 // Internal implementation that supports both PNG and raw RGBA output
-async fn render_view_internal(
+async fn render_view_process(
     view_state_json: String,
-    state: State<'_, BridgeState>,
+    bridge_state: &BridgeState,
     format: RenderFormat,
 ) -> BridgeResult<Vec<u8>> {
+    let state = bridge_state;
     // Note: This function is called both directly (JSON path) and from apply_and_render_view_state_binary
     // Check the caller to log appropriately
 
@@ -4590,7 +5221,7 @@ async fn render_view_internal(
         #[serde(default = "default_interpolation")]
         interpolation: String,
     }
-    
+
     fn default_interpolation() -> String {
         "linear".to_string()
     }
@@ -4601,21 +5232,27 @@ async fn render_view_internal(
         &view_state_json.chars().take(500).collect::<String>()
     );
 
-    let frontend_state: FrontendViewState = match serde_json::from_str::<FrontendViewState>(&view_state_json) {
-        Ok(state) => {
-            info!("🎨 Successfully parsed ViewState with {} layers", state.layers.len());
-            state
-        }
-        Err(e) => {
-            error!("🎨 Failed to parse ViewState JSON: {}", e);
-            error!("🎨 JSON content preview: {}", 
-                   view_state_json.chars().take(500).collect::<String>());
-            return Err(BridgeError::Internal {
-                code: 4001,
-                details: format!("ViewState JSON parsing failed: {}", e),
-            });
-        }
-    };
+    let frontend_state: FrontendViewState =
+        match serde_json::from_str::<FrontendViewState>(&view_state_json) {
+            Ok(state) => {
+                info!(
+                    "🎨 Successfully parsed ViewState with {} layers",
+                    state.layers.len()
+                );
+                state
+            }
+            Err(e) => {
+                error!("🎨 Failed to parse ViewState JSON: {}", e);
+                error!(
+                    "🎨 JSON content preview: {}",
+                    view_state_json.chars().take(500).collect::<String>()
+                );
+                return Err(BridgeError::Internal {
+                    code: 4001,
+                    details: format!("ViewState JSON parsing failed: {}", e),
+                });
+            }
+        };
     let parse_time = parse_start.elapsed();
 
     info!("⏱️  JSON parsing took: {:?}", parse_time);
@@ -4685,7 +5322,7 @@ async fn render_view_internal(
 
     // Debug: log the contents of layer_map
     {
-        let layer_map = state.layer_to_atlas_map.lock().await;
+        let layer_map = bridge_state.layer_to_atlas_map.lock().await;
         info!("Current layer_to_atlas_map contents:");
         for (layer_id, atlas_idx) in layer_map.iter() {
             info!("  Layer ID '{}' -> atlas index {}", layer_id, atlas_idx);
@@ -4714,7 +5351,7 @@ async fn render_view_internal(
             );
             // Check if this layer has GPU resources allocated
             let _atlas_idx = {
-                let layer_map = state.layer_to_atlas_map.lock().await;
+                let layer_map = bridge_state.layer_to_atlas_map.lock().await;
 
                 info!(
                     "  - Searching in layer_map with {} entries",
@@ -4757,7 +5394,7 @@ async fn render_view_internal(
                     let gpu_info = allocate_gpu_resources_for_layer(
                         &layer.id,
                         &layer.volume_id,
-                        &state,
+                        bridge_state,
                         &mut service,
                         frontend_state.timepoint,
                     )
@@ -5192,6 +5829,211 @@ async fn render_view_internal(
     Ok(result)
 }
 
+#[doc(hidden)]
+pub async fn render_view_for_testing(
+    view_state_json: String,
+    bridge_state: &BridgeState,
+    format: Option<&str>,
+) -> BridgeResult<Vec<u8>> {
+    let render_format = format
+        .and_then(RenderFormat::from_str)
+        .unwrap_or(RenderFormat::RawRgba);
+    render_view_process(view_state_json, bridge_state, render_format).await
+}
+
+struct MultiViewPacketEntry {
+    view_code: u8,
+    width: u32,
+    height: u32,
+    payload: Vec<u8>,
+}
+
+fn encode_view_type(view_type: &str) -> BridgeResult<u8> {
+    match view_type.to_lowercase().as_str() {
+        "axial" => Ok(0),
+        "sagittal" => Ok(1),
+        "coronal" => Ok(2),
+        other => Err(BridgeError::Input {
+            code: 4101,
+            details: format!("Unsupported view type '{}'", other),
+        }),
+    }
+}
+
+async fn render_views_process(
+    state_json: String,
+    bridge_state: &BridgeState,
+    format: RenderFormat,
+) -> BridgeResult<Vec<u8>> {
+    let parsed_state: JsonValue =
+        serde_json::from_str(&state_json).map_err(|err| BridgeError::Input {
+            code: 4100,
+            details: format!("Failed to parse view state JSON: {}", err),
+        })?;
+
+    let requested_views = match parsed_state.get("requestedViews") {
+        Some(JsonValue::Array(requests)) if !requests.is_empty() => requests.clone(),
+        _ => {
+            return Err(BridgeError::Input {
+                code: 4102,
+                details: "render_views expects a non-empty 'requestedViews' array".to_string(),
+            })
+        }
+    };
+
+    // Base state without requestedView(s) so we can inject per request
+    let mut base_state = parsed_state.clone();
+    if let Some(obj) = base_state.as_object_mut() {
+        obj.remove("requestedViews");
+        obj.remove("requestedView");
+    }
+
+    let mut entries: Vec<MultiViewPacketEntry> = Vec::with_capacity(requested_views.len());
+
+    for request in requested_views {
+        let view_type = request
+            .get("type")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| BridgeError::Input {
+                code: 4103,
+                details: "Each requested view must include a 'type' string".to_string(),
+            })?;
+        let view_code = encode_view_type(view_type)?;
+
+        let width = request
+            .get("width")
+            .and_then(|v| v.as_u64())
+            .ok_or_else(|| BridgeError::Input {
+                code: 4104,
+                details: format!("Requested view '{}' missing numeric 'width'", view_type),
+            })? as u32;
+
+        let height = request
+            .get("height")
+            .and_then(|v| v.as_u64())
+            .ok_or_else(|| BridgeError::Input {
+                code: 4105,
+                details: format!("Requested view '{}' missing numeric 'height'", view_type),
+            })? as u32;
+
+        let mut state_for_view = base_state.clone();
+        if let Some(obj) = state_for_view.as_object_mut() {
+            obj.insert("requestedView".to_string(), request.clone());
+        }
+
+        let state_payload =
+            serde_json::to_string(&state_for_view).map_err(|err| BridgeError::Internal {
+                code: 5101,
+                details: format!("Failed to serialize view state: {}", err),
+            })?;
+
+        let render_bytes = render_view_process(state_payload, bridge_state, format).await?;
+
+        if format == RenderFormat::RawRgba {
+            if render_bytes.len() < 8 {
+                return Err(BridgeError::Internal {
+                    code: 5102,
+                    details: format!(
+                        "render_view returned insufficient data for view '{}'",
+                        view_type
+                    ),
+                });
+            }
+
+            let w_bytes: [u8; 4] = render_bytes[0..4].try_into().unwrap();
+            let h_bytes: [u8; 4] = render_bytes[4..8].try_into().unwrap();
+            let actual_width = u32::from_le_bytes(w_bytes);
+            let actual_height = u32::from_le_bytes(h_bytes);
+            let payload = render_bytes[8..].to_vec();
+
+            entries.push(MultiViewPacketEntry {
+                view_code,
+                width: actual_width,
+                height: actual_height,
+                payload,
+            });
+        } else {
+            entries.push(MultiViewPacketEntry {
+                view_code,
+                width,
+                height,
+                payload: render_bytes,
+            });
+        }
+    }
+
+    let mut packet = Vec::new();
+    packet.extend_from_slice(&(entries.len() as u32).to_le_bytes());
+
+    for entry in &entries {
+        packet.push(entry.view_code);
+        packet.extend_from_slice(&entry.width.to_le_bytes());
+        packet.extend_from_slice(&entry.height.to_le_bytes());
+        let len_u32: u32 = entry
+            .payload
+            .len()
+            .try_into()
+            .map_err(|_| BridgeError::Internal {
+                code: 5103,
+                details: "Payload too large to encode in response".to_string(),
+            })?;
+        packet.extend_from_slice(&len_u32.to_le_bytes());
+    }
+
+    for entry in entries {
+        packet.extend_from_slice(&entry.payload);
+    }
+
+    Ok(packet)
+}
+
+#[doc(hidden)]
+pub async fn render_views_for_testing(
+    view_state_json: String,
+    bridge_state: &BridgeState,
+    format: Option<&str>,
+) -> BridgeResult<Vec<u8>> {
+    let render_format = format
+        .and_then(RenderFormat::from_str)
+        .unwrap_or(RenderFormat::RawRgba);
+    render_views_process(view_state_json, bridge_state, render_format).await
+}
+
+#[command]
+#[tracing::instrument(skip_all, err, name = "api.render_views")]
+async fn render_views(
+    state_json: String,
+    format: Option<String>,
+    state: State<'_, BridgeState>,
+) -> Result<tauri::ipc::Response, BridgeError> {
+    info!("🎨 render_views called with format: {:?}", format);
+    let render_format = format
+        .as_ref()
+        .and_then(|f| RenderFormat::from_str(f))
+        .unwrap_or(RenderFormat::RawRgba);
+
+    let start_time = std::time::Instant::now();
+    let bridge_state: &BridgeState = state.inner();
+    match render_views_process(state_json, bridge_state, render_format).await {
+        Ok(result) => {
+            info!(
+                "🎨 render_views completed in {}ms ({} bytes)",
+                start_time.elapsed().as_millis(),
+                result.len()
+            );
+            Ok(tauri::ipc::Response::new(result))
+        }
+        Err(err) => {
+            error!(
+                "🎨 render_views failed after {}ms: {:?}",
+                start_time.elapsed().as_millis(),
+                err
+            );
+            Err(err)
+        }
+    }
+}
+
 // New unified render command with format parameter
 #[command]
 #[tracing::instrument(skip_all, err, name = "api.render_view")]
@@ -5202,7 +6044,7 @@ async fn render_view(
 ) -> Result<tauri::ipc::Response, BridgeError> {
     info!("🎨 render_view called with format: {:?}", format);
     info!("🎨 state_json length: {} bytes", state_json.len());
-    
+
     // Log first 200 chars of JSON for debugging
     let preview = if state_json.len() > 200 {
         format!("{}...", &state_json[..200])
@@ -5210,25 +6052,32 @@ async fn render_view(
         state_json.clone()
     };
     info!("🎨 state_json preview: {}", preview);
-    
+
     let render_format = format
         .as_ref()
         .and_then(|f| RenderFormat::from_str(f))
         .unwrap_or(RenderFormat::RawRgba);
-    
+
     info!("🎨 Using render format: {:?}", render_format);
-    
+
     // Add timing and detailed error context
     let start_time = std::time::Instant::now();
-    match render_view_internal(state_json, state, render_format).await {
+    let bridge_state: &BridgeState = state.inner();
+    match render_view_process(state_json, bridge_state, render_format).await {
         Ok(result) => {
-            info!("🎨 render_view completed successfully in {}ms, result size: {} bytes", 
-                  start_time.elapsed().as_millis(), result.len());
+            info!(
+                "🎨 render_view completed successfully in {}ms, result size: {} bytes",
+                start_time.elapsed().as_millis(),
+                result.len()
+            );
             Ok(tauri::ipc::Response::new(result))
         }
         Err(e) => {
-            error!("🎨 render_view failed after {}ms: {:?}", 
-                   start_time.elapsed().as_millis(), e);
+            error!(
+                "🎨 render_view failed after {}ms: {:?}",
+                start_time.elapsed().as_millis(),
+                e
+            );
             error!("🎨 Error details: {}", e);
             Err(e)
         }
@@ -5246,7 +6095,7 @@ async fn apply_and_render_view_state(
 ) -> BridgeResult<Vec<u8>> {
     info!("📊 LEGACY: apply_and_render_view_state called (PNG with JSON serialization)");
     // Delegate to new internal implementation
-    render_view_internal(view_state_json, state, RenderFormat::Png).await
+    render_view_process(view_state_json, state.inner(), RenderFormat::Png).await
 }
 
 // DEPRECATED: Use render_view with format="png" instead
@@ -5662,18 +6511,18 @@ async fn batch_render_slices(
 
 #[command]
 #[tracing::instrument(skip_all, err, name = "api.get_atlas_catalog")]
-async fn get_atlas_catalog(
-    state: State<'_, BridgeState>,
-) -> BridgeResult<Vec<AtlasCatalogEntry>> {
+async fn get_atlas_catalog(state: State<'_, BridgeState>) -> BridgeResult<Vec<AtlasCatalogEntry>> {
     info!("Bridge: get_atlas_catalog called");
-    
+
     let atlas_service = state.atlas_service.lock().await;
-    let catalog = atlas_service.get_catalog().await
+    let catalog = atlas_service
+        .get_catalog()
+        .await
         .map_err(|e| BridgeError::Internal {
             code: 6001,
             details: format!("Failed to get atlas catalog: {}", e),
         })?;
-    
+
     Ok(catalog)
 }
 
@@ -5684,14 +6533,16 @@ async fn get_filtered_atlases(
     state: State<'_, BridgeState>,
 ) -> BridgeResult<Vec<AtlasCatalogEntry>> {
     info!("Bridge: get_filtered_atlases called");
-    
+
     let atlas_service = state.atlas_service.lock().await;
-    let atlases = atlas_service.get_filtered_atlases(&filter).await
+    let atlases = atlas_service
+        .get_filtered_atlases(&filter)
+        .await
         .map_err(|e| BridgeError::Internal {
             code: 6002,
             details: format!("Failed to get filtered atlases: {}", e),
         })?;
-    
+
     Ok(atlases)
 }
 
@@ -5702,14 +6553,16 @@ async fn get_atlas_entry(
     state: State<'_, BridgeState>,
 ) -> BridgeResult<Option<AtlasCatalogEntry>> {
     info!("Bridge: get_atlas_entry called for ID: {}", atlas_id);
-    
+
     let atlas_service = state.atlas_service.lock().await;
-    let entry = atlas_service.get_atlas_entry(&atlas_id).await
+    let entry = atlas_service
+        .get_atlas_entry(&atlas_id)
+        .await
         .map_err(|e| BridgeError::Internal {
             code: 6003,
             details: format!("Failed to get atlas entry: {}", e),
         })?;
-    
+
     Ok(entry)
 }
 
@@ -5720,31 +6573,33 @@ async fn toggle_atlas_favorite(
     state: State<'_, BridgeState>,
 ) -> BridgeResult<bool> {
     info!("Bridge: toggle_atlas_favorite called for ID: {}", atlas_id);
-    
+
     let atlas_service = state.atlas_service.lock().await;
-    let is_favorite = atlas_service.toggle_favorite(&atlas_id).await
+    let is_favorite = atlas_service
+        .toggle_favorite(&atlas_id)
+        .await
         .map_err(|e| BridgeError::Internal {
             code: 6004,
             details: format!("Failed to toggle favorite: {}", e),
         })?;
-    
+
     Ok(is_favorite)
 }
 
 #[command]
 #[tracing::instrument(skip_all, err, name = "api.get_recent_atlases")]
-async fn get_recent_atlases(
-    state: State<'_, BridgeState>,
-) -> BridgeResult<Vec<AtlasCatalogEntry>> {
+async fn get_recent_atlases(state: State<'_, BridgeState>) -> BridgeResult<Vec<AtlasCatalogEntry>> {
     info!("Bridge: get_recent_atlases called");
-    
+
     let atlas_service = state.atlas_service.lock().await;
-    let recent = atlas_service.get_recent_atlases().await
+    let recent = atlas_service
+        .get_recent_atlases()
+        .await
         .map_err(|e| BridgeError::Internal {
             code: 6005,
             details: format!("Failed to get recent atlases: {}", e),
         })?;
-    
+
     Ok(recent)
 }
 
@@ -5754,14 +6609,17 @@ async fn get_favorite_atlases(
     state: State<'_, BridgeState>,
 ) -> BridgeResult<Vec<AtlasCatalogEntry>> {
     info!("Bridge: get_favorite_atlases called");
-    
+
     let atlas_service = state.atlas_service.lock().await;
-    let favorites = atlas_service.get_favorite_atlases().await
-        .map_err(|e| BridgeError::Internal {
-            code: 6006,
-            details: format!("Failed to get favorite atlases: {}", e),
-        })?;
-    
+    let favorites =
+        atlas_service
+            .get_favorite_atlases()
+            .await
+            .map_err(|e| BridgeError::Internal {
+                code: 6006,
+                details: format!("Failed to get favorite atlases: {}", e),
+            })?;
+
     Ok(favorites)
 }
 
@@ -5771,15 +6629,20 @@ async fn validate_atlas_config(
     config: AtlasConfig,
     state: State<'_, BridgeState>,
 ) -> BridgeResult<bool> {
-    info!("Bridge: validate_atlas_config called for atlas: {}", config.atlas_id);
-    
+    info!(
+        "Bridge: validate_atlas_config called for atlas: {}",
+        config.atlas_id
+    );
+
     let atlas_service = state.atlas_service.lock().await;
-    atlas_service.validate_config(&config).await
+    atlas_service
+        .validate_config(&config)
+        .await
         .map_err(|e| BridgeError::Input {
             code: 6007,
             details: format!("Invalid atlas configuration: {}", e),
         })?;
-    
+
     Ok(true)
 }
 
@@ -5789,42 +6652,46 @@ async fn load_atlas(
     config: AtlasConfig,
     state: State<'_, BridgeState>,
 ) -> BridgeResult<AtlasLoadResult> {
-    info!("Bridge: load_atlas called for atlas: {} in space: {}", config.atlas_id, config.space);
-    
+    info!(
+        "Bridge: load_atlas called for atlas: {} in space: {}",
+        config.atlas_id, config.space
+    );
+
     let atlas_service = state.atlas_service.lock().await;
-    let result = atlas_service.load_atlas(config).await
+    let result = atlas_service
+        .load_atlas(config)
+        .await
         .map_err(|e| BridgeError::Internal {
             code: 6008,
             details: format!("Failed to load atlas: {}", e),
         })?;
-    
+
     Ok(result)
 }
 
 /// Start monitoring atlas loading progress and emit events
 /// Note: This will start a background task that monitors progress until the service is dropped
 #[tauri::command]
-async fn start_atlas_progress_monitoring(
-    state: State<'_, BridgeState>,
-) -> BridgeResult<()> {
+async fn start_atlas_progress_monitoring(state: State<'_, BridgeState>) -> BridgeResult<()> {
     info!("Bridge: start_atlas_progress_monitoring called");
-    
+
     let atlas_service = state.atlas_service.lock().await;
     let _subscription_count = atlas_service.active_subscription_count();
-    info!("Progress monitoring started, active subscriptions: {}", _subscription_count);
-    
+    info!(
+        "Progress monitoring started, active subscriptions: {}",
+        _subscription_count
+    );
+
     // For now, just indicate that monitoring is available
     // The actual progress events will be sent when atlas operations occur
     // Frontend can listen for 'atlas-progress' events
-    
+
     Ok(())
 }
 
 /// Get the current number of active progress subscriptions for debugging
 #[tauri::command]
-async fn get_atlas_subscription_count(
-    state: State<'_, BridgeState>,
-) -> BridgeResult<usize> {
+async fn get_atlas_subscription_count(state: State<'_, BridgeState>) -> BridgeResult<usize> {
     let atlas_service = state.atlas_service.lock().await;
     Ok(atlas_service.active_subscription_count())
 }
@@ -5838,14 +6705,16 @@ async fn get_template_catalog(
     state: State<'_, BridgeState>,
 ) -> BridgeResult<Vec<templates::TemplateCatalogEntry>> {
     info!("Bridge: get_template_catalog called");
-    
+
     let template_service = state.template_service.lock().await;
-    let catalog = template_service.get_catalog().await
+    let catalog = template_service
+        .get_catalog()
+        .await
         .map_err(|e| BridgeError::Internal {
             code: 7001,
             details: format!("Failed to get template catalog: {}", e),
         })?;
-    
+
     Ok(catalog)
 }
 
@@ -5857,14 +6726,16 @@ async fn get_filtered_templates(
     state: State<'_, BridgeState>,
 ) -> BridgeResult<Vec<templates::TemplateCatalogEntry>> {
     info!("Bridge: get_filtered_templates called");
-    
+
     let template_service = state.template_service.lock().await;
-    let entries = template_service.get_filtered_templates(&filter).await
+    let entries = template_service
+        .get_filtered_templates(&filter)
+        .await
         .map_err(|e| BridgeError::Internal {
             code: 7002,
             details: format!("Failed to get filtered templates: {}", e),
         })?;
-    
+
     Ok(entries)
 }
 
@@ -5875,15 +6746,20 @@ async fn get_template_entry(
     template_id: String,
     state: State<'_, BridgeState>,
 ) -> BridgeResult<Option<templates::TemplateCatalogEntry>> {
-    info!("Bridge: get_template_entry called for template: {}", template_id);
-    
+    info!(
+        "Bridge: get_template_entry called for template: {}",
+        template_id
+    );
+
     let template_service = state.template_service.lock().await;
-    let entry = template_service.get_template_entry(&template_id).await
+    let entry = template_service
+        .get_template_entry(&template_id)
+        .await
         .map_err(|e| BridgeError::Internal {
             code: 7003,
             details: format!("Failed to get template entry: {}", e),
         })?;
-    
+
     Ok(entry)
 }
 
@@ -5894,15 +6770,20 @@ async fn validate_template_config(
     config: templates::TemplateConfig,
     state: State<'_, BridgeState>,
 ) -> BridgeResult<bool> {
-    info!("Bridge: validate_template_config called for template: {}", config.id());
-    
+    info!(
+        "Bridge: validate_template_config called for template: {}",
+        config.id()
+    );
+
     let template_service = state.template_service.lock().await;
-    let is_valid = template_service.validate_config(&config).await
+    let is_valid = template_service
+        .validate_config(&config)
+        .await
         .map_err(|e| BridgeError::Internal {
             code: 7004,
             details: format!("Failed to validate template config: {}", e),
         })?;
-    
+
     Ok(is_valid)
 }
 
@@ -5914,14 +6795,17 @@ async fn load_template(
     state: State<'_, BridgeState>,
 ) -> BridgeResult<templates::TemplateLoadResult> {
     info!("Bridge: load_template called for template: {}", config.id());
-    
+
     let template_service = state.template_service.lock().await;
-    let result = template_service.load_template(config).await
-        .map_err(|e| BridgeError::Internal {
-            code: 7005,
-            details: format!("Failed to load template: {}", e),
-        })?;
-    
+    let result =
+        template_service
+            .load_template(config)
+            .await
+            .map_err(|e| BridgeError::Internal {
+                code: 7005,
+                details: format!("Failed to load template: {}", e),
+            })?;
+
     Ok(result)
 }
 
@@ -5932,34 +6816,42 @@ async fn load_template_by_id(
     template_id: String,
     state: State<'_, BridgeState>,
 ) -> BridgeResult<templates::TemplateLoadResult> {
-    info!("Bridge: load_template_by_id called for template: {}", template_id);
-    
+    info!(
+        "Bridge: load_template_by_id called for template: {}",
+        template_id
+    );
+
     // Parse the template ID to create a TemplateConfig
     let config = parse_template_id(&template_id)?;
-    
+
     // Load the template through the template service
     let template_service = state.template_service.lock().await;
-    let result = template_service.load_template(config).await
-        .map_err(|e| BridgeError::Internal {
-            code: 7006,
-            details: format!("Failed to load template by ID: {}", e),
-        })?;
-    
+    let result =
+        template_service
+            .load_template(config)
+            .await
+            .map_err(|e| BridgeError::Internal {
+                code: 7006,
+                details: format!("Failed to load template by ID: {}", e),
+            })?;
+
     // Get the cache path from the template service
-    let cache_path = template_service.get_cache_path(&template_id)
-        .map_err(|e| BridgeError::Internal {
-            code: 7007,
-            details: format!("Failed to get template cache path: {}", e),
-        })?;
+    let cache_path =
+        template_service
+            .get_cache_path(&template_id)
+            .map_err(|e| BridgeError::Internal {
+                code: 7007,
+                details: format!("Failed to get template cache path: {}", e),
+            })?;
     drop(template_service);
-    
+
     // Load the volume data for the registry (similar to load_file)
-    let (volume_sendable, _affine) = nifti_loader::load_nifti_volume_auto(&cache_path)
-        .map_err(|e| BridgeError::Internal {
+    let (volume_sendable, _affine) =
+        nifti_loader::load_nifti_volume_auto(&cache_path).map_err(|e| BridgeError::Internal {
             code: 7008,
             details: format!("Failed to reload template volume for registry: {}", e),
         })?;
-    
+
     // Create volume metadata for the registry
     let metadata = VolumeMetadataInfo {
         name: result.template_metadata.name.clone(),
@@ -5968,18 +6860,22 @@ async fn load_template_by_id(
         volume_type: result.volume_handle_info.volume_type.clone(),
         time_series_info: result.volume_handle_info.time_series_info.clone(),
     };
-    
+
     // Register the volume in the volume registry
     let mut registry = state.volume_registry.lock().await;
-    registry.insert(result.volume_handle_info.id.clone(), volume_sendable, metadata);
-    
+    registry.insert(
+        result.volume_handle_info.id.clone(),
+        volume_sendable,
+        metadata,
+    );
+
     // Add explicit synchronization to ensure registry entry is fully committed
     // This prevents GPU allocation timing issues with template loading
     tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
     drop(registry);
-    
+
     info!("Bridge: Successfully loaded and registered template volume with handle: {} (with sync delay)", result.volume_handle_info.id);
-    
+
     Ok(result)
 }
 
@@ -5990,32 +6886,34 @@ async fn get_template_cache_stats(
     state: State<'_, BridgeState>,
 ) -> BridgeResult<templates::TemplateCacheStats> {
     info!("Bridge: get_template_cache_stats called");
-    
+
     let template_service = state.template_service.lock().await;
-    let stats = template_service.get_cache_stats().await
+    let stats = template_service
+        .get_cache_stats()
+        .await
         .map_err(|e| BridgeError::Internal {
             code: 7007,
             details: format!("Failed to get template cache stats: {}", e),
         })?;
-    
+
     Ok(stats)
 }
 
 /// Clear the template cache
 #[command]
 #[tracing::instrument(skip_all, err, name = "api.clear_template_cache")]
-async fn clear_template_cache(
-    state: State<'_, BridgeState>,
-) -> BridgeResult<()> {
+async fn clear_template_cache(state: State<'_, BridgeState>) -> BridgeResult<()> {
     info!("Bridge: clear_template_cache called");
-    
+
     let template_service = state.template_service.lock().await;
-    template_service.clear_cache().await
+    template_service
+        .clear_cache()
+        .await
         .map_err(|e| BridgeError::Internal {
             code: 7008,
             details: format!("Failed to clear template cache: {}", e),
         })?;
-    
+
     Ok(())
 }
 
@@ -6029,11 +6927,11 @@ fn parse_template_id(template_id: &str) -> BridgeResult<templates::TemplateConfi
             details: format!("Invalid template ID format: {}", template_id),
         });
     }
-    
+
     let space_str = parts[0];
     let type_str = parts[1];
     let resolution_str = parts[2];
-    
+
     // Parse space
     let space = match space_str {
         "MNI152NLin2009cAsym" => templates::TemplateSpace::MNI152NLin2009cAsym,
@@ -6043,12 +6941,14 @@ fn parse_template_id(template_id: &str) -> BridgeResult<templates::TemplateConfi
         "fsaverage" => templates::TemplateSpace::FSAverage,
         "fsaverage5" => templates::TemplateSpace::FSAverage5,
         "fsaverage6" => templates::TemplateSpace::FSAverage6,
-        _ => return Err(BridgeError::Internal {
-            code: 7010,
-            details: format!("Unknown template space: {}", space_str),
-        }),
+        _ => {
+            return Err(BridgeError::Internal {
+                code: 7010,
+                details: format!("Unknown template space: {}", space_str),
+            })
+        }
     };
-    
+
     // Parse template type
     let template_type = match type_str {
         "T1w" => templates::TemplateType::T1w,
@@ -6059,24 +6959,32 @@ fn parse_template_id(template_id: &str) -> BridgeResult<templates::TemplateConfi
         "CSF" => templates::TemplateType::Csf,
         "mask" => templates::TemplateType::BrainMask,
         "brain" => templates::TemplateType::Brain,
-        _ => return Err(BridgeError::Internal {
-            code: 7011,
-            details: format!("Unknown template type: {}", type_str),
-        }),
+        _ => {
+            return Err(BridgeError::Internal {
+                code: 7011,
+                details: format!("Unknown template type: {}", type_str),
+            })
+        }
     };
-    
+
     // Parse resolution
     let resolution = match resolution_str {
         "1mm" => templates::TemplateResolution::MM1,
         "2mm" => templates::TemplateResolution::MM2,
         "native" => templates::TemplateResolution::Native,
-        _ => return Err(BridgeError::Internal {
-            code: 7012,
-            details: format!("Unknown template resolution: {}", resolution_str),
-        }),
+        _ => {
+            return Err(BridgeError::Internal {
+                code: 7012,
+                details: format!("Unknown template resolution: {}", resolution_str),
+            })
+        }
     };
-    
-    Ok(templates::TemplateConfig::new(template_type, space, resolution))
+
+    Ok(templates::TemplateConfig::new(
+        template_type,
+        space,
+        resolution,
+    ))
 }
 
 // --- Plugin Creation ---
@@ -6098,8 +7006,10 @@ pub fn plugin<R: Runtime>() -> TauriPlugin<R> {
             // get_timeseries_matrix, // REMOVED - Returns unimplemented
             get_initial_views,
             recalculate_view_for_dimensions,
+            recalculate_all_views,
             request_layer_gpu_resources,
             release_layer_gpu_resources,
+            get_atlas_stats,
             fs_list_directory,
             init_render_loop,
             create_offscreen_render_target,
@@ -6123,6 +7033,7 @@ pub fn plugin<R: Runtime>() -> TauriPlugin<R> {
             // render_to_image, // REMOVED - Redundant with apply_and_render_view_state
             // render_to_image_binary, // REMOVED - Redundant with apply_and_render_view_state
             render_view, // New unified render method
+            render_views,
             apply_and_render_view_state,
             apply_and_render_view_state_binary,
             apply_and_render_view_state_raw,
@@ -6151,7 +7062,8 @@ pub fn plugin<R: Runtime>() -> TauriPlugin<R> {
         ])
         .setup(|app, _| {
             // Initialize the bridge state
-            let bridge_state = BridgeState::default();
+            let bridge_state = BridgeState::default()
+                .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
             app.manage(bridge_state);
             Ok(())
         })
@@ -6162,10 +7074,10 @@ pub fn plugin<R: Runtime>() -> TauriPlugin<R> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use log::{debug, info, warn};
     use nalgebra::Affine3;
     use std::path::PathBuf;
-    use volmath::{DenseVolume3, NeuroSpace3, NeuroSpace};
-    use log::{debug, info, warn};
+    use volmath::{DenseNeuroVec, DenseVolume3, NeuroSpace, NeuroSpace3};
 
     fn get_test_data_path() -> PathBuf {
         PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -6178,7 +7090,7 @@ mod tests {
     #[test]
     fn test_load_file_integration() {
         // Create test state
-        let _state = BridgeState::default();
+        let _state = BridgeState::default().expect("bridge state");
         let test_file = get_test_data_path().join("toy_t1w.nii.gz");
 
         // Mock the State wrapper - this is a bit tricky since State is from Tauri
@@ -6213,7 +7125,7 @@ mod tests {
 
     #[test]
     fn test_volume_registry() {
-        let state = BridgeState::default();
+        let state = BridgeState::default().expect("bridge state");
 
         // Test that registry starts empty
         let registry = state.volume_registry.try_lock().unwrap();
@@ -6355,11 +7267,47 @@ mod tests {
 
     #[test]
     fn test_layer_to_atlas_map() {
-        let state = BridgeState::default();
+        let state = BridgeState::default().expect("bridge state");
 
         // Test that map starts empty
         let layer_map = state.layer_to_atlas_map.try_lock().unwrap();
         assert_eq!(layer_map.len(), 0);
+    }
+
+    fn make_4d_volume_sendable() -> VolumeSendable {
+        let dims = vec![8usize, 8, 8, 4];
+        let spacing = vec![2.0, 2.0, 2.0, 1.0];
+        let origin = vec![-8.0, -8.0, -8.0, 0.0];
+        let space = NeuroSpace::new(dims.clone(), Some(spacing), Some(origin), None, None).unwrap();
+        let vec4d = DenseNeuroVec::zeros(space).unwrap();
+        VolumeSendable::Vec4DF32(vec4d)
+    }
+
+    #[test]
+    fn coord_to_grid_for_4d_volume_with_time() {
+        let sendable = make_4d_volume_sendable();
+        let coords = vec![vec![-2.0, -2.0, -2.0, 3.0]];
+        let grid = coord_to_grid_for_volume(&sendable, &coords).expect("grid conversion");
+        assert_eq!(grid[0], vec![3, 3, 3, 3]);
+    }
+
+    #[test]
+    fn coord_to_grid_for_4d_volume_defaults_time_dimension() {
+        let sendable = make_4d_volume_sendable();
+        let coords = vec![vec![-8.0, -8.0, -8.0]];
+        let grid = coord_to_grid_for_volume(&sendable, &coords).expect("grid conversion");
+        assert_eq!(grid[0], vec![0, 0, 0, 0]);
+    }
+
+    #[test]
+    fn coord_to_grid_for_4d_volume_rejects_short_coordinates() {
+        let sendable = make_4d_volume_sendable();
+        let coords = vec![vec![0.0, 0.0]];
+        let err = coord_to_grid_for_volume(&sendable, &coords).unwrap_err();
+        assert!(
+            err.contains("Coordinates must have 4 dimensions"),
+            "unexpected error message: {err}"
+        );
     }
 
     #[tokio::test]

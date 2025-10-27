@@ -1,38 +1,44 @@
 // Integration tests for GPU upload functionality
-use api_bridge::{BridgeState, LayerSpec, SliceAxis, SliceIndex, VolumeLayerSpec};
-use bridge_types::VolumeSendable;
+use api_bridge::{
+    calculate_slice_index, release_layer_gpu_resources_for_testing,
+    request_layer_gpu_resources_for_testing, BridgeState, LayerSpec, SliceAxis, SliceIndex,
+    VolumeLayerSpec, VolumeMetadataInfo,
+};
+use bridge_types::{VolumeSendable, VolumeType};
 use nalgebra::Affine3;
-use std::collections::HashMap;
+use render_loop::RenderLoopService;
 use std::sync::Arc;
 use tokio::sync::Mutex;
-use volmath::{DenseVolume3, NeuroSpace3};
+use volmath::{DenseVolume3, NeuroSpaceExt};
 
 // Mock implementation for testing without actual GPU
 #[cfg(test)]
 mod mock_helpers {
     use super::*;
 
-    pub fn create_test_volume(dims: [usize; 3]) -> VolumeSendable {
+    pub fn create_test_volume(dims: [usize; 3]) -> (VolumeSendable, VolumeMetadataInfo) {
         let space_impl = volmath::space::NeuroSpaceImpl::from_dims_spacing_origin(
-            dims,
-            [1.0, 1.0, 1.0], // spacing
-            [0.0, 0.0, 0.0], // origin
-        );
-        let space = NeuroSpace3(space_impl);
-        let volume = DenseVolume3::<f32>::new(space);
+            dims.to_vec(),
+            vec![1.0, 1.0, 1.0], // spacing
+            vec![0.0, 0.0, 0.0], // origin
+        )
+        .expect("neuro space");
+        let voxel_count = dims[0] * dims[1] * dims[2];
+        let data = vec![0.0f32; voxel_count];
+        let volume = DenseVolume3::<f32>::from_data(space_impl, data);
         let affine = Affine3::<f32>::identity();
-        VolumeSendable::VolF32(volume, affine)
+        let metadata = VolumeMetadataInfo {
+            name: "test-volume".to_string(),
+            path: "<memory>".to_string(),
+            dtype: "f32".to_string(),
+            volume_type: VolumeType::Volume3D,
+            time_series_info: None,
+        };
+        (VolumeSendable::VolF32(volume, affine), metadata)
     }
 
     pub async fn setup_test_state() -> BridgeState {
-        let volume_registry = Arc::new(Mutex::new(HashMap::new()));
-        let layer_to_atlas_map = Arc::new(Mutex::new(HashMap::new()));
-
-        BridgeState::new(
-            volume_registry,
-            Arc::new(Mutex::new(None)), // No render loop service for unit tests
-            layer_to_atlas_map,
-        )
+        BridgeState::default().expect("bridge state")
     }
 }
 
@@ -41,12 +47,12 @@ async fn test_gpu_upload_with_different_axes() {
     use mock_helpers::*;
 
     let state = setup_test_state().await;
-    let test_volume = create_test_volume([128, 128, 64]);
+    let (test_volume, metadata) = create_test_volume([128, 128, 64]);
 
     // Add volume to registry
     {
         let mut registry = state.volume_registry.lock().await;
-        registry.insert("test_volume_1".to_string(), test_volume);
+        registry.insert("test_volume_1".to_string(), test_volume, metadata);
     }
 
     // Test uploading with different axes
@@ -57,7 +63,7 @@ async fn test_gpu_upload_with_different_axes() {
     ];
 
     for (axis, layer_id) in axes {
-        let spec = LayerSpec::Volume(VolumeLayerSpec {
+        let _spec = LayerSpec::Volume(VolumeLayerSpec {
             id: layer_id.to_string(),
             source_resource_id: "test_volume_1".to_string(),
             colormap: "grayscale".to_string(),
@@ -76,12 +82,12 @@ async fn test_gpu_upload_with_different_slice_indices() {
     use mock_helpers::*;
 
     let state = setup_test_state().await;
-    let test_volume = create_test_volume([100, 100, 50]);
+    let (test_volume, metadata) = create_test_volume([100, 100, 50]);
 
     // Add volume to registry
     {
         let mut registry = state.volume_registry.lock().await;
-        registry.insert("test_volume_2".to_string(), test_volume);
+        registry.insert("test_volume_2".to_string(), test_volume, metadata);
     }
 
     // Test different slice index specifications
@@ -93,7 +99,7 @@ async fn test_gpu_upload_with_different_slice_indices() {
     ];
 
     for (slice_index, layer_id) in slice_specs {
-        let spec = LayerSpec::Volume(VolumeLayerSpec {
+        let _spec = LayerSpec::Volume(VolumeLayerSpec {
             id: layer_id.to_string(),
             source_resource_id: "test_volume_2".to_string(),
             colormap: "viridis".to_string(),
@@ -159,20 +165,14 @@ fn test_volume_layer_spec_defaults() {
 
 #[test]
 fn test_edge_cases_for_slice_calculations() {
+    use mock_helpers::create_test_volume;
+
     // Test volume with size 1 along an axis
     let dims = vec![1, 100, 100];
-    let space_impl = volmath::space::NeuroSpaceImpl::from_dims_spacing_origin(
-        [1, 100, 100],
-        [1.0, 1.0, 1.0],
-        [0.0, 0.0, 0.0],
-    );
-    let space = NeuroSpace3(space_impl);
-    let volume = DenseVolume3::<f32>::new(space);
-    let affine = Affine3::<f32>::identity();
-    let volume_data = VolumeSendable::VolF32(volume, affine);
+    let (volume_data, _) = create_test_volume([1, 100, 100]);
 
     // Middle of size 1 should be 0
-    let result = api_bridge::calculate_slice_index(
+    let result = calculate_slice_index(
         &SliceIndex::Middle,
         &dims,
         SliceAxis::Sagittal,
@@ -183,17 +183,10 @@ fn test_edge_cases_for_slice_calculations() {
 
     // Test relative position at boundaries
     let dims2 = vec![50, 50, 50];
-    let space_impl2 = volmath::space::NeuroSpaceImpl::from_dims_spacing_origin(
-        [50, 50, 50],
-        [1.0, 1.0, 1.0],
-        [0.0, 0.0, 0.0],
-    );
-    let space2 = NeuroSpace3(space_impl2);
-    let volume2 = DenseVolume3::<f32>::new(space2);
-    let volume_data2 = VolumeSendable::VolF32(volume2, affine.clone());
+    let (volume_data2, _) = create_test_volume([50, 50, 50]);
 
     // Relative 0.0 should give first slice
-    let result = api_bridge::calculate_slice_index(
+    let result = calculate_slice_index(
         &SliceIndex::Relative(0.0),
         &dims2,
         SliceAxis::Axial,
@@ -203,7 +196,7 @@ fn test_edge_cases_for_slice_calculations() {
     assert_eq!(result, 0);
 
     // Relative 1.0 should give last slice
-    let result = api_bridge::calculate_slice_index(
+    let result = calculate_slice_index(
         &SliceIndex::Relative(1.0),
         &dims2,
         SliceAxis::Axial,
@@ -211,4 +204,83 @@ fn test_edge_cases_for_slice_calculations() {
     )
     .unwrap();
     assert_eq!(result, 49);
+}
+
+#[tokio::test]
+async fn test_release_layer_cleans_render_state() {
+    use mock_helpers::*;
+
+    let state = setup_test_state().await;
+    let (test_volume, metadata) = create_test_volume([32, 32, 32]);
+
+    // Initialize render loop service
+    let render_service = RenderLoopService::new().await.expect("render loop");
+    {
+        let mut guard = state.render_loop_service.lock().await;
+        *guard = Some(Arc::new(Mutex::new(render_service)));
+    }
+
+    // Add volume to registry
+    let volume_id = "release_volume".to_string();
+    {
+        let mut registry = state.volume_registry.lock().await;
+        registry.insert(volume_id.clone(), test_volume, metadata);
+    }
+
+    let layer_id = "release_layer".to_string();
+    let layer_spec = LayerSpec::Volume(VolumeLayerSpec {
+        id: layer_id.clone(),
+        source_resource_id: volume_id.clone(),
+        colormap: "gray".to_string(),
+        slice_axis: Some(SliceAxis::Axial),
+        slice_index: Some(SliceIndex::Middle),
+    });
+
+    let gpu_info = request_layer_gpu_resources_for_testing(layer_spec, None, &state)
+        .await
+        .expect("gpu resources");
+
+    // Ensure layer registered
+    {
+        let map = state.layer_to_atlas_map.lock().await;
+        assert!(map.contains_key(&layer_id));
+        assert_eq!(map.get(&layer_id), Some(&gpu_info.atlas_layer_index));
+    }
+    {
+        let volume_map = state.layer_to_volume_map.lock().await;
+        assert_eq!(volume_map.get(&layer_id), Some(&volume_id));
+    }
+    {
+        let guard = state.render_loop_service.lock().await;
+        let service_arc = guard.as_ref().unwrap().clone();
+        drop(guard);
+        let service = service_arc.lock().await;
+        assert_eq!(service.layer_state_manager.layer_count(), 1);
+    }
+
+    let release_result = release_layer_gpu_resources_for_testing(layer_id.clone(), &state)
+        .await
+        .expect("release command");
+
+    assert!(release_result.success, "release should succeed");
+
+    {
+        let map = state.layer_to_atlas_map.lock().await;
+        assert!(!map.contains_key(&layer_id));
+    }
+    {
+        let volume_map = state.layer_to_volume_map.lock().await;
+        assert!(!volume_map.contains_key(&layer_id));
+    }
+    {
+        let guard = state.render_loop_service.lock().await;
+        let service_arc = guard.as_ref().unwrap().clone();
+        drop(guard);
+        let service = service_arc.lock().await;
+        assert_eq!(service.layer_state_manager.layer_count(), 0);
+        let metrics = service.atlas_metrics();
+        assert_eq!(metrics.used_layers, 0);
+        assert_eq!(metrics.free_layers, metrics.total_layers);
+        assert!(metrics.releases >= 1);
+    }
 }

@@ -44,10 +44,14 @@ const PlotPanelContent: React.FC<PlotPanelProps> = ({ containerWidth, containerH
     return undefined;
   }, [selectedLayerId, viewState.layers]);
 
+  // Account for p-4 padding (1rem = 16px on each side = 32px total)
+  const CONTAINER_PADDING = 32;
+
   // Simple dimension handling with reasonable defaults
-  const chartWidth = containerWidth || 400;
-  const chartHeight = containerHeight || 300;
-  
+  // Subtract padding and ensure minimum dimensions for chart rendering
+  const chartWidth = Math.max((containerWidth || 400) - CONTAINER_PADDING, 100);
+  const chartHeight = Math.max((containerHeight || 300) - CONTAINER_PADDING, 80);
+
   // Debug logging for dimension tracking
   if (!containerWidth || !containerHeight) {
     console.log('[PlotPanel] Using fallback dimensions:', {
@@ -192,7 +196,7 @@ const PlotPanelContent: React.FC<PlotPanelProps> = ({ containerWidth, containerH
           >
             <HistogramChart
               data={histogramData}
-              width={chartWidth} // Width padding already accounted for in calculation
+              width={chartWidth} // Dimensions adjusted for p-4 container padding
               height={chartHeight}
               intensityWindow={layerRender?.intensity}
               threshold={layerRender?.threshold}

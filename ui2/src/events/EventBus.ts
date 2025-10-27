@@ -13,6 +13,7 @@ import type {
   RenderStartEvent,
   CrosshairRenderEvent 
 } from '@/types/renderEvents';
+import type { AtlasStats } from '@/types/atlas';
 
 // Define all events in the system
 export interface EventMap {
@@ -67,6 +68,34 @@ export interface EventMap {
   // General UI events
   'ui.notification': { type: 'info' | 'warning' | 'error'; message: string };
   'ui.progress': { taskId: string; progress: number; message?: string };
+
+  // Atlas events
+  'atlas.metrics': { stats: AtlasStats; timestamp: number };
+  'atlas.pressure': { 
+    level: 'warning' | 'critical' | 'recovered';
+    stats: AtlasStats;
+    timestamp: number;
+    reason: 'low-watermark' | 'full-event' | 'recovered' | 'evicted';
+  };
+  'atlas.eviction': {
+    layerId: string | null;
+    stats: AtlasStats | null;
+    timestamp: number;
+    reason: 'auto' | 'manual';
+    message?: string;
+  };
+
+  // Time navigation events
+  'time.changed': {
+    timepoint: number;
+    timeInfo?: {
+      currentTimepoint: number;
+      totalTimepoints: number;
+      tr: number | null;
+      currentTime: number;
+      totalTime: number;
+    };
+  };
   
   // Progress events from backend
   'progress.start': { 

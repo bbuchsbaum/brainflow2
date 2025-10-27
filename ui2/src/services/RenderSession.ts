@@ -141,6 +141,40 @@ export class RenderSession {
     }
     
     console.log(`[RenderSession ${this.sessionId}] Starting batch render of ${requests.length} views`);
+
+    if (requests.length > 1) {
+      const firstViewState = requests[0].viewState;
+      const sharedState = requests.every(req => req.viewState === firstViewState);
+
+      if (sharedState && typeof this.apiService.renderViewStateMulti === 'function') {
+        const startTime = performance.now();
+        try {
+          const viewTypes = requests.map(req => req.viewType);
+          const bitmaps = await this.apiService.renderViewStateMulti(firstViewState, viewTypes);
+          const totalTime = performance.now() - startTime;
+
+          if (viewTypes.some(viewType => !bitmaps[viewType])) {
+            throw new Error('renderViewStateMulti returned missing bitmap');
+          }
+
+          return requests.map((req) => {
+            const bitmap = bitmaps[req.viewType]!;
+            const dimensions: [number, number] = [
+              req.width ?? firstViewState.views[req.viewType]?.dim_px?.[0] ?? 512,
+              req.height ?? firstViewState.views[req.viewType]?.dim_px?.[1] ?? 512
+            ];
+
+            return {
+              bitmap,
+              renderTime: totalTime,
+              dimensions
+            };
+          });
+        } catch (error) {
+          console.warn(`[RenderSession ${this.sessionId}] Multi-view render failed, falling back to per-view renders`, error);
+        }
+      }
+    }
     
     // Render all requests in parallel
     const renderPromises = requests.map(req =>
