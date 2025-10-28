@@ -43,4 +43,6 @@ export type BridgeError = {
         code: number;
         details: string;
     };
+} | {
+    "LoaderError": string;
 };

@@ -51,14 +51,7 @@ export function FlexibleOrthogonalView({ workspaceId }: FlexibleOrthogonalViewPr
       const wasDragging = useLayoutDragStore.getState().isDragging;
       setDragging(false);
       
-      if (wasDragging) {
-        console.log('[FlexibleOrthogonalView] Drag ended - forcing flush after delay');
-        // Force a flush after dimensions have been updated
-        setTimeout(() => {
-          console.log('[FlexibleOrthogonalView] Executing forced flush with dimension update');
-          coalesceUtils.flush(true);
-        }, 200); // Wait a bit longer to ensure all dimension updates are complete
-      }
+      // No forced flush; middleware scheduling will handle pending updates
     }, 200);
   }, [setDragging]);
   
@@ -89,11 +82,7 @@ export function FlexibleOrthogonalView({ workspaceId }: FlexibleOrthogonalViewPr
   useEffect(() => {
     const hasLayers = useViewStateStore.getState().viewState.layers.length > 0;
     if (hasLayers) {
-      console.log('[FlexibleOrthogonalView] Component mounted with layers, forcing initial render');
-      // Small delay to ensure all views are mounted
-      setTimeout(() => {
-        coalesceUtils.flush(true);
-      }, 100);
+      console.log('[FlexibleOrthogonalView] Component mounted with layers. Relying on scheduled coalesced render.');
     }
   }, []);
 

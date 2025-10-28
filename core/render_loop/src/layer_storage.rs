@@ -192,6 +192,28 @@ impl LayerStorageManager {
         volume_dimensions: &[(u32, u32, u32)],
         world_to_voxel_transforms: &[Matrix4<f32>],
     ) {
+        self.update_layers_with_display(
+            device,
+            queue,
+            layout,
+            layers,
+            volume_dimensions,
+            world_to_voxel_transforms,
+            None,
+        );
+    }
+
+    /// Update layer data with optional display overrides: (atlas_index, enabled, thickness_px)
+    pub fn update_layers_with_display(
+        &mut self,
+        device: &Device,
+        queue: &Queue,
+        layout: &BindGroupLayout,
+        layers: &[LayerInfo],
+        volume_dimensions: &[(u32, u32, u32)],
+        world_to_voxel_transforms: &[Matrix4<f32>],
+        display_overrides: Option<&[(u32, bool, f32)]>,
+    ) {
         let layer_count = layers.len();
 
         // Ensure we have capacity
@@ -199,6 +221,11 @@ impl LayerStorageManager {
 
         self.active_count = layer_count as u32;
         self.layer_data.clear();
+
+        let display_map: std::collections::HashMap<u32, (bool, f32)> = match display_overrides {
+            Some(entries) => entries.iter().copied().map(|(idx, en, th)| (idx, (en, th))).collect(),
+            None => Default::default(),
+        };
 
         // Build layer data
         let identity = Matrix4::identity();
@@ -236,6 +263,11 @@ impl LayerStorageManager {
             // Only treat as mask if explicitly marked or has binary-like threshold
             let _is_mask = false; // TODO: Add explicit mask flag to LayerInfo
 
+            let (border_enabled, border_thickness) = display_map
+                .get(&layer.atlas_index)
+                .copied()
+                .unwrap_or((false, 1.0_f32));
+
             let layer_data = LayerUboStd140 {
                 // Convert matrix to column-major format for GPU
                 world_to_voxel: crate::matrix_to_cols_array(transform),
@@ -258,8 +290,8 @@ impl LayerStorageManager {
                 thresh_high: layer.threshold_range.1,
                 is_mask: if layer.is_mask { 1 } else { 0 },
                 interpolation_mode: layer.interpolation_mode,
-                draw_slice_border: 0,
-                border_thickness_px: 1.0,
+                draw_slice_border: if border_enabled { 1 } else { 0 },
+                border_thickness_px: border_thickness.max(0.5_f32),
                 _pad: [0],
             };
 
@@ -310,6 +342,9 @@ impl LayerStorageManager {
         // Use the is_mask field from LayerInfo
 
         // Update the specific layer data
+        // TODO: Add display_overrides parameter to update_layer when implementing per-layer border settings
+        let (border_enabled, border_thickness): (bool, f32) = (false, 1.0_f32);
+
         let layer_data = LayerUboStd140 {
             // Convert matrix to column-major format for GPU
             world_to_voxel: crate::matrix_to_cols_array(world_to_voxel),
@@ -332,8 +367,8 @@ impl LayerStorageManager {
             thresh_high: layer.threshold_range.1,
             is_mask: if layer.is_mask { 1 } else { 0 },
             interpolation_mode: layer.interpolation_mode,
-            draw_slice_border: 0,
-            border_thickness_px: 1.0,
+            draw_slice_border: if border_enabled { 1 } else { 0 },
+            border_thickness_px: border_thickness.max(0.5_f32),
             _pad: [0],
         };
 

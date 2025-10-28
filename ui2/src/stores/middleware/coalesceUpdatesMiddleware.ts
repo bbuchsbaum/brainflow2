@@ -16,6 +16,9 @@ import { useDragSourceStore } from '@/stores/dragSourceStore';
 // Global state for coalescing - persists across store instances
 let pendingState: ViewState | null = null;
 let rafId: number | null = null;
+// If any caller requests a force-dimension flush, we coalesce that flag
+// and honor it on the next scheduled flush without running immediately.
+let pendingForceDimensionUpdate = false;
 let isEnabled = true;
 let lastFlushedState: ViewState | null = null;
 
@@ -152,6 +155,8 @@ function flushState(forceDimensionUpdate = false) {
     }
   }
   rafId = null;
+  // Reset the coalesced force flag after a flush completes
+  pendingForceDimensionUpdate = false;
 }
 
 /**
@@ -234,9 +239,11 @@ export const coalesceUpdatesMiddleware = <T extends { viewState: ViewState }>(
           if (!rafId) {
             // console.log(`[coalesceMiddleware ${queueTime.toFixed(0)}ms] Scheduling flush via ${config.useTimeout ? 'setTimeout' : 'requestAnimationFrame'}`);
             if (config.useTimeout) {
-              rafId = setTimeout(() => flushState(), config.timeoutDelay || 16) as any;
+              const force = pendingForceDimensionUpdate;
+              rafId = setTimeout(() => flushState(force), config.timeoutDelay || 16) as any;
             } else {
-              rafId = requestAnimationFrame(() => flushState());
+              const force = pendingForceDimensionUpdate;
+              rafId = requestAnimationFrame(() => flushState(force));
             }
           } else {
             // console.log(`[coalesceMiddleware ${queueTime.toFixed(0)}ms] Flush already scheduled, updating pending state`);
@@ -253,7 +260,8 @@ export const coalesceUpdatesMiddleware = <T extends { viewState: ViewState }>(
               } else {
                 clearTimeout(rafId as any);
               }
-              rafId = requestAnimationFrame(() => flushState());
+              const force = pendingForceDimensionUpdate;
+              rafId = requestAnimationFrame(() => flushState(force));
             }
             // For slider dragging, let the flush happen normally
             else if (isSliderDragging) {
@@ -330,23 +338,25 @@ export const coalesceUtils = {
    * Force flush any pending state immediately
    */
   flush: (forceDimensionUpdate = false) => {
-    console.log('[coalesceUtils.flush] Force flush called with forceDimensionUpdate:', forceDimensionUpdate);
+    console.log('[coalesceUtils.flush] Requested flush (scheduled). forceDimensionUpdate:', forceDimensionUpdate);
     console.log('[coalesceUtils.flush] Pending state exists:', pendingState !== null);
     console.log('[coalesceUtils.flush] Layout dragging:', useLayoutDragStore.getState().isDragging);
     console.log('[coalesceUtils.flush] Drag source:', useDragSourceStore.getState().draggingSource);
-    
-    // Cancel any scheduled flush
-    if (rafId) {
-      if (typeof rafId === 'number' && rafId > 0) {
-        cancelAnimationFrame(rafId);
+
+    // Record that a forced dimension update has been requested; this will be
+    // honored on the next scheduled flush without executing during render.
+    if (forceDimensionUpdate) pendingForceDimensionUpdate = true;
+
+    // If no flush is scheduled yet, schedule one now. Otherwise, let the
+    // existing schedule pick up the coalesced pending state and force flag.
+    if (!rafId) {
+      const force = pendingForceDimensionUpdate;
+      if (typeof window !== 'undefined' && 'requestAnimationFrame' in window) {
+        rafId = requestAnimationFrame(() => flushState(force));
       } else {
-        clearTimeout(rafId as any);
+        rafId = setTimeout(() => flushState(force), 16) as any;
       }
-      rafId = null;
     }
-    
-    // Force flush with dimension update flag
-    flushState(forceDimensionUpdate);
   },
   
   /**

@@ -188,14 +188,35 @@ export const useRenderStateStore = create<RenderStateStore>()(
     // NEW: Context-aware methods for type-safe rendering
     registerContext: (context) => {
       set((state) => {
+        const existing = state.contexts[context.id];
+        const sameDims = existing?.dimensions?.width === context.dimensions.width &&
+                         existing?.dimensions?.height === context.dimensions.height;
+        const sameType = existing?.type === context.type;
+        const sameMeta = (() => {
+          const a = existing?.metadata || {} as Record<string, unknown>;
+          const b = context.metadata || {} as Record<string, unknown>;
+          const ak = Object.keys(a);
+          const bk = Object.keys(b);
+          if (ak.length !== bk.length) return false;
+          for (const k of ak) {
+            if (!Object.is(a[k], b[k])) return false;
+          }
+          return true;
+        })();
+
+        if (existing && sameDims && sameType && sameMeta) {
+          // Idempotent: skip no-op updates to avoid churn
+          return;
+        }
+
         state.contexts[context.id] = context;
-        
+
         // Also ensure state exists for this context
         if (!(context.id in state.states)) {
           state.states[context.id] = { ...defaultRenderState };
         }
-        
-        console.log(`[RenderStateStore] Registered context ${context.id} (type: ${context.type})`);
+
+        console.log(`[RenderStateStore] Registered/updated context ${context.id} (type: ${context.type})`);
       });
     },
     

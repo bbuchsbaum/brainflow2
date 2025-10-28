@@ -73,3 +73,11 @@ Keep AGENTS.md current when touching core architecture, commands, or directory s
 
 ## Known Caveats
 - Typed-shaders (wgsl_to_wgpu) colormap layout: the generated layout for the slice shader sets binding 16 (colormap LUT) to view_dimension D2, while the WGSL uses `texture_2d_array<f32>`. We currently bypass the generated group-2 bindings and build a manual wgpu bind group with D2Array to match the shader. Track upstream fix; keep the manual path until resolved. See memory-bank/SHADER_BINDINGS_PLAN.md.
+
+## Core UI Stability Rules
+- **Selectors must be stable.** When reading Zustand stores from React, selectors may only return primitive values or references that already live in the store. Never build objects/arrays inline; instead memoise derived shapes in the component. Provide an explicit equality fn when comparing nested data.
+- **Guard effect-driven state updates.** Any effect that writes back into a store or component state must bail out when there is no actual value change. Always compare with the current value (e.g., `Object.is`) before calling setters.
+- **Sanitise external callbacks.** Service hooks (`LayerService`, `SliceNavigationService`, etc.) should normalise inputs (swap thresholds, clamp ranges) and no-op if the resulting values match the existing state to prevent feedback loops.
+- **Await and wrap listener teardown.** Tauri event cleanups return `Promise<void>`. Always invoke them through `safeUnlisten` (or equivalent) and `await` the promise inside a `try/catch` block when tearing down listeners. Never call the raw `listen` API directly.
+- **Respect render-phase invariants.** Store writes are forbidden during render. If a change must mirror render-time data (e.g., view registration), schedule it via `requestAnimationFrame`/`setTimeout` so StrictMode does not explode.
+- **Sync sliders & transient UI from canonical state.** Slider components keep local state for responsiveness, but they must snap back to store values when props update, guarded by equality checks to avoid oscillation. Emit final values on drag end to keep stores authoritative.

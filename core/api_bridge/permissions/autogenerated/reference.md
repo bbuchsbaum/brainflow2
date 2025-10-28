@@ -48,6 +48,7 @@ Default permissions for api-bridge plugin
 - `allow-get-favorite-atlases`
 - `allow-validate-atlas-config`
 - `allow-load-atlas`
+- `allow-get-atlas-stats`
 - `allow-start-atlas-progress-monitoring`
 - `allow-get-atlas-subscription-count`
 - `allow-set-volume-timepoint`

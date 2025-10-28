@@ -44,10 +44,16 @@ export function useRenderCanvas(options: UseRenderCanvasOptions = {}) {
   const imagePlacementRef = useRef<ImagePlacement | null>(null);
   const retryCountRef = useRef(0);
   const maxRetries = 3;
+  const lastImageRef = useRef<ImageBitmap | null>(null);
+  const errorRef = useRef<string | null>(null);
+
+  useEffect(() => { lastImageRef.current = lastImage; }, [lastImage]);
+  useEffect(() => { errorRef.current = error; }, [error]);
   
   // Redraw function that can be called when canvas resizes
   const redrawCanvas = useCallback(() => {
-    if (!canvasRef.current || !lastImage) return;
+    const image = lastImageRef.current;
+    if (!canvasRef.current || !image) return;
     
     const canvas = canvasRef.current;
     
@@ -67,7 +73,7 @@ export function useRenderCanvas(options: UseRenderCanvasOptions = {}) {
     
     try {
       // Clear any previous error on successful draw attempt
-      if (error) {
+      if (errorRef.current) {
         setError(storeKey, null);
       }
       
@@ -78,12 +84,12 @@ export function useRenderCanvas(options: UseRenderCanvasOptions = {}) {
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       
       // Validate ImageBitmap before drawing
-      if (!lastImage.width || !lastImage.height) {
-        throw new Error(`Invalid ImageBitmap dimensions: ${lastImage.width}x${lastImage.height}`);
+      if (!image.width || !image.height) {
+        throw new Error(`Invalid ImageBitmap dimensions: ${image.width}x${image.height}`);
       }
       
       // Use the shared canvas utility to draw the image with proper scaling
-      const placement = drawScaledImage(ctx, lastImage, canvas.width, canvas.height);
+      const placement = drawScaledImage(ctx, image, canvas.width, canvas.height);
       
       // Store placement for potential future use
       imagePlacementRef.current = placement;
@@ -99,9 +105,9 @@ export function useRenderCanvas(options: UseRenderCanvasOptions = {}) {
       }
       
       // Call callback if provided
-      if (onImageReceived && lastImage) {
+      if (onImageReceived && image) {
         try {
-          onImageReceived(lastImage);
+          onImageReceived(image);
         } catch (callbackError) {
           // Don't fail the render if callback fails
           console.error(`[useRenderCanvas ${storeKey}] Image callback failed:`, callbackError);
@@ -129,7 +135,8 @@ export function useRenderCanvas(options: UseRenderCanvasOptions = {}) {
       
       return null;
     }
-  }, [storeKey, onImageReceived, customRender, lastImage, error, setError]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [storeKey, onImageReceived, customRender, setError]);
   
   // React to changes in lastImage from the store
   // When RenderStateStore updates with a new image, draw it to the canvas
@@ -148,7 +155,7 @@ export function useRenderCanvas(options: UseRenderCanvasOptions = {}) {
         setError(storeKey, new Error(`Failed to process image: ${errorMessage}`));
       }
     }
-  }, [lastImage, storeKey, context, tag, viewType, redrawCanvas, setError]);
+  }, [lastImage, redrawCanvas, storeKey, context, tag, viewType, setError]);
   
   // Cleanup is now handled by RenderStateStore
   // When the component unmounts, the store manages ImageBitmap lifecycle

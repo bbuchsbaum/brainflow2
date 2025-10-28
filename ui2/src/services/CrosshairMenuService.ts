@@ -3,7 +3,7 @@
  * Uses viewStateStore to toggle crosshair visibility
  */
 
-import { listen } from '@tauri-apps/api/event';
+import { safeListen, safeUnlisten } from '@/utils/eventUtils';
 import { useViewStateStore } from '@/stores/viewStateStore';
 
 export class CrosshairMenuService {
@@ -23,7 +23,7 @@ export class CrosshairMenuService {
 
   private async init() {
     // Listen for crosshair menu events from Tauri
-    this.unlistenFn = await listen('crosshair-action', (event) => {
+    this.unlistenFn = await safeListen('crosshair-action', (event) => {
       console.log('[CrosshairMenuService] Received event:', event.payload);
       
       const payload = event.payload as { action: string };
@@ -61,7 +61,7 @@ export class CrosshairMenuService {
 
   destroy() {
     if (this.unlistenFn) {
-      this.unlistenFn();
+      void safeUnlisten(this.unlistenFn);
       this.unlistenFn = null;
     }
   }

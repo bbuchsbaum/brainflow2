@@ -5,11 +5,11 @@
 
 import { getEventBus, type EventBus } from '@/events/EventBus';
 import { useProgressStore, generateTaskId, type ProgressTaskType } from '@/stores/progressStore';
-import { listen } from '@tauri-apps/api/event';
+import { safeListen, safeUnlisten, type Unlisten } from '@/utils/eventUtils';
 
 export class ProgressService {
   private eventBus: EventBus;
-  private unlisteners: Array<() => void> = [];
+  private unlisteners: Array<Unlisten> = [];
   private initialized = false;
   
   constructor() {
@@ -72,7 +72,7 @@ export class ProgressService {
   private async initializeTauriListeners() {
     try {
       // Listen for progress start events
-      const unlistenStart = await listen<{
+      const unlistenStart = await safeListen<{
         taskId: string;
         type: ProgressTaskType;
         title: string;
@@ -96,7 +96,7 @@ export class ProgressService {
       this.unlisteners.push(unlistenStart);
       
       // Listen for progress update events
-      const unlistenUpdate = await listen<{
+      const unlistenUpdate = await safeListen<{
         taskId: string;
         progress: number;
         message?: string;
@@ -111,7 +111,7 @@ export class ProgressService {
       this.unlisteners.push(unlistenUpdate);
       
       // Listen for progress complete events
-      const unlistenComplete = await listen<{
+      const unlistenComplete = await safeListen<{
         taskId: string;
         message?: string;
       }>('progress:complete', (event) => {
@@ -127,7 +127,7 @@ export class ProgressService {
       this.unlisteners.push(unlistenComplete);
       
       // Listen for progress error events
-      const unlistenError = await listen<{
+      const unlistenError = await safeListen<{
         taskId: string;
         error: string;
       }>('progress:error', (event) => {
@@ -140,7 +140,7 @@ export class ProgressService {
       this.unlisteners.push(unlistenError);
       
       // Listen for progress cancel events
-      const unlistenCancel = await listen<{
+      const unlistenCancel = await safeListen<{
         taskId: string;
       }>('progress:cancel', (event) => {
         const { taskId } = event.payload;
@@ -221,7 +221,10 @@ export class ProgressService {
    * Clean up listeners
    */
   destroy() {
-    this.unlisteners.forEach(unlisten => unlisten());
+    this.unlisteners.forEach((unlisten) => {
+      // Ensure we swallow promise rejections from Tauri internals
+      void safeUnlisten(unlisten);
+    });
     this.unlisteners = [];
   }
   

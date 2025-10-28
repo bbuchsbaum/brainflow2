@@ -10,6 +10,7 @@ interface ProSliderProps {
   precision?: number;
   showTooltip?: boolean;
   className?: string;
+  disabled?: boolean;
 }
 
 export const ProSlider: React.FC<ProSliderProps> = ({
@@ -20,7 +21,8 @@ export const ProSlider: React.FC<ProSliderProps> = ({
   onChange,
   precision = 0,
   showTooltip = true,
-  className = ''
+  className = '',
+  disabled = false,
 }) => {
   const [localValue, setLocalValue] = useState(value);
   const [isDragging, setIsDragging] = useState(false);
@@ -160,6 +162,7 @@ export const ProSlider: React.FC<ProSliderProps> = ({
   // Mouse event handlers
   const handleMouseDown = (thumb: 'left' | 'right') => (e: React.MouseEvent) => {
     e.preventDefault();
+    if (disabled) return;
     isDraggingRef.current = true;
     activeThumbRef.current = thumb;
     setIsDragging(true);
@@ -176,11 +179,14 @@ export const ProSlider: React.FC<ProSliderProps> = ({
     setTooltipPosition({ left: leftPercent, right: rightPercent });
   }, [localValue, min, max]);
 
-  // Simply sync with props when not dragging, no echo prevention needed
+  // Sync local state from props when not dragging, but avoid churn on equal values
   useEffect(() => {
     if (!isDragging) {
-      setLocalValue(value);
-      localValueRef.current = value;
+      const [lv0, lv1] = localValueRef.current;
+      if (lv0 !== value[0] || lv1 !== value[1]) {
+        setLocalValue(value);
+        localValueRef.current = value;
+      }
     }
   }, [value, isDragging]);
   
@@ -210,7 +216,7 @@ export const ProSlider: React.FC<ProSliderProps> = ({
       </div>
 
       {/* Slider track */}
-      <div className="relative h-8 flex items-center">
+      <div className={`relative h-8 flex items-center ${disabled ? 'opacity-50 pointer-events-none' : ''}`}>
         <div
           ref={trackRef}
           className="relative w-full h-[3px] rounded-full"

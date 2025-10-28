@@ -12,6 +12,8 @@ import { SharedControls, type DataLayerRender, type DataLayerMetadata } from './
 import type { Layer, LayerRender } from '@/types/layers';
 import type { VolumeMetadata } from '@/stores/layerStore';
 import { ChevronDown, ChevronRight, Layers, Settings } from 'lucide-react';
+import { setLayerBorder } from '@brainflow/api';
+import { useDisplayOptionsStore } from '@/stores/displayOptionsStore';
 
 interface VolumePanelProps {
   /**
@@ -179,9 +181,41 @@ export const VolumePanel: React.FC<VolumePanelProps> = ({
   };
 
   // Per-layer display settings state (future: move to layer state/metadata)
-  const [showBorder, setShowBorder] = React.useState(false);
-  const [showOrientationMarkers, setShowOrientationMarkers] = React.useState(true);
-  const [showValueOnHover, setShowValueOnHover] = React.useState(true);
+  const displayOptions = useDisplayOptionsStore(s => s.getOptions(layer.id));
+  const setDisplayOptions = useDisplayOptionsStore(s => s.setOptions);
+
+  const [showBorder, setShowBorder] = React.useState<boolean>(displayOptions.showBorder);
+  const [showOrientationMarkers, setShowOrientationMarkers] = React.useState<boolean>(displayOptions.showOrientationMarkers);
+  const [showValueOnHover, setShowValueOnHover] = React.useState<boolean>(displayOptions.showValueOnHover);
+
+  // Keep local state in sync if store changes from elsewhere
+  React.useEffect(() => {
+    setShowBorder(displayOptions.showBorder);
+    setShowOrientationMarkers(displayOptions.showOrientationMarkers);
+    setShowValueOnHover(displayOptions.showValueOnHover);
+  }, [displayOptions.showBorder, displayOptions.showOrientationMarkers, displayOptions.showValueOnHover]);
+
+  const handleBorderToggle = async (next: boolean) => {
+    try {
+      setShowBorder(next);
+      setDisplayOptions(layer.id, { showBorder: next });
+      await setLayerBorder(layer.id, next, 1);
+    } catch (err) {
+      console.error('[VolumePanel] setLayerBorder failed', err);
+      setShowBorder(!next);
+      setDisplayOptions(layer.id, { showBorder: !next });
+    }
+  };
+
+  const handleOrientationToggle = (next: boolean) => {
+    setShowOrientationMarkers(next);
+    setDisplayOptions(layer.id, { showOrientationMarkers: next });
+  };
+
+  const handleHoverToggle = (next: boolean) => {
+    setShowValueOnHover(next);
+    setDisplayOptions(layer.id, { showValueOnHover: next });
+  };
 
   return (
     <div className="space-y-4">
@@ -234,7 +268,7 @@ export const VolumePanel: React.FC<VolumePanelProps> = ({
           <CompactToggle
             label="Slice Border"
             value={showBorder}
-            onChange={setShowBorder}
+            onChange={handleBorderToggle}
             disabled={!render}
             title="Show border around slice extent (useful for multi-volume viewing)"
           />
@@ -242,15 +276,15 @@ export const VolumePanel: React.FC<VolumePanelProps> = ({
           <CompactToggle
             label="Orientation Markers"
             value={showOrientationMarkers}
-            onChange={setShowOrientationMarkers}
+            onChange={handleOrientationToggle}
             disabled={!render}
-            title="Show L/R/A/P markers on slice views"
+            title="Show view orientation labels"
           />
 
           <CompactToggle
             label="Value on Hover"
             value={showValueOnHover}
-            onChange={setShowValueOnHover}
+            onChange={handleHoverToggle}
             disabled={!render}
             title="Display voxel values when hovering over the slice"
           />

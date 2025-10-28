@@ -3,7 +3,7 @@
  * Wraps a SliceView for use in Allotment panes
  */
 
-import React, { useState, useEffect, useLayoutEffect, useRef, memo, useMemo } from 'react';
+import React, { useState, useEffect, useRef, memo, useMemo } from 'react';
 import { SliceView } from './SliceView';
 import type { ViewType } from '@/types/coordinates';
 import { clampDimensions } from '@/utils/dimensions';
@@ -43,8 +43,7 @@ export const FlexibleSlicePanel = memo(function FlexibleSlicePanel({
         // Update dimensions and vectors atomically (now async with backend)
         await useViewStateStore.getState().updateDimensionsAndPreserveScale(viewId, [width, height]);
         
-        // Force immediate render (skip drag check during resize)
-        coalesceUtils.flush(true);
+        // Flush is scheduled by middleware; avoid forcing during render
       } else {
         console.log(`[FlexibleSlicePanel ${viewId}] Skipping update - dimension change too small:`, {
           current: [currentWidth, currentHeight],
@@ -84,11 +83,7 @@ export const FlexibleSlicePanel = memo(function FlexibleSlicePanel({
           });
           
           // Update dimensions and vectors atomically (now async with backend)
-          useViewStateStore.getState().updateDimensionsAndPreserveScale(viewId, [width, height]).then(() => {
-            console.log(`[FlexibleSlicePanel ${viewId}] Drag end update completed`);
-            // Force immediate render after backend update
-            coalesceUtils.flush(true);
-          });
+          // Temporarily disable backend dimension update during drag end for debugging
         }
       }
       
@@ -99,37 +94,29 @@ export const FlexibleSlicePanel = memo(function FlexibleSlicePanel({
   }, [viewId, dimensions, throttledUpdateDimensions]);
   
   // Use ResizeObserver to track container size internally
-  // Using useLayoutEffect to ensure measurements happen synchronously after DOM updates
-  useLayoutEffect(() => {
+  // Use effect + requestAnimationFrame to avoid nested update loops
+  useEffect(() => {
     if (!containerRef.current) return;
     
     const resizeObserver = new ResizeObserver((entries) => {
       const entry = entries[0];
       if (entry) {
         const { width, height } = entry.contentRect;
-        console.log(`[FlexibleSlicePanel ${viewId}] ResizeObserver triggered:`, {
-          raw: { width, height },
-          timestamp: performance.now()
-        });
-        
-        // Clamp dimensions and only update if they actually changed
-        const [clampedWidth, clampedHeight] = clampDimensions(width, height);
-        setDimensions(prev => {
-          if (prev.width === clampedWidth && prev.height === clampedHeight) {
-            console.log(`[FlexibleSlicePanel ${viewId}] Dimensions unchanged, skipping state update`);
-            return prev;
-          }
-          console.log(`[FlexibleSlicePanel ${viewId}] Updating local dimensions:`, {
-            prev: { width: prev.width, height: prev.height },
-            new: { width: clampedWidth, height: clampedHeight }
+        const schedule = () => {
+          const [clampedWidth, clampedHeight] = clampDimensions(width, height);
+          setDimensions(prev => {
+            if (prev.width === clampedWidth && prev.height === clampedHeight) {
+              return prev;
+            }
+            return { width: clampedWidth, height: clampedHeight };
           });
-          return { width: clampedWidth, height: clampedHeight };
-        });
-        
-        // Trigger throttled update for backend re-render
-        if (clampedWidth > 0 && clampedHeight > 0) {
-          throttledUpdateDimensions(clampedWidth, clampedHeight);
-        }
+          // DISABLED: Backend dimension updates cause infinite render loop
+          // The store update triggers SliceViewCanvas re-renders with mismatched props
+          // TODO: Fix prop/store synchronization issue before re-enabling
+          // throttledUpdateDimensions(clampedWidth, clampedHeight);
+        };
+        // Defer updates to next frame to avoid nested layout commits
+        requestAnimationFrame(schedule);
       }
     });
     
@@ -138,9 +125,11 @@ export const FlexibleSlicePanel = memo(function FlexibleSlicePanel({
     // Get initial size with clamping
     const rect = containerRef.current.getBoundingClientRect();
     const [initialWidth, initialHeight] = clampDimensions(rect.width, rect.height);
-    setDimensions({ 
-      width: initialWidth, 
-      height: initialHeight 
+    // Also defer initial size to next frame
+    requestAnimationFrame(() => {
+      setDimensions({ width: initialWidth, height: initialHeight });
+      // DISABLED: Backend dimension updates cause infinite render loop
+      // throttledUpdateDimensions(initialWidth, initialHeight);
     });
     
     return () => resizeObserver.disconnect();

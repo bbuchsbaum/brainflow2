@@ -3,7 +3,7 @@
  */
 
 import { useEffect } from 'react';
-import { listen } from '@tauri-apps/api/event';
+import { safeListen, safeUnlisten } from '@/utils/eventUtils';
 import { useWorkspaceStore } from '@/stores/workspaceStore';
 import type { WorkspaceType } from '@/types/workspace';
 
@@ -19,18 +19,12 @@ export function useWorkspaceMenuListener() {
   useEffect(() => {
     console.log('[useWorkspaceMenuListener] Setting up workspace menu listener...');
     
-    // Check if Tauri is available
-    if (typeof window === 'undefined' || !(window as any).__TAURI__) {
-      console.warn('[useWorkspaceMenuListener] Tauri API not available, skipping listener');
-      return;
-    }
-    
     let unlisten: (() => void) | null = null;
     
     // Listen for workspace-action events from Tauri
     const setupListener = async () => {
       try {
-        unlisten = await listen<WorkspaceActionEvent>('workspace-action', async (event) => {
+        unlisten = await safeListen<WorkspaceActionEvent>('workspace-action', async (event) => {
           console.log('[useWorkspaceMenuListener] Workspace action received:', event.payload);
           
           const workspaceStore = useWorkspaceStore.getState();
@@ -77,14 +71,7 @@ export function useWorkspaceMenuListener() {
 
     // Cleanup listener on unmount
     return () => {
-      if (unlisten) {
-        try {
-          unlisten();
-          console.log('[useWorkspaceMenuListener] Listener cleaned up');
-        } catch (error) {
-          console.warn('[useWorkspaceMenuListener] Error during listener cleanup:', error);
-        }
-      }
+      if (unlisten) void safeUnlisten(unlisten);
     };
   }, []);
 }

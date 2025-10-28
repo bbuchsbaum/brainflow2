@@ -251,8 +251,8 @@ export function getRenderDebugger(): RenderDebugger {
  * Usage: startRenderDebug()
  */
 export function startRenderDebug(): void {
-  const debugger = getRenderDebugger();
-  debugger.start();
+  const dbg = getRenderDebugger();
+  dbg.start();
   console.log('Render debugging started. Use window.renderDebugger to access the debugger.');
   console.log('Commands:');
   console.log('  window.renderDebugger.printSummary() - Show stats');
@@ -265,8 +265,8 @@ export function startRenderDebug(): void {
  * Quick stop debugging from console
  */
 export function stopRenderDebug(): void {
-  const debugger = getRenderDebugger();
-  debugger.stop();
+  const dbg = getRenderDebugger();
+  dbg.stop();
   console.log('Render debugging stopped.');
 }
 

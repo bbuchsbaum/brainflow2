@@ -7,7 +7,7 @@ import React, { useEffect, useRef, useCallback, useState } from 'react';
 import ReactDOM from 'react-dom/client';
 import { GoldenLayout, LayoutConfig, ComponentContainer, Stack, ComponentItem } from 'golden-layout';
 import { useWorkspaceStore } from '@/stores/workspaceStore';
-import { listen } from '@tauri-apps/api/event';
+import { safeListen, safeUnlisten } from '@/utils/eventUtils';
 import { debounce } from 'lodash';
 import type { WorkspaceType } from '@/types/workspace';
 import { CrosshairProvider } from '@/contexts/CrosshairContext';
@@ -532,7 +532,7 @@ export function GoldenLayoutRoot() {
 
     const setupListener = async () => {
       try {
-        unlisten = await listen<{ action: string; payload: any }>('menu-action', async (event) => {
+        unlisten = await safeListen<{ action: string; payload: any }>('menu-action', async (event) => {
           console.log('[GoldenLayoutRoot] Menu action received:', event.payload);
           
           switch (event.payload.action) {
@@ -566,7 +566,7 @@ export function GoldenLayoutRoot() {
     setupListener();
 
     return () => {
-      unlisten?.();
+      if (unlisten) void safeUnlisten(unlisten);
     };
   }, [store]);
 

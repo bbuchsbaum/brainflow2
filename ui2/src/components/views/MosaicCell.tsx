@@ -71,11 +71,20 @@ export function MosaicCell({
   const crosshairSettings = useCrosshairSettingsStore(state => state.getViewSettings(axis));
   
   // Register context with the store for type-safe rendering
-  const registerContext = useRenderStateStore(state => state.registerContext);
+  const hasRegisteredRef = useRef(false);
   useEffect(() => {
-    registerContext(renderContext);
-    console.log(`[MosaicCell] Registered context for ${renderContext.id} (slice ${sliceIndex})`);
-  }, [renderContext, registerContext, sliceIndex]);
+    if (hasRegisteredRef.current) return;
+    const store = useRenderStateStore.getState();
+    const existing = store.getContext?.(renderContext.id);
+    if (!existing) {
+      store.registerContext(renderContext);
+      console.log(`[MosaicCell] Registered context for ${renderContext.id} (slice ${sliceIndex})`);
+    } else {
+      console.log(`[MosaicCell] Context already registered for ${renderContext.id} (slice ${sliceIndex})`);
+    }
+    hasRegisteredRef.current = true;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [renderContext.id, sliceIndex]);
   
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const imagePlacementRef = useRef<{

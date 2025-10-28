@@ -226,14 +226,19 @@ describe('CoalesceUpdatesMiddleware', () => {
     });
   });
 
+  const waitForFlush = async (delay = 25) => {
+    await new Promise(resolve => setTimeout(resolve, delay));
+  };
+
   describe('Utility Functions', () => {
-    it('should allow manual flushing', () => {
+    it('should allow manual flushing', async () => {
       // Arrange
       testStore.getState().updateState('manual-flush');
       expect(mockBackendCallback).not.toHaveBeenCalled();
       
       // Act
       coalesceUtils.flush();
+      await waitForFlush();
       
       // Assert
       expect(mockBackendCallback).toHaveBeenCalledTimes(1);
@@ -244,7 +249,7 @@ describe('CoalesceUpdatesMiddleware', () => {
       );
     });
 
-    it('should detect pending updates', () => {
+    it('should detect pending updates', async () => {
       // Initially no pending updates
       expect(coalesceUtils.hasPendingUpdate()).toBe(false);
       
@@ -254,6 +259,7 @@ describe('CoalesceUpdatesMiddleware', () => {
       
       // After flush, should not have pending
       coalesceUtils.flush();
+      await waitForFlush();
       expect(coalesceUtils.hasPendingUpdate()).toBe(false);
     });
 

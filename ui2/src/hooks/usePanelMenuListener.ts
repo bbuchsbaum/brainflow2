@@ -3,7 +3,7 @@
  */
 
 import { useEffect } from 'react';
-import { listen } from '@tauri-apps/api/event';
+import { safeListen, safeUnlisten } from '@/utils/eventUtils';
 
 interface PanelActionEvent {
   action: 'show-panel';
@@ -16,18 +16,12 @@ export function usePanelMenuListener() {
   useEffect(() => {
     console.log('[usePanelMenuListener] Setting up panel menu listener...');
     
-    // Check if Tauri is available
-    if (typeof window === 'undefined' || !(window as any).__TAURI__) {
-      console.warn('[usePanelMenuListener] Tauri API not available, skipping listener');
-      return;
-    }
-    
     let unlisten: (() => void) | null = null;
     
     // Listen for panel-action events from Tauri
     const setupListener = async () => {
       try {
-        unlisten = await listen<PanelActionEvent>('panel-action', async (event) => {
+        unlisten = await safeListen<PanelActionEvent>('panel-action', async (event) => {
           console.log('[usePanelMenuListener] Panel action received:', event.payload);
           
           switch (event.payload.action) {
@@ -62,14 +56,7 @@ export function usePanelMenuListener() {
 
     // Cleanup listener on unmount
     return () => {
-      if (unlisten) {
-        try {
-          unlisten();
-          console.log('[usePanelMenuListener] Panel listener cleaned up');
-        } catch (error) {
-          console.warn('[usePanelMenuListener] Error during panel listener cleanup:', error);
-        }
-      }
+      if (unlisten) void safeUnlisten(unlisten);
     };
   }, []);
 }

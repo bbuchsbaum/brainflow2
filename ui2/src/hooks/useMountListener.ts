@@ -3,7 +3,7 @@
  */
 
 import { useEffect } from 'react';
-import { listen } from '@tauri-apps/api/event';
+import { safeListen, safeUnlisten } from '@/utils/eventUtils';
 import { useFileBrowserStore } from '@/stores/fileBrowserStore';
 
 interface MountEvent {
@@ -14,18 +14,12 @@ export function useMountListener() {
   useEffect(() => {
     console.log('Setting up mount listener...');
     
-    // Check if Tauri is available
-    if (typeof window === 'undefined' || !(window as any).__TAURI__) {
-      console.warn('Tauri API not available, skipping mount listener');
-      return;
-    }
-    
     let unlisten: (() => void) | null = null;
     
     // Listen for mount-directory-event from Tauri
     const setupListener = async () => {
       try {
-        unlisten = await listen<MountEvent>('mount-directory-event', async (event) => {
+        unlisten = await safeListen<MountEvent>('mount-directory-event', async (event) => {
       console.log('Mount event received:', event.payload);
       
       // Get the store instance
@@ -65,13 +59,7 @@ export function useMountListener() {
 
     // Cleanup listener on unmount
     return () => {
-      if (unlisten) {
-        try {
-          unlisten();
-        } catch (error) {
-          console.warn('Error during listener cleanup:', error);
-        }
-      }
+      if (unlisten) void safeUnlisten(unlisten);
     };
   }, []);
 }

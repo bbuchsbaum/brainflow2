@@ -7,7 +7,7 @@ import React, { useEffect, useRef, useCallback } from 'react';
 import { useWorkspaceStore } from '@/stores/workspaceStore';
 import { WorkspaceTabBar } from './WorkspaceTabBar';
 import { GoldenLayoutWrapper } from './GoldenLayoutWrapper';
-import { listen } from '@tauri-apps/api/event';
+import { safeListen, safeUnlisten } from '@/utils/eventUtils';
 import { initializeViewRegistry } from '@/services/ViewRegistry';
 import debounce from 'lodash/debounce';
 import type { MenuActionEvent, Workspace } from '@/types/workspace';
@@ -64,16 +64,11 @@ export function WorkspaceManager() {
   
   // Listen for menu actions from Tauri
   useEffect(() => {
-    if (typeof window === 'undefined' || !(window as any).__TAURI__) {
-      console.warn('[WorkspaceManager] Tauri API not available');
-      return;
-    }
-    
     let unlisten: (() => void) | null = null;
     
     const setupListener = async () => {
       try {
-        unlisten = await listen<MenuActionEvent>('menu-action', (event) => {
+        unlisten = await safeListen<MenuActionEvent>('menu-action', (event) => {
           console.log('[WorkspaceManager] Menu action received:', event.payload);
           
           const store = useWorkspaceStore.getState();
@@ -116,11 +111,7 @@ export function WorkspaceManager() {
     
     setupListener();
     
-    return () => {
-      if (unlisten) {
-        unlisten();
-      }
-    };
+    return () => { if (unlisten) void safeUnlisten(unlisten); };
   }, []); // Empty dependency array - listeners should be stable
   
   // Update menu state when workspace changes
@@ -134,12 +125,12 @@ export function WorkspaceManager() {
     
     const updateMenuState = async () => {
       try {
-        const { emit } = await import('@tauri-apps/api/event');
+        const { safeEmit } = await import('@/utils/eventUtils');
         const store = useWorkspaceStore.getState();
         const allWorkspaces = Array.from(store.workspaces.values());
         const currentWorkspace = store.workspaces.get(activeWorkspaceId);
         
-        await emit('update-menu-state', {
+        await safeEmit('update-menu-state', {
           activeWorkspaceId: activeWorkspaceId,
           activeWorkspaceType: currentWorkspace?.type || null,
           workspaces: allWorkspaces.map(w => ({

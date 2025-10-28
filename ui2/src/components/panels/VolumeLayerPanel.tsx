@@ -69,53 +69,84 @@ const VolumeLayerPanelContent: React.FC = () => {
   }, [viewStateLayers, serviceInitialized]);
 
   const handleRenderUpdate = useCallback((updates: Partial<LayerRender>) => {
-    if (selectedLayerId) {
-      
-      // Validate threshold values - just ensure min <= max
-      if (updates.threshold) {
-        const [minThresh, maxThresh] = updates.threshold;
-        
-        // Auto-swap if crossed
-        if (minThresh > maxThresh) {
-          updates.threshold = [maxThresh, minThresh];
+    if (!selectedLayerId) return;
+
+    const sanitized: Partial<LayerRender> = {};
+
+    if (updates.intensity) {
+      const [minIntensity, maxIntensity] = updates.intensity;
+      sanitized.intensity = [minIntensity, maxIntensity];
+    }
+
+    if (updates.threshold) {
+      let [minThresh, maxThresh] = updates.threshold;
+      if (minThresh > maxThresh) {
+        [minThresh, maxThresh] = [maxThresh, minThresh];
+      }
+      sanitized.threshold = [minThresh, maxThresh];
+    }
+
+    if (updates.colormap) {
+      sanitized.colormap = updates.colormap;
+    }
+
+    if (updates.opacity !== undefined) {
+      sanitized.opacity = updates.opacity;
+    }
+
+    if (updates.interpolation) {
+      sanitized.interpolation = updates.interpolation;
+    }
+
+    let didChange = false;
+
+    useViewStateStore.getState().setViewState((state) => {
+      const layer = state.layers.find((l) => l.id === selectedLayerId);
+      if (!layer) return;
+
+      if (sanitized.intensity) {
+        const [nextMin, nextMax] = sanitized.intensity;
+        const current = layer.intensity;
+        if (!current || current[0] !== nextMin || current[1] !== nextMax) {
+          layer.intensity = [nextMin, nextMax];
+          didChange = true;
         }
       }
-      
-      // Update ViewState (primary source of truth)
-      useViewStateStore.getState().setViewState((state) => {
-        const layers = [...state.layers];
-        const layerIndex = layers.findIndex(l => l.id === selectedLayerId);
-        if (layerIndex !== -1) {
-          // Update only the properties that changed
-          if (updates.intensity) {
-            layers[layerIndex].intensity = updates.intensity;
-          }
-          if (updates.threshold) {
-            layers[layerIndex].threshold = updates.threshold;
-          }
-          if (updates.colormap) {
-            layers[layerIndex].colormap = updates.colormap;
-          }
-          if (updates.opacity !== undefined) {
-            layers[layerIndex].opacity = updates.opacity;
-          }
-          if (updates.interpolation) {
-            layers[layerIndex].interpolation = updates.interpolation;
-          }
+
+      if (sanitized.threshold) {
+        const [nextLow, nextHigh] = sanitized.threshold;
+        const current = layer.threshold;
+        if (!current || current[0] !== nextLow || current[1] !== nextHigh) {
+          layer.threshold = [nextLow, nextHigh];
+          didChange = true;
         }
-        return { ...state, layers };
-      });
-      
-      // ViewState is the single source of truth - no need to update layerStore
-      
-      // Emit event for render property changes
-      getEventBus().emit('layer.render.changed', { 
-        layerId: selectedLayerId, 
-        renderProps: updates 
-      });
-      
-      // ViewState changes will be automatically sent to backend via coalescing
+      }
+
+      if (sanitized.colormap && layer.colormap !== sanitized.colormap) {
+        layer.colormap = sanitized.colormap;
+        didChange = true;
+      }
+
+      if (sanitized.opacity !== undefined && !Object.is(layer.opacity, sanitized.opacity)) {
+        layer.opacity = sanitized.opacity;
+        didChange = true;
+      }
+
+      if (sanitized.interpolation && layer.interpolation !== sanitized.interpolation) {
+        layer.interpolation = sanitized.interpolation;
+        didChange = true;
+      }
+    });
+
+    if (!didChange) {
+      return;
     }
+
+    // Emit event for render property changes (use sanitized copy)
+    getEventBus().emit('layer.render.changed', {
+      layerId: selectedLayerId,
+      renderProps: sanitized,
+    });
   }, [selectedLayerId]);
   
   return (

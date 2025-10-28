@@ -45,13 +45,7 @@ export function useLayoutSync() {
           });
           
           // If dimensions changed, force a flush to trigger rendering
-          if (dimensionsChanged) {
-            console.log('[useLayoutSync] Dimensions changed, forcing flush with dimension update flag');
-            // Use unified timing to ensure ViewState updates have been queued
-            setTimeout(() => {
-              coalesceUtils.flush(true);
-            }, 200);
-          }
+          // No forced flush; coalescing middleware will schedule the render
         }
       }
     );

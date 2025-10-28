@@ -22,6 +22,9 @@ vi.mock('@/services/apiService', () => ({
 describe('ViewStateStore', () => {
   let store: ReturnType<typeof useViewStateStore.getState>;
   let mockBackendCallback: ReturnType<typeof vi.fn>;
+  const waitForFlush = async (delay = 25) => {
+    await new Promise(resolve => setTimeout(resolve, delay));
+  };
 
   beforeEach(() => {
     // Get the store state (which contains both state and methods)
@@ -424,6 +427,7 @@ describe('ViewStateStore', () => {
 
       // Act
       coalesceUtils.flush();
+      await waitForFlush();
 
       // Assert
       expect(mockBackendCallback).toHaveBeenCalledTimes(1);

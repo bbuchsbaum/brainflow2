@@ -3,14 +3,13 @@
  * TypeScript SDK for developing Brainflow plugins
  */
 
-// Re-export plugin types from the main UI package
-export type {
-  PluginManifest,
+// Bring plugin types into local scope and re-export via named export
+import type {
+  PluginContext,
   PluginType,
   PluginPermission,
   PluginDependency,
   ResourceRequirements,
-  PluginContext,
   PluginAPI,
   PluginMessageBus,
   PluginResourceManager,
@@ -29,7 +28,36 @@ export type {
   MessageMetadata,
   PrivateChannel,
   ValidationResult
-} from '../../ui/src/lib/plugins/types';
+} from './types.js';
+
+import type { PluginManifest } from '@brainflow/api';
+
+export type {
+  PluginContext,
+  PluginType,
+  PluginPermission,
+  PluginDependency,
+  ResourceRequirements,
+  PluginAPI,
+  PluginMessageBus,
+  PluginResourceManager,
+  PluginLogger,
+  PluginConfig,
+  PluginStorage,
+  PluginUIAPI,
+  PanelConfig,
+  PanelHandle,
+  NotificationConfig,
+  MenuConfig,
+  MemoryBlock,
+  MemoryUsage,
+  ResourceLimitStatus,
+  MessageHandler,
+  MessageMetadata,
+  PrivateChannel,
+  ValidationResult,
+  PluginManifest
+};
 
 // Re-export API types
 export type { CoreApi, DataSample, DataFrame } from '@brainflow/api';
@@ -323,9 +351,6 @@ export const PluginSDK = {
     version?: string;
     description?: string;
     author?: string;
-    permissions?: PluginPermission[];
-    dependencies?: PluginDependency[];
-    resources?: ResourceRequirements;
   }): PluginManifest {
     return {
       id: config.id,
@@ -337,10 +362,7 @@ export const PluginSDK = {
       entrypoint: config.entrypoint,
       handles: config.handles,
       description: config.description,
-      author: config.author,
-      permissions: config.permissions,
-      dependencies: config.dependencies,
-      resources: config.resources
+      author: config.author
     };
   },
 
@@ -519,7 +541,7 @@ export const PluginTestUtils = {
         error: () => {}
       },
       config: {
-        get: () => undefined,
+        get: <T>(_key: string, defaultValue?: T) => (defaultValue as T)!,
         set: () => {},
         has: () => false,
         delete: () => {}

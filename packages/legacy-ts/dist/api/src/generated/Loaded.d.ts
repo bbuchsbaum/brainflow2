@@ -1,3 +1,5 @@
+import type { SurfaceDataHandle } from "./SurfaceDataHandle";
+import type { SurfaceHandle } from "./SurfaceHandle";
 export type Loaded = {
     "type": "Volume";
     "data": {
@@ -24,5 +26,20 @@ export type Loaded = {
     "data": {
         path: string;
         loader_type: string;
+    };
+} | {
+    "type": "Surface";
+    "data": {
+        handle: SurfaceHandle;
+        vertex_count: number;
+        face_count: number;
+        path: string;
+    };
+} | {
+    "type": "SurfaceData";
+    "data": {
+        handle: SurfaceDataHandle;
+        data_count: number;
+        path: string;
     };
 };

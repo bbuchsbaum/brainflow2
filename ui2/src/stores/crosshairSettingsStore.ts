@@ -122,10 +122,13 @@ export const useCrosshairSettingsStore = create<CrosshairSettingsStore>()(
             console.error('Failed to save crosshair settings:', error);
           }
           
-          // Also update ViewStateStore if visibility changed
+          // Also update ViewStateStore if visibility changed, but defer to next tick
           if (updates.visible !== undefined) {
             const { useViewStateStore } = require('@/stores/viewStateStore');
-            useViewStateStore.getState().setCrosshairVisible(updates.visible);
+            const defer = (cb: () => void) => (typeof queueMicrotask === 'function' ? queueMicrotask(cb) : setTimeout(cb, 0));
+            defer(() => {
+              try { useViewStateStore.getState().setCrosshairVisible(updates.visible!); } catch {}
+            });
           }
           
           return { settings: newSettings };
@@ -135,9 +138,11 @@ export const useCrosshairSettingsStore = create<CrosshairSettingsStore>()(
       resetSettings: () => {
         set({ settings: DEFAULT_SETTINGS });
         
-        // Update ViewStateStore
+        // Update ViewStateStore (defer to next tick)
         const { useViewStateStore } = require('@/stores/viewStateStore');
-        useViewStateStore.getState().setCrosshairVisible(DEFAULT_SETTINGS.visible);
+        (typeof queueMicrotask === 'function' ? queueMicrotask : (fn: any) => setTimeout(fn, 0))(() => {
+          try { useViewStateStore.getState().setCrosshairVisible(DEFAULT_SETTINGS.visible); } catch {}
+        });
         
         // Save to localStorage
         try {
@@ -161,9 +166,11 @@ export const useCrosshairSettingsStore = create<CrosshairSettingsStore>()(
             const parsed = JSON.parse(stored) as CrosshairSettings;
             set({ settings: parsed, isLoading: false });
             
-            // Sync with ViewStateStore
+            // Sync with ViewStateStore (defer to next tick)
             const { useViewStateStore } = require('@/stores/viewStateStore');
-            useViewStateStore.getState().setCrosshairVisible(parsed.visible);
+            (typeof queueMicrotask === 'function' ? queueMicrotask : (fn: any) => setTimeout(fn, 0))(() => {
+              try { useViewStateStore.getState().setCrosshairVisible(parsed.visible); } catch {}
+            });
           } else {
             set({ isLoading: false });
           }

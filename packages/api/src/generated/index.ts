@@ -4,6 +4,7 @@
 export * from './Loaded';
 export * from './TimeSeriesResult';
 export * from './SliceInfo';
+export * from './SurfaceDataHandle';
 export * from './VolumeType';
 export * from './VolumeLayerSpec';
 export * from './GpuTextureFormat';
@@ -19,6 +20,7 @@ export * from './TimeSeriesInfo';
 export * from './VolumeBounds';
 export * from './SliceAxis';
 export * from './VolumeHandleInfo';
+export * from './SurfaceHandle';
 export * from './FlatNode';
 export * from './LayerSpec';
 export * from './BatchRenderRequest';

@@ -4,7 +4,8 @@
  */
 
 import { invoke } from '@tauri-apps/api/core';
-import { listen, type UnlistenFn } from '@tauri-apps/api/event';
+import type { Unlisten } from '@/utils/eventUtils';
+import { safeListen, safeUnlisten } from '@/utils/eventUtils';
 import type { VolumeHandle } from './apiService';
 import type { LayerInfo } from '@/stores/layerStore';
 import { getEventBus, type EventBus } from '@/events/EventBus';
@@ -45,7 +46,7 @@ export class TemplateService {
   private static instance: TemplateService | null = null;
   private eventBus: EventBus;
   private volumeLoadingService: VolumeLoadingService;
-  private unlistenFn: UnlistenFn | null = null;
+  private unlistenFn: Unlisten | null = null;
   private initialized = false;
   
   private constructor() {
@@ -70,7 +71,7 @@ export class TemplateService {
     
     try {
       // Listen for template menu action events from backend
-      this.unlistenFn = await listen('template-menu-action', async (event) => {
+      this.unlistenFn = await safeListen('template-menu-action', async (event) => {
         console.log('[TemplateService] Received template menu action:', event.payload);
         
         const { action, payload } = event.payload as {
@@ -240,7 +241,7 @@ export class TemplateService {
    */
   destroy() {
     if (this.unlistenFn) {
-      this.unlistenFn();
+      void safeUnlisten(this.unlistenFn);
       this.unlistenFn = null;
     }
     this.initialized = false;

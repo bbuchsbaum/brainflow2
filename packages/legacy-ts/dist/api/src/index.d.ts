@@ -2,6 +2,7 @@
  * @brainflow/api v0.1.1 - Core TypeScript Interfaces
  */
 export * from './generated';
+export * from './helpers';
 import type { VolumeHandleInfo, VolumeLayerGpuInfo, BridgeError, TimeSeriesResult, LayerSpec, ReleaseResult } from './generated';
 /**
  * Generic Result type for Tauri commands, mirroring Rust's Result.

@@ -3,7 +3,7 @@
  */
 
 import { invoke } from '@tauri-apps/api/core';
-import { listen } from '@tauri-apps/api/event';
+import { safeListen, safeUnlisten, type Unlisten } from '@/utils/eventUtils';
 import type {
   AtlasCatalogEntry,
   AtlasConfig,
@@ -235,18 +235,18 @@ export class AtlasService {
    * Start monitoring atlas loading progress
    * Returns a cleanup function to stop monitoring
    */
-  static async startProgressMonitoring(callback: ProgressCallback): Promise<() => void> {
+  static async startProgressMonitoring(callback: ProgressCallback): Promise<Unlisten> {
     try {
       // Start the backend progress monitoring
       await invoke('plugin:api-bridge|start_atlas_progress_monitoring');
       
       // Listen for progress events
-      const unlisten = await listen<AtlasLoadProgress>('atlas-progress', (event) => {
+      const unlisten = await safeListen<AtlasLoadProgress>('atlas-progress', (event) => {
         callback(event.payload);
       });
       
       // Return cleanup function
-      return unlisten;
+      return () => safeUnlisten(unlisten);
     } catch (error) {
       console.error('Failed to start atlas progress monitoring:', error);
       throw new Error(`Failed to start progress monitoring: ${error}`);
