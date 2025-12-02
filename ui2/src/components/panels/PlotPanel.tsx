@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useMemo, useCallback } from 'react';
+import React, { useEffect, useState, useMemo, useCallback, useRef } from 'react';
 import { useLayerStore } from '@/stores/layerStore';
 import { useViewStateStore } from '@/stores/viewStateStore';
 import { histogramService } from '@/services/HistogramService';
@@ -13,6 +13,12 @@ interface PlotPanelProps {
 }
 
 const PlotPanelContent: React.FC<PlotPanelProps> = ({ containerWidth, containerHeight }) => {
+  const chartContainerRef = useRef<HTMLDivElement | null>(null);
+  const [measuredSize, setMeasuredSize] = useState<{ width: number; height: number }>({
+    width: 0,
+    height: 0
+  });
+
   const [histogramData, setHistogramData] = useState<HistogramData | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<Error | null>(null);
@@ -47,16 +53,54 @@ const PlotPanelContent: React.FC<PlotPanelProps> = ({ containerWidth, containerH
   // Account for p-4 padding (1rem = 16px on each side = 32px total)
   const CONTAINER_PADDING = 32;
 
+  // Track actual chart container size via ResizeObserver so the histogram
+  // responds to GoldenLayout panel resizes even when no explicit dimensions
+  // are passed in props (side panels).
+  useEffect(() => {
+    const element = chartContainerRef.current;
+    if (!element) return;
+
+    const updateSize = () => {
+      const rect = element.getBoundingClientRect();
+      const width = Math.max(0, rect.width);
+      const height = Math.max(0, rect.height);
+      setMeasuredSize(prev => {
+        if (prev.width === width && prev.height === height) {
+          return prev;
+        }
+        return { width, height };
+      });
+    };
+
+    updateSize();
+
+    if (typeof ResizeObserver !== 'undefined') {
+      const observer = new ResizeObserver(() => {
+        updateSize();
+      });
+      observer.observe(element);
+      return () => observer.disconnect();
+    } else if (typeof window !== 'undefined') {
+      window.addEventListener('resize', updateSize);
+      return () => window.removeEventListener('resize', updateSize);
+    }
+  }, []);
+
   // Simple dimension handling with reasonable defaults
+  // Prefer measured DOM size, then GoldenLayout props, then fallbacks.
+  const effectiveWidth = (measuredSize.width || containerWidth || 400);
+  const effectiveHeight = (measuredSize.height || containerHeight || 300);
+
   // Subtract padding and ensure minimum dimensions for chart rendering
-  const chartWidth = Math.max((containerWidth || 400) - CONTAINER_PADDING, 100);
-  const chartHeight = Math.max((containerHeight || 300) - CONTAINER_PADDING, 80);
+  const chartWidth = Math.max(effectiveWidth - CONTAINER_PADDING, 100);
+  const chartHeight = Math.max(effectiveHeight - CONTAINER_PADDING, 80);
 
   // Debug logging for dimension tracking
   if (!containerWidth || !containerHeight) {
     console.log('[PlotPanel] Using fallback dimensions:', {
       containerWidth,
       containerHeight,
+      measuredSize,
       fallbackWidth: chartWidth,
       fallbackHeight: chartHeight,
       reason: !containerWidth ? 'containerWidth missing' : 'containerHeight missing',
@@ -175,82 +219,82 @@ const PlotPanelContent: React.FC<PlotPanelProps> = ({ containerWidth, containerH
     }
   };
 
-  return (
-    <div 
-      className="flex flex-col h-full overflow-hidden"
-      style={{ 
-        backgroundColor: 'var(--layer-bg, #1a1a1a)',
-        color: 'var(--layer-text, #e5e5e5)',
-        borderRadius: '8px',
-        fontFamily: 'var(--app-font-sans)'
-      }}
+  const histogramPanel = selectedLayer ? (
+    <div
+      ref={chartContainerRef}
+      className="h-full p-4 overflow-hidden bg-transparent"
     >
-      {selectedLayer ? (
-        <>
-          {/* Chart Container */}
-          <div 
-            className="flex-1 p-4 overflow-hidden"
-            style={{ 
-              backgroundColor: 'rgba(0, 0, 0, 0.2)'
-            }}
-          >
-            <HistogramChart
-              data={histogramData}
-              width={chartWidth} // Dimensions adjusted for p-4 container padding
-              height={chartHeight}
-              intensityWindow={layerRender?.intensity}
-              threshold={layerRender?.threshold}
-              colormap={layerRender?.colormap}
-              showAxes={true}
-              showTooltips={true}
-              useLogScale={useLogScale}
-              onIntensityChange={handleIntensityChange}
-              onThresholdChange={handleThresholdChange}
-              onLogScaleChange={setUseLogScale}
-              loading={loading}
-              error={error}
-            />
-          </div>
-        </>
-      ) : (
-        <div 
-          className="flex-1 p-4 overflow-y-auto"
-          style={{ 
-            backgroundColor: 'rgba(0, 0, 0, 0.2)'
-          }}
+      <HistogramChart
+        data={histogramData}
+        width={chartWidth}
+        height={chartHeight}
+        intensityWindow={layerRender?.intensity}
+        threshold={layerRender?.threshold}
+        colormap={layerRender?.colormap}
+        showAxes
+        showTooltips
+        useLogScale={useLogScale}
+        onIntensityChange={handleIntensityChange}
+        onThresholdChange={handleThresholdChange}
+        onLogScaleChange={setUseLogScale}
+        loading={loading}
+        error={error}
+      />
+    </div>
+  ) : (
+    <div className="flex-1 p-4 overflow-y-auto bg-transparent">
+      <div className="text-center py-8 space-y-2">
+        <svg
+          className="w-16 h-16 mx-auto mb-4 text-gray-600"
+          fill="none"
+          stroke="currentColor"
+          viewBox="0 0 24 24"
         >
-          <div className="text-center py-8">
-            <svg 
-              className="w-16 h-16 mx-auto mb-4 text-gray-600"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <path 
-                strokeLinecap="round" 
-                strokeLinejoin="round" 
-                strokeWidth={1.5} 
-                d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"
-              />
-            </svg>
-            
-            <h3 className="text-lg font-semibold mb-2" style={{ color: 'var(--layer-accent, #3b82f6)' }}>
-              Plot Panel
-            </h3>
-            
-            <p className="text-sm text-gray-400 mb-4">
-              Select a layer to view its histogram
-            </p>
-            
-            <div className="text-xs text-gray-500 space-y-1">
-              <p>• Volume intensity distribution</p>
-              <p>• Colored by active colormap</p>
-              <p>• Interactive tooltips</p>
-              <p>• Intensity and threshold indicators</p>
-            </div>
+          <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeWidth={1.5}
+            d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"
+          />
+        </svg>
+        <h3 className="text-lg font-semibold mb-2 text-primary">
+          Plot Panel
+        </h3>
+        <p className="text-sm text-muted-foreground mb-2">Select a layer to view its histogram</p>
+        <div className="text-xs text-muted-foreground space-y-1">
+          <p>• Volume intensity distribution</p>
+          <p>• Colored by active colormap</p>
+          <p>• Interactive tooltips</p>
+          <p>• Intensity and threshold indicators</p>
+        </div>
+      </div>
+    </div>
+  );
+
+  return (
+    <div className="flex flex-col h-full overflow-hidden bg-card text-card-foreground rounded-md shadow-sm border border-border">
+      <div className="flex items-center justify-between px-4 py-3 border-b border-border bg-muted/30">
+        <div className="space-y-1">
+          <div className="label-text">Current Layer</div>
+          <div className="font-semibold text-foreground">
+            {selectedLayer?.name || 'No Layer Selected'}
           </div>
         </div>
-      )}
+        <div className="flex items-center gap-3 text-xs text-muted-foreground">
+          <span className="tracking-wide uppercase text-[10px]">Histogram</span>
+          <button
+            type="button"
+            onClick={loadHistogram}
+            disabled={!selectedLayerId}
+            className="px-3 py-1 rounded bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          >
+            Refresh
+          </button>
+        </div>
+      </div>
+      <div className="flex-1 overflow-hidden">
+        {histogramPanel}
+      </div>
     </div>
   );
 };

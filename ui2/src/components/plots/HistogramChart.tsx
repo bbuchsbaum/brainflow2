@@ -14,16 +14,33 @@ import { localPoint } from '@visx/event';
 import type { HistogramChartProps, HistogramBin } from '@/types/histogram';
 import { colormaps } from '@/components/ui/ColormapSelector';
 
+const surfaceColor = 'hsl(var(--card))';
+const borderColor = 'hsl(var(--border))';
+const overlayFill = 'hsla(var(--foreground) / 0.05)';
+const overlayStroke = 'hsla(var(--foreground) / 0.18)';
+const thresholdColor = 'hsl(var(--accent))';
+const statsTextColor = 'hsla(var(--foreground) / 0.6)';
+const axisStroke = 'hsla(var(--foreground) / 0.35)';
+const axisLabelColor = 'hsla(var(--foreground) / 0.55)';
+const toggleActiveFill = 'hsl(var(--primary))';
+const toggleInactiveFill = 'hsl(var(--muted))';
+const toggleStroke = 'hsl(var(--border))';
+const toggleTextColor = 'hsl(var(--foreground))';
+const tooltipBg = 'hsl(var(--card))';
+const tooltipColor = 'hsl(var(--foreground))';
+const tooltipBorder = 'hsl(var(--border))';
+
 // Margin for axes - increased to provide better spacing and ensure chart fits
 const margin = { top: 15, right: 15, bottom: 35, left: 15 };
 
 // Tooltip styles
 const tooltipStyles = {
   ...defaultStyles,
-  backgroundColor: 'rgba(0, 0, 0, 0.9)',
-  color: 'white',
+  backgroundColor: tooltipBg,
+  color: tooltipColor,
   padding: '8px',
-  borderRadius: '4px',
+  borderRadius: '6px',
+  border: `1px solid ${tooltipBorder}`,
   fontSize: '12px',
   boxShadow: '0 4px 6px rgba(0, 0, 0, 0.1)',
 };
@@ -173,7 +190,7 @@ export const HistogramChart: React.FC<HistogramChartProps> = ({
         className="flex items-center justify-center text-xs" 
         style={{ width, height }}
       >
-        <div className="text-gray-400 text-center">
+        <div className="text-muted-foreground text-center">
           Panel too small<br/>for histogram
         </div>
       </div>
@@ -187,7 +204,7 @@ export const HistogramChart: React.FC<HistogramChartProps> = ({
         className="flex items-center justify-center" 
         style={{ width, height }}
       >
-        <div className="text-gray-400">Loading histogram...</div>
+        <div className="text-muted-foreground">Loading histogram...</div>
       </div>
     );
   }
@@ -199,7 +216,7 @@ export const HistogramChart: React.FC<HistogramChartProps> = ({
         className="flex items-center justify-center" 
         style={{ width, height }}
       >
-        <div className="text-red-400 text-sm">Error: {error.message}</div>
+        <div className="text-red-500 text-sm">Error: {error.message}</div>
       </div>
     );
   }
@@ -212,8 +229,8 @@ export const HistogramChart: React.FC<HistogramChartProps> = ({
         style={{ width, height }}
       >
         <div className="text-center">
-          <div className="text-gray-400">No histogram data</div>
-          <div className="text-xs text-gray-500 mt-1">
+          <div className="text-muted-foreground">No histogram data</div>
+          <div className="text-xs text-muted-foreground mt-1 opacity-80">
             {!data ? 'Waiting for data...' : 'Empty histogram (0 bins)'}
           </div>
         </div>
@@ -316,8 +333,8 @@ export const HistogramChart: React.FC<HistogramChartProps> = ({
             y={0}
             width={innerWidth}
             height={innerHeight}
-            fill="#1a1a1a"
-            stroke="#333"
+            fill={surfaceColor}
+            stroke={borderColor}
             strokeWidth={1}
           />
 
@@ -328,8 +345,8 @@ export const HistogramChart: React.FC<HistogramChartProps> = ({
               y={0}
               width={xScale(intensityWindow[1]) - xScale(intensityWindow[0])}
               height={innerHeight}
-              fill="rgba(255, 255, 255, 0.05)"
-              stroke="rgba(255, 255, 255, 0.2)"
+              fill={overlayFill}
+              stroke={overlayStroke}
               strokeWidth={1}
               strokeDasharray="4,2"
             />
@@ -339,24 +356,24 @@ export const HistogramChart: React.FC<HistogramChartProps> = ({
           {threshold && (
             <>
               <line
-                x1={xScale(threshold[0])}
-                y1={0}
-                x2={xScale(threshold[0])}
-                y2={innerHeight}
-                stroke="rgba(255,107,107,0.4)"
-                strokeWidth={1}
-                strokeDasharray="2,2"
-              />
-              <line
-                x1={xScale(threshold[1])}
-                y1={0}
-                x2={xScale(threshold[1])}
-                y2={innerHeight}
-                stroke="rgba(255,107,107,0.4)"
-                strokeWidth={1}
-                strokeDasharray="2,2"
-              />
-            </>
+              x1={xScale(threshold[0])}
+              y1={0}
+              x2={xScale(threshold[0])}
+              y2={innerHeight}
+              stroke={thresholdColor}
+              strokeWidth={1}
+              strokeDasharray="2,2"
+            />
+            <line
+              x1={xScale(threshold[1])}
+              y1={0}
+              x2={xScale(threshold[1])}
+              y2={innerHeight}
+              stroke={thresholdColor}
+              strokeWidth={1}
+              strokeDasharray="2,2"
+            />
+          </>
           )}
 
           {/* Single rectangle with gradient, clipped to bar shapes */}
@@ -412,10 +429,10 @@ export const HistogramChart: React.FC<HistogramChartProps> = ({
               top={innerHeight}
               scale={xScale}
               tickFormat={(value) => value.toFixed(0)}
-              stroke="#666"
-              tickStroke="#666"
+              stroke={axisStroke}
+              tickStroke={axisStroke}
               tickLabelProps={() => ({
-                fill: '#999',
+                fill: axisLabelColor,
                 fontSize: 10,
                 textAnchor: 'middle',
               })}
@@ -426,7 +443,7 @@ export const HistogramChart: React.FC<HistogramChartProps> = ({
           <text
             x={innerWidth - 10}
             y={20}
-            fill="#999"
+            fill={statsTextColor}
             fontSize={12}
             textAnchor="end"
           >
@@ -445,14 +462,14 @@ export const HistogramChart: React.FC<HistogramChartProps> = ({
               width={55}
               height={20}
               rx={3}
-              fill={useLogScale ? '#4a5568' : '#2d3748'}
-              stroke={useLogScale ? '#718096' : '#4a5568'}
+              fill={useLogScale ? toggleActiveFill : toggleInactiveFill}
+              stroke={toggleStroke}
               strokeWidth={1}
             />
             <text
               x={27.5}
               y={14}
-              fill="#e2e8f0"
+              fill={toggleTextColor}
               fontSize={11}
               textAnchor="middle"
               style={{ userSelect: 'none' }}
