@@ -20,7 +20,7 @@ export const PanelHeader: React.FC<PanelHeaderProps> = ({
   actions = [],
   className = ""
 }) => {
-  const defaultClasses = "flex items-center justify-between px-3 py-2 bg-gray-100 border-b border-gray-200 text-sm font-medium text-gray-700 select-none";
+  const defaultClasses = "flex items-center justify-between px-3 py-2 bg-muted/30 border-b border-border text-sm font-medium text-foreground/80 select-none rounded-t-md";
   const finalClasses = className || defaultClasses;
 
   return (

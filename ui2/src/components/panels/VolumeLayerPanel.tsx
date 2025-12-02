@@ -147,27 +147,26 @@ const VolumeLayerPanelContent: React.FC = () => {
       layerId: selectedLayerId,
       renderProps: sanitized,
     });
+
+    // Debug: log current ViewState layer ordering + opacities
+    const viewState = useViewStateStore.getState().viewState;
+    console.log('[VolumeLayerPanel] ViewState layers after render update:', {
+      layers: viewState.layers.map(l => ({
+        id: l.id,
+        name: l.name,
+        visible: l.visible,
+        opacity: l.opacity,
+        volumeId: l.volumeId,
+        order: l.order
+      }))
+    });
   }, [selectedLayerId]);
   
   return (
-    <div 
-      className="flex flex-col h-full overflow-hidden"
-      style={{ 
-        backgroundColor: 'var(--layer-bg)',
-        color: 'var(--layer-text)',
-        borderRadius: '8px',
-        fontFamily: 'var(--app-font-sans)'
-      }}
-    >
+    <div className="flex flex-col h-full overflow-hidden bg-card text-card-foreground rounded-md shadow-sm border border-border font-sans">
       {/* Main content area */}
       <div 
-        className="flex-1 p-3 space-y-4 overflow-y-auto min-h-0"
-        style={{ 
-          backgroundColor: 'rgba(0, 0, 0, 0.2)',
-          paddingRight: '28px',
-          paddingLeft: '20px',
-          paddingTop: '16px'
-        }}
+        className="flex-1 p-4 space-y-4 overflow-y-auto min-h-0 bg-muted/20"
       >
         {/* Status messages */}
         <LayerStatusBar
@@ -200,7 +199,7 @@ const VolumeLayerPanelContent: React.FC = () => {
         {/* Show help text when no layer is selected */}
         {!selectedLayer && layers.length > 0 && (
           <div className="text-center py-4">
-            <p className="text-[13px]" style={{ color: '#94a3b8' }}>
+            <p className="text-[13px] text-muted-foreground">
               Select a layer to edit properties
             </p>
           </div>
