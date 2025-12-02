@@ -1,15 +1,20 @@
 /**
  * SurfacePanel - Control panel for surface layers
- * 
+ *
  * Divided into two sections:
  * 1. Geometry controls (unique to surfaces) - wireframe, smoothing, lighting
  * 2. Data layer controls (same as volumes) - intensity, threshold, colormap, opacity
+ *
+ * Follows "Instrument Control" aesthetic (Neutra/Cody design principles).
  */
 
-import React, { useState } from 'react';
-import { ChevronRight, ChevronDown } from 'lucide-react';
+import React from 'react';
 import { SharedControls, type DataLayerRender, type DataLayerMetadata } from './SharedControls';
+import { CollapsibleSection } from '../ui/CollapsibleSection';
 import { SingleSlider } from '../ui/SingleSlider';
+import { LayerList } from '../ui/LayerList';
+import { Box, Layers } from 'lucide-react';
+import type { DisplayLayer } from '@/types/displayLayer';
 
 /**
  * Surface geometry properties (the mesh itself, not data on it)
@@ -48,54 +53,50 @@ interface SurfacePanelProps {
    * Data layers on the surface (can be empty)
    */
   dataLayers?: SurfaceDataLayer[];
-  
-  /**
-   * Currently selected data layer ID
-   */
+  displayLayers?: DisplayLayer[];
   selectedDataLayerId?: string;
-  
-  /**
-   * Callbacks for updates
-   */
+  selectedDisplayLayerId?: string | null;
   onGeometryUpdate?: (updates: Partial<SurfaceGeometry>) => void;
   onDataLayerUpdate?: (layerId: string, updates: Partial<DataLayerRender>) => void;
+  onDisplayLayerSelect?: (id: string) => void;
+  onDisplayLayerToggle?: (id: string) => void;
   onRemapClick?: (layerId: string) => void;
 }
 
+/* CollapsibleSection is now imported from '../ui/CollapsibleSection' */
+
 /**
- * Collapsible section component
+ * Compact toggle switch - Instrument Control style
  */
-const CollapsibleSection: React.FC<{
-  title: string;
-  badge?: string | number;
-  defaultOpen?: boolean;
-  children: React.ReactNode;
-}> = ({ title, badge, defaultOpen = true, children }) => {
-  const [isOpen, setIsOpen] = useState(defaultOpen);
-  
+const CompactToggle: React.FC<{
+  label: string;
+  value: boolean;
+  onChange: (value: boolean) => void;
+  disabled?: boolean;
+}> = ({ label, value, onChange, disabled }) => {
   return (
-    <div className="border rounded-lg">
+    <div className="flex items-center justify-between gap-4">
+      <label className="text-[10px] uppercase tracking-widest text-muted-foreground font-semibold">
+        {label}
+      </label>
       <button
-        className="w-full px-3 py-2 flex items-center gap-2 hover:bg-accent/50 transition-colors"
-        onClick={() => setIsOpen(!isOpen)}
+        className={`relative inline-flex h-4 w-8 items-center transition-colors border ${
+          value
+            ? 'bg-primary border-primary'
+            : 'bg-muted border-border'
+        }`}
+        style={{ borderRadius: '1px' }}
+        onClick={() => onChange(!value)}
+        disabled={disabled}
+        aria-pressed={value}
       >
-        {isOpen ? (
-          <ChevronDown className="w-4 h-4" />
-        ) : (
-          <ChevronRight className="w-4 h-4" />
-        )}
-        <span className="font-medium text-sm">{title}</span>
-        {badge !== undefined && (
-          <span className="ml-auto text-xs bg-muted px-2 py-0.5 rounded">
-            {badge}
-          </span>
-        )}
+        <span
+          className={`inline-block h-3 w-3 transform bg-card transition-transform ${
+            value ? 'translate-x-4' : 'translate-x-0.5'
+          }`}
+          style={{ borderRadius: '1px' }}
+        />
       </button>
-      {isOpen && (
-        <div className="p-3 border-t">
-          {children}
-        </div>
-      )}
     </div>
   );
 };
@@ -106,35 +107,35 @@ const CollapsibleSection: React.FC<{
 export const SurfacePanel: React.FC<SurfacePanelProps> = ({
   geometry,
   dataLayers = [],
+  displayLayers = [],
   selectedDataLayerId,
+  selectedDisplayLayerId,
   onGeometryUpdate,
   onDataLayerUpdate,
+  onDisplayLayerSelect,
+  onDisplayLayerToggle,
   onRemapClick
 }) => {
   // Find selected data layer
   const selectedDataLayer = dataLayers.find(l => l.id === selectedDataLayerId) || dataLayers[0];
   
   return (
-    <div className="space-y-4">
+    <div className="space-y-6">
       {/* === GEOMETRY SECTION === */}
-      <CollapsibleSection 
-        title="Surface Geometry" 
-        badge={geometry ? 'Active' : 'No Surface'}
-        defaultOpen={true}
+      <CollapsibleSection
+        title="Surface Geometry"
+        icon={Box}
+        defaultExpanded={true}
       >
         {geometry ? (
-          <div className="space-y-3">
+          <div className="space-y-4">
             {/* Wireframe Toggle */}
-            <div className="flex items-center justify-between">
-              <label className="text-sm font-medium">Wireframe</label>
-              <input
-                type="checkbox"
-                checked={geometry.wireframe}
-                onChange={(e) => onGeometryUpdate?.({ wireframe: e.target.checked })}
-                className="h-4 w-4"
-              />
-            </div>
-            
+            <CompactToggle
+              label="Wireframe"
+              value={geometry.wireframe}
+              onChange={(value) => onGeometryUpdate?.({ wireframe: value })}
+            />
+
             {/* Surface Opacity */}
             <SingleSlider
               label="Surface Opacity"
@@ -144,7 +145,7 @@ export const SurfacePanel: React.FC<SurfacePanelProps> = ({
               onChange={(value) => onGeometryUpdate?.({ baseOpacity: value })}
               showPercentage={true}
             />
-            
+
             {/* Smoothing */}
             <SingleSlider
               label="Smoothing"
@@ -152,13 +153,14 @@ export const SurfacePanel: React.FC<SurfacePanelProps> = ({
               max={1}
               value={geometry.smoothing}
               onChange={(value) => onGeometryUpdate?.({ smoothing: value })}
-              step={0.1}
             />
-            
-            {/* Lighting Controls */}
-            <div className="space-y-2">
-              <label className="text-sm font-medium">Lighting</label>
-              <div className="space-y-2 pl-2">
+
+            {/* Lighting Controls - Nested section */}
+            <div className="space-y-3 pt-2 border-t border-border">
+              <span className="text-[10px] uppercase tracking-widest text-muted-foreground font-semibold">
+                Lighting
+              </span>
+              <div className="space-y-3">
                 <SingleSlider
                   label="Ambient"
                   min={0}
@@ -167,7 +169,6 @@ export const SurfacePanel: React.FC<SurfacePanelProps> = ({
                   onChange={(value) => onGeometryUpdate?.({
                     lighting: { ...geometry.lighting, ambient: value }
                   })}
-                  step={0.1}
                 />
                 <SingleSlider
                   label="Diffuse"
@@ -177,7 +178,6 @@ export const SurfacePanel: React.FC<SurfacePanelProps> = ({
                   onChange={(value) => onGeometryUpdate?.({
                     lighting: { ...geometry.lighting, diffuse: value }
                   })}
-                  step={0.1}
                 />
                 <SingleSlider
                   label="Specular"
@@ -187,86 +187,76 @@ export const SurfacePanel: React.FC<SurfacePanelProps> = ({
                   onChange={(value) => onGeometryUpdate?.({
                     lighting: { ...geometry.lighting, specular: value }
                   })}
-                  step={0.1}
                 />
               </div>
             </div>
-            
+
             {/* Base Color (when no data layers) */}
             {dataLayers.length === 0 && (
-              <div className="flex items-center justify-between">
-                <label className="text-sm font-medium">Base Color</label>
+              <div className="flex items-center justify-between gap-4">
+                <label className="text-[10px] uppercase tracking-widest text-muted-foreground font-semibold">
+                  Base Color
+                </label>
                 <input
                   type="color"
                   value={geometry.baseColor}
                   onChange={(e) => onGeometryUpdate?.({ baseColor: e.target.value })}
-                  className="h-8 w-16"
+                  className="h-6 w-12 border border-border"
+                  style={{ borderRadius: '1px' }}
                 />
               </div>
             )}
           </div>
         ) : (
-          <div className="text-sm text-muted-foreground text-center py-4">
+          <div className="text-[11px] text-muted-foreground text-center py-4">
             No surface loaded. Load a .gii file to begin.
           </div>
         )}
       </CollapsibleSection>
-      
+
       {/* === DATA LAYERS SECTION === */}
-      <CollapsibleSection 
-        title="Data Layers" 
-        badge={dataLayers.length}
-        defaultOpen={true}
+      <CollapsibleSection
+        title="Data Layers"
+        icon={Layers}
+        defaultExpanded={true}
       >
-        {dataLayers.length === 0 ? (
-          <div className="text-sm text-muted-foreground text-center py-4">
+        {displayLayers.length === 0 ? (
+          <div className="text-[11px] text-muted-foreground text-center py-4">
             No data layers. Drop a volume file here to map data to surface.
           </div>
         ) : (
-          <div className="space-y-3">
-            {/* Layer selector if multiple layers */}
-            {dataLayers.length > 1 && (
-              <select
-                value={selectedDataLayer?.id}
-                onChange={(e) => {
-                  // In real implementation, this would update selectedDataLayerId
-                  console.log('Selected layer:', e.target.value);
-                }}
-                className="w-full px-3 py-2 border rounded-md"
-              >
-                {dataLayers.map(layer => (
-                  <option key={layer.id} value={layer.id}>
-                    {layer.name}
-                  </option>
-                ))}
-              </select>
-            )}
-            
+          <div className="space-y-4">
+            <LayerList
+              layers={displayLayers}
+              selectedId={selectedDisplayLayerId || undefined}
+              onSelect={onDisplayLayerSelect}
+              onToggleVisibility={onDisplayLayerToggle}
+            />
+
             {selectedDataLayer && (
               <>
-                {/* Use SharedControls for data layer controls */}
                 <SharedControls
                   render={selectedDataLayer.render}
                   metadata={selectedDataLayer.metadata}
-                  onRenderUpdate={(updates) => 
+                  onRenderUpdate={(updates) =>
                     onDataLayerUpdate?.(selectedDataLayer.id, updates)
                   }
                 />
-                
-                {/* Vol2surf specific controls */}
+
                 {selectedDataLayer.sourceVolumeId && (
-                  <div className="space-y-2 pt-2 border-t">
-                    <label className="text-xs text-muted-foreground">
+                  <div className="space-y-2 pt-3 border-t border-border">
+                    <span className="text-[10px] uppercase tracking-widest text-muted-foreground font-semibold">
                       Volume Mapping
-                    </label>
-                    <div className="text-xs text-muted-foreground">
+                    </span>
+                    <div className="text-[11px] font-mono text-muted-foreground">
                       Source: {selectedDataLayer.sourceVolumeName || selectedDataLayer.sourceVolumeId}
                     </div>
                     <button
                       onClick={() => onRemapClick?.(selectedDataLayer.id)}
-                      className="px-3 py-1 text-sm border rounded hover:bg-accent"
+                      className="px-3 py-1 text-[10px] uppercase tracking-wider font-medium border border-border hover:bg-muted/50 transition-colors"
+                      style={{ borderRadius: '1px' }}
                     >
-                      Remap with Different Settings...
+                      Remap Settings...
                     </button>
                   </div>
                 )}
