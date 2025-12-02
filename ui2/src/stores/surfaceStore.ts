@@ -6,7 +6,7 @@
 import { create } from 'zustand';
 import { devtools } from 'zustand/middleware';
 import { invoke } from '@tauri-apps/api/core';
-import { DisplayLayer, BlendMode } from '../types/displayLayer';
+import type { DisplayLayer, BlendMode } from '../types/displayLayer';
 
 // Surface data types matching backend
 export interface SurfaceGeometryData {

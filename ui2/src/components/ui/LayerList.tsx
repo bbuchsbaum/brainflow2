@@ -1,5 +1,5 @@
 import React from 'react';
-import { DisplayLayer } from '@/types/displayLayer';
+import type { DisplayLayer } from '@/types/displayLayer';
 import { cn } from '@/utils/cn';
 
 export interface LayerListProps {
