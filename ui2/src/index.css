@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap');
 @import './styles/theme.css';
 @import './styles/shadcn.css';
 @import './styles/modern-ui.css';
@@ -8,6 +8,26 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground font-sans antialiased;
+    background-color: hsl(var(--background));
+  }
+  
+  /* Bauhaus typography */
+  h1, h2, h3, h4, h5, h6 {
+    @apply font-medium tracking-tight;
+  }
+  
+  /* Blueprint label */
+  .label-text {
+    @apply text-[10px] uppercase tracking-widest text-muted-foreground font-semibold;
+  }
+}
 
 * {
   box-sizing: border-box;
@@ -54,40 +74,63 @@ button {
 
 /* Golden Layout overrides using theme variables */
 .lm_goldenlayout {
-  background: var(--app-bg-primary);
+  background: hsl(var(--background));
 }
 
 .lm_header {
-  background: var(--app-bg-secondary);
-  height: 28px;
+  background: hsl(var(--background)) !important;
+  border-bottom: 1px solid hsl(var(--border));
+  height: 32px !important;
+  display: flex;
+  align-items: center;
+  padding-left: 4px;
 }
 
 .lm_tab {
-  background: var(--app-tab-inactive);
-  color: var(--app-text-secondary);
-  font-family: var(--app-font-sans);
-  font-size: var(--app-text-md);
-  padding: 0 10px;
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  margin-right: 2px !important;
+  color: hsl(var(--muted-foreground)) !important;
+  font-family: 'Inter', sans-serif;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 0 12px !important;
+  transition: all 0.2s ease;
+  height: 30px !important;
+  margin-top: 2px !important;
+  border-radius: var(--radius) var(--radius) 0 0;
 }
 
 .lm_tab.lm_active {
-  background: var(--app-tab-active);
-  color: var(--app-accent-text);
+  background: hsl(var(--card)) !important;
+  color: hsl(var(--primary)) !important;
+  border-top: 2px solid hsl(var(--accent)) !important;
+  font-weight: 600;
+  z-index: 10;
+}
+
+.lm_tab:hover:not(.lm_active) {
+  background: hsl(var(--muted)) !important;
+  color: hsl(var(--foreground)) !important;
 }
 
 .lm_content {
-  background: var(--app-bg-secondary);
+  background: hsl(var(--card)) !important;
   border: 1px solid var(--app-border);
 }
 
 .lm_splitter {
-  background: var(--app-splitter);
-  opacity: 0.5;
+  background: hsl(var(--background)) !important;
+  opacity: 1 !important;
+  width: 6px !important;
+  height: 6px !important;
 }
 
 .lm_splitter:hover {
-  background: var(--app-splitter-hover);
-  opacity: 0.8;
+  background: hsl(var(--primary)) !important;
+  opacity: 1 !important;
 }
 
 /* Custom animations */

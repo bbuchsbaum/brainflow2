@@ -83,3 +83,31 @@ input[type="range"]:disabled::-webkit-slider-track {
 input[type="range"]:disabled::-moz-range-track {
   background: #1f2937; /* gray-800 */
 }
+
+/* Precision slider styling (Desert Modern) */
+.slider-track {
+  background-color: hsl(var(--secondary));
+  height: 2px;
+  border-radius: 0;
+}
+
+.slider-range {
+  background-color: hsl(var(--primary));
+  height: 100%;
+  border-radius: 0;
+}
+
+.slider-thumb {
+  background-color: hsl(var(--foreground));
+  border: 2px solid hsl(var(--background));
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+  transition: transform 0.1s ease;
+}
+
+.slider-thumb:hover {
+  transform: scale(1.2);
+  background-color: hsl(var(--accent));
+}
