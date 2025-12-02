@@ -1,0 +1,11 @@
+<svg width="512" height="512" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Base -->
+  <rect width="512" height="512" rx="120" fill="#f1f5f9"/>
+  <!-- Lens -->
+  <circle cx="256" cy="256" r="160" stroke="#1e293b" stroke-width="48"/>
+  <!-- Crosshair cuts -->
+  <rect x="236" y="46" width="40" height="420" fill="#f1f5f9"/>
+  <rect x="46" y="236" width="420" height="40" fill="#f1f5f9"/>
+  <!-- Center point -->
+  <rect x="226" y="226" width="60" height="60" fill="#f97316"/>
+</svg>
