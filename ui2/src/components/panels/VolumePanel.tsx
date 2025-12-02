@@ -13,6 +13,8 @@ import type { Layer, LayerRender } from '@/types/layers';
 import type { VolumeMetadata } from '@/stores/layerStore';
 import { ChevronDown, ChevronRight, Layers, Settings } from 'lucide-react';
 import { setLayerBorder } from '@brainflow/api';
+import { useViewStateStore } from '@/stores/viewStateStore';
+import { getOptimizedRenderService } from '@/services/OptimizedRenderService';
 import { useDisplayOptionsStore } from '@/stores/displayOptionsStore';
 
 interface VolumePanelProps {
@@ -46,13 +48,13 @@ const CompactInterpolationSelector: React.FC<{
   disabled?: boolean;
 }> = ({ value, onChange, disabled }) => {
   return (
-    <div className="flex items-center justify-between">
-      <label className="text-xs text-muted-foreground">
+    <div className="flex items-center justify-between gap-2">
+      <label className="text-xs text-muted-foreground flex-1 min-w-0">
         Interpolation
       </label>
-      <div className="flex gap-1">
+      <div className="flex gap-1 shrink-0">
         <button
-          className={`px-2 py-0.5 text-xs border rounded transition-colors ${
+          className={`px-3 py-0.5 text-xs border rounded transition-colors ${
             value === 'nearest'
               ? 'bg-primary text-primary-foreground border-primary'
               : 'bg-background hover:bg-accent border-input'
@@ -64,7 +66,7 @@ const CompactInterpolationSelector: React.FC<{
           Nearest
         </button>
         <button
-          className={`px-2 py-0.5 text-xs border rounded transition-colors ${
+          className={`px-3 py-0.5 text-xs border rounded transition-colors ${
             value === 'linear'
               ? 'bg-primary text-primary-foreground border-primary'
               : 'bg-background hover:bg-accent border-input'
@@ -196,14 +198,22 @@ export const VolumePanel: React.FC<VolumePanelProps> = ({
   }, [displayOptions.showBorder, displayOptions.showOrientationMarkers, displayOptions.showValueOnHover]);
 
   const handleBorderToggle = async (next: boolean) => {
+    // Always update UI + store immediately so border is drawn without flicker
+    setShowBorder(next);
+    setDisplayOptions(layer.id, { showBorder: next });
+    // Best-effort backend hint; if not supported, just log and keep UI state
     try {
-      setShowBorder(next);
-      setDisplayOptions(layer.id, { showBorder: next });
       await setLayerBorder(layer.id, next, 1);
+      console.log('[VolumePanel] GPU border override applied for layer', layer.id, '=>', next);
     } catch (err) {
-      console.error('[VolumePanel] setLayerBorder failed', err);
-      setShowBorder(!next);
-      setDisplayOptions(layer.id, { showBorder: !next });
+      console.warn('[VolumePanel] setLayerBorder backend hint failed (non-fatal):', err);
+    }
+    // Trigger a quick re-render so GPU border shows up immediately
+    try {
+      const viewState = useViewStateStore.getState().viewState;
+      await getOptimizedRenderService().forceRenderAll(viewState);
+    } catch (e) {
+      console.warn('[VolumePanel] Border toggle force render failed (non-fatal):', e);
     }
   };
 
@@ -221,17 +231,17 @@ export const VolumePanel: React.FC<VolumePanelProps> = ({
     <div className="space-y-4">
       {/* Header */}
       <div className="flex items-center justify-between">
-        <h3 className="text-sm font-semibold flex items-center gap-2">
+        <h3 className="flex items-center gap-2">
           <Layers className="w-4 h-4" />
           Volume Properties
         </h3>
-        <span className="text-xs text-muted-foreground px-2 py-1 bg-accent rounded">
+        <span className="text-[11px] uppercase tracking-[0.12em] text-accent border border-accent px-2 py-1 rounded-sm bg-transparent">
           {layer.type || 'volume'}
         </span>
       </div>
 
       {/* Volume Info */}
-      <div className="text-xs text-muted-foreground space-y-1 p-2 bg-accent/30 rounded">
+      <div className="text-xs text-muted-foreground space-y-1 p-3 border border-border rounded-sm border-l-4 border-accent bg-card">
         <div className="flex justify-between">
           <span>Layer:</span>
           <span className="font-medium">{layer.name}</span>

@@ -1,62 +1,62 @@
 @layer base {
   :root {
-    /* Desert Modern palette (light) */
-    --background: 40 10% 96%;      /* Warm Stone */
-    --foreground: 20 10% 20%;      /* Dark Umber text */
+    /* Cool concrete palette (light) */
+    --background: 210 5% 93%;      /* Cool concrete */
+    --foreground: 210 10% 15%;     /* Graphite text */
 
-    --card: 0 0% 100%;             /* Pure white panels */
-    --card-foreground: 20 10% 20%;
+    --card: 0 0% 100%;             /* White plaster panels */
+    --card-foreground: 210 10% 15%;
 
     --popover: 0 0% 100%;
-    --popover-foreground: 20 10% 20%;
+    --popover-foreground: 210 10% 15%;
 
-    /* PRIMARY: Palm Springs Turquoise */
-    --primary: 175 60% 40%;
+    /* PRIMARY: Sharper cyan */
+    --primary: 180 75% 35%;
     --primary-foreground: 0 0% 100%;
 
-    /* SECONDARY: Neutral Concrete */
-    --secondary: 40 10% 90%;
-    --secondary-foreground: 20 10% 20%;
+    /* SECONDARY: Neutral concrete */
+    --secondary: 210 8% 88%;
+    --secondary-foreground: 210 10% 15%;
 
-    /* MUTED: Architectural Gray */
-    --muted: 40 10% 92%;
-    --muted-foreground: 25 5% 45%;
+    /* MUTED: Grid line tone */
+    --muted: 210 10% 90%;
+    --muted-foreground: 210 5% 40%;
 
-    /* ACCENT: Solar Orange (Albers) */
-    --accent: 25 90% 55%;
+    /* ACCENT: International orange */
+    --accent: 15 85% 55%;
     --accent-foreground: 0 0% 100%;
 
     --destructive: 0 85% 60%;
     --destructive-foreground: 0 0% 100%;
 
-    --border: 40 10% 85%;
-    --input: 40 10% 85%;
-    --ring: 175 60% 40%;
+    --border: 210 5% 85%;
+    --input: 210 5% 85%;
+    --ring: 180 75% 35%;
 
-    --radius: 4px; /* Bauhaus-tight corners */
+    --radius: 2px; /* Bauhaus-tightest corners */
 
     /* App-scoped tokens mapped to palette */
     --app-bg-primary: hsl(var(--background));
     --app-bg-secondary: hsl(var(--secondary));
     --app-bg-tertiary: hsl(var(--muted));
     --app-bg-quaternary: hsl(var(--muted));
-    --app-bg-hover: hsla(20, 10%, 20%, 0.06);
-    --app-bg-active: hsla(20, 10%, 20%, 0.12);
+    --app-bg-hover: hsla(210, 10%, 15%, 0.05);
+    --app-bg-active: hsla(210, 10%, 15%, 0.1);
 
     --app-border: hsl(var(--border));
-    --app-border-subtle: hsla(20, 10%, 20%, 0.08);
-    --app-border-strong: hsla(20, 10%, 20%, 0.18);
+    --app-border-subtle: hsla(210, 10%, 15%, 0.08);
+    --app-border-strong: hsla(210, 10%, 15%, 0.18);
 
     --app-text-primary: hsl(var(--foreground));
-    --app-text-secondary: hsla(20, 10%, 20%, 0.75);
-    --app-text-muted: hsla(20, 10%, 20%, 0.55);
-    --app-text-disabled: hsla(20, 10%, 20%, 0.35);
+    --app-text-secondary: hsla(210, 10%, 15%, 0.75);
+    --app-text-muted: hsla(210, 10%, 15%, 0.55);
+    --app-text-disabled: hsla(210, 10%, 15%, 0.35);
 
     --app-accent: hsl(var(--primary));
-    --app-accent-hover: hsl(175 60% 35%);
-    --app-accent-active: hsl(175 60% 30%);
+    --app-accent-hover: hsl(180 70% 32%);
+    --app-accent-active: hsl(180 70% 28%);
     --app-accent-text: hsl(var(--accent));
-    --app-accent-muted: hsl(175 40% 55%);
+    --app-accent-muted: hsl(180 45% 55%);
 
     --app-tab-inactive: hsl(var(--secondary));
     --app-tab-active: hsl(var(--card));
@@ -95,9 +95,9 @@
     --app-spacing-xl: 24px;
 
     /* Border radius */
-    --app-radius-sm: 4px;
-    --app-radius-md: 6px;
-    --app-radius-lg: 8px;
+    --app-radius-sm: 2px;
+    --app-radius-md: 4px;
+    --app-radius-lg: 6px;
 
     /* Shadows */
     --app-shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.1);
