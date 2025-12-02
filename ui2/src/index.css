@@ -160,9 +160,33 @@ button {
 
 .lm_splitter {
   background: hsl(var(--background)) !important;
-  width: 4px !important;
-  height: 4px !important;
   opacity: 1 !important;
+  z-index: 5;
+}
+
+.lm_splitter.lm_vertical {
+  width: 8px !important;
+  cursor: col-resize;
+}
+
+.lm_splitter.lm_horizontal {
+  height: 8px !important;
+  cursor: row-resize;
+}
+
+.lm_splitter:hover {
+  background: hsl(var(--primary)) !important;
+  opacity: 1 !important;
+}
+
+/* Make header controls visible and usable */
+.lm_controls > * {
+  color: hsl(var(--muted-foreground)) !important;
+  opacity: 0.7;
+}
+.lm_controls > *:hover {
+  color: hsl(var(--foreground)) !important;
+  opacity: 1;
 }
 
 /* Custom animations */
