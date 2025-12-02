@@ -6,6 +6,7 @@
 import { create } from 'zustand';
 import { devtools } from 'zustand/middleware';
 import { invoke } from '@tauri-apps/api/core';
+import { DisplayLayer, BlendMode } from '../types/displayLayer';
 
 // Surface data types matching backend
 export interface SurfaceGeometryData {
@@ -38,6 +39,7 @@ export interface LoadedSurface {
   name: string;
   geometry: SurfaceGeometryData;
   layers: Map<string, SurfaceDataLayer>;
+  displayLayers: Map<string, DisplayLayer>;
   metadata: {
     vertexCount: number;
     faceCount: number;
@@ -92,6 +94,9 @@ interface SurfaceState {
   addDataLayer: (surfaceId: string, layer: SurfaceDataLayer) => void;
   removeDataLayer: (surfaceId: string, layerId: string) => void;
   updateLayerProperty: (surfaceId: string, layerId: string, property: string, value: any) => void;
+  upsertDisplayLayer: (surfaceId: string, layer: DisplayLayer) => void;
+  updateDisplayLayer: (surfaceId: string, layerId: string, updates: Partial<DisplayLayer>) => void;
+  removeDisplayLayer: (surfaceId: string, layerId: string) => void;
   setActiveSurface: (surfaceId: string | null) => void;
   removeSurface: (surfaceId: string) => void;
   setViewpoint: (viewpoint: string) => void;
@@ -172,6 +177,7 @@ export const useSurfaceStore = create<SurfaceState>()(
               surfaceType: surfaceType as any,
             },
             layers: new Map(),
+            displayLayers: new Map(),
             metadata: {
               vertexCount: vertexCount,
               faceCount: faceCount,
@@ -268,6 +274,50 @@ export const useSurfaceStore = create<SurfaceState>()(
               (layer as any)[property] = value;
             }
           }
+          return { surfaces };
+        });
+      },
+
+      // Upsert a display layer (shared DTO for UI/render)
+      upsertDisplayLayer: (surfaceId: string, layer: DisplayLayer) => {
+        set((state) => {
+          const surfaces = new Map(state.surfaces);
+          const surface = surfaces.get(surfaceId);
+          if (!surface) return state;
+          const displayLayers = new Map(surface.displayLayers);
+          displayLayers.set(layer.id, layer);
+          surface.displayLayers = displayLayers;
+          surfaces.set(surfaceId, surface);
+          return { surfaces };
+        });
+      },
+
+      // Update a display layer by id
+      updateDisplayLayer: (surfaceId: string, layerId: string, updates: Partial<DisplayLayer>) => {
+        set((state) => {
+          const surfaces = new Map(state.surfaces);
+          const surface = surfaces.get(surfaceId);
+          if (!surface) return state;
+          const displayLayers = new Map(surface.displayLayers);
+          const existing = displayLayers.get(layerId);
+          if (!existing) return state;
+          displayLayers.set(layerId, { ...existing, ...updates });
+          surface.displayLayers = displayLayers;
+          surfaces.set(surfaceId, surface);
+          return { surfaces };
+        });
+      },
+
+      // Remove a display layer
+      removeDisplayLayer: (surfaceId: string, layerId: string) => {
+        set((state) => {
+          const surfaces = new Map(state.surfaces);
+          const surface = surfaces.get(surfaceId);
+          if (!surface) return state;
+          const displayLayers = new Map(surface.displayLayers);
+          displayLayers.delete(layerId);
+          surface.displayLayers = displayLayers;
+          surfaces.set(surfaceId, surface);
           return { surfaces };
         });
       },
