@@ -82,71 +82,86 @@ button {
   border: 1px solid var(--app-border);
 }
 
-/* Golden Layout overrides using theme variables */
-.lm_goldenlayout {
-  background: hsl(var(--background));
-}
-
+/* --- GOLDEN LAYOUT SURGICAL FIX --- */
+.lm_goldenlayout,
 .lm_root {
   background: hsl(var(--background));
 }
 
 .lm_header {
-  background: hsl(var(--background)) !important;
-  border-bottom: 2px solid hsl(var(--border));
-  height: 36px !important;
+  background-color: hsl(var(--background)) !important;
+  border-bottom: 2px solid hsl(var(--border)) !important;
+  height: 32px !important;
   display: flex;
-  align-items: center;
+  align-items: flex-end;
   padding-left: 0 !important;
+  overflow: hidden;
+  z-index: 10;
 }
 
 .lm_tab {
   background: transparent !important;
   border: none !important;
   box-shadow: none !important;
-  margin-right: 1px !important;
-  color: hsl(var(--muted-foreground)) !important;
+  margin: 0 16px 0 0 !important;
+  padding: 0 4px !important;
+  height: 30px !important;
+  display: flex;
+  align-items: center;
   font-family: 'Inter', sans-serif;
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.1em;
-  padding: 0 12px !important;
-  transition: all 0.2s ease;
-  height: 34px !important;
-  margin-top: 2px !important;
+  color: hsl(var(--muted-foreground)) !important;
+  opacity: 0.5;
+  transition: opacity 0.2s ease;
   border-radius: 0 !important;
-  opacity: 0.6;
+}
+
+.lm_tab:hover {
+  opacity: 1;
+  color: hsl(var(--foreground)) !important;
 }
 
 .lm_tab.lm_active {
-  background: transparent !important;
-  color: hsl(var(--foreground)) !important;
   opacity: 1;
-  box-shadow: inset 0 -3px 0 hsl(var(--accent)) !important;
-  z-index: 10;
+  color: hsl(var(--foreground)) !important;
+  position: relative;
 }
 
-.lm_tab:hover:not(.lm_active) {
-  color: hsl(var(--foreground)) !important;
-  opacity: 0.8;
+.lm_tab.lm_active::after {
+  content: '';
+  position: absolute;
+  bottom: -2px;
+  left: 0;
+  width: 100%;
+  height: 2px;
+  background-color: hsl(var(--accent));
+  z-index: 20;
+}
+
+.lm_controls {
+  position: absolute;
+  right: 4px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  gap: 4px;
+}
+
+.lm_tab .lm_close_tab {
+  display: none !important;
 }
 
 .lm_content {
   background: hsl(var(--card)) !important;
-  border: 1px solid var(--app-border);
-  margin: 4px;
 }
 
 .lm_splitter {
   background: hsl(var(--background)) !important;
-  opacity: 1 !important;
-  width: 6px !important;
-  height: 6px !important;
-}
-
-.lm_splitter:hover {
-  background: hsl(var(--primary)) !important;
+  width: 4px !important;
+  height: 4px !important;
   opacity: 1 !important;
 }
 

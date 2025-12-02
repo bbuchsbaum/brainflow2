@@ -145,24 +145,11 @@
   }
   
   .layer-row.selected {
-    background-color: hsl(var(--accent) / 0.15);
-    /* Extend background to full panel width */
-    margin-left: -0.75rem;
-    margin-right: -0.75rem;
-    padding-left: 0.75rem;
-    padding-right: 0.75rem;
-  }
-  
-  /* Selection accent bar */
-  .layer-row.selected::before {
-    content: '';
-    position: absolute;
-    left: 0.75rem; /* Adjusted for extended background */
-    top: 0.25rem; /* 4px */
-    bottom: 0.25rem; /* 4px */
-    width: 3px;
-    background-color: hsl(var(--accent));
-    border-radius: 9999px;
+    background-color: transparent;
+    border-left: 4px solid hsl(var(--accent));
+    padding-left: calc(0.75rem - 4px);
+    margin-left: 0;
+    margin-right: 0;
   }
   
   /* Keyboard focus styles */
