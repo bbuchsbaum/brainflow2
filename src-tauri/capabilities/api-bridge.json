@@ -4,6 +4,7 @@
   "description": "Permissions for the api-bridge plugin",
   "windows": ["main"],
   "permissions": [
-    "api-bridge:default"
+    "api-bridge:default",
+    "api-bridge:allow-load-surface-overlay"
   ]
 }
