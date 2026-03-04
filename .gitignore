@@ -14,3 +14,13 @@ pnpm-lock.yaml
 
 # Tauri Runtime
 src-tauri/target/
+
+# Local tool state
+.omc/
+.pnpm-store/
+
+# Ephemeral AI investigation reports
+claude-instance/
+
+# Archived/scratch files
+cruft/
