@@ -499,7 +499,7 @@ fn main() {
                             match app.emit(
                                 "atlas-menu-action",
                                 serde_json::json!({
-                                    "action": "load-atlas",
+                                    "action": "load-atlas-preset",
                                     "payload": preset.to_payload()
                                 }),
                             ) {
@@ -516,7 +516,7 @@ fn main() {
                             match app.emit(
                                 "atlas-menu-action",
                                 serde_json::json!({
-                                    "action": "load-surface-atlas",
+                                    "action": "load-surface-atlas-preset",
                                     "payload": preset.to_payload()
                                 }),
                             ) {

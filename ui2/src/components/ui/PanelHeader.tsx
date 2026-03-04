@@ -20,14 +20,14 @@ export const PanelHeader: React.FC<PanelHeaderProps> = ({
   actions = [],
   className = ""
 }) => {
-  const defaultClasses = "flex items-center justify-between px-3 py-2 bg-muted/30 border-b border-border text-sm font-medium text-foreground/80 select-none rounded-t-md";
+  const defaultClasses = "flex items-center justify-between px-3 py-2 bg-muted/30 border-b border-border text-sm font-medium text-foreground/80 select-none";
   const finalClasses = className || defaultClasses;
 
   return (
     <div className={finalClasses}>
       <div className="flex items-center gap-2">
         {icon && (
-          <span className="text-gray-500">{icon}</span>
+          <span className="text-muted-foreground">{icon}</span>
         )}
         <span>{title}</span>
       </div>
@@ -38,7 +38,7 @@ export const PanelHeader: React.FC<PanelHeaderProps> = ({
             <button
               key={index}
               type="button"
-              className="p-1 rounded hover:bg-gray-200 disabled:opacity-50 disabled:cursor-not-allowed"
+              className="p-1 rounded-sm hover:bg-muted/50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
               disabled={action.disabled}
               onClick={action.onClick}
               title={action.label}

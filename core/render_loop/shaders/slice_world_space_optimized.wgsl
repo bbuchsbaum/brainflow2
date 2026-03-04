@@ -51,14 +51,15 @@ struct LayerData {
     
     thresh_high    : f32,              // Threshold upper bound
     is_mask        : u32,              // 1 if binary mask
+    has_alpha_mask : u32,              // 1 if alpha mask attached
     interpolation_mode : u32,          // 0=nearest, 1=linear, 2=cubic (future)
-    _pad           : f32,              // 4 bytes to complete 16-byte block
 
     // --- Display options ---
     drawSliceBorder : u32,             // 0=off, 1=on
     borderThicknessPx : f32,           // Thickness in pixels
-    _padA          : u32,
-    _padB          : vec2<u32>,        // Padding to 16-byte alignment
+    _padOpt0        : u32,
+    _padOpt1        : u32,
+    // Total struct size: matches Rust LayerDataOptimized
 };
 
 // --- Layer metadata ---
@@ -76,7 +77,7 @@ struct LayerMetadata {
 @group(1) @binding(1) var<uniform> layer_metadata: LayerMetadata;
 
 // --- Bind Group 2: Textures & Samplers ---
-// Support up to 15 volume textures
+// Support up to 14 volume textures
 @group(2) @binding(0) var volumeTexture0: texture_3d<f32>;
 @group(2) @binding(1) var volumeTexture1: texture_3d<f32>;
 @group(2) @binding(2) var volumeTexture2: texture_3d<f32>;
@@ -91,11 +92,9 @@ struct LayerMetadata {
 @group(2) @binding(11) var volumeTexture11: texture_3d<f32>;
 @group(2) @binding(12) var volumeTexture12: texture_3d<f32>;
 @group(2) @binding(13) var volumeTexture13: texture_3d<f32>;
-@group(2) @binding(14) var volumeTexture14: texture_3d<f32>;
-@group(2) @binding(15) var samplerLinear: sampler;
-@group(2) @binding(16) var colormapLutTexture: texture_2d_array<f32>;
-@group(2) @binding(17) var cmSampler: sampler;
-@group(2) @binding(18) var samplerNearest: sampler;
+@group(2) @binding(14) var samplerLinear: sampler;
+@group(2) @binding(15) var colormapLutTexture: texture_2d_array<f32>;
+@group(2) @binding(16) var samplerNearest: sampler;
 
 // --- Vertex Shader Output ---
 struct VsOut {
@@ -155,7 +154,6 @@ fn sampleVolumeTextureOptimized(texture_index: u32, coord: vec3<f32>, lod: f32, 
             case 11u: { return textureSampleLevel(volumeTexture11, samplerNearest, coord, lod).r; }
             case 12u: { return textureSampleLevel(volumeTexture12, samplerNearest, coord, lod).r; }
             case 13u: { return textureSampleLevel(volumeTexture13, samplerNearest, coord, lod).r; }
-            case 14u: { return textureSampleLevel(volumeTexture14, samplerNearest, coord, lod).r; }
             default: { return 0.0; }
         }
     } else {
@@ -175,7 +173,6 @@ fn sampleVolumeTextureOptimized(texture_index: u32, coord: vec3<f32>, lod: f32, 
             case 11u: { return textureSampleLevel(volumeTexture11, samplerLinear, coord, lod).r; }
             case 12u: { return textureSampleLevel(volumeTexture12, samplerLinear, coord, lod).r; }
             case 13u: { return textureSampleLevel(volumeTexture13, samplerLinear, coord, lod).r; }
-            case 14u: { return textureSampleLevel(volumeTexture14, samplerLinear, coord, lod).r; }
             default: { return 0.0; }
         }
     }
@@ -242,22 +239,29 @@ fn sampleLayerOptimized(layer: LayerData, world_mm: vec3<f32>, pixel_size: f32) 
     
     // Optimized thresholding with reduced branching
     var alpha = layer.opacity;
-    
-    // Use select() to avoid branching where possible
-    if (layer.threshold_mode == 0u) { // Range mode (most common) - hide values within range, show extremes
-        let within_range = raw_value > layer.thresh_low && raw_value < layer.thresh_high;
+
+    // THRESHOLD SEMANTICS (IMPORTANT - counterintuitive!):
+    // Values WITHIN the threshold range [low, high] become TRANSPARENT (hidden).
+    // Values OUTSIDE the range remain visible.
+    // This allows hiding unwanted value ranges (e.g., background, low intensities).
+    //
+    // Default (0.0, 0.0): No values are within this point range (except exactly 0.0),
+    // so effectively nothing is hidden - this disables thresholding.
+    //
+    // Example: thresh=(0.0, 0.5) hides values in [0, 0.5], showing only values > 0.5.
+
+    if (layer.threshold_mode == 0u) {
+        // Range mode (mode 0): hide samples INSIDE the inclusive window [low, high]
+        let within_range = raw_value >= layer.thresh_low && raw_value <= layer.thresh_high;
         alpha = select(alpha, 0.0, within_range);
-        
+
         // DEBUG: Visualize threshold behavior
-        // Uncomment one of these to debug:
-        // return vec4<f32>(within_range ? 1.0 : 0.0, 0.0, 0.0, 1.0); // Red if within range
-        // return vec4<f32>(layer.thresh_low / 10000.0, layer.thresh_high / 10000.0, raw_value / 10000.0, 1.0); // Show values as colors
-    } else if (layer.threshold_mode == 1u) { // Absolute value - keep values inside range
+        // return vec4<f32>(select(0.0, 1.0, within_range), 0.0, 0.0, 1.0); // Red if within range
+    } else if (layer.threshold_mode == 1u) {
+        // Absolute value mode: hide samples where |value| is INSIDE [low, high]
         let abs_value = abs(raw_value);
-        // Match original shader: hide if outside range [low, high]
-        if (abs_value < layer.thresh_low || abs_value > layer.thresh_high) {
-            alpha = 0.0;
-        }
+        let within_abs_range = abs_value >= layer.thresh_low && abs_value <= layer.thresh_high;
+        alpha = select(alpha, 0.0, within_abs_range);
     } else if (layer.threshold_mode == 2u) { // Above
         alpha = select(0.0, alpha, raw_value >= layer.thresh_low);
     } else { // Below
@@ -274,7 +278,7 @@ fn sampleLayerOptimized(layer: LayerData, world_mm: vec3<f32>, pixel_size: f32) 
     
     // Apply colormap
     let lut_coord = vec2<f32>(intensity_norm, 0.5);
-    let rgb_color = textureSample(colormapLutTexture, cmSampler, lut_coord, i32(layer.colormap_id)).rgb;
+    let rgb_color = textureSample(colormapLutTexture, samplerLinear, lut_coord, i32(layer.colormap_id)).rgb;
     
     return vec4<f32>(rgb_color, alpha);
 }
@@ -340,12 +344,9 @@ fn fs_main(input: VsOut) -> @location(0) vec4<f32> {
     for (var i: u32 = 0u; i < layer_count; i = i + 1u) {
         let layer = layer_data[i];
         let layer_color = sampleLayerOptimized(layer, world_mm, pixel_size);
-        
-        // Early exit if we've reached full opacity
-        if (final_color.a >= 0.99 && layer.blend_mode == 0u) {
-            break;
-        }
-        
+        // NOTE: We render layers in Back-to-Front order (bottom → top),
+        // so an opaque bottom layer must NOT short-circuit the loop.
+        // Early-exit is only valid for Front-to-Back compositing.
         final_color = compositeOptimized(final_color, layer_color, layer.blend_mode);
     }
     

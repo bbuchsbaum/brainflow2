@@ -43,9 +43,9 @@ interface DragOverlayProps {
 
 export function DragOverlay({ message = 'Drop file to load' }: DragOverlayProps) {
   return (
-    <div className="absolute inset-0 bg-blue-500 bg-opacity-20 pointer-events-none flex items-center justify-center">
-      <div className="bg-white rounded-lg px-4 py-2 shadow-lg">
-        <div className="text-blue-600 font-medium">{message}</div>
+    <div className="absolute inset-0 bg-primary/15 pointer-events-none flex items-center justify-center">
+      <div className="bg-card px-4 py-2 shadow-lg border border-primary/30">
+        <div className="text-primary font-medium text-xs uppercase tracking-wider">{message}</div>
       </div>
     </div>
   );
@@ -65,7 +65,7 @@ export function LabelOverlay({ label, position = 'bottom-left' }: LabelOverlayPr
   };
   
   return (
-    <div className={`absolute ${positionClasses[position]} text-xs text-white bg-black/50 px-1 rounded`}>
+    <div className={`absolute ${positionClasses[position]} text-xs text-white bg-black/50 px-1`}>
       {label}
     </div>
   );
@@ -89,7 +89,7 @@ export function CoordinateDisplay({ coordinates, position = 'top-left' }: Coordi
   };
   
   return (
-    <div className={`absolute ${positionClasses[position]} bg-black bg-opacity-75 text-white text-xs px-2 py-1 rounded`}>
+    <div className={`absolute ${positionClasses[position]} bg-black bg-opacity-75 text-white text-xs px-2 py-1`}>
       {formatCoordinate(coordinates)}
     </div>
   );
@@ -99,16 +99,44 @@ interface NoLayersOverlayProps {
   showLoadingHint?: boolean;
 }
 
+/**
+ * Bauhaus Empty State: Pure Geometry & Typography
+ * Replaces the organic brain emoji with abstract volumetric representation
+ */
 export function NoLayersOverlay({ showLoadingHint = true }: NoLayersOverlayProps) {
   return (
-    <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-      <div className="text-gray-400 text-center">
-        <div className="text-4xl mb-2">🧠</div>
-        <div className="text-sm">No volumes loaded</div>
-        {showLoadingHint && (
-          <div className="text-xs mt-1 opacity-75">Double-click a file or drag & drop</div>
-        )}
-      </div>
+    <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none bg-muted/10 select-none">
+      {/* Wireframe Cube - representing volumetric 3D space */}
+      {/* Ultra-thin stroke (0.5px) for drafting pen aesthetic */}
+      <svg
+        xmlns="http://www.w3.org/2000/svg"
+        width="64"
+        height="64"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="0.5"
+        strokeLinecap="square"
+        strokeLinejoin="miter"
+        className="text-foreground/20 mb-6"
+      >
+        <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" />
+        <polyline points="3.27 6.96 12 12.01 20.73 6.96" />
+        <line x1="12" y1="22.08" x2="12" y2="12" />
+      </svg>
+
+      {/* Technical specification header */}
+      <h3 className="text-[10px] uppercase tracking-[0.25em] font-bold text-muted-foreground border-b border-muted-foreground/20 pb-1 mb-2">
+        Volume Buffer Empty
+      </h3>
+
+      {/* Monospace coordinate-style instruction */}
+      {showLoadingHint && (
+        <p className="text-[9px] font-mono text-muted-foreground/50 text-center uppercase tracking-wider">
+          Awaiting Input Stream<br/>
+          Double-click a file or drag &amp; drop
+        </p>
+      )}
     </div>
   );
 }
@@ -124,10 +152,10 @@ export function LoadingVolumeOverlay({ position = 'top-right' }: LoadingVolumeOv
     'bottom-left': 'bottom-2 left-2',
     'bottom-right': 'bottom-2 right-2'
   };
-  
+
   return (
-    <div className={`absolute ${positionClasses[position]} bg-yellow-500 bg-opacity-90 text-white text-xs px-2 py-1 rounded animate-pulse`}>
-      Loading volume...
+    <div className={`absolute ${positionClasses[position]} bg-card border-l-2 border-primary text-foreground text-[10px] uppercase tracking-wider font-medium px-2 py-1`}>
+      Loading volume…
     </div>
   );
 }

@@ -79,6 +79,25 @@ export class AtlasPressureMonitor {
   }
 
   private checkLowWatermark(stats: AtlasStats, timestamp: number) {
+    // Ignore pressure warnings when no layers are loaded. At startup the atlas
+    // may report 0 free / 1 total as a sentinel state, which is noisy if the
+    // user has not uploaded any volumes yet.
+    const layers = useLayerStore.getState().layers;
+    if (!layers || layers.length === 0) {
+      this.lastWarnedFreeLayers = null;
+      return;
+    }
+
+    // Treat low-watermark warnings as noisy for single-layer sessions. On many
+    // GPUs the atlas may be relatively small, so the very first allocation can
+    // drop freeLayers below the LOW_WATERMARK_THRESHOLD. We only surface
+    // yellow "capacity low" signals once the user is actually running a
+    // multi-layer session.
+    if (layers.length < 2) {
+      this.lastWarnedFreeLayers = null;
+      return;
+    }
+
     if (stats.freeLayers <= LOW_WATERMARK_THRESHOLD) {
       const isCritical = stats.freeLayers === 0;
       const shouldNotify =
@@ -94,7 +113,7 @@ export class AtlasPressureMonitor {
         );
 
         const message = isCritical
-          ? `GPU atlas is full (${stats.usedLayers}/${stats.totalLayers}). Remove layers or restart rendering to recover.`
+          ? `GPU atlas capacity exhausted (${stats.usedLayers}/${stats.totalLayers}). Unload hidden layers to continue rendering.`
           : `GPU atlas capacity low: ${stats.freeLayers} free of ${stats.totalLayers} layers remaining. Consider removing unused layers.`;
 
         this.eventBus.emit('ui.notification', {
@@ -120,6 +139,16 @@ export class AtlasPressureMonitor {
   }
 
   private async checkFullEvents(stats: AtlasStats, timestamp: number) {
+    // Only react to full-events when there are layers in the session.
+    // This prevents a spurious "GPU atlas is full" notification on startup
+    // before the user has loaded any volumes.
+    const layers = useLayerStore.getState().layers;
+    if (!layers || layers.length === 0) {
+      // Keep the internal counter in sync without emitting UI noise.
+      this.lastFullEvents = stats.fullEvents;
+      return;
+    }
+
     if (stats.fullEvents > this.lastFullEvents) {
       const increment = stats.fullEvents - this.lastFullEvents;
       this.lastFullEvents = stats.fullEvents;

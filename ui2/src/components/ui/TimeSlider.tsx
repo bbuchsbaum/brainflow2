@@ -12,9 +12,10 @@ import { getEventBus } from '@/events/EventBus';
 
 interface TimeSliderProps {
   className?: string;
+  disabled?: boolean;
 }
 
-export function TimeSlider({ className = '' }: TimeSliderProps) {
+export function TimeSlider({ className = '', disabled = false }: TimeSliderProps) {
   const timeNav = useTimeNavigation();
   const timeInfo = timeNav.getTimeInfo();
   const [isDragging, setIsDragging] = useState(false);
@@ -60,7 +61,7 @@ export function TimeSlider({ className = '' }: TimeSliderProps) {
 
   // Handle scrubbing
   const handleScrub = useCallback((clientX: number) => {
-    if (!sliderRef.current || !timeInfo) return;
+    if (!sliderRef.current || !timeInfo || isDisabled) return;
 
     const rect = sliderRef.current.getBoundingClientRect();
     const x = clientX - rect.left;
@@ -100,23 +101,104 @@ export function TimeSlider({ className = '' }: TimeSliderProps) {
     document.addEventListener('mouseup', handleMouseUp);
   }, [handleScrub, handlePlayPause]);
 
-  if (!timeInfo) {
-    return null; // Don't show if no 4D volume
-  }
+  const isDisabled = disabled || !timeInfo;
+  const effectiveTimeInfo = isDisabled ? null : timeInfo;
 
   // Use local timepoint during dragging for immediate feedback
-  const displayTimepoint = localTimepoint ?? timeInfo.currentTimepoint;
-  const percentage = (displayTimepoint / (timeInfo.totalTimepoints - 1)) * 100;
-  
+  const totalTimepoints = effectiveTimeInfo?.totalTimepoints ?? 1;
+  const denominator = Math.max(1, totalTimepoints - 1);
+  const displayTimepoint =
+    effectiveTimeInfo && denominator > 0
+      ? Math.min(
+          denominator,
+          Math.max(0, localTimepoint ?? effectiveTimeInfo.currentTimepoint)
+        )
+      : 0;
+  const percentage = (displayTimepoint / denominator) * 100;
+
   // Format time display with local override if available
-  const timeDisplay = localTimepoint !== null 
-    ? `TR ${localTimepoint} | ${((localTimepoint * (timeInfo.tr || 1.0))/60).toFixed(1)} min`
-    : timeNav.formatStatusDisplay();
+  const timeDisplay = isDisabled
+    ? 'Time ⏱ unavailable'
+    : localTimepoint !== null
+      ? `TR ${localTimepoint} | ${((localTimepoint * (effectiveTimeInfo!.tr || 1.0)) / 60).toFixed(1)} min`
+      : timeNav.formatStatusDisplay() ?? `TR ${displayTimepoint}`;
+
+  const handlePrevious = useCallback(() => {
+    if (isDisabled) return;
+    timeNav.previousTimepoint();
+  }, [isDisabled, timeNav]);
+
+  const handleNext = useCallback(() => {
+    if (isDisabled) return;
+    timeNav.nextTimepoint();
+  }, [isDisabled, timeNav]);
+
+  // Keyboard shortcuts: ←/→ step, Shift+←/→ jump 5 TRs
+  useEffect(() => {
+    if (isDisabled) return;
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (target) {
+        const tag = target.tagName;
+        const isEditable =
+          target.isContentEditable ||
+          tag === 'INPUT' ||
+          tag === 'TEXTAREA' ||
+          tag === 'SELECT';
+        if (isEditable) {
+          return;
+        }
+      }
+
+      if (event.key === 'ArrowLeft') {
+        event.preventDefault();
+        if (event.shiftKey) {
+          timeNav.jumpTimepoints(-5);
+        } else {
+          timeNav.previousTimepoint();
+        }
+      } else if (event.key === 'ArrowRight') {
+        event.preventDefault();
+        if (event.shiftKey) {
+          timeNav.jumpTimepoints(5);
+        } else {
+          timeNav.nextTimepoint();
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [isDisabled, timeNav]);
 
   return (
-    <div className={`flex items-center gap-2 px-2 ${className}`}>
+    <div className={`flex items-center gap-2 px-2 ${className}`} aria-disabled={isDisabled}>
+      <div className="flex items-center gap-1">
+        <button
+          type="button"
+          className="px-2 py-1 text-xs text-foreground bg-muted/80 rounded disabled:opacity-40 disabled:cursor-not-allowed hover:bg-muted"
+          onClick={handlePrevious}
+          disabled={isDisabled}
+          aria-label="Previous timepoint"
+        >
+          ‹
+        </button>
+        <button
+          type="button"
+          className="px-2 py-1 text-xs text-foreground bg-muted/80 rounded disabled:opacity-40 disabled:cursor-not-allowed hover:bg-muted"
+          onClick={handleNext}
+          disabled={isDisabled}
+          aria-label="Next timepoint"
+        >
+          ›
+        </button>
+      </div>
+
       {/* Time display */}
-      <span className="text-xs text-gray-400 font-mono whitespace-nowrap">
+      <span className="text-xs text-muted-foreground font-mono whitespace-nowrap">
         {timeDisplay}
       </span>
 
@@ -124,21 +206,25 @@ export function TimeSlider({ className = '' }: TimeSliderProps) {
       <div 
         ref={sliderRef}
         data-testid="time-slider-track"
-        className="relative flex-1 h-4 cursor-pointer group"
-        onMouseDown={handleMouseDown}
-        title={`${isPlaying ? 'Playing' : 'Paused'} - Click to scrub, Ctrl/Cmd+Click to ${isPlaying ? 'pause' : 'play'}`}
+        className={`relative flex-1 h-4 group ${isDisabled ? 'cursor-not-allowed opacity-40' : 'cursor-pointer'}`}
+        onMouseDown={isDisabled ? undefined : handleMouseDown}
+        title={
+          isDisabled
+            ? 'Load a 4D volume to enable time navigation'
+            : `${isPlaying ? 'Playing' : 'Paused'} - Click to scrub, Ctrl/Cmd+Click to ${isPlaying ? 'pause' : 'play'} • Use ←/→ to step, Shift+←/→ to jump`
+        }
       >
         {/* Track (1px high, expands on hover) */}
         <div className="absolute top-1/2 -translate-y-1/2 w-full">
           <div className={`
-            w-full bg-gray-700 transition-all duration-150
-            ${isDragging ? 'h-2' : 'h-px group-hover:h-1'}
+            w-full bg-muted transition-all duration-150
+            ${isDragging && !isDisabled ? 'h-2' : 'h-px group-hover:h-1'}
           `}>
             {/* Progress fill */}
             <div 
               className={`
                 h-full transition-colors duration-150
-                ${isPlaying ? 'bg-green-500' : 'bg-blue-500'}
+                ${isPlaying ? 'bg-[var(--app-success)]' : 'bg-primary'}
               `}
               style={{ width: `${percentage}%` }}
             />
@@ -153,8 +239,8 @@ export function TimeSlider({ className = '' }: TimeSliderProps) {
           className={`
             absolute top-1/2 -translate-y-1/2 -translate-x-1/2
             w-2 h-2 rounded-full transition-all duration-150
-            ${isPlaying ? 'bg-green-400' : 'bg-blue-400'}
-            ${isDragging ? 'opacity-100 scale-125' : 'opacity-0 group-hover:opacity-100'}
+            ${isPlaying ? 'bg-[var(--app-success)]' : 'bg-primary'}
+            ${isDragging && !isDisabled ? 'opacity-100 scale-125' : 'opacity-0 group-hover:opacity-100'}
           `}
           style={{ left: `${percentage}%` }}
           data-testid="time-slider-thumb"
@@ -162,8 +248,8 @@ export function TimeSlider({ className = '' }: TimeSliderProps) {
       </div>
 
       {/* Play/pause indicator */}
-      {isPlaying && (
-        <span className="text-xs text-green-500 animate-pulse">▶</span>
+      {isPlaying && !isDisabled && (
+        <span className="text-xs text-[var(--app-success)] animate-pulse">▶</span>
       )}
     </div>
   );

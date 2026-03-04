@@ -1,91 +1,7 @@
-/* 
- * shadcn/ui CSS Variables
- * These variables are required for shadcn components to work properly
- * Mapped to our existing theme system
+/*
+ * shadcn/ui Component Styles
+ * Theme variables defined in theme.css — no duplication here.
  */
-
-@layer base {
-  :root {
-    /* Desert Modern light (cooler concrete) */
-    --background: 210 5% 93%;
-    --foreground: 210 10% 15%;
-    
-    --card: 0 0% 100%;
-    --card-foreground: 210 10% 15%;
-    
-    --popover: 0 0% 100%;
-    --popover-foreground: 210 10% 15%;
-    
-    /* Primary: Sharper cyan */
-    --primary: 180 75% 35%;
-    --primary-foreground: 0 0% 100%;
-    
-    /* Secondary: Neutral concrete */
-    --secondary: 210 8% 88%;
-    --secondary-foreground: 210 10% 15%;
-    
-    /* Muted: Grid line tone */
-    --muted: 210 10% 90%;
-    --muted-foreground: 210 5% 40%;
-    
-    /* Accent: International orange */
-    --accent: 15 85% 55%;
-    --accent-foreground: 0 0% 100%;
-    
-    --destructive: 0 85% 60%;
-    --destructive-foreground: 0 0% 100%;
-    
-    --border: 210 5% 85%;
-    --input: 210 5% 85%;
-    --ring: 180 75% 35%;
-    
-    --radius: 2px;
-  }
-  
-  /* Dark mode */
-  .dark {
-    --background: 220 15% 10%;
-    --foreground: 40 10% 90%;
-    
-    --card: 220 15% 14%;
-    --card-foreground: 40 10% 90%;
-    
-    --popover: 220 15% 14%;
-    --popover-foreground: 40 10% 90%;
-    
-    --primary: 175 50% 50%;
-    --primary-foreground: 220 15% 10%;
-    
-    --secondary: 220 15% 18%;
-    --secondary-foreground: 40 10% 90%;
-    
-    --muted: 220 15% 20%;
-    --muted-foreground: 215 10% 65%;
-    
-    --accent: 30 80% 55%;
-    --accent-foreground: 0 0% 100%;
-    
-    --destructive: 0 60% 50%;
-    --destructive-foreground: 0 0% 100%;
-    
-    --border: 220 15% 20%;
-    --input: 220 15% 20%;
-    --ring: 175 50% 50%;
-    
-    --radius: 2px;
-  }
-}
-
-/* Apply theme to all elements */
-@layer base {
-  * {
-    border-color: hsl(var(--border));
-  }
-  body {
-    background-color: hsl(var(--background));
-    color: hsl(var(--foreground));
-  }
-}
 
 /* Custom flat icon button styles */
 @layer components {
@@ -94,56 +10,64 @@
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    height: 2rem; /* 32px */
-    width: 2rem; /* 32px */
-    border-radius: var(--radius);
+    height: 2rem;
+    width: 2rem;
+    border-radius: var(--radius, 2px);
     color: hsl(var(--muted-foreground));
-    transition: all 150ms ease;
+    transition: all var(--app-transition-fast, 150ms ease);
     border: none !important;
     box-shadow: none !important;
     background: transparent;
     cursor: pointer;
   }
-  
+
   .icon-btn:hover {
     color: hsl(var(--foreground));
     background-color: hsl(var(--accent) / 0.2);
   }
-  
+
   .icon-btn:focus-visible {
-    outline: none;
-    ring: 2px solid hsl(var(--ring));
-    ring-offset: 2px;
+    outline: 2px solid hsl(var(--ring));
+    outline-offset: 1px;
   }
-  
+
+  .icon-btn:focus:not(:focus-visible) {
+    outline: none;
+  }
+
+  .icon-btn:active {
+    transform: scale(0.96);
+  }
+
   .icon-btn:disabled {
     pointer-events: none;
     opacity: 0.5;
   }
-  
+
   /* Active/pressed state for toggles */
   .icon-btn[data-state="on"],
   .icon-btn.active {
     color: hsl(var(--accent));
     background-color: hsl(var(--accent) / 0.2);
   }
-  
+
   /* Row selection indicator */
   .layer-row {
     position: relative;
     display: flex;
     align-items: center;
-    gap: 0.75rem; /* 12px */
-    padding: 0.375rem 0.75rem; /* 6px 12px - reduced height by ~20% */
-    border-radius: var(--radius);
-    transition: all 150ms ease;
+    gap: 0.75rem;
+    padding: 0.375rem 0.75rem;
+    border-radius: var(--radius, 2px);
+    transition: all var(--app-transition-fast, 150ms ease);
     cursor: pointer;
+    color: var(--app-text-primary);
   }
-  
+
   .layer-row:hover {
     background-color: hsl(var(--muted) / 0.3);
   }
-  
+
   .layer-row.selected {
     background-color: transparent;
     border-left: 4px solid hsl(var(--accent));
@@ -151,10 +75,14 @@
     margin-left: 0;
     margin-right: 0;
   }
-  
+
   /* Keyboard focus styles */
-  .layer-row:focus {
+  .layer-row:focus-visible {
+    outline: 2px solid hsl(var(--ring));
+    outline-offset: -1px;
+  }
+
+  .layer-row:focus:not(:focus-visible) {
     outline: none;
-    box-shadow: 0 0 0 2px hsl(var(--ring));
   }
 }

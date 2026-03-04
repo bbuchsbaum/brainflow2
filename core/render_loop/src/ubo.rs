@@ -158,13 +158,14 @@ pub struct LayerUboStd140 {
     pub intensity_max: f32, // 4 bytes, offset 120
     pub thresh_low: f32,    // 4 bytes, offset 124 (completes 16-byte block)
 
-    pub thresh_high: f32,        // 4 bytes
-    pub is_mask: u32,            // 4 bytes
-    pub interpolation_mode: u32, // 4 bytes (0=nearest, 1=linear, 2=cubic)
-    pub draw_slice_border: u32,  // 4 bytes (0/1)
+    pub thresh_high: f32,         // 4 bytes
+    pub is_mask: u32,             // 4 bytes
+    pub has_alpha_mask: u32,      // 4 bytes
+    pub interpolation_mode: u32,  // 4 bytes (0=nearest, 1=linear, 2=cubic)
+    pub draw_slice_border: u32,   // 4 bytes (0/1)
     pub border_thickness_px: f32, // 4 bytes
-    pub _pad: [u32; 1],          // 4 bytes padding to complete 16-byte block
-                                 // Total size: 64 + 16 + 16 + 16 + 16 + 16 + 16 = 160 bytes (10 * 16-byte blocks)
+    pub _pad: [u32; 2],           // 8 bytes padding to complete 16-byte block
+                                  // Total size: 160 bytes (must match WGSL LayerData)
 }
 
 impl Default for LayerUboStd140 {
@@ -184,13 +185,20 @@ impl Default for LayerUboStd140 {
             thresh_low: -f32::INFINITY,
             thresh_high: f32::INFINITY,
             is_mask: 0,
+            has_alpha_mask: 0,
             interpolation_mode: 1, // Default to linear
             draw_slice_border: 0,
             border_thickness_px: 1.0,
-            _pad: [0],
+            _pad: [0; 2],
         }
     }
 }
+
+// IMPORTANT: Keep LayerUboStd140 in byte-for-byte sync with the WGSL LayerData
+// struct in shaders/slice_world_space.wgsl. The shader currently expects a total
+// size of 152 bytes with std430 rules for the storage buffer. If you add or
+// reorder fields here or in WGSL, adjust both and update this check.
+const _: [(); 160] = [(); std::mem::size_of::<LayerUboStd140>()];
 
 // --- Optimized layer data struct for performance shader ---
 // This struct includes precomputed values to reduce per-pixel calculations
@@ -215,11 +223,11 @@ pub struct LayerDataOptimized {
     pub intensity_max: f32, // 4 bytes, offset 104
     pub thresh_low: f32,    // 4 bytes, offset 108 (completes 16-byte block)
 
-    pub thresh_high: f32, // 4 bytes, offset 112
-    // Performance optimization: precomputed values
-    pub inv_intensity_delta: f32, // 4 bytes, offset 116 - 1.0 / (intensity_max - intensity_min)
-    pub voxel_size_estimate: f32, // 4 bytes, offset 120 - Approximate voxel size for LOD
-    pub _padding: f32,            // 4 bytes, offset 124 (completes 16-byte block)
+    pub thresh_high: f32,         // 4 bytes, offset 112
+    pub has_alpha_mask: u32,      // 4 bytes, offset 116
+    pub inv_intensity_delta: f32, // 4 bytes, offset 120
+    pub voxel_size_estimate: f32, // 4 bytes, offset 124
+    pub _padding: f32,            // 4 bytes, offset 128
                                   // Total size: 64 + 16 + 16 + 16 + 16 = 128 bytes (8 * 16-byte blocks)
 }
 
@@ -238,6 +246,7 @@ impl Default for LayerDataOptimized {
             intensity_max: 1.0,
             thresh_low: -f32::INFINITY,
             thresh_high: f32::INFINITY,
+            has_alpha_mask: 0,
             inv_intensity_delta: 1.0, // 1.0 / (1.0 - 0.0)
             voxel_size_estimate: 1.0,
             _padding: 0.0,

@@ -9,7 +9,6 @@ import { useStatusBarStore } from '@/stores/statusBarStore';
 import { useLayerStore } from '@/stores/layerStore';
 import { StatusBarProgress } from './StatusBarProgress';
 import { TimeSlider } from './TimeSlider';
-import { getTimeNavigationService } from '@/services/TimeNavigationService';
 
 interface StatusBarProps {
   className?: string;
@@ -25,7 +24,7 @@ interface StatusBarProps {
 const StatusBarSlot = React.memo(({ id, onClick }: { id: string; onClick?: () => void }) => {
   const value = useStatusBarStore(state => state.values[id]);
 
-  if (!value) return null;
+  if (value === undefined || value === null) return null;
 
   const getValueClass = (id: string): string => {
     const baseClass = 'status-value';
@@ -51,16 +50,30 @@ const StatusBarSlot = React.memo(({ id, onClick }: { id: string; onClick?: () =>
     crosshair: 'Crosshair:',
     mouse: 'Mouse:',
     layer: 'Layer:',
+    atlas: 'Atlas:',
     fps: 'FPS:',
     gpu: 'GPU:'
   };
 
+  const widthMap: Record<string, string> = {
+    coordSys: '27ch',
+    crosshair: '34ch',
+    mouse: '34ch',
+    layer: '34ch',
+    atlas: '30ch',
+    fps: '12ch',
+    gpu: '15ch',
+  };
+
+  const slotWidth = widthMap[id] || '22ch';
+  const priority = (id === 'fps' || id === 'gpu') ? 'low' : 'normal';
   const isClickable = !!onClick;
 
   return (
     <div
-      className={`status-slot${isClickable ? ' cursor-pointer hover:text-blue-300' : ''}`}
-      style={{ width: '25ch' }}
+      className={`status-slot${isClickable ? ' cursor-pointer hover:text-primary' : ''}`}
+      style={{ width: slotWidth, minWidth: slotWidth, flex: `0 0 ${slotWidth}` }}
+      data-priority={priority}
       onClick={onClick}
       title={isClickable ? 'Click to navigate to coordinate' : undefined}
     >
@@ -103,10 +116,8 @@ export function StatusBar({
         />
       ))}
       
-      {/* Time slider for 4D volumes */}
-      {has4DVolume && (
-        <TimeSlider className="flex-1 max-w-xs" />
-      )}
+      {/* Time slider always visible; disabled when no 4D */}
+      <TimeSlider className="flex-1 max-w-sm" disabled={!has4DVolume} />
       
       {/* Progress indicator */}
       <StatusBarProgress />

@@ -16,7 +16,6 @@ import { VolumePanel } from './VolumePanel';
 import { SurfacePanel } from './SurfacePanel';
 import type { Layer, LayerRender } from '@/types/layers';
 import type { VolumeMetadata } from '@/stores/layerStore';
-import { AlertCircle } from 'lucide-react';
 
 /**
  * Extended layer type that includes dataType discriminator
@@ -32,17 +31,17 @@ interface LayerPropertiesManagerProps {
    * The currently selected layer
    */
   selectedLayer?: ExtendedLayer | boolean;
-  
+
   /**
    * Render properties for the selected layer
    */
   selectedRender?: LayerRender;
-  
+
   /**
    * Metadata for the selected layer
    */
   selectedMetadata?: VolumeMetadata;
-  
+
   /**
    * Callback when render properties are updated
    */
@@ -50,12 +49,45 @@ interface LayerPropertiesManagerProps {
 }
 
 /**
- * Empty state component when no layer is selected
+ * Bauhaus Empty State - Properties panel "Empty Slot" pattern
+ * Quiet, structural void indicating where content belongs
  */
-const EmptyState: React.FC<{ message?: string }> = ({ message = "Select a layer to view properties" }) => (
-  <div className="flex flex-col items-center justify-center h-32 text-muted-foreground">
-    <AlertCircle className="w-8 h-8 mb-2 opacity-50" />
-    <p className="text-sm">{message}</p>
+const EmptyState: React.FC<{ message?: string }> = ({ message }) => (
+  <div className="flex flex-col items-center justify-center p-6 select-none">
+    {/* Dashed boundary - the "empty slot" */}
+    <div
+      className="w-full flex flex-col items-center justify-center py-8"
+      style={{
+        border: '1px dashed hsl(var(--muted-foreground) / 0.15)',
+        backgroundColor: 'transparent',
+        borderRadius: '1px'
+      }}
+    >
+      {/* Geometric sliders icon - representing properties */}
+      <svg
+        width="28"
+        height="28"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="0.75"
+        strokeLinecap="square"
+        strokeLinejoin="miter"
+        className="text-muted-foreground/25 mb-3"
+      >
+        <line x1="4" y1="6" x2="20" y2="6" />
+        <circle cx="8" cy="6" r="2" />
+        <line x1="4" y1="12" x2="20" y2="12" />
+        <circle cx="14" cy="12" r="2" />
+        <line x1="4" y1="18" x2="20" y2="18" />
+        <circle cx="10" cy="18" r="2" />
+      </svg>
+
+      {/* Technical status */}
+      <span className="text-[9px] font-mono text-muted-foreground/40 uppercase tracking-[0.2em]">
+        {message || 'No Selection'}
+      </span>
+    </div>
   </div>
 );
 

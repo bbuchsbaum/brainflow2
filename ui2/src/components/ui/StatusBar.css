@@ -22,6 +22,7 @@
 .status-slot {
   display: flex;
   align-items: center;
+  flex: 0 0 auto;
   gap: 6px;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -38,6 +39,7 @@
   opacity: 0.85;
   font-size: 11px;
   flex-shrink: 0;
+  white-space: nowrap;
   text-transform: uppercase;
   letter-spacing: 0.04em;
 }
@@ -50,25 +52,26 @@
   color: var(--app-text-primary);
 }
 
-/* Specific value colors using theme accent tones */
+/* Bauhaus monochrome — restrained value colors.
+   Only crosshair gets the accent; everything else is neutral. */
 .status-value--coordinate-system {
-  color: var(--app-accent);
+  color: var(--app-text-secondary);
 }
 
 .status-value--crosshair {
-  color: var(--app-success);
+  color: var(--app-accent);
 }
 
 .status-value--mouse {
-  color: var(--app-accent-text);
+  color: var(--app-text-primary);
 }
 
 .status-value--fps {
-  color: var(--app-accent-muted);
+  color: var(--app-text-muted);
 }
 
 .status-value--gpu {
-  color: var(--app-text-secondary);
+  color: var(--app-text-muted);
 }
 
 /* Status states */

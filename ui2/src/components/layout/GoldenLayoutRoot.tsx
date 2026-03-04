@@ -7,6 +7,7 @@ import React, { useEffect, useRef, useCallback, useState } from 'react';
 import ReactDOM from 'react-dom/client';
 import { GoldenLayout, LayoutConfig, ComponentContainer, Stack, ComponentItem } from 'golden-layout';
 import { useWorkspaceStore } from '@/stores/workspaceStore';
+import { useActivePanelStore } from '@/stores/activePanelStore';
 import { safeListen, safeUnlisten } from '@/utils/eventUtils';
 import { debounce } from 'lodash';
 import type { WorkspaceType } from '@/types/workspace';
@@ -27,11 +28,10 @@ import { FileBrowserPanel } from '@/components/panels/FileBrowserPanel';
 import { VolumeLayerPanel } from '@/components/panels/VolumeLayerPanel';
 import { SurfaceLayerPanel } from '@/components/panels/SurfaceLayerPanel';
 import { PlotPanel } from '@/components/panels/PlotPanel';
+import { ClusterPanel } from '@/components/panels/ClusterPanel';
 import { AtlasPanel } from '@/components/panels/AtlasPanel';
 
-// Import GoldenLayout styles
-import 'golden-layout/dist/css/goldenlayout-base.css';
-import 'golden-layout/dist/css/themes/goldenlayout-dark-theme.css';
+// GoldenLayout styles are imported in index.css to ensure proper cascade order
 
 // Workspace component wrapper for GoldenLayout
 interface WorkspaceComponentProps {
@@ -45,7 +45,7 @@ const WorkspaceComponent: React.FC<WorkspaceComponentProps> = ({ workspaceId, wo
   );
 
   if (!workspace) {
-    return <div className="h-full flex items-center justify-center text-gray-500">Workspace not found</div>;
+    return <div className="h-full flex items-center justify-center text-muted-foreground">Workspace not found</div>;
   }
 
   // Render appropriate component based on workspace type
@@ -55,7 +55,7 @@ const WorkspaceComponent: React.FC<WorkspaceComponentProps> = ({ workspaceId, wo
     case 'orthogonal-flexible':
       return <FlexibleOrthogonalView workspaceId={workspaceId} />;
     case 'mosaic':
-      return <MosaicViewPromise />;
+      return <MosaicViewPromise workspaceId={workspaceId} />;
     case 'lightbox':
       return <LightboxView workspaceId={workspaceId} />;
     case 'roi-stats':
@@ -63,7 +63,7 @@ const WorkspaceComponent: React.FC<WorkspaceComponentProps> = ({ workspaceId, wo
     case 'coordinate-converter':
       return <CoordinateConverterWorkspace workspaceId={workspaceId} />;
     default:
-      return <div className="h-full flex items-center justify-center text-gray-500">Unknown workspace type: {workspaceType}</div>;
+      return <div className="h-full flex items-center justify-center text-muted-foreground">Unknown workspace type: {workspaceType}</div>;
   }
 };
 
@@ -121,6 +121,12 @@ export function GoldenLayoutRoot() {
       stack.addChild(componentItem);
       addedWorkspacesRef.current.add(workspaceId);
       console.log(`[GoldenLayoutRoot] Added workspace tab: ${workspaceId} (${title})`);
+
+      // If nothing has marked an active panel yet, treat this workspace as active.
+      const activePanelStore = useActivePanelStore.getState();
+      if (!activePanelStore.componentType) {
+        activePanelStore.setActivePanel('Workspace', { workspaceId, workspaceType });
+      }
     } catch (error) {
       console.error('[GoldenLayoutRoot] Failed to add workspace tab:', error);
     }
@@ -250,6 +256,7 @@ export function GoldenLayoutRoot() {
     registerSidePanelComponent('LayerPanel', VolumeLayerPanel);  // Keep old name for compatibility
     registerSidePanelComponent('SurfacePanel', SurfaceLayerPanel);  // Surface management panel
     registerSidePanelComponent('PlotPanel', PlotPanel);
+    registerSidePanelComponent('ClusterPanel', ClusterPanel);
     registerSidePanelComponent('AtlasPanel', AtlasPanel);
     
     // Register surface view component
@@ -290,17 +297,33 @@ export function GoldenLayoutRoot() {
       });
     });
 
-    // Listen for active tab changes
+    // Listen for active tab changes (track both workspace + active panel)
     goldenLayout.on('activeContentItemChanged', (item) => {
+      const activePanelStore = useActivePanelStore.getState();
+
       if (item && item.type === 'component') {
         const componentItem = item as ComponentItem;
         // In v2, state might be accessed via initialComponentState
-        const state = componentItem.container.initialState || componentItem.container.componentState || {};
-        const workspaceId = state.workspaceId;
+        const state =
+          componentItem.container.initialState ||
+          componentItem.container.componentState ||
+          {};
+
+        const componentType =
+          (componentItem as any).componentType ||
+          (componentItem as any).config?.componentType ||
+          componentItem.container.componentType ||
+          null;
+
+        activePanelStore.setActivePanel(componentType, state || null);
+
+        const workspaceId = (state as any).workspaceId;
         if (workspaceId && workspaceId !== store.activeWorkspaceId) {
           console.log(`[GoldenLayoutRoot] Active workspace changed to: ${workspaceId}`);
           store.activateWorkspace(workspaceId);
         }
+      } else {
+        activePanelStore.clearActivePanel();
       }
     });
 
@@ -417,16 +440,17 @@ export function GoldenLayoutRoot() {
     };
     
     // Helper function to get panel titles
-    const getPanelTitle = (panelType: string): string => {
-      switch (panelType) {
-        case 'FileBrowser': return 'Files';
-        case 'LayerPanel': return 'Volumes';  // Updated to match new naming
-        case 'SurfacePanel': return 'Surfaces';
-        case 'AtlasPanel': return 'Atlases';
-        case 'PlotPanel': return 'Plots';
-        default: return panelType;
-      }
-    };
+        const getPanelTitle = (panelType: string): string => {
+          switch (panelType) {
+            case 'FileBrowser': return 'Files';
+            case 'LayerPanel': return 'Volumes';  // Updated to match new naming
+            case 'SurfacePanel': return 'Surfaces';
+            case 'AtlasPanel': return 'Atlases';
+            case 'PlotPanel': return 'Plots';
+            case 'ClusterPanel': return 'Clusters';
+            default: return panelType;
+          }
+        };
     
     window.addEventListener('golden-layout-add-panel', handlePanelAdd);
     

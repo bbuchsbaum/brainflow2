@@ -4,6 +4,25 @@ use colormap::{BuiltinColormap, BUILTIN_COLORMAPS};
 use std::collections::HashMap;
 use wgpu::{BindGroup, BindGroupLayout, Device, Queue, Sampler, Texture, TextureView};
 
+/// Width (in texels) for each 1D colormap LUT row.
+///
+/// Notes:
+/// - Builtin colormaps are 256 entries; we upsample by repetition.
+/// - Atlas/label palettes often need >256 entries (e.g. Schaefer 400), so this must be larger.
+// NOTE: Must not exceed the device's max 2D texture dimension.
+// On some platforms / limit configurations this can be as low as 2048.
+//
+// If we need >2048 label entries in the future, we should switch to a tiled LUT
+// layout (e.g. width 2048, height N) and update shaders to index into rows.
+pub const COLORMAP_LUT_WIDTH: u32 = 2048; // 256 * 8
+
+/// Number of custom (runtime) colormap slots in the LUT array.
+pub const CUSTOM_COLORMAP_SLOTS: u32 = 64;
+
+fn total_colormap_layers() -> u32 {
+    BuiltinColormap::COUNT as u32 + CUSTOM_COLORMAP_SLOTS
+}
+
 /// Manages texture resources and bind groups
 pub struct TextureManager {
     /// Linear sampler for volume atlas
@@ -80,10 +99,10 @@ impl TextureManager {
 
     /// Initialize colormap texture array
     pub fn init_colormaps(&mut self, device: &Device, queue: &Queue) {
-        // Create colormap texture array (256x1xN for N colormaps)
-        let num_colormaps = BuiltinColormap::COUNT as u32;
+        // Create colormap texture array (COLORMAP_LUT_WIDTH x 1 x N for N colormaps)
+        let num_colormaps = total_colormap_layers();
         let colormap_size = wgpu::Extent3d {
-            width: 256,
+            width: COLORMAP_LUT_WIDTH,
             height: 1,
             depth_or_array_layers: num_colormaps,
         };
@@ -105,13 +124,27 @@ impl TextureManager {
             ..Default::default()
         });
 
-        // Upload all builtin colormaps
+        // Upload all builtin colormaps (upsampled to COLORMAP_LUT_WIDTH by repetition)
+        let scale = COLORMAP_LUT_WIDTH / 256;
+        if scale == 0 || COLORMAP_LUT_WIDTH % 256 != 0 {
+            println!(
+                "WARNING: COLORMAP_LUT_WIDTH={} is not a multiple of 256; builtin colormap upsampling may be uneven",
+                COLORMAP_LUT_WIDTH
+            );
+        }
+
         for (i, colormap) in BUILTIN_COLORMAPS.iter().enumerate() {
-            // Flatten the colormap data into a contiguous buffer
-            let data: Vec<u8> = colormap
-                .iter()
-                .flat_map(|pixel| pixel.iter().copied())
-                .collect();
+            let mut data: Vec<u8> = Vec::with_capacity((COLORMAP_LUT_WIDTH * 4) as usize);
+
+            for x in 0..COLORMAP_LUT_WIDTH {
+                let src_idx = if scale > 0 {
+                    (x / scale).min(255) as usize
+                } else {
+                    ((x as u64 * 255) / (COLORMAP_LUT_WIDTH.saturating_sub(1) as u64).max(1))
+                        as usize
+                };
+                data.extend_from_slice(&colormap[src_idx]);
+            }
 
             // Debug: Print first few values of each colormap
             if i < 3 {
@@ -135,11 +168,11 @@ impl TextureManager {
                 &data,
                 wgpu::ImageDataLayout {
                     offset: 0,
-                    bytes_per_row: Some(256 * 4),
+                    bytes_per_row: Some(COLORMAP_LUT_WIDTH * 4),
                     rows_per_image: Some(1),
                 },
                 wgpu::Extent3d {
-                    width: 256,
+                    width: COLORMAP_LUT_WIDTH,
                     height: 1,
                     depth_or_array_layers: 1,
                 },
@@ -157,12 +190,12 @@ impl TextureManager {
         colormap_id: u32,
         data: &[u8],
     ) -> Result<(), &'static str> {
-        if colormap_id >= BuiltinColormap::COUNT as u32 {
+        if colormap_id >= total_colormap_layers() {
             return Err("Colormap ID exceeds maximum");
         }
 
-        if data.len() != 256 * 4 {
-            return Err("Colormap data must be 256 RGBA values (1024 bytes)");
+        if data.len() != (COLORMAP_LUT_WIDTH as usize) * 4 {
+            return Err("Colormap data must be COLORMAP_LUT_WIDTH RGBA values");
         }
 
         if let Some(texture) = &self.colormap_texture {
@@ -180,11 +213,11 @@ impl TextureManager {
                 data,
                 wgpu::ImageDataLayout {
                     offset: 0,
-                    bytes_per_row: Some(256 * 4),
+                    bytes_per_row: Some(COLORMAP_LUT_WIDTH * 4),
                     rows_per_image: Some(1),
                 },
                 wgpu::Extent3d {
-                    width: 256,
+                    width: COLORMAP_LUT_WIDTH,
                     height: 1,
                     depth_or_array_layers: 1,
                 },

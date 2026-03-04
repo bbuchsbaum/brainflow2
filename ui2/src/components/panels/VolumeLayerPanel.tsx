@@ -15,11 +15,11 @@ import { PanelErrorBoundary } from '../common/PanelErrorBoundary';
 import { getEventBus } from '@/events/EventBus';
 import type { LayerRender, Layer } from '@/types/layers';
 import './LayerPanel.css';
-import { storeLog } from '@/utils/debugLog';
+
+// Stable selectors — defined outside the component to avoid new references each render
+const selectLayerSelector = (state: any) => state.selectLayer;
 
 const VolumeLayerPanelContent: React.FC = () => {
-  storeLog('VolumeLayerPanel', 'VolumeLayerPanelContent component mounting');
-  
   // State for metadata drawer
   const [metadataLayerId, setMetadataLayerId] = useState<string | null>(null);
   const [isMetadataPinned, setIsMetadataPinned] = useState(false);
@@ -28,11 +28,17 @@ const VolumeLayerPanelContent: React.FC = () => {
   const layers = useLayers();
   const selectedLayerId = useSelectedLayerId();
   const selectedLayer = useSelectedLayer();
-  const layerMetadata = useLayer(layerSelectors.layerMetadata);
-  const selectLayer = useLayer(state => state.selectLayer);
-  const selectedMetadata = useLayer(state => 
-    selectedLayerId ? layerSelectors.getLayerMetadata(state, selectedLayerId) : undefined
+  // Stable selector for selectLayer action (avoid inline arrow on every render)
+  const selectLayer = useLayerStore(selectLayerSelector);
+  // Metadata for the selected layer — selector stabilized via useMemo to avoid
+  // re-subscription on every render (immer produces new Map refs per mutation)
+  const metadataSelector = useMemo(
+    () => selectedLayerId
+      ? (state: any) => layerSelectors.getLayerMetadata(state, selectedLayerId)
+      : () => undefined,
+    [selectedLayerId]
   );
+  const selectedMetadata = useLayer(metadataSelector);
   
   // Service initialization hook
   const { isInitialized: serviceInitialized, error: initializationError } = useLayerPanelServices();
@@ -47,14 +53,20 @@ const VolumeLayerPanelContent: React.FC = () => {
   // Keyboard shortcut for metadata
   useMetadataShortcut({ onShowMetadata: setMetadataLayerId });
   
-  // Convert ViewState layer to render properties format
-  const selectedRender = viewStateLayer ? {
+  // Convert ViewState layer to render properties format (memoized to prevent
+  // child re-renders when viewStateLayer reference is stable)
+  const selectedRender = useMemo(() => viewStateLayer ? {
     opacity: viewStateLayer.opacity,
     intensity: viewStateLayer.intensity,
     threshold: viewStateLayer.threshold,
     colormap: viewStateLayer.colormap,
-    interpolation: (viewStateLayer.interpolation || 'linear') as 'nearest' | 'linear'
-  } : undefined;
+    colormapId: (viewStateLayer as any).colormapId,
+    interpolation: (viewStateLayer.interpolation || 'linear') as 'nearest' | 'linear',
+    atlasConfig: (viewStateLayer as any).atlasConfig,
+    atlasPaletteKind: (viewStateLayer as any).atlasPaletteKind,
+    atlasPaletteSeed: (viewStateLayer as any).atlasPaletteSeed,
+    atlasMaxLabel: (viewStateLayer as any).atlasMaxLabel,
+  } : undefined, [viewStateLayer]);
 
   const toggleVisibility = useCallback((layerId: string) => {
     try {
@@ -65,7 +77,7 @@ const VolumeLayerPanelContent: React.FC = () => {
         getLayerService().toggleVisibility(layerId, !isCurrentlyVisible);
       }
     } catch (error) {
-      console.error('[LayerPanel] Error in toggleVisibility:', error); // Keep: runtime error
+      console.error('[LayerPanel] Error in toggleVisibility:', error);
     }
   }, [viewStateLayers, serviceInitialized]);
 
@@ -94,6 +106,16 @@ const VolumeLayerPanelContent: React.FC = () => {
     });
   }, []);
 
+  const getLayerVisibility = useCallback((layerId: string) => {
+    const vsl = viewStateLayers.find(l => l.id === layerId);
+    return vsl ? vsl.opacity > 0 : true;
+  }, [viewStateLayers]);
+
+  const getLayerOpacity = useCallback((layerId: string) => {
+    const vsl = viewStateLayers.find(l => l.id === layerId);
+    return vsl?.opacity ?? 1.0;
+  }, [viewStateLayers]);
+
   const handleRenderUpdate = useCallback((updates: Partial<LayerRender>) => {
     if (!selectedLayerId) return;
 
@@ -114,6 +136,22 @@ const VolumeLayerPanelContent: React.FC = () => {
 
     if (updates.colormap) {
       sanitized.colormap = updates.colormap;
+    }
+
+    if ((updates as any).colormapId !== undefined) {
+      sanitized.colormapId = (updates as any).colormapId;
+    }
+    if ((updates as any).atlasConfig) {
+      sanitized.atlasConfig = (updates as any).atlasConfig;
+    }
+    if ((updates as any).atlasPaletteKind) {
+      sanitized.atlasPaletteKind = (updates as any).atlasPaletteKind;
+    }
+    if ((updates as any).atlasPaletteSeed !== undefined) {
+      sanitized.atlasPaletteSeed = (updates as any).atlasPaletteSeed;
+    }
+    if ((updates as any).atlasMaxLabel !== undefined) {
+      sanitized.atlasMaxLabel = (updates as any).atlasMaxLabel;
     }
 
     if (updates.opacity !== undefined) {
@@ -150,6 +188,17 @@ const VolumeLayerPanelContent: React.FC = () => {
 
       if (sanitized.colormap && layer.colormap !== sanitized.colormap) {
         layer.colormap = sanitized.colormap;
+        // Switching to a named colormap disables any categorical palette colormapId.
+        (layer as any).colormapId = undefined;
+        (layer as any).atlasConfig = undefined;
+        (layer as any).atlasPaletteKind = undefined;
+        (layer as any).atlasPaletteSeed = undefined;
+        (layer as any).atlasMaxLabel = undefined;
+        didChange = true;
+      }
+
+      if ((sanitized as any).colormapId !== undefined && (layer as any).colormapId !== (sanitized as any).colormapId) {
+        (layer as any).colormapId = (sanitized as any).colormapId;
         didChange = true;
       }
 
@@ -160,6 +209,23 @@ const VolumeLayerPanelContent: React.FC = () => {
 
       if (sanitized.interpolation && layer.interpolation !== sanitized.interpolation) {
         layer.interpolation = sanitized.interpolation;
+        didChange = true;
+      }
+
+      if ((sanitized as any).atlasConfig && (layer as any).atlasConfig !== (sanitized as any).atlasConfig) {
+        (layer as any).atlasConfig = (sanitized as any).atlasConfig;
+        didChange = true;
+      }
+      if ((sanitized as any).atlasPaletteKind && (layer as any).atlasPaletteKind !== (sanitized as any).atlasPaletteKind) {
+        (layer as any).atlasPaletteKind = (sanitized as any).atlasPaletteKind;
+        didChange = true;
+      }
+      if ((sanitized as any).atlasPaletteSeed !== undefined && (layer as any).atlasPaletteSeed !== (sanitized as any).atlasPaletteSeed) {
+        (layer as any).atlasPaletteSeed = (sanitized as any).atlasPaletteSeed;
+        didChange = true;
+      }
+      if ((sanitized as any).atlasMaxLabel !== undefined && (layer as any).atlasMaxLabel !== (sanitized as any).atlasMaxLabel) {
+        (layer as any).atlasMaxLabel = (sanitized as any).atlasMaxLabel;
         didChange = true;
       }
     });
@@ -176,7 +242,7 @@ const VolumeLayerPanelContent: React.FC = () => {
 
     // Debug: log current ViewState layer ordering + opacities
     const viewState = useViewStateStore.getState().viewState;
-    storeLog('VolumeLayerPanel', 'ViewState layers after render update:', {
+    console.log('[VolumeLayerPanel] ViewState layers after render update:', {
       layers: viewState.layers.map(l => ({
         id: l.id,
         name: l.name,
@@ -189,10 +255,11 @@ const VolumeLayerPanelContent: React.FC = () => {
   }, [selectedLayerId]);
   
   return (
-    <div className="flex flex-col h-full overflow-hidden bg-card text-card-foreground rounded-md shadow-sm border border-border font-sans">
+    <div className="flex flex-col h-full overflow-hidden bg-card text-card-foreground shadow-sm border border-border font-sans" style={{ borderRadius: '1px' }}>
       {/* Main content area */}
-      <div 
-        className="flex-1 p-4 space-y-4 overflow-y-auto min-h-0 bg-muted/20"
+      <div
+        className="flex-1 p-3 space-y-3 overflow-y-auto min-h-0"
+        style={{ backgroundColor: 'hsl(var(--muted) / 0.1)' }}
       >
         {/* Status messages */}
         <LayerStatusBar
@@ -210,24 +277,21 @@ const VolumeLayerPanelContent: React.FC = () => {
           onShowMetadata={setMetadataLayerId}
           onReorder={handleReorder}
           onOpacityChange={handleOpacityChange}
-          getLayerVisibility={(layerId) => {
-            const vsl = viewStateLayers.find(l => l.id === layerId);
-            return vsl ? vsl.opacity > 0 : true;
-          }}
-          getLayerOpacity={(layerId) => {
-            const vsl = viewStateLayers.find(l => l.id === layerId);
-            return vsl?.opacity ?? 1.0;
-          }}
+          getLayerVisibility={getLayerVisibility}
+          getLayerOpacity={getLayerOpacity}
         />
 
         {/* Layer controls - Now using LayerPropertiesManager dispatcher */}
-        <LayerPropertiesManager
-          selectedLayer={selectedLayer || false}
-          selectedRender={selectedRender}
-          selectedMetadata={selectedMetadata}
-          onRenderUpdate={handleRenderUpdate}
-        />
-        
+        {/* Only show when we have layers (empty state handled by LayerPropertiesManager) */}
+        {layers.length > 0 && (
+          <LayerPropertiesManager
+            selectedLayer={selectedLayer || false}
+            selectedRender={selectedRender}
+            selectedMetadata={selectedMetadata}
+            onRenderUpdate={handleRenderUpdate}
+          />
+        )}
+
         {/* Show help text when no layer is selected */}
         {!selectedLayer && layers.length > 0 && (
           <div className="text-center py-4">
@@ -236,8 +300,8 @@ const VolumeLayerPanelContent: React.FC = () => {
             </p>
           </div>
         )}
-        
-        {/* Empty state - No volume layers */}
+
+        {/* Empty state - No volume layers - fills remaining space */}
         {layers.length === 0 && <LayerEmptyState />}
       </div>
       

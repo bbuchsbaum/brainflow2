@@ -13,7 +13,7 @@ export interface CrosshairStyle {
 // Default styles - will be overridden by CrosshairContext settings
 export const DEFAULT_CROSSHAIR_STYLES = {
   active: {
-    color: '#00ff00',
+    color: '#e07830',
     lineWidth: 1,
     lineDash: [5, 5],
     opacity: 1

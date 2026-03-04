@@ -18,8 +18,7 @@ import { SurfaceViewPanel } from '@/components/views/SurfaceViewPanel';
 import { useViewLayoutStore } from '@/stores/viewLayoutStore';
 import { useViewStateStore } from '@/stores/viewStateStore';
 import { getRenderCoordinator } from '@/services/RenderCoordinator';
-import 'golden-layout/dist/css/goldenlayout-base.css';
-import 'golden-layout/dist/css/themes/goldenlayout-dark-theme.css';
+// GoldenLayout styles imported in index.css (ordering matters — overrides must come after)
 
 interface GoldenLayoutWrapperProps {
   layoutConfig?: LayoutConfig;

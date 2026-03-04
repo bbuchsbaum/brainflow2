@@ -1,5 +1,6 @@
 /**
- * LayerStatusBar - Status messages component for LayerPanel
+ * LayerStatusBar - Technical status messages for LayerPanel
+ * Bauhaus Instrument Control aesthetic
  */
 
 import React from 'react';
@@ -17,12 +18,24 @@ export const LayerStatusBar: React.FC<LayerStatusBarProps> = ({
 }) => {
   if (error) {
     return (
-      <div className="bg-red-500/20 border border-red-500/50 rounded p-3 mb-4">
-        <div className="flex items-center gap-2">
-          <span className="text-red-400">⚠️</span>
-          <div>
-            <div className="font-medium text-red-300">Service Error</div>
-            <div className="text-sm text-red-300/80">{error}</div>
+      <div
+        className="flex items-center gap-2 px-3 py-2 mb-2"
+        style={{
+          border: '1px solid hsl(var(--destructive) / 0.3)',
+          backgroundColor: 'hsl(var(--destructive) / 0.1)',
+          borderRadius: '1px'
+        }}
+      >
+        <div
+          className="w-2 h-2 shrink-0"
+          style={{ backgroundColor: 'hsl(var(--destructive))', borderRadius: '1px' }}
+        />
+        <div className="min-w-0">
+          <div className="text-[9px] uppercase tracking-[0.15em] font-bold text-destructive">
+            Error
+          </div>
+          <div className="text-[10px] font-mono text-destructive/80 truncate">
+            {error}
           </div>
         </div>
       </div>
@@ -31,22 +44,42 @@ export const LayerStatusBar: React.FC<LayerStatusBarProps> = ({
 
   if (isInitializing) {
     return (
-      <div className="bg-yellow-500/20 border border-yellow-500/50 rounded p-3 mb-4">
-        <div className="flex items-center gap-2">
-          <span className="text-yellow-400">⏳</span>
-          <div className="text-sm text-yellow-300">Initializing services...</div>
-        </div>
+      <div
+        className="flex items-center gap-2 px-3 py-2 mb-2"
+        style={{
+          border: '1px solid hsl(var(--primary) / 0.3)',
+          backgroundColor: 'hsl(var(--primary) / 0.1)',
+          borderRadius: '1px'
+        }}
+      >
+        <div
+          className="w-2 h-2 shrink-0 animate-pulse"
+          style={{ backgroundColor: 'hsl(var(--primary))', borderRadius: '1px' }}
+        />
+        <span className="text-[9px] uppercase tracking-[0.15em] font-mono text-primary">
+          Initializing...
+        </span>
       </div>
     );
   }
 
   if (fileLoadingStatus) {
     return (
-      <div className="bg-blue-500/20 border border-blue-500/50 rounded p-3 mb-4">
-        <div className="flex items-center gap-2">
-          <span className="text-blue-400">📁</span>
-          <div className="text-sm text-blue-300">{fileLoadingStatus}</div>
-        </div>
+      <div
+        className="flex items-center gap-2 px-3 py-2 mb-2"
+        style={{
+          border: '1px solid hsl(var(--primary) / 0.3)',
+          backgroundColor: 'hsl(var(--primary) / 0.1)',
+          borderRadius: '1px'
+        }}
+      >
+        <div
+          className="w-2 h-2 shrink-0 animate-pulse"
+          style={{ backgroundColor: 'hsl(var(--primary))', borderRadius: '1px' }}
+        />
+        <span className="text-[9px] uppercase tracking-[0.15em] font-mono text-primary truncate">
+          {fileLoadingStatus}
+        </span>
       </div>
     );
   }

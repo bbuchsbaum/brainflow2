@@ -23,7 +23,11 @@ async fn ubo_window_level_clamps_correctly() {
         blend_mode: 0,     // Normal blend
         texture_index: 0,
         is_mask: 0,
-        _pad: [0.0; 2],
+        has_alpha_mask: 0,
+        interpolation_mode: 1, // Linear
+        draw_slice_border: 0,
+        border_thickness_px: 0.0,
+        _pad: [0; 2],
     };
 
     // Test the window/level math
@@ -51,8 +55,8 @@ fn ubo_field_offsets() {
     use std::mem::{offset_of, size_of};
 
     // Verify that the UBO struct layout matches std140 requirements
-    // Total size: 64 + 16 + 16 + 16 + 16 + 16 = 144 bytes
-    assert_eq!(size_of::<LayerUboStd140>(), 144);
+    // Total size: 64 + 16 + 16 + 16 + 16 + 16 + 16 = 160 bytes
+    assert_eq!(size_of::<LayerUboStd140>(), 160);
 
     // Check field offsets
     assert_eq!(offset_of!(LayerUboStd140, world_to_voxel), 0);
@@ -69,7 +73,11 @@ fn ubo_field_offsets() {
     assert_eq!(offset_of!(LayerUboStd140, thresh_low), 124);
     assert_eq!(offset_of!(LayerUboStd140, thresh_high), 128);
     assert_eq!(offset_of!(LayerUboStd140, is_mask), 132);
-    assert_eq!(offset_of!(LayerUboStd140, _pad), 136);
+    assert_eq!(offset_of!(LayerUboStd140, has_alpha_mask), 136);
+    assert_eq!(offset_of!(LayerUboStd140, interpolation_mode), 140);
+    assert_eq!(offset_of!(LayerUboStd140, draw_slice_border), 144);
+    assert_eq!(offset_of!(LayerUboStd140, border_thickness_px), 148);
+    assert_eq!(offset_of!(LayerUboStd140, _pad), 152);
 }
 
 #[test]
@@ -88,6 +96,10 @@ fn ubo_default_values() {
     assert_eq!(layer_ubo.texture_coords, [0.0, 0.0, 1.0, 1.0]);
     assert_eq!(layer_ubo.texture_index, 0);
     assert_eq!(layer_ubo.is_mask, 0);
+    assert_eq!(layer_ubo.has_alpha_mask, 0);
+    assert_eq!(layer_ubo.interpolation_mode, 1); // Default to linear
+    assert_eq!(layer_ubo.draw_slice_border, 0);
+    assert_eq!(layer_ubo.border_thickness_px, 1.0);
 }
 
 #[test]

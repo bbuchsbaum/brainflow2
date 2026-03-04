@@ -1,10 +1,11 @@
 /**
  * CollapsibleSection Component
- * A reusable component for creating collapsible sections with smooth animations
+ * A clean text-based collapsible trigger following the "Instrument Control" aesthetic
+ * Replaces heavy bordered buttons with minimal header styling
  */
 
 import React, { useState, ReactNode, ComponentType } from 'react';
-import { ChevronDown, ChevronRight } from 'lucide-react';
+import { ChevronRight } from 'lucide-react';
 import { cn } from '@/utils/cn';
 
 interface CollapsibleSectionProps {
@@ -25,39 +26,54 @@ export const CollapsibleSection: React.FC<CollapsibleSectionProps> = ({
   const [isExpanded, setIsExpanded] = useState(defaultExpanded);
 
   return (
-    <div className={cn("border-b last:border-b-0", className)}>
-      {/* Header */}
+    <div className={cn("text-foreground", className)}>
+      {/* Header - Clean text trigger, no border box */}
       <button
         onClick={() => setIsExpanded(!isExpanded)}
-        className="w-full flex items-center gap-2 px-0 py-3 text-sm font-medium hover:bg-muted/30 transition-colors rounded"
+        className="w-full flex items-center justify-between py-1.5 hover:bg-muted/50 transition-colors group text-foreground"
       >
-        {/* Chevron Icon */}
-        <div className="transition-transform duration-200">
-          {isExpanded ? (
-            <ChevronDown className="h-4 w-4 text-muted-foreground" />
-          ) : (
-            <ChevronRight className="h-4 w-4 text-muted-foreground" />
-          )}
+        <div className="flex items-center gap-2">
+          {/* Section Icon */}
+          {Icon && <Icon className="h-4 w-4 text-foreground" />}
+
+          {/* Title - Blueprint style */}
+          <span className="text-[11px] uppercase tracking-[0.15em] font-bold" style={{ color: 'hsl(var(--foreground) / 0.92)' }}>
+            <span className="text-accent opacity-50 mr-1 font-normal" aria-hidden="true">{'\u2013'}</span>{title}
+          </span>
         </div>
-        
-        {/* Section Icon */}
-        {Icon && <Icon className="h-4 w-4 text-muted-foreground" />}
-        
-        {/* Title */}
-        <span className="flex-1 text-left">{title}</span>
+
+        {/* Chevron - rotates on open */}
+        <ChevronRight
+          className={cn(
+            "h-4 w-4 text-muted-foreground transition-transform duration-200",
+            isExpanded && "rotate-90"
+          )}
+        />
       </button>
 
-      {/* Content */}
+      {/* Content - tight padding for Bauhaus density */}
+      {/* Note: We use a wrapper with overflow-hidden for the expand/collapse animation,
+          but the inner content needs overflow-visible for slider thumbs to render properly */}
       <div
         className={cn(
-          "overflow-hidden transition-all duration-200 ease-in-out",
-          isExpanded ? "max-h-[1000px] opacity-100" : "max-h-0 opacity-0"
+          "transition-all duration-200 ease-in-out",
+          isExpanded ? "max-h-[2000px] opacity-100" : "max-h-0 opacity-0 overflow-hidden"
         )}
       >
-        <div className="pb-4 pl-6">
+        <div className="pt-1.5 pb-0.5 space-y-1.5">
           {children}
         </div>
       </div>
     </div>
   );
 };
+
+/**
+ * SectionDivider Component
+ * A subtle horizontal rule for separating sections
+ */
+export function SectionDivider({ className }: { className?: string }) {
+  return (
+    <hr className={cn('border-t border-border my-4', className)} />
+  );
+}

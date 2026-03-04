@@ -60,6 +60,9 @@ use multi_texture_manager::MultiTextureManager;
 pub use optimized_renderer::{OptimizedRenderer, PerformanceMonitor};
 use pipeline::{PipelineKey, PipelineManager};
 use render_state::{FrameStats, LayerStateManager, RenderPassManager, RenderState};
+
+#[cfg(feature = "typed-shaders")]
+compile_error!("typed-shaders are temporarily disabled while the alpha-mask pipeline is active.");
 use render_target_pool::RenderTargetPool;
 use shader_watcher::{ShaderWatchEvent, ShaderWatcher};
 use shaders::{ShaderManager, SliceShaderDescriptors};
@@ -247,7 +250,7 @@ impl TextureAtlas {
     pub fn allocate_layer(&mut self) -> Option<u32> {
         match self.free_layers.pop() {
             Some(index) => {
-                println!("Allocated atlas layer: {}", index);
+                log::debug!("Allocated atlas layer: {}", index);
                 self.counters.allocations += 1;
                 self.counters.last_allocation = Some(SystemTime::now());
                 let used_layers = self
@@ -271,7 +274,7 @@ impl TextureAtlas {
                 Some(index)
             }
             None => {
-                println!("Texture atlas is full!");
+                log::warn!("Texture atlas is full!");
                 self.counters.full_events += 1;
                 None
             }
@@ -283,7 +286,7 @@ impl TextureAtlas {
     /// Note: Does not clear the texture data in the layer.
     pub fn free_layer(&mut self, layer_index: u32) {
         if layer_index >= self.size.depth_or_array_layers {
-            eprintln!(
+            log::error!(
                 "Error: Attempted to free invalid layer index: {}",
                 layer_index
             );
@@ -291,12 +294,12 @@ impl TextureAtlas {
         }
         // Check if the layer is already marked as free to avoid duplicates
         if !self.free_layers.contains(&layer_index) {
-            println!("Freeing atlas layer: {}", layer_index);
+            log::debug!("Freeing atlas layer: {}", layer_index);
             self.free_layers.push(layer_index);
             self.counters.releases += 1;
             self.counters.last_release = Some(SystemTime::now());
         } else {
-            eprintln!(
+            log::warn!(
                 "Warning: Attempted to free layer {} which is already free.",
                 layer_index
             );
@@ -451,6 +454,8 @@ pub struct RenderLoopService {
     pub layer_storage_manager: Option<layer_storage::LayerStorageManager>,
     // --- Volume metadata tracking ---
     volume_metadata: HashMap<u32, VolumeMetadata>, // atlas_index -> metadata
+    // --- Per-layer display overrides (atlas_index -> (enabled, thickness_px)) ---
+    border_overrides: HashMap<u32, (bool, f32)>,
     // --- Current texture bind group ---
     texture_bind_group_id: Option<u64>,
     // --- Offscreen render target dimensions (used for backward compatibility) ---
@@ -466,6 +471,10 @@ pub struct RenderLoopService {
     world_space_enabled: bool,
     // --- Volume registry - maps volume IDs to their metadata ---
     volumes: HashMap<String, VolumeRegistryEntry>,
+
+    // --- Runtime (custom) colormaps uploaded into the colormap LUT texture ---
+    custom_colormaps: HashMap<String, u32>, // key -> colormap_id
+    next_custom_colormap_slot: u32,
 }
 
 impl RenderLoopService {
@@ -474,7 +483,7 @@ impl RenderLoopService {
     /// This function requests an adapter and device. It does *not* create a surface
     /// or swapchain yet, as that requires a window handle.
     pub async fn new() -> Result<Self, RenderLoopError> {
-        println!("RenderLoopService: Initializing WGPU...");
+        log::info!("RenderLoopService: Initializing WGPU...");
 
         // 1. Create Instance
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
@@ -493,7 +502,7 @@ impl RenderLoopService {
             .ok_or(RenderLoopError::AdapterRequestFailed)?;
 
         let adapter_info = adapter.get_info();
-        println!("RenderLoopService: Found adapter: {:?}", adapter_info);
+        log::info!("RenderLoopService: Found adapter: {:?}", adapter_info);
 
         // Check if float32-filterable is supported
         let adapter_features = adapter.features();
@@ -501,9 +510,7 @@ impl RenderLoopService {
             adapter_features.contains(wgpu::Features::FLOAT32_FILTERABLE);
 
         if !supports_float32_filterable {
-            println!("WARNING: FLOAT32_FILTERABLE feature not supported on this adapter.");
-            println!("         Linear filtering of R32Float textures will not work correctly.");
-            println!("         Consider using nearest neighbor sampling or R16Float textures.");
+            log::warn!("WARNING: FLOAT32_FILTERABLE feature not supported on this adapter. Linear filtering of R32Float textures will not work correctly. Consider using nearest neighbor sampling or R16Float textures.");
         }
 
         // 3. Request Device and Queue
@@ -515,18 +522,23 @@ impl RenderLoopService {
             required_features |= wgpu::Features::FLOAT32_FILTERABLE;
         }
 
+        let mut required_limits = wgpu::Limits::downlevel_defaults();
+        let needed_sampled_textures = (multi_texture_manager::MAX_TEXTURES as u32) * 2 + 1;
+        required_limits.max_sampled_textures_per_shader_stage = required_limits
+            .max_sampled_textures_per_shader_stage
+            .max(needed_sampled_textures);
         let (device, queue) = adapter
             .request_device(
                 &wgpu::DeviceDescriptor {
                     label: Some("Brainflow Render Device"),
                     required_features,
-                    required_limits: wgpu::Limits::default(),
+                    required_limits,
                 },
                 None, // Trace path
             )
             .await?;
 
-        println!("RenderLoopService: Device and Queue obtained successfully.");
+        log::info!("RenderLoopService: Device and Queue obtained successfully.");
 
         let device_arc = Arc::new(device);
         let queue_arc = Arc::new(queue);
@@ -555,7 +567,7 @@ impl RenderLoopService {
             contents: bytemuck::bytes_of(&initial_frame_data),
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
-        println!("RenderLoopService: Frame UBO buffer created.");
+        log::debug!("RenderLoopService: Frame UBO buffer created.");
 
         // --- Create the Crosshair UBO Buffer ---
         // Use the updated struct with show_crosshair flag
@@ -569,11 +581,11 @@ impl RenderLoopService {
                     | wgpu::BufferUsages::COPY_DST
                     | wgpu::BufferUsages::COPY_SRC,
             });
-        println!("RenderLoopService: Crosshair UBO buffer created.");
+        log::debug!("RenderLoopService: Crosshair UBO buffer created.");
 
         // --- Create Global Bind Group Layout using the standardized layout ---
         let global_bind_group_layout = shaders::layouts::create_frame_layout(&device_arc);
-        println!("RenderLoopService: Global bind group layout created.");
+        log::debug!("RenderLoopService: Global bind group layout created.");
 
         // Create texture manager and initialize colormaps
         let mut texture_manager = TextureManager::new(&device_arc);
@@ -582,6 +594,8 @@ impl RenderLoopService {
 
         // Initialize world-space rendering components
         let multi_texture_manager = Some(MultiTextureManager::new(
+            &device_arc,
+            &queue_arc,
             multi_texture_manager::MAX_TEXTURES as u32,
         ));
         let mut layer_storage_manager =
@@ -595,7 +609,6 @@ impl RenderLoopService {
             &device_arc,
             multi_texture_manager::MAX_TEXTURES as u32,
         ));
-
         // Create bind groups for the managers
         if let (Some(ref mut layer_storage), Some(ref layer_layout)) =
             (&mut layer_storage_manager, &layer_bind_group_layout)
@@ -629,6 +642,7 @@ impl RenderLoopService {
             smart_texture_manager: None, // Will be initialized on demand
             layer_storage_manager, // Initialized for world-space rendering
             volume_metadata: HashMap::new(),
+            border_overrides: HashMap::new(),
             texture_bind_group_id: None,
             offscreen_dimensions: (0, 0),
             render_target_pool: None, // Will be initialized lazily
@@ -637,7 +651,67 @@ impl RenderLoopService {
             views: HashMap::new(),
             world_space_enabled: true, // Default to world-space rendering
             volumes: HashMap::new(),
+            custom_colormaps: HashMap::new(),
+            next_custom_colormap_slot: 0,
         })
+    }
+
+    /// Upload (or overwrite) a custom colormap into the shared colormap LUT texture array.
+    ///
+    /// Returns a stable `colormap_id` for the provided `key` for the lifetime of this
+    /// RenderLoopService instance.
+    pub fn upsert_custom_colormap(
+        &mut self,
+        key: String,
+        rgba_lut_row: &[u8],
+    ) -> Result<u32, RenderLoopError> {
+        use crate::texture_manager::{COLORMAP_LUT_WIDTH, CUSTOM_COLORMAP_SLOTS};
+
+        let expected_len = (COLORMAP_LUT_WIDTH as usize) * 4;
+        if rgba_lut_row.len() != expected_len {
+            return Err(RenderLoopError::Internal {
+                code: 6401,
+                details: format!(
+                    "Invalid colormap row length: got {}, expected {}",
+                    rgba_lut_row.len(),
+                    expected_len
+                ),
+            });
+        }
+
+        if let Some(&existing_id) = self.custom_colormaps.get(&key) {
+            self.texture_manager
+                .upload_colormap(&self.queue, existing_id, rgba_lut_row)
+                .map_err(|e| RenderLoopError::Internal {
+                    code: 6402,
+                    details: format!("Failed to update custom colormap '{}': {}", key, e),
+                })?;
+            return Ok(existing_id);
+        }
+
+        if self.next_custom_colormap_slot >= CUSTOM_COLORMAP_SLOTS {
+            return Err(RenderLoopError::Internal {
+                code: 6403,
+                details: format!(
+                    "No free custom colormap slots (max={})",
+                    CUSTOM_COLORMAP_SLOTS
+                ),
+            });
+        }
+
+        let base = colormap::BuiltinColormap::COUNT as u32;
+        let id = base + self.next_custom_colormap_slot;
+        self.next_custom_colormap_slot += 1;
+
+        self.texture_manager
+            .upload_colormap(&self.queue, id, rgba_lut_row)
+            .map_err(|e| RenderLoopError::Internal {
+                code: 6404,
+                details: format!("Failed to upload custom colormap '{}': {}", key, e),
+            })?;
+
+        self.custom_colormaps.insert(key, id);
+        Ok(id)
     }
 
     /// Creates and configures the WGPU surface using a window handle.
@@ -648,7 +722,7 @@ impl RenderLoopService {
         initial_width: u32,
         initial_height: u32,
     ) -> Result<(), RenderLoopError> {
-        println!("Creating surface for window...");
+        log::info!("Creating surface for window...");
         let surface = self.instance.create_surface(window)?;
 
         let surface_caps = surface.get_capabilities(&self.adapter);
@@ -661,7 +735,7 @@ impl RenderLoopService {
             .or_else(|| surface_caps.formats.first().copied())
             .ok_or(RenderLoopError::SurfaceFormatNotFound)?;
 
-        println!("Selected surface format: {:?}", surface_format);
+        log::info!("Selected surface format: {:?}", surface_format);
 
         let config = wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
@@ -690,7 +764,7 @@ impl RenderLoopService {
         // --- Create Render Pipeline --- (Example - Needs proper setup)
         // self.create_render_pipeline(); // Call helper to create pipeline after surface exists
 
-        println!("Surface created and configured.");
+        log::info!("Surface created and configured.");
         Ok(())
     }
 
@@ -708,7 +782,7 @@ impl RenderLoopService {
             self.shader_manager
                 .insert_shader("slice_world_space_optimized", module_opt);
 
-            println!("Typed shader bindings registered (feature: typed-shaders).");
+            log::info!("Typed shader bindings registered (feature: typed-shaders).");
         }
 
         #[cfg(not(feature = "typed-shaders"))]
@@ -728,7 +802,7 @@ impl RenderLoopService {
 
             // Report world-space shader warnings
             for warning in &validation.warnings {
-                println!("Slice world-space shader warning: {}", warning);
+                log::warn!("Slice world-space shader warning: {}", warning);
             }
 
             // Load the optimized world-space shader
@@ -746,16 +820,16 @@ impl RenderLoopService {
 
             // Report optimized shader warnings
             for warning in &validation_opt.warnings {
-                println!("Slice world-space optimized shader warning: {}", warning);
+                log::warn!("Slice world-space optimized shader warning: {}", warning);
             }
 
-            println!("Shaders loaded and validated successfully.");
+            log::info!("Shaders loaded and validated successfully.");
         }
 
         // Initialize colormaps
         self.texture_manager
             .init_colormaps(&self.device, &self.queue);
-        println!("Colormaps initialized successfully.");
+        log::info!("Colormaps initialized successfully.");
 
         Ok(())
     }
@@ -783,7 +857,7 @@ impl RenderLoopService {
             })?;
 
         self.shader_watcher = Some(watcher);
-        println!("Shader hot-reload enabled.");
+        log::info!("Shader hot-reload enabled.");
         Ok(())
     }
 
@@ -797,7 +871,7 @@ impl RenderLoopService {
             for event in events {
                 match event {
                     ShaderWatchEvent::Modified { path, name } => {
-                        println!("Shader modified: {} at {:?}", name, path);
+                        log::info!("Shader modified: {} at {:?}", name, path);
 
                         // Reload the shader with validation
                         if let Ok(content) = std::fs::read_to_string(&path) {
@@ -809,13 +883,13 @@ impl RenderLoopService {
                                 Ok((_shader, validation)) => {
                                     // Report validation warnings
                                     for warning in &validation.warnings {
-                                        println!("Shader {} warning: {}", name, warning);
+                                        log::warn!("Shader {} warning: {}", name, warning);
                                     }
-                                    println!("Shader {} reloaded successfully", name);
+                                    log::info!("Shader {} reloaded successfully", name);
                                 }
                                 Err(e) => {
                                     // Don't fail the whole update, just report the error
-                                    eprintln!("Failed to reload shader {}: {}", name, e);
+                                    log::error!("Failed to reload shader {}: {}", name, e);
                                     continue;
                                 }
                             }
@@ -826,7 +900,7 @@ impl RenderLoopService {
                         }
                     }
                     ShaderWatchEvent::Error(e) => {
-                        eprintln!("Shader watch error: {}", e);
+                        log::error!("Shader watch error: {}", e);
                     }
                 }
             }
@@ -885,14 +959,14 @@ impl RenderLoopService {
             None
         };
 
-        println!(
+        log::debug!(
             "ensure_pipeline: Creating pipeline for shader '{}' with format {:?}",
             shader_name, surface_format
         );
 
         // Check if pipeline already exists
         if self.pipeline_manager.get_pipeline(&key).is_some() {
-            println!("ensure_pipeline: Pipeline already exists");
+            log::debug!("ensure_pipeline: Pipeline already exists");
             return Ok(());
         }
 
@@ -922,7 +996,7 @@ impl RenderLoopService {
         let shader = match self.shader_manager.get_shader(&shader_name_owned) {
             Some(shader) => shader,
             None => {
-                println!(
+                log::warn!(
                     "WARNING: Shader '{}' not found in cache, attempting to load it",
                     shader_name_owned
                 );
@@ -956,13 +1030,13 @@ impl RenderLoopService {
 
                 // Report warnings
                 for warning in &validation.warnings {
-                    println!(
+                    log::warn!(
                         "On-demand shader '{}' warning: {}",
                         shader_name_owned, warning
                     );
                 }
 
-                println!(
+                log::info!(
                     "Successfully loaded shader '{}' on-demand",
                     shader_name_owned
                 );
@@ -995,7 +1069,7 @@ impl RenderLoopService {
         // Track the current pipeline
         self.current_pipeline = Some(shader_name.to_string());
 
-        println!(
+        log::debug!(
             "ensure_pipeline: Successfully created pipeline for shader '{}'",
             shader_name
         );
@@ -1031,7 +1105,7 @@ impl RenderLoopService {
     pub fn _create_render_pipeline(&mut self) -> Result<(), RenderLoopError> {
         // This now just ensures the pipeline is created and cached
         self.ensure_pipeline("slice")?;
-        println!("Render pipeline created successfully.");
+        log::info!("Render pipeline created successfully.");
         Ok(())
     }
 
@@ -1162,11 +1236,14 @@ impl RenderLoopService {
         // Initialize multi-texture manager if not already done
         if self.multi_texture_manager.is_none() {
             self.multi_texture_manager = Some(MultiTextureManager::new(
+                &self.device,
+                &self.queue,
                 multi_texture_manager::MAX_TEXTURES as u32,
             ));
         }
 
-        let manager = self.multi_texture_manager.as_mut().unwrap();
+        let manager = self.multi_texture_manager.as_mut()
+            .expect("multi_texture_manager must be initialized before upload");
 
         // Upload volume and get texture index and transform
         let (texture_index, world_to_voxel) =
@@ -1180,6 +1257,8 @@ impl RenderLoopService {
         // Initialize multi-texture manager if needed
         if self.multi_texture_manager.is_none() {
             self.multi_texture_manager = Some(MultiTextureManager::new(
+                &self.device,
+                &self.queue,
                 multi_texture_manager::MAX_TEXTURES as u32,
             ));
         }
@@ -1199,7 +1278,7 @@ impl RenderLoopService {
 
         // Report any warnings
         for warning in &validation.warnings {
-            println!("World-space shader warning: {}", warning);
+            log::warn!("World-space shader warning: {}", warning);
         }
 
         // Create bind group layouts for world-space rendering
@@ -1257,32 +1336,37 @@ impl RenderLoopService {
             });
         }
 
-        let multi_texture_manager = self.multi_texture_manager.as_mut().unwrap();
-        let layer_storage_manager = self.layer_storage_manager.as_mut().unwrap();
+        // Rebuild texture bind group first (no outstanding borrows)
+        self.rebuild_texture_bind_group()?;
 
-        // Create texture bind group
-        if let (Some(texture_layout), Some(colormap_view)) = (
+        // Create layer bind group
+        if let Some(layer_layout) = self.layer_bind_group_layout.as_ref() {
+            if let Some(layer_storage_manager) = self.layer_storage_manager.as_mut() {
+                layer_storage_manager.create_bind_group(&self.device, layer_layout);
+            }
+        }
+
+        Ok(())
+    }
+
+    fn rebuild_texture_bind_group(&mut self) -> Result<(), RenderLoopError> {
+        if let (Some(manager), Some(texture_layout), Some(colormap_view)) = (
+            self.multi_texture_manager.as_mut(),
             self.texture_bind_group_layout.as_ref(),
             self.texture_manager.colormap_view(),
         ) {
             let linear_sampler = self.texture_manager.linear_sampler();
             let colormap_sampler = self.texture_manager.colormap_sampler();
-
-            multi_texture_manager.create_bind_group(
+            let nearest_sampler = self.texture_manager.nearest_sampler();
+            manager.create_bind_group(
                 &self.device,
                 texture_layout,
                 linear_sampler,
-                self.texture_manager.nearest_sampler(),
+                nearest_sampler,
                 colormap_view,
                 colormap_sampler,
             )?;
         }
-
-        // Create layer bind group
-        if let Some(layer_layout) = self.layer_bind_group_layout.as_ref() {
-            layer_storage_manager.create_bind_group(&self.device, layer_layout);
-        }
-
         Ok(())
     }
 
@@ -1409,17 +1493,17 @@ impl RenderLoopService {
 
         // Debug: Check the converted data
         let voxel_count = width as usize * height as usize * depth as usize;
-        println!("=== UPLOAD_VOLUME_3D CALLED ===");
-        println!(
+        log::debug!("=== UPLOAD_VOLUME_3D CALLED ===");
+        log::debug!(
             "DEBUG: Volume upload - converting {} voxels to f16",
             voxel_count
         );
-        println!("DEBUG: Volume dimensions: {}x{}x{}", width, height, depth);
-        println!(
+        log::debug!("DEBUG: Volume dimensions: {}x{}x{}", width, height, depth);
+        log::debug!(
             "DEBUG: Original volume bytes size: {} bytes",
             volume_bytes.len()
         );
-        println!(
+        log::debug!(
             "DEBUG: Expected size: {} bytes ({}x{}x{} * 2 bytes/pixel)",
             width * height * depth * 2,
             width,
@@ -1430,7 +1514,7 @@ impl RenderLoopService {
         // Sample some values to see what we're uploading
         if volume_bytes.len() >= 8 {
             let sample_f16_bytes = &volume_bytes[0..8];
-            println!(
+            log::debug!(
                 "DEBUG: First 4 f16 values (as bytes): {:?}",
                 sample_f16_bytes
             );
@@ -1452,12 +1536,12 @@ impl RenderLoopService {
         };
 
         if !needs_padding {
-            println!(
+            log::debug!(
                 "DEBUG: No padding needed - unpadded bytes per row ({}) is already aligned to {}",
                 unpadded_bytes_per_row, align
             );
         } else {
-            println!(
+            log::debug!(
                 "DEBUG: Padding required: {} -> {} bytes per row",
                 unpadded_bytes_per_row, padded_bytes_per_row
             );
@@ -1465,19 +1549,19 @@ impl RenderLoopService {
 
         // If padding is needed, we need to repack the data
         if needs_padding {
-            println!(
+            log::debug!(
                 "DEBUG: Repacking data with padding: {} -> {} bytes per row",
                 unpadded_bytes_per_row, padded_bytes_per_row
             );
 
             // TEMPORARY: For debugging, let's check if the original data is correct
-            println!("DEBUG: First few values before padding:");
+            log::debug!("DEBUG: First few values before padding:");
             for i in 0..10 {
                 if i * 2 + 1 < volume_bytes.len() {
                     let b0 = volume_bytes[i * 2];
                     let b1 = volume_bytes[i * 2 + 1];
                     let f16_bits = u16::from_le_bytes([b0, b1]);
-                    println!("  [{}] bytes: [{}, {}] = 0x{:04X}", i, b0, b1, f16_bits);
+                    log::debug!("  [{}] bytes: [{}, {}] = 0x{:04X}", i, b0, b1, f16_bits);
                 }
             }
 
@@ -1495,7 +1579,7 @@ impl RenderLoopService {
             }
 
             volume_bytes = padded_data;
-            println!(
+            log::debug!(
                 "DEBUG: Padded volume bytes size: {} bytes",
                 volume_bytes.len()
             );
@@ -1619,11 +1703,11 @@ impl RenderLoopService {
             (min_bounds[2] + max_bounds[2]) / 2.0,
         ];
 
-        println!("DEBUG: Uploaded volume metadata:");
-        println!("  Dimensions: {:?}", metadata.dimensions);
-        println!("  Origin: {:?}", metadata.origin);
-        println!("  Spacing: {:?}", metadata.spacing);
-        println!(
+        log::debug!("DEBUG: Uploaded volume metadata:");
+        log::debug!("  Dimensions: {:?}", metadata.dimensions);
+        log::debug!("  Origin: {:?}", metadata.origin);
+        log::debug!("  Spacing: {:?}", metadata.spacing);
+        log::debug!(
             "  World bounds: [{:.1}, {:.1}, {:.1}] to [{:.1}, {:.1}, {:.1}]",
             min_bounds[0],
             min_bounds[1],
@@ -1632,14 +1716,14 @@ impl RenderLoopService {
             max_bounds[1],
             max_bounds[2]
         );
-        println!(
+        log::debug!(
             "  World center: [{:.1}, {:.1}, {:.1}]",
             world_center[0], world_center[1], world_center[2]
         );
-        println!("  Data range: {:?}", metadata.data_range);
-        println!("  Voxel_to_world matrix:");
+        log::debug!("  Data range: {:?}", metadata.data_range);
+        log::debug!("  Voxel_to_world matrix:");
         for i in 0..4 {
-            println!(
+            log::debug!(
                 "    [{:8.3}, {:8.3}, {:8.3}, {:8.3}]",
                 voxel_to_world[(i, 0)],
                 voxel_to_world[(i, 1)],
@@ -1647,9 +1731,9 @@ impl RenderLoopService {
                 voxel_to_world[(i, 3)]
             );
         }
-        println!("  World_to_voxel matrix:");
+        log::debug!("  World_to_voxel matrix:");
         for i in 0..4 {
-            println!(
+            log::debug!(
                 "    [{:8.3}, {:8.3}, {:8.3}, {:8.3}]",
                 world_to_voxel[(i, 0)],
                 world_to_voxel[(i, 1)],
@@ -1667,7 +1751,7 @@ impl RenderLoopService {
             test_voxel[1] / test_voxel[3],
             test_voxel[2] / test_voxel[3],
         ];
-        println!(
+        log::debug!(
             "  Transform test: world center [{:.1}, {:.1}, {:.1}] -> voxel [{:.1}, {:.1}, {:.1}]",
             world_center[0],
             world_center[1],
@@ -1683,7 +1767,7 @@ impl RenderLoopService {
             (metadata.dimensions.1 as f32 - 1.0) / 2.0,
             (metadata.dimensions.2 as f32 - 1.0) / 2.0,
         ];
-        println!(
+        log::debug!(
             "  Expected voxel center: [{:.1}, {:.1}, {:.1}]",
             expected_voxel_center[0], expected_voxel_center[1], expected_voxel_center[2]
         );
@@ -1710,7 +1794,7 @@ impl RenderLoopService {
 
         // Update the data range with the actual computed values
         metadata.data_range = data_range;
-        println!(
+        log::debug!(
             "register_volume_with_range: Setting data_range to ({}, {})",
             data_range.0, data_range.1
         );
@@ -1758,6 +1842,60 @@ impl RenderLoopService {
         );
 
         Ok(())
+    }
+
+    /// Replace an existing atlas texture with a new 3D volume (world-space rendering only).
+    pub fn update_volume_3d_at_index<T>(
+        &mut self,
+        atlas_index: u32,
+        source_volume: &DenseVolume3<T>,
+    ) -> Result<Matrix4<f32>, RenderLoopError>
+    where
+        T: VoxelData
+            + num_traits::NumCast
+            + serde::Serialize
+            + DataRange<T>
+            + num_traits::Zero
+            + std::ops::Sub<Output = T>
+            + std::ops::Div<Output = T>
+            + std::ops::Mul<Output = T>,
+    {
+        if !self.world_space_enabled {
+            return Err(RenderLoopError::Internal {
+                code: 7012,
+                details: "update_volume_3d_at_index requires world-space rendering".to_string(),
+            });
+        }
+
+        let multi_texture_manager =
+            self.multi_texture_manager
+                .as_mut()
+                .ok_or(RenderLoopError::Internal {
+                    code: 7013,
+                    details: "Multi-texture manager not initialized".to_string(),
+                })?;
+
+        let world_to_voxel = multi_texture_manager.update_volume(
+            &self.device,
+            &self.queue,
+            atlas_index,
+            source_volume,
+        )?;
+
+        // Update cached metadata if present
+        if let Some(meta) = self.volume_metadata.get_mut(&atlas_index) {
+            meta.world_to_voxel = world_to_voxel;
+            let vol_dims = source_volume.space.dims();
+            meta.dimensions = (vol_dims[0] as u32, vol_dims[1] as u32, vol_dims[2] as u32);
+            let spacing = source_volume.space.0.spacing();
+            let origin = source_volume.space.0.origin();
+            meta.voxel_to_world = nalgebra::Matrix4::from_row_slice(&[
+                spacing[0], 0.0, 0.0, origin[0], 0.0, spacing[1], 0.0, origin[1], 0.0, 0.0,
+                spacing[2], origin[2], 0.0, 0.0, 0.0, 1.0,
+            ]);
+        }
+
+        Ok(world_to_voxel)
     }
 
     /// Update layer uniforms directly with layer info
@@ -1874,23 +2012,21 @@ impl RenderLoopService {
                         },
                     );
                 #[cfg(not(feature = "typed-shaders"))]
-                let global_bind_group =
-                    self.device
-                        .create_bind_group(&wgpu::BindGroupDescriptor {
-                            label: Some("Global Bind Group"),
-                            layout: &self.global_bind_group_layout,
-                            entries: &[
-                                wgpu::BindGroupEntry {
-                                    binding: 0,
-                                    resource: self.frame_ubo_buffer.as_entire_binding(),
-                                },
-                                wgpu::BindGroupEntry {
-                                    binding: 1,
-                                    resource: self.crosshair_ubo_buffer.as_entire_binding(),
-                                },
-                                // ViewPlaneUbo removed - view plane info is now encoded in frame vectors
-                            ],
-                        });
+                let global_bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                    label: Some("Global Bind Group"),
+                    layout: &self.global_bind_group_layout,
+                    entries: &[
+                        wgpu::BindGroupEntry {
+                            binding: 0,
+                            resource: self.frame_ubo_buffer.as_entire_binding(),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 1,
+                            resource: self.crosshair_ubo_buffer.as_entire_binding(),
+                        },
+                        // ViewPlaneUbo removed - view plane info is now encoded in frame vectors
+                    ],
+                });
 
                 // Create render pass using the pass manager operations
                 let (load_op, store_op) = self.render_pass_manager.get_pass_operations();
@@ -1959,19 +2095,19 @@ impl RenderLoopService {
             }
             // ... existing error handling for surface.get_current_texture() ...
             Err(wgpu::SurfaceError::Lost) => {
-                eprintln!("Surface lost! Triggering device loss handling.");
+                log::error!("Surface lost! Triggering device loss handling.");
                 self.handle_device_loss();
                 Err(RenderLoopError::SurfaceError(wgpu::SurfaceError::Lost))
             }
             Err(wgpu::SurfaceError::OutOfMemory) => {
-                eprintln!("Surface out of memory! Triggering device loss handling.");
+                log::error!("Surface out of memory! Triggering device loss handling.");
                 self.handle_device_loss();
                 Err(RenderLoopError::SurfaceError(
                     wgpu::SurfaceError::OutOfMemory,
                 ))
             }
             Err(e) => {
-                eprintln!("Unhandled surface error: {:?}", e);
+                log::error!("Unhandled surface error: {:?}", e);
                 Err(RenderLoopError::SurfaceError(e))
             }
         }
@@ -1983,7 +2119,7 @@ impl RenderLoopService {
             if let (Some(surface), Some(config)) =
                 (self.surface.as_mut(), self.surface_config.as_mut())
             {
-                println!("Resizing surface to {}x{}", new_width, new_height);
+                log::info!("Resizing surface to {}x{}", new_width, new_height);
                 config.width = new_width;
                 config.height = new_height;
                 surface.configure(&self.device, config); // Reconfigure with updated size
@@ -1991,10 +2127,10 @@ impl RenderLoopService {
             // Note: Pipeline cache doesn't need to be cleared on resize
             // since the surface format doesn't change
             } else {
-                println!("Resize called but surface is not configured.");
+                log::warn!("Resize called but surface is not configured.");
             }
         } else {
-            println!(
+            log::warn!(
                 "Ignoring resize request with zero width or height ({}, {})",
                 new_width, new_height
             );
@@ -2015,14 +2151,18 @@ impl RenderLoopService {
 
     /// Placeholder for handling device loss.
     pub fn handle_device_loss(&mut self) {
-        eprintln!("Device loss detected! Attempting basic recovery.");
+        log::error!("Device loss detected! Attempting basic recovery.");
 
         // Best-effort reconfigure surface if present
-        if let (Some(surface), Some(config)) = (self.surface.as_ref(), self.surface_config.as_ref()) {
-            eprintln!("Reconfiguring surface after device loss ({}x{})", config.width, config.height);
+        if let (Some(surface), Some(config)) = (self.surface.as_ref(), self.surface_config.as_ref())
+        {
+            log::warn!(
+                "Reconfiguring surface after device loss ({}x{})",
+                config.width, config.height
+            );
             surface.configure(&self.device, config);
         } else {
-            eprintln!("No surface configured; skipping surface reconfiguration.");
+            log::warn!("No surface configured; skipping surface reconfiguration.");
         }
 
         // Clear pipeline cache to force recreation on next render
@@ -2057,7 +2197,7 @@ impl RenderLoopService {
             }
         }
 
-        eprintln!("Basic recovery complete. Pipelines will be recreated on next render.");
+        log::warn!("Basic recovery complete. Pipelines will be recreated on next render.");
     }
 
     // --- Method to update the frame UBO ---
@@ -2078,7 +2218,7 @@ impl RenderLoopService {
             [512, 512]
         };
 
-        println!("DEBUG update_frame_ubo: atlas_dim = {:?}, target_dim = {:?}, offscreen_dimensions = {:?}", 
+        log::debug!("DEBUG update_frame_ubo: atlas_dim = {:?}, target_dim = {:?}, offscreen_dimensions = {:?}",
             atlas_dim_u32, target_dims, self.offscreen_dimensions);
 
         let data = FrameUbo {
@@ -2091,16 +2231,16 @@ impl RenderLoopService {
             _padding_target: [0, 0],
         };
 
-        println!("[update_frame_ubo] Writing to GPU buffer:");
-        println!(
+        log::debug!("[update_frame_ubo] Writing to GPU buffer:");
+        log::debug!(
             "  Origin: [{:.3}, {:.3}, {:.3}, {:.3}]",
             origin_mm[0], origin_mm[1], origin_mm[2], origin_mm[3]
         );
-        println!(
+        log::debug!(
             "  U: [{:.3}, {:.3}, {:.3}, {:.3}]",
             u_mm[0], u_mm[1], u_mm[2], u_mm[3]
         );
-        println!(
+        log::debug!(
             "  V: [{:.3}, {:.3}, {:.3}, {:.3}]",
             v_mm[0], v_mm[1], v_mm[2], v_mm[3]
         );
@@ -2117,7 +2257,7 @@ impl RenderLoopService {
 
     // --- Method to update the crosshair UBO (Separate from FrameUBO update) ---
     pub fn set_crosshair(&self, world_coords: [f32; 3]) {
-        println!(
+        log::debug!(
             "set_crosshair: Setting crosshair to world position [{:.2}, {:.2}, {:.2}]",
             world_coords[0], world_coords[1], world_coords[2]
         );
@@ -2141,7 +2281,7 @@ impl RenderLoopService {
                 && voxel_coords[2] >= 0.0
                 && voxel_coords[2] < metadata.dimensions.2 as f32;
 
-            println!(
+            log::debug!(
                 "  Voxel coords: [{:.2}, {:.2}, {:.2}], In bounds: {}",
                 voxel_coords[0], voxel_coords[1], voxel_coords[2], in_bounds
             );
@@ -2162,7 +2302,7 @@ impl RenderLoopService {
 
     /// Update crosshair position and visibility
     pub fn update_crosshair_position(&self, world_coords: [f32; 3], show: bool) {
-        println!(
+        log::debug!(
             "update_crosshair_position: Position [{:.2}, {:.2}, {:.2}], Show: {}",
             world_coords[0], world_coords[1], world_coords[2], show
         );
@@ -2189,7 +2329,7 @@ impl RenderLoopService {
     ) {
         // Validate input dimensions
         if view_width_mm <= 0.0 || view_height_mm <= 0.0 {
-            eprintln!(
+            log::warn!(
                 "WARNING: update_frame_for_synchronized_view called with invalid dimensions: w={}, h={}",
                 view_width_mm, view_height_mm
             );
@@ -2337,37 +2477,37 @@ impl RenderLoopService {
                 u_mm = [u_mm[0] * scale, u_mm[1] * scale, u_mm[2] * scale, u_mm[3]];
                 v_mm = [v_mm[0] * scale, v_mm[1] * scale, v_mm[2] * scale, v_mm[3]];
 
-                println!("RENDER_LOOP: Applied uniform scaling: scale={:.3}, scale_x={:.3}, scale_y={:.3}",
+                log::debug!("RENDER_LOOP: Applied uniform scaling: scale={:.3}, scale_x={:.3}, scale_y={:.3}",
                     scale, scale_x, scale_y);
             }
         }
 
-        println!(
+        log::debug!(
             "RENDER_LOOP: Received dimensions: {}x{}mm",
             view_width_mm, view_height_mm
         );
-        println!("update_frame_for_synchronized_view: plane_id={}, view_size={}x{}mm, crosshair=[{:.1}, {:.1}, {:.1}]",
+        log::debug!("update_frame_for_synchronized_view: plane_id={}, view_size={}x{}mm, crosshair=[{:.1}, {:.1}, {:.1}]",
             plane_id, view_width_mm, view_height_mm,
             crosshair_world[0], crosshair_world[1], crosshair_world[2]);
-        println!(
+        log::debug!(
             "  Frame origin_mm: [{:.1}, {:.1}, {:.1}, {:.1}]",
             origin_mm[0], origin_mm[1], origin_mm[2], origin_mm[3]
         );
-        println!(
+        log::debug!(
             "  Frame u_mm (X axis): [{:.1}, {:.1}, {:.1}, {:.1}]",
             u_mm[0], u_mm[1], u_mm[2], u_mm[3]
         );
-        println!(
+        log::debug!(
             "  Frame v_mm (Y axis): [{:.1}, {:.1}, {:.1}, {:.1}]",
             v_mm[0], v_mm[1], v_mm[2], v_mm[3]
         );
 
         // Log what plane this corresponds to
         match plane_id {
-            0 => println!("  Axial view: Shows XY plane, slice changes along Z"),
-            1 => println!("  Coronal view: Shows XZ plane, slice changes along Y"),
-            2 => println!("  Sagittal view: Shows YZ plane, slice changes along X"),
-            _ => println!("  Unknown view plane"),
+            0 => log::debug!("  Axial view: Shows XY plane, slice changes along Z"),
+            1 => log::debug!("  Coronal view: Shows XZ plane, slice changes along Y"),
+            2 => log::debug!("  Sagittal view: Shows YZ plane, slice changes along X"),
+            _ => log::debug!("  Unknown view plane"),
         }
 
         // Calculate and print the view bounds
@@ -2381,7 +2521,7 @@ impl RenderLoopService {
             origin_mm[1] + u_mm[1] + v_mm[1],
             origin_mm[2] + u_mm[2] + v_mm[2],
         ];
-        println!(
+        log::debug!(
             "  View bounds: [{:.1}, {:.1}, {:.1}] to [{:.1}, {:.1}, {:.1}]",
             bottom_left[0],
             bottom_left[1],
@@ -2396,14 +2536,14 @@ impl RenderLoopService {
             2.0 * ((u_mm[0] * u_mm[0] + u_mm[1] * u_mm[1] + u_mm[2] * u_mm[2]).sqrt());
         let world_fov_height =
             2.0 * ((v_mm[0] * v_mm[0] + v_mm[1] * v_mm[1] + v_mm[2] * v_mm[2]).sqrt());
-        println!(
+        log::debug!(
             "  World FOV: {:.1}x{:.1}mm",
             world_fov_width, world_fov_height
         );
 
         // Print volume metadata if available
         if let Some(metadata) = self.volume_metadata.get(&0) {
-            println!(
+            log::debug!(
                 "  Volume origin: [{:.1}, {:.1}, {:.1}]",
                 metadata.origin[0], metadata.origin[1], metadata.origin[2]
             );
@@ -2422,7 +2562,7 @@ impl RenderLoopService {
                 crosshair_voxel_homo[1] / crosshair_voxel_homo[3],
                 crosshair_voxel_homo[2] / crosshair_voxel_homo[3],
             ];
-            println!(
+            log::debug!(
                 "  Crosshair world: [{:.1}, {:.1}, {:.1}] -> voxel: [{:.1}, {:.1}, {:.1}]",
                 crosshair_world[0],
                 crosshair_world[1],
@@ -2431,7 +2571,7 @@ impl RenderLoopService {
                 crosshair_voxel[1],
                 crosshair_voxel[2]
             );
-            println!(
+            log::debug!(
                 "  Volume dimensions: {}x{}x{}",
                 metadata.dimensions.0, metadata.dimensions.1, metadata.dimensions.2
             );
@@ -2443,7 +2583,7 @@ impl RenderLoopService {
                 && crosshair_voxel[1] < metadata.dimensions.1 as f32
                 && crosshair_voxel[2] >= 0.0
                 && crosshair_voxel[2] < metadata.dimensions.2 as f32;
-            println!("  Crosshair in bounds: {}", in_bounds);
+            log::debug!("  Crosshair in bounds: {}", in_bounds);
             // Calculate volume bounds using 8-corner method
             // This is robust and works with any affine transformation
             let corners = [
@@ -2491,7 +2631,7 @@ impl RenderLoopService {
                 }
             }
 
-            println!(
+            log::debug!(
                 "  Volume bounds: [{:.1}, {:.1}, {:.1}] to [{:.1}, {:.1}, {:.1}]",
                 min_bounds[0],
                 min_bounds[1],
@@ -2503,18 +2643,18 @@ impl RenderLoopService {
         }
 
         // Update the frame UBO
-        println!(
+        log::debug!(
             "[update_frame_for_synchronized_view] FINAL frame parameters being sent to shader:"
         );
-        println!(
+        log::debug!(
             "  Origin: [{:.3}, {:.3}, {:.3}, {:.3}]",
             origin_mm[0], origin_mm[1], origin_mm[2], origin_mm[3]
         );
-        println!(
+        log::debug!(
             "  U vector: [{:.3}, {:.3}, {:.3}, {:.3}]",
             u_mm[0], u_mm[1], u_mm[2], u_mm[3]
         );
-        println!(
+        log::debug!(
             "  V vector: [{:.3}, {:.3}, {:.3}, {:.3}]",
             v_mm[0], v_mm[1], v_mm[2], v_mm[3]
         );
@@ -2538,7 +2678,7 @@ impl RenderLoopService {
         colormap_id: u32,
         interpolation_mode: u32,
     ) -> Result<usize, RenderLoopError> {
-        println!(
+        log::debug!(
             "add_layer_3d: Adding layer with texture_index={}, dims={:?}, opacity={}, interpolation={}",
             texture_index, volume_dims, opacity, interpolation_mode
         );
@@ -2554,6 +2694,7 @@ impl RenderLoopService {
             threshold_range: (-f32::INFINITY, f32::INFINITY),
             threshold_mode: crate::render_state::ThresholdMode::Range,
             is_mask: false,
+            has_alpha_mask: false,
             interpolation_mode,
         };
 
@@ -2599,14 +2740,14 @@ impl RenderLoopService {
                         details: format!("Failed to update layer storage: {}", e),
                     })?;
 
-                println!(
+                log::debug!(
                     "add_layer_3d: Updated layer storage for layer {} with transform",
                     layer_index
                 );
             }
         }
 
-        println!("add_layer_3d: Added layer at index {}", layer_index);
+        log::debug!("add_layer_3d: Added layer at index {}", layer_index);
         Ok(layer_index)
     }
 
@@ -2621,11 +2762,11 @@ impl RenderLoopService {
 
         // Get the actual data range from volume metadata
         // Use the correct atlas_index to look up the volume's intensity range
-        println!(
+        log::debug!(
             "add_render_layer: Looking up metadata for atlas_index {}",
             atlas_index
         );
-        println!(
+        log::debug!(
             "  Available volume_metadata keys: {:?}",
             self.volume_metadata.keys().collect::<Vec<_>>()
         );
@@ -2634,21 +2775,21 @@ impl RenderLoopService {
             .volume_metadata
             .get(&atlas_index)
             .map(|meta| {
-                println!(
+                log::debug!(
                     "  Found metadata with data_range: ({}, {})",
                     meta.data_range.0, meta.data_range.1
                 );
                 meta.data_range
             })
             .unwrap_or_else(|| {
-                println!(
+                log::debug!(
                     "  No metadata found for atlas_index {}, using default (0.0, 1.0)",
                     atlas_index
                 );
                 (0.0, 1.0)
             });
 
-        println!(
+        log::debug!(
             "add_render_layer: Using intensity range: ({}, {})",
             intensity_range.0, intensity_range.1
         );
@@ -2663,6 +2804,7 @@ impl RenderLoopService {
             threshold_mode: ThresholdMode::Range,
             texture_coords,
             is_mask: false,
+            has_alpha_mask: false,
             interpolation_mode: 1, // Default to linear for legacy method
         };
 
@@ -2831,6 +2973,59 @@ impl RenderLoopService {
         }
     }
 
+    fn set_layer_has_alpha_mask(
+        &mut self,
+        atlas_index: u32,
+        has_mask: bool,
+    ) -> Result<(), RenderLoopError> {
+        if self
+            .layer_state_manager
+            .set_layer_has_alpha_mask(atlas_index, has_mask)
+        {
+            self.update_all_layer_uniforms()?;
+            Ok(())
+        } else {
+            Err(RenderLoopError::Internal {
+                code: 8013,
+                details: format!(
+                    "Layer with atlas index {} not found for mask update",
+                    atlas_index
+                ),
+            })
+        }
+    }
+
+    /// Upload an alpha mask for an existing atlas layer (stub: CPU-only until shader path is wired).
+    pub fn upload_alpha_mask(
+        &mut self,
+        atlas_index: u32,
+        dims: [u32; 3],
+        mask: &[u8],
+    ) -> Result<(), RenderLoopError> {
+        if let Some(manager) = self.multi_texture_manager.as_mut() {
+            manager.upload_mask_texture(&self.device, &self.queue, atlas_index, dims, mask)?;
+            self.set_layer_has_alpha_mask(atlas_index, true)?;
+            self.rebuild_texture_bind_group()
+        } else {
+            log::warn!(
+                "alpha mask upload requested for atlas {} but multi-texture manager is not initialized",
+                atlas_index
+            );
+            Ok(())
+        }
+    }
+
+    /// Clear an alpha mask associated with an atlas layer (stub).
+    pub fn clear_alpha_mask(&mut self, atlas_index: u32) -> Result<(), RenderLoopError> {
+        if let Some(manager) = self.multi_texture_manager.as_mut() {
+            manager.clear_mask_texture(atlas_index);
+            self.set_layer_has_alpha_mask(atlas_index, false)?;
+            self.rebuild_texture_bind_group()
+        } else {
+            Ok(())
+        }
+    }
+
     /// Enable/disable slice border and set thickness in pixels
     pub fn set_layer_border(
         &mut self,
@@ -2838,9 +3033,19 @@ impl RenderLoopService {
         enabled: bool,
         thickness_px: f32,
     ) -> Result<(), RenderLoopError> {
-        // TODO: Wire per-layer border settings into UBOs.
-        let _ = (index, enabled, thickness_px);
-        Ok(())
+        if let Some(layer) = self.layer_state_manager.get_layer(index) {
+            // Track override by atlas index
+            self.border_overrides
+                .insert(layer.atlas_index, (enabled, thickness_px.max(0.5)));
+            // Re-upload uniforms with overrides
+            self.update_all_layer_uniforms()?;
+            Ok(())
+        } else {
+            Err(RenderLoopError::Internal {
+                code: 8007,
+                details: format!("Layer {} not found for set_layer_border", index),
+            })
+        }
     }
 
     /// Find the render-layer index by atlas (texture) index
@@ -2902,16 +3107,38 @@ impl RenderLoopService {
                 //     println!("  Layer {}: atlas_index={}, opacity={}, colormap={}",
                 //              i, layer.atlas_index, layer.opacity, layer.colormap_id);
                 // }
-                layer_storage.update_layers(
-                    &self.device,
-                    &self.queue,
-                    _layout,
-                    layers,
-                    &volume_dimensions,
-                    &world_to_voxel_transforms,
-                );
+                // Build border overrides for current active layers if present
+                let overrides_vec: Vec<(u32, bool, f32)> = layers
+                    .iter()
+                    .filter_map(|layer| {
+                        self.border_overrides
+                            .get(&layer.atlas_index)
+                            .map(|(en, th)| (layer.atlas_index, *en, *th))
+                    })
+                    .collect();
+
+                if overrides_vec.is_empty() {
+                    layer_storage.update_layers(
+                        &self.device,
+                        &self.queue,
+                        _layout,
+                        layers,
+                        &volume_dimensions,
+                        &world_to_voxel_transforms,
+                    );
+                } else {
+                    layer_storage.update_layers_with_display(
+                        &self.device,
+                        &self.queue,
+                        _layout,
+                        layers,
+                        &volume_dimensions,
+                        &world_to_voxel_transforms,
+                        Some(&overrides_vec),
+                    );
+                }
             } else {
-                println!("WARNING: Layer storage manager not available for world-space rendering!");
+                log::warn!("WARNING: Layer storage manager not available for world-space rendering!");
             }
         } else {
             // Update the uniform buffer for atlas-based rendering
@@ -2999,7 +3226,8 @@ impl RenderLoopService {
         }
 
         // Get or create render target from pool
-        let pool = self.render_target_pool.as_mut().unwrap();
+        let pool = self.render_target_pool.as_mut()
+            .expect("render_target_pool must be initialized before rendering");
         let format = wgpu::TextureFormat::Rgba8Unorm;
 
         let (key, was_created) =
@@ -3098,7 +3326,7 @@ impl RenderLoopService {
         // Begin new frame
         self.render_state.begin_frame();
 
-        println!(
+        log::debug!(
             "render_to_buffer: Starting render with dimensions {}x{}",
             width, height
         );
@@ -3109,28 +3337,28 @@ impl RenderLoopService {
 
             // Debug: Check layer state
             let active_layers = self.layer_state_manager.layer_count();
-            println!("render_to_buffer: Active layers: {}", active_layers);
+            log::debug!("render_to_buffer: Active layers: {}", active_layers);
             if active_layers == 0 {
-                println!("WARNING: render_to_buffer: No active layers to render!");
+                log::warn!("WARNING: render_to_buffer: No active layers to render!");
             }
         } else {
             // For world-space rendering, check layer storage manager
             if let Some(layer_storage) = &self.layer_storage_manager {
                 let active_count = layer_storage.active_count();
-                println!(
+                log::debug!(
                     "render_to_buffer: World-space rendering with {} active layers",
                     active_count
                 );
 
                 if active_count == 0 {
-                    println!(
+                    log::warn!(
                         "WARNING: render_to_buffer: No active layers for world-space rendering!"
                     );
-                    println!("  - This usually means GPU resources haven't been allocated yet");
-                    println!(
+                    log::warn!("  - This usually means GPU resources haven't been allocated yet");
+                    log::warn!(
                         "  - Check that request_layer_gpu_resources was called before rendering"
                     );
-                    println!("  - Ensure add_layer_3d was called with the layer info");
+                    log::warn!("  - Ensure add_layer_3d was called with the layer info");
 
                     // Return a transparent image instead of continuing
                     let (width, height) = self.offscreen_dimensions;
@@ -3138,7 +3366,7 @@ impl RenderLoopService {
                     return Ok(vec![0u8; size]);
                 }
             } else {
-                println!("ERROR: World-space rendering enabled but layer_storage_manager is None!");
+                log::error!("ERROR: World-space rendering enabled but layer_storage_manager is None!");
                 return Err(RenderLoopError::Internal {
                     code: 7010,
                     details: "Layer storage manager not initialized for world-space rendering"
@@ -3175,13 +3403,14 @@ impl RenderLoopService {
                 .unwrap_or_else(|| "slice_simplified".to_string())
         };
 
-        println!("render_to_buffer: Using pipeline '{}'", pipeline_name);
+        log::debug!("render_to_buffer: Using pipeline '{}'", pipeline_name);
 
         // Ensure pipeline exists
         self.ensure_pipeline(&pipeline_name)?;
 
         // Get the current render target from pool
-        let pool = self.render_target_pool.as_ref().unwrap();
+        let pool = self.render_target_pool.as_ref()
+            .expect("render_target_pool must be initialized before readback");
         let key =
             self.current_render_target_key
                 .as_ref()
@@ -3243,7 +3472,7 @@ impl RenderLoopService {
         let (load_op, store_op) = self.render_pass_manager.get_pass_operations();
         let pass_label = "Offscreen Render Pass";
 
-        println!(
+        log::debug!(
             "render_to_buffer: Load op: {:?}, Store op: {:?}",
             load_op, store_op
         );
@@ -3317,32 +3546,32 @@ impl RenderLoopService {
                         {
                             render_pass.set_bind_group(1, layer_bind_group, &[]);
                         }
-                        println!("render_to_buffer: Layer storage bind group set");
+                        log::debug!("render_to_buffer: Layer storage bind group set");
                     } else {
-                        println!("render_to_buffer: No layer storage bind group available");
+                        log::warn!("render_to_buffer: No layer storage bind group available");
                     }
                 } else {
-                    println!("render_to_buffer: Layer storage manager not initialized");
+                    log::warn!("render_to_buffer: Layer storage manager not initialized");
                 }
 
                 if let Some(multi_texture) = &self.multi_texture_manager {
                     if let Some(texture_bind_group) = multi_texture.bind_group() {
                         // For typed-shaders, we use a manual bind group for textures
                         render_pass.set_bind_group(2, texture_bind_group, &[]);
-                        println!("render_to_buffer: Multi-texture bind group set");
+                        log::debug!("render_to_buffer: Multi-texture bind group set");
                     } else {
-                        println!("render_to_buffer: No multi-texture bind group available");
+                        log::warn!("render_to_buffer: No multi-texture bind group available");
                     }
                 } else {
-                    println!("render_to_buffer: Multi-texture manager not initialized");
+                    log::warn!("render_to_buffer: Multi-texture manager not initialized");
                 }
             } else {
                 // Traditional rendering: use UBO and atlas texture bind groups
                 if let Some(layer_bind_group) = self.layer_uniform_manager.bind_group() {
                     render_pass.set_bind_group(1, layer_bind_group, &[]);
-                    println!("render_to_buffer: Layer bind group set");
+                    log::debug!("render_to_buffer: Layer bind group set");
                 } else {
-                    println!("render_to_buffer: No layer bind group available");
+                    log::warn!("render_to_buffer: No layer bind group available");
                 }
 
                 if let Some(bind_group_id) = self.texture_bind_group_id {
@@ -3350,17 +3579,17 @@ impl RenderLoopService {
                         self.texture_manager.get_bind_group(bind_group_id)
                     {
                         render_pass.set_bind_group(2, texture_bind_group, &[]);
-                        println!("render_to_buffer: Texture bind group set");
+                        log::debug!("render_to_buffer: Texture bind group set");
                     } else {
-                        println!("render_to_buffer: Texture bind group not found");
+                        log::warn!("render_to_buffer: Texture bind group not found");
                     }
                 } else {
-                    println!("render_to_buffer: No texture bind group ID");
+                    log::warn!("render_to_buffer: No texture bind group ID");
                 }
             }
 
             // Draw fullscreen quad
-            println!("render_to_buffer: Drawing fullscreen quad (6 vertices)");
+            log::debug!("render_to_buffer: Drawing fullscreen quad (6 vertices)");
             render_pass.draw(0..6, 0..1);
         }
 
@@ -3442,15 +3671,15 @@ impl RenderLoopService {
             }
 
             if zero_alpha_count > 0 {
-                println!(
-                    "WARNING: {} pixels ({:.1}%) have alpha=0 (fully transparent)",
+                log::warn!(
+                    "{} pixels ({:.1}%) have alpha=0 (fully transparent)",
                     zero_alpha_count,
                     (zero_alpha_count as f32 / total_pixels as f32) * 100.0
                 );
             }
             if low_alpha_count > 0 {
-                println!(
-                    "WARNING: {} pixels ({:.1}%) have alpha<128 (semi-transparent)",
+                log::warn!(
+                    "{} pixels ({:.1}%) have alpha<128 (semi-transparent)",
                     low_alpha_count,
                     (low_alpha_count as f32 / total_pixels as f32) * 100.0
                 );
@@ -3494,20 +3723,19 @@ impl RenderLoopService {
         let spacing = volume.space.0.spacing();
         let origin = volume.space.0.origin();
 
-        // DEBUG: Print both transforms to verify
-        println!("DEBUG register_volume_with_upload:");
-        println!("  world_to_voxel: {:?}", world_to_voxel);
-        println!("  voxel_to_world: {:?}", voxel_to_world);
+        log::debug!("register_volume_with_upload:");
+        log::debug!("  world_to_voxel: {:?}", world_to_voxel);
+        log::debug!("  voxel_to_world: {:?}", voxel_to_world);
         let data_range = volume
             .range()
             .map(|(min, max)| {
                 let min_f32 = num_traits::cast::<T, f32>(min).unwrap_or(0.0);
                 let max_f32 = num_traits::cast::<T, f32>(max).unwrap_or(1.0);
-                println!("DEBUG: Volume data range: min={}, max={}", min_f32, max_f32);
+                log::debug!("Volume data range: min={}, max={}", min_f32, max_f32);
                 (min_f32, max_f32)
             })
             .unwrap_or_else(|| {
-                println!("DEBUG: Volume.range() returned None, using default (0.0, 1.0)");
+                log::debug!("Volume.range() returned None, using default (0.0, 1.0)");
                 (0.0, 1.0)
             });
 
@@ -3648,11 +3876,22 @@ impl RenderLoopService {
                 blend_mode: layer_config.blend_mode,
                 colormap_id: layer_config.colormap_id,
                 intensity_range: layer_config.intensity_window,
+                // THRESHOLD SEMANTICS (IMPORTANT - this is counterintuitive!):
+                // The threshold range is EXCLUSIVE: values WITHIN [low, high] become TRANSPARENT.
+                // This is the opposite of what you might expect!
+                //
+                // Examples:
+                //   (0.0, 0.0)     -> Empty range, nothing is within it, so NOTHING is transparent (default)
+                //   (-1e30, 1e30) -> Everything is within range, so EVERYTHING is transparent (wrong!)
+                //   (0.0, 0.5)    -> Values between 0 and 0.5 become transparent (hide low values)
+                //
+                // When threshold=None, we use (0.0, 0.0) which disables thresholding entirely
+                // because no values can be within an empty range.
                 threshold_range: layer_config
                     .threshold
                     .as_ref()
                     .map(|t| t.range)
-                    .unwrap_or((0.0, 0.0)), // Default to [0,0] for no thresholding
+                    .unwrap_or((0.0, 0.0)),
                 threshold_mode: layer_config
                     .threshold
                     .as_ref()
@@ -3660,6 +3899,7 @@ impl RenderLoopService {
                     .unwrap_or(ThresholdMode::Range),
                 texture_coords: (0.0, 0.0, 1.0, 1.0),
                 is_mask: false, // TODO: determine from volume metadata
+                has_alpha_mask: false,
                 interpolation_mode: interpolation_mode_u32,
             };
 
@@ -3673,8 +3913,42 @@ impl RenderLoopService {
             rendered_layers.push(layer_config.volume_id.clone());
         }
 
+        // LAYER ORDER: The frontend sends layers in correct bottom-to-top order:
+        // - First loaded layer (index 0) = underlay (background, rendered first)
+        // - Later loaded layers (higher index) = overlays (rendered on top)
+        //
+        // The shader uses back-to-front compositing (painter's algorithm):
+        // - layer_data[0] is rendered first (background)
+        // - layer_data[N-1] is rendered last (foreground, on top)
+        //
+        // DO NOT reverse the layer order - the frontend order is already correct.
+        // A previous bug (reversed layers here) caused overlays to be hidden by underlays.
+
         if layer_infos.is_empty() {
             warnings.push("No visible layers to render".to_string());
+        } else if layer_infos.len() > 1 {
+            // Debug: log the effective layer order the GPU will see
+            log::debug!(
+                "request_frame: {} visible layers (bottom -> top):",
+                layer_infos.len()
+            );
+            for (i, (layer_info, vol_id)) in
+                layer_infos.iter().zip(rendered_layers.iter()).enumerate()
+            {
+                log::debug!(
+                    "  [{}] volume_id='{}', atlas_index={}, opacity={}, colormap_id={}, intensity=({:.3}, {:.3}), threshold=({:.3}, {:.3}), mode={:?}",
+                    i,
+                    vol_id,
+                    layer_info.atlas_index,
+                    layer_info.opacity,
+                    layer_info.colormap_id,
+                    layer_info.intensity_range.0,
+                    layer_info.intensity_range.1,
+                    layer_info.threshold_range.0,
+                    layer_info.threshold_range.1,
+                    layer_info.threshold_mode
+                );
+            }
         }
 
         // Store viewport size before moving state
@@ -3697,11 +3971,11 @@ impl RenderLoopService {
 
             if let Some(vol_entry) = self.volumes.get(&layer_config.volume_id) {
                 // Copy metadata to volume_metadata map with correct data_range
-                println!(
-                    "DEBUG: Copying volume metadata for '{}' to atlas_index {}",
+                log::debug!(
+                    "Copying volume metadata for '{}' to atlas_index {}",
                     layer_config.volume_id, vol_entry.atlas_index
                 );
-                println!(
+                log::debug!(
                     "  data_range: ({}, {})",
                     vol_entry.metadata.data_range.0, vol_entry.metadata.data_range.1
                 );
@@ -3712,6 +3986,18 @@ impl RenderLoopService {
 
         // Add layers directly with complete LayerInfo to preserve all properties including interpolation
         for layer_info in layer_infos.iter() {
+            log::debug!(
+                "add_layer: atlas_index={}, opacity={}, colormap_id={}, intensity=({:.3}, {:.3}), threshold=({:.3}, {:.3}), mode={:?}, is_mask={}",
+                layer_info.atlas_index,
+                layer_info.opacity,
+                layer_info.colormap_id,
+                layer_info.intensity_range.0,
+                layer_info.intensity_range.1,
+                layer_info.threshold_range.0,
+                layer_info.threshold_range.1,
+                layer_info.threshold_mode,
+                layer_info.is_mask,
+            );
             // Directly add the complete LayerInfo instead of going through add_render_layer
             // This preserves the interpolation mode which was being lost before
             self.layer_state_manager
@@ -3773,6 +4059,30 @@ impl RenderLoopService {
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
                 label: Some("ViewState Render Encoder"),
             });
+
+        // Ensure multi-texture bind group exists before creating render pass
+        if self.world_space_enabled {
+            if let Some(multi_texture) = &mut self.multi_texture_manager {
+                // Ensure bind group exists - recreate if needed
+                if multi_texture.bind_group().is_none() {
+                    if let (Some(texture_layout), Some(colormap_view)) = (
+                        self.texture_bind_group_layout.as_ref(),
+                        self.texture_manager.colormap_view(),
+                    ) {
+                        multi_texture
+                            .create_bind_group(
+                                &self.device,
+                                texture_layout,
+                                self.texture_manager.linear_sampler(),
+                                self.texture_manager.nearest_sampler(),
+                                colormap_view,
+                                self.texture_manager.colormap_sampler(),
+                            )
+                            .ok();
+                    }
+                }
+            }
+        }
 
         // Execute rendering in a scope to limit borrows
         {
@@ -4012,7 +4322,8 @@ impl RenderLoopService {
             });
         }
 
-        let manager = self.smart_texture_manager.as_mut().unwrap();
+        let manager = self.smart_texture_manager.as_mut()
+            .expect("smart_texture_manager must be initialized before upload");
 
         // Upload volume using smart format selection and pooling
         let (texture_index, world_to_voxel) =

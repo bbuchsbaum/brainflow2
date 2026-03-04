@@ -3,6 +3,7 @@
 use crate::render_state::LayerInfo;
 use crate::LayerUboStd140;
 use bytemuck;
+use log::debug;
 use nalgebra::Matrix4;
 use wgpu::{util::DeviceExt, BindGroupLayout, Buffer, Device, Queue};
 
@@ -223,7 +224,11 @@ impl LayerStorageManager {
         self.layer_data.clear();
 
         let display_map: std::collections::HashMap<u32, (bool, f32)> = match display_overrides {
-            Some(entries) => entries.iter().copied().map(|(idx, en, th)| (idx, (en, th))).collect(),
+            Some(entries) => entries
+                .iter()
+                .copied()
+                .map(|(idx, en, th)| (idx, (en, th)))
+                .collect(),
             None => Default::default(),
         };
 
@@ -268,6 +273,29 @@ impl LayerStorageManager {
                 .copied()
                 .unwrap_or((false, 1.0_f32));
 
+            debug!(
+                "LayerStorageManager::update_layers_with_display - layer {}: atlas_index={}, dims=({},{},{}), blend_mode={:?}, opacity={}, colormap_id={}, threshold=({:.3},{:.3}), threshold_mode={:?}",
+                i,
+                layer.atlas_index,
+                dims.0,
+                dims.1,
+                dims.2,
+                layer.blend_mode,
+                layer.opacity,
+                layer.colormap_id,
+                layer.threshold_range.0,
+                layer.threshold_range.1,
+                layer.threshold_mode
+            );
+
+            debug!(
+                "  world_to_voxel (row-major): [{:.3} {:.3} {:.3} {:.3}; {:.3} {:.3} {:.3} {:.3}; {:.3} {:.3} {:.3} {:.3}; {:.3} {:.3} {:.3} {:.3}]",
+                transform[(0, 0)], transform[(0, 1)], transform[(0, 2)], transform[(0, 3)],
+                transform[(1, 0)], transform[(1, 1)], transform[(1, 2)], transform[(1, 3)],
+                transform[(2, 0)], transform[(2, 1)], transform[(2, 2)], transform[(2, 3)],
+                transform[(3, 0)], transform[(3, 1)], transform[(3, 2)], transform[(3, 3)],
+            );
+
             let layer_data = LayerUboStd140 {
                 // Convert matrix to column-major format for GPU
                 world_to_voxel: crate::matrix_to_cols_array(transform),
@@ -289,10 +317,11 @@ impl LayerStorageManager {
                 thresh_low: layer.threshold_range.0,
                 thresh_high: layer.threshold_range.1,
                 is_mask: if layer.is_mask { 1 } else { 0 },
+                has_alpha_mask: if layer.has_alpha_mask { 1 } else { 0 },
                 interpolation_mode: layer.interpolation_mode,
                 draw_slice_border: if border_enabled { 1 } else { 0 },
                 border_thickness_px: border_thickness.max(0.5_f32),
-                _pad: [0],
+                _pad: [0; 2],
             };
 
             self.layer_data.push(layer_data);
@@ -366,10 +395,11 @@ impl LayerStorageManager {
             thresh_low: layer.threshold_range.0,
             thresh_high: layer.threshold_range.1,
             is_mask: if layer.is_mask { 1 } else { 0 },
+            has_alpha_mask: if layer.has_alpha_mask { 1 } else { 0 },
             interpolation_mode: layer.interpolation_mode,
             draw_slice_border: if border_enabled { 1 } else { 0 },
             border_thickness_px: border_thickness.max(0.5_f32),
-            _pad: [0],
+            _pad: [0; 2],
         };
 
         if index < self.layer_data.len() {
@@ -460,6 +490,7 @@ mod tests {
                 threshold_mode: ThresholdMode::Range,
                 texture_coords: (0.0, 0.0, 1.0, 1.0),
                 is_mask: false,
+                has_alpha_mask: false,
                 interpolation_mode: 1,
             })
             .collect();

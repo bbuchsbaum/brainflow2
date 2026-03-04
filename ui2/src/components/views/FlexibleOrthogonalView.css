@@ -5,30 +5,34 @@
   position: relative;
   height: 100%;
   width: 100%;
+  background-color: #000;
 }
 
-/* Global styles for Allotment splitters — Bauhaus theme */
-.split-view-container [class*="sash"] {
-  background-color: var(--app-splitter) !important;
+/* Global styles for Allotment splitters - themed
+ * Target only the actual sash elements, not the internal sashContainer overlay,
+ * to avoid covering the entire orthogonal view during resize.
+ */
+.split-view-container [class*="sash-module_sash"] {
+  background-color: var(--app-splitter) !important; /* Theme splitter color */
   opacity: 1 !important;
 }
 
-.split-view-container [class*="sash"]:hover {
-  background-color: hsl(var(--accent)) !important;
+.split-view-container [class*="sash-module_sash"]:hover {
+  background-color: var(--app-splitter-hover) !important; /* Theme splitter hover */
 }
 
 /* Ensure sash is visible with proper size */
-.split-view-container [class*="sash"][class*="vertical"] {
-  width: 6px !important;
+.split-view-container [class*="sash-module_sash"][class*="vertical"] {
+  width: 2px !important;
   cursor: col-resize !important;
 }
 
-.split-view-container [class*="sash"][class*="horizontal"] {
-  height: 6px !important;
+.split-view-container [class*="sash-module_sash"][class*="horizontal"] {
+  height: 2px !important;
   cursor: row-resize !important;
 }
 
 /* Alternative: target the split-view divider */
 .split-view-container .split-view-divider {
-  background-color: var(--app-splitter) !important;
+  background-color: var(--app-splitter) !important; /* Theme splitter color */
 }

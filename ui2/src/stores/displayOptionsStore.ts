@@ -18,12 +18,12 @@ export interface DisplayOptionsState {
   getOptions: (layerId: string) => LayerDisplayOptions;
 }
 
-const DEFAULT_OPTIONS: LayerDisplayOptions = {
+const DEFAULT_OPTIONS: LayerDisplayOptions = Object.freeze({
   showBorder: false,
   borderThicknessPx: 1,
   showOrientationMarkers: true,
   showValueOnHover: true,
-};
+});
 
 export const useDisplayOptionsStore = create<DisplayOptionsState>()(
   subscribeWithSelector(
@@ -40,9 +40,8 @@ export const useDisplayOptionsStore = create<DisplayOptionsState>()(
 
       getOptions: (layerId) => {
         const map = get().options;
-        return map.get(layerId) ?? { ...DEFAULT_OPTIONS };
+        return map.get(layerId) ?? DEFAULT_OPTIONS;
       },
     }))
   )
 );
-

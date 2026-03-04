@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { ErrorBoundary } from 'react-error-boundary';
 import { GoldenLayoutRoot } from '@/components/layout/GoldenLayoutRoot';
 import { NotificationToast } from '@/components/ui/NotificationToast';
+import { TooltipOverlay } from '@/components/TooltipOverlay';
 import { StatusBar } from '@/components/ui/StatusBar';
 import { MultiViewBatchToggle } from '@/components/ui/MultiViewBatchToggle';
 import { GlobalProgressBar } from '@/components/ui/GlobalProgressBar';
@@ -290,6 +291,7 @@ function AppContent() {
         onCrosshairClick={() => setShowGoToCoordinate(true)}
       />
       <NotificationToast />
+      <TooltipOverlay />
       
       {/* Crosshair Settings Dialog */}
       {showCrosshairSettings && (

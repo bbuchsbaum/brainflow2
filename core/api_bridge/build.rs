@@ -54,6 +54,9 @@ const COMMANDS: &[&str] = &[
     "load_atlas",
     "start_atlas_progress_monitoring",
     "get_atlas_subscription_count",
+    // Surface template commands
+    "load_surface_template",
+    "get_surface_template_catalog",
 ];
 
 fn main() {

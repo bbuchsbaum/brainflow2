@@ -10,13 +10,13 @@ import { devtools } from 'zustand/middleware';
 
 // Color presets for medical imaging
 export const MEDICAL_COLOR_PRESETS = [
-  { name: 'Green (Default)', value: '#00ff00' },
+  { name: 'Orange (Default)', value: '#e07830' },
+  { name: 'Green', value: '#00ff00' },
   { name: 'Red', value: '#ff0000' },
   { name: 'Yellow', value: '#ffff00' },
   { name: 'Cyan', value: '#00ffff' },
   { name: 'Magenta', value: '#ff00ff' },
   { name: 'White', value: '#ffffff' },
-  { name: 'Orange', value: '#ff8800' },
   { name: 'Blue', value: '#0088ff' }
 ] as const;
 
@@ -64,12 +64,12 @@ interface CrosshairViewSettings {
 
 const DEFAULT_SETTINGS: CrosshairSettings = {
   visible: true,
-  
-  // Active crosshair
-  activeColor: '#00ff00',
+
+  // Active crosshair — thin solid line, Bauhaus precision
+  activeColor: '#e07830',
   activeThickness: 1,
   activeStyle: 'dashed',
-  
+
   // Mirror crosshair
   showMirror: true,
   mirrorColor: '#808080',

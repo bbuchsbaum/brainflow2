@@ -11,7 +11,6 @@ import { useRenderState, useRenderStateStore } from '@/stores/renderStateStore';
 import { drawScaledImage } from '@/utils/canvasUtils';
 import type { ImagePlacement } from '@/utils/canvasUtils';
 import type { RenderContext } from '@/types/renderContext';
-import { RenderContextFactory } from '@/types/renderContext';
 
 interface UseRenderCanvasOptions {
   // New unified approach
@@ -56,9 +55,11 @@ export function useRenderCanvas(options: UseRenderCanvasOptions = {}) {
     if (!canvasRef.current || !image) return;
     
     const canvas = canvasRef.current;
+    const canvasWidth = canvas.width;
+    const canvasHeight = canvas.height;
     
     // Validate canvas dimensions
-    if (canvas.width === 0 || canvas.height === 0) {
+    if (canvasWidth === 0 || canvasHeight === 0) {
       console.warn(`[useRenderCanvas ${storeKey}] Canvas has zero dimensions, skipping draw`);
       return;
     }
@@ -80,8 +81,8 @@ export function useRenderCanvas(options: UseRenderCanvasOptions = {}) {
       // Reset retry count on new image
       retryCountRef.current = 0;
       
-      // Clear the canvas first
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      // Always clear before drawing to avoid stale edge strips during splitter resizes.
+      ctx.clearRect(0, 0, canvasWidth, canvasHeight);
       
       // Validate ImageBitmap before drawing
       if (!image.width || !image.height) {
@@ -89,7 +90,7 @@ export function useRenderCanvas(options: UseRenderCanvasOptions = {}) {
       }
       
       // Use the shared canvas utility to draw the image with proper scaling
-      const placement = drawScaledImage(ctx, image, canvas.width, canvas.height);
+      const placement = drawScaledImage(ctx, image, canvasWidth, canvasHeight);
       
       // Store placement for potential future use
       imagePlacementRef.current = placement;
@@ -135,7 +136,6 @@ export function useRenderCanvas(options: UseRenderCanvasOptions = {}) {
       
       return null;
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [storeKey, onImageReceived, customRender, setError]);
   
   // React to changes in lastImage from the store
@@ -169,6 +169,7 @@ export function useRenderCanvas(options: UseRenderCanvasOptions = {}) {
     canvasRef,
     isLoading,
     error,
+    lastImage,
     redrawCanvas,
     imagePlacement: imagePlacementRef.current
   };

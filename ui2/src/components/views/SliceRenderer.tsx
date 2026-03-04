@@ -192,7 +192,7 @@ export function SliceRenderer({
       
       {/* Overlays */}
       <RenderOverlays
-        isLoading={showLoading && isLoading}
+        isLoading={showLoading && isLoading && !lastImage}
         error={showError ? error : null}
         isDragging={isDragging}
         label={showLabel ? label : undefined}

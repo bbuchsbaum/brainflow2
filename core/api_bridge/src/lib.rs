@@ -556,42 +556,12 @@ fn extract_3d_volume_at_timepoint(
 
         // For 4D volumes, extract the requested timepoint
         VolumeSendable::Vec4DF32(vec) => {
-            // Extract 3D volume at the specified timepoint
             let neuro_vol = vec.volume(timepoint).map_err(|e| BridgeError::Internal {
                 code: 5011,
                 details: format!("Failed to extract timepoint {}: {}", timepoint, e),
             })?;
-
-            // Convert neuroim-rs volume to our DenseVolume3
             let dense_vol = DenseVolume3::new(neuro_vol);
-
-            // Extract affine transform from the 4D space (first 3x3 + translation)
-            let trans = &vec.space.trans;
-            let affine = if trans.nrows() >= 4 && trans.ncols() >= 4 {
-                let m = Matrix4::new(
-                    trans[(0, 0)] as f32,
-                    trans[(0, 1)] as f32,
-                    trans[(0, 2)] as f32,
-                    trans[(0, 3)] as f32,
-                    trans[(1, 0)] as f32,
-                    trans[(1, 1)] as f32,
-                    trans[(1, 2)] as f32,
-                    trans[(1, 3)] as f32,
-                    trans[(2, 0)] as f32,
-                    trans[(2, 1)] as f32,
-                    trans[(2, 2)] as f32,
-                    trans[(2, 3)] as f32,
-                    0.0,
-                    0.0,
-                    0.0,
-                    1.0,
-                );
-                Affine3::from_matrix_unchecked(m)
-            } else {
-                // Fallback to identity if transform is not available
-                Affine3::identity()
-            };
-
+            let affine = affine_from_neurospace_trans(&vec.space.trans);
             Ok(VolumeSendable::VolF32(dense_vol, affine))
         }
         VolumeSendable::Vec4DI16(vec) => {
@@ -599,34 +569,8 @@ fn extract_3d_volume_at_timepoint(
                 code: 5011,
                 details: format!("Failed to extract timepoint {}: {}", timepoint, e),
             })?;
-
             let dense_vol = DenseVolume3::new(neuro_vol);
-
-            let trans = &vec.space.trans;
-            let affine = if trans.nrows() >= 4 && trans.ncols() >= 4 {
-                let m = Matrix4::new(
-                    trans[(0, 0)] as f32,
-                    trans[(0, 1)] as f32,
-                    trans[(0, 2)] as f32,
-                    trans[(0, 3)] as f32,
-                    trans[(1, 0)] as f32,
-                    trans[(1, 1)] as f32,
-                    trans[(1, 2)] as f32,
-                    trans[(1, 3)] as f32,
-                    trans[(2, 0)] as f32,
-                    trans[(2, 1)] as f32,
-                    trans[(2, 2)] as f32,
-                    trans[(2, 3)] as f32,
-                    0.0,
-                    0.0,
-                    0.0,
-                    1.0,
-                );
-                Affine3::from_matrix_unchecked(m)
-            } else {
-                Affine3::identity()
-            };
-
+            let affine = affine_from_neurospace_trans(&vec.space.trans);
             Ok(VolumeSendable::VolI16(dense_vol, affine))
         }
         VolumeSendable::Vec4DU8(vec) => {
@@ -634,34 +578,8 @@ fn extract_3d_volume_at_timepoint(
                 code: 5011,
                 details: format!("Failed to extract timepoint {}: {}", timepoint, e),
             })?;
-
             let dense_vol = DenseVolume3::new(neuro_vol);
-
-            let trans = &vec.space.trans;
-            let affine = if trans.nrows() >= 4 && trans.ncols() >= 4 {
-                let m = Matrix4::new(
-                    trans[(0, 0)] as f32,
-                    trans[(0, 1)] as f32,
-                    trans[(0, 2)] as f32,
-                    trans[(0, 3)] as f32,
-                    trans[(1, 0)] as f32,
-                    trans[(1, 1)] as f32,
-                    trans[(1, 2)] as f32,
-                    trans[(1, 3)] as f32,
-                    trans[(2, 0)] as f32,
-                    trans[(2, 1)] as f32,
-                    trans[(2, 2)] as f32,
-                    trans[(2, 3)] as f32,
-                    0.0,
-                    0.0,
-                    0.0,
-                    1.0,
-                );
-                Affine3::from_matrix_unchecked(m)
-            } else {
-                Affine3::identity()
-            };
-
+            let affine = affine_from_neurospace_trans(&vec.space.trans);
             Ok(VolumeSendable::VolU8(dense_vol, affine))
         }
         VolumeSendable::Vec4DI8(vec) => {
@@ -669,34 +587,8 @@ fn extract_3d_volume_at_timepoint(
                 code: 5011,
                 details: format!("Failed to extract timepoint {}: {}", timepoint, e),
             })?;
-
             let dense_vol = DenseVolume3::new(neuro_vol);
-
-            let trans = &vec.space.trans;
-            let affine = if trans.nrows() >= 4 && trans.ncols() >= 4 {
-                let m = Matrix4::new(
-                    trans[(0, 0)] as f32,
-                    trans[(0, 1)] as f32,
-                    trans[(0, 2)] as f32,
-                    trans[(0, 3)] as f32,
-                    trans[(1, 0)] as f32,
-                    trans[(1, 1)] as f32,
-                    trans[(1, 2)] as f32,
-                    trans[(1, 3)] as f32,
-                    trans[(2, 0)] as f32,
-                    trans[(2, 1)] as f32,
-                    trans[(2, 2)] as f32,
-                    trans[(2, 3)] as f32,
-                    0.0,
-                    0.0,
-                    0.0,
-                    1.0,
-                );
-                Affine3::from_matrix_unchecked(m)
-            } else {
-                Affine3::identity()
-            };
-
+            let affine = affine_from_neurospace_trans(&vec.space.trans);
             Ok(VolumeSendable::VolI8(dense_vol, affine))
         }
         VolumeSendable::Vec4DU16(vec) => {
@@ -704,34 +596,8 @@ fn extract_3d_volume_at_timepoint(
                 code: 5011,
                 details: format!("Failed to extract timepoint {}: {}", timepoint, e),
             })?;
-
             let dense_vol = DenseVolume3::new(neuro_vol);
-
-            let trans = &vec.space.trans;
-            let affine = if trans.nrows() >= 4 && trans.ncols() >= 4 {
-                let m = Matrix4::new(
-                    trans[(0, 0)] as f32,
-                    trans[(0, 1)] as f32,
-                    trans[(0, 2)] as f32,
-                    trans[(0, 3)] as f32,
-                    trans[(1, 0)] as f32,
-                    trans[(1, 1)] as f32,
-                    trans[(1, 2)] as f32,
-                    trans[(1, 3)] as f32,
-                    trans[(2, 0)] as f32,
-                    trans[(2, 1)] as f32,
-                    trans[(2, 2)] as f32,
-                    trans[(2, 3)] as f32,
-                    0.0,
-                    0.0,
-                    0.0,
-                    1.0,
-                );
-                Affine3::from_matrix_unchecked(m)
-            } else {
-                Affine3::identity()
-            };
-
+            let affine = affine_from_neurospace_trans(&vec.space.trans);
             Ok(VolumeSendable::VolU16(dense_vol, affine))
         }
         VolumeSendable::Vec4DI32(vec) => {
@@ -739,34 +605,8 @@ fn extract_3d_volume_at_timepoint(
                 code: 5011,
                 details: format!("Failed to extract timepoint {}: {}", timepoint, e),
             })?;
-
             let dense_vol = DenseVolume3::new(neuro_vol);
-
-            let trans = &vec.space.trans;
-            let affine = if trans.nrows() >= 4 && trans.ncols() >= 4 {
-                let m = Matrix4::new(
-                    trans[(0, 0)] as f32,
-                    trans[(0, 1)] as f32,
-                    trans[(0, 2)] as f32,
-                    trans[(0, 3)] as f32,
-                    trans[(1, 0)] as f32,
-                    trans[(1, 1)] as f32,
-                    trans[(1, 2)] as f32,
-                    trans[(1, 3)] as f32,
-                    trans[(2, 0)] as f32,
-                    trans[(2, 1)] as f32,
-                    trans[(2, 2)] as f32,
-                    trans[(2, 3)] as f32,
-                    0.0,
-                    0.0,
-                    0.0,
-                    1.0,
-                );
-                Affine3::from_matrix_unchecked(m)
-            } else {
-                Affine3::identity()
-            };
-
+            let affine = affine_from_neurospace_trans(&vec.space.trans);
             Ok(VolumeSendable::VolI32(dense_vol, affine))
         }
         VolumeSendable::Vec4DU32(vec) => {
@@ -774,34 +614,8 @@ fn extract_3d_volume_at_timepoint(
                 code: 5011,
                 details: format!("Failed to extract timepoint {}: {}", timepoint, e),
             })?;
-
             let dense_vol = DenseVolume3::new(neuro_vol);
-
-            let trans = &vec.space.trans;
-            let affine = if trans.nrows() >= 4 && trans.ncols() >= 4 {
-                let m = Matrix4::new(
-                    trans[(0, 0)] as f32,
-                    trans[(0, 1)] as f32,
-                    trans[(0, 2)] as f32,
-                    trans[(0, 3)] as f32,
-                    trans[(1, 0)] as f32,
-                    trans[(1, 1)] as f32,
-                    trans[(1, 2)] as f32,
-                    trans[(1, 3)] as f32,
-                    trans[(2, 0)] as f32,
-                    trans[(2, 1)] as f32,
-                    trans[(2, 2)] as f32,
-                    trans[(2, 3)] as f32,
-                    0.0,
-                    0.0,
-                    0.0,
-                    1.0,
-                );
-                Affine3::from_matrix_unchecked(m)
-            } else {
-                Affine3::identity()
-            };
-
+            let affine = affine_from_neurospace_trans(&vec.space.trans);
             Ok(VolumeSendable::VolU32(dense_vol, affine))
         }
         VolumeSendable::Vec4DF64(vec) => {
@@ -809,34 +623,8 @@ fn extract_3d_volume_at_timepoint(
                 code: 5011,
                 details: format!("Failed to extract timepoint {}: {}", timepoint, e),
             })?;
-
             let dense_vol = DenseVolume3::new(neuro_vol);
-
-            let trans = &vec.space.trans;
-            let affine = if trans.nrows() >= 4 && trans.ncols() >= 4 {
-                let m = Matrix4::new(
-                    trans[(0, 0)] as f32,
-                    trans[(0, 1)] as f32,
-                    trans[(0, 2)] as f32,
-                    trans[(0, 3)] as f32,
-                    trans[(1, 0)] as f32,
-                    trans[(1, 1)] as f32,
-                    trans[(1, 2)] as f32,
-                    trans[(1, 3)] as f32,
-                    trans[(2, 0)] as f32,
-                    trans[(2, 1)] as f32,
-                    trans[(2, 2)] as f32,
-                    trans[(2, 3)] as f32,
-                    0.0,
-                    0.0,
-                    0.0,
-                    1.0,
-                );
-                Affine3::from_matrix_unchecked(m)
-            } else {
-                Affine3::identity()
-            };
-
+            let affine = affine_from_neurospace_trans(&vec.space.trans);
             Ok(VolumeSendable::VolF64(dense_vol, affine))
         }
     }
@@ -1591,6 +1379,107 @@ async fn get_surface_geometry(
     }
 
     Ok(bridge_types::SurfaceGeometryData { vertices, faces })
+}
+
+// --- Surface Overlay Commands ---
+
+#[command]
+#[tracing::instrument(skip_all, err, name = "api.load_surface_overlay")]
+async fn load_surface_overlay(
+    path: String,
+    target_surface_id: String,
+    state: State<'_, BridgeState>,
+) -> BridgeResult<bridge_types::LoadedContent> {
+    info!(
+        "Bridge: load_surface_overlay called with path: {}, target: {}",
+        path, target_surface_id
+    );
+
+    let file_path = std::path::Path::new(&path);
+    if !file_path.exists() {
+        return Err(BridgeError::Io {
+            code: 2010,
+            details: format!("Overlay file not found: {}", path),
+        });
+    }
+
+    // Verify target surface exists
+    {
+        let registry = state.surface_registry.lock().await;
+        if !registry.contains_surface(&target_surface_id) {
+            return Err(BridgeError::Input {
+                code: 2011,
+                details: format!("Target surface not found: {}", target_surface_id),
+            });
+        }
+    }
+
+    // Load the overlay data using the gifti loader
+    let data = gifti_loader::load_gifti_surface_data(file_path)?;
+    let data_count = data.len();
+
+    // Detect intent from filename
+    let filename = file_path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("");
+    let intent = if filename.contains(".func.gii") {
+        "functional".to_string()
+    } else if filename.contains(".shape.gii") {
+        "shape".to_string()
+    } else if filename.contains(".label.gii") {
+        "label".to_string()
+    } else {
+        "unknown".to_string()
+    };
+
+    // Generate a handle for this overlay
+    let handle = format!(
+        "overlay_{}_{}",
+        target_surface_id,
+        file_path
+            .file_stem()
+            .and_then(|n| n.to_str())
+            .unwrap_or("unknown")
+    );
+
+    // Store the data as f64 in the registry
+    let data_f64: Vec<f64> = data.iter().map(|&v| v as f64).collect();
+    {
+        let mut registry = state.surface_registry.lock().await;
+        registry.insert_data(handle.clone(), data_f64);
+    }
+
+    info!(
+        "Bridge: Overlay loaded - handle: {}, data_count: {}, intent: {}",
+        handle, data_count, intent
+    );
+
+    Ok(bridge_types::LoadedContent::SurfaceData {
+        handle,
+        data_count,
+        intent,
+    })
+}
+
+#[command]
+#[tracing::instrument(skip_all, err, name = "api.get_surface_overlay_data")]
+async fn get_surface_overlay_data(
+    handle: String,
+    state: State<'_, BridgeState>,
+) -> BridgeResult<Vec<f64>> {
+    info!(
+        "Bridge: get_surface_overlay_data called for handle: {}",
+        handle
+    );
+
+    let registry = state.surface_registry.lock().await;
+    let data = registry.get_data(&handle).ok_or_else(|| BridgeError::Input {
+        code: 2012,
+        details: format!("Overlay data not found: {}", handle),
+    })?;
+
+    Ok(data.clone())
 }
 
 #[command]
@@ -7214,6 +7103,205 @@ async fn clear_template_cache(state: State<'_, BridgeState>) -> BridgeResult<()>
     Ok(())
 }
 
+// --- Surface Template Commands ---
+
+/// Load a surface template from TemplateFlow
+#[command]
+#[tracing::instrument(skip_all, err, name = "api.load_surface_template")]
+async fn load_surface_template(
+    request: bridge_types::SurfaceTemplateRequest,
+    state: State<'_, BridgeState>,
+) -> BridgeResult<bridge_types::SurfaceTemplateResult> {
+    use neuroatlas::core::types::Hemisphere as NeuroatlasHemisphere;
+    use neuroatlas::surface::templates::SurfaceDensity;
+    use neurosurf_rs::geometry::SurfaceType;
+
+    info!(
+        "Bridge: load_surface_template called for {:?} {:?} {:?}",
+        request.space, request.geometry_type, request.hemisphere
+    );
+
+    // Convert bridge types to neuroatlas types
+    let density = match request.space {
+        bridge_types::SurfaceSpace::Fsaverage => SurfaceDensity::Standard,
+        bridge_types::SurfaceSpace::Fsaverage5 => SurfaceDensity::Low,
+        bridge_types::SurfaceSpace::Fsaverage6 => SurfaceDensity::Medium,
+        bridge_types::SurfaceSpace::Fsaverage7 => SurfaceDensity::High,
+        bridge_types::SurfaceSpace::FsLR32k | bridge_types::SurfaceSpace::FsLR164k => {
+            return Err(BridgeError::Internal {
+                code: 7030,
+                details: "fsLR templates not yet supported via this API".to_string(),
+            });
+        }
+    };
+
+    let hemisphere = match request.hemisphere {
+        bridge_types::SurfaceHemisphere::Left => NeuroatlasHemisphere::Left,
+        bridge_types::SurfaceHemisphere::Right => NeuroatlasHemisphere::Right,
+    };
+
+    let surface_type = match request.geometry_type {
+        bridge_types::SurfaceGeometryType::White => SurfaceType::White,
+        bridge_types::SurfaceGeometryType::Pial => SurfaceType::Pial,
+        bridge_types::SurfaceGeometryType::Inflated => SurfaceType::Inflated,
+        bridge_types::SurfaceGeometryType::Sphere => SurfaceType::Spherical,
+        bridge_types::SurfaceGeometryType::VeryInflated => {
+            return Err(BridgeError::Internal {
+                code: 7031,
+                details: "VeryInflated surface type not available in templateflow".to_string(),
+            });
+        }
+        bridge_types::SurfaceGeometryType::Midthickness => {
+            return Err(BridgeError::Internal {
+                code: 7032,
+                details: "Midthickness surface type not available in templateflow".to_string(),
+            });
+        }
+    };
+
+    // Use the global surface template manager to load the surface
+    let manager = neuroatlas::surface::templates::global_surface_manager();
+
+    let surface = manager
+        .get_surface(density, hemisphere, surface_type)
+        .await
+        .map_err(|e| BridgeError::Internal {
+            code: 7033,
+            details: format!("Failed to load surface template: {}", e),
+        })?;
+
+    let vertex_count = surface.vertex_count();
+    let face_count = surface.face_count();
+
+    // Generate a unique handle ID
+    let handle_id = format!(
+        "surface_template_{}_{}_{}",
+        request.space.template_name(),
+        request.geometry_type.as_suffix(),
+        request.hemisphere.as_str()
+    );
+
+    // Clone the surface data and register it
+    let surface_clone = surface.clone();
+
+    // Create metadata for the surface
+    let metadata = SurfaceMetadataInfo {
+        name: format!(
+            "{} {} ({})",
+            request.space.display_name(),
+            request.geometry_type.display_name(),
+            match request.hemisphere {
+                bridge_types::SurfaceHemisphere::Left => "Left",
+                bridge_types::SurfaceHemisphere::Right => "Right",
+            }
+        ),
+        path: format!(
+            "templateflow://{}_{}_{}",
+            request.space.template_name(),
+            request.geometry_type.as_suffix(),
+            request.hemisphere.as_str()
+        ),
+        hemisphere: Some(match request.hemisphere {
+            bridge_types::SurfaceHemisphere::Left => "left".to_string(),
+            bridge_types::SurfaceHemisphere::Right => "right".to_string(),
+        }),
+        surface_type: Some(request.geometry_type.as_suffix().to_string()),
+        vertex_count,
+        face_count,
+    };
+
+    // Register in surface registry
+    let mut surface_registry = state.surface_registry.lock().await;
+    surface_registry.insert_surface(
+        handle_id.clone(),
+        surface_clone,
+        Affine3::identity(),
+        metadata,
+    );
+    drop(surface_registry);
+
+    info!(
+        "Bridge: Surface template loaded - handle: {}, vertices: {}, faces: {}",
+        handle_id, vertex_count, face_count
+    );
+
+    Ok(bridge_types::SurfaceTemplateResult {
+        success: true,
+        surface_handle: Some(handle_id),
+        vertex_count: Some(vertex_count),
+        face_count: Some(face_count),
+        space: request.space.display_name().to_string(),
+        geometry_type: request.geometry_type.display_name().to_string(),
+        hemisphere: match request.hemisphere {
+            bridge_types::SurfaceHemisphere::Left => "Left".to_string(),
+            bridge_types::SurfaceHemisphere::Right => "Right".to_string(),
+        },
+        error_message: None,
+    })
+}
+
+/// Get available surface template catalog
+#[command]
+#[tracing::instrument(skip_all, err, name = "api.get_surface_template_catalog")]
+async fn get_surface_template_catalog(
+) -> BridgeResult<Vec<bridge_types::SurfaceTemplateCatalogEntry>> {
+    info!("Bridge: get_surface_template_catalog called");
+
+    let mut entries = Vec::new();
+
+    let spaces = [
+        bridge_types::SurfaceSpace::Fsaverage,
+        bridge_types::SurfaceSpace::Fsaverage5,
+        bridge_types::SurfaceSpace::Fsaverage6,
+    ];
+
+    let geometry_types = [
+        bridge_types::SurfaceGeometryType::White,
+        bridge_types::SurfaceGeometryType::Pial,
+        bridge_types::SurfaceGeometryType::Inflated,
+        bridge_types::SurfaceGeometryType::Sphere,
+    ];
+
+    let hemispheres = [
+        bridge_types::SurfaceHemisphere::Left,
+        bridge_types::SurfaceHemisphere::Right,
+    ];
+
+    for space in &spaces {
+        for geometry_type in &geometry_types {
+            for hemisphere in &hemispheres {
+                let id = format!(
+                    "{}_{}_{}",
+                    space.template_name(),
+                    geometry_type.as_suffix(),
+                    hemisphere.as_str()
+                );
+
+                let display_name = format!(
+                    "{} {} ({})",
+                    space.display_name(),
+                    geometry_type.display_name(),
+                    match hemisphere {
+                        bridge_types::SurfaceHemisphere::Left => "Left",
+                        bridge_types::SurfaceHemisphere::Right => "Right",
+                    }
+                );
+
+                entries.push(bridge_types::SurfaceTemplateCatalogEntry {
+                    id,
+                    display_name,
+                    space: *space,
+                    geometry_type: *geometry_type,
+                    hemisphere: *hemisphere,
+                    vertex_count: space.vertex_count(),
+                });
+            }
+        }
+    }
+
+    Ok(entries)
+}
+
 /// Parse a template menu ID into a TemplateConfig
 fn parse_template_id(template_id: &str) -> BridgeResult<templates::TemplateConfig> {
     // Parse ID format: "MNI152NLin2009cAsym_T1w_1mm"
@@ -7294,6 +7382,8 @@ pub fn plugin<R: Runtime>() -> TauriPlugin<R> {
         .invoke_handler(generate_handler![
             load_file,
             load_surface,
+            load_surface_overlay,
+            get_surface_overlay_data,
             get_surface_geometry,
             get_volume_bounds,
             // world_to_voxel, // REMOVED - Unused coordinate transformation
@@ -7350,6 +7440,9 @@ pub fn plugin<R: Runtime>() -> TauriPlugin<R> {
             load_atlas,
             start_atlas_progress_monitoring,
             get_atlas_subscription_count,
+            // Surface template commands
+            load_surface_template,
+            get_surface_template_catalog,
             // Template management commands
             get_template_catalog,
             get_filtered_templates,

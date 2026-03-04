@@ -306,6 +306,8 @@ pub struct LayerInfo {
     pub texture_coords: (f32, f32, f32, f32),
     /// Whether this layer is a binary mask (true) or continuous data (false)
     pub is_mask: bool,
+    /// Whether this layer has an alpha mask attached.
+    pub has_alpha_mask: bool,
     /// Interpolation mode (0=nearest, 1=linear, 2=cubic)
     pub interpolation_mode: u32,
 }
@@ -388,6 +390,20 @@ impl LayerStateManager {
         &self.active_layers
     }
 
+    /// Set the alpha-mask state for the layer with the given atlas index.
+    pub fn set_layer_has_alpha_mask(&mut self, atlas_index: u32, has_mask: bool) -> bool {
+        if let Some(layer) = self
+            .active_layers
+            .iter_mut()
+            .find(|layer| layer.atlas_index == atlas_index)
+        {
+            layer.has_alpha_mask = has_mask;
+            true
+        } else {
+            false
+        }
+    }
+
     /// Set the layer uniform buffer
     pub fn set_layer_buffer(&mut self, buffer: Buffer) {
         self.layer_buffer = Some(buffer);
@@ -449,6 +465,7 @@ mod tests {
             threshold_mode: ThresholdMode::Range,
             texture_coords: (0.0, 0.0, 1.0, 1.0),
             is_mask: false,
+            has_alpha_mask: false,
             interpolation_mode: 0, // nearest neighbor
         };
 

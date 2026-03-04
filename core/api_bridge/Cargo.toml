@@ -52,6 +52,7 @@ neuro-types = { path = "../neuro-types" } # For ViewRectMm and geometry types
 atlases = { path = "../atlases" } # Atlas service
 templates = { path = "../templates" } # Template service
 neuroim = { path = "../../../rust/neuroim-rs" }
+neuroatlas = { workspace = true }  # For surface template loading
 ndarray = "0.16"  # For vol-to-surf projection (matches neurosurf-rs)
 
 [dev-dependencies]

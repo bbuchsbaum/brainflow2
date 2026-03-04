@@ -3,6 +3,7 @@
 use crate::render_state::LayerInfo;
 use crate::{shaders::uniforms::ActiveLayerCount, LayerUboStd140};
 use bytemuck;
+use log::debug;
 use nalgebra::Matrix4;
 use wgpu::{util::DeviceExt, BindGroup, BindGroupLayout, Buffer, Device, Queue};
 
@@ -94,30 +95,30 @@ impl LayerUniformManager {
             let transform = world_to_voxel_transforms.get(i).unwrap_or(&identity);
 
             // Debug: Log layer configuration
-            println!("LayerUniformManager: Configuring layer {} with:", i);
-            println!(
+            debug!("LayerUniformManager: Configuring layer {} with:", i);
+            debug!(
                 "  Intensity range: ({}, {})",
                 layer.intensity_range.0, layer.intensity_range.1
             );
-            println!(
+            debug!(
                 "  Threshold range: ({}, {})",
                 layer.threshold_range.0, layer.threshold_range.1
             );
-            println!("  Threshold mode: {:?}", layer.threshold_mode);
-            println!("  Colormap ID: {}", layer.colormap_id);
-            println!("  Opacity: {}", layer.opacity);
+            debug!("  Threshold mode: {:?}", layer.threshold_mode);
+            debug!("  Colormap ID: {}", layer.colormap_id);
+            debug!("  Opacity: {}", layer.opacity);
 
             // Use the is_mask field from LayerInfo
-            println!("  Is mask: {}", layer.is_mask);
+            debug!("  Is mask: {}", layer.is_mask);
 
             // DEBUG: Print the transform being used
-            println!(
+            debug!(
                 "LayerUniformManager: Setting world_to_voxel for layer {}:",
                 i
             );
-            println!("  Input transform: {:?}", transform);
+            debug!("  Input transform: {:?}", transform);
             let world_to_voxel_array: [[f32; 4]; 4] = crate::matrix_to_cols_array(transform);
-            println!(
+            debug!(
                 "  Converted to column-major array: {:?}",
                 world_to_voxel_array
             );
@@ -143,10 +144,11 @@ impl LayerUniformManager {
                 thresh_low: layer.threshold_range.0,
                 thresh_high: layer.threshold_range.1,
                 is_mask: if layer.is_mask { 1 } else { 0 },
+                has_alpha_mask: if layer.has_alpha_mask { 1 } else { 0 },
                 interpolation_mode: layer.interpolation_mode,
                 draw_slice_border: 0,
                 border_thickness_px: 1.0,
-                _pad: [0],
+                _pad: [0; 2],
             };
         }
 
@@ -169,7 +171,7 @@ impl LayerUniformManager {
         };
 
         // Debug: Log the active layer count
-        println!(
+        debug!(
             "LayerUniformManager: Writing active layer count = {}",
             self.active_count
         );
@@ -218,10 +220,11 @@ impl LayerUniformManager {
             thresh_low: layer.threshold_range.0,
             thresh_high: layer.threshold_range.1,
             is_mask: if layer.is_mask { 1 } else { 0 },
+            has_alpha_mask: if layer.has_alpha_mask { 1 } else { 0 },
             interpolation_mode: layer.interpolation_mode,
             draw_slice_border: 0,
             border_thickness_px: 1.0,
-            _pad: [0],
+            _pad: [0; 2],
         };
 
         // Upload just the updated layer
@@ -300,6 +303,7 @@ mod tests {
             threshold_mode: ThresholdMode::Range,
             texture_coords: (0.0, 0.0, 1.0, 1.0),
             is_mask: false,
+            has_alpha_mask: false,
             interpolation_mode: 1,
         }];
 

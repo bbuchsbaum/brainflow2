@@ -64,6 +64,12 @@ Default permissions for api-bridge plugin
 - `allow-load-template-by-id`
 - `allow-get-template-cache-stats`
 - `allow-clear-template-cache`
+- `allow-load-surface-template`
+- `allow-get-surface-template-catalog`
+- `allow-load-surface-atlas`
+- `allow-load-surface-overlay`
+- `allow-get-surface-overlay-data`
+- `allow-set-layer-mask`
 
 ## Permission Table
 

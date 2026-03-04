@@ -221,6 +221,7 @@ dependencies = [
  "nalgebra 0.32.6",
  "ndarray 0.16.1",
  "neuro-types",
+ "neuroatlas",
  "neuroim",
  "neurosurf-rs",
  "nifti-loader",

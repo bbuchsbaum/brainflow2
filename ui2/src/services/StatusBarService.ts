@@ -101,39 +101,50 @@ export class StatusBarService {
     // Helper to check if this is still the current initialization
     const isCurrentInit = () => this.initializationId === initId;
     const { setValue } = useStatusBarStore.getState();
-    
-    // Subscribe to crosshair position changes with debouncing
-    const unsubscribeCrosshair = useViewStateStore.subscribe(
-      state => state.viewState.crosshair,
-      crosshair => {
-        if (isCurrentInit()) {
-          this.updateCrosshair(crosshair.world_mm);
+
+    // Subscribe with a full-state listener to avoid selector identity pitfalls.
+    const unsubscribeViewState = useViewStateStore.subscribe((state, prevState) => {
+      if (!isCurrentInit()) {
+        return;
+      }
+
+      const worldMm = state.viewState.crosshair.world_mm;
+      const prevWorldMm = prevState?.viewState.crosshair.world_mm;
+      const crosshairChanged = !prevWorldMm ||
+        prevWorldMm[0] !== worldMm[0] ||
+        prevWorldMm[1] !== worldMm[1] ||
+        prevWorldMm[2] !== worldMm[2];
+      if (crosshairChanged) {
+        this.updateCrosshair(worldMm);
+      }
+
+      const layers = state.viewState.layers;
+      const prevLayers = prevState?.viewState.layers;
+      if (layers !== prevLayers) {
+        const activeLayer = layers.find(l => l.visible);
+        if (activeLayer) {
+          setValue('layer', activeLayer.name || activeLayer.id);
+        } else {
+          setValue('layer', 'None');
         }
       }
-    );
-    this.unsubscribers.push(unsubscribeCrosshair);
+    });
+    this.unsubscribers.push(unsubscribeViewState);
 
     // Set initial crosshair value immediately
     const initialCrosshair = useViewStateStore.getState().viewState.crosshair;
     if (isCurrentInit()) {
       setValue('crosshair', formatCoord(initialCrosshair.world_mm));
     }
-
-    // Subscribe to layer changes
-    const unsubscribeLayers = useViewStateStore.subscribe(
-      state => state.viewState.layers,
-      layers => {
-        if (isCurrentInit()) {
-          const activeLayer = layers.find(l => l.visible);
-          if (activeLayer) {
-            setValue('layer', activeLayer.name || activeLayer.id);
-          } else {
-            setValue('layer', 'None');
-          }
-        }
+    const initialLayers = useViewStateStore.getState().viewState.layers;
+    if (isCurrentInit()) {
+      const activeLayer = initialLayers.find(l => l.visible);
+      if (activeLayer) {
+        setValue('layer', activeLayer.name || activeLayer.id);
+      } else {
+        setValue('layer', 'None');
       }
-    );
-    this.unsubscribers.push(unsubscribeLayers);
+    }
 
     // Subscribe to mouse coordinate changes from Zustand store
     const unsubscribeMouseCoord = useMouseCoordinateStore.subscribe(

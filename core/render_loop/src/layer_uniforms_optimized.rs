@@ -27,12 +27,12 @@ pub struct LayerDataOptimized {
     pub intensity_max: f32, // 4 bytes, offset 104
     pub thresh_low: f32,    // 4 bytes, offset 108
 
-    pub thresh_high: f32, // 4 bytes, offset 112
-    // Performance optimization: precomputed values
-    pub inv_intensity_delta: f32, // 4 bytes, offset 116
-    pub voxel_size_estimate: f32, // 4 bytes, offset 120
-    pub _padding: f32,            // 4 bytes, offset 124
-                                  // Total size: 128 bytes (8 * 16-byte blocks)
+    pub thresh_high: f32,         // 4 bytes, offset 112
+    pub has_alpha_mask: u32,      // 4 bytes, offset 116
+    pub inv_intensity_delta: f32, // 4 bytes, offset 120
+    pub voxel_size_estimate: f32, // 4 bytes, offset 124
+    pub _padding: f32,            // 4 bytes, offset 128
+                                  // Total size: 132 bytes
 }
 
 impl Default for LayerDataOptimized {
@@ -50,6 +50,7 @@ impl Default for LayerDataOptimized {
             intensity_max: 1.0,
             thresh_low: -f32::INFINITY,
             thresh_high: f32::INFINITY,
+            has_alpha_mask: 0,
             inv_intensity_delta: 1.0,
             voxel_size_estimate: 1.0,
             _padding: 0.0,
@@ -222,8 +223,9 @@ impl LayerStorageManagerOptimized {
 
             let voxel_size_estimate = Self::compute_voxel_size(transform);
 
-            // Use the is_mask field from LayerInfo
+            // Use the mask fields from LayerInfo
             let is_mask = if layer.is_mask { 1 } else { 0 };
+            let has_mask = if layer.has_alpha_mask { 1 } else { 0 };
 
             let layer_data = LayerDataOptimized {
                 // Convert matrix to column-major format for GPU
@@ -239,6 +241,7 @@ impl LayerStorageManagerOptimized {
                 intensity_max: layer.intensity_range.1,
                 thresh_low: layer.threshold_range.0,
                 thresh_high: layer.threshold_range.1,
+                has_alpha_mask: has_mask,
                 inv_intensity_delta,
                 voxel_size_estimate,
                 _padding: 0.0,

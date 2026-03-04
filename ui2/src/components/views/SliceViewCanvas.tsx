@@ -16,7 +16,6 @@ import { getTimeNavigationService } from '@/services/TimeNavigationService';
 import { RenderErrorBoundary } from '@/components/ui/RenderErrorBoundary';
 import { drawCrosshair, getLineDash, type CrosshairStyle } from '@/utils/crosshairUtils';
 import { throttle } from 'lodash';
-import { pixelToWorld, sampleLayerValueAtWorld } from '@brainflow/api';
 import { useSliceViewModel } from '@/hooks/useSliceViewModel';
 import { SLIDER_HEIGHT } from './constants';
 import { useViewStateStore } from '@/stores/viewStateStore';
@@ -25,6 +24,7 @@ import { useWindowLevel } from '@/hooks/useWindowLevel';
 import { useShortcut } from '@/hooks/useShortcut';
 import { useDisplayOptionsStore } from '@/stores/displayOptionsStore';
 import { useViewContextMenu } from '@/hooks/useViewContextMenu';
+import { useHoverInfo } from '@/hooks/useHoverInfo';
 
 // Anatomical orientation labels per view (LPI convention)
 const ORIENTATION_LABELS: Record<string, { top: string; bottom: string; left: string; right: string }> = {
@@ -92,9 +92,6 @@ function SliceViewCanvasRaw({ viewId, width, height, className = '' }: SliceView
   const showMarkers = primaryOptions.showOrientationMarkers;
   const showHover = primaryOptions.showValueOnHover;
 
-  // Hover value overlay
-  const [hoverValue, setHoverValue] = React.useState<number | null>(null);
-
   // Derive data range for active layer from layerStore metadata
   const dataRange = useMemo(() => {
     if (!primaryLayer?.volumeId) return null;
@@ -131,6 +128,49 @@ function SliceViewCanvasRaw({ viewId, width, height, className = '' }: SliceView
       viewPlaneRef.current = viewPlane;
     }
   }, [viewPlane]);
+
+  const activeAtlasId = useMemo(() => {
+    const atlasLayer = layers.find((layer) => layer.type === 'label' && layer.atlasMetadata);
+    return atlasLayer?.id;
+  }, [layers]);
+
+  const canvasToWorld = useCallback((canvasX: number, canvasY: number): [number, number, number] | null => {
+    if (!canvasRef.current || !imagePlacementRef.current) return null;
+
+    const currentView = viewPlaneRef.current;
+    if (!currentView) return null;
+
+    const canvas = canvasRef.current;
+    const rect = canvas.getBoundingClientRect();
+    const scaleX = canvas.width / rect.width;
+    const scaleY = canvas.height / rect.height;
+
+    const scaledX = canvasX * scaleX;
+    const scaledY = canvasY * scaleY;
+    const placement = imagePlacementRef.current;
+    if (!placement) return null;
+
+    if (
+      scaledX < placement.x ||
+      scaledX > placement.x + placement.width ||
+      scaledY < placement.y ||
+      scaledY > placement.y + placement.height
+    ) {
+      return null;
+    }
+
+    const imageX = ((scaledX - placement.x) / placement.width) * placement.imageWidth;
+    const imageY = ((scaledY - placement.y) / placement.height) * placement.imageHeight;
+    return CoordinateTransform.screenToWorld(imageX, imageY, currentView) as [number, number, number];
+  }, []);
+
+  const { handleMouseMove, handleMouseLeave, hoverValue } = useHoverInfo({
+    viewId,
+    activeLayerId: primaryLayer?.id,
+    activeAtlasId,
+    canvasToWorld,
+  });
+
   // Keep latest crosshair and settings in refs for stable customRender
   const crosshairRef = React.useRef(crosshair);
   useEffect(() => { crosshairRef.current = crosshair; }, [crosshair]);
@@ -258,55 +298,6 @@ function SliceViewCanvasRaw({ viewId, width, height, className = '' }: SliceView
     setCrosshair(worldCoord, true);
   }, [setCrosshair]);
 
-  // Handle mouse move → sample value if enabled
-  // Stable throttled hover sampler
-  const showHoverRef = useRef(showHover);
-  useEffect(() => { showHoverRef.current = showHover; }, [showHover]);
-  const primaryLayerIdRef = useRef<string | null>(primaryLayer?.id ?? null);
-  useEffect(() => { primaryLayerIdRef.current = primaryLayer?.id ?? null; }, [primaryLayer]);
-  const handleMouseMove = useMemo(
-    () => throttle(async (event: React.MouseEvent<HTMLDivElement>) => {
-      try {
-        if (!showHoverRef.current) { setHoverValue(null); return; }
-        if (!canvasRef.current || !imagePlacementRef.current) return;
-        const layerId = primaryLayerIdRef.current;
-        if (!layerId) return;
-
-        const canvas = canvasRef.current;
-        const rect = canvas.getBoundingClientRect();
-        const scaleX = canvas.width / rect.width;
-        const scaleY = canvas.height / rect.height;
-
-        const canvasX = (event.clientX - rect.left) * scaleX;
-        const canvasY = (event.clientY - rect.top) * scaleY;
-
-        const placement = imagePlacementRef.current;
-        if (!placement) return;
-        if (
-          canvasX < placement.x || canvasX > placement.x + placement.width ||
-          canvasY < placement.y || canvasY > placement.y + placement.height
-        ) { setHoverValue(null); return; }
-
-        const imageX = (canvasX - placement.x) / placement.width * placement.imageWidth;
-        const imageY = (canvasY - placement.y) / placement.height * placement.imageHeight;
-
-        // Obtain frame vectors from viewPlane ref (stable reference)
-        const origin = (viewPlaneRef.current as any)?.frame?.origin_mm as [number, number, number, number];
-        const u = (viewPlaneRef.current as any)?.frame?.u_mm as [number, number, number, number];
-        const v = (viewPlaneRef.current as any)?.frame?.v_mm as [number, number, number, number];
-        if (!origin || !u || !v) { setHoverValue(null); return; }
-
-        const world = pixelToWorld(imageX, imageY, placement.imageWidth, placement.imageHeight, origin, u, v);
-        const value = await sampleLayerValueAtWorld(layerId, world);
-        setHoverValue(prev => (prev !== null && Math.abs(prev - value) < 1e-6) ? prev : value);
-      } catch {
-        setHoverValue(null);
-      }
-    }, 40, { leading: true, trailing: true }),
-    []
-  );
-  useEffect(() => () => (handleMouseMove as any).cancel?.(), [handleMouseMove]);
-
   // Handle mouse wheel for time/slice navigation
   // Stable throttled wheel handler
   const layersRef = useRef(layers);
@@ -402,6 +393,7 @@ function SliceViewCanvasRaw({ viewId, width, height, className = '' }: SliceView
           onCanvasReady={handleCanvasReady}
           customRender={customRender}
           onMouseMove={handleMouseMove}
+          onMouseLeave={handleMouseLeave}
           onWheel={throttledHandleWheel}
           onFileDrop={handleFileDrop}
           enableDragDrop={true}
@@ -435,20 +427,21 @@ function SliceViewCanvasRaw({ viewId, width, height, className = '' }: SliceView
       {showMarkers && hasLayers && (() => {
         const labels = ORIENTATION_LABELS[viewId];
         if (!labels) return null;
-        const pillCls = 'absolute text-white text-[10px] font-bold leading-none bg-black/40 px-1 py-0.5 rounded-sm select-none pointer-events-none';
+        const pillCls = 'absolute text-white/70 text-[11px] font-bold leading-none tracking-[0.15em] uppercase select-none pointer-events-none';
+        const labelShadow = { textShadow: '0 0 4px rgba(0,0,0,0.8), 0 0 8px rgba(0,0,0,0.4)' };
         return (
           <>
-            <span className={`${pillCls} left-1/2 -translate-x-1/2`} style={{ top: LABEL_OFFSET }}>{labels.top}</span>
-            <span className={`${pillCls} left-1/2 -translate-x-1/2`} style={{ bottom: hasLayers ? SLIDER_HEIGHT + LABEL_OFFSET : LABEL_OFFSET }}>{labels.bottom}</span>
-            <span className={`${pillCls} top-1/2 -translate-y-1/2`} style={{ left: LABEL_OFFSET }}>{labels.left}</span>
-            <span className={`${pillCls} top-1/2 -translate-y-1/2`} style={{ right: LABEL_OFFSET }}>{labels.right}</span>
+            <span className={`${pillCls} left-1/2 -translate-x-1/2`} style={{ top: LABEL_OFFSET, ...labelShadow }}>{labels.top}</span>
+            <span className={`${pillCls} left-1/2 -translate-x-1/2`} style={{ bottom: hasLayers ? SLIDER_HEIGHT + LABEL_OFFSET : LABEL_OFFSET, ...labelShadow }}>{labels.bottom}</span>
+            <span className={`${pillCls} top-1/2 -translate-y-1/2`} style={{ left: LABEL_OFFSET, ...labelShadow }}>{labels.left}</span>
+            <span className={`${pillCls} top-1/2 -translate-y-1/2`} style={{ right: LABEL_OFFSET, ...labelShadow }}>{labels.right}</span>
           </>
         );
       })()}
 
       {/* Hover value overlay */}
       {hoverValue !== null && showHover && (
-        <div className="absolute top-1 left-1 bg-black/60 text-white text-[10px] px-1 py-0.5 rounded">
+        <div className="absolute top-1 left-1 bg-black/70 text-white text-[10px] font-mono tabular-nums px-1.5 py-0.5">
           {hoverValue.toFixed(3)}
         </div>
       )}

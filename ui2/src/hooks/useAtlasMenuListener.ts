@@ -39,7 +39,7 @@ interface AtlasPresetPayload {
 }
 
 interface AtlasMenuActionEvent {
-  action: 'load-atlas-preset' | 'load-surface-atlas-preset';
+  action: 'load-atlas-preset' | 'load-atlas' | 'load-surface-atlas-preset';
   payload: AtlasPresetPayload;
 }
 
@@ -547,7 +547,7 @@ export function useAtlasMenuListener() {
 
           const action = event.payload.action;
 
-          if (action !== 'load-atlas-preset' && action !== 'load-surface-atlas-preset') {
+          if (action !== 'load-atlas-preset' && action !== 'load-atlas' && action !== 'load-surface-atlas-preset') {
             console.warn('[useAtlasMenuListener] Unknown atlas action:', action);
             return;
           }

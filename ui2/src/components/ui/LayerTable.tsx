@@ -295,11 +295,8 @@ export const LayerTable: React.FC<LayerTableProps> = ({
   }, [selectedLayerId]);
 
   if (layers.length === 0) {
-    return (
-      <div className="text-[13px] text-muted-foreground text-center py-8">
-        No layers loaded
-      </div>
-    );
+    // VolumeLayerPanel renders a dedicated empty-state component.
+    return null;
   }
 
   const layerIds = layers.map(l => l.id);

@@ -116,16 +116,16 @@ export function SliceSlider({
   const clampedPercentage = Math.max(10, Math.min(90, percentage));
   
   return (
-    <div 
-      className="relative h-full bg-gray-800 border-t border-gray-600 flex items-center px-2"
+    <div
+      className="relative h-full bg-secondary border-t border-border flex items-center px-3"
       onMouseEnter={() => setShowValue(true)}
       onMouseLeave={() => setShowValue(false)}
     >
       {/* Value indicator that appears on hover/drag */}
       {(showValue || isDragging) && (
-        <div 
-          className="absolute bottom-full mb-2 text-green-500 text-xs font-medium pointer-events-none whitespace-nowrap"
-          style={{ 
+        <div
+          className="absolute bottom-full mb-2 text-primary text-xs font-medium pointer-events-none whitespace-nowrap"
+          style={{
             left: `${percentage}%`,
             transform: 'translateX(-50%)'
           }}
@@ -145,7 +145,7 @@ export function SliceSlider({
         onPointerUp={handlePointerUp}
         onPointerMove={handlePointerMove}
         onPointerCancel={handlePointerCancel}
-        className="w-full h-5 bg-gray-700 rounded accent-blue-500 cursor-pointer disabled:cursor-not-allowed disabled:opacity-50 slider-custom"
+        className="w-full h-4 cursor-pointer disabled:cursor-not-allowed disabled:opacity-50 slider-custom"
       />
     </div>
   );

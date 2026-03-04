@@ -1,15 +1,14 @@
 /**
  * SharedControls - Reusable controls for any data layer (volume or surface)
- *
+ * 
  * These controls work identically for:
  * - Volume layers (all layers in volume visualization)
  * - Surface data layers (layers 1+ in surface visualization, NOT the geometry)
- *
+ * 
  * Includes: Intensity Window, Threshold, Colormap, and Opacity
  */
 
 import React from 'react';
-import { RotateCcw } from 'lucide-react';
 import { ProSlider } from '../ui/ProSlider';
 import { SingleSlider } from '../ui/SingleSlider';
 import { EnhancedColormapSelector } from './EnhancedColormapSelector';
@@ -41,27 +40,42 @@ export interface SharedControlsProps {
    * The current render settings for the layer
    */
   render?: DataLayerRender;
-
+  
   /**
    * Metadata about the layer's data (for setting slider ranges)
    */
   metadata?: DataLayerMetadata;
-
+  
   /**
    * Callback when any render property changes
    */
   onRenderUpdate: (updates: Partial<DataLayerRender>) => void;
-
+  
   /**
    * Whether the controls should be disabled
    */
   disabled?: boolean;
-
+  
   /**
    * Optional class name for styling
    */
   className?: string;
 
+  /**
+   * Compact layout for dense panels (SurfacePanel)
+   */
+  compact?: boolean;
+
+  /**
+   * Force foreground tokens for better contrast on muted backgrounds
+   */
+  highContrast?: boolean;
+
+  /**
+   * Layout mode for sliders (stacked vs strip)
+   */
+  layout?: 'stacked' | 'strip';
+  
   /**
    * Optional labels for customization (e.g., "Curvature Range" instead of "Intensity Window")
    */
@@ -75,7 +89,7 @@ export interface SharedControlsProps {
 
 /**
  * SharedControls component - Controls that work for any data layer
- *
+ * 
  * Usage:
  * - In VolumePanel: For all volume layers
  * - In SurfacePanel: For data layers (NOT the geometry controls)
@@ -87,11 +101,14 @@ export const SharedControls: React.FC<SharedControlsProps> = ({
   onRenderUpdate,
   disabled = false,
   className = '',
-  labels = {}
+  labels = {},
+  compact = false,
+  highContrast = false,
+  layout = 'stacked'
 }) => {
   // Determine if controls should be disabled (no render data or explicitly disabled)
   const isDisabled = disabled || !render;
-
+  
   // Use provided labels or defaults
   const controlLabels = {
     intensity: labels.intensity || 'Intensity Window',
@@ -99,39 +116,33 @@ export const SharedControls: React.FC<SharedControlsProps> = ({
     colormap: labels.colormap || 'Colormap',
     opacity: labels.opacity || 'Opacity'
   };
-
+  
   // Determine data range for sliders
   const dataMin = metadata?.dataRange?.min ?? 0;
   const dataMax = metadata?.dataRange?.max ?? 10000;
 
-  const handleAutoIntensity = () => {
-    if (isDisabled) return;
-    onRenderUpdate({ intensity: [dataMin, dataMax] });
-  };
+  // Determine appropriate precision based on data range
+  // For small ranges (< 10), use more decimal places
+  const dataRange = Math.abs(dataMax - dataMin);
+  const precision = dataRange < 1 ? 3 : dataRange < 10 ? 2 : dataRange < 100 ? 1 : 0;
+
+  const spacingClass = layout === 'strip' ? 'space-y-0' : compact ? 'space-y-2' : 'space-y-5';
 
   return (
-    <div className={`space-y-4 ${isDisabled ? 'opacity-50 pointer-events-none' : ''} ${className}`}>
+    <div className={`${spacingClass} ${isDisabled ? 'opacity-50 pointer-events-none' : ''} ${className}`}>
       {/* Intensity Window - Maps data values to display range */}
-      <div className="relative">
-        <ProSlider
-          label={controlLabels.intensity}
-          min={dataMin}
-          max={dataMax}
-          value={render?.intensity || [dataMin, dataMax]}
-          onChange={(value) => onRenderUpdate({ intensity: value })}
-          precision={0}
-          disabled={isDisabled}
-        />
-        <button
-          type="button"
-          onClick={handleAutoIntensity}
-          title="Reset to full data range"
-          className="absolute top-0 right-0 flex items-center gap-1 px-1.5 py-0.5 text-[10px] text-muted-foreground hover:text-foreground rounded hover:bg-muted transition-colors"
-        >
-          <RotateCcw className="w-3 h-3" />
-          Auto
-        </button>
-      </div>
+      <ProSlider
+        label={controlLabels.intensity}
+        min={dataMin}
+        max={dataMax}
+        value={render?.intensity || [dataMin, dataMax]}
+        onChange={(value) => onRenderUpdate({ intensity: value })}
+        precision={precision}
+        disabled={isDisabled}
+        layout={layout}
+        compact={compact}
+        highContrast={highContrast}
+      />
 
       {/* Threshold - Filters data visibility */}
       <ProSlider
@@ -140,8 +151,11 @@ export const SharedControls: React.FC<SharedControlsProps> = ({
         max={dataMax}
         value={render?.threshold || [dataMin, dataMin]}
         onChange={(value) => onRenderUpdate({ threshold: value })}
-        precision={0}
+        precision={precision}
         disabled={isDisabled}
+        layout={layout}
+        compact={compact}
+        highContrast={highContrast}
       />
 
       {/* Colormap - Maps values to colors */}
@@ -161,6 +175,9 @@ export const SharedControls: React.FC<SharedControlsProps> = ({
         showPercentage={true}
         disabled={isDisabled}
         className="mb-0"
+        layout={layout}
+        compact={compact}
+        highContrast={highContrast}
       />
     </div>
   );
@@ -181,14 +198,14 @@ export function useSharedControlsAdapter(
     colormap: layer.colormap || layer.render?.colormap || 'gray',
     opacity: layer.opacity ?? layer.render?.opacity ?? 1
   } : undefined;
-
+  
   // Adapt metadata to DataLayerMetadata format
   const adaptedMetadata: DataLayerMetadata | undefined = metadata ? {
     dataRange: metadata.dataRange,
     dataType: metadata.dataType,
     units: metadata.units
   } : undefined;
-
+  
   return {
     render,
     metadata: adaptedMetadata,

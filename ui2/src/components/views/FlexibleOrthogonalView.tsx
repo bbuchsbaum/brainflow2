@@ -89,7 +89,7 @@ export function FlexibleOrthogonalView({ workspaceId }: FlexibleOrthogonalViewPr
   // FlexibleSlicePanel now handles all dimension updates via ResizeObserver
 
   return (
-    <div ref={containerRef} className="h-full w-full bg-gray-950 split-view-container">
+    <div ref={containerRef} className="h-full w-full bg-black split-view-container">
       <Allotment 
         vertical 
         defaultSizes={verticalSizes}

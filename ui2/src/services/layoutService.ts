@@ -39,11 +39,23 @@ class LayoutServiceImpl implements LayoutService {
         return;
       }
 
-      // Create the new item and add it to the center stack
-      const newItem = this.layoutRef.newItem(config);
-      centerStack.addChild(newItem);
-      
-      console.log('[LayoutService] Component added:', config);
+      // Defer addition to next frame to avoid GoldenLayout tab initialization race
+      // where activeTab.element is undefined during addChild → setActiveComponentItem
+      requestAnimationFrame(() => {
+        try {
+          centerStack.addItem(config);
+          console.log('[LayoutService] Component added:', config);
+        } catch (innerError) {
+          // Fallback: try newItem + addChild if addItem not available
+          try {
+            const newItem = this.layoutRef.newItem(config);
+            centerStack.addChild(newItem);
+            console.log('[LayoutService] Component added (fallback):', config);
+          } catch (fallbackError) {
+            console.error('[LayoutService] Failed to add component:', fallbackError);
+          }
+        }
+      });
     } catch (error) {
       console.error('[LayoutService] Failed to add component:', error);
     }

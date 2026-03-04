@@ -5,6 +5,7 @@
   "windows": ["main"],
   "permissions": [
     "api-bridge:default",
+    "api-bridge:allow-load-surface-atlas",
     "api-bridge:allow-load-surface-overlay"
   ]
 }

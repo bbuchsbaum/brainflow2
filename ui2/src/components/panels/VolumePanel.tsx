@@ -1,27 +1,40 @@
 /**
  * VolumePanel - Volume-specific property controls
- * 
+ *
  * This panel contains all controls specific to volume layers,
  * using SharedControls for common data layer properties.
- * 
+ *
  * Part of the separate panels architecture for different layer types.
+ * Follows "Instrument Control" aesthetic (Neutra/Cody design principles).
  */
 
 import React from 'react';
 import { SharedControls, type DataLayerRender, type DataLayerMetadata } from './SharedControls';
-import type { Layer, LayerRender } from '@/types/layers';
-import type { VolumeMetadata } from '@/stores/layerStore';
-import { ChevronDown, ChevronRight, Layers, Settings } from 'lucide-react';
+import { CollapsibleSection } from '../ui/CollapsibleSection';
+import { PropertyRow, PropertyBox } from '../ui/PropertyRow';
+import { SingleSlider } from '../ui/SingleSlider';
+import type { LayerRender } from '@/types/layers';
+import type { LayerInfo, VolumeMetadata } from '@/stores/layerStore';
+import { AtlasPaletteService } from '@/services/AtlasPaletteService';
+import { ATLAS_PALETTE_OPTIONS, type AtlasPaletteKind } from '@/types/atlasPalette';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/shadcn/select';
+import { Layers, Palette, Settings } from 'lucide-react';
 import { setLayerBorder } from '@brainflow/api';
 import { useViewStateStore } from '@/stores/viewStateStore';
 import { getOptimizedRenderService } from '@/services/OptimizedRenderService';
 import { useDisplayOptionsStore } from '@/stores/displayOptionsStore';
 
+const DEFAULT_LAYER_DISPLAY_OPTIONS = Object.freeze({
+  showBorder: false,
+  showOrientationMarkers: true,
+  showValueOnHover: true,
+});
+
 interface VolumePanelProps {
   /**
    * The volume layer being edited
    */
-  layer: Layer;
+  layer: LayerInfo;
   
   /**
    * Current render properties
@@ -40,7 +53,7 @@ interface VolumePanelProps {
 }
 
 /**
- * Compact interpolation mode selector
+ * Compact interpolation mode selector - Instrument Control style
  */
 const CompactInterpolationSelector: React.FC<{
   value: 'nearest' | 'linear';
@@ -48,17 +61,18 @@ const CompactInterpolationSelector: React.FC<{
   disabled?: boolean;
 }> = ({ value, onChange, disabled }) => {
   return (
-    <div className="flex items-center justify-between gap-2">
-      <label className="text-xs text-muted-foreground flex-1 min-w-0">
+    <div className="flex items-center justify-between gap-4">
+      <label className="text-[10px] uppercase tracking-widest text-muted-foreground font-semibold shrink-0">
         Interpolation
       </label>
-      <div className="flex gap-1 shrink-0">
+      <div className="flex gap-0 shrink-0">
         <button
-          className={`px-3 py-0.5 text-xs border rounded transition-colors ${
+          className={`px-3 py-1 text-[10px] uppercase tracking-wider font-medium border border-r-0 transition-colors ${
             value === 'nearest'
               ? 'bg-primary text-primary-foreground border-primary'
-              : 'bg-background hover:bg-accent border-input'
+              : 'bg-transparent hover:bg-muted/50 border-border text-muted-foreground'
           }`}
+          style={{ borderRadius: '1px 0 0 1px' }}
           onClick={() => onChange('nearest')}
           disabled={disabled}
           title="Blocky appearance, preserves exact values"
@@ -66,11 +80,12 @@ const CompactInterpolationSelector: React.FC<{
           Nearest
         </button>
         <button
-          className={`px-3 py-0.5 text-xs border rounded transition-colors ${
+          className={`px-3 py-1 text-[10px] uppercase tracking-wider font-medium border transition-colors ${
             value === 'linear'
               ? 'bg-primary text-primary-foreground border-primary'
-              : 'bg-background hover:bg-accent border-input'
+              : 'bg-transparent hover:bg-muted/50 border-border text-muted-foreground'
           }`}
+          style={{ borderRadius: '0 1px 1px 0' }}
           onClick={() => onChange('linear')}
           disabled={disabled}
           title="Smooth appearance, interpolates between voxels"
@@ -83,7 +98,7 @@ const CompactInterpolationSelector: React.FC<{
 };
 
 /**
- * Compact toggle switch component
+ * Compact toggle switch component - Instrument Control style (rectangular)
  */
 const CompactToggle: React.FC<{
   label: string;
@@ -93,65 +108,33 @@ const CompactToggle: React.FC<{
   title?: string;
 }> = ({ label, value, onChange, disabled, title }) => {
   return (
-    <div className="flex items-center justify-between" title={title}>
-      <label className="text-xs text-muted-foreground">
+    <div className="flex items-center justify-between gap-4" title={title}>
+      <label className="text-[10px] uppercase tracking-widest text-muted-foreground font-semibold">
         {label}
       </label>
       <button
-        className={`relative inline-flex h-4 w-8 items-center rounded-full transition-colors ${
+        className={`relative inline-flex h-4 w-8 items-center transition-colors border ${
           value
-            ? 'bg-primary'
-            : 'bg-input'
+            ? 'bg-primary border-primary'
+            : 'bg-muted border-border'
         }`}
+        style={{ borderRadius: '1px' }}
         onClick={() => onChange(!value)}
         disabled={disabled}
         aria-pressed={value}
       >
         <span
-          className={`inline-block h-3 w-3 transform rounded-full bg-white transition-transform ${
+          className={`inline-block h-3 w-3 transform bg-card transition-transform ${
             value ? 'translate-x-4' : 'translate-x-0.5'
           }`}
+          style={{ borderRadius: '1px' }}
         />
       </button>
     </div>
   );
 };
 
-/**
- * Collapsible section component
- */
-const CollapsibleSection: React.FC<{
-  title: string;
-  icon?: React.ReactNode;
-  defaultOpen?: boolean;
-  children: React.ReactNode;
-}> = ({ title, icon, defaultOpen = true, children }) => {
-  const [isOpen, setIsOpen] = React.useState(defaultOpen);
-  
-  return (
-    <div className="border rounded-lg">
-      <button
-        className="w-full flex items-center justify-between p-3 hover:bg-accent/50 transition-colors"
-        onClick={() => setIsOpen(!isOpen)}
-      >
-        <div className="flex items-center gap-2">
-          {icon}
-          <span className="text-sm font-medium">{title}</span>
-        </div>
-        {isOpen ? (
-          <ChevronDown className="w-4 h-4" />
-        ) : (
-          <ChevronRight className="w-4 h-4" />
-        )}
-      </button>
-      {isOpen && (
-        <div className="px-3 pb-3">
-          {children}
-        </div>
-      )}
-    </div>
-  );
-};
+/* CollapsibleSection is now imported from '../ui/CollapsibleSection' */
 
 /**
  * VolumePanel - Main component for volume layer controls
@@ -182,8 +165,31 @@ export const VolumePanel: React.FC<VolumePanelProps> = ({
     onRenderUpdate({ interpolation });
   };
 
-  // Per-layer display settings state (future: move to layer state/metadata)
-  const displayOptions = useDisplayOptionsStore(s => s.getOptions(layer.id));
+  const [isPaletteLoading, setIsPaletteLoading] = React.useState(false);
+
+  const isAtlasCategorical =
+    layer.source === 'atlas' &&
+    layer.type === 'label' &&
+    render?.colormapId != null &&
+    render?.atlasConfig != null &&
+    typeof render?.atlasPaletteKind === 'string';
+
+  const atlasPaletteKind = render?.atlasPaletteKind as AtlasPaletteKind | undefined;
+
+  const handlePaletteChange = async (nextKind: AtlasPaletteKind) => {
+    const atlasConfig = render?.atlasConfig;
+    if (!atlasConfig) return;
+    setIsPaletteLoading(true);
+    try {
+      await AtlasPaletteService.applyToVolumeLayer(layer.id, atlasConfig, { kind: nextKind });
+    } finally {
+      setIsPaletteLoading(false);
+    }
+  };
+
+  // Select a stable reference directly from store; avoid creating objects in selector.
+  const storedDisplayOptions = useDisplayOptionsStore(s => s.options.get(layer.id));
+  const displayOptions = storedDisplayOptions ?? DEFAULT_LAYER_DISPLAY_OPTIONS;
   const setDisplayOptions = useDisplayOptionsStore(s => s.setOptions);
 
   const [showBorder, setShowBorder] = React.useState<boolean>(displayOptions.showBorder);
@@ -192,9 +198,13 @@ export const VolumePanel: React.FC<VolumePanelProps> = ({
 
   // Keep local state in sync if store changes from elsewhere
   React.useEffect(() => {
-    setShowBorder(displayOptions.showBorder);
-    setShowOrientationMarkers(displayOptions.showOrientationMarkers);
-    setShowValueOnHover(displayOptions.showValueOnHover);
+    setShowBorder((prev) => (Object.is(prev, displayOptions.showBorder) ? prev : displayOptions.showBorder));
+    setShowOrientationMarkers((prev) => (
+      Object.is(prev, displayOptions.showOrientationMarkers) ? prev : displayOptions.showOrientationMarkers
+    ));
+    setShowValueOnHover((prev) => (
+      Object.is(prev, displayOptions.showValueOnHover) ? prev : displayOptions.showValueOnHover
+    ));
   }, [displayOptions.showBorder, displayOptions.showOrientationMarkers, displayOptions.showValueOnHover]);
 
   const handleBorderToggle = async (next: boolean) => {
@@ -228,47 +238,58 @@ export const VolumePanel: React.FC<VolumePanelProps> = ({
   };
 
   return (
-    <div className="space-y-4">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <h3 className="flex items-center gap-2">
-          <Layers className="w-4 h-4" />
-          Volume Properties
-        </h3>
-        <span className="text-[11px] uppercase tracking-[0.12em] text-accent border border-accent px-2 py-1 rounded-sm bg-transparent">
+    <div className="space-y-6">
+      {/* Header - Instrument Control style */}
+      <div className="flex items-center justify-between pb-2 border-b border-border">
+        <div className="flex items-center gap-2">
+          <Layers className="w-4 h-4 text-muted-foreground" />
+          <span className="text-[11px] uppercase tracking-[0.15em] font-bold text-foreground">
+            Volume Properties
+          </span>
+        </div>
+        <span className="text-[10px] uppercase tracking-widest text-accent font-mono">
           {layer.type || 'volume'}
         </span>
       </div>
 
-      {/* Volume Info */}
-      <div className="text-xs text-muted-foreground space-y-1 p-3 border border-border rounded-sm border-l-4 border-accent bg-card">
-        <div className="flex justify-between">
-          <span>Layer:</span>
-          <span className="font-medium">{layer.name}</span>
-        </div>
+      {/* Volume Info - Technical Blueprint style */}
+      <PropertyBox>
+        <PropertyRow
+          label="Layer"
+          value={layer.name}
+          truncate
+          maxValueWidth="140px"
+        />
         {metadata?.dimensions && (
-          <div className="flex justify-between">
-            <span>Dimensions:</span>
-            <span className="font-mono">{metadata.dimensions.join(' × ')}</span>
-          </div>
+          <PropertyRow
+            label="Dimensions"
+            value={metadata.dimensions.join(' × ')}
+            mono
+          />
         )}
         {metadata?.spacing && (
-          <div className="flex justify-between">
-            <span>Voxel Size:</span>
-            <span className="font-mono">
-              {metadata.spacing.map(s => s.toFixed(2)).join(' × ')} mm
-            </span>
-          </div>
+          <PropertyRow
+            label="Voxel Size"
+            value={`${metadata.spacing.map(s => s.toFixed(2)).join(' × ')} mm`}
+            mono
+          />
         )}
-      </div>
+        {metadata?.dataRange && (
+          <PropertyRow
+            label="Data Range"
+            value={`${metadata.dataRange.min.toFixed(1)} – ${metadata.dataRange.max.toFixed(1)}`}
+            mono
+          />
+        )}
+      </PropertyBox>
 
       {/* Display Settings - Compact */}
       <CollapsibleSection
         title="Display Settings"
-        icon={<Settings className="w-4 h-4" />}
-        defaultOpen={false}
+        icon={Settings}
+        defaultExpanded={false}
       >
-        <div className="space-y-2 pt-2">
+        <div className="space-y-3">
           <CompactInterpolationSelector
             value={render?.interpolation || 'linear'}
             onChange={handleInterpolationChange}
@@ -298,35 +319,67 @@ export const VolumePanel: React.FC<VolumePanelProps> = ({
             disabled={!render}
             title="Display voxel values when hovering over the slice"
           />
-
-          {/* Future: Add slice thickness control here */}
-          {/* Future: Add resampling quality here */}
         </div>
       </CollapsibleSection>
-      
-      {/* Data Layer Controls (Common) */}
-      <CollapsibleSection 
-        title="Data Mapping" 
-        icon={<Layers className="w-4 h-4" />}
-        defaultOpen={true}
-      >
-        <div className="pt-2">
+
+      {isAtlasCategorical ? (
+        <CollapsibleSection title="Palette" icon={Palette} defaultExpanded={true}>
+          <div className="space-y-3 rounded-sm border border-border/50 bg-muted/10 p-2">
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-[10px] uppercase tracking-widest text-muted-foreground font-semibold">
+                Palette
+              </span>
+              <Select
+                value={atlasPaletteKind}
+                onValueChange={(v) => void handlePaletteChange(v as AtlasPaletteKind)}
+                disabled={isPaletteLoading}
+              >
+                <SelectTrigger className="h-7 w-[180px] text-[11px]">
+                  <SelectValue placeholder="Select palette" />
+                </SelectTrigger>
+                <SelectContent>
+                  {ATLAS_PALETTE_OPTIONS.map((opt) => (
+                    <SelectItem key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <SingleSlider
+              label="Opacity"
+              min={0}
+              max={1}
+              value={render?.opacity ?? 1}
+              onChange={(opacity) => onRenderUpdate({ opacity })}
+              showPercentage={true}
+              disabled={!render || isPaletteLoading}
+              className="mb-0"
+              layout="strip"
+              compact
+              highContrast
+            />
+          </div>
+        </CollapsibleSection>
+      ) : (
+        <CollapsibleSection title="Data Mapping" icon={Layers} defaultExpanded={true}>
           <SharedControls
             render={adaptedRender}
             metadata={adaptedMetadata}
             onRenderUpdate={onRenderUpdate}
             disabled={!layer || !render}
           />
-        </div>
-      </CollapsibleSection>
-      
+        </CollapsibleSection>
+      )}
+
       {/* Advanced Settings (collapsed by default) */}
-      <CollapsibleSection 
-        title="Advanced" 
-        icon={<Settings className="w-4 h-4" />}
-        defaultOpen={false}
+      <CollapsibleSection
+        title="Advanced"
+        icon={Settings}
+        defaultExpanded={false}
       >
-        <div className="space-y-2 pt-2 text-xs text-muted-foreground">
+        <div className="space-y-2 text-[11px] text-muted-foreground">
           <p>Advanced volume settings coming soon:</p>
           <ul className="list-disc list-inside space-y-1 ml-2">
             <li>Slice thickness adjustment</li>
@@ -355,13 +408,15 @@ export const VolumePanelCompat: React.FC<{
   }
   
   // Create a minimal layer object for compatibility
-  const layer: Layer = {
+  const layer: LayerInfo = {
     id: 'compat-layer',
     name: 'Volume Layer',
     volumeId: '',
     type: 'anatomical',
     visible: true,
-    order: 0
+    order: 0,
+    source: 'other',
+    sourcePath: 'compat'
   };
   
   return (

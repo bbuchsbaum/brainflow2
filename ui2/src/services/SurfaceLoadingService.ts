@@ -8,6 +8,7 @@ import { getApiService, type ApiService } from './apiService';
 import { useSurfaceStore } from '@/stores/surfaceStore';
 import { useLoadingQueueStore } from '@/stores/loadingQueueStore';
 import { getLayoutService } from './layoutService';
+import { formatTauriError } from '@/utils/formatTauriError';
 
 export interface SurfaceLoadOptions {
   path: string;
@@ -194,6 +195,186 @@ export class SurfaceLoadingService {
       console.error(`[SurfaceLoadingService] Failed to get metadata:`, error);
       return null;
     }
+  }
+  /**
+   * Load a surface template from TemplateFlow (e.g., fsaverage, fsaverage5)
+   * @param request The template request with space, geometry_type, and hemisphere
+   * @returns The surface handle if successful, null otherwise
+   */
+  async loadSurfaceTemplate(request: {
+    space: string;
+    geometry_type: string;
+    hemisphere: string;
+  }, options?: {
+    openViewer?: boolean;
+    focusSurfacePanel?: boolean;
+  }): Promise<string | null> {
+    const { space, geometry_type, hemisphere } = request;
+    const openViewer = options?.openViewer ?? true;
+    const focusSurfacePanel = options?.focusSurfacePanel ?? true;
+
+    const normalizedRequest = this.normalizeTemplateRequest(request);
+    const effectiveGeometryType = normalizedRequest.geometry_type;
+
+    // Generate a unique path identifier for this template
+    const templatePath = `templateflow://${space}_${effectiveGeometryType}_${hemisphere}`;
+    const displayName =
+      effectiveGeometryType === geometry_type
+        ? `${space} ${geometry_type} (${hemisphere})`
+        : `${space} ${geometry_type}->${effectiveGeometryType} (${hemisphere})`;
+
+    console.log(`[SurfaceLoadingService] Loading surface template:`, displayName);
+
+    // Check if already loading
+    if (useLoadingQueueStore.getState().isLoading(templatePath)) {
+      console.warn(`[SurfaceLoadingService] Surface template already loading:`, templatePath);
+      this.eventBus.emit('ui.notification', {
+        type: 'info',
+        message: `Surface template is already being loaded: ${displayName}`
+      });
+      return null;
+    }
+
+    // Add to loading queue
+    const queueId = useLoadingQueueStore.getState().enqueue({
+      type: 'template',
+      path: templatePath,
+      displayName: displayName
+    });
+
+    try {
+      // Start loading
+      useLoadingQueueStore.getState().startLoading(queueId);
+
+      // Emit loading event
+      this.eventBus.emit('surface.template.loading', {
+        space,
+        geometry_type: effectiveGeometryType,
+        hemisphere,
+      });
+
+      if (effectiveGeometryType !== geometry_type) {
+        this.eventBus.emit('ui.notification', {
+          type: 'warning',
+          message: `Template '${space}' does not provide '${geometry_type}' surfaces; loading '${effectiveGeometryType}' instead.`,
+        });
+      }
+
+      // Update progress: starting backend load
+      useLoadingQueueStore.getState().updateProgress(queueId, 10);
+
+      // Call the backend to load the surface template
+      const result = await this.apiService.transport.invoke<{
+        success: boolean;
+        surface_handle?: string;
+        vertex_count?: number;
+        face_count?: number;
+        space: string;
+        geometry_type: string;
+        hemisphere: string;
+        error_message?: string;
+      }>('load_surface_template', { request: normalizedRequest });
+
+      // Update progress: backend response received
+      useLoadingQueueStore.getState().updateProgress(queueId, 50);
+
+      if (!result.success || !result.surface_handle) {
+        throw new Error(result.error_message || `Failed to load surface template: ${displayName}`);
+      }
+
+      // Register the surface in the store and fetch geometry data
+      const surfaceHandle = await useSurfaceStore.getState().registerSurfaceFromTemplate(
+        result.surface_handle,
+        {
+          space: result.space,
+          geometryType: result.geometry_type,
+          hemisphere: result.hemisphere,
+          vertexCount: result.vertex_count || 0,
+          faceCount: result.face_count || 0,
+        }
+      );
+
+      // Update progress: surface registered
+      useLoadingQueueStore.getState().updateProgress(queueId, 80);
+
+      // Set as active surface
+      useSurfaceStore.getState().setActiveSurface(surfaceHandle);
+
+      // Complete loading
+      useLoadingQueueStore.getState().markComplete(queueId);
+
+      // Emit success event
+      this.eventBus.emit('surface.template.loaded', {
+        handle: surfaceHandle,
+        space,
+        geometry_type: result.geometry_type || effectiveGeometryType,
+        hemisphere,
+        vertexCount: result.vertex_count || 0,
+        faceCount: result.face_count || 0,
+      });
+
+      const layoutService = getLayoutService();
+      if (openViewer) {
+        layoutService.addComponent({
+          type: 'component',
+          componentType: 'surfaceView',
+          title: displayName,
+          componentState: {
+            surfaceHandle,
+            path: templatePath
+          }
+        });
+      }
+
+      if (focusSurfacePanel) {
+        layoutService.focusSurfacePanel();
+      }
+
+      console.log(`[SurfaceLoadingService] Surface template loaded successfully:`, surfaceHandle);
+      return surfaceHandle;
+
+    } catch (error) {
+      console.error(`[SurfaceLoadingService] Failed to load surface template:`, error);
+      const errorMessage = formatTauriError(error);
+      const normalizedError = error instanceof Error ? error : new Error(errorMessage);
+
+      // Mark as failed in queue
+      useLoadingQueueStore.getState().markError(queueId, normalizedError);
+
+      // Emit error event
+      this.eventBus.emit('surface.template.error', {
+        space,
+        geometry_type: effectiveGeometryType,
+        hemisphere,
+        error: errorMessage
+      });
+
+      return null;
+    }
+  }
+
+  private normalizeTemplateRequest(request: {
+    space: string;
+    geometry_type: string;
+    hemisphere: string;
+  }): {
+    space: string;
+    geometry_type: string;
+    hemisphere: string;
+  } {
+    const isFsaverageFamily = /^fsaverage(5|6|7)?$/i.test(request.space);
+    const geometry = request.geometry_type.toLowerCase();
+
+    // TemplateFlow fsaverage currently ships white/pial/sphere/midthickness,
+    // but no inflated geometry files.
+    if (isFsaverageFamily && geometry === 'inflated') {
+      return {
+        ...request,
+        geometry_type: 'pial',
+      };
+    }
+
+    return request;
   }
 }
 

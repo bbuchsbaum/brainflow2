@@ -40,16 +40,16 @@ export const SurfaceControlPanel: React.FC = () => {
   return (
     <div className="h-full flex flex-col bg-background">
       {/* Header */}
-      <div className="flex items-center gap-2 px-4 py-3 border-b bg-muted/30">
+      <div className="flex items-center gap-2 px-3 py-2 border-b border-border bg-muted/20">
         {selectedItemType === 'geometry' ? (
           <>
             <Settings2 className="h-4 w-4 text-muted-foreground" />
-            <span className="text-sm font-medium">Geometry Controls</span>
+            <span className="text-[11px] font-semibold uppercase tracking-[0.12em]">Geometry Controls</span>
           </>
         ) : (
           <>
             <Layers className="h-4 w-4 text-muted-foreground" />
-            <span className="text-sm font-medium">Data Layer Controls</span>
+            <span className="text-[11px] font-semibold uppercase tracking-[0.12em]">Data Layer Controls</span>
           </>
         )}
       </div>

@@ -40,6 +40,8 @@ export const SurfaceLayerPanel: React.FC = () => {
     setSelectedItem,
     addDataLayer,
     removeDataLayer,
+    updateLayerProperty,
+    setSurfaceVisibility,
   } = useSurfaceStore();
   
   // State for metadata drawer
@@ -96,6 +98,7 @@ export const SurfaceLayerPanel: React.FC = () => {
         colormap: 'viridis',
         range: [-1, 1] as [number, number],
         opacity: 1,
+        visible: true,
       };
       addDataLayer(surfaceId, mockLayer);
     }
@@ -107,24 +110,48 @@ export const SurfaceLayerPanel: React.FC = () => {
       removeSurface(surfaceId);
     }
   }, [removeSurface]);
+
+  const handleToggleSurfaceVisibility = useCallback((surfaceId: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    const surface = surfaces.get(surfaceId);
+    if (!surface) {
+      return;
+    }
+
+    const nextVisible = surface.visible === false;
+    setSurfaceVisibility(surfaceId, nextVisible);
+
+    if (nextVisible) {
+      setActiveSurface(surfaceId);
+      setSelectedItem('geometry');
+    } else if (activeSurfaceId === surfaceId) {
+      const fallback = surfaceList.find(([id, candidate]) => id !== surfaceId && candidate.visible !== false);
+      if (fallback) {
+        setActiveSurface(fallback[0]);
+        setSelectedItem('geometry');
+      }
+    }
+  }, [surfaces, setSurfaceVisibility, setActiveSurface, setSelectedItem, activeSurfaceId, surfaceList]);
   
   return (
     <div className="flex flex-col h-full bg-background">
       {/* Header */}
-      <div className="flex items-center justify-between px-4 py-3 border-b">
+      <div className="flex items-center justify-between px-4 py-2.5 border-b border-border bg-muted/10">
         <div className="flex items-center gap-2">
-          <Brain className="h-4 w-4 text-muted-foreground" />
-          <h3 className="text-sm font-medium">Surfaces</h3>
+          <span className="w-2 h-2 bg-primary rounded-[1px]" aria-hidden />
+          <h3 className="text-[11px] font-bold uppercase tracking-[0.18em] text-foreground flex items-center gap-2">
+            <Brain className="h-4 w-4 text-muted-foreground" />
+            Surfaces
+          </h3>
         </div>
         <Button
           size="sm"
-          variant="secondary"
+          variant="outline"
           onClick={handleLoadSurface}
           disabled={isLoading}
-          className="h-7"
+          className="h-6 text-[10px] px-2 uppercase tracking-widest bg-background hover:border-accent hover:text-accent"
         >
-          <FileUp className="h-3 w-3 mr-1" />
-          Load
+          + Load Surface
         </Button>
       </div>
       
@@ -154,7 +181,7 @@ export const SurfaceLayerPanel: React.FC = () => {
             </p>
           </div>
         ) : (
-          <div className="space-y-4">
+          <div className="space-y-3">
             {/* Surface List */}
             <div className="p-2 space-y-1">
             {surfaceList.map(([id, surface]) => {
@@ -166,39 +193,39 @@ export const SurfaceLayerPanel: React.FC = () => {
               return (
                 <div key={id} className="space-y-0.5">
                   {/* Surface Geometry Row */}
-                  <div className="flex items-center gap-1">
+                  <div className="flex items-center gap-2">
                     {/* Expand/Collapse */}
                     <button
                       onClick={() => toggleExpanded(id)}
-                      className="p-0.5 hover:bg-muted rounded"
+                      className="p-1 hover:bg-muted/40 rounded-[2px]"
+                      title={isExpanded ? 'Collapse' : 'Expand'}
                     >
                       {isExpanded ? (
-                        <ChevronDown className="h-3.5 w-3.5" />
+                        <ChevronDown className="h-3 w-3" />
                       ) : (
-                        <ChevronRight className="h-3.5 w-3.5" />
+                        <ChevronRight className="h-3 w-3" />
                       )}
                     </button>
                     
-                    <div
+                      <div
                       onClick={() => handleSelectGeometry(id)}
                       className={cn(
-                        "group flex-1 flex items-center justify-between px-2 py-1.5 rounded cursor-pointer transition-colors",
+                        "group flex-1 flex items-center justify-between px-3 py-2 border-l-[3px] cursor-pointer transition-all rounded-sm",
+                        surface.visible === false && "opacity-50",
                         isGeometrySelected
-                          ? "bg-accent/10 border border-accent/30" 
-                          : "hover:bg-muted/50 border border-transparent"
+                          ? "border-accent bg-muted/10" 
+                          : "border-transparent hover:border-border hover:bg-muted/30"
                       )}
                     >
                       <div className="flex items-center gap-2 flex-1 min-w-0">
                         {/* Geometry Icon */}
-                        <Settings2 className="h-3.5 w-3.5 text-muted-foreground" />
+                        <Settings2 className="h-3 w-3 text-muted-foreground" />
                         
                         {/* Visibility Toggle */}
                         <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            // Toggle visibility would go here
-                          }}
-                          className="p-0.5 hover:bg-muted rounded"
+                          onClick={(e) => handleToggleSurfaceVisibility(id, e)}
+                          className="p-1 hover:bg-muted/50 rounded-[2px]"
+                          title="Toggle visibility"
                         >
                           {surface.visible !== false ? (
                             <VscEye className="h-3 w-3 text-muted-foreground" />
@@ -211,13 +238,13 @@ export const SurfaceLayerPanel: React.FC = () => {
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2">
                             <span className={cn(
-                              "text-sm truncate",
-                              isGeometrySelected ? "text-accent font-medium" : "text-foreground"
+                              "text-[11px] font-mono truncate",
+                              isGeometrySelected ? "text-accent font-semibold" : "text-foreground"
                             )}>
                               {surface.name || `Surface ${id.slice(0, 8)}`}
                             </span>
                             {metadata?.hemisphere && (
-                              <span className="text-xs text-muted-foreground">
+                              <span className="text-[10px] text-muted-foreground">
                                 ({metadata.hemisphere})
                               </span>
                             )}
@@ -226,13 +253,13 @@ export const SurfaceLayerPanel: React.FC = () => {
                       </div>
                       
                       {/* Actions */}
-                      <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                         <button
                           onClick={(e) => {
                             e.stopPropagation();
                             handleAddDataLayer(id);
                           }}
-                          className="p-1 hover:bg-muted rounded"
+                          className="p-1 hover:bg-muted/50 rounded-[2px]"
                           title="Add Data Layer"
                         >
                           <Plus className="h-3 w-3 text-muted-foreground" />
@@ -242,14 +269,14 @@ export const SurfaceLayerPanel: React.FC = () => {
                             e.stopPropagation();
                             setMetadataSurfaceId(id);
                           }}
-                          className="p-1 hover:bg-muted rounded"
+                          className="p-1 hover:bg-muted/50 rounded-[2px]"
                           title="Surface Information"
                         >
                           <Info className="h-3 w-3 text-muted-foreground" />
                         </button>
                         <button
                           onClick={(e) => handleRemoveSurface(id, e)}
-                          className="p-1 hover:bg-muted rounded"
+                          className="p-1 hover:bg-muted/50 rounded-[2px]"
                           title="Remove Surface"
                         >
                           <Trash2 className="h-3 w-3 text-muted-foreground" />
@@ -260,7 +287,7 @@ export const SurfaceLayerPanel: React.FC = () => {
                   
                   {/* Data Layers (when expanded) */}
                   {isExpanded && (
-                    <div className="ml-7 space-y-0.5">
+                    <div className="ml-8 space-y-0.5">
                       {dataLayers.length === 0 ? (
                         <div className="text-xs text-muted-foreground italic py-1 px-2">
                           No data layers
@@ -276,31 +303,39 @@ export const SurfaceLayerPanel: React.FC = () => {
                               key={layerId}
                               onClick={() => handleSelectDataLayer(id, layerId)}
                               className={cn(
-                                "group flex items-center justify-between px-2 py-1.5 rounded cursor-pointer transition-colors",
+                                "group flex items-center justify-between px-3 py-1.5 border-l-[3px] cursor-pointer transition-all rounded-sm",
                                 isLayerSelected
-                                  ? "bg-accent/10 border border-accent/30" 
-                                  : "hover:bg-muted/50 border border-transparent"
+                                  ? "border-accent bg-muted/10" 
+                                  : "border-transparent hover:border-border hover:bg-muted/30"
                               )}
                             >
-                              <div className="flex items-center gap-2 flex-1 min-w-0">
+                              <div className={cn(
+                                "flex items-center gap-2 flex-1 min-w-0",
+                                layer.visible === false && "opacity-50"
+                              )}>
                                 {/* Layer Icon */}
-                                <Layers className="h-3.5 w-3.5 text-muted-foreground" />
+                                <Layers className="h-3 w-3 text-muted-foreground" />
                                 
                                 {/* Visibility Toggle */}
                                 <button
                                   onClick={(e) => {
                                     e.stopPropagation();
-                                    // Toggle layer visibility
+                                    const nextVisible = layer.visible === false ? true : false;
+                                    updateLayerProperty(id, layerId, 'visible', nextVisible);
                                   }}
-                                  className="p-0.5 hover:bg-muted rounded"
-                                >
-                                  <VscEye className="h-3 w-3 text-muted-foreground" />
+                                  className="p-1 hover:bg-muted/50 rounded-[2px]"
+                                  >
+                                  {layer.visible === false ? (
+                                    <VscEyeClosed className="h-3 w-3 text-muted-foreground" />
+                                  ) : (
+                                    <VscEye className="h-3 w-3 text-muted-foreground" />
+                                  )}
                                 </button>
                                 
                                 {/* Layer Name */}
                                 <span className={cn(
-                                  "text-sm truncate",
-                                  isLayerSelected ? "text-accent font-medium" : "text-foreground"
+                                  "text-[11px] font-mono truncate",
+                                  isLayerSelected ? "text-accent font-semibold" : "text-foreground"
                                 )}>
                                   {layer.name}
                                 </span>
@@ -310,9 +345,12 @@ export const SurfaceLayerPanel: React.FC = () => {
                               <button
                                 onClick={(e) => {
                                   e.stopPropagation();
-                                  removeDataLayer(id, layerId);
+                                  const ok = window.confirm(`Remove layer "${layer.name}"?`);
+                                  if (ok) {
+                                    removeDataLayer(id, layerId);
+                                  }
                                 }}
-                                className="p-1 hover:bg-muted rounded opacity-0 group-hover:opacity-100 transition-opacity"
+                                className="p-1 hover:bg-muted/50 rounded-[2px] opacity-0 group-hover:opacity-100 transition-opacity"
                                 title="Remove Layer"
                               >
                                 <Trash2 className="h-3 w-3 text-muted-foreground" />

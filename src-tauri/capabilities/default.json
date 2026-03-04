@@ -16,6 +16,7 @@
       "dialog:default",
       
       "api-bridge:default",
+      "api-bridge:allow-load-surface-atlas",
   
      
       {

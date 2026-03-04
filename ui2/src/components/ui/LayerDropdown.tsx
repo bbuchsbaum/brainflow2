@@ -25,7 +25,7 @@ export const LayerDropdown: React.FC<LayerDropdownProps> = ({
   if (layers.length === 0) {
     return (
       <div className="text-[13px] text-muted-foreground text-center py-4">
-        No layers loaded
+        Layer stack empty
       </div>
     );
   }

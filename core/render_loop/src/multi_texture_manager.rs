@@ -1,6 +1,7 @@
 // Multi-texture management for world-space rendering
 
 use crate::RenderLoopError;
+use log::debug;
 use nalgebra::Matrix4;
 use serde::Serialize;
 use std::collections::HashMap;
@@ -8,9 +9,9 @@ use volmath::{DataRange, DenseVolume3, NeuroSpaceExt, VoxelData};
 use wgpu::{BindGroupLayout, Device, Queue, Texture, TextureView};
 
 #[cfg(feature = "typed-shaders")]
-use std::convert::TryInto;
-#[cfg(feature = "typed-shaders")]
 use crate::shaders::typed::slice_world_space_optimized;
+#[cfg(feature = "typed-shaders")]
+use std::convert::TryInto;
 #[cfg(not(feature = "typed-shaders"))]
 use wgpu::BindGroup;
 
@@ -20,12 +21,16 @@ type TextureBindGroup = wgpu::BindGroup;
 type TextureBindGroup = BindGroup;
 
 /// Maximum number of textures supported (GPU limit - 1 for colormap)
-pub const MAX_TEXTURES: usize = 15;
+/// Metal adapters only allow 30 sampled textures per stage, so we keep
+/// room for the mask array plus samplers/LUT bindings.
+pub const MAX_TEXTURES: usize = 13;
 
 /// Manages multiple 3D textures for multi-resolution rendering
 pub struct MultiTextureManager {
     /// Map from texture index to texture and view
     textures: HashMap<u32, TextureEntry>,
+    /// Optional mask textures per index
+    mask_textures: HashMap<u32, MaskTextureEntry>,
     /// Next available texture index
     next_index: u32,
     /// Maximum number of textures supported
@@ -36,6 +41,9 @@ pub struct MultiTextureManager {
     dummy_texture: Option<Texture>,
     /// Dummy texture view
     dummy_view: Option<TextureView>,
+    /// Default white mask texture for unmasked layers
+    default_mask_texture: Option<Texture>,
+    default_mask_view: Option<TextureView>,
     /// Freed texture indices available for reuse
     free_indices: Vec<u32>,
 }
@@ -49,22 +57,37 @@ struct TextureEntry {
     world_to_voxel: Matrix4<f32>,
 }
 
+struct MaskTextureEntry {
+    #[allow(dead_code)]
+    texture: Texture,
+    view: TextureView,
+}
+
 impl MultiTextureManager {
     /// Create a new multi-texture manager
-    pub fn new(max_textures: u32) -> Self {
-        Self {
+    pub fn new(device: &Device, queue: &Queue, max_textures: u32) -> Self {
+        let mut manager = Self {
             textures: HashMap::new(),
+            mask_textures: HashMap::new(),
             next_index: 0,
             max_textures,
             bind_group: None,
             dummy_texture: None,
             dummy_view: None,
+            default_mask_texture: None,
+            default_mask_view: None,
             free_indices: Vec::new(),
-        }
+        };
+        manager.create_dummy_texture(device);
+        manager.create_default_mask_texture(device, queue);
+        manager
     }
 
     /// Create dummy texture for unused slots
     fn create_dummy_texture(&mut self, device: &Device) {
+        if self.dummy_texture.is_some() {
+            return;
+        }
         let dummy_texture = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("Dummy Volume Texture"),
             size: wgpu::Extent3d {
@@ -84,6 +107,51 @@ impl MultiTextureManager {
 
         self.dummy_texture = Some(dummy_texture);
         self.dummy_view = Some(dummy_view);
+    }
+
+    fn create_default_mask_texture(&mut self, device: &Device, queue: &Queue) {
+        if self.default_mask_texture.is_some() {
+            return;
+        }
+        let texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("Default Mask Texture"),
+            size: wgpu::Extent3d {
+                width: 1,
+                height: 1,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D3,
+            format: wgpu::TextureFormat::R8Unorm,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
+        });
+
+        let data = [0xFFu8];
+        queue.write_texture(
+            wgpu::ImageCopyTexture {
+                texture: &texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            &data,
+            wgpu::ImageDataLayout {
+                offset: 0,
+                bytes_per_row: None,
+                rows_per_image: None,
+            },
+            wgpu::Extent3d {
+                width: 1,
+                height: 1,
+                depth_or_array_layers: 1,
+            },
+        );
+
+        let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+        self.default_mask_view = Some(view);
+        self.default_mask_texture = Some(texture);
     }
 
     /// Upload a volume to a dedicated texture
@@ -238,6 +306,117 @@ impl MultiTextureManager {
         Ok((index, world_to_voxel))
     }
 
+    /// Upload an alpha mask texture for an existing texture index.
+    pub fn upload_mask_texture(
+        &mut self,
+        device: &Device,
+        queue: &Queue,
+        index: u32,
+        dims: [u32; 3],
+        mask_data: &[u8],
+    ) -> Result<(), RenderLoopError> {
+        if index >= self.max_textures {
+            return Err(RenderLoopError::Internal {
+                code: 8014,
+                details: format!(
+                    "Mask index {} exceeds maximum supported textures ({})",
+                    index, self.max_textures
+                ),
+            });
+        }
+
+        let size = wgpu::Extent3d {
+            width: dims[0],
+            height: dims[1],
+            depth_or_array_layers: dims[2],
+        };
+
+        let expected_len = (size.width as usize)
+            .saturating_mul(size.height as usize)
+            .saturating_mul(size.depth_or_array_layers as usize);
+        if mask_data.len() != expected_len {
+            return Err(RenderLoopError::Internal {
+                code: 8015,
+                details: format!(
+                    "Mask byte count {} does not match dimensions {:?}",
+                    mask_data.len(),
+                    dims
+                ),
+            });
+        }
+
+        let texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some(&format!("Mask Texture {}", index)),
+            size,
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D3,
+            format: wgpu::TextureFormat::R8Unorm,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
+        });
+        let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+
+        let unpadded_bytes_per_row = size.width;
+        let aligned_bytes_per_row =
+            wgpu::util::align_to(unpadded_bytes_per_row, wgpu::COPY_BYTES_PER_ROW_ALIGNMENT);
+        let padding_per_row = aligned_bytes_per_row - unpadded_bytes_per_row;
+
+        let upload_data =
+            if padding_per_row > 0 && (size.height > 1 || size.depth_or_array_layers > 1) {
+                let mut padded = Vec::with_capacity(
+                    (aligned_bytes_per_row * size.height * size.depth_or_array_layers) as usize,
+                );
+                let row_size = unpadded_bytes_per_row as usize;
+                let padding = vec![0u8; padding_per_row as usize];
+                for z in 0..size.depth_or_array_layers {
+                    for y in 0..size.height {
+                        let start = ((z * size.height + y) * size.width) as usize;
+                        let end = start + row_size;
+                        padded.extend_from_slice(&mask_data[start..end]);
+                        padded.extend_from_slice(&padding);
+                    }
+                }
+                padded
+            } else {
+                mask_data.to_vec()
+            };
+
+        let bytes_per_row = if size.height == 1 && size.depth_or_array_layers == 1 {
+            None
+        } else {
+            Some(aligned_bytes_per_row)
+        };
+
+        queue.write_texture(
+            wgpu::ImageCopyTexture {
+                texture: &texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            &upload_data,
+            wgpu::ImageDataLayout {
+                offset: 0,
+                bytes_per_row,
+                rows_per_image: if size.depth_or_array_layers > 1 {
+                    Some(size.height)
+                } else {
+                    None
+                },
+            },
+            size,
+        );
+
+        self.mask_textures
+            .insert(index, MaskTextureEntry { texture, view });
+        Ok(())
+    }
+
+    pub fn clear_mask_texture(&mut self, index: u32) {
+        self.mask_textures.remove(&index);
+    }
+
     /// Create bind group layout for multi-texture rendering
     pub fn create_bind_group_layout(device: &Device, max_textures: u32) -> BindGroupLayout {
         use wgpu::*;
@@ -259,17 +438,34 @@ impl MultiTextureManager {
             });
         }
 
-        // Linear sampler at binding 15 (samplerLinear in shader)
+        let mut next_binding = max_textures;
+
+        for i in 0..max_textures {
+            entries.push(BindGroupLayoutEntry {
+                binding: next_binding + i,
+                visibility: ShaderStages::FRAGMENT,
+                ty: BindingType::Texture {
+                    multisampled: false,
+                    view_dimension: TextureViewDimension::D3,
+                    sample_type: TextureSampleType::Float { filterable: false },
+                },
+                count: None,
+            });
+        }
+        next_binding += max_textures;
+
+        // Linear sampler binding (samplerLinear in shader)
         entries.push(BindGroupLayoutEntry {
-            binding: 15,
+            binding: next_binding,
             visibility: ShaderStages::FRAGMENT,
             ty: BindingType::Sampler(SamplerBindingType::Filtering),
             count: None,
         });
+        next_binding += 1;
 
-        // Colormap LUT texture at binding 16 (array of 2D LUTs)
+        // Colormap LUT texture (array of 2D LUTs)
         entries.push(BindGroupLayoutEntry {
-            binding: 16,
+            binding: next_binding,
             visibility: ShaderStages::FRAGMENT,
             ty: BindingType::Texture {
                 multisampled: false,
@@ -278,18 +474,11 @@ impl MultiTextureManager {
             },
             count: None,
         });
+        next_binding += 1;
 
-        // Colormap sampler at binding 17 (cmSampler in shader)
+        // Nearest sampler (samplerNearest in shader)
         entries.push(BindGroupLayoutEntry {
-            binding: 17,
-            visibility: ShaderStages::FRAGMENT,
-            ty: BindingType::Sampler(SamplerBindingType::Filtering),
-            count: None,
-        });
-
-        // Nearest sampler at binding 18 (samplerNearest in shader)
-        entries.push(BindGroupLayoutEntry {
-            binding: 18,
+            binding: next_binding,
             visibility: ShaderStages::FRAGMENT,
             ty: BindingType::Sampler(SamplerBindingType::NonFiltering),
             count: None,
@@ -310,7 +499,7 @@ impl MultiTextureManager {
         linear_sampler: &wgpu::Sampler,
         nearest_sampler: &wgpu::Sampler,
         colormap_texture: &TextureView,
-        colormap_sampler: &wgpu::Sampler,
+        _colormap_sampler: &wgpu::Sampler,
     ) -> Result<(), RenderLoopError> {
         // Reuse the manual path to ensure correct D2Array for colormap LUT
         if self.dummy_view.is_none() {
@@ -319,14 +508,25 @@ impl MultiTextureManager {
 
         let dummy_view = self.dummy_view.as_ref().unwrap();
 
+        // Debug: log which texture indices are populated before creating bind group
+        debug!(
+            "MultiTextureManager::create_bind_group - textures present at indices: {:?}",
+            self.textures.keys().collect::<Vec<_>>()
+        );
+
         // Build bind group entries for individual texture bindings
         let mut entries = Vec::new();
 
         // Add individual texture bindings (0-14)
         for i in 0..self.max_textures {
             let view = if let Some(entry) = self.textures.get(&i) {
+                debug!(
+                    "  Binding texture index {} with real texture (dims = {:?})",
+                    i, entry.dimensions
+                );
                 &entry.view
             } else {
+                debug!("  Binding texture index {} with DUMMY texture", i);
                 dummy_view
             };
 
@@ -336,27 +536,43 @@ impl MultiTextureManager {
             });
         }
 
-        // Linear sampler at binding 15 (samplerLinear in shader)
+        let mut next_binding = self.max_textures;
+
+        let default_mask_view = self
+            .default_mask_view
+            .as_ref()
+            .expect("default mask view not initialized");
+        for i in 0..self.max_textures {
+            let view = self
+                .mask_textures
+                .get(&i)
+                .map(|entry| &entry.view)
+                .unwrap_or(default_mask_view);
+
+            entries.push(wgpu::BindGroupEntry {
+                binding: next_binding + i,
+                resource: wgpu::BindingResource::TextureView(view),
+            });
+        }
+        next_binding += self.max_textures;
+
+        // Linear sampler binding (samplerLinear in shader)
         entries.push(wgpu::BindGroupEntry {
-            binding: 15,
+            binding: next_binding,
             resource: wgpu::BindingResource::Sampler(linear_sampler),
         });
+        next_binding += 1;
 
-        // Colormap texture at binding 16 (2D array view)
+        // Colormap texture (2D array view)
         entries.push(wgpu::BindGroupEntry {
-            binding: 16,
+            binding: next_binding,
             resource: wgpu::BindingResource::TextureView(colormap_texture),
         });
+        next_binding += 1;
 
-        // Colormap sampler at binding 17 (cmSampler in shader)
+        // Nearest sampler (samplerNearest in shader)
         entries.push(wgpu::BindGroupEntry {
-            binding: 17,
-            resource: wgpu::BindingResource::Sampler(colormap_sampler),
-        });
-
-        // Nearest sampler at binding 18 (samplerNearest in shader)
-        entries.push(wgpu::BindGroupEntry {
-            binding: 18,
+            binding: next_binding,
             resource: wgpu::BindingResource::Sampler(nearest_sampler),
         });
 
@@ -378,7 +594,7 @@ impl MultiTextureManager {
         linear_sampler: &wgpu::Sampler,
         nearest_sampler: &wgpu::Sampler,
         colormap_texture: &TextureView,
-        colormap_sampler: &wgpu::Sampler,
+        _colormap_sampler: &wgpu::Sampler,
     ) -> Result<(), RenderLoopError> {
         // Create dummy texture if not already created
         if self.dummy_view.is_none() {
@@ -387,14 +603,25 @@ impl MultiTextureManager {
 
         let dummy_view = self.dummy_view.as_ref().unwrap();
 
+        // Debug: log which texture indices are populated before creating bind group
+        debug!(
+            "MultiTextureManager::create_bind_group - textures present at indices: {:?}",
+            self.textures.keys().collect::<Vec<_>>()
+        );
+
         // Build bind group entries for individual texture bindings
         let mut entries = Vec::new();
 
         // Add individual texture bindings (0-14)
         for i in 0..self.max_textures {
             let view = if let Some(entry) = self.textures.get(&i) {
+                debug!(
+                    "  Binding texture index {} with real texture (dims = {:?})",
+                    i, entry.dimensions
+                );
                 &entry.view
             } else {
+                debug!("  Binding texture index {} with DUMMY texture", i);
                 dummy_view
             };
 
@@ -404,27 +631,43 @@ impl MultiTextureManager {
             });
         }
 
-        // Linear sampler at binding 15 (samplerLinear in shader)
+        let mut next_binding = self.max_textures;
+
+        let default_mask_view = self
+            .default_mask_view
+            .as_ref()
+            .expect("default mask view not initialized");
+        for i in 0..self.max_textures {
+            let view = self
+                .mask_textures
+                .get(&i)
+                .map(|entry| &entry.view)
+                .unwrap_or(default_mask_view);
+
+            entries.push(wgpu::BindGroupEntry {
+                binding: next_binding + i,
+                resource: wgpu::BindingResource::TextureView(view),
+            });
+        }
+        next_binding += self.max_textures;
+
+        // Linear sampler binding (samplerLinear in shader)
         entries.push(wgpu::BindGroupEntry {
-            binding: 15,
+            binding: next_binding,
             resource: wgpu::BindingResource::Sampler(linear_sampler),
         });
+        next_binding += 1;
 
-        // Colormap texture at binding 16
+        // Colormap texture binding
         entries.push(wgpu::BindGroupEntry {
-            binding: 16,
+            binding: next_binding,
             resource: wgpu::BindingResource::TextureView(colormap_texture),
         });
+        next_binding += 1;
 
-        // Colormap sampler at binding 17 (cmSampler in shader)
+        // Nearest sampler (samplerNearest in shader)
         entries.push(wgpu::BindGroupEntry {
-            binding: 17,
-            resource: wgpu::BindingResource::Sampler(colormap_sampler),
-        });
-
-        // Nearest sampler at binding 18 (samplerNearest in shader)
-        entries.push(wgpu::BindGroupEntry {
-            binding: 18,
+            binding: next_binding,
             resource: wgpu::BindingResource::Sampler(nearest_sampler),
         });
 
@@ -441,6 +684,119 @@ impl MultiTextureManager {
     /// Get bind group for rendering
     pub fn bind_group(&self) -> Option<&TextureBindGroup> {
         self.bind_group.as_ref()
+    }
+
+    /// Overwrite an existing texture slot with new volume data (dimensions must match).
+    pub fn update_volume<T>(
+        &mut self,
+        _device: &Device,
+        queue: &Queue,
+        index: u32,
+        volume: &DenseVolume3<T>,
+    ) -> Result<Matrix4<f32>, RenderLoopError>
+    where
+        T: VoxelData
+            + num_traits::NumCast
+            + DataRange<T>
+            + Serialize
+            + num_traits::Zero
+            + std::ops::Sub<Output = T>
+            + std::ops::Div<Output = T>
+            + std::ops::Mul<Output = T>,
+    {
+        let entry = self.textures.get(&index).ok_or(RenderLoopError::Internal {
+            code: 6003,
+            details: format!("No texture found for index {}", index),
+        })?;
+
+        let dims = volume.space().dims();
+        if dims[0] as u32 != entry.dimensions[0]
+            || dims[1] as u32 != entry.dimensions[1]
+            || dims[2] as u32 != entry.dimensions[2]
+        {
+            return Err(RenderLoopError::Internal {
+                code: 6004,
+                details: format!(
+                    "Dimension mismatch on update: existing {:?}, new {:?}",
+                    entry.dimensions,
+                    [dims[0], dims[1], dims[2]]
+                ),
+            });
+        }
+
+        let mut texture_data = match entry.format {
+            wgpu::TextureFormat::R8Unorm => convert_to_r8unorm(volume)?,
+            wgpu::TextureFormat::R16Float => convert_to_r16float(volume)?,
+            wgpu::TextureFormat::R32Float => convert_to_r32float(volume)?,
+            _ => {
+                return Err(RenderLoopError::UnsupportedVolumeFormat(
+                    volume.voxel_type(),
+                ))
+            }
+        };
+
+        let bytes_per_pixel = match entry.format {
+            wgpu::TextureFormat::R8Unorm => 1,
+            wgpu::TextureFormat::R16Float => 2,
+            wgpu::TextureFormat::R32Float => 4,
+            _ => unreachable!(),
+        };
+
+        let size = wgpu::Extent3d {
+            width: entry.dimensions[0],
+            height: entry.dimensions[1],
+            depth_or_array_layers: entry.dimensions[2],
+        };
+
+        let unpadded_bytes_per_row = size.width * bytes_per_pixel;
+        let aligned_bytes_per_row =
+            wgpu::util::align_to(unpadded_bytes_per_row, wgpu::COPY_BYTES_PER_ROW_ALIGNMENT);
+        let padding_per_row = aligned_bytes_per_row - unpadded_bytes_per_row;
+
+        if padding_per_row > 0 && (size.height > 1 || size.depth_or_array_layers > 1) {
+            let mut padded_data = Vec::new();
+            let row_size = unpadded_bytes_per_row as usize;
+            let padding = vec![0u8; padding_per_row as usize];
+
+            for z in 0..size.depth_or_array_layers {
+                for y in 0..size.height {
+                    let start = ((z * size.height + y) * size.width * bytes_per_pixel) as usize;
+                    let end = start + row_size;
+                    padded_data.extend_from_slice(&texture_data[start..end]);
+                    padded_data.extend_from_slice(&padding);
+                }
+            }
+
+            texture_data = padded_data;
+        }
+
+        let bytes_per_row = if size.height == 1 && size.depth_or_array_layers == 1 {
+            None
+        } else {
+            Some(aligned_bytes_per_row)
+        };
+
+        queue.write_texture(
+            wgpu::ImageCopyTexture {
+                texture: &entry.texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            &texture_data,
+            wgpu::ImageDataLayout {
+                offset: 0,
+                bytes_per_row,
+                rows_per_image: if size.depth_or_array_layers > 1 {
+                    Some(size.height)
+                } else {
+                    None
+                },
+            },
+            size,
+        );
+
+        Ok(entry.world_to_voxel)
     }
 
     /// Get texture info by index
@@ -588,7 +944,7 @@ mod tests {
     fn test_multi_texture_upload() {
         pollster::block_on(async {
             let (device, queue) = create_test_device().await;
-            let mut manager = MultiTextureManager::new(MAX_TEXTURES as u32);
+            let mut manager = MultiTextureManager::new(&device, &queue, MAX_TEXTURES as u32);
 
             let volume = create_test_pattern_volume();
 

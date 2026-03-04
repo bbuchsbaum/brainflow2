@@ -251,10 +251,7 @@ impl SliceShaderDescriptors {
     pub fn fragment_state<'a>(&'a self, module: &'a ShaderModule) -> wgpu::FragmentState<'a> {
         #[cfg(feature = "typed-shaders")]
         {
-            typed::slice_world_space_optimized::fragment_state(
-                module,
-                &self.typed_fragment_entry,
-            )
+            typed::slice_world_space_optimized::fragment_state(module, &self.typed_fragment_entry)
         }
         #[cfg(not(feature = "typed-shaders"))]
         {
@@ -297,16 +294,42 @@ mod tests {
         let targets = descriptors.color_targets();
         assert!(targets[0].is_some());
     }
+
+    #[test]
+    fn test_shader_sources() {
+        // Verify shader sources are included
+        assert!(!sources::BASIC.is_empty());
+        assert!(sources::BASIC.contains("vs_main"));
+        assert!(sources::BASIC.contains("fs_main"));
+
+        assert!(!sources::SLICE_SIMPLIFIED.is_empty());
+        assert!(sources::SLICE_SIMPLIFIED.contains("FrameUbo"));
+        assert!(sources::SLICE_SIMPLIFIED.contains("LayerUBO"));
+    }
+
+    #[test]
+    fn test_uniform_sizes() {
+        use std::mem;
+
+        // Verify uniform buffer sizes match WGSL expectations
+        assert_eq!(mem::size_of::<uniforms::ActiveLayerCount>(), 16); // u32 + pad
+
+        // Test sizes of UBOs from ubo module (update if LayerUboStd140 changes)
+        assert_eq!(mem::size_of::<crate::FrameUbo>(), 80); // 3 * vec4 + atlas_dim + target_dim + padding
+        assert_eq!(mem::size_of::<crate::CrosshairUbo>(), 16); // vec3 + pad
+        assert_eq!(mem::size_of::<crate::ubo::ViewPlaneUbo>(), 16); // u32 + pad
+        assert_eq!(mem::size_of::<crate::LayerUboStd140>(), 160); // Fixed padding to match WGSL
+    }
 }
 
 // Embedded shader sources
 pub mod sources {
-    /// World-space slice shader with multi-texture support
-    pub const SLICE_WORLD_SPACE: &str = include_str!("../shaders/slice_world_space.wgsl");
+    /// World-space slice shader with multi-texture + alpha mask support
+    pub const SLICE_WORLD_SPACE: &str = include_str!("../shaders/slice_world_space_masked.wgsl");
 
     /// Optimized world-space slice shader with performance improvements
     pub const SLICE_WORLD_SPACE_OPTIMIZED: &str =
-        include_str!("../shaders/slice_world_space_optimized.wgsl");
+        include_str!("../shaders/slice_world_space_optimized_masked.wgsl");
 
     // Debug shaders - kept for potential future debugging but not loaded by default
     #[allow(dead_code)]
@@ -540,36 +563,5 @@ pub mod uniforms {
     pub struct ActiveLayerCount {
         pub count: u32,
         pub _pad: [u32; 3], // Padding to 16 bytes
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_shader_sources() {
-        // Verify shader sources are included
-        assert!(!sources::BASIC.is_empty());
-        assert!(sources::BASIC.contains("vs_main"));
-        assert!(sources::BASIC.contains("fs_main"));
-
-        assert!(!sources::SLICE_SIMPLIFIED.is_empty());
-        assert!(sources::SLICE_SIMPLIFIED.contains("FrameUbo"));
-        assert!(sources::SLICE_SIMPLIFIED.contains("LayerUBO"));
-    }
-
-    #[test]
-    fn test_uniform_sizes() {
-        use std::mem;
-
-        // Verify uniform buffer sizes match WGSL expectations
-        assert_eq!(mem::size_of::<uniforms::ActiveLayerCount>(), 16); // u32 + pad
-
-        // Test sizes of UBOs from ubo module (update if LayerUboStd140 changes)
-        assert_eq!(mem::size_of::<crate::FrameUbo>(), 80); // 3 * vec4 + atlas_dim + target_dim + padding
-        assert_eq!(mem::size_of::<crate::CrosshairUbo>(), 16); // vec3 + pad
-        assert_eq!(mem::size_of::<crate::ubo::ViewPlaneUbo>(), 16); // u32 + pad
-        assert_eq!(mem::size_of::<crate::LayerUboStd140>(), 160); // std140 layout
     }
 }

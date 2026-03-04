@@ -528,3 +528,172 @@ pub struct NiftiHeaderInfo {
     /// Min/max data range of the volume
     pub data_range: Option<DataRange>,
 }
+
+// --- Surface Template Types ---
+
+/// Surface coordinate space / template
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, TS)]
+#[ts(export)]
+#[serde(rename_all = "lowercase")]
+pub enum SurfaceSpace {
+    /// fsaverage (164k vertices, standard FreeSurfer)
+    Fsaverage,
+    /// fsaverage5 (10k vertices, low resolution)
+    Fsaverage5,
+    /// fsaverage6 (41k vertices, medium resolution)
+    Fsaverage6,
+    /// fsaverage7 (164k vertices, same as fsaverage)
+    Fsaverage7,
+    /// fsLR 32k (HCP standard)
+    FsLR32k,
+    /// fsLR 164k (HCP high resolution)
+    FsLR164k,
+}
+
+impl SurfaceSpace {
+    /// Convert to templateflow template name
+    pub fn template_name(&self) -> &'static str {
+        match self {
+            Self::Fsaverage => "fsaverage",
+            Self::Fsaverage5 => "fsaverage5",
+            Self::Fsaverage6 => "fsaverage6",
+            Self::Fsaverage7 => "fsaverage7",
+            Self::FsLR32k => "fsLR",
+            Self::FsLR164k => "fsLR",
+        }
+    }
+
+    /// Get density string for fsLR templates
+    pub fn density(&self) -> Option<&'static str> {
+        match self {
+            Self::FsLR32k => Some("32k"),
+            Self::FsLR164k => Some("164k"),
+            _ => None,
+        }
+    }
+
+    /// Human-readable display name
+    pub fn display_name(&self) -> &'static str {
+        match self {
+            Self::Fsaverage => "fsaverage",
+            Self::Fsaverage5 => "fsaverage5",
+            Self::Fsaverage6 => "fsaverage6",
+            Self::Fsaverage7 => "fsaverage7",
+            Self::FsLR32k => "fsLR 32k",
+            Self::FsLR164k => "fsLR 164k",
+        }
+    }
+
+    /// Approximate vertex count per hemisphere
+    pub fn vertex_count(&self) -> usize {
+        match self {
+            Self::Fsaverage => 163842,
+            Self::Fsaverage5 => 10242,
+            Self::Fsaverage6 => 40962,
+            Self::Fsaverage7 => 163842,
+            Self::FsLR32k => 32492,
+            Self::FsLR164k => 163842,
+        }
+    }
+}
+
+/// Surface geometry type
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, TS)]
+#[ts(export)]
+#[serde(rename_all = "lowercase")]
+pub enum SurfaceGeometryType {
+    /// White matter surface
+    White,
+    /// Pial (gray matter) surface
+    Pial,
+    /// Inflated surface for visualization
+    Inflated,
+    /// Spherical surface for registration
+    Sphere,
+    /// Very inflated surface
+    VeryInflated,
+    /// Midthickness (halfway between white and pial)
+    Midthickness,
+}
+
+impl SurfaceGeometryType {
+    /// Convert to templateflow suffix
+    pub fn as_suffix(&self) -> &'static str {
+        match self {
+            Self::White => "white",
+            Self::Pial => "pial",
+            Self::Inflated => "inflated",
+            Self::Sphere => "sphere",
+            Self::VeryInflated => "veryinflated",
+            Self::Midthickness => "midthickness",
+        }
+    }
+
+    /// Human-readable display name
+    pub fn display_name(&self) -> &'static str {
+        match self {
+            Self::White => "White Matter",
+            Self::Pial => "Pial (Gray Matter)",
+            Self::Inflated => "Inflated",
+            Self::Sphere => "Sphere",
+            Self::VeryInflated => "Very Inflated",
+            Self::Midthickness => "Midthickness",
+        }
+    }
+}
+
+/// Surface hemisphere
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, TS)]
+#[ts(export)]
+#[serde(rename_all = "lowercase")]
+pub enum SurfaceHemisphere {
+    Left,
+    Right,
+}
+
+impl SurfaceHemisphere {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Left => "L",
+            Self::Right => "R",
+        }
+    }
+}
+
+/// Request to load a surface template
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct SurfaceTemplateRequest {
+    /// Surface space/template
+    pub space: SurfaceSpace,
+    /// Geometry type (white, pial, inflated, sphere)
+    pub geometry_type: SurfaceGeometryType,
+    /// Hemisphere
+    pub hemisphere: SurfaceHemisphere,
+}
+
+/// Result of loading a surface template
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct SurfaceTemplateResult {
+    pub success: bool,
+    pub surface_handle: Option<String>,
+    pub vertex_count: Option<usize>,
+    pub face_count: Option<usize>,
+    pub space: String,
+    pub geometry_type: String,
+    pub hemisphere: String,
+    pub error_message: Option<String>,
+}
+
+/// Entry in the surface template catalog
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct SurfaceTemplateCatalogEntry {
+    pub id: String,
+    pub display_name: String,
+    pub space: SurfaceSpace,
+    pub geometry_type: SurfaceGeometryType,
+    pub hemisphere: SurfaceHemisphere,
+    pub vertex_count: usize,
+}

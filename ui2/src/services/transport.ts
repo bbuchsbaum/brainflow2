@@ -71,7 +71,10 @@ export class TauriTransport implements BackendTransport {
       'start_atlas_progress_monitoring',
       'get_atlas_subscription_count',
       'get_atlas_stats',
-      'get_nifti_header_info'
+      'get_nifti_header_info',
+      // Surface template commands
+      'load_surface_template',
+      'get_surface_template_catalog'
     ];
     
     if (apiBridgeCommands.includes(cmd)) {

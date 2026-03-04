@@ -244,7 +244,7 @@
 
 .file-tree-item.selected {
   background-color: var(--app-accent-active);
-  color: var(--blue-100);
+  color: hsl(var(--primary-foreground)); /* Theme primary foreground */
 }
 
 .file-tree-item.selected:hover {
@@ -334,13 +334,13 @@
 
 .file-tree-item.selected .file-size,
 .file-tree-item.selected .file-date {
-  color: var(--blue-200);
+  color: hsl(var(--primary)); /* Theme primary color */
 }
 
 /* Highlight for search */
 .file-tree-item mark {
   background-color: var(--app-warning);
-  color: var(--gray-900);
+  color: hsl(var(--foreground)); /* Theme foreground */
   padding: 0 2px;
   border-radius: 2px;
   font-weight: 500;
@@ -348,30 +348,13 @@
 
 /* Empty states */
 .file-browser-panel .empty-state {
+  flex: 1;
   display: flex;
-  flex-direction: column;
   align-items: center;
   justify-content: center;
-  height: 200px;
+  padding: var(--app-spacing-xl);
   color: var(--app-text-muted);
   text-align: center;
-  padding: var(--app-spacing-xl);
-}
-
-.file-browser-panel .empty-state-icon {
-  font-size: 48px;
-  margin-bottom: var(--app-spacing-lg);
-  opacity: 0.5;
-}
-
-.file-browser-panel .empty-state-text {
-  font-size: var(--app-text-md);
-  margin-bottom: var(--app-spacing-sm);
-}
-
-.file-browser-panel .empty-state-hint {
-  font-size: var(--app-text-sm);
-  color: var(--app-text-muted);
 }
 
 /* Loading state */

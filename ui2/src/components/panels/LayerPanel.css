@@ -1,4 +1,4 @@
-/* Layer Panel Scrollbar Styles */
+/* Layer Panel Scrollbar Styles - Themed */
 .layer-list::-webkit-scrollbar {
   width: 8px;
 }
@@ -8,18 +8,18 @@
 }
 
 .layer-list::-webkit-scrollbar-thumb {
-  background: #444;
+  background: hsl(var(--muted)); /* Theme muted color */
   border-radius: 4px;
 }
 
 .layer-list::-webkit-scrollbar-thumb:hover {
-  background: #555;
+  background: hsl(var(--muted-foreground)); /* Theme muted foreground */
 }
 
 /* Firefox scrollbar support */
 .layer-list {
   scrollbar-width: thin;
-  scrollbar-color: #444 transparent;
+  scrollbar-color: hsl(var(--muted)) transparent; /* Theme muted color */
 }
 
 /* Prevent row hover flicker when selected */

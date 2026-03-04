@@ -3,6 +3,7 @@
  * Based on the Rust types in core/atlases/src/types.rs
  */
 
+import type { VolumeHandleInfo } from '@brainflow/api';
 export enum AtlasSource {
   BuiltIn = "BuiltIn",
   TemplateFlow = "TemplateFlow",
@@ -42,6 +43,8 @@ export interface AtlasConfig {
   networks?: number; // For Schaefer: 7 or 17
   parcels?: number; // For Schaefer: 100-1000
   template_params?: Record<string, string>;
+  data_type?: string; // "volume" or "surface"
+  surf_type?: string; // "pial", "inflated", etc.
 }
 
 export interface AtlasCatalogEntry {
@@ -100,7 +103,62 @@ export interface AtlasLoadResult {
   success: boolean;
   atlas_metadata?: AtlasMetadata;
   volume_handle?: string;
+  volume_handle_info?: VolumeHandleInfo;
   error_message?: string;
+}
+
+export interface SurfaceAtlasLabelInfo {
+  id: number;
+  name: string;
+  color?: [number, number, number]; // RGB 0-255
+  hemisphere?: string; // "Left" | "Right"
+  network?: string;
+}
+
+export interface SurfaceAtlasLoadResult {
+  atlas_metadata: AtlasMetadata;
+  labels_lh: number[]; // per-vertex labels, left hemisphere
+  labels_rh: number[]; // per-vertex labels, right hemisphere
+  label_info: SurfaceAtlasLabelInfo[];
+  space: string; // e.g. "fsaverage"
+  n_vertices_lh: number;
+  n_vertices_rh: number;
+}
+
+export interface ParcellationReference {
+  reference_id: string;
+  source_name?: string;
+  schema_version: string;
+  atlas_id: string;
+  atlas_name?: string;
+  atlas_space?: string;
+  atlas_class?: string;
+  declared_parcel_count?: number;
+  parcel_row_count: number;
+  value_columns: string[];
+  created_at_unix_ms: number;
+}
+
+export interface ParcelBindingCoveragePreview {
+  reference_id: string;
+  atlas_id: string;
+  declared_parcel_count?: number;
+  parcel_row_count: number;
+  unique_parcel_id_count: number;
+  matched_parcel_count: number;
+  coverage_percent?: number;
+  estimated_missing_count?: number;
+  estimated_extra_count?: number;
+  value_columns: string[];
+}
+
+export interface SurfaceLabelParcellationImportResult {
+  reference: ParcellationReference;
+  vertex_count: number;
+  unique_label_count: number;
+  nonzero_label_count: number;
+  max_label: number;
+  background_label: number;
 }
 
 export interface AtlasFilter {

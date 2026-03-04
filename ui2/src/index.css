@@ -1,8 +1,13 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap');
 @import './styles/theme.css';
 @import './styles/shadcn.css';
+@import './styles/modern-ui.css';
 @import './styles/slider.css';
 @import './components/ui/StatusBar.css';
+
+/* Import GoldenLayout styles HERE so our overrides come AFTER */
+@import 'golden-layout/dist/css/goldenlayout-base.css';
+@import 'golden-layout/dist/css/themes/goldenlayout-dark-theme.css';
 
 @tailwind base;
 @tailwind components;
@@ -62,6 +67,8 @@ body {
   color: var(--app-text-primary);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  /* Albersdown-inspired top accent stripe — signature Bauhaus mark */
+  border-top: var(--top-accent-height, 2px) solid var(--top-accent, hsl(180, 75%, 35%));
 }
 
 #root {
@@ -77,7 +84,7 @@ button {
 }
 
 .slice-view {
-  background-color: hsl(var(--background));
+  background-color: #000;
   border: 1px solid var(--app-border);
 }
 
@@ -91,19 +98,18 @@ button {
   background-color: hsl(var(--background)) !important;
   border-bottom: 2px solid hsl(var(--border)) !important;
   height: 32px !important;
-  display: flex;
-  align-items: flex-end;
   padding-left: 0 !important;
-  overflow: hidden;
-  z-index: 10;
+  overflow: visible !important;
+  z-index: 1;
+  /* Don't use display:flex - it breaks absolute positioning of controls */
 }
 
 .lm_tab {
   background: transparent !important;
   border: none !important;
   box-shadow: none !important;
-  margin: 0 16px 0 0 !important;
-  padding: 0 4px !important;
+  margin: 0 12px 0 0 !important;
+  padding: 0 20px 0 4px !important; /* Extra right padding for close button */
   height: 30px !important;
   display: flex;
   align-items: center;
@@ -140,59 +146,115 @@ button {
   z-index: 20;
 }
 
-.lm_controls {
-  position: absolute;
-  right: 4px;
-  top: 50%;
-  transform: translateY(-50%);
-  display: flex;
-  gap: 8px;
+/* Controls - "Window Latches" with high contrast */
+.lm_header .lm_controls {
+  padding-right: 8px;
+  display: flex !important;
+  gap: 6px;
   align-items: center;
-  padding-right: 4px;
-  pointer-events: auto;
+  top: 50% !important;
+  transform: translateY(-50%);
+  z-index: 10;
+}
+
+.lm_header .lm_controls > * {
+  position: relative;
+  width: 16px !important;
+  height: 16px !important;
+  display: flex !important;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  opacity: 0.6;
+  background-position: center center !important;
+  background-repeat: no-repeat !important;
+  background-size: 11px 11px;
+  transition: all 0.15s ease;
+  border-radius: 2px;
+}
+
+.lm_header .lm_controls > *:hover {
+  opacity: 1;
+}
+
+/* Remove any default GL sprite backgrounds */
+.lm_controls .lm_popout,
+.lm_controls .lm_maximise,
+.lm_controls .lm_close {
+  background-color: transparent !important;
 }
 
 .lm_content {
   background: hsl(var(--card)) !important;
 }
 
+/* Splitter styling - "Finn Juhl" gaps between panels */
+/* GoldenLayout sets the size via inline styles - we only override background/cursor */
 .lm_splitter {
+  /* Match main body background to create the "gap" illusion */
   background: hsl(var(--background)) !important;
   opacity: 1 !important;
-  z-index: 5;
 }
 
-.lm_splitter.lm_vertical {
-  width: 8px !important;
-  cursor: col-resize;
-}
-
-.lm_splitter.lm_horizontal {
-  height: 8px !important;
-  cursor: row-resize;
-}
-
-.lm_splitter:hover {
+/* When dragging/hovering, show the Orange Accent */
+.lm_splitter:hover,
+.lm_splitter.lm_dragging {
   background: hsl(var(--accent)) !important;
-  opacity: 1 !important;
 }
 
-/* Make header controls visible and usable */
-.lm_controls > * {
-  color: hsl(var(--muted-foreground)) !important;
-  opacity: 0.75;
-  width: 16px;
-  height: 16px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 2px;
-  cursor: pointer;
+/* GoldenLayout controls - refined hairline icons */
+/* Color: hsl(210 10% 40%) ≈ #5C6370 (Medium gray, visible but subtle) */
+
+.lm_controls .lm_popout {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%235C6370' stroke-width='1.25'%3E%3Cpath d='M7 3h6v6M13 3L7 9M5 5H3v8h8v-2'/%3E%3C/svg%3E") !important;
 }
-.lm_controls > *:hover {
-  color: hsl(var(--foreground)) !important;
-  background: hsl(var(--muted) / 0.5);
+.lm_controls .lm_maximise {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%235C6370' stroke-width='1.25'%3E%3Crect x='3' y='3' width='10' height='10' rx='1'/%3E%3C/svg%3E") !important;
+}
+.lm_controls .lm_close {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%235C6370' stroke-width='1.25'%3E%3Cpath d='M4 4l8 8M12 4l-8 8'/%3E%3C/svg%3E") !important;
+}
+.lm_maximised .lm_controls .lm_maximise {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%235C6370' stroke-width='1.25'%3E%3Crect x='2' y='5' width='8' height='8' rx='1'/%3E%3Cpath d='M6 5V3.5a.5.5 0 01.5-.5h6a.5.5 0 01.5.5v6a.5.5 0 01-.5.5H11'/%3E%3C/svg%3E") !important;
+}
+
+/* Hover state: Orange accent */
+.lm_controls .lm_popout:hover {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%23E07830' stroke-width='1.25'%3E%3Cpath d='M7 3h6v6M13 3L7 9M5 5H3v8h8v-2'/%3E%3C/svg%3E") !important;
+}
+.lm_controls .lm_maximise:hover {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%23E07830' stroke-width='1.25'%3E%3Crect x='3' y='3' width='10' height='10' rx='1'/%3E%3C/svg%3E") !important;
+}
+.lm_controls .lm_close:hover {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%23E07830' stroke-width='1.25'%3E%3Cpath d='M4 4l8 8M12 4l-8 8'/%3E%3C/svg%3E") !important;
+}
+.lm_maximised .lm_controls .lm_maximise:hover {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%23E07830' stroke-width='1.25'%3E%3Crect x='2' y='5' width='8' height='8' rx='1'/%3E%3Cpath d='M6 5V3.5a.5.5 0 01.5-.5h6a.5.5 0 01.5.5v6a.5.5 0 01-.5.5H11'/%3E%3C/svg%3E") !important;
+}
+
+/* Tab close button - refined hairline style */
+.lm_header .lm_tab .lm_close_tab {
+  width: 12px !important;
+  height: 12px !important;
+  top: 50% !important;
+  transform: translateY(-50%);
+  right: 4px !important;
+  opacity: 0;
+  background: none !important;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%235C6370' stroke-width='1.25'%3E%3Cpath d='M4 4l8 8M12 4l-8 8'/%3E%3C/svg%3E") !important;
+  background-position: center center !important;
+  background-repeat: no-repeat !important;
+  background-size: 8px 8px;
+  transition: opacity 0.15s ease;
+}
+
+.lm_header .lm_tab:hover .lm_close_tab {
+  opacity: 0.5;
+}
+
+.lm_header .lm_tab .lm_close_tab:hover {
   opacity: 1;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%23E07830' stroke-width='1.25'%3E%3Cpath d='M4 4l8 8M12 4l-8 8'/%3E%3C/svg%3E") !important;
 }
 
 /* Custom animations */
@@ -224,7 +286,7 @@ button {
   animation: fade-in 0.2s ease-out;
 }
 
-/* Dark theme slider styles */
+/* Dark theme slider styles - using theme variables */
 .slider-dark {
   -webkit-appearance: none;
   appearance: none;
@@ -236,20 +298,20 @@ button {
   appearance: none;
   width: 16px;
   height: 16px;
-  background: #3b82f6;
+  background: hsl(var(--primary)); /* Theme primary */
   cursor: pointer;
   border-radius: 50%;
   transition: background-color 0.15s ease-in-out;
 }
 
 .slider-dark::-webkit-slider-thumb:hover {
-  background: #60a5fa;
+  background: hsl(var(--accent)); /* Theme accent */
 }
 
 .slider-dark::-moz-range-thumb {
   width: 16px;
   height: 16px;
-  background: #3b82f6;
+  background: hsl(var(--primary)); /* Theme primary */
   cursor: pointer;
   border-radius: 50%;
   border: none;
@@ -257,15 +319,15 @@ button {
 }
 
 .slider-dark::-moz-range-thumb:hover {
-  background: #60a5fa;
+  background: hsl(var(--accent)); /* Theme accent */
 }
 
-/* Range slider dark theme */
+/* Range slider dark theme - using theme variables */
 .range-slider-dark .range-slider {
-  --range-slider-bg: #374151;
-  --range-slider-thumb: #3b82f6;
-  --range-slider-thumb-hover: #60a5fa;
-  --range-slider-connect: #3b82f6;
+  --range-slider-bg: hsl(var(--secondary));
+  --range-slider-thumb: hsl(var(--primary));
+  --range-slider-thumb-hover: hsl(var(--accent));
+  --range-slider-connect: hsl(var(--primary));
 }
 
 .range-slider-dark .range-slider__range {
@@ -274,7 +336,7 @@ button {
 
 .range-slider-dark .range-slider__thumb {
   background: var(--range-slider-thumb);
-  border: 2px solid #1f2937;
+  border: 2px solid hsl(var(--background)); /* Theme background */
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
 }
 
@@ -284,4 +346,55 @@ button {
 
 .range-slider-dark .range-slider__range__fill {
   background: var(--range-slider-connect);
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   Global polish — Bauhaus Instrument aesthetic
+   Unified scrollbar, focus ring, reduced motion
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* ── Unified scrollbar (thin, geometric, zero border-radius) ── */
+::-webkit-scrollbar {
+  width: var(--scrollbar-width, 6px);
+  height: var(--scrollbar-width, 6px);
+}
+
+::-webkit-scrollbar-track {
+  background: var(--scrollbar-track, transparent);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb);
+  border-radius: 0;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--scrollbar-thumb-hover);
+}
+
+html {
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track, transparent);
+}
+
+/* ── Focus-visible (keyboard navigation ring) ── */
+:focus-visible {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: 1px;
+}
+
+:focus:not(:focus-visible) {
+  outline: none;
+}
+
+/* ── Reduced motion (accessibility) ── */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }

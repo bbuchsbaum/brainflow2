@@ -499,12 +499,47 @@ const FileBrowserPanelContent: React.FC = () => {
           </div>
         ) : treeData.length === 0 ? (
           <div className="empty-state">
-            <div className="empty-state-icon" style={{ fontSize: '32px', fontWeight: 300, color: 'var(--app-text-disabled)', letterSpacing: '0.02em' }}>BROWSE</div>
-            <div className="empty-state-text">
-              {searchQuery ? 'No files match your search' : 'Mount a directory to browse neuroimaging files'}
-            </div>
-            <div className="empty-state-hint">
-              Use File → Mount Directory to add a folder
+            {/* Bauhaus Placeholder - dashed border, sharp geometry */}
+            <div className="w-full h-full flex items-center justify-center p-6">
+              <div
+                className="flex flex-col items-center justify-center gap-4 p-8"
+                style={{
+                  border: '1px dashed var(--app-border)',
+                  backgroundColor: 'transparent',
+                  maxWidth: '280px',
+                }}
+              >
+                {/* Sharp geometric folder icon */}
+                <svg
+                  width="32"
+                  height="32"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1"
+                  style={{ color: 'var(--app-text-muted)' }}
+                >
+                  <path d="M3 6h7l2 2h9v12H3V6z" />
+                </svg>
+
+                {/* Blueprint label */}
+                <span
+                  className="text-[10px] uppercase tracking-widest font-semibold"
+                  style={{ color: 'var(--app-text-muted)' }}
+                >
+                  {searchQuery ? 'No Results' : 'No Directory'}
+                </span>
+
+                {/* Monospace instruction */}
+                <span
+                  className="text-[11px] font-mono text-center"
+                  style={{ color: 'var(--app-text-muted)', opacity: 0.7 }}
+                >
+                  {searchQuery
+                    ? 'Try a different search term.'
+                    : 'Open File menu to mount a directory.'}
+                </span>
+              </div>
             </div>
           </div>
         ) : (
@@ -544,8 +579,8 @@ const FileBrowserPanelContent: React.FC = () => {
                 {(props: any) => <FileTreeItem {...props} />}
               </Tree>
             ) : (
-              <div style={{ padding: '20px', color: 'orange' }}>
-                Waiting for container size: {treeSize.width}x{treeSize.height}
+              <div style={{ padding: '20px', color: 'var(--app-text-muted)' }}>
+                Initializing file browser…
               </div>
             )}
           </div>
