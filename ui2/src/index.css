@@ -77,7 +77,7 @@ button {
 }
 
 .slice-view {
-  background-color: #000;
+  background-color: hsl(var(--background));
   border: 1px solid var(--app-border);
 }
 
@@ -173,7 +173,7 @@ button {
 }
 
 .lm_splitter:hover {
-  background: hsl(var(--primary)) !important;
+  background: hsl(var(--accent)) !important;
   opacity: 1 !important;
 }
 

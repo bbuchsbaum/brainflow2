@@ -7,14 +7,14 @@
   width: 100%;
 }
 
-/* Global styles for Allotment splitters */
+/* Global styles for Allotment splitters — Bauhaus theme */
 .split-view-container [class*="sash"] {
-  background-color: #374151 !important; /* gray-700 */
+  background-color: var(--app-splitter) !important;
   opacity: 1 !important;
 }
 
 .split-view-container [class*="sash"]:hover {
-  background-color: #4b5563 !important; /* gray-600 */
+  background-color: hsl(var(--accent)) !important;
 }
 
 /* Ensure sash is visible with proper size */
@@ -30,5 +30,5 @@
 
 /* Alternative: target the split-view divider */
 .split-view-container .split-view-divider {
-  background-color: #374151 !important;
+  background-color: var(--app-splitter) !important;
 }
