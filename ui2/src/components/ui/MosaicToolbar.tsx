@@ -51,21 +51,21 @@ export function MosaicToolbar({
         "sticky top-0 z-30", // Stays visible, doesn't overlap content
         "flex items-center gap-3",
         "h-10 px-4",
-        "glass-panel-light", // Glass-morphism effect
-        "border-b border-[var(--app-border-subtle)]", // Theme border
-        "shadow-glow-sm", // Enhanced shadow
+        "bg-[var(--app-bg-secondary)]",
+        "border-b border-[var(--app-border)]",
+        "shadow-[var(--app-shadow-sm)]",
         className
       )}
       style={{ height: MOSAIC_TOOLBAR_HEIGHT }}
     >
       {/* Axis Selector */}
       <Select value={axis} onValueChange={onAxisChange}>
-        <SelectTrigger className="h-8 w-[100px] text-xs input-modern text-[var(--app-text-primary)]">
+        <SelectTrigger className="h-8 w-[100px] text-xs bg-[var(--app-bg-tertiary)] border border-[var(--app-border)] text-[var(--app-text-primary)]">
           <SelectValue>
             {axis.charAt(0).toUpperCase() + axis.slice(1)}
           </SelectValue>
         </SelectTrigger>
-        <SelectContent className="dropdown-menu-modern">
+        <SelectContent className="bg-[var(--app-bg-secondary)] border border-[var(--app-border)] shadow-[var(--app-shadow-md)]">
           <SelectItem value="axial" className="text-[var(--app-text-primary)] hover:bg-[var(--app-bg-hover)] focus:bg-[var(--app-bg-hover)]">Axial</SelectItem>
           <SelectItem value="sagittal" className="text-[var(--app-text-primary)] hover:bg-[var(--app-bg-hover)] focus:bg-[var(--app-bg-hover)]">Sagittal</SelectItem>
           <SelectItem value="coronal" className="text-[var(--app-text-primary)] hover:bg-[var(--app-bg-hover)] focus:bg-[var(--app-bg-hover)]">Coronal</SelectItem>
@@ -74,10 +74,10 @@ export function MosaicToolbar({
 
       {/* Grid Selector */}
       <Select value={grid} onValueChange={onGridChange}>
-        <SelectTrigger className="h-8 w-[72px] text-xs input-modern text-[var(--app-text-primary)]">
+        <SelectTrigger className="h-8 w-[72px] text-xs bg-[var(--app-bg-tertiary)] border border-[var(--app-border)] text-[var(--app-text-primary)]">
           <SelectValue>{grid}</SelectValue>
         </SelectTrigger>
-        <SelectContent className="dropdown-menu-modern">
+        <SelectContent className="bg-[var(--app-bg-secondary)] border border-[var(--app-border)] shadow-[var(--app-shadow-md)]">
           <SelectItem value="2x2" className="text-[var(--app-text-primary)] hover:bg-[var(--app-bg-hover)] focus:bg-[var(--app-bg-hover)]">2×2</SelectItem>
           <SelectItem value="3x3" className="text-[var(--app-text-primary)] hover:bg-[var(--app-bg-hover)] focus:bg-[var(--app-bg-hover)]">3×3</SelectItem>
           <SelectItem value="4x4" className="text-[var(--app-text-primary)] hover:bg-[var(--app-bg-hover)] focus:bg-[var(--app-bg-hover)]">4×4</SelectItem>
