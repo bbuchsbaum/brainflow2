@@ -527,8 +527,6 @@ fn extract_3d_volume_at_timepoint(
     volume_4d: &VolumeSendable,
     timepoint: usize,
 ) -> BridgeResult<VolumeSendable> {
-    use nalgebra::Matrix4;
-
     match volume_4d {
         // For 3D volumes, just return as-is (ignore timepoint)
         VolumeSendable::VolF32(vol, affine) => {
@@ -4425,6 +4423,9 @@ async fn sample_world_coordinate(
         world_coords, voxel_coords
     );
 
+    // Get current timepoint for 4D volumes
+    let timepoint = registry.get_timepoint(&handle_id).unwrap_or(0);
+
     // Check bounds and sample
     let value = match volume_data {
         VolumeSendable::VolF32(vol, _) => {
@@ -4578,54 +4579,126 @@ async fn sample_world_coordinate(
                 0.0
             }
         }
-        // 4D volumes - sample from the current timepoint (or first if not set)
-        VolumeSendable::Vec4DF32(_vec) => {
-            // TODO: Extract the current timepoint from the volume registry
-            // For now, return 0.0 as we haven't implemented 4D sampling yet
-            warn!("4D volume sampling not yet implemented, returning 0.0");
-            0.0
+        // 4D volumes - sample from the current timepoint
+        VolumeSendable::Vec4DF32(vec) => {
+            let dims = vec.data.dim();
+            let t = timepoint.min(dims.3.saturating_sub(1));
+            if voxel_coords[0] >= 0.0 && voxel_coords[0] < dims.0 as f32
+                && voxel_coords[1] >= 0.0 && voxel_coords[1] < dims.1 as f32
+                && voxel_coords[2] >= 0.0 && voxel_coords[2] < dims.2 as f32
+            {
+                let x = voxel_coords[0].round() as usize;
+                let y = voxel_coords[1].round() as usize;
+                let z = voxel_coords[2].round() as usize;
+                vec.data[[x, y, z, t]]
+            } else {
+                0.0
+            }
         }
-        VolumeSendable::Vec4DI16(_vec) => {
-            // TODO: Extract the current timepoint from the volume registry
-            // For now, return 0.0 as we haven't implemented 4D sampling yet
-            warn!("4D volume sampling not yet implemented, returning 0.0");
-            0.0
+        VolumeSendable::Vec4DI16(vec) => {
+            let dims = vec.data.dim();
+            let t = timepoint.min(dims.3.saturating_sub(1));
+            if voxel_coords[0] >= 0.0 && voxel_coords[0] < dims.0 as f32
+                && voxel_coords[1] >= 0.0 && voxel_coords[1] < dims.1 as f32
+                && voxel_coords[2] >= 0.0 && voxel_coords[2] < dims.2 as f32
+            {
+                let x = voxel_coords[0].round() as usize;
+                let y = voxel_coords[1].round() as usize;
+                let z = voxel_coords[2].round() as usize;
+                vec.data[[x, y, z, t]] as f32
+            } else {
+                0.0
+            }
         }
-        VolumeSendable::Vec4DU8(_vec) => {
-            // TODO: Extract the current timepoint from the volume registry
-            // For now, return 0.0 as we haven't implemented 4D sampling yet
-            warn!("4D volume sampling not yet implemented, returning 0.0");
-            0.0
+        VolumeSendable::Vec4DU8(vec) => {
+            let dims = vec.data.dim();
+            let t = timepoint.min(dims.3.saturating_sub(1));
+            if voxel_coords[0] >= 0.0 && voxel_coords[0] < dims.0 as f32
+                && voxel_coords[1] >= 0.0 && voxel_coords[1] < dims.1 as f32
+                && voxel_coords[2] >= 0.0 && voxel_coords[2] < dims.2 as f32
+            {
+                let x = voxel_coords[0].round() as usize;
+                let y = voxel_coords[1].round() as usize;
+                let z = voxel_coords[2].round() as usize;
+                vec.data[[x, y, z, t]] as f32
+            } else {
+                0.0
+            }
         }
-        VolumeSendable::Vec4DI8(_vec) => {
-            // TODO: Extract the current timepoint from the volume registry
-            // For now, return 0.0 as we haven't implemented 4D sampling yet
-            warn!("4D volume sampling not yet implemented, returning 0.0");
-            0.0
+        VolumeSendable::Vec4DI8(vec) => {
+            let dims = vec.data.dim();
+            let t = timepoint.min(dims.3.saturating_sub(1));
+            if voxel_coords[0] >= 0.0 && voxel_coords[0] < dims.0 as f32
+                && voxel_coords[1] >= 0.0 && voxel_coords[1] < dims.1 as f32
+                && voxel_coords[2] >= 0.0 && voxel_coords[2] < dims.2 as f32
+            {
+                let x = voxel_coords[0].round() as usize;
+                let y = voxel_coords[1].round() as usize;
+                let z = voxel_coords[2].round() as usize;
+                vec.data[[x, y, z, t]] as f32
+            } else {
+                0.0
+            }
         }
-        VolumeSendable::Vec4DU16(_vec) => {
-            // TODO: Extract the current timepoint from the volume registry
-            // For now, return 0.0 as we haven't implemented 4D sampling yet
-            warn!("4D volume sampling not yet implemented, returning 0.0");
-            0.0
+        VolumeSendable::Vec4DU16(vec) => {
+            let dims = vec.data.dim();
+            let t = timepoint.min(dims.3.saturating_sub(1));
+            if voxel_coords[0] >= 0.0 && voxel_coords[0] < dims.0 as f32
+                && voxel_coords[1] >= 0.0 && voxel_coords[1] < dims.1 as f32
+                && voxel_coords[2] >= 0.0 && voxel_coords[2] < dims.2 as f32
+            {
+                let x = voxel_coords[0].round() as usize;
+                let y = voxel_coords[1].round() as usize;
+                let z = voxel_coords[2].round() as usize;
+                vec.data[[x, y, z, t]] as f32
+            } else {
+                0.0
+            }
         }
-        VolumeSendable::Vec4DI32(_vec) => {
-            // TODO: Extract the current timepoint from the volume registry
-            // For now, return 0.0 as we haven't implemented 4D sampling yet
-            warn!("4D volume sampling not yet implemented, returning 0.0");
-            0.0
+        VolumeSendable::Vec4DI32(vec) => {
+            let dims = vec.data.dim();
+            let t = timepoint.min(dims.3.saturating_sub(1));
+            if voxel_coords[0] >= 0.0 && voxel_coords[0] < dims.0 as f32
+                && voxel_coords[1] >= 0.0 && voxel_coords[1] < dims.1 as f32
+                && voxel_coords[2] >= 0.0 && voxel_coords[2] < dims.2 as f32
+            {
+                let x = voxel_coords[0].round() as usize;
+                let y = voxel_coords[1].round() as usize;
+                let z = voxel_coords[2].round() as usize;
+                vec.data[[x, y, z, t]] as f32
+            } else {
+                0.0
+            }
         }
-        VolumeSendable::Vec4DU32(_vec) => {
-            // TODO: Extract the current timepoint from the volume registry
-            // For now, return 0.0 as we haven't implemented 4D sampling yet
-            warn!("4D volume sampling not yet implemented, returning 0.0");
-            0.0
+        VolumeSendable::Vec4DU32(vec) => {
+            let dims = vec.data.dim();
+            let t = timepoint.min(dims.3.saturating_sub(1));
+            if voxel_coords[0] >= 0.0 && voxel_coords[0] < dims.0 as f32
+                && voxel_coords[1] >= 0.0 && voxel_coords[1] < dims.1 as f32
+                && voxel_coords[2] >= 0.0 && voxel_coords[2] < dims.2 as f32
+            {
+                let x = voxel_coords[0].round() as usize;
+                let y = voxel_coords[1].round() as usize;
+                let z = voxel_coords[2].round() as usize;
+                vec.data[[x, y, z, t]] as f32
+            } else {
+                0.0
+            }
         }
-        VolumeSendable::Vec4DF64(_vec) => {
-            // TODO: Extract the current timepoint from the volume registry
-            // For now, return 0.0 as we haven't implemented 4D sampling yet
-            warn!("4D volume sampling not yet implemented, returning 0.0");
-            0.0
+        VolumeSendable::Vec4DF64(vec) => {
+            let dims = vec.data.dim();
+            let t = timepoint.min(dims.3.saturating_sub(1));
+            if voxel_coords[0] >= 0.0 && voxel_coords[0] < dims.0 as f32
+                && voxel_coords[1] >= 0.0 && voxel_coords[1] < dims.1 as f32
+                && voxel_coords[2] >= 0.0 && voxel_coords[2] < dims.2 as f32
+            {
+                let x = voxel_coords[0].round() as usize;
+                let y = voxel_coords[1].round() as usize;
+                let z = voxel_coords[2].round() as usize;
+                vec.data[[x, y, z, t]] as f32
+            } else {
+                0.0
+            }
         }
     };
 
