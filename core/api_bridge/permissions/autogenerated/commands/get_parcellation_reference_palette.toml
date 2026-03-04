@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-get-parcellation-reference-palette"
+description = "Enables the get_parcellation_reference_palette command without any pre-configured scope."
+commands.allow = ["get_parcellation_reference_palette"]
+
+[[permission]]
+identifier = "deny-get-parcellation-reference-palette"
+description = "Denies the get_parcellation_reference_palette command without any pre-configured scope."
+commands.deny = ["get_parcellation_reference_palette"]

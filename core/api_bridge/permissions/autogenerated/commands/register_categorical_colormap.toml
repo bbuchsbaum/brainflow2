@@ -1,0 +1,14 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-register-categorical-colormap"
+description = "Enables the register_categorical_colormap command without any pre-configured scope."
+commands.allow = ["register_categorical_colormap"]
+
+[[permission]]
+identifier = "deny-register-categorical-colormap"
+description = "Denies the register_categorical_colormap command without any pre-configured scope."
+commands.deny = ["register_categorical_colormap"]
+

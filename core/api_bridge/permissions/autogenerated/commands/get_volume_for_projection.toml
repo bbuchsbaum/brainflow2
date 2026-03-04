@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-get-volume-for-projection"
+description = "Enables the get_volume_for_projection command without any pre-configured scope."
+commands.allow = ["get_volume_for_projection"]
+
+[[permission]]
+identifier = "deny-get-volume-for-projection"
+description = "Denies the get_volume_for_projection command without any pre-configured scope."
+commands.deny = ["get_volume_for_projection"]

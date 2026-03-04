@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-discover-atlases"
+description = "Enables the discover_atlases command without any pre-configured scope."
+commands.allow = ["discover_atlases"]
+
+[[permission]]
+identifier = "deny-discover-atlases"
+description = "Denies the discover_atlases command without any pre-configured scope."
+commands.deny = ["discover_atlases"]

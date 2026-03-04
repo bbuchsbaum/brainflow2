@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-preview-parcel-binding-coverage"
+description = "Enables the preview_parcel_binding_coverage command without any pre-configured scope."
+commands.allow = ["preview_parcel_binding_coverage"]
+
+[[permission]]
+identifier = "deny-preview-parcel-binding-coverage"
+description = "Denies the preview_parcel_binding_coverage command without any pre-configured scope."
+commands.deny = ["preview_parcel_binding_coverage"]

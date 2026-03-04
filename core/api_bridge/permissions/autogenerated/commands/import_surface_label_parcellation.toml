@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-import-surface-label-parcellation"
+description = "Enables the import_surface_label_parcellation command without any pre-configured scope."
+commands.allow = ["import_surface_label_parcellation"]
+
+[[permission]]
+identifier = "deny-import-surface-label-parcellation"
+description = "Denies the import_surface_label_parcellation command without any pre-configured scope."
+commands.deny = ["import_surface_label_parcellation"]

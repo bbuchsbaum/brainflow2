@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-compute-alpha-mask"
+description = "Enables the compute_alpha_mask command without any pre-configured scope."
+commands.allow = ["compute_alpha_mask"]
+
+[[permission]]
+identifier = "deny-compute-alpha-mask"
+description = "Denies the compute_alpha_mask command without any pre-configured scope."
+commands.deny = ["compute_alpha_mask"]

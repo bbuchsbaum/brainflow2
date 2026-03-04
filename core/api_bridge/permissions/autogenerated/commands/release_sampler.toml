@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-release-sampler"
+description = "Enables the release_sampler command without any pre-configured scope."
+commands.allow = ["release_sampler"]
+
+[[permission]]
+identifier = "deny-release-sampler"
+description = "Denies the release_sampler command without any pre-configured scope."
+commands.deny = ["release_sampler"]

@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-apply-sampler"
+description = "Enables the apply_sampler command without any pre-configured scope."
+commands.allow = ["apply_sampler"]
+
+[[permission]]
+identifier = "deny-apply-sampler"
+description = "Denies the apply_sampler command without any pre-configured scope."
+commands.deny = ["apply_sampler"]

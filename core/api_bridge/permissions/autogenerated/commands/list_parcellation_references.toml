@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-list-parcellation-references"
+description = "Enables the list_parcellation_references command without any pre-configured scope."
+commands.allow = ["list_parcellation_references"]
+
+[[permission]]
+identifier = "deny-list-parcellation-references"
+description = "Denies the list_parcellation_references command without any pre-configured scope."
+commands.deny = ["list_parcellation_references"]

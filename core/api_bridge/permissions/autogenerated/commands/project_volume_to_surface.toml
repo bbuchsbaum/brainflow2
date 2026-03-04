@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-project-volume-to-surface"
+description = "Enables the project_volume_to_surface command without any pre-configured scope."
+commands.allow = ["project_volume_to_surface"]
+
+[[permission]]
+identifier = "deny-project-volume-to-surface"
+description = "Denies the project_volume_to_surface command without any pre-configured scope."
+commands.deny = ["project_volume_to_surface"]

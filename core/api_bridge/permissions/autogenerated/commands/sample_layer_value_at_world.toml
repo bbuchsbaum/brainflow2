@@ -1,0 +1,14 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-sample-layer-value-at-world"
+description = "Enables the sample_layer_value_at_world command without any pre-configured scope."
+commands.allow = ["sample_layer_value_at_world"]
+
+[[permission]]
+identifier = "deny-sample-layer-value-at-world"
+description = "Denies the sample_layer_value_at_world command without any pre-configured scope."
+commands.deny = ["sample_layer_value_at_world"]
+

@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-create-surface-sampler"
+description = "Enables the create_surface_sampler command without any pre-configured scope."
+commands.allow = ["create_surface_sampler"]
+
+[[permission]]
+identifier = "deny-create-surface-sampler"
+description = "Denies the create_surface_sampler command without any pre-configured scope."
+commands.deny = ["create_surface_sampler"]
