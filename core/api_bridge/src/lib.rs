@@ -332,6 +332,22 @@ pub struct AtlasStats {
 // --- Helper Functions ---
 
 /// Extract affine transform from a VolumeSendable
+/// Extract a 3D affine transform from a NeuroSpace's DMatrix transform.
+fn affine_from_neurospace_trans(trans: &nalgebra::DMatrix<f64>) -> Affine3<f32> {
+    use nalgebra::Matrix4;
+    if trans.nrows() >= 4 && trans.ncols() >= 4 {
+        let m = Matrix4::new(
+            trans[(0, 0)] as f32, trans[(0, 1)] as f32, trans[(0, 2)] as f32, trans[(0, 3)] as f32,
+            trans[(1, 0)] as f32, trans[(1, 1)] as f32, trans[(1, 2)] as f32, trans[(1, 3)] as f32,
+            trans[(2, 0)] as f32, trans[(2, 1)] as f32, trans[(2, 2)] as f32, trans[(2, 3)] as f32,
+            0.0, 0.0, 0.0, 1.0,
+        );
+        Affine3::from_matrix_unchecked(m)
+    } else {
+        Affine3::identity()
+    }
+}
+
 fn get_affine_from_volume(volume_data: &VolumeSendable) -> BridgeResult<Affine3<f32>> {
     match volume_data {
         // 3D volumes already have affine
@@ -343,47 +359,15 @@ fn get_affine_from_volume(volume_data: &VolumeSendable) -> BridgeResult<Affine3<
         | VolumeSendable::VolI32(_, affine)
         | VolumeSendable::VolU32(_, affine)
         | VolumeSendable::VolF64(_, affine) => Ok(affine.clone()),
-        // 4D volumes - extract from space (TODO: implement proper access to DenseNeuroVec fields)
-        VolumeSendable::Vec4DF32(_vec) => {
-            // TODO: Access vec.space when api_bridge has neuroim dependency
-            // For now, return identity affine
-            Ok(Affine3::identity())
-        }
-        VolumeSendable::Vec4DI16(_vec) => {
-            // TODO: Access vec.space when api_bridge has neuroim dependency
-            // For now, return identity affine
-            Ok(Affine3::identity())
-        }
-        VolumeSendable::Vec4DU8(_vec) => {
-            // TODO: Access vec.space when api_bridge has neuroim dependency
-            // For now, return identity affine
-            Ok(Affine3::identity())
-        }
-        VolumeSendable::Vec4DI8(_vec) => {
-            // TODO: Access vec.space when api_bridge has neuroim dependency
-            // For now, return identity affine
-            Ok(Affine3::identity())
-        }
-        VolumeSendable::Vec4DU16(_vec) => {
-            // TODO: Access vec.space when api_bridge has neuroim dependency
-            // For now, return identity affine
-            Ok(Affine3::identity())
-        }
-        VolumeSendable::Vec4DI32(_vec) => {
-            // TODO: Access vec.space when api_bridge has neuroim dependency
-            // For now, return identity affine
-            Ok(Affine3::identity())
-        }
-        VolumeSendable::Vec4DU32(_vec) => {
-            // TODO: Access vec.space when api_bridge has neuroim dependency
-            // For now, return identity affine
-            Ok(Affine3::identity())
-        }
-        VolumeSendable::Vec4DF64(_vec) => {
-            // TODO: Access vec.space when api_bridge has neuroim dependency
-            // For now, return identity affine
-            Ok(Affine3::identity())
-        }
+        // 4D volumes - extract affine from NeuroSpace transform
+        VolumeSendable::Vec4DF32(vec) => Ok(affine_from_neurospace_trans(&vec.space.trans)),
+        VolumeSendable::Vec4DI16(vec) => Ok(affine_from_neurospace_trans(&vec.space.trans)),
+        VolumeSendable::Vec4DU8(vec) => Ok(affine_from_neurospace_trans(&vec.space.trans)),
+        VolumeSendable::Vec4DI8(vec) => Ok(affine_from_neurospace_trans(&vec.space.trans)),
+        VolumeSendable::Vec4DU16(vec) => Ok(affine_from_neurospace_trans(&vec.space.trans)),
+        VolumeSendable::Vec4DI32(vec) => Ok(affine_from_neurospace_trans(&vec.space.trans)),
+        VolumeSendable::Vec4DU32(vec) => Ok(affine_from_neurospace_trans(&vec.space.trans)),
+        VolumeSendable::Vec4DF64(vec) => Ok(affine_from_neurospace_trans(&vec.space.trans)),
     }
 }
 
@@ -2940,54 +2924,71 @@ pub async fn request_layer_gpu_resources_for_testing(
                     }
                     (min, max)
                 }
-                // 4D volumes - compute min/max across all timepoints for now
-                VolumeSendable::Vec4DF32(_vec) => {
-                    // TODO: Compute actual min/max from 4D data
-                    // For now, use placeholder values
-                    warn!("4D volume min/max computation not yet implemented, using placeholder values");
-                    (0.0, 1.0)
+                // 4D volumes - compute global min/max across all timepoints
+                VolumeSendable::Vec4DF32(vec) => {
+                    let mut min = f32::MAX;
+                    let mut max = f32::MIN;
+                    for &val in vec.data.iter() {
+                        if !val.is_nan() { min = min.min(val); max = max.max(val); }
+                    }
+                    if min > max { (0.0, 1.0) } else { (min, max) }
                 }
-                VolumeSendable::Vec4DI16(_vec) => {
-                    // TODO: Compute actual min/max from 4D data
-                    // For now, use placeholder values
-                    warn!("4D volume min/max computation not yet implemented, using placeholder values");
-                    (0.0, 1.0)
+                VolumeSendable::Vec4DI16(vec) => {
+                    let mut min = f32::MAX;
+                    let mut max = f32::MIN;
+                    for &val in vec.data.iter() {
+                        let v = val as f32; min = min.min(v); max = max.max(v);
+                    }
+                    if min > max { (0.0, 1.0) } else { (min, max) }
                 }
-                VolumeSendable::Vec4DU8(_vec) => {
-                    // TODO: Compute actual min/max from 4D data
-                    // For now, use placeholder values
-                    warn!("4D volume min/max computation not yet implemented, using placeholder values");
-                    (0.0, 1.0)
+                VolumeSendable::Vec4DU8(vec) => {
+                    let mut min = f32::MAX;
+                    let mut max = f32::MIN;
+                    for &val in vec.data.iter() {
+                        let v = val as f32; min = min.min(v); max = max.max(v);
+                    }
+                    if min > max { (0.0, 1.0) } else { (min, max) }
                 }
-                VolumeSendable::Vec4DI8(_vec) => {
-                    // TODO: Compute actual min/max from 4D data
-                    // For now, use placeholder values
-                    warn!("4D volume min/max computation not yet implemented, using placeholder values");
-                    (0.0, 1.0)
+                VolumeSendable::Vec4DI8(vec) => {
+                    let mut min = f32::MAX;
+                    let mut max = f32::MIN;
+                    for &val in vec.data.iter() {
+                        let v = val as f32; min = min.min(v); max = max.max(v);
+                    }
+                    if min > max { (0.0, 1.0) } else { (min, max) }
                 }
-                VolumeSendable::Vec4DU16(_vec) => {
-                    // TODO: Compute actual min/max from 4D data
-                    // For now, use placeholder values
-                    warn!("4D volume min/max computation not yet implemented, using placeholder values");
-                    (0.0, 1.0)
+                VolumeSendable::Vec4DU16(vec) => {
+                    let mut min = f32::MAX;
+                    let mut max = f32::MIN;
+                    for &val in vec.data.iter() {
+                        let v = val as f32; min = min.min(v); max = max.max(v);
+                    }
+                    if min > max { (0.0, 1.0) } else { (min, max) }
                 }
-                VolumeSendable::Vec4DI32(_vec) => {
-                    // TODO: Compute actual min/max from 4D data
-                    // For now, use placeholder values
-                    warn!("4D volume min/max computation not yet implemented, using placeholder values");
-                    (0.0, 1.0)
+                VolumeSendable::Vec4DI32(vec) => {
+                    let mut min = f32::MAX;
+                    let mut max = f32::MIN;
+                    for &val in vec.data.iter() {
+                        let v = val as f32; min = min.min(v); max = max.max(v);
+                    }
+                    if min > max { (0.0, 1.0) } else { (min, max) }
                 }
-                VolumeSendable::Vec4DU32(_vec) => {
-                    // TODO: Compute actual min/max from 4D data
-                    // For now, use placeholder values
-                    warn!("4D volume min/max computation not yet implemented, using placeholder values");
-                    (0.0, 1.0)
+                VolumeSendable::Vec4DU32(vec) => {
+                    let mut min = f32::MAX;
+                    let mut max = f32::MIN;
+                    for &val in vec.data.iter() {
+                        let v = val as f32; min = min.min(v); max = max.max(v);
+                    }
+                    if min > max { (0.0, 1.0) } else { (min, max) }
                 }
-                VolumeSendable::Vec4DF64(_vec) => {
-                    // TODO: Compute actual min/max from 4D data
-                    // For now, use placeholder values
-                    warn!("4D volume min/max computation not yet implemented, using placeholder values");
-                    (0.0, 1.0)
+                VolumeSendable::Vec4DF64(vec) => {
+                    let mut min = f32::MAX;
+                    let mut max = f32::MIN;
+                    for &val in vec.data.iter() {
+                        let v = val as f32;
+                        if !v.is_nan() { min = min.min(v); max = max.max(v); }
+                    }
+                    if min > max { (0.0, 1.0) } else { (min, max) }
                 }
             };
             let is_binary_like = (min_val >= 0.0 && max_val <= 1.0) && ((max_val - min_val) <= 1.0);
@@ -4211,75 +4212,95 @@ async fn compute_layer_histogram(
                 }
             }
         }
-        VolumeSendable::Vec4DI8(_vec) => {
-            // TODO: Implement histogram computation for 4D volumes
-            // For now, return empty histogram
-            warn!("Histogram computation for 4D volumes not yet implemented");
-            return Ok(HistogramResult {
-                bins: vec![],
-                total_count: 0,
-                min_value: 0.0,
-                max_value: 0.0,
-                mean: 0.0,
-                std: 0.0,
-                bin_count: 0,
-            });
+        VolumeSendable::Vec4DI8(vec) => {
+            let timepoint = {
+                let registry = state.volume_registry.lock().await;
+                let volume_handle = {
+                    let layer_map = state.layer_to_volume_map.lock().await;
+                    layer_map.get(&layer_id).cloned().unwrap_or_default()
+                };
+                registry.get_timepoint(&volume_handle).unwrap_or(0)
+            };
+            let vol_3d = vec.volume(timepoint).map_err(|e| BridgeError::Internal {
+                code: 5014,
+                details: format!("Failed to extract timepoint {} for histogram: {}", timepoint, e),
+            })?;
+            for &val in vol_3d.data().iter() {
+                let val_f32 = val as f32;
+                if !exclude_zeros || val != 0 { values.push(val_f32); }
+            }
         }
-        VolumeSendable::Vec4DU16(_vec) => {
-            // TODO: Implement histogram computation for 4D volumes
-            // For now, return empty histogram
-            warn!("Histogram computation for 4D volumes not yet implemented");
-            return Ok(HistogramResult {
-                bins: vec![],
-                total_count: 0,
-                min_value: 0.0,
-                max_value: 0.0,
-                mean: 0.0,
-                std: 0.0,
-                bin_count: 0,
-            });
+        VolumeSendable::Vec4DU16(vec) => {
+            let timepoint = {
+                let registry = state.volume_registry.lock().await;
+                let volume_handle = {
+                    let layer_map = state.layer_to_volume_map.lock().await;
+                    layer_map.get(&layer_id).cloned().unwrap_or_default()
+                };
+                registry.get_timepoint(&volume_handle).unwrap_or(0)
+            };
+            let vol_3d = vec.volume(timepoint).map_err(|e| BridgeError::Internal {
+                code: 5014,
+                details: format!("Failed to extract timepoint {} for histogram: {}", timepoint, e),
+            })?;
+            for &val in vol_3d.data().iter() {
+                let val_f32 = val as f32;
+                if !exclude_zeros || val != 0 { values.push(val_f32); }
+            }
         }
-        VolumeSendable::Vec4DI32(_vec) => {
-            // TODO: Implement histogram computation for 4D volumes
-            // For now, return empty histogram
-            warn!("Histogram computation for 4D volumes not yet implemented");
-            return Ok(HistogramResult {
-                bins: vec![],
-                total_count: 0,
-                min_value: 0.0,
-                max_value: 0.0,
-                mean: 0.0,
-                std: 0.0,
-                bin_count: 0,
-            });
+        VolumeSendable::Vec4DI32(vec) => {
+            let timepoint = {
+                let registry = state.volume_registry.lock().await;
+                let volume_handle = {
+                    let layer_map = state.layer_to_volume_map.lock().await;
+                    layer_map.get(&layer_id).cloned().unwrap_or_default()
+                };
+                registry.get_timepoint(&volume_handle).unwrap_or(0)
+            };
+            let vol_3d = vec.volume(timepoint).map_err(|e| BridgeError::Internal {
+                code: 5014,
+                details: format!("Failed to extract timepoint {} for histogram: {}", timepoint, e),
+            })?;
+            for &val in vol_3d.data().iter() {
+                let val_f32 = val as f32;
+                if !exclude_zeros || val != 0 { values.push(val_f32); }
+            }
         }
-        VolumeSendable::Vec4DU32(_vec) => {
-            // TODO: Implement histogram computation for 4D volumes
-            // For now, return empty histogram
-            warn!("Histogram computation for 4D volumes not yet implemented");
-            return Ok(HistogramResult {
-                bins: vec![],
-                total_count: 0,
-                min_value: 0.0,
-                max_value: 0.0,
-                mean: 0.0,
-                std: 0.0,
-                bin_count: 0,
-            });
+        VolumeSendable::Vec4DU32(vec) => {
+            let timepoint = {
+                let registry = state.volume_registry.lock().await;
+                let volume_handle = {
+                    let layer_map = state.layer_to_volume_map.lock().await;
+                    layer_map.get(&layer_id).cloned().unwrap_or_default()
+                };
+                registry.get_timepoint(&volume_handle).unwrap_or(0)
+            };
+            let vol_3d = vec.volume(timepoint).map_err(|e| BridgeError::Internal {
+                code: 5014,
+                details: format!("Failed to extract timepoint {} for histogram: {}", timepoint, e),
+            })?;
+            for &val in vol_3d.data().iter() {
+                let val_f32 = val as f32;
+                if !exclude_zeros || val != 0 { values.push(val_f32); }
+            }
         }
-        VolumeSendable::Vec4DF64(_vec) => {
-            // TODO: Implement histogram computation for 4D volumes
-            // For now, return empty histogram
-            warn!("Histogram computation for 4D volumes not yet implemented");
-            return Ok(HistogramResult {
-                bins: vec![],
-                total_count: 0,
-                min_value: 0.0,
-                max_value: 0.0,
-                mean: 0.0,
-                std: 0.0,
-                bin_count: 0,
-            });
+        VolumeSendable::Vec4DF64(vec) => {
+            let timepoint = {
+                let registry = state.volume_registry.lock().await;
+                let volume_handle = {
+                    let layer_map = state.layer_to_volume_map.lock().await;
+                    layer_map.get(&layer_id).cloned().unwrap_or_default()
+                };
+                registry.get_timepoint(&volume_handle).unwrap_or(0)
+            };
+            let vol_3d = vec.volume(timepoint).map_err(|e| BridgeError::Internal {
+                code: 5014,
+                details: format!("Failed to extract timepoint {} for histogram: {}", timepoint, e),
+            })?;
+            for &val in vol_3d.data().iter() {
+                let val_f32 = val as f32;
+                if !exclude_zeros || val != 0.0 { values.push(val_f32); }
+            }
         }
     }
 
