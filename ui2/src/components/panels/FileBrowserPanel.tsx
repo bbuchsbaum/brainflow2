@@ -499,7 +499,7 @@ const FileBrowserPanelContent: React.FC = () => {
           </div>
         ) : treeData.length === 0 ? (
           <div className="empty-state">
-            <div className="empty-state-icon">📂</div>
+            <div className="empty-state-icon" style={{ fontSize: '32px', fontWeight: 300, color: 'var(--app-text-disabled)', letterSpacing: '0.02em' }}>BROWSE</div>
             <div className="empty-state-text">
               {searchQuery ? 'No files match your search' : 'Mount a directory to browse neuroimaging files'}
             </div>

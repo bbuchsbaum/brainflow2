@@ -1,31 +1,32 @@
 /**
  * StatusBar.css - Fixed layout styles for stable status bar
  * Uses tabular numerals and fixed widths to prevent layout jitter
+ * Bauhaus theme: uses CSS custom properties from theme.css
  */
 
 .status-bar {
   display: flex;
   align-items: center;
-  height: 32px; /* Slightly taller for better readability */
+  height: 32px;
   padding: 0 12px;
-  background: #111827; /* gray-900 */
-  border-top: 1px solid #374151; /* gray-700 */
-  color: #d1d5db; /* gray-300 */
+  background: var(--app-bg-secondary);
+  border-top: 1px solid var(--app-border);
+  color: var(--app-text-secondary);
   font-size: 12px;
-  font-family: system-ui, -apple-system, 'Inter', sans-serif;
-  font-variant-numeric: tabular-nums; /* Fixed-width digits to prevent jitter */
-  white-space: nowrap; /* Never wrap lines */
-  user-select: none; /* Prevent text selection in status bar */
+  font-family: var(--app-font-sans);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  user-select: none;
 }
 
 .status-slot {
   display: flex;
   align-items: center;
-  gap: 6px; /* Space between label and value */
-  overflow: hidden; /* Protect layout if values exceed width */
+  gap: 6px;
+  overflow: hidden;
   text-overflow: ellipsis;
   padding: 0 8px;
-  border-right: 1px solid #1f2937; /* gray-800 - subtle separator */
+  border-right: 1px solid var(--app-border-subtle);
 }
 
 .status-slot:last-child {
@@ -33,51 +34,54 @@
 }
 
 .status-label {
-  color: #9ca3af; /* gray-400 - slightly dimmer than value */
+  color: var(--app-text-muted);
   opacity: 0.85;
   font-size: 11px;
-  flex-shrink: 0; /* Label never shrinks */
+  flex-shrink: 0;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
 }
 
 .status-value {
-  font-family: 'JetBrains Mono', 'Roboto Mono', 'Consolas', monospace;
+  font-family: var(--app-font-mono);
   font-weight: 500;
   overflow: hidden;
   text-overflow: ellipsis;
+  color: var(--app-text-primary);
 }
 
-/* Specific value colors for different data types */
+/* Specific value colors using theme accent tones */
 .status-value--coordinate-system {
-  color: #60a5fa; /* blue-400 */
+  color: var(--app-accent);
 }
 
 .status-value--crosshair {
-  color: #34d399; /* green-400 */
+  color: var(--app-success);
 }
 
 .status-value--mouse {
-  color: #fbbf24; /* yellow-400 */
+  color: var(--app-accent-text);
 }
 
 .status-value--fps {
-  color: #a78bfa; /* purple-400 */
+  color: var(--app-accent-muted);
 }
 
 .status-value--gpu {
-  color: #f87171; /* red-400 */
+  color: var(--app-text-secondary);
 }
 
 /* Status states */
 .status-value--warning {
-  color: #fb923c; /* orange-400 */
+  color: var(--app-warning);
 }
 
 .status-value--error {
-  color: #f87171; /* red-400 */
+  color: var(--app-error);
 }
 
 .status-value--success {
-  color: #4ade80; /* green-400 */
+  color: var(--app-success);
 }
 
 /* Right-side content area */
@@ -93,14 +97,14 @@
   align-items: center;
   gap: 8px;
   padding: 4px 10px;
-  background: #1f2937;
-  border-radius: 999px;
-  border: 1px solid #374151;
+  background: var(--app-bg-tertiary);
+  border-radius: var(--app-radius-sm);
+  border: 1px solid var(--app-border);
 }
 
 .status-toggle span {
   font-size: 11px;
-  color: #e5e7eb;
+  color: var(--app-text-primary);
   letter-spacing: 0.01em;
 }
 
@@ -116,11 +120,11 @@
     font-size: 11px;
     height: 28px;
   }
-  
+
   .status-slot {
     padding: 0 6px;
   }
-  
+
   .status-label {
     font-size: 10px;
   }
