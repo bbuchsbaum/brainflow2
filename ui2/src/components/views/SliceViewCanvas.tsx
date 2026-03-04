@@ -405,6 +405,7 @@ function SliceViewCanvasRaw({ viewId, width, height, className = '' }: SliceView
           onWheel={throttledHandleWheel}
           onFileDrop={handleFileDrop}
           enableDragDrop={true}
+          showLoading={false}
           showNoLayers={!hasLayers && !isLoadingAnyLayer}
           showLoadingVolume={isLoadingAnyLayer}
           className="w-full h-full"
