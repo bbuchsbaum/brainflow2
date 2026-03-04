@@ -8,6 +8,25 @@
 
 export type Unlisten = () => Promise<void> | void;
 
+// Sentinel used to tag no-op unlisten functions returned in non-Tauri envs
+const NOOP_TAG = Symbol('noop-unlisten');
+
+function taggedNoop(): void {
+  // intentional no-op
+}
+(taggedNoop as any)[NOOP_TAG as any] = true;
+
+/** Returns a tagged no-op unlisten function. */
+export function noopUnlisten(): Unlisten {
+  return taggedNoop;
+}
+
+/** Check whether an unlisten function is a tagged no-op (non-Tauri fallback). */
+export function isNoopUnlisten(fn: Unlisten | undefined | null): boolean {
+  if (!fn) return true;
+  return (fn as any)[NOOP_TAG as any] === true;
+}
+
 function isTauriEnv(): boolean {
   try {
     return typeof window !== 'undefined' && !!(window as any).__TAURI__;
@@ -21,8 +40,8 @@ export async function safeListen<T = any>(
   handler: (event: any) => void
 ): Promise<Unlisten> {
   if (!isTauriEnv()) {
-    // Non-Tauri: return no-op unlisten
-    return () => {};
+    // Non-Tauri: return tagged no-op unlisten
+    return noopUnlisten();
   }
   try {
     const mod = await import('@tauri-apps/api/event');
@@ -30,7 +49,7 @@ export async function safeListen<T = any>(
   } catch (err) {
     // In case internals are missing or plugin not loaded, quietly no-op
     console.warn('[eventUtils] Failed to listen to event in this environment:', { event, err });
-    return () => {};
+    return noopUnlisten();
   }
 }
 

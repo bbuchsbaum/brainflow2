@@ -16,6 +16,8 @@ use tauri::{Emitter, Manager};
 use templates::{TemplateService, TemplateSpace, TemplateType};
 use tokio::sync::Mutex as TokioMutex;
 
+mod menu_builder;
+
 #[derive(Clone, serde::Serialize, serde::Deserialize)]
 struct MountedDir {
     id: String,
@@ -264,6 +266,8 @@ fn main() {
                         file_menu.build()?
                     },
                     &templates_menu,
+                    &menu_builder::build_atlases_menu(app)?,
+                    &menu_builder::build_surface_templates_menu(app)?,
                     &SubmenuBuilder::new(app, "Edit")
                         .item(&PredefinedMenuItem::undo(app, None)?)
                         .item(&PredefinedMenuItem::redo(app, None)?)
@@ -484,6 +488,57 @@ fn main() {
                             ) {
                                 Ok(_) => println!("Template load event emitted successfully"),
                                 Err(e) => eprintln!("Failed to emit template load event: {}", e),
+                            }
+                        }
+                    }
+                    // Handle atlas menu items
+                    id if id.starts_with("atlas_") => {
+                        println!("Atlas menu item clicked: {}", id);
+
+                        if let Some(preset) = menu_builder::find_preset_by_menu_id(id) {
+                            match app.emit(
+                                "atlas-menu-action",
+                                serde_json::json!({
+                                    "action": "load-atlas",
+                                    "payload": preset.to_payload()
+                                }),
+                            ) {
+                                Ok(_) => println!("Atlas load event emitted successfully"),
+                                Err(e) => eprintln!("Failed to emit atlas load event: {}", e),
+                            }
+                        }
+                    }
+                    // Handle surface atlas menu items
+                    id if id.starts_with("surface_atlas_") => {
+                        println!("Surface atlas menu item clicked: {}", id);
+
+                        if let Some(preset) = menu_builder::find_surface_atlas_preset_by_menu_id(id) {
+                            match app.emit(
+                                "atlas-menu-action",
+                                serde_json::json!({
+                                    "action": "load-surface-atlas",
+                                    "payload": preset.to_payload()
+                                }),
+                            ) {
+                                Ok(_) => println!("Surface atlas load event emitted successfully"),
+                                Err(e) => eprintln!("Failed to emit surface atlas load event: {}", e),
+                            }
+                        }
+                    }
+                    // Handle surface template menu items
+                    id if id.starts_with("surface_") => {
+                        println!("Surface template menu item clicked: {}", id);
+
+                        if let Some(preset) = menu_builder::find_surface_preset_by_menu_id(id) {
+                            match app.emit(
+                                "surface-template-menu-action",
+                                serde_json::json!({
+                                    "action": "load-surface-template",
+                                    "payload": preset.to_payload()
+                                }),
+                            ) {
+                                Ok(_) => println!("Surface template load event emitted successfully"),
+                                Err(e) => eprintln!("Failed to emit surface template load event: {}", e),
                             }
                         }
                     }

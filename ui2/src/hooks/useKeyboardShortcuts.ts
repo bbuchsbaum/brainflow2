@@ -95,6 +95,3 @@ export function useKeyboardShortcuts() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [timeNav]);
 }
-
-// Legacy export kept for any consumers that import it
-export { useKeyboardShortcuts };
