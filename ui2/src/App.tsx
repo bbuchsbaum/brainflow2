@@ -13,6 +13,8 @@ import { useServicesInit } from '@/hooks/useServicesInit';
 import { useStatusBarInit } from '@/hooks/useStatusBarInit';
 import { useWorkspaceMenuListener } from '@/hooks/useWorkspaceMenuListener';
 import { usePanelMenuListener } from '@/hooks/usePanelMenuListener';
+import { useAtlasMenuListener } from '@/hooks/useAtlasMenuListener';
+import { useSurfaceTemplateMenuListener } from '@/hooks/useSurfaceTemplateMenuListener';
 import { coalesceUtils } from '@/stores/middleware/coalesceUpdatesMiddleware';
 import { getProgressService } from '@/services/ProgressService';
 import { ProgressDebug } from '@/components/ui/ProgressDebug';
@@ -128,6 +130,10 @@ function AppContent() {
   
   // Listen for panel menu events
   usePanelMenuListener();
+
+  // Listen for atlas and surface template menu events
+  useAtlasMenuListener();
+  useSurfaceTemplateMenuListener();
   
   // Initialize status bar service using Zustand store
   useStatusBarInit();
