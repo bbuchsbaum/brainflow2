@@ -4,7 +4,7 @@
 # ui2/src/services
 
 ## Purpose
-Business logic and API integration layer for the Brainflow frontend. Contains 42 service files implementing the service-driven architecture, handling file loading, rendering coordination, layer management, view synchronization, and backend communication. Services are the ONLY layer that updates stores and calls Tauri commands.
+Business logic and API integration layer for the Brainflow frontend. Contains 41 service files implementing the service-driven architecture, handling file loading, rendering coordination, layer management, view synchronization, and backend communication. Services are the ONLY layer that updates stores and calls Tauri commands.
 
 ## Key Files
 | File | Description |
@@ -41,7 +41,7 @@ Business logic and API integration layer for the Brainflow frontend. Contains 42
 | TimeNavigationService.ts | 4D time navigation - 8KB |
 | ClusterService.ts | Cluster analysis - 1KB |
 | SamplingService.ts | Data sampling operations - 1KB |
-| StoreSyncService.ts | Cross-store synchronization - 7KB |
+| `StoreSyncService.ts` | Removed. Cross-store synchronization is now explicit in `LayerApiImpl`/`LayerService`. |
 | SurfaceLayerAdapter.ts | Surface layer adapter - 4KB |
 | HoverInfoService.ts | Hover tooltip information - 3KB |
 | PerformanceMonitoringService.ts | Performance monitoring - 7KB |

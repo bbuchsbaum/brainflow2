@@ -463,6 +463,10 @@ export class ApiService {
     return getVolumeApiService().getVolumeBounds(volumeId);
   }
 
+  async unloadVolume(volumeId: string): Promise<void> {
+    return getVolumeApiService().unloadVolume(volumeId);
+  }
+
   async getNiftiHeaderInfo(volumeId: string): Promise<import('./volume/VolumeApiService').NiftiHeaderInfo> {
     return getVolumeApiService().getNiftiHeaderInfo(volumeId);
   }
@@ -914,4 +918,3 @@ export function setLegacyRenderFallbackEnabled(enable: boolean) {
 if (typeof window !== 'undefined') {
   (window as any).getApiService = getApiService;
 }
-

@@ -2345,6 +2345,84 @@ Denies the toggle_atlas_favorite command without any pre-configured scope.
 <tr>
 <td>
 
+`api-bridge:allow-unload-surface`
+
+</td>
+<td>
+
+Enables the unload_surface command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:deny-unload-surface`
+
+</td>
+<td>
+
+Denies the unload_surface command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:allow-unload-surface-overlay`
+
+</td>
+<td>
+
+Enables the unload_surface_overlay command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:deny-unload-surface-overlay`
+
+</td>
+<td>
+
+Denies the unload_surface_overlay command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:allow-unload-volume`
+
+</td>
+<td>
+
+Enables the unload_volume command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:deny-unload-volume`
+
+</td>
+<td>
+
+Denies the unload_volume command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
 `api-bridge:allow-update-frame-for-synchronized-view`
 
 </td>

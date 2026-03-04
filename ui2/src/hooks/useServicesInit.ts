@@ -6,7 +6,6 @@ import { useEffect } from 'react';
 import { initializeLayerService } from '@/services/LayerService';
 import { LayerApiImpl } from '@/services/LayerApiImpl';
 import { initializeFileLoadingService } from '@/services/FileLoadingService';
-import { initializeStoreSyncService } from '@/services/StoreSyncService';
 import { initializeTemplateService } from '@/services/TemplateService';
 import { getProgressService } from '@/services/ProgressService';
 import { getMetadataStatusService } from '@/services/MetadataStatusService';
@@ -44,14 +43,7 @@ export function useServicesInit() {
         initializeViewRegistry();
         console.log('[useServicesInit] ViewRegistry initialized');
         
-        // Add a global event debug listener first
         const eventBus = getEventBus();
-        eventBus.onAny((event, data) => {
-          if (event === 'layer.added') {
-            console.log(`[EventDebug] layer.added event fired!`, data);
-            console.log(`[EventDebug] Current listeners: ${eventBus.listenerCount('layer.added')}`);
-          }
-        });
         
         // Initialize RenderLoop for GPU resources via RenderCoordinator
         // This must be done early so GPU resources are available for file loading
@@ -106,16 +98,6 @@ export function useServicesInit() {
       throw error;
     }
     
-    // 4. Initialize StoreSyncService last (depends on all above)
-    try {
-      initializeStoreSyncService();
-      console.log('[useServicesInit] StoreSyncService initialized');
-    } catch (error) {
-      console.error('[useServicesInit] StoreSyncService initialization failed:', error);
-      getEventBus().emit('services.error', { service: 'StoreSyncService', error: error instanceof Error ? error.message : 'Unknown error' });
-      throw error;
-    }
-    
     // Initialize TemplateService to handle template menu events
     await initializeTemplateService();
     console.log('[useServicesInit] TemplateService initialized');
@@ -128,10 +110,6 @@ export function useServicesInit() {
     const metadataStatusService = getMetadataStatusService();
     metadataStatusService.initialize();
     console.log('[useServicesInit] MetadataStatusService initialized');
-    
-    // Verify StoreSyncService is listening
-    const listenerCount = eventBus.listenerCount('layer.added');
-    console.log(`[useServicesInit] After init - listeners for 'layer.added': ${listenerCount}`);
     
     // Set up coalescing middleware callback
     // apiService is already declared above
@@ -184,7 +162,6 @@ export function useServicesInit() {
         console.log('- RenderLoop: initialized');
         console.log('- LayerService: initialized');
         console.log('- FileLoadingService: initialized');
-        console.log('- StoreSyncService: initialized');
         console.log('- ProgressService: initialized');
         console.log('- MetadataStatusService: initialized');
         console.log('- Coalescing middleware: configured');

@@ -1339,6 +1339,42 @@
           "markdownDescription": "Denies the toggle_atlas_favorite command without any pre-configured scope."
         },
         {
+          "description": "Enables the unload_surface command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-unload-surface",
+          "markdownDescription": "Enables the unload_surface command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the unload_surface command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-unload-surface",
+          "markdownDescription": "Denies the unload_surface command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the unload_surface_overlay command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-unload-surface-overlay",
+          "markdownDescription": "Enables the unload_surface_overlay command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the unload_surface_overlay command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-unload-surface-overlay",
+          "markdownDescription": "Denies the unload_surface_overlay command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the unload_volume command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-unload-volume",
+          "markdownDescription": "Enables the unload_volume command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the unload_volume command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-unload-volume",
+          "markdownDescription": "Denies the unload_volume command without any pre-configured scope."
+        },
+        {
           "description": "Enables the update_frame_for_synchronized_view command without any pre-configured scope.",
           "type": "string",
           "const": "allow-update-frame-for-synchronized-view",

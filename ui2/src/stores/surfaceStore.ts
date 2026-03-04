@@ -20,6 +20,7 @@ export interface SurfaceGeometryData {
 export interface SurfaceDataLayer {
   id: string;
   name: string;
+  dataHandle?: string;
   values: Float32Array;
   indices?: Uint32Array; // Optional vertex indices for sparse data
   visible?: boolean;

@@ -10,7 +10,6 @@ import { Button } from '@/components/ui/Button';
 import { VscEye, VscEyeClosed } from 'react-icons/vsc';
 import { 
   Brain, 
-  FileUp, 
   Trash2, 
   Info, 
   ChevronRight, 
@@ -23,6 +22,7 @@ import { cn } from '@/utils/cn';
 import { SurfaceMetadataDrawer } from '@/components/ui/SurfaceMetadataDrawer';
 import { SurfaceControlPanel } from './SurfaceControlPanel';
 import { getSurfaceLoadingService } from '@/services/SurfaceLoadingService';
+import { surfaceOverlayService } from '@/services/SurfaceOverlayService';
 
 export const SurfaceLayerPanel: React.FC = () => {
   // Track expanded surfaces
@@ -35,11 +35,9 @@ export const SurfaceLayerPanel: React.FC = () => {
     isLoading,
     loadError,
     setActiveSurface,
-    removeSurface,
     clearError,
     setSelectedItem,
     addDataLayer,
-    removeDataLayer,
     updateLayerProperty,
     setSurfaceVisibility,
   } = useSurfaceStore();
@@ -103,6 +101,7 @@ export const SurfaceLayerPanel: React.FC = () => {
         values: new Float32Array(0),
         colormap: 'viridis',
         range: [-1, 1] as [number, number],
+        dataRange: [-1, 1] as [number, number],
         opacity: 1,
         visible: true,
       };
@@ -113,9 +112,11 @@ export const SurfaceLayerPanel: React.FC = () => {
   const handleRemoveSurface = useCallback((surfaceId: string, e: React.MouseEvent) => {
     e.stopPropagation(); // Prevent selection when removing
     if (confirm('Remove this surface?')) {
-      removeSurface(surfaceId);
+      void getSurfaceLoadingService().unloadSurface(surfaceId).catch((error) => {
+        console.error('Failed to remove surface:', error);
+      });
     }
-  }, [removeSurface]);
+  }, []);
 
   const handleToggleSurfaceVisibility = useCallback((surfaceId: string, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -152,7 +153,7 @@ export const SurfaceLayerPanel: React.FC = () => {
         </div>
         <Button
           size="sm"
-          variant="outline"
+          variant="secondary"
           onClick={handleLoadSurface}
           disabled={isLoading}
           className="h-6 text-[10px] px-2 uppercase tracking-widest bg-background hover:border-accent hover:text-accent"
@@ -353,7 +354,9 @@ export const SurfaceLayerPanel: React.FC = () => {
                                   e.stopPropagation();
                                   const ok = window.confirm(`Remove layer "${layer.name}"?`);
                                   if (ok) {
-                                    removeDataLayer(id, layerId);
+                                    void surfaceOverlayService.removeSurfaceDataLayer(id, layerId).catch((error) => {
+                                      console.error('Failed to remove surface layer:', error);
+                                    });
                                   }
                                 }}
                                 className="p-1 hover:bg-muted/50 rounded-[2px] opacity-0 group-hover:opacity-100 transition-opacity"

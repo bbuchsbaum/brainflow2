@@ -357,6 +357,7 @@ export class SurfaceOverlayService {
       addDataLayer(targetSurfaceId, {
         id: dataLayer.id,
         name: dataLayer.name,
+        dataHandle: dataLayer.dataHandle,
         values: layerValues,
         colormap: dataLayer.colormap,
         range: dataLayer.range,        // Initial intensity window (same as dataRange)
@@ -419,23 +420,31 @@ export class SurfaceOverlayService {
   /**
    * Remove a data layer from a surface
    */
-  removeSurfaceDataLayer(surfaceId: string, layerId: string): void {
+  async removeSurfaceDataLayer(surfaceId: string, layerId: string): Promise<void> {
     const surfaceStore = useSurfaceStore.getState();
     const surface = surfaceStore.surfaces.get(surfaceId);
-    
-    if (surface && surface.layers) {
-      surface.layers.delete(layerId);
-      // Also remove the data handle
-      if ((surface as any).dataHandles) {
-        (surface as any).dataHandles.delete(layerId);
-      }
-      surfaceStore.surfaces.set(surfaceId, surface);
-      
-      getEventBus().emit('surface.dataLayerRemoved', {
-        surfaceId,
-        layerId,
+
+    if (!surface || !surface.layers) {
+      return;
+    }
+
+    const layer = surface.layers.get(layerId);
+    if (!layer) {
+      return;
+    }
+
+    if (layer.dataHandle) {
+      await getTransport().invoke<{ success: boolean; message: string }>('unload_surface_overlay', {
+        handle: layer.dataHandle,
       });
     }
+
+    surfaceStore.removeDataLayer(surfaceId, layerId);
+
+    getEventBus().emit('surface.dataLayerRemoved', {
+      surfaceId,
+      layerId,
+    });
   }
   
   /**
@@ -478,7 +487,7 @@ export class SurfaceOverlayService {
       return Array.from(surface.layers.values()).map(layer => ({
         id: layer.id,
         name: layer.name,
-        dataHandle: (surface as any).dataHandles?.get(layer.id) || '',
+        dataHandle: layer.dataHandle || '',
         surfaceId: surfaceId,
         colormap: layer.colormap,
         range: layer.range,

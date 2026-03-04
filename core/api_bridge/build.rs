@@ -1,10 +1,13 @@
 const COMMANDS: &[&str] = &[
     "load_file",
     "load_surface",
+    "unload_surface",
     "load_surface_overlay",
+    "unload_surface_overlay",
     "get_surface_overlay_data",
     "get_surface_geometry",
     "get_volume_bounds",
+    "unload_volume",
     // "world_to_voxel", // REMOVED - Unused coordinate transformation
     "set_volume_timepoint",
     "get_volume_timepoint",

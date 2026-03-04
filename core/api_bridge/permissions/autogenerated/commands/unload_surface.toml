@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-unload-surface"
+description = "Enables the unload_surface command without any pre-configured scope."
+commands.allow = ["unload_surface"]
+
+[[permission]]
+identifier = "deny-unload-surface"
+description = "Denies the unload_surface command without any pre-configured scope."
+commands.deny = ["unload_surface"]

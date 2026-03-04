@@ -1,7 +1,7 @@
 import React, { useRef, useEffect, useState, useCallback } from 'react';
 import type { Layer } from '@/types/layers';
 import { VscEye, VscEyeClosed } from 'react-icons/vsc';
-import { GripVertical, Info } from 'lucide-react';
+import { GripVertical, Info, Trash2 } from 'lucide-react';
 import { MetadataPopover } from './MetadataPopover';
 import { LayerTypeIcon } from './LayerTypeIcon';
 import { cn } from '@/utils/cn';
@@ -31,6 +31,7 @@ interface LayerTableProps {
   onShowMetadata?: (layerId: string) => void;
   onReorder?: (newLayers: Layer[]) => void;
   onOpacityChange?: (layerId: string, opacity: number) => void;
+  onRemove?: (layerId: string) => void;
   // Function to get visibility state from opacity (single source of truth)
   getLayerVisibility?: (layerId: string) => boolean;
   getLayerOpacity?: (layerId: string) => number;
@@ -86,6 +87,7 @@ interface SortableLayerRowProps {
   onToggleVisibility: () => void;
   onOpacityChange: (opacity: number) => void;
   onShowMetadata?: () => void;
+  onRemove?: () => void;
 }
 
 const SortableLayerRow: React.FC<SortableLayerRowProps> = ({
@@ -97,6 +99,7 @@ const SortableLayerRow: React.FC<SortableLayerRowProps> = ({
   onToggleVisibility,
   onOpacityChange,
   onShowMetadata,
+  onRemove,
 }) => {
   const {
     attributes,
@@ -211,6 +214,26 @@ const SortableLayerRow: React.FC<SortableLayerRowProps> = ({
           <Info className="h-4 w-4 text-muted-foreground" />
         </button>
       </MetadataPopover>
+
+      {onRemove && (
+        <button
+          className={cn(
+            "icon-btn",
+            "opacity-0 group-hover:opacity-100 focus:opacity-100",
+            "transition-all duration-200",
+            "hover:bg-destructive/20 active:bg-destructive/30",
+            "rounded-md p-1"
+          )}
+          onClick={(e) => {
+            e.stopPropagation();
+            onRemove();
+          }}
+          aria-label={`Remove ${layer.name}`}
+          tabIndex={-1}
+        >
+          <Trash2 className="h-4 w-4 text-muted-foreground" />
+        </button>
+      )}
     </div>
   );
 };
@@ -223,6 +246,7 @@ export const LayerTable: React.FC<LayerTableProps> = ({
   onShowMetadata,
   onReorder,
   onOpacityChange,
+  onRemove,
   getLayerVisibility,
   getLayerOpacity,
 }) => {
@@ -336,6 +360,7 @@ export const LayerTable: React.FC<LayerTableProps> = ({
                   onToggleVisibility={() => onToggleVisibility(layer.id)}
                   onOpacityChange={(newOpacity) => onOpacityChange?.(layer.id, newOpacity)}
                   onShowMetadata={onShowMetadata ? () => onShowMetadata(layer.id) : undefined}
+                  onRemove={onRemove ? () => onRemove(layer.id) : undefined}
                 />
               );
             })}

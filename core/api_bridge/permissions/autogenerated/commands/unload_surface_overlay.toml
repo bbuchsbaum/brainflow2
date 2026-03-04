@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-unload-surface-overlay"
+description = "Enables the unload_surface_overlay command without any pre-configured scope."
+commands.allow = ["unload_surface_overlay"]
+
+[[permission]]
+identifier = "deny-unload-surface-overlay"
+description = "Denies the unload_surface_overlay command without any pre-configured scope."
+commands.deny = ["unload_surface_overlay"]

@@ -82,15 +82,15 @@ const VolumeLayerPanelContent: React.FC = () => {
   }, [viewStateLayers, serviceInitialized]);
 
   const handleReorder = useCallback((newLayers: Layer[]) => {
-    // Update layerStore order
-    useLayerStore.getState().reorderLayers(newLayers);
-
-    // Update viewStateStore layer order to match
-    useViewStateStore.getState().setViewState((state) => {
-      const idOrder = newLayers.map(l => l.id);
-      state.layers.sort((a, b) => idOrder.indexOf(a.id) - idOrder.indexOf(b.id));
+    const layerIds = newLayers.map((layer) => layer.id);
+    if (!serviceInitialized) {
+      console.warn('[VolumeLayerPanel] Ignoring reorder before LayerService initialization');
+      return;
+    }
+    void getLayerService().reorderLayers(layerIds).catch((error) => {
+      console.error('[VolumeLayerPanel] Failed to reorder layers:', error);
     });
-  }, []);
+  }, [serviceInitialized]);
 
   const handleOpacityChange = useCallback((layerId: string, opacity: number) => {
     useViewStateStore.getState().setViewState((state) => {
@@ -110,6 +110,23 @@ const VolumeLayerPanelContent: React.FC = () => {
     const vsl = viewStateLayers.find(l => l.id === layerId);
     return vsl ? vsl.opacity > 0 : true;
   }, [viewStateLayers]);
+
+  const handleRemoveLayer = useCallback((layerId: string) => {
+    if (!serviceInitialized) {
+      console.warn('[VolumeLayerPanel] Ignoring remove before LayerService initialization');
+      return;
+    }
+
+    const layer = layers.find((item) => item.id === layerId);
+    const confirmed = window.confirm(`Remove layer "${layer?.name ?? layerId}"?`);
+    if (!confirmed) {
+      return;
+    }
+
+    void getLayerService().removeLayer(layerId).catch((error) => {
+      console.error('[VolumeLayerPanel] Failed to remove layer:', error);
+    });
+  }, [layers, serviceInitialized]);
 
   const getLayerOpacity = useCallback((layerId: string) => {
     const vsl = viewStateLayers.find(l => l.id === layerId);
@@ -274,6 +291,7 @@ const VolumeLayerPanelContent: React.FC = () => {
           selectedLayerId={selectedLayerId}
           onSelect={selectLayer}
           onToggleVisibility={toggleVisibility}
+          onRemove={handleRemoveLayer}
           onShowMetadata={setMetadataLayerId}
           onReorder={handleReorder}
           onOpacityChange={handleOpacityChange}

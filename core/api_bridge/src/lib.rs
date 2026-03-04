@@ -337,10 +337,22 @@ fn affine_from_neurospace_trans(trans: &nalgebra::DMatrix<f64>) -> Affine3<f32> 
     use nalgebra::Matrix4;
     if trans.nrows() >= 4 && trans.ncols() >= 4 {
         let m = Matrix4::new(
-            trans[(0, 0)] as f32, trans[(0, 1)] as f32, trans[(0, 2)] as f32, trans[(0, 3)] as f32,
-            trans[(1, 0)] as f32, trans[(1, 1)] as f32, trans[(1, 2)] as f32, trans[(1, 3)] as f32,
-            trans[(2, 0)] as f32, trans[(2, 1)] as f32, trans[(2, 2)] as f32, trans[(2, 3)] as f32,
-            0.0, 0.0, 0.0, 1.0,
+            trans[(0, 0)] as f32,
+            trans[(0, 1)] as f32,
+            trans[(0, 2)] as f32,
+            trans[(0, 3)] as f32,
+            trans[(1, 0)] as f32,
+            trans[(1, 1)] as f32,
+            trans[(1, 2)] as f32,
+            trans[(1, 3)] as f32,
+            trans[(2, 0)] as f32,
+            trans[(2, 1)] as f32,
+            trans[(2, 2)] as f32,
+            trans[(2, 3)] as f32,
+            0.0,
+            0.0,
+            0.0,
+            1.0,
         );
         Affine3::from_matrix_unchecked(m)
     } else {
@@ -948,6 +960,24 @@ impl SurfaceRegistry {
         self.surface_data.remove(id)
     }
 
+    /// Remove all overlay datasets associated with a surface handle.
+    pub fn remove_data_for_surface(&mut self, surface_id: &str) -> usize {
+        let prefix = format!("overlay_{}_", surface_id);
+        let keys: Vec<String> = self
+            .surface_data
+            .keys()
+            .filter(|key| key.starts_with(&prefix))
+            .cloned()
+            .collect();
+
+        let removed_count = keys.len();
+        for key in keys {
+            self.surface_data.remove(&key);
+        }
+
+        removed_count
+    }
+
     /// Check if a surface exists
     pub fn contains_surface(&self, id: &str) -> bool {
         self.surfaces.contains_key(id)
@@ -1381,6 +1411,38 @@ async fn get_surface_geometry(
     Ok(bridge_types::SurfaceGeometryData { vertices, faces })
 }
 
+#[command]
+#[tracing::instrument(skip_all, err, name = "api.unload_surface")]
+async fn unload_surface(
+    handle: String,
+    state: State<'_, BridgeState>,
+) -> BridgeResult<ReleaseResult> {
+    info!("Bridge: unload_surface called for handle: {}", handle);
+
+    let mut registry = state.surface_registry.lock().await;
+    registry
+        .remove_surface(&handle)
+        .ok_or_else(|| BridgeError::Input {
+            code: 2013,
+            details: format!("Surface not found: {}", handle),
+        })?;
+    let removed_overlay_count = registry.remove_data_for_surface(&handle);
+    drop(registry);
+
+    info!(
+        "Bridge: Unloaded surface '{}' ({} associated overlay dataset(s) removed)",
+        handle, removed_overlay_count
+    );
+
+    Ok(ReleaseResult {
+        success: true,
+        message: format!(
+            "Unloaded surface '{}' ({} associated overlay dataset(s) removed)",
+            handle, removed_overlay_count
+        ),
+    })
+}
+
 // --- Surface Overlay Commands ---
 
 #[command]
@@ -1419,10 +1481,7 @@ async fn load_surface_overlay(
     let data_count = data.len();
 
     // Detect intent from filename
-    let filename = file_path
-        .file_name()
-        .and_then(|n| n.to_str())
-        .unwrap_or("");
+    let filename = file_path.file_name().and_then(|n| n.to_str()).unwrap_or("");
     let intent = if filename.contains(".func.gii") {
         "functional".to_string()
     } else if filename.contains(".shape.gii") {
@@ -1474,12 +1533,88 @@ async fn get_surface_overlay_data(
     );
 
     let registry = state.surface_registry.lock().await;
-    let data = registry.get_data(&handle).ok_or_else(|| BridgeError::Input {
-        code: 2012,
-        details: format!("Overlay data not found: {}", handle),
-    })?;
+    let data = registry
+        .get_data(&handle)
+        .ok_or_else(|| BridgeError::Input {
+            code: 2012,
+            details: format!("Overlay data not found: {}", handle),
+        })?;
 
     Ok(data.clone())
+}
+
+#[command]
+#[tracing::instrument(skip_all, err, name = "api.unload_surface_overlay")]
+async fn unload_surface_overlay(
+    handle: String,
+    state: State<'_, BridgeState>,
+) -> BridgeResult<ReleaseResult> {
+    info!(
+        "Bridge: unload_surface_overlay called for handle: {}",
+        handle
+    );
+
+    let mut registry = state.surface_registry.lock().await;
+    registry
+        .remove_data(&handle)
+        .ok_or_else(|| BridgeError::Input {
+            code: 2014,
+            details: format!("Overlay data not found: {}", handle),
+        })?;
+    drop(registry);
+
+    Ok(ReleaseResult {
+        success: true,
+        message: format!("Unloaded surface overlay '{}'", handle),
+    })
+}
+
+#[command]
+#[tracing::instrument(skip_all, err, name = "api.unload_volume")]
+async fn unload_volume(
+    volume_id: String,
+    state: State<'_, BridgeState>,
+) -> BridgeResult<ReleaseResult> {
+    info!("Bridge: unload_volume called for volume: {}", volume_id);
+
+    let active_layer_ids: Vec<String> = {
+        let layer_to_volume = state.layer_to_volume_map.lock().await;
+        layer_to_volume
+            .iter()
+            .filter_map(|(layer_id, mapped_volume_id)| {
+                if mapped_volume_id == &volume_id {
+                    Some(layer_id.clone())
+                } else {
+                    None
+                }
+            })
+            .collect()
+    };
+
+    if !active_layer_ids.is_empty() {
+        return Err(BridgeError::Input {
+            code: 4048,
+            details: format!(
+                "Cannot unload volume '{}' while active layer mappings exist: {}",
+                volume_id,
+                active_layer_ids.join(", ")
+            ),
+        });
+    }
+
+    let mut volume_registry = state.volume_registry.lock().await;
+    volume_registry
+        .remove(&volume_id)
+        .ok_or_else(|| BridgeError::VolumeNotFound {
+            code: 4041,
+            details: volume_id.clone(),
+        })?;
+    drop(volume_registry);
+
+    Ok(ReleaseResult {
+        success: true,
+        message: format!("Unloaded volume '{}'", volume_id),
+    })
 }
 
 #[command]
@@ -1638,15 +1773,27 @@ fn derive_orientation_string(affine: &nalgebra::Matrix4<f32>) -> String {
     let mut result = String::with_capacity(3);
     for voxel_axis in 0..3 {
         // Column voxel_axis gives the world direction for that voxel axis
-        let col = [affine[(0, voxel_axis)], affine[(1, voxel_axis)], affine[(2, voxel_axis)]];
+        let col = [
+            affine[(0, voxel_axis)],
+            affine[(1, voxel_axis)],
+            affine[(2, voxel_axis)],
+        ];
         // Find which world axis this column most aligns with
         let (max_world_axis, &max_val) = col
             .iter()
             .enumerate()
-            .max_by(|(_, a), (_, b)| a.abs().partial_cmp(&b.abs()).unwrap_or(std::cmp::Ordering::Equal))
+            .max_by(|(_, a), (_, b)| {
+                a.abs()
+                    .partial_cmp(&b.abs())
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            })
             .unwrap_or((0, &col[0]));
         let label_pair = axis_labels[max_world_axis];
-        result.push(if max_val >= 0.0 { label_pair[0] } else { label_pair[1] });
+        result.push(if max_val >= 0.0 {
+            label_pair[0]
+        } else {
+            label_pair[1]
+        });
     }
     result
 }
@@ -1705,10 +1852,22 @@ async fn get_nifti_header_info(
         [0.0f32, 0.0, 0.0],
         [(spatial_dims[0] - 1) as f32, 0.0, 0.0],
         [0.0, (spatial_dims[1] - 1) as f32, 0.0],
-        [(spatial_dims[0] - 1) as f32, (spatial_dims[1] - 1) as f32, 0.0],
+        [
+            (spatial_dims[0] - 1) as f32,
+            (spatial_dims[1] - 1) as f32,
+            0.0,
+        ],
         [0.0, 0.0, (spatial_dims[2] - 1) as f32],
-        [(spatial_dims[0] - 1) as f32, 0.0, (spatial_dims[2] - 1) as f32],
-        [0.0, (spatial_dims[1] - 1) as f32, (spatial_dims[2] - 1) as f32],
+        [
+            (spatial_dims[0] - 1) as f32,
+            0.0,
+            (spatial_dims[2] - 1) as f32,
+        ],
+        [
+            0.0,
+            (spatial_dims[1] - 1) as f32,
+            (spatial_dims[2] - 1) as f32,
+        ],
         [
             (spatial_dims[0] - 1) as f32,
             (spatial_dims[1] - 1) as f32,
@@ -1718,8 +1877,7 @@ async fn get_nifti_header_info(
     let mut world_bounds_min = [f32::INFINITY; 3];
     let mut world_bounds_max = [f32::NEG_INFINITY; 3];
     for corner in &corners {
-        let world = voxel_to_world
-            * nalgebra::Vector4::new(corner[0], corner[1], corner[2], 1.0);
+        let world = voxel_to_world * nalgebra::Vector4::new(corner[0], corner[1], corner[2], 1.0);
         for i in 0..3 {
             world_bounds_min[i] = world_bounds_min[i].min(world[i]);
             world_bounds_max[i] = world_bounds_max[i].max(world[i]);
@@ -1729,15 +1887,10 @@ async fn get_nifti_header_info(
     let orientation_string = derive_orientation_string(&voxel_to_world);
 
     // Extract 4D metadata if available
-    let (num_timepoints, tr_seconds, temporal_units) =
-        match &entry.metadata.time_series_info {
-            Some(ts) => (
-                Some(ts.num_timepoints),
-                ts.tr,
-                ts.temporal_unit.clone(),
-            ),
-            None => (None, None, None),
-        };
+    let (num_timepoints, tr_seconds, temporal_units) = match &entry.metadata.time_series_info {
+        Some(ts) => (Some(ts.num_timepoints), ts.tr, ts.temporal_unit.clone()),
+        None => (None, None, None),
+    };
 
     Ok(NiftiHeaderInfo {
         filename: entry.metadata.path.clone(),
@@ -2816,66 +2969,116 @@ pub async fn request_layer_gpu_resources_for_testing(
                     let mut min = f32::MAX;
                     let mut max = f32::MIN;
                     for &val in vec.data.iter() {
-                        if !val.is_nan() { min = min.min(val); max = max.max(val); }
+                        if !val.is_nan() {
+                            min = min.min(val);
+                            max = max.max(val);
+                        }
                     }
-                    if min > max { (0.0, 1.0) } else { (min, max) }
+                    if min > max {
+                        (0.0, 1.0)
+                    } else {
+                        (min, max)
+                    }
                 }
                 VolumeSendable::Vec4DI16(vec) => {
                     let mut min = f32::MAX;
                     let mut max = f32::MIN;
                     for &val in vec.data.iter() {
-                        let v = val as f32; min = min.min(v); max = max.max(v);
+                        let v = val as f32;
+                        min = min.min(v);
+                        max = max.max(v);
                     }
-                    if min > max { (0.0, 1.0) } else { (min, max) }
+                    if min > max {
+                        (0.0, 1.0)
+                    } else {
+                        (min, max)
+                    }
                 }
                 VolumeSendable::Vec4DU8(vec) => {
                     let mut min = f32::MAX;
                     let mut max = f32::MIN;
                     for &val in vec.data.iter() {
-                        let v = val as f32; min = min.min(v); max = max.max(v);
+                        let v = val as f32;
+                        min = min.min(v);
+                        max = max.max(v);
                     }
-                    if min > max { (0.0, 1.0) } else { (min, max) }
+                    if min > max {
+                        (0.0, 1.0)
+                    } else {
+                        (min, max)
+                    }
                 }
                 VolumeSendable::Vec4DI8(vec) => {
                     let mut min = f32::MAX;
                     let mut max = f32::MIN;
                     for &val in vec.data.iter() {
-                        let v = val as f32; min = min.min(v); max = max.max(v);
+                        let v = val as f32;
+                        min = min.min(v);
+                        max = max.max(v);
                     }
-                    if min > max { (0.0, 1.0) } else { (min, max) }
+                    if min > max {
+                        (0.0, 1.0)
+                    } else {
+                        (min, max)
+                    }
                 }
                 VolumeSendable::Vec4DU16(vec) => {
                     let mut min = f32::MAX;
                     let mut max = f32::MIN;
                     for &val in vec.data.iter() {
-                        let v = val as f32; min = min.min(v); max = max.max(v);
+                        let v = val as f32;
+                        min = min.min(v);
+                        max = max.max(v);
                     }
-                    if min > max { (0.0, 1.0) } else { (min, max) }
+                    if min > max {
+                        (0.0, 1.0)
+                    } else {
+                        (min, max)
+                    }
                 }
                 VolumeSendable::Vec4DI32(vec) => {
                     let mut min = f32::MAX;
                     let mut max = f32::MIN;
                     for &val in vec.data.iter() {
-                        let v = val as f32; min = min.min(v); max = max.max(v);
+                        let v = val as f32;
+                        min = min.min(v);
+                        max = max.max(v);
                     }
-                    if min > max { (0.0, 1.0) } else { (min, max) }
+                    if min > max {
+                        (0.0, 1.0)
+                    } else {
+                        (min, max)
+                    }
                 }
                 VolumeSendable::Vec4DU32(vec) => {
                     let mut min = f32::MAX;
                     let mut max = f32::MIN;
                     for &val in vec.data.iter() {
-                        let v = val as f32; min = min.min(v); max = max.max(v);
+                        let v = val as f32;
+                        min = min.min(v);
+                        max = max.max(v);
                     }
-                    if min > max { (0.0, 1.0) } else { (min, max) }
+                    if min > max {
+                        (0.0, 1.0)
+                    } else {
+                        (min, max)
+                    }
                 }
                 VolumeSendable::Vec4DF64(vec) => {
                     let mut min = f32::MAX;
                     let mut max = f32::MIN;
                     for &val in vec.data.iter() {
                         let v = val as f32;
-                        if !v.is_nan() { min = min.min(v); max = max.max(v); }
+                        if !v.is_nan() {
+                            min = min.min(v);
+                            max = max.max(v);
+                        }
                     }
-                    if min > max { (0.0, 1.0) } else { (min, max) }
+                    if min > max {
+                        (0.0, 1.0)
+                    } else {
+                        (min, max)
+                    }
                 }
             };
             let is_binary_like = (min_val >= 0.0 && max_val <= 1.0) && ((max_val - min_val) <= 1.0);
@@ -4110,11 +4313,16 @@ async fn compute_layer_histogram(
             };
             let vol_3d = vec.volume(timepoint).map_err(|e| BridgeError::Internal {
                 code: 5014,
-                details: format!("Failed to extract timepoint {} for histogram: {}", timepoint, e),
+                details: format!(
+                    "Failed to extract timepoint {} for histogram: {}",
+                    timepoint, e
+                ),
             })?;
             for &val in vol_3d.data().iter() {
                 let val_f32 = val as f32;
-                if !exclude_zeros || val != 0 { values.push(val_f32); }
+                if !exclude_zeros || val != 0 {
+                    values.push(val_f32);
+                }
             }
         }
         VolumeSendable::Vec4DU16(vec) => {
@@ -4128,11 +4336,16 @@ async fn compute_layer_histogram(
             };
             let vol_3d = vec.volume(timepoint).map_err(|e| BridgeError::Internal {
                 code: 5014,
-                details: format!("Failed to extract timepoint {} for histogram: {}", timepoint, e),
+                details: format!(
+                    "Failed to extract timepoint {} for histogram: {}",
+                    timepoint, e
+                ),
             })?;
             for &val in vol_3d.data().iter() {
                 let val_f32 = val as f32;
-                if !exclude_zeros || val != 0 { values.push(val_f32); }
+                if !exclude_zeros || val != 0 {
+                    values.push(val_f32);
+                }
             }
         }
         VolumeSendable::Vec4DI32(vec) => {
@@ -4146,11 +4359,16 @@ async fn compute_layer_histogram(
             };
             let vol_3d = vec.volume(timepoint).map_err(|e| BridgeError::Internal {
                 code: 5014,
-                details: format!("Failed to extract timepoint {} for histogram: {}", timepoint, e),
+                details: format!(
+                    "Failed to extract timepoint {} for histogram: {}",
+                    timepoint, e
+                ),
             })?;
             for &val in vol_3d.data().iter() {
                 let val_f32 = val as f32;
-                if !exclude_zeros || val != 0 { values.push(val_f32); }
+                if !exclude_zeros || val != 0 {
+                    values.push(val_f32);
+                }
             }
         }
         VolumeSendable::Vec4DU32(vec) => {
@@ -4164,11 +4382,16 @@ async fn compute_layer_histogram(
             };
             let vol_3d = vec.volume(timepoint).map_err(|e| BridgeError::Internal {
                 code: 5014,
-                details: format!("Failed to extract timepoint {} for histogram: {}", timepoint, e),
+                details: format!(
+                    "Failed to extract timepoint {} for histogram: {}",
+                    timepoint, e
+                ),
             })?;
             for &val in vol_3d.data().iter() {
                 let val_f32 = val as f32;
-                if !exclude_zeros || val != 0 { values.push(val_f32); }
+                if !exclude_zeros || val != 0 {
+                    values.push(val_f32);
+                }
             }
         }
         VolumeSendable::Vec4DF64(vec) => {
@@ -4182,11 +4405,16 @@ async fn compute_layer_histogram(
             };
             let vol_3d = vec.volume(timepoint).map_err(|e| BridgeError::Internal {
                 code: 5014,
-                details: format!("Failed to extract timepoint {} for histogram: {}", timepoint, e),
+                details: format!(
+                    "Failed to extract timepoint {} for histogram: {}",
+                    timepoint, e
+                ),
             })?;
             for &val in vol_3d.data().iter() {
                 let val_f32 = val as f32;
-                if !exclude_zeros || val != 0.0 { values.push(val_f32); }
+                if !exclude_zeros || val != 0.0 {
+                    values.push(val_f32);
+                }
             }
         }
     }
@@ -4472,9 +4700,12 @@ async fn sample_world_coordinate(
         VolumeSendable::Vec4DF32(vec) => {
             let dims = vec.data.dim();
             let t = timepoint.min(dims.3.saturating_sub(1));
-            if voxel_coords[0] >= 0.0 && voxel_coords[0] < dims.0 as f32
-                && voxel_coords[1] >= 0.0 && voxel_coords[1] < dims.1 as f32
-                && voxel_coords[2] >= 0.0 && voxel_coords[2] < dims.2 as f32
+            if voxel_coords[0] >= 0.0
+                && voxel_coords[0] < dims.0 as f32
+                && voxel_coords[1] >= 0.0
+                && voxel_coords[1] < dims.1 as f32
+                && voxel_coords[2] >= 0.0
+                && voxel_coords[2] < dims.2 as f32
             {
                 let x = voxel_coords[0].round() as usize;
                 let y = voxel_coords[1].round() as usize;
@@ -4487,9 +4718,12 @@ async fn sample_world_coordinate(
         VolumeSendable::Vec4DI16(vec) => {
             let dims = vec.data.dim();
             let t = timepoint.min(dims.3.saturating_sub(1));
-            if voxel_coords[0] >= 0.0 && voxel_coords[0] < dims.0 as f32
-                && voxel_coords[1] >= 0.0 && voxel_coords[1] < dims.1 as f32
-                && voxel_coords[2] >= 0.0 && voxel_coords[2] < dims.2 as f32
+            if voxel_coords[0] >= 0.0
+                && voxel_coords[0] < dims.0 as f32
+                && voxel_coords[1] >= 0.0
+                && voxel_coords[1] < dims.1 as f32
+                && voxel_coords[2] >= 0.0
+                && voxel_coords[2] < dims.2 as f32
             {
                 let x = voxel_coords[0].round() as usize;
                 let y = voxel_coords[1].round() as usize;
@@ -4502,9 +4736,12 @@ async fn sample_world_coordinate(
         VolumeSendable::Vec4DU8(vec) => {
             let dims = vec.data.dim();
             let t = timepoint.min(dims.3.saturating_sub(1));
-            if voxel_coords[0] >= 0.0 && voxel_coords[0] < dims.0 as f32
-                && voxel_coords[1] >= 0.0 && voxel_coords[1] < dims.1 as f32
-                && voxel_coords[2] >= 0.0 && voxel_coords[2] < dims.2 as f32
+            if voxel_coords[0] >= 0.0
+                && voxel_coords[0] < dims.0 as f32
+                && voxel_coords[1] >= 0.0
+                && voxel_coords[1] < dims.1 as f32
+                && voxel_coords[2] >= 0.0
+                && voxel_coords[2] < dims.2 as f32
             {
                 let x = voxel_coords[0].round() as usize;
                 let y = voxel_coords[1].round() as usize;
@@ -4517,9 +4754,12 @@ async fn sample_world_coordinate(
         VolumeSendable::Vec4DI8(vec) => {
             let dims = vec.data.dim();
             let t = timepoint.min(dims.3.saturating_sub(1));
-            if voxel_coords[0] >= 0.0 && voxel_coords[0] < dims.0 as f32
-                && voxel_coords[1] >= 0.0 && voxel_coords[1] < dims.1 as f32
-                && voxel_coords[2] >= 0.0 && voxel_coords[2] < dims.2 as f32
+            if voxel_coords[0] >= 0.0
+                && voxel_coords[0] < dims.0 as f32
+                && voxel_coords[1] >= 0.0
+                && voxel_coords[1] < dims.1 as f32
+                && voxel_coords[2] >= 0.0
+                && voxel_coords[2] < dims.2 as f32
             {
                 let x = voxel_coords[0].round() as usize;
                 let y = voxel_coords[1].round() as usize;
@@ -4532,9 +4772,12 @@ async fn sample_world_coordinate(
         VolumeSendable::Vec4DU16(vec) => {
             let dims = vec.data.dim();
             let t = timepoint.min(dims.3.saturating_sub(1));
-            if voxel_coords[0] >= 0.0 && voxel_coords[0] < dims.0 as f32
-                && voxel_coords[1] >= 0.0 && voxel_coords[1] < dims.1 as f32
-                && voxel_coords[2] >= 0.0 && voxel_coords[2] < dims.2 as f32
+            if voxel_coords[0] >= 0.0
+                && voxel_coords[0] < dims.0 as f32
+                && voxel_coords[1] >= 0.0
+                && voxel_coords[1] < dims.1 as f32
+                && voxel_coords[2] >= 0.0
+                && voxel_coords[2] < dims.2 as f32
             {
                 let x = voxel_coords[0].round() as usize;
                 let y = voxel_coords[1].round() as usize;
@@ -4547,9 +4790,12 @@ async fn sample_world_coordinate(
         VolumeSendable::Vec4DI32(vec) => {
             let dims = vec.data.dim();
             let t = timepoint.min(dims.3.saturating_sub(1));
-            if voxel_coords[0] >= 0.0 && voxel_coords[0] < dims.0 as f32
-                && voxel_coords[1] >= 0.0 && voxel_coords[1] < dims.1 as f32
-                && voxel_coords[2] >= 0.0 && voxel_coords[2] < dims.2 as f32
+            if voxel_coords[0] >= 0.0
+                && voxel_coords[0] < dims.0 as f32
+                && voxel_coords[1] >= 0.0
+                && voxel_coords[1] < dims.1 as f32
+                && voxel_coords[2] >= 0.0
+                && voxel_coords[2] < dims.2 as f32
             {
                 let x = voxel_coords[0].round() as usize;
                 let y = voxel_coords[1].round() as usize;
@@ -4562,9 +4808,12 @@ async fn sample_world_coordinate(
         VolumeSendable::Vec4DU32(vec) => {
             let dims = vec.data.dim();
             let t = timepoint.min(dims.3.saturating_sub(1));
-            if voxel_coords[0] >= 0.0 && voxel_coords[0] < dims.0 as f32
-                && voxel_coords[1] >= 0.0 && voxel_coords[1] < dims.1 as f32
-                && voxel_coords[2] >= 0.0 && voxel_coords[2] < dims.2 as f32
+            if voxel_coords[0] >= 0.0
+                && voxel_coords[0] < dims.0 as f32
+                && voxel_coords[1] >= 0.0
+                && voxel_coords[1] < dims.1 as f32
+                && voxel_coords[2] >= 0.0
+                && voxel_coords[2] < dims.2 as f32
             {
                 let x = voxel_coords[0].round() as usize;
                 let y = voxel_coords[1].round() as usize;
@@ -4577,9 +4826,12 @@ async fn sample_world_coordinate(
         VolumeSendable::Vec4DF64(vec) => {
             let dims = vec.data.dim();
             let t = timepoint.min(dims.3.saturating_sub(1));
-            if voxel_coords[0] >= 0.0 && voxel_coords[0] < dims.0 as f32
-                && voxel_coords[1] >= 0.0 && voxel_coords[1] < dims.1 as f32
-                && voxel_coords[2] >= 0.0 && voxel_coords[2] < dims.2 as f32
+            if voxel_coords[0] >= 0.0
+                && voxel_coords[0] < dims.0 as f32
+                && voxel_coords[1] >= 0.0
+                && voxel_coords[1] < dims.1 as f32
+                && voxel_coords[2] >= 0.0
+                && voxel_coords[2] < dims.2 as f32
             {
                 let x = voxel_coords[0].round() as usize;
                 let y = voxel_coords[1].round() as usize;
@@ -4641,13 +4893,15 @@ async fn sample_layer_value_at_world(
 
     let handle_id = {
         let map = state.layer_to_volume_map.lock().await;
-        map.get(&layer_id).cloned().ok_or_else(|| BridgeError::Input {
-            code: 2017,
-            details: format!(
-                "No volume handle mapped for layer '{}'. Ensure the layer is registered.",
-                layer_id
-            ),
-        })?
+        map.get(&layer_id)
+            .cloned()
+            .ok_or_else(|| BridgeError::Input {
+                code: 2017,
+                details: format!(
+                    "No volume handle mapped for layer '{}'. Ensure the layer is registered.",
+                    layer_id
+                ),
+            })?
     };
 
     // Reuse the sampling logic from sample_world_coordinate
@@ -4673,7 +4927,10 @@ async fn set_layer_border(
 
     let service_arc_opt = { state.render_loop_service.lock().await.clone() };
     let Some(service_arc) = service_arc_opt else {
-        return Err(BridgeError::ServiceNotInitialized { code: 5006, details: "Render loop not initialized".into() });
+        return Err(BridgeError::ServiceNotInitialized {
+            code: 5006,
+            details: "Render loop not initialized".into(),
+        });
     };
     let mut service = service_arc.lock().await;
     let index = service
@@ -7382,10 +7639,13 @@ pub fn plugin<R: Runtime>() -> TauriPlugin<R> {
         .invoke_handler(generate_handler![
             load_file,
             load_surface,
+            unload_surface,
             load_surface_overlay,
             get_surface_overlay_data,
+            unload_surface_overlay,
             get_surface_geometry,
             get_volume_bounds,
+            unload_volume,
             // world_to_voxel, // REMOVED - Unused coordinate transformation
             set_volume_timepoint,
             get_volume_timepoint,

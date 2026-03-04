@@ -49,6 +49,10 @@ export class VolumeApiService {
     return this.transport.invoke<VolumeBounds>('get_volume_bounds', { volumeId });
   }
 
+  async unloadVolume(volumeId: string): Promise<void> {
+    await this.transport.invoke<{ success: boolean; message: string }>('unload_volume', { volumeId });
+  }
+
   async getNiftiHeaderInfo(volumeId: string): Promise<NiftiHeaderInfo> {
     return this.transport.invoke<NiftiHeaderInfo>('get_nifti_header_info', { volumeId });
   }

@@ -120,7 +120,7 @@ export interface LayerState {
   repairState: () => void;
 }
 
-// NOTE: Default render properties creation moved to ViewState/StoreSyncService
+// NOTE: Default render properties creation moved to ViewState
 
 // Create store only once and attach to window for cross-root sharing
 const createLayerStore = () => create<LayerState>()(
@@ -158,9 +158,8 @@ const createLayerStore = () => create<LayerState>()(
         storeLog('layerStore', `${(performance.now() - timestamp).toFixed(2)}ms Layer added. Count: ${stateBefore} -> ${stateAfter}`);
         storeLog('layerStore', 'Current layers:', get().layers.map(l => ({ id: l.id, name: l.name })));
 
-        // Don't emit here - LayerService emits the event after successful backend operation
-        // This prevents duplicate events
-        storeLog('layerStore', 'NOT emitting layer.added event - LayerService will emit it');
+        // No lifecycle event emission here: LayerService owns lifecycle events.
+        storeLog('layerStore', 'Layer added in store (lifecycle events emitted by LayerService)');
       },
 
       removeLayer: (id) => {
@@ -169,7 +168,7 @@ const createLayerStore = () => create<LayerState>()(
 
         set((state) => {
           state.layers = state.layers.filter(l => l.id !== id);
-          // NOTE: Render properties are removed from ViewState via StoreSyncService
+          // Render properties are removed from ViewState by LayerApi/LayerService.
           state.layerMetadata.delete(id);
           state.loadingLayers.delete(id);
           state.errorLayers.delete(id);
@@ -179,8 +178,7 @@ const createLayerStore = () => create<LayerState>()(
           }
         });
 
-        const eventBus = getEventBus();
-        eventBus.emit('layer.removed', { layerId: id });
+        // No lifecycle event emission here: LayerService owns lifecycle events.
       },
 
       updateLayer: (id, updates) => {
@@ -193,14 +191,7 @@ const createLayerStore = () => create<LayerState>()(
           }
         });
 
-        // Emit specific events for certain updates
-        if ('visible' in updates) {
-          const eventBus = getEventBus();
-          eventBus.emit('layer.visibility', {
-            layerId: id,
-            visible: updates.visible!
-          });
-        }
+        // No lifecycle event emission here: LayerService owns lifecycle events.
       },
 
       reorderLayers: (layers) => {
@@ -211,22 +202,18 @@ const createLayerStore = () => create<LayerState>()(
           }));
         });
 
-        const eventBus = getEventBus();
-        eventBus.emit('layer.reordered', { layerIds: layers.map(l => l.id) });
+        // No lifecycle event emission here: LayerService owns lifecycle events.
       },
 
       clearLayers: () => {
         set((state) => {
           state.layers = [];
           state.selectedLayerId = null;
-          // NOTE: Render properties cleared in ViewState via StoreSyncService
+          // Render properties cleared in ViewState by LayerApi/LayerService.
           state.layerMetadata.clear();
           state.loadingLayers.clear();
           state.errorLayers.clear();
         });
-
-        const eventBus = getEventBus();
-        eventBus.emit('layer.cleared', {});
       },
 
       // Selection
@@ -399,16 +386,8 @@ export const useLayerStore = (() => {
   return store;
 })();
 
-// Subscribe to layer service events to keep store in sync
+// Subscribe to service events for error propagation
 const eventBus = getEventBus();
-
-eventBus.on('layer.added', ({ layer }) => {
-  // Layer service handles the actual addition, store just reflects the state
-});
-
-eventBus.on('layer.removed', ({ layerId }) => {
-  // Layer service handles the actual removal, store just reflects the state
-});
 
 // Removed layer.patched listener to prevent infinite loop
 // The component updates the store directly via updateLayerRender,

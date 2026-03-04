@@ -7,6 +7,7 @@ import { getEventBus } from '@/events/EventBus';
 import type { EventBus } from '@/events/EventBus';
 import type { Layer, LayerRender } from '@/types/layers';
 import { useLayerStore } from '@/stores/layerStore';
+import { useViewStateStore } from '@/stores/viewStateStore';
 
 export interface LayerApi {
   addLayer(layer: Omit<Layer, 'id'>): Promise<Layer>;
@@ -58,7 +59,7 @@ export class LayerService {
 
       const newLayer = await this.api.addLayer(layer);
       
-      // Emit event for StoreSyncService to handle
+      // Emit lifecycle event for downstream observers (histograms, analytics, etc.).
       this.eventBus.emit('layer.added', { layer: newLayer });
       this.setLoadingState(provisionalId, false);
       this.setLoadingState(newLayer.id, false);
@@ -143,6 +144,17 @@ export class LayerService {
   toggleVisibility(id: string, visible: boolean): void {
     // Update opacity (single source of truth)
     this.patchLayer(id, { opacity: visible ? 1.0 : 0.0 });
+
+    // Keep local stores in sync immediately for responsive UI.
+    useLayerStore.getState().updateLayer(id, { visible });
+    useViewStateStore.getState().setViewState((state) => {
+      const layer = state.layers.find((item) => item.id === id);
+      if (!layer) {
+        return;
+      }
+      layer.visible = visible;
+      layer.opacity = visible ? 1.0 : 0.0;
+    });
     
     // Emit event for immediate UI update
     this.eventBus.emit('layer.visibility', { layerId: id, visible });

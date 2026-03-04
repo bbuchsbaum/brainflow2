@@ -135,15 +135,7 @@ export class SurfaceLoadingService {
       
       // Open surface viewer panel in GoldenLayout
       const layoutService = getLayoutService();
-      layoutService.addComponent({
-        type: 'component',
-        componentType: 'surfaceView',
-        title: filename,
-        componentState: {
-          surfaceHandle: loadedSurface.handle,
-          path
-        }
-      });
+      layoutService.ensureSurfaceView(loadedSurface.handle, path);
       
       // Focus the Surfaces tab to show the newly loaded surface in the list
       layoutService.focusSurfacePanel();
@@ -233,6 +225,54 @@ export class SurfaceLoadingService {
       return null;
     }
   }
+
+  /**
+   * Unload a surface and clean up backend + UI state.
+   */
+  async unloadSurface(
+    surfaceHandle: string,
+    options?: {
+      closeTabs?: boolean;
+      notify?: boolean;
+    }
+  ): Promise<void> {
+    const closeTabs = options?.closeTabs ?? true;
+    const notify = options?.notify ?? true;
+
+    const surface = useSurfaceStore.getState().surfaces.get(surfaceHandle);
+    if (!surface) {
+      return;
+    }
+    const surfaceName = surface.name || surfaceHandle;
+
+    try {
+      await this.transport.invoke<{ success: boolean; message: string }>('unload_surface', {
+        handle: surfaceHandle,
+      });
+
+      useSurfaceStore.getState().removeSurface(surfaceHandle);
+
+      if (closeTabs) {
+        getLayoutService().closeSurfaceViewTabs(surfaceHandle);
+      }
+
+      if (notify) {
+        this.eventBus.emit('ui.notification', {
+          type: 'info',
+          message: `Removed surface: ${surfaceName}`
+        });
+      }
+    } catch (error) {
+      console.error('[SurfaceLoadingService] Failed to unload surface:', error);
+      const message = formatTauriError(error);
+      this.eventBus.emit('ui.notification', {
+        type: 'error',
+        message: `Failed to remove surface: ${surfaceName}`
+      });
+      throw new Error(message);
+    }
+  }
+
   /**
    * Load a surface template from TemplateFlow (e.g., fsaverage, fsaverage5)
    * @param request The template request with space, geometry_type, and hemisphere
@@ -352,15 +392,7 @@ export class SurfaceLoadingService {
 
       const layoutService = getLayoutService();
       if (openViewer) {
-        layoutService.addComponent({
-          type: 'component',
-          componentType: 'surfaceView',
-          title: displayName,
-          componentState: {
-            surfaceHandle,
-            path: templatePath
-          }
-        });
+        layoutService.ensureSurfaceView(surfaceHandle, templatePath);
       }
 
       if (focusSurfacePanel) {

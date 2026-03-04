@@ -8,9 +8,85 @@ import type { Layer, LayerRender } from '@/types/layers';
 import { getApiService } from './apiService';
 import { useLayerStore } from '@/stores/layerStore';
 import { useViewStateStore } from '@/stores/viewStateStore';
+import type { ViewLayer } from '@/types/viewState';
+import { VolumeHandleStore } from './VolumeHandleStore';
+import type { LayerInfo } from '@/stores/layerStore';
 
 export class LayerApiImpl implements LayerApi {
   private apiService = getApiService();
+
+  private toViewLayer(layer: Layer): ViewLayer {
+    const layerMetadata = useLayerStore.getState().getLayerMetadata(layer.id);
+    const existing = useViewStateStore.getState().viewState.layers.find((item) => item.id === layer.id);
+    if (existing) {
+      return {
+        ...existing,
+        name: layer.name,
+        volumeId: layer.volumeId,
+        visible: layer.visible,
+      };
+    }
+
+    const dataRange = layerMetadata?.dataRange;
+    const defaultMin = dataRange?.min ?? 0;
+    const defaultMax = dataRange?.max ?? 100;
+    const metadataRenderProps = (layerMetadata as any)?.renderProps as LayerRender | undefined;
+    const intensity: [number, number] = metadataRenderProps?.intensity ?? [defaultMin, defaultMax];
+    const threshold: [number, number] = metadataRenderProps?.threshold ?? [defaultMin, defaultMin];
+
+    return {
+      id: layer.id,
+      name: layer.name,
+      volumeId: layer.volumeId,
+      visible: layer.visible,
+      opacity: metadataRenderProps?.opacity ?? (layer.visible ? 1.0 : 0.0),
+      colormap: metadataRenderProps?.colormap ?? 'gray',
+      intensity,
+      threshold,
+      blendMode: 'alpha',
+      interpolation: metadataRenderProps?.interpolation ?? 'linear',
+    };
+  }
+
+  private upsertViewLayer(layer: Layer): void {
+    const nextLayer = this.toViewLayer(layer);
+    useViewStateStore.getState().setViewState((state) => {
+      const existingIndex = state.layers.findIndex((item) => item.id === nextLayer.id);
+      if (existingIndex >= 0) {
+        state.layers[existingIndex] = nextLayer;
+        return;
+      }
+      state.layers.push(nextLayer);
+    });
+  }
+
+  private removeViewLayer(id: string): void {
+    useViewStateStore.getState().setViewState((state) => {
+      state.layers = state.layers.filter((layer) => layer.id !== id);
+    });
+  }
+
+  private setViewLayerVisibility(id: string, visible: boolean): void {
+    useViewStateStore.getState().setViewState((state) => {
+      const layer = state.layers.find((item) => item.id === id);
+      if (!layer) {
+        return;
+      }
+      layer.visible = visible;
+      layer.opacity = visible ? 1.0 : 0.0;
+    });
+  }
+
+  private reorderViewLayers(layerIds: string[]): void {
+    useViewStateStore.getState().setViewState((state) => {
+      const order = new Map(layerIds.map((id, index) => [id, index]));
+      state.layers.sort((left, right) => {
+        const leftIndex = order.get(left.id) ?? Number.MAX_SAFE_INTEGER;
+        const rightIndex = order.get(right.id) ?? Number.MAX_SAFE_INTEGER;
+        return leftIndex - rightIndex;
+      });
+    });
+  }
   
   async addLayer(layer: Omit<Layer, 'id'>): Promise<Layer> {
     const addLayerStartTime = performance.now();
@@ -36,8 +112,8 @@ export class LayerApiImpl implements LayerApi {
       const gpuElapsed = performance.now() - gpuStartTime;
       console.log(`[LayerApiImpl ${performance.now() - addLayerStartTime}ms] GPU resources allocated in ${gpuElapsed.toFixed(0)}ms:`, JSON.stringify(gpuInfo));
       
-      // Store volume metadata BEFORE adding the layer
-      // This ensures StoreSyncService has access to the data range when processing the layer
+      // Store volume metadata before adding the layer so view-layer defaults
+      // can be derived deterministically from metadata.
       
       if (gpuInfo.data_range) {
         console.log(`[LayerApiImpl ${performance.now() - addLayerStartTime}ms] Volume data range: [${gpuInfo.data_range.min}, ${gpuInfo.data_range.max}]`);
@@ -79,7 +155,7 @@ export class LayerApiImpl implements LayerApi {
           worldToVoxel: gpuInfo.world_to_voxel,
           // Map texture format to readable string
           dataType: gpuInfo.tex_format,
-          // Store render properties in metadata for StoreSyncService to use
+          // Persist initial render properties in metadata for deterministic defaults.
           renderProps: renderProps,
           // TODO: Add file path and format when available from volume handle
         };
@@ -102,8 +178,8 @@ export class LayerApiImpl implements LayerApi {
         }
         
         console.log(`[LayerApiImpl] Successfully created render properties for layer ${newLayer.id}:`, {
-          intensityRange: [renderProps.intensity.min, renderProps.intensity.max],
-          thresholdRange: [renderProps.threshold.low, renderProps.threshold.high],
+          intensityRange: [renderProps.intensity[0], renderProps.intensity[1]],
+          thresholdRange: [renderProps.threshold[0], renderProps.threshold[1]],
           opacity: renderProps.opacity
         });
       } else {
@@ -121,8 +197,8 @@ export class LayerApiImpl implements LayerApi {
       throw error;
     }
     
-    // Only add layer to the store after GPU resources are ready AND metadata is set
-    // StoreSyncService will then update ViewState with correct intensity values
+    // Only add layer after GPU resources are ready and metadata is present.
+    // Then project both stores directly from this API call.
     console.log(`[LayerApiImpl ${performance.now() - addLayerStartTime}ms] Adding layer to store with render properties`);
     
     const stateBefore = useLayerStore.getState().layers.length;
@@ -131,8 +207,10 @@ export class LayerApiImpl implements LayerApi {
     console.log(`  - layerStore: ${stateBefore} layers`);
     console.log(`  - viewStateStore: ${viewStateBefore} layers`);
     
-    // Fix: Only pass the layer - renderProps are already in metadata
+    // Add to layer store first.
     useLayerStore.getState().addLayer(newLayer);
+    // Then project explicit view-layer state directly.
+    this.upsertViewLayer(newLayer);
     
     const stateAfter = useLayerStore.getState().layers.length;
     const viewStateAfter = useViewStateStore.getState().viewState.layers.length;
@@ -141,18 +219,33 @@ export class LayerApiImpl implements LayerApi {
     console.log(`  - viewStateStore: ${viewStateAfter} layers (was ${viewStateBefore})`);
     
     console.log(`[LayerApiImpl ${performance.now() - addLayerStartTime}ms] Current layers in layerStore:`, 
-      useLayerStore.getState().layers.map(l => ({ id: l.id, name: l.name, visible: l.visible })));
+      useLayerStore
+        .getState()
+        .layers.map((layer: LayerInfo) => ({ id: layer.id, name: layer.name, visible: layer.visible })));
     
     console.log(`[LayerApiImpl ${performance.now() - addLayerStartTime}ms] addLayer completed in ${(performance.now() - addLayerStartTime).toFixed(0)}ms`);
     return newLayer;
   }
   
   async removeLayer(id: string): Promise<void> {
+    const layer = useLayerStore.getState().getLayer(id);
+    const volumeId = layer?.volumeId ?? id;
+
     // Release GPU resources first
     await this.apiService.releaseLayerGpuResources(id);
+
+    // Best-effort volume-registry cleanup for symmetric unload flow.
+    try {
+      await this.apiService.unloadVolume(volumeId);
+    } catch (error) {
+      console.warn(`[LayerApiImpl] unloadVolume failed for ${volumeId}:`, error);
+    }
+
+    VolumeHandleStore.clearVolumeHandle(volumeId);
     
-    // Then remove from store - StoreSyncService will update ViewState
+    // Remove from both stores explicitly.
     useLayerStore.getState().removeLayer(id);
+    this.removeViewLayer(id);
   }
   
   async updateLayer(id: string, updates: Partial<Layer>): Promise<Layer> {
@@ -164,6 +257,7 @@ export class LayerApiImpl implements LayerApi {
       await this.patchLayerRender(id, { 
         opacity: updates.visible ? 1.0 : 0.0 
       });
+      this.setViewLayerVisibility(id, updates.visible ?? true);
     }
     
     // Return the updated layer (frontend manages the actual state)
@@ -234,6 +328,27 @@ export class LayerApiImpl implements LayerApi {
     // This would need to be implemented in the render loop
     // For now, just log the intended order
     console.log('Layer order update requested:', layerIds);
+    const layerById = new Map<string, LayerInfo>(
+      useLayerStore.getState().layers.map((layer: LayerInfo) => [layer.id, layer])
+    );
+    const ordered: LayerInfo[] = layerIds
+      .map((id, index) => {
+        const layer = layerById.get(id);
+        if (!layer) {
+          return undefined;
+        }
+        return { ...layer, order: index };
+      })
+      .filter((layer): layer is LayerInfo => layer !== undefined);
+
+    const covered = new Set(ordered.map((layer) => layer.id));
+    const tail: LayerInfo[] = useLayerStore
+      .getState()
+      .layers.filter((layer: LayerInfo) => !covered.has(layer.id))
+      .map((layer: LayerInfo, index: number) => ({ ...layer, order: ordered.length + index }));
+
+    useLayerStore.getState().reorderLayers([...ordered, ...tail]);
+    this.reorderViewLayers(layerIds);
   }
   
   async loadLayerData(id: string): Promise<void> {
