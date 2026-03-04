@@ -22,6 +22,7 @@ import {
 import { cn } from '@/utils/cn';
 import { SurfaceMetadataDrawer } from '@/components/ui/SurfaceMetadataDrawer';
 import { SurfaceControlPanel } from './SurfaceControlPanel';
+import { getSurfaceLoadingService } from '@/services/SurfaceLoadingService';
 
 export const SurfaceLayerPanel: React.FC = () => {
   // Track expanded surfaces
@@ -35,7 +36,6 @@ export const SurfaceLayerPanel: React.FC = () => {
     loadError,
     setActiveSurface,
     removeSurface,
-    loadSurface,
     clearError,
     setSelectedItem,
     addDataLayer,
@@ -56,13 +56,19 @@ export const SurfaceLayerPanel: React.FC = () => {
     const path = prompt('Enter surface file path (.gii):');
     if (path) {
       try {
-        const handle = await loadSurface(path);
-        setActiveSurface(handle);
+        const handle = await getSurfaceLoadingService().loadSurfaceFile({
+          path,
+          autoActivate: true,
+          validateMesh: true,
+        });
+        if (handle) {
+          setActiveSurface(handle);
+        }
       } catch (error) {
         console.error('Failed to load surface:', error);
       }
     }
-  }, [loadSurface, setActiveSurface]);
+  }, [setActiveSurface]);
   
   const handleSelectGeometry = useCallback((surfaceId: string) => {
     setActiveSurface(surfaceId);

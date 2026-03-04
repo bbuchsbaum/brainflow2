@@ -367,7 +367,7 @@ function SliceViewCanvasRaw({ viewId, width, height, className = '' }: SliceView
     // Use FileLoadingService to load the file
     const { getFileLoadingService } = await import('@/services/FileLoadingService');
     const fileService = getFileLoadingService();
-    await fileService.loadFile(file);
+    await fileService.loadDroppedFile(file);
   }, []);
 
   // For Allotment compatibility, we need proper height inheritance

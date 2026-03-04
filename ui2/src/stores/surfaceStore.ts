@@ -5,18 +5,16 @@
 
 import { create } from 'zustand';
 import { devtools } from 'zustand/middleware';
-import { invoke } from '@tauri-apps/api/core';
 import type { DisplayLayer } from '../types/displayLayer';
 import type { AtlasConfig } from '@/types/atlas';
 import type { AtlasPaletteKind } from '@/types/atlasPalette';
-import { normalizeSurfaceHemisphere } from '@/utils/surfaceIdentity';
 
 // Surface data types matching backend
 export interface SurfaceGeometryData {
   vertices: Float32Array;
   faces: Uint32Array;
   hemisphere?: 'left' | 'right' | 'both';
-  surfaceType?: 'pial' | 'white' | 'inflated';
+  surfaceType?: 'pial' | 'white' | 'inflated' | 'sphere';
 }
 
 export interface SurfaceDataLayer {
@@ -112,8 +110,9 @@ interface SurfaceState {
   renderSettings: SurfaceRenderSettings;
   
   // Actions
-  loadSurface: (path: string) => Promise<string>;
-  loadSurfaceGeometry: (handle: string) => Promise<void>;
+  setLoadingState: (isLoading: boolean, loadError?: string | null) => void;
+  addSurface: (surface: LoadedSurface, activate?: boolean) => void;
+  setSurfaceGeometry: (surfaceId: string, geometry: SurfaceGeometryData) => void;
   addDataLayer: (surfaceId: string, layer: SurfaceDataLayer) => void;
   removeDataLayer: (surfaceId: string, layerId: string) => void;
   updateLayerProperty: (surfaceId: string, layerId: string, property: string, value: unknown) => void;
@@ -131,7 +130,7 @@ interface SurfaceState {
 
 export const useSurfaceStore = create<SurfaceState>()(
   devtools(
-    (set, get) => ({
+    (set) => ({
       // Initial state
       surfaces: new Map(),
       activeSurfaceId: null,
@@ -162,170 +161,44 @@ export const useSurfaceStore = create<SurfaceState>()(
         // GPU Projection - default to CPU path for reliability
         useGPUProjection: false,
       },
-      
-      // Load surface from file
-      loadSurface: async (path: string) => {
-        set({ isLoading: true, loadError: null });
-        
-        try {
-          // Call Tauri command to load surface
-          const result = await invoke<{
-            type: 'Surface';
-            handle: string;
-            vertex_count: number;
-            face_count: number;
-            hemisphere?: string;
-            surface_type?: string;
-          }>('plugin:api-bridge|load_surface', { path });
-          
-          
-          // Verify we got a Surface type
-          if (result.type !== 'Surface') {
-            throw new Error(`Expected Surface type, got ${result.type}`);
+
+      setLoadingState: (isLoading: boolean, loadError: string | null = null) => {
+        set((state) => {
+          if (state.isLoading === isLoading && state.loadError === loadError) {
+            return state;
           }
-          
-          // Extract the fields (using snake_case as per Rust serialization)
-          const handle = result.handle;
-          const vertexCount = result.vertex_count || 0;
-          const faceCount = result.face_count || 0;
-          const hemisphere = normalizeSurfaceHemisphere(result.hemisphere) ?? undefined;
-          const surfaceType = result.surface_type;
-          
-          // Create new surface entry
-              const surface: LoadedSurface = {
-            handle: handle,
-            name: path.split('/').pop() || 'Unknown',
-            visible: true,
-                geometry: {
-                  vertices: new Float32Array(0),
-                  faces: new Uint32Array(0),
-                  hemisphere,
-                  surfaceType: surfaceType as SurfaceGeometryData['surfaceType'],
-                },
-            layers: new Map(),
-            displayLayers: new Map(),
-              metadata: {
-                vertexCount: vertexCount,
-                faceCount: faceCount,
-                hemisphere: hemisphere ?? result.hemisphere,
-                surfaceType: surfaceType,
-                path,
-              },
+          return {
+            isLoading,
+            loadError,
           };
-          
-          // Store surface
-          set((state) => ({
-            surfaces: new Map(state.surfaces).set(handle, surface),
-            activeSurfaceId: handle,
-            isLoading: false,
-          }));
-          
-          // Load geometry data
-          await get().loadSurfaceGeometry(handle);
-          
-          return handle;
-        } catch (error) {
-          console.error('Failed to load surface:', error);
-          set({
-            isLoading: false,
-            loadError: error instanceof Error ? error.message : 'Failed to load surface'
-          });
-          throw error;
-        }
+        });
       },
 
-      // Register a surface from a template (already loaded by backend)
-      registerSurfaceFromTemplate: async (
-        handle: string,
-        metadata: {
-          space: string;
-          geometryType: string;
-          hemisphere: string;
-          vertexCount: number;
-          faceCount: number;
-        }
-      ): Promise<string> => {
-        set({ isLoading: true, loadError: null });
-
-        try {
-          // Generate display name from template metadata
-          const normalizedHemisphere =
-            normalizeSurfaceHemisphere(metadata.hemisphere) ?? metadata.hemisphere;
-          const displayName = `${metadata.space} ${metadata.geometryType} (${normalizedHemisphere})`;
-
-          // Create new surface entry
-          const surface: LoadedSurface = {
-            handle: handle,
-            name: displayName,
-            visible: true,
-            geometry: {
-              vertices: new Float32Array(0),
-              faces: new Uint32Array(0),
-              hemisphere: normalizeSurfaceHemisphere(metadata.hemisphere) ?? undefined,
-              surfaceType: metadata.geometryType as 'pial' | 'white' | 'inflated' | 'sphere',
-            },
-            layers: new Map(),
-            displayLayers: new Map(),
-            metadata: {
-              vertexCount: metadata.vertexCount,
-              faceCount: metadata.faceCount,
-              hemisphere: normalizedHemisphere,
-              surfaceType: metadata.geometryType,
-              path: `templateflow://${metadata.space}_${metadata.geometryType}_${normalizedHemisphere}`,
-            },
+      addSurface: (surface: LoadedSurface, activate = true) => {
+        set((state) => {
+          const surfaces = new Map(state.surfaces);
+          surfaces.set(surface.handle, surface);
+          const activeSurfaceId = activate ? surface.handle : state.activeSurfaceId;
+          return {
+            surfaces,
+            activeSurfaceId,
           };
-
-          // Store surface
-          set((state) => ({
-            surfaces: new Map(state.surfaces).set(handle, surface),
-            activeSurfaceId: handle,
-            isLoading: false,
-          }));
-
-          // Load geometry data from backend
-          await get().loadSurfaceGeometry(handle);
-
-          console.log('[surfaceStore] Registered surface from template:', displayName, handle);
-          return handle;
-        } catch (error) {
-          console.error('Failed to register surface from template:', error);
-          set({
-            isLoading: false,
-            loadError: error instanceof Error ? error.message : 'Failed to register surface from template'
-          });
-          throw error;
-        }
+        });
       },
 
-      // Load surface geometry data
-      loadSurfaceGeometry: async (handle: string) => {
-        try {
-          // Get vertices and faces from backend
-          const geometryData = await invoke<{
-            vertices: number[];
-            faces: number[];
-          }>('plugin:api-bridge|get_surface_geometry', { handle });
-          
-          // Convert to typed arrays
-          const vertices = new Float32Array(geometryData.vertices);
-          const faces = new Uint32Array(geometryData.faces);
-          
-          // Update surface geometry
-          set((state) => {
-            const surfaces = new Map(state.surfaces);
-            const surface = surfaces.get(handle);
-            if (surface) {
-              surface.geometry.vertices = vertices;
-              surface.geometry.faces = faces;
-            }
-            return { surfaces };
+      setSurfaceGeometry: (surfaceId: string, geometry: SurfaceGeometryData) => {
+        set((state) => {
+          const surface = state.surfaces.get(surfaceId);
+          if (!surface) {
+            return state;
+          }
+          const surfaces = new Map(state.surfaces);
+          surfaces.set(surfaceId, {
+            ...surface,
+            geometry,
           });
-        } catch (error) {
-          console.error('Failed to load surface geometry:', error);
-          set({ 
-            loadError: error instanceof Error ? error.message : 'Failed to load geometry' 
-          });
-        }
+          return { surfaces };
+        });
       },
       
       // Add data layer to surface

@@ -10,8 +10,9 @@ Business logic and API integration layer for the Brainflow frontend. Contains 42
 | File | Description |
 |------|-------------|
 | apiService.ts | Main API service with extensive command implementations - 58KB, THE central API hub |
+| DisplayLifecycleOrchestrator.ts | Canonical ingress owner for file-driven display lifecycle flows |
 | transport.ts | Tauri command transport layer with permission management - 9KB |
-| FileLoadingService.ts | Orchestrates file loading operations - 10KB |
+| FileLoadingService.ts | Compatibility facade delegating file loads to DisplayLifecycleOrchestrator |
 | SurfaceLoadingService.ts | Surface geometry loading - 10KB |
 | SurfaceOverlayService.ts | Surface data overlay management - 12KB |
 | VolumeLoadingService.ts | Volume data loading - 20KB |

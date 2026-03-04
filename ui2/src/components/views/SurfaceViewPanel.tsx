@@ -12,6 +12,7 @@ import {
   resolveTemplateflowSurfaceIdentity,
   type TemplateflowSurfaceIdentity,
 } from '@/utils/surfaceIdentity';
+import { getSurfaceLoadingService } from '@/services/SurfaceLoadingService';
 
 interface SurfaceViewPanelProps {
   surfaceHandle?: string;
@@ -134,7 +135,6 @@ export const SurfaceViewPanel: React.FC<SurfaceViewPanelProps> = ({
     activeSurfaceId,
     isLoading,
     loadError,
-    loadSurface,
     setActiveSurface,
     clearError,
   } = useSurfaceStore();
@@ -145,8 +145,14 @@ export const SurfaceViewPanel: React.FC<SurfaceViewPanelProps> = ({
       if (path && !surfaceHandle) {
         // Load from path
         try {
-          const handle = await loadSurface(path);
-          setActiveSurface(handle);
+          const handle = await getSurfaceLoadingService().loadSurfaceFile({
+            path,
+            autoActivate: true,
+            validateMesh: true,
+          });
+          if (handle) {
+            setActiveSurface(handle);
+          }
         } catch (error) {
           console.error('Failed to load surface from path:', error);
         }
@@ -161,7 +167,7 @@ export const SurfaceViewPanel: React.FC<SurfaceViewPanelProps> = ({
     };
     
     loadInitialSurface();
-  }, [path, surfaceHandle]);
+  }, [path, surfaceHandle, setActiveSurface]);
   
   // Handle container resize
   useEffect(() => {

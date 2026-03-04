@@ -3,7 +3,7 @@
  * SURF-201: Verify load_surface Tauri command
  */
 
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import { useSurfaceStore } from '@/stores/surfaceStore';
 
 describe('Surface Loading Commands', () => {
@@ -30,15 +30,14 @@ describe('Surface Loading Commands', () => {
       const { FileLoadingService } = await import('@/services/FileLoadingService');
       const service = new FileLoadingService();
       
-      // Check that loadFile routes .gii files to loadSurfaceFile
+      // Check that .gii inputs are supported and drop-path API exists.
       const path = '/test/surface.gii';
-      
-      // Mock the surfaceStore loadSurface
-      const mockLoadSurface = vi.fn().mockResolvedValue('test-handle');
-      vi.spyOn(useSurfaceStore.getState(), 'loadSurface').mockImplementation(mockLoadSurface);
-      
-      // The service should recognize .gii files
+      expect(typeof service.loadFile).toBe('function');
+      expect(typeof service.loadDroppedFile).toBe('function');
       expect(path.toLowerCase().endsWith('.gii')).toBe(true);
+
+      // Store remains pure-state and no longer owns async load methods.
+      expect('loadSurface' in useSurfaceStore.getState()).toBe(false);
     });
 
     it('surfaceStore should properly format load_surface response', () => {
