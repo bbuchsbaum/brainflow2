@@ -51,6 +51,8 @@ image = { version = "0.25", default-features = false, features = ["png"] } # For
 neuro-types = { path = "../neuro-types" } # For ViewRectMm and geometry types
 atlases = { path = "../atlases" } # Atlas service
 templates = { path = "../templates" } # Template service
+neuroim = { path = "../../../rust/neuroim-rs" }
+ndarray = "0.16"  # For vol-to-surf projection (matches neurosurf-rs)
 
 [dev-dependencies]
 serde_json = "1.0" # For testing serialization

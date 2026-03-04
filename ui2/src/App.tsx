@@ -19,9 +19,16 @@ import { ProgressDebug } from '@/components/ui/ProgressDebug';
 import { MetadataStatusBridge } from '@/components/MetadataStatusBridge';
 import { initializeCrosshairMenuService, destroyCrosshairMenuService } from '@/services/CrosshairMenuService';
 import { CrosshairSettingsDialog } from '@/components/dialogs/CrosshairSettingsDialog';
+import { GoToCoordinateDialog } from '@/components/dialogs/GoToCoordinateDialog';
+import { ImageHeaderDialog } from '@/components/dialogs/ImageHeaderDialog';
 import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts';
+import { useNavigationShortcuts } from '@/hooks/useNavigationShortcuts';
 import { PerformanceDashboard } from '@/components/debug/PerformanceDashboard';
 import { migrateLayerRenderToViewState, isMigrationComplete } from '@/utils/migrateLayerRenderToViewState';
+import { storeLog } from '@/utils/debugLog';
+import { KeyboardShortcutsDialog } from '@/components/dialogs/KeyboardShortcutsDialog';
+import { getKeyboardShortcutService } from '@/services/KeyboardShortcutService';
+import { useLayerStore } from '@/stores/layerStore';
 
 function ErrorFallback({ error, resetErrorBoundary }: any) {
   return (
@@ -57,7 +64,7 @@ function ErrorFallback({ error, resetErrorBoundary }: any) {
 
 // Component that uses the status context
 function AppContent() {
-  console.log('[AppContent] AppContent component rendering');
+  storeLog('AppContent', 'AppContent component rendering');
   
   // All hooks must be called before any conditional returns
   const renderTimes = useRef<number[]>([]);
@@ -76,24 +83,35 @@ function AppContent() {
     lastTriggerWindow: null,
   });
   const [showCrosshairSettings, setShowCrosshairSettings] = useState(false);
-  
+  const [showKeyboardShortcuts, setShowKeyboardShortcuts] = useState(false);
+  const [showGoToCoordinate, setShowGoToCoordinate] = useState(false);
+  const [showImageHeader, setShowImageHeader] = useState(false);
+  const [imageHeaderVolumeId, setImageHeaderVolumeId] = useState<string | null>(null);
+  const selectedLayerId = useLayerStore(s => s.selectedLayerId);
+  const layers = useLayerStore(s => s.layers);
+
+  // Initialize KeyboardShortcutService early (single global listener)
+  useEffect(() => {
+    getKeyboardShortcutService().init();
+  }, []);
+
   // Initialize services first - this is the root of all initialization
   useServicesInit();
   
   // Enable coalescing after services are initialized
   useEffect(() => {
-    console.log('[AppContent] Enabling coalescing middleware');
+    storeLog('AppContent', 'Enabling coalescing middleware');
     coalesceUtils.setEnabled(true);
     
     // Perform one-time migration of layerRender data to ViewState
     if (!isMigrationComplete()) {
-      console.log('[AppContent] Performing layerRender to ViewState migration...');
+      storeLog('AppContent', 'Performing layerRender to ViewState migration...');
       const migrated = migrateLayerRenderToViewState();
       if (migrated) {
-        console.log('[AppContent] Migration complete - layerRender data moved to ViewState');
+        storeLog('AppContent', 'Migration complete - layerRender data moved to ViewState');
       }
     } else {
-      console.log('[AppContent] Migration already complete, skipping...');
+      storeLog('AppContent', 'Migration already complete, skipping...');
     }
   }, []);
   
@@ -116,14 +134,51 @@ function AppContent() {
   
   // Initialize keyboard shortcuts
   useKeyboardShortcuts();
-  
+
+  // Initialize navigation shortcuts (G, O, C)
+  useNavigationShortcuts({ onOpenGoToDialog: () => setShowGoToCoordinate(true) });
+
+  // Register '?' shortcut to open the keyboard shortcuts dialog
+  useEffect(() => {
+    const service = getKeyboardShortcutService();
+    const unregister = service.register({
+      id: 'app.showShortcuts',
+      key: '?',
+      modifiers: { shift: true },
+      category: 'General',
+      description: 'Show keyboard shortcuts',
+      handler: () => setShowKeyboardShortcuts(prev => !prev),
+    });
+    return unregister;
+  }, []);
+
+  // Register Cmd+I shortcut to open image header dialog for selected layer
+  useEffect(() => {
+    const service = getKeyboardShortcutService();
+    const unregister = service.register({
+      id: 'app.showImageHeader',
+      key: 'i',
+      modifiers: { meta: true },
+      category: 'Info',
+      description: 'Show image header info',
+      handler: () => {
+        const layer = layers.find(l => l.id === selectedLayerId);
+        if (layer?.volumeId) {
+          setImageHeaderVolumeId(layer.volumeId);
+          setShowImageHeader(true);
+        }
+      },
+    });
+    return unregister;
+  }, [selectedLayerId, layers]);
+
   // Initialize crosshair menu service
   useEffect(() => {
-    console.log('[AppContent] Initializing crosshair menu service');
+    storeLog('AppContent', 'Initializing crosshair menu service');
     initializeCrosshairMenuService();
     
     return () => {
-      console.log('[AppContent] Destroying crosshair menu service');
+      storeLog('AppContent', 'Destroying crosshair menu service');
       destroyCrosshairMenuService();
     };
   }, []);
@@ -131,7 +186,7 @@ function AppContent() {
   // Listen for open crosshair settings event
   useEffect(() => {
     const handleOpenSettings = () => {
-      console.log('[AppContent] Opening crosshair settings dialog');
+      storeLog('AppContent', 'Opening crosshair settings dialog');
       setShowCrosshairSettings(true);
     };
 
@@ -214,7 +269,7 @@ function AppContent() {
   
   // Note: Threshold logic has been fixed in the shader - no workaround needed
   
-  console.log('[AppContent] AppContent initialization complete');
+  storeLog('AppContent', 'AppContent initialization complete');
   
   return (
     <div className="h-screen flex flex-col">
@@ -224,16 +279,39 @@ function AppContent() {
       <div className="flex-1 overflow-hidden">
         <GoldenLayoutRoot />
       </div>
-      <StatusBar rightContent={<MultiViewBatchToggle />} />
+      <StatusBar
+        rightContent={<MultiViewBatchToggle />}
+        onCrosshairClick={() => setShowGoToCoordinate(true)}
+      />
       <NotificationToast />
       
       {/* Crosshair Settings Dialog */}
       {showCrosshairSettings && (
-        <CrosshairSettingsDialog 
-          onClose={() => setShowCrosshairSettings(false)} 
+        <CrosshairSettingsDialog
+          onClose={() => setShowCrosshairSettings(false)}
         />
       )}
-      
+
+      {/* Go To Coordinate Dialog */}
+      <GoToCoordinateDialog
+        open={showGoToCoordinate}
+        onClose={() => setShowGoToCoordinate(false)}
+      />
+
+      {/* Keyboard Shortcuts Help Dialog */}
+      {showKeyboardShortcuts && (
+        <KeyboardShortcutsDialog
+          onClose={() => setShowKeyboardShortcuts(false)}
+        />
+      )}
+
+      {/* Image Header Dialog (Cmd+I) */}
+      <ImageHeaderDialog
+        open={showImageHeader}
+        onClose={() => setShowImageHeader(false)}
+        volumeId={imageHeaderVolumeId}
+      />
+
       {/* Performance Dashboard (development only) */}
       {process.env.NODE_ENV === 'development' && <PerformanceDashboard />}
     </div>
@@ -251,7 +329,7 @@ const initialStatusSlots = [
 ];
 
 function App() {
-  console.log('[App] App component rendering');
+  storeLog('App', 'App component rendering');
   
   return (
     <ErrorBoundary FallbackComponent={ErrorFallback}>

@@ -9,6 +9,7 @@ const COMMANDS: &[&str] = &[
     "set_volume_timepoint",
     "get_volume_timepoint",
     "get_volume_info",
+    "get_nifti_header_info",
     // "get_timeseries_matrix", // REMOVED - Returns unimplemented
     "get_initial_views",
     "recalculate_view_for_dimensions",

@@ -1,186 +1,100 @@
 /**
  * useKeyboardShortcuts Hook
- * Global keyboard shortcuts for the application
+ * Global keyboard shortcuts for the application.
+ * Uses KeyboardShortcutService for centralized registration.
  */
 
 import { useEffect } from 'react';
 import { useTimeNavigation } from './useTimeNavigation';
 import { getTimeNavigationService } from '@/services/TimeNavigationService';
 import { getEventBus } from '@/events/EventBus';
+import { getKeyboardShortcutService } from '@/services/KeyboardShortcutService';
 
-export interface KeyboardShortcut {
-  key: string;
-  modifiers?: {
-    ctrl?: boolean;
-    cmd?: boolean;
-    shift?: boolean;
-    alt?: boolean;
-  };
-  action: () => void;
-  description: string;
-}
-
-// Define a function to get shortcuts (for export/documentation)
-// When timeNav is not provided, we use the service for documentation purposes only
-function createShortcuts(timeNav?: ReturnType<typeof useTimeNavigation>): KeyboardShortcut[] {
-  return [
-    // Time navigation shortcuts
-    {
-      key: 'ArrowLeft',
-      action: () => {
-        if (timeNav) {
-          if (timeNav.has4DVolume()) {
-            timeNav.previousTimepoint();
-          }
-        } else {
-          // Fallback for documentation purposes
-          const service = getTimeNavigationService();
-          if (service.has4DVolume()) {
-            service.previousTimepoint();
-          }
-        }
-      },
-      description: 'Previous timepoint'
-    },
-    {
-      key: 'ArrowRight',
-      action: () => {
-        if (timeNav) {
-          if (timeNav.has4DVolume()) {
-            timeNav.nextTimepoint();
-          }
-        } else {
-          // Fallback for documentation purposes
-          const service = getTimeNavigationService();
-          if (service.has4DVolume()) {
-            service.nextTimepoint();
-          }
-        }
-      },
-      description: 'Next timepoint'
-    },
-    {
-      key: 'ArrowLeft',
-      modifiers: { shift: true },
-      action: () => {
-        if (timeNav) {
-          if (timeNav.has4DVolume()) {
-            timeNav.jumpTimepoints(-10);
-          }
-        } else {
-          // Fallback for documentation purposes
-          const service = getTimeNavigationService();
-          if (service.has4DVolume()) {
-            service.jumpTimepoints(-10);
-          }
-        }
-      },
-      description: 'Jump 10 timepoints backward'
-    },
-    {
-      key: 'ArrowRight',
-      modifiers: { shift: true },
-      action: () => {
-        if (timeNav) {
-          if (timeNav.has4DVolume()) {
-            timeNav.jumpTimepoints(10);
-          }
-        } else {
-          // Fallback for documentation purposes
-          const service = getTimeNavigationService();
-          if (service.has4DVolume()) {
-            service.jumpTimepoints(10);
-          }
-        }
-      },
-      description: 'Jump 10 timepoints forward'
-    },
-    {
-      key: ' ', // Space bar
-      action: () => {
-        const eventBus = getEventBus();
-        eventBus.emit('playback.toggle');
-      },
-      description: 'Play/pause time animation'
-    },
-    {
-      key: 't',
-      action: () => {
-        const timeNav = getTimeNavigationService();
-        timeNav.toggleMode();
-        
-        // Show feedback
-        const eventBus = getEventBus();
-        const mode = timeNav.getMode();
-        eventBus.emit('ui.showNotification', {
-          message: `Scroll wheel: ${mode === 'time' ? 'Time navigation' : 'Slice navigation'}`,
-          duration: 1000
-        });
-      },
-      description: 'Toggle time/slice navigation mode'
-    },
-    {
-      key: 'T',
-      modifiers: { shift: true },
-      action: () => {
-        const timeNav = getTimeNavigationService();
-        timeNav.toggleMode();
-        
-        // Show feedback
-        const eventBus = getEventBus();
-        const mode = timeNav.getMode();
-        eventBus.emit('ui.showNotification', {
-          message: `Scroll wheel: ${mode === 'time' ? 'Time navigation' : 'Slice navigation'}`,
-          duration: 1000
-        });
-      },
-      description: 'Toggle time/slice navigation mode'
-    }
-  ];
-}
+const CATEGORY = 'Time Navigation';
 
 export function useKeyboardShortcuts() {
   const timeNav = useTimeNavigation();
-  
+  const service = getKeyboardShortcutService();
+
   useEffect(() => {
-    // Create shortcuts inside the effect with the hook instance
-    const shortcuts = createShortcuts(timeNav);
-    
-    const handleKeyDown = (event: KeyboardEvent) => {
-      // Skip if user is typing in an input field
-      if (event.target instanceof HTMLInputElement || 
-          event.target instanceof HTMLTextAreaElement) {
-        return;
-      }
+    const has4D = () => timeNav.has4DVolume();
 
-      // Find matching shortcut
-      const shortcut = shortcuts.find(s => {
-        if (s.key !== event.key) return false;
-        
-        const mods = s.modifiers || {};
-        const ctrlMatch = !mods.ctrl || event.ctrlKey === mods.ctrl;
-        const cmdMatch = !mods.cmd || event.metaKey === mods.cmd;
-        const shiftMatch = !mods.shift || event.shiftKey === mods.shift;
-        const altMatch = !mods.alt || event.altKey === mods.alt;
-        
-        return ctrlMatch && cmdMatch && shiftMatch && altMatch;
-      });
+    const unregisterFns = [
+      service.register({
+        id: 'time.prev',
+        key: 'ArrowLeft',
+        category: CATEGORY,
+        description: 'Previous timepoint',
+        when: has4D,
+        handler: () => {
+          getTimeNavigationService().previousTimepoint();
+        },
+      }),
+      service.register({
+        id: 'time.next',
+        key: 'ArrowRight',
+        category: CATEGORY,
+        description: 'Next timepoint',
+        when: has4D,
+        handler: () => {
+          getTimeNavigationService().nextTimepoint();
+        },
+      }),
+      service.register({
+        id: 'time.prev10',
+        key: 'ArrowLeft',
+        modifiers: { shift: true },
+        category: CATEGORY,
+        description: 'Jump 10 timepoints backward',
+        when: has4D,
+        handler: () => {
+          getTimeNavigationService().jumpTimepoints(-10);
+        },
+      }),
+      service.register({
+        id: 'time.next10',
+        key: 'ArrowRight',
+        modifiers: { shift: true },
+        category: CATEGORY,
+        description: 'Jump 10 timepoints forward',
+        when: has4D,
+        handler: () => {
+          getTimeNavigationService().jumpTimepoints(10);
+        },
+      }),
+      service.register({
+        id: 'time.playPause',
+        key: ' ',
+        category: CATEGORY,
+        description: 'Play/pause time animation',
+        handler: () => {
+          getEventBus().emit('playback.toggle');
+        },
+      }),
+      service.register({
+        id: 'time.toggleMode',
+        key: 't',
+        category: CATEGORY,
+        description: 'Toggle time/slice navigation mode',
+        handler: () => {
+          const timeNavSvc = getTimeNavigationService();
+          timeNavSvc.toggleMode();
+          const mode = timeNavSvc.getMode();
+          getEventBus().emit('ui.showNotification', {
+            message: `Scroll wheel: ${mode === 'time' ? 'Time navigation' : 'Slice navigation'}`,
+            duration: 1000,
+          });
+        },
+      }),
+    ];
 
-      if (shortcut) {
-        event.preventDefault();
-        shortcut.action();
-      }
-    };
-
-    document.addEventListener('keydown', handleKeyDown);
-    
     return () => {
-      document.removeEventListener('keydown', handleKeyDown);
+      unregisterFns.forEach(fn => fn());
     };
-  }, [timeNav]); // Include timeNav in dependencies
+  // Re-register when timeNav identity changes (i.e. when has4DVolume predicate changes)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [timeNav]);
 }
 
-// Export shortcuts for documentation/help display
-export function getKeyboardShortcuts(): KeyboardShortcut[] {
-  return createShortcuts();
-}
+// Legacy export kept for any consumers that import it
+export { useKeyboardShortcuts };

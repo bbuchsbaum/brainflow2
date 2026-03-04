@@ -10,6 +10,7 @@ import { enableMapSet } from 'immer';
 import type { Layer } from '@/types/layers';
 import type { DataRange } from '@brainflow/api';
 import { getEventBus } from '@/events/EventBus';
+import { storeLog, storeWarn } from '@/utils/debugLog';
 
 // Enable Map and Set support in Immer
 enableMapSet();
@@ -24,7 +25,7 @@ export interface VolumeMetadata {
     min: [number, number, number];
     max: [number, number, number];
   };
-  
+
   // New fields for comprehensive metadata
   dimensions?: [number, number, number];     // Volume dimensions in voxels
   spacing?: [number, number, number];         // Voxel spacing in mm
@@ -38,6 +39,9 @@ export interface VolumeMetadata {
   nonZeroVoxels?: number;                     // Number of non-zero voxels
   orientation?: string;                       // Orientation string (e.g., "RAS+")
   units?: string;                             // Spatial units (e.g., "millimeters")
+  source?: string;                            // Logical source ('file', 'template', 'atlas', etc.)
+  sourcePath?: string;                        // Original source identifier/path
+  loadedAt?: string;                          // ISO timestamp when volume was loaded
 }
 
 // Declare global interface for store
@@ -47,8 +51,17 @@ declare global {
   }
 }
 
-// Extended layer info that includes volume metadata
+// Extended layer info that includes volume metadata and source metadata
 export interface LayerInfo extends Layer {
+  source?: 'file' | 'template' | 'atlas' | 'other';
+  sourcePath?: string;
+  atlasMetadata?: {
+    id: string;
+    space: string;
+    resolution: string;
+    n_regions: number;
+    citation?: string;
+  };
   volumeType?: 'Volume3D' | 'TimeSeries4D';
   timeSeriesInfo?: {
     num_timepoints: number;
@@ -63,43 +76,45 @@ export interface LayerState {
   // Core state
   layers: LayerInfo[]; // Changed from Layer[] to LayerInfo[]
   selectedLayerId: string | null;
-  
+
   // NOTE: Layer render properties have been moved to ViewState
-  
+
   // Volume metadata (for intensity windowing and centering)
   layerMetadata: Map<string, VolumeMetadata>;
-  
+
   // Loading and error state
   // @deprecated - Use LoadingQueueStore instead for loading state
   loadingLayers: Set<string>;
   errorLayers: Map<string, Error>;
-  
+
   // Actions
   addLayer: (layer: LayerInfo) => void;
   removeLayer: (id: string) => void;
   updateLayer: (id: string, updates: Partial<LayerInfo>) => void;
   reorderLayers: (layers: LayerInfo[]) => void;
   clearLayers: () => void;
-  
+
   // Selection
   selectLayer: (id: string | null) => void;
-  
+
   // NOTE: Render properties have been moved to ViewState
-  
+
   // Metadata
   setLayerMetadata: (id: string, metadata: VolumeMetadata) => void;
-  
+  // Internal helper for cleanup used by VolumeLoadingService
+  clearLayerMetadata?: (id: string) => void;
+
   // Loading and error state
   // @deprecated setLayerLoading - Use LoadingQueueStore instead
   setLayerLoading: (id: string, loading: boolean) => void;
   setLayerError: (id: string, error: Error | null) => void;
-  
+
   // Queries
   getLayer: (id: string) => Layer | undefined;
   getLayerMetadata: (id: string) => VolumeMetadata | undefined;
   getVisibleLayers: () => Layer[];
   getLayersByType: (type: Layer['type']) => Layer[];
-  
+
   // State validation and repair
   validateState: () => string[];
   repairState: () => void;
@@ -118,76 +133,76 @@ const createLayerStore = () => create<LayerState>()(
       layerMetadata: new Map(),
       loadingLayers: new Set(),
       errorLayers: new Map(),
-      
+
       // Actions
       addLayer: (layer) => {
         const timestamp = performance.now();
-        console.log(`[layerStore ${timestamp.toFixed(0)}ms] addLayer called with:`);
-        console.log(`  - layer:`, JSON.stringify(layer));
-        console.log(`  - Stack trace:`, new Error().stack);
-        
+        storeLog('layerStore', `${timestamp.toFixed(0)}ms addLayer called with:`);
+        storeLog('layerStore', '  - layer:', JSON.stringify(layer));
+        storeLog('layerStore', '  - Stack trace:', new Error().stack);
+
         const stateBefore = get().layers.length;
-        
+
         set((state) => {
           state.layers.push(layer);
           // NOTE: Render properties are now managed in ViewState
-          
+
           // Auto-select first layer if none selected
           if (state.selectedLayerId === null && state.layers.length === 1) {
-            console.log(`[layerStore] Auto-selecting first layer: ${layer.id}`);
+            storeLog('layerStore', `Auto-selecting first layer: ${layer.id}`);
             state.selectedLayerId = layer.id;
           }
         });
-        
+
         const stateAfter = get().layers.length;
-        console.log(`[layerStore ${performance.now() - timestamp}ms] Layer added. Count: ${stateBefore} -> ${stateAfter}`);
-        console.log(`[layerStore] Current layers:`, get().layers.map(l => ({ id: l.id, name: l.name })));
-        
+        storeLog('layerStore', `${(performance.now() - timestamp).toFixed(2)}ms Layer added. Count: ${stateBefore} -> ${stateAfter}`);
+        storeLog('layerStore', 'Current layers:', get().layers.map(l => ({ id: l.id, name: l.name })));
+
         // Don't emit here - LayerService emits the event after successful backend operation
         // This prevents duplicate events
-        console.log(`[layerStore] NOT emitting layer.added event - LayerService will emit it`);
+        storeLog('layerStore', 'NOT emitting layer.added event - LayerService will emit it');
       },
-      
+
       removeLayer: (id) => {
         const layer = get().layers.find(l => l.id === id);
         if (!layer) return;
-        
+
         set((state) => {
           state.layers = state.layers.filter(l => l.id !== id);
           // NOTE: Render properties are removed from ViewState via StoreSyncService
           state.layerMetadata.delete(id);
           state.loadingLayers.delete(id);
           state.errorLayers.delete(id);
-          
+
           if (state.selectedLayerId === id) {
             state.selectedLayerId = null;
           }
         });
-        
+
         const eventBus = getEventBus();
         eventBus.emit('layer.removed', { layerId: id });
       },
-      
+
       updateLayer: (id, updates) => {
         set((state) => {
           const layer = state.layers.find(l => l.id === id);
           if (layer) {
             Object.assign(layer, updates);
-            
+
             // NOTE: Visibility is now managed through ViewState opacity
           }
         });
-        
+
         // Emit specific events for certain updates
         if ('visible' in updates) {
           const eventBus = getEventBus();
-          eventBus.emit('layer.visibility', { 
-            layerId: id, 
-            visible: updates.visible! 
+          eventBus.emit('layer.visibility', {
+            layerId: id,
+            visible: updates.visible!
           });
         }
       },
-      
+
       reorderLayers: (layers) => {
         set((state) => {
           state.layers = layers.map((layer, index) => ({
@@ -195,11 +210,11 @@ const createLayerStore = () => create<LayerState>()(
             order: index
           }));
         });
-        
+
         const eventBus = getEventBus();
         eventBus.emit('layer.reordered', { layerIds: layers.map(l => l.id) });
       },
-      
+
       clearLayers: () => {
         set((state) => {
           state.layers = [];
@@ -209,30 +224,35 @@ const createLayerStore = () => create<LayerState>()(
           state.loadingLayers.clear();
           state.errorLayers.clear();
         });
-        
+
         const eventBus = getEventBus();
         eventBus.emit('layer.cleared', {});
       },
-      
+
       // Selection
       selectLayer: (id) => {
         set((state) => {
           state.selectedLayerId = id;
         });
       },
-      
+
       // NOTE: Render properties have been moved to ViewState
-      
+
       // Metadata
       setLayerMetadata: (id, metadata) => {
         set((state) => {
           state.layerMetadata.set(id, metadata);
         });
-        
+
         const eventBus = getEventBus();
         eventBus.emit('layer.metadata.updated', { layerId: id, metadata });
       },
-      
+      clearLayerMetadata: (id) => {
+        set((state) => {
+          state.layerMetadata.delete(id);
+        });
+      },
+
       // Loading and error state
       // @deprecated - Use LoadingQueueStore instead
       setLayerLoading: (id, loading) => {
@@ -245,7 +265,7 @@ const createLayerStore = () => create<LayerState>()(
         });
         // Don't emit here - this causes infinite loop when called from event handler
       },
-      
+
       setLayerError: (id, error) => {
         set((state) => {
           if (error) {
@@ -256,70 +276,70 @@ const createLayerStore = () => create<LayerState>()(
         });
         // Don't emit here - this causes infinite loop when called from event handler
       },
-      
+
       // Queries
       getLayer: (id) => {
         return get().layers.find(l => l.id === id);
       },
-      
+
       // NOTE: getLayerRender has been moved to ViewState
-      
+
       getLayerMetadata: (id) => {
         return get().layerMetadata.get(id);
       },
-      
+
       getVisibleLayers: () => {
         // NOTE: Visibility is now determined by ViewState opacity
         // This method returns all layers - filter by ViewState in components
         return get().layers;
       },
-      
+
       getLayersByType: (type) => {
         return get().layers.filter(layer => layer.type === type);
       },
-      
+
       // State validation
       validateState: () => {
         const state = get();
         const issues: string[] = [];
-        
+
         // NOTE: Render properties validation moved to ViewState
-        
+
         // Check for orphaned metadata
         state.layerMetadata.forEach((_, layerId) => {
           if (!state.layers.find(l => l.id === layerId)) {
             issues.push(`Orphaned metadata for layer ${layerId}`);
           }
         });
-        
+
         // Check for orphaned loading states
         state.loadingLayers.forEach((layerId) => {
           if (!state.layers.find(l => l.id === layerId)) {
             issues.push(`Orphaned loading state for layer ${layerId}`);
           }
         });
-        
+
         // Check for orphaned error states
         state.errorLayers.forEach((_, layerId) => {
           if (!state.layers.find(l => l.id === layerId)) {
             issues.push(`Orphaned error state for layer ${layerId}`);
           }
         });
-        
+
         if (issues.length > 0) {
-          console.warn('[LayerStore] State validation issues:', issues);
+          storeWarn('LayerStore', 'State validation issues:', issues);
         }
-        
+
         return issues;
       },
-      
+
       // State repair
       repairState: () => {
-        console.log('[LayerStore] Repairing state...');
-        
+        storeLog('LayerStore', 'Repairing state...');
+
         set((state) => {
           // NOTE: Render properties cleanup moved to ViewState
-          
+
           // Remove orphaned metadata
           const metadataIdsToRemove: string[] = [];
           state.layerMetadata.forEach((_, layerId) => {
@@ -328,7 +348,7 @@ const createLayerStore = () => create<LayerState>()(
             }
           });
           metadataIdsToRemove.forEach(id => state.layerMetadata.delete(id));
-          
+
           // Remove orphaned loading states
           const loadingIdsToRemove: string[] = [];
           state.loadingLayers.forEach((layerId) => {
@@ -337,7 +357,7 @@ const createLayerStore = () => create<LayerState>()(
             }
           });
           loadingIdsToRemove.forEach(id => state.loadingLayers.delete(id));
-          
+
           // Remove orphaned error states
           const errorIdsToRemove: string[] = [];
           state.errorLayers.forEach((_, layerId) => {
@@ -346,17 +366,17 @@ const createLayerStore = () => create<LayerState>()(
             }
           });
           errorIdsToRemove.forEach(id => state.errorLayers.delete(id));
-          
+
           // NOTE: Render properties initialization moved to ViewState
-          
+
           // Validate selected layer ID
           if (state.selectedLayerId && !state.layers.find(l => l.id === state.selectedLayerId)) {
-            console.log(`[LayerStore] Clearing invalid selected layer ID: ${state.selectedLayerId}`);
+            storeLog('LayerStore', `Clearing invalid selected layer ID: ${state.selectedLayerId}`);
             state.selectedLayerId = null;
           }
         });
-        
-        console.log('[LayerStore] State repair completed');
+
+        storeLog('LayerStore', 'State repair completed');
       },
 
       // NOTE: Computed visible property moved to ViewState
@@ -369,13 +389,13 @@ export const useLayerStore = (() => {
   if (typeof window !== 'undefined' && window.__layerStore) {
     return window.__layerStore;
   }
-  
+
   const store = createLayerStore();
-  
+
   if (typeof window !== 'undefined') {
     window.__layerStore = store;
   }
-  
+
   return store;
 })();
 
@@ -409,39 +429,39 @@ export const layerSelectors = {
   // NOTE: layerRender selector moved to ViewState
   loadingLayers: (state: LayerState) => state.loadingLayers,
   errorLayers: (state: LayerState) => state.errorLayers,
-  
+
   // Computed selectors
-  getLayerById: (state: LayerState, id: string) => 
+  getLayerById: (state: LayerState, id: string) =>
     state.layers.find(l => l.id === id),
-  
-  getLayerMetadata: (state: LayerState, id: string) => 
+
+  getLayerMetadata: (state: LayerState, id: string) =>
     state.layerMetadata.get(id),
-  
+
   // NOTE: getLayerRender selector moved to ViewState
-  
-  getSelectedLayer: (state: LayerState) => 
+
+  getSelectedLayer: (state: LayerState) =>
     state.selectedLayerId ? state.layers.find(l => l.id === state.selectedLayerId) : null,
-  
-  getSelectedLayerMetadata: (state: LayerState) => 
+
+  getSelectedLayerMetadata: (state: LayerState) =>
     state.selectedLayerId ? state.layerMetadata.get(state.selectedLayerId) : null,
-  
+
   // NOTE: getSelectedLayerRender selector moved to ViewState
-  
+
   // @deprecated - Use LoadingQueueStore.isLoading instead
-  isLayerLoading: (state: LayerState, id: string) => 
+  isLayerLoading: (state: LayerState, id: string) =>
     state.loadingLayers.has(id),
-  
-  getLayerError: (state: LayerState, id: string) => 
+
+  getLayerError: (state: LayerState, id: string) =>
     state.errorLayers.get(id),
-  
-  getVisibleLayers: (state: LayerState) => 
+
+  getVisibleLayers: (state: LayerState) =>
     // NOTE: Visibility is determined by ViewState opacity
     state.layers,
-  
-  getLayersByType: (state: LayerState, type: Layer['type']) => 
+
+  getLayersByType: (state: LayerState, type: Layer['type']) =>
     state.layers.filter(layer => layer.type === type),
-  
-  hasLayers: (state: LayerState) => 
+
+  hasLayers: (state: LayerState) =>
     state.layers.length > 0,
 };
 

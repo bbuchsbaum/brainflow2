@@ -1,5 +1,5 @@
 import React, { useCallback, useState, useMemo } from 'react';
-import { useLayers, useSelectedLayerId, useSelectedLayer, layerSelectors, useLayer } from '@/stores/layerStore';
+import { useLayers, useSelectedLayerId, useSelectedLayer, layerSelectors, useLayer, useLayerStore } from '@/stores/layerStore';
 import { useViewStateStore } from '@/stores/viewStateStore';
 import { getLayerService } from '@/services/LayerService';
 import { LayerTable } from '../ui/LayerTable';
@@ -15,9 +15,10 @@ import { PanelErrorBoundary } from '../common/PanelErrorBoundary';
 import { getEventBus } from '@/events/EventBus';
 import type { LayerRender, Layer } from '@/types/layers';
 import './LayerPanel.css';
+import { storeLog } from '@/utils/debugLog';
 
 const VolumeLayerPanelContent: React.FC = () => {
-  console.log('[VolumeLayerPanel] VolumeLayerPanelContent component mounting');
+  storeLog('VolumeLayerPanel', 'VolumeLayerPanelContent component mounting');
   
   // State for metadata drawer
   const [metadataLayerId, setMetadataLayerId] = useState<string | null>(null);
@@ -64,9 +65,34 @@ const VolumeLayerPanelContent: React.FC = () => {
         getLayerService().toggleVisibility(layerId, !isCurrentlyVisible);
       }
     } catch (error) {
-      console.error('[LayerPanel] Error in toggleVisibility:', error);
+      console.error('[LayerPanel] Error in toggleVisibility:', error); // Keep: runtime error
     }
   }, [viewStateLayers, serviceInitialized]);
+
+  const handleReorder = useCallback((newLayers: Layer[]) => {
+    // Update layerStore order
+    useLayerStore.getState().reorderLayers(newLayers);
+
+    // Update viewStateStore layer order to match
+    useViewStateStore.getState().setViewState((state) => {
+      const idOrder = newLayers.map(l => l.id);
+      state.layers.sort((a, b) => idOrder.indexOf(a.id) - idOrder.indexOf(b.id));
+    });
+  }, []);
+
+  const handleOpacityChange = useCallback((layerId: string, opacity: number) => {
+    useViewStateStore.getState().setViewState((state) => {
+      const layer = state.layers.find(l => l.id === layerId);
+      if (layer) {
+        layer.opacity = opacity;
+        layer.visible = opacity > 0;
+      }
+    });
+    getEventBus().emit('layer.render.changed', {
+      layerId,
+      renderProps: { opacity },
+    });
+  }, []);
 
   const handleRenderUpdate = useCallback((updates: Partial<LayerRender>) => {
     if (!selectedLayerId) return;
@@ -150,7 +176,7 @@ const VolumeLayerPanelContent: React.FC = () => {
 
     // Debug: log current ViewState layer ordering + opacities
     const viewState = useViewStateStore.getState().viewState;
-    console.log('[VolumeLayerPanel] ViewState layers after render update:', {
+    storeLog('VolumeLayerPanel', 'ViewState layers after render update:', {
       layers: viewState.layers.map(l => ({
         id: l.id,
         name: l.name,
@@ -182,9 +208,15 @@ const VolumeLayerPanelContent: React.FC = () => {
           onSelect={selectLayer}
           onToggleVisibility={toggleVisibility}
           onShowMetadata={setMetadataLayerId}
+          onReorder={handleReorder}
+          onOpacityChange={handleOpacityChange}
           getLayerVisibility={(layerId) => {
-            const viewStateLayer = viewStateLayers.find(l => l.id === layerId);
-            return viewStateLayer ? viewStateLayer.opacity > 0 : true;
+            const vsl = viewStateLayers.find(l => l.id === layerId);
+            return vsl ? vsl.opacity > 0 : true;
+          }}
+          getLayerOpacity={(layerId) => {
+            const vsl = viewStateLayers.find(l => l.id === layerId);
+            return vsl?.opacity ?? 1.0;
           }}
         />
 

@@ -52,6 +52,25 @@ export interface SampleResult {
   coordinate: WorldCoordinates;
 }
 
+export interface NiftiHeaderInfo {
+  filename: string;
+  dimensions: number[];
+  voxel_spacing: [number, number, number];
+  data_type: string;
+  voxel_to_world: number[]; // [f32; 16] row-major
+  world_bounds_min: [number, number, number];
+  world_bounds_max: [number, number, number];
+  sform_code: number;
+  qform_code: number;
+  orientation_string: string;
+  spatial_units: string;
+  temporal_units: string | null;
+  tr_seconds: number | null;
+  num_timepoints: number | null;
+  description: string;
+  data_range: { min: number; max: number } | null;
+}
+
 interface RawAtlasStats {
   total_layers: number;
   used_layers: number;
@@ -551,6 +570,13 @@ export class ApiService {
    */
   async getVolumeBounds(volumeId: string): Promise<VolumeBounds> {
     return this.transport.invoke<VolumeBounds>('get_volume_bounds', { volumeId });
+  }
+
+  /**
+   * Get NIfTI header metadata for a loaded volume
+   */
+  async getNiftiHeaderInfo(volumeId: string): Promise<NiftiHeaderInfo> {
+    return this.transport.invoke<NiftiHeaderInfo>('get_nifti_header_info', { volumeId });
   }
   
   /**

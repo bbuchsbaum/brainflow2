@@ -53,6 +53,8 @@ Default permissions for api-bridge plugin
 - `allow-get-atlas-subscription-count`
 - `allow-set-volume-timepoint`
 - `allow-get-volume-timepoint`
+- `allow-get-volume-info`
+- `allow-get-nifti-header-info`
 - `allow-render-view`
 - `allow-get-template-catalog`
 - `allow-get-filtered-templates`
@@ -179,6 +181,32 @@ Denies the apply_and_render_view_state_raw command without any pre-configured sc
 <tr>
 <td>
 
+`api-bridge:allow-apply-sampler`
+
+</td>
+<td>
+
+Enables the apply_sampler command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:deny-apply-sampler`
+
+</td>
+<td>
+
+Denies the apply_sampler command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
 `api-bridge:allow-batch-render-slices`
 
 </td>
@@ -198,6 +226,32 @@ Enables the batch_render_slices command without any pre-configured scope.
 <td>
 
 Denies the batch_render_slices command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:allow-clear-alpha-mask`
+
+</td>
+<td>
+
+Enables the clear_alpha_mask command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:deny-clear-alpha-mask`
+
+</td>
+<td>
+
+Denies the clear_alpha_mask command without any pre-configured scope.
 
 </td>
 </tr>
@@ -257,6 +311,32 @@ Denies the clear_template_cache command without any pre-configured scope.
 <tr>
 <td>
 
+`api-bridge:allow-compute-alpha-mask`
+
+</td>
+<td>
+
+Enables the compute_alpha_mask command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:deny-compute-alpha-mask`
+
+</td>
+<td>
+
+Denies the compute_alpha_mask command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
 `api-bridge:allow-compute-layer-histogram`
 
 </td>
@@ -309,6 +389,32 @@ Denies the create_offscreen_render_target command without any pre-configured sco
 <tr>
 <td>
 
+`api-bridge:allow-create-surface-sampler`
+
+</td>
+<td>
+
+Enables the create_surface_sampler command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:deny-create-surface-sampler`
+
+</td>
+<td>
+
+Denies the create_surface_sampler command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
 `api-bridge:allow-create-volume`
 
 </td>
@@ -328,6 +434,58 @@ Enables the create_volume command without any pre-configured scope.
 <td>
 
 Denies the create_volume command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:allow-discover-atlases`
+
+</td>
+<td>
+
+Enables the discover_atlases command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:deny-discover-atlases`
+
+</td>
+<td>
+
+Denies the discover_atlases command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:allow-discover-templates`
+
+</td>
+<td>
+
+Enables the discover_templates command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:deny-discover-templates`
+
+</td>
+<td>
+
+Denies the discover_templates command without any pre-configured scope.
 
 </td>
 </tr>
@@ -465,6 +623,32 @@ Denies the get_atlas_entry command without any pre-configured scope.
 <tr>
 <td>
 
+`api-bridge:allow-get-atlas-palette`
+
+</td>
+<td>
+
+Enables the get_atlas_palette command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:deny-get-atlas-palette`
+
+</td>
+<td>
+
+Denies the get_atlas_palette command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
 `api-bridge:allow-get-atlas-stats`
 
 </td>
@@ -510,6 +694,32 @@ Enables the get_atlas_subscription_count command without any pre-configured scop
 <td>
 
 Denies the get_atlas_subscription_count command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:allow-get-discovery-stats`
+
+</td>
+<td>
+
+Enables the get_discovery_stats command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:deny-get-discovery-stats`
+
+</td>
+<td>
+
+Denies the get_discovery_stats command without any pre-configured scope.
 
 </td>
 </tr>
@@ -647,6 +857,58 @@ Denies the get_layer_info command without any pre-configured scope.
 <tr>
 <td>
 
+`api-bridge:allow-get-nifti-header-info`
+
+</td>
+<td>
+
+Enables the get_nifti_header_info command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:deny-get-nifti-header-info`
+
+</td>
+<td>
+
+Denies the get_nifti_header_info command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:allow-get-parcellation-reference-palette`
+
+</td>
+<td>
+
+Enables the get_parcellation_reference_palette command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:deny-get-parcellation-reference-palette`
+
+</td>
+<td>
+
+Denies the get_parcellation_reference_palette command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
 `api-bridge:allow-get-recent-atlases`
 
 </td>
@@ -744,6 +1006,32 @@ Enables the get_surface_overlay_data command without any pre-configured scope.
 <td>
 
 Denies the get_surface_overlay_data command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:allow-get-surface-template-catalog`
+
+</td>
+<td>
+
+Enables the get_surface_template_catalog command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:deny-get-surface-template-catalog`
+
+</td>
+<td>
+
+Denies the get_surface_template_catalog command without any pre-configured scope.
 
 </td>
 </tr>
@@ -907,6 +1195,32 @@ Denies the get_volume_bounds command without any pre-configured scope.
 <tr>
 <td>
 
+`api-bridge:allow-get-volume-for-projection`
+
+</td>
+<td>
+
+Enables the get_volume_for_projection command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:deny-get-volume-for-projection`
+
+</td>
+<td>
+
+Denies the get_volume_for_projection command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
 `api-bridge:allow-get-volume-info`
 
 </td>
@@ -959,6 +1273,58 @@ Denies the get_volume_timepoint command without any pre-configured scope.
 <tr>
 <td>
 
+`api-bridge:allow-import-parcel-data-json`
+
+</td>
+<td>
+
+Enables the import_parcel_data_json command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:deny-import-parcel-data-json`
+
+</td>
+<td>
+
+Denies the import_parcel_data_json command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:allow-import-surface-label-parcellation`
+
+</td>
+<td>
+
+Enables the import_surface_label_parcellation command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:deny-import-surface-label-parcellation`
+
+</td>
+<td>
+
+Denies the import_surface_label_parcellation command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
 `api-bridge:allow-init-render-loop`
 
 </td>
@@ -978,6 +1344,32 @@ Enables the init_render_loop command without any pre-configured scope.
 <td>
 
 Denies the init_render_loop command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:allow-list-parcellation-references`
+
+</td>
+<td>
+
+Enables the list_parcellation_references command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:deny-list-parcellation-references`
+
+</td>
+<td>
+
+Denies the list_parcellation_references command without any pre-configured scope.
 
 </td>
 </tr>
@@ -1115,6 +1507,32 @@ Denies the load_surface command without any pre-configured scope.
 <tr>
 <td>
 
+`api-bridge:allow-load-surface-atlas`
+
+</td>
+<td>
+
+Enables the load_surface_atlas command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:deny-load-surface-atlas`
+
+</td>
+<td>
+
+Denies the load_surface_atlas command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
 `api-bridge:allow-load-surface-overlay`
 
 </td>
@@ -1134,6 +1552,32 @@ Enables the load_surface_overlay command without any pre-configured scope.
 <td>
 
 Denies the load_surface_overlay command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:allow-load-surface-template`
+
+</td>
+<td>
+
+Enables the load_surface_template command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:deny-load-surface-template`
+
+</td>
+<td>
+
+Denies the load_surface_template command without any pre-configured scope.
 
 </td>
 </tr>
@@ -1219,6 +1663,58 @@ Denies the patch_layer command without any pre-configured scope.
 <tr>
 <td>
 
+`api-bridge:allow-preview-parcel-binding-coverage`
+
+</td>
+<td>
+
+Enables the preview_parcel_binding_coverage command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:deny-preview-parcel-binding-coverage`
+
+</td>
+<td>
+
+Denies the preview_parcel_binding_coverage command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:allow-project-volume-to-surface`
+
+</td>
+<td>
+
+Enables the project_volume_to_surface command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:deny-project-volume-to-surface`
+
+</td>
+<td>
+
+Denies the project_volume_to_surface command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
 `api-bridge:allow-query-slice-axis-meta`
 
 </td>
@@ -1271,6 +1767,32 @@ Denies the recalculate_view_for_dimensions command without any pre-configured sc
 <tr>
 <td>
 
+`api-bridge:allow-register-categorical-colormap`
+
+</td>
+<td>
+
+Enables the register_categorical_colormap command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:deny-register-categorical-colormap`
+
+</td>
+<td>
+
+Denies the register_categorical_colormap command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
 `api-bridge:allow-release-gpu-resources`
 
 </td>
@@ -1316,6 +1838,32 @@ Enables the release_layer_gpu_resources command without any pre-configured scope
 <td>
 
 Denies the release_layer_gpu_resources command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:allow-release-sampler`
+
+</td>
+<td>
+
+Enables the release_sampler command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:deny-release-sampler`
+
+</td>
+<td>
+
+Denies the release_sampler command without any pre-configured scope.
 
 </td>
 </tr>
@@ -1576,6 +2124,32 @@ Enables the resize_canvas command without any pre-configured scope.
 <td>
 
 Denies the resize_canvas command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:allow-sample-layer-value-at-world`
+
+</td>
+<td>
+
+Enables the sample_layer_value_at_world command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:deny-sample-layer-value-at-world`
+
+</td>
+<td>
+
+Denies the sample_layer_value_at_world command without any pre-configured scope.
 
 </td>
 </tr>

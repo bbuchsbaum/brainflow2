@@ -343,6 +343,18 @@
           "markdownDescription": "Denies the apply_and_render_view_state_raw command without any pre-configured scope."
         },
         {
+          "description": "Enables the apply_sampler command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-apply-sampler",
+          "markdownDescription": "Enables the apply_sampler command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the apply_sampler command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-apply-sampler",
+          "markdownDescription": "Denies the apply_sampler command without any pre-configured scope."
+        },
+        {
           "description": "Enables the batch_render_slices command without any pre-configured scope.",
           "type": "string",
           "const": "allow-batch-render-slices",
@@ -353,6 +365,18 @@
           "type": "string",
           "const": "deny-batch-render-slices",
           "markdownDescription": "Denies the batch_render_slices command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the clear_alpha_mask command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-clear-alpha-mask",
+          "markdownDescription": "Enables the clear_alpha_mask command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the clear_alpha_mask command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-clear-alpha-mask",
+          "markdownDescription": "Denies the clear_alpha_mask command without any pre-configured scope."
         },
         {
           "description": "Enables the clear_render_layers command without any pre-configured scope.",
@@ -379,6 +403,18 @@
           "markdownDescription": "Denies the clear_template_cache command without any pre-configured scope."
         },
         {
+          "description": "Enables the compute_alpha_mask command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-compute-alpha-mask",
+          "markdownDescription": "Enables the compute_alpha_mask command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the compute_alpha_mask command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-compute-alpha-mask",
+          "markdownDescription": "Denies the compute_alpha_mask command without any pre-configured scope."
+        },
+        {
           "description": "Enables the compute_layer_histogram command without any pre-configured scope.",
           "type": "string",
           "const": "allow-compute-layer-histogram",
@@ -403,6 +439,18 @@
           "markdownDescription": "Denies the create_offscreen_render_target command without any pre-configured scope."
         },
         {
+          "description": "Enables the create_surface_sampler command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-create-surface-sampler",
+          "markdownDescription": "Enables the create_surface_sampler command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the create_surface_sampler command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-create-surface-sampler",
+          "markdownDescription": "Denies the create_surface_sampler command without any pre-configured scope."
+        },
+        {
           "description": "Enables the create_volume command without any pre-configured scope.",
           "type": "string",
           "const": "allow-create-volume",
@@ -413,6 +461,30 @@
           "type": "string",
           "const": "deny-create-volume",
           "markdownDescription": "Denies the create_volume command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the discover_atlases command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-discover-atlases",
+          "markdownDescription": "Enables the discover_atlases command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the discover_atlases command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-discover-atlases",
+          "markdownDescription": "Denies the discover_atlases command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the discover_templates command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-discover-templates",
+          "markdownDescription": "Enables the discover_templates command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the discover_templates command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-discover-templates",
+          "markdownDescription": "Denies the discover_templates command without any pre-configured scope."
         },
         {
           "description": "Enables the extract_slice command without any pre-configured scope.",
@@ -475,6 +547,18 @@
           "markdownDescription": "Denies the get_atlas_entry command without any pre-configured scope."
         },
         {
+          "description": "Enables the get_atlas_palette command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-get-atlas-palette",
+          "markdownDescription": "Enables the get_atlas_palette command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the get_atlas_palette command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-get-atlas-palette",
+          "markdownDescription": "Denies the get_atlas_palette command without any pre-configured scope."
+        },
+        {
           "description": "Enables the get_atlas_stats command without any pre-configured scope.",
           "type": "string",
           "const": "allow-get-atlas-stats",
@@ -497,6 +581,18 @@
           "type": "string",
           "const": "deny-get-atlas-subscription-count",
           "markdownDescription": "Denies the get_atlas_subscription_count command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the get_discovery_stats command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-get-discovery-stats",
+          "markdownDescription": "Enables the get_discovery_stats command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the get_discovery_stats command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-get-discovery-stats",
+          "markdownDescription": "Denies the get_discovery_stats command without any pre-configured scope."
         },
         {
           "description": "Enables the get_favorite_atlases command without any pre-configured scope.",
@@ -559,6 +655,30 @@
           "markdownDescription": "Denies the get_layer_info command without any pre-configured scope."
         },
         {
+          "description": "Enables the get_nifti_header_info command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-get-nifti-header-info",
+          "markdownDescription": "Enables the get_nifti_header_info command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the get_nifti_header_info command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-get-nifti-header-info",
+          "markdownDescription": "Denies the get_nifti_header_info command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the get_parcellation_reference_palette command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-get-parcellation-reference-palette",
+          "markdownDescription": "Enables the get_parcellation_reference_palette command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the get_parcellation_reference_palette command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-get-parcellation-reference-palette",
+          "markdownDescription": "Denies the get_parcellation_reference_palette command without any pre-configured scope."
+        },
+        {
           "description": "Enables the get_recent_atlases command without any pre-configured scope.",
           "type": "string",
           "const": "allow-get-recent-atlases",
@@ -605,6 +725,18 @@
           "type": "string",
           "const": "deny-get-surface-overlay-data",
           "markdownDescription": "Denies the get_surface_overlay_data command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the get_surface_template_catalog command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-get-surface-template-catalog",
+          "markdownDescription": "Enables the get_surface_template_catalog command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the get_surface_template_catalog command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-get-surface-template-catalog",
+          "markdownDescription": "Denies the get_surface_template_catalog command without any pre-configured scope."
         },
         {
           "description": "Enables the get_template_cache_stats command without any pre-configured scope.",
@@ -679,6 +811,18 @@
           "markdownDescription": "Denies the get_volume_bounds command without any pre-configured scope."
         },
         {
+          "description": "Enables the get_volume_for_projection command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-get-volume-for-projection",
+          "markdownDescription": "Enables the get_volume_for_projection command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the get_volume_for_projection command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-get-volume-for-projection",
+          "markdownDescription": "Denies the get_volume_for_projection command without any pre-configured scope."
+        },
+        {
           "description": "Enables the get_volume_info command without any pre-configured scope.",
           "type": "string",
           "const": "allow-get-volume-info",
@@ -703,6 +847,30 @@
           "markdownDescription": "Denies the get_volume_timepoint command without any pre-configured scope."
         },
         {
+          "description": "Enables the import_parcel_data_json command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-import-parcel-data-json",
+          "markdownDescription": "Enables the import_parcel_data_json command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the import_parcel_data_json command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-import-parcel-data-json",
+          "markdownDescription": "Denies the import_parcel_data_json command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the import_surface_label_parcellation command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-import-surface-label-parcellation",
+          "markdownDescription": "Enables the import_surface_label_parcellation command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the import_surface_label_parcellation command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-import-surface-label-parcellation",
+          "markdownDescription": "Denies the import_surface_label_parcellation command without any pre-configured scope."
+        },
+        {
           "description": "Enables the init_render_loop command without any pre-configured scope.",
           "type": "string",
           "const": "allow-init-render-loop",
@@ -713,6 +881,18 @@
           "type": "string",
           "const": "deny-init-render-loop",
           "markdownDescription": "Denies the init_render_loop command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the list_parcellation_references command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-list-parcellation-references",
+          "markdownDescription": "Enables the list_parcellation_references command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the list_parcellation_references command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-list-parcellation-references",
+          "markdownDescription": "Denies the list_parcellation_references command without any pre-configured scope."
         },
         {
           "description": "Enables the list_volumes command without any pre-configured scope.",
@@ -775,6 +955,18 @@
           "markdownDescription": "Denies the load_surface command without any pre-configured scope."
         },
         {
+          "description": "Enables the load_surface_atlas command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-load-surface-atlas",
+          "markdownDescription": "Enables the load_surface_atlas command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the load_surface_atlas command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-load-surface-atlas",
+          "markdownDescription": "Denies the load_surface_atlas command without any pre-configured scope."
+        },
+        {
           "description": "Enables the load_surface_overlay command without any pre-configured scope.",
           "type": "string",
           "const": "allow-load-surface-overlay",
@@ -785,6 +977,18 @@
           "type": "string",
           "const": "deny-load-surface-overlay",
           "markdownDescription": "Denies the load_surface_overlay command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the load_surface_template command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-load-surface-template",
+          "markdownDescription": "Enables the load_surface_template command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the load_surface_template command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-load-surface-template",
+          "markdownDescription": "Denies the load_surface_template command without any pre-configured scope."
         },
         {
           "description": "Enables the load_template command without any pre-configured scope.",
@@ -823,6 +1027,30 @@
           "markdownDescription": "Denies the patch_layer command without any pre-configured scope."
         },
         {
+          "description": "Enables the preview_parcel_binding_coverage command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-preview-parcel-binding-coverage",
+          "markdownDescription": "Enables the preview_parcel_binding_coverage command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the preview_parcel_binding_coverage command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-preview-parcel-binding-coverage",
+          "markdownDescription": "Denies the preview_parcel_binding_coverage command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the project_volume_to_surface command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-project-volume-to-surface",
+          "markdownDescription": "Enables the project_volume_to_surface command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the project_volume_to_surface command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-project-volume-to-surface",
+          "markdownDescription": "Denies the project_volume_to_surface command without any pre-configured scope."
+        },
+        {
           "description": "Enables the query_slice_axis_meta command without any pre-configured scope.",
           "type": "string",
           "const": "allow-query-slice-axis-meta",
@@ -847,6 +1075,18 @@
           "markdownDescription": "Denies the recalculate_view_for_dimensions command without any pre-configured scope."
         },
         {
+          "description": "Enables the register_categorical_colormap command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-register-categorical-colormap",
+          "markdownDescription": "Enables the register_categorical_colormap command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the register_categorical_colormap command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-register-categorical-colormap",
+          "markdownDescription": "Denies the register_categorical_colormap command without any pre-configured scope."
+        },
+        {
           "description": "Enables the release_gpu_resources command without any pre-configured scope.",
           "type": "string",
           "const": "allow-release-gpu-resources",
@@ -869,6 +1109,18 @@
           "type": "string",
           "const": "deny-release-layer-gpu-resources",
           "markdownDescription": "Denies the release_layer_gpu_resources command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the release_sampler command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-release-sampler",
+          "markdownDescription": "Enables the release_sampler command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the release_sampler command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-release-sampler",
+          "markdownDescription": "Denies the release_sampler command without any pre-configured scope."
         },
         {
           "description": "Enables the remove_render_layer command without any pre-configured scope.",
@@ -989,6 +1241,18 @@
           "type": "string",
           "const": "deny-resize-canvas",
           "markdownDescription": "Denies the resize_canvas command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the sample_layer_value_at_world command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-sample-layer-value-at-world",
+          "markdownDescription": "Enables the sample_layer_value_at_world command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the sample_layer_value_at_world command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-sample-layer-value-at-world",
+          "markdownDescription": "Denies the sample_layer_value_at_world command without any pre-configured scope."
         },
         {
           "description": "Enables the sample_world_coordinate command without any pre-configured scope.",
@@ -1207,10 +1471,10 @@
           "markdownDescription": "Denies the world_to_voxel command without any pre-configured scope."
         },
         {
-          "description": "Default permissions for api-bridge plugin\n#### This default permission set includes:\n\n- `allow-load-file`\n- `allow-load-surface`\n- `allow-get-surface-geometry`\n- `allow-get-volume-bounds`\n- `allow-world-to-voxel`\n- `allow-get-timeseries-matrix`\n- `allow-get-initial-views`\n- `allow-recalculate-view-for-dimensions`\n- `allow-request-layer-gpu-resources`\n- `allow-release-layer-gpu-resources`\n- `allow-fs-list-directory`\n- `allow-init-render-loop`\n- `allow-resize-canvas`\n- `allow-update-frame-ubo`\n- `allow-update-frame-for-synchronized-view`\n- `allow-set-crosshair`\n- `allow-set-view-plane`\n- `allow-render-frame`\n- `allow-create-offscreen-render-target`\n- `allow-render-to-image`\n- `allow-render-to-image-binary`\n- `allow-add-render-layer`\n- `allow-remove-render-layer`\n- `allow-clear-render-layers`\n- `allow-patch-layer`\n- `allow-compute-layer-histogram`\n- `allow-update-layer-opacity`\n- `allow-update-layer-colormap`\n- `allow-update-layer-intensity`\n- `allow-update-layer-threshold`\n- `allow-sample-world-coordinate`\n- `allow-apply-and-render-view-state`\n- `allow-apply-and-render-view-state-binary`\n- `allow-apply-and-render-view-state-raw`\n- `allow-query-slice-axis-meta`\n- `allow-batch-render-slices`\n- `allow-get-atlas-catalog`\n- `allow-get-filtered-atlases`\n- `allow-get-atlas-entry`\n- `allow-toggle-atlas-favorite`\n- `allow-get-recent-atlases`\n- `allow-get-favorite-atlases`\n- `allow-validate-atlas-config`\n- `allow-load-atlas`\n- `allow-get-atlas-stats`\n- `allow-start-atlas-progress-monitoring`\n- `allow-get-atlas-subscription-count`\n- `allow-set-volume-timepoint`\n- `allow-get-volume-timepoint`\n- `allow-render-view`\n- `allow-get-template-catalog`\n- `allow-get-filtered-templates`\n- `allow-get-template-entry`\n- `allow-validate-template-config`\n- `allow-load-template`\n- `allow-load-template-by-id`\n- `allow-get-template-cache-stats`\n- `allow-clear-template-cache`",
+          "description": "Default permissions for api-bridge plugin\n#### This default permission set includes:\n\n- `allow-load-file`\n- `allow-load-surface`\n- `allow-get-surface-geometry`\n- `allow-get-volume-bounds`\n- `allow-world-to-voxel`\n- `allow-get-timeseries-matrix`\n- `allow-get-initial-views`\n- `allow-recalculate-view-for-dimensions`\n- `allow-request-layer-gpu-resources`\n- `allow-release-layer-gpu-resources`\n- `allow-fs-list-directory`\n- `allow-init-render-loop`\n- `allow-resize-canvas`\n- `allow-update-frame-ubo`\n- `allow-update-frame-for-synchronized-view`\n- `allow-set-crosshair`\n- `allow-set-view-plane`\n- `allow-render-frame`\n- `allow-create-offscreen-render-target`\n- `allow-render-to-image`\n- `allow-render-to-image-binary`\n- `allow-add-render-layer`\n- `allow-remove-render-layer`\n- `allow-clear-render-layers`\n- `allow-patch-layer`\n- `allow-compute-layer-histogram`\n- `allow-update-layer-opacity`\n- `allow-update-layer-colormap`\n- `allow-update-layer-intensity`\n- `allow-update-layer-threshold`\n- `allow-sample-world-coordinate`\n- `allow-apply-and-render-view-state`\n- `allow-apply-and-render-view-state-binary`\n- `allow-apply-and-render-view-state-raw`\n- `allow-query-slice-axis-meta`\n- `allow-batch-render-slices`\n- `allow-get-atlas-catalog`\n- `allow-get-filtered-atlases`\n- `allow-get-atlas-entry`\n- `allow-toggle-atlas-favorite`\n- `allow-get-recent-atlases`\n- `allow-get-favorite-atlases`\n- `allow-validate-atlas-config`\n- `allow-load-atlas`\n- `allow-get-atlas-stats`\n- `allow-start-atlas-progress-monitoring`\n- `allow-get-atlas-subscription-count`\n- `allow-set-volume-timepoint`\n- `allow-get-volume-timepoint`\n- `allow-get-volume-info`\n- `allow-get-nifti-header-info`\n- `allow-render-view`\n- `allow-get-template-catalog`\n- `allow-get-filtered-templates`\n- `allow-get-template-entry`\n- `allow-validate-template-config`\n- `allow-load-template`\n- `allow-load-template-by-id`\n- `allow-get-template-cache-stats`\n- `allow-clear-template-cache`",
           "type": "string",
           "const": "default",
-          "markdownDescription": "Default permissions for api-bridge plugin\n#### This default permission set includes:\n\n- `allow-load-file`\n- `allow-load-surface`\n- `allow-get-surface-geometry`\n- `allow-get-volume-bounds`\n- `allow-world-to-voxel`\n- `allow-get-timeseries-matrix`\n- `allow-get-initial-views`\n- `allow-recalculate-view-for-dimensions`\n- `allow-request-layer-gpu-resources`\n- `allow-release-layer-gpu-resources`\n- `allow-fs-list-directory`\n- `allow-init-render-loop`\n- `allow-resize-canvas`\n- `allow-update-frame-ubo`\n- `allow-update-frame-for-synchronized-view`\n- `allow-set-crosshair`\n- `allow-set-view-plane`\n- `allow-render-frame`\n- `allow-create-offscreen-render-target`\n- `allow-render-to-image`\n- `allow-render-to-image-binary`\n- `allow-add-render-layer`\n- `allow-remove-render-layer`\n- `allow-clear-render-layers`\n- `allow-patch-layer`\n- `allow-compute-layer-histogram`\n- `allow-update-layer-opacity`\n- `allow-update-layer-colormap`\n- `allow-update-layer-intensity`\n- `allow-update-layer-threshold`\n- `allow-sample-world-coordinate`\n- `allow-apply-and-render-view-state`\n- `allow-apply-and-render-view-state-binary`\n- `allow-apply-and-render-view-state-raw`\n- `allow-query-slice-axis-meta`\n- `allow-batch-render-slices`\n- `allow-get-atlas-catalog`\n- `allow-get-filtered-atlases`\n- `allow-get-atlas-entry`\n- `allow-toggle-atlas-favorite`\n- `allow-get-recent-atlases`\n- `allow-get-favorite-atlases`\n- `allow-validate-atlas-config`\n- `allow-load-atlas`\n- `allow-get-atlas-stats`\n- `allow-start-atlas-progress-monitoring`\n- `allow-get-atlas-subscription-count`\n- `allow-set-volume-timepoint`\n- `allow-get-volume-timepoint`\n- `allow-render-view`\n- `allow-get-template-catalog`\n- `allow-get-filtered-templates`\n- `allow-get-template-entry`\n- `allow-validate-template-config`\n- `allow-load-template`\n- `allow-load-template-by-id`\n- `allow-get-template-cache-stats`\n- `allow-clear-template-cache`"
+          "markdownDescription": "Default permissions for api-bridge plugin\n#### This default permission set includes:\n\n- `allow-load-file`\n- `allow-load-surface`\n- `allow-get-surface-geometry`\n- `allow-get-volume-bounds`\n- `allow-world-to-voxel`\n- `allow-get-timeseries-matrix`\n- `allow-get-initial-views`\n- `allow-recalculate-view-for-dimensions`\n- `allow-request-layer-gpu-resources`\n- `allow-release-layer-gpu-resources`\n- `allow-fs-list-directory`\n- `allow-init-render-loop`\n- `allow-resize-canvas`\n- `allow-update-frame-ubo`\n- `allow-update-frame-for-synchronized-view`\n- `allow-set-crosshair`\n- `allow-set-view-plane`\n- `allow-render-frame`\n- `allow-create-offscreen-render-target`\n- `allow-render-to-image`\n- `allow-render-to-image-binary`\n- `allow-add-render-layer`\n- `allow-remove-render-layer`\n- `allow-clear-render-layers`\n- `allow-patch-layer`\n- `allow-compute-layer-histogram`\n- `allow-update-layer-opacity`\n- `allow-update-layer-colormap`\n- `allow-update-layer-intensity`\n- `allow-update-layer-threshold`\n- `allow-sample-world-coordinate`\n- `allow-apply-and-render-view-state`\n- `allow-apply-and-render-view-state-binary`\n- `allow-apply-and-render-view-state-raw`\n- `allow-query-slice-axis-meta`\n- `allow-batch-render-slices`\n- `allow-get-atlas-catalog`\n- `allow-get-filtered-atlases`\n- `allow-get-atlas-entry`\n- `allow-toggle-atlas-favorite`\n- `allow-get-recent-atlases`\n- `allow-get-favorite-atlases`\n- `allow-validate-atlas-config`\n- `allow-load-atlas`\n- `allow-get-atlas-stats`\n- `allow-start-atlas-progress-monitoring`\n- `allow-get-atlas-subscription-count`\n- `allow-set-volume-timepoint`\n- `allow-get-volume-timepoint`\n- `allow-get-volume-info`\n- `allow-get-nifti-header-info`\n- `allow-render-view`\n- `allow-get-template-catalog`\n- `allow-get-filtered-templates`\n- `allow-get-template-entry`\n- `allow-validate-template-config`\n- `allow-load-template`\n- `allow-load-template-by-id`\n- `allow-get-template-cache-stats`\n- `allow-clear-template-cache`"
         }
       ]
     }

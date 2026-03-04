@@ -15,8 +15,8 @@ use tauri::State; // Need State for accessing registry
                   // Import types from bridge_types
 use bridge_types::{
     self, icons, BatchRenderRequest, BridgeError, BridgeResult, DataRange, FlatNode,
-    GpuTextureFormat, LayerPatch, Loaded, Loader, SliceAxisMeta, SliceInfo, TextureCoordinates,
-    TreePayload, VolumeHandleInfo, VolumeLayerGpuInfo, VolumeSendable,
+    GpuTextureFormat, LayerPatch, Loaded, Loader, NiftiHeaderInfo, SliceAxisMeta, SliceInfo,
+    TextureCoordinates, TreePayload, VolumeHandleInfo, VolumeLayerGpuInfo, VolumeSendable,
 };
 use colormap::colormap_by_name;
 // Import NiftiLoader for registration
@@ -1754,6 +1754,138 @@ async fn get_volume_info(
     };
 
     Ok(handle_info)
+}
+
+/// Derive an orientation string (e.g. "RAS", "LPI") from the voxel-to-world affine.
+/// Each voxel axis maps to the world axis with the largest absolute component.
+fn derive_orientation_string(affine: &nalgebra::Matrix4<f32>) -> String {
+    let axis_labels = [
+        ['R', 'L'], // +X = R, -X = L
+        ['A', 'P'], // +Y = A, -Y = P
+        ['S', 'I'], // +Z = S, -Z = I
+    ];
+    let mut result = String::with_capacity(3);
+    for voxel_axis in 0..3 {
+        // Column voxel_axis gives the world direction for that voxel axis
+        let col = [affine[(0, voxel_axis)], affine[(1, voxel_axis)], affine[(2, voxel_axis)]];
+        // Find which world axis this column most aligns with
+        let (max_world_axis, &max_val) = col
+            .iter()
+            .enumerate()
+            .max_by(|(_, a), (_, b)| a.abs().partial_cmp(&b.abs()).unwrap_or(std::cmp::Ordering::Equal))
+            .unwrap_or((0, &col[0]));
+        let label_pair = axis_labels[max_world_axis];
+        result.push(if max_val >= 0.0 { label_pair[0] } else { label_pair[1] });
+    }
+    result
+}
+
+#[command]
+#[tracing::instrument(skip_all, err, name = "api.get_nifti_header_info")]
+async fn get_nifti_header_info(
+    volume_id: String,
+    state: State<'_, BridgeState>,
+) -> BridgeResult<NiftiHeaderInfo> {
+    info!("Bridge: get_nifti_header_info called for {}", volume_id);
+
+    let registry = state.volume_registry.lock().await;
+    let entry = registry
+        .get_entry(&volume_id)
+        .ok_or_else(|| BridgeError::VolumeNotFound {
+            code: 4041,
+            details: format!("Volume {} not found", volume_id),
+        })?;
+
+    let dims = get_spatial_dims_from_volume(&entry.data);
+    let affine = get_affine_from_volume(&entry.data)?;
+    let voxel_to_world = affine.to_homogeneous();
+
+    // Flatten 4x4 matrix to row-major [f32; 16]
+    let mut vtw_flat = [0.0f32; 16];
+    for row in 0..4 {
+        for col in 0..4 {
+            vtw_flat[row * 4 + col] = voxel_to_world[(row, col)];
+        }
+    }
+
+    // Approximate voxel spacing from affine column magnitudes
+    let voxel_spacing = [
+        (voxel_to_world[(0, 0)].powi(2)
+            + voxel_to_world[(1, 0)].powi(2)
+            + voxel_to_world[(2, 0)].powi(2))
+        .sqrt(),
+        (voxel_to_world[(0, 1)].powi(2)
+            + voxel_to_world[(1, 1)].powi(2)
+            + voxel_to_world[(2, 1)].powi(2))
+        .sqrt(),
+        (voxel_to_world[(0, 2)].powi(2)
+            + voxel_to_world[(1, 2)].powi(2)
+            + voxel_to_world[(2, 2)].powi(2))
+        .sqrt(),
+    ];
+
+    // Compute world bounds from 8 corners of the volume
+    let spatial_dims = [
+        dims.first().copied().unwrap_or(1),
+        dims.get(1).copied().unwrap_or(1),
+        dims.get(2).copied().unwrap_or(1),
+    ];
+    let corners = [
+        [0.0f32, 0.0, 0.0],
+        [(spatial_dims[0] - 1) as f32, 0.0, 0.0],
+        [0.0, (spatial_dims[1] - 1) as f32, 0.0],
+        [(spatial_dims[0] - 1) as f32, (spatial_dims[1] - 1) as f32, 0.0],
+        [0.0, 0.0, (spatial_dims[2] - 1) as f32],
+        [(spatial_dims[0] - 1) as f32, 0.0, (spatial_dims[2] - 1) as f32],
+        [0.0, (spatial_dims[1] - 1) as f32, (spatial_dims[2] - 1) as f32],
+        [
+            (spatial_dims[0] - 1) as f32,
+            (spatial_dims[1] - 1) as f32,
+            (spatial_dims[2] - 1) as f32,
+        ],
+    ];
+    let mut world_bounds_min = [f32::INFINITY; 3];
+    let mut world_bounds_max = [f32::NEG_INFINITY; 3];
+    for corner in &corners {
+        let world = voxel_to_world
+            * nalgebra::Vector4::new(corner[0], corner[1], corner[2], 1.0);
+        for i in 0..3 {
+            world_bounds_min[i] = world_bounds_min[i].min(world[i]);
+            world_bounds_max[i] = world_bounds_max[i].max(world[i]);
+        }
+    }
+
+    let orientation_string = derive_orientation_string(&voxel_to_world);
+
+    // Extract 4D metadata if available
+    let (num_timepoints, tr_seconds, temporal_units) =
+        match &entry.metadata.time_series_info {
+            Some(ts) => (
+                Some(ts.num_timepoints),
+                ts.tr,
+                ts.temporal_unit.clone(),
+            ),
+            None => (None, None, None),
+        };
+
+    Ok(NiftiHeaderInfo {
+        filename: entry.metadata.path.clone(),
+        dimensions: dims,
+        voxel_spacing,
+        data_type: entry.metadata.dtype.clone(),
+        voxel_to_world: vtw_flat,
+        world_bounds_min,
+        world_bounds_max,
+        sform_code: 0,
+        qform_code: 0,
+        orientation_string,
+        spatial_units: "mm".to_string(),
+        temporal_units,
+        tr_seconds,
+        num_timepoints,
+        description: String::new(),
+        data_range: None,
+    })
 }
 
 #[command]
@@ -7074,6 +7206,7 @@ pub fn plugin<R: Runtime>() -> TauriPlugin<R> {
             set_volume_timepoint,
             get_volume_timepoint,
             get_volume_info,
+            get_nifti_header_info,
             // get_timeseries_matrix, // REMOVED - Returns unimplemented
             get_initial_views,
             recalculate_view_for_dimensions,

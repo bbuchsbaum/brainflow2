@@ -379,7 +379,7 @@ pub struct TextureCoordinates {
 }
 
 /// Data range in the slice
-#[derive(Debug, Clone, Serialize, TS)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[ts(export)]
 pub struct DataRange {
     /// Minimum value in the slice
@@ -489,4 +489,42 @@ pub struct VolumeHandleInfo {
 pub struct SurfaceGeometryData {
     pub vertices: Vec<f32>,
     pub faces: Vec<u32>,
+}
+
+/// Detailed NIfTI header metadata for display in the UI
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct NiftiHeaderInfo {
+    /// File path/name of the NIfTI file
+    pub filename: String,
+    /// Spatial dimensions [x, y, z] (and optionally time)
+    pub dimensions: Vec<usize>,
+    /// Voxel size in mm [x, y, z]
+    pub voxel_spacing: [f32; 3],
+    /// Data type string (e.g. "f32", "i16", "u8")
+    pub data_type: String,
+    /// 4x4 voxel-to-world affine matrix in row-major order
+    pub voxel_to_world: [f32; 16],
+    /// Minimum world-space bounding box corner [x, y, z]
+    pub world_bounds_min: [f32; 3],
+    /// Maximum world-space bounding box corner [x, y, z]
+    pub world_bounds_max: [f32; 3],
+    /// NIfTI sform code (0 = unknown)
+    pub sform_code: u8,
+    /// NIfTI qform code (0 = unknown)
+    pub qform_code: u8,
+    /// Orientation string derived from the affine (e.g. "RAS", "LPI")
+    pub orientation_string: String,
+    /// Spatial units string (e.g. "mm", "m", "micron")
+    pub spatial_units: String,
+    /// Temporal units string if applicable
+    pub temporal_units: Option<String>,
+    /// Repetition time in seconds (for 4D fMRI)
+    pub tr_seconds: Option<f32>,
+    /// Number of time points (for 4D)
+    pub num_timepoints: Option<usize>,
+    /// Description string from NIfTI header
+    pub description: String,
+    /// Min/max data range of the volume
+    pub data_range: Option<DataRange>,
 }

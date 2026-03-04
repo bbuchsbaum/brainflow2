@@ -52,6 +52,8 @@ permissions = [
     "allow-get-atlas-subscription-count",
     "allow-set-volume-timepoint",
     "allow-get-volume-timepoint",
+    "allow-get-volume-info",
+    "allow-get-nifti-header-info",
     "allow-render-view",
     "allow-get-template-catalog",
     "allow-get-filtered-templates",

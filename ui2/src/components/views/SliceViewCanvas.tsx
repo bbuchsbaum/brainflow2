@@ -1,6 +1,6 @@
 /**
  * SliceViewCanvas Component
- * 
+ *
  * A unified implementation of SliceView using SliceRenderer.
  * This replaces the custom canvas management in SliceView with
  * the same approach used by MosaicCell for consistency.
@@ -20,6 +20,20 @@ import { pixelToWorld, sampleLayerValueAtWorld } from '@brainflow/api';
 import { useSliceViewModel } from '@/hooks/useSliceViewModel';
 import { SLIDER_HEIGHT } from './constants';
 import { useViewStateStore } from '@/stores/viewStateStore';
+import { useLayerStore } from '@/stores/layerStore';
+import { useWindowLevel } from '@/hooks/useWindowLevel';
+import { useShortcut } from '@/hooks/useShortcut';
+import { useDisplayOptionsStore } from '@/stores/displayOptionsStore';
+import { useViewContextMenu } from '@/hooks/useViewContextMenu';
+
+// Anatomical orientation labels per view (LPI convention)
+const ORIENTATION_LABELS: Record<string, { top: string; bottom: string; left: string; right: string }> = {
+  axial:    { top: 'A', bottom: 'P', left: 'R', right: 'L' },
+  sagittal: { top: 'S', bottom: 'I', left: 'A', right: 'P' },
+  coronal:  { top: 'S', bottom: 'I', left: 'R', right: 'L' },
+};
+
+const LABEL_OFFSET = 6; // px from edge
 
 // Equality helpers now live in the view-model hook; no need here.
 
@@ -38,6 +52,7 @@ function SliceViewCanvasRaw({ viewId, width, height, className = '' }: SliceView
 
   // Access setter without subscribing to it (stable reference)
   const setCrosshair = useRef(useViewStateStore.getState().setCrosshair).current;
+  const setViewState = useRef(useViewStateStore.getState().setViewState).current;
 
   if (!viewPlane) {
     return (
@@ -50,17 +65,20 @@ function SliceViewCanvasRaw({ viewId, width, height, className = '' }: SliceView
   }
 
   // RenderContext registration handled by useSliceViewModel
-  
+
   // Crosshair settings provided by the controller
   const crosshairSettings = model.crosshairSettings;
-  
+
   // Time navigation (service-only to avoid extra store subscriptions)
   const timeNavService = getTimeNavigationService();
   const { show: showTimeOverlay, overlay: timeOverlay } = useTransientOverlay({
     duration: 500,
     position: 'center'
   });
-  
+
+  // Container ref for window/level hook
+  const containerAreaRef = useRef<HTMLDivElement>(null);
+
   // Refs
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const imagePlacementRef = useRef<{
@@ -73,13 +91,40 @@ function SliceViewCanvasRaw({ viewId, width, height, className = '' }: SliceView
   } | null>(null);
   const showMarkers = primaryOptions.showOrientationMarkers;
   const showHover = primaryOptions.showValueOnHover;
-  
+
   // Hover value overlay
   const [hoverValue, setHoverValue] = React.useState<number | null>(null);
 
+  // Derive data range for active layer from layerStore metadata
+  const dataRange = useMemo(() => {
+    if (!primaryLayer?.volumeId) return null;
+    const metadata = useLayerStore.getState().layerMetadata.get(primaryLayer.volumeId);
+    const dr = metadata?.dataRange;
+    if (!dr) return null;
+    return { min: dr.min, max: dr.max };
+  }, [primaryLayer?.volumeId]);
+
+  // Window/level handler: updates layer intensity in viewStateStore
+  const handleWindowLevelUpdate = useCallback((intensity: [number, number]) => {
+    if (!primaryLayer?.id) return;
+    const layerId = primaryLayer.id;
+    setViewState((state) => ({
+      ...state,
+      layers: state.layers.map((l) =>
+        l.id === layerId ? { ...l, intensity } : l
+      ),
+    }));
+  }, [primaryLayer?.id, setViewState]);
+
+  // useWindowLevel hook — attaches to the canvas area div
+  const { isDragging, overlayProps } = useWindowLevel({
+    canvasRef: containerAreaRef,
+    layerId: primaryLayer?.id ?? null,
+    dataRange,
+    onUpdate: handleWindowLevelUpdate,
+  });
+
   // Stable ref for viewPlane to prevent infinite loop in handleMouseMove
-  // The viewPlane object reference changes on every store update, which would
-  // cause useCallback to recreate handleMouseMove, triggering infinite re-renders
   const viewPlaneRef = React.useRef(viewPlane);
   React.useEffect(() => {
     if (viewPlane) {
@@ -94,7 +139,7 @@ function SliceViewCanvasRaw({ viewId, width, height, className = '' }: SliceView
 
   // Slider navigation using the same approach as original SliceView
   const sliceNavService = getSliceNavigationService();
-  
+
   // Get min/max/step (only depends on layers, not crosshair)
   const axisIndex = viewId === 'axial' ? 2 : viewId === 'sagittal' ? 0 : 1;
   const sliderBounds = React.useMemo(() => {
@@ -116,7 +161,7 @@ function SliceViewCanvasRaw({ viewId, width, height, className = '' }: SliceView
       };
     }
   }, [sliceNavService, viewId, layers, axisIndex, crosshair.world_mm[axisIndex]]);
-  
+
   // Current slider value mirrors crosshair position for this axis
   const sliderValue = sliderBounds.current ?? crosshair.world_mm[axisIndex];
 
@@ -128,7 +173,7 @@ function SliceViewCanvasRaw({ viewId, width, height, className = '' }: SliceView
     if (Object.is(value, sliderValueRef.current)) return;
     sliceNavService.updateSlicePosition(viewId, value);
   }, [sliceNavService, viewId]);
-  
+
   // Custom render function for crosshair overlay
   const customRender = useCallback((
     ctx: CanvasRenderingContext2D,
@@ -147,16 +192,16 @@ function SliceViewCanvasRaw({ viewId, width, height, className = '' }: SliceView
       cr.world_mm,
       vp
     );
-    
+
     if (!screenCoord) return;
-    
+
     // Transform to canvas coordinates
     const scaleX = placement.width / placement.imageWidth;
     const scaleY = placement.height / placement.imageHeight;
-    
+
     const canvasX = placement.x + screenCoord[0] * scaleX;
     const canvasY = placement.y + screenCoord[1] * scaleY;
-    
+
     // Draw crosshair
     const style: CrosshairStyle = {
       color: chs.activeColor,
@@ -164,7 +209,7 @@ function SliceViewCanvasRaw({ viewId, width, height, className = '' }: SliceView
       lineDash: getLineDash(chs.activeStyle, chs.activeThickness),
       opacity: 1
     };
-    
+
     drawCrosshair({
       ctx,
       canvasX,
@@ -173,34 +218,40 @@ function SliceViewCanvasRaw({ viewId, width, height, className = '' }: SliceView
       style
     });
   }, []);
-  
-  // Handle mouse clicks to update crosshair
+
+  // Handle mouse clicks to update crosshair — skip if window/level drag is active
+  const isDraggingRef = useRef(isDragging);
+  useEffect(() => { isDraggingRef.current = isDragging; }, [isDragging]);
+
   const handleMouseClick = useCallback((event: React.MouseEvent<HTMLDivElement>) => {
+    // Suppress crosshair update if W/L drag just ended
+    if (isDraggingRef.current) return;
+    if (event.button !== 0) return;
     if (!canvasRef.current || !imagePlacementRef.current) return;
     const currentView = viewPlaneRef.current;
     if (!currentView) return;
-    
+
     const canvas = canvasRef.current;
     const rect = canvas.getBoundingClientRect();
     const scaleX = canvas.width / rect.width;
     const scaleY = canvas.height / rect.height;
-    
+
     // Convert click to canvas coordinates
     const canvasX = (event.clientX - rect.left) * scaleX;
     const canvasY = (event.clientY - rect.top) * scaleY;
-    
+
     const placement = imagePlacementRef.current;
-    
+
     // Check if click is within image bounds
     if (canvasX < placement.x || canvasX > placement.x + placement.width ||
         canvasY < placement.y || canvasY > placement.y + placement.height) {
       return;
     }
-    
+
     // Transform to image coordinates
     const imageX = (canvasX - placement.x) / placement.width * placement.imageWidth;
     const imageY = (canvasY - placement.y) / placement.height * placement.imageHeight;
-    
+
     // Transform to world coordinates
     const worldCoord = CoordinateTransform.screenToWorld(imageX, imageY, currentView);
     // Important: pass updateViews=true to ensure all views update their crosshair
@@ -290,12 +341,36 @@ function SliceViewCanvasRaw({ viewId, width, height, className = '' }: SliceView
     return fn;
   }, [viewId, sliceNavService, timeNavService]);
   useEffect(() => () => throttledHandleWheel.cancel(), [throttledHandleWheel]);
-  
+
   // Handle canvas ready callback
   const handleCanvasReady = useCallback((canvas: HTMLCanvasElement) => {
     canvasRef.current = canvas;
   }, []);
-  
+
+  // 'L' key: toggle orientation labels for all visible layers.
+  // All three views register the same id so only one entry exists in the service.
+  // The handler is identical across views — it reads current state at call time.
+  useShortcut({
+    id: 'toggle-orientation-labels',
+    key: 'l',
+    category: 'View',
+    description: 'Toggle orientation labels',
+    handler: () => {
+      const store = useDisplayOptionsStore.getState();
+      const allLayers = useLayerStore.getState().layers;
+      const visibleLayers = allLayers.filter(l => l.visible);
+      if (visibleLayers.length === 0) return;
+      const primaryId = visibleLayers[0].id;
+      const current = store.getOptions(primaryId).showOrientationMarkers;
+      for (const layer of visibleLayers) {
+        store.setOptions(layer.id, { showOrientationMarkers: !current });
+      }
+    },
+  });
+
+  // Context menu (right-click)
+  const handleContextMenu = useViewContextMenu(viewId);
+
   // Handle file drops
   const handleFileDrop = useCallback(async (file: File) => {
     // Use FileLoadingService to load the file
@@ -303,18 +378,19 @@ function SliceViewCanvasRaw({ viewId, width, height, className = '' }: SliceView
     const fileService = getFileLoadingService();
     await fileService.loadFile(file);
   }, []);
-  
+
   // For Allotment compatibility, we need proper height inheritance
   // The component must fill the Allotment.Pane completely
-  
+
   const containerRef = React.useRef<HTMLDivElement>(null);
 
   return (
-    <div ref={containerRef} className={`h-full w-full relative ${className}`} data-view-id={viewId}>
+    <div ref={containerRef} className={`h-full w-full relative ${className}`} data-view-id={viewId} onContextMenu={handleContextMenu}>
       {timeOverlay}
-      
+
       {/* Canvas area - positioned absolutely to leave room for slider */}
       <div
+        ref={containerAreaRef}
         className="absolute inset-0"
         style={{ bottom: hasLayers ? `${SLIDER_HEIGHT}px` : '0' }}
         onClick={handleMouseClick}
@@ -333,8 +409,13 @@ function SliceViewCanvasRaw({ viewId, width, height, className = '' }: SliceView
           showLoadingVolume={isLoadingAnyLayer}
           className="w-full h-full"
         />
+
+        {/* Window/level drag overlay */}
+        {overlayProps && (
+          <div style={overlayProps.style}>{overlayProps.children}</div>
+        )}
       </div>
-      
+
       {/* Slider positioned at the bottom */}
       {hasLayers && (
         <div className="absolute bottom-0 left-0 right-0" style={{ height: `${SLIDER_HEIGHT}px` }}>
@@ -348,6 +429,21 @@ function SliceViewCanvasRaw({ viewId, width, height, className = '' }: SliceView
           />
         </div>
       )}
+
+      {/* Orientation labels */}
+      {showMarkers && hasLayers && (() => {
+        const labels = ORIENTATION_LABELS[viewId];
+        if (!labels) return null;
+        const pillCls = 'absolute text-white text-[10px] font-bold leading-none bg-black/40 px-1 py-0.5 rounded-sm select-none pointer-events-none';
+        return (
+          <>
+            <span className={`${pillCls} left-1/2 -translate-x-1/2`} style={{ top: LABEL_OFFSET }}>{labels.top}</span>
+            <span className={`${pillCls} left-1/2 -translate-x-1/2`} style={{ bottom: hasLayers ? SLIDER_HEIGHT + LABEL_OFFSET : LABEL_OFFSET }}>{labels.bottom}</span>
+            <span className={`${pillCls} top-1/2 -translate-y-1/2`} style={{ left: LABEL_OFFSET }}>{labels.left}</span>
+            <span className={`${pillCls} top-1/2 -translate-y-1/2`} style={{ right: LABEL_OFFSET }}>{labels.right}</span>
+          </>
+        );
+      })()}
 
       {/* Hover value overlay */}
       {hoverValue !== null && showHover && (

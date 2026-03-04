@@ -17,14 +17,16 @@ interface StatusBarProps {
   slots?: string[];
   /** Additional right-side content */
   rightContent?: React.ReactNode;
+  /** Called when the crosshair slot is clicked */
+  onCrosshairClick?: () => void;
 }
 
 // Individual slot component that subscribes to Zustand store
-const StatusBarSlot = React.memo(({ id }: { id: string }) => {
+const StatusBarSlot = React.memo(({ id, onClick }: { id: string; onClick?: () => void }) => {
   const value = useStatusBarStore(state => state.values[id]);
-  
+
   if (!value) return null;
-  
+
   const getValueClass = (id: string): string => {
     const baseClass = 'status-value';
     switch (id) {
@@ -42,7 +44,7 @@ const StatusBarSlot = React.memo(({ id }: { id: string }) => {
         return baseClass;
     }
   };
-  
+
   // Map slot IDs to labels
   const labelMap: Record<string, string> = {
     coordSys: 'Coordinate System:',
@@ -52,21 +54,29 @@ const StatusBarSlot = React.memo(({ id }: { id: string }) => {
     fps: 'FPS:',
     gpu: 'GPU:'
   };
-  
+
+  const isClickable = !!onClick;
+
   return (
-    <div className="status-slot" style={{ width: '25ch' }}>
+    <div
+      className={`status-slot${isClickable ? ' cursor-pointer hover:text-blue-300' : ''}`}
+      style={{ width: '25ch' }}
+      onClick={onClick}
+      title={isClickable ? 'Click to navigate to coordinate' : undefined}
+    >
       <span className="status-label">{labelMap[id] || id}</span>
-      <span className={getValueClass(id)}>{value}</span>
+      <span className={`${getValueClass(id)}${isClickable ? ' hover:underline' : ''}`}>{value}</span>
     </div>
   );
 });
 
 StatusBarSlot.displayName = 'StatusBarSlot';
 
-export function StatusBar({ 
-  className = '', 
+export function StatusBar({
+  className = '',
   slots = ['coordSys', 'crosshair', 'mouse', 'layer', 'atlas', 'fps', 'gpu'],
-  rightContent 
+  rightContent,
+  onCrosshairClick,
 }: StatusBarProps) {
   // Subscribe to layer changes to properly detect 4D volumes
   const layers = useLayerStore(state => state.layers);
@@ -86,7 +96,11 @@ export function StatusBar({
   return (
     <div className={`status-bar ${className}`}>
       {slots.map(id => (
-        <StatusBarSlot key={id} id={id} />
+        <StatusBarSlot
+          key={id}
+          id={id}
+          onClick={id === 'crosshair' ? onCrosshairClick : undefined}
+        />
       ))}
       
       {/* Time slider for 4D volumes */}
