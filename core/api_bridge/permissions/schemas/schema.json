@@ -895,6 +895,18 @@
           "markdownDescription": "Denies the list_parcellation_references command without any pre-configured scope."
         },
         {
+          "description": "Enables the list_remote_mount_profiles command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-list-remote-mount-profiles",
+          "markdownDescription": "Enables the list_remote_mount_profiles command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the list_remote_mount_profiles command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-list-remote-mount-profiles",
+          "markdownDescription": "Denies the list_remote_mount_profiles command without any pre-configured scope."
+        },
+        {
           "description": "Enables the list_volumes command without any pre-configured scope.",
           "type": "string",
           "const": "allow-list-volumes",
@@ -1121,6 +1133,66 @@
           "type": "string",
           "const": "deny-release-sampler",
           "markdownDescription": "Denies the release_sampler command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the remote_mount_connect command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-remote-mount-connect",
+          "markdownDescription": "Enables the remote_mount_connect command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the remote_mount_connect command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-remote-mount-connect",
+          "markdownDescription": "Denies the remote_mount_connect command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the remote_mount_respond_auth command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-remote-mount-respond-auth",
+          "markdownDescription": "Enables the remote_mount_respond_auth command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the remote_mount_respond_auth command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-remote-mount-respond-auth",
+          "markdownDescription": "Denies the remote_mount_respond_auth command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the remote_mount_respond_host_key command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-remote-mount-respond-host-key",
+          "markdownDescription": "Enables the remote_mount_respond_host_key command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the remote_mount_respond_host_key command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-remote-mount-respond-host-key",
+          "markdownDescription": "Denies the remote_mount_respond_host_key command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the remote_mount_unmount command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-remote-mount-unmount",
+          "markdownDescription": "Enables the remote_mount_unmount command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the remote_mount_unmount command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-remote-mount-unmount",
+          "markdownDescription": "Denies the remote_mount_unmount command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the remove_remote_mount_profile command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-remove-remote-mount-profile",
+          "markdownDescription": "Enables the remove_remote_mount_profile command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the remove_remote_mount_profile command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-remove-remote-mount-profile",
+          "markdownDescription": "Denies the remove_remote_mount_profile command without any pre-configured scope."
         },
         {
           "description": "Enables the remove_render_layer command without any pre-configured scope.",

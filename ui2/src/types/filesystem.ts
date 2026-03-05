@@ -13,12 +13,23 @@ export interface FileSystemEntry {
   isHidden?: boolean;   // Hidden file/directory
   isSymlink?: boolean;  // Symbolic link
   permissions?: FilePermissions;
+  mountSource?: MountSource;
 }
 
 export interface FilePermissions {
   readable: boolean;
   writable: boolean;
   executable: boolean;
+}
+
+export interface MountSource {
+  kind: 'local' | 'remote';
+  label?: string;
+  mountId?: string;
+  host?: string;
+  port?: number;
+  user?: string;
+  remotePath?: string;
 }
 
 export interface FileTreeNode extends FileSystemEntry {

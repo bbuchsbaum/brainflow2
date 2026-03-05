@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-remote-mount-respond-host-key"
+description = "Enables the remote_mount_respond_host_key command without any pre-configured scope."
+commands.allow = ["remote_mount_respond_host_key"]
+
+[[permission]]
+identifier = "deny-remote-mount-respond-host-key"
+description = "Denies the remote_mount_respond_host_key command without any pre-configured scope."
+commands.deny = ["remote_mount_respond_host_key"]

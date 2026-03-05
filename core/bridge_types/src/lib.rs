@@ -441,6 +441,109 @@ pub mod icons {
     pub const IMAGE: u8 = 5; // Example
 }
 
+// --- Remote Mount / SSH Types ---
+
+/// Information about the remote origin backing a mounted folder.
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct RemoteMountOrigin {
+    pub mount_id: String,
+    pub host: String,
+    pub port: u16,
+    pub user: String,
+    pub remote_path: String,
+    pub label: String,
+}
+
+/// Mounted remote folder metadata returned after a successful SSH mount.
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct RemoteMountInfo {
+    pub mount_id: String,
+    pub local_path: String,
+    pub display_name: String,
+    pub origin: RemoteMountOrigin,
+}
+
+/// Input payload for starting a remote SSH mount flow.
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct RemoteMountConnectRequest {
+    pub host: String,
+    pub port: Option<u16>,
+    pub user: String,
+    pub remote_path: String,
+    pub auth_method: Option<String>,
+    pub password: Option<String>,
+    pub key_path: Option<String>,
+    pub key_passphrase: Option<String>,
+    pub verify_host_key: Option<bool>,
+    pub accept_unknown_host_keys: Option<bool>,
+    pub known_hosts_path: Option<String>,
+    pub remember_password: Option<bool>,
+    pub save_profile: Option<bool>,
+    pub profile_name: Option<String>,
+}
+
+/// Host-key confirmation challenge details from interactive SSH connection flow.
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct RemoteHostKeyChallenge {
+    pub challenge_id: String,
+    pub host: String,
+    pub port: u16,
+    pub algorithm: String,
+    pub sha256_fingerprint: String,
+    /// "unknown" or "mismatch"
+    pub disposition: String,
+}
+
+/// Single auth prompt in keyboard-interactive flow.
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct RemoteAuthPrompt {
+    pub prompt: String,
+    pub echo: bool,
+}
+
+/// Keyboard-interactive auth challenge details.
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct RemoteAuthChallenge {
+    pub conversation_id: String,
+    pub name: String,
+    pub instructions: String,
+    pub prompts: Vec<RemoteAuthPrompt>,
+}
+
+/// Result of a remote mount connection step.
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
+#[serde(tag = "status", rename_all = "snake_case")]
+pub enum RemoteMountConnectResult {
+    Connected { mount: RemoteMountInfo },
+    NeedHostKey { challenge: RemoteHostKeyChallenge },
+    NeedAuth { challenge: RemoteAuthChallenge },
+}
+
+/// Saved remote connection profile metadata.
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct RemoteMountProfile {
+    pub id: String,
+    pub name: String,
+    pub host: String,
+    pub port: u16,
+    pub user: String,
+    pub remote_path: String,
+    pub auth_method: String,
+    pub verify_host_key: bool,
+    pub accept_unknown_host_keys: bool,
+    pub known_hosts_path: Option<String>,
+    pub has_password: bool,
+    pub updated_at_ms: u64,
+}
+
 // --- Volume Type Definitions ---
 
 /// Enum to distinguish between 3D volumes and 4D time series

@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-remote-mount-unmount"
+description = "Enables the remote_mount_unmount command without any pre-configured scope."
+commands.allow = ["remote_mount_unmount"]
+
+[[permission]]
+identifier = "deny-remote-mount-unmount"
+description = "Denies the remote_mount_unmount command without any pre-configured scope."
+commands.deny = ["remote_mount_unmount"]

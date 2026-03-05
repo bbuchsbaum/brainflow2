@@ -11,17 +11,15 @@ import {
   VscTable,
   VscMarkdown,
   VscFileCode,
-  VscFileBinary,
-  VscArrowUp,
-  VscRefresh,
-  VscEye,
-  VscEyeClosed
+  VscFileBinary
 } from 'react-icons/vsc';
 import './FileBrowserPanel.css';
 import { useFileBrowserStore } from '@/stores/fileBrowserStore';
-import type { FileTreeNode, DragFileData } from '@/types/filesystem';
+import type { FileTreeNode, DragFileData, MountSource } from '@/types/filesystem';
 import { getEventBus } from '@/events/EventBus';
+import { getTransport } from '@/services/transport';
 import { PanelErrorBoundary } from '../common/PanelErrorBoundary';
+import { PanelHeader } from '@/components/ui/PanelHeader';
 
 interface FileNodeData {
   id: string;
@@ -32,6 +30,59 @@ interface FileNodeData {
   extension?: string;
   modified?: Date;
   children?: FileNodeData[];
+  mountSource?: MountSource;
+}
+
+interface RemoteHostKeyChallenge {
+  challenge_id: string;
+  host: string;
+  port: number;
+  algorithm: string;
+  sha256_fingerprint: string;
+  disposition: 'unknown' | 'mismatch' | string;
+}
+
+interface RemoteAuthPrompt {
+  prompt: string;
+  echo: boolean;
+}
+
+interface RemoteAuthChallenge {
+  conversation_id: string;
+  name: string;
+  instructions: string;
+  prompts: RemoteAuthPrompt[];
+}
+
+type RemoteMountConnectResult =
+  | {
+      status: 'connected';
+      mount: {
+        mount_id: string;
+        local_path: string;
+        display_name: string;
+        origin: {
+          label: string;
+          host: string;
+          port: number;
+          user: string;
+          remote_path: string;
+        };
+      };
+    }
+  | { status: 'need_host_key'; challenge: RemoteHostKeyChallenge }
+  | { status: 'need_auth'; challenge: RemoteAuthChallenge };
+
+interface RemoteMountRequest {
+  host: string;
+  port?: number;
+  user: string;
+  remotePath: string;
+  authMethod?: 'password' | 'key_file' | 'agent' | 'keyboard_interactive';
+  password?: string;
+  rememberPassword?: boolean;
+  saveProfile?: boolean;
+  profileName?: string;
 }
 
 interface FileTreeItemProps {
@@ -48,6 +99,10 @@ const FileTreeItem: React.FC<FileTreeItemProps> = ({ node, style, dragHandle }) 
   
   const isSelected = selectedPath === data.path;
   const isDirectory = data.type === 'directory';
+  const remoteOriginLabel =
+    isDirectory && node.level === 0 && data.mountSource?.kind === 'remote'
+      ? data.mountSource.label ?? 'remote'
+      : null;
   
   // File type detection
   const { icon: FileIcon, color: fileColor } = getFileIcon(data, node.isOpen);
@@ -194,7 +249,15 @@ const FileTreeItem: React.FC<FileTreeItemProps> = ({ node, style, dragHandle }) 
       
       {/* File/folder name */}
       <div className="file-name">
-        <span dangerouslySetInnerHTML={{ __html: highlightText(data.name, searchQuery) }} />
+        <span
+          className="file-name-text"
+          dangerouslySetInnerHTML={{ __html: highlightText(data.name, searchQuery) }}
+        />
+        {remoteOriginLabel && (
+          <span className="remote-origin-badge" title={remoteOriginLabel}>
+            {remoteOriginLabel}
+          </span>
+        )}
       </div>
       
       {/* File metadata */}
@@ -217,47 +280,12 @@ const FileTreeItem: React.FC<FileTreeItemProps> = ({ node, style, dragHandle }) 
   );
 };
 
-const PanelHeader: React.FC<{
-  title: string;
-  icon?: React.ReactNode;
-  actions?: Array<{
-    label: string;
-    icon?: React.ReactNode;
-    onClick: () => void;
-    disabled?: boolean;
-  }>;
-}> = ({ title, icon, actions = [] }) => {
-  return (
-    <div className="panel-header">
-      <div className="flex items-center gap-2">
-        {icon && <span style={{ fontSize: '14px' }}>{icon}</span>}
-        <span>{title}</span>
-      </div>
-      
-      {actions.length > 0 && (
-        <div className="flex items-center gap-2">
-          {actions.map((action, index) => (
-            <button
-              key={index}
-              type="button"
-              disabled={action.disabled}
-              onClick={action.onClick}
-              title={action.label}
-            >
-              {action.icon || action.label}
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-};
-
 const FileBrowserPanelContent: React.FC = () => {
   const fileBrowserStore = useFileBrowserStore();
   const [searchInput, setSearchInput] = useState('');
-  const [, forceUpdate] = useState({});
   const [treeSize, setTreeSize] = useState({ width: 0, height: 0 });
+  const [mountActionError, setMountActionError] = useState<string | null>(null);
+  const [mountActionPending, setMountActionPending] = useState(false);
   const treeContainerRef = useRef<HTMLDivElement>(null);
   
   // Debug store instance
@@ -277,7 +305,6 @@ const FileBrowserPanelContent: React.FC = () => {
   const error = useFileBrowserStore(state => state.error);
   const searchQuery = useFileBrowserStore(state => state.searchQuery);
   const searchResults = useFileBrowserStore(state => state.searchResults);
-  const showHidden = useFileBrowserStore(state => state.showHidden);
   const sortBy = useFileBrowserStore(state => state.sortBy);
   const sortOrder = useFileBrowserStore(state => state.sortOrder);
   const selectedPath = useFileBrowserStore(state => state.selectedPath);
@@ -301,11 +328,6 @@ const FileBrowserPanelContent: React.FC = () => {
     
     return unsubscribe;
   }, []);
-  
-  // Force re-render when entries change
-  useEffect(() => {
-    forceUpdate({});
-  }, [entries.length]);
   
   // Handle container resize
   useEffect(() => {
@@ -354,6 +376,7 @@ const FileBrowserPanelContent: React.FC = () => {
         size: node.size,
         extension: node.extension,
         modified: node.modified,
+        mountSource: node.mountSource,
         children: node.children ? convertToTreeData(node.children) : undefined
       }));
     };
@@ -385,40 +408,260 @@ const FileBrowserPanelContent: React.FC = () => {
     fileBrowserStore.clearSearch();
   }
   
-  function navigateUp() {
-    fileBrowserStore.navigateToParent();
-  }
-  
-  function refreshCurrent() {
-    fileBrowserStore.refreshDirectory(currentPath);
-  }
-  
-  function toggleHidden() {
-    fileBrowserStore.setShowHidden(!showHidden);
-  }
-  
-  // Header actions
-  const headerActions = [
-    {
-      label: 'Navigate Up',
-      icon: <VscArrowUp />,
-      onClick: navigateUp,
-      disabled: currentPath === rootPath
-    },
-    {
-      label: 'Refresh',
-      icon: <VscRefresh />,
-      onClick: refreshCurrent
-    },
-    {
-      label: 'Toggle Hidden',
-      icon: showHidden ? <VscEye /> : <VscEyeClosed />,
-      onClick: toggleHidden
+  async function openMountDialog() {
+    if (mountActionPending) {
+      return;
     }
-  ];
+
+    setMountActionPending(true);
+    setMountActionError(null);
+
+    try {
+      await getTransport().invoke<void>('open_mount_dialog');
+    } catch (error) {
+      console.error('Failed to open mount dialog:', error);
+      setMountActionError('Could not open folder picker. Use File > Mount Directory…');
+    } finally {
+      setMountActionPending(false);
+    }
+  }
+
+  async function openFileDialog() {
+    if (mountActionPending) {
+      return;
+    }
+
+    setMountActionPending(true);
+    setMountActionError(null);
+
+    try {
+      await getTransport().invoke<void>('open_file_dialog');
+    } catch (error) {
+      console.error('Failed to open file dialog:', error);
+      setMountActionError('Could not open file picker. Please try again.');
+    } finally {
+      setMountActionPending(false);
+    }
+  }
+
+  async function openRemoteMountDialog() {
+    if (mountActionPending) {
+      return;
+    }
+
+    const host = window.prompt('SSH host (e.g. login.example.org)');
+    if (!host || !host.trim()) {
+      return;
+    }
+
+    const user = window.prompt('SSH username');
+    if (!user || !user.trim()) {
+      return;
+    }
+
+    const remotePathInput = window.prompt('Remote folder path', '/');
+    if (!remotePathInput || !remotePathInput.trim()) {
+      return;
+    }
+
+    const portInput = window.prompt('SSH port', '22');
+    const parsedPort = portInput ? Number.parseInt(portInput, 10) : 22;
+    const port = Number.isFinite(parsedPort) && parsedPort > 0 ? parsedPort : 22;
+
+    const authMethodInput = window
+      .prompt(
+        'Auth method: password, key_file, agent, keyboard_interactive',
+        'password'
+      )
+      ?.trim()
+      .toLowerCase() as RemoteMountRequest['authMethod'] | undefined;
+
+    const authMethod: RemoteMountRequest['authMethod'] =
+      authMethodInput === 'key_file' ||
+      authMethodInput === 'agent' ||
+      authMethodInput === 'keyboard_interactive' ||
+      authMethodInput === 'password'
+        ? authMethodInput
+        : 'password';
+
+    let password: string | undefined;
+    if (authMethod === 'password') {
+      const passwordInput = window.prompt(
+        'SSH password (visible in this v1 prompt UI; secure keychain storage is still used backend-side)'
+      );
+      if (!passwordInput || !passwordInput.trim()) {
+        setMountActionError('Password is required for password auth.');
+        return;
+      }
+      password = passwordInput;
+    }
+
+    const rememberPassword =
+      authMethod === 'password'
+        ? window.confirm('Remember password in OS keychain for this host/user?')
+        : false;
+    const saveProfile = window.confirm('Save this remote connection profile?');
+    const profileName = saveProfile
+      ? window.prompt('Profile name', `${user}@${host}:${remotePathInput}`) ?? undefined
+      : undefined;
+
+    setMountActionPending(true);
+    setMountActionError(null);
+
+    try {
+      const initialRequest = {
+        host: host.trim(),
+        port,
+        user: user.trim(),
+        remote_path: remotePathInput.trim(),
+        auth_method: authMethod,
+        password,
+        remember_password: rememberPassword,
+        save_profile: saveProfile,
+        profile_name: profileName,
+      };
+
+      let result = await getTransport().invoke<RemoteMountConnectResult>('remote_mount_connect', {
+        request: initialRequest,
+      });
+
+      while (result.status !== 'connected') {
+        if (result.status === 'need_host_key') {
+          const { challenge } = result;
+          const actionLabel =
+            challenge.disposition === 'mismatch' ? 'host key mismatch' : 'unknown host key';
+          const trust = window.confirm(
+            `SSH ${actionLabel} for ${challenge.host}:${challenge.port}\n\n` +
+              `Algorithm: ${challenge.algorithm}\n` +
+              `Fingerprint: ${challenge.sha256_fingerprint}\n\n` +
+              'Trust this host key and continue?'
+          );
+          if (!trust) {
+            throw new Error('Host key was not trusted.');
+          }
+          result = await getTransport().invoke<RemoteMountConnectResult>(
+            'remote_mount_respond_host_key',
+            {
+              challengeId: challenge.challenge_id,
+              trust: true,
+            }
+          );
+          continue;
+        }
+
+        if (result.status === 'need_auth') {
+          const { challenge } = result;
+          const responses: string[] = [];
+          for (const prompt of challenge.prompts) {
+            const promptText =
+              prompt.prompt && prompt.prompt.trim().length > 0
+                ? prompt.prompt
+                : 'Authentication response';
+            const response = window.prompt(promptText);
+            if (response === null) {
+              throw new Error('Authentication cancelled.');
+            }
+            responses.push(response);
+          }
+
+          result = await getTransport().invoke<RemoteMountConnectResult>(
+            'remote_mount_respond_auth',
+            {
+              conversationId: challenge.conversation_id,
+              responses,
+            }
+          );
+          continue;
+        }
+
+        throw new Error('Unexpected remote mount state.');
+      }
+
+      const mount = result.mount;
+      await fileBrowserStore.mountDirectory(mount.local_path, {
+        displayName: mount.display_name,
+        mountSource: {
+          kind: 'remote',
+          label: mount.origin.label,
+          mountId: mount.mount_id,
+          host: mount.origin.host,
+          port: mount.origin.port,
+          user: mount.origin.user,
+          remotePath: mount.origin.remote_path,
+        },
+      });
+    } catch (error) {
+      console.error('Failed to mount remote folder:', error);
+      setMountActionError(
+        error instanceof Error ? error.message : 'Could not mount remote folder over SSH.'
+      );
+    } finally {
+      setMountActionPending(false);
+    }
+  }
+
+  function handleNoResultsReset() {
+    clearSearch();
+    setMountActionError(null);
+  }
+
+  const hasMountedDirectory = rootPath.trim().length > 0 || entries.length > 0;
+  const isSearchEmptyState = searchQuery.trim().length > 0 && hasMountedDirectory;
+  const refreshTargetPath = currentPath || rootPath;
+  const canRefresh = refreshTargetPath.trim().length > 0;
+  const shortcutLabel = useMemo(
+    () => (navigator.platform.toLowerCase().includes('mac') ? 'Cmd+O' : 'Ctrl+O'),
+    []
+  );
   
   return (
     <div className="file-browser-panel">
+      <PanelHeader
+        title="Files"
+        icon={<VscFolder className="h-4 w-4" />}
+        primaryAction={{
+          label: 'Mount',
+          onClick: () => {
+            void openMountDialog();
+          },
+          disabled: mountActionPending,
+          title: 'Mount directory',
+        }}
+        overflowActions={[
+          {
+            id: 'mount-remote',
+            label: 'Mount Remote (SSH)…',
+            onClick: () => {
+              void openRemoteMountDialog();
+            },
+            disabled: mountActionPending,
+          },
+          {
+            id: 'open-file',
+            label: 'Open File…',
+            onClick: () => {
+              void openFileDialog();
+            },
+            disabled: mountActionPending,
+          },
+          {
+            id: 'refresh',
+            label: 'Refresh Directory',
+            onClick: () => {
+              if (!canRefresh) return;
+              void fileBrowserStore.refreshDirectory(refreshTargetPath);
+            },
+            disabled: mountActionPending || !canRefresh,
+          },
+          {
+            id: 'clear-search',
+            label: 'Clear Search',
+            onClick: handleNoResultsReset,
+            disabled: searchQuery.trim().length === 0,
+          },
+        ]}
+      />
+
       {/* Inline controls strip */}
       <div className="fb-controls">
         {/* Search and sort */}
@@ -492,54 +735,87 @@ const FileBrowserPanelContent: React.FC = () => {
             <button
               type="button"
               className="retry-button"
-              onClick={refreshCurrent}
+              onClick={() => void fileBrowserStore.refreshDirectory(currentPath)}
             >
               Retry
             </button>
           </div>
         ) : treeData.length === 0 ? (
           <div className="empty-state">
-            {/* Bauhaus Placeholder - dashed border, sharp geometry */}
-            <div className="w-full h-full flex items-center justify-center p-6">
-              <div
-                className="flex flex-col items-center justify-center gap-4 p-8"
-                style={{
-                  border: '1px dashed var(--app-border)',
-                  backgroundColor: 'transparent',
-                  maxWidth: '280px',
-                }}
-              >
-                {/* Sharp geometric folder icon */}
+            <div className="empty-state-card">
+              <div className="empty-state-icon" aria-hidden="true">
                 <svg
-                  width="32"
-                  height="32"
+                  width="34"
+                  height="34"
                   viewBox="0 0 24 24"
                   fill="none"
                   stroke="currentColor"
-                  strokeWidth="1"
-                  style={{ color: 'var(--app-text-muted)' }}
+                  strokeWidth="1.25"
                 >
                   <path d="M3 6h7l2 2h9v12H3V6z" />
                 </svg>
-
-                {/* Blueprint label */}
-                <span
-                  className="text-[10px] uppercase tracking-widest font-semibold"
-                  style={{ color: 'var(--app-text-muted)' }}
-                >
-                  {searchQuery ? 'No Results' : 'No Directory'}
-                </span>
-
-                {/* Monospace instruction */}
-                <span
-                  className="text-[11px] font-mono text-center"
-                  style={{ color: 'var(--app-text-muted)', opacity: 0.7 }}
-                >
-                  {searchQuery
-                    ? 'Try a different search term.'
-                    : 'Open File menu to mount a directory.'}
-                </span>
               </div>
+
+              <p className="empty-state-kicker">
+                {isSearchEmptyState ? 'No Matching Files' : 'No Directory Mounted'}
+              </p>
+
+              <p className="empty-state-message">
+                {isSearchEmptyState
+                  ? 'No neuroimaging files match your current search. Reset search or mount another folder.'
+                  : 'Mount a directory to browse and load NIfTI/GIfTI files directly from the Files panel.'}
+              </p>
+
+              <div className="empty-state-actions">
+                {isSearchEmptyState ? (
+                  <button
+                    type="button"
+                    className="empty-state-button secondary"
+                    onClick={handleNoResultsReset}
+                  >
+                    Clear Search
+                  </button>
+                ) : (
+                  <>
+                    <button
+                      type="button"
+                      className="empty-state-button primary"
+                      onClick={() => void openMountDialog()}
+                      disabled={mountActionPending}
+                    >
+                      {mountActionPending ? 'Opening…' : 'Mount Directory'}
+                    </button>
+                    <button
+                      type="button"
+                      className="empty-state-button secondary"
+                      onClick={() => void openRemoteMountDialog()}
+                      disabled={mountActionPending}
+                    >
+                      Mount Remote (SSH)…
+                    </button>
+                    <button
+                      type="button"
+                      className="empty-state-button secondary"
+                      onClick={() => void openFileDialog()}
+                      disabled={mountActionPending}
+                    >
+                      Open File...
+                    </button>
+                  </>
+                )}
+              </div>
+
+              {!isSearchEmptyState && (
+                <p className="empty-state-hint">
+                  Shortcut: <span>{shortcutLabel}</span> (File {'>'} Mount Directory…)
+                </p>
+              )}
+
+              {mountActionError && (
+                <p className="empty-state-error" role="status">
+                  {mountActionError}
+                </p>
+              )}
             </div>
           </div>
         ) : (

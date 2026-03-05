@@ -6,7 +6,7 @@ import { create } from 'zustand';
 import { immer } from 'zustand/middleware/immer';
 import { subscribeWithSelector } from 'zustand/middleware';
 import { enableMapSet } from 'immer';
-import type { FileBrowserState, FileTreeNode } from '@/types/filesystem';
+import type { FileBrowserState, FileTreeNode, MountSource } from '@/types/filesystem';
 import { getEventBus } from '@/events/EventBus';
 import { getApiService } from '@/services/apiService';
 
@@ -22,7 +22,10 @@ declare global {
 
 interface FileBrowserActions {
   // Mount operations
-  mountDirectory: (path: string) => Promise<void>;
+  mountDirectory: (
+    path: string,
+    options?: { displayName?: string; mountSource?: MountSource }
+  ) => Promise<void>;
   unmountDirectory: (path: string) => void;
   
   // Navigation
@@ -81,9 +84,9 @@ const createFileBrowserStore = () => create<FileBrowserStore>()(
       sortOrder: 'asc',
       
       // Mount operations
-      mountDirectory: async (path) => {
+      mountDirectory: async (path, options) => {
         // Extract directory name from path
-        const dirName = path.split('/').pop() || path;
+        const dirName = options?.displayName || path.split('/').pop() || path;
         
         // Create a root node for the mounted directory
         const mountedNode: FileTreeNode = {
@@ -94,7 +97,8 @@ const createFileBrowserStore = () => create<FileBrowserStore>()(
           depth: 0,
           expanded: false,
           children: [],
-          modified: new Date()
+          modified: new Date(),
+          mountSource: options?.mountSource ?? { kind: 'local' },
         };
         
         // Add the mount node to state

@@ -54,6 +54,9 @@ templates = { path = "../templates" } # Template service
 neuroim = { path = "../../../rust/neuroim-rs" }
 neuroatlas = { workspace = true }  # For surface template loading
 ndarray = "0.16"  # For vol-to-surf projection (matches neurosurf-rs)
+directories = "5"
+remotely = { path = "/Users/bbuchsbaum/code/rust/remotely" }
+keyring = "2.3"
 
 [dev-dependencies]
 serde_json = "1.0" # For testing serialization

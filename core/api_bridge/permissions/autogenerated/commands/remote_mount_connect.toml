@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-remote-mount-connect"
+description = "Enables the remote_mount_connect command without any pre-configured scope."
+commands.allow = ["remote_mount_connect"]
+
+[[permission]]
+identifier = "deny-remote-mount-connect"
+description = "Denies the remote_mount_connect command without any pre-configured scope."
+commands.deny = ["remote_mount_connect"]

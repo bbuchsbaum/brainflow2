@@ -1383,6 +1383,32 @@ Denies the list_parcellation_references command without any pre-configured scope
 <tr>
 <td>
 
+`api-bridge:allow-list-remote-mount-profiles`
+
+</td>
+<td>
+
+Enables the list_remote_mount_profiles command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:deny-list-remote-mount-profiles`
+
+</td>
+<td>
+
+Denies the list_remote_mount_profiles command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
 `api-bridge:allow-list-volumes`
 
 </td>
@@ -1870,6 +1896,136 @@ Enables the release_sampler command without any pre-configured scope.
 <td>
 
 Denies the release_sampler command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:allow-remote-mount-connect`
+
+</td>
+<td>
+
+Enables the remote_mount_connect command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:deny-remote-mount-connect`
+
+</td>
+<td>
+
+Denies the remote_mount_connect command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:allow-remote-mount-respond-auth`
+
+</td>
+<td>
+
+Enables the remote_mount_respond_auth command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:deny-remote-mount-respond-auth`
+
+</td>
+<td>
+
+Denies the remote_mount_respond_auth command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:allow-remote-mount-respond-host-key`
+
+</td>
+<td>
+
+Enables the remote_mount_respond_host_key command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:deny-remote-mount-respond-host-key`
+
+</td>
+<td>
+
+Denies the remote_mount_respond_host_key command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:allow-remote-mount-unmount`
+
+</td>
+<td>
+
+Enables the remote_mount_unmount command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:deny-remote-mount-unmount`
+
+</td>
+<td>
+
+Denies the remote_mount_unmount command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:allow-remove-remote-mount-profile`
+
+</td>
+<td>
+
+Enables the remove_remote_mount_profile command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:deny-remove-remote-mount-profile`
+
+</td>
+<td>
+
+Denies the remove_remote_mount_profile command without any pre-configured scope.
 
 </td>
 </tr>
