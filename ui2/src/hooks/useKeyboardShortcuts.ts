@@ -7,10 +7,42 @@
 import { useEffect } from 'react';
 import { useTimeNavigation } from './useTimeNavigation';
 import { getTimeNavigationService } from '@/services/TimeNavigationService';
+import { getSliceNavigationService } from '@/services/SliceNavigationService';
 import { getEventBus } from '@/events/EventBus';
 import { getKeyboardShortcutService } from '@/services/KeyboardShortcutService';
+import { useActiveRenderContextStore } from '@/stores/activeRenderContextStore';
+import { useMouseCoordinateStore } from '@/stores/mouseCoordinateStore';
+import { useLayoutStateStore } from '@/stores/layoutStateStore';
+import type { ViewType } from '@/types/coordinates';
 
 const CATEGORY = 'Time Navigation';
+const SLICE_SHORTCUT_CATEGORY = 'Slice Navigation';
+
+const SLICE_VIEWS: ReadonlySet<ViewType> = new Set(['axial', 'sagittal', 'coronal']);
+
+function resolveActiveSliceView(): ViewType {
+  const activeRenderable = useActiveRenderContextStore.getState().activeId;
+  if (activeRenderable && SLICE_VIEWS.has(activeRenderable as ViewType)) {
+    return activeRenderable as ViewType;
+  }
+
+  const mouseActive = useMouseCoordinateStore.getState().activeView;
+  if (mouseActive) {
+    return mouseActive;
+  }
+
+  return useLayoutStateStore.getState().layoutState.activeView;
+}
+
+function nudgeSlice(stepMultiplier: number): void {
+  const viewId = resolveActiveSliceView();
+  const sliceService = getSliceNavigationService();
+  const { min, max, step, current } = sliceService.getSliceRange(viewId);
+  const next = Math.max(min, Math.min(max, current + step * stepMultiplier));
+  if (!Object.is(next, current)) {
+    sliceService.updateSlicePosition(viewId, next);
+  }
+}
 
 export function useKeyboardShortcuts() {
   const timeNav = useTimeNavigation();
@@ -18,6 +50,8 @@ export function useKeyboardShortcuts() {
 
   useEffect(() => {
     const has4D = () => timeNav.has4DVolume();
+    const isTimeMode = () =>
+      has4D() && getTimeNavigationService().getMode() === 'time';
 
     const unregisterFns = [
       service.register({
@@ -25,7 +59,8 @@ export function useKeyboardShortcuts() {
         key: 'ArrowLeft',
         category: CATEGORY,
         description: 'Previous timepoint',
-        when: has4D,
+        priority: 20,
+        when: isTimeMode,
         handler: () => {
           getTimeNavigationService().previousTimepoint();
         },
@@ -35,7 +70,8 @@ export function useKeyboardShortcuts() {
         key: 'ArrowRight',
         category: CATEGORY,
         description: 'Next timepoint',
-        when: has4D,
+        priority: 20,
+        when: isTimeMode,
         handler: () => {
           getTimeNavigationService().nextTimepoint();
         },
@@ -46,7 +82,8 @@ export function useKeyboardShortcuts() {
         modifiers: { shift: true },
         category: CATEGORY,
         description: 'Jump 10 timepoints backward',
-        when: has4D,
+        priority: 30,
+        when: isTimeMode,
         handler: () => {
           getTimeNavigationService().jumpTimepoints(-10);
         },
@@ -57,9 +94,56 @@ export function useKeyboardShortcuts() {
         modifiers: { shift: true },
         category: CATEGORY,
         description: 'Jump 10 timepoints forward',
-        when: has4D,
+        priority: 30,
+        when: isTimeMode,
         handler: () => {
           getTimeNavigationService().jumpTimepoints(10);
+        },
+      }),
+      service.register({
+        id: 'slice.prev',
+        key: 'ArrowLeft',
+        category: SLICE_SHORTCUT_CATEGORY,
+        description: 'Previous slice in active view',
+        priority: 10,
+        when: () => !isTimeMode(),
+        handler: () => {
+          nudgeSlice(-1);
+        },
+      }),
+      service.register({
+        id: 'slice.next',
+        key: 'ArrowRight',
+        category: SLICE_SHORTCUT_CATEGORY,
+        description: 'Next slice in active view',
+        priority: 10,
+        when: () => !isTimeMode(),
+        handler: () => {
+          nudgeSlice(1);
+        },
+      }),
+      service.register({
+        id: 'slice.prev10',
+        key: 'ArrowLeft',
+        modifiers: { shift: true },
+        category: SLICE_SHORTCUT_CATEGORY,
+        description: 'Jump 10 slices backward in active view',
+        priority: 15,
+        when: () => !isTimeMode(),
+        handler: () => {
+          nudgeSlice(-10);
+        },
+      }),
+      service.register({
+        id: 'slice.next10',
+        key: 'ArrowRight',
+        modifiers: { shift: true },
+        category: SLICE_SHORTCUT_CATEGORY,
+        description: 'Jump 10 slices forward in active view',
+        priority: 15,
+        when: () => !isTimeMode(),
+        handler: () => {
+          nudgeSlice(10);
         },
       }),
       service.register({
@@ -68,7 +152,7 @@ export function useKeyboardShortcuts() {
         category: CATEGORY,
         description: 'Play/pause time animation',
         handler: () => {
-          getEventBus().emit('playback.toggle');
+          getEventBus().emit('playback.toggle', {});
         },
       }),
       service.register({
@@ -80,9 +164,10 @@ export function useKeyboardShortcuts() {
           const timeNavSvc = getTimeNavigationService();
           timeNavSvc.toggleMode();
           const mode = timeNavSvc.getMode();
-          getEventBus().emit('ui.showNotification', {
+          getEventBus().emit('ui.notification', {
+            type: 'info',
             message: `Scroll wheel: ${mode === 'time' ? 'Time navigation' : 'Slice navigation'}`,
-            duration: 1000,
+            durationMs: 1000,
           });
         },
       }),

@@ -24,6 +24,7 @@ import { useWindowLevel } from '@/hooks/useWindowLevel';
 import { useShortcut } from '@/hooks/useShortcut';
 import { useDisplayOptionsStore } from '@/stores/displayOptionsStore';
 import { useViewContextMenu } from '@/hooks/useViewContextMenu';
+import { useActiveRenderable } from '@/hooks/useActiveRenderable';
 import { useHoverInfo } from '@/hooks/useHoverInfo';
 
 // Anatomical orientation labels per view (LPI convention)
@@ -133,6 +134,7 @@ function SliceViewCanvasRaw({ viewId, width, height, className = '' }: SliceView
     const atlasLayer = layers.find((layer) => layer.type === 'label' && layer.atlasMetadata);
     return atlasLayer?.id;
   }, [layers]);
+  const markActive = useActiveRenderable(viewId);
 
   const canvasToWorld = useCallback((canvasX: number, canvasY: number): [number, number, number] | null => {
     if (!canvasRef.current || !imagePlacementRef.current) return null;
@@ -169,6 +171,7 @@ function SliceViewCanvasRaw({ viewId, width, height, className = '' }: SliceView
     activeLayerId: primaryLayer?.id,
     activeAtlasId,
     canvasToWorld,
+    onHoverStart: markActive,
   });
 
   // Keep latest crosshair and settings in refs for stable customRender
@@ -267,6 +270,7 @@ function SliceViewCanvasRaw({ viewId, width, height, className = '' }: SliceView
     // Suppress crosshair update if W/L drag just ended
     if (isDraggingRef.current) return;
     if (event.button !== 0) return;
+    markActive();
     if (!canvasRef.current || !imagePlacementRef.current) return;
     const currentView = viewPlaneRef.current;
     if (!currentView) return;
@@ -296,7 +300,7 @@ function SliceViewCanvasRaw({ viewId, width, height, className = '' }: SliceView
     const worldCoord = CoordinateTransform.screenToWorld(imageX, imageY, currentView);
     // Important: pass updateViews=true to ensure all views update their crosshair
     setCrosshair(worldCoord, true);
-  }, [setCrosshair]);
+  }, [setCrosshair, markActive]);
 
   // Handle mouse wheel for time/slice navigation
   // Stable throttled wheel handler
@@ -309,6 +313,7 @@ function SliceViewCanvasRaw({ viewId, width, height, className = '' }: SliceView
   const throttledHandleWheel = useMemo(() => {
     const fn = throttle((event: React.WheelEvent<HTMLDivElement>) => {
       event.preventDefault();
+      markActive();
       const primary = layersRef.current.find(l => l.visible);
       if (!primary) return;
       const has4D = timeNavService.has4DVolume();
@@ -330,7 +335,7 @@ function SliceViewCanvasRaw({ viewId, width, height, className = '' }: SliceView
       }
     }, 50, { leading: true, trailing: true });
     return fn;
-  }, [viewId, sliceNavService, timeNavService]);
+  }, [viewId, sliceNavService, timeNavService, markActive]);
   useEffect(() => () => throttledHandleWheel.cancel(), [throttledHandleWheel]);
 
   // Handle canvas ready callback
@@ -376,7 +381,14 @@ function SliceViewCanvasRaw({ viewId, width, height, className = '' }: SliceView
   const containerRef = React.useRef<HTMLDivElement>(null);
 
   return (
-    <div ref={containerRef} className={`h-full w-full relative ${className}`} data-view-id={viewId} onContextMenu={handleContextMenu}>
+    <div
+      ref={containerRef}
+      className={`h-full w-full relative ${className}`}
+      data-view-id={viewId}
+      onPointerDown={markActive}
+      onMouseEnter={markActive}
+      onContextMenu={handleContextMenu}
+    >
       {timeOverlay}
 
       {/* Canvas area - positioned absolutely to leave room for slider */}

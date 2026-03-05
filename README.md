@@ -32,7 +32,7 @@ Built using **Tauri (Rust backend)** and **React (TypeScript frontend with WebGP
 *   **Repository Structure:** `memory-bank/repository_structure.md`
 *   **Full Bootstrap Guide:** `memory-bank/DEV-bootstrap-guide.md`
 
-## Quick Start / Setup
+## Installation (From Source)
 
 Follow the platform-specific dependency instructions from the [Tauri prerequisites guide](https://tauri.app/v1/guides/getting-started/prerequisites) first.
 
@@ -54,12 +54,12 @@ Follow the platform-specific dependency instructions from the [Tauri prerequisit
 **Repository Setup:**
 
 ```bash
-# Clone the repository (replace with actual repo URL)
-# git clone <repository-url>
-# cd brainflow
+# Clone and enter the repository
+git clone <repository-url>
+cd brainflow2
 
 # Install Rust dependencies (downloads crates)
-cargo fetch 
+cargo fetch
 
 # Install Node.js dependencies
 pnpm install
@@ -68,6 +68,22 @@ pnpm install
 cd packages/api
 pnpm run build
 cd ../.. 
+```
+
+**Run the app in development mode:**
+
+```bash
+cargo tauri dev
+```
+
+## Quick Start / Setup
+
+If your toolchains are already installed, the minimum setup is:
+
+```bash
+pnpm install
+cargo fetch
+cargo tauri dev
 ```
 
 ## Development
