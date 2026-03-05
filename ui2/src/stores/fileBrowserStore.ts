@@ -111,7 +111,7 @@ const createFileBrowserStore = () => create<FileBrowserStore>()(
         });
         
         // Use queueMicrotask to ensure state is committed before loading
-        await new Promise(resolve => queueMicrotask(resolve));
+        await new Promise<void>((resolve) => queueMicrotask(() => resolve()));
         
         // Verify the node exists before loading
         const currentEntries = get().entries;

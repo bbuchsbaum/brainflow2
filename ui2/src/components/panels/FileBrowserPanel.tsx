@@ -20,6 +20,7 @@ import { getEventBus } from '@/events/EventBus';
 import { getTransport } from '@/services/transport';
 import { PanelErrorBoundary } from '../common/PanelErrorBoundary';
 import { PanelHeader } from '@/components/ui/PanelHeader';
+import { RemoteMountDialog, type ConnectedRemoteMount } from './RemoteMountDialog';
 
 interface FileNodeData {
   id: string;
@@ -31,58 +32,6 @@ interface FileNodeData {
   modified?: Date;
   children?: FileNodeData[];
   mountSource?: MountSource;
-}
-
-interface RemoteHostKeyChallenge {
-  challenge_id: string;
-  host: string;
-  port: number;
-  algorithm: string;
-  sha256_fingerprint: string;
-  disposition: 'unknown' | 'mismatch' | string;
-}
-
-interface RemoteAuthPrompt {
-  prompt: string;
-  echo: boolean;
-}
-
-interface RemoteAuthChallenge {
-  conversation_id: string;
-  name: string;
-  instructions: string;
-  prompts: RemoteAuthPrompt[];
-}
-
-type RemoteMountConnectResult =
-  | {
-      status: 'connected';
-      mount: {
-        mount_id: string;
-        local_path: string;
-        display_name: string;
-        origin: {
-          label: string;
-          host: string;
-          port: number;
-          user: string;
-          remote_path: string;
-        };
-      };
-    }
-  | { status: 'need_host_key'; challenge: RemoteHostKeyChallenge }
-  | { status: 'need_auth'; challenge: RemoteAuthChallenge };
-
-interface RemoteMountRequest {
-  host: string;
-  port?: number;
-  user: string;
-  remotePath: string;
-  authMethod?: 'password' | 'key_file' | 'agent' | 'keyboard_interactive';
-  password?: string;
-  rememberPassword?: boolean;
-  saveProfile?: boolean;
-  profileName?: string;
 }
 
 interface FileTreeItemProps {
@@ -286,6 +235,7 @@ const FileBrowserPanelContent: React.FC = () => {
   const [treeSize, setTreeSize] = useState({ width: 0, height: 0 });
   const [mountActionError, setMountActionError] = useState<string | null>(null);
   const [mountActionPending, setMountActionPending] = useState(false);
+  const [remoteDialogOpen, setRemoteDialogOpen] = useState(false);
   const treeContainerRef = useRef<HTMLDivElement>(null);
   
   // Debug store instance
@@ -308,6 +258,19 @@ const FileBrowserPanelContent: React.FC = () => {
   const sortBy = useFileBrowserStore(state => state.sortBy);
   const sortOrder = useFileBrowserStore(state => state.sortOrder);
   const selectedPath = useFileBrowserStore(state => state.selectedPath);
+
+  const selectedRootMount = useMemo(() => {
+    if (!selectedPath) {
+      return null;
+    }
+
+    return (
+      entries.find(
+        (entry) =>
+          selectedPath === entry.path || selectedPath.startsWith(`${entry.path}/`)
+      ) ?? null
+    );
+  }, [entries, selectedPath]);
   
   // Debug: log when component re-renders
   useEffect(() => {
@@ -444,156 +407,57 @@ const FileBrowserPanelContent: React.FC = () => {
     }
   }
 
-  async function openRemoteMountDialog() {
-    if (mountActionPending) {
+  function openRemoteMountDialog() {
+    setMountActionError(null);
+    setRemoteDialogOpen(true);
+  }
+
+  async function handleRemoteMounted(mount: ConnectedRemoteMount) {
+    await fileBrowserStore.mountDirectory(mount.local_path, {
+      displayName: mount.display_name,
+      mountSource: {
+        kind: 'remote',
+        label: mount.origin.label,
+        mountId: mount.mount_id,
+        host: mount.origin.host,
+        port: mount.origin.port,
+        user: mount.origin.user,
+        remotePath: mount.origin.remote_path,
+      },
+    });
+  }
+
+  async function unmountSelectedRoot() {
+    if (!selectedRootMount || mountActionPending) {
       return;
     }
-
-    const host = window.prompt('SSH host (e.g. login.example.org)');
-    if (!host || !host.trim()) {
-      return;
-    }
-
-    const user = window.prompt('SSH username');
-    if (!user || !user.trim()) {
-      return;
-    }
-
-    const remotePathInput = window.prompt('Remote folder path', '/');
-    if (!remotePathInput || !remotePathInput.trim()) {
-      return;
-    }
-
-    const portInput = window.prompt('SSH port', '22');
-    const parsedPort = portInput ? Number.parseInt(portInput, 10) : 22;
-    const port = Number.isFinite(parsedPort) && parsedPort > 0 ? parsedPort : 22;
-
-    const authMethodInput = window
-      .prompt(
-        'Auth method: password, key_file, agent, keyboard_interactive',
-        'password'
-      )
-      ?.trim()
-      .toLowerCase() as RemoteMountRequest['authMethod'] | undefined;
-
-    const authMethod: RemoteMountRequest['authMethod'] =
-      authMethodInput === 'key_file' ||
-      authMethodInput === 'agent' ||
-      authMethodInput === 'keyboard_interactive' ||
-      authMethodInput === 'password'
-        ? authMethodInput
-        : 'password';
-
-    let password: string | undefined;
-    if (authMethod === 'password') {
-      const passwordInput = window.prompt(
-        'SSH password (visible in this v1 prompt UI; secure keychain storage is still used backend-side)'
-      );
-      if (!passwordInput || !passwordInput.trim()) {
-        setMountActionError('Password is required for password auth.');
-        return;
-      }
-      password = passwordInput;
-    }
-
-    const rememberPassword =
-      authMethod === 'password'
-        ? window.confirm('Remember password in OS keychain for this host/user?')
-        : false;
-    const saveProfile = window.confirm('Save this remote connection profile?');
-    const profileName = saveProfile
-      ? window.prompt('Profile name', `${user}@${host}:${remotePathInput}`) ?? undefined
-      : undefined;
 
     setMountActionPending(true);
     setMountActionError(null);
 
     try {
-      const initialRequest = {
-        host: host.trim(),
-        port,
-        user: user.trim(),
-        remote_path: remotePathInput.trim(),
-        auth_method: authMethod,
-        password,
-        remember_password: rememberPassword,
-        save_profile: saveProfile,
-        profile_name: profileName,
-      };
-
-      let result = await getTransport().invoke<RemoteMountConnectResult>('remote_mount_connect', {
-        request: initialRequest,
-      });
-
-      while (result.status !== 'connected') {
-        if (result.status === 'need_host_key') {
-          const { challenge } = result;
-          const actionLabel =
-            challenge.disposition === 'mismatch' ? 'host key mismatch' : 'unknown host key';
-          const trust = window.confirm(
-            `SSH ${actionLabel} for ${challenge.host}:${challenge.port}\n\n` +
-              `Algorithm: ${challenge.algorithm}\n` +
-              `Fingerprint: ${challenge.sha256_fingerprint}\n\n` +
-              'Trust this host key and continue?'
-          );
-          if (!trust) {
-            throw new Error('Host key was not trusted.');
-          }
-          result = await getTransport().invoke<RemoteMountConnectResult>(
-            'remote_mount_respond_host_key',
-            {
-              challengeId: challenge.challenge_id,
-              trust: true,
-            }
-          );
-          continue;
-        }
-
-        if (result.status === 'need_auth') {
-          const { challenge } = result;
-          const responses: string[] = [];
-          for (const prompt of challenge.prompts) {
-            const promptText =
-              prompt.prompt && prompt.prompt.trim().length > 0
-                ? prompt.prompt
-                : 'Authentication response';
-            const response = window.prompt(promptText);
-            if (response === null) {
-              throw new Error('Authentication cancelled.');
-            }
-            responses.push(response);
-          }
-
-          result = await getTransport().invoke<RemoteMountConnectResult>(
-            'remote_mount_respond_auth',
-            {
-              conversationId: challenge.conversation_id,
-              responses,
-            }
-          );
-          continue;
-        }
-
-        throw new Error('Unexpected remote mount state.');
+      if (
+        selectedRootMount.mountSource?.kind === 'remote' &&
+        selectedRootMount.mountSource.mountId
+      ) {
+        await getTransport().invoke('remote_mount_unmount', {
+          mountId: selectedRootMount.mountSource.mountId,
+          purgeCache: false,
+        });
       }
 
-      const mount = result.mount;
-      await fileBrowserStore.mountDirectory(mount.local_path, {
-        displayName: mount.display_name,
-        mountSource: {
-          kind: 'remote',
-          label: mount.origin.label,
-          mountId: mount.mount_id,
-          host: mount.origin.host,
-          port: mount.origin.port,
-          user: mount.origin.user,
-          remotePath: mount.origin.remote_path,
-        },
-      });
-    } catch (error) {
-      console.error('Failed to mount remote folder:', error);
+      fileBrowserStore.unmountDirectory(selectedRootMount.path);
+      if (
+        selectedPath &&
+        (selectedPath === selectedRootMount.path ||
+          selectedPath.startsWith(`${selectedRootMount.path}/`))
+      ) {
+        fileBrowserStore.selectFile(null);
+      }
+    } catch (unmountError) {
+      console.error('Failed to unmount selected root:', unmountError);
       setMountActionError(
-        error instanceof Error ? error.message : 'Could not mount remote folder over SSH.'
+        unmountError instanceof Error ? unmountError.message : 'Failed to unmount selected root.'
       );
     } finally {
       setMountActionPending(false);
@@ -631,10 +495,17 @@ const FileBrowserPanelContent: React.FC = () => {
           {
             id: 'mount-remote',
             label: 'Mount Remote (SSH)…',
-            onClick: () => {
-              void openRemoteMountDialog();
-            },
+            onClick: openRemoteMountDialog,
             disabled: mountActionPending,
+          },
+          {
+            id: 'unmount-selected',
+            label: 'Unmount Selected',
+            onClick: () => {
+              void unmountSelectedRoot();
+            },
+            disabled: mountActionPending || !selectedRootMount,
+            danger: true,
           },
           {
             id: 'open-file',
@@ -719,6 +590,12 @@ const FileBrowserPanelContent: React.FC = () => {
           </div>
         </div>
       </div>
+
+      {mountActionError && (
+        <div className="fb-inline-error" role="status">
+          {mountActionError}
+        </div>
+      )}
       
       {/* File tree with virtual scrolling */}
       <div className="tree-container">
@@ -788,7 +665,7 @@ const FileBrowserPanelContent: React.FC = () => {
                     <button
                       type="button"
                       className="empty-state-button secondary"
-                      onClick={() => void openRemoteMountDialog()}
+                      onClick={openRemoteMountDialog}
                       disabled={mountActionPending}
                     >
                       Mount Remote (SSH)…
@@ -811,11 +688,6 @@ const FileBrowserPanelContent: React.FC = () => {
                 </p>
               )}
 
-              {mountActionError && (
-                <p className="empty-state-error" role="status">
-                  {mountActionError}
-                </p>
-              )}
             </div>
           </div>
         ) : (
@@ -874,6 +746,14 @@ const FileBrowserPanelContent: React.FC = () => {
           <span style={{ marginLeft: '8px' }}>• {selectedPath.split('/').pop()} selected</span>
         )}
       </div>
+
+      <RemoteMountDialog
+        isOpen={remoteDialogOpen}
+        onClose={() => {
+          setRemoteDialogOpen(false);
+        }}
+        onMounted={handleRemoteMounted}
+      />
     </div>
   );
 };

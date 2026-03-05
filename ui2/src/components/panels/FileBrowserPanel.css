@@ -214,6 +214,14 @@
   outline-offset: var(--app-focus-ring-offset);
 }
 
+.fb-inline-error {
+  border-bottom: 1px solid color-mix(in srgb, var(--app-error) 24%, transparent);
+  background: color-mix(in srgb, var(--app-error) 10%, transparent);
+  color: var(--app-error);
+  font-size: var(--app-role-label-size);
+  padding: var(--app-spacing-xs) var(--app-spacing-sm);
+}
+
 
 /* Tree container */
 .file-browser-panel .tree-container {
@@ -605,6 +613,195 @@
   min-height: 28px;
 }
 
+/* Remote mount modal */
+.remote-mount-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: color-mix(in srgb, var(--app-bg-primary) 58%, transparent);
+  z-index: 20;
+  padding: var(--app-spacing-md);
+}
+
+.remote-mount-modal {
+  width: min(560px, 100%);
+  max-height: min(92vh, 760px);
+  display: flex;
+  flex-direction: column;
+  background: var(--app-bg-secondary);
+  border: 1px solid var(--app-border);
+  box-shadow: var(--app-shadow-lg);
+}
+
+.remote-mount-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: var(--app-spacing-md);
+  border-bottom: 1px solid var(--app-border);
+  padding: var(--app-spacing-md);
+}
+
+.remote-mount-title {
+  margin: 0;
+  font-size: var(--app-role-title-size);
+  font-weight: var(--app-role-title-weight);
+  color: var(--app-text-primary);
+}
+
+.remote-mount-subtitle {
+  margin: var(--app-spacing-xs) 0 0;
+  font-size: var(--app-role-body-size);
+  color: var(--app-text-secondary);
+}
+
+.remote-mount-close {
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--app-text-muted);
+  width: var(--app-control-height-md);
+  height: var(--app-control-height-md);
+  line-height: 1;
+  cursor: pointer;
+}
+
+.remote-mount-close:hover:not(:disabled) {
+  background: var(--app-bg-hover);
+  color: var(--app-text-primary);
+}
+
+.remote-mount-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: var(--app-spacing-md);
+}
+
+.remote-mount-form-grid {
+  display: grid;
+  gap: var(--app-spacing-sm);
+}
+
+.remote-mount-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--app-spacing-sm);
+}
+
+.remote-mount-field {
+  display: grid;
+  gap: var(--app-spacing-xs);
+}
+
+.remote-mount-field > span {
+  font-size: var(--app-role-label-size);
+  color: var(--app-text-secondary);
+}
+
+.remote-mount-field > input,
+.remote-mount-field > select {
+  border: 1px solid var(--app-border-subtle);
+  background: var(--app-bg-tertiary);
+  color: var(--app-text-primary);
+  min-height: var(--app-control-height-md);
+  padding: 0 var(--app-spacing-sm);
+}
+
+.remote-mount-field > input:focus,
+.remote-mount-field > select:focus {
+  outline: none;
+  border-color: var(--app-accent);
+  box-shadow: 0 0 0 1px var(--app-accent);
+}
+
+.remote-mount-profile-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: var(--app-spacing-xs);
+}
+
+.remote-mount-profile-row > button {
+  border: 1px solid var(--app-border-subtle);
+  background: var(--app-bg-tertiary);
+  color: var(--app-text-primary);
+  min-height: var(--app-control-height-md);
+  padding: 0 var(--app-spacing-sm);
+}
+
+.remote-mount-checkbox {
+  display: flex;
+  align-items: center;
+  gap: var(--app-spacing-xs);
+  font-size: var(--app-role-label-size);
+  color: var(--app-text-secondary);
+}
+
+.remote-mount-checkbox > input {
+  width: 14px;
+  height: 14px;
+}
+
+.remote-mount-step {
+  display: grid;
+  gap: var(--app-spacing-xs);
+  border: 1px solid var(--app-border);
+  background: var(--app-bg-tertiary);
+  padding: var(--app-spacing-sm);
+}
+
+.remote-mount-step-title {
+  margin: 0;
+  font-size: var(--app-role-body-size);
+  font-weight: 600;
+  color: var(--app-text-primary);
+}
+
+.remote-mount-step-text {
+  margin: 0;
+  font-size: var(--app-role-label-size);
+  color: var(--app-text-secondary);
+}
+
+.remote-mount-error {
+  margin-top: var(--app-spacing-sm);
+  border: 1px solid color-mix(in srgb, var(--app-error) 40%, transparent);
+  background: color-mix(in srgb, var(--app-error) 10%, transparent);
+  color: var(--app-error);
+  padding: var(--app-spacing-xs) var(--app-spacing-sm);
+  font-size: var(--app-role-label-size);
+}
+
+.remote-mount-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--app-spacing-sm);
+  border-top: 1px solid var(--app-border);
+  padding: var(--app-spacing-sm) var(--app-spacing-md);
+  background: var(--app-bg-tertiary);
+}
+
+.remote-mount-footer > button {
+  border: 1px solid var(--app-border-subtle);
+  background: var(--app-bg-secondary);
+  color: var(--app-text-primary);
+  min-height: var(--app-control-height-md);
+  padding: 0 var(--app-spacing-md);
+  font-size: var(--app-role-label-size);
+}
+
+.remote-mount-footer > button.primary {
+  background: var(--app-accent);
+  border-color: color-mix(in srgb, var(--app-accent) 65%, #000 35%);
+  color: var(--app-accent-foreground);
+}
+
+.remote-mount-footer > button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
 /* Scrollbar styling */
 .file-browser-panel ::-webkit-scrollbar {
   width: 10px;
@@ -651,6 +848,14 @@
   
   .file-browser-panel .path-bar {
     font-size: 11px;
+  }
+
+  .remote-mount-row {
+    grid-template-columns: 1fr;
+  }
+
+  .remote-mount-footer {
+    flex-wrap: wrap;
   }
 }
 
