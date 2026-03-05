@@ -1071,6 +1071,7 @@ impl SurfaceRegistry {
 const REMOTE_KEYRING_SERVICE: &str = "brainflow.remote_mount";
 const REMOTE_PROFILE_FILE: &str = "remote_mount_profiles.json";
 const REMOTE_CACHE_DIR_NAME: &str = "remote_mounts";
+const REMOTE_MOUNT_HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(45);
 
 #[derive(Debug, Clone)]
 struct NormalizedRemoteMountRequest {
@@ -4244,6 +4245,10 @@ async fn remote_mount_connect(
         port: normalized.port,
         user: normalized.user.clone(),
         auth,
+        connect_timeout: Duration::from_secs(12),
+        operation_timeout: Duration::from_secs(30),
+        retry_count: 0,
+        retry_delay: Duration::from_millis(250),
         verify_host_key: normalized.verify_host_key,
         accept_unknown_host_keys: normalized.accept_unknown_host_keys,
         known_hosts_path: normalized.known_hosts_path.clone(),
@@ -4254,9 +4259,19 @@ async fn remote_mount_connect(
         request: normalized,
     };
 
-    let outcome = RemoteClient::connect_interactive(connect_config)
-        .await
-        .map_err(|e| map_remotely_error(e, 8221))?;
+    let outcome = tokio::time::timeout(
+        REMOTE_MOUNT_HANDSHAKE_TIMEOUT,
+        RemoteClient::connect_interactive(connect_config),
+    )
+    .await
+    .map_err(|_| BridgeError::Io {
+        code: 8221,
+        details: format!(
+            "SSH connection timed out after {}s while connecting/authenticating.",
+            REMOTE_MOUNT_HANDSHAKE_TIMEOUT.as_secs()
+        ),
+    })?
+    .map_err(|e| map_remotely_error(e, 8221))?;
 
     handle_remote_connect_outcome(state.inner(), context, outcome).await
 }
@@ -4282,9 +4297,19 @@ async fn remote_mount_respond_host_key(
         details: format!("Unknown host-key challenge id: {challenge_id}"),
     })?;
 
-    let outcome = remotely::respond_host_key(challenge_uuid, trust)
-        .await
-        .map_err(|e| map_remotely_error(e, 8224))?;
+    let outcome = tokio::time::timeout(
+        REMOTE_MOUNT_HANDSHAKE_TIMEOUT,
+        remotely::respond_host_key(challenge_uuid, trust),
+    )
+    .await
+    .map_err(|_| BridgeError::Io {
+        code: 8224,
+        details: format!(
+            "SSH connection timed out after {}s while resuming host-key validation.",
+            REMOTE_MOUNT_HANDSHAKE_TIMEOUT.as_secs()
+        ),
+    })?
+    .map_err(|e| map_remotely_error(e, 8224))?;
 
     handle_remote_connect_outcome(state.inner(), context, outcome).await
 }
@@ -4311,9 +4336,19 @@ async fn remote_mount_respond_auth(
         details: format!("Unknown auth conversation id: {conversation_id}"),
     })?;
 
-    let outcome = remotely::respond_auth(conversation_uuid, responses)
-        .await
-        .map_err(|e| map_remotely_error(e, 8227))?;
+    let outcome = tokio::time::timeout(
+        REMOTE_MOUNT_HANDSHAKE_TIMEOUT,
+        remotely::respond_auth(conversation_uuid, responses),
+    )
+    .await
+    .map_err(|_| BridgeError::Io {
+        code: 8227,
+        details: format!(
+            "SSH connection timed out after {}s while completing authentication.",
+            REMOTE_MOUNT_HANDSHAKE_TIMEOUT.as_secs()
+        ),
+    })?
+    .map_err(|e| map_remotely_error(e, 8227))?;
 
     handle_remote_connect_outcome(state.inner(), context, outcome).await
 }
@@ -5813,6 +5848,61 @@ async fn sample_layer_value_at_world(
 
     // Reuse the sampling logic from sample_world_coordinate
     sample_world_coordinate(handle_id, world_coords, state).await
+}
+
+async fn is_layer_ready_internal(layer_id: &str, state: &BridgeState) -> bool {
+    let atlas_idx = {
+        let atlas_map = state.layer_to_atlas_map.lock().await;
+        atlas_map.get(layer_id).copied()
+    };
+    let Some(atlas_idx) = atlas_idx else {
+        return false;
+    };
+
+    let has_volume_mapping = {
+        let volume_map = state.layer_to_volume_map.lock().await;
+        volume_map.contains_key(layer_id)
+    };
+    if !has_volume_mapping {
+        return false;
+    }
+
+    let service_arc_opt = { state.render_loop_service.lock().await.clone() };
+    let Some(service_arc) = service_arc_opt else {
+        return false;
+    };
+
+    let service = service_arc.lock().await;
+    service.find_layer_index_by_atlas(atlas_idx).is_some()
+}
+
+#[command]
+#[tracing::instrument(skip_all, err, name = "api.wait_for_layer_ready")]
+async fn wait_for_layer_ready(
+    layer_id: String,
+    timeout_ms: Option<u64>,
+    poll_interval_ms: Option<u64>,
+    state: State<'_, BridgeState>,
+) -> BridgeResult<bool> {
+    let timeout = timeout_ms.unwrap_or(5_000).clamp(100, 60_000);
+    let poll_interval = poll_interval_ms.unwrap_or(25).clamp(5, 500);
+    let start = Instant::now();
+
+    loop {
+        if is_layer_ready_internal(&layer_id, state.inner()).await {
+            return Ok(true);
+        }
+
+        if start.elapsed() >= Duration::from_millis(timeout) {
+            warn!(
+                "Layer '{}' did not become ready within {}ms (poll={}ms)",
+                layer_id, timeout, poll_interval
+            );
+            return Ok(false);
+        }
+
+        tokio::time::sleep(Duration::from_millis(poll_interval)).await;
+    }
 }
 
 /// Set per-layer slice border settings by UI layer id
@@ -8701,6 +8791,7 @@ pub fn plugin<R: Runtime>() -> TauriPlugin<R> {
             recalculate_all_views,
             request_layer_gpu_resources,
             release_layer_gpu_resources,
+            wait_for_layer_ready,
             get_atlas_stats,
             fs_list_directory,
             remote_mount_connect,

@@ -70,6 +70,8 @@ describe('RemoteMountDialog', () => {
             remote_path: '/data',
             auth_method: 'password',
             password: 'secret',
+            key_path: undefined,
+            key_passphrase: undefined,
             remember_password: true,
             save_profile: true,
             profile_name: undefined,
@@ -292,6 +294,66 @@ describe('RemoteMountDialog', () => {
       expect(
         screen.getByText(/Switch Auth Method to SSH Agent or SSH Key File/)
       ).toBeInTheDocument();
+    });
+  });
+
+  it('sends key file path and passphrase when key-file auth is selected', async () => {
+    invokeMock.mockImplementation((cmd: string, args?: InvokeArgs) => {
+      if (cmd === 'list_remote_mount_profiles') {
+        return Promise.resolve([]);
+      }
+      if (cmd === 'remote_mount_connect') {
+        expect(args).toEqual({
+          request: {
+            host: 'login.example.org',
+            port: 2222,
+            user: 'alice',
+            remote_path: '/data',
+            auth_method: 'key_file',
+            password: undefined,
+            key_path: '~/.ssh/id_ed25519_brainflow',
+            key_passphrase: 'secret-passphrase',
+            remember_password: false,
+            save_profile: true,
+            profile_name: undefined,
+          },
+        });
+        return Promise.resolve({
+          status: 'need_auth',
+          challenge: {
+            conversation_id: 'conversation-key-1',
+            name: 'Keyboard-interactive',
+            instructions: 'Duo prompt',
+            prompts: [{ prompt: 'Passcode', echo: false }],
+          },
+        });
+      }
+      return Promise.reject(new Error(`Unhandled command: ${cmd}`));
+    });
+
+    setupDialog();
+
+    await waitFor(() => {
+      expect(invokeMock).toHaveBeenCalledWith('list_remote_mount_profiles');
+    });
+
+    fireEvent.change(screen.getByLabelText('Host'), { target: { value: 'login.example.org' } });
+    fireEvent.change(screen.getByLabelText('Port'), { target: { value: '2222' } });
+    fireEvent.change(screen.getByLabelText('User'), { target: { value: 'alice' } });
+    fireEvent.change(screen.getByLabelText('Remote Folder'), { target: { value: '/data' } });
+    fireEvent.change(screen.getByLabelText('Auth Method'), { target: { value: 'key_file' } });
+    fireEvent.change(screen.getByLabelText('SSH Key File (optional)'), {
+      target: { value: '~/.ssh/id_ed25519_brainflow' },
+    });
+    fireEvent.change(screen.getByLabelText('Key Passphrase (optional)'), {
+      target: { value: 'secret-passphrase' },
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Connect' }));
+
+    await waitFor(() => {
+      expect(screen.getByText('Keyboard-interactive')).toBeInTheDocument();
+      expect(screen.getByText('Duo prompt')).toBeInTheDocument();
     });
   });
 });

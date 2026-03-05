@@ -69,6 +69,8 @@ interface RemoteMountFormState {
   remotePath: string;
   authMethod: RemoteAuthMethod;
   password: string;
+  keyPath: string;
+  keyPassphrase: string;
   rememberPassword: boolean;
   saveProfile: boolean;
   profileName: string;
@@ -81,6 +83,8 @@ const DEFAULT_FORM: RemoteMountFormState = {
   remotePath: '/',
   authMethod: 'password',
   password: '',
+  keyPath: '',
+  keyPassphrase: '',
   rememberPassword: true,
   saveProfile: true,
   profileName: '',
@@ -193,6 +197,8 @@ export function RemoteMountDialog({ isOpen, onClose, onMounted }: RemoteMountDia
       remotePath: profile.remote_path,
       authMethod: normalizeAuthMethod(profile.auth_method),
       password: '',
+      keyPath: '',
+      keyPassphrase: '',
       rememberPassword: profile.has_password,
       saveProfile: true,
       profileName: profile.name,
@@ -287,6 +293,9 @@ export function RemoteMountDialog({ isOpen, onClose, onMounted }: RemoteMountDia
           remote_path: remotePath,
           auth_method: form.authMethod,
           password: form.authMethod === 'password' ? form.password : undefined,
+          key_path: form.authMethod === 'key_file' ? form.keyPath.trim() || undefined : undefined,
+          key_passphrase:
+            form.authMethod === 'key_file' ? form.keyPassphrase || undefined : undefined,
           remember_password: form.authMethod === 'password' ? form.rememberPassword : false,
           save_profile: form.saveProfile,
           profile_name: form.saveProfile ? form.profileName.trim() || undefined : undefined,
@@ -513,6 +522,37 @@ export function RemoteMountDialog({ isOpen, onClose, onMounted }: RemoteMountDia
                     />
                     <span>Remember password in OS keychain</span>
                   </label>
+                </>
+              )}
+
+              {form.authMethod === 'key_file' && (
+                <>
+                  <label className="remote-mount-field">
+                    <span>SSH Key File (optional)</span>
+                    <input
+                      value={form.keyPath}
+                      onChange={(event) =>
+                        setForm((prev) => ({ ...prev, keyPath: event.target.value }))
+                      }
+                      placeholder="~/.ssh/id_ed25519"
+                      disabled={pending}
+                    />
+                  </label>
+                  <label className="remote-mount-field">
+                    <span>Key Passphrase (optional)</span>
+                    <input
+                      type="password"
+                      value={form.keyPassphrase}
+                      onChange={(event) =>
+                        setForm((prev) => ({ ...prev, keyPassphrase: event.target.value }))
+                      }
+                      placeholder="Only if your key is encrypted"
+                      disabled={pending}
+                    />
+                  </label>
+                  <p className="remote-mount-step-text">
+                    Duo-enabled hosts often require a valid SSH key first, then prompt for second factor.
+                  </p>
                 </>
               )}
 
