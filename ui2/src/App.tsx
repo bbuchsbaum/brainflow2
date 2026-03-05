@@ -32,6 +32,8 @@ import { storeLog } from '@/utils/debugLog';
 import { KeyboardShortcutsDialog } from '@/components/dialogs/KeyboardShortcutsDialog';
 import { getKeyboardShortcutService } from '@/services/KeyboardShortcutService';
 import { useLayerStore } from '@/stores/layerStore';
+import { WorkspacePresetSelector } from '@/components/ui/WorkspacePresetSelector';
+import { LayoutLibrarySelector } from '@/components/ui/LayoutLibrarySelector';
 
 function ErrorFallback({ error, resetErrorBoundary }: any) {
   return (
@@ -279,7 +281,7 @@ function AppContent() {
   storeLog('AppContent', 'AppContent initialization complete');
   
   return (
-    <div className="h-screen flex flex-col">
+    <div className="h-screen w-full flex flex-col overflow-hidden">
       <MetadataStatusBridge />
       <ProgressDebug />
       <GlobalProgressBar />
@@ -287,7 +289,13 @@ function AppContent() {
         <GoldenLayoutRoot />
       </div>
       <StatusBar
-        rightContent={<MultiViewBatchToggle />}
+        rightContent={
+          <>
+            <LayoutLibrarySelector />
+            <WorkspacePresetSelector />
+            <MultiViewBatchToggle />
+          </>
+        }
         onCrosshairClick={() => setShowGoToCoordinate(true)}
       />
       <NotificationToast />

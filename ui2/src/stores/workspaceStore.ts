@@ -15,9 +15,14 @@ import type {
   Workspace, 
   WorkspaceType, 
   WorkspaceConfig, 
-  PanelState,
-  DEFAULT_WORKSPACE_CONFIGS 
+  PanelState
 } from '@/types/workspace';
+import { getWorkspacePresetById, type WorkspacePresetId } from '@/types/workspacePresets';
+
+interface CreateWorkspaceOptions {
+  title?: string;
+  presetId?: WorkspacePresetId | null;
+}
 
 interface WorkspaceStore {
   // State
@@ -25,7 +30,13 @@ interface WorkspaceStore {
   activeWorkspaceId: string | null;
   
   // Core workspace operations
-  createWorkspace: (type: WorkspaceType, config?: WorkspaceConfig) => Promise<string>;
+  createWorkspace: (
+    type: WorkspaceType,
+    config?: WorkspaceConfig,
+    options?: CreateWorkspaceOptions
+  ) => Promise<string>;
+  applyWorkspacePreset: (presetId: WorkspacePresetId) => Promise<string>;
+  getWorkspaceByPreset: (presetId: WorkspacePresetId) => Workspace | null;
   activateWorkspace: (id: string) => void;
   closeWorkspace: (id: string) => void;
   updateWorkspaceLayout: (id: string, layoutConfig: LayoutConfig) => void;
@@ -45,7 +56,7 @@ interface WorkspaceStore {
 }
 
 // Counter for generating unique titles
-let workspaceCounter: Record<WorkspaceType, number> = {
+const workspaceCounter: Record<WorkspaceType, number> = {
   'orthogonal-locked': 0,
   'orthogonal-flexible': 0,
   'mosaic': 0,
@@ -65,7 +76,15 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
       workspaces: new Map(),
       activeWorkspaceId: null,
       
-      createWorkspace: async (type, config) => {
+      createWorkspace: async (type, config, options) => {
+        if (options?.presetId) {
+          const presetWorkspace = get().getWorkspaceByPreset(options.presetId);
+          if (presetWorkspace) {
+            get().activateWorkspace(presetWorkspace.id);
+            return presetWorkspace.id;
+          }
+        }
+
         // Check if this is a singleton workspace
         const { WORKSPACE_METADATA } = await import('@/types/workspace');
         const metadata = WORKSPACE_METADATA[type];
@@ -82,7 +101,7 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
         
         const timestamp = Date.now();
         const id = `${type}-${timestamp}`;
-        const title = get().generateWorkspaceTitle(type);
+        const title = options?.title ?? get().generateWorkspaceTitle(type);
         
         // Import ViewRegistry dynamically to avoid circular dependencies
         const { ViewRegistry } = await import('@/services/ViewRegistry');
@@ -130,6 +149,7 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
           id,
           type,
           title,
+          presetId: options?.presetId ?? null,
           timestamp,
           isActive: false,
           layoutConfig,
@@ -151,6 +171,22 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
         
         console.log(`[WorkspaceStore] Created workspace: ${id} (${title})`);
         return id;
+      },
+
+      applyWorkspacePreset: async (presetId) => {
+        const preset = getWorkspacePresetById(presetId);
+        return get().createWorkspace(preset.workspaceType, preset.workspaceConfig, {
+          title: preset.label,
+          presetId,
+        });
+      },
+
+      getWorkspaceByPreset: (presetId) => {
+        return (
+          Array.from(get().workspaces.values()).find(
+            workspace => workspace.presetId === presetId
+          ) ?? null
+        );
       },
       
       activateWorkspace: (id) => {

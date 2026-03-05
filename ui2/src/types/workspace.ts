@@ -5,6 +5,7 @@
 
 import type { LayoutConfig } from 'golden-layout';
 import type { ViewType } from './coordinates';
+import type { WorkspacePresetId } from './workspacePresets';
 
 /**
  * Categories for organizing workspaces
@@ -29,6 +30,7 @@ export interface Workspace {
   id: string;                    // Unique workspace ID (e.g., 'mosaic-1234567890')
   type: WorkspaceType;          // Type of view configuration
   title: string;                // Display name for tab
+  presetId?: WorkspacePresetId | null; // Optional preset origin for reusable workflows
   timestamp: number;            // Creation timestamp
   isActive: boolean;            // Currently visible workspace
   layoutConfig: LayoutConfig;   // Golden Layout configuration

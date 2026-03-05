@@ -8,6 +8,9 @@
   display: flex;
   align-items: center;
   height: 32px;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
   padding: 0 12px;
   background: var(--app-bg-secondary);
   border-top: 1px solid var(--app-border);
@@ -17,6 +20,7 @@
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
   user-select: none;
+  overflow: hidden;
 }
 
 .status-slot {
@@ -93,6 +97,7 @@
   display: flex;
   align-items: center;
   gap: 12px;
+  flex-shrink: 0;
 }
 
 .status-toggle {
@@ -109,6 +114,28 @@
   font-size: 11px;
   color: var(--app-text-primary);
   letter-spacing: 0.01em;
+}
+
+.status-toggle--preset {
+  min-width: 172px;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+.status-toggle--preset span {
+  flex: 1;
+  text-align: left;
+}
+
+.status-toggle--layout {
+  min-width: 140px;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+.status-toggle--layout span {
+  flex: 1;
+  text-align: left;
 }
 
 /* Responsive: hide less important items on small screens */
