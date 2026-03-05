@@ -271,6 +271,23 @@ const FileBrowserPanelContent: React.FC = () => {
       ) ?? null
     );
   }, [entries, selectedPath]);
+
+  const selectedRemoteOriginLabel = useMemo(() => {
+    const mountSource = selectedRootMount?.mountSource;
+    if (mountSource?.kind !== 'remote') {
+      return null;
+    }
+
+    if (mountSource.label && mountSource.label.trim().length > 0) {
+      return mountSource.label;
+    }
+
+    if (mountSource.user && mountSource.host) {
+      return `${mountSource.user}@${mountSource.host}`;
+    }
+
+    return mountSource.host ?? 'remote';
+  }, [selectedRootMount]);
   
   // Debug: log when component re-renders
   useEffect(() => {
@@ -741,6 +758,9 @@ const FileBrowserPanelContent: React.FC = () => {
           `${searchResults.length} result${searchResults.length === 1 ? '' : 's'}`
         ) : (
           `${treeData.length} item${treeData.length === 1 ? '' : 's'}`
+        )}
+        {selectedRemoteOriginLabel && (
+          <span style={{ marginLeft: '8px' }}>• Remote: {selectedRemoteOriginLabel}</span>
         )}
         {selectedPath && (
           <span style={{ marginLeft: '8px' }}>• {selectedPath.split('/').pop()} selected</span>
