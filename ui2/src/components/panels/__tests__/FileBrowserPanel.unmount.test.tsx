@@ -129,4 +129,25 @@ describe('FileBrowserPanel unmount overflow action', () => {
       expect.anything()
     );
   });
+
+  it('disables unmount action when no selected root is active', () => {
+    const invokeMock = vi.fn().mockResolvedValue({ success: true });
+    setTransport({ invoke: invokeMock } as BackendTransportLike);
+
+    const localRoot = '/tmp/local-data';
+    resetStore(
+      [
+        makeRootNode(localRoot, {
+          kind: 'local',
+        }),
+      ],
+      null
+    );
+
+    render(<FileBrowserPanel />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Files actions' }));
+    const unmountButton = screen.getByRole('button', { name: 'Unmount Selected' });
+    expect(unmountButton).toBeDisabled();
+  });
 });
