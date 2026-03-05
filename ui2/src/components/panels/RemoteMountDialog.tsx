@@ -98,6 +98,31 @@ function normalizeAuthMethod(authMethod: string): RemoteAuthMethod {
   return 'password';
 }
 
+function withAuthHint(message: string, authMethod: RemoteAuthMethod): string {
+  const lowered = message.toLowerCase();
+  const isAuthDenied = lowered.includes('authentication denied');
+  const mentionsRemainingMethods = lowered.includes('remaining=[');
+  const hasPublicKey = lowered.includes('publickey');
+  const hasPassword = lowered.includes('password');
+  const hasKeyboardInteractive = lowered.includes('keyboard-interactive');
+  const onlyKeyBasedMethods = hasPublicKey && !hasPassword && !hasKeyboardInteractive;
+
+  if (
+    isAuthDenied &&
+    mentionsRemainingMethods &&
+    onlyKeyBasedMethods &&
+    (authMethod === 'password' || authMethod === 'keyboard_interactive')
+  ) {
+    return (
+      `${message} ` +
+      'This host is not offering password authentication. ' +
+      'Switch Auth Method to SSH Agent or SSH Key File, and verify username case (typically lowercase).'
+    );
+  }
+
+  return message;
+}
+
 export function RemoteMountDialog({ isOpen, onClose, onMounted }: RemoteMountDialogProps) {
   const [profiles, setProfiles] = useState<RemoteMountProfile[]>([]);
   const [profilesLoading, setProfilesLoading] = useState(false);
@@ -271,7 +296,8 @@ export function RemoteMountDialog({ isOpen, onClose, onMounted }: RemoteMountDia
       await handleConnectOutcome(result);
     } catch (connectError) {
       const message = formatTauriError(connectError) || 'Failed to connect to remote host.';
-      setError(message);
+      const messageWithHint = withAuthHint(message, form.authMethod);
+      setError(messageWithHint);
       setStep('form');
     } finally {
       setPending(false);

@@ -258,4 +258,40 @@ describe('RemoteMountDialog', () => {
       ).toBeInTheDocument();
     });
   });
+
+  it('adds key-based auth hint when password auth is not offered by host', async () => {
+    invokeMock.mockImplementation((cmd: string, _args?: InvokeArgs) => {
+      if (cmd === 'list_remote_mount_profiles') {
+        return Promise.resolve([]);
+      }
+      if (cmd === 'remote_mount_connect') {
+        return Promise.reject({
+          Input: {
+            code: 8224,
+            details:
+              "SSH authentication denied: SSH error: authentication denied for user 'Brad' (partial_success=false, remaining=[\"publickey\", \"hostbased\"])",
+          },
+        });
+      }
+      return Promise.reject(new Error(`Unhandled command: ${cmd}`));
+    });
+
+    setupDialog();
+
+    await waitFor(() => {
+      expect(invokeMock).toHaveBeenCalledWith('list_remote_mount_profiles');
+    });
+
+    fillPasswordForm();
+    fireEvent.click(screen.getByRole('button', { name: 'Connect' }));
+
+    await waitFor(() => {
+      expect(
+        screen.getByText(/This host is not offering password authentication\./)
+      ).toBeInTheDocument();
+      expect(
+        screen.getByText(/Switch Auth Method to SSH Agent or SSH Key File/)
+      ).toBeInTheDocument();
+    });
+  });
 });
