@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { getTransport } from '@/services/transport';
+import { formatTauriError } from '@/utils/formatTauriError';
 
 type RemoteAuthMethod = 'password' | 'key_file' | 'agent' | 'keyboard_interactive';
 
@@ -142,10 +143,7 @@ export function RemoteMountDialog({ isOpen, onClose, onMounted }: RemoteMountDia
         setProfiles(loadedProfiles);
       } catch (profileError) {
         if (!active) return;
-        const message =
-          profileError instanceof Error
-            ? profileError.message
-            : 'Failed to load remote mount profiles.';
+        const message = formatTauriError(profileError) || 'Failed to load remote mount profiles.';
         setError(message);
       } finally {
         if (active) {
@@ -202,8 +200,7 @@ export function RemoteMountDialog({ isOpen, onClose, onMounted }: RemoteMountDia
       setProfiles((current) => current.filter((profile) => profile.id !== selectedProfile.id));
       setSelectedProfileId('');
     } catch (removeError) {
-      const message =
-        removeError instanceof Error ? removeError.message : 'Failed to remove profile.';
+      const message = formatTauriError(removeError) || 'Failed to remove profile.';
       setError(message);
     } finally {
       setPending(false);
@@ -273,10 +270,7 @@ export function RemoteMountDialog({ isOpen, onClose, onMounted }: RemoteMountDia
 
       await handleConnectOutcome(result);
     } catch (connectError) {
-      const message =
-        connectError instanceof Error
-          ? connectError.message
-          : 'Failed to connect to remote host.';
+      const message = formatTauriError(connectError) || 'Failed to connect to remote host.';
       setError(message);
       setStep('form');
     } finally {
@@ -310,9 +304,7 @@ export function RemoteMountDialog({ isOpen, onClose, onMounted }: RemoteMountDia
       await handleConnectOutcome(result);
     } catch (hostKeyError) {
       const message =
-        hostKeyError instanceof Error
-          ? hostKeyError.message
-          : 'Failed to continue after host-key approval.';
+        formatTauriError(hostKeyError) || 'Failed to continue after host-key approval.';
       setError(message);
       setStep('form');
       setHostKeyChallenge(null);
@@ -345,9 +337,7 @@ export function RemoteMountDialog({ isOpen, onClose, onMounted }: RemoteMountDia
       await handleConnectOutcome(result);
     } catch (authError) {
       const message =
-        authError instanceof Error
-          ? authError.message
-          : 'Failed to continue authentication challenge.';
+        formatTauriError(authError) || 'Failed to continue authentication challenge.';
       setError(message);
       setStep('form');
       setAuthChallenge(null);

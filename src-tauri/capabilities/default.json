@@ -17,6 +17,12 @@
       
       "api-bridge:default",
       "api-bridge:allow-load-surface-atlas",
+      "api-bridge:allow-remote-mount-connect",
+      "api-bridge:allow-remote-mount-respond-host-key",
+      "api-bridge:allow-remote-mount-respond-auth",
+      "api-bridge:allow-remote-mount-unmount",
+      "api-bridge:allow-list-remote-mount-profiles",
+      "api-bridge:allow-remove-remote-mount-profile",
   
      
       {

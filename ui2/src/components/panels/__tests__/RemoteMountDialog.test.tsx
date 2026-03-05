@@ -228,4 +228,34 @@ describe('RemoteMountDialog', () => {
       expect(onClose).toHaveBeenCalledTimes(1);
     });
   });
+
+  it('surfaces Tauri object error details for failed connect', async () => {
+    invokeMock.mockImplementation((cmd: string, _args?: InvokeArgs) => {
+      if (cmd === 'list_remote_mount_profiles') {
+        return Promise.resolve([]);
+      }
+      if (cmd === 'remote_mount_connect') {
+        return Promise.reject({
+          code: 8221,
+          details: 'SSH authentication denied: permission denied (publickey,password)',
+        });
+      }
+      return Promise.reject(new Error(`Unhandled command: ${cmd}`));
+    });
+
+    setupDialog();
+
+    await waitFor(() => {
+      expect(invokeMock).toHaveBeenCalledWith('list_remote_mount_profiles');
+    });
+
+    fillPasswordForm();
+    fireEvent.click(screen.getByRole('button', { name: 'Connect' }));
+
+    await waitFor(() => {
+      expect(
+        screen.getByText('SSH authentication denied: permission denied (publickey,password)')
+      ).toBeInTheDocument();
+    });
+  });
 });
