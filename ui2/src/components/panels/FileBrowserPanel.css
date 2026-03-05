@@ -356,9 +356,30 @@
 }
 
 .file-tree-item .file-name-text {
+  display: inline-flex;
+  align-items: center;
+  gap: 1px;
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.file-tree-item .file-name-head {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.file-tree-item .file-name-tail {
+  flex-shrink: 0;
+  color: var(--app-text-secondary);
+  font-family: var(--app-font-mono);
+}
+
+.file-tree-item.selected .file-name-tail {
+  color: hsl(var(--primary));
 }
 
 .file-tree-item .remote-origin-badge {
@@ -369,7 +390,7 @@
   border: 1px solid var(--app-border-subtle);
   border-radius: 999px;
   padding: 1px 6px;
-  max-width: 50%;
+  max-width: 36%;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -380,24 +401,41 @@
   color: hsl(var(--primary));
 }
 
+.file-tree-item .remote-root-badge {
+  font-size: var(--app-text-xs);
+  font-family: var(--app-font-mono);
+  color: color-mix(in srgb, var(--app-text-secondary) 88%, var(--app-accent) 12%);
+  background: color-mix(in srgb, var(--app-bg-tertiary) 72%, var(--app-accent) 8%);
+  border: 1px solid color-mix(in srgb, var(--app-border-subtle) 80%, var(--app-accent) 20%);
+  border-radius: 999px;
+  padding: 1px 6px;
+  max-width: 52%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.file-tree-item.selected .remote-root-badge {
+  border-color: hsl(var(--primary));
+  color: hsl(var(--primary));
+}
+
 /* File metadata */
 .file-tree-item .file-meta {
   display: flex;
   align-items: center;
-  gap: var(--app-spacing-md);
-  margin-left: var(--app-spacing-md);
+  gap: var(--app-spacing-xs);
+  margin-left: var(--app-spacing-xs);
   flex-shrink: 0;
 }
 
-.file-tree-item .file-size,
-.file-tree-item .file-date {
+.file-tree-item .file-size {
   font-size: var(--app-text-xs);
   color: var(--app-text-muted);
   white-space: nowrap;
 }
 
-.file-tree-item.selected .file-size,
-.file-tree-item.selected .file-date {
+.file-tree-item.selected .file-size {
   color: hsl(var(--primary)); /* Theme primary color */
 }
 
@@ -415,16 +453,19 @@
   flex: 1;
   display: flex;
   align-items: center;
-  justify-content: center;
+  justify-content: flex-start;
   padding: var(--app-spacing-lg);
+  padding-top: clamp(var(--app-spacing-lg), 8vh, 5rem);
   color: var(--app-text-muted);
   text-align: center;
+  overflow-y: auto;
 }
 
 .file-browser-panel .empty-state-card {
   width: 100%;
-  max-width: 320px;
+  max-width: 380px;
   border: 1px dashed var(--app-border);
+  border-radius: var(--app-radius-md);
   background: linear-gradient(
     180deg,
     color-mix(in srgb, var(--app-bg-secondary) 80%, transparent),
@@ -463,11 +504,19 @@
 .file-browser-panel .empty-state-actions {
   width: 100%;
   display: flex;
+  flex-direction: column;
+  gap: var(--app-spacing-sm);
+}
+
+.file-browser-panel .empty-state-secondary-actions {
+  width: 100%;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: var(--app-spacing-sm);
 }
 
 .file-browser-panel .empty-state-button {
-  flex: 1;
+  width: 100%;
   border: 1px solid var(--app-border-strong);
   background: var(--app-bg-secondary);
   color: var(--app-text-primary);
@@ -484,6 +533,10 @@
   background: var(--app-accent);
   color: var(--app-accent-foreground);
   border-color: color-mix(in srgb, var(--app-accent) 70%, #000 30%);
+}
+
+.file-browser-panel .empty-state-button.secondary {
+  background: color-mix(in srgb, var(--app-bg-secondary) 82%, var(--app-bg-tertiary) 18%);
 }
 
 .file-browser-panel .empty-state-button:hover:not(:disabled) {
@@ -611,6 +664,13 @@
   align-items: center;
   gap: var(--app-spacing-sm);
   min-height: 28px;
+  overflow: hidden;
+}
+
+.file-browser-panel .status-bar > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* Remote mount modal */
@@ -620,7 +680,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  background: color-mix(in srgb, var(--app-bg-primary) 58%, transparent);
+  background: color-mix(in srgb, var(--app-bg-primary) 72%, transparent);
   z-index: 20;
   padding: var(--app-spacing-md);
 }
@@ -633,6 +693,8 @@
   background: var(--app-bg-secondary);
   border: 1px solid var(--app-border);
   box-shadow: var(--app-shadow-lg);
+  border-radius: var(--app-radius-md);
+  overflow: hidden;
 }
 
 .remote-mount-header {
@@ -707,6 +769,8 @@
   color: var(--app-text-primary);
   min-height: var(--app-control-height-md);
   padding: 0 var(--app-spacing-sm);
+  border-radius: var(--app-radius-sm);
+  transition: border-color var(--app-transition-fast), box-shadow var(--app-transition-fast);
 }
 
 .remote-mount-field > input:focus,
@@ -728,6 +792,7 @@
   color: var(--app-text-primary);
   min-height: var(--app-control-height-md);
   padding: 0 var(--app-spacing-sm);
+  border-radius: var(--app-radius-sm);
 }
 
 .remote-mount-checkbox {
@@ -789,12 +854,30 @@
   min-height: var(--app-control-height-md);
   padding: 0 var(--app-spacing-md);
   font-size: var(--app-role-label-size);
+  border-radius: var(--app-radius-sm);
+  transition: background-color var(--app-transition-fast), border-color var(--app-transition-fast), color var(--app-transition-fast);
 }
 
 .remote-mount-footer > button.primary {
   background: var(--app-accent);
   border-color: color-mix(in srgb, var(--app-accent) 65%, #000 35%);
   color: var(--app-accent-foreground);
+}
+
+.remote-mount-footer > button:hover:not(:disabled) {
+  background: var(--app-bg-hover);
+  border-color: var(--app-border-strong);
+}
+
+.remote-mount-footer > button.primary:hover:not(:disabled) {
+  background: var(--app-accent-hover);
+  color: #fff;
+}
+
+.remote-mount-footer > button:focus-visible,
+.remote-mount-close:focus-visible {
+  outline: var(--app-focus-ring-width) solid var(--app-focus-ring-color);
+  outline-offset: var(--app-focus-ring-offset);
 }
 
 .remote-mount-footer > button:disabled {
@@ -856,6 +939,26 @@
 
   .remote-mount-footer {
     flex-wrap: wrap;
+  }
+
+  .file-browser-panel .empty-state {
+    padding: var(--app-spacing-md);
+    padding-top: var(--app-spacing-lg);
+  }
+
+  .file-browser-panel .empty-state-card {
+    max-width: 100%;
+    padding: var(--app-spacing-lg) var(--app-spacing-md);
+  }
+
+  .file-browser-panel .empty-state-secondary-actions {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 620px) {
+  .file-tree-item .file-size {
+    display: none;
   }
 }
 

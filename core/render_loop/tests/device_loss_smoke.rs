@@ -15,4 +15,3 @@ fn device_loss_basic_recovery_does_not_panic() {
         let _ = svc.ensure_pipeline("slice_world_space");
     });
 }
-

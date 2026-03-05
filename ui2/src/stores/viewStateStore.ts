@@ -467,25 +467,58 @@ const createViewStateStore = () => create<ViewStateStore>()(
               let newOrigin: [number, number, number];
               let newU: [number, number, number];
               let newV: [number, number, number];
+              const currentView = currentState.viewState.views[viewType];
+
+              // Preserve current display direction when building fallback views.
+              // This avoids flipped-affine regressions (e.g. Schaefer MNI with negative X axis).
+              const signed = (value: number, fallbackSign: 1 | -1): 1 | -1 => {
+                if (value > 0) return 1;
+                if (value < 0) return -1;
+                return fallbackSign;
+              };
 
               switch (viewType) {
                 case 'axial':
-                  // Origin at top-left (min X, max Y due to -Y down)
-                  newOrigin = [bounds.min[0], bounds.max[1], crosshair[2]];
-                  newU = [pixelSize, 0, 0];        // +X right
-                  newV = [0, -pixelSize, 0];       // -Y down
+                  // XY plane: preserve existing X/Y direction signs.
+                  {
+                    const xSign = signed(currentView.u_mm[0], 1);
+                    const ySign = signed(currentView.v_mm[1], -1);
+                    newOrigin = [
+                      xSign > 0 ? bounds.min[0] : bounds.max[0],
+                      ySign > 0 ? bounds.min[1] : bounds.max[1],
+                      crosshair[2]
+                    ];
+                    newU = [xSign * pixelSize, 0, 0];
+                    newV = [0, ySign * pixelSize, 0];
+                  }
                   break;
                 case 'sagittal':
-                  // Origin at top-left (max Y due to -Y right, max Z due to -Z down)
-                  newOrigin = [crosshair[0], bounds.max[1], bounds.max[2]];
-                  newU = [0, -pixelSize, 0];       // -Y right
-                  newV = [0, 0, -pixelSize];       // -Z down
+                  // YZ plane: preserve existing Y/Z direction signs.
+                  {
+                    const ySign = signed(currentView.u_mm[1], -1);
+                    const zSign = signed(currentView.v_mm[2], -1);
+                    newOrigin = [
+                      crosshair[0],
+                      ySign > 0 ? bounds.min[1] : bounds.max[1],
+                      zSign > 0 ? bounds.min[2] : bounds.max[2]
+                    ];
+                    newU = [0, ySign * pixelSize, 0];
+                    newV = [0, 0, zSign * pixelSize];
+                  }
                   break;
                 case 'coronal':
-                  // Origin at top-left (min X, max Z due to -Z down)
-                  newOrigin = [bounds.min[0], crosshair[1], bounds.max[2]];
-                  newU = [pixelSize, 0, 0];        // +X right
-                  newV = [0, 0, -pixelSize];       // -Z down
+                  // XZ plane: preserve existing X/Z direction signs.
+                  {
+                    const xSign = signed(currentView.u_mm[0], 1);
+                    const zSign = signed(currentView.v_mm[2], -1);
+                    newOrigin = [
+                      xSign > 0 ? bounds.min[0] : bounds.max[0],
+                      crosshair[1],
+                      zSign > 0 ? bounds.min[2] : bounds.max[2]
+                    ];
+                    newU = [xSign * pixelSize, 0, 0];
+                    newV = [0, 0, zSign * pixelSize];
+                  }
                   break;
               }
 

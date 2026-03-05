@@ -10,8 +10,7 @@ import type { CrosshairSettings } from '@/contexts/CrosshairContext';
 import type { 
   RenderCompleteEvent, 
   RenderErrorEvent, 
-  RenderStartEvent,
-  CrosshairRenderEvent 
+  RenderStartEvent
 } from '@/types/renderEvents';
 import type { AtlasStats } from '@/types/atlas';
 
@@ -32,6 +31,8 @@ export interface EventMap {
   'layer.loading': { layerId: string; loading: boolean };
   'layer.error': { layerId: string; error: Error };
   'layer.metadata.updated': { layerId: string; metadata: any };
+  'layer.updated': { layerId: string; updates?: Record<string, unknown> };
+  'layer.render.changed': { layerId: string; renderProps: Record<string, unknown> };
 
   // Annotation events
   'annotation.added': { annotation: Annotation };
@@ -55,10 +56,12 @@ export interface EventMap {
   'volume.loaded': { volumeId: string; metadata: any };
   'volume.unloaded': { volumeId: string };
   'volume.sample': { world_mm: [number, number, number]; value: number };
+  'volume.load.complete': { volumeId: string; layerId: string; source: string; duration: number };
+  'volume.load.error': { volumeId: string; source: string; error: Error };
 
   // File browser events
   'file.selected': { path: string };
-  'file.loading': { path: string };
+  'file.loading': { path: string; filename?: string };
   'file.loaded': { path: string; volumeId: string };
   'file.error': { path: string; error: Error };
   'filebrowser.file.selected': { path: string };
@@ -66,8 +69,17 @@ export interface EventMap {
   'filebrowser.directory.loaded': { path: string };
 
   // General UI events
-  'ui.notification': { type: 'info' | 'warning' | 'error'; message: string };
+  'ui.notification': {
+    type: 'info' | 'warning' | 'error' | 'success';
+    message: string;
+    durationMs?: number;
+  };
   'ui.progress': { taskId: string; progress: number; message?: string };
+
+  // Services initialization events
+  'services.initialized': { service: string };
+  'services.error': { service?: string; error: string; fatal?: boolean };
+  'services.allInitialized': { success: boolean };
 
   // Atlas events
   'atlas.metrics': { stats: AtlasStats; timestamp: number };
@@ -96,6 +108,49 @@ export interface EventMap {
       totalTime: number;
     };
   };
+  'navigation.modeChanged': { mode: 'time' | 'slice' };
+  'playback.toggle': {};
+  'playback.stateChanged': { playing: boolean };
+
+  // Surface events
+  'surface.loading': { path: string; filename: string };
+  'surface.loaded': { path: string; filename: string; handle: string };
+  'surface.load.error': { path: string; filename: string; error: string };
+  'surface.template.loading': { space: string; geometry_type: string; hemisphere: string };
+  'surface.template.loaded': {
+    handle: string;
+    space: string;
+    geometry_type: string;
+    hemisphere: string;
+    vertexCount: number;
+    faceCount: number;
+  };
+  'surface.template.error': {
+    space: string;
+    geometry_type: string;
+    hemisphere: string;
+    error: string;
+  };
+  'surface.overlayApplied': {
+    surfaceId: string;
+    layerId: string;
+    dataHandle?: string;
+    colormap?: string;
+    range?: [number, number];
+    opacity?: number;
+  };
+  'surface.dataLayerAdded': { surfaceId: string; layerId: string };
+  'surface.dataLayerUpdated': {
+    surfaceId: string;
+    layerId: string;
+    updates: Record<string, unknown>;
+  };
+  'surface.dataLayerRemoved': { surfaceId: string; layerId: string };
+
+  // Projection events
+  'projection:start': { volumeId: string; surfaceId: string };
+  'projection:complete': { volumeId: string; surfaceId: string; result: unknown };
+  'projection:error': { volumeId: string; surfaceId: string; error: unknown };
   
   // Progress events from backend
   'progress.start': { 
@@ -219,15 +274,33 @@ export class EventBus {
     };
   }
 
+  off<K extends keyof EventMap>(event: K, handler?: EventHandler<EventMap[K]>): void;
+  off(event?: keyof EventMap): void;
   /**
-   * Remove all handlers for an event
+   * Remove handlers. If only event is provided, all handlers for that event are removed.
+   * If event and handler are provided, only that specific handler is removed.
+   * If no args are provided, all handlers are cleared.
    */
-  off(event?: keyof EventMap): void {
-    if (event) {
-      this.handlers.delete(event);
-    } else {
+  off(event?: keyof EventMap, handler?: EventHandler<any>): void {
+    if (!event) {
       this.handlers.clear();
       this.wildcardHandlers.clear();
+      return;
+    }
+
+    if (!handler) {
+      this.handlers.delete(event);
+      return;
+    }
+
+    const handlers = this.handlers.get(event);
+    if (!handlers) {
+      return;
+    }
+
+    handlers.delete(handler);
+    if (handlers.size === 0) {
+      this.handlers.delete(event);
     }
   }
 

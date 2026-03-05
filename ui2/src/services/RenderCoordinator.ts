@@ -11,6 +11,17 @@ import type { ViewState } from '@/types/viewState';
 import type { ViewType } from '@/types/coordinates';
 import type { RenderSession } from './RenderSession';
 
+const DEBUG_RENDER_COORDINATOR =
+  import.meta.env.DEV &&
+  typeof window !== 'undefined' &&
+  window.localStorage.getItem('brainflow2-debug-render-coordinator') === 'true';
+
+const renderDebugLog = (...args: unknown[]) => {
+  if (DEBUG_RENDER_COORDINATOR) {
+    console.log(...args);
+  }
+};
+
 export interface RenderRequest {
   viewState: ViewState;
   viewType?: ViewType;
@@ -42,7 +53,7 @@ export class RenderCoordinator {
 
   static setMultiViewBatchEnabled(enabled: boolean): void {
     RenderCoordinator.multiViewBatchEnabled = enabled;
-    console.log(`[RenderCoordinator] Multi-view batch mode ${enabled ? 'ENABLED' : 'disabled'}`);
+    renderDebugLog(`[RenderCoordinator] Multi-view batch mode ${enabled ? 'ENABLED' : 'disabled'}`);
   }
 
   static isMultiViewBatchEnabled(): boolean {
@@ -61,7 +72,7 @@ export class RenderCoordinator {
   private renderSession: RenderSession | null = null;
   
   constructor() {
-    console.log('[RenderCoordinator] Initialized');
+    renderDebugLog('[RenderCoordinator] Initialized');
     // Create a persistent render session for the coordinator
     const apiService = getApiService();
     this.renderSession = apiService.createRenderSession('render-coordinator');
@@ -86,7 +97,7 @@ export class RenderCoordinator {
             return `${vt}:${view?.dim_px?.[0] ?? '??'}x${view?.dim_px?.[1] ?? '??'}`;
           }).join(', ')
         : `${job.width ?? '??'}x${job.height ?? '??'}`;
-      console.log(`[RenderCoordinator] Queuing job ${job.id}: ${job.reason} ${logDims}`);
+      renderDebugLog(`[RenderCoordinator] Queuing job ${job.id}: ${job.reason} ${logDims}`);
       
       // Handle debouncing for resize operations
       if (job.reason === 'resize') {
@@ -107,7 +118,7 @@ export class RenderCoordinator {
    * Cleanup and abort pending operations
    */
   dispose(): void {
-    console.log('[RenderCoordinator] Disposing...');
+    renderDebugLog('[RenderCoordinator] Disposing...');
     this.abortController.abort();
     this.clearAllDebounces();
     this.queue.forEach(job => job.reject(new Error('RenderCoordinator disposed')));
@@ -175,7 +186,7 @@ export class RenderCoordinator {
               return `${vt}:${view?.dim_px?.[0] ?? '??'}x${view?.dim_px?.[1] ?? '??'}`;
             }).join(', ')
           : `${job.width ?? '??'}x${job.height ?? '??'}`;
-        console.log(`[RenderCoordinator] Processing job ${job.id}: ${job.reason} ${jobDims}`);
+        renderDebugLog(`[RenderCoordinator] Processing job ${job.id}: ${job.reason} ${jobDims}`);
         
         try {
           const result = await this.executeRenderJob(job);
@@ -282,7 +293,11 @@ export class RenderCoordinator {
   private async executeRenderJob(job: QueuedJob): Promise<RenderJobResult> {
     if (job.viewTypes && job.viewTypes.length > 0) {
       const multiJob = job as QueuedJob & { viewTypes: ViewType[] };
-      if (RenderCoordinator.isMultiViewBatchEnabled()) {
+      const shouldPreferBatch =
+        RenderCoordinator.isMultiViewBatchEnabled() ||
+        job.reason === 'initial' ||
+        job.reason === 'layer_change';
+      if (shouldPreferBatch) {
         return this.executeMultiViewBatch(multiJob);
       }
       return this.executeSequentialMultiView(multiJob);
@@ -314,7 +329,7 @@ export class RenderCoordinator {
           job.height
         );
         result = renderResult.bitmap;
-        console.log(`[RenderCoordinator] Job ${job.id} (${job.viewType}) completed via RenderSession in ${renderResult.renderTime.toFixed(1)}ms`);
+        renderDebugLog(`[RenderCoordinator] Job ${job.id} (${job.viewType}) completed via RenderSession in ${renderResult.renderTime.toFixed(1)}ms`);
       } else {
         const apiService = getApiService();
         result = await apiService.applyAndRenderViewStateCore(
@@ -332,7 +347,7 @@ export class RenderCoordinator {
       });
 
       const duration = performance.now() - startTime;
-      console.log(`[RenderCoordinator] Job ${job.id} (${job.viewType}) completed in ${duration.toFixed(1)}ms`);
+      renderDebugLog(`[RenderCoordinator] Job ${job.id} (${job.viewType}) completed in ${duration.toFixed(1)}ms`);
 
       return result;
     } catch (error) {
@@ -355,7 +370,7 @@ export class RenderCoordinator {
     const baseWidth = firstView?.dim_px?.[0] ?? 0;
     const baseHeight = firstView?.dim_px?.[1] ?? 0;
     const mode = RenderCoordinator.isMultiViewBatchEnabled() ? 'batch' : 'sequential';
-    console.log(`[RenderCoordinator] requestMultiViewRender using ${mode} mode for views: ${viewTypes.join(', ')}`);
+    renderDebugLog(`[RenderCoordinator] requestMultiViewRender using ${mode} mode for views: ${viewTypes.join(', ')}`);
 
     return this.requestRender({
       viewState,

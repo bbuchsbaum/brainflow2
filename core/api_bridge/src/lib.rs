@@ -16,7 +16,7 @@ use tauri::State; // Need State for accessing registry
                   // Import types from bridge_types
 use bridge_types::{
     self, icons, BatchRenderRequest, BridgeError, BridgeResult, DataRange, FlatNode,
-    GpuTextureFormat, LayerPatch, Loaded, Loader, NiftiHeaderInfo, RemoteAuthChallenge,
+    GpuTextureFormat, LayerPatch, Loader, NiftiHeaderInfo, RemoteAuthChallenge,
     RemoteAuthPrompt, RemoteHostKeyChallenge, RemoteMountConnectRequest, RemoteMountConnectResult,
     RemoteMountInfo, RemoteMountOrigin, RemoteMountProfile, SliceAxisMeta, SliceInfo,
     TextureCoordinates, TreePayload, VolumeHandleInfo, VolumeLayerGpuInfo, VolumeSendable,
@@ -36,7 +36,7 @@ use uuid; // For generating unique IDs // Add TS trait
           // use futures;
           // Added imports for plugin creation
 use tauri::plugin::{Builder, TauriPlugin};
-use tauri::{generate_handler, Manager, Runtime};
+use tauri::{generate_handler, Emitter, Manager, Runtime};
 // Re-add tokio::sync::Mutex
 use directories::ProjectDirs;
 use keyring::Entry as KeyringEntry;
@@ -46,7 +46,7 @@ use remotely::ssh::{
     AuthMethod as RemoteAuthMethod, ConnectConfig as RemoteConnectConfig,
     ConnectOutcome as RemoteConnectOutcome, HostKeyDisposition,
 };
-use remotely::RemoteClient;
+use remotely::{FilesystemProbeOptions, RemoteClient};
 use tokio::runtime::Handle;
 use tokio::sync::Mutex;
 use tokio::time::{interval, MissedTickBehavior};
@@ -439,6 +439,157 @@ fn get_spatial_dims_from_volume(volume_data: &VolumeSendable) -> Vec<usize> {
         }
         VolumeSendable::Vec4DF64(vec) => {
             vec.space.dim.iter().take(3).map(|&d| d as usize).collect()
+        }
+    }
+}
+
+/// Compute min/max data range for a volume payload.
+/// Used as a fallback when render metadata is unavailable.
+fn compute_data_range_from_volume(volume_data: &VolumeSendable) -> (f32, f32) {
+    match volume_data {
+        VolumeSendable::VolF32(vol, _) => vol.range().unwrap_or((0.0, 1.0)),
+        VolumeSendable::VolI16(vol, _) => vol
+            .range()
+            .map(|(min, max)| (min as f32, max as f32))
+            .unwrap_or((0.0, 1.0)),
+        VolumeSendable::VolU8(vol, _) => vol
+            .range()
+            .map(|(min, max)| (min as f32, max as f32))
+            .unwrap_or((0.0, 1.0)),
+        VolumeSendable::VolI8(vol, _) => vol
+            .range()
+            .map(|(min, max)| (min as f32, max as f32))
+            .unwrap_or((0.0, 1.0)),
+        VolumeSendable::VolU16(vol, _) => vol
+            .range()
+            .map(|(min, max)| (min as f32, max as f32))
+            .unwrap_or((0.0, 1.0)),
+        VolumeSendable::VolI32(vol, _) => vol
+            .range()
+            .map(|(min, max)| (min as f32, max as f32))
+            .unwrap_or((0.0, 1.0)),
+        VolumeSendable::VolU32(vol, _) => vol
+            .range()
+            .map(|(min, max)| (min as f32, max as f32))
+            .unwrap_or((0.0, 1.0)),
+        VolumeSendable::VolF64(vol, _) => vol
+            .range()
+            .map(|(min, max)| (min as f32, max as f32))
+            .unwrap_or((0.0, 1.0)),
+        VolumeSendable::Vec4DF32(vec) => {
+            let mut min = f32::MAX;
+            let mut max = f32::MIN;
+            for &value in vec.data.iter() {
+                if value.is_finite() {
+                    min = min.min(value);
+                    max = max.max(value);
+                }
+            }
+            if min > max {
+                (0.0, 1.0)
+            } else {
+                (min, max)
+            }
+        }
+        VolumeSendable::Vec4DI16(vec) => {
+            let mut min = f32::MAX;
+            let mut max = f32::MIN;
+            for &value in vec.data.iter() {
+                let value = value as f32;
+                min = min.min(value);
+                max = max.max(value);
+            }
+            if min > max {
+                (0.0, 1.0)
+            } else {
+                (min, max)
+            }
+        }
+        VolumeSendable::Vec4DU8(vec) => {
+            let mut min = f32::MAX;
+            let mut max = f32::MIN;
+            for &value in vec.data.iter() {
+                let value = value as f32;
+                min = min.min(value);
+                max = max.max(value);
+            }
+            if min > max {
+                (0.0, 1.0)
+            } else {
+                (min, max)
+            }
+        }
+        VolumeSendable::Vec4DI8(vec) => {
+            let mut min = f32::MAX;
+            let mut max = f32::MIN;
+            for &value in vec.data.iter() {
+                let value = value as f32;
+                min = min.min(value);
+                max = max.max(value);
+            }
+            if min > max {
+                (0.0, 1.0)
+            } else {
+                (min, max)
+            }
+        }
+        VolumeSendable::Vec4DU16(vec) => {
+            let mut min = f32::MAX;
+            let mut max = f32::MIN;
+            for &value in vec.data.iter() {
+                let value = value as f32;
+                min = min.min(value);
+                max = max.max(value);
+            }
+            if min > max {
+                (0.0, 1.0)
+            } else {
+                (min, max)
+            }
+        }
+        VolumeSendable::Vec4DI32(vec) => {
+            let mut min = f32::MAX;
+            let mut max = f32::MIN;
+            for &value in vec.data.iter() {
+                let value = value as f32;
+                min = min.min(value);
+                max = max.max(value);
+            }
+            if min > max {
+                (0.0, 1.0)
+            } else {
+                (min, max)
+            }
+        }
+        VolumeSendable::Vec4DU32(vec) => {
+            let mut min = f32::MAX;
+            let mut max = f32::MIN;
+            for &value in vec.data.iter() {
+                let value = value as f32;
+                min = min.min(value);
+                max = max.max(value);
+            }
+            if min > max {
+                (0.0, 1.0)
+            } else {
+                (min, max)
+            }
+        }
+        VolumeSendable::Vec4DF64(vec) => {
+            let mut min = f32::MAX;
+            let mut max = f32::MIN;
+            for &value in vec.data.iter() {
+                let value = value as f32;
+                if value.is_finite() {
+                    min = min.min(value);
+                    max = max.max(value);
+                }
+            }
+            if min > max {
+                (0.0, 1.0)
+            } else {
+                (min, max)
+            }
         }
     }
 }
@@ -1072,6 +1223,7 @@ const REMOTE_KEYRING_SERVICE: &str = "brainflow.remote_mount";
 const REMOTE_PROFILE_FILE: &str = "remote_mount_profiles.json";
 const REMOTE_CACHE_DIR_NAME: &str = "remote_mounts";
 const REMOTE_MOUNT_HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(45);
+const REMOTE_FS_OPERATION_TIMEOUT: Duration = Duration::from_secs(30);
 
 #[derive(Debug, Clone)]
 struct NormalizedRemoteMountRequest {
@@ -1356,6 +1508,33 @@ fn delete_cached_password(host: &str, port: u16, user: &str) {
 }
 
 fn map_remotely_error(err: remotely::Error, code: u16) -> BridgeError {
+    match &err {
+        remotely::Error::Readiness(remotely::error::ReadinessError::RemotePathNotDirectory {
+            ..
+        }) => {
+            return BridgeError::Input {
+                code,
+                details: err.to_string(),
+            };
+        }
+        remotely::Error::Readiness(
+            remotely::error::ReadinessError::SftpSubsystemUnavailable { .. }
+            | remotely::error::ReadinessError::FilesystemProbeTimeout { .. },
+        ) => {
+            return BridgeError::Io {
+                code,
+                details: err.to_string(),
+            };
+        }
+        remotely::Error::Runtime(_) => {
+            return BridgeError::Internal {
+                code,
+                details: err.to_string(),
+            };
+        }
+        _ => {}
+    }
+
     match err.category() {
         remotely::ErrorCategory::AuthDenied => BridgeError::Input {
             code,
@@ -1390,6 +1569,12 @@ fn map_remotely_error(err: remotely::Error, code: u16) -> BridgeError {
             details: err.to_string(),
         },
     }
+}
+
+fn remote_probe_options(request: &NormalizedRemoteMountRequest) -> FilesystemProbeOptions {
+    FilesystemProbeOptions::new(request.remote_path.clone())
+        .canonicalize(true)
+        .timeout(Duration::from_secs(15))
 }
 
 fn normalize_remote_mount_request(
@@ -1706,17 +1891,18 @@ async fn list_remote_directory_for_local_path(
             })?;
     }
 
-    let client = Arc::clone(&mount.client);
-    let remote_path_for_list = remote_path.clone();
-    let entries = tokio::task::spawn_blocking(move || {
-        futures::executor::block_on(async move {
-            client.fs().list(Path::new(&remote_path_for_list)).await
-        })
-    })
+    let entries = tokio::time::timeout(
+        REMOTE_FS_OPERATION_TIMEOUT,
+        mount.client.list_blocking(Path::new(&remote_path)),
+    )
     .await
-    .map_err(|e| BridgeError::Internal {
+    .map_err(|_| BridgeError::Io {
         code: 8216,
-        details: format!("Remote directory listing task failed: {e}"),
+        details: format!(
+            "Timed out after {}s while listing remote directory '{}'.",
+            REMOTE_FS_OPERATION_TIMEOUT.as_secs(),
+            remote_path
+        ),
     })?
     .map_err(|e| map_remotely_error(e, 8216))?;
 
@@ -1788,25 +1974,22 @@ async fn materialize_remote_file_if_needed(state: &BridgeState, path: &Path) -> 
             })?;
     }
 
-    let client = Arc::clone(&mount.client);
-    let remote_path_for_download = remote_path.clone();
-    let local_path = path.to_path_buf();
-    tokio::task::spawn_blocking(move || {
-        futures::executor::block_on(async move {
-            client
-                .fs()
-                .download_to_path(
-                    Path::new(&remote_path_for_download),
-                    &local_path,
-                    remotely::DownloadOptions::default(),
-                )
-                .await
-        })
-    })
+    tokio::time::timeout(
+        REMOTE_FS_OPERATION_TIMEOUT,
+        mount.client.download_to_path_blocking(
+            Path::new(&remote_path),
+            path,
+            remotely::DownloadOptions::default(),
+        ),
+    )
     .await
-    .map_err(|e| BridgeError::Internal {
+    .map_err(|_| BridgeError::Io {
         code: 8218,
-        details: format!("Remote file download task failed: {e}"),
+        details: format!(
+            "Timed out after {}s while downloading remote file '{}'.",
+            REMOTE_FS_OPERATION_TIMEOUT.as_secs(),
+            remote_path
+        ),
     })?
     .map_err(|e| map_remotely_error(e, 8218))?;
 
@@ -1865,6 +2048,8 @@ async fn finalize_remote_mount(
         &request.remote_path,
     );
 
+    let client = Arc::new(client);
+
     let mount_entry = RemoteMountEntry {
         mount_id: mount_id.clone(),
         local_root: local_root.clone(),
@@ -1874,7 +2059,7 @@ async fn finalize_remote_mount(
         host: request.host.clone(),
         port: request.port,
         user: request.user.clone(),
-        client: Arc::new(client),
+        client: Arc::clone(&client),
     };
 
     {
@@ -1935,6 +2120,7 @@ async fn handle_remote_connect_outcome(
 #[tracing::instrument(skip_all, err, name = "api.load_file")]
 async fn load_file(path: String, state: State<'_, BridgeState>) -> BridgeResult<VolumeHandleInfo> {
     info!("Bridge: load_file called with path: {}", path);
+    let load_start = Instant::now();
 
     // Materialize a remote-backed file into local cache when needed.
     let file_path = PathBuf::from(&path);
@@ -1962,43 +2148,145 @@ async fn load_file(path: String, state: State<'_, BridgeState>) -> BridgeResult<
             details: format!("Failed to load file {}: {}", path, e),
         })?;
 
-    // Extract metadata from the loaded volume
-    let loaded_data =
-        nifti_loader::NiftiLoader::load(&file_path).map_err(|e| BridgeError::Loader {
-            code: 1004,
-            details: format!("Failed to load metadata for {}: {}", path, e),
-        })?;
-
-    let (dims, dtype) = match loaded_data {
-        bridge_types::Loaded::Volume { dims, dtype, .. } => (dims, dtype),
-        _ => {
-            return Err(BridgeError::Input {
-                code: 1005,
-                details: "Only volume files are supported by load_file.".to_string(),
-            });
-        }
-    };
-
-    // Determine if this is a 4D volume by checking the VolumeSendable
-    let (volume_type, time_series_info) = match &volume_sendable {
-        bridge_types::VolumeSendable::VolF32(vol, _) => {
-            let vol_dims = vol.space().dims();
-            if vol_dims.len() > 3 && vol_dims[3] > 1 {
-                (
-                    bridge_types::VolumeType::TimeSeries4D,
-                    Some(bridge_types::TimeSeriesInfo {
-                        num_timepoints: vol_dims[3],
-                        tr: None,
-                        temporal_unit: None,
-                        acquisition_time: None,
-                    }),
-                )
-            } else {
-                (bridge_types::VolumeType::Volume3D, None)
-            }
-        }
-        // For other types, assume 3D for now
-        _ => (bridge_types::VolumeType::Volume3D, None),
+    // Derive dimensions/type metadata directly from the already-loaded volume.
+    // This avoids a second full parse/decode pass through NiftiLoader::load.
+    let (dims, dtype, volume_type, time_series_info) = match &volume_sendable {
+        VolumeSendable::VolF32(vol, _) => (
+            vol.space().dim.clone(),
+            "f32".to_string(),
+            bridge_types::VolumeType::Volume3D,
+            None,
+        ),
+        VolumeSendable::VolI16(vol, _) => (
+            vol.space().dim.clone(),
+            "i16".to_string(),
+            bridge_types::VolumeType::Volume3D,
+            None,
+        ),
+        VolumeSendable::VolU8(vol, _) => (
+            vol.space().dim.clone(),
+            "u8".to_string(),
+            bridge_types::VolumeType::Volume3D,
+            None,
+        ),
+        VolumeSendable::VolI8(vol, _) => (
+            vol.space().dim.clone(),
+            "i8".to_string(),
+            bridge_types::VolumeType::Volume3D,
+            None,
+        ),
+        VolumeSendable::VolU16(vol, _) => (
+            vol.space().dim.clone(),
+            "u16".to_string(),
+            bridge_types::VolumeType::Volume3D,
+            None,
+        ),
+        VolumeSendable::VolI32(vol, _) => (
+            vol.space().dim.clone(),
+            "i32".to_string(),
+            bridge_types::VolumeType::Volume3D,
+            None,
+        ),
+        VolumeSendable::VolU32(vol, _) => (
+            vol.space().dim.clone(),
+            "u32".to_string(),
+            bridge_types::VolumeType::Volume3D,
+            None,
+        ),
+        VolumeSendable::VolF64(vol, _) => (
+            vol.space().dim.clone(),
+            "f64".to_string(),
+            bridge_types::VolumeType::Volume3D,
+            None,
+        ),
+        VolumeSendable::Vec4DF32(vec) => (
+            vec.space().dim.clone(),
+            "f32".to_string(),
+            bridge_types::VolumeType::TimeSeries4D,
+            Some(bridge_types::TimeSeriesInfo {
+                num_timepoints: vec.space().dim.get(3).copied().unwrap_or(1),
+                tr: None,
+                temporal_unit: None,
+                acquisition_time: None,
+            }),
+        ),
+        VolumeSendable::Vec4DI16(vec) => (
+            vec.space().dim.clone(),
+            "i16".to_string(),
+            bridge_types::VolumeType::TimeSeries4D,
+            Some(bridge_types::TimeSeriesInfo {
+                num_timepoints: vec.space().dim.get(3).copied().unwrap_or(1),
+                tr: None,
+                temporal_unit: None,
+                acquisition_time: None,
+            }),
+        ),
+        VolumeSendable::Vec4DU8(vec) => (
+            vec.space().dim.clone(),
+            "u8".to_string(),
+            bridge_types::VolumeType::TimeSeries4D,
+            Some(bridge_types::TimeSeriesInfo {
+                num_timepoints: vec.space().dim.get(3).copied().unwrap_or(1),
+                tr: None,
+                temporal_unit: None,
+                acquisition_time: None,
+            }),
+        ),
+        VolumeSendable::Vec4DI8(vec) => (
+            vec.space().dim.clone(),
+            "i8".to_string(),
+            bridge_types::VolumeType::TimeSeries4D,
+            Some(bridge_types::TimeSeriesInfo {
+                num_timepoints: vec.space().dim.get(3).copied().unwrap_or(1),
+                tr: None,
+                temporal_unit: None,
+                acquisition_time: None,
+            }),
+        ),
+        VolumeSendable::Vec4DU16(vec) => (
+            vec.space().dim.clone(),
+            "u16".to_string(),
+            bridge_types::VolumeType::TimeSeries4D,
+            Some(bridge_types::TimeSeriesInfo {
+                num_timepoints: vec.space().dim.get(3).copied().unwrap_or(1),
+                tr: None,
+                temporal_unit: None,
+                acquisition_time: None,
+            }),
+        ),
+        VolumeSendable::Vec4DI32(vec) => (
+            vec.space().dim.clone(),
+            "i32".to_string(),
+            bridge_types::VolumeType::TimeSeries4D,
+            Some(bridge_types::TimeSeriesInfo {
+                num_timepoints: vec.space().dim.get(3).copied().unwrap_or(1),
+                tr: None,
+                temporal_unit: None,
+                acquisition_time: None,
+            }),
+        ),
+        VolumeSendable::Vec4DU32(vec) => (
+            vec.space().dim.clone(),
+            "u32".to_string(),
+            bridge_types::VolumeType::TimeSeries4D,
+            Some(bridge_types::TimeSeriesInfo {
+                num_timepoints: vec.space().dim.get(3).copied().unwrap_or(1),
+                tr: None,
+                temporal_unit: None,
+                acquisition_time: None,
+            }),
+        ),
+        VolumeSendable::Vec4DF64(vec) => (
+            vec.space().dim.clone(),
+            "f64".to_string(),
+            bridge_types::VolumeType::TimeSeries4D,
+            Some(bridge_types::TimeSeriesInfo {
+                num_timepoints: vec.space().dim.get(3).copied().unwrap_or(1),
+                tr: None,
+                temporal_unit: None,
+                acquisition_time: None,
+            }),
+        ),
     };
 
     // Generate a unique handle ID based on the file name
@@ -2023,15 +2311,18 @@ async fn load_file(path: String, state: State<'_, BridgeState>) -> BridgeResult<
     drop(registry);
 
     info!(
-        "Bridge: Successfully loaded volume with handle: {}",
-        handle_id
+        "Bridge: Successfully loaded volume with handle: {} (dtype={}, dims={:?}, elapsed={}ms)",
+        handle_id,
+        dtype,
+        dims,
+        load_start.elapsed().as_millis()
     );
 
     // Return the handle
     Ok(VolumeHandleInfo {
         id: handle_id,
         name: file_name.to_string(),
-        dims: dims.iter().map(|&d| d as usize).collect(),
+        dims,
         dtype,
         volume_type,
         num_timepoints: time_series_info.as_ref().map(|ts| ts.num_timepoints),
@@ -3339,53 +3630,6 @@ pub async fn request_layer_gpu_resources_for_testing(
                 }
             };
 
-            // Store the mapping from UI layer ID to atlas layer index (only if GPU was allocated)
-            if !metadata_only_flag {
-                {
-                    let mut layer_map = state.layer_to_atlas_map.lock().await;
-
-                    // Debug logging for layer ID storage
-                    info!("🔍 DEBUG: request_layer_gpu_resources - Storing layer mapping:");
-                    info!("  - UI Layer ID: '{}'", ui_layer_id);
-                    info!("  - Atlas Index: {}", atlas_layer_idx);
-                    info!("  - UI Layer ID hash: {:x}", {
-                        use std::collections::hash_map::DefaultHasher;
-                        use std::hash::{Hash, Hasher};
-                        let mut hasher = DefaultHasher::new();
-                        ui_layer_id.hash(&mut hasher);
-                        hasher.finish()
-                    });
-
-                    layer_map.insert(ui_layer_id.clone(), atlas_layer_idx);
-
-                    info!("  - Map size after insert: {}", layer_map.len());
-                    info!("  - All entries in layer_to_atlas_map:");
-                    for (key, value) in layer_map.iter() {
-                        info!("    '{}' -> {}", key, value);
-                    }
-                }
-
-                {
-                    // Also store the volume handle mapping
-                    let mut volume_map = state.layer_to_volume_map.lock().await;
-                    let LayerSpec::Volume(vol_spec) = &layer_spec;
-                    volume_map.insert(ui_layer_id.clone(), vol_spec.source_resource_id.clone());
-                }
-
-                let lease = LayerLease::new(
-                    ui_layer_id.clone(),
-                    atlas_layer_idx,
-                    Arc::clone(&state.render_loop_service),
-                    Arc::clone(&state.layer_to_atlas_map),
-                    Arc::clone(&state.layer_to_volume_map),
-                );
-
-                {
-                    let mut lease_map = state.layer_leases.lock().await;
-                    lease_map.insert(ui_layer_id.clone(), lease);
-                }
-            }
-
             // Get the affine transform (voxel to world) and extract space info - clone before dropping the guard
             let affine = get_affine_from_volume(volume_data)?;
 
@@ -3597,19 +3841,19 @@ pub async fn request_layer_gpu_resources_for_testing(
             let center_world = voxel_to_world * center_voxel;
             let center_world_coords = [center_world.x, center_world.y, center_world.z];
 
-            info!("Volume center calculation: voxel [{:.1}, {:.1}, {:.1}] -> world [{:.1}, {:.1}, {:.1}]",
+            debug!("Volume center calculation: voxel [{:.1}, {:.1}, {:.1}] -> world [{:.1}, {:.1}, {:.1}]",
                   center_voxel.x, center_voxel.y, center_voxel.z,
                   center_world_coords[0], center_world_coords[1], center_world_coords[2]);
 
             // Debug the transform matrices - log in column-major format for nalgebra
-            info!("Voxel Dims: {:?}", vol_dims);
-            info!(
+            debug!("Voxel Dims: {:?}", vol_dims);
+            debug!(
                 "Center Voxel Input: [{:.1}, {:.1}, {:.1}, {:.1}]",
                 center_voxel.x, center_voxel.y, center_voxel.z, center_voxel.w
             );
-            info!("Voxel-to-world transform matrix (column-major):");
+            debug!("Voxel-to-world transform matrix (column-major):");
             for i in 0..4 {
-                info!(
+                debug!(
                     "  [{:.3}, {:.3}, {:.3}, {:.3}]",
                     voxel_to_world[(i, 0)],
                     voxel_to_world[(i, 1)],
@@ -3617,9 +3861,9 @@ pub async fn request_layer_gpu_resources_for_testing(
                     voxel_to_world[(i, 3)]
                 );
             }
-            info!("World-to-voxel transform matrix (column-major):");
+            debug!("World-to-voxel transform matrix (column-major):");
             for i in 0..4 {
-                info!(
+                debug!(
                     "  [{:.3}, {:.3}, {:.3}, {:.3}]",
                     world_to_voxel[(i, 0)],
                     world_to_voxel[(i, 1)],
@@ -3629,10 +3873,10 @@ pub async fn request_layer_gpu_resources_for_testing(
             }
 
             // Also log the affine directly
-            info!("Original affine from NIfTI:");
+            debug!("Original affine from NIfTI:");
             let affine_matrix = affine.to_homogeneous();
             for i in 0..4 {
-                info!(
+                debug!(
                     "  [{:.3}, {:.3}, {:.3}, {:.3}]",
                     affine_matrix[(i, 0)],
                     affine_matrix[(i, 1)],
@@ -3670,210 +3914,29 @@ pub async fn request_layer_gpu_resources_for_testing(
                 .unwrap_or_default()
                 .as_secs();
 
-            info!("Successfully uploaded volume to GPU - layer_id: {}, atlas_layer: {}, dims: {:?}, format: {:?}",
+            debug!("Successfully uploaded volume to GPU - layer_id: {}, atlas_layer: {}, dims: {:?}, format: {:?}",
                   ui_layer_id, atlas_layer_idx, vol_dims, gpu_format);
-            info!(
+            debug!(
                 "Texture coordinates - u: [{:.4}, {:.4}], v: [{:.4}, {:.4}]",
                 u_min, u_max, v_min, v_max
             );
 
             // --- Compute data range and binary-like flag ---
-            let (min_val, max_val) = match volume_data {
-                VolumeSendable::VolF32(vol, _) => {
-                    let mut min = f32::MAX;
-                    let mut max = f32::MIN;
-                    for v in vol.data().iter() {
-                        min = min.min(*v);
-                        max = max.max(*v);
-                    }
-                    (min, max)
-                }
-                VolumeSendable::VolI16(vol, _) => {
-                    let mut min = i16::MAX as f32;
-                    let mut max = i16::MIN as f32;
-                    for v in vol.data().iter() {
-                        let val = *v as f32;
-                        min = min.min(val);
-                        max = max.max(val);
-                    }
-                    (min, max)
-                }
-                VolumeSendable::VolU8(vol, _) => {
-                    let mut min = 255.0f32;
-                    let mut max = 0.0f32;
-                    for v in vol.data().iter() {
-                        let val = *v as f32;
-                        min = min.min(val);
-                        max = max.max(val);
-                    }
-                    (min, max)
-                }
-                VolumeSendable::VolI8(vol, _) => {
-                    let mut min = i8::MAX as f32;
-                    let mut max = i8::MIN as f32;
-                    for v in vol.data().iter() {
-                        let val = *v as f32;
-                        min = min.min(val);
-                        max = max.max(val);
-                    }
-                    (min, max)
-                }
-                VolumeSendable::VolU16(vol, _) => {
-                    let mut min = u16::MAX as f32;
-                    let mut max = 0.0f32;
-                    for v in vol.data().iter() {
-                        let val = *v as f32;
-                        min = min.min(val);
-                        max = max.max(val);
-                    }
-                    (min, max)
-                }
-                VolumeSendable::VolI32(vol, _) => {
-                    let mut min = i32::MAX as f32;
-                    let mut max = i32::MIN as f32;
-                    for v in vol.data().iter() {
-                        let val = *v as f32;
-                        min = min.min(val);
-                        max = max.max(val);
-                    }
-                    (min, max)
-                }
-                VolumeSendable::VolU32(vol, _) => {
-                    let mut min = u32::MAX as f32;
-                    let mut max = 0.0f32;
-                    for v in vol.data().iter() {
-                        let val = *v as f32;
-                        min = min.min(val);
-                        max = max.max(val);
-                    }
-                    (min, max)
-                }
-                VolumeSendable::VolF64(vol, _) => {
-                    let mut min = f32::MAX;
-                    let mut max = f32::MIN;
-                    for v in vol.data().iter() {
-                        let val = *v as f32;
-                        min = min.min(val);
-                        max = max.max(val);
-                    }
-                    (min, max)
-                }
-                // 4D volumes - compute global min/max across all timepoints
-                VolumeSendable::Vec4DF32(vec) => {
-                    let mut min = f32::MAX;
-                    let mut max = f32::MIN;
-                    for &val in vec.data.iter() {
-                        if !val.is_nan() {
-                            min = min.min(val);
-                            max = max.max(val);
-                        }
-                    }
-                    if min > max {
-                        (0.0, 1.0)
-                    } else {
-                        (min, max)
-                    }
-                }
-                VolumeSendable::Vec4DI16(vec) => {
-                    let mut min = f32::MAX;
-                    let mut max = f32::MIN;
-                    for &val in vec.data.iter() {
-                        let v = val as f32;
-                        min = min.min(v);
-                        max = max.max(v);
-                    }
-                    if min > max {
-                        (0.0, 1.0)
-                    } else {
-                        (min, max)
-                    }
-                }
-                VolumeSendable::Vec4DU8(vec) => {
-                    let mut min = f32::MAX;
-                    let mut max = f32::MIN;
-                    for &val in vec.data.iter() {
-                        let v = val as f32;
-                        min = min.min(v);
-                        max = max.max(v);
-                    }
-                    if min > max {
-                        (0.0, 1.0)
-                    } else {
-                        (min, max)
-                    }
-                }
-                VolumeSendable::Vec4DI8(vec) => {
-                    let mut min = f32::MAX;
-                    let mut max = f32::MIN;
-                    for &val in vec.data.iter() {
-                        let v = val as f32;
-                        min = min.min(v);
-                        max = max.max(v);
-                    }
-                    if min > max {
-                        (0.0, 1.0)
-                    } else {
-                        (min, max)
-                    }
-                }
-                VolumeSendable::Vec4DU16(vec) => {
-                    let mut min = f32::MAX;
-                    let mut max = f32::MIN;
-                    for &val in vec.data.iter() {
-                        let v = val as f32;
-                        min = min.min(v);
-                        max = max.max(v);
-                    }
-                    if min > max {
-                        (0.0, 1.0)
-                    } else {
-                        (min, max)
-                    }
-                }
-                VolumeSendable::Vec4DI32(vec) => {
-                    let mut min = f32::MAX;
-                    let mut max = f32::MIN;
-                    for &val in vec.data.iter() {
-                        let v = val as f32;
-                        min = min.min(v);
-                        max = max.max(v);
-                    }
-                    if min > max {
-                        (0.0, 1.0)
-                    } else {
-                        (min, max)
-                    }
-                }
-                VolumeSendable::Vec4DU32(vec) => {
-                    let mut min = f32::MAX;
-                    let mut max = f32::MIN;
-                    for &val in vec.data.iter() {
-                        let v = val as f32;
-                        min = min.min(v);
-                        max = max.max(v);
-                    }
-                    if min > max {
-                        (0.0, 1.0)
-                    } else {
-                        (min, max)
-                    }
-                }
-                VolumeSendable::Vec4DF64(vec) => {
-                    let mut min = f32::MAX;
-                    let mut max = f32::MIN;
-                    for &val in vec.data.iter() {
-                        let v = val as f32;
-                        if !v.is_nan() {
-                            min = min.min(v);
-                            max = max.max(v);
-                        }
-                    }
-                    if min > max {
-                        (0.0, 1.0)
-                    } else {
-                        (min, max)
-                    }
-                }
+            let (min_val, max_val) = if metadata_only_flag {
+                compute_data_range_from_volume(volume_data)
+            } else {
+                let render_service = render_loop_service
+                    .as_ref()
+                    .expect("RenderLoopService should be available when not in metadata_only mode");
+                render_service
+                    .get_volume_data_range(atlas_layer_idx)
+                    .unwrap_or_else(|| {
+                        warn!(
+                            "No cached data_range for atlas index {}; falling back to CPU scan",
+                            atlas_layer_idx
+                        );
+                        compute_data_range_from_volume(volume_data)
+                    })
             };
             let is_binary_like = (min_val >= 0.0 && max_val <= 1.0) && ((max_val - min_val) <= 1.0);
             let data_range = Some(DataRange {
@@ -3996,12 +4059,12 @@ pub async fn request_layer_gpu_resources_for_testing(
             if !metadata_only_flag {
                 {
                     let mut layer_map = state.layer_to_atlas_map.lock().await;
-                    info!(
+                    debug!(
                         "📌 STORING layer mapping: UI layer '{}' -> atlas index {}",
                         ui_layer_id, atlas_layer_idx
                     );
                     layer_map.insert(ui_layer_id.clone(), atlas_layer_idx);
-                    info!(
+                    debug!(
                         "📌 Layer map now contains {} entries: {:?}",
                         layer_map.len(),
                         layer_map.keys().collect::<Vec<_>>()
@@ -4239,6 +4302,7 @@ async fn remote_mount_connect(
 ) -> BridgeResult<RemoteMountConnectResult> {
     let normalized = normalize_remote_mount_request(request)?;
     let auth = select_remote_auth(&normalized)?;
+    let probe_options = remote_probe_options(&normalized);
 
     let connect_config = RemoteConnectConfig {
         host: normalized.host.clone(),
@@ -4261,17 +4325,17 @@ async fn remote_mount_connect(
 
     let outcome = tokio::time::timeout(
         REMOTE_MOUNT_HANDSHAKE_TIMEOUT,
-        RemoteClient::connect_interactive(connect_config),
+        RemoteClient::connect_interactive_with_probe_blocking(connect_config, probe_options),
     )
-    .await
-    .map_err(|_| BridgeError::Io {
-        code: 8221,
-        details: format!(
-            "SSH connection timed out after {}s while connecting/authenticating.",
-            REMOTE_MOUNT_HANDSHAKE_TIMEOUT.as_secs()
-        ),
-    })?
-    .map_err(|e| map_remotely_error(e, 8221))?;
+        .await
+        .map_err(|_| BridgeError::Io {
+            code: 8221,
+            details: format!(
+                "SSH connection timed out after {}s while connecting/authenticating.",
+                REMOTE_MOUNT_HANDSHAKE_TIMEOUT.as_secs()
+            ),
+        })?
+        .map_err(|e| map_remotely_error(e, 8221))?;
 
     handle_remote_connect_outcome(state.inner(), context, outcome).await
 }
@@ -4297,19 +4361,21 @@ async fn remote_mount_respond_host_key(
         details: format!("Unknown host-key challenge id: {challenge_id}"),
     })?;
 
+    let probe_options = remote_probe_options(&context.request);
+
     let outcome = tokio::time::timeout(
         REMOTE_MOUNT_HANDSHAKE_TIMEOUT,
-        remotely::respond_host_key(challenge_uuid, trust),
+        RemoteClient::respond_host_key_with_probe_blocking(challenge_uuid, trust, probe_options),
     )
-    .await
-    .map_err(|_| BridgeError::Io {
-        code: 8224,
-        details: format!(
-            "SSH connection timed out after {}s while resuming host-key validation.",
-            REMOTE_MOUNT_HANDSHAKE_TIMEOUT.as_secs()
-        ),
-    })?
-    .map_err(|e| map_remotely_error(e, 8224))?;
+        .await
+        .map_err(|_| BridgeError::Io {
+            code: 8224,
+            details: format!(
+                "SSH connection timed out after {}s while resuming host-key validation.",
+                REMOTE_MOUNT_HANDSHAKE_TIMEOUT.as_secs()
+            ),
+        })?
+        .map_err(|e| map_remotely_error(e, 8224))?;
 
     handle_remote_connect_outcome(state.inner(), context, outcome).await
 }
@@ -4336,19 +4402,21 @@ async fn remote_mount_respond_auth(
         details: format!("Unknown auth conversation id: {conversation_id}"),
     })?;
 
+    let probe_options = remote_probe_options(&context.request);
+
     let outcome = tokio::time::timeout(
         REMOTE_MOUNT_HANDSHAKE_TIMEOUT,
-        remotely::respond_auth(conversation_uuid, responses),
+        RemoteClient::respond_auth_with_probe_blocking(conversation_uuid, responses, probe_options),
     )
-    .await
-    .map_err(|_| BridgeError::Io {
-        code: 8227,
-        details: format!(
-            "SSH connection timed out after {}s while completing authentication.",
-            REMOTE_MOUNT_HANDSHAKE_TIMEOUT.as_secs()
-        ),
-    })?
-    .map_err(|e| map_remotely_error(e, 8227))?;
+        .await
+        .map_err(|_| BridgeError::Io {
+            code: 8227,
+            details: format!(
+                "SSH connection timed out after {}s while completing authentication.",
+                REMOTE_MOUNT_HANDSHAKE_TIMEOUT.as_secs()
+            ),
+        })?
+        .map_err(|e| map_remotely_error(e, 8227))?;
 
     handle_remote_connect_outcome(state.inner(), context, outcome).await
 }
@@ -4441,6 +4509,18 @@ async fn fs_list_directory(
         list_remote_directory_for_local_path(state.inner(), &root_path).await?
     {
         return Ok(remote_payload);
+    }
+
+    if let Ok(cache_root) = remote_cache_root() {
+        if root_path.starts_with(&cache_root) {
+            return Err(BridgeError::Input {
+                code: 8232,
+                details: format!(
+                    "Remote mount is not active for '{}'. Reconnect the remote folder and try again.",
+                    path
+                ),
+            });
+        }
     }
 
     if !root_path.exists() {
@@ -6285,112 +6365,55 @@ async fn allocate_gpu_resources_for_layer(
         std::borrow::Cow::Borrowed(volume_data)
     };
 
-    // Calculate min/max values and upload to GPU
-    let (atlas_idx, world_to_voxel, min_val, max_val) = match volume_to_upload.as_ref() {
+    // Upload to GPU (data range is retrieved from render metadata after upload).
+    let (atlas_idx, _world_to_voxel) = match volume_to_upload.as_ref() {
         VolumeSendable::VolF32(vol, _) => {
             let (idx, w2v) = render_service
                 .upload_volume_3d(vol)
                 .map_err(|e| gpu_allocation_error(layer_id, &e.to_string()))?;
-            let mut min = f32::MAX;
-            let mut max = f32::MIN;
-            for v in vol.data().iter() {
-                if v.is_finite() {
-                    min = min.min(*v);
-                    max = max.max(*v);
-                }
-            }
-            (idx, w2v, min, max)
+            (idx, w2v)
         }
         VolumeSendable::VolI16(vol, _) => {
             let (idx, w2v) = render_service
                 .upload_volume_3d(vol)
                 .map_err(|e| gpu_allocation_error(layer_id, &e.to_string()))?;
-            let mut min = i16::MAX as f32;
-            let mut max = i16::MIN as f32;
-            for v in vol.data().iter() {
-                let val = *v as f32;
-                min = min.min(val);
-                max = max.max(val);
-            }
-            (idx, w2v, min, max)
+            (idx, w2v)
         }
         VolumeSendable::VolU8(vol, _) => {
             let (idx, w2v) = render_service
                 .upload_volume_3d(vol)
                 .map_err(|e| gpu_allocation_error(layer_id, &e.to_string()))?;
-            let mut min = 255.0f32;
-            let mut max = 0.0f32;
-            for v in vol.data().iter() {
-                let val = *v as f32;
-                min = min.min(val);
-                max = max.max(val);
-            }
-            (idx, w2v, min, max)
+            (idx, w2v)
         }
         VolumeSendable::VolI8(vol, _) => {
             let (idx, w2v) = render_service
                 .upload_volume_3d(vol)
                 .map_err(|e| gpu_allocation_error(layer_id, &e.to_string()))?;
-            let mut min = i8::MAX as f32;
-            let mut max = i8::MIN as f32;
-            for v in vol.data().iter() {
-                let val = *v as f32;
-                min = min.min(val);
-                max = max.max(val);
-            }
-            (idx, w2v, min, max)
+            (idx, w2v)
         }
         VolumeSendable::VolU16(vol, _) => {
             let (idx, w2v) = render_service
                 .upload_volume_3d(vol)
                 .map_err(|e| gpu_allocation_error(layer_id, &e.to_string()))?;
-            let mut min = u16::MAX as f32;
-            let mut max = 0.0f32;
-            for v in vol.data().iter() {
-                let val = *v as f32;
-                min = min.min(val);
-                max = max.max(val);
-            }
-            (idx, w2v, min, max)
+            (idx, w2v)
         }
         VolumeSendable::VolI32(vol, _) => {
             let (idx, w2v) = render_service
                 .upload_volume_3d(vol)
                 .map_err(|e| gpu_allocation_error(layer_id, &e.to_string()))?;
-            let mut min = i32::MAX as f32;
-            let mut max = i32::MIN as f32;
-            for v in vol.data().iter() {
-                let val = *v as f32;
-                min = min.min(val);
-                max = max.max(val);
-            }
-            (idx, w2v, min, max)
+            (idx, w2v)
         }
         VolumeSendable::VolU32(vol, _) => {
             let (idx, w2v) = render_service
                 .upload_volume_3d(vol)
                 .map_err(|e| gpu_allocation_error(layer_id, &e.to_string()))?;
-            let mut min = u32::MAX as f32;
-            let mut max = 0.0f32;
-            for v in vol.data().iter() {
-                let val = *v as f32;
-                min = min.min(val);
-                max = max.max(val);
-            }
-            (idx, w2v, min, max)
+            (idx, w2v)
         }
         VolumeSendable::VolF64(vol, _) => {
             let (idx, w2v) = render_service
                 .upload_volume_3d(vol)
                 .map_err(|e| gpu_allocation_error(layer_id, &e.to_string()))?;
-            let mut min = f32::MAX;
-            let mut max = f32::MIN;
-            for v in vol.data().iter() {
-                let val = *v as f32;
-                min = min.min(val);
-                max = max.max(val);
-            }
-            (idx, w2v, min, max)
+            (idx, w2v)
         }
         // 4D volumes should have been extracted to 3D already
         VolumeSendable::Vec4DF32(_)
@@ -6410,20 +6433,25 @@ async fn allocate_gpu_resources_for_layer(
         }
     };
 
-    info!(
-        "On-demand allocation computed data range: ({}, {})",
-        min_val, max_val
-    );
+    let (min_val, max_val) = render_service
+        .get_volume_data_range(atlas_idx)
+        .unwrap_or_else(|| {
+            warn!(
+                "On-demand allocation missing cached data_range for atlas index {}; falling back to CPU scan",
+                atlas_idx
+            );
+            compute_data_range_from_volume(volume_to_upload.as_ref())
+        });
 
     // Store the mapping
     {
         let mut layer_map = state.layer_to_atlas_map.lock().await;
-        info!(
+        debug!(
             "📌 STORING in allocate_gpu_resources_for_layer: layer '{}' -> atlas index {}",
             layer_id, atlas_idx
         );
         layer_map.insert(layer_id.to_string(), atlas_idx);
-        info!(
+        debug!(
             "📌 Layer map now contains {} entries: {:?}",
             layer_map.len(),
             layer_map.keys().collect::<Vec<_>>()
@@ -6666,16 +6694,10 @@ async fn render_view_process(
         "linear".to_string()
     }
 
-    // Log the first 500 chars of the JSON for debugging
-    info!(
-        "Received ViewState JSON (first 500 chars): {}",
-        &view_state_json.chars().take(500).collect::<String>()
-    );
-
     let frontend_state: FrontendViewState =
         match serde_json::from_str::<FrontendViewState>(&view_state_json) {
             Ok(state) => {
-                info!(
+                debug!(
                     "🎨 Successfully parsed ViewState with {} layers",
                     state.layers.len()
                 );
@@ -6695,8 +6717,8 @@ async fn render_view_process(
         };
     let parse_time = parse_start.elapsed();
 
-    info!("⏱️  JSON parsing took: {:?}", parse_time);
-    info!(
+    debug!("⏱️  JSON parsing took: {:?}", parse_time);
+    debug!(
         "Parsed frontend ViewState with {} layers",
         frontend_state.layers.len()
     );
@@ -6716,7 +6738,7 @@ async fn render_view_process(
     // Extract dimensions from requestedView if provided, otherwise use defaults
     // This supports per-view render targets instead of global render targets
     let (view_plane, width, height) = if let Some(req_view) = &frontend_state.requested_view {
-        info!(
+        debug!(
             "Using requested view '{}' with dimensions {}x{}",
             req_view.view_type, req_view.width, req_view.height
         );
@@ -6736,13 +6758,13 @@ async fn render_view_process(
             _ => (&frontend_state.views.axial, req_view.width, req_view.height),
         }
     } else {
-        info!("No specific view requested, using axial view with default dimensions");
+        debug!("No specific view requested, using axial view with default dimensions");
         (&frontend_state.views.axial, 512u32, 512u32)
     };
 
     // Create render target with the specific dimensions for this view
     // This replaces the global render target approach with per-view render targets
-    info!(
+    debug!(
         "Creating render target for dimensions: {}x{}",
         width, height
     );
@@ -6763,19 +6785,19 @@ async fn render_view_process(
     // Debug: log the contents of layer_map
     {
         let layer_map = bridge_state.layer_to_atlas_map.lock().await;
-        info!("Current layer_to_atlas_map contents:");
+        debug!("Current layer_to_atlas_map contents:");
         for (layer_id, atlas_idx) in layer_map.iter() {
-            info!("  Layer ID '{}' -> atlas index {}", layer_id, atlas_idx);
+            debug!("  Layer ID '{}' -> atlas index {}", layer_id, atlas_idx);
         }
     }
 
     let layer_processing_start = std::time::Instant::now();
     for layer in &frontend_state.layers {
-        info!("🔍 DEBUG: apply_and_render_view_state_internal - Processing layer:");
-        info!("  - Layer ID: '{}'", layer.id);
-        info!("  - Volume ID: '{}'", layer.volume_id);
-        info!("  - Visible: {}, Opacity: {}", layer.visible, layer.opacity);
-        info!("  - Layer ID hash: {:x}", {
+        debug!("🔍 DEBUG: apply_and_render_view_state_internal - Processing layer:");
+        debug!("  - Layer ID: '{}'", layer.id);
+        debug!("  - Volume ID: '{}'", layer.volume_id);
+        debug!("  - Visible: {}, Opacity: {}", layer.visible, layer.opacity);
+        debug!("  - Layer ID hash: {:x}", {
             use std::collections::hash_map::DefaultHasher;
             use std::hash::{Hash, Hasher};
             let mut hasher = DefaultHasher::new();
@@ -6785,7 +6807,7 @@ async fn render_view_process(
 
         // Check both layer.id and layer.volume_id to ensure we find the layer
         if layer.visible && layer.opacity > 0.0 {
-            info!(
+            debug!(
                 "  Layer passes visibility check (visible={}, opacity={})",
                 layer.visible, layer.opacity
             );
@@ -6793,13 +6815,13 @@ async fn render_view_process(
             let _atlas_idx = {
                 let layer_map = bridge_state.layer_to_atlas_map.lock().await;
 
-                info!(
+                debug!(
                     "  - Searching in layer_map with {} entries",
                     layer_map.len()
                 );
-                info!("  - All keys in map:");
+                debug!("  - All keys in map:");
                 for key in layer_map.keys() {
-                    info!("    Key: '{}'", key);
+                    debug!("    Key: '{}'", key);
                 }
 
                 // Try multiple strategies to find the layer
@@ -6807,15 +6829,15 @@ async fn render_view_process(
                     find_layer_atlas_index_robust(&layer_map, &layer.id, &layer.volume_id);
 
                 if let Some(idx) = found_idx {
-                    info!(
+                    debug!(
                         "✅ CACHE HIT: Layer {} already has GPU resources at atlas index {}",
                         layer.id, idx
                     );
                     idx
                 } else {
-                    info!("❌ CACHE MISS: Layer '{}' not found in layer_map (tried keys: '{}' and '{}')",
+                    debug!("❌ CACHE MISS: Layer '{}' not found in layer_map (tried keys: '{}' and '{}')",
                           layer.id, layer.id, layer.volume_id);
-                    info!(
+                    debug!(
                         "❌ Current layer_map contains {} entries: {:?}",
                         layer_map.len(),
                         layer_map.keys().collect::<Vec<_>>()
@@ -6824,7 +6846,7 @@ async fn render_view_process(
                     drop(layer_map); // Release the lock before allocating
 
                     // Allocate GPU resources on-demand
-                    info!(
+                    debug!(
                         "Allocating GPU resources on-demand for layer '{}', volume '{}'",
                         layer.id, layer.volume_id
                     );
@@ -6840,7 +6862,7 @@ async fn render_view_process(
                     )
                     .await?;
                     let gpu_alloc_time = gpu_alloc_start.elapsed();
-                    info!("⏱️  GPU resource allocation took: {:?}", gpu_alloc_time);
+                    debug!("⏱️  GPU resource allocation took: {:?}", gpu_alloc_time);
 
                     let allocated_idx = gpu_info.atlas_layer_index;
                     info!(
@@ -7252,11 +7274,11 @@ async fn render_view_process(
     };
 
     let total_time = total_start.elapsed();
-    info!(
+    debug!(
         "⏱️  TOTAL apply_and_render_view_state_internal time: {:?}",
         total_time
     );
-    info!(
+    debug!(
         "⏱️  Mode: {}, Total size: {} bytes",
         if format == RenderFormat::RawRgba {
             "RAW RGBA"
@@ -7446,7 +7468,7 @@ async fn render_views(
     format: Option<String>,
     state: State<'_, BridgeState>,
 ) -> Result<tauri::ipc::Response, BridgeError> {
-    info!("🎨 render_views called with format: {:?}", format);
+    debug!("🎨 render_views called with format: {:?}", format);
     let render_format = format
         .as_ref()
         .and_then(|f| RenderFormat::from_str(f))
@@ -7456,7 +7478,7 @@ async fn render_views(
     let bridge_state: &BridgeState = state.inner();
     match render_views_process(state_json, bridge_state, render_format).await {
         Ok(result) => {
-            info!(
+            debug!(
                 "🎨 render_views completed in {}ms ({} bytes)",
                 start_time.elapsed().as_millis(),
                 result.len()
@@ -7482,30 +7504,22 @@ async fn render_view(
     format: Option<String>,
     state: State<'_, BridgeState>,
 ) -> Result<tauri::ipc::Response, BridgeError> {
-    info!("🎨 render_view called with format: {:?}", format);
-    info!("🎨 state_json length: {} bytes", state_json.len());
-
-    // Log first 200 chars of JSON for debugging
-    let preview = if state_json.len() > 200 {
-        format!("{}...", &state_json[..200])
-    } else {
-        state_json.clone()
-    };
-    info!("🎨 state_json preview: {}", preview);
+    debug!("🎨 render_view called with format: {:?}", format);
+    debug!("🎨 state_json length: {} bytes", state_json.len());
 
     let render_format = format
         .as_ref()
         .and_then(|f| RenderFormat::from_str(f))
         .unwrap_or(RenderFormat::RawRgba);
 
-    info!("🎨 Using render format: {:?}", render_format);
+    debug!("🎨 Using render format: {:?}", render_format);
 
     // Add timing and detailed error context
     let start_time = std::time::Instant::now();
     let bridge_state: &BridgeState = state.inner();
     match render_view_process(state_json, bridge_state, render_format).await {
         Ok(result) => {
-            info!(
+            debug!(
                 "🎨 render_view completed successfully in {}ms, result size: {} bytes",
                 start_time.elapsed().as_millis(),
                 result.len()
@@ -7949,6 +7963,88 @@ async fn batch_render_slices(
 
 // --- Atlas Management Commands ---
 
+fn spawn_atlas_progress_forwarder<R: Runtime + 'static>(
+    app: tauri::AppHandle<R>,
+    mut progress_rx: tokio::sync::broadcast::Receiver<AtlasLoadProgress>,
+) -> (
+    tokio::sync::oneshot::Sender<()>,
+    tokio::task::JoinHandle<()>,
+) {
+    let (stop_tx, mut stop_rx) = tokio::sync::oneshot::channel::<()>();
+    let task = tokio::spawn(async move {
+        loop {
+            tokio::select! {
+                _ = &mut stop_rx => {
+                    break;
+                }
+                update = progress_rx.recv() => {
+                    match update {
+                        Ok(progress) => {
+                            if let Err(err) = app.emit("atlas-progress", &progress) {
+                                debug!("Failed to emit atlas-progress event: {}", err);
+                            }
+
+                            if matches!(
+                                progress.stage,
+                                atlases::LoadingStage::Complete | atlases::LoadingStage::Error
+                            ) {
+                                break;
+                            }
+                        }
+                        Err(tokio::sync::broadcast::error::RecvError::Lagged(skipped)) => {
+                            warn!("Atlas progress forwarder lagged by {} messages", skipped);
+                        }
+                        Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+                    }
+                }
+            }
+        }
+    });
+
+    (stop_tx, task)
+}
+
+fn spawn_template_progress_forwarder<R: Runtime + 'static>(
+    app: tauri::AppHandle<R>,
+    mut progress_rx: tokio::sync::broadcast::Receiver<templates::TemplateLoadProgress>,
+) -> (
+    tokio::sync::oneshot::Sender<()>,
+    tokio::task::JoinHandle<()>,
+) {
+    let (stop_tx, mut stop_rx) = tokio::sync::oneshot::channel::<()>();
+    let task = tokio::spawn(async move {
+        loop {
+            tokio::select! {
+                _ = &mut stop_rx => {
+                    break;
+                }
+                update = progress_rx.recv() => {
+                    match update {
+                        Ok(progress) => {
+                            if let Err(err) = app.emit("template-progress", &progress) {
+                                debug!("Failed to emit template-progress event: {}", err);
+                            }
+
+                            if matches!(
+                                progress.stage,
+                                templates::LoadingStage::Complete | templates::LoadingStage::Error
+                            ) {
+                                break;
+                            }
+                        }
+                        Err(tokio::sync::broadcast::error::RecvError::Lagged(skipped)) => {
+                            warn!("Template progress forwarder lagged by {} messages", skipped);
+                        }
+                        Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+                    }
+                }
+            }
+        }
+    });
+
+    (stop_tx, task)
+}
+
 #[command]
 #[tracing::instrument(skip_all, err, name = "api.get_atlas_catalog")]
 async fn get_atlas_catalog(state: State<'_, BridgeState>) -> BridgeResult<Vec<AtlasCatalogEntry>> {
@@ -8088,9 +8184,10 @@ async fn validate_atlas_config(
 
 #[command]
 #[tracing::instrument(skip_all, err, name = "api.load_atlas")]
-async fn load_atlas(
+async fn load_atlas<R: Runtime>(
     config: AtlasConfig,
     state: State<'_, BridgeState>,
+    window: tauri::Window<R>,
 ) -> BridgeResult<AtlasLoadResult> {
     info!(
         "Bridge: load_atlas called for atlas: {} in space: {}",
@@ -8101,15 +8198,22 @@ async fn load_atlas(
 
     // 1) Load atlas via AtlasService to get metadata/progress and ensure data is fetched.
     let atlas_service = state.atlas_service.lock().await;
-    let internal_result =
-        atlas_service
-            .load_atlas(config)
-            .await
-            .map_err(|e| BridgeError::Internal {
-                code: 6008,
-                details: format!("Failed to load atlas: {}", e),
-            })?;
+    let progress_rx = atlas_service.subscribe_progress();
+    let (stop_progress_tx, progress_task) =
+        spawn_atlas_progress_forwarder(window.app_handle().clone(), progress_rx);
+
+    let internal_result = atlas_service.load_atlas(config).await;
     drop(atlas_service);
+
+    let _ = stop_progress_tx.send(());
+    if let Err(join_err) = progress_task.await {
+        debug!("Atlas progress forwarder task ended early: {}", join_err);
+    }
+
+    let internal_result = internal_result.map_err(|e| BridgeError::Internal {
+        code: 6008,
+        details: format!("Failed to load atlas: {}", e),
+    })?;
 
     // 2) Locate the underlying neuroatlas NIfTI on disk.
     let nifti_path =
@@ -8367,21 +8471,30 @@ async fn validate_template_config(
 /// Load a template and return the template metadata with volume handle
 #[command]
 #[tracing::instrument(skip_all, err, name = "api.load_template")]
-async fn load_template(
+async fn load_template<R: Runtime>(
     config: templates::TemplateConfig,
     state: State<'_, BridgeState>,
+    window: tauri::Window<R>,
 ) -> BridgeResult<templates::TemplateLoadResult> {
     info!("Bridge: load_template called for template: {}", config.id());
 
     let template_service = state.template_service.lock().await;
-    let result =
-        template_service
-            .load_template(config)
-            .await
-            .map_err(|e| BridgeError::Internal {
-                code: 7005,
-                details: format!("Failed to load template: {}", e),
-            })?;
+    let progress_rx = template_service.subscribe_progress();
+    let (stop_progress_tx, progress_task) =
+        spawn_template_progress_forwarder(window.app_handle().clone(), progress_rx);
+
+    let result = template_service.load_template(config).await;
+    drop(template_service);
+
+    let _ = stop_progress_tx.send(());
+    if let Err(join_err) = progress_task.await {
+        debug!("Template progress forwarder task ended early: {}", join_err);
+    }
+
+    let result = result.map_err(|e| BridgeError::Internal {
+        code: 7005,
+        details: format!("Failed to load template: {}", e),
+    })?;
 
     Ok(result)
 }
@@ -8389,9 +8502,10 @@ async fn load_template(
 /// Load a template by its menu ID (e.g., "MNI152NLin2009cAsym_T1w_1mm")
 #[command]
 #[tracing::instrument(skip_all, err, name = "api.load_template_by_id")]
-async fn load_template_by_id(
+async fn load_template_by_id<R: Runtime>(
     template_id: String,
     state: State<'_, BridgeState>,
+    window: tauri::Window<R>,
 ) -> BridgeResult<templates::TemplateLoadResult> {
     info!(
         "Bridge: load_template_by_id called for template: {}",
@@ -8403,23 +8517,29 @@ async fn load_template_by_id(
 
     // Load the template through the template service
     let template_service = state.template_service.lock().await;
-    let result =
-        template_service
-            .load_template(config)
-            .await
-            .map_err(|e| BridgeError::Internal {
-                code: 7006,
-                details: format!("Failed to load template by ID: {}", e),
-            })?;
+    let progress_rx = template_service.subscribe_progress();
+    let (stop_progress_tx, progress_task) =
+        spawn_template_progress_forwarder(window.app_handle().clone(), progress_rx);
+
+    let result = template_service.load_template(config).await;
+    drop(template_service);
+
+    let _ = stop_progress_tx.send(());
+    if let Err(join_err) = progress_task.await {
+        debug!("Template-by-id progress forwarder task ended early: {}", join_err);
+    }
+
+    let result = result.map_err(|e| BridgeError::Internal {
+        code: 7006,
+        details: format!("Failed to load template by ID: {}", e),
+    })?;
 
     // Get the cache path from the template service
-    let cache_path =
-        template_service
-            .get_cache_path(&template_id)
-            .map_err(|e| BridgeError::Internal {
-                code: 7007,
-                details: format!("Failed to get template cache path: {}", e),
-            })?;
+    let template_service = state.template_service.lock().await;
+    let cache_path = template_service.get_cache_path(&template_id).map_err(|e| BridgeError::Internal {
+            code: 7007,
+            details: format!("Failed to get template cache path: {}", e),
+        })?;
     drop(template_service);
 
     // Load the volume data for the registry (similar to load_file)

@@ -96,6 +96,7 @@ class KeyboardShortcutService {
   }
 
   private handleKeyDown = (event: KeyboardEvent): void => {
+    if (event.defaultPrevented) return;
     if (isInputTarget(event.target)) return;
 
     const eventKey = normalizeKey(event.key);

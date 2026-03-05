@@ -13,6 +13,7 @@ interface RemoteMountProfile {
   remote_path: string;
   auth_method: string;
   has_password: boolean;
+  updated_at_ms?: number;
 }
 
 interface RemoteHostKeyChallenge {
@@ -109,6 +110,7 @@ function withAuthHint(message: string, authMethod: RemoteAuthMethod): string {
   const hasPublicKey = lowered.includes('publickey');
   const hasPassword = lowered.includes('password');
   const hasKeyboardInteractive = lowered.includes('keyboard-interactive');
+  const keyboardInteractiveOnly = hasKeyboardInteractive && !hasPublicKey && !hasPassword;
   const onlyKeyBasedMethods = hasPublicKey && !hasPassword && !hasKeyboardInteractive;
 
   if (
@@ -124,7 +126,34 @@ function withAuthHint(message: string, authMethod: RemoteAuthMethod): string {
     );
   }
 
+  if (isAuthDenied && mentionsRemainingMethods && keyboardInteractiveOnly) {
+    if (authMethod !== 'keyboard_interactive') {
+      return (
+        `${message} ` +
+        'This host expects keyboard-interactive authentication (often MFA/Duo). ' +
+        'Switch Auth Method to Keyboard Interactive and retry.'
+      );
+    }
+
+    return (
+      `${message} ` +
+      'Keyboard-interactive is enabled but authentication still failed. ' +
+      'Verify username/case and complete the MFA prompt (Duo/passcode).'
+    );
+  }
+
   return message;
+}
+
+function sortProfilesByMostRecent(profiles: RemoteMountProfile[]): RemoteMountProfile[] {
+  return [...profiles].sort((a, b) => {
+    const aUpdated = a.updated_at_ms ?? 0;
+    const bUpdated = b.updated_at_ms ?? 0;
+    if (aUpdated !== bUpdated) {
+      return bUpdated - aUpdated;
+    }
+    return a.name.localeCompare(b.name);
+  });
 }
 
 export function RemoteMountDialog({ isOpen, onClose, onMounted }: RemoteMountDialogProps) {
@@ -169,7 +198,13 @@ export function RemoteMountDialog({ isOpen, onClose, onMounted }: RemoteMountDia
           'list_remote_mount_profiles'
         );
         if (!active) return;
-        setProfiles(loadedProfiles);
+        const sortedProfiles = sortProfilesByMostRecent(loadedProfiles);
+        setProfiles(sortedProfiles);
+        if (sortedProfiles.length > 0) {
+          const recentProfile = sortedProfiles[0];
+          setSelectedProfileId(recentProfile.id);
+          applyProfile(recentProfile);
+        }
       } catch (profileError) {
         if (!active) return;
         const message = formatTauriError(profileError) || 'Failed to load remote mount profiles.';
@@ -208,6 +243,7 @@ export function RemoteMountDialog({ isOpen, onClose, onMounted }: RemoteMountDia
   const handleProfileSelect = (profileId: string) => {
     setSelectedProfileId(profileId);
     if (!profileId) {
+      setForm(DEFAULT_FORM);
       return;
     }
     const profile = profiles.find((candidate) => candidate.id === profileId);

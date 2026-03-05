@@ -779,9 +779,9 @@ mod tests {
         // With voxel_to_world = diag(-1, +1, +1) + [90, -126, -72], the axial
         // X world range should stay around [+90 .. -91], not drift to -270 range.
         let voxel_to_world = Matrix4::new(
-            -1.0, 0.0, 0.0, 90.0,   //
-            0.0, 1.0, 0.0, -126.0,  //
-            0.0, 0.0, 1.0, -72.0,   //
+            -1.0, 0.0, 0.0, 90.0, //
+            0.0, 1.0, 0.0, -126.0, //
+            0.0, 0.0, 1.0, -72.0, //
             0.0, 0.0, 0.0, 1.0,
         );
 

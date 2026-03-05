@@ -28,14 +28,14 @@ export function PropertyRow({
   className
 }: PropertyRowProps) {
   return (
-    <div className={cn('flex justify-between items-baseline gap-4', className)}>
-      <span className="text-[10px] uppercase tracking-widest text-muted-foreground font-semibold shrink-0">
+    <div className={cn('flex justify-between items-baseline gap-3', className)}>
+      <span className="bf-role-section text-muted-foreground shrink-0">
         {label}
       </span>
       <span
         className={cn(
-          'text-xs text-foreground',
-          mono ? 'font-mono' : 'font-medium',
+          'bf-role-value text-foreground',
+          mono ? 'bf-role-mono tabular-nums' : 'font-medium',
           truncate && 'truncate'
         )}
         style={maxValueWidth ? { maxWidth: maxValueWidth } : undefined}
@@ -58,7 +58,7 @@ interface PropertyBoxProps {
 export function PropertyBox({ children, className }: PropertyBoxProps) {
   return (
     <div className={cn(
-      'bg-muted/30 border border-border p-3 space-y-2',
+      'bg-muted/30 border border-border rounded-appsm p-3 space-y-2',
       className
     )}>
       {children}

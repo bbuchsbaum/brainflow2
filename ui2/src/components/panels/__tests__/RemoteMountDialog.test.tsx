@@ -43,6 +43,86 @@ describe('RemoteMountDialog', () => {
     });
   });
 
+  it('prefills form from the most recently updated saved profile on open', async () => {
+    invokeMock.mockImplementation((cmd: string, _args?: InvokeArgs) => {
+      if (cmd === 'list_remote_mount_profiles') {
+        return Promise.resolve([
+          {
+            id: 'older',
+            name: 'older profile',
+            host: 'old.example.org',
+            port: 22,
+            user: 'olduser',
+            remote_path: '/old',
+            auth_method: 'agent',
+            has_password: false,
+            updated_at_ms: 10,
+          },
+          {
+            id: 'newer',
+            name: 'newer profile',
+            host: 'new.example.org',
+            port: 2222,
+            user: 'newuser',
+            remote_path: '/new',
+            auth_method: 'key_file',
+            has_password: false,
+            updated_at_ms: 20,
+          },
+        ]);
+      }
+      return Promise.reject(new Error(`Unhandled command: ${cmd}`));
+    });
+
+    setupDialog();
+
+    await waitFor(() => {
+      expect(screen.getByLabelText('Saved Profile')).toHaveValue('newer');
+      expect(screen.getByLabelText('Host')).toHaveValue('new.example.org');
+      expect(screen.getByLabelText('Port')).toHaveValue('2222');
+      expect(screen.getByLabelText('User')).toHaveValue('newuser');
+      expect(screen.getByLabelText('Remote Folder')).toHaveValue('/new');
+      expect(screen.getByLabelText('Auth Method')).toHaveValue('key_file');
+    });
+  });
+
+  it('resets to default fields when switching from a profile to new connection', async () => {
+    invokeMock.mockImplementation((cmd: string, _args?: InvokeArgs) => {
+      if (cmd === 'list_remote_mount_profiles') {
+        return Promise.resolve([
+          {
+            id: 'profile-1',
+            name: 'profile 1',
+            host: 'login.example.org',
+            port: 22,
+            user: 'alice',
+            remote_path: '/data',
+            auth_method: 'agent',
+            has_password: false,
+            updated_at_ms: 1,
+          },
+        ]);
+      }
+      return Promise.reject(new Error(`Unhandled command: ${cmd}`));
+    });
+
+    setupDialog();
+
+    await waitFor(() => {
+      expect(screen.getByLabelText('Saved Profile')).toHaveValue('profile-1');
+    });
+
+    fireEvent.change(screen.getByLabelText('Saved Profile'), { target: { value: '' } });
+
+    await waitFor(() => {
+      expect(screen.getByLabelText('Host')).toHaveValue('');
+      expect(screen.getByLabelText('Port')).toHaveValue('22');
+      expect(screen.getByLabelText('User')).toHaveValue('');
+      expect(screen.getByLabelText('Remote Folder')).toHaveValue('/');
+      expect(screen.getByLabelText('Auth Method')).toHaveValue('password');
+    });
+  });
+
   it('connects directly when backend returns connected', async () => {
     const mount = {
       mount_id: 'mount-1',
@@ -294,6 +374,40 @@ describe('RemoteMountDialog', () => {
       expect(
         screen.getByText(/Switch Auth Method to SSH Agent or SSH Key File/)
       ).toBeInTheDocument();
+    });
+  });
+
+  it('adds keyboard-interactive hint when that is the only offered auth method', async () => {
+    invokeMock.mockImplementation((cmd: string, _args?: InvokeArgs) => {
+      if (cmd === 'list_remote_mount_profiles') {
+        return Promise.resolve([]);
+      }
+      if (cmd === 'remote_mount_connect') {
+        return Promise.reject({
+          Input: {
+            code: 8224,
+            details:
+              "SSH authentication denied: SSH error: authentication denied for user 'brad' (partial_success=false, remaining=[\"keyboard-interactive\", \"hostbased\"])",
+          },
+        });
+      }
+      return Promise.reject(new Error(`Unhandled command: ${cmd}`));
+    });
+
+    setupDialog();
+
+    await waitFor(() => {
+      expect(invokeMock).toHaveBeenCalledWith('list_remote_mount_profiles');
+    });
+
+    fillPasswordForm();
+    fireEvent.click(screen.getByRole('button', { name: 'Connect' }));
+
+    await waitFor(() => {
+      expect(
+        screen.getByText(/This host expects keyboard-interactive authentication/)
+      ).toBeInTheDocument();
+      expect(screen.getByText(/Switch Auth Method to Keyboard Interactive/)).toBeInTheDocument();
     });
   });
 

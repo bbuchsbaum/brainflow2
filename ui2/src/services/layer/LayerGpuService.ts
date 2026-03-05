@@ -42,6 +42,18 @@ export class LayerGpuService {
     return this.transport.invoke('release_layer_gpu_resources', { layerId });
   }
 
+  async waitForLayerReady(
+    layerId: string,
+    timeoutMs: number = 5000,
+    pollIntervalMs: number = 25
+  ): Promise<boolean> {
+    return this.transport.invoke<boolean>('wait_for_layer_ready', {
+      layerId,
+      timeoutMs,
+      pollIntervalMs,
+    });
+  }
+
   async patchLayer(layerId: string, patch: Record<string, any>): Promise<void> {
     return this.transport.invoke('patch_layer', { layerId, patch });
   }

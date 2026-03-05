@@ -81,10 +81,9 @@ export enum AtlasLoadStatus {
 
 export interface AtlasLoadProgress {
   atlas_id: string;
-  operation: string;
-  status: AtlasLoadStatus;
+  stage: LoadingStage;
+  progress: number; // 0.0 - 1.0
   message: string;
-  percent_complete: number; // 0-100
 }
 
 export interface AtlasMetadata {

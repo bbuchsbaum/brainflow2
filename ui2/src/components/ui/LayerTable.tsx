@@ -1,11 +1,11 @@
 import React, { useRef, useEffect, useState, useCallback } from 'react';
 import type { Layer } from '@/types/layers';
 import { VscEye, VscEyeClosed } from 'react-icons/vsc';
-import { GripVertical, Info, Trash2 } from 'lucide-react';
-import { MetadataPopover } from './MetadataPopover';
+import { GripVertical, Info, MoreHorizontal, Trash2 } from 'lucide-react';
 import { LayerTypeIcon } from './LayerTypeIcon';
 import { cn } from '@/utils/cn';
 import { Tooltip } from './Tooltip';
+import { DropdownMenu } from './DropdownMenu';
 import {
   DndContext,
   PointerSensor,
@@ -35,6 +35,33 @@ interface LayerTableProps {
   // Function to get visibility state from opacity (single source of truth)
   getLayerVisibility?: (layerId: string) => boolean;
   getLayerOpacity?: (layerId: string) => number;
+}
+
+type LayerWithMeta = Layer & {
+  source?: string;
+  layerType?: 'volume' | 'surface' | 'vol2surf';
+  opacity?: number;
+  loading?: boolean;
+  error?: string;
+};
+
+function toLabelCase(value: string): string {
+  if (!value) return value;
+  return value
+    .replace(/[_-]+/g, ' ')
+    .replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+function getLayerKindLabel(layer: LayerWithMeta): string {
+  if (layer.layerType) {
+    return toLabelCase(layer.layerType);
+  }
+  return toLabelCase(layer.type ?? 'layer');
+}
+
+function getSourceLabel(layer: LayerWithMeta): string | null {
+  if (!layer.source) return null;
+  return toLabelCase(layer.source);
 }
 
 // Component to handle layer name with tooltip on truncation
@@ -79,7 +106,7 @@ const LayerNameWithTooltip: React.FC<{ name: string; isSelected: boolean }> = ({
 
 // Individual sortable layer row
 interface SortableLayerRowProps {
-  layer: Layer;
+  layer: LayerWithMeta;
   isSelected: boolean;
   isVisible: boolean;
   opacity: number;
@@ -120,15 +147,24 @@ const SortableLayerRow: React.FC<SortableLayerRowProps> = ({
     position: 'relative',
     zIndex: isDragging ? 10 : undefined,
   };
+  const layerKindLabel = getLayerKindLabel(layer);
+  const sourceLabel = getSourceLabel(layer);
 
   return (
     <div
       ref={setNodeRef}
+      id={`layer-option-${layer.id}`}
       style={style}
       role="option"
       aria-selected={isSelected}
       tabIndex={isSelected ? 0 : -1}
-      className={cn("layer-row group", isSelected && "selected")}
+      className={cn(
+        "layer-row group border-l-[3px]",
+        isSelected
+          ? "border-l-accent bg-muted/40"
+          : "border-l-transparent hover:border-l-border",
+        !isVisible && "opacity-70"
+      )}
       onClick={onSelect}
     >
       {/* Drag handle */}
@@ -136,9 +172,8 @@ const SortableLayerRow: React.FC<SortableLayerRowProps> = ({
         ref={setActivatorNodeRef}
         {...attributes}
         {...listeners}
-        className="icon-btn cursor-grab active:cursor-grabbing touch-none"
+        className="icon-btn cursor-grab active:cursor-grabbing touch-none shrink-0"
         aria-label="Drag to reorder"
-        tabIndex={-1}
         onClick={(e) => e.stopPropagation()}
       >
         <GripVertical className="h-4 w-4 text-muted-foreground/40 group-hover:text-muted-foreground" />
@@ -154,7 +189,6 @@ const SortableLayerRow: React.FC<SortableLayerRowProps> = ({
         aria-label={isVisible ? `Hide ${layer.name}` : `Show ${layer.name}`}
         aria-pressed={isVisible}
         data-state={isVisible ? "on" : "off"}
-        tabIndex={-1}
       >
         {isVisible ? (
           <VscEye className="h-4 w-4" />
@@ -164,21 +198,42 @@ const SortableLayerRow: React.FC<SortableLayerRowProps> = ({
       </button>
 
       {/* Layer type icon */}
-      {'layerType' in layer && (
-        <div className="px-1">
+      {layer.layerType && (
+        <div className="px-0.5 shrink-0">
           <LayerTypeIcon
-            type={(layer as any).layerType}
+            type={layer.layerType}
             className={isSelected ? "text-accent" : "text-muted-foreground"}
           />
         </div>
       )}
 
-      {/* Layer name */}
-      <LayerNameWithTooltip name={layer.name} isSelected={isSelected} />
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-1.5">
+          <LayerNameWithTooltip name={layer.name} isSelected={isSelected} />
+          {layer.loading && (
+            <span className="rounded border border-border bg-muted px-1 py-px text-[9px] font-medium uppercase tracking-[0.08em] text-muted-foreground">
+              Loading
+            </span>
+          )}
+          {layer.error && (
+            <span className="rounded border border-destructive/40 bg-destructive/10 px-1 py-px text-[9px] font-medium uppercase tracking-[0.08em] text-destructive">
+              Error
+            </span>
+          )}
+        </div>
+        <div className="mt-0.5 flex items-center gap-1.5 text-[10px] text-muted-foreground">
+          <span className="rounded border border-border px-1 py-px uppercase tracking-[0.08em]">
+            {layerKindLabel}
+          </span>
+          {sourceLabel && (
+            <span className="truncate">Source: {sourceLabel}</span>
+          )}
+        </div>
+      </div>
 
       {/* Opacity mini-slider */}
       <div
-        className="flex items-center gap-1 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity"
+        className="flex items-center gap-1 shrink-0"
         onClick={(e) => e.stopPropagation()}
         title={`Opacity: ${Math.round(opacity * 100)}%`}
       >
@@ -188,52 +243,59 @@ const SortableLayerRow: React.FC<SortableLayerRowProps> = ({
           max={100}
           value={Math.round(opacity * 100)}
           onChange={(e) => onOpacityChange(Number(e.target.value) / 100)}
-          className="w-[52px] h-1 accent-accent cursor-pointer"
-          tabIndex={-1}
+          className="layer-opacity-slider w-[52px]"
           aria-label={`Opacity for ${layer.name}`}
         />
       </div>
-
-      {/* Info button */}
-      <MetadataPopover layerId={layer.id}>
-        <button
-          className={cn(
-            "icon-btn",
-            "opacity-0 group-hover:opacity-100 focus:opacity-100",
-            "transition-all duration-200",
-            "hover:bg-accent/20 active:bg-accent/30",
-            "rounded-md p-1"
-          )}
-          onClick={(e) => {
-            e.stopPropagation();
-            onShowMetadata?.();
-          }}
-          aria-label={`View metadata for ${layer.name}`}
-          tabIndex={-1}
-        >
-          <Info className="h-4 w-4 text-muted-foreground" />
-        </button>
-      </MetadataPopover>
 
       {onRemove && (
         <button
           className={cn(
             "icon-btn",
-            "opacity-0 group-hover:opacity-100 focus:opacity-100",
-            "transition-all duration-200",
+            "transition-colors",
             "hover:bg-destructive/20 active:bg-destructive/30",
-            "rounded-md p-1"
+            "rounded-md"
           )}
           onClick={(e) => {
             e.stopPropagation();
             onRemove();
           }}
           aria-label={`Remove ${layer.name}`}
-          tabIndex={-1}
         >
-          <Trash2 className="h-4 w-4 text-muted-foreground" />
+          <Trash2 className="h-4 w-4 text-muted-foreground hover:text-destructive" />
         </button>
       )}
+
+      <div className="shrink-0" onClick={(event) => event.stopPropagation()}>
+        <DropdownMenu
+          position="bottom-right"
+          trigger={
+            <button
+              type="button"
+              className="icon-btn rounded-md"
+              aria-label={`Layer actions for ${layer.name}`}
+            >
+              <MoreHorizontal className="h-4 w-4 text-muted-foreground" />
+            </button>
+          }
+          items={[
+            {
+              id: 'metadata',
+              label: 'View metadata',
+              icon: <Info className="h-3.5 w-3.5" />,
+              onClick: onShowMetadata,
+            },
+            {
+              id: 'remove',
+              label: 'Remove layer',
+              icon: <Trash2 className="h-3.5 w-3.5" />,
+              danger: true,
+              disabled: !onRemove,
+              onClick: onRemove,
+            },
+          ]}
+        />
+      </div>
     </div>
   );
 };
@@ -251,7 +313,6 @@ export const LayerTable: React.FC<LayerTableProps> = ({
   getLayerOpacity,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
-  const selectedRef = useRef<HTMLDivElement>(null);
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -274,49 +335,42 @@ export const LayerTable: React.FC<LayerTableProps> = ({
     onReorder?.(reordered);
   }, [layers, onReorder]);
 
-  // Handle keyboard navigation within the list
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (!containerRef.current?.contains(document.activeElement)) return;
+  const handleListKeyDown = useCallback((event: React.KeyboardEvent<HTMLDivElement>) => {
+    const target = event.target as HTMLElement;
+    if (target.tagName === 'INPUT') return;
 
-      const currentIndex = layers.findIndex(l => l.id === selectedLayerId);
-      let newIndex = currentIndex;
+    const currentIndex = layers.findIndex((layer) => layer.id === selectedLayerId);
+    let newIndex = currentIndex;
 
-      switch (e.key) {
-        case 'ArrowDown':
-          e.preventDefault();
-          newIndex = Math.min(currentIndex + 1, layers.length - 1);
-          break;
-        case 'ArrowUp':
-          e.preventDefault();
-          newIndex = Math.max(currentIndex - 1, 0);
-          break;
-        case 'Enter':
-        case ' ':
-          e.preventDefault();
-          if (currentIndex >= 0) {
-            onToggleVisibility(layers[currentIndex].id);
-          }
-          break;
-        default:
-          return;
-      }
-
-      if (newIndex !== currentIndex && newIndex >= 0) {
-        onSelect(layers[newIndex].id);
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [layers, selectedLayerId, onSelect, onToggleVisibility]);
-
-  // Scroll selected item into view
-  useEffect(() => {
-    if (selectedRef.current) {
-      selectedRef.current.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    switch (event.key) {
+      case 'ArrowRight':
+      case 'ArrowLeft':
+        // Prevent horizontal scrolling of parent containers while layer list is focused.
+        event.preventDefault();
+        return;
+      case 'ArrowDown':
+        event.preventDefault();
+        newIndex = Math.min(currentIndex + 1, layers.length - 1);
+        break;
+      case 'ArrowUp':
+        event.preventDefault();
+        newIndex = Math.max(currentIndex - 1, 0);
+        break;
+      case 'Enter':
+      case ' ':
+        event.preventDefault();
+        if (currentIndex >= 0) {
+          onToggleVisibility(layers[currentIndex].id);
+        }
+        break;
+      default:
+        return;
     }
-  }, [selectedLayerId]);
+
+    if (newIndex !== currentIndex && newIndex >= 0) {
+      onSelect(layers[newIndex].id);
+    }
+  }, [layers, selectedLayerId, onSelect, onToggleVisibility]);
 
   if (layers.length === 0) {
     // VolumeLayerPanel renders a dedicated empty-state component.
@@ -338,21 +392,23 @@ export const LayerTable: React.FC<LayerTableProps> = ({
             className="space-y-1"
             role="listbox"
             aria-label="Layer list"
-            aria-activedescendant={selectedLayerId || undefined}
+            aria-activedescendant={selectedLayerId ? `layer-option-${selectedLayerId}` : undefined}
+            onKeyDown={handleListKeyDown}
           >
             {layers.map((layer) => {
+              const layerWithMeta = layer as LayerWithMeta;
               const isSelected = layer.id === selectedLayerId;
               const isVisible = getLayerVisibility
                 ? getLayerVisibility(layer.id)
                 : layer.visible;
               const opacity = getLayerOpacity
                 ? getLayerOpacity(layer.id)
-                : (layer as any).opacity ?? 1.0;
+                : layerWithMeta.opacity ?? 1.0;
 
               return (
                 <SortableLayerRow
                   key={layer.id}
-                  layer={layer}
+                  layer={layerWithMeta}
                   isSelected={isSelected}
                   isVisible={isVisible}
                   opacity={opacity}

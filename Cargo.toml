@@ -60,4 +60,25 @@ strip = true
 opt-level = 'z'
 panic = 'abort'
 
+[profile.dev]
+debug = 1
+split-debuginfo = "unpacked"
+
+[profile.dev.package."*"]
+debug = 0
+
+# Keep day-to-day `cargo tauri dev` responsive while making hot runtime paths
+# (NIfTI decode + bridge orchestration + GPU upload/render) substantially faster.
+[profile.dev.package.render_loop]
+opt-level = 2
+
+[profile.dev.package.api-bridge]
+opt-level = 2
+
+[profile.dev.package.nifti-loader]
+opt-level = 2
+
+[profile.dev.package.volmath]
+opt-level = 2
+
 # [patch.crates-io] section removed 

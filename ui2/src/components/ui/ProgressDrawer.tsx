@@ -13,8 +13,6 @@ import {
   VscError, 
   VscStopCircle,
   VscClose,
-  VscChevronDown,
-  VscChevronRight 
 } from 'react-icons/vsc';
 import './ProgressDrawer.css';
 
@@ -348,8 +346,8 @@ export function ProgressDrawer({ onClose }: ProgressDrawerProps) {
             </button>
           )}
           
-          {/* Test progress buttons */}
-          <TestProgressButtons />
+          {/* Debug-only controls */}
+          {import.meta.env.DEV && <TestProgressButtons />}
         </div>
       </div>
     </>

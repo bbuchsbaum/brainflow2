@@ -9,7 +9,6 @@ import { AtlasService } from './AtlasService';
 import { useSurfaceStore } from '@/stores/surfaceStore';
 import { getEventBus } from '@/events/EventBus';
 import { buildLabelRgbaFromPalette } from '@/hooks/atlasSurfaceColorUtils';
-import type { DisplayLayer } from '@/types/displayLayer';
 import type { AtlasPaletteKind } from '@/types/atlasPalette';
 
 // Debug toggle for comprehensive logging
@@ -353,7 +352,7 @@ export class SurfaceOverlayService {
       };
 
       // Add to surface store using actions so state updates propagate
-      const { addDataLayer, upsertDisplayLayer } = surfaceState;
+      const { addDataLayer } = surfaceState;
       addDataLayer(targetSurfaceId, {
         id: dataLayer.id,
         name: dataLayer.name,
@@ -378,21 +377,8 @@ export class SurfaceOverlayService {
         std,
       });
 
-      // Register a display-layer entry so UI controls can toggle visibility
-      const displayLayer: DisplayLayer = {
-        id: dataLayer.id,
-        name: dataLayer.name,
-        type: layerRgba && layerLabels ? 'label' : 'scalar',
-        visible: true,
-        opacity: dataLayer.opacity,
-        colormap: dataLayer.colormap,
-        intensity: dataLayer.range,
-        threshold: dataLayer.threshold,
-      };
-      upsertDisplayLayer(targetSurfaceId, displayLayer);
-
       debugLog('store', `Added data layer to store: ${dataLayer.id}`);
-      debugLog('store', `Display layer created with colormap: ${displayLayer.colormap}, visible: ${displayLayer.visible}`);
+      debugLog('store', `Display layer derived from data layer: ${dataLayer.id}`);
 
       // Notify UI of update
       getEventBus().emit('surface.dataLayerAdded', {
@@ -457,22 +443,21 @@ export class SurfaceOverlayService {
   ): void {
     const surfaceStore = useSurfaceStore.getState();
     const surface = surfaceStore.surfaces.get(surfaceId);
-    
-    if (surface && surface.layers) {
-      const layer = surface.layers.get(layerId);
-      if (layer) {
-        // Update the layer
-        const updatedLayer = { ...layer, ...updates };
-        surface.layers.set(layerId, updatedLayer);
-        surfaceStore.surfaces.set(surfaceId, surface);
-        
-        getEventBus().emit('surface.dataLayerUpdated', {
-          surfaceId,
-          layerId,
-          updates,
-        });
-      }
+    const layer = surface?.layers?.get(layerId);
+    if (!layer) {
+      return;
     }
+
+    // Keep data + display representations synchronized through store actions.
+    for (const [property, value] of Object.entries(updates)) {
+      surfaceStore.updateLayerProperty(surfaceId, layerId, property, value);
+    }
+
+    getEventBus().emit('surface.dataLayerUpdated', {
+      surfaceId,
+      layerId,
+      updates: updates as Record<string, unknown>,
+    });
   }
   
   /**

@@ -17,6 +17,17 @@ import type { ViewState } from '@/types/viewState';
 import type { ApiService } from './apiService';
 import { nanoid } from 'nanoid';
 
+const DEBUG_RENDER_SESSION =
+  import.meta.env.DEV &&
+  typeof window !== 'undefined' &&
+  window.localStorage.getItem('brainflow2-debug-render-session') === 'true';
+
+const renderSessionDebugLog = (...args: unknown[]) => {
+  if (DEBUG_RENDER_SESSION) {
+    console.log(...args);
+  }
+};
+
 export interface RenderSessionMetadata {
   sessionId: string;
   createdAt: number;
@@ -51,7 +62,7 @@ export class RenderSession {
       disposed: false
     };
     
-    console.log(`[RenderSession ${this.sessionId}] Created`);
+    renderSessionDebugLog(`[RenderSession ${this.sessionId}] Created`);
   }
   
   /**
@@ -104,7 +115,7 @@ export class RenderSession {
       this.metadata.renderCount++;
       this.metadata.totalRenderTime += renderTime;
       
-      console.log(`[RenderSession ${this.sessionId}] Rendered ${viewType} in ${renderTime.toFixed(1)}ms`);
+      renderSessionDebugLog(`[RenderSession ${this.sessionId}] Rendered ${viewType} in ${renderTime.toFixed(1)}ms`);
       
       return {
         bitmap,
@@ -140,7 +151,7 @@ export class RenderSession {
       throw new Error(`RenderSession ${this.sessionId} has been disposed`);
     }
     
-    console.log(`[RenderSession ${this.sessionId}] Starting batch render of ${requests.length} views`);
+    renderSessionDebugLog(`[RenderSession ${this.sessionId}] Starting batch render of ${requests.length} views`);
 
     if (requests.length > 1) {
       const firstViewState = requests[0].viewState;
@@ -195,7 +206,7 @@ export class RenderSession {
   async cancelActiveRenders(): Promise<void> {
     if (this.activeRenders.size === 0) return;
     
-    console.log(`[RenderSession ${this.sessionId}] Cancelling ${this.activeRenders.size} active renders`);
+    renderSessionDebugLog(`[RenderSession ${this.sessionId}] Cancelling ${this.activeRenders.size} active renders`);
     
     // Note: We can't actually cancel the backend renders,
     // but we can stop waiting for them
@@ -208,7 +219,7 @@ export class RenderSession {
   async dispose(): Promise<void> {
     if (this.disposed) return;
     
-    console.log(`[RenderSession ${this.sessionId}] Disposing session`, {
+    renderSessionDebugLog(`[RenderSession ${this.sessionId}] Disposing session`, {
       renderCount: this.metadata.renderCount,
       avgRenderTime: this.metadata.renderCount > 0 
         ? (this.metadata.totalRenderTime / this.metadata.renderCount).toFixed(1)

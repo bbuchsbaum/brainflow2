@@ -273,6 +273,17 @@ impl SmartTextureManager {
         let space = volume.space();
         let dims = space.dims();
         let dimensions = [dims[0] as u32, dims[1] as u32, dims[2] as u32];
+        let max_3d_dim = device.limits().max_texture_dimension_3d;
+        if dimensions[0] > max_3d_dim || dimensions[1] > max_3d_dim || dimensions[2] > max_3d_dim
+        {
+            return Err(RenderLoopError::Internal {
+                code: 6006,
+                details: format!(
+                    "Volume dimensions {}x{}x{} exceed device 3D texture limit {}",
+                    dimensions[0], dimensions[1], dimensions[2], max_3d_dim
+                ),
+            });
+        }
 
         // Calculate memory requirement
         let memory_size = Self::calculate_memory_size(dimensions, format);

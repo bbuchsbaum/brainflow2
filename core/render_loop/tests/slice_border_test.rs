@@ -5,9 +5,7 @@ use render_loop::RenderLoopService;
 #[ignore = "Border overlay test depends on precise UBO layout across shaders; enable once stabilized."]
 fn test_slice_border_renders_visible_outline() {
     pollster::block_on(async {
-        let mut service = RenderLoopService::new()
-            .await
-            .expect("create service");
+        let mut service = RenderLoopService::new().await.expect("create service");
         service.load_shaders().expect("load shaders");
         service
             .enable_world_space_rendering()
@@ -53,13 +51,18 @@ fn test_slice_border_renders_visible_outline() {
                     let r = rgba[idx] as u32;
                     let g = rgba[idx + 1] as u32;
                     let b = rgba[idx + 2] as u32;
-                    if r + g + b > 550 { // near white
+                    if r + g + b > 550 {
+                        // near white
                         edge_hits += 1;
                     }
                 }
             }
         }
-        assert!(edge_hits > 200, "expected visible border, got {} edge hits", edge_hits);
+        assert!(
+            edge_hits > 200,
+            "expected visible border, got {} edge hits",
+            edge_hits
+        );
 
         // Turn border off and confirm reduction
         service
@@ -80,6 +83,9 @@ fn test_slice_border_renders_visible_outline() {
                 }
             }
         }
-        assert!(edge_hits2 < edge_hits / 2, "edge hits did not drop after disabling border");
+        assert!(
+            edge_hits2 < edge_hits / 2,
+            "edge hits did not drop after disabling border"
+        );
     })
 }

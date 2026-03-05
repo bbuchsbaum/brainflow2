@@ -68,6 +68,54 @@ export interface LoadedSurface {
   };
 }
 
+function deriveDisplayLayerFromDataLayer(
+  layer: SurfaceDataLayer,
+  existing?: DisplayLayer
+): DisplayLayer {
+  const type: DisplayLayer['type'] =
+    layer.labels instanceof Uint32Array
+      ? 'label'
+      : layer.rgba instanceof Float32Array
+        ? 'rgba'
+        : 'scalar';
+
+  const next: DisplayLayer = {
+    ...existing,
+    id: layer.id,
+    name: layer.name,
+    type,
+    visible: layer.visible ?? existing?.visible ?? true,
+    opacity: layer.opacity ?? existing?.opacity ?? 1,
+    colormap: layer.colormap ?? existing?.colormap,
+    intensity: layer.range,
+    threshold: layer.threshold,
+  };
+
+  if (layer.rgba) {
+    next.rgbaData = layer.rgba;
+  }
+  if (layer.labels) {
+    next.labels = layer.labels;
+  }
+
+  return next;
+}
+
+function applyDisplayLayerToDataLayer(
+  dataLayer: SurfaceDataLayer,
+  displayLayer: Partial<DisplayLayer>
+): SurfaceDataLayer {
+  return {
+    ...dataLayer,
+    ...(displayLayer.name !== undefined ? { name: displayLayer.name } : null),
+    ...(displayLayer.visible !== undefined ? { visible: displayLayer.visible } : null),
+    ...(displayLayer.opacity !== undefined ? { opacity: displayLayer.opacity } : null),
+    ...(displayLayer.colormap !== undefined ? { colormap: displayLayer.colormap } : null),
+    ...(displayLayer.intensity !== undefined ? { range: displayLayer.intensity } : null),
+    ...(displayLayer.threshold !== undefined ? { threshold: displayLayer.threshold } : null),
+  };
+}
+
 interface SurfaceRenderSettings {
   wireframe: boolean;
   opacity: number;
@@ -211,8 +259,18 @@ export const useSurfaceStore = create<SurfaceState>()(
           const updatedLayer = { visible: true, ...layer };
           const updatedLayers = new Map(surface.layers);
           updatedLayers.set(layer.id, updatedLayer);
+          const updatedDisplayLayers = new Map(surface.displayLayers);
+          const existingDisplayLayer = updatedDisplayLayers.get(layer.id);
+          updatedDisplayLayers.set(
+            layer.id,
+            deriveDisplayLayerFromDataLayer(updatedLayer, existingDisplayLayer)
+          );
 
-          const updatedSurface = { ...surface, layers: updatedLayers };
+          const updatedSurface = {
+            ...surface,
+            layers: updatedLayers,
+            displayLayers: updatedDisplayLayers,
+          };
           const updatedSurfaces = new Map(state.surfaces);
           updatedSurfaces.set(surfaceId, updatedSurface);
 
@@ -223,30 +281,37 @@ export const useSurfaceStore = create<SurfaceState>()(
       // Remove data layer
       removeDataLayer: (surfaceId: string, layerId: string) => {
         set((state) => {
-          const surfaces = new Map(state.surfaces);
-          const surface = surfaces.get(surfaceId);
-          if (surface) {
-            surface.layers.delete(layerId);
-            // Also drop any display layer entry with the same id
-            if (surface.displayLayers.has(layerId)) {
-              surface.displayLayers.delete(layerId);
-            }
-            // Clear selection if it pointed to this layer
-            const nextSelectedItemType =
-              state.selectedItemType === 'dataLayer' && state.selectedLayerId === layerId
-                ? null
-                : state.selectedItemType;
-            const nextSelectedLayerId =
-              state.selectedItemType === 'dataLayer' && state.selectedLayerId === layerId
-                ? null
-                : state.selectedLayerId;
-            return {
-              surfaces,
-              selectedItemType: nextSelectedItemType,
-              selectedLayerId: nextSelectedLayerId,
-            };
+          const surface = state.surfaces.get(surfaceId);
+          if (!surface) {
+            return state;
           }
-          return { surfaces };
+
+          if (!surface.layers.has(layerId) && !surface.displayLayers.has(layerId)) {
+            return state;
+          }
+
+          const layers = new Map(surface.layers);
+          layers.delete(layerId);
+          const displayLayers = new Map(surface.displayLayers);
+          displayLayers.delete(layerId);
+
+          const surfaces = new Map(state.surfaces);
+          surfaces.set(surfaceId, { ...surface, layers, displayLayers });
+
+          const nextSelectedItemType =
+            state.selectedItemType === 'dataLayer' && state.selectedLayerId === layerId
+              ? null
+              : state.selectedItemType;
+          const nextSelectedLayerId =
+            state.selectedItemType === 'dataLayer' && state.selectedLayerId === layerId
+              ? null
+              : state.selectedLayerId;
+
+          return {
+            surfaces,
+            selectedItemType: nextSelectedItemType,
+            selectedLayerId: nextSelectedLayerId,
+          };
         });
       },
       
@@ -266,9 +331,19 @@ export const useSurfaceStore = create<SurfaceState>()(
           // Create new layers Map with updated layer
           const newLayers = new Map(surface.layers);
           newLayers.set(layerId, updatedLayer);
+          const newDisplayLayers = new Map(surface.displayLayers);
+          const existingDisplayLayer = newDisplayLayers.get(layerId);
+          newDisplayLayers.set(
+            layerId,
+            deriveDisplayLayerFromDataLayer(updatedLayer, existingDisplayLayer)
+          );
 
-          // Create new surface with new layers Map
-          const updatedSurface = { ...surface, layers: newLayers };
+          // Create new surface with synchronized layers and displayLayers maps
+          const updatedSurface = {
+            ...surface,
+            layers: newLayers,
+            displayLayers: newDisplayLayers,
+          };
 
           // Create new surfaces Map with updated surface
           const newSurfaces = new Map(state.surfaces);
@@ -281,13 +356,24 @@ export const useSurfaceStore = create<SurfaceState>()(
       // Upsert a display layer (shared DTO for UI/render)
       upsertDisplayLayer: (surfaceId: string, layer: DisplayLayer) => {
         set((state) => {
-          const surfaces = new Map(state.surfaces);
-          const surface = surfaces.get(surfaceId);
+          const surface = state.surfaces.get(surfaceId);
           if (!surface) return state;
+
+          const layers = new Map(surface.layers);
+          const existingDataLayer = layers.get(layer.id);
           const displayLayers = new Map(surface.displayLayers);
-          displayLayers.set(layer.id, layer);
-          surface.displayLayers = displayLayers;
-          surfaces.set(surfaceId, surface);
+
+          if (existingDataLayer) {
+            const syncedDataLayer = applyDisplayLayerToDataLayer(existingDataLayer, layer);
+            layers.set(layer.id, syncedDataLayer);
+            displayLayers.set(layer.id, deriveDisplayLayerFromDataLayer(syncedDataLayer, layer));
+          } else {
+            // Legacy fallback for callers that upsert display-only layers.
+            displayLayers.set(layer.id, layer);
+          }
+
+          const surfaces = new Map(state.surfaces);
+          surfaces.set(surfaceId, { ...surface, layers, displayLayers });
           return { surfaces };
         });
       },
@@ -295,15 +381,26 @@ export const useSurfaceStore = create<SurfaceState>()(
       // Update a display layer by id
       updateDisplayLayer: (surfaceId: string, layerId: string, updates: Partial<DisplayLayer>) => {
         set((state) => {
-          const surfaces = new Map(state.surfaces);
-          const surface = surfaces.get(surfaceId);
+          const surface = state.surfaces.get(surfaceId);
           if (!surface) return state;
+
           const displayLayers = new Map(surface.displayLayers);
           const existing = displayLayers.get(layerId);
           if (!existing) return state;
-          displayLayers.set(layerId, { ...existing, ...updates });
-          surface.displayLayers = displayLayers;
-          surfaces.set(surfaceId, surface);
+
+          const nextDisplayLayer = { ...existing, ...updates };
+          displayLayers.set(layerId, nextDisplayLayer);
+
+          const layers = new Map(surface.layers);
+          const existingDataLayer = layers.get(layerId);
+          if (existingDataLayer) {
+            const syncedDataLayer = applyDisplayLayerToDataLayer(existingDataLayer, nextDisplayLayer);
+            layers.set(layerId, syncedDataLayer);
+            displayLayers.set(layerId, deriveDisplayLayerFromDataLayer(syncedDataLayer, nextDisplayLayer));
+          }
+
+          const surfaces = new Map(state.surfaces);
+          surfaces.set(surfaceId, { ...surface, layers, displayLayers });
           return { surfaces };
         });
       },
@@ -311,14 +408,35 @@ export const useSurfaceStore = create<SurfaceState>()(
       // Remove a display layer
       removeDisplayLayer: (surfaceId: string, layerId: string) => {
         set((state) => {
-          const surfaces = new Map(state.surfaces);
-          const surface = surfaces.get(surfaceId);
+          const surface = state.surfaces.get(surfaceId);
           if (!surface) return state;
+
+          if (!surface.displayLayers.has(layerId) && !surface.layers.has(layerId)) {
+            return state;
+          }
+
+          const layers = new Map(surface.layers);
+          layers.delete(layerId);
           const displayLayers = new Map(surface.displayLayers);
           displayLayers.delete(layerId);
-          surface.displayLayers = displayLayers;
-          surfaces.set(surfaceId, surface);
-          return { surfaces };
+
+          const surfaces = new Map(state.surfaces);
+          surfaces.set(surfaceId, { ...surface, layers, displayLayers });
+
+          const nextSelectedItemType =
+            state.selectedItemType === 'dataLayer' && state.selectedLayerId === layerId
+              ? null
+              : state.selectedItemType;
+          const nextSelectedLayerId =
+            state.selectedItemType === 'dataLayer' && state.selectedLayerId === layerId
+              ? null
+              : state.selectedLayerId;
+
+          return {
+            surfaces,
+            selectedItemType: nextSelectedItemType,
+            selectedLayerId: nextSelectedLayerId,
+          };
         });
       },
       

@@ -39,6 +39,19 @@ pub fn volume_load_error(path: &str, reason: &str) -> BridgeError {
 
 /// Create a user-friendly error message for GPU resource allocation failures
 pub fn gpu_allocation_error(_volume_id: &str, reason: &str) -> BridgeError {
+    if reason.contains("exceed device 3D texture limit")
+        || reason.contains("exceeds device 3D texture limit")
+        || reason.contains("max_texture_dimension_3d")
+    {
+        return BridgeError::GpuError {
+            code: 6002,
+            details: format!(
+                "This volume exceeds your GPU's 3D texture-size limit. {}. Try a lower-resolution image or run on a GPU with a larger 3D texture limit.",
+                reason
+            ),
+        };
+    }
+
     BridgeError::GpuError { 
         code: 6001, 
         details: format!(

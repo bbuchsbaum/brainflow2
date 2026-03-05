@@ -334,7 +334,7 @@ export function GoldenLayoutRoot() {
         content: [
           {
             type: 'column',
-            width: 15,
+            width: 17.25,
             content: [{
               type: 'component',
               componentType: 'FileBrowser',
@@ -344,16 +344,15 @@ export function GoldenLayoutRoot() {
           },
           {
             type: 'stack',  // Center stack for workspace tabs
-            width: 65,
+            width: 59.75,
             content: []      // Workspaces will be added here
           },
           {
             type: 'column',
-            width: 20,
+            width: 23,
             content: [
               {
                 type: 'stack',
-                height: 70,
                 content: [
                   {
                     type: 'component',
@@ -374,13 +373,6 @@ export function GoldenLayoutRoot() {
                     componentState: {}
                   }
                 ]
-              },
-              {
-                type: 'component',
-                componentType: 'PlotPanel',
-                title: 'Plots',
-                height: 30,
-                componentState: {}
               }
             ]
           }
@@ -406,6 +398,13 @@ export function GoldenLayoutRoot() {
         const rightColumn = root.contentItems[2]; // Right column (third item in row)
         if (!rightColumn || rightColumn.type !== 'column') {
           console.error('[GoldenLayoutRoot] Could not find right column');
+          return;
+        }
+
+        // Plots are now hosted in the right-sidebar tab shell (VolumeLayerPanel).
+        // Keep menu commands non-fatal but avoid re-introducing a duplicate GL plot pane.
+        if (panelType === 'PlotPanel') {
+          console.info('[GoldenLayoutRoot] PlotPanel add ignored; use sidebar Plots tab.');
           return;
         }
         

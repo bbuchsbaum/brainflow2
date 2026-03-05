@@ -20,7 +20,6 @@ fn main() {
     #[cfg(not(feature = "typed-shaders"))]
     {
         // Runtime shader loading remains the default path to preserve existing behaviour.
-        println!("cargo:warning=Using runtime shader loading for wgpu 0.20 compatibility (feature typed-shaders disabled)");
     }
 }
 

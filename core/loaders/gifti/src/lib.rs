@@ -179,7 +179,7 @@ pub fn load_gifti_file(path: &Path) -> Result<GiftiContent, GiftiError> {
             );
             Ok(GiftiContent::Surface(surface))
         }
-        GiftiContentType::SurfaceData { data_count, .. } => {
+        GiftiContentType::SurfaceData { .. } => {
             // Load surface data using gifti crate directly
             let gifti_data = gifti::read_gifti(path).map_err(|e| {
                 GiftiError::InvalidContent(format!("Failed to read GIFTI data: {}", e))

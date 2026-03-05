@@ -46,6 +46,11 @@ interface LayerPropertiesManagerProps {
    * Callback when render properties are updated
    */
   onRenderUpdate: (updates: Partial<LayerRender>) => void;
+
+  /**
+   * Optional section filtering for tabbed sidebar IA.
+   */
+  sectionMode?: 'all' | 'inspect' | 'mapping';
 }
 
 /**
@@ -139,7 +144,8 @@ export const LayerPropertiesManager: React.FC<LayerPropertiesManagerProps> = ({
   selectedLayer,
   selectedRender,
   selectedMetadata,
-  onRenderUpdate
+  onRenderUpdate,
+  sectionMode = 'all',
 }) => {
   // Handle no selection
   if (!selectedLayer) {
@@ -177,6 +183,7 @@ export const LayerPropertiesManager: React.FC<LayerPropertiesManagerProps> = ({
           render={selectedRender}
           metadata={selectedMetadata}
           onRenderUpdate={onRenderUpdate}
+          sectionMode={sectionMode}
         />
       );
       

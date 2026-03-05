@@ -8,13 +8,11 @@ import React from 'react';
 interface LayerStatusBarProps {
   error?: string | null;
   isInitializing?: boolean;
-  fileLoadingStatus?: string | null;
 }
 
 export const LayerStatusBar: React.FC<LayerStatusBarProps> = ({
   error,
-  isInitializing,
-  fileLoadingStatus
+  isInitializing
 }) => {
   if (error) {
     return (
@@ -58,27 +56,6 @@ export const LayerStatusBar: React.FC<LayerStatusBarProps> = ({
         />
         <span className="text-[9px] uppercase tracking-[0.15em] font-mono text-primary">
           Initializing...
-        </span>
-      </div>
-    );
-  }
-
-  if (fileLoadingStatus) {
-    return (
-      <div
-        className="flex items-center gap-2 px-3 py-2 mb-2"
-        style={{
-          border: '1px solid hsl(var(--primary) / 0.3)',
-          backgroundColor: 'hsl(var(--primary) / 0.1)',
-          borderRadius: '1px'
-        }}
-      >
-        <div
-          className="w-2 h-2 shrink-0 animate-pulse"
-          style={{ backgroundColor: 'hsl(var(--primary))', borderRadius: '1px' }}
-        />
-        <span className="text-[9px] uppercase tracking-[0.15em] font-mono text-primary truncate">
-          {fileLoadingStatus}
         </span>
       </div>
     );

@@ -5,7 +5,7 @@
 
 import { useState, useEffect } from 'react';
 import { getLayerService } from '@/services/LayerService';
-import { getEventBus } from '@/events/EventBus';
+import { getEventBus, type EventMap } from '@/events/EventBus';
 
 export function useLayerPanelServices() {
   const [isInitialized, setIsInitialized] = useState(false);
@@ -37,20 +37,20 @@ export function useLayerPanelServices() {
     };
 
     // Also listen for explicit initialization
-    const handleInit = (event: any) => {
+    const handleInit = (event: EventMap['services.initialized']) => {
       if (event.service === 'LayerService') {
         setIsInitialized(true);
       }
     };
 
     const eventBus = getEventBus();
-    eventBus.on('services.initialized', handleInit);
+    const unsubscribeInit = eventBus.on('services.initialized', handleInit);
 
     checkService();
 
     return () => {
       mounted = false;
-      eventBus.off('services.initialized', handleInit);
+      unsubscribeInit();
     };
   }, []);
 

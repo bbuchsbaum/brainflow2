@@ -40,6 +40,21 @@ interface FileTreeItemProps {
   dragHandle?: React.Ref<HTMLDivElement>;
 }
 
+function formatRemoteHostLabel(mountSource: MountSource): string {
+  if (mountSource.user && mountSource.host) {
+    if (mountSource.port && mountSource.port !== 22) {
+      return `${mountSource.user}@${mountSource.host}:${mountSource.port}`;
+    }
+    return `${mountSource.user}@${mountSource.host}`;
+  }
+
+  if (mountSource.host) {
+    return mountSource.host;
+  }
+
+  return mountSource.label ?? 'remote';
+}
+
 const FileTreeItem: React.FC<FileTreeItemProps> = ({ node, style, dragHandle }) => {
   const { data } = node;
   const fileBrowserStore = useFileBrowserStore();
@@ -48,13 +63,72 @@ const FileTreeItem: React.FC<FileTreeItemProps> = ({ node, style, dragHandle }) 
   
   const isSelected = selectedPath === data.path;
   const isDirectory = data.type === 'directory';
-  const remoteOriginLabel =
+  const remoteMountSource =
     isDirectory && node.level === 0 && data.mountSource?.kind === 'remote'
-      ? data.mountSource.label ?? 'remote'
+      ? data.mountSource
       : null;
+  const remoteHostLabel = remoteMountSource ? formatRemoteHostLabel(remoteMountSource) : null;
+  const remoteRootPath = remoteMountSource?.remotePath ?? null;
+  const remoteOriginTooltip =
+    remoteMountSource?.label?.trim() || remoteHostLabel || null;
+  const remoteRootTooltip = remoteRootPath ? `Remote root: ${remoteRootPath}` : null;
+  const remoteMountRowTooltip =
+    remoteMountSource &&
+    [
+      `Mounted remote folder`,
+      `Name: ${data.name}`,
+      remoteOriginTooltip ? `Origin: ${remoteOriginTooltip}` : null,
+      remoteRootPath ? `Root: ${remoteRootPath}` : null,
+      `Local cache: ${data.path}`,
+    ]
+      .filter((value): value is string => Boolean(value))
+      .join('\n');
   
   // File type detection
   const { icon: FileIcon, color: fileColor } = getFileIcon(data, node.isOpen);
+
+  function truncateMiddle(value: string, maxLength: number): string {
+    if (value.length <= maxLength) return value;
+    const left = Math.ceil((maxLength - 1) / 2);
+    const right = Math.floor((maxLength - 1) / 2);
+    return `${value.slice(0, left)}…${value.slice(value.length - right)}`;
+  }
+
+  function formatDisplayName(name: string, isDir: boolean): { head: string; tail: string | null } {
+    if (searchQuery.trim().length > 0) {
+      return { head: name, tail: null };
+    }
+
+    if (isDir) {
+      return { head: truncateMiddle(name, 34), tail: null };
+    }
+
+    const maxLength = 42;
+    if (name.length <= maxLength) {
+      return { head: name, tail: null };
+    }
+
+    const lowerName = name.toLowerCase();
+    const knownCompoundExtensions = ['.nii.gz', '.tar.gz', '.csv.gz', '.tsv.gz'];
+    const compoundMatch = knownCompoundExtensions.find(ext => lowerName.endsWith(ext));
+    const extensionLength = (() => {
+      if (compoundMatch) return compoundMatch.length;
+      const lastDot = name.lastIndexOf('.');
+      if (lastDot > 0 && name.length - lastDot <= 10) {
+        return name.length - lastDot;
+      }
+      return 0;
+    })();
+
+    const desiredTailLength = extensionLength > 0 ? extensionLength + 8 : 14;
+    const tailLength = Math.min(Math.max(desiredTailLength, 12), 20, name.length - 8);
+    const headLength = Math.max(8, maxLength - tailLength - 1);
+
+    return {
+      head: `${name.slice(0, headLength)}…`,
+      tail: name.slice(name.length - tailLength),
+    };
+  }
   
   function getFileIcon(node: FileNodeData, isOpen: boolean = false): { icon: React.ComponentType; color: string } {
     if (node.type === 'directory') {
@@ -154,6 +228,9 @@ const FileTreeItem: React.FC<FileTreeItemProps> = ({ node, style, dragHandle }) 
     console.log('Context menu for:', data.path);
   }
   
+  const displayName = formatDisplayName(data.name, isDirectory);
+  const isSearchActive = searchQuery.trim().length > 0;
+
   return (
     <div
       ref={dragHandle}
@@ -197,14 +274,29 @@ const FileTreeItem: React.FC<FileTreeItemProps> = ({ node, style, dragHandle }) 
       </span>
       
       {/* File/folder name */}
-      <div className="file-name">
-        <span
-          className="file-name-text"
-          dangerouslySetInnerHTML={{ __html: highlightText(data.name, searchQuery) }}
-        />
-        {remoteOriginLabel && (
-          <span className="remote-origin-badge" title={remoteOriginLabel}>
-            {remoteOriginLabel}
+      <div className="file-name" title={remoteMountRowTooltip || undefined}>
+        {isSearchActive ? (
+          <span
+            className="file-name-text"
+            title={remoteMountRowTooltip || data.name}
+            dangerouslySetInnerHTML={{
+              __html: highlightText(displayName.head, searchQuery),
+            }}
+          />
+        ) : (
+          <span className="file-name-text" title={remoteMountRowTooltip || data.name}>
+            <span className="file-name-head">{displayName.head}</span>
+            {displayName.tail && <span className="file-name-tail">{displayName.tail}</span>}
+          </span>
+        )}
+        {remoteHostLabel && (
+          <span className="remote-origin-badge" title={remoteOriginTooltip || remoteHostLabel}>
+            {remoteHostLabel}
+          </span>
+        )}
+        {remoteRootPath && (
+          <span className="remote-root-badge" title={remoteRootTooltip || remoteRootPath}>
+            {remoteRootPath}
           </span>
         )}
       </div>
@@ -215,13 +307,6 @@ const FileTreeItem: React.FC<FileTreeItemProps> = ({ node, style, dragHandle }) 
         {data.type === 'file' && data.size && (
           <span className="file-size">
             {formatFileSize(data.size)}
-          </span>
-        )}
-        
-        {/* Modified date */}
-        {data.modified && (
-          <span className="file-date">
-            {data.modified.toLocaleDateString()}
           </span>
         )}
       </div>
@@ -272,22 +357,39 @@ const FileBrowserPanelContent: React.FC = () => {
     );
   }, [entries, selectedPath]);
 
-  const selectedRemoteOriginLabel = useMemo(() => {
-    const mountSource = selectedRootMount?.mountSource;
+  const activeRootMount = useMemo(() => {
+    if (selectedRootMount) {
+      return selectedRootMount;
+    }
+
+    if (currentPath) {
+      const matchingRoot = entries.find(
+        (entry) => currentPath === entry.path || currentPath.startsWith(`${entry.path}/`)
+      );
+      if (matchingRoot) {
+        return matchingRoot;
+      }
+    }
+
+    return entries.length === 1 ? entries[0] : null;
+  }, [currentPath, entries, selectedRootMount]);
+
+  const activeRemoteHostLabel = useMemo(() => {
+    const mountSource = activeRootMount?.mountSource;
     if (mountSource?.kind !== 'remote') {
       return null;
     }
 
-    if (mountSource.label && mountSource.label.trim().length > 0) {
-      return mountSource.label;
-    }
+    return formatRemoteHostLabel(mountSource);
+  }, [activeRootMount]);
 
-    if (mountSource.user && mountSource.host) {
-      return `${mountSource.user}@${mountSource.host}`;
+  const activeRemoteRootPath = useMemo(() => {
+    const mountSource = activeRootMount?.mountSource;
+    if (mountSource?.kind !== 'remote') {
+      return null;
     }
-
-    return mountSource.host ?? 'remote';
-  }, [selectedRootMount]);
+    return mountSource.remotePath ?? null;
+  }, [activeRootMount]);
   
   // Debug: log when component re-renders
   useEffect(() => {
@@ -500,14 +602,18 @@ const FileBrowserPanelContent: React.FC = () => {
       <PanelHeader
         title="Files"
         icon={<VscFolder className="h-4 w-4" />}
-        primaryAction={{
-          label: 'Mount',
-          onClick: () => {
-            void openMountDialog();
-          },
-          disabled: mountActionPending,
-          title: 'Mount directory',
-        }}
+        primaryAction={
+          hasMountedDirectory
+            ? {
+                label: 'Mount',
+                onClick: () => {
+                  void openMountDialog();
+                },
+                disabled: mountActionPending,
+                title: 'Mount directory',
+              }
+            : undefined
+        }
         overflowActions={[
           {
             id: 'mount-remote',
@@ -679,22 +785,24 @@ const FileBrowserPanelContent: React.FC = () => {
                     >
                       {mountActionPending ? 'Opening…' : 'Mount Directory'}
                     </button>
-                    <button
-                      type="button"
-                      className="empty-state-button secondary"
-                      onClick={openRemoteMountDialog}
-                      disabled={mountActionPending}
-                    >
-                      Mount Remote (SSH)…
-                    </button>
-                    <button
-                      type="button"
-                      className="empty-state-button secondary"
-                      onClick={() => void openFileDialog()}
-                      disabled={mountActionPending}
-                    >
-                      Open File...
-                    </button>
+                    <div className="empty-state-secondary-actions">
+                      <button
+                        type="button"
+                        className="empty-state-button secondary"
+                        onClick={openRemoteMountDialog}
+                        disabled={mountActionPending}
+                      >
+                        Mount Remote (SSH)…
+                      </button>
+                      <button
+                        type="button"
+                        className="empty-state-button secondary"
+                        onClick={() => void openFileDialog()}
+                        disabled={mountActionPending}
+                      >
+                        Open File...
+                      </button>
+                    </div>
                   </>
                 )}
               </div>
@@ -759,8 +867,15 @@ const FileBrowserPanelContent: React.FC = () => {
         ) : (
           `${treeData.length} item${treeData.length === 1 ? '' : 's'}`
         )}
-        {selectedRemoteOriginLabel && (
-          <span style={{ marginLeft: '8px' }}>• Remote: {selectedRemoteOriginLabel}</span>
+        {activeRemoteHostLabel && (
+          <span style={{ marginLeft: '8px' }} title={`Remote host: ${activeRemoteHostLabel}`}>
+            • Remote: {activeRemoteHostLabel}
+          </span>
+        )}
+        {activeRemoteRootPath && (
+          <span style={{ marginLeft: '8px' }} title={`Remote root: ${activeRemoteRootPath}`}>
+            • Root: {activeRemoteRootPath}
+          </span>
         )}
         {selectedPath && (
           <span style={{ marginLeft: '8px' }}>• {selectedPath.split('/').pop()} selected</span>

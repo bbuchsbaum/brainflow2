@@ -10,6 +10,17 @@ import { useRenderStateStore } from '@/stores/renderStateStore';
 import { getRenderCoordinator } from './RenderCoordinator';
 import type { RenderRequest } from './RenderCoordinator';
 
+const DEBUG_OPTIMIZED_RENDER =
+  import.meta.env.DEV &&
+  typeof window !== 'undefined' &&
+  window.localStorage.getItem('brainflow2-debug-optimized-render') === 'true';
+
+const renderOptDebugLog = (...args: unknown[]) => {
+  if (DEBUG_OPTIMIZED_RENDER) {
+    console.log(...args);
+  }
+};
+
 interface ViewChangeSet {
   axial: boolean;
   sagittal: boolean;
@@ -54,7 +65,7 @@ export class OptimizedRenderService {
     // Check if layers changed (affects all views)
     const layersChanged = JSON.stringify(current.layers) !== JSON.stringify(previous.layers);
     if (layersChanged) {
-      console.log('[OptimizedRenderService] Layers changed - all views need update');
+      renderOptDebugLog('[OptimizedRenderService] Layers changed - all views need update');
       return { axial: true, sagittal: true, coronal: true };
     }
     
@@ -71,7 +82,7 @@ export class OptimizedRenderService {
     // This is because each view shows crosshair lines representing the intersection
     // of the other two planes with the current view
     if (crosshairChanged.visible || crosshairChanged.x || crosshairChanged.y || crosshairChanged.z) {
-      console.log('[OptimizedRenderService] Crosshair changed - all views need update');
+      renderOptDebugLog('[OptimizedRenderService] Crosshair changed - all views need update');
       return { axial: true, sagittal: true, coronal: true };
     }
     
@@ -90,7 +101,7 @@ export class OptimizedRenderService {
       // Check if view dimensions changed
       if (JSON.stringify(currentView.dim_px) !== JSON.stringify(previousView.dim_px)) {
         changes[viewType] = true;
-        console.log(`[OptimizedRenderService] ${viewType} dimensions changed`);
+        renderOptDebugLog(`[OptimizedRenderService] ${viewType} dimensions changed`);
       }
       
       // Check if view plane changed (origin, u, v vectors)
@@ -98,7 +109,7 @@ export class OptimizedRenderService {
           JSON.stringify(currentView.u_mm) !== JSON.stringify(previousView.u_mm) ||
           JSON.stringify(currentView.v_mm) !== JSON.stringify(previousView.v_mm)) {
         changes[viewType] = true;
-        console.log(`[OptimizedRenderService] ${viewType} view plane changed`);
+        renderOptDebugLog(`[OptimizedRenderService] ${viewType} view plane changed`);
       }
     }
     
@@ -124,7 +135,7 @@ export class OptimizedRenderService {
       .map(([viewType]) => viewType as ViewType);
     
     if (viewsToRender.length === 0) {
-      console.log('[OptimizedRenderService] No views required rendering after diff');
+      renderOptDebugLog('[OptimizedRenderService] No views required rendering after diff');
       this.lastViewState = JSON.parse(JSON.stringify(viewState));
       this.metrics.lastRenderTimestamp = performance.now();
       return;
@@ -136,9 +147,9 @@ export class OptimizedRenderService {
     this.metrics.totalRenders += viewsToRender.length;
     
     if (skipped > 0) {
-      console.log(`[OptimizedRenderService] Optimized: Rendering ${viewsToRender.length}/3 views, skipped ${skipped}`);
-      console.log(`[OptimizedRenderService] Views to render:`, viewsToRender);
-      console.log(`[OptimizedRenderService] Total savings: ${this.metrics.skippedRenders}/${this.metrics.totalRenders + this.metrics.skippedRenders} (${(this.metrics.skippedRenders / (this.metrics.totalRenders + this.metrics.skippedRenders) * 100).toFixed(1)}%)`);
+      renderOptDebugLog(`[OptimizedRenderService] Optimized: Rendering ${viewsToRender.length}/3 views, skipped ${skipped}`);
+      renderOptDebugLog(`[OptimizedRenderService] Views to render:`, viewsToRender);
+      renderOptDebugLog(`[OptimizedRenderService] Total savings: ${this.metrics.skippedRenders}/${this.metrics.totalRenders + this.metrics.skippedRenders} (${(this.metrics.skippedRenders / (this.metrics.totalRenders + this.metrics.skippedRenders) * 100).toFixed(1)}%)`);
     }
     
     // Render only changed views
@@ -157,7 +168,7 @@ export class OptimizedRenderService {
     
     try {
       if (viewsToRender.length > 1) {
-        console.log('[OptimizedRenderService] Batch rendering multiple views via RenderCoordinator');
+        renderOptDebugLog('[OptimizedRenderService] Batch rendering multiple views via RenderCoordinator');
         const results = await renderCoordinator.requestMultiViewRender({
           viewState,
           viewTypes: viewsToRender,
@@ -176,9 +187,9 @@ export class OptimizedRenderService {
           this.recordRenderTime(viewType, duration);
           
           if (imageBitmap) {
-            console.log(`[OptimizedRenderService] ${viewType} rendered via batch in ${duration.toFixed(1)}ms`);
+            renderOptDebugLog(`[OptimizedRenderService] ${viewType} rendered via batch in ${duration.toFixed(1)}ms`);
           } else {
-            console.log(`[OptimizedRenderService] ${viewType} returned null image via batch`);
+            renderOptDebugLog(`[OptimizedRenderService] ${viewType} returned null image via batch`);
           }
         });
       } else {
@@ -203,7 +214,7 @@ export class OptimizedRenderService {
         const duration = performance.now() - viewStartTime;
         this.recordRenderTime(viewType, duration);
         
-        console.log(`[OptimizedRenderService] ${viewType} rendered in ${duration.toFixed(1)}ms`);
+        renderOptDebugLog(`[OptimizedRenderService] ${viewType} rendered in ${duration.toFixed(1)}ms`);
       }
     } catch (error) {
       console.error('[OptimizedRenderService] Batch render failed:', error);
@@ -219,7 +230,7 @@ export class OptimizedRenderService {
     this.metrics.lastRenderTimestamp = performance.now();
     
     const totalTime = performance.now() - startTime;
-    console.log(`[OptimizedRenderService] Total render time: ${totalTime.toFixed(1)}ms for ${viewsToRender.length} views`);
+    renderOptDebugLog(`[OptimizedRenderService] Total render time: ${totalTime.toFixed(1)}ms for ${viewsToRender.length} views`);
   }
   
   /**

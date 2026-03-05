@@ -30,15 +30,16 @@ export const CollapsibleSection: React.FC<CollapsibleSectionProps> = ({
       {/* Header - Clean text trigger, no border box */}
       <button
         onClick={() => setIsExpanded(!isExpanded)}
-        className="w-full flex items-center justify-between py-1.5 hover:bg-muted/50 transition-colors group text-foreground"
+        className="w-full bf-control-md flex items-center justify-between px-1 py-1 hover:bg-muted/50 transition-colors group text-foreground rounded-appsm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background"
       >
         <div className="flex items-center gap-2">
           {/* Section Icon */}
-          {Icon && <Icon className="h-4 w-4 text-foreground" />}
+          {Icon && <Icon className="h-4 w-4 text-muted-foreground" />}
 
           {/* Title - Blueprint style */}
-          <span className="text-[11px] uppercase tracking-[0.15em] font-bold" style={{ color: 'hsl(var(--foreground) / 0.92)' }}>
-            <span className="text-accent opacity-50 mr-1 font-normal" aria-hidden="true">{'\u2013'}</span>{title}
+          <span className="bf-role-section text-foreground/90">
+            <span className="text-accent/60 mr-1 font-normal" aria-hidden="true">{'\u2013'}</span>
+            {title}
           </span>
         </div>
 

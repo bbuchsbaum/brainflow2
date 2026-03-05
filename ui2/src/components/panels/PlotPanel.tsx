@@ -152,7 +152,7 @@ const PlotPanelContent: React.FC<PlotPanelProps> = ({ containerWidth, containerH
     } finally {
       setLoading(false);
     }
-  }, [selectedLayerId]);
+  }, [containerHeight, containerWidth, selectedLayerId]);
 
   // Load histogram data when selected layer changes
   useEffect(() => {
@@ -168,7 +168,7 @@ const PlotPanelContent: React.FC<PlotPanelProps> = ({ containerWidth, containerH
   useEffect(() => {
     if (!selectedLayerId) return;
     
-    const handleRenderChange = ({ layerId, renderProps }: { layerId: string; renderProps: any }) => {
+    const handleRenderChange = ({ layerId, renderProps }: { layerId: string; renderProps: Record<string, unknown> }) => {
       if (layerId === selectedLayerId) {
         console.log('[PlotPanel] Render properties changed for layer:', layerId, renderProps);
         // Don't reload histogram - React will re-render with new props automatically
@@ -176,10 +176,10 @@ const PlotPanelContent: React.FC<PlotPanelProps> = ({ containerWidth, containerH
     };
     
     const eventBus = getEventBus();
-    eventBus.on('layer.render.changed', handleRenderChange);
+    const unsubscribe = eventBus.on('layer.render.changed', handleRenderChange);
     
     return () => {
-      eventBus.off('layer.render.changed', handleRenderChange);
+      unsubscribe();
     };
   }, [selectedLayerId]);
 
@@ -253,29 +253,27 @@ const PlotPanelContent: React.FC<PlotPanelProps> = ({ containerWidth, containerH
         }}
       />
 
-      <span className="text-[9px] uppercase tracking-[0.2em] font-bold text-muted-foreground/40">
+      <span className="bf-role-section text-muted-foreground/60">
         No Signal Input
       </span>
     </div>
   );
 
   return (
-    <div className="flex flex-col h-full overflow-hidden bg-card text-card-foreground shadow-sm border border-border" style={{ borderRadius: '1px' }}>
+    <div className="flex flex-col h-full overflow-hidden bg-card text-card-foreground shadow-sm border border-border rounded-appsm">
       {/* Header - Instrument Control style */}
       <div
-        className="flex items-center justify-between px-3 py-2 border-b"
-        style={{ borderColor: 'hsl(var(--border))', backgroundColor: 'hsl(var(--muted) / 0.2)' }}
+        className="flex items-center justify-between px-3 py-2 border-b border-border bg-muted/20"
       >
         <div className="flex items-center gap-2">
           {/* Status indicator */}
           <div
-            className="w-1.5 h-1.5"
+            className="w-1.5 h-1.5 rounded-appsm"
             style={{
               backgroundColor: selectedLayer ? 'hsl(var(--primary))' : 'hsl(var(--muted-foreground) / 0.3)',
-              borderRadius: '1px'
             }}
           />
-          <span className="text-[10px] uppercase tracking-[0.15em] font-semibold text-muted-foreground">
+          <span className="bf-role-section text-muted-foreground truncate max-w-[220px]">
             {selectedLayer ? selectedLayer.name : 'Histogram'}
           </span>
         </div>
@@ -285,19 +283,7 @@ const PlotPanelContent: React.FC<PlotPanelProps> = ({ containerWidth, containerH
           <button
             type="button"
             onClick={loadHistogram}
-            className="px-2 py-0.5 text-[9px] uppercase tracking-wider font-mono border transition-colors"
-            style={{
-              borderColor: 'hsl(var(--border))',
-              color: 'hsl(var(--muted-foreground))',
-              backgroundColor: 'transparent',
-              borderRadius: '1px'
-            }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.backgroundColor = 'hsl(var(--muted) / 0.3)';
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.backgroundColor = 'transparent';
-            }}
+            className="px-3 py-0.5 min-h-control-md bf-role-section bf-role-mono border border-border text-muted-foreground bg-transparent rounded-appsm transition-colors hover:bg-muted/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background"
           >
             Refresh
           </button>

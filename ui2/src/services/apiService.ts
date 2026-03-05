@@ -30,6 +30,17 @@ import { RenderSession, createRenderSession } from './RenderSession';
 import { validateRenderViewPayload } from '@/utils/validateRenderViewPayload';
 import type { AtlasStats } from '@/types/atlas';
 
+const DEBUG_API_SERVICE =
+  import.meta.env.DEV &&
+  typeof window !== 'undefined' &&
+  window.localStorage.getItem('brainflow2-debug-api-service') === 'true';
+
+const apiDebugLog = (...args: unknown[]) => {
+  if (DEBUG_API_SERVICE) {
+    console.log(...args);
+  }
+};
+
 // Domain service imports
 import { renderFlags } from './render/RenderFeatureFlags';
 import { getFilesystemService } from './filesystem/FilesystemService';
@@ -49,7 +60,7 @@ export class ApiService {
 
   constructor(transport: BackendTransport = getTransport()) {
     this.transport = transport;
-    console.log(`[ApiService] Initialized with unified render_view API (RGBA mode: ${renderFlags.useRawRGBA ? 'ENABLED' : 'DISABLED'})`);
+    apiDebugLog(`[ApiService] Initialized with unified render_view API (RGBA mode: ${renderFlags.useRawRGBA ? 'ENABLED' : 'DISABLED'})`);
   }
 
   /**
@@ -63,10 +74,10 @@ export class ApiService {
     sliceOverride?: { axis: 'x' | 'y' | 'z'; position: number }
   ): Promise<ImageBitmap> {
     const startTime = performance.now();
-    console.log(`[ApiService ${startTime.toFixed(0)}ms] applyAndRenderViewStateCore called`);
-    console.log(`  - Total layers: ${viewState.layers.length}`);
-    console.log(`  - ViewType: ${viewType || 'none'}`);
-    console.log(`  - All layers:`, viewState.layers.map(l => ({
+    apiDebugLog(`[ApiService ${startTime.toFixed(0)}ms] applyAndRenderViewStateCore called`);
+    apiDebugLog(`  - Total layers: ${viewState.layers.length}`);
+    apiDebugLog(`  - ViewType: ${viewType || 'none'}`);
+    apiDebugLog(`  - All layers:`, viewState.layers.map(l => ({
       id: l.id,
       volumeId: l.volumeId,
       visible: l.visible,
@@ -77,7 +88,7 @@ export class ApiService {
     const renderStore = useRenderStore.getState();
     if (renderStore.shouldBlockRender()) {
       console.warn('[ApiService] Blocking render - render target not ready');
-      console.log('  Render target state:', renderStore.getRenderTargetState());
+      apiDebugLog('  Render target state:', renderStore.getRenderTargetState());
       const canvas = new OffscreenCanvas(width, height);
       const ctx = canvas.getContext('2d');
       if (ctx) {
@@ -103,7 +114,7 @@ export class ApiService {
     }
 
     const visibleLayers = viewState.layers.filter(l => l.visible && l.opacity > 0);
-    console.log(`[ApiService ${performance.now() - startTime}ms] Filtered to ${visibleLayers.length} visible layers`);
+    apiDebugLog(`[ApiService ${performance.now() - startTime}ms] Filtered to ${visibleLayers.length} visible layers`);
 
     if (visibleLayers.length === 0) {
       console.warn(`[ApiService] WARNING: No visible layers to render! Returning empty image`);
@@ -129,16 +140,16 @@ export class ApiService {
         world_mm: newWorldMm
       };
 
-      console.log(`[ApiService] Using slice override: ${sliceOverride.axis}=${sliceOverride.position}mm`);
-      console.log(`[ApiService] Original crosshair: [${viewState.crosshair.world_mm}]`);
-      console.log(`[ApiService] Modified crosshair: [${newWorldMm}]`);
+      apiDebugLog(`[ApiService] Using slice override: ${sliceOverride.axis}=${sliceOverride.position}mm`);
+      apiDebugLog(`[ApiService] Original crosshair: [${viewState.crosshair.world_mm}]`);
+      apiDebugLog(`[ApiService] Modified crosshair: [${newWorldMm}]`);
     }
 
     const declarativeViewState: any = {
       views: viewsToUse,
       crosshair: crosshairToUse,
       layers: visibleLayers.map(layer => {
-        console.log(`[ApiService] DEBUG: Converting layer for backend:`, {
+        apiDebugLog(`[ApiService] DEBUG: Converting layer for backend:`, {
           id: layer.id,
           volumeId: layer.volumeId,
           isSame: layer.id === layer.volumeId
@@ -159,19 +170,24 @@ export class ApiService {
 
     if (viewType && viewsToUse[viewType]) {
       const view = viewsToUse[viewType];
+      // Geometry must be derived from the canonical view vectors/dimensions, not
+      // the transient canvas size. Using live canvas dimensions here causes
+      // out-of-bounds sampling during splitter/layout resizes.
+      const baseWidth = view.dim_px?.[0] > 0 ? view.dim_px[0] : width;
+      const baseHeight = view.dim_px?.[1] > 0 ? view.dim_px[1] : height;
       declarativeViewState.requestedView = {
         type: viewType,
         origin_mm: [...view.origin_mm, 1.0],
         u_mm: [
-          view.u_mm[0] * width,
-          view.u_mm[1] * width,
-          view.u_mm[2] * width,
+          view.u_mm[0] * baseWidth,
+          view.u_mm[1] * baseWidth,
+          view.u_mm[2] * baseWidth,
           0.0
         ],
         v_mm: [
-          view.v_mm[0] * height,
-          view.v_mm[1] * height,
-          view.v_mm[2] * height,
+          view.v_mm[0] * baseHeight,
+          view.v_mm[1] * baseHeight,
+          view.v_mm[2] * baseHeight,
           0.0
         ],
         width,
@@ -179,9 +195,9 @@ export class ApiService {
       };
     }
 
-    console.log(`[ApiService ${performance.now() - startTime}ms] Sending to backend:`);
-    console.log(`  - layers in JSON: ${declarativeViewState.layers.length}`);
-    console.log(`  - View vectors:`, {
+    apiDebugLog(`[ApiService ${performance.now() - startTime}ms] Sending to backend:`);
+    apiDebugLog(`  - layers in JSON: ${declarativeViewState.layers.length}`);
+    apiDebugLog(`  - View vectors:`, {
       u_mm: declarativeViewState.requestedView?.u_mm,
       v_mm: declarativeViewState.requestedView?.v_mm,
       width: declarativeViewState.requestedView?.width,
@@ -190,14 +206,14 @@ export class ApiService {
 
     if (viewType && viewsToUse[viewType]) {
       const view = viewsToUse[viewType];
-      console.log(`  - Original view vectors (per-pixel):`, {
+      apiDebugLog(`  - Original view vectors (per-pixel):`, {
         u_mm: view.u_mm,
         v_mm: view.v_mm,
         dim_px: view.dim_px
       });
     }
 
-    console.log(`  - Full ViewState:`, JSON.stringify(declarativeViewState, null, 2));
+    apiDebugLog(`  - Full ViewState:`, JSON.stringify(declarativeViewState, null, 2));
 
     const validation = validateRenderViewPayload(declarativeViewState);
     if (!validation.ok) {
@@ -228,26 +244,26 @@ export class ApiService {
     if (renderFlags.useNewRenderAPI) {
       const format = renderFlags.useRawRGBA ? 'rgba' : 'png';
       try {
-        console.log(`[ApiService] Attempting render_view with format: ${format}`);
+        apiDebugLog(`[ApiService] Attempting render_view with format: ${format}`);
         const result = await this.transport.invoke<Uint8Array>('render_view', {
           stateJson: JSON.stringify(declarativeViewState),
           format
         });
 
-        console.log(`[ApiService] render_view completed in ${(performance.now() - backendCallTime).toFixed(0)}ms (${format})`);
+        apiDebugLog(`[ApiService] render_view completed in ${(performance.now() - backendCallTime).toFixed(0)}ms (${format})`);
 
         if (result instanceof Uint8Array && result.length > 0) {
           imageData = result;
           isRawRGBAFormat = (format === 'rgba');
-          console.log(`[ApiService] render_view success: ${imageData.length} bytes, format: ${format}`);
+          apiDebugLog(`[ApiService] render_view success: ${imageData.length} bytes, format: ${format}`);
         } else if (result instanceof ArrayBuffer && result.byteLength > 0) {
           imageData = new Uint8Array(result);
           isRawRGBAFormat = (format === 'rgba');
-          console.log(`[ApiService] render_view success (ArrayBuffer): ${imageData.length} bytes`);
+          apiDebugLog(`[ApiService] render_view success (ArrayBuffer): ${imageData.length} bytes`);
         } else if (Array.isArray(result) && result.length > 0) {
           imageData = new Uint8Array(result);
           isRawRGBAFormat = (format === 'rgba');
-          console.log(`[ApiService] render_view success (Array): ${imageData.length} bytes`);
+          apiDebugLog(`[ApiService] render_view success (Array): ${imageData.length} bytes`);
         } else {
           throw new Error(`render_view returned invalid or empty result: ${typeof result}, length: ${(result as any)?.length || 'N/A'}`);
         }
@@ -262,7 +278,7 @@ export class ApiService {
     // LEGACY API PATHS - Only if render_view failed or not using new API
     if (!imageData && renderFlags.legacyRenderFallbackEnabled && renderFlags.useRawRGBA) {
       try {
-        console.log(`[ApiService] Attempting legacy raw RGBA fallback`);
+        apiDebugLog(`[ApiService] Attempting legacy raw RGBA fallback`);
         const rawResult = await this.transport.invoke<Uint8Array>(
           'apply_and_render_view_state_raw',
           { view_state_json: JSON.stringify(declarativeViewState) }
@@ -271,15 +287,15 @@ export class ApiService {
         if (rawResult instanceof Uint8Array && rawResult.length > 0) {
           imageData = rawResult;
           isRawRGBAFormat = true;
-          console.log(`[ApiService] Legacy raw RGBA success: ${imageData.length} bytes`);
+          apiDebugLog(`[ApiService] Legacy raw RGBA success: ${imageData.length} bytes`);
         } else if (rawResult instanceof ArrayBuffer && rawResult.byteLength > 0) {
           imageData = new Uint8Array(rawResult);
           isRawRGBAFormat = true;
-          console.log(`[ApiService] Legacy raw RGBA success (ArrayBuffer): ${imageData.length} bytes`);
+          apiDebugLog(`[ApiService] Legacy raw RGBA success (ArrayBuffer): ${imageData.length} bytes`);
         } else if (Array.isArray(rawResult) && rawResult.length > 0) {
           imageData = new Uint8Array(rawResult);
           isRawRGBAFormat = true;
-          console.log(`[ApiService] Legacy raw RGBA success (Array): ${imageData.length} bytes`);
+          apiDebugLog(`[ApiService] Legacy raw RGBA success (Array): ${imageData.length} bytes`);
         } else {
           throw new Error(`Legacy raw command returned invalid result: ${typeof rawResult}`);
         }
@@ -293,7 +309,7 @@ export class ApiService {
     // Final PNG fallback
     if (!imageData && renderFlags.legacyRenderFallbackEnabled) {
       try {
-        console.log(`[ApiService] Attempting final PNG fallback`);
+        apiDebugLog(`[ApiService] Attempting final PNG fallback`);
         const pngResult = await this.transport.invoke<Uint8Array>(
           'apply_and_render_view_state_binary',
           { view_state_json: JSON.stringify(declarativeViewState) }
@@ -302,15 +318,15 @@ export class ApiService {
         if (pngResult instanceof Uint8Array && pngResult.length > 0) {
           imageData = pngResult;
           isRawRGBAFormat = false;
-          console.log(`[ApiService] PNG fallback success: ${imageData.length} bytes`);
+          apiDebugLog(`[ApiService] PNG fallback success: ${imageData.length} bytes`);
         } else if (pngResult instanceof ArrayBuffer && pngResult.byteLength > 0) {
           imageData = new Uint8Array(pngResult);
           isRawRGBAFormat = false;
-          console.log(`[ApiService] PNG fallback success (ArrayBuffer): ${imageData.length} bytes`);
+          apiDebugLog(`[ApiService] PNG fallback success (ArrayBuffer): ${imageData.length} bytes`);
         } else if (Array.isArray(pngResult) && pngResult.length > 0) {
           imageData = new Uint8Array(pngResult);
           isRawRGBAFormat = false;
-          console.log(`[ApiService] PNG fallback success (Array): ${imageData.length} bytes`);
+          apiDebugLog(`[ApiService] PNG fallback success (Array): ${imageData.length} bytes`);
         } else {
           throw new Error(`PNG fallback returned invalid result: ${typeof pngResult}`);
         }
@@ -346,11 +362,11 @@ export class ApiService {
   }
 
   async decodeImageBuffer(imageData: Uint8Array, isRawRGBAFormat: boolean): Promise<ImageBitmap> {
-    console.log(`📍 [Decoding Section] Starting decode with:`);
-    console.log(`  Image data type: ${Object.prototype.toString.call(imageData)}`);
-    console.log(`  Image data size: ${imageData?.length || 'undefined'} bytes`);
-    console.log(`  isRawRGBAFormat: ${isRawRGBAFormat}`);
-    console.log(`  useRawRGBA: ${renderFlags.useRawRGBA}`);
+    apiDebugLog(`📍 [Decoding Section] Starting decode with:`);
+    apiDebugLog(`  Image data type: ${Object.prototype.toString.call(imageData)}`);
+    apiDebugLog(`  Image data size: ${imageData?.length || 'undefined'} bytes`);
+    apiDebugLog(`  isRawRGBAFormat: ${isRawRGBAFormat}`);
+    apiDebugLog(`  useRawRGBA: ${renderFlags.useRawRGBA}`);
 
     if (!imageData || !(imageData instanceof Uint8Array) || imageData.length === 0) {
       console.error('[ApiService] CRITICAL: Invalid imageData received');
@@ -362,9 +378,9 @@ export class ApiService {
     }
 
     const byteArray = imageData;
-    console.log(`[ApiService] Processing valid byteArray: ${byteArray.length} bytes, format: ${isRawRGBAFormat ? 'RGBA' : 'PNG'}`);
-    console.log(`🔍 First 16 bytes (hex): ${Array.from(byteArray.slice(0, 16)).map(b => b.toString(16).padStart(2, '0')).join(' ')}`);
-    console.log(`🔍 Processing data: ${byteArray.length} bytes, isRawRGBA: ${isRawRGBAFormat}`);
+    apiDebugLog(`[ApiService] Processing valid byteArray: ${byteArray.length} bytes, format: ${isRawRGBAFormat ? 'RGBA' : 'PNG'}`);
+    apiDebugLog(`🔍 First 16 bytes (hex): ${Array.from(byteArray.slice(0, 16)).map(b => b.toString(16).padStart(2, '0')).join(' ')}`);
+    apiDebugLog(`🔍 Processing data: ${byteArray.length} bytes, isRawRGBA: ${isRawRGBAFormat}`);
 
     if (isRawRGBAFormat && byteArray.length > 8) {
       try {
@@ -378,7 +394,7 @@ export class ApiService {
         }
 
         const rgbaData = byteArray.slice(8);
-        console.log(`🚀 Raw RGBA dimensions: ${imgWidth}x${imgHeight}, data size: ${rgbaData.length} bytes`);
+        apiDebugLog(`🚀 Raw RGBA dimensions: ${imgWidth}x${imgHeight}, data size: ${rgbaData.length} bytes`);
 
         if (rgbaData.length !== imgWidth * imgHeight * 4) {
           console.error(`❌ Invalid raw RGBA data: expected ${imgWidth * imgHeight * 4} bytes, got ${rgbaData.length}`);
@@ -387,7 +403,7 @@ export class ApiService {
 
         let processedRgba: Uint8Array | Uint8ClampedArray = rgbaData;
         if (renderFlags.debugBrighten) {
-          console.log('🔆 DEBUG: Artificially brightening raw RGBA data');
+          apiDebugLog('🔆 DEBUG: Artificially brightening raw RGBA data');
           const brightenedRgba = new Uint8ClampedArray(rgbaData.length);
           const brightenFactor = 10;
           for (let i = 0; i < rgbaData.length; i += 4) {
@@ -401,7 +417,7 @@ export class ApiService {
 
         const imageDataObj = new ImageData(new Uint8ClampedArray(processedRgba), imgWidth, imgHeight);
         const bitmap = await createImageBitmap(imageDataObj);
-        console.log('🚀 Successfully created ImageBitmap from raw RGBA data (using browser defaults for color space and alpha)');
+        apiDebugLog('🚀 Successfully created ImageBitmap from raw RGBA data (using browser defaults for color space and alpha)');
         return bitmap;
       } catch (error) {
         console.error('❌ Raw RGBA decoding failed:', error);
@@ -437,7 +453,7 @@ export class ApiService {
       try {
         const blob = new Blob([byteArray], { type: 'image/png' });
         const bitmap = await createImageBitmap(blob);
-        console.log(`🔍 PNG processed successfully: ${bitmap.width}x${bitmap.height}`);
+        apiDebugLog(`🔍 PNG processed successfully: ${bitmap.width}x${bitmap.height}`);
         return bitmap;
       } catch (error) {
         throw new Error(`PNG decoding failed: ${error instanceof Error ? error.message : String(error)}`);
@@ -525,6 +541,14 @@ export class ApiService {
     return getLayerGpuService().releaseLayerGpuResources(layerId);
   }
 
+  async waitForLayerReady(
+    layerId: string,
+    timeoutMs: number = 5000,
+    pollIntervalMs: number = 25
+  ): Promise<boolean> {
+    return getLayerGpuService().waitForLayerReady(layerId, timeoutMs, pollIntervalMs);
+  }
+
   async patchLayer(layerId: string, patch: Record<string, any>): Promise<void> {
     return getLayerGpuService().patchLayer(layerId, patch);
   }
@@ -609,7 +633,7 @@ export class ApiService {
       const renderWidth = width ?? 512;
       const renderHeight = height ?? 512;
       const result = await this.applyAndRenderViewStateCore(viewState, viewType, renderWidth, renderHeight);
-      console.log(`[ApiService] applyAndRenderViewState result:`, {
+      apiDebugLog(`[ApiService] applyAndRenderViewState result:`, {
         hasResult: !!result,
         isImageBitmap: result instanceof ImageBitmap,
         type: result ? Object.prototype.toString.call(result) : 'null'
@@ -776,7 +800,7 @@ export class ApiService {
     }
 
     const elapsed = performance.now() - startTime;
-    console.log(`[ApiService] renderViewStateMulti decoded ${segments.length} views in ${elapsed.toFixed(1)}ms`);
+    apiDebugLog(`[ApiService] renderViewStateMulti decoded ${segments.length} views in ${elapsed.toFixed(1)}ms`);
 
     return results as Record<ViewType, ImageBitmap | null>;
   }
@@ -840,27 +864,27 @@ export class ApiService {
 
   setBinaryIPC(enable: boolean) {
     renderFlags.useBinaryIPC = enable;
-    console.log(`[ApiService] Binary IPC ${enable ? 'enabled' : 'disabled'}`);
+    apiDebugLog(`[ApiService] Binary IPC ${enable ? 'enabled' : 'disabled'}`);
   }
 
   setRawRGBA(enable: boolean) {
     renderFlags.useRawRGBA = enable;
-    console.log(`[ApiService] Raw RGBA transfer ${enable ? 'enabled' : 'disabled'}`);
+    apiDebugLog(`[ApiService] Raw RGBA transfer ${enable ? 'enabled' : 'disabled'}`);
   }
 
   setDebugBrighten(enable: boolean) {
     renderFlags.debugBrighten = enable;
-    console.log(`[ApiService] Debug brightening ${enable ? 'enabled' : 'disabled'}`);
+    apiDebugLog(`[ApiService] Debug brightening ${enable ? 'enabled' : 'disabled'}`);
   }
 
   setUseNewRenderAPI(enable: boolean) {
     renderFlags.useNewRenderAPI = enable;
-    console.log(`[ApiService] New render_view API ${enable ? 'enabled' : 'disabled'}`);
+    apiDebugLog(`[ApiService] New render_view API ${enable ? 'enabled' : 'disabled'}`);
   }
 
   setLegacyRenderFallbackEnabled(enable: boolean) {
     renderFlags.legacyRenderFallbackEnabled = enable;
-    console.log(`[ApiService] Legacy render fallbacks ${enable ? 'enabled' : 'disabled'}`);
+    apiDebugLog(`[ApiService] Legacy render fallbacks ${enable ? 'enabled' : 'disabled'}`);
   }
 
   /**
@@ -890,27 +914,27 @@ export function setApiService(apiService: ApiService) {
 
 export function setBinaryIPC(enable: boolean) {
   renderFlags.useBinaryIPC = enable;
-  console.log(`[ApiService] Binary IPC ${enable ? 'enabled' : 'disabled'}`);
+  apiDebugLog(`[ApiService] Binary IPC ${enable ? 'enabled' : 'disabled'}`);
 }
 
 export function setRawRGBA(enable: boolean) {
   renderFlags.useRawRGBA = enable;
-  console.log(`[ApiService] Raw RGBA transfer ${enable ? 'enabled' : 'disabled'}`);
+  apiDebugLog(`[ApiService] Raw RGBA transfer ${enable ? 'enabled' : 'disabled'}`);
 }
 
 export function setDebugBrighten(enable: boolean) {
   renderFlags.debugBrighten = enable;
-  console.log(`[ApiService] Debug brightening ${enable ? 'enabled' : 'disabled'}`);
+  apiDebugLog(`[ApiService] Debug brightening ${enable ? 'enabled' : 'disabled'}`);
 }
 
 export function setUseNewRenderAPI(enable: boolean) {
   renderFlags.useNewRenderAPI = enable;
-  console.log(`[ApiService] New render_view API ${enable ? 'enabled' : 'disabled'}`);
+  apiDebugLog(`[ApiService] New render_view API ${enable ? 'enabled' : 'disabled'}`);
 }
 
 export function setLegacyRenderFallbackEnabled(enable: boolean) {
   renderFlags.legacyRenderFallbackEnabled = enable;
-  console.log(`[ApiService] Legacy render fallbacks ${enable ? 'enabled' : 'disabled'}`);
+  apiDebugLog(`[ApiService] Legacy render fallbacks ${enable ? 'enabled' : 'disabled'}`);
 }
 
 // Window globals are registered in RenderFeatureFlags.ts

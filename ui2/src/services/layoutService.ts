@@ -39,7 +39,7 @@ const DEFAULT_LAYOUT_CONFIG: LayoutConfig = {
     content: [
       {
         type: 'column',
-        width: 15,
+        width: 17.25,
         content: [
           {
             type: 'component',
@@ -51,12 +51,12 @@ const DEFAULT_LAYOUT_CONFIG: LayoutConfig = {
       },
       {
         type: 'stack',
-        width: 65,
+        width: 59.75,
         content: [],
       },
       {
         type: 'column',
-        width: 20,
+        width: 23,
         content: [
           {
             type: 'stack',

@@ -47,7 +47,7 @@ const lockedLayout: LayoutConfig = {
     content: [
       {
         type: 'column',
-        width: 15,
+        width: 17.25,
         content: [{
           type: 'component',
           componentType: 'FileBrowser',
@@ -59,16 +59,15 @@ const lockedLayout: LayoutConfig = {
         type: 'component',
         componentType: 'OrthogonalView',
         title: 'Orthogonal Views',
-        width: 65,
+        width: 59.75,
         componentState: {}
       },
       {
         type: 'column',
-        width: 20,
+        width: 23,
         content: [
           {
             type: 'stack',
-            height: 60,
             content: [
               {
                 type: 'component',
@@ -83,13 +82,6 @@ const lockedLayout: LayoutConfig = {
                 componentState: {}
               }
             ]
-          },
-          {
-            type: 'component',
-            componentType: 'PlotPanel',
-            title: 'Time Series',
-            height: 40,
-            componentState: {}
           }
         ]
       }
@@ -104,7 +96,7 @@ const flexibleLayout: LayoutConfig = {
     content: [
       {
         type: 'column',
-        width: 15,
+        width: 17.25,
         content: [{
           type: 'component',
           componentType: 'FileBrowser',
@@ -114,7 +106,7 @@ const flexibleLayout: LayoutConfig = {
       },
       {
         type: 'column',
-        width: 65,
+        width: 59.75,
         content: [
           {
             type: 'component',
@@ -147,11 +139,10 @@ const flexibleLayout: LayoutConfig = {
       },
       {
         type: 'column',
-        width: 20,
+        width: 23,
         content: [
           {
             type: 'stack',
-            height: 60,
             content: [
               {
                 type: 'component',
@@ -166,13 +157,6 @@ const flexibleLayout: LayoutConfig = {
                 componentState: {}
               }
             ]
-          },
-          {
-            type: 'component',
-            componentType: 'PlotPanel',
-            title: 'Time Series',
-            height: 40,
-            componentState: {}
           }
         ]
       }
@@ -775,4 +759,3 @@ export function GoldenLayoutWrapper({
     </div>
   );
 }
-

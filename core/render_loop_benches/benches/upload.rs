@@ -1,8 +1,8 @@
 use criterion::{criterion_group, criterion_main, Criterion, Throughput};
 use pollster::block_on;
 use rand::Rng;
-use wgpu::*;
 use wgpu::util::DeviceExt;
+use wgpu::*;
 
 const DIM: [u32; 3] = [256, 256, 256]; // ~64 MiB for f32
 const BYTES: usize = (DIM[0] * DIM[1] * DIM[2]) as usize * 4; // R32Float
@@ -71,7 +71,11 @@ fn bench_upload(c: &mut Criterion) {
                     origin: Origin3d::ZERO,
                     aspect: TextureAspect::All,
                 },
-                Extent3d { width: DIM[0], height: DIM[1], depth_or_array_layers: DIM[2] },
+                Extent3d {
+                    width: DIM[0],
+                    height: DIM[1],
+                    depth_or_array_layers: DIM[2],
+                },
             );
             queue.submit(Some(encoder.finish()));
         })

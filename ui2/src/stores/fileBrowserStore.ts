@@ -9,6 +9,7 @@ import { enableMapSet } from 'immer';
 import type { FileBrowserState, FileTreeNode, MountSource } from '@/types/filesystem';
 import { getEventBus } from '@/events/EventBus';
 import { getApiService } from '@/services/apiService';
+import { formatTauriError } from '@/utils/formatTauriError';
 
 // Enable Map and Set support in Immer
 enableMapSet();
@@ -229,7 +230,7 @@ const createFileBrowserStore = () => create<FileBrowserStore>()(
           console.error('Error loading directory:', error);
           set((state) => {
             state.loading = false;
-            state.error = error instanceof Error ? error.message : 'Failed to load directory';
+            state.error = formatTauriError(error) || 'Failed to load directory';
           });
         }
       },

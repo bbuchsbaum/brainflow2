@@ -74,7 +74,7 @@ export class OrthogonalLockedFactory implements ViewFactory {
         content: [
           {
             type: 'column',
-            width: 15,
+            width: 17.25,
             content: [{
               type: 'component',
               componentType: 'FileBrowser',
@@ -86,12 +86,12 @@ export class OrthogonalLockedFactory implements ViewFactory {
             type: 'component',
             componentType: 'OrthogonalView',
             title: 'Orthogonal Views',
-            width: 65,
+            width: 59.75,
             componentState: {}
           },
           {
             type: 'column',
-            width: 20,
+            width: 23,
             content: [
               {
                 type: 'component',
@@ -130,7 +130,7 @@ export class OrthogonalFlexibleFactory implements ViewFactory {
         content: [
           {
             type: 'column',
-            width: 15,
+            width: 17.25,
             content: [{
               type: 'component',
               componentType: 'FileBrowser',
@@ -140,7 +140,7 @@ export class OrthogonalFlexibleFactory implements ViewFactory {
           },
           {
             type: 'column',
-            width: 65,
+            width: 59.75,
             content: [
               {
                 type: 'row',
@@ -178,7 +178,7 @@ export class OrthogonalFlexibleFactory implements ViewFactory {
           },
           {
             type: 'column',
-            width: 20,
+            width: 23,
             content: [
               {
                 type: 'component',
@@ -225,7 +225,7 @@ export class MosaicViewFactory implements ViewFactory {
         content: [
           {
             type: 'column',
-            width: 15,
+            width: 17.25,
             content: [{
               type: 'component',
               componentType: 'FileBrowser',
@@ -237,7 +237,7 @@ export class MosaicViewFactory implements ViewFactory {
             type: 'component',
             componentType: 'MosaicView',
             title: `Mosaic ${orientation.charAt(0).toUpperCase() + orientation.slice(1)} (${rows}×${columns})`,
-            width: 65,
+            width: 59.75,
             componentState: {
               rows,
               columns,
@@ -246,7 +246,7 @@ export class MosaicViewFactory implements ViewFactory {
           },
           {
             type: 'column',
-            width: 20,
+            width: 23,
             content: [
               {
                 type: 'component',
@@ -291,7 +291,7 @@ export class LightboxViewFactory implements ViewFactory {
         content: [
           {
             type: 'column',
-            width: 15,
+            width: 17.25,
             content: [{
               type: 'component',
               componentType: 'FileBrowser',
@@ -303,7 +303,7 @@ export class LightboxViewFactory implements ViewFactory {
             type: 'component',
             componentType: 'LightboxView',
             title: `Lightbox ${orientation.charAt(0).toUpperCase() + orientation.slice(1)}`,
-            width: 65,
+            width: 59.75,
             componentState: {
               orientation,
               thumbnailSize
@@ -311,7 +311,7 @@ export class LightboxViewFactory implements ViewFactory {
           },
           {
             type: 'column',
-            width: 20,
+            width: 23,
             content: [
               {
                 type: 'component',
@@ -350,7 +350,7 @@ export class ROIStatsFactory implements ViewFactory {
         content: [
           {
             type: 'column',
-            width: 15,
+            width: 17.25,
             content: [{
               type: 'component',
               componentType: 'FileBrowser',
@@ -362,7 +362,7 @@ export class ROIStatsFactory implements ViewFactory {
             type: 'component',
             componentType: 'ROIStatsWorkspace',
             title: 'ROI Statistics',
-            width: 85,
+            width: 82.75,
             componentState: {}
           }
         ]

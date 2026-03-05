@@ -4,8 +4,152 @@
 
 use crate::types::*;
 use anyhow::Result;
-use std::collections::HashMap;
 use tracing::{debug, info};
+
+// ---------------------------------------------------------------------------
+// Declarative Atlas Registry
+// ---------------------------------------------------------------------------
+
+/// Static metadata for a built-in atlas.  Runtime-mutable fields
+/// (is_favorite, last_used, is_cached) live only on `AtlasCatalogEntry`.
+struct AtlasRegistryEntry {
+    id: &'static str,
+    name: &'static str,
+    description: &'static str,
+    category: AtlasCategory,
+    /// Which space families this atlas supports
+    space_families: &'static [SpaceFamily],
+    network_options: Option<&'static [u8]>,
+    parcel_options: Option<&'static [u32]>,
+    citation: &'static str,
+    download_size_mb: f64,
+}
+
+/// Coarse grouping of compatible template spaces.
+/// `populate_builtin_atlases` expands these into concrete `SpaceInfo` vecs.
+#[derive(Clone, Copy)]
+enum SpaceFamily {
+    Mni152,
+    FsAverage,
+}
+
+/// The single source of truth for every built-in atlas.
+/// To add a new atlas, append an entry here — no other Rust file needs editing.
+static ATLAS_REGISTRY: &[AtlasRegistryEntry] = &[
+    AtlasRegistryEntry {
+        id: "schaefer2018",
+        name: "Schaefer 2018",
+        description: "Cortical parcellations based on connectivity gradients",
+        category: AtlasCategory::Cortical,
+        space_families: &[SpaceFamily::Mni152, SpaceFamily::FsAverage],
+        network_options: Some(&[7, 17]),
+        parcel_options: Some(&[100, 200, 300, 400, 500, 600, 700, 800, 900, 1000]),
+        citation: "Schaefer et al. (2018). Local-Global Parcellation of the Human Cerebral Cortex. Cerebral Cortex.",
+        download_size_mb: 15.0,
+    },
+    AtlasRegistryEntry {
+        id: "glasser2016",
+        name: "Glasser 2016 (HCP-MMP1.0)",
+        description: "Human Connectome Project Multi-Modal Parcellation (360 areas)",
+        category: AtlasCategory::Cortical,
+        space_families: &[SpaceFamily::Mni152, SpaceFamily::FsAverage],
+        network_options: None,
+        parcel_options: None,
+        citation: "Glasser et al. (2016). A multi-modal parcellation of human cerebral cortex. Nature.",
+        download_size_mb: 8.0,
+    },
+    AtlasRegistryEntry {
+        id: "freesurfer_aseg",
+        name: "FreeSurfer ASEG",
+        description: "Automated subcortical segmentation",
+        category: AtlasCategory::Subcortical,
+        space_families: &[SpaceFamily::Mni152],
+        network_options: None,
+        parcel_options: None,
+        citation: "Fischl et al. (2002). Whole brain segmentation. Neuron.",
+        download_size_mb: 5.0,
+    },
+    AtlasRegistryEntry {
+        id: "olsen_mtl",
+        name: "Olsen MTL",
+        description: "High-resolution medial temporal lobe parcellation",
+        category: AtlasCategory::Specialized,
+        space_families: &[SpaceFamily::Mni152],
+        network_options: None,
+        parcel_options: None,
+        citation: "Olsen et al. MTL parcellation atlas.",
+        download_size_mb: 3.0,
+    },
+];
+
+// ---------------------------------------------------------------------------
+// Shared space / resolution definitions
+// ---------------------------------------------------------------------------
+
+fn mni152_spaces() -> Vec<SpaceInfo> {
+    vec![
+        SpaceInfo {
+            id: "MNI152NLin2009cAsym".to_string(),
+            name: "MNI152 (2009c Asymmetric)".to_string(),
+            description: "Standard MNI152 template, asymmetric version".to_string(),
+            data_type: AtlasDataType::Volume,
+        },
+        SpaceInfo {
+            id: "MNI152NLin6Asym".to_string(),
+            name: "MNI152 (6th Gen Asymmetric)".to_string(),
+            description: "6th generation MNI152 template".to_string(),
+            data_type: AtlasDataType::Volume,
+        },
+    ]
+}
+
+fn fsaverage_spaces() -> Vec<SpaceInfo> {
+    vec![
+        SpaceInfo {
+            id: "fsaverage".to_string(),
+            name: "FreeSurfer Average".to_string(),
+            description: "Standard FreeSurfer average surface".to_string(),
+            data_type: AtlasDataType::Surface,
+        },
+        SpaceInfo {
+            id: "fsaverage5".to_string(),
+            name: "FreeSurfer Average (5th level)".to_string(),
+            description: "5th level FreeSurfer average surface".to_string(),
+            data_type: AtlasDataType::Surface,
+        },
+        SpaceInfo {
+            id: "fsaverage6".to_string(),
+            name: "FreeSurfer Average (6th level)".to_string(),
+            description: "6th level FreeSurfer average surface".to_string(),
+            data_type: AtlasDataType::Surface,
+        },
+    ]
+}
+
+fn standard_resolutions() -> Vec<ResolutionInfo> {
+    vec![
+        ResolutionInfo {
+            value: "1mm".to_string(),
+            description: "1mm isotropic".to_string(),
+        },
+        ResolutionInfo {
+            value: "2mm".to_string(),
+            description: "2mm isotropic".to_string(),
+        },
+    ]
+}
+
+/// Expand a slice of `SpaceFamily` into concrete `SpaceInfo` entries.
+fn expand_spaces(families: &[SpaceFamily]) -> Vec<SpaceInfo> {
+    let mut out = Vec::new();
+    for fam in families {
+        match fam {
+            SpaceFamily::Mni152 => out.extend(mni152_spaces()),
+            SpaceFamily::FsAverage => out.extend(fsaverage_spaces()),
+        }
+    }
+    out
+}
 
 /// Manages the catalog of available atlases
 pub struct AtlasCatalog {
@@ -172,129 +316,26 @@ impl AtlasCatalog {
         entries
     }
 
-    /// Populate the catalog with built-in atlases
+    /// Populate the catalog from the declarative `ATLAS_REGISTRY`.
     fn populate_builtin_atlases(&mut self) {
-        // MNI152 spaces
-        let mni152_spaces = vec![
-            SpaceInfo {
-                id: "MNI152NLin2009cAsym".to_string(),
-                name: "MNI152 (2009c Asymmetric)".to_string(),
-                description: "Standard MNI152 template, asymmetric version".to_string(),
-                data_type: AtlasDataType::Volume,
-            },
-            SpaceInfo {
-                id: "MNI152NLin6Asym".to_string(),
-                name: "MNI152 (6th Gen Asymmetric)".to_string(),
-                description: "6th generation MNI152 template".to_string(),
-                data_type: AtlasDataType::Volume,
-            },
-        ];
-
-        // FreeSurfer surface spaces
-        let fsaverage_spaces = vec![
-            SpaceInfo {
-                id: "fsaverage".to_string(),
-                name: "FreeSurfer Average".to_string(),
-                description: "Standard FreeSurfer average surface".to_string(),
-                data_type: AtlasDataType::Surface,
-            },
-            SpaceInfo {
-                id: "fsaverage5".to_string(),
-                name: "FreeSurfer Average (5th level)".to_string(),
-                description: "5th level FreeSurfer average surface".to_string(),
-                data_type: AtlasDataType::Surface,
-            },
-            SpaceInfo {
-                id: "fsaverage6".to_string(),
-                name: "FreeSurfer Average (6th level)".to_string(),
-                description: "6th level FreeSurfer average surface".to_string(),
-                data_type: AtlasDataType::Surface,
-            },
-        ];
-
-        // Standard resolutions
-        let standard_resolutions = vec![
-            ResolutionInfo {
-                value: "1mm".to_string(),
-                description: "1mm isotropic".to_string(),
-            },
-            ResolutionInfo {
-                value: "2mm".to_string(),
-                description: "2mm isotropic".to_string(),
-            },
-        ];
-
-        // Schaefer Atlas
-        self.entries.push(AtlasCatalogEntry {
-            id: "schaefer2018".to_string(),
-            name: "Schaefer 2018".to_string(),
-            description: "Cortical parcellations based on connectivity gradients".to_string(),
-            source: AtlasSource::BuiltIn,
-            category: AtlasCategory::Cortical,
-            allowed_spaces: [mni152_spaces.clone(), fsaverage_spaces.clone()].concat(),
-            resolutions: standard_resolutions.clone(),
-            network_options: Some(vec![7, 17]),
-            parcel_options: Some(vec![100, 200, 300, 400, 500, 600, 700, 800, 900, 1000]),
-            is_favorite: false,
-            last_used: None,
-            citation: Some("Schaefer et al. (2018). Local-Global Parcellation of the Human Cerebral Cortex. Cerebral Cortex.".to_string()),
-            is_cached: false,
-            download_size_mb: Some(15.0),
-        });
-
-        // Glasser Atlas
-        self.entries.push(AtlasCatalogEntry {
-            id: "glasser2016".to_string(),
-            name: "Glasser 2016 (HCP-MMP1.0)".to_string(),
-            description: "Human Connectome Project Multi-Modal Parcellation (360 areas)".to_string(),
-            source: AtlasSource::BuiltIn,
-            category: AtlasCategory::Cortical,
-            allowed_spaces: [mni152_spaces.clone(), fsaverage_spaces.clone()].concat(),
-            resolutions: standard_resolutions.clone(),
-            network_options: None,
-            parcel_options: None,
-            is_favorite: false,
-            last_used: None,
-            citation: Some("Glasser et al. (2016). A multi-modal parcellation of human cerebral cortex. Nature.".to_string()),
-            is_cached: false,
-            download_size_mb: Some(8.0),
-        });
-
-        // FreeSurfer ASEG
-        self.entries.push(AtlasCatalogEntry {
-            id: "freesurfer_aseg".to_string(),
-            name: "FreeSurfer ASEG".to_string(),
-            description: "Automated subcortical segmentation".to_string(),
-            source: AtlasSource::BuiltIn,
-            category: AtlasCategory::Subcortical,
-            allowed_spaces: mni152_spaces.clone(),
-            resolutions: standard_resolutions.clone(),
-            network_options: None,
-            parcel_options: None,
-            is_favorite: false,
-            last_used: None,
-            citation: Some("Fischl et al. (2002). Whole brain segmentation. Neuron.".to_string()),
-            is_cached: false,
-            download_size_mb: Some(5.0),
-        });
-
-        // Olsen MTL
-        self.entries.push(AtlasCatalogEntry {
-            id: "olsen_mtl".to_string(),
-            name: "Olsen MTL".to_string(),
-            description: "High-resolution medial temporal lobe parcellation".to_string(),
-            source: AtlasSource::BuiltIn,
-            category: AtlasCategory::Specialized,
-            allowed_spaces: mni152_spaces.clone(),
-            resolutions: standard_resolutions.clone(),
-            network_options: None,
-            parcel_options: None,
-            is_favorite: false,
-            last_used: None,
-            citation: Some("Olsen et al. MTL parcellation atlas.".to_string()),
-            is_cached: false,
-            download_size_mb: Some(3.0),
-        });
+        for reg in ATLAS_REGISTRY {
+            self.entries.push(AtlasCatalogEntry {
+                id: reg.id.to_string(),
+                name: reg.name.to_string(),
+                description: reg.description.to_string(),
+                source: AtlasSource::BuiltIn,
+                category: reg.category.clone(),
+                allowed_spaces: expand_spaces(reg.space_families),
+                resolutions: standard_resolutions(),
+                network_options: reg.network_options.map(|s| s.to_vec()),
+                parcel_options: reg.parcel_options.map(|s| s.to_vec()),
+                is_favorite: false,
+                last_used: None,
+                citation: Some(reg.citation.to_string()),
+                is_cached: false,
+                download_size_mb: Some(reg.download_size_mb),
+            });
+        }
 
         info!(
             "Populated atlas catalog with {} built-in atlases",

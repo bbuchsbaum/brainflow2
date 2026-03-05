@@ -467,7 +467,7 @@ export const SurfaceViewCanvas: React.FC<SurfaceViewCanvasProps> = ({
     };
 
     const eventBus = getEventBus();
-    const unsubscribe = eventBus.on('surface.overlayApplied' as any, handleOverlayApplied);
+    const unsubscribe = eventBus.on('surface.overlayApplied', handleOverlayApplied);
 
     return () => {
       unsubscribe();

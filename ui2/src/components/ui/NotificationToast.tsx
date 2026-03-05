@@ -8,7 +8,7 @@ import { useEvent } from '@/events/EventBus';
 
 interface Notification {
   id: string;
-  type: 'info' | 'warning' | 'error';
+  type: 'info' | 'warning' | 'error' | 'success';
   message: string;
   timestamp: number;
 }
@@ -63,6 +63,13 @@ export function NotificationToast() {
           borderColor: 'hsl(var(--destructive))',
           color: 'hsl(var(--foreground))',
         };
+      case 'success':
+        return {
+          ...base,
+          backgroundColor: 'hsl(var(--muted))',
+          borderColor: 'hsl(var(--app-success))',
+          color: 'hsl(var(--foreground))',
+        };
     }
   };
 
@@ -71,6 +78,7 @@ export function NotificationToast() {
       case 'info': return 'hsl(var(--primary))';
       case 'warning': return 'hsl(45 100% 50%)';
       case 'error': return 'hsl(var(--destructive))';
+      case 'success': return 'hsl(var(--app-success))';
     }
   };
 

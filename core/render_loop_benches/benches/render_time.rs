@@ -7,9 +7,7 @@ use render_loop::RenderLoopService;
 
 fn setup_service() -> RenderLoopService {
     block_on(async {
-        let mut svc = RenderLoopService::new()
-            .await
-            .expect("init render loop");
+        let mut svc = RenderLoopService::new().await.expect("init render loop");
         svc.load_shaders().expect("load shaders");
 
         // Register a small test volume (u8 pattern)
@@ -40,8 +38,7 @@ fn bench_render_time(c: &mut Criterion) {
     );
 
     // Use offscreen render target so pipeline creation doesn't require a surface
-    svc
-        .create_offscreen_target(512, 512)
+    svc.create_offscreen_target(512, 512)
         .expect("offscreen target");
 
     let mut group = c.benchmark_group("RenderFrame");

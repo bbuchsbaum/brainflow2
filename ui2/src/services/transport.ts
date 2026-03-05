@@ -28,6 +28,7 @@ export class TauriTransport implements BackendTransport {
     // Commands from the api-bridge plugin need the plugin namespace
     const apiBridgeCommands = [
       'render_view', // New unified render method
+      'render_views', // Multi-view batched render
       'apply_and_render_view_state',
       'apply_and_render_view_state_binary',
       'apply_and_render_view_state_raw',
@@ -62,6 +63,7 @@ export class TauriTransport implements BackendTransport {
       'compute_layer_histogram',
       'request_layer_gpu_resources',
       'release_layer_gpu_resources',
+      'wait_for_layer_ready',
       'update_frame_ubo',
       'update_frame_for_synchronized_view',
       'recalculate_all_views',

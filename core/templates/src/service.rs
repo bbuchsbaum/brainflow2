@@ -8,11 +8,11 @@ use bridge_types::{Loader, TimeSeriesInfo, VolumeHandleInfo, VolumeType};
 use reqwest;
 use std::collections::HashMap;
 use std::fs;
-use std::path::{Component, Path, PathBuf};
+use std::path::{Component, Path};
 use std::sync::Arc;
 use tokio::io::AsyncWriteExt;
 use tokio::sync::{broadcast, RwLock};
-use tracing::{debug, error, info, warn};
+use tracing::{debug, info};
 use uuid::Uuid;
 use volmath::NeuroSpaceExt;
 
@@ -517,12 +517,7 @@ impl TemplateService {
             })?;
         }
 
-        // Reset catalog cache status
-        let mut catalog = self.catalog.write().await;
-        for entry in catalog.get_all().iter() {
-            // Would need a method to reset cache status
-            // catalog.reset_cache_status(&entry.id);
-        }
+        // TODO: reset per-entry cached status in catalog when a reset API exists.
 
         info!("Template cache cleared");
         Ok(())

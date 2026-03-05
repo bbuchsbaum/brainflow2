@@ -12,6 +12,17 @@ import type { ViewLayer } from '@/types/viewState';
 import { VolumeHandleStore } from './VolumeHandleStore';
 import type { LayerInfo } from '@/stores/layerStore';
 
+const DEBUG_LAYER_API =
+  import.meta.env.DEV &&
+  typeof window !== 'undefined' &&
+  window.localStorage.getItem('brainflow2-debug-layer-api') === 'true';
+
+const layerDebugLog = (...args: unknown[]) => {
+  if (DEBUG_LAYER_API) {
+    console.log(...args);
+  }
+};
+
 export class LayerApiImpl implements LayerApi {
   private apiService = getApiService();
 
@@ -30,9 +41,10 @@ export class LayerApiImpl implements LayerApi {
     const dataRange = layerMetadata?.dataRange;
     const defaultMin = dataRange?.min ?? 0;
     const defaultMax = dataRange?.max ?? 100;
+    const isLabelLike = layer.type === 'label' || layerMetadata?.source === 'atlas';
     const metadataRenderProps = (layerMetadata as any)?.renderProps as LayerRender | undefined;
     const intensity: [number, number] = metadataRenderProps?.intensity ?? [defaultMin, defaultMax];
-    const threshold: [number, number] = metadataRenderProps?.threshold ?? [defaultMin, defaultMin];
+    const threshold: [number, number] = metadataRenderProps?.threshold ?? [isLabelLike ? 0 : defaultMin, isLabelLike ? 0 : defaultMin];
 
     return {
       id: layer.id,
@@ -44,7 +56,7 @@ export class LayerApiImpl implements LayerApi {
       intensity,
       threshold,
       blendMode: 'alpha',
-      interpolation: metadataRenderProps?.interpolation ?? 'linear',
+      interpolation: metadataRenderProps?.interpolation ?? (isLabelLike ? 'nearest' : 'linear'),
     };
   }
 
@@ -90,18 +102,18 @@ export class LayerApiImpl implements LayerApi {
   
   async addLayer(layer: Omit<Layer, 'id'>): Promise<Layer> {
     const addLayerStartTime = performance.now();
-    console.log(`[LayerApiImpl ${addLayerStartTime.toFixed(0)}ms] addLayer called with:`, JSON.stringify(layer));
+    layerDebugLog(`[LayerApiImpl ${addLayerStartTime.toFixed(0)}ms] addLayer called with:`, JSON.stringify(layer));
     
     // Use volumeId as layer id for now
     const newLayer: Layer = {
       ...layer,
       id: layer.volumeId
     };
-    console.log(`[LayerApiImpl ${performance.now() - addLayerStartTime}ms] Created layer with id=${newLayer.id}`);
+    layerDebugLog(`[LayerApiImpl ${performance.now() - addLayerStartTime}ms] Created layer with id=${newLayer.id}`);
     
     // Request GPU resources for the layer FIRST
     // This uploads the volume to GPU and adds it to the render state
-    console.log(`[LayerApiImpl ${performance.now() - addLayerStartTime}ms] Starting GPU resource allocation for layer ${newLayer.id}, volume ${newLayer.volumeId}`);
+    layerDebugLog(`[LayerApiImpl ${performance.now() - addLayerStartTime}ms] Starting GPU resource allocation for layer ${newLayer.id}, volume ${newLayer.volumeId}`);
     const gpuStartTime = performance.now();
     
     // Declare renderProps outside try block so it's accessible throughout the function
@@ -110,33 +122,35 @@ export class LayerApiImpl implements LayerApi {
     try {
       const gpuInfo = await this.apiService.requestLayerGpuResources(newLayer.id, newLayer.volumeId);
       const gpuElapsed = performance.now() - gpuStartTime;
-      console.log(`[LayerApiImpl ${performance.now() - addLayerStartTime}ms] GPU resources allocated in ${gpuElapsed.toFixed(0)}ms:`, JSON.stringify(gpuInfo));
+      layerDebugLog(`[LayerApiImpl ${performance.now() - addLayerStartTime}ms] GPU resources allocated in ${gpuElapsed.toFixed(0)}ms:`, JSON.stringify(gpuInfo));
       
       // Store volume metadata before adding the layer so view-layer defaults
       // can be derived deterministically from metadata.
       
       if (gpuInfo.data_range) {
-        console.log(`[LayerApiImpl ${performance.now() - addLayerStartTime}ms] Volume data range: [${gpuInfo.data_range.min}, ${gpuInfo.data_range.max}]`);
-        
-        // Create render properties with 20-80% of data range for better default contrast
-        // Note: Render properties are now managed in ViewState, not layerStore
+        layerDebugLog(`[LayerApiImpl ${performance.now() - addLayerStartTime}ms] Volume data range: [${gpuInfo.data_range.min}, ${gpuInfo.data_range.max}]`);
         const min = gpuInfo.data_range.min;
         const max = gpuInfo.data_range.max;
         const range = max - min;
-        
-        // Use 20-80% of the range for initial display
-        const intensityMin = min + (range * 0.20);
-        const intensityMax = min + (range * 0.80);
-        
+        const isLabelLike = newLayer.type === 'label';
+
+        // For label atlases, use full range and nearest interpolation to preserve parcel IDs.
+        // Generic scalar volumes keep the contrast-oriented defaults.
+        const intensityMin = isLabelLike ? min : min + (range * 0.20);
+        const intensityMax = isLabelLike ? max : min + (range * 0.80);
+        const threshold: [number, number] = isLabelLike
+          ? [0, 0]
+          : [min + (range / 2), min + (range / 2)];
+
         renderProps = {
-            opacity: 1.0,
-            intensity: [intensityMin, intensityMax],
-          threshold: [min + (range / 2), min + (range / 2)],  // Default to midpoint
+          opacity: 1.0,
+          intensity: [intensityMin, intensityMax],
+          threshold,
           colormap: 'gray',
-          interpolation: 'linear',
+          interpolation: isLabelLike ? 'nearest' : 'linear',
         };
         
-        console.log(`[LayerApiImpl ${performance.now() - addLayerStartTime}ms] Created render properties:`, JSON.stringify(renderProps));
+        layerDebugLog(`[LayerApiImpl ${performance.now() - addLayerStartTime}ms] Created render properties:`, JSON.stringify(renderProps));
         
         // Get existing metadata to preserve worldBounds that was set earlier
         const existingMetadata = useLayerStore.getState().getLayerMetadata(newLayer.id) || {};
@@ -159,7 +173,7 @@ export class LayerApiImpl implements LayerApi {
           renderProps: renderProps,
           // TODO: Add file path and format when available from volume handle
         };
-        console.log(`[LayerApiImpl ${performance.now() - addLayerStartTime}ms] Setting layer metadata:`, JSON.stringify(metadata));
+        layerDebugLog(`[LayerApiImpl ${performance.now() - addLayerStartTime}ms] Setting layer metadata:`, JSON.stringify(metadata));
         useLayerStore.getState().setLayerMetadata(newLayer.id, metadata);
         
         // Validate render properties were created
@@ -177,7 +191,7 @@ export class LayerApiImpl implements LayerApi {
           throw new Error(error);
         }
         
-        console.log(`[LayerApiImpl] Successfully created render properties for layer ${newLayer.id}:`, {
+        layerDebugLog(`[LayerApiImpl] Successfully created render properties for layer ${newLayer.id}:`, {
           intensityRange: [renderProps.intensity[0], renderProps.intensity[1]],
           thresholdRange: [renderProps.threshold[0], renderProps.threshold[1]],
           opacity: renderProps.opacity
@@ -186,10 +200,21 @@ export class LayerApiImpl implements LayerApi {
         console.warn(`[LayerApiImpl ${performance.now() - addLayerStartTime}ms] No data_range in GPU info!`);
       }
       
-      // Add a small delay to ensure GPU resources are fully ready
-      // This is a temporary fix - ideally the backend would signal when ready
-      console.log(`[LayerApiImpl ${performance.now() - addLayerStartTime}ms] Waiting 100ms for GPU resources to settle...`);
-      await new Promise(resolve => setTimeout(resolve, 100));
+      // Readiness probe is best-effort and should not stall the UI load path.
+      // Keep timeout short to avoid adding multi-second latency to each load.
+      try {
+        const isReady = await this.apiService.waitForLayerReady(newLayer.id, 500, 20);
+        if (!isReady) {
+          console.warn(
+            `[LayerApiImpl ${performance.now() - addLayerStartTime}ms] Backend readiness timed out for layer ${newLayer.id}; continuing with best effort`
+          );
+        }
+      } catch (readinessError) {
+        console.warn(
+          `[LayerApiImpl ${performance.now() - addLayerStartTime}ms] Readiness probe unavailable for layer ${newLayer.id}; continuing`,
+          readinessError
+        );
+      }
       
     } catch (error) {
       const elapsed = performance.now() - addLayerStartTime;
@@ -199,13 +224,13 @@ export class LayerApiImpl implements LayerApi {
     
     // Only add layer after GPU resources are ready and metadata is present.
     // Then project both stores directly from this API call.
-    console.log(`[LayerApiImpl ${performance.now() - addLayerStartTime}ms] Adding layer to store with render properties`);
+    layerDebugLog(`[LayerApiImpl ${performance.now() - addLayerStartTime}ms] Adding layer to store with render properties`);
     
     const stateBefore = useLayerStore.getState().layers.length;
     const viewStateBefore = useViewStateStore.getState().viewState.layers.length;
-    console.log(`[LayerApiImpl ${performance.now() - addLayerStartTime}ms] State before addLayer:`);
-    console.log(`  - layerStore: ${stateBefore} layers`);
-    console.log(`  - viewStateStore: ${viewStateBefore} layers`);
+    layerDebugLog(`[LayerApiImpl ${performance.now() - addLayerStartTime}ms] State before addLayer:`);
+    layerDebugLog(`  - layerStore: ${stateBefore} layers`);
+    layerDebugLog(`  - viewStateStore: ${viewStateBefore} layers`);
     
     // Add to layer store first.
     useLayerStore.getState().addLayer(newLayer);
@@ -214,16 +239,16 @@ export class LayerApiImpl implements LayerApi {
     
     const stateAfter = useLayerStore.getState().layers.length;
     const viewStateAfter = useViewStateStore.getState().viewState.layers.length;
-    console.log(`[LayerApiImpl ${performance.now() - addLayerStartTime}ms] State after addLayer:`);
-    console.log(`  - layerStore: ${stateAfter} layers (was ${stateBefore})`);
-    console.log(`  - viewStateStore: ${viewStateAfter} layers (was ${viewStateBefore})`);
+    layerDebugLog(`[LayerApiImpl ${performance.now() - addLayerStartTime}ms] State after addLayer:`);
+    layerDebugLog(`  - layerStore: ${stateAfter} layers (was ${stateBefore})`);
+    layerDebugLog(`  - viewStateStore: ${viewStateAfter} layers (was ${viewStateBefore})`);
     
-    console.log(`[LayerApiImpl ${performance.now() - addLayerStartTime}ms] Current layers in layerStore:`, 
+    layerDebugLog(`[LayerApiImpl ${performance.now() - addLayerStartTime}ms] Current layers in layerStore:`, 
       useLayerStore
         .getState()
         .layers.map((layer: LayerInfo) => ({ id: layer.id, name: layer.name, visible: layer.visible })));
     
-    console.log(`[LayerApiImpl ${performance.now() - addLayerStartTime}ms] addLayer completed in ${(performance.now() - addLayerStartTime).toFixed(0)}ms`);
+    layerDebugLog(`[LayerApiImpl ${performance.now() - addLayerStartTime}ms] addLayer completed in ${(performance.now() - addLayerStartTime).toFixed(0)}ms`);
     return newLayer;
   }
   
@@ -307,7 +332,7 @@ export class LayerApiImpl implements LayerApi {
       
       // Use snake_case for Rust backend
       backendPatch.colormap_id = colormapIds[patch.colormap!] || 0;
-      console.log(`[LayerApiImpl] Mapping colormap '${patch.colormap}' to ID ${backendPatch.colormap_id}`);
+      layerDebugLog(`[LayerApiImpl] Mapping colormap '${patch.colormap}' to ID ${backendPatch.colormap_id}`);
     }
     
     // Guard against empty patches
@@ -317,7 +342,7 @@ export class LayerApiImpl implements LayerApi {
     }
     
     // Log the patch being sent for debugging
-    console.log("[LayerApiImpl] Sending patch to backend:", { id, backendPatch });
+    layerDebugLog("[LayerApiImpl] Sending patch to backend:", { id, backendPatch });
     
     // Send patch to backend
     await this.apiService.patchLayer(id, backendPatch);
@@ -327,7 +352,7 @@ export class LayerApiImpl implements LayerApi {
     // Backend doesn't currently support explicit ordering
     // This would need to be implemented in the render loop
     // For now, just log the intended order
-    console.log('Layer order update requested:', layerIds);
+    layerDebugLog('Layer order update requested:', layerIds);
     const layerById = new Map<string, LayerInfo>(
       useLayerStore.getState().layers.map((layer: LayerInfo) => [layer.id, layer])
     );
@@ -354,6 +379,6 @@ export class LayerApiImpl implements LayerApi {
   async loadLayerData(id: string): Promise<void> {
     // Data is already loaded when volume is loaded
     // This could be used for lazy loading in the future
-    console.log('Layer data request for:', id);
+    layerDebugLog('Layer data request for:', id);
   }
 }

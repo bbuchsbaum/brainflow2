@@ -411,61 +411,6 @@ pub fn get_olsen_mtl_presets() -> Vec<AtlasPreset> {
     )]
 }
 
-/// Get Hippocampus atlas presets
-pub fn get_hippocampus_presets() -> Vec<AtlasPreset> {
-    vec![AtlasPreset::new(
-        "atlas_hippocampus_1mm",
-        "Hippocampus Subfields (1mm)",
-        "hippocampus",
-        "MNI152NLin2009cAsym",
-        "1mm",
-    )]
-}
-
-/// Get CIT168 subcortical atlas presets
-pub fn get_cit168_presets() -> Vec<AtlasPreset> {
-    vec![AtlasPreset::new(
-        "atlas_cit168_1mm",
-        "CIT168 Subcortex (1mm)",
-        "cit168",
-        "MNI152NLin2009cAsym",
-        "1mm",
-    )]
-}
-
-/// Get HCP Thalamus atlas presets
-pub fn get_hcp_thalamus_presets() -> Vec<AtlasPreset> {
-    vec![AtlasPreset::new(
-        "atlas_hcp_thalamus_1mm",
-        "HCP Thalamic Nuclei (1mm)",
-        "hcp_thalamus",
-        "MNI152NLin2009cAsym",
-        "1mm",
-    )]
-}
-
-/// Get MDTB10 Cerebellum atlas presets
-pub fn get_mdtb10_presets() -> Vec<AtlasPreset> {
-    vec![AtlasPreset::new(
-        "atlas_mdtb10_1mm",
-        "MDTB10 Cerebellum (1mm)",
-        "mdtb10",
-        "MNI152NLin2009cAsym",
-        "1mm",
-    )]
-}
-
-/// Get HCP Hippocampus/Amygdala atlas presets
-pub fn get_hcp_hippamyg_presets() -> Vec<AtlasPreset> {
-    vec![AtlasPreset::new(
-        "atlas_hcp_hippamyg_1mm",
-        "HCP Hipp/Amyg (1mm)",
-        "hcp_hippamyg",
-        "MNI152NLin2009cAsym",
-        "1mm",
-    )]
-}
-
 /// Get all atlas presets organized by category
 pub fn get_all_presets() -> Vec<AtlasPreset> {
     let mut all = Vec::new();
@@ -473,11 +418,6 @@ pub fn get_all_presets() -> Vec<AtlasPreset> {
     all.extend(get_glasser_presets());
     all.extend(get_aseg_presets());
     all.extend(get_olsen_mtl_presets());
-    all.extend(get_hippocampus_presets());
-    all.extend(get_cit168_presets());
-    all.extend(get_hcp_thalamus_presets());
-    all.extend(get_mdtb10_presets());
-    all.extend(get_hcp_hippamyg_presets());
     all
 }
 
@@ -551,41 +491,7 @@ pub fn build_atlases_menu(app: &App<Wry>) -> Result<tauri::menu::Submenu<Wry>, t
         );
     }
 
-    // CIT168
-    let mut cit168_menu = SubmenuBuilder::new(app, "CIT168 Subcortex");
-    for preset in get_cit168_presets() {
-        cit168_menu = cit168_menu.item(
-            &MenuItemBuilder::new(&preset.label)
-                .id(&preset.menu_id)
-                .build(app)?,
-        );
-    }
-
-    // HCP Thalamus
-    let mut hcp_thalamus_menu = SubmenuBuilder::new(app, "HCP Thalamic Nuclei");
-    for preset in get_hcp_thalamus_presets() {
-        hcp_thalamus_menu = hcp_thalamus_menu.item(
-            &MenuItemBuilder::new(&preset.label)
-                .id(&preset.menu_id)
-                .build(app)?,
-        );
-    }
-
-    // HCP Hippocampus/Amygdala
-    let mut hcp_hippamyg_menu = SubmenuBuilder::new(app, "HCP Hippocampus/Amygdala");
-    for preset in get_hcp_hippamyg_presets() {
-        hcp_hippamyg_menu = hcp_hippamyg_menu.item(
-            &MenuItemBuilder::new(&preset.label)
-                .id(&preset.menu_id)
-                .build(app)?,
-        );
-    }
-
-    subcortical_menu = subcortical_menu
-        .item(&aseg_menu.build()?)
-        .item(&cit168_menu.build()?)
-        .item(&hcp_thalamus_menu.build()?)
-        .item(&hcp_hippamyg_menu.build()?);
+    subcortical_menu = subcortical_menu.item(&aseg_menu.build()?);
 
     // Specialized Atlases submenu
     let mut specialized_menu = SubmenuBuilder::new(app, "Specialized");
@@ -600,30 +506,7 @@ pub fn build_atlases_menu(app: &App<Wry>) -> Result<tauri::menu::Submenu<Wry>, t
         );
     }
 
-    // Hippocampus
-    let mut hippocampus_menu = SubmenuBuilder::new(app, "Hippocampus");
-    for preset in get_hippocampus_presets() {
-        hippocampus_menu = hippocampus_menu.item(
-            &MenuItemBuilder::new(&preset.label)
-                .id(&preset.menu_id)
-                .build(app)?,
-        );
-    }
-
-    // MDTB10 Cerebellum
-    let mut mdtb10_menu = SubmenuBuilder::new(app, "MDTB10 Cerebellum");
-    for preset in get_mdtb10_presets() {
-        mdtb10_menu = mdtb10_menu.item(
-            &MenuItemBuilder::new(&preset.label)
-                .id(&preset.menu_id)
-                .build(app)?,
-        );
-    }
-
-    specialized_menu = specialized_menu
-        .item(&olsen_mtl_menu.build()?)
-        .item(&hippocampus_menu.build()?)
-        .item(&mdtb10_menu.build()?);
+    specialized_menu = specialized_menu.item(&olsen_mtl_menu.build()?);
 
     // Surface Atlases submenu
     let surface_atlases_menu = build_surface_atlases_submenu(app)?;

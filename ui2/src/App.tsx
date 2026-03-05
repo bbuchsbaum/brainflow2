@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { ErrorBoundary } from 'react-error-boundary';
 import { GoldenLayoutRoot } from '@/components/layout/GoldenLayoutRoot';
 import { NotificationToast } from '@/components/ui/NotificationToast';
@@ -8,7 +8,6 @@ import { MultiViewBatchToggle } from '@/components/ui/MultiViewBatchToggle';
 import { GlobalProgressBar } from '@/components/ui/GlobalProgressBar';
 import { StatusProvider } from '@/contexts/StatusContext';
 import { CrosshairProvider } from '@/contexts/CrosshairContext';
-import { useBackendSync } from '@/hooks/useBackendSync';
 import { useMountListener } from '@/hooks/useMountListener';
 import { useServicesInit } from '@/hooks/useServicesInit';
 import { useStatusBarInit } from '@/hooks/useStatusBarInit';
@@ -17,7 +16,6 @@ import { usePanelMenuListener } from '@/hooks/usePanelMenuListener';
 import { useAtlasMenuListener } from '@/hooks/useAtlasMenuListener';
 import { useSurfaceTemplateMenuListener } from '@/hooks/useSurfaceTemplateMenuListener';
 import { coalesceUtils } from '@/stores/middleware/coalesceUpdatesMiddleware';
-import { getProgressService } from '@/services/ProgressService';
 import { ProgressDebug } from '@/components/ui/ProgressDebug';
 import { MetadataStatusBridge } from '@/components/MetadataStatusBridge';
 import { initializeCrosshairMenuService, destroyCrosshairMenuService } from '@/services/CrosshairMenuService';
@@ -34,6 +32,12 @@ import { getKeyboardShortcutService } from '@/services/KeyboardShortcutService';
 import { useLayerStore } from '@/stores/layerStore';
 import { WorkspacePresetSelector } from '@/components/ui/WorkspacePresetSelector';
 import { LayoutLibrarySelector } from '@/components/ui/LayoutLibrarySelector';
+import { CommandPaletteDialog, type CommandPaletteCommand } from '@/components/dialogs/CommandPaletteDialog';
+import { getLayoutService, type SidebarPanelType } from '@/services/layoutService';
+import { getTransport } from '@/services/transport';
+import { WORKSPACE_PRESETS } from '@/types/workspacePresets';
+import { useWorkspaceStore } from '@/stores/workspaceStore';
+import { useLayoutLibraryStore } from '@/stores/layoutLibraryStore';
 
 function ErrorFallback({ error, resetErrorBoundary }: any) {
   return (
@@ -89,11 +93,15 @@ function AppContent() {
   });
   const [showCrosshairSettings, setShowCrosshairSettings] = useState(false);
   const [showKeyboardShortcuts, setShowKeyboardShortcuts] = useState(false);
+  const [showCommandPalette, setShowCommandPalette] = useState(false);
   const [showGoToCoordinate, setShowGoToCoordinate] = useState(false);
   const [showImageHeader, setShowImageHeader] = useState(false);
   const [imageHeaderVolumeId, setImageHeaderVolumeId] = useState<string | null>(null);
   const selectedLayerId = useLayerStore(s => s.selectedLayerId);
   const layers = useLayerStore(s => s.layers);
+  const applyWorkspacePreset = useWorkspaceStore(s => s.applyWorkspacePreset);
+  const savedLayouts = useLayoutLibraryStore(s => s.layouts);
+  const loadSavedLayout = useLayoutLibraryStore(s => s.loadLayout);
 
   // Initialize KeyboardShortcutService early (single global listener)
   useEffect(() => {
@@ -147,6 +155,103 @@ function AppContent() {
   // Initialize navigation shortcuts (G, O, C)
   useNavigationShortcuts({ onOpenGoToDialog: () => setShowGoToCoordinate(true) });
 
+  const commandPaletteCommands = useMemo<CommandPaletteCommand[]>(() => {
+    const focusSidebarPanel = (panelType: SidebarPanelType) => {
+      getLayoutService().focusSidebarPanel(panelType);
+    };
+
+    const coreCommands: CommandPaletteCommand[] = [
+      {
+        id: 'command.mountDirectory',
+        title: 'Mount Directory…',
+        subtitle: 'Open directory picker and mount it in Files.',
+        keywords: ['files', 'mount', 'directory'],
+        group: 'File',
+        shortcut: 'Cmd/Ctrl+O',
+        run: async () => {
+          await getTransport().invoke<void>('open_mount_dialog');
+        },
+      },
+      {
+        id: 'command.openFile',
+        title: 'Open File…',
+        subtitle: 'Open file picker and load a file.',
+        keywords: ['files', 'open', 'load', 'nifti', 'gifti'],
+        group: 'File',
+        run: async () => {
+          await getTransport().invoke<void>('open_file_dialog');
+        },
+      },
+      {
+        id: 'panel.volumes',
+        title: 'Show Volumes Panel',
+        subtitle: 'Focus right sidebar Volumes tab.',
+        keywords: ['panel', 'volumes', 'layers'],
+        group: 'Panels',
+        run: () => focusSidebarPanel('LayerPanel'),
+      },
+      {
+        id: 'panel.atlases',
+        title: 'Show Atlases Panel',
+        subtitle: 'Focus right sidebar Atlases tab.',
+        keywords: ['panel', 'atlas', 'atlases'],
+        group: 'Panels',
+        run: () => focusSidebarPanel('AtlasPanel'),
+      },
+      {
+        id: 'panel.surfaces',
+        title: 'Show Surfaces Panel',
+        subtitle: 'Focus right sidebar Surfaces tab.',
+        keywords: ['panel', 'surface', 'surfaces'],
+        group: 'Panels',
+        run: () => focusSidebarPanel('SurfacePanel'),
+      },
+      {
+        id: 'app.goToCoordinate',
+        title: 'Go To Coordinate…',
+        subtitle: 'Open coordinate navigation dialog.',
+        keywords: ['coordinate', 'crosshair', 'navigation'],
+        group: 'Navigation',
+        shortcut: 'G',
+        run: () => setShowGoToCoordinate(true),
+      },
+      {
+        id: 'app.keyboardShortcuts',
+        title: 'Show Keyboard Shortcuts',
+        subtitle: 'Open shortcut reference dialog.',
+        keywords: ['help', 'shortcuts', 'keyboard'],
+        group: 'Help',
+        shortcut: '?',
+        run: () => setShowKeyboardShortcuts(true),
+      },
+    ];
+
+    const presetCommands: CommandPaletteCommand[] = WORKSPACE_PRESETS.map((preset) => ({
+      id: `layout.preset.${preset.id}`,
+      title: `Switch Preset: ${preset.label}`,
+      subtitle: preset.description,
+      keywords: ['layout', 'preset', 'workspace', preset.label.toLowerCase()],
+      group: 'Layouts',
+      shortcut: preset.shortcut,
+      run: async () => {
+        await applyWorkspacePreset(preset.id);
+      },
+    }));
+
+    const savedLayoutCommands: CommandPaletteCommand[] = savedLayouts.map((layout) => ({
+      id: `layout.named.${layout.id}`,
+      title: `Load Layout: ${layout.name}`,
+      subtitle: 'Apply a saved custom layout.',
+      keywords: ['layout', 'saved', 'named', 'custom'],
+      group: 'Layouts',
+      run: () => {
+        loadSavedLayout(layout.id);
+      },
+    }));
+
+    return [...coreCommands, ...presetCommands, ...savedLayoutCommands];
+  }, [applyWorkspacePreset, loadSavedLayout, savedLayouts]);
+
   // Register '?' shortcut to open the keyboard shortcuts dialog
   useEffect(() => {
     const service = getKeyboardShortcutService();
@@ -159,6 +264,36 @@ function AppContent() {
       handler: () => setShowKeyboardShortcuts(prev => !prev),
     });
     return unregister;
+  }, []);
+
+  useEffect(() => {
+    const service = getKeyboardShortcutService();
+    const openCommandPalette = () => {
+      setShowCommandPalette(true);
+    };
+
+    const unregisterMeta = service.register({
+      id: 'app.commandPalette.meta',
+      key: 'k',
+      modifiers: { meta: true },
+      category: 'General',
+      description: 'Open command palette',
+      handler: openCommandPalette,
+    });
+
+    const unregisterCtrl = service.register({
+      id: 'app.commandPalette.ctrl',
+      key: 'k',
+      modifiers: { ctrl: true },
+      category: 'General',
+      description: 'Open command palette',
+      handler: openCommandPalette,
+    });
+
+    return () => {
+      unregisterMeta();
+      unregisterCtrl();
+    };
   }, []);
 
   // Register Cmd+I shortcut to open image header dialog for selected layer
@@ -320,6 +455,12 @@ function AppContent() {
           onClose={() => setShowKeyboardShortcuts(false)}
         />
       )}
+
+      <CommandPaletteDialog
+        open={showCommandPalette}
+        commands={commandPaletteCommands}
+        onClose={() => setShowCommandPalette(false)}
+      />
 
       {/* Image Header Dialog (Cmd+I) */}
       <ImageHeaderDialog

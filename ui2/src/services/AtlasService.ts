@@ -7,6 +7,7 @@ import { safeListen, safeUnlisten, type Unlisten } from '@/utils/eventUtils';
 import { getVolumeLoadingService } from './VolumeLoadingService';
 import { AtlasPaletteService } from './AtlasPaletteService';
 import { formatTauriError } from '@/utils/formatTauriError';
+import { useLoadingQueueStore } from '@/stores/loadingQueueStore';
 import type { Layer } from '@/types/layers';
 import type {
   AtlasCatalogEntry,
@@ -42,6 +43,24 @@ export class AtlasService {
       data_type: undefined,
       surf_type: undefined,
     };
+  }
+
+  private static getAtlasLoadQueuePath(config: AtlasConfig): string {
+    return [
+      'atlas',
+      config.atlas_id,
+      config.space || 'unknown-space',
+      config.resolution || 'unknown-resolution',
+      config.parcels ?? 'no-parcels',
+      config.networks ?? 'no-networks',
+    ].join('|');
+  }
+
+  private static getAtlasLoadDisplayName(config: AtlasConfig): string {
+    const detailParts = [config.parcels, config.networks].filter(Boolean);
+    return detailParts.length > 0
+      ? `${config.atlas_id} (${detailParts.join(', ')})`
+      : config.atlas_id;
   }
   /**
    * Get the complete atlas catalog
@@ -357,16 +376,49 @@ export class AtlasService {
    * Load an atlas with the given configuration
    */
   static async loadAtlas(config: AtlasConfig, signal?: AbortSignal): Promise<AtlasLoadResult> {
+    const queuePath = AtlasService.getAtlasLoadQueuePath(config);
+    const queueStore = useLoadingQueueStore.getState();
+    const shouldTrackInQueue = !queueStore.isLoading(queuePath);
+    const queueId = shouldTrackInQueue
+      ? queueStore.enqueue({
+          type: 'atlas',
+          path: queuePath,
+          displayName: AtlasService.getAtlasLoadDisplayName(config),
+        })
+      : null;
+
+    if (queueId) {
+      queueStore.startLoading(queueId);
+      queueStore.updateProgress(queueId, 10);
+    }
+
     try {
-      const result = await invoke('plugin:api-bridge|load_atlas', { config });
+      const result = await invoke<AtlasLoadResult>('plugin:api-bridge|load_atlas', { config });
+
+      if (queueId) {
+        queueStore.updateProgress(queueId, 70);
+      }
       
       // Check if the operation was aborted
       if (signal?.aborted) {
         throw new Error('Operation aborted');
       }
+
+      if (queueId) {
+        queueStore.markComplete(queueId, {
+          volumeId: result?.volume_handle_info?.id,
+        });
+      }
       
       return result;
     } catch (error) {
+      if (queueId) {
+        queueStore.markError(
+          queueId,
+          error instanceof Error ? error : new Error(formatTauriError(error))
+        );
+      }
+
       if (signal?.aborted) {
         throw new Error('Operation aborted');
       }

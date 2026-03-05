@@ -1,57 +1,96 @@
 import React from 'react';
+import { MoreHorizontal } from 'lucide-react';
+import { DropdownMenu } from './DropdownMenu';
 
-interface PanelHeaderAction {
+export interface PanelHeaderPrimaryAction {
   label: string;
-  icon?: string;
   onClick: () => void;
   disabled?: boolean;
+  icon?: React.ReactNode;
+  title?: string;
+}
+
+export interface PanelHeaderOverflowAction {
+  id: string;
+  label: string;
+  onClick: () => void;
+  icon?: React.ReactNode;
+  disabled?: boolean;
+  danger?: boolean;
 }
 
 interface PanelHeaderProps {
   title: string;
-  icon?: string;
-  actions?: PanelHeaderAction[];
+  icon?: React.ReactNode;
   className?: string;
+  primaryAction?: PanelHeaderPrimaryAction;
+  overflowActions?: PanelHeaderOverflowAction[];
+  hideTitle?: boolean;
+  actionsAriaLabel?: string;
 }
 
-export const PanelHeader: React.FC<PanelHeaderProps> = ({ 
-  title, 
-  icon, 
-  actions = [],
-  className = ""
+export const PanelHeader: React.FC<PanelHeaderProps> = ({
+  title,
+  icon,
+  className = '',
+  primaryAction,
+  overflowActions = [],
+  hideTitle = false,
+  actionsAriaLabel,
 }) => {
-  const defaultClasses = "flex items-center justify-between px-3 py-2 bg-muted/30 border-b border-border text-sm font-medium text-foreground/80 select-none";
-  const finalClasses = className || defaultClasses;
+  const hasOverflow = overflowActions.length > 0;
+  const actionLabelBase = (actionsAriaLabel ?? title) || 'Panel';
 
   return (
-    <div className={finalClasses}>
-      <div className="flex items-center gap-2">
-        {icon && (
-          <span className="text-muted-foreground">{icon}</span>
-        )}
-        <span>{title}</span>
-      </div>
-      
-      {actions.length > 0 && (
-        <div className="flex items-center gap-1">
-          {actions.map((action, index) => (
-            <button
-              key={index}
-              type="button"
-              className="p-1 rounded-sm hover:bg-muted/50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-              disabled={action.disabled}
-              onClick={action.onClick}
-              title={action.label}
-            >
-              {action.icon ? (
-                <span className="text-xs">{action.icon}</span>
-              ) : (
-                <span className="text-xs">{action.label}</span>
-              )}
-            </button>
-          ))}
+    <div className={`flex items-center justify-between border-b border-border bg-muted/10 px-3 py-2 ${className}`}>
+      {!hideTitle ? (
+        <div className="flex items-center gap-2 min-w-0">
+          {icon && <span className="text-muted-foreground shrink-0">{icon}</span>}
+          <h3 className="bf-role-section text-foreground truncate">{title}</h3>
         </div>
+      ) : (
+        <div aria-hidden="true" />
       )}
+
+      <div className="flex items-center gap-1.5 shrink-0">
+        {primaryAction && (
+          <button
+            type="button"
+            className="bf-control-sm rounded-appsm border border-border bg-background px-2.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-foreground transition-colors hover:border-primary hover:text-primary disabled:cursor-not-allowed disabled:opacity-50"
+            onClick={primaryAction.onClick}
+            disabled={primaryAction.disabled}
+            title={primaryAction.title ?? primaryAction.label}
+          >
+            <span className="inline-flex items-center gap-1">
+              {primaryAction.icon}
+              {primaryAction.label}
+            </span>
+          </button>
+        )}
+
+        {hasOverflow && (
+          <DropdownMenu
+            position="bottom-right"
+            trigger={
+              <button
+                type="button"
+                className="icon-btn rounded-appsm"
+                aria-label={`${actionLabelBase} actions`}
+              >
+                <MoreHorizontal className="h-4 w-4" />
+              </button>
+            }
+            items={overflowActions.map((action) => ({
+              id: action.id,
+              label: action.label,
+              icon: action.icon,
+              danger: action.danger,
+              disabled: action.disabled,
+              onClick: action.onClick,
+            }))}
+          />
+        )}
+      </div>
     </div>
   );
 };

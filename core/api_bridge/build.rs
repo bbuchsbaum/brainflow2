@@ -17,6 +17,7 @@ const COMMANDS: &[&str] = &[
     "get_initial_views",
     "recalculate_view_for_dimensions",
     "request_layer_gpu_resources",
+    "wait_for_layer_ready",
     "release_layer_gpu_resources",
     "fs_list_directory",
     "remote_mount_connect",

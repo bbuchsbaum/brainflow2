@@ -21,6 +21,17 @@ import { useRenderStateStore } from '@/stores/renderStateStore';
 import { markRenderLoopAsInitialized } from './useRenderLoopInit';
 import { useFeatureFlagStore } from '@/stores/featureFlagStore';
 
+const DEBUG_SERVICES_INIT =
+  import.meta.env.DEV &&
+  typeof window !== 'undefined' &&
+  window.localStorage.getItem('brainflow2-debug-services-init') === 'true';
+
+const serviceInitDebugLog = (...args: unknown[]) => {
+  if (DEBUG_SERVICES_INIT) {
+    console.log(...args);
+  }
+};
+
 // Global flag to prevent double initialization in React StrictMode
 let servicesInitialized = false;
 let initializationInProgress = false;
@@ -34,14 +45,14 @@ export function useServicesInit() {
     }
     
     initializationInProgress = true;
-    console.log('[useServicesInit] Starting service initialization...');
+    serviceInitDebugLog('[useServicesInit] Starting service initialization...');
     
     // Initialize services asynchronously
     const initializeServices = async () => {
       try {
         // Initialize ViewRegistry first (needed for workspace creation)
         initializeViewRegistry();
-        console.log('[useServicesInit] ViewRegistry initialized');
+        serviceInitDebugLog('[useServicesInit] ViewRegistry initialized');
         
         const eventBus = getEventBus();
         
@@ -61,10 +72,10 @@ export function useServicesInit() {
           );
         }
         try {
-          console.log('[useServicesInit] Initializing RenderLoop...');
+          serviceInitDebugLog('[useServicesInit] Initializing RenderLoop...');
           await apiService.initRenderLoop(512, 512);
           // Removed updateDimensions call - backend now handles per-view render targets
-          console.log('[useServicesInit] RenderLoop initialized successfully');
+          serviceInitDebugLog('[useServicesInit] RenderLoop initialized successfully');
           
           // Mark RenderLoop as globally initialized so individual views don't try to reinitialize
           markRenderLoopAsInitialized();
@@ -77,7 +88,7 @@ export function useServicesInit() {
     try {
       const layerApi = new LayerApiImpl();
       initializeLayerService(layerApi);
-      console.log('[useServicesInit] LayerService initialized');
+      serviceInitDebugLog('[useServicesInit] LayerService initialized');
       
       // Emit specific event for LayerService
       getEventBus().emit('services.initialized', { service: 'LayerService' });
@@ -91,7 +102,7 @@ export function useServicesInit() {
     // 3. Initialize FileLoadingService (depends on LayerService)
     try {
       initializeFileLoadingService();
-      console.log('[useServicesInit] FileLoadingService initialized');
+      serviceInitDebugLog('[useServicesInit] FileLoadingService initialized');
     } catch (error) {
       console.error('[useServicesInit] FileLoadingService initialization failed:', error);
       getEventBus().emit('services.error', { service: 'FileLoadingService', error: error instanceof Error ? error.message : 'Unknown error' });
@@ -100,16 +111,16 @@ export function useServicesInit() {
     
     // Initialize TemplateService to handle template menu events
     await initializeTemplateService();
-    console.log('[useServicesInit] TemplateService initialized');
+    serviceInitDebugLog('[useServicesInit] TemplateService initialized');
     
     // Initialize ProgressService
     const progressService = getProgressService();
-    console.log('[useServicesInit] ProgressService initialized');
+    serviceInitDebugLog('[useServicesInit] ProgressService initialized');
     
     // Initialize MetadataStatusService
     const metadataStatusService = getMetadataStatusService();
     metadataStatusService.initialize();
-    console.log('[useServicesInit] MetadataStatusService initialized');
+    serviceInitDebugLog('[useServicesInit] MetadataStatusService initialized');
     
     // Set up coalescing middleware callback
     // apiService is already declared above
@@ -121,12 +132,12 @@ export function useServicesInit() {
     const { initializeAtlasPressureMonitor } = await import('@/services/AtlasPressureMonitor');
     const atlasPressureMonitor = initializeAtlasPressureMonitor();
     
-    console.log('Setting up coalescing middleware callback with optimized rendering...');
+    serviceInitDebugLog('Setting up coalescing middleware callback with optimized rendering...');
     coalesceUtils.setBackendCallback(async (viewState) => {
       const callbackTime = performance.now();
-      console.log(`[useServicesInit ${callbackTime.toFixed(0)}ms] 🎯 Backend callback invoked!`);
-      console.log(`[useServicesInit] Crosshair position:`, viewState.crosshair.world_mm);
-      console.log('Coalescing callback: ViewState update with', viewState.layers.length, 'layers');
+      serviceInitDebugLog(`[useServicesInit ${callbackTime.toFixed(0)}ms] Backend callback invoked`);
+      serviceInitDebugLog(`[useServicesInit] Crosshair position:`, viewState.crosshair.world_mm);
+      serviceInitDebugLog('Coalescing callback: ViewState update with', viewState.layers.length, 'layers');
       
       // Use OptimizedRenderService to intelligently render only changed views
       try {
@@ -135,7 +146,7 @@ export function useServicesInit() {
         // Log metrics periodically
         const metrics = optimizedRenderService.getMetrics();
         if (metrics.totalRenders % 10 === 0 && metrics.totalRenders > 0) {
-          console.log('[useServicesInit] Render optimization metrics:', {
+          serviceInitDebugLog('[useServicesInit] Render optimization metrics:', {
             totalRenders: metrics.totalRenders,
             skippedRenders: metrics.skippedRenders,
             savingsPercent: `${(metrics.skippedRenders / (metrics.totalRenders + metrics.skippedRenders) * 100).toFixed(1)}%`,
@@ -157,15 +168,15 @@ export function useServicesInit() {
     
     // ViewStateRenderService removed - coalescing middleware handles ViewState updates
     
-        console.log('Services initialized successfully:');
-        console.log('- ViewRegistry: initialized');
-        console.log('- RenderLoop: initialized');
-        console.log('- LayerService: initialized');
-        console.log('- FileLoadingService: initialized');
-        console.log('- ProgressService: initialized');
-        console.log('- MetadataStatusService: initialized');
-        console.log('- Coalescing middleware: configured');
-        console.log('- AtlasPressureMonitor: started');
+        serviceInitDebugLog('Services initialized successfully:');
+        serviceInitDebugLog('- ViewRegistry: initialized');
+        serviceInitDebugLog('- RenderLoop: initialized');
+        serviceInitDebugLog('- LayerService: initialized');
+        serviceInitDebugLog('- FileLoadingService: initialized');
+        serviceInitDebugLog('- ProgressService: initialized');
+        serviceInitDebugLog('- MetadataStatusService: initialized');
+        serviceInitDebugLog('- Coalescing middleware: configured');
+        serviceInitDebugLog('- AtlasPressureMonitor: started');
     
     // Expose services to window for debugging/testing in development
     if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
@@ -182,18 +193,18 @@ export function useServicesInit() {
           return require('@/services/LayerService').getLayerService();
         }
       };
-      console.log('[useServicesInit] Services exposed to window.__BRAINFLOW_SERVICES for debugging');
+      serviceInitDebugLog('[useServicesInit] Services exposed to window.__BRAINFLOW_SERVICES for debugging');
     }
     
         // Test logging to make sure console works
         setTimeout(() => {
-          console.log('TEST: Console logging is working!');
-          console.log('TEST: Current layer count:', useLayerStore.getState().layers.length);
-          console.log('TEST: Current viewState layers:', useViewStateStore.getState().viewState.layers.length);
+          serviceInitDebugLog('TEST: Console logging is working!');
+          serviceInitDebugLog('TEST: Current layer count:', useLayerStore.getState().layers.length);
+          serviceInitDebugLog('TEST: Current viewState layers:', useViewStateStore.getState().viewState.layers.length);
         }, 2000);
         
         servicesInitialized = true;
-        console.log('[useServicesInit] All services initialized successfully');
+        serviceInitDebugLog('[useServicesInit] All services initialized successfully');
         
         // Emit a global success event
         getEventBus().emit('services.allInitialized', { success: true });

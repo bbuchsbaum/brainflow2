@@ -6,7 +6,6 @@
 
 import React, { useCallback, useState } from 'react';
 import { useSurfaceStore } from '@/stores/surfaceStore';
-import { Button } from '@/components/ui/Button';
 import { VscEye, VscEyeClosed } from 'react-icons/vsc';
 import { 
   Brain, 
@@ -23,6 +22,7 @@ import { SurfaceMetadataDrawer } from '@/components/ui/SurfaceMetadataDrawer';
 import { SurfaceControlPanel } from './SurfaceControlPanel';
 import { getSurfaceLoadingService } from '@/services/SurfaceLoadingService';
 import { surfaceOverlayService } from '@/services/SurfaceOverlayService';
+import { PanelHeader } from '@/components/ui/PanelHeader';
 
 export const SurfaceLayerPanel: React.FC = () => {
   // Track expanded surfaces
@@ -89,6 +89,14 @@ export const SurfaceLayerPanel: React.FC = () => {
       return next;
     });
   }, []);
+
+  const expandAll = useCallback(() => {
+    setExpandedSurfaces(new Set(surfaceList.map(([id]) => id)));
+  }, [surfaceList]);
+
+  const collapseAll = useCallback(() => {
+    setExpandedSurfaces(new Set());
+  }, []);
   
   const handleAddDataLayer = useCallback(async (surfaceId: string) => {
     // In a real implementation, this would open a file dialog
@@ -142,25 +150,42 @@ export const SurfaceLayerPanel: React.FC = () => {
   
   return (
     <div className="flex flex-col h-full bg-background">
-      {/* Header */}
-      <div className="flex items-center justify-between px-4 py-2.5 border-b border-border bg-muted/10">
-        <div className="flex items-center gap-2">
-          <span className="w-2 h-2 bg-primary rounded-[1px]" aria-hidden />
-          <h3 className="text-[11px] font-bold uppercase tracking-[0.18em] text-foreground flex items-center gap-2">
-            <Brain className="h-4 w-4 text-muted-foreground" />
-            Surfaces
-          </h3>
-        </div>
-        <Button
-          size="sm"
-          variant="secondary"
-          onClick={handleLoadSurface}
-          disabled={isLoading}
-          className="h-6 text-[10px] px-2 uppercase tracking-widest bg-background hover:border-accent hover:text-accent"
-        >
-          + Load Surface
-        </Button>
-      </div>
+      <PanelHeader
+        title="Surfaces"
+        icon={<Brain className="h-4 w-4" />}
+        primaryAction={{
+          label: 'Load',
+          icon: <Plus className="h-3 w-3" />,
+          onClick: () => {
+            void handleLoadSurface();
+          },
+          disabled: isLoading,
+          title: 'Load surface file',
+        }}
+        overflowActions={[
+          {
+            id: 'expand-all',
+            label: 'Expand All',
+            icon: <ChevronDown className="h-3.5 w-3.5" />,
+            onClick: expandAll,
+            disabled: surfaceList.length === 0,
+          },
+          {
+            id: 'collapse-all',
+            label: 'Collapse All',
+            icon: <ChevronRight className="h-3.5 w-3.5" />,
+            onClick: collapseAll,
+            disabled: expandedSurfaces.size === 0,
+          },
+          {
+            id: 'clear-error',
+            label: 'Clear Error',
+            icon: <Info className="h-3.5 w-3.5" />,
+            onClick: clearError,
+            disabled: !loadError,
+          },
+        ]}
+      />
       
       {/* Error Display */}
       {loadError && (

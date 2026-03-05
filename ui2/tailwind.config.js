@@ -64,7 +64,38 @@ export default {
       },
       fontFamily: {
         mono: ['JetBrains Mono', 'Fira Code', 'monospace'],
-      }
+      },
+      fontSize: {
+        'role-title': 'var(--app-role-title-size)',
+        'role-section': 'var(--app-role-section-size)',
+        'role-label': 'var(--app-role-label-size)',
+        'role-body': 'var(--app-role-body-size)',
+        'role-value': 'var(--app-role-value-size)',
+      },
+      letterSpacing: {
+        'role-title': 'var(--app-role-title-tracking)',
+        'role-section': 'var(--app-role-section-tracking)',
+      },
+      spacing: {
+        'control-xs': 'var(--app-control-height-xs)',
+        'control-sm': 'var(--app-control-height-sm)',
+        'control-md': 'var(--app-control-height-md)',
+      },
+      borderRadius: {
+        appsm: 'var(--app-radius-sm)',
+        appmd: 'var(--app-radius-md)',
+        applg: 'var(--app-radius-lg)',
+      },
+      minHeight: {
+        'control-xs': 'var(--app-control-height-xs)',
+        'control-sm': 'var(--app-control-height-sm)',
+        'control-md': 'var(--app-control-height-md)',
+      },
+      height: {
+        'control-xs': 'var(--app-control-height-xs)',
+        'control-sm': 'var(--app-control-height-sm)',
+        'control-md': 'var(--app-control-height-md)',
+      },
     },
   },
   plugins: [

@@ -50,6 +50,11 @@ interface VolumePanelProps {
    * Callback when render properties change
    */
   onRenderUpdate: (updates: Partial<LayerRender>) => void;
+
+  /**
+   * Optional section filtering for tabbed sidebar IA.
+   */
+  sectionMode?: 'all' | 'inspect' | 'mapping';
 }
 
 /**
@@ -62,12 +67,12 @@ const CompactInterpolationSelector: React.FC<{
 }> = ({ value, onChange, disabled }) => {
   return (
     <div className="flex items-center justify-between gap-4">
-      <label className="text-[10px] uppercase tracking-widest text-muted-foreground font-semibold shrink-0">
+      <label className="bf-role-section text-muted-foreground shrink-0">
         Interpolation
       </label>
       <div className="flex gap-0 shrink-0">
         <button
-          className={`px-3 py-1 text-[10px] uppercase tracking-wider font-medium border border-r-0 transition-colors ${
+          className={`px-3 py-1 bf-role-section min-h-control-md border border-r-0 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background ${
             value === 'nearest'
               ? 'bg-primary text-primary-foreground border-primary'
               : 'bg-transparent hover:bg-muted/50 border-border text-muted-foreground'
@@ -80,7 +85,7 @@ const CompactInterpolationSelector: React.FC<{
           Nearest
         </button>
         <button
-          className={`px-3 py-1 text-[10px] uppercase tracking-wider font-medium border transition-colors ${
+          className={`px-3 py-1 bf-role-section min-h-control-md border transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background ${
             value === 'linear'
               ? 'bg-primary text-primary-foreground border-primary'
               : 'bg-transparent hover:bg-muted/50 border-border text-muted-foreground'
@@ -109,11 +114,11 @@ const CompactToggle: React.FC<{
 }> = ({ label, value, onChange, disabled, title }) => {
   return (
     <div className="flex items-center justify-between gap-4" title={title}>
-      <label className="text-[10px] uppercase tracking-widest text-muted-foreground font-semibold">
+      <label className="bf-role-section text-muted-foreground">
         {label}
       </label>
       <button
-        className={`relative inline-flex h-4 w-8 items-center transition-colors border ${
+        className={`relative inline-flex h-control-md w-10 items-center transition-colors border focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background ${
           value
             ? 'bg-primary border-primary'
             : 'bg-muted border-border'
@@ -125,7 +130,7 @@ const CompactToggle: React.FC<{
       >
         <span
           className={`inline-block h-3 w-3 transform bg-card transition-transform ${
-            value ? 'translate-x-4' : 'translate-x-0.5'
+            value ? 'translate-x-6' : 'translate-x-1'
           }`}
           style={{ borderRadius: '1px' }}
         />
@@ -143,7 +148,8 @@ export const VolumePanel: React.FC<VolumePanelProps> = ({
   layer,
   render,
   metadata,
-  onRenderUpdate
+  onRenderUpdate,
+  sectionMode = 'all',
 }) => {
   // Adapt LayerRender to DataLayerRender for SharedControls
   const adaptedRender: DataLayerRender | undefined = render ? {
@@ -237,158 +243,173 @@ export const VolumePanel: React.FC<VolumePanelProps> = ({
     setDisplayOptions(layer.id, { showValueOnHover: next });
   };
 
+  const showInspectSections = sectionMode !== 'mapping';
+  const showMappingSections = sectionMode !== 'inspect';
+
   return (
     <div className="space-y-6">
-      {/* Header - Instrument Control style */}
-      <div className="flex items-center justify-between pb-2 border-b border-border">
-        <div className="flex items-center gap-2">
-          <Layers className="w-4 h-4 text-muted-foreground" />
-          <span className="text-[11px] uppercase tracking-[0.15em] font-bold text-foreground">
-            Volume Properties
-          </span>
-        </div>
-        <span className="text-[10px] uppercase tracking-widest text-accent font-mono">
-          {layer.type || 'volume'}
-        </span>
-      </div>
-
-      {/* Volume Info - Technical Blueprint style */}
-      <PropertyBox>
-        <PropertyRow
-          label="Layer"
-          value={layer.name}
-          truncate
-          maxValueWidth="140px"
-        />
-        {metadata?.dimensions && (
-          <PropertyRow
-            label="Dimensions"
-            value={metadata.dimensions.join(' × ')}
-            mono
-          />
-        )}
-        {metadata?.spacing && (
-          <PropertyRow
-            label="Voxel Size"
-            value={`${metadata.spacing.map(s => s.toFixed(2)).join(' × ')} mm`}
-            mono
-          />
-        )}
-        {metadata?.dataRange && (
-          <PropertyRow
-            label="Data Range"
-            value={`${metadata.dataRange.min.toFixed(1)} – ${metadata.dataRange.max.toFixed(1)}`}
-            mono
-          />
-        )}
-      </PropertyBox>
-
-      {/* Display Settings - Compact */}
-      <CollapsibleSection
-        title="Display Settings"
-        icon={Settings}
-        defaultExpanded={false}
-      >
-        <div className="space-y-3">
-          <CompactInterpolationSelector
-            value={render?.interpolation || 'linear'}
-            onChange={handleInterpolationChange}
-            disabled={!render}
-          />
-
-          <CompactToggle
-            label="Slice Border"
-            value={showBorder}
-            onChange={handleBorderToggle}
-            disabled={!render}
-            title="Show border around slice extent (useful for multi-volume viewing)"
-          />
-
-          <CompactToggle
-            label="Orientation Markers"
-            value={showOrientationMarkers}
-            onChange={handleOrientationToggle}
-            disabled={!render}
-            title="Show view orientation labels"
-          />
-
-          <CompactToggle
-            label="Value on Hover"
-            value={showValueOnHover}
-            onChange={handleHoverToggle}
-            disabled={!render}
-            title="Display voxel values when hovering over the slice"
-          />
-        </div>
-      </CollapsibleSection>
-
-      {isAtlasCategorical ? (
-        <CollapsibleSection title="Palette" icon={Palette} defaultExpanded={true}>
-          <div className="space-y-3 rounded-sm border border-border/50 bg-muted/10 p-2">
-            <div className="flex items-center justify-between gap-3">
-              <span className="text-[10px] uppercase tracking-widest text-muted-foreground font-semibold">
-                Palette
+      {showInspectSections && (
+        <>
+          {/* Header - Instrument Control style */}
+          <div className="flex items-center justify-between pb-2 border-b border-border">
+            <div className="flex items-center gap-2">
+              <Layers className="w-4 h-4 text-muted-foreground" />
+              <span className="bf-role-title text-foreground">
+                Volume Properties
               </span>
-              <Select
-                value={atlasPaletteKind}
-                onValueChange={(v) => void handlePaletteChange(v as AtlasPaletteKind)}
-                disabled={isPaletteLoading}
-              >
-                <SelectTrigger className="h-7 w-[180px] text-[11px]">
-                  <SelectValue placeholder="Select palette" />
-                </SelectTrigger>
-                <SelectContent>
-                  {ATLAS_PALETTE_OPTIONS.map((opt) => (
-                    <SelectItem key={opt.value} value={opt.value}>
-                      {opt.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
             </div>
-
-            <SingleSlider
-              label="Opacity"
-              min={0}
-              max={1}
-              value={render?.opacity ?? 1}
-              onChange={(opacity) => onRenderUpdate({ opacity })}
-              showPercentage={true}
-              disabled={!render || isPaletteLoading}
-              className="mb-0"
-              layout="strip"
-              compact
-              highContrast
-            />
+            <span className="bf-role-section bf-role-mono text-accent">
+              {layer.type || 'volume'}
+            </span>
           </div>
-        </CollapsibleSection>
-      ) : (
-        <CollapsibleSection title="Data Mapping" icon={Layers} defaultExpanded={true}>
-          <SharedControls
-            render={adaptedRender}
-            metadata={adaptedMetadata}
-            onRenderUpdate={onRenderUpdate}
-            disabled={!layer || !render}
-          />
-        </CollapsibleSection>
+
+          {/* Volume Info - Technical Blueprint style */}
+          <PropertyBox>
+            <PropertyRow
+              label="Layer"
+              value={layer.name}
+              truncate
+              maxValueWidth="140px"
+            />
+            {metadata?.dimensions && (
+              <PropertyRow
+                label="Dimensions"
+                value={metadata.dimensions.join(' × ')}
+                mono
+              />
+            )}
+            {metadata?.spacing && (
+              <PropertyRow
+                label="Voxel Size"
+                value={`${metadata.spacing.map(s => s.toFixed(2)).join(' × ')} mm`}
+                mono
+              />
+            )}
+            {metadata?.dataRange && (
+              <PropertyRow
+                label="Data Range"
+                value={`${metadata.dataRange.min.toFixed(1)} – ${metadata.dataRange.max.toFixed(1)}`}
+                mono
+              />
+            )}
+          </PropertyBox>
+
+          {/* Display Settings - Compact */}
+          <CollapsibleSection
+            title="Display Settings"
+            icon={Settings}
+            defaultExpanded={false}
+          >
+            <div className="space-y-3">
+              <CompactInterpolationSelector
+                value={render?.interpolation || 'linear'}
+                onChange={handleInterpolationChange}
+                disabled={!render}
+              />
+
+              <CompactToggle
+                label="Slice Border"
+                value={showBorder}
+                onChange={handleBorderToggle}
+                disabled={!render}
+                title="Show border around slice extent (useful for multi-volume viewing)"
+              />
+
+              <CompactToggle
+                label="Orientation Markers"
+                value={showOrientationMarkers}
+                onChange={handleOrientationToggle}
+                disabled={!render}
+                title="Show view orientation labels"
+              />
+
+              <CompactToggle
+                label="Value on Hover"
+                value={showValueOnHover}
+                onChange={handleHoverToggle}
+                disabled={!render}
+                title="Display voxel values when hovering over the slice"
+              />
+            </div>
+          </CollapsibleSection>
+        </>
       )}
 
-      {/* Advanced Settings (collapsed by default) */}
-      <CollapsibleSection
-        title="Advanced"
-        icon={Settings}
-        defaultExpanded={false}
-      >
-        <div className="space-y-2 text-[11px] text-muted-foreground">
-          <p>Advanced volume settings coming soon:</p>
-          <ul className="list-disc list-inside space-y-1 ml-2">
-            <li>Slice thickness adjustment</li>
-            <li>Resampling resolution</li>
-            <li>Coordinate system override</li>
-            <li>Memory optimization options</li>
-          </ul>
-        </div>
-      </CollapsibleSection>
+      {showMappingSections && (
+        <>
+          {isAtlasCategorical ? (
+            <CollapsibleSection title="Palette" icon={Palette} defaultExpanded={true}>
+              <div className="space-y-3 rounded-sm border border-border/50 bg-muted/10 p-2">
+                <div className="flex items-center justify-between gap-3">
+                  <span className="bf-role-section text-muted-foreground">
+                    Palette
+                  </span>
+                  <Select
+                    value={atlasPaletteKind}
+                    onValueChange={(v) => void handlePaletteChange(v as AtlasPaletteKind)}
+                    disabled={isPaletteLoading}
+                  >
+                    <SelectTrigger className="h-7 w-[180px] text-role-body">
+                      <SelectValue placeholder="Select palette" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {ATLAS_PALETTE_OPTIONS.map((opt) => (
+                        <SelectItem key={opt.value} value={opt.value}>
+                          {opt.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <SingleSlider
+                  label="Opacity"
+                  min={0}
+                  max={1}
+                  value={render?.opacity ?? 1}
+                  onChange={(opacity) => onRenderUpdate({ opacity })}
+                  showPercentage={true}
+                  disabled={!render || isPaletteLoading}
+                  className="mb-0"
+                  layout="strip"
+                  compact
+                  highContrast
+                />
+              </div>
+            </CollapsibleSection>
+          ) : (
+            <CollapsibleSection title="Data Mapping" icon={Layers} defaultExpanded={true}>
+              <SharedControls
+                render={adaptedRender}
+                metadata={adaptedMetadata}
+                onRenderUpdate={onRenderUpdate}
+                disabled={!layer || !render}
+              />
+            </CollapsibleSection>
+          )}
+        </>
+      )}
+
+      {showInspectSections && (
+        <>
+          {/* Advanced Settings (collapsed by default) */}
+          <CollapsibleSection
+            title="Advanced"
+            icon={Settings}
+            defaultExpanded={false}
+          >
+            <div className="space-y-2 bf-role-body text-muted-foreground">
+              <p>Advanced volume settings coming soon:</p>
+              <ul className="list-disc list-inside space-y-1 ml-2">
+                <li>Slice thickness adjustment</li>
+                <li>Resampling resolution</li>
+                <li>Coordinate system override</li>
+                <li>Memory optimization options</li>
+              </ul>
+            </div>
+          </CollapsibleSection>
+        </>
+      )}
     </div>
   );
 };

@@ -60,6 +60,50 @@ fn open_mount_dialog(app_handle: AppHandle) {
     println!("Dialog setup complete");
 }
 
+// Command to open a file picker and request immediate file load in frontend
+#[tauri::command]
+fn open_file_dialog(app_handle: AppHandle) {
+    use tauri_plugin_dialog::DialogExt;
+
+    println!("Opening file dialog...");
+
+    let app_handle_clone = app_handle.clone();
+
+    app_handle
+        .dialog()
+        .file()
+        .add_filter(
+            "Neuroimaging Files",
+            &[
+                "nii",
+                "nii.gz",
+                "gii",
+                "surf.gii",
+                "shape.gii",
+                "func.gii",
+                "label.gii",
+            ],
+        )
+        .add_filter("All Files", &["*"])
+        .pick_file(move |file_path| {
+            println!("File dialog callback triggered with: {:?}", file_path);
+            if let Some(file) = file_path {
+                let path_str = file.to_string();
+                println!("Emitting open-file-event with path: {}", path_str);
+                match app_handle_clone
+                    .emit("open-file-event", serde_json::json!({ "path": path_str }))
+                {
+                    Ok(_) => println!("Open file event emitted successfully"),
+                    Err(e) => eprintln!("Failed to emit open file event: {}", e),
+                }
+            } else {
+                println!("File dialog was cancelled");
+            }
+        });
+
+    println!("File dialog setup complete");
+}
+
 // Command to update dynamic menus
 #[tauri::command]
 async fn update_dynamic_menus(
@@ -512,7 +556,8 @@ fn main() {
                     id if id.starts_with("surface_atlas_") => {
                         println!("Surface atlas menu item clicked: {}", id);
 
-                        if let Some(preset) = menu_builder::find_surface_atlas_preset_by_menu_id(id) {
+                        if let Some(preset) = menu_builder::find_surface_atlas_preset_by_menu_id(id)
+                        {
                             match app.emit(
                                 "atlas-menu-action",
                                 serde_json::json!({
@@ -521,7 +566,9 @@ fn main() {
                                 }),
                             ) {
                                 Ok(_) => println!("Surface atlas load event emitted successfully"),
-                                Err(e) => eprintln!("Failed to emit surface atlas load event: {}", e),
+                                Err(e) => {
+                                    eprintln!("Failed to emit surface atlas load event: {}", e)
+                                }
                             }
                         }
                     }
@@ -537,8 +584,12 @@ fn main() {
                                     "payload": preset.to_payload()
                                 }),
                             ) {
-                                Ok(_) => println!("Surface template load event emitted successfully"),
-                                Err(e) => eprintln!("Failed to emit surface template load event: {}", e),
+                                Ok(_) => {
+                                    println!("Surface template load event emitted successfully")
+                                }
+                                Err(e) => {
+                                    eprintln!("Failed to emit surface template load event: {}", e)
+                                }
                             }
                         }
                     }
@@ -606,6 +657,7 @@ fn main() {
         .plugin(api_bridge::plugin()) // Re-enabled with proper configuration
         .invoke_handler(tauri::generate_handler![
             open_mount_dialog,
+            open_file_dialog,
             update_dynamic_menus
         ])
         .run(tauri::generate_context!())

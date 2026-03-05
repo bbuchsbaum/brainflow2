@@ -21,12 +21,18 @@ import { getSurfaceLoadingService, type SurfaceLoadingService } from './SurfaceL
 import { surfaceOverlayService } from './SurfaceOverlayService';
 import { useSurfaceStore } from '@/stores/surfaceStore';
 
-export type DisplayLoadIngress = 'file-browser' | 'drag-drop' | 'programmatic';
+export type DisplayLoadIngress =
+  | 'file-browser'
+  | 'drag-drop'
+  | 'programmatic'
+  | 'file-dialog';
 
 export interface DisplayLoadRequest {
   path: string;
   ingress?: DisplayLoadIngress;
 }
+
+type DisplayLoadRoute = 'surface-overlay' | 'surface' | 'volume';
 
 type DroppedFile = File & {
   path?: string;
@@ -78,26 +84,26 @@ export class DisplayLifecycleOrchestrator {
     }
 
     const filename = this.extractFilename(path);
-    const giftiType = surfaceOverlayService.detectGiftiType(filename);
+    const route = this.resolveLoadRoute(path, filename);
 
-    console.log(`[DisplayLifecycleOrchestrator] loadFile (${ingress})`, { path, giftiType });
+    console.log(`[DisplayLifecycleOrchestrator] loadFile (${ingress})`, { path, route });
 
-    if (giftiType === 'overlay') {
-      await this.loadSurfaceOverlay(path, filename);
-      return;
+    switch (route) {
+      case 'surface-overlay':
+        await this.loadSurfaceOverlay(path, filename);
+        return;
+      case 'surface':
+        await this.surfaceLoadingService.loadSurfaceFile({
+          path,
+          displayName: filename,
+          autoActivate: true,
+          validateMesh: true,
+        });
+        return;
+      case 'volume':
+        await this.loadVolume(path, filename, startTime);
+        return;
     }
-
-    if (this.surfaceLoadingService.isSupportedSurfaceFile(path)) {
-      await this.surfaceLoadingService.loadSurfaceFile({
-        path,
-        displayName: filename,
-        autoActivate: true,
-        validateMesh: true,
-      });
-      return;
-    }
-
-    await this.loadVolume(path, filename, startTime);
   }
 
   async loadDroppedFile(file: File): Promise<void> {
@@ -143,6 +149,30 @@ export class DisplayLifecycleOrchestrator {
       return file.webkitRelativePath;
     }
     return null;
+  }
+
+  private resolveLoadRoute(path: string, filename: string): DisplayLoadRoute {
+    const giftiType = surfaceOverlayService.detectGiftiType(filename);
+    const isOverlay = giftiType === 'overlay';
+    const isSurface = !isOverlay && this.surfaceLoadingService.isSupportedSurfaceFile(path);
+
+    const routeFlags: Record<DisplayLoadRoute, boolean> = {
+      'surface-overlay': isOverlay,
+      surface: isSurface,
+      volume: !isOverlay && !isSurface,
+    };
+
+    const activeRoutes = (Object.entries(routeFlags) as Array<[DisplayLoadRoute, boolean]>)
+      .filter(([, active]) => active)
+      .map(([route]) => route);
+
+    if (activeRoutes.length !== 1) {
+      throw new Error(
+        `[DisplayLifecycleOrchestrator] Route invariant violated for '${path}': expected exactly one route, got ${activeRoutes.join(', ') || 'none'}`
+      );
+    }
+
+    return activeRoutes[0];
   }
 
   private async loadVolume(path: string, filename: string, startTime: number): Promise<void> {
@@ -218,11 +248,20 @@ export class DisplayLifecycleOrchestrator {
       surfaces.length === 1
         ? surfaces[0].handle
         : useSurfaceStore.getState().activeSurfaceId || surfaces[0].handle;
+    const targetSurface = surfaces.find((surface) => surface.handle === targetSurfaceId);
+
+    if (!targetSurface) {
+      this.eventBus.emit('ui.notification', {
+        type: 'error',
+        message: 'Unable to determine target surface for overlay application.',
+      });
+      return;
+    }
 
     if (surfaces.length > 1) {
       this.eventBus.emit('ui.notification', {
         type: 'info',
-        message: `Applying overlay to surface: ${surfaces.find((surface) => surface.handle === targetSurfaceId)?.name}`,
+        message: `Applying overlay to surface: ${targetSurface.name}`,
       });
     }
 

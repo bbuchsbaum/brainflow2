@@ -30,7 +30,7 @@ export function TimeSlider({ className = '', disabled = false }: TimeSliderProps
   }, [timeInfo?.currentTimepoint]);
 
   // Update playing state
-  useEvent('playback.stateChanged', (data: { playing: boolean }) => {
+  useEvent('playback.stateChanged', (data) => {
     setIsPlaying(data.playing);
   });
 
@@ -55,7 +55,7 @@ export function TimeSlider({ className = '', disabled = false }: TimeSliderProps
     if (e.ctrlKey || e.metaKey) {
       e.preventDefault();
       e.stopPropagation();
-      eventBus.emit('playback.toggle');
+      eventBus.emit('playback.toggle', {});
     }
   }, [eventBus]);
 

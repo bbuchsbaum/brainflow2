@@ -13,6 +13,7 @@ Default permissions for api-bridge plugin
 - `allow-get-initial-views`
 - `allow-recalculate-view-for-dimensions`
 - `allow-request-layer-gpu-resources`
+- `allow-wait-for-layer-ready`
 - `allow-release-layer-gpu-resources`
 - `allow-fs-list-directory`
 - `allow-init-render-loop`
@@ -56,6 +57,7 @@ Default permissions for api-bridge plugin
 - `allow-get-volume-info`
 - `allow-get-nifti-header-info`
 - `allow-render-view`
+- `allow-render-views`
 - `allow-get-template-catalog`
 - `allow-get-filtered-templates`
 - `allow-get-template-entry`
@@ -2832,6 +2834,32 @@ Enables the validate_template_config command without any pre-configured scope.
 <td>
 
 Denies the validate_template_config command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:allow-wait-for-layer-ready`
+
+</td>
+<td>
+
+Enables the wait_for_layer_ready command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:deny-wait-for-layer-ready`
+
+</td>
+<td>
+
+Denies the wait_for_layer_ready command without any pre-configured scope.
 
 </td>
 </tr>

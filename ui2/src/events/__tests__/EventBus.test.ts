@@ -129,6 +129,21 @@ describe('EventBus', () => {
   });
 
   describe('off functionality', () => {
+    it('should remove a specific handler when provided', () => {
+      const handler1 = vi.fn();
+      const handler2 = vi.fn();
+
+      eventBus.on('volume.loaded', handler1);
+      eventBus.on('volume.loaded', handler2);
+
+      eventBus.off('volume.loaded', handler1);
+
+      eventBus.emit('volume.loaded', { volumeId: 'vol1', metadata: {} });
+
+      expect(handler1).not.toHaveBeenCalled();
+      expect(handler2).toHaveBeenCalledTimes(1);
+    });
+
     it('should remove all handlers for an event', () => {
       const handler1 = vi.fn();
       const handler2 = vi.fn();

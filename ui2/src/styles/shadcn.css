@@ -85,4 +85,56 @@
   .layer-row:focus:not(:focus-visible) {
     outline: none;
   }
+
+  /* Compact, neutral opacity slider used in layer rows */
+  .layer-opacity-slider {
+    -webkit-appearance: none;
+    appearance: none;
+    background: transparent;
+    height: 14px;
+    cursor: pointer;
+  }
+
+  .layer-opacity-slider::-webkit-slider-track {
+    height: 2px;
+    background: hsl(var(--muted-foreground) / 0.35);
+    border-radius: 999px;
+  }
+
+  .layer-opacity-slider::-moz-range-track {
+    height: 2px;
+    background: hsl(var(--muted-foreground) / 0.35);
+    border-radius: 999px;
+  }
+
+  .layer-opacity-slider::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 8px;
+    height: 8px;
+    margin-top: -3px;
+    border-radius: 999px;
+    border: 1px solid hsl(var(--border));
+    background: hsl(var(--foreground));
+    box-shadow: none;
+  }
+
+  .layer-opacity-slider::-moz-range-thumb {
+    width: 8px;
+    height: 8px;
+    border-radius: 999px;
+    border: 1px solid hsl(var(--border));
+    background: hsl(var(--foreground));
+    box-shadow: none;
+  }
+
+  .layer-opacity-slider:hover::-webkit-slider-thumb,
+  .layer-opacity-slider:focus-visible::-webkit-slider-thumb {
+    background: hsl(var(--muted-foreground));
+  }
+
+  .layer-opacity-slider:hover::-moz-range-thumb,
+  .layer-opacity-slider:focus-visible::-moz-range-thumb {
+    background: hsl(var(--muted-foreground));
+  }
 }

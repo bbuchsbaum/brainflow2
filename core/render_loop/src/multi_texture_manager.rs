@@ -195,6 +195,19 @@ impl MultiTextureManager {
             height: dims[1] as u32,
             depth_or_array_layers: dims[2] as u32,
         };
+        let max_3d_dim = device.limits().max_texture_dimension_3d;
+        if size.width > max_3d_dim
+            || size.height > max_3d_dim
+            || size.depth_or_array_layers > max_3d_dim
+        {
+            return Err(RenderLoopError::Internal {
+                code: 6006,
+                details: format!(
+                    "Volume dimensions {}x{}x{} exceed device 3D texture limit {}",
+                    size.width, size.height, size.depth_or_array_layers, max_3d_dim
+                ),
+            });
+        }
 
         // Create 3D texture
         let texture = device.create_texture(&wgpu::TextureDescriptor {

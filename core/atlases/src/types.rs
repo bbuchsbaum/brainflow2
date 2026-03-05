@@ -112,83 +112,9 @@ pub struct ResolutionInfo {
     pub description: String,
 }
 
-/// Supported template spaces
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
-#[ts(export)]
-pub enum TemplateSpace {
-    #[serde(rename = "MNI152NLin2009cAsym")]
-    MNI152NLin2009cAsym,
-    #[serde(rename = "MNI152NLin6Asym")]
-    MNI152NLin6Asym,
-    #[serde(rename = "fsaverage")]
-    FSAverage,
-    #[serde(rename = "fsaverage5")]
-    FSAverage5,
-    #[serde(rename = "fsaverage6")]
-    FSAverage6,
-}
-
-impl TemplateSpace {
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            TemplateSpace::MNI152NLin2009cAsym => "MNI152NLin2009cAsym",
-            TemplateSpace::MNI152NLin6Asym => "MNI152NLin6Asym",
-            TemplateSpace::FSAverage => "fsaverage",
-            TemplateSpace::FSAverage5 => "fsaverage5",
-            TemplateSpace::FSAverage6 => "fsaverage6",
-        }
-    }
-
-    pub fn from_str(s: &str) -> Result<Self, AtlasError> {
-        match s {
-            "MNI152NLin2009cAsym" => Ok(TemplateSpace::MNI152NLin2009cAsym),
-            "MNI152NLin6Asym" => Ok(TemplateSpace::MNI152NLin6Asym),
-            "fsaverage" => Ok(TemplateSpace::FSAverage),
-            "fsaverage5" => Ok(TemplateSpace::FSAverage5),
-            "fsaverage6" => Ok(TemplateSpace::FSAverage6),
-            _ => Err(AtlasError::UnsupportedSpace(s.to_string())),
-        }
-    }
-}
-
-impl std::fmt::Display for TemplateSpace {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.as_str())
-    }
-}
-
-/// Supported resolutions
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
-#[ts(export)]
-pub enum TemplateResolution {
-    #[serde(rename = "1mm")]
-    MM1,
-    #[serde(rename = "2mm")]
-    MM2,
-}
-
-impl TemplateResolution {
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            TemplateResolution::MM1 => "1mm",
-            TemplateResolution::MM2 => "2mm",
-        }
-    }
-
-    pub fn from_str(s: &str) -> Result<Self, AtlasError> {
-        match s {
-            "1mm" => Ok(TemplateResolution::MM1),
-            "2mm" => Ok(TemplateResolution::MM2),
-            _ => Err(AtlasError::UnsupportedResolution(s.to_string())),
-        }
-    }
-}
-
-impl std::fmt::Display for TemplateResolution {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.as_str())
-    }
-}
+// Note: TemplateSpace and TemplateResolution enums were removed in favor of
+// using neuroatlas::core::types::{Space, Resolution} directly. The atlases
+// crate re-exports these from neuroatlas via lib.rs.
 
 /// Configuration parameters for loading an atlas
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
@@ -204,6 +130,10 @@ pub struct AtlasConfig {
     pub parcels: Option<u32>,
     /// Additional parameters for TemplateFlow
     pub template_params: Option<HashMap<String, String>>,
+    /// Data type hint: "volume" or "surface"
+    pub data_type: Option<String>,
+    /// Surface type for surface atlases: "pial", "white", "inflated", etc.
+    pub surf_type: Option<String>,
 }
 
 impl AtlasConfig {
@@ -212,14 +142,24 @@ impl AtlasConfig {
         AtlasType::from_str(&self.atlas_id)
     }
 
-    /// Parse space from string (validates it's a known space)
-    pub fn parse_space(&self) -> Result<TemplateSpace, AtlasError> {
-        TemplateSpace::from_str(&self.space)
+    /// Parse space using neuroatlas Space::from_string(), rejecting unknown/custom spaces
+    pub fn parse_space(&self) -> Result<neuroatlas::core::types::Space, AtlasError> {
+        let space = neuroatlas::core::types::Space::from_string(&self.space);
+        match space {
+            neuroatlas::core::types::Space::Custom(_) => {
+                Err(AtlasError::UnsupportedSpace(self.space.clone()))
+            }
+            s => Ok(s),
+        }
     }
 
-    /// Parse resolution from string (validates it's a known resolution)
-    pub fn parse_resolution(&self) -> Result<TemplateResolution, AtlasError> {
-        TemplateResolution::from_str(&self.resolution)
+    /// Parse resolution using neuroatlas Resolution enum
+    pub fn parse_resolution(&self) -> Result<neuroatlas::core::types::Resolution, AtlasError> {
+        match self.resolution.as_str() {
+            "1mm" => Ok(neuroatlas::core::types::Resolution::MM1),
+            "2mm" => Ok(neuroatlas::core::types::Resolution::MM2),
+            _ => Err(AtlasError::UnsupportedResolution(self.resolution.clone())),
+        }
     }
 }
 
@@ -346,6 +286,42 @@ pub enum AtlasError {
 pub struct AtlasLoadResult {
     pub atlas_metadata: AtlasMetadata,
     pub volume_handle: String, // Handle for loaded volume
+}
+
+/// Label information for a surface atlas region
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct SurfaceAtlasLabelInfo {
+    /// Numeric label ID
+    pub id: u32,
+    /// Human-readable region name
+    pub name: String,
+    /// RGB color for visualization
+    pub color: Option<[u8; 3]>,
+    /// Hemisphere: "Left", "Right", or "Bilateral"
+    pub hemisphere: Option<String>,
+    /// Network assignment name (for Schaefer)
+    pub network: Option<String>,
+}
+
+/// Result of loading a surface atlas
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct SurfaceAtlasLoadResult {
+    /// Atlas metadata
+    pub atlas_metadata: AtlasMetadata,
+    /// Per-vertex label IDs for the left hemisphere
+    pub labels_lh: Vec<u32>,
+    /// Per-vertex label IDs for the right hemisphere
+    pub labels_rh: Vec<u32>,
+    /// Label definitions with names, colors, networks
+    pub label_info: Vec<SurfaceAtlasLabelInfo>,
+    /// Coordinate space (e.g. "fsaverage")
+    pub space: String,
+    /// Number of vertices in left hemisphere
+    pub n_vertices_lh: usize,
+    /// Number of vertices in right hemisphere
+    pub n_vertices_rh: usize,
 }
 
 /// Filter options for atlas catalog

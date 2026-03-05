@@ -8,7 +8,6 @@
 pub use neuroim::*;
 
 // Import key dependencies for reuse in downstream crates
-use nalgebra::Affine3;
 use serde::{Deserialize, Serialize};
 use std::any::TypeId;
 use ts_rs::TS;
@@ -484,17 +483,17 @@ pub fn make_frame(viewport: Viewport, plane: Plane) -> ViewFrame {
     ViewFrame { viewport, plane }
 }
 
-pub fn screen_to_world(screen_coords: [f64; 2], view_frame: &ViewFrame) -> [f64; 3] {
+pub fn screen_to_world(screen_coords: [f64; 2], _view_frame: &ViewFrame) -> [f64; 3] {
     // Placeholder implementation - in real version would use neuroim coordinate transforms
     [screen_coords[0], screen_coords[1], 0.0]
 }
 
-pub fn world_to_screen(world_coords: [f64; 3], view_frame: &ViewFrame) -> [f64; 2] {
+pub fn world_to_screen(world_coords: [f64; 3], _view_frame: &ViewFrame) -> [f64; 2] {
     // Placeholder implementation
     [world_coords[0], world_coords[1]]
 }
 
-pub fn calculate_field_of_view(volume_meta: &VolumeMeta) -> f64 {
+pub fn calculate_field_of_view(_volume_meta: &VolumeMeta) -> f64 {
     // Placeholder implementation
     45.0
 }

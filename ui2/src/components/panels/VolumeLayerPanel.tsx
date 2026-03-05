@@ -1,23 +1,70 @@
-import React, { useCallback, useState, useMemo } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLayers, useSelectedLayerId, useSelectedLayer, layerSelectors, useLayer, useLayerStore } from '@/stores/layerStore';
 import { useViewStateStore } from '@/stores/viewStateStore';
+import { useWorkspaceStore } from '@/stores/workspaceStore';
 import { getLayerService } from '@/services/LayerService';
 import { LayerTable } from '../ui/LayerTable';
 import { MetadataDrawer } from '../ui/MetadataDrawer';
 import { useMetadataShortcut } from '@/hooks/useMetadataShortcut';
 import { useLayerPanelServices } from '@/hooks/useLayerPanelServices';
-import { useFileLoadingStatus } from '@/hooks/useFileLoadingStatus';
-import { LayerControlsPanel } from './LayerControlsPanel';
 import { LayerPropertiesManager } from './LayerPropertiesManager';
+import { PlotPanel } from './PlotPanel';
 import { LayerEmptyState } from './LayerEmptyState';
 import { LayerStatusBar } from './LayerStatusBar';
 import { PanelErrorBoundary } from '../common/PanelErrorBoundary';
 import { getEventBus } from '@/events/EventBus';
 import type { LayerRender, Layer } from '@/types/layers';
+import { BarChart3, Info, Layers, Palette } from 'lucide-react';
 import './LayerPanel.css';
 
 // Stable selectors — defined outside the component to avoid new references each render
 const selectLayerSelector = (state: any) => state.selectLayer;
+
+type SidebarTabId = 'layers' | 'inspect' | 'mapping' | 'plots';
+
+const SIDEBAR_TAB_STORAGE_KEY = 'brainflow2-right-sidebar-tabs';
+const SIDEBAR_TAB_DEFAULT: SidebarTabId = 'layers';
+
+const SIDEBAR_TABS: Array<{
+  id: SidebarTabId;
+  label: string;
+  icon: React.ComponentType<{ className?: string }>;
+}> = [
+  { id: 'layers', label: 'Layers', icon: Layers },
+  { id: 'inspect', label: 'Inspect', icon: Info },
+  { id: 'mapping', label: 'Mapping', icon: Palette },
+  { id: 'plots', label: 'Plots', icon: BarChart3 },
+];
+const SIDEBAR_TAB_COMPACT_WIDTH_PX = 360;
+
+function isSidebarTabId(value: unknown): value is SidebarTabId {
+  return value === 'layers' || value === 'inspect' || value === 'mapping' || value === 'plots';
+}
+
+function readSidebarTabPrefs(): Record<string, SidebarTabId> {
+  if (typeof window === 'undefined') return {};
+  try {
+    const raw = window.localStorage.getItem(SIDEBAR_TAB_STORAGE_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    const sanitized: Record<string, SidebarTabId> = {};
+    Object.entries(parsed).forEach(([workspaceId, value]) => {
+      if (isSidebarTabId(value)) {
+        sanitized[workspaceId] = value;
+      }
+    });
+    return sanitized;
+  } catch {
+    return {};
+  }
+}
+
+function writeSidebarTabPref(workspaceId: string, tabId: SidebarTabId): void {
+  if (typeof window === 'undefined') return;
+  const prefs = readSidebarTabPrefs();
+  prefs[workspaceId] = tabId;
+  window.localStorage.setItem(SIDEBAR_TAB_STORAGE_KEY, JSON.stringify(prefs));
+}
 
 const VolumeLayerPanelContent: React.FC = () => {
   // State for metadata drawer
@@ -28,6 +75,12 @@ const VolumeLayerPanelContent: React.FC = () => {
   const layers = useLayers();
   const selectedLayerId = useSelectedLayerId();
   const selectedLayer = useSelectedLayer();
+  const activeWorkspaceId = useWorkspaceStore(state => state.activeWorkspaceId);
+  const workspaceTabKey = activeWorkspaceId ?? 'global';
+  const [activeSidebarTab, setActiveSidebarTab] = useState<SidebarTabId>(SIDEBAR_TAB_DEFAULT);
+  const [compactSidebarTabs, setCompactSidebarTabs] = useState(false);
+  const sidebarTabListRef = useRef<HTMLDivElement | null>(null);
+  const sidebarTabColumns = compactSidebarTabs ? 4 : 2;
   // Stable selector for selectLayer action (avoid inline arrow on every render)
   const selectLayer = useLayerStore(selectLayerSelector);
   // Metadata for the selected layer — selector stabilized via useMemo to avoid
@@ -42,9 +95,6 @@ const VolumeLayerPanelContent: React.FC = () => {
   
   // Service initialization hook
   const { isInitialized: serviceInitialized, error: initializationError } = useLayerPanelServices();
-  
-  // File loading status hook
-  const fileLoadingStatus = useFileLoadingStatus();
   
   // Get layer render properties from ViewState (source of truth)
   const viewStateLayers = useViewStateStore(state => state.viewState.layers);
@@ -67,6 +117,62 @@ const VolumeLayerPanelContent: React.FC = () => {
     atlasPaletteSeed: (viewStateLayer as any).atlasPaletteSeed,
     atlasMaxLabel: (viewStateLayer as any).atlasMaxLabel,
   } : undefined, [viewStateLayer]);
+
+  useEffect(() => {
+    const tabPrefs = readSidebarTabPrefs();
+    const stored = tabPrefs[workspaceTabKey];
+    setActiveSidebarTab(stored ?? SIDEBAR_TAB_DEFAULT);
+  }, [workspaceTabKey]);
+
+  useEffect(() => {
+    const node = sidebarTabListRef.current;
+    if (!node || typeof ResizeObserver === 'undefined') return;
+
+    const updateCompact = (width: number) => {
+      const nextCompact = width <= SIDEBAR_TAB_COMPACT_WIDTH_PX;
+      setCompactSidebarTabs(prev => (prev === nextCompact ? prev : nextCompact));
+    };
+
+    updateCompact(node.getBoundingClientRect().width);
+
+    const observer = new ResizeObserver((entries) => {
+      const entry = entries[0];
+      if (!entry) return;
+      updateCompact(entry.contentRect.width);
+    });
+    observer.observe(node);
+
+    return () => observer.disconnect();
+  }, []);
+
+  const handleSidebarTabChange = useCallback((tabId: SidebarTabId) => {
+    setActiveSidebarTab((prev) => {
+      if (prev === tabId) return prev;
+      writeSidebarTabPref(workspaceTabKey, tabId);
+      return tabId;
+    });
+  }, [workspaceTabKey]);
+
+  const handleSidebarTabKeyDown = useCallback((event: React.KeyboardEvent<HTMLButtonElement>, index: number) => {
+    let nextIndex = index;
+    if (event.key === 'ArrowRight') {
+      nextIndex = (index + 1) % SIDEBAR_TABS.length;
+    } else if (event.key === 'ArrowLeft') {
+      nextIndex = (index - 1 + SIDEBAR_TABS.length) % SIDEBAR_TABS.length;
+    } else if (event.key === 'ArrowDown') {
+      nextIndex = Math.min(index + sidebarTabColumns, SIDEBAR_TABS.length - 1);
+    } else if (event.key === 'ArrowUp') {
+      nextIndex = Math.max(index - sidebarTabColumns, 0);
+    } else if (event.key === 'Home') {
+      nextIndex = 0;
+    } else if (event.key === 'End') {
+      nextIndex = SIDEBAR_TABS.length - 1;
+    } else {
+      return;
+    }
+    event.preventDefault();
+    handleSidebarTabChange(SIDEBAR_TABS[nextIndex].id);
+  }, [handleSidebarTabChange, sidebarTabColumns]);
 
   const toggleVisibility = useCallback((layerId: string) => {
     try {
@@ -275,52 +381,146 @@ const VolumeLayerPanelContent: React.FC = () => {
     <div className="flex flex-col h-full overflow-hidden bg-card text-card-foreground shadow-sm border border-border font-sans" style={{ borderRadius: '1px' }}>
       {/* Main content area */}
       <div
-        className="flex-1 p-3 space-y-3 overflow-y-auto min-h-0"
+        className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden p-3 space-y-3"
         style={{ backgroundColor: 'hsl(var(--muted) / 0.1)' }}
       >
         {/* Status messages */}
         <LayerStatusBar
           error={initializationError}
           isInitializing={!serviceInitialized}
-          fileLoadingStatus={fileLoadingStatus}
-        />
-        
-        {/* Layer selector table - Volume layers only */}
-        <LayerTable
-          layers={layers}
-          selectedLayerId={selectedLayerId}
-          onSelect={selectLayer}
-          onToggleVisibility={toggleVisibility}
-          onRemove={handleRemoveLayer}
-          onShowMetadata={setMetadataLayerId}
-          onReorder={handleReorder}
-          onOpacityChange={handleOpacityChange}
-          getLayerVisibility={getLayerVisibility}
-          getLayerOpacity={getLayerOpacity}
         />
 
-        {/* Layer controls - Now using LayerPropertiesManager dispatcher */}
-        {/* Only show when we have layers (empty state handled by LayerPropertiesManager) */}
-        {layers.length > 0 && (
-          <LayerPropertiesManager
-            selectedLayer={selectedLayer || false}
-            selectedRender={selectedRender}
-            selectedMetadata={selectedMetadata}
-            onRenderUpdate={handleRenderUpdate}
-          />
-        )}
-
-        {/* Show help text when no layer is selected */}
-        {!selectedLayer && layers.length > 0 && (
-          <div className="text-center py-4">
-            <p className="text-[13px] text-muted-foreground">
-              Select a layer to edit properties
-            </p>
+        <div className="space-y-3">
+          <div
+            ref={sidebarTabListRef}
+            className={`grid gap-1 rounded-appsm border border-border bg-card p-1 ${compactSidebarTabs ? 'grid-cols-4' : 'grid-cols-2'}`}
+            role="tablist"
+            aria-label="Right sidebar tabs"
+          >
+            {SIDEBAR_TABS.map((tab, index) => {
+              const isActive = activeSidebarTab === tab.id;
+              const tabId = `sidebar-tab-${tab.id}`;
+              const panelId = `sidebar-panel-${tab.id}`;
+              const TabIcon = tab.icon;
+              return (
+                <button
+                  key={tab.id}
+                  id={tabId}
+                  type="button"
+                  role="tab"
+                  aria-controls={panelId}
+                  aria-selected={isActive}
+                  tabIndex={isActive ? 0 : -1}
+                  onClick={() => handleSidebarTabChange(tab.id)}
+                  onKeyDown={(event) => handleSidebarTabKeyDown(event, index)}
+                  aria-label={tab.label}
+                  title={tab.label}
+                  className={`bf-role-label rounded-appsm border px-2 text-center font-semibold tracking-[0.01em] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background ${
+                    compactSidebarTabs ? 'min-h-[34px]' : 'bf-control-md min-h-[34px]'
+                  } ${
+                    isActive
+                      ? 'border-accent/60 bg-accent/10 text-foreground'
+                      : 'border-transparent text-foreground/70 hover:border-border hover:bg-muted/50 hover:text-foreground'
+                  }`}
+                >
+                  <span className={`inline-flex items-center justify-center ${compactSidebarTabs ? '' : 'gap-1.5'}`}>
+                    <TabIcon className={`${compactSidebarTabs ? 'h-4 w-4' : 'h-3.5 w-3.5'} shrink-0`} aria-hidden="true" />
+                    {!compactSidebarTabs && <span>{tab.label}</span>}
+                  </span>
+                </button>
+              );
+            })}
           </div>
-        )}
 
-        {/* Empty state - No volume layers - fills remaining space */}
-        {layers.length === 0 && <LayerEmptyState />}
+          {activeSidebarTab === 'layers' && (
+            <section
+              id="sidebar-panel-layers"
+              role="tabpanel"
+              aria-labelledby="sidebar-tab-layers"
+              className="space-y-3"
+            >
+              {layers.length > 0 ? (
+                <LayerTable
+                  layers={layers}
+                  selectedLayerId={selectedLayerId}
+                  onSelect={selectLayer}
+                  onToggleVisibility={toggleVisibility}
+                  onRemove={handleRemoveLayer}
+                  onShowMetadata={setMetadataLayerId}
+                  onReorder={handleReorder}
+                  onOpacityChange={handleOpacityChange}
+                  getLayerVisibility={getLayerVisibility}
+                  getLayerOpacity={getLayerOpacity}
+                />
+              ) : (
+                <LayerEmptyState />
+              )}
+
+              {!selectedLayer && layers.length > 0 && (
+                <div className="text-center py-4">
+                  <p className="bf-role-body text-muted-foreground">
+                    Select a layer, then use Inspect or Mapping for controls.
+                  </p>
+                </div>
+              )}
+            </section>
+          )}
+
+          {activeSidebarTab === 'inspect' && (
+            <section
+              id="sidebar-panel-inspect"
+              role="tabpanel"
+              aria-labelledby="sidebar-tab-inspect"
+              className="space-y-3"
+            >
+              {layers.length > 0 ? (
+                <LayerPropertiesManager
+                  selectedLayer={selectedLayer || false}
+                  selectedRender={selectedRender}
+                  selectedMetadata={selectedMetadata}
+                  onRenderUpdate={handleRenderUpdate}
+                  sectionMode="inspect"
+                />
+              ) : (
+                <LayerEmptyState />
+              )}
+            </section>
+          )}
+
+          {activeSidebarTab === 'mapping' && (
+            <section
+              id="sidebar-panel-mapping"
+              role="tabpanel"
+              aria-labelledby="sidebar-tab-mapping"
+              className="space-y-3"
+            >
+              {layers.length > 0 ? (
+                <LayerPropertiesManager
+                  selectedLayer={selectedLayer || false}
+                  selectedRender={selectedRender}
+                  selectedMetadata={selectedMetadata}
+                  onRenderUpdate={handleRenderUpdate}
+                  sectionMode="mapping"
+                />
+              ) : (
+                <LayerEmptyState />
+              )}
+            </section>
+          )}
+
+          {activeSidebarTab === 'plots' && (
+            <section
+              id="sidebar-panel-plots"
+              role="tabpanel"
+              aria-labelledby="sidebar-tab-plots"
+              className="space-y-3"
+            >
+              <div className="h-[320px] min-h-[280px]">
+                <PlotPanel />
+              </div>
+            </section>
+          )}
+        </div>
       </div>
       
       {/* Metadata Drawer */}

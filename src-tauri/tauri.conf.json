@@ -17,8 +17,8 @@
     "windows": [
       {
         "title": "Brainflow",
-        "width": 1200,
-        "height": 800,
+        "width": 1320,
+        "height": 880,
         "resizable": true,
         "fullscreen": false
       }

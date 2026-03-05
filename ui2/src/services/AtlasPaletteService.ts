@@ -9,6 +9,7 @@ type VolumePalettePatch = Pick<
   ViewLayer,
   | 'colormapId'
   | 'intensity'
+  | 'threshold'
   | 'interpolation'
   | 'atlasConfig'
   | 'atlasPaletteKind'
@@ -62,6 +63,8 @@ export class AtlasPaletteService {
     return {
       colormapId,
       intensity: [-0.5, palette.lut.max_label + 0.5],
+      // Keep only label 0 suppressed (atlas background) and avoid mid-range filtering.
+      threshold: [0, 0],
       interpolation: 'nearest',
       atlasConfig: config,
       atlasPaletteKind: palette.lut.kind,
@@ -100,6 +103,16 @@ export class AtlasPaletteService {
         currentIntensity[1] !== patch.intensity[1]
       ) {
         layer.intensity = patch.intensity;
+        didChange = true;
+      }
+
+      const currentThreshold = layer.threshold;
+      if (
+        !currentThreshold ||
+        currentThreshold[0] !== patch.threshold[0] ||
+        currentThreshold[1] !== patch.threshold[1]
+      ) {
+        layer.threshold = patch.threshold;
         didChange = true;
       }
 
