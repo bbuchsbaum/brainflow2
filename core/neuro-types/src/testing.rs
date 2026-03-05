@@ -94,7 +94,14 @@ impl DifferentialTester {
         let output2 = provider2.composite_rgba(request)?;
 
         // Compare the outputs
-        self.compare_outputs(&output1, &output2, test_name)
+        let result = self.compare_outputs(&output1, &output2, test_name)?;
+
+        // Optional debug image saving (request context is available here)
+        if !result.passed && self.config.save_debug_images {
+            self.save_debug_images(test_name, &output1, &output2, request)?;
+        }
+
+        Ok(result)
     }
 
     /// Compare two RGBA images
@@ -212,13 +219,6 @@ impl DifferentialTester {
         // Optional debug output
         if !passed || std::env::var("NEURO_DEBUG_DIFF").is_ok() {
             self.print_diff_summary(test_name, &result);
-        }
-
-        // Optional debug image saving
-        if !passed && self.config.save_debug_images {
-            // Note: save_debug_images requires a CompositeRequest which is not available in compare_outputs
-            // This could be implemented by modifying the signature or by saving images in compare_providers instead
-            println!("Debug images would be saved for test: {}", test_name);
         }
 
         Ok(result)

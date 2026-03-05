@@ -3,7 +3,7 @@
 //! This module provides oriented ellipsoids and other shapes that can be used
 //! as ground truth for validating coordinate transformations and resampling.
 
-use crate::{coordinates, Error, Result, Volume};
+use crate::{coordinates, Error, Result};
 use nalgebra::{Matrix3, Matrix4, Point3, Rotation3, Unit, Vector3, Vector4};
 
 /// An oriented ellipsoid in world space coordinates

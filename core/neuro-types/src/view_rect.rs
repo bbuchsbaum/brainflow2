@@ -74,60 +74,57 @@ impl SliceGeometry {
             ViewOrientation::Sagittal => (negate_vec3(e_y), negate_vec3(e_z)), // -Y right (anterior->posterior), -Z down
         };
 
-        // 3. Compute FoV bounds in world space
+        // 3. Project all volume corners into the active in-plane basis (right/down),
+        // relative to crosshair. This is robust for oblique and flipped affines.
         let corners = meta.volume_corners_world();
-        let mut min_bounds = [f32::INFINITY; 3];
-        let mut max_bounds = [f32::NEG_INFINITY; 3];
+        let r_dot_r = vec3_dot(right_mm, right_mm);
+        let d_dot_d = vec3_dot(down_mm, down_mm);
+        let r_dot_d = vec3_dot(right_mm, down_mm);
+        let det = r_dot_r * d_dot_d - r_dot_d * r_dot_d;
 
-        for c in &corners {
-            for i in 0..3 {
-                min_bounds[i] = min_bounds[i].min(c[i]);
-                max_bounds[i] = max_bounds[i].max(c[i]);
-            }
+        // Degenerate basis should never happen for valid orthogonal views, but guard anyway.
+        let det = if det.abs() < 1e-8 { 1.0 } else { det };
+
+        let mut u_min = f32::INFINITY;
+        let mut u_max = f32::NEG_INFINITY;
+        let mut v_min = f32::INFINITY;
+        let mut v_max = f32::NEG_INFINITY;
+
+        for corner in &corners {
+            let delta = vec3_sub(*corner, cross_mm);
+            let r_dot_delta = vec3_dot(right_mm, delta);
+            let d_dot_delta = vec3_dot(down_mm, delta);
+
+            // Least-squares coefficients in possibly non-orthogonal basis:
+            // delta ≈ u*right + v*down
+            let u = (r_dot_delta * d_dot_d - d_dot_delta * r_dot_d) / det;
+            let v = (d_dot_delta * r_dot_r - r_dot_delta * r_dot_d) / det;
+
+            u_min = u_min.min(u);
+            u_max = u_max.max(u);
+            v_min = v_min.min(v);
+            v_max = v_max.max(v);
         }
 
-        // 4. Calculate extent in each direction
-        let (width_mm, height_mm) = match orient {
-            ViewOrientation::Axial => {
-                (max_bounds[0] - min_bounds[0], max_bounds[1] - min_bounds[1])
-            }
-            ViewOrientation::Coronal => {
-                (max_bounds[0] - min_bounds[0], max_bounds[2] - min_bounds[2])
-            }
-            ViewOrientation::Sagittal => {
-                (max_bounds[1] - min_bounds[1], max_bounds[2] - min_bounds[2])
-            }
-        };
+        // 4. Compute in-plane extents (mm)
+        let width_mm = (u_max - u_min).max(0.0);
+        let height_mm = (v_max - v_min).max(0.0);
 
-        // 5. Choose pixel size so pixels are square
-        let pixel_size =
-            (width_mm / screen_px_max[0] as f32).max(height_mm / screen_px_max[1] as f32);
+        // 5. Choose isotropic pixel size (square pixels)
+        let req_w = screen_px_max[0].max(1) as f32;
+        let req_h = screen_px_max[1].max(1) as f32;
+        let pixel_size = (width_mm / req_w).max(height_mm / req_h).max(1e-6);
 
         let dim_px = [
-            (width_mm / pixel_size).ceil() as u32,
-            (height_mm / pixel_size).ceil() as u32,
+            (width_mm / pixel_size).ceil().max(1.0) as u32,
+            (height_mm / pixel_size).ceil().max(1.0) as u32,
         ];
 
-        // 6. Calculate origin at top-left corner of the slice
-        // With negated down vectors, origin must be at the maximum bounds
-        // for the axes that were negated
-        let origin_mm = match orient {
-            ViewOrientation::Axial => [
-                min_bounds[0], // Left edge (min X)
-                max_bounds[1], // Top edge = anterior (max Y, because down = -Y)
-                cross_mm[2],   // Z slice position
-            ],
-            ViewOrientation::Coronal => [
-                min_bounds[0], // Left edge (min X)
-                cross_mm[1],   // Y slice position
-                max_bounds[2], // Top edge = superior (max Z, because down = -Z)
-            ],
-            ViewOrientation::Sagittal => [
-                cross_mm[0],   // X slice position
-                max_bounds[1], // Left edge = anterior (max Y, because right = -Y)
-                max_bounds[2], // Top edge = superior (max Z, because down = -Z)
-            ],
-        };
+        // 6. Top-left origin in world coordinates (u_min, v_min in the slice basis).
+        let origin_mm = vec3_add(
+            cross_mm,
+            vec3_add(vec3_scale(right_mm, u_min), vec3_scale(down_mm, v_min)),
+        );
 
         SliceGeometry {
             origin_mm,
@@ -160,8 +157,8 @@ fn extract_orthonormal_vectors(
 
     // Create normalized unit vectors
     let mut e_x = [col_x[0] / norm_x, col_x[1] / norm_x, col_x[2] / norm_x];
-    let mut e_y = [col_y[0] / norm_y, col_y[1] / norm_y, col_y[2] / norm_y];
-    let mut e_z = [col_z[0] / norm_z, col_z[1] / norm_z, col_z[2] / norm_z];
+    let e_y = [col_y[0] / norm_y, col_y[1] / norm_y, col_y[2] / norm_y];
+    let e_z = [col_z[0] / norm_z, col_z[1] / norm_z, col_z[2] / norm_z];
 
     // Apply display conventions
     match handedness {
@@ -183,7 +180,7 @@ fn extract_orthonormal_vectors(
 }
 
 // Helper functions for vector operations
-fn dot_product(a: [f32; 3], b: [f32; 3]) -> f32 {
+fn vec3_dot(a: [f32; 3], b: [f32; 3]) -> f32 {
     a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
 }
 
@@ -203,6 +200,7 @@ fn negate_vec3(v: [f32; 3]) -> [f32; 3] {
     [-v[0], -v[1], -v[2]]
 }
 
+#[cfg(test)]
 fn vec3_distance(a: [f32; 3], b: [f32; 3]) -> f32 {
     let diff = vec3_sub(a, b);
     (diff[0] * diff[0] + diff[1] * diff[1] + diff[2] * diff[2]).sqrt()
@@ -773,5 +771,224 @@ mod tests {
             "All three slices should intersect at crosshair {:?}. Found: axial={:?}, sagittal={:?}, coronal={:?}",
             crosshair, axial_center, sagittal_center, coronal_center
         );
+    }
+
+    #[test]
+    fn test_axial_extent_with_negative_x_affine() {
+        // Regression for Schaefer-like affines where X axis is flipped.
+        // With voxel_to_world = diag(-1, +1, +1) + [90, -126, -72], the axial
+        // X world range should stay around [+90 .. -91], not drift to -270 range.
+        let voxel_to_world = Matrix4::new(
+            -1.0, 0.0, 0.0, 90.0,   //
+            0.0, 1.0, 0.0, -126.0,  //
+            0.0, 0.0, 1.0, -72.0,   //
+            0.0, 0.0, 0.0, 1.0,
+        );
+
+        let meta = VolumeMetadata {
+            dimensions: [182, 218, 182],
+            voxel_to_world,
+        };
+
+        let crosshair = [-0.5, 44.9, 34.6];
+        let screen_max = [512, 512];
+        let axial = SliceGeometry::full_extent(
+            ViewOrientation::Axial,
+            crosshair,
+            &meta,
+            screen_max,
+            Handedness::Neurological,
+        );
+
+        // Sample world X at left and right image edges.
+        let left_x = axial.origin_mm[0];
+        let right_x = axial.origin_mm[0] + axial.u_mm[0] * axial.dim_px[0] as f32;
+
+        let min_x = left_x.min(right_x);
+        let max_x = left_x.max(right_x);
+
+        // Expected Schaefer X bounds are approximately [-91, +90].
+        assert!(
+            min_x >= -92.5 && max_x <= 91.5,
+            "Unexpected axial X extent for negative-X affine: left_x={}, right_x={}, range=[{}, {}]",
+            left_x,
+            right_x,
+            min_x,
+            max_x
+        );
+    }
+
+    #[test]
+    fn test_coronal_extent_with_negative_x_affine() {
+        // Same regression as axial, but for coronal slices.
+        // Coronal uses X/Z display axes; the X range must remain [-91, +90].
+        let voxel_to_world = Matrix4::new(
+            -1.0, 0.0, 0.0, 90.0, //
+            0.0, 1.0, 0.0, -126.0, //
+            0.0, 0.0, 1.0, -72.0, //
+            0.0, 0.0, 0.0, 1.0,
+        );
+
+        let meta = VolumeMetadata {
+            dimensions: [182, 218, 182],
+            voxel_to_world,
+        };
+
+        let crosshair = [-0.5, 44.9, 34.6];
+        let screen_max = [512, 512];
+        let coronal = SliceGeometry::full_extent(
+            ViewOrientation::Coronal,
+            crosshair,
+            &meta,
+            screen_max,
+            Handedness::Neurological,
+        );
+
+        let left_x = coronal.origin_mm[0];
+        let right_x = coronal.origin_mm[0] + coronal.u_mm[0] * coronal.dim_px[0] as f32;
+        let min_x = left_x.min(right_x);
+        let max_x = left_x.max(right_x);
+
+        assert!(
+            min_x >= -92.5 && max_x <= 91.5,
+            "Unexpected coronal X extent for negative-X affine: left_x={}, right_x={}, range=[{}, {}]",
+            left_x,
+            right_x,
+            min_x,
+            max_x
+        );
+    }
+
+    #[test]
+    fn test_oblique_affine_extent_contains_projected_corners() {
+        // Rotation-only oblique affine (common in oblique acquisitions).
+        let theta_z = 20.0_f32.to_radians();
+        let theta_x = -15.0_f32.to_radians();
+
+        let rz = Matrix4::new(
+            theta_z.cos(),
+            -theta_z.sin(),
+            0.0,
+            0.0,
+            theta_z.sin(),
+            theta_z.cos(),
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            1.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            1.0,
+        );
+
+        let rx = Matrix4::new(
+            1.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            theta_x.cos(),
+            -theta_x.sin(),
+            0.0,
+            0.0,
+            theta_x.sin(),
+            theta_x.cos(),
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            1.0,
+        );
+
+        let mut affine = rz * rx;
+        affine[(0, 3)] = -90.0;
+        affine[(1, 3)] = -126.0;
+        affine[(2, 3)] = -72.0;
+
+        let meta = VolumeMetadata {
+            dimensions: [96, 112, 88],
+            voxel_to_world: affine,
+        };
+
+        // Use world-space center as crosshair.
+        let center_voxel = [
+            (meta.dimensions[0] as f32 - 1.0) / 2.0,
+            (meta.dimensions[1] as f32 - 1.0) / 2.0,
+            (meta.dimensions[2] as f32 - 1.0) / 2.0,
+        ];
+        let center_world = meta.voxel_to_world
+            * nalgebra::Point4::new(center_voxel[0], center_voxel[1], center_voxel[2], 1.0);
+        let crosshair = [center_world[0], center_world[1], center_world[2]];
+
+        let screen = [512, 512];
+        let views = [
+            SliceGeometry::full_extent(
+                ViewOrientation::Axial,
+                crosshair,
+                &meta,
+                screen,
+                Handedness::Neurological,
+            ),
+            SliceGeometry::full_extent(
+                ViewOrientation::Sagittal,
+                crosshair,
+                &meta,
+                screen,
+                Handedness::Neurological,
+            ),
+            SliceGeometry::full_extent(
+                ViewOrientation::Coronal,
+                crosshair,
+                &meta,
+                screen,
+                Handedness::Neurological,
+            ),
+        ];
+
+        let corners = meta.volume_corners_world();
+        let eps = 1e-3;
+
+        for view in views {
+            let u = view.u_mm;
+            let v = view.v_mm;
+            let uu = vec3_dot(u, u);
+            let vv = vec3_dot(v, v);
+            let uv = vec3_dot(u, v);
+            let det = uu * vv - uv * uv;
+            assert!(
+                det.abs() > 1e-10,
+                "Degenerate in-plane basis for oblique test: u={:?} v={:?}",
+                u,
+                v
+            );
+
+            for corner in &corners {
+                let delta = vec3_sub(*corner, view.origin_mm);
+                let du = vec3_dot(u, delta);
+                let dv = vec3_dot(v, delta);
+                let x = (du * vv - dv * uv) / det;
+                let y = (dv * uu - du * uv) / det;
+
+                assert!(
+                    x >= -eps && x <= view.dim_px[0] as f32 + eps,
+                    "Projected corner outside X extent: x={} width={} corner={:?} origin={:?}",
+                    x,
+                    view.dim_px[0],
+                    corner,
+                    view.origin_mm
+                );
+                assert!(
+                    y >= -eps && y <= view.dim_px[1] as f32 + eps,
+                    "Projected corner outside Y extent: y={} height={} corner={:?} origin={:?}",
+                    y,
+                    view.dim_px[1],
+                    corner,
+                    view.origin_mm
+                );
+            }
+        }
     }
 }
