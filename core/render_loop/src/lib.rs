@@ -13,7 +13,10 @@
 // without the need for image data transfer. Keep monitoring Tauri's WebGPU support
 // for such improvements.
 
-use crate::view_state::{FrameResult, ViewContext, ViewId, ViewState};
+use crate::view_state::{
+    FrameDiagnostics, FrameReadbackMode, FrameRequestOptions, FrameResult, ViewContext, ViewId,
+    ViewState,
+};
 use nalgebra::Matrix4;
 use raw_window_handle::{HasDisplayHandle, HasWindowHandle}; // Add for surface creation
 use std::collections::HashMap;
@@ -99,7 +102,9 @@ pub enum RenderLoopError {
     SliceRetrievalFailed(String),
     #[error("Unsupported volume format for atlas upload: {0:?}")]
     UnsupportedVolumeFormat(NumericType),
-    #[error("Volume dimensions ({width}x{height}) exceed atlas dimensions ({atlas_width}x{atlas_height})")]
+    #[error(
+        "Volume dimensions ({width}x{height}) exceed atlas dimensions ({atlas_width}x{atlas_height})"
+    )]
     SliceTooLarge {
         width: u32,
         height: u32,
@@ -411,6 +416,14 @@ pub struct VolumeRegistryEntry {
     pub format: wgpu::TextureFormat,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+struct PreparedLayerStateSignature {
+    layer_infos: Vec<LayerInfo>,
+    layer_dims: Vec<(u32, u32, u32)>,
+    world_to_voxels: Vec<Matrix4<f32>>,
+    display_overrides: Vec<(bool, f32)>,
+}
+
 impl Default for VolumeMetadata {
     fn default() -> Self {
         Self {
@@ -480,6 +493,7 @@ pub struct RenderLoopService {
     world_space_enabled: bool,
     // --- Volume registry - maps volume IDs to their metadata ---
     volumes: HashMap<String, VolumeRegistryEntry>,
+    prepared_layer_state_cache: Option<PreparedLayerStateSignature>,
 
     // --- Runtime (custom) colormaps uploaded into the colormap LUT texture ---
     custom_colormaps: HashMap<String, u32>, // key -> colormap_id
@@ -519,7 +533,9 @@ impl RenderLoopService {
             adapter_features.contains(wgpu::Features::FLOAT32_FILTERABLE);
 
         if !supports_float32_filterable {
-            log::warn!("WARNING: FLOAT32_FILTERABLE feature not supported on this adapter. Linear filtering of R32Float textures will not work correctly. Consider using nearest neighbor sampling or R16Float textures.");
+            log::warn!(
+                "WARNING: FLOAT32_FILTERABLE feature not supported on this adapter. Linear filtering of R32Float textures will not work correctly. Consider using nearest neighbor sampling or R16Float textures."
+            );
         }
 
         // 3. Request Device and Queue
@@ -668,6 +684,7 @@ impl RenderLoopService {
             views: HashMap::new(),
             world_space_enabled: true, // Default to world-space rendering
             volumes: HashMap::new(),
+            prepared_layer_state_cache: None,
             custom_colormaps: HashMap::new(),
             next_custom_colormap_slot: 0,
         })
@@ -1852,6 +1869,7 @@ impl RenderLoopService {
                 format: wgpu::TextureFormat::R32Float, // TODO: Get from actual upload
             },
         );
+        self.invalidate_prepared_layer_state_cache();
 
         Ok(())
     }
@@ -1881,6 +1899,7 @@ impl RenderLoopService {
                 format: wgpu::TextureFormat::R32Float, // TODO: Get from actual texture
             },
         );
+        self.invalidate_prepared_layer_state_cache();
 
         Ok(())
     }
@@ -1968,6 +1987,148 @@ impl RenderLoopService {
         }
     }
 
+    fn invalidate_prepared_layer_state_cache(&mut self) {
+        self.prepared_layer_state_cache = None;
+    }
+
+    fn capture_display_override_signature(&self, layer_infos: &[LayerInfo]) -> Vec<(bool, f32)> {
+        layer_infos
+            .iter()
+            .map(|layer| {
+                self.border_overrides
+                    .get(&layer.atlas_index)
+                    .copied()
+                    .unwrap_or((false, 1.0))
+            })
+            .collect()
+    }
+
+    fn sync_visible_volume_metadata(&mut self, state: &ViewState) {
+        for layer_config in &state.layers {
+            if !layer_config.visible {
+                continue;
+            }
+
+            if let Some(vol_entry) = self.volumes.get(&layer_config.volume_id) {
+                log::debug!(
+                    "Copying volume metadata for '{}' to atlas_index {}",
+                    layer_config.volume_id,
+                    vol_entry.atlas_index
+                );
+                log::debug!(
+                    "  data_range: ({}, {})",
+                    vol_entry.metadata.data_range.0,
+                    vol_entry.metadata.data_range.1
+                );
+                self.volume_metadata
+                    .insert(vol_entry.atlas_index, vol_entry.metadata.clone());
+            }
+        }
+    }
+
+    fn rebuild_prepared_layer_state(
+        &mut self,
+        layer_infos: &[LayerInfo],
+    ) -> Result<u32, RenderLoopError> {
+        self.clear_render_layers();
+
+        for layer_info in layer_infos {
+            log::debug!(
+                "add_layer: atlas_index={}, opacity={}, colormap_id={}, intensity=({:.3}, {:.3}), threshold=({:.3}, {:.3}), mode={:?}, is_mask={}",
+                layer_info.atlas_index,
+                layer_info.opacity,
+                layer_info.colormap_id,
+                layer_info.intensity_range.0,
+                layer_info.intensity_range.1,
+                layer_info.threshold_range.0,
+                layer_info.threshold_range.1,
+                layer_info.threshold_mode,
+                layer_info.is_mask,
+            );
+            self.layer_state_manager
+                .add_layer(layer_info.clone())
+                .map_err(|e| RenderLoopError::Internal {
+                    code: 8001,
+                    details: format!("Failed to add layer: {}", e),
+                })?;
+        }
+
+        // update_all_layer_uniforms() is the canonical upload path here. In world-space mode it
+        // already pushes dims/transforms into LayerStorageManager, so a second direct upload is
+        // redundant work on the same frame.
+        self.update_all_layer_uniforms()?;
+        Ok(layer_infos.len() as u32)
+    }
+
+    fn patch_prepared_layer_state(
+        &mut self,
+        previous: &PreparedLayerStateSignature,
+        next: &PreparedLayerStateSignature,
+    ) -> Result<u32, RenderLoopError> {
+        if previous.layer_infos.len() != next.layer_infos.len()
+            || previous.layer_dims.len() != next.layer_dims.len()
+            || previous.world_to_voxels.len() != next.world_to_voxels.len()
+            || previous.display_overrides.len() != next.display_overrides.len()
+            || self.layer_state_manager.layer_count() != next.layer_infos.len()
+        {
+            return Err(RenderLoopError::Internal {
+                code: 8014,
+                details: "Layer patch preconditions were not met".to_string(),
+            });
+        }
+
+        if !self.world_space_enabled {
+            return Err(RenderLoopError::Internal {
+                code: 8015,
+                details: "Layer patching currently requires world-space rendering".to_string(),
+            });
+        }
+
+        let mut updated_slots = 0u32;
+        for index in 0..next.layer_infos.len() {
+            let layer_changed = previous.layer_infos[index] != next.layer_infos[index]
+                || previous.layer_dims[index] != next.layer_dims[index]
+                || previous.world_to_voxels[index] != next.world_to_voxels[index]
+                || previous.display_overrides[index] != next.display_overrides[index];
+
+            if !layer_changed {
+                continue;
+            }
+
+            let layer = self
+                .layer_state_manager
+                .get_layer_mut(index)
+                .ok_or_else(|| RenderLoopError::Internal {
+                    code: 8017,
+                    details: format!("Missing active layer {} during patch update", index),
+                })?;
+            *layer = next.layer_infos[index].clone();
+
+            self.layer_storage_manager
+                .as_mut()
+                .ok_or_else(|| RenderLoopError::Internal {
+                    code: 8016,
+                    details: "Layer patching requires an initialized layer storage manager"
+                        .to_string(),
+                })?
+                .update_layer(
+                    &self.queue,
+                    index,
+                    &next.layer_infos[index],
+                    next.layer_dims[index],
+                    &next.world_to_voxels[index],
+                    next.display_overrides[index],
+                )
+                .map_err(|e| RenderLoopError::Internal {
+                    code: 8018,
+                    details: format!("Failed to patch layer {}: {}", index, e),
+                })?;
+            updated_slots += 1;
+        }
+
+        Ok(updated_slots)
+    }
+
     /// Release a volume texture and free its GPU resources
     pub fn release_volume(&mut self, texture_index: u32) -> Result<(), RenderLoopError> {
         // Use multi-texture manager for world-space rendering
@@ -1998,6 +2159,7 @@ impl RenderLoopService {
                     )?;
                 }
 
+                self.invalidate_prepared_layer_state_cache();
                 Ok(())
             } else {
                 Err(RenderLoopError::Internal {
@@ -2268,8 +2430,12 @@ impl RenderLoopService {
             [512, 512]
         };
 
-        log::debug!("DEBUG update_frame_ubo: atlas_dim = {:?}, target_dim = {:?}, offscreen_dimensions = {:?}",
-            atlas_dim_u32, target_dims, self.offscreen_dimensions);
+        log::debug!(
+            "DEBUG update_frame_ubo: atlas_dim = {:?}, target_dim = {:?}, offscreen_dimensions = {:?}",
+            atlas_dim_u32,
+            target_dims,
+            self.offscreen_dimensions
+        );
 
         let data = FrameUbo {
             origin_mm,
@@ -2306,12 +2472,6 @@ impl RenderLoopService {
 
         self.queue
             .write_buffer(&self.frame_ubo_buffer, 0, bytemuck::bytes_of(&data));
-
-        // Submit the queue to ensure the buffer write is processed
-        self.queue.submit(std::iter::empty());
-
-        // Ensure the buffer write is processed
-        self.device.poll(wgpu::Maintain::Wait);
     }
 
     // --- Method to update the crosshair UBO (Separate from FrameUBO update) ---
@@ -2398,7 +2558,8 @@ impl RenderLoopService {
         if view_width_mm <= 0.0 || view_height_mm <= 0.0 {
             log::warn!(
                 "WARNING: update_frame_for_synchronized_view called with invalid dimensions: w={}, h={}",
-                view_width_mm, view_height_mm
+                view_width_mm,
+                view_height_mm
             );
             return;
         }
@@ -2544,8 +2705,12 @@ impl RenderLoopService {
                 u_mm = [u_mm[0] * scale, u_mm[1] * scale, u_mm[2] * scale, u_mm[3]];
                 v_mm = [v_mm[0] * scale, v_mm[1] * scale, v_mm[2] * scale, v_mm[3]];
 
-                log::debug!("RENDER_LOOP: Applied uniform scaling: scale={:.3}, scale_x={:.3}, scale_y={:.3}",
-                    scale, scale_x, scale_y);
+                log::debug!(
+                    "RENDER_LOOP: Applied uniform scaling: scale={:.3}, scale_x={:.3}, scale_y={:.3}",
+                    scale,
+                    scale_x,
+                    scale_y
+                );
             }
         }
 
@@ -2554,9 +2719,15 @@ impl RenderLoopService {
             view_width_mm,
             view_height_mm
         );
-        log::debug!("update_frame_for_synchronized_view: plane_id={}, view_size={}x{}mm, crosshair=[{:.1}, {:.1}, {:.1}]",
-            plane_id, view_width_mm, view_height_mm,
-            crosshair_world[0], crosshair_world[1], crosshair_world[2]);
+        log::debug!(
+            "update_frame_for_synchronized_view: plane_id={}, view_size={}x{}mm, crosshair=[{:.1}, {:.1}, {:.1}]",
+            plane_id,
+            view_width_mm,
+            view_height_mm,
+            crosshair_world[0],
+            crosshair_world[1],
+            crosshair_world[2]
+        );
         log::debug!(
             "  Frame origin_mm: [{:.1}, {:.1}, {:.1}, {:.1}]",
             origin_mm[0],
@@ -2771,7 +2942,10 @@ impl RenderLoopService {
     ) -> Result<usize, RenderLoopError> {
         log::debug!(
             "add_layer_3d: Adding layer with texture_index={}, dims={:?}, opacity={}, interpolation={}",
-            texture_index, volume_dims, opacity, interpolation_mode
+            texture_index,
+            volume_dims,
+            opacity,
+            interpolation_mode
         );
 
         // For world-space rendering, we need to store the texture index and transform
@@ -2825,6 +2999,7 @@ impl RenderLoopService {
                         &layer_info,
                         volume_dims,
                         &world_to_voxel,
+                        (false, 1.0),
                     )
                     .map_err(|e| RenderLoopError::Internal {
                         code: 1886,
@@ -2839,6 +3014,7 @@ impl RenderLoopService {
         }
 
         log::debug!("add_layer_3d: Added layer at index {}", layer_index);
+        self.invalidate_prepared_layer_state_cache();
         Ok(layer_index)
     }
 
@@ -2912,6 +3088,7 @@ impl RenderLoopService {
         // Update layer uniforms
         // println!("DEBUG: Calling update_all_layer_uniforms after adding layer {}", index);
         self.update_all_layer_uniforms()?;
+        self.invalidate_prepared_layer_state_cache();
 
         Ok(index)
     }
@@ -2928,6 +3105,7 @@ impl RenderLoopService {
             self.volume_metadata.remove(&atlas_index);
             // Update uniforms after layer removal
             let _ = self.update_all_layer_uniforms();
+            self.invalidate_prepared_layer_state_cache();
         }
 
         result
@@ -2955,6 +3133,7 @@ impl RenderLoopService {
         self.layer_state_manager.clear_layers();
         // Update uniforms to reflect no active layers
         let _ = self.update_all_layer_uniforms();
+        self.invalidate_prepared_layer_state_cache();
     }
 
     /// Get number of active layers
@@ -2983,6 +3162,7 @@ impl RenderLoopService {
             layer.colormap_id = colormap_id;
             // Update uniforms after property change
             self.update_all_layer_uniforms()?;
+            self.invalidate_prepared_layer_state_cache();
             Ok(())
         } else {
             Err(RenderLoopError::Internal {
@@ -3003,6 +3183,7 @@ impl RenderLoopService {
             layer.intensity_range = (min, max);
             // Update uniforms after property change
             self.update_all_layer_uniforms()?;
+            self.invalidate_prepared_layer_state_cache();
             Ok(())
         } else {
             Err(RenderLoopError::Internal {
@@ -3023,6 +3204,7 @@ impl RenderLoopService {
             layer.threshold_range = (low, high);
             // Update uniforms after property change
             self.update_all_layer_uniforms()?;
+            self.invalidate_prepared_layer_state_cache();
             Ok(())
         } else {
             Err(RenderLoopError::Internal {
@@ -3042,6 +3224,7 @@ impl RenderLoopService {
             layer.colormap_id = colormap_id;
             // Update uniforms after property change
             self.update_all_layer_uniforms()?;
+            self.invalidate_prepared_layer_state_cache();
             Ok(())
         } else {
             Err(RenderLoopError::Internal {
@@ -3057,6 +3240,7 @@ impl RenderLoopService {
             layer.is_mask = is_mask;
             // Update uniforms after property change
             self.update_all_layer_uniforms()?;
+            self.invalidate_prepared_layer_state_cache();
             Ok(())
         } else {
             Err(RenderLoopError::Internal {
@@ -3076,6 +3260,7 @@ impl RenderLoopService {
             .set_layer_has_alpha_mask(atlas_index, has_mask)
         {
             self.update_all_layer_uniforms()?;
+            self.invalidate_prepared_layer_state_cache();
             Ok(())
         } else {
             Err(RenderLoopError::Internal {
@@ -3132,6 +3317,7 @@ impl RenderLoopService {
                 .insert(layer.atlas_index, (enabled, thickness_px.max(0.5)));
             // Re-upload uniforms with overrides
             self.update_all_layer_uniforms()?;
+            self.invalidate_prepared_layer_state_cache();
             Ok(())
         } else {
             Err(RenderLoopError::Internal {
@@ -3263,7 +3449,10 @@ impl RenderLoopService {
         if self.shader_manager.get_shader(shader_name).is_none() {
             return Err(RenderLoopError::Internal {
                 code: 9010,
-                details: format!("Shader '{}' not loaded. Available shaders: slice, slice_debug, slice_debug2, slice_debug3, slice_simple", shader_name),
+                details: format!(
+                    "Shader '{}' not loaded. Available shaders: slice, slice_debug, slice_debug2, slice_debug3, slice_simple",
+                    shader_name
+                ),
             });
         }
 
@@ -3320,19 +3509,29 @@ impl RenderLoopService {
             );
         }
 
-        // Get or create render target from pool
-        let pool = self
-            .render_target_pool
-            .as_mut()
-            .expect("render_target_pool must be initialized before rendering");
         let format = wgpu::TextureFormat::Rgba8Unorm;
+        let (key, was_created, cached_entries, max_entries, cache_utilization) = {
+            let pool = self
+                .render_target_pool
+                .as_mut()
+                .expect("render_target_pool must be initialized before rendering");
 
-        let (key, was_created) =
-            pool.ensure_target(width, height, format)
-                .map_err(|e| RenderLoopError::Internal {
+            let (key, was_created) = pool.ensure_target(width, height, format).map_err(|e| {
+                RenderLoopError::Internal {
                     code: 7002,
                     details: format!("Failed to get render target from pool: {}", e),
-                })?;
+                }
+            })?;
+
+            let stats = pool.stats();
+            (
+                key,
+                was_created,
+                stats.cached_entries,
+                stats.max_entries,
+                stats.cache_utilization,
+            )
+        };
 
         if was_created {
             log::info!("Created new pooled render target: {}x{}", width, height);
@@ -3346,33 +3545,53 @@ impl RenderLoopService {
         // Update legacy fields for backward compatibility
         self.offscreen_dimensions = (width, height);
 
-        // Set up a surface config for offscreen rendering
-        // This is needed for pipeline creation
-        if self.surface_config.is_none() {
-            self.surface_config = Some(wgpu::SurfaceConfiguration {
-                usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
-                format,
-                width,
-                height,
-                present_mode: wgpu::PresentMode::Fifo,
-                desired_maximum_frame_latency: 2,
-                alpha_mode: wgpu::CompositeAlphaMode::Auto,
-                view_formats: vec![],
-            });
-        }
+        // Set up a surface-like config for offscreen rendering.
+        self.ensure_offscreen_surface_config(width, height, format);
 
-        // Log pool statistics periodically
-        let stats = pool.stats();
         if was_created {
             log::info!(
                 "Render target pool: {}/{} entries ({:.1}% full)",
-                stats.cached_entries,
-                stats.max_entries,
-                stats.cache_utilization * 100.0
+                cached_entries,
+                max_entries,
+                cache_utilization * 100.0
             );
         }
 
         Ok(())
+    }
+
+    fn ensure_offscreen_surface_config(
+        &mut self,
+        width: u32,
+        height: u32,
+        format: wgpu::TextureFormat,
+    ) {
+        if self.surface.is_some() {
+            return;
+        }
+
+        if let Some(config) = self.surface_config.as_mut() {
+            config.usage = wgpu::TextureUsages::RENDER_ATTACHMENT;
+            config.format = format;
+            config.width = width;
+            config.height = height;
+            config.present_mode = wgpu::PresentMode::Fifo;
+            config.desired_maximum_frame_latency = 2;
+            config.alpha_mode = wgpu::CompositeAlphaMode::Auto;
+            config.view_formats.clear();
+            return;
+        }
+
+        self.surface_config = Some(wgpu::SurfaceConfiguration {
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            format,
+            width,
+            height,
+            present_mode: wgpu::PresentMode::Fifo,
+            desired_maximum_frame_latency: 2,
+            alpha_mode: wgpu::CompositeAlphaMode::Auto,
+            view_formats: vec![],
+        });
     }
 
     /// Unpack GPU buffer data to image format, removing padding and flipping Y axis
@@ -3397,6 +3616,86 @@ impl RenderLoopService {
         }
 
         output
+    }
+
+    fn read_texture_to_image(
+        &self,
+        texture: &wgpu::Texture,
+        viewport_size: [u32; 2],
+    ) -> Result<Vec<u8>, RenderLoopError> {
+        let bytes_per_pixel = 4u32; // RGBA8 = 4 bytes
+        let unpadded_bytes_per_row = viewport_size[0] * bytes_per_pixel;
+        let align = wgpu::COPY_BYTES_PER_ROW_ALIGNMENT; // 256 bytes
+        let padded_bytes_per_row = ((unpadded_bytes_per_row + align - 1) / align) * align;
+        let buffer_size = (padded_bytes_per_row * viewport_size[1]) as u64;
+
+        let staging_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("ViewState Staging Buffer"),
+            size: buffer_size,
+            usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("ViewState Copy Encoder"),
+            });
+
+        encoder.copy_texture_to_buffer(
+            wgpu::ImageCopyTexture {
+                texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            wgpu::ImageCopyBuffer {
+                buffer: &staging_buffer,
+                layout: wgpu::ImageDataLayout {
+                    offset: 0,
+                    bytes_per_row: Some(padded_bytes_per_row),
+                    rows_per_image: Some(viewport_size[1]),
+                },
+            },
+            wgpu::Extent3d {
+                width: viewport_size[0],
+                height: viewport_size[1],
+                depth_or_array_layers: 1,
+            },
+        );
+
+        self.queue.submit(Some(encoder.finish()));
+
+        let slice = staging_buffer.slice(..);
+        let (sender, receiver) = futures_intrusive::channel::shared::oneshot_channel();
+        slice.map_async(wgpu::MapMode::Read, move |result| {
+            let _ = sender.send(result);
+        });
+
+        self.device.poll(wgpu::Maintain::Wait);
+
+        let result =
+            pollster::block_on(receiver.receive()).ok_or_else(|| RenderLoopError::Internal {
+                code: 8005,
+                details: "Failed to receive frame readback result".to_string(),
+            })?;
+
+        result.map_err(|_| RenderLoopError::Internal {
+            code: 8006,
+            details: "Failed to map frame readback buffer".to_string(),
+        })?;
+
+        let data = slice.get_mapped_range();
+        let image = Self::unpack_gpu_buffer_to_image(
+            &data,
+            viewport_size[0],
+            viewport_size[1],
+            padded_bytes_per_row,
+        );
+        drop(data);
+        staging_buffer.unmap();
+
+        Ok(image)
     }
 
     /// Render to the offscreen target and return the image data
@@ -3860,6 +4159,7 @@ impl RenderLoopService {
                 format,
             },
         );
+        self.invalidate_prepared_layer_state_cache();
 
         Ok(())
     }
@@ -3894,6 +4194,12 @@ impl RenderLoopService {
 
         let render_target = texture.create_view(&wgpu::TextureViewDescriptor::default());
 
+        self.ensure_offscreen_surface_config(
+            dimensions[0],
+            dimensions[1],
+            wgpu::TextureFormat::Rgba8Unorm,
+        );
+
         // Store view context
         self.views.insert(
             view_id.clone(),
@@ -3915,6 +4221,19 @@ impl RenderLoopService {
         view_id: ViewId,
         state: ViewState,
     ) -> Result<FrameResult, RenderLoopError> {
+        self.request_frame_with_options(view_id, state, FrameRequestOptions::default())
+            .await
+    }
+
+    /// Main declarative API with explicit control over frame readback.
+    pub async fn request_frame_with_options(
+        &mut self,
+        view_id: ViewId,
+        state: ViewState,
+        options: FrameRequestOptions,
+    ) -> Result<FrameResult, RenderLoopError> {
+        let request_start = std::time::Instant::now();
+
         // Validate state
         state.validate().map_err(|e| RenderLoopError::Internal {
             code: 8001,
@@ -3924,8 +4243,6 @@ impl RenderLoopService {
         // Ensure view exists with correct dimensions
         self.ensure_view(view_id.clone(), state.viewport_size)?;
 
-        // Start frame timing
-        let start_time = std::time::Instant::now();
         let mut warnings = Vec::new();
         let mut rendered_layers = Vec::new();
 
@@ -3951,7 +4268,6 @@ impl RenderLoopService {
         let mut layer_infos = Vec::new();
         let mut layer_dims = Vec::new();
         let mut world_to_voxels = Vec::new();
-
         for layer_config in &state.layers {
             if !layer_config.visible {
                 continue;
@@ -4063,61 +4379,58 @@ impl RenderLoopService {
         #[cfg(not(feature = "typed-shaders"))]
         self.ensure_pipeline("slice_world_space")?;
 
-        // Configure render state for layers
-        self.clear_render_layers();
+        self.sync_visible_volume_metadata(&state);
 
-        // Ensure volume_metadata is populated with correct data from volumes registry
-        for (_i, layer_config) in state.layers.iter().enumerate() {
-            if !layer_config.visible {
-                continue;
-            }
+        let previous_layer_state_signature = self.prepared_layer_state_cache.clone();
+        let layer_state_signature = PreparedLayerStateSignature {
+            layer_infos: layer_infos.clone(),
+            layer_dims,
+            world_to_voxels,
+            display_overrides: self.capture_display_override_signature(&layer_infos),
+        };
+        let reused_layer_state =
+            previous_layer_state_signature.as_ref() == Some(&layer_state_signature);
+        let mut updated_layer_slots = 0u32;
 
-            if let Some(vol_entry) = self.volumes.get(&layer_config.volume_id) {
-                // Copy metadata to volume_metadata map with correct data_range
-                log::debug!(
-                    "Copying volume metadata for '{}' to atlas_index {}",
-                    layer_config.volume_id,
-                    vol_entry.atlas_index
+        if reused_layer_state {
+            self.prepared_layer_state_cache = Some(layer_state_signature);
+        } else {
+            let can_patch_layer_state = self.world_space_enabled
+                && self.layer_storage_manager.is_some()
+                && previous_layer_state_signature
+                    .as_ref()
+                    .map(|previous| {
+                        previous.layer_infos.len() == layer_state_signature.layer_infos.len()
+                    })
+                    .unwrap_or(false);
+
+            if can_patch_layer_state {
+                let patch_result = self.patch_prepared_layer_state(
+                    previous_layer_state_signature
+                        .as_ref()
+                        .expect("checked above"),
+                    &layer_state_signature,
                 );
-                log::debug!(
-                    "  data_range: ({}, {})",
-                    vol_entry.metadata.data_range.0,
-                    vol_entry.metadata.data_range.1
-                );
-                self.volume_metadata
-                    .insert(vol_entry.atlas_index, vol_entry.metadata.clone());
+
+                match patch_result {
+                    Ok(patched_slots) => {
+                        updated_layer_slots = patched_slots;
+                        self.prepared_layer_state_cache = Some(layer_state_signature);
+                    }
+                    Err(error) => {
+                        log::warn!(
+                            "request_frame: partial layer patch failed; falling back to full rebuild: {:?}",
+                            error
+                        );
+                        updated_layer_slots = self.rebuild_prepared_layer_state(&layer_infos)?;
+                        self.prepared_layer_state_cache = Some(layer_state_signature);
+                    }
+                }
+            } else {
+                updated_layer_slots = self.rebuild_prepared_layer_state(&layer_infos)?;
+                self.prepared_layer_state_cache = Some(layer_state_signature);
             }
         }
-
-        // Add layers directly with complete LayerInfo to preserve all properties including interpolation
-        for layer_info in layer_infos.iter() {
-            log::debug!(
-                "add_layer: atlas_index={}, opacity={}, colormap_id={}, intensity=({:.3}, {:.3}), threshold=({:.3}, {:.3}), mode={:?}, is_mask={}",
-                layer_info.atlas_index,
-                layer_info.opacity,
-                layer_info.colormap_id,
-                layer_info.intensity_range.0,
-                layer_info.intensity_range.1,
-                layer_info.threshold_range.0,
-                layer_info.threshold_range.1,
-                layer_info.threshold_mode,
-                layer_info.is_mask,
-            );
-            // Directly add the complete LayerInfo instead of going through add_render_layer
-            // This preserves the interpolation mode which was being lost before
-            self.layer_state_manager
-                .add_layer(layer_info.clone())
-                .map_err(|e| RenderLoopError::Internal {
-                    code: 8001,
-                    details: format!("Failed to add layer: {}", e),
-                })?;
-        }
-
-        // Update all layer uniforms (replicates what add_render_layer was doing)
-        self.update_all_layer_uniforms()?;
-
-        // Update layer uniforms with world transforms
-        self.update_layer_uniforms_direct(&layer_infos, &layer_dims, &world_to_voxels);
 
         // Update view's last state
         if let Some(view_context) = self.views.get_mut(&view_id) {
@@ -4266,93 +4579,39 @@ impl RenderLoopService {
         self.render_state.record_draw();
 
         // Submit commands
+        let render_start = std::time::Instant::now();
         self.queue.submit(Some(encoder.finish()));
+        let render_ms = render_start.elapsed().as_secs_f32() * 1000.0;
+        let prepare_ms = request_start.elapsed().as_secs_f32() * 1000.0 - render_ms;
 
-        // Read back rendered data
-        // Calculate aligned bytes_per_row for GPU requirements
-        let bytes_per_pixel = 4u32; // RGBA8 = 4 bytes
-        let unpadded_bytes_per_row = viewport_size[0] * bytes_per_pixel;
-        let align = wgpu::COPY_BYTES_PER_ROW_ALIGNMENT; // 256 bytes
-        let padded_bytes_per_row = ((unpadded_bytes_per_row + align - 1) / align) * align;
-        let buffer_size = (padded_bytes_per_row * viewport_size[1]) as u64;
-
-        let staging_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("ViewState Staging Buffer"),
-            size: buffer_size,
-            usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
-
-        // Copy texture to staging buffer
-        let mut encoder = self
-            .device
-            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                label: Some("ViewState Copy Encoder"),
-            });
-
-        // Get view context again to access texture
-        let view_context = self
-            .views
-            .get(&view_id)
-            .ok_or_else(|| RenderLoopError::Internal {
-                code: 8004,
-                details: format!("View '{}' not found", view_id.0),
-            })?;
-
-        encoder.copy_texture_to_buffer(
-            wgpu::ImageCopyTexture {
-                texture: &view_context.render_texture,
-                mip_level: 0,
-                origin: wgpu::Origin3d::ZERO,
-                aspect: wgpu::TextureAspect::All,
-            },
-            wgpu::ImageCopyBuffer {
-                buffer: &staging_buffer,
-                layout: wgpu::ImageDataLayout {
-                    offset: 0,
-                    bytes_per_row: Some(padded_bytes_per_row),
-                    rows_per_image: Some(viewport_size[1]),
-                },
-            },
-            wgpu::Extent3d {
-                width: viewport_size[0],
-                height: viewport_size[1],
-                depth_or_array_layers: 1,
-            },
-        );
-
-        self.queue.submit(Some(encoder.finish()));
-
-        // Map buffer and read data
-        let slice = staging_buffer.slice(..);
-        let (sender, receiver) = futures_intrusive::channel::shared::oneshot_channel();
-        slice.map_async(wgpu::MapMode::Read, move |result| {
-            sender.send(result).expect("Failed to send map result");
-        });
-
-        self.device.poll(wgpu::Maintain::Wait);
-
-        let image_data = if let Some(Ok(())) = pollster::block_on(receiver.receive()) {
-            let data = slice.get_mapped_range();
-
-            // Use helper to unpack buffer with Y-flip
-            let result = Self::unpack_gpu_buffer_to_image(
-                &data,
-                viewport_size[0],
-                viewport_size[1],
-                padded_bytes_per_row,
-            );
-
-            drop(data);
-            staging_buffer.unmap();
-            result
+        let mut image_data = Vec::new();
+        let readback_ms = if matches!(options.readback_mode, FrameReadbackMode::Skip) {
+            0.0
         } else {
-            warnings.push("Failed to read back rendered image".to_string());
-            vec![128u8; (viewport_size[0] * viewport_size[1] * 4) as usize]
+            let readback_start = std::time::Instant::now();
+            let view_context =
+                self.views
+                    .get(&view_id)
+                    .ok_or_else(|| RenderLoopError::Internal {
+                        code: 8004,
+                        details: format!("View '{}' not found", view_id.0),
+                    })?;
+
+            match self.read_texture_to_image(&view_context.render_texture, viewport_size) {
+                Ok(result) => {
+                    image_data = result;
+                }
+                Err(_) => {
+                    warnings.push("Failed to read back rendered image".to_string());
+                    image_data = vec![128u8; (viewport_size[0] * viewport_size[1] * 4) as usize];
+                }
+            }
+
+            readback_start.elapsed().as_secs_f32() * 1000.0
         };
 
         // Calculate render time
-        let render_time_ms = start_time.elapsed().as_secs_f32() * 1000.0;
+        let render_time_ms = request_start.elapsed().as_secs_f32() * 1000.0;
 
         Ok(FrameResult {
             image_data,
@@ -4361,6 +4620,16 @@ impl RenderLoopService {
             warnings,
             rendered_layers,
             used_cpu_fallback: false,
+            diagnostics: FrameDiagnostics {
+                prepare_ms: prepare_ms.max(0.0),
+                render_ms,
+                readback_ms,
+                total_ms: render_time_ms,
+                visible_layers: layer_infos.len() as u32,
+                updated_layer_slots,
+                reused_layer_state,
+                readback_mode: options.readback_mode,
+            },
         })
     }
 

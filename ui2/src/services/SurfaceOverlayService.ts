@@ -10,6 +10,11 @@ import { useSurfaceStore } from '@/stores/surfaceStore';
 import { getEventBus } from '@/events/EventBus';
 import { buildLabelRgbaFromPalette } from '@/hooks/atlasSurfaceColorUtils';
 import type { AtlasPaletteKind } from '@/types/atlasPalette';
+import {
+  applySurfaceSelectionInContext,
+  getActiveSurfaceCommandContext,
+  resolveSurfaceSelectionViewId,
+} from '@/utils/surfaceCommandContext';
 
 // Debug toggle for comprehensive logging
 const DEBUG_OVERLAY = false;
@@ -65,6 +70,22 @@ export class SurfaceOverlayService {
       SurfaceOverlayService.instance = new SurfaceOverlayService();
     }
     return SurfaceOverlayService.instance;
+  }
+
+  async requestOverlayFileSelection(surfaceId: string): Promise<void> {
+    const surfaceStore = useSurfaceStore.getState();
+    if (!surfaceStore.surfaces.has(surfaceId)) {
+      throw new Error(`Surface ${surfaceId} is not loaded`);
+    }
+
+    const commandContext = getActiveSurfaceCommandContext();
+    const scopedSurfaceViewId = resolveSurfaceSelectionViewId(
+      surfaceId,
+      commandContext.explicitSurfaceViewId
+    );
+    applySurfaceSelectionInContext(surfaceId, 'geometry', null, scopedSurfaceViewId);
+
+    await getTransport().invoke<void>('open_file_dialog');
   }
   
   /**
@@ -186,6 +207,7 @@ export class SurfaceOverlayService {
     targetSurfaceId: string
   ): Promise<SurfaceDataLayer> {
     debugLog('load', `Starting load: ${filePath} for surface: ${targetSurfaceId}`);
+    const commandContext = getActiveSurfaceCommandContext();
 
     // Validate file is overlay type
     if (!this.isOverlayFile(filePath)) {
@@ -195,6 +217,10 @@ export class SurfaceOverlayService {
     try {
       const transport = getTransport();
       const surfaceState = useSurfaceStore.getState();
+      const scopedSurfaceViewId = resolveSurfaceSelectionViewId(
+        targetSurfaceId,
+        commandContext.explicitSurfaceViewId
+      );
       const surface = surfaceState.surfaces.get(targetSurfaceId);
       if (!surface) {
         throw new Error(`Surface ${targetSurfaceId} not loaded; cannot apply overlay`);
@@ -376,14 +402,27 @@ export class SurfaceOverlayService {
         mean,
         std,
       });
+      applySurfaceSelectionInContext(
+        targetSurfaceId,
+        'dataLayer',
+        dataLayer.id,
+        scopedSurfaceViewId
+      );
 
       debugLog('store', `Added data layer to store: ${dataLayer.id}`);
-      debugLog('store', `Display layer derived from data layer: ${dataLayer.id}`);
 
       // Notify UI of update
       getEventBus().emit('surface.dataLayerAdded', {
         surfaceId: targetSurfaceId,
         layerId: dataLayer.id,
+      });
+      getEventBus().emit('surface.overlayApplied', {
+        surfaceId: targetSurfaceId,
+        layerId: dataLayer.id,
+        dataHandle: dataLayer.dataHandle,
+        colormap: dataLayer.colormap,
+        range: dataLayer.range,
+        opacity: dataLayer.opacity,
       });
 
       debugLog('event', `Emitted surface.dataLayerAdded for layer: ${dataLayer.id}`);
@@ -490,32 +529,6 @@ export class SurfaceOverlayService {
     return [];
   }
   
-  /**
-   * Apply overlay data to surface mesh
-   * This would be called to actually update the Three.js mesh with the data
-   */
-  async applyOverlayToSurface(
-    surfaceId: string,
-    layerId: string
-  ): Promise<void> {
-    const layer = this.getDataLayersForSurface(surfaceId)
-      .find(l => l.id === layerId);
-    
-    if (!layer) {
-      throw new Error(`Data layer ${layerId} not found for surface ${surfaceId}`);
-    }
-    
-    // This will be implemented when we integrate with SurfaceViewCanvas
-    // For now, just emit an event
-    getEventBus().emit('surface.overlayApplied', {
-      surfaceId,
-      layerId,
-      dataHandle: layer.dataHandle,
-      colormap: layer.colormap,
-      range: layer.range,
-      opacity: layer.opacity,
-    });
-  }
 }
 
 // Export singleton instance

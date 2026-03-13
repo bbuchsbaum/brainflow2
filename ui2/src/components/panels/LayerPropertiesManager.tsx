@@ -3,7 +3,7 @@
  * 
  * Routes to the appropriate panel based on layer type:
  * - VolumePanel for volume layers
- * - SurfacePanel for surface layers
+ * - Surface notice for surface layers (live controls live in the Surfaces sidebar)
  * - Vol2SurfPanel for surfaces with mapped volume data (future)
  * 
  * This implements the separate panels architecture based on expert consensus
@@ -13,7 +13,6 @@
 import React from 'react';
 import { LayerControlsPanel } from './LayerControlsPanel';
 import { VolumePanel } from './VolumePanel';
-import { SurfacePanel } from './SurfacePanel';
 import type { Layer, LayerRender } from '@/types/layers';
 import type { VolumeMetadata } from '@/stores/layerStore';
 
@@ -200,28 +199,14 @@ export const LayerPropertiesManager: React.FC<LayerPropertiesManagerProps> = ({
         );
       }
       
-      // Pure surface panel (placeholder for now)
+      // Pure surface panels are managed from the dedicated Surfaces sidebar.
       return (
         <div className="space-y-4">
           <div className="flex items-center justify-between mb-2">
             <h3 className="text-sm font-medium">Surface Properties</h3>
             <span className="text-xs text-muted-foreground">Mesh</span>
           </div>
-          <SurfacePanel
-            // For now, use example data
-            geometry={{
-              wireframe: false,
-              smoothing: 0.5,
-              baseOpacity: 1.0,
-              lighting: {
-                ambient: 0.3,
-                diffuse: 0.7,
-                specular: 0.2
-              },
-              baseColor: '#888888'
-            }}
-            dataLayers={[]}
-          />
+          <EmptyState message="Use the Surfaces sidebar to inspect and edit mesh layers" />
         </div>
       );
       

@@ -102,7 +102,7 @@ pub fn run() {
         .setup(move |app| { // Use move to capture state variables
             let app_handle = app.handle().clone();
 
-            // --- Setup Tracing --- 
+            // --- Setup Tracing ---
             // 1. Bridge tracing events to the log crate
             LogTracer::init().expect("Failed to set logger");
 
@@ -120,7 +120,7 @@ pub fn run() {
                 // Remove the explicit JSON layer and writer setup
                 // .with(tracing_subscriber::fmt::layer().json().with_writer(logger_writer))
                 .init();
-                 
+
             // Use tracing::info! after initialization
             tracing::info!("Tracing subscriber initialized for terminal output.");
 
@@ -136,13 +136,13 @@ pub fn run() {
             tauri::async_runtime::spawn(
                 // Don't create span inside the async block
                 async move {
-                    // Remove internal span creation: 
+                    // Remove internal span creation:
                     // let _span = tracing::info_span!("RenderLoopInit").entered();
                     tracing::info!("Initializing RenderLoopService...");
                     match RenderLoopService::new().await {
                         Ok(service) => {
                             tracing::info!("RenderLoopService initialized successfully.");
-                            
+
                             // No surface creation needed - we're using offscreen rendering
                             // The frontend will call create_offscreen_render_target when ready
 
@@ -162,7 +162,7 @@ pub fn run() {
                                     return;
                                 }
                             };
-                            
+
                             let bridge_state = BridgeState::new(
                                 volume_registry.clone(),
                                 Arc::new(TokioMutex::new(SurfaceRegistry::new())),
@@ -195,7 +195,7 @@ pub fn run() {
                                     return;
                                 }
                             };
-                            
+
                             let bridge_state = BridgeState::new(
                                 volume_registry.clone(),
                                 Arc::new(TokioMutex::new(SurfaceRegistry::new())),

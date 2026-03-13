@@ -8,6 +8,7 @@
 
 import { create } from 'zustand';
 import { devtools } from 'zustand/middleware';
+import { subscribeWithSelector } from 'zustand/middleware';
 import { throttle } from 'lodash';
 
 export interface MouseCoordinateState {
@@ -46,7 +47,7 @@ interface MouseCoordinateStore extends MouseCoordinateState {
 // Create the store
 export const useMouseCoordinateStore = create<MouseCoordinateStore>()(
   devtools(
-    (set, get) => {
+    subscribeWithSelector((set, get) => {
       // Create throttled update function (50ms throttle for smooth updates)
       const throttledUpdate = throttle(
         (
@@ -94,7 +95,7 @@ export const useMouseCoordinateStore = create<MouseCoordinateStore>()(
           });
         }
       };
-    },
+    }),
     {
       name: 'mouse-coordinate'
     }

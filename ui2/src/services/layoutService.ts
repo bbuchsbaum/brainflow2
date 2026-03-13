@@ -2,36 +2,30 @@
  * Layout Service - Manages GoldenLayout component addition and manipulation
  */
 
-import type { ItemConfig, LayoutConfig } from 'golden-layout';
+import {
+  type ComponentItem,
+  type ComponentItemConfig,
+  type ContentItem,
+  GoldenLayout,
+  type LayoutConfig,
+  type RowOrColumnItemConfig,
+  Stack,
+} from 'golden-layout';
+import { nanoid } from 'nanoid';
 import { useWorkspaceStore } from '@/stores/workspaceStore';
+import { cloneLayoutConfig } from '@/utils/layoutConfigUtils';
 
 type LayoutComponentState = Record<string, unknown>;
 
-interface LayoutContainerLike {
-  initialState?: LayoutComponentState;
-  componentState?: LayoutComponentState;
-}
+const isStateRecord = (value: unknown): value is LayoutComponentState =>
+  typeof value === 'object' && value !== null && !Array.isArray(value);
 
-interface LayoutItemLike {
-  type?: string;
-  componentType?: string;
-  componentState?: LayoutComponentState;
-  container?: LayoutContainerLike;
-  contentItems?: LayoutItemLike[];
-  addItem?: (config: ItemConfig) => void;
-  addChild?: (item: LayoutItemLike) => void;
-  removeChild?: (item: LayoutItemLike) => void;
-  remove?: () => void;
-  setActiveComponentItem?: (item: LayoutItemLike) => void;
-}
+const getComponentState = (item: ComponentItem): LayoutComponentState => {
+  const rawState = item.container.initialState;
+  return isStateRecord(rawState) ? rawState : {};
+};
 
-interface LayoutRefLike {
-  rootItem?: LayoutItemLike;
-  newItem: (config: ItemConfig) => LayoutItemLike;
-  loadLayout: (config: LayoutConfig) => void;
-  saveLayout: () => LayoutConfig;
-  updateSize?: () => void;
-}
+const isComponentItem = (item: ContentItem): item is ComponentItem => item.type === 'component';
 
 const DEFAULT_LAYOUT_CONFIG: LayoutConfig = {
   root: {
@@ -42,10 +36,21 @@ const DEFAULT_LAYOUT_CONFIG: LayoutConfig = {
         width: 17.25,
         content: [
           {
-            type: 'component',
-            componentType: 'FileBrowser',
-            title: 'Files',
-            componentState: {},
+            type: 'stack',
+            content: [
+              {
+                type: 'component',
+                componentType: 'FileBrowser',
+                title: 'Files',
+                componentState: {},
+              },
+              {
+                type: 'component',
+                componentType: 'StudioDesignPanel',
+                title: 'Subjects',
+                componentState: {},
+              },
+            ],
           },
         ],
       },
@@ -79,6 +84,18 @@ const DEFAULT_LAYOUT_CONFIG: LayoutConfig = {
                 title: 'Surfaces',
                 componentState: {},
               },
+              {
+                type: 'component',
+                componentType: 'StudioInspectorPanel',
+                title: 'Details',
+                componentState: {},
+              },
+              {
+                type: 'component',
+                componentType: 'SetPanel',
+                title: 'Set',
+                componentState: {},
+              },
             ],
           },
         ],
@@ -87,14 +104,17 @@ const DEFAULT_LAYOUT_CONFIG: LayoutConfig = {
   },
 };
 
-function cloneLayoutConfig(config: LayoutConfig): LayoutConfig {
-  return JSON.parse(JSON.stringify(config)) as LayoutConfig;
-}
-
-export type SidebarPanelType = 'LayerPanel' | 'AtlasPanel' | 'SurfacePanel';
+export type SidebarPanelType =
+  | 'FileBrowser'
+  | 'StudioDesignPanel'
+  | 'LayerPanel'
+  | 'AtlasPanel'
+  | 'SurfacePanel'
+  | 'StudioInspectorPanel'
+  | 'SetPanel';
 
 export interface LayoutService {
-  addComponent(config: ItemConfig): void;
+  addComponent(config: ComponentItemConfig): void;
   setLayoutRef(layout: unknown): void;
   focusSidebarPanel(panelType: SidebarPanelType): void;
   focusSurfacePanel(): void;
@@ -106,57 +126,67 @@ export interface LayoutService {
 }
 
 class LayoutServiceImpl implements LayoutService {
-  private layoutRef: LayoutRefLike | null = null;
+  private layoutRef: GoldenLayout | null = null;
 
-  private getCenterStack(): LayoutItemLike | null {
-    if (!this.layoutRef) {
-      return null;
-    }
-
-    const root = this.layoutRef.rootItem;
-    if (!root || root.type !== 'row') {
-      return null;
-    }
-
-    const centerStack = root.contentItems?.[1];
-    if (!centerStack || centerStack.type !== 'stack') {
-      return null;
-    }
-
-    return centerStack;
+  private getRootRow(): ContentItem | null {
+    const root = this.layoutRef?.rootItem;
+    return root && root.type === 'row' ? root : null;
   }
 
-  private getSidebarStack(): LayoutItemLike | null {
-    if (!this.layoutRef) {
-      return null;
-    }
+  private getCenterStack(): Stack | null {
+    const root = this.getRootRow();
+    const centerStack = root?.contentItems[1];
+    return centerStack?.type === 'stack' ? (centerStack as Stack) : null;
+  }
 
-    const root = this.layoutRef.rootItem;
-    if (!root || root.type !== 'row') {
-      return null;
-    }
-
-    const rightColumn = root.contentItems?.[2];
+  private getSidebarStack(): Stack | null {
+    const root = this.getRootRow();
+    const rightColumn = root?.contentItems[2];
     if (!rightColumn || rightColumn.type !== 'column') {
       return null;
     }
 
-    const sidebarStack = rightColumn.contentItems?.[0];
-    if (!sidebarStack || sidebarStack.type !== 'stack') {
+    const sidebarStack = rightColumn.contentItems[0];
+    return sidebarStack?.type === 'stack' ? (sidebarStack as Stack) : null;
+  }
+
+  private getLeftSidebarStack(): Stack | null {
+    const root = this.getRootRow();
+    const leftColumn = root?.contentItems[0];
+    if (!leftColumn || leftColumn.type !== 'column') {
       return null;
     }
 
-    return sidebarStack;
+    const sidebarStack = leftColumn.contentItems[0];
+    return sidebarStack?.type === 'stack' ? (sidebarStack as Stack) : null;
+  }
+
+  private getStackForPanelType(panelType: SidebarPanelType): Stack | null {
+    switch (panelType) {
+      case 'FileBrowser':
+      case 'StudioDesignPanel':
+        return this.getLeftSidebarStack();
+      default:
+        return this.getSidebarStack();
+    }
   }
 
   private getPanelTitle(panelType: SidebarPanelType): string {
     switch (panelType) {
       case 'LayerPanel':
         return 'Volumes';
+      case 'FileBrowser':
+        return 'Files';
+      case 'StudioDesignPanel':
+        return 'Subjects';
       case 'AtlasPanel':
         return 'Atlases';
       case 'SurfacePanel':
         return 'Surfaces';
+      case 'StudioInspectorPanel':
+        return 'Details';
+      case 'SetPanel':
+        return 'Set';
       default:
         return panelType;
     }
@@ -164,7 +194,7 @@ class LayoutServiceImpl implements LayoutService {
 
   private normalizeLayoutConfig(config: LayoutConfig): LayoutConfig | null {
     const cloned = cloneLayoutConfig(config);
-    const root = (cloned as { root?: LayoutItemLike }).root;
+    const root = cloned.root;
 
     if (!root || root.type !== 'row' || !Array.isArray(root.content) || root.content.length < 3) {
       return null;
@@ -190,6 +220,10 @@ class LayoutServiceImpl implements LayoutService {
 
     const state = useWorkspaceStore.getState();
     const workspaceEntries = Array.from(state.workspaces.values());
+    const layout = this.layoutRef;
+    if (!layout) {
+      return;
+    }
 
     workspaceEntries.forEach((workspace) => {
       const itemConfig = {
@@ -203,8 +237,8 @@ class LayoutServiceImpl implements LayoutService {
       };
 
       try {
-        const newItem = this.layoutRef.newItem(itemConfig);
-        centerStack.addChild(newItem);
+        const newItem = layout.newItem(itemConfig);
+        centerStack.addChild(newItem, undefined, false);
       } catch (error) {
         console.warn('[LayoutService] Failed to restore workspace tab:', error);
       }
@@ -214,14 +248,17 @@ class LayoutServiceImpl implements LayoutService {
       return;
     }
 
-    const activeItem = (centerStack.contentItems || []).find((item: LayoutItemLike) => {
-      const componentState = item.container?.initialState || item.componentState || {};
+    const activeItem = centerStack.contentItems.find((item) => {
+      if (!isComponentItem(item)) {
+        return false;
+      }
+      const componentState = getComponentState(item);
       return componentState.workspaceId === state.activeWorkspaceId;
     });
 
-    if (activeItem && typeof centerStack.setActiveComponentItem === 'function') {
+    if (activeItem && isComponentItem(activeItem)) {
       try {
-        centerStack.setActiveComponentItem(activeItem);
+        centerStack.setActiveComponentItem(activeItem, true);
       } catch (error) {
         console.warn('[LayoutService] Failed to activate workspace after layout restore:', error);
       }
@@ -237,13 +274,6 @@ class LayoutServiceImpl implements LayoutService {
     try {
       this.layoutRef.loadLayout(config);
       this.addWorkspaceTabsFromStore();
-      requestAnimationFrame(() => {
-        try {
-          this.layoutRef?.updateSize?.();
-        } catch (error) {
-          console.warn('[LayoutService] Failed to update size after layout restore:', error);
-        }
-      });
       return true;
     } catch (error) {
       console.error('[LayoutService] Failed to load layout config:', error);
@@ -252,11 +282,11 @@ class LayoutServiceImpl implements LayoutService {
   }
 
   setLayoutRef(layout: unknown): void {
-    this.layoutRef = layout as LayoutRefLike;
+    this.layoutRef = layout as GoldenLayout;
     console.log('[LayoutService] Layout reference set');
   }
 
-  addComponent(config: ItemConfig): void {
+  addComponent(config: ComponentItemConfig): void {
     const centerStack = this.getCenterStack();
     if (!centerStack) {
       console.error('[LayoutService] Layout center stack not initialized');
@@ -273,8 +303,8 @@ class LayoutServiceImpl implements LayoutService {
         } catch {
           // Fallback: try newItem + addChild if addItem not available
           try {
-            const newItem = this.layoutRef.newItem(config);
-            centerStack.addChild(newItem);
+            const newItem = this.layoutRef!.newItem(config);
+            centerStack.addChild(newItem, undefined, true);
             console.log('[LayoutService] Component added (fallback):', config);
           } catch (fallbackError) {
             console.error('[LayoutService] Failed to add component:', fallbackError);
@@ -293,17 +323,17 @@ class LayoutServiceImpl implements LayoutService {
       return;
     }
 
-    const existing = (centerStack.contentItems || []).find((item: LayoutItemLike) => {
-      if (item.componentType !== 'surfaceView') {
+    const existing = centerStack.contentItems.find((item) => {
+      if (!isComponentItem(item) || item.componentType !== 'surfaceView') {
         return false;
       }
-      const state = item.componentState || {};
+      const state = getComponentState(item);
       return state.surfaceHandle === surfaceHandle;
     });
 
-    if (existing) {
+    if (existing && isComponentItem(existing)) {
       try {
-        centerStack.setActiveComponentItem(existing);
+        centerStack.setActiveComponentItem(existing, true);
       } catch (error) {
         console.warn('[LayoutService] Failed to activate existing surface view tab:', error);
       }
@@ -318,6 +348,7 @@ class LayoutServiceImpl implements LayoutService {
       componentState: {
         surfaceHandle,
         path,
+        surfaceViewId: nanoid(),
       },
     });
   }
@@ -329,24 +360,21 @@ class LayoutServiceImpl implements LayoutService {
       return;
     }
 
-    const matchingItems = (centerStack.contentItems || []).filter((item: LayoutItemLike) => {
-      if (item.componentType !== 'surfaceView') {
+    const matchingItems = centerStack.contentItems.filter((item) => {
+      if (!isComponentItem(item) || item.componentType !== 'surfaceView') {
         return false;
       }
-      const state = item.componentState || {};
+      const state = getComponentState(item);
       return state.surfaceHandle === surfaceHandle;
     });
 
-    matchingItems.forEach((item: LayoutItemLike) => {
+    matchingItems.forEach((item) => {
       try {
         if (typeof item.remove === 'function') {
           item.remove();
           return;
         }
-        if (typeof centerStack.removeChild === 'function') {
-          centerStack.removeChild(item);
-          return;
-        }
+        centerStack.removeChild(item, false);
       } catch (error) {
         console.warn('[LayoutService] Failed to close surface tab:', error);
       }
@@ -354,19 +382,19 @@ class LayoutServiceImpl implements LayoutService {
   }
 
   focusSidebarPanel(panelType: SidebarPanelType): void {
-    const sidebarStack = this.getSidebarStack();
+    const sidebarStack = this.getStackForPanelType(panelType);
     if (!sidebarStack || !this.layoutRef) {
       console.warn(`[LayoutService] Cannot focus ${panelType} - sidebar stack unavailable`);
       return;
     }
 
-    const existingPanel = (sidebarStack.contentItems || []).find(
-      (item: LayoutItemLike) => item.componentType === panelType
+    const existingPanel = sidebarStack.contentItems.find(
+      (item) => isComponentItem(item) && item.componentType === panelType
     );
 
-    if (existingPanel) {
+    if (existingPanel && isComponentItem(existingPanel)) {
       try {
-        sidebarStack.setActiveComponentItem?.(existingPanel);
+        sidebarStack.setActiveComponentItem(existingPanel, true);
         console.log(`[LayoutService] Focused sidebar panel: ${panelType}`);
       } catch (error) {
         console.warn(`[LayoutService] Failed to focus existing ${panelType}:`, error);
@@ -381,8 +409,10 @@ class LayoutServiceImpl implements LayoutService {
         title: this.getPanelTitle(panelType),
         componentState: {},
       });
-      sidebarStack.addChild?.(newItem);
-      sidebarStack.setActiveComponentItem?.(newItem);
+      sidebarStack.addChild(newItem, undefined, true);
+      if (newItem.type === 'component') {
+        sidebarStack.setActiveComponentItem(newItem as ComponentItem, true);
+      }
       console.log(`[LayoutService] Added and focused missing sidebar panel: ${panelType}`);
     } catch (error) {
       console.error(`[LayoutService] Failed to add/focus sidebar panel ${panelType}:`, error);
@@ -399,7 +429,7 @@ class LayoutServiceImpl implements LayoutService {
     }
 
     try {
-      const rawLayout = this.layoutRef.saveLayout() as LayoutConfig;
+      const rawLayout = this.layoutRef.saveLayout() as unknown as LayoutConfig;
       const normalized = this.normalizeLayoutConfig(rawLayout);
       if (!normalized) {
         console.warn('[LayoutService] Layout capture produced incompatible config; returning default shell');

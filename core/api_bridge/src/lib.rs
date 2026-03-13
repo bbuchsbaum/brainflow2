@@ -4,39 +4,40 @@ use volmath::DenseVolume3;
 use volmath::DenseVolumeExt; // Import DenseVolumeExt trait
 use volmath::NeuroSpaceExt; // Import NeuroSpaceExt trait
 use volmath::NeuroVecTrait; // Import NeuroVecTrait for volume() method // Import DenseVolume3 type
-                            // Import neuroim types through volmath re-exports
-                            // use wgpu; // No longer needed directly
+// Import neuroim types through volmath re-exports
+// use wgpu; // No longer needed directly
 use std::collections::{HashMap, HashSet};
 use std::convert::TryInto;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tauri::State; // Need State for accessing registry
-                  // Import types from bridge_types
+// Import types from bridge_types
 use bridge_types::{
-    self, icons, BatchRenderRequest, BridgeError, BridgeResult, DataRange, FlatNode,
-    GpuTextureFormat, LayerPatch, Loader, NiftiHeaderInfo, RemoteAuthChallenge,
-    RemoteAuthPrompt, RemoteHostKeyChallenge, RemoteMountConnectRequest, RemoteMountConnectResult,
-    RemoteMountInfo, RemoteMountOrigin, RemoteMountProfile, SliceAxisMeta, SliceInfo,
-    TextureCoordinates, TreePayload, VolumeHandleInfo, VolumeLayerGpuInfo, VolumeSendable,
+    self, BatchRenderRequest, BridgeError, BridgeResult, DataRange, FlatNode, GpuTextureFormat,
+    LayerPatch, Loader, NiftiHeaderInfo, RemoteAuthChallenge, RemoteAuthPrompt,
+    RemoteHostKeyChallenge, RemoteMountConnectRequest, RemoteMountConnectResult, RemoteMountInfo,
+    RemoteMountOrigin, RemoteMountProfile, SliceAxisMeta, SliceInfo, StudioImportCandidate,
+    StudioImportPreviewRequest, TextureCoordinates, TreePayload, VolumeHandleInfo,
+    VolumeLayerGpuInfo, VolumeSendable, icons,
 };
 use colormap::colormap_by_name;
 // Import NiftiLoader for registration
 // use nifti_loader::NiftiLoader;
 use render_loop::RenderLoopService; // Remove unused RenderLoopError
-                                    // Import async_trait attribute
-                                    // use async_trait::async_trait;
+// Import async_trait attribute
+// use async_trait::async_trait;
 use log::{debug, error, info, warn}; // Added error, warn, and debug
 use serde::{Deserialize, Serialize}; // Need Serialize/Deserialize for new types
-use serde_json::{self, Value as JsonValue}; // For JSON parsing
+use serde_json; // For JSON parsing
 use ts_rs::TS;
 use uuid; // For generating unique IDs // Add TS trait
-          // Use futures::executor::block_on when needed (now removed)
-          // use futures;
-          // Added imports for plugin creation
+// Use futures::executor::block_on when needed (now removed)
+// use futures;
+// Added imports for plugin creation
 use tauri::plugin::{Builder, TauriPlugin};
-use tauri::{generate_handler, Emitter, Manager, Runtime};
+use tauri::{Emitter, Manager, Runtime, generate_handler};
 // Re-add tokio::sync::Mutex
 use directories::ProjectDirs;
 use keyring::Entry as KeyringEntry;
@@ -49,7 +50,7 @@ use remotely::ssh::{
 use remotely::{FilesystemProbeOptions, RemoteClient};
 use tokio::runtime::Handle;
 use tokio::sync::Mutex;
-use tokio::time::{interval, MissedTickBehavior};
+use tokio::time::{MissedTickBehavior, interval};
 use tracing; // Add tracing facade import // For get_initial_views
 
 // Imports for fs_list_directory
@@ -202,6 +203,7 @@ struct LayerLeaseInner {
     render_loop_service: Arc<Mutex<Option<Arc<Mutex<RenderLoopService>>>>>,
     layer_to_atlas_map: Arc<Mutex<HashMap<String, u32>>>,
     layer_to_volume_map: Arc<Mutex<HashMap<String, String>>>,
+    layer_to_timepoint_map: Arc<Mutex<HashMap<String, Option<usize>>>>,
     is_released: AtomicBool,
     created_at: Instant,
 }
@@ -216,6 +218,7 @@ impl LayerLease {
         render_loop_service: Arc<Mutex<Option<Arc<Mutex<RenderLoopService>>>>>,
         layer_to_atlas_map: Arc<Mutex<HashMap<String, u32>>>,
         layer_to_volume_map: Arc<Mutex<HashMap<String, String>>>,
+        layer_to_timepoint_map: Arc<Mutex<HashMap<String, Option<usize>>>>,
     ) -> Self {
         Self {
             inner: Arc::new(LayerLeaseInner {
@@ -224,6 +227,7 @@ impl LayerLease {
                 render_loop_service,
                 layer_to_atlas_map,
                 layer_to_volume_map,
+                layer_to_timepoint_map,
                 is_released: AtomicBool::new(false),
                 created_at: Instant::now(),
             }),
@@ -249,12 +253,20 @@ impl LayerLease {
     async fn release(&self, reason: &'static str) -> BridgeResult<Option<ReleaseOutcome>> {
         self.inner.release(reason).await
     }
+
+    async fn release_with_service(
+        &self,
+        render_service: &mut RenderLoopService,
+        reason: &'static str,
+    ) -> BridgeResult<Option<ReleaseOutcome>> {
+        self.inner.release_with_service(render_service, reason).await
+    }
 }
 
 impl LayerLeaseInner {
-    async fn release(&self, reason: &'static str) -> BridgeResult<Option<ReleaseOutcome>> {
+    async fn prepare_release(&self) -> Option<u32> {
         if self.is_released.swap(true, Ordering::SeqCst) {
-            return Ok(None);
+            return None;
         }
 
         // Remove from front-end tracking maps. If the entries are already gone,
@@ -269,20 +281,20 @@ impl LayerLeaseInner {
             volume_map.remove(&self.layer_id);
         }
 
-        let service_option = {
-            let guard = self.render_loop_service.lock().await;
-            guard.clone()
-        };
+        {
+            let mut timepoint_map = self.layer_to_timepoint_map.lock().await;
+            timepoint_map.remove(&self.layer_id);
+        }
 
-        let service_arc = service_option.ok_or_else(|| BridgeError::ServiceNotInitialized {
-            code: 5008,
-            details: format!(
-                "GPU rendering service is not initialized. Cannot release layer {}.",
-                self.layer_id
-            ),
-        })?;
+        Some(atlas_index)
+    }
 
-        let mut render_service = service_arc.lock().await;
+    fn release_from_service(
+        &self,
+        render_service: &mut RenderLoopService,
+        atlas_index: u32,
+        reason: &'static str,
+    ) -> Option<ReleaseOutcome> {
         let removed_from_render_state = match render_service.remove_layer_by_atlas(atlas_index) {
             Ok(removed) => removed,
             Err(err) => {
@@ -300,10 +312,44 @@ impl LayerLeaseInner {
             self.layer_id, atlas_index, reason
         );
 
-        Ok(Some(ReleaseOutcome {
+        Some(ReleaseOutcome {
             atlas_index,
             render_state_entry_removed: removed_from_render_state,
-        }))
+        })
+    }
+
+    async fn release_with_service(
+        &self,
+        render_service: &mut RenderLoopService,
+        reason: &'static str,
+    ) -> BridgeResult<Option<ReleaseOutcome>> {
+        let Some(atlas_index) = self.prepare_release().await else {
+            return Ok(None);
+        };
+
+        Ok(self.release_from_service(render_service, atlas_index, reason))
+    }
+
+    async fn release(&self, reason: &'static str) -> BridgeResult<Option<ReleaseOutcome>> {
+        let Some(atlas_index) = self.prepare_release().await else {
+            return Ok(None);
+        };
+
+        let service_option = {
+            let guard = self.render_loop_service.lock().await;
+            guard.clone()
+        };
+
+        let service_arc = service_option.ok_or_else(|| BridgeError::ServiceNotInitialized {
+            code: 5008,
+            details: format!(
+                "GPU rendering service is not initialized. Cannot release layer {}.",
+                self.layer_id
+            ),
+        })?;
+
+        let mut render_service = service_arc.lock().await;
+        Ok(self.release_from_service(&mut render_service, atlas_index, reason))
     }
 }
 
@@ -485,11 +531,7 @@ fn compute_data_range_from_volume(volume_data: &VolumeSendable) -> (f32, f32) {
                     max = max.max(value);
                 }
             }
-            if min > max {
-                (0.0, 1.0)
-            } else {
-                (min, max)
-            }
+            if min > max { (0.0, 1.0) } else { (min, max) }
         }
         VolumeSendable::Vec4DI16(vec) => {
             let mut min = f32::MAX;
@@ -499,11 +541,7 @@ fn compute_data_range_from_volume(volume_data: &VolumeSendable) -> (f32, f32) {
                 min = min.min(value);
                 max = max.max(value);
             }
-            if min > max {
-                (0.0, 1.0)
-            } else {
-                (min, max)
-            }
+            if min > max { (0.0, 1.0) } else { (min, max) }
         }
         VolumeSendable::Vec4DU8(vec) => {
             let mut min = f32::MAX;
@@ -513,11 +551,7 @@ fn compute_data_range_from_volume(volume_data: &VolumeSendable) -> (f32, f32) {
                 min = min.min(value);
                 max = max.max(value);
             }
-            if min > max {
-                (0.0, 1.0)
-            } else {
-                (min, max)
-            }
+            if min > max { (0.0, 1.0) } else { (min, max) }
         }
         VolumeSendable::Vec4DI8(vec) => {
             let mut min = f32::MAX;
@@ -527,11 +561,7 @@ fn compute_data_range_from_volume(volume_data: &VolumeSendable) -> (f32, f32) {
                 min = min.min(value);
                 max = max.max(value);
             }
-            if min > max {
-                (0.0, 1.0)
-            } else {
-                (min, max)
-            }
+            if min > max { (0.0, 1.0) } else { (min, max) }
         }
         VolumeSendable::Vec4DU16(vec) => {
             let mut min = f32::MAX;
@@ -541,11 +571,7 @@ fn compute_data_range_from_volume(volume_data: &VolumeSendable) -> (f32, f32) {
                 min = min.min(value);
                 max = max.max(value);
             }
-            if min > max {
-                (0.0, 1.0)
-            } else {
-                (min, max)
-            }
+            if min > max { (0.0, 1.0) } else { (min, max) }
         }
         VolumeSendable::Vec4DI32(vec) => {
             let mut min = f32::MAX;
@@ -555,11 +581,7 @@ fn compute_data_range_from_volume(volume_data: &VolumeSendable) -> (f32, f32) {
                 min = min.min(value);
                 max = max.max(value);
             }
-            if min > max {
-                (0.0, 1.0)
-            } else {
-                (min, max)
-            }
+            if min > max { (0.0, 1.0) } else { (min, max) }
         }
         VolumeSendable::Vec4DU32(vec) => {
             let mut min = f32::MAX;
@@ -569,11 +591,7 @@ fn compute_data_range_from_volume(volume_data: &VolumeSendable) -> (f32, f32) {
                 min = min.min(value);
                 max = max.max(value);
             }
-            if min > max {
-                (0.0, 1.0)
-            } else {
-                (min, max)
-            }
+            if min > max { (0.0, 1.0) } else { (min, max) }
         }
         VolumeSendable::Vec4DF64(vec) => {
             let mut min = f32::MAX;
@@ -585,11 +603,7 @@ fn compute_data_range_from_volume(volume_data: &VolumeSendable) -> (f32, f32) {
                     max = max.max(value);
                 }
             }
-            if min > max {
-                (0.0, 1.0)
-            } else {
-                (min, max)
-            }
+            if min > max { (0.0, 1.0) } else { (min, max) }
         }
     }
 }
@@ -616,7 +630,7 @@ fn coord_to_grid_for_volume(
                     return Err(format!(
                         "Coordinates must have {} dimensions (received {} values)",
                         target_dims, other
-                    ))
+                    ));
                 }
             }
         }
@@ -830,12 +844,14 @@ pub fn calculate_slice_index(
     if max_index == 0 {
         return Err(BridgeError::Input {
             code: 2002,
-            details: format!("Volume has zero size along {} axis. The volume may be corrupted or improperly loaded.",
+            details: format!(
+                "Volume has zero size along {} axis. The volume may be corrupted or improperly loaded.",
                 match axis {
                     SliceAxis::Axial => "Z (axial)",
                     SliceAxis::Coronal => "Y (coronal)",
                     SliceAxis::Sagittal => "X (sagittal)",
-                })
+                }
+            ),
         });
     }
 
@@ -844,7 +860,8 @@ pub fn calculate_slice_index(
             if *idx >= max_index {
                 return Err(BridgeError::Input {
                     code: 2003,
-                    details: format!("Slice index {} is out of bounds for {} axis. Valid range is 0-{} for this volume.",
+                    details: format!(
+                        "Slice index {} is out of bounds for {} axis. Valid range is 0-{} for this volume.",
                         idx,
                         match axis {
                             SliceAxis::Axial => "axial",
@@ -852,7 +869,7 @@ pub fn calculate_slice_index(
                             SliceAxis::Sagittal => "sagittal",
                         },
                         max_index - 1
-                    )
+                    ),
                 });
             }
             *idx
@@ -862,7 +879,10 @@ pub fn calculate_slice_index(
             if *position < 0.0 || *position > 1.0 {
                 return Err(BridgeError::Input {
                     code: 2004,
-                    details: format!("Relative slice position {} is invalid. Please provide a value between 0.0 (first slice) and 1.0 (last slice).", position)
+                    details: format!(
+                        "Relative slice position {} is invalid. Please provide a value between 0.0 (first slice) and 1.0 (last slice).",
+                        position
+                    ),
                 });
             }
             ((max_index - 1) as f32 * position) as usize
@@ -873,7 +893,8 @@ pub fn calculate_slice_index(
             if voxel_coord >= max_index {
                 return Err(BridgeError::Input {
                     code: 2005,
-                    details: format!("World coordinate {} mm is outside the volume bounds for {} axis. The coordinate maps to voxel index {}, but valid range is 0-{}.",
+                    details: format!(
+                        "World coordinate {} mm is outside the volume bounds for {} axis. The coordinate maps to voxel index {}, but valid range is 0-{}.",
                         world_coord,
                         match axis {
                             SliceAxis::Axial => "axial",
@@ -882,7 +903,7 @@ pub fn calculate_slice_index(
                         },
                         voxel_coord,
                         max_index - 1
-                    )
+                    ),
                 });
             }
             voxel_coord
@@ -1272,6 +1293,8 @@ pub struct BridgeState {
     pub layer_to_atlas_map: Arc<Mutex<HashMap<String, u32>>>,
     // Map UI layer ID to volume handle
     pub layer_to_volume_map: Arc<Mutex<HashMap<String, String>>>,
+    // Map UI layer ID to the timepoint currently uploaded into the atlas slot.
+    pub layer_to_timepoint_map: Arc<Mutex<HashMap<String, Option<usize>>>>,
     // Active leases guarding atlas allocations
     pub layer_leases: Arc<Mutex<HashMap<String, LayerLease>>>,
     // Atlas service for brain atlas management
@@ -1303,6 +1326,7 @@ impl BridgeState {
             render_loop_service,
             layer_to_atlas_map,
             layer_to_volume_map,
+            layer_to_timepoint_map: Arc::new(Mutex::new(HashMap::new())),
             layer_leases: Arc::new(Mutex::new(HashMap::new())),
             atlas_service,
             template_service,
@@ -1323,6 +1347,7 @@ impl BridgeState {
             render_loop_service: Arc::new(Mutex::new(None)),
             layer_to_atlas_map: Arc::new(Mutex::new(HashMap::new())),
             layer_to_volume_map: Arc::new(Mutex::new(HashMap::new())),
+            layer_to_timepoint_map: Arc::new(Mutex::new(HashMap::new())),
             layer_leases: Arc::new(Mutex::new(HashMap::new())),
             atlas_service: Arc::new(Mutex::new(
                 AtlasService::new(cache_dir.clone())
@@ -2528,6 +2553,21 @@ async fn unload_surface(
 
 // --- Surface Overlay Commands ---
 
+fn build_surface_overlay_handle(target_surface_id: &str, file_path: &Path) -> String {
+    let stem = file_path
+        .file_stem()
+        .and_then(|name| name.to_str())
+        .filter(|name| !name.is_empty())
+        .unwrap_or("unknown");
+
+    format!(
+        "overlay_{}_{}_{}",
+        target_surface_id,
+        stem,
+        uuid::Uuid::new_v4()
+    )
+}
+
 #[command]
 #[tracing::instrument(skip_all, err, name = "api.load_surface_overlay")]
 async fn load_surface_overlay(
@@ -2578,14 +2618,7 @@ async fn load_surface_overlay(
     };
 
     // Generate a handle for this overlay
-    let handle = format!(
-        "overlay_{}_{}",
-        target_surface_id,
-        file_path
-            .file_stem()
-            .and_then(|n| n.to_str())
-            .unwrap_or("unknown")
-    );
+    let handle = build_surface_overlay_handle(&target_surface_id, &file_path);
 
     // Store the data as f64 in the registry
     let data_f64: Vec<f64> = data.iter().map(|&v| v as f64).collect();
@@ -3135,7 +3168,7 @@ async fn recalculate_view_for_dimensions(
                     "Invalid view type: {}. Must be 'axial', 'sagittal', or 'coronal'",
                     view_type
                 ),
-            })
+            });
         }
     };
 
@@ -3365,7 +3398,10 @@ pub async fn request_layer_gpu_resources_for_testing(
                 drop(volume_registry_guard);
                 return Err(BridgeError::VolumeNotFound {
                     code: 4044,
-                    details: format!("Volume {} not ready in registry. This may indicate a timing issue between template loading and GPU allocation.", source_volume_id),
+                    details: format!(
+                        "Volume {} not ready in registry. This may indicate a timing issue between template loading and GPU allocation.",
+                        source_volume_id
+                    ),
                 });
             }
 
@@ -3452,7 +3488,7 @@ pub async fn request_layer_gpu_resources_for_testing(
                                     code: 5014,
                                     details: "Unexpected volume type after 4D extraction"
                                         .to_string(),
-                                })
+                                });
                             }
                         }
                     }
@@ -3471,7 +3507,7 @@ pub async fn request_layer_gpu_resources_for_testing(
                                     code: 5014,
                                     details: "Unexpected volume type after 4D extraction"
                                         .to_string(),
-                                })
+                                });
                             }
                         }
                     }
@@ -3490,7 +3526,7 @@ pub async fn request_layer_gpu_resources_for_testing(
                                     code: 5014,
                                     details: "Unexpected volume type after 4D extraction"
                                         .to_string(),
-                                })
+                                });
                             }
                         }
                     }
@@ -3509,7 +3545,7 @@ pub async fn request_layer_gpu_resources_for_testing(
                                     code: 5014,
                                     details: "Unexpected volume type after 4D extraction"
                                         .to_string(),
-                                })
+                                });
                             }
                         }
                     }
@@ -3528,7 +3564,7 @@ pub async fn request_layer_gpu_resources_for_testing(
                                     code: 5014,
                                     details: "Unexpected volume type after 4D extraction"
                                         .to_string(),
-                                })
+                                });
                             }
                         }
                     }
@@ -3547,7 +3583,7 @@ pub async fn request_layer_gpu_resources_for_testing(
                                     code: 5014,
                                     details: "Unexpected volume type after 4D extraction"
                                         .to_string(),
-                                })
+                                });
                             }
                         }
                     }
@@ -3566,7 +3602,7 @@ pub async fn request_layer_gpu_resources_for_testing(
                                     code: 5014,
                                     details: "Unexpected volume type after 4D extraction"
                                         .to_string(),
-                                })
+                                });
                             }
                         }
                     }
@@ -3585,7 +3621,7 @@ pub async fn request_layer_gpu_resources_for_testing(
                                     code: 5014,
                                     details: "Unexpected volume type after 4D extraction"
                                         .to_string(),
-                                })
+                                });
                             }
                         }
                     }
@@ -3841,9 +3877,15 @@ pub async fn request_layer_gpu_resources_for_testing(
             let center_world = voxel_to_world * center_voxel;
             let center_world_coords = [center_world.x, center_world.y, center_world.z];
 
-            debug!("Volume center calculation: voxel [{:.1}, {:.1}, {:.1}] -> world [{:.1}, {:.1}, {:.1}]",
-                  center_voxel.x, center_voxel.y, center_voxel.z,
-                  center_world_coords[0], center_world_coords[1], center_world_coords[2]);
+            debug!(
+                "Volume center calculation: voxel [{:.1}, {:.1}, {:.1}] -> world [{:.1}, {:.1}, {:.1}]",
+                center_voxel.x,
+                center_voxel.y,
+                center_voxel.z,
+                center_world_coords[0],
+                center_world_coords[1],
+                center_world_coords[2]
+            );
 
             // Debug the transform matrices - log in column-major format for nalgebra
             debug!("Voxel Dims: {:?}", vol_dims);
@@ -3914,8 +3956,10 @@ pub async fn request_layer_gpu_resources_for_testing(
                 .unwrap_or_default()
                 .as_secs();
 
-            debug!("Successfully uploaded volume to GPU - layer_id: {}, atlas_layer: {}, dims: {:?}, format: {:?}",
-                  ui_layer_id, atlas_layer_idx, vol_dims, gpu_format);
+            debug!(
+                "Successfully uploaded volume to GPU - layer_id: {}, atlas_layer: {}, dims: {:?}, format: {:?}",
+                ui_layer_id, atlas_layer_idx, vol_dims, gpu_format
+            );
             debug!(
                 "Texture coordinates - u: [{:.4}, {:.4}], v: [{:.4}, {:.4}]",
                 u_min, u_max, v_min, v_max
@@ -3978,8 +4022,10 @@ pub async fn request_layer_gpu_resources_for_testing(
                     );
                     // Continue anyway - the volume is uploaded and can be used imperatively
                 } else {
-                    info!("Successfully registered volume '{}' with atlas index {} for declarative API with data range ({}, {})",
-                        source_volume_id, atlas_layer_idx, min_val, max_val);
+                    info!(
+                        "Successfully registered volume '{}' with atlas index {} for declarative API with data range ({}, {})",
+                        source_volume_id, atlas_layer_idx, min_val, max_val
+                    );
                 }
 
                 // Add the layer to the render state using world-space rendering
@@ -4048,8 +4094,16 @@ pub async fn request_layer_gpu_resources_for_testing(
                     (min_val, max_val)
                 };
 
-                info!("Added render layer {} with colormap {} (id {}) and intensity range ({}, {}) -> display range ({}, {})",
-                      layer_index, vol_spec.colormap, colormap_id, min_val, max_val, display_min, display_max);
+                info!(
+                    "Added render layer {} with colormap {} (id {}) and intensity range ({}, {}) -> display range ({}, {})",
+                    layer_index,
+                    vol_spec.colormap,
+                    colormap_id,
+                    min_val,
+                    max_val,
+                    display_min,
+                    display_max
+                );
             }
             if is_binary_like {
                 info!("Detected binary mask - using 0-1 display range");
@@ -4078,12 +4132,23 @@ pub async fn request_layer_gpu_resources_for_testing(
                     volume_map.insert(ui_layer_id.clone(), vol_spec.source_resource_id.clone());
                 }
 
+                {
+                    let uploaded_timepoint = if volume_sendable_uses_timepoint(volume_data) {
+                        volume_registry_guard.get_timepoint(&source_volume_id)
+                    } else {
+                        None
+                    };
+                    let mut timepoint_map = state.layer_to_timepoint_map.lock().await;
+                    timepoint_map.insert(ui_layer_id.clone(), uploaded_timepoint);
+                }
+
                 let lease = LayerLease::new(
                     ui_layer_id.clone(),
                     atlas_layer_idx,
                     Arc::clone(&state.render_loop_service),
                     Arc::clone(&state.layer_to_atlas_map),
                     Arc::clone(&state.layer_to_volume_map),
+                    Arc::clone(&state.layer_to_timepoint_map),
                 );
 
                 {
@@ -4215,6 +4280,10 @@ async fn release_layer_gpu_resources_internal(
         volume_map.remove(&layer_id);
     }
     {
+        let mut timepoint_map = bridge_state.layer_to_timepoint_map.lock().await;
+        timepoint_map.remove(&layer_id);
+    }
+    {
         let mut lease_map = bridge_state.layer_leases.lock().await;
         lease_map.remove(&layer_id);
     }
@@ -4327,15 +4396,15 @@ async fn remote_mount_connect(
         REMOTE_MOUNT_HANDSHAKE_TIMEOUT,
         RemoteClient::connect_interactive_with_probe_blocking(connect_config, probe_options),
     )
-        .await
-        .map_err(|_| BridgeError::Io {
-            code: 8221,
-            details: format!(
-                "SSH connection timed out after {}s while connecting/authenticating.",
-                REMOTE_MOUNT_HANDSHAKE_TIMEOUT.as_secs()
-            ),
-        })?
-        .map_err(|e| map_remotely_error(e, 8221))?;
+    .await
+    .map_err(|_| BridgeError::Io {
+        code: 8221,
+        details: format!(
+            "SSH connection timed out after {}s while connecting/authenticating.",
+            REMOTE_MOUNT_HANDSHAKE_TIMEOUT.as_secs()
+        ),
+    })?
+    .map_err(|e| map_remotely_error(e, 8221))?;
 
     handle_remote_connect_outcome(state.inner(), context, outcome).await
 }
@@ -4367,15 +4436,15 @@ async fn remote_mount_respond_host_key(
         REMOTE_MOUNT_HANDSHAKE_TIMEOUT,
         RemoteClient::respond_host_key_with_probe_blocking(challenge_uuid, trust, probe_options),
     )
-        .await
-        .map_err(|_| BridgeError::Io {
-            code: 8224,
-            details: format!(
-                "SSH connection timed out after {}s while resuming host-key validation.",
-                REMOTE_MOUNT_HANDSHAKE_TIMEOUT.as_secs()
-            ),
-        })?
-        .map_err(|e| map_remotely_error(e, 8224))?;
+    .await
+    .map_err(|_| BridgeError::Io {
+        code: 8224,
+        details: format!(
+            "SSH connection timed out after {}s while resuming host-key validation.",
+            REMOTE_MOUNT_HANDSHAKE_TIMEOUT.as_secs()
+        ),
+    })?
+    .map_err(|e| map_remotely_error(e, 8224))?;
 
     handle_remote_connect_outcome(state.inner(), context, outcome).await
 }
@@ -4408,15 +4477,15 @@ async fn remote_mount_respond_auth(
         REMOTE_MOUNT_HANDSHAKE_TIMEOUT,
         RemoteClient::respond_auth_with_probe_blocking(conversation_uuid, responses, probe_options),
     )
-        .await
-        .map_err(|_| BridgeError::Io {
-            code: 8227,
-            details: format!(
-                "SSH connection timed out after {}s while completing authentication.",
-                REMOTE_MOUNT_HANDSHAKE_TIMEOUT.as_secs()
-            ),
-        })?
-        .map_err(|e| map_remotely_error(e, 8227))?;
+    .await
+    .map_err(|_| BridgeError::Io {
+        code: 8227,
+        details: format!(
+            "SSH connection timed out after {}s while completing authentication.",
+            REMOTE_MOUNT_HANDSHAKE_TIMEOUT.as_secs()
+        ),
+    })?
+    .map_err(|e| map_remotely_error(e, 8227))?;
 
     handle_remote_connect_outcome(state.inner(), context, outcome).await
 }
@@ -4771,8 +4840,6 @@ async fn update_frame_for_synchronized_view(
             details: "crosshair_world must be a 3-element array for [x, y, z] position".to_string(),
         });
     }
-
-    // Get render loop service
     let service_guard = state.render_loop_service.lock().await;
     let service_arc = service_guard
         .as_ref()
@@ -5134,7 +5201,7 @@ async fn compute_layer_histogram(
                         return Err(BridgeError::VolumeNotFound {
                             code: 4044,
                             details: format!(
-                                "Volume for layer {} not found. Tried: layer_to_volume_map lookup, direct volume registry lookup, and pattern matching", 
+                                "Volume for layer {} not found. Tried: layer_to_volume_map lookup, direct volume registry lookup, and pattern matching",
                                 layer_id
                             ),
                         });
@@ -5495,8 +5562,10 @@ async fn compute_layer_histogram(
     // Log bin distribution
     let non_zero_bins = bins.iter().filter(|&&count| count > 0).count();
     let max_bin_count = bins.iter().max().copied().unwrap_or(0);
-    info!("Histogram binning: hist_range=[{}, {}], bin_width={}, non_zero_bins={}/{}, max_bin_count={}",
-          hist_min, hist_max, bin_width, non_zero_bins, bin_count, max_bin_count);
+    info!(
+        "Histogram binning: hist_range=[{}, {}], bin_width={}, non_zero_bins={}/{}, max_bin_count={}",
+        hist_min, hist_max, bin_width, non_zero_bins, bin_count, max_bin_count
+    );
 
     // Convert to result format
     let histogram_bins: Vec<HistogramBin> = bins
@@ -6338,6 +6407,11 @@ async fn allocate_gpu_resources_for_layer(
                     volume_id
                 ),
             })?;
+    let uploaded_timepoint = if volume_sendable_uses_timepoint(volume_data) {
+        timepoint
+    } else {
+        None
+    };
 
     // For 4D volumes, extract the appropriate timepoint
     let volume_to_upload = if let Some(tp) = timepoint {
@@ -6460,6 +6534,9 @@ async fn allocate_gpu_resources_for_layer(
         // Also store the volume handle mapping
         let mut volume_map = state.layer_to_volume_map.lock().await;
         volume_map.insert(layer_id.to_string(), volume_id.to_string());
+
+        let mut timepoint_map = state.layer_to_timepoint_map.lock().await;
+        timepoint_map.insert(layer_id.to_string(), uploaded_timepoint);
     }
 
     // Register the volume with the correct data range
@@ -6551,8 +6628,10 @@ fn find_layer_atlas_index_robust(
             return Some(idx);
         }
         if key.eq_ignore_ascii_case(volume_id) {
-            warn!("🔍 Found layer via case-insensitive volume_id match: '{}' -> {} (actual key: '{}')",
-                  volume_id, idx, key);
+            warn!(
+                "🔍 Found layer via case-insensitive volume_id match: '{}' -> {} (actual key: '{}')",
+                volume_id, idx, key
+            );
             return Some(idx);
         }
     }
@@ -6601,6 +6680,113 @@ fn find_layer_atlas_index_robust(
     None
 }
 
+fn volume_sendable_uses_timepoint(volume_data: &VolumeSendable) -> bool {
+    matches!(
+        volume_data,
+        VolumeSendable::Vec4DF32(_)
+            | VolumeSendable::Vec4DI16(_)
+            | VolumeSendable::Vec4DU8(_)
+            | VolumeSendable::Vec4DI8(_)
+            | VolumeSendable::Vec4DU16(_)
+            | VolumeSendable::Vec4DI32(_)
+            | VolumeSendable::Vec4DU32(_)
+            | VolumeSendable::Vec4DF64(_)
+    )
+}
+
+async fn resolve_requested_render_timepoint(
+    volume_id: &str,
+    requested_timepoint: Option<usize>,
+    state: &BridgeState,
+) -> BridgeResult<(bool, Option<usize>)> {
+    let volume_registry_guard = state.volume_registry.lock().await;
+    let entry =
+        volume_registry_guard
+            .get_entry(volume_id)
+            .ok_or_else(|| BridgeError::VolumeNotFound {
+                code: 4042,
+                details: format!(
+                    "Volume '{}' not found. Please load the volume first.",
+                    volume_id
+                ),
+            })?;
+
+    let requires_timepoint = volume_sendable_uses_timepoint(&entry.data);
+    if requires_timepoint && requested_timepoint.is_none() {
+        return Err(BridgeError::Input {
+            code: 4103,
+            details: format!(
+                "Render request for 4D volume '{}' must include a timepoint.",
+                volume_id
+            ),
+        });
+    }
+
+    Ok((
+        requires_timepoint,
+        if requires_timepoint {
+            requested_timepoint
+        } else {
+            None
+        },
+    ))
+}
+
+async fn invalidate_cached_layer_for_render(
+    layer_id: &str,
+    atlas_index: u32,
+    bridge_state: &BridgeState,
+    service: &mut RenderLoopService,
+    reason: &'static str,
+) -> BridgeResult<()> {
+    if let Some(lease) = {
+        let mut leases = bridge_state.layer_leases.lock().await;
+        leases.remove(layer_id)
+    } {
+        lease.release_with_service(service, reason).await?;
+        return Ok(());
+    }
+
+    {
+        let mut layer_map = bridge_state.layer_to_atlas_map.lock().await;
+        layer_map.remove(layer_id);
+    }
+    {
+        let mut volume_map = bridge_state.layer_to_volume_map.lock().await;
+        volume_map.remove(layer_id);
+    }
+    {
+        let mut timepoint_map = bridge_state.layer_to_timepoint_map.lock().await;
+        timepoint_map.remove(layer_id);
+    }
+
+    let removed_from_render_state =
+        service
+            .remove_layer_by_atlas(atlas_index)
+            .map_err(|e| BridgeError::GpuError {
+                code: 5080,
+                details: format!(
+                    "Failed to remove cached layer {} from render state: {:?}",
+                    layer_id, e
+                ),
+            })?;
+
+    if !removed_from_render_state {
+        warn!(
+            "Timepoint invalidation for layer '{}' found atlas index {} but no render-state entry",
+            layer_id, atlas_index
+        );
+    }
+
+    service.volume_atlas.free_layer(atlas_index);
+    info!(
+        "Invalidated cached GPU resources for layer {} (atlas layer {}, reason: {})",
+        layer_id, atlas_index, reason
+    );
+
+    Ok(())
+}
+
 // Render output format options
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum RenderFormat {
@@ -6618,171 +6804,126 @@ impl RenderFormat {
     }
 }
 
-// Internal implementation that supports both PNG and raw RGBA output
-async fn render_view_process(
-    view_state_json: String,
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RenderViewDiagnostics {
+    pub requested_view: Option<String>,
+    pub format: String,
+    pub parse_ms: f32,
+    pub service_lock_ms: f32,
+    pub target_setup_ms: f32,
+    pub layer_processing_ms: f32,
+    pub render_loop_ms: f32,
+    pub encode_ms: f32,
+    pub total_ms: f32,
+    pub visible_layer_count: usize,
+    pub output_bytes: usize,
+    pub output_dimensions: [u32; 2],
+    pub warnings: Vec<String>,
+    pub frame: render_loop::view_state::FrameDiagnostics,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RenderViewTestOutput {
+    pub data: Vec<u8>,
+    pub diagnostics: RenderViewDiagnostics,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RenderViewsDiagnostics {
+    pub format: String,
+    pub requested_view_count: usize,
+    pub parse_ms: f32,
+    pub packet_encode_ms: f32,
+    pub total_ms: f32,
+    pub output_bytes: usize,
+    pub per_view: Vec<RenderViewDiagnostics>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RenderViewsTestOutput {
+    pub data: Vec<u8>,
+    pub diagnostics: RenderViewsDiagnostics,
+}
+
+fn duration_ms(duration: std::time::Duration) -> f32 {
+    duration.as_secs_f32() * 1000.0
+}
+
+#[derive(Deserialize, Debug, Clone)]
+struct FrontendViewState {
+    views: FrontendViews,
+    crosshair: CrosshairState,
+    layers: Vec<LayerState>,
+    #[serde(rename = "requestedView")]
+    requested_view: Option<RequestedView>,
+    #[serde(rename = "requestedViews")]
+    requested_views: Option<Vec<RequestedView>>,
+    timepoint: Option<usize>,
+}
+
+#[derive(Deserialize, Debug, Clone)]
+struct RequestedView {
+    #[serde(rename = "type")]
+    view_type: String,
+    origin_mm: [f32; 4],
+    u_mm: [f32; 4],
+    v_mm: [f32; 4],
+    width: u32,
+    height: u32,
+}
+
+#[derive(Deserialize, Debug, Clone)]
+struct FrontendViews {
+    axial: ViewPlane,
+    sagittal: ViewPlane,
+    coronal: ViewPlane,
+}
+
+#[derive(Deserialize, Debug, Clone)]
+struct ViewPlane {
+    origin_mm: [f32; 3],
+    u_mm: [f32; 3],
+    v_mm: [f32; 3],
+}
+
+#[derive(Deserialize, Debug, Clone)]
+struct CrosshairState {
+    world_mm: [f32; 3],
+    visible: bool,
+}
+
+#[derive(Deserialize, Debug, Clone)]
+struct LayerState {
+    id: String,
+    #[serde(rename = "volumeId")]
+    volume_id: String,
+    visible: bool,
+    opacity: f32,
+    colormap: String,
+    intensity: [f32; 2],
+    threshold: [f32; 2],
+    #[serde(rename = "blendMode")]
+    blend_mode: String,
+    #[serde(default = "default_interpolation")]
+    interpolation: String,
+}
+
+fn default_interpolation() -> String {
+    "linear".to_string()
+}
+
+#[derive(Debug, Clone)]
+struct PreparedFrontendLayers {
+    backend_layers: Vec<render_loop::view_state::LayerConfig>,
+    processing_time: std::time::Duration,
+}
+
+async fn prepare_frontend_layers_for_render(
+    frontend_state: &FrontendViewState,
     bridge_state: &BridgeState,
-    format: RenderFormat,
-) -> BridgeResult<Vec<u8>> {
-    let state = bridge_state;
-    // Note: This function is called both directly (JSON path) and from apply_and_render_view_state_binary
-    // Check the caller to log appropriately
-
-    let total_start = std::time::Instant::now();
-
-    // Parse the frontend ViewState JSON
-    let parse_start = std::time::Instant::now();
-    #[derive(Deserialize, Debug)]
-    struct FrontendViewState {
-        views: FrontendViews,
-        crosshair: CrosshairState,
-        layers: Vec<LayerState>,
-        #[serde(rename = "requestedView")]
-        requested_view: Option<RequestedView>,
-        // Current timepoint for 4D volumes
-        timepoint: Option<usize>,
-    }
-
-    #[derive(Deserialize, Debug)]
-    struct RequestedView {
-        #[serde(rename = "type")]
-        view_type: String,
-        origin_mm: [f32; 4],
-        u_mm: [f32; 4],
-        v_mm: [f32; 4],
-        width: u32,
-        height: u32,
-    }
-
-    #[derive(Deserialize, Debug)]
-    struct FrontendViews {
-        axial: ViewPlane,
-        sagittal: ViewPlane,
-        coronal: ViewPlane,
-    }
-
-    #[derive(Deserialize, Debug)]
-    struct ViewPlane {
-        origin_mm: [f32; 3],
-        u_mm: [f32; 3],
-        v_mm: [f32; 3],
-    }
-
-    #[derive(Deserialize, Debug)]
-    struct CrosshairState {
-        world_mm: [f32; 3],
-        visible: bool,
-    }
-
-    #[derive(Deserialize, Debug)]
-    struct LayerState {
-        id: String,
-        #[serde(rename = "volumeId")]
-        volume_id: String,
-        visible: bool,
-        opacity: f32,
-        colormap: String,
-        intensity: [f32; 2],
-        threshold: [f32; 2],
-        #[serde(rename = "blendMode")]
-        blend_mode: String,
-        #[serde(default = "default_interpolation")]
-        interpolation: String,
-    }
-
-    fn default_interpolation() -> String {
-        "linear".to_string()
-    }
-
-    let frontend_state: FrontendViewState =
-        match serde_json::from_str::<FrontendViewState>(&view_state_json) {
-            Ok(state) => {
-                debug!(
-                    "🎨 Successfully parsed ViewState with {} layers",
-                    state.layers.len()
-                );
-                state
-            }
-            Err(e) => {
-                error!("🎨 Failed to parse ViewState JSON: {}", e);
-                error!(
-                    "🎨 JSON content preview: {}",
-                    view_state_json.chars().take(500).collect::<String>()
-                );
-                return Err(BridgeError::Internal {
-                    code: 4001,
-                    details: format!("ViewState JSON parsing failed: {}", e),
-                });
-            }
-        };
-    let parse_time = parse_start.elapsed();
-
-    debug!("⏱️  JSON parsing took: {:?}", parse_time);
-    debug!(
-        "Parsed frontend ViewState with {} layers",
-        frontend_state.layers.len()
-    );
-
-    // Get render loop service
-    let service_guard = state.render_loop_service.lock().await;
-    let service_arc = service_guard
-        .as_ref()
-        .ok_or_else(|| BridgeError::ServiceNotInitialized {
-            code: 5006,
-            details:
-                "GPU rendering service is not initialized. Please initialize the render loop first."
-                    .to_string(),
-        })?;
-    let mut service = service_arc.lock().await;
-
-    // Extract dimensions from requestedView if provided, otherwise use defaults
-    // This supports per-view render targets instead of global render targets
-    let (view_plane, width, height) = if let Some(req_view) = &frontend_state.requested_view {
-        debug!(
-            "Using requested view '{}' with dimensions {}x{}",
-            req_view.view_type, req_view.width, req_view.height
-        );
-        // The requested view already has the complete frame parameters, so we'll use them directly
-        // For now, we still need a view_plane reference for compatibility
-        match req_view.view_type.as_str() {
-            "sagittal" => (
-                &frontend_state.views.sagittal,
-                req_view.width,
-                req_view.height,
-            ),
-            "coronal" => (
-                &frontend_state.views.coronal,
-                req_view.width,
-                req_view.height,
-            ),
-            _ => (&frontend_state.views.axial, req_view.width, req_view.height),
-        }
-    } else {
-        debug!("No specific view requested, using axial view with default dimensions");
-        (&frontend_state.views.axial, 512u32, 512u32)
-    };
-
-    // Create render target with the specific dimensions for this view
-    // This replaces the global render target approach with per-view render targets
-    debug!(
-        "Creating render target for dimensions: {}x{}",
-        width, height
-    );
-    service
-        .create_offscreen_target(width, height)
-        .map_err(|e| BridgeError::GpuError {
-            code: 5021,
-            details: format!(
-                "Failed to create per-view render target ({}x{}): {}",
-                width, height, e
-            ),
-        })?;
-
-    // Convert frontend ViewState to backend ViewState format
-    // Build layers for backend ViewState
+    service: &mut RenderLoopService,
+) -> BridgeResult<PreparedFrontendLayers> {
     let mut backend_layers = Vec::new();
-
-    // Debug: log the contents of layer_map
     {
         let layer_map = bridge_state.layer_to_atlas_map.lock().await;
         debug!("Current layer_to_atlas_map contents:");
@@ -6793,7 +6934,7 @@ async fn render_view_process(
 
     let layer_processing_start = std::time::Instant::now();
     for layer in &frontend_state.layers {
-        debug!("🔍 DEBUG: apply_and_render_view_state_internal - Processing layer:");
+        debug!("🔍 DEBUG: render_frontend_view_with_diagnostics - Processing layer:");
         debug!("  - Layer ID: '{}'", layer.id);
         debug!("  - Volume ID: '{}'", layer.volume_id);
         debug!("  - Visible: {}, Opacity: {}", layer.visible, layer.opacity);
@@ -6805,14 +6946,19 @@ async fn render_view_process(
             hasher.finish()
         });
 
-        // Check both layer.id and layer.volume_id to ensure we find the layer
         if layer.visible && layer.opacity > 0.0 {
             debug!(
                 "  Layer passes visibility check (visible={}, opacity={})",
                 layer.visible, layer.opacity
             );
-            // Check if this layer has GPU resources allocated
             let _atlas_idx = {
+                let (requires_timepoint, requested_render_timepoint) =
+                    resolve_requested_render_timepoint(
+                        &layer.volume_id,
+                        frontend_state.timepoint,
+                        bridge_state,
+                    )
+                    .await?;
                 let layer_map = bridge_state.layer_to_atlas_map.lock().await;
 
                 debug!(
@@ -6824,41 +6970,87 @@ async fn render_view_process(
                     debug!("    Key: '{}'", key);
                 }
 
-                // Try multiple strategies to find the layer
                 let found_idx =
                     find_layer_atlas_index_robust(&layer_map, &layer.id, &layer.volume_id);
 
                 if let Some(idx) = found_idx {
-                    debug!(
-                        "✅ CACHE HIT: Layer {} already has GPU resources at atlas index {}",
-                        layer.id, idx
-                    );
-                    idx
+                    drop(layer_map);
+
+                    let cached_timepoint = {
+                        let timepoint_map = bridge_state.layer_to_timepoint_map.lock().await;
+                        timepoint_map.get(&layer.id).copied().flatten()
+                    };
+                    let requires_reupload = requires_timepoint
+                        && (cached_timepoint != requested_render_timepoint
+                            || cached_timepoint.is_none());
+
+                    if requires_reupload {
+                        info!(
+                            "Re-uploading 4D layer '{}' because cached timepoint {:?} does not match requested {:?}",
+                            layer.id, cached_timepoint, requested_render_timepoint
+                        );
+                        invalidate_cached_layer_for_render(
+                            &layer.id,
+                            idx,
+                            bridge_state,
+                            service,
+                            "render_timepoint_changed",
+                        )
+                        .await?;
+
+                        let gpu_alloc_start = std::time::Instant::now();
+                        let gpu_info = allocate_gpu_resources_for_layer(
+                            &layer.id,
+                            &layer.volume_id,
+                            bridge_state,
+                            service,
+                            requested_render_timepoint,
+                        )
+                        .await?;
+                        let gpu_alloc_time = gpu_alloc_start.elapsed();
+                        debug!(
+                            "⏱️  GPU resource re-allocation after timepoint change took: {:?}",
+                            gpu_alloc_time
+                        );
+
+                        let allocated_idx = gpu_info.atlas_layer_index;
+                        info!(
+                            "Layer {} re-allocated GPU resources at atlas index {} for timepoint {:?}",
+                            layer.id, allocated_idx, requested_render_timepoint
+                        );
+                        allocated_idx
+                    } else {
+                        debug!(
+                            "✅ CACHE HIT: Layer {} already has GPU resources at atlas index {}",
+                            layer.id, idx
+                        );
+                        idx
+                    }
                 } else {
-                    debug!("❌ CACHE MISS: Layer '{}' not found in layer_map (tried keys: '{}' and '{}')",
-                          layer.id, layer.id, layer.volume_id);
+                    debug!(
+                        "❌ CACHE MISS: Layer '{}' not found in layer_map (tried keys: '{}' and '{}')",
+                        layer.id, layer.id, layer.volume_id
+                    );
                     debug!(
                         "❌ Current layer_map contains {} entries: {:?}",
                         layer_map.len(),
                         layer_map.keys().collect::<Vec<_>>()
                     );
 
-                    drop(layer_map); // Release the lock before allocating
+                    drop(layer_map);
 
-                    // Allocate GPU resources on-demand
                     debug!(
                         "Allocating GPU resources on-demand for layer '{}', volume '{}'",
                         layer.id, layer.volume_id
                     );
 
                     let gpu_alloc_start = std::time::Instant::now();
-                    // Allocate GPU resources for this layer
                     let gpu_info = allocate_gpu_resources_for_layer(
                         &layer.id,
                         &layer.volume_id,
                         bridge_state,
-                        &mut service,
-                        frontend_state.timepoint,
+                        service,
+                        requested_render_timepoint,
                     )
                     .await?;
                     let gpu_alloc_time = gpu_alloc_start.elapsed();
@@ -6873,10 +7065,6 @@ async fn render_view_process(
                 }
             };
 
-            // Volume should already be registered by allocate_gpu_resources_for_layer
-            // with the correct data range, so we don't need to register it again
-
-            // Map colormap name to ID using the centralized colormap system
             let colormap_id = match colormap_by_name(&layer.colormap) {
                 Some(id) => id.id() as u32,
                 None => {
@@ -6884,27 +7072,24 @@ async fn render_view_process(
                         "Unknown colormap '{}', defaulting to grayscale",
                         layer.colormap
                     );
-                    0 // Default to grayscale
+                    0
                 }
             };
 
-            // Map blend mode
             let blend_mode = match layer.blend_mode.as_str() {
                 "alpha" => render_loop::render_state::BlendMode::Normal,
                 "additive" => render_loop::render_state::BlendMode::Additive,
                 "maximum" => render_loop::render_state::BlendMode::Maximum,
-                "minimum" => render_loop::render_state::BlendMode::Normal, // Minimum not implemented, use Normal
+                "minimum" => render_loop::render_state::BlendMode::Normal,
                 _ => render_loop::render_state::BlendMode::Normal,
             };
 
-            // Parse interpolation mode
             let interpolation = match layer.interpolation.as_str() {
                 "nearest" => render_loop::view_state::InterpolationMode::Nearest,
                 "cubic" => render_loop::view_state::InterpolationMode::Cubic,
-                _ => render_loop::view_state::InterpolationMode::Linear, // Default to linear
+                _ => render_loop::view_state::InterpolationMode::Linear,
             };
 
-            // Create backend layer config
             let mut backend_layer = render_loop::view_state::LayerConfig {
                 volume_id: layer.volume_id.clone(),
                 opacity: layer.opacity,
@@ -6923,13 +7108,17 @@ async fn render_view_process(
                 interpolation,
             };
 
-            info!("Adding layer to backend ViewState: volume_id={}, opacity={}, colormap={}, intensity=[{}, {}], threshold=[{}, {}]",
-                backend_layer.volume_id, backend_layer.opacity, backend_layer.colormap_id,
-                backend_layer.intensity_window.0, backend_layer.intensity_window.1,
-                layer.threshold[0], layer.threshold[1]);
+            info!(
+                "Adding layer to backend ViewState: volume_id={}, opacity={}, colormap={}, intensity=[{}, {}], threshold=[{}, {}]",
+                backend_layer.volume_id,
+                backend_layer.opacity,
+                backend_layer.colormap_id,
+                backend_layer.intensity_window.0,
+                backend_layer.intensity_window.1,
+                layer.threshold[0],
+                layer.threshold[1]
+            );
 
-            // Use intensity values directly from frontend - frontend is the single source of truth
-            // No validation or modification needed - trust the user's input
             backend_layer.intensity_window = (layer.intensity[0], layer.intensity[1]);
 
             info!(
@@ -6953,7 +7142,92 @@ async fn render_view_process(
         backend_layers.len()
     );
 
-    // CRITICAL: Check if we have any layers before proceeding
+    Ok(PreparedFrontendLayers {
+        backend_layers,
+        processing_time: layer_processing_start.elapsed(),
+    })
+}
+
+async fn render_frontend_view_with_diagnostics(
+    frontend_state: &FrontendViewState,
+    bridge_state: &BridgeState,
+    service: &mut RenderLoopService,
+    format: RenderFormat,
+    readback_mode: render_loop::view_state::FrameReadbackMode,
+    parse_time: std::time::Duration,
+    service_lock_time: std::time::Duration,
+    prepared_layers: Option<&PreparedFrontendLayers>,
+) -> BridgeResult<RenderViewTestOutput> {
+    let total_start = std::time::Instant::now();
+    let requested_view = frontend_state
+        .requested_view
+        .as_ref()
+        .map(|view| view.view_type.clone());
+    let format_label = match format {
+        RenderFormat::Png => "png",
+        RenderFormat::RawRgba => "rgba",
+    }
+    .to_string();
+
+    if readback_mode == render_loop::view_state::FrameReadbackMode::Skip
+        && format != RenderFormat::RawRgba
+    {
+        return Err(BridgeError::Input {
+            code: 4002,
+            details: "skip readback is only supported with raw RGBA submission".to_string(),
+        });
+    }
+
+    let (view_plane, width, height) = if let Some(req_view) = &frontend_state.requested_view {
+        debug!(
+            "Using requested view '{}' with dimensions {}x{}",
+            req_view.view_type, req_view.width, req_view.height
+        );
+        match req_view.view_type.as_str() {
+            "sagittal" => (
+                &frontend_state.views.sagittal,
+                req_view.width,
+                req_view.height,
+            ),
+            "coronal" => (
+                &frontend_state.views.coronal,
+                req_view.width,
+                req_view.height,
+            ),
+            _ => (&frontend_state.views.axial, req_view.width, req_view.height),
+        }
+    } else {
+        debug!("No specific view requested, using axial view with default dimensions");
+        (&frontend_state.views.axial, 512u32, 512u32)
+    };
+
+    debug!(
+        "Creating render target for dimensions: {}x{}",
+        width, height
+    );
+    let target_setup_start = std::time::Instant::now();
+    service
+        .create_offscreen_target(width, height)
+        .map_err(|e| BridgeError::GpuError {
+            code: 5021,
+            details: format!(
+                "Failed to create per-view render target ({}x{}): {}",
+                width, height, e
+            ),
+        })?;
+    let target_setup_time = target_setup_start.elapsed();
+
+    let prepared_layers_owned;
+    let prepared_layers = if let Some(prepared_layers) = prepared_layers {
+        prepared_layers
+    } else {
+        prepared_layers_owned =
+            prepare_frontend_layers_for_render(frontend_state, bridge_state, service).await?;
+        &prepared_layers_owned
+    };
+    let backend_layers = prepared_layers.backend_layers.clone();
+    let layer_processing_time = prepared_layers.processing_time;
+
     if backend_layers.is_empty() {
         warn!(
             "No backend layers created from {} frontend layers!",
@@ -6967,61 +7241,97 @@ async fn render_view_process(
             );
         }
 
-        // Return a dark image instead of erroring
-        let width = width as usize;
-        let height = height as usize;
-        let mut dark_image = vec![30u8; width * height * 4]; // Dark gray RGBA
+        let mut warnings =
+            vec!["No backend layers created; returned diagnostic error image".to_string()];
 
-        // Add a red border to indicate error state
-        for y in 0..height {
-            for x in 0..width {
-                if x < 2 || x >= width - 2 || y < 2 || y >= height - 2 {
-                    let idx = (y * width + x) * 4;
-                    dark_image[idx] = 128; // R
-                    dark_image[idx + 1] = 0; // G
-                    dark_image[idx + 2] = 0; // B
-                    dark_image[idx + 3] = 255; // A
+        let (data, encode_ms, output_bytes, format_label) =
+            if readback_mode == render_loop::view_state::FrameReadbackMode::Skip {
+                warnings[0] = "No backend layers created; submission skipped readback".to_string();
+                (Vec::new(), 0.0, 0usize, format_label.clone())
+            } else {
+                let width = width as usize;
+                let height = height as usize;
+                let mut dark_image = vec![30u8; width * height * 4];
+
+                for y in 0..height {
+                    for x in 0..width {
+                        if x < 2 || x >= width - 2 || y < 2 || y >= height - 2 {
+                            let idx = (y * width + x) * 4;
+                            dark_image[idx] = 128;
+                            dark_image[idx + 1] = 0;
+                            dark_image[idx + 2] = 0;
+                            dark_image[idx + 3] = 255;
+                        }
+                    }
                 }
-            }
-        }
 
-        // Convert to PNG
-        use image::codecs::png::PngEncoder;
-        use image::{ImageBuffer, ImageEncoder, Rgba};
-        use std::io::Cursor;
+                let encode_start = std::time::Instant::now();
+                use image::codecs::png::PngEncoder;
+                use image::{ImageBuffer, ImageEncoder, Rgba};
+                use std::io::Cursor;
 
-        let img_buffer: ImageBuffer<Rgba<u8>, Vec<u8>> =
-            ImageBuffer::from_raw(width as u32, height as u32, dark_image).ok_or_else(|| {
-                BridgeError::Internal {
-                    code: 5024,
-                    details: "Failed to create error image buffer".to_string(),
-                }
-            })?;
+                let img_buffer: ImageBuffer<Rgba<u8>, Vec<u8>> =
+                    ImageBuffer::from_raw(width as u32, height as u32, dark_image).ok_or_else(
+                        || BridgeError::Internal {
+                            code: 5024,
+                            details: "Failed to create error image buffer".to_string(),
+                        },
+                    )?;
 
-        let mut png_data = Vec::new();
-        let encoder = PngEncoder::new(Cursor::new(&mut png_data));
-        encoder
-            .write_image(
-                img_buffer.as_raw(),
-                width as u32,
-                height as u32,
-                image::ExtendedColorType::Rgba8,
-            )
-            .map_err(|e| BridgeError::Internal {
-                code: 5025,
-                details: format!("Failed to encode error PNG: {}", e),
-            })?;
+                let mut png_data = Vec::new();
+                let encoder = PngEncoder::new(Cursor::new(&mut png_data));
+                encoder
+                    .write_image(
+                        img_buffer.as_raw(),
+                        width as u32,
+                        height as u32,
+                        image::ExtendedColorType::Rgba8,
+                    )
+                    .map_err(|e| BridgeError::Internal {
+                        code: 5025,
+                        details: format!("Failed to encode error PNG: {}", e),
+                    })?;
 
-        warn!("Returning error image (dark with red border) due to no layers");
-        return Ok(png_data);
+                warn!("Returning error image (dark with red border) due to no layers");
+                let output_bytes = png_data.len();
+                (
+                    png_data,
+                    duration_ms(encode_start.elapsed()),
+                    output_bytes,
+                    "png".to_string(),
+                )
+            };
+
+        let total_time = total_start.elapsed() + parse_time + service_lock_time;
+        return Ok(RenderViewTestOutput {
+            data,
+            diagnostics: RenderViewDiagnostics {
+                requested_view,
+                format: format_label,
+                parse_ms: duration_ms(parse_time),
+                service_lock_ms: duration_ms(service_lock_time),
+                target_setup_ms: duration_ms(target_setup_time),
+                layer_processing_ms: duration_ms(layer_processing_time),
+                render_loop_ms: 0.0,
+                encode_ms,
+                total_ms: duration_ms(total_time),
+                visible_layer_count: 0,
+                output_bytes,
+                output_dimensions: [width as u32, height as u32],
+                warnings,
+                frame: render_loop::view_state::FrameDiagnostics {
+                    readback_mode,
+                    ..render_loop::view_state::FrameDiagnostics::default()
+                },
+            },
+        });
     }
 
-    // Create backend ViewState with exact frame parameters
     let backend_view_state = render_loop::view_state::ViewState {
         layout_version: render_loop::view_state::ViewState::CURRENT_VERSION,
         camera: render_loop::view_state::CameraState {
             world_center: frontend_state.crosshair.world_mm,
-            fov_mm: 256.0, // Default FOV
+            fov_mm: 256.0,
             orientation: if let Some(req_view) = &frontend_state.requested_view {
                 match req_view.view_type.as_str() {
                     "sagittal" => render_loop::view_state::SliceOrientation::Sagittal,
@@ -7031,7 +7341,6 @@ async fn render_view_process(
             } else {
                 render_loop::view_state::SliceOrientation::Axial
             },
-            // Use exact frame parameters - from requestedView if available, otherwise from view_plane
             frame_origin: if let Some(req_view) = &frontend_state.requested_view {
                 Some(req_view.origin_mm)
             } else {
@@ -7066,7 +7375,7 @@ async fn render_view_process(
         crosshair_world: frontend_state.crosshair.world_mm,
         layers: backend_layers,
         viewport_size: [width, height],
-        show_crosshair: false, // Disabled per architecture decision - crosshairs should be UI-only
+        show_crosshair: false,
         timepoint: frontend_state.timepoint,
     };
 
@@ -7076,7 +7385,6 @@ async fn render_view_process(
         backend_view_state.crosshair_world
     );
 
-    // Debug: Log the exact frame parameters being used
     if let (Some(origin), Some(u_vec), Some(v_vec)) = (
         backend_view_state.camera.frame_origin,
         backend_view_state.camera.frame_u_vec,
@@ -7098,32 +7406,19 @@ async fn render_view_process(
         info!("  Viewport: {}x{}", width, height);
     }
 
-    // Log frame parameters
     info!(
         "Frame parameters - origin: {:?}, u: {:?}, v: {:?}",
         view_plane.origin_mm, view_plane.u_mm, view_plane.v_mm
     );
 
-    // Stop layer processing timer
-    let layer_processing_time = layer_processing_start.elapsed();
     info!("⏱️  Layer processing took: {:?}", layer_processing_time);
 
-    // Apply frame parameters from ViewState if available
-    if let (Some(origin), Some(u_vec), Some(v_vec)) = (
-        backend_view_state.camera.frame_origin,
-        backend_view_state.camera.frame_u_vec,
-        backend_view_state.camera.frame_v_vec,
-    ) {
-        info!("Applying frame parameters before rendering");
-        service.update_frame_ubo(origin, u_vec, v_vec);
-    }
-
-    // Use request_frame API to render with the declarative ViewState
     let render_start = std::time::Instant::now();
     let frame_result = service
-        .request_frame(
+        .request_frame_with_options(
             render_loop::view_state::ViewId::new("frontend_view"),
             backend_view_state,
+            render_loop::view_state::FrameRequestOptions { readback_mode },
         )
         .await
         .map_err(|e| BridgeError::GpuError {
@@ -7145,12 +7440,9 @@ async fn render_view_process(
         info!("Render warnings: {:?}", frame_result.warnings);
     }
 
-    // Debug: Sample pixels to detect black images
     if frame_result.image_data.len() >= 400 {
         let width = frame_result.dimensions[0] as usize;
         let height = frame_result.dimensions[1] as usize;
-
-        // Sample center pixel
         let center_x = width / 2;
         let center_y = height / 2;
         let center_idx = (center_y * width + center_x) * 4;
@@ -7163,7 +7455,6 @@ async fn render_view_process(
             );
         }
 
-        // Count non-black pixels in a 10x10 grid
         let mut non_black_count = 0;
         let mut max_value = 0u8;
         let sample_step = std::cmp::max(1, width / 10);
@@ -7196,24 +7487,22 @@ async fn render_view_process(
         }
     }
 
-    // Get dimensions from frame result
     let width = frame_result.dimensions[0];
     let height = frame_result.dimensions[1];
+    let visible_layer_count = frame_result.rendered_layers.len();
+    let frame_diagnostics = frame_result.diagnostics.clone();
+    let frame_warnings = frame_result.warnings.clone();
     let rgba_data = frame_result.image_data;
 
-    // Choose output format based on flag
-    let result = if format == RenderFormat::RawRgba {
-        // Raw RGBA path - no PNG encoding
+    let (result, encode_time) = if readback_mode == render_loop::view_state::FrameReadbackMode::Skip
+    {
+        (Vec::new(), std::time::Duration::ZERO)
+    } else if format == RenderFormat::RawRgba {
         info!("🚀 RAW RGBA: Skipping PNG encoding, returning raw pixel data");
 
-        // Create a buffer with format: [width: u32][height: u32][rgba_data...]
         let mut raw_buffer = Vec::with_capacity(8 + rgba_data.len());
-
-        // Write dimensions as little-endian u32
         raw_buffer.extend_from_slice(&width.to_le_bytes());
         raw_buffer.extend_from_slice(&height.to_le_bytes());
-
-        // Append RGBA data
         raw_buffer.extend_from_slice(&rgba_data);
 
         info!(
@@ -7222,15 +7511,13 @@ async fn render_view_process(
             rgba_data.len()
         );
 
-        raw_buffer
+        (raw_buffer, std::time::Duration::ZERO)
     } else {
-        // PNG encoding path
         let png_encode_start = std::time::Instant::now();
         use image::codecs::png::PngEncoder;
         use image::{ImageBuffer, ImageEncoder, Rgba};
         use std::io::Cursor;
 
-        // Create an image buffer from the RGBA data
         let img_buffer: ImageBuffer<Rgba<u8>, Vec<u8>> =
             ImageBuffer::from_raw(width, height, rgba_data).ok_or_else(|| {
                 BridgeError::Internal {
@@ -7242,7 +7529,6 @@ async fn render_view_process(
                 }
             })?;
 
-        // Encode to PNG with fast compression settings
         let mut png_data = Vec::new();
         let encoder = PngEncoder::new_with_quality(
             Cursor::new(&mut png_data),
@@ -7270,12 +7556,12 @@ async fn render_view_process(
             height
         );
 
-        png_data
+        (png_data, png_encode_time)
     };
 
-    let total_time = total_start.elapsed();
+    let total_time = total_start.elapsed() + parse_time + service_lock_time;
     debug!(
-        "⏱️  TOTAL apply_and_render_view_state_internal time: {:?}",
+        "⏱️  TOTAL render_frontend_view_with_diagnostics time: {:?}",
         total_time
     );
     debug!(
@@ -7287,8 +7573,104 @@ async fn render_view_process(
         },
         result.len()
     );
+    let output_bytes = result.len();
 
-    Ok(result)
+    Ok(RenderViewTestOutput {
+        data: result,
+        diagnostics: RenderViewDiagnostics {
+            requested_view,
+            format: format_label,
+            parse_ms: duration_ms(parse_time),
+            service_lock_ms: duration_ms(service_lock_time),
+            target_setup_ms: duration_ms(target_setup_time),
+            layer_processing_ms: duration_ms(layer_processing_time),
+            render_loop_ms: duration_ms(render_time),
+            encode_ms: duration_ms(encode_time),
+            total_ms: duration_ms(total_time),
+            visible_layer_count,
+            output_bytes,
+            output_dimensions: [width, height],
+            warnings: frame_warnings,
+            frame: frame_diagnostics,
+        },
+    })
+}
+
+// Internal implementation that supports both PNG and raw RGBA output
+async fn render_view_process(
+    view_state_json: String,
+    bridge_state: &BridgeState,
+    format: RenderFormat,
+) -> BridgeResult<Vec<u8>> {
+    Ok(render_view_process_with_diagnostics(
+        view_state_json,
+        bridge_state,
+        format,
+        render_loop::view_state::FrameReadbackMode::Blocking,
+    )
+    .await?
+    .data)
+}
+
+async fn render_view_process_with_diagnostics(
+    view_state_json: String,
+    bridge_state: &BridgeState,
+    format: RenderFormat,
+    readback_mode: render_loop::view_state::FrameReadbackMode,
+) -> BridgeResult<RenderViewTestOutput> {
+    let parse_start = std::time::Instant::now();
+    let frontend_state: FrontendViewState =
+        match serde_json::from_str::<FrontendViewState>(&view_state_json) {
+            Ok(state) => {
+                debug!(
+                    "🎨 Successfully parsed ViewState with {} layers",
+                    state.layers.len()
+                );
+                state
+            }
+            Err(e) => {
+                error!("🎨 Failed to parse ViewState JSON: {}", e);
+                error!(
+                    "🎨 JSON content preview: {}",
+                    view_state_json.chars().take(500).collect::<String>()
+                );
+                return Err(BridgeError::Internal {
+                    code: 4001,
+                    details: format!("ViewState JSON parsing failed: {}", e),
+                });
+            }
+        };
+    let parse_time = parse_start.elapsed();
+    debug!("⏱️  JSON parsing took: {:?}", parse_time);
+    debug!(
+        "Parsed frontend ViewState with {} layers",
+        frontend_state.layers.len()
+    );
+
+    let service_lock_start = std::time::Instant::now();
+    let service_guard = bridge_state.render_loop_service.lock().await;
+    let service_arc = service_guard
+        .as_ref()
+        .ok_or_else(|| BridgeError::ServiceNotInitialized {
+            code: 5006,
+            details:
+                "GPU rendering service is not initialized. Please initialize the render loop first."
+                    .to_string(),
+        })?;
+    let mut service = service_arc.lock().await;
+    let service_lock_time = service_lock_start.elapsed();
+
+    render_frontend_view_with_diagnostics(
+        &frontend_state,
+        bridge_state,
+        &mut service,
+        format,
+        readback_mode,
+        parse_time,
+        service_lock_time,
+        None,
+    )
+    .await
 }
 
 #[doc(hidden)]
@@ -7301,6 +7683,39 @@ pub async fn render_view_for_testing(
         .and_then(RenderFormat::from_str)
         .unwrap_or(RenderFormat::RawRgba);
     render_view_process(view_state_json, bridge_state, render_format).await
+}
+
+#[doc(hidden)]
+pub async fn render_view_with_diagnostics_for_testing(
+    view_state_json: String,
+    bridge_state: &BridgeState,
+    format: Option<&str>,
+) -> BridgeResult<RenderViewTestOutput> {
+    let render_format = format
+        .and_then(RenderFormat::from_str)
+        .unwrap_or(RenderFormat::RawRgba);
+    render_view_process_with_diagnostics(
+        view_state_json,
+        bridge_state,
+        render_format,
+        render_loop::view_state::FrameReadbackMode::Blocking,
+    )
+    .await
+}
+
+#[doc(hidden)]
+pub async fn submit_view_with_diagnostics_for_testing(
+    view_state_json: String,
+    bridge_state: &BridgeState,
+) -> BridgeResult<RenderViewDiagnostics> {
+    Ok(render_view_process_with_diagnostics(
+        view_state_json,
+        bridge_state,
+        RenderFormat::RawRgba,
+        render_loop::view_state::FrameReadbackMode::Skip,
+    )
+    .await?
+    .diagnostics)
 }
 
 struct MultiViewPacketEntry {
@@ -7327,69 +7742,82 @@ async fn render_views_process(
     bridge_state: &BridgeState,
     format: RenderFormat,
 ) -> BridgeResult<Vec<u8>> {
-    let parsed_state: JsonValue =
+    Ok(
+        render_views_process_with_diagnostics(state_json, bridge_state, format)
+            .await?
+            .data,
+    )
+}
+
+async fn render_views_process_with_diagnostics(
+    state_json: String,
+    bridge_state: &BridgeState,
+    format: RenderFormat,
+) -> BridgeResult<RenderViewsTestOutput> {
+    let total_start = std::time::Instant::now();
+    let parse_start = std::time::Instant::now();
+    let frontend_state: FrontendViewState =
         serde_json::from_str(&state_json).map_err(|err| BridgeError::Input {
             code: 4100,
             details: format!("Failed to parse view state JSON: {}", err),
         })?;
+    let parse_time = parse_start.elapsed();
 
-    let requested_views = match parsed_state.get("requestedViews") {
-        Some(JsonValue::Array(requests)) if !requests.is_empty() => requests.clone(),
-        _ => {
-            return Err(BridgeError::Input {
-                code: 4102,
-                details: "render_views expects a non-empty 'requestedViews' array".to_string(),
-            })
-        }
+    let requested_views = frontend_state
+        .requested_views
+        .clone()
+        .filter(|requests| !requests.is_empty())
+        .ok_or_else(|| BridgeError::Input {
+            code: 4102,
+            details: "render_views expects a non-empty 'requestedViews' array".to_string(),
+        })?;
+
+    let mut base_state = frontend_state;
+    base_state.requested_views = None;
+    base_state.requested_view = None;
+
+    let service_lock_start = std::time::Instant::now();
+    let service_arc = {
+        let service_guard = bridge_state.render_loop_service.lock().await;
+        service_guard
+            .as_ref()
+            .cloned()
+            .ok_or_else(|| BridgeError::ServiceNotInitialized {
+                code: 5006,
+                details:
+                    "GPU rendering service is not initialized. Please initialize the render loop first."
+                        .to_string(),
+            })?
     };
-
-    // Base state without requestedView(s) so we can inject per request
-    let mut base_state = parsed_state.clone();
-    if let Some(obj) = base_state.as_object_mut() {
-        obj.remove("requestedViews");
-        obj.remove("requestedView");
-    }
+    let mut service = service_arc.lock().await;
+    let service_lock_time = service_lock_start.elapsed();
+    let prepared_layers =
+        prepare_frontend_layers_for_render(&base_state, bridge_state, &mut service).await?;
 
     let mut entries: Vec<MultiViewPacketEntry> = Vec::with_capacity(requested_views.len());
+    let mut per_view = Vec::with_capacity(requested_views.len());
 
     for request in requested_views {
-        let view_type = request
-            .get("type")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| BridgeError::Input {
-                code: 4103,
-                details: "Each requested view must include a 'type' string".to_string(),
-            })?;
-        let view_code = encode_view_type(view_type)?;
-
-        let width = request
-            .get("width")
-            .and_then(|v| v.as_u64())
-            .ok_or_else(|| BridgeError::Input {
-                code: 4104,
-                details: format!("Requested view '{}' missing numeric 'width'", view_type),
-            })? as u32;
-
-        let height = request
-            .get("height")
-            .and_then(|v| v.as_u64())
-            .ok_or_else(|| BridgeError::Input {
-                code: 4105,
-                details: format!("Requested view '{}' missing numeric 'height'", view_type),
-            })? as u32;
+        let view_code = encode_view_type(&request.view_type)?;
+        let width = request.width;
+        let height = request.height;
 
         let mut state_for_view = base_state.clone();
-        if let Some(obj) = state_for_view.as_object_mut() {
-            obj.insert("requestedView".to_string(), request.clone());
-        }
+        state_for_view.requested_view = Some(request.clone());
 
-        let state_payload =
-            serde_json::to_string(&state_for_view).map_err(|err| BridgeError::Internal {
-                code: 5101,
-                details: format!("Failed to serialize view state: {}", err),
-            })?;
-
-        let render_bytes = render_view_process(state_payload, bridge_state, format).await?;
+        let render_result = render_frontend_view_with_diagnostics(
+            &state_for_view,
+            bridge_state,
+            &mut service,
+            format,
+            render_loop::view_state::FrameReadbackMode::Blocking,
+            parse_time,
+            service_lock_time,
+            Some(&prepared_layers),
+        )
+        .await?;
+        let render_bytes = render_result.data;
+        per_view.push(render_result.diagnostics);
 
         if format == RenderFormat::RawRgba {
             if render_bytes.len() < 8 {
@@ -7397,7 +7825,11 @@ async fn render_views_process(
                     code: 5102,
                     details: format!(
                         "render_view returned insufficient data for view '{}'",
-                        view_type
+                        state_for_view
+                            .requested_view
+                            .as_ref()
+                            .map(|view| view.view_type.as_str())
+                            .unwrap_or("unknown")
                     ),
                 });
             }
@@ -7424,6 +7856,7 @@ async fn render_views_process(
         }
     }
 
+    let packet_start = std::time::Instant::now();
     let mut packet = Vec::new();
     packet.extend_from_slice(&(entries.len() as u32).to_le_bytes());
 
@@ -7446,7 +7879,27 @@ async fn render_views_process(
         packet.extend_from_slice(&entry.payload);
     }
 
-    Ok(packet)
+    let packet_encode_ms = duration_ms(packet_start.elapsed());
+    let total_ms = duration_ms(total_start.elapsed());
+    let format_label = match format {
+        RenderFormat::Png => "png",
+        RenderFormat::RawRgba => "rgba",
+    }
+    .to_string();
+    let output_bytes = packet.len();
+
+    Ok(RenderViewsTestOutput {
+        data: packet,
+        diagnostics: RenderViewsDiagnostics {
+            format: format_label,
+            requested_view_count: per_view.len(),
+            parse_ms: duration_ms(parse_time),
+            packet_encode_ms,
+            total_ms,
+            output_bytes,
+            per_view,
+        },
+    })
 }
 
 #[doc(hidden)]
@@ -7459,6 +7912,18 @@ pub async fn render_views_for_testing(
         .and_then(RenderFormat::from_str)
         .unwrap_or(RenderFormat::RawRgba);
     render_views_process(view_state_json, bridge_state, render_format).await
+}
+
+#[doc(hidden)]
+pub async fn render_views_with_diagnostics_for_testing(
+    view_state_json: String,
+    bridge_state: &BridgeState,
+    format: Option<&str>,
+) -> BridgeResult<RenderViewsTestOutput> {
+    let render_format = format
+        .and_then(RenderFormat::from_str)
+        .unwrap_or(RenderFormat::RawRgba);
+    render_views_process_with_diagnostics(view_state_json, bridge_state, render_format).await
 }
 
 #[command]
@@ -7538,46 +8003,32 @@ async fn render_view(
     }
 }
 
-// DEPRECATED: Use render_view instead
-// Public command for PNG output (default, legacy path)
-// This method returns PNG data but serializes it as JSON, which is very inefficient
 #[command]
-#[tracing::instrument(skip_all, err, name = "api.apply_and_render_view_state")]
-async fn apply_and_render_view_state(
-    view_state_json: String,
+#[tracing::instrument(skip_all, err, name = "api.submit_view")]
+async fn submit_view(
+    state_json: String,
     state: State<'_, BridgeState>,
-) -> BridgeResult<Vec<u8>> {
-    info!("📊 LEGACY: apply_and_render_view_state called (PNG with JSON serialization)");
-    // Delegate to new internal implementation
-    render_view_process(view_state_json, state.inner(), RenderFormat::Png).await
-}
+) -> BridgeResult<RenderViewDiagnostics> {
+    debug!("🎯 submit_view called");
 
-// DEPRECATED: Use render_view with format="png" instead
-// Binary-optimized version that returns PNG with binary IPC
-// Better than apply_and_render_view_state but still encodes to PNG
-#[command]
-#[tracing::instrument(skip_all, err, name = "api.apply_and_render_view_state_binary")]
-async fn apply_and_render_view_state_binary(
-    view_state_json: String,
-    state: State<'_, BridgeState>,
-) -> Result<tauri::ipc::Response, BridgeError> {
-    info!("🚀 LEGACY: apply_and_render_view_state_binary called (PNG with binary IPC)");
-    // Delegate to render_view with PNG format
-    render_view(view_state_json, Some("png".to_string()), state).await
-}
+    let start_time = std::time::Instant::now();
+    let bridge_state: &BridgeState = state.inner();
+    let result = render_view_process_with_diagnostics(
+        state_json,
+        bridge_state,
+        RenderFormat::RawRgba,
+        render_loop::view_state::FrameReadbackMode::Skip,
+    )
+    .await?;
 
-// DEPRECATED: Use render_view with format="rgba" instead
-// Raw RGBA version - no PNG encoding, just raw pixel data
-// This is the most efficient of the legacy methods
-#[command]
-#[tracing::instrument(skip_all, err, name = "api.apply_and_render_view_state_raw")]
-async fn apply_and_render_view_state_raw(
-    view_state_json: String,
-    state: State<'_, BridgeState>,
-) -> Result<tauri::ipc::Response, BridgeError> {
-    info!("🚀 LEGACY: apply_and_render_view_state_raw called");
-    // Delegate to render_view with RGBA format
-    render_view(view_state_json, Some("rgba".to_string()), state).await
+    debug!(
+        "🎯 submit_view completed in {}ms ({:?}, {} warnings)",
+        start_time.elapsed().as_millis(),
+        result.diagnostics.output_dimensions,
+        result.diagnostics.warnings.len()
+    );
+
+    Ok(result.diagnostics)
 }
 
 // Query metadata about slices along a specific axis
@@ -7719,7 +8170,7 @@ async fn query_slice_axis_meta(
                     "Invalid axis '{}'. Must be 'axial', 'sagittal', or 'coronal'",
                     axis
                 ),
-            })
+            });
         }
     };
 
@@ -7777,8 +8228,10 @@ async fn batch_render_slices(
                                             // Check threshold field specifically
                                             if let Some(threshold) = layer_obj.get("threshold") {
                                                 if !threshold.is_null() && !threshold.is_object() {
-                                                    error!("ViewState[{}].layers[{}].threshold has invalid type: {:?}",
-                                                           idx, layer_idx, threshold);
+                                                    error!(
+                                                        "ViewState[{}].layers[{}].threshold has invalid type: {:?}",
+                                                        idx, layer_idx, threshold
+                                                    );
                                                 }
                                             }
                                         }
@@ -7902,15 +8355,6 @@ async fn batch_render_slices(
                 code: 5021,
                 details: format!("Failed to create render target: {}", e),
             })?;
-
-        // Apply frame parameters if available
-        if let (Some(origin), Some(u_vec), Some(v_vec)) = (
-            view_state.camera.frame_origin,
-            view_state.camera.frame_u_vec,
-            view_state.camera.frame_v_vec,
-        ) {
-            service.update_frame_ubo(origin, u_vec, v_vec);
-        }
 
         // Render using the ViewState directly
         let frame_result = service
@@ -8526,7 +8970,10 @@ async fn load_template_by_id<R: Runtime>(
 
     let _ = stop_progress_tx.send(());
     if let Err(join_err) = progress_task.await {
-        debug!("Template-by-id progress forwarder task ended early: {}", join_err);
+        debug!(
+            "Template-by-id progress forwarder task ended early: {}",
+            join_err
+        );
     }
 
     let result = result.map_err(|e| BridgeError::Internal {
@@ -8536,10 +8983,13 @@ async fn load_template_by_id<R: Runtime>(
 
     // Get the cache path from the template service
     let template_service = state.template_service.lock().await;
-    let cache_path = template_service.get_cache_path(&template_id).map_err(|e| BridgeError::Internal {
-            code: 7007,
-            details: format!("Failed to get template cache path: {}", e),
-        })?;
+    let cache_path =
+        template_service
+            .get_cache_path(&template_id)
+            .map_err(|e| BridgeError::Internal {
+                code: 7007,
+                details: format!("Failed to get template cache path: {}", e),
+            })?;
     drop(template_service);
 
     // Load the volume data for the registry (similar to load_file)
@@ -8571,7 +9021,10 @@ async fn load_template_by_id<R: Runtime>(
     tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
     drop(registry);
 
-    info!("Bridge: Successfully loaded and registered template volume with handle: {} (with sync delay)", result.volume_handle_info.id);
+    info!(
+        "Bridge: Successfully loaded and registered template volume with handle: {} (with sync delay)",
+        result.volume_handle_info.id
+    );
 
     Ok(result)
 }
@@ -8612,6 +9065,22 @@ async fn clear_template_cache(state: State<'_, BridgeState>) -> BridgeResult<()>
         })?;
 
     Ok(())
+}
+
+#[command]
+#[tracing::instrument(skip_all, err, name = "api.preview_set_studio_imports")]
+async fn preview_set_studio_imports(
+    request: StudioImportPreviewRequest,
+) -> BridgeResult<Vec<StudioImportCandidate>> {
+    Ok(field_table::preview_import_candidates(request))
+}
+
+#[command]
+#[tracing::instrument(skip_all, err, name = "api.materialize_set_studio_compare_panes")]
+async fn materialize_set_studio_compare_panes(
+    request: bridge_types::StudioCompareMaterializeRequest,
+) -> BridgeResult<Vec<bridge_types::StudioComparePaneSpec>> {
+    Ok(field_table::materialize_compare_panes(request))
 }
 
 // --- Surface Template Commands ---
@@ -8754,8 +9223,8 @@ async fn load_surface_template(
 /// Get available surface template catalog
 #[command]
 #[tracing::instrument(skip_all, err, name = "api.get_surface_template_catalog")]
-async fn get_surface_template_catalog(
-) -> BridgeResult<Vec<bridge_types::SurfaceTemplateCatalogEntry>> {
+async fn get_surface_template_catalog()
+-> BridgeResult<Vec<bridge_types::SurfaceTemplateCatalogEntry>> {
     info!("Bridge: get_surface_template_catalog called");
 
     let mut entries = Vec::new();
@@ -8841,7 +9310,7 @@ fn parse_template_id(template_id: &str) -> BridgeResult<templates::TemplateConfi
             return Err(BridgeError::Internal {
                 code: 7010,
                 details: format!("Unknown template space: {}", space_str),
-            })
+            });
         }
     };
 
@@ -8859,7 +9328,7 @@ fn parse_template_id(template_id: &str) -> BridgeResult<templates::TemplateConfi
             return Err(BridgeError::Internal {
                 code: 7011,
                 details: format!("Unknown template type: {}", type_str),
-            })
+            });
         }
     };
 
@@ -8872,7 +9341,7 @@ fn parse_template_id(template_id: &str) -> BridgeResult<templates::TemplateConfi
             return Err(BridgeError::Internal {
                 code: 7012,
                 details: format!("Unknown template resolution: {}", resolution_str),
-            })
+            });
         }
     };
 
@@ -8936,18 +9405,13 @@ pub fn plugin<R: Runtime>() -> TauriPlugin<R> {
             set_layer_border,
             sample_layer_value_at_world,
             request_frame,
-            // render_frame, // REMOVED - Redundant with apply_and_render_view_state
             add_render_layer,
             patch_layer,
             compute_layer_histogram,
             sample_world_coordinate,
-            // render_to_image, // REMOVED - Redundant with apply_and_render_view_state
-            // render_to_image_binary, // REMOVED - Redundant with apply_and_render_view_state
-            render_view, // New unified render method
+            render_view,
+            submit_view,
             render_views,
-            apply_and_render_view_state,
-            apply_and_render_view_state_binary,
-            apply_and_render_view_state_raw,
             query_slice_axis_meta,
             batch_render_slices,
             // Atlas management commands
@@ -8974,6 +9438,8 @@ pub fn plugin<R: Runtime>() -> TauriPlugin<R> {
             load_template_by_id,
             get_template_cache_stats,
             clear_template_cache,
+            preview_set_studio_imports,
+            materialize_set_studio_compare_panes,
         ])
         .setup(|app, _| {
             // Initialize the bridge state
@@ -8989,7 +9455,7 @@ pub fn plugin<R: Runtime>() -> TauriPlugin<R> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use log::{debug, info, warn};
+    use bridge_types::Loaded;
     use nalgebra::Affine3;
     use std::path::PathBuf;
     use volmath::{DenseNeuroVec, DenseVolume3, NeuroSpace, NeuroSpace3};
@@ -9000,6 +9466,37 @@ mod tests {
             .join("..") // Go up to workspace root
             .join("test-data")
             .join("unit")
+    }
+
+    #[test]
+    fn test_build_surface_overlay_handle_is_unique_for_same_surface_and_file() {
+        let file_path = PathBuf::from("/tmp/atlas.label.gii");
+
+        let first = build_surface_overlay_handle("surface-1", &file_path);
+        let second = build_surface_overlay_handle("surface-1", &file_path);
+
+        assert_ne!(first, second);
+        assert!(first.starts_with("overlay_surface-1_atlas.label_"));
+        assert!(second.starts_with("overlay_surface-1_atlas.label_"));
+    }
+
+    #[test]
+    fn test_remove_data_for_surface_removes_all_overlay_handles_for_surface() {
+        let mut registry = SurfaceRegistry::new();
+        let first = build_surface_overlay_handle("surface-1", &PathBuf::from("/tmp/a.func.gii"));
+        let second = build_surface_overlay_handle("surface-1", &PathBuf::from("/tmp/a.func.gii"));
+        let other = build_surface_overlay_handle("surface-2", &PathBuf::from("/tmp/a.func.gii"));
+
+        registry.insert_data(first.clone(), vec![1.0]);
+        registry.insert_data(second.clone(), vec![2.0]);
+        registry.insert_data(other.clone(), vec![3.0]);
+
+        let removed = registry.remove_data_for_surface("surface-1");
+
+        assert_eq!(removed, 2);
+        assert!(!registry.contains_data(&first));
+        assert!(!registry.contains_data(&second));
+        assert!(registry.contains_data(&other));
     }
 
     #[test]
@@ -9187,6 +9684,8 @@ mod tests {
         // Test that map starts empty
         let layer_map = state.layer_to_atlas_map.try_lock().unwrap();
         assert_eq!(layer_map.len(), 0);
+        let timepoint_map = state.layer_to_timepoint_map.try_lock().unwrap();
+        assert_eq!(timepoint_map.len(), 0);
     }
 
     fn make_4d_volume_sendable() -> VolumeSendable {

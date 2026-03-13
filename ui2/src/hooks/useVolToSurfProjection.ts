@@ -8,6 +8,7 @@
 import { useState, useCallback } from 'react';
 import { useLayers } from '@/stores/layerStore';
 import { useSurfaceStore } from '@/stores/surfaceStore';
+import { useResolvedActiveSurfaceViewId } from './useResolvedActiveSurfaceViewId';
 import {
   getVolumeSurfaceProjectionService,
   type VolToSurfProjectionParams,
@@ -85,14 +86,19 @@ export function useVolToSurfProjection(): UseVolToSurfProjectionReturn {
 
   // Get loaded volumes from layer store
   const layers = useLayers();
-  const volumeIds = layers.filter((l) => l.type === 'volume').map((l) => l.volumeId || l.id);
+  const volumeIds = layers.map((l) => l.volumeId || l.id);
 
   // Get loaded surfaces from surface store
   const surfaces = useSurfaceStore((state) => state.surfaces);
-  const surfaceIds = Object.keys(surfaces);
+  const surfaceIds = Array.from(surfaces.keys());
+  const resolvedSurfaceViewId = useResolvedActiveSurfaceViewId();
 
   // Get GPU projection setting from surface store
-  const useGPUProjection = useSurfaceStore((state) => state.renderSettings.useGPUProjection);
+  const useGPUProjection = useSurfaceStore((state) => {
+    return resolvedSurfaceViewId
+      ? (state.surfaceViewSettings.get(resolvedSurfaceViewId)?.projectionSettings.useGPUProjection ?? false)
+      : false;
+  });
 
   // Can project if we have at least one volume and one surface
   const canProject = volumeIds.length > 0 && surfaceIds.length > 0;
@@ -125,6 +131,7 @@ export function useVolToSurfProjection(): UseVolToSurfProjectionReturn {
         // Use projectAndDisplay to also add to surface store
         const layer = await service.projectAndDisplay(volumeId, surfaceId, name, {
           ...options,
+          surfaceViewId: resolvedSurfaceViewId,
           useGPUProjection: shouldUseGPU,
         });
 
@@ -137,7 +144,7 @@ export function useVolToSurfProjection(): UseVolToSurfProjectionReturn {
           total_vertex_count: 0,
           coverage_percent: 100,
           data_range: { min: layer.range[0], max: layer.range[1] },
-          params: service['DEFAULT_PROJECTION_PARAMS'],
+          params: options?.params ?? {},
           timepoint: options?.timepoint,
         } as VolToSurfProjectionResult;
       } catch (err) {
@@ -149,7 +156,7 @@ export function useVolToSurfProjection(): UseVolToSurfProjectionReturn {
         setIsProjecting(false);
       }
     },
-    [service, useGPUProjection]
+    [resolvedSurfaceViewId, service, useGPUProjection]
   );
 
   const createSampler = useCallback(

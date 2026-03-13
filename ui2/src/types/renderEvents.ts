@@ -81,7 +81,7 @@ export interface RenderStartEvent {
 /**
  * Render complete event - signals rendering has finished
  */
-export interface RenderCompleteEvent extends RenderEvent {
+export type RenderCompleteEvent = RenderEvent & {
   /** Rendering duration in milliseconds */
   duration?: number;
   /** Optional metadata about the render */
@@ -91,7 +91,7 @@ export interface RenderCompleteEvent extends RenderEvent {
     sliceIndex?: number;
     volumeId?: string;
   };
-}
+};
 
 /**
  * Render error event - signals rendering failed

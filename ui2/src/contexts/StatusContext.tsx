@@ -24,8 +24,8 @@ function reducer(state: State, action: Action): State {
       return {
         ...state,
         [action.id]: {
-          label: '', // Default label if slot doesn't exist
           ...state[action.id],
+          label: state[action.id]?.label ?? '',
           value: action.value
         }
       };
@@ -36,8 +36,8 @@ function reducer(state: State, action: Action): State {
       action.entries.forEach(([id, value]) => {
         // Create slot with defaults if it doesn't exist
         next[id] = { 
-          label: '', // Default label
           ...next[id], 
+          label: next[id]?.label ?? '',
           value 
         };
       });

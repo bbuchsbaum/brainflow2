@@ -5,10 +5,18 @@
  * need re-rendering, reducing backend calls by ~66% in typical usage.
  */
 
-import type { ViewState, ViewType } from '@/types/viewState';
+import type { ViewState, ViewStateRevisions } from '@/types/viewState';
+import type { ViewType } from '@/types/coordinates';
 import { useRenderStateStore } from '@/stores/renderStateStore';
 import { getRenderCoordinator } from './RenderCoordinator';
 import type { RenderRequest } from './RenderCoordinator';
+import {
+  areCrosshairStatesEqual,
+  areViewLayerListsEqual,
+  areViewPlanesEqual,
+  cloneViewStateRevisions,
+  TRACKED_VIEW_TYPES
+} from '@/utils/viewStateTracking';
 
 const DEBUG_OPTIMIZED_RENDER =
   import.meta.env.DEV &&
@@ -36,6 +44,7 @@ interface RenderMetrics {
 
 export class OptimizedRenderService {
   private lastViewState: ViewState | null = null;
+  private lastRevisions: ViewStateRevisions | null = null;
   private metrics: RenderMetrics = {
     totalRenders: 0,
     skippedRenders: 0,
@@ -50,7 +59,11 @@ export class OptimizedRenderService {
   /**
    * Analyze which views changed between two ViewStates
    */
-  private detectChangedViews(current: ViewState, previous: ViewState | null): ViewChangeSet {
+  private detectChangedViews(
+    current: ViewState,
+    previous: ViewState | null,
+    revisions?: ViewStateRevisions
+  ): ViewChangeSet {
     // If no previous state, all views need rendering
     if (!previous) {
       return { axial: true, sagittal: true, coronal: true };
@@ -61,34 +74,43 @@ export class OptimizedRenderService {
       sagittal: false,
       coronal: false
     };
-    
+
+    if (revisions && this.lastRevisions) {
+      if (revisions.layers !== this.lastRevisions.layers || revisions.timepoint !== this.lastRevisions.timepoint) {
+        renderOptDebugLog('[OptimizedRenderService] Layer/timepoint revision changed - all views need update');
+        return { axial: true, sagittal: true, coronal: true };
+      }
+
+      if (revisions.crosshair !== this.lastRevisions.crosshair) {
+        renderOptDebugLog('[OptimizedRenderService] Crosshair revision changed - all views need update');
+        return { axial: true, sagittal: true, coronal: true };
+      }
+
+      TRACKED_VIEW_TYPES.forEach((viewType) => {
+        changes[viewType] = revisions.views[viewType] !== this.lastRevisions!.views[viewType];
+      });
+
+      return changes;
+    }
+
     // Check if layers changed (affects all views)
-    const layersChanged = JSON.stringify(current.layers) !== JSON.stringify(previous.layers);
+    const layersChanged = !areViewLayerListsEqual(current.layers, previous.layers) || current.timepoint !== previous.timepoint;
     if (layersChanged) {
       renderOptDebugLog('[OptimizedRenderService] Layers changed - all views need update');
       return { axial: true, sagittal: true, coronal: true };
     }
-    
-    // Check crosshair position to determine which views need update
-    const crosshairChanged = {
-      x: current.crosshair.world_mm[0] !== previous.crosshair.world_mm[0],
-      y: current.crosshair.world_mm[1] !== previous.crosshair.world_mm[1],
-      z: current.crosshair.world_mm[2] !== previous.crosshair.world_mm[2],
-      visible: current.crosshair.visible !== previous.crosshair.visible
-    };
-    
+
     // IMPORTANT: The crosshair appears on ALL views as intersecting lines
     // When ANY coordinate changes, ALL views need to update to show the new crosshair position
     // This is because each view shows crosshair lines representing the intersection
     // of the other two planes with the current view
-    if (crosshairChanged.visible || crosshairChanged.x || crosshairChanged.y || crosshairChanged.z) {
+    if (!areCrosshairStatesEqual(current.crosshair, previous.crosshair)) {
       renderOptDebugLog('[OptimizedRenderService] Crosshair changed - all views need update');
       return { axial: true, sagittal: true, coronal: true };
     }
-    
+
     // Check for view-specific changes (dimensions, viewport)
-    const viewTypes: ViewType[] = ['axial', 'sagittal', 'coronal'];
-    for (const viewType of viewTypes) {
+    for (const viewType of TRACKED_VIEW_TYPES) {
       const currentView = current.views[viewType];
       const previousView = previous.views[viewType];
       
@@ -97,17 +119,8 @@ export class OptimizedRenderService {
         changes[viewType] = true;
         continue;
       }
-      
-      // Check if view dimensions changed
-      if (JSON.stringify(currentView.dim_px) !== JSON.stringify(previousView.dim_px)) {
-        changes[viewType] = true;
-        renderOptDebugLog(`[OptimizedRenderService] ${viewType} dimensions changed`);
-      }
-      
-      // Check if view plane changed (origin, u, v vectors)
-      if (JSON.stringify(currentView.origin_mm) !== JSON.stringify(previousView.origin_mm) ||
-          JSON.stringify(currentView.u_mm) !== JSON.stringify(previousView.u_mm) ||
-          JSON.stringify(currentView.v_mm) !== JSON.stringify(previousView.v_mm)) {
+
+      if (!areViewPlanesEqual(currentView, previousView)) {
         changes[viewType] = true;
         renderOptDebugLog(`[OptimizedRenderService] ${viewType} view plane changed`);
       }
@@ -119,7 +132,11 @@ export class OptimizedRenderService {
   /**
    * Render only the views that changed
    */
-  async renderChangedViews(viewState: ViewState, tag?: string): Promise<void> {
+  async renderChangedViews(
+    viewState: ViewState,
+    tag?: string,
+    revisions?: ViewStateRevisions
+  ): Promise<void> {
     const startTime = performance.now();
     
     // Skip if no layers
@@ -129,14 +146,15 @@ export class OptimizedRenderService {
     }
     
     // Detect which views changed
-    const changedViews = this.detectChangedViews(viewState, this.lastViewState);
+    const changedViews = this.detectChangedViews(viewState, this.lastViewState, revisions);
     const viewsToRender = Object.entries(changedViews)
       .filter(([_, changed]) => changed)
       .map(([viewType]) => viewType as ViewType);
     
     if (viewsToRender.length === 0) {
       renderOptDebugLog('[OptimizedRenderService] No views required rendering after diff');
-      this.lastViewState = JSON.parse(JSON.stringify(viewState));
+      this.lastViewState = viewState;
+      this.lastRevisions = revisions ? cloneViewStateRevisions(revisions) : null;
       this.metrics.lastRenderTimestamp = performance.now();
       return;
     }
@@ -155,7 +173,7 @@ export class OptimizedRenderService {
     // Render only changed views
     const renderCoordinator = getRenderCoordinator();
     const { setImage, setRendering, setError } = useRenderStateStore.getState();
-    const renderReason = this.determineRenderReason(viewState, this.lastViewState);
+    const renderReason = this.determineRenderReason(viewState, this.lastViewState, revisions);
     const startTimes = new Map<ViewType, number>();
     const storeKeyFor = (viewType: ViewType) => tag || viewType;
     
@@ -226,7 +244,8 @@ export class OptimizedRenderService {
     }
     
     // Update state tracking
-    this.lastViewState = JSON.parse(JSON.stringify(viewState)); // Deep clone
+    this.lastViewState = viewState;
+    this.lastRevisions = revisions ? cloneViewStateRevisions(revisions) : null;
     this.metrics.lastRenderTimestamp = performance.now();
     
     const totalTime = performance.now() - startTime;
@@ -236,18 +255,35 @@ export class OptimizedRenderService {
   /**
    * Determine the reason for rendering based on what changed
    */
-  private determineRenderReason(current: ViewState, previous: ViewState | null): RenderRequest['reason'] {
+  private determineRenderReason(
+    current: ViewState,
+    previous: ViewState | null,
+    revisions?: ViewStateRevisions
+  ): RenderRequest['reason'] {
     if (!previous) return 'initial';
-    
-    if (JSON.stringify(current.layers) !== JSON.stringify(previous.layers)) {
+
+    if (revisions && this.lastRevisions) {
+      if (revisions.layers !== this.lastRevisions.layers || revisions.timepoint !== this.lastRevisions.timepoint) {
+        return 'layer_change';
+      }
+      if (revisions.crosshair !== this.lastRevisions.crosshair) {
+        return 'crosshair';
+      }
+      if (TRACKED_VIEW_TYPES.some((viewType) => revisions.views[viewType] !== this.lastRevisions!.views[viewType])) {
+        return 'view_change';
+      }
+      return 'unknown';
+    }
+
+    if (!areViewLayerListsEqual(current.layers, previous.layers) || current.timepoint !== previous.timepoint) {
       return 'layer_change';
     }
-    
-    if (JSON.stringify(current.crosshair.world_mm) !== JSON.stringify(previous.crosshair.world_mm)) {
+
+    if (!areCrosshairStatesEqual(current.crosshair, previous.crosshair)) {
       return 'crosshair';
     }
-    
-    if (JSON.stringify(current.views) !== JSON.stringify(previous.views)) {
+
+    if (TRACKED_VIEW_TYPES.some((viewType) => !areViewPlanesEqual(current.views[viewType], previous.views[viewType]))) {
       return 'view_change';
     }
     
@@ -303,8 +339,8 @@ export class OptimizedRenderService {
    */
   async forceRenderAll(viewState: ViewState): Promise<void> {
     // Temporarily clear last state to force all views to render
-    const savedLastState = this.lastViewState;
     this.lastViewState = null;
+    this.lastRevisions = null;
     
     await this.renderChangedViews(viewState);
     

@@ -30,7 +30,7 @@ export class RenderEventChannel {
    */
   emit(type: RenderEventType, data: Omit<RenderEvent, 'type'> = {}) {
     const eventName = `render.${type}.${this.channelId}`;
-    this.eventBus.emit(eventName, {
+    this.eventBus.emit(eventName as any, {
       type,
       ...data
     });
@@ -42,7 +42,7 @@ export class RenderEventChannel {
   subscribe(type: RenderEventType, callback: (event: RenderEvent) => void) {
     const eventName = `render.${type}.${this.channelId}`;
     // Return unsubscribe function
-    return this.eventBus.on(eventName, callback);
+    return this.eventBus.on(eventName as any, callback as any);
   }
   
   /**

@@ -10,7 +10,7 @@ import type { ViewPlane } from './coordinates';
 /**
  * Type of render context - helps with debugging and routing
  */
-export type RenderContextType = 'slice' | 'mosaic-cell';
+export type RenderContextType = 'slice' | 'mosaic-cell' | 'comparison-panel';
 
 /**
  * Unified render context that works for both SliceView and MosaicView

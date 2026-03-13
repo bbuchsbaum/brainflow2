@@ -3,7 +3,7 @@
  */
 
 import React, { useEffect, useState, useRef } from 'react';
-import { getApiService } from '@/services/apiService';
+import { getRenderTargetService } from '@/services/renderTarget/RenderTargetService';
 
 interface RenderLoopState {
   isInitialized: boolean;
@@ -39,7 +39,7 @@ export function useRenderLoopInit(width: number, height: number) {
     error: null
   });
   
-  const apiService = React.useMemo(() => getApiService(), []);
+  const renderTargetService = React.useMemo(() => getRenderTargetService(), []);
   const isMounted = useRef(true);
   
   useEffect(() => {
@@ -84,9 +84,9 @@ export function useRenderLoopInit(width: number, height: number) {
       
       globalInitPromise = (async () => {
         // First initialize the render loop with validated dimensions
-        await apiService.initRenderLoop(validWidth, validHeight);
+        await renderTargetService.initRenderLoop(validWidth, validHeight);
         // Then create the offscreen render target
-        await apiService.createOffscreenRenderTarget(validWidth, validHeight);
+        await renderTargetService.createOffscreenRenderTarget(validWidth, validHeight);
       })();
       
       try {
@@ -118,7 +118,7 @@ export function useRenderLoopInit(width: number, height: number) {
     return () => {
       isMounted.current = false;
     };
-  }, [apiService, validWidth, validHeight]);
+  }, [renderTargetService, validWidth, validHeight]);
   
   return state;
 }

@@ -3,7 +3,7 @@
  */
 
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
-import { Search, Star, Clock, Filter, Download, Info } from 'lucide-react';
+import { Search, Star, Clock, Download, Info } from 'lucide-react';
 import { AtlasService } from '../../services/AtlasService';
 import { AtlasConfigModal } from '../dialogs/AtlasConfigModal';
 import { PanelErrorBoundary } from '../common/PanelErrorBoundary';
@@ -67,7 +67,7 @@ const AtlasPanelContent: React.FC<AtlasPanelProps> = ({ className = '' }) => {
   }, []);
 
   // Safe state setter that checks if component is still mounted
-  const safeSetState = useCallback(<T,>(setter: React.Dispatch<React.SetStateAction<T>>, value: React.SetStateAction<T>) => {
+  const safeSetState = useCallback(<T,>(setter: React.Dispatch<React.SetStateAction<T>>, value: NoInfer<React.SetStateAction<T>>) => {
     if (isMountedRef.current) {
       console.log('AtlasPanel: safeSetState called, component is mounted, updating state');
       setter(value);

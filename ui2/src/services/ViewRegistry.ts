@@ -116,9 +116,9 @@ export class OrthogonalLockedFactory implements ViewFactory {
 }
 
 /**
- * Factory for orthogonal flexible view
+ * Factory for the orthogonal panels workspace
  */
-export class OrthogonalFlexibleFactory implements ViewFactory {
+export class OrthogonalPanelsFactory implements ViewFactory {
   getDefaultConfig(): Partial<WorkspaceConfig> {
     return {};
   }
@@ -336,6 +336,77 @@ export class LightboxViewFactory implements ViewFactory {
 }
 
 /**
+ * Factory for Set Studio
+ */
+export class SetStudioFactory implements ViewFactory {
+  getDefaultConfig(): Partial<WorkspaceConfig> {
+    return {};
+  }
+
+  createLayout(config?: WorkspaceConfig): LayoutConfig {
+    return {
+      root: {
+        type: 'row',
+        content: [
+          {
+            type: 'column',
+            width: 17.25,
+            content: [{
+              type: 'component',
+              componentType: 'FileBrowser',
+              title: 'Files',
+              componentState: {}
+            }]
+          },
+          {
+            type: 'component',
+            componentType: 'SetStudioWorkspace',
+            title: 'Set Studio',
+            width: 59.75,
+            componentState: {}
+          },
+          {
+            type: 'column',
+            width: 23,
+            content: [
+              {
+                type: 'stack',
+                content: [
+                  {
+                    type: 'component',
+                    componentType: 'SetPanel',
+                    title: 'Set',
+                    componentState: {}
+                  },
+                  {
+                    type: 'component',
+                    componentType: 'LayerPanel',
+                    title: 'Volumes',
+                    componentState: {}
+                  },
+                  {
+                    type: 'component',
+                    componentType: 'AtlasPanel',
+                    title: 'Atlases',
+                    componentState: {}
+                  },
+                  {
+                    type: 'component',
+                    componentType: 'SurfacePanel',
+                    title: 'Surfaces',
+                    componentState: {}
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    };
+  }
+}
+
+/**
  * Factory for ROI Stats workspace
  */
 export class ROIStatsFactory implements ViewFactory {
@@ -391,12 +462,70 @@ export class CoordinateConverterFactory implements ViewFactory {
   }
 }
 
+/**
+ * Factory for comparison view
+ */
+export class ComparisonViewFactory implements ViewFactory {
+  getDefaultConfig(): Partial<WorkspaceConfig> {
+    return {};
+  }
+
+  createLayout(config?: WorkspaceConfig): LayoutConfig {
+    return {
+      root: {
+        type: 'row',
+        content: [
+          {
+            type: 'column',
+            width: 17.25,
+            content: [{
+              type: 'component',
+              componentType: 'FileBrowser',
+              title: 'Files',
+              componentState: {}
+            }]
+          },
+          {
+            type: 'component',
+            componentType: 'ComparisonView',
+            title: 'Comparison',
+            width: 59.75,
+            componentState: {}
+          },
+          {
+            type: 'column',
+            width: 23,
+            content: [
+              {
+                type: 'component',
+                componentType: 'LayerPanel',
+                title: 'Volumes',
+                height: 60,
+                componentState: {}
+              },
+              {
+                type: 'component',
+                componentType: 'PlotPanel',
+                title: 'Time Series',
+                height: 40,
+                componentState: {}
+              }
+            ]
+          }
+        ]
+      }
+    };
+  }
+}
+
 // Initialize the registry with all view types
 export function initializeViewRegistry() {
   ViewRegistry.register('orthogonal-locked', new OrthogonalLockedFactory());
-  ViewRegistry.register('orthogonal-flexible', new OrthogonalFlexibleFactory());
+  ViewRegistry.register('orthogonal-flexible', new OrthogonalPanelsFactory());
   ViewRegistry.register('mosaic', new MosaicViewFactory());
   ViewRegistry.register('lightbox', new LightboxViewFactory());
+  ViewRegistry.register('comparison', new ComparisonViewFactory());
+  ViewRegistry.register('set-studio', new SetStudioFactory());
   ViewRegistry.register('roi-stats', new ROIStatsFactory());
   ViewRegistry.register('coordinate-converter', new CoordinateConverterFactory());
   

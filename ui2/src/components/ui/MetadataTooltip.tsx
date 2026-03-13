@@ -1,5 +1,11 @@
 import React from 'react';
 import type { VolumeMetadata } from '@/stores/layerStore';
+import {
+  formatVolumeDataRange,
+  formatVolumeDimensions,
+  formatVolumeSpacing,
+  formatVolumeVoxelSummary,
+} from '@/utils/metadataFormatting';
 
 interface MetadataTooltipProps {
   metadata: VolumeMetadata;
@@ -11,36 +17,7 @@ interface MetadataTooltipProps {
  * Shows the most important fields with smart formatting
  */
 export const MetadataTooltip: React.FC<MetadataTooltipProps> = ({ metadata, className = '' }) => {
-  // Format dimensions as "X x Y x Z"
-  const formatDimensions = () => {
-    if (!metadata.dimensions) return 'Unknown';
-    return metadata.dimensions.join(' × ');
-  };
-
-  // Format spacing with units
-  const formatSpacing = () => {
-    if (!metadata.spacing) return 'Unknown';
-    return metadata.spacing.map(s => s.toFixed(2)).join(' × ') + ' mm';
-  };
-
-  // Format data range
-  const formatDataRange = () => {
-    if (!metadata.dataRange) return 'Unknown';
-    return `[${metadata.dataRange.min.toFixed(2)}, ${metadata.dataRange.max.toFixed(2)}]`;
-  };
-
-  // Format file size if we have voxel count
-  const formatVoxelInfo = () => {
-    if (!metadata.totalVoxels) return null;
-    const millions = (metadata.totalVoxels / 1_000_000).toFixed(1);
-    
-    if (metadata.nonZeroVoxels) {
-      const percentage = ((metadata.nonZeroVoxels / metadata.totalVoxels) * 100).toFixed(1);
-      return `${millions}M voxels (${percentage}% non-zero)`;
-    }
-    
-    return `${millions}M voxels`;
-  };
+  const voxelSummary = formatVolumeVoxelSummary(metadata);
 
   return (
     <div className={`p-4 ${className}`}>
@@ -48,19 +25,19 @@ export const MetadataTooltip: React.FC<MetadataTooltipProps> = ({ metadata, clas
         {/* Dimensions */}
         <div className="grid grid-cols-2 gap-4">
           <span className="text-muted-foreground text-sm">Dimensions</span>
-          <span className="font-mono text-sm text-right">{formatDimensions()}</span>
+          <span className="font-mono text-sm text-right">{formatVolumeDimensions(metadata)}</span>
         </div>
 
         {/* Spacing/Resolution */}
         <div className="grid grid-cols-2 gap-4">
           <span className="text-muted-foreground text-sm">Resolution</span>
-          <span className="font-mono text-sm text-right">{formatSpacing()}</span>
+          <span className="font-mono text-sm text-right">{formatVolumeSpacing(metadata)}</span>
         </div>
 
         {/* Data Range */}
         <div className="grid grid-cols-2 gap-4">
           <span className="text-muted-foreground text-sm">Data Range</span>
-          <span className="font-mono text-sm text-right">{formatDataRange()}</span>
+          <span className="font-mono text-sm text-right">{formatVolumeDataRange(metadata)}</span>
         </div>
 
         {/* Data Type */}
@@ -72,10 +49,10 @@ export const MetadataTooltip: React.FC<MetadataTooltipProps> = ({ metadata, clas
         )}
 
         {/* Voxel Info */}
-        {formatVoxelInfo() && (
+        {voxelSummary && (
           <div className="grid grid-cols-2 gap-4">
             <span className="text-muted-foreground text-sm">Size</span>
-            <span className="font-mono text-xs text-right">{formatVoxelInfo()}</span>
+            <span className="font-mono text-xs text-right">{voxelSummary}</span>
           </div>
         )}
 

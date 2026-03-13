@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Search, X } from 'lucide-react';
+import { Modal } from '@/components/ui/Modal';
 
 export interface CommandPaletteCommand {
   id: string;
@@ -44,7 +45,6 @@ export function CommandPaletteDialog({ open, commands, onClose }: CommandPalette
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [runningCommandId, setRunningCommandId] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
-  const containerRef = useRef<HTMLDivElement>(null);
 
   const filteredCommands = useMemo(
     () => commands.filter((command) => matchesQuery(command, query)),
@@ -73,26 +73,6 @@ export function CommandPaletteDialog({ open, commands, onClose }: CommandPalette
 
     setSelectedIndex(filteredCommands.length === 0 ? 0 : filteredCommands.length - 1);
   }, [filteredCommands.length, selectedIndex]);
-
-  useEffect(() => {
-    if (!open) {
-      return;
-    }
-
-    const handleMouseDown = (event: MouseEvent) => {
-      if (!containerRef.current) {
-        return;
-      }
-      if (!containerRef.current.contains(event.target as Node)) {
-        onClose();
-      }
-    };
-
-    window.addEventListener('mousedown', handleMouseDown);
-    return () => {
-      window.removeEventListener('mousedown', handleMouseDown);
-    };
-  }, [open, onClose]);
 
   const executeCommand = async (command: CommandPaletteCommand | undefined) => {
     if (!command) {
@@ -145,15 +125,17 @@ export function CommandPaletteDialog({ open, commands, onClose }: CommandPalette
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center p-4 pt-20" style={{ backgroundColor: 'rgba(0, 0, 0, 0.55)' }}>
-      <div
-        ref={containerRef}
-        className="w-full max-w-2xl overflow-hidden rounded-sm border shadow-2xl"
-        style={{
-          backgroundColor: 'var(--app-bg-secondary, #f8fafc)',
-          borderColor: 'var(--app-border, #d1d5db)',
-        }}
-      >
+    <Modal
+      isOpen={open}
+      onClose={onClose}
+      ariaLabel="Command palette"
+      size="full"
+      showCloseButton={false}
+      initialFocusRef={inputRef}
+      bodyClassName="p-0"
+      overlayClassName="items-start pt-20 bg-black/55"
+      className="max-w-2xl overflow-hidden rounded-sm border shadow-2xl"
+    >
         <div className="flex items-center gap-2 border-b px-3 py-2" style={{ borderColor: 'var(--app-border-subtle, #e2e8f0)' }}>
           <Search className="h-4 w-4 text-muted-foreground" />
           <input
@@ -208,7 +190,6 @@ export function CommandPaletteDialog({ open, commands, onClose }: CommandPalette
         <div className="border-t px-3 py-2 text-xs text-muted-foreground" style={{ borderColor: 'var(--app-border-subtle, #e2e8f0)' }}>
           Use ↑/↓ to navigate, Enter to run, Esc to close.
         </div>
-      </div>
-    </div>
+    </Modal>
   );
 }

@@ -5,7 +5,8 @@
  * Wraps SliceRenderer and adds crosshair rendering functionality.
  */
 
-import React, { useCallback, useRef, useState, useEffect, useMemo } from 'react';
+import { useCallback, useRef, useEffect, useMemo } from 'react';
+import type { MouseEvent } from 'react';
 import { SliceRenderer } from './SliceRenderer';
 import { useViewStateStore } from '@/stores/viewStateStore';
 import { useRenderStateStore } from '@/stores/renderStateStore';
@@ -13,7 +14,6 @@ import { getMosaicRenderService } from '@/services/MosaicRenderService';
 import { drawCrosshair, getLineDash } from '@/utils/crosshairUtils';
 import { CoordinateTransform } from '@/utils/coordinates';
 import { useCrosshairSettingsStore } from '@/stores/crosshairSettingsStore';
-import { RenderContextFactory } from '@/types/renderContext';
 import type { ViewPlane } from '@/types/coordinates';
 import type { CrosshairStyle } from '@/utils/crosshairUtils';
 
@@ -66,7 +66,8 @@ export function MosaicCell({
   }), [tag, width, height, workspaceId, axis, sliceIndex]);
   
   const mosaicRenderService = getMosaicRenderService();
-  const viewState = useViewStateStore(state => state.viewState);
+  const crosshair = useViewStateStore(state => state.viewState.crosshair);
+  const axisViewPlane = useViewStateStore(state => state.viewState.views[axis]);
   // Use Zustand store for crosshair settings - works across all React roots
   const crosshairSettings = useCrosshairSettingsStore(state => state.getViewSettings(axis));
   
@@ -97,7 +98,6 @@ export function MosaicCell({
   } | null>(null);
   const viewPlaneRef = useRef<ViewPlane | null>(null);
   const slicePositionRef = useRef<number>(0);
-  const [debugInfo, setDebugInfo] = useState<string>('');
   const lastImageRef = useRef<ImageBitmap | null>(null);
   // Store the redraw function from SliceRenderer
   const redrawCanvasRef = useRef<(() => void) | null>(null);
@@ -112,11 +112,11 @@ export function MosaicCell({
     // Try to get the view plane from the current ViewState
     // But if it doesn't exist, just skip crosshair rendering
     // This prevents crashes when viewState changes
-    if (!viewState.views || !viewState.views[axis]) {
+    if (!axisViewPlane) {
       console.warn(`[MosaicCell] No view plane available for axis ${axis}, skipping crosshair render`);
       return;
     }
-    const currentViewPlane = viewState.views[axis];
+    const currentViewPlane = axisViewPlane;
     
     // Store the view plane reference
     viewPlaneRef.current = currentViewPlane;
@@ -144,33 +144,33 @@ export function MosaicCell({
     
     // Calculate crosshair info
     const crosshairInfo = mosaicRenderService.calculateCrosshairForCell(
-      viewState.crosshair.world_mm,
+      crosshair.world_mm,
       axis,
       slicePositionRef.current,
       currentViewPlane
     );
     
     // Debug logging
-    const debug = `Slice ${sliceIndex}: pos=${slicePositionRef.current.toFixed(1)}, crosshair=${viewState.crosshair.world_mm.map(v => v.toFixed(1)).join(',')}, visible=${viewState.crosshair.visible}, hasCoord=${!!crosshairInfo.screenCoord}, isActive=${crosshairInfo.isActive}`;
+    const debug = `Slice ${sliceIndex}: pos=${slicePositionRef.current.toFixed(1)}, crosshair=${crosshair.world_mm.map(v => v.toFixed(1)).join(',')}, visible=${crosshair.visible}, hasCoord=${!!crosshairInfo.screenCoord}, isActive=${crosshairInfo.isActive}`;
     console.log(`[MosaicCell] ${debug}`);
     
     // Log the difference between crosshair and slice position
     let diff = 0;
     switch (axis) {
       case 'axial':
-        diff = Math.abs(viewState.crosshair.world_mm[2] - slicePositionRef.current);
+        diff = Math.abs(crosshair.world_mm[2] - slicePositionRef.current);
         break;
       case 'sagittal':
-        diff = Math.abs(viewState.crosshair.world_mm[0] - slicePositionRef.current);
+        diff = Math.abs(crosshair.world_mm[0] - slicePositionRef.current);
         break;
       case 'coronal':
-        diff = Math.abs(viewState.crosshair.world_mm[1] - slicePositionRef.current);
+        diff = Math.abs(crosshair.world_mm[1] - slicePositionRef.current);
         break;
     }
     console.log(`[MosaicCell] Distance from crosshair: ${diff.toFixed(1)}mm`);
     
     // Draw crosshair if visible and we have screen coordinates
-    if (crosshairSettings.visible && viewState.crosshair.visible && crosshairInfo.screenCoord && 
+    if (crosshairSettings.visible && crosshair.visible && crosshairInfo.screenCoord && 
         (crosshairInfo.isActive || crosshairSettings.showMirror)) {
       const [screenX, screenY] = crosshairInfo.screenCoord;
       
@@ -208,7 +208,7 @@ export function MosaicCell({
         style
       });
     }
-  }, [axis, sliceIndex, viewState.crosshair, viewState.views, mosaicRenderService, crosshairSettings]);
+  }, [axis, sliceIndex, crosshair, axisViewPlane, mosaicRenderService, crosshairSettings]);
   
   // Note: We no longer need manual redraw triggers for settings changes
   // The customRender dependency on crosshairSettings ensures SliceRenderer
@@ -227,7 +227,7 @@ export function MosaicCell({
   }, [tag]);
   
   // Handle mouse clicks to update crosshair
-  const handleMouseDown = useCallback((event: React.MouseEvent<HTMLDivElement>) => {
+  const handleMouseDown = useCallback((event: MouseEvent<HTMLDivElement>) => {
     if (!onCrosshairClick || !imagePlacementRef.current || !viewPlaneRef.current) return;
     
     // Get canvas element

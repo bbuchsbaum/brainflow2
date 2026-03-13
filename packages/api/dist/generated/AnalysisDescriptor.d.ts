@@ -1,0 +1,24 @@
+import type { AnalysisArtifactKind } from "./AnalysisArtifactKind";
+import type { AnalysisInputKind } from "./AnalysisInputKind";
+import type { AnalysisRunnerKind } from "./AnalysisRunnerKind";
+/**
+ * Declarative description of an analysis module.
+ * This is what the UI uses to render a parameter form and validate inputs.
+ */
+export type AnalysisDescriptor = {
+    id: string;
+    name: string;
+    version: string;
+    /**
+     * API version for compatibility with host/SDK.
+     */
+    api_version: string;
+    description: string | null;
+    inputs: Array<AnalysisInputKind>;
+    /**
+     * JSON-Schema-ish parameter description. Unknown/additive fields are allowed.
+     */
+    params_schema: any;
+    outputs: Array<AnalysisArtifactKind>;
+    runner: AnalysisRunnerKind;
+};

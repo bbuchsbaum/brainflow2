@@ -81,7 +81,7 @@ impl EnhancedVisualDashboard {
             <h1>🎯 Enhanced Ellipsoid Test Dashboard</h1>
             <p>Visual dashboard with ellipsoid slice visualizations</p>
         </header>
-        
+
         <div class="results-grid">
 "#,
         );
@@ -98,7 +98,7 @@ impl EnhancedVisualDashboard {
                 r#"
             <div class="result-card-enhanced {}" data-test-index="{}">
                 <h3>{}</h3>
-                
+
                 <div class="visualization-section">
 "#,
                 status, i, result.base.test_name
@@ -143,7 +143,7 @@ impl EnhancedVisualDashboard {
             html.push_str(&format!(
                 r#"
                 </div>
-                
+
                 <div class="metrics-section">
                     <div class="metric-row">
                         <span class="metric-label">Dice:</span>
@@ -158,7 +158,7 @@ impl EnhancedVisualDashboard {
                         <span class="metric-value">{:.1}%</span>
                     </div>
                 </div>
-                
+
                 <div class="ellipsoid-params">
                     <h4>Ellipsoid Parameters</h4>
 "#,
@@ -194,7 +194,7 @@ impl EnhancedVisualDashboard {
             r#"
         </div>
     </div>
-    
+
     <script src="enhanced_dashboard.js"></script>
 </body>
 </html>"#,
@@ -361,11 +361,11 @@ document.addEventListener('DOMContentLoaded', function() {
                 </div>
             `;
             document.body.appendChild(modal);
-            
+
             modal.querySelector('.close').addEventListener('click', () => {
                 modal.remove();
             });
-            
+
             modal.addEventListener('click', (e) => {
                 if (e.target === modal) {
                     modal.remove();

@@ -3,7 +3,7 @@
  * Enables decoupled communication between services
  */
 
-import type { ViewType } from '@/types/viewState';
+import type { ViewType } from '@/types/coordinates';
 import type { Layer, LayerRender } from '@/types/layers';
 import type { Annotation } from '@/types/annotations';
 import type { CrosshairSettings } from '@/contexts/CrosshairContext';

@@ -58,7 +58,7 @@ export const IconButton: React.FC<IconButtonProps> = ({
   ].join(' ');
 
   const iconElement = React.isValidElement(icon) 
-    ? React.cloneElement(icon as React.ReactElement, {
+    ? React.cloneElement(icon as React.ReactElement<any>, {
         className: iconSizeClasses[size]
       })
     : icon;

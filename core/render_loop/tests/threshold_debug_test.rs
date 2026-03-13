@@ -151,8 +151,8 @@ fn test_threshold_simple() {
         println!("Expected roughly 50% background/visible");
 
         // We should have some background pixels where values were filtered out
-        assert!(background_count > 0 || red_count > 0, 
-                "Expected some background or red pixels from thresholding, but got {} background and {} red", 
+        assert!(background_count > 0 || red_count > 0,
+                "Expected some background or red pixels from thresholding, but got {} background and {} red",
                 background_count, red_count);
         assert!(visible_count > 0, "Expected some visible pixels");
     });

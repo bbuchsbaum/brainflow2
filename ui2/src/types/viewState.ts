@@ -4,6 +4,8 @@
  */
 
 import type { ViewPlane, WorldCoordinates, ViewType } from './coordinates';
+import type { AtlasConfig } from './atlas';
+import type { AtlasPaletteKind } from './atlasPalette';
 
 export interface CrosshairState {
   world_mm: WorldCoordinates;
@@ -16,12 +18,18 @@ export interface ViewLayer {
   name: string;
   volumeId: string;
   visible: boolean;
+  order?: number;
   opacity: number;
   colormap: string;
+  colormapId?: number;
   intensity: [number, number];  // [min, max]
   threshold: [number, number];  // [low, high]
   blendMode?: 'alpha' | 'additive' | 'max' | 'min';
   interpolation?: 'nearest' | 'linear';  // Texture sampling mode
+  atlasConfig?: AtlasConfig;
+  atlasPaletteKind?: AtlasPaletteKind;
+  atlasPaletteSeed?: number;
+  atlasMaxLabel?: number;
 }
 
 export interface ViewState {
@@ -37,4 +45,12 @@ export interface ViewState {
   // Current timepoint for 4D volumes (0-indexed)
   // Only used when displaying 4D time series data
   timepoint?: number;
+}
+
+export interface ViewStateRevisions {
+  state: number;
+  layers: number;
+  crosshair: number;
+  timepoint: number;
+  views: Record<ViewType, number>;
 }

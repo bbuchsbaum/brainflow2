@@ -13,11 +13,11 @@ import { initializeViewRegistry } from '@/services/ViewRegistry';
 // import { initializeViewStateRenderService } from '@/services/ViewStateRenderService'; // Removed - redundant with coalescing
 import { coalesceUtils } from '@/stores/middleware/coalesceUpdatesMiddleware';
 import { getApiService } from '@/services/apiService';
-import { getRenderCoordinator, setMultiViewBatchEnabled } from '@/services/RenderCoordinator';
+import { setMultiViewBatchEnabled } from '@/services/RenderCoordinator';
+import { getRenderTargetService } from '@/services/renderTarget/RenderTargetService';
 import { getEventBus } from '@/events/EventBus';
 import { useLayerStore } from '@/stores/layerStore';
 import { useViewStateStore } from '@/stores/viewStateStore';
-import { useRenderStateStore } from '@/stores/renderStateStore';
 import { markRenderLoopAsInitialized } from './useRenderLoopInit';
 import { useFeatureFlagStore } from '@/stores/featureFlagStore';
 
@@ -36,6 +36,10 @@ const serviceInitDebugLog = (...args: unknown[]) => {
 let servicesInitialized = false;
 let initializationInProgress = false;
 let featureFlagSubscription: (() => void) | null = null;
+
+export function areServicesInitialized(): boolean {
+  return servicesInitialized;
+}
 
 export function useServicesInit() {
   useEffect(() => {
@@ -56,10 +60,9 @@ export function useServicesInit() {
         
         const eventBus = getEventBus();
         
-        // Initialize RenderLoop for GPU resources via RenderCoordinator
-        // This must be done early so GPU resources are available for file loading
+        // Initialize RenderLoop early so GPU resources are available for file loading.
         const apiService = getApiService();
-        const renderCoordinator = getRenderCoordinator();
+        const renderTargetService = getRenderTargetService();
         const featureFlags = useFeatureFlagStore.getState();
 
         // Ensure coordinator reflects persisted flag state before any renders
@@ -67,13 +70,16 @@ export function useServicesInit() {
 
         if (!featureFlagSubscription) {
           featureFlagSubscription = useFeatureFlagStore.subscribe(
-            (state) => state.multiViewBatch,
-            (enabled) => setMultiViewBatchEnabled(enabled)
+            (state, previousState) => {
+              if (state.multiViewBatch !== previousState.multiViewBatch) {
+                setMultiViewBatchEnabled(state.multiViewBatch);
+              }
+            }
           );
         }
         try {
           serviceInitDebugLog('[useServicesInit] Initializing RenderLoop...');
-          await apiService.initRenderLoop(512, 512);
+          await renderTargetService.initRenderLoop(512, 512);
           // Removed updateDimensions call - backend now handles per-view render targets
           serviceInitDebugLog('[useServicesInit] RenderLoop initialized successfully');
           
@@ -133,7 +139,7 @@ export function useServicesInit() {
     const atlasPressureMonitor = initializeAtlasPressureMonitor();
     
     serviceInitDebugLog('Setting up coalescing middleware callback with optimized rendering...');
-    coalesceUtils.setBackendCallback(async (viewState) => {
+    coalesceUtils.setBackendCallback(async (viewState, revisions) => {
       const callbackTime = performance.now();
       serviceInitDebugLog(`[useServicesInit ${callbackTime.toFixed(0)}ms] Backend callback invoked`);
       serviceInitDebugLog(`[useServicesInit] Crosshair position:`, viewState.crosshair.world_mm);
@@ -141,7 +147,7 @@ export function useServicesInit() {
       
       // Use OptimizedRenderService to intelligently render only changed views
       try {
-        await optimizedRenderService.renderChangedViews(viewState);
+        await optimizedRenderService.renderChangedViews(viewState, undefined, revisions);
         
         // Log metrics periodically
         const metrics = optimizedRenderService.getMetrics();

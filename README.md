@@ -107,3 +107,30 @@ cargo bench -p render_loop_benches --bench upload
 # Build the application
 cargo tauri build 
 ```
+
+## Local Deploy To `~/bin`
+
+On macOS, the repo now includes a small launcher flow for a local user install:
+
+```bash
+# Build the app bundle and install ~/bin/brainflow
+make local:deploy
+# or
+make local-deploy
+```
+
+If you want the launcher in place first and the bundle can be built later:
+
+```bash
+make local:install
+# or
+make local-install
+```
+
+The launcher resolves to the repo-local app bundle at:
+
+```text
+target/release/bundle/macos/Brainflow.app
+```
+
+So `~/bin/brainflow` stays stable while you rebuild locally. If the bundle is not built yet, the launcher stays installed and will tell you which `cargo tauri build --bundles app` step is still missing.

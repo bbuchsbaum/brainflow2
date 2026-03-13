@@ -1,9 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { ViewState, ViewType } from '@/types/viewState';
+import type { ViewState, ViewStateRevisions, ViewType } from '@/types/viewState';
 import { OptimizedRenderService } from '@/services/OptimizedRenderService';
 import { useRenderStateStore } from '@/stores/renderStateStore';
 import { setRenderCoordinator } from '@/services/RenderCoordinator';
 import type { RenderCoordinator } from '@/services/RenderCoordinator';
+import { cloneViewStateRevisions, createInitialViewStateRevisions } from '@/utils/viewStateTracking';
 
 const allViewTypes: ViewType[] = ['axial', 'sagittal', 'coronal'];
 
@@ -46,6 +47,10 @@ function createViewState(): ViewState {
       }
     }
   };
+}
+
+function createRevisions(): ViewStateRevisions {
+  return createInitialViewStateRevisions();
 }
 
 describe('OptimizedRenderService', () => {
@@ -116,5 +121,31 @@ describe('OptimizedRenderService', () => {
     expect(singleCall.viewType).toBe('axial');
     expect(singleCall.width).toBe(512);
     expect(singleCall.height).toBe(256);
+  });
+
+  it('uses revision snapshots to avoid broad fallback renders', async () => {
+    const baseState = createViewState();
+    const baseRevisions = createRevisions();
+
+    await service.renderChangedViews(baseState, undefined, baseRevisions);
+
+    requestMultiViewRenderMock.mockClear();
+    requestRenderMock.mockClear();
+
+    const nextState = createViewState();
+    nextState.views.axial = {
+      ...nextState.views.axial,
+      dim_px: [512, 256]
+    };
+
+    const nextRevisions = cloneViewStateRevisions(baseRevisions);
+    nextRevisions.state += 1;
+    nextRevisions.views.axial += 1;
+
+    await service.renderChangedViews(nextState, undefined, nextRevisions);
+
+    expect(requestRenderMock).toHaveBeenCalledTimes(1);
+    expect(requestMultiViewRenderMock).not.toHaveBeenCalled();
+    expect(requestRenderMock.mock.calls[0][0].viewType).toBe('axial');
   });
 });

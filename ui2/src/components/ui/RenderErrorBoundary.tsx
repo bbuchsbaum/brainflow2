@@ -5,7 +5,8 @@
  * otherwise silently fail. It provides visual feedback when rendering fails.
  */
 
-import React, { Component, ErrorInfo, ReactNode } from 'react';
+import React, { Component } from 'react';
+import type { ErrorInfo, ReactNode } from 'react';
 import { AlertCircle, RefreshCw } from 'lucide-react';
 
 interface Props {
@@ -159,9 +160,11 @@ export function withRenderErrorBoundary<P extends object>(
   Component: React.ComponentType<P>,
   viewId?: string
 ) {
-  return React.forwardRef<any, P>((props, ref) => (
-    <RenderErrorBoundary viewId={viewId}>
-      <Component {...props} ref={ref} />
-    </RenderErrorBoundary>
-  ));
+  return function RenderErrorBoundaryWrapped(props: P) {
+    return (
+      <RenderErrorBoundary viewId={viewId}>
+        <Component {...props} />
+      </RenderErrorBoundary>
+    );
+  };
 }

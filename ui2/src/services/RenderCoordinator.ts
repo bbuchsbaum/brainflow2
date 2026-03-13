@@ -10,6 +10,7 @@ import { getApiService } from '@/services/apiService';
 import type { ViewState } from '@/types/viewState';
 import type { ViewType } from '@/types/coordinates';
 import type { RenderSession } from './RenderSession';
+import { recordRenderDiagnostic } from '@/services/render/RenderDiagnostics';
 
 const DEBUG_RENDER_COORDINATOR =
   import.meta.env.DEV &&
@@ -347,6 +348,13 @@ export class RenderCoordinator {
       });
 
       const duration = performance.now() - startTime;
+      recordRenderDiagnostic('render-coordinator.single', duration, {
+        viewType: job.viewType,
+        reason: job.reason,
+        width: job.width,
+        height: job.height,
+        usedRenderSession: Boolean(this.renderSession)
+      });
       renderDebugLog(`[RenderCoordinator] Job ${job.id} (${job.viewType}) completed in ${duration.toFixed(1)}ms`);
 
       return result;
@@ -421,6 +429,7 @@ export class RenderCoordinator {
       return this.executeSequentialMultiView(job);
     }
 
+    const startTime = performance.now();
     try {
       const requests = job.viewTypes.map((viewType) => {
         const view = job.viewState.views[viewType];
@@ -449,9 +458,20 @@ export class RenderCoordinator {
         }
       });
 
+      recordRenderDiagnostic('render-coordinator.batch', performance.now() - startTime, {
+        reason: job.reason,
+        viewCount: job.viewTypes.length,
+        fallback: false
+      });
+
       return results as Record<ViewType, ImageBitmap | null>;
     } catch (error) {
       console.error('[RenderCoordinator] Multi-view batch render failed, reverting to sequential fallback:', error);
+      recordRenderDiagnostic('render-coordinator.batch', performance.now() - startTime, {
+        reason: job.reason,
+        viewCount: job.viewTypes.length,
+        fallback: true
+      });
       return this.executeSequentialMultiView(job);
     }
   }

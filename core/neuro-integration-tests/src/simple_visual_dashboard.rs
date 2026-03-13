@@ -58,7 +58,7 @@ impl SimpleVisualDashboard {
             <h1>🎯 Ellipsoid Coordinate Transformation Tests</h1>
             <p>Visual dashboard for differential testing validation</p>
         </header>
-        
+
         <div class="summary-section">
             <h2>Test Summary</h2>
             <div class="summary-stats">
@@ -99,7 +99,7 @@ impl SimpleVisualDashboard {
                 </div>
             </div>
         </div>
-        
+
         <div class="results-section">
             <h2>Test Results</h2>
             <div class="results-grid">
@@ -152,17 +152,17 @@ impl SimpleVisualDashboard {
             r#"
             </div>
         </div>
-        
+
         <div class="details-section" id="details" style="display: none;">
             <h2>Test Details</h2>
             <div id="details-content"></div>
         </div>
-        
+
         <footer>
             <p>Generated with neuro-integration-tests</p>
         </footer>
     </div>
-    
+
     <script src="dashboard.js"></script>
 </body>
 </html>"#,
@@ -365,7 +365,7 @@ document.querySelectorAll('.result-card').forEach(card => {
 function showTestDetails(testIndex) {
     const detailsSection = document.getElementById('details');
     const detailsContent = document.getElementById('details-content');
-    
+
     // In a real implementation, this would load detailed test data
     detailsContent.innerHTML = `
         <h3>Test ${testIndex} Details</h3>
@@ -379,7 +379,7 @@ function showTestDetails(testIndex) {
             <li>Performance metrics</li>
         </ul>
     `;
-    
+
     detailsSection.style.display = 'block';
     detailsSection.scrollIntoView({ behavior: 'smooth' });
 }

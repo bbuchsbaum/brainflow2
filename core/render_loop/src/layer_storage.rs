@@ -290,10 +290,22 @@ impl LayerStorageManager {
 
             debug!(
                 "  world_to_voxel (row-major): [{:.3} {:.3} {:.3} {:.3}; {:.3} {:.3} {:.3} {:.3}; {:.3} {:.3} {:.3} {:.3}; {:.3} {:.3} {:.3} {:.3}]",
-                transform[(0, 0)], transform[(0, 1)], transform[(0, 2)], transform[(0, 3)],
-                transform[(1, 0)], transform[(1, 1)], transform[(1, 2)], transform[(1, 3)],
-                transform[(2, 0)], transform[(2, 1)], transform[(2, 2)], transform[(2, 3)],
-                transform[(3, 0)], transform[(3, 1)], transform[(3, 2)], transform[(3, 3)],
+                transform[(0, 0)],
+                transform[(0, 1)],
+                transform[(0, 2)],
+                transform[(0, 3)],
+                transform[(1, 0)],
+                transform[(1, 1)],
+                transform[(1, 2)],
+                transform[(1, 3)],
+                transform[(2, 0)],
+                transform[(2, 1)],
+                transform[(2, 2)],
+                transform[(2, 3)],
+                transform[(3, 0)],
+                transform[(3, 1)],
+                transform[(3, 2)],
+                transform[(3, 3)],
             );
 
             let layer_data = LayerUboStd140 {
@@ -358,6 +370,7 @@ impl LayerStorageManager {
         layer: &LayerInfo,
         volume_dims: (u32, u32, u32),
         world_to_voxel: &Matrix4<f32>,
+        display_override: (bool, f32),
     ) -> Result<(), &'static str> {
         // Update active_count if we're adding a new layer at the end
         if index == self.active_count as usize && index < self.capacity {
@@ -372,7 +385,7 @@ impl LayerStorageManager {
 
         // Update the specific layer data
         // TODO: Add display_overrides parameter to update_layer when implementing per-layer border settings
-        let (border_enabled, border_thickness): (bool, f32) = (false, 1.0_f32);
+        let (border_enabled, border_thickness) = display_override;
 
         let layer_data = LayerUboStd140 {
             // Convert matrix to column-major format for GPU

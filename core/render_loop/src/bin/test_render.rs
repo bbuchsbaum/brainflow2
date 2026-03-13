@@ -22,7 +22,7 @@ struct Args {
     #[arg(short = 'W', long, default_value = "256")]
     width: u32,
 
-    /// Render height  
+    /// Render height
     #[arg(short = 'H', long, default_value = "256")]
     height: u32,
 

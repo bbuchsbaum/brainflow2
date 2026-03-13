@@ -15,11 +15,13 @@ export type WorkspaceCategory = 'visualization' | 'analysis' | 'tool';
 /**
  * Workspace types represent different view configurations
  */
-export type WorkspaceType = 
-  | 'orthogonal-locked' 
-  | 'orthogonal-flexible' 
-  | 'mosaic' 
+export type WorkspaceType =
+  | 'orthogonal-locked'
+  | 'orthogonal-flexible'
+  | 'mosaic'
   | 'lightbox'
+  | 'comparison'
+  | 'set-studio'
   | 'roi-stats'
   | 'coordinate-converter';
 
@@ -79,9 +81,11 @@ export interface WorkspaceConfig {
  */
 export const WORKSPACE_METADATA: Record<WorkspaceType, { category: WorkspaceCategory; name: string; singleton?: boolean }> = {
   'orthogonal-locked': { category: 'visualization', name: 'Orthogonal (Locked)' },
-  'orthogonal-flexible': { category: 'visualization', name: 'Orthogonal (Flexible)' },
+  'orthogonal-flexible': { category: 'visualization', name: 'Orthogonal Panels' },
   'mosaic': { category: 'visualization', name: 'Mosaic View' },
   'lightbox': { category: 'visualization', name: 'Lightbox View' },
+  'comparison': { category: 'visualization', name: 'Comparison View' },
+  'set-studio': { category: 'analysis', name: 'Set Studio', singleton: true },
   'roi-stats': { category: 'analysis', name: 'ROI Statistics', singleton: true },
   'coordinate-converter': { category: 'tool', name: 'Coordinate Converter', singleton: true }
 };
@@ -101,6 +105,8 @@ export const DEFAULT_WORKSPACE_CONFIGS: Record<WorkspaceType, Partial<WorkspaceC
     sliceOrientation: 'axial',
     thumbnailSize: 128
   },
+  'comparison': {},
+  'set-studio': {},
   'roi-stats': {},
   'coordinate-converter': {}
 };

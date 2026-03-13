@@ -1,0 +1,35 @@
+/* OrthogonalPanelsWorkspace styles */
+
+.split-view-container {
+  position: relative;
+  height: 100%;
+  width: 100%;
+  background-color: #000;
+}
+
+/*
+ * Target only the actual sash elements, not the internal sashContainer overlay,
+ * to avoid covering the entire orthogonal workspace during resize.
+ */
+.split-view-container [class*="sash-module_sash"] {
+  background-color: var(--app-splitter) !important;
+  opacity: 1 !important;
+}
+
+.split-view-container [class*="sash-module_sash"]:hover {
+  background-color: var(--app-splitter-hover) !important;
+}
+
+.split-view-container [class*="sash-module_sash"][class*="vertical"] {
+  width: 2px !important;
+  cursor: col-resize !important;
+}
+
+.split-view-container [class*="sash-module_sash"][class*="horizontal"] {
+  height: 2px !important;
+  cursor: row-resize !important;
+}
+
+.split-view-container .split-view-divider {
+  background-color: var(--app-splitter) !important;
+}

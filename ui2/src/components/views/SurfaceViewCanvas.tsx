@@ -4,12 +4,28 @@
  */
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import type { LoadedSurface } from '@/stores/surfaceStore';
-import { useSurfaceStore } from '@/stores/surfaceStore';
+import type {
+  LoadedSurface,
+  SurfaceDisplaySettings,
+  SurfaceLightingSettings,
+  SurfaceMaterialSettings,
+} from '@/stores/surfaceStore';
+import {
+  DEFAULT_SURFACE_VIEW_SETTINGS,
+  getSurfaceViewSettingsForId,
+  useSurfaceStore,
+} from '@/stores/surfaceStore';
 import { getEventBus } from '@/events/EventBus';
 import { getViewExportService } from '@/services/ViewExportService';
 import { useActiveRenderable } from '@/hooks/useActiveRenderable';
 import { useViewContextMenu } from '@/hooks/useViewContextMenu';
+import {
+  buildRenderableLayerSpecs,
+  isSurfaceGeometryChanged,
+  planSurfaceReconciliation,
+  type RenderableLayerSpec,
+} from './surfaceViewReconciler';
+import { buildSurfaceViewContextId } from '@/utils/surfaceViewContext';
 
 // Import neurosurface components
 import {
@@ -26,6 +42,9 @@ import {
 interface SurfaceViewCanvasProps {
   surface: LoadedSurface;
   renderSurfaces?: LoadedSurface[];
+  surfaceViewId: string;
+  surfaceContextHandle?: string;
+  onActivateSurface?: () => void;
   width: number;
   height: number;
 }
@@ -53,35 +72,207 @@ interface OriginalGeometry {
   faces: Uint32Array;
 }
 
-function layerSignature(layer: LoadedSurface['layers'] extends Map<string, infer T> ? T : never): string {
-  const range = layer.range || [0, 0];
-  const threshold = layer.threshold || [0, 0];
-  const visible = layer.visible === false ? '0' : '1';
-  const rgba = layer.rgba ? '1' : '0';
-  const paletteKind = layer.atlasPaletteKind ?? '';
-  const paletteSeed = layer.atlasPaletteSeed ?? '';
-  const maxLabel = layer.atlasMaxLabel ?? '';
-  const valuesLen = layer.values?.length ?? 0;
-  const indicesLen = layer.indices?.length ?? 0;
-
-  return `${layer.id}:${layer.colormap}:${range[0]}:${range[1]}:${threshold[0]}:${threshold[1]}:${layer.opacity}:${visible}:${rgba}:${paletteKind}:${paletteSeed}:${maxLabel}:${valuesLen}:${indicesLen}`;
+function colorHexToNumber(value: string | number | undefined): number | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (typeof value === 'number') {
+    return value;
+  }
+  return Number.parseInt(value.replace('#', ''), 16);
 }
 
-function buildSurfacesRenderKey(surfaces: LoadedSurface[]): string {
-  return surfaces
-    .map((surface) => {
-      const verticesLen = surface.geometry.vertices?.length ?? 0;
-      const facesLen = surface.geometry.faces?.length ?? 0;
-      const hemisphere = surface.geometry.hemisphere ?? '';
-      const surfaceType = surface.geometry.surfaceType ?? '';
-      const layers = Array.from(surface.layers.values())
-        .map((layer) => layerSignature(layer))
-        .sort()
-        .join('|');
-      return `${surface.handle}:${verticesLen}:${facesLen}:${hemisphere}:${surfaceType}:${layers}`;
-    })
-    .sort()
-    .join('||');
+function hasRenderableGeometry(surface: LoadedSurface): boolean {
+  return Boolean(
+    surface.geometry.vertices &&
+      surface.geometry.faces &&
+      surface.geometry.vertices.length > 0 &&
+      surface.geometry.faces.length > 0
+  );
+}
+
+function buildLayerInstance(spec: RenderableLayerSpec): DataLayer | RGBALayer | VolumeProjectionLayer {
+  switch (spec.kind) {
+    case 'rgba':
+      return new RGBALayer(spec.id, spec.rgba ?? new Float32Array(0), {
+        opacity: spec.opacity,
+      });
+    case 'volume':
+      return new VolumeProjectionLayer(
+        spec.id,
+        new Float32Array(spec.volumeData ?? []),
+        spec.volumeDims ?? [1, 1, 1],
+        {
+          affineMatrix: spec.affineMatrix,
+          colormap: spec.colormap || 'viridis',
+          range: spec.range,
+          threshold: spec.threshold,
+          opacity: spec.opacity,
+        }
+      );
+    case 'data':
+    default:
+      return new DataLayer(
+        spec.id,
+        spec.values ?? new Float32Array(0),
+        spec.indices ?? null,
+        spec.colormap || 'viridis',
+        {
+          range: spec.range,
+          threshold: spec.threshold,
+          opacity: spec.opacity,
+        }
+      );
+  }
+}
+
+function applyLayerUpdate(
+  renderedSurface: MultiLayerNeuroSurface,
+  spec: RenderableLayerSpec
+): void {
+  switch (spec.kind) {
+    case 'rgba':
+      renderedSurface.updateLayer(spec.id, {
+        rgbaData: spec.rgba,
+        opacity: spec.opacity,
+      });
+      return;
+    case 'volume':
+      renderedSurface.updateLayer(spec.id, {
+        volumeData: spec.volumeData ? new Float32Array(spec.volumeData) : undefined,
+        colormap: spec.colormap,
+        range: spec.range,
+        threshold: spec.threshold,
+        affineMatrix: spec.affineMatrix,
+        opacity: spec.opacity,
+      });
+      return;
+    case 'data':
+    default:
+      renderedSurface.updateLayer(spec.id, {
+        data: spec.values,
+        indices: spec.indices ?? undefined,
+        colorMap: spec.colormap,
+        range: spec.range,
+        threshold: spec.threshold,
+        opacity: spec.opacity,
+      });
+  }
+}
+
+function applySmoothingToRenderedSurface(
+  renderedSurface: MultiLayerNeuroSurface,
+  original: OriginalGeometry,
+  smoothingValue: number
+): void {
+  const mesh = renderedSurface?.mesh;
+  if (!mesh || !mesh.geometry) return;
+
+  const threeGeometry = mesh.geometry;
+  const positionAttribute = threeGeometry.getAttribute('position');
+  if (!positionAttribute) return;
+
+  positionAttribute.array.set(original.vertices);
+  positionAttribute.needsUpdate = true;
+
+  if (smoothingValue === 0) {
+    threeGeometry.computeVertexNormals();
+    threeGeometry.computeBoundingBox();
+    threeGeometry.computeBoundingSphere();
+    return;
+  }
+
+  const iterations = Math.ceil(smoothingValue * 5);
+  const lambda = 0.3 + smoothingValue * 0.4;
+  const method = smoothingValue > 0.5 ? 'taubin' : 'laplacian';
+
+  try {
+    LaplacianSmoothing.smoothGeometry(
+      threeGeometry,
+      iterations,
+      lambda,
+      method,
+      true,
+      -0.53
+    );
+  } catch (error) {
+    console.error('Failed to apply smoothing:', error);
+  }
+}
+
+function applySurfaceRenderSettings(
+  renderedSurface: MultiLayerNeuroSurface,
+  displaySettings: SurfaceDisplaySettings,
+  materialSettings: SurfaceMaterialSettings
+): void {
+  if (renderedSurface.updateConfig) {
+    renderedSurface.updateConfig({
+      alpha: displaySettings.opacity,
+      flatShading: displaySettings.flatShading,
+      shininess: materialSettings.shininess,
+      specularColor: colorHexToNumber(materialSettings.specularColor),
+      emissive: colorHexToNumber(materialSettings.emissiveColor),
+      emissiveIntensity: materialSettings.emissiveIntensity,
+    });
+  }
+
+  const mesh = renderedSurface.mesh;
+  if (!mesh || !mesh.material) {
+    return;
+  }
+
+  const material = mesh.material as any;
+
+  if (material.wireframe !== undefined) {
+    material.wireframe = displaySettings.wireframe;
+  }
+
+  if (material.flatShading !== undefined) {
+    material.flatShading = displaySettings.flatShading;
+  }
+
+  if (material.color && material.color.set) {
+    material.color.set(materialSettings.surfaceColor);
+  }
+
+  if (mesh.geometry && mesh.geometry.computeVertexNormals) {
+    mesh.geometry.computeVertexNormals();
+  }
+
+  material.needsUpdate = true;
+}
+
+function applySceneRenderSettings(
+  viewer: NeuroSurfaceViewerInstance,
+  lightingSettings: SurfaceLightingSettings
+): void {
+  if (!viewer.scene) {
+    return;
+  }
+
+  viewer.scene.traverse((child: any) => {
+    if (child.isAmbientLight) {
+      child.intensity = lightingSettings.ambientLightIntensity;
+    } else if (child.isDirectionalLight) {
+      if (child.userData?.role !== 'fill') {
+        child.intensity = lightingSettings.directionalLightIntensity;
+        if (lightingSettings.lightPosition) {
+          child.position.set(...lightingSettings.lightPosition);
+        }
+      }
+    }
+  });
+
+  let fillLight = viewer.scene.getObjectByName('fillLight');
+  if (!fillLight && lightingSettings.fillLightIntensity && lightingSettings.fillLightIntensity > 0) {
+    fillLight = new THREE.DirectionalLight(0xffffff, lightingSettings.fillLightIntensity);
+    fillLight.name = 'fillLight';
+    fillLight.userData.role = 'fill';
+    fillLight.position.set(-100, -100, -50);
+    viewer.scene.add(fillLight);
+  } else if (fillLight) {
+    fillLight.intensity = lightingSettings.fillLightIntensity || 0;
+  }
 }
 
 function removeRenderedSurface(viewer: NeuroSurfaceViewerInstance, handle: string, rendered: any): void {
@@ -113,22 +304,54 @@ function removeRenderedSurface(viewer: NeuroSurfaceViewerInstance, handle: strin
 export const SurfaceViewCanvas: React.FC<SurfaceViewCanvasProps> = ({
   surface,
   renderSurfaces,
+  surfaceViewId,
+  surfaceContextHandle,
+  onActivateSurface,
   width,
   height,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const viewerRef = useRef<NeuroSurfaceViewerInstance | null>(null);
-  const renderedSurfacesRef = useRef<Map<string, any>>(new Map());
+  const renderedSurfacesRef = useRef<Map<string, MultiLayerNeuroSurface>>(new Map());
+  const renderedSurfaceInputsRef = useRef<Map<string, LoadedSurface>>(new Map());
   const originalGeometryRef = useRef<Map<string, OriginalGeometry>>(new Map());
   const [isInitialized, setIsInitialized] = useState(false);
   const hasCenteredCamera = useRef(false);
   const lastSmoothingValue = useRef<number>(0);
 
   // Mark this surface render context as active on interaction.
-  const markActive = useActiveRenderable(`surfaceview:${surface.handle}`.toLowerCase());
-  const handleContextMenu = useViewContextMenu(`surfaceview:${surface.handle}`.toLowerCase());
+  const surfaceContextId = useMemo(
+    () => buildSurfaceViewContextId(surfaceContextHandle ?? surface.handle, surfaceViewId),
+    [surfaceContextHandle, surface.handle, surfaceViewId]
+  );
+  const markRenderableActive = useActiveRenderable(surfaceContextId);
+  const handleContextMenu = useViewContextMenu(surfaceContextId);
 
-  const { viewpoint, showControls, renderSettings } = useSurfaceStore();
+  const markActive = useMemo(
+    () => () => {
+      markRenderableActive();
+      onActivateSurface?.();
+    },
+    [markRenderableActive, onActivateSurface]
+  );
+
+  const viewpoint = useSurfaceStore((state) => state.viewpoint);
+  const showControls = useSurfaceStore((state) => state.showControls);
+  const lightingSettings = useSurfaceStore(
+    (state) => getSurfaceViewSettingsForId(state.surfaceViewSettings, surfaceViewId).lightingSettings
+  );
+  const displaySettings = useSurfaceStore(
+    (state) => getSurfaceViewSettingsForId(state.surfaceViewSettings, surfaceViewId).displaySettings
+  );
+  const materialSettings = useSurfaceStore(
+    (state) => getSurfaceViewSettingsForId(state.surfaceViewSettings, surfaceViewId).materialSettings
+  );
+  const projectionSettings = useSurfaceStore(
+    (state) => getSurfaceViewSettingsForId(state.surfaceViewSettings, surfaceViewId).projectionSettings
+  );
+  const lastUseGPUProjectionRef = useRef(
+    projectionSettings?.useGPUProjection ?? DEFAULT_SURFACE_VIEW_SETTINGS.projectionSettings.useGPUProjection
+  );
 
   const surfacesToRender = useMemo(() => {
     const candidateSurfaces = renderSurfaces ?? [surface];
@@ -146,17 +369,12 @@ export const SurfaceViewCanvas: React.FC<SurfaceViewCanvasProps> = ({
     [surfacesToRender]
   );
 
-  const surfacesRenderKey = useMemo(
-    () => buildSurfacesRenderKey(surfacesToRender),
-    [surfacesToRender]
-  );
-
   // Register an exporter for this surface view so "export active view" works.
   useEffect(() => {
     if (!isInitialized || !viewerRef.current?.renderer?.domElement) return;
 
     const exportService = getViewExportService();
-    const key = `surfaceview:${surface.handle}`.toLowerCase();
+    const key = surfaceContextId;
 
     const exporter = async ({ format }: { format: 'png' | 'jpg'; transparentBackground: boolean }) => {
       const viewer = viewerRef.current;
@@ -184,7 +402,7 @@ export const SurfaceViewCanvas: React.FC<SurfaceViewCanvasProps> = ({
 
     exportService.registerExporter(key, exporter);
     return () => exportService.unregisterExporter(key);
-  }, [surface.handle, isInitialized]);
+  }, [surfaceContextId, isInitialized]);
 
   // Cleanup viewer only on component unmount.
   useEffect(() => {
@@ -194,6 +412,7 @@ export const SurfaceViewCanvas: React.FC<SurfaceViewCanvasProps> = ({
         viewerRef.current = null;
       }
       renderedSurfacesRef.current.clear();
+      renderedSurfaceInputsRef.current.clear();
       originalGeometryRef.current.clear();
     };
   }, []);
@@ -221,8 +440,6 @@ export const SurfaceViewCanvas: React.FC<SurfaceViewCanvasProps> = ({
           actualHeight,
           {
             showControls,
-            ambientLightIntensity: renderSettings.ambientLightIntensity,
-            directionalLightIntensity: renderSettings.directionalLightIntensity,
             useShaders,
             controlType: 'trackball',
           },
@@ -267,7 +484,7 @@ export const SurfaceViewCanvas: React.FC<SurfaceViewCanvasProps> = ({
     };
 
     initializeWhenReady();
-  }, [isInitialized, renderSettings.ambientLightIntensity, renderSettings.directionalLightIntensity, showControls, viewpoint, width, height]);
+  }, [isInitialized, lightingSettings.ambientLightIntensity, lightingSettings.directionalLightIntensity, showControls, viewpoint, width, height]);
 
   // Update viewer size when dimensions change.
   useEffect(() => {
@@ -298,115 +515,142 @@ export const SurfaceViewCanvas: React.FC<SurfaceViewCanvasProps> = ({
     lastSmoothingValue.current = 0;
   }, [renderHandlesKey]);
 
-  // Rebuild all rendered surfaces when geometry/layers change.
+  // Reconcile surfaces in place and only rebuild on topology changes.
   useEffect(() => {
     if (!isInitialized || !viewerRef.current) return;
 
     const viewer = viewerRef.current;
-    const readySurfaces = surfacesToRender.filter(
-      (item) =>
-        item.geometry.vertices &&
-        item.geometry.faces &&
-        item.geometry.vertices.length > 0 &&
-        item.geometry.faces.length > 0
-    );
+    const readySurfaces = surfacesToRender.filter(hasRenderableGeometry);
+    const useGPUCompositing = projectionSettings.useGPUProjection;
+    const previousUseGPUProjection = lastUseGPUProjectionRef.current;
+
+    const mountRenderedSurface = (item: LoadedSurface) => {
+      const existing = renderedSurfacesRef.current.get(item.handle);
+      if (existing) {
+        removeRenderedSurface(viewer, item.handle, existing);
+      }
+
+      originalGeometryRef.current.set(item.handle, {
+        vertices: new Float32Array(item.geometry.vertices),
+        faces: new Uint32Array(item.geometry.faces),
+      });
+
+      const geometry = new SurfaceGeometry(
+        item.geometry.vertices,
+        item.geometry.faces,
+        item.geometry.hemisphere || 'both',
+        undefined
+      );
+
+      const renderedSurface = new MultiLayerNeuroSurface(geometry, {
+        baseColor: parseInt((materialSettings.surfaceColor || '#CCCCCC').replace('#', ''), 16),
+        useGPUCompositing,
+      });
+
+      for (const layerSpec of buildRenderableLayerSpecs(item, useGPUCompositing)) {
+        renderedSurface.addLayer(buildLayerInstance(layerSpec));
+      }
+
+      applySurfaceRenderSettings(renderedSurface, displaySettings, materialSettings);
+      viewer.addSurface(renderedSurface, item.handle);
+
+      renderedSurfacesRef.current.set(item.handle, renderedSurface);
+      renderedSurfaceInputsRef.current.set(item.handle, item);
+
+      const original = originalGeometryRef.current.get(item.handle);
+      if (original) {
+        applySmoothingToRenderedSurface(
+          renderedSurface,
+          original,
+          displaySettings.smoothing
+        );
+      }
+    };
 
     try {
-      renderedSurfacesRef.current.forEach((rendered, handle) => {
-        removeRenderedSurface(viewer, handle, rendered);
-      });
-      renderedSurfacesRef.current.clear();
-      originalGeometryRef.current.clear();
+      let changed = false;
+      let structuralChange = false;
+      const readyHandles = new Set(readySurfaces.map((item) => item.handle));
+
+      for (const [handle, renderedSurface] of Array.from(
+        renderedSurfacesRef.current.entries()
+      )) {
+        if (readyHandles.has(handle)) {
+          continue;
+        }
+
+        removeRenderedSurface(viewer, handle, renderedSurface);
+        renderedSurfacesRef.current.delete(handle);
+        renderedSurfaceInputsRef.current.delete(handle);
+        originalGeometryRef.current.delete(handle);
+        changed = true;
+        structuralChange = true;
+      }
 
       if (readySurfaces.length === 0) {
+        lastUseGPUProjectionRef.current = useGPUCompositing;
         viewer.requestRender();
         return;
       }
 
-      const useGPUCompositing = renderSettings.useGPUProjection;
-
       for (const item of readySurfaces) {
-        originalGeometryRef.current.set(item.handle, {
-          vertices: new Float32Array(item.geometry.vertices),
-          faces: new Uint32Array(item.geometry.faces),
-        });
+        const previousInput = renderedSurfaceInputsRef.current.get(item.handle);
+        const renderedSurface = renderedSurfacesRef.current.get(item.handle);
 
-        const geometry = new SurfaceGeometry(
-          item.geometry.vertices,
-          item.geometry.faces,
-          item.geometry.hemisphere || 'both',
-          undefined
-        );
-
-        const neuroSurface = new MultiLayerNeuroSurface(geometry, {
-          baseColor: parseInt((renderSettings.surfaceColor || '#CCCCCC').replace('#', ''), 16),
-          useGPUCompositing,
-        });
-
-        if (item.layers.size > 0) {
-          item.layers.forEach((layer) => {
-            if (layer.visible === false) {
-              return;
-            }
-
-            const colorMap = layer.colormap || 'viridis';
-
-            if (layer.rgba) {
-              const rgbaLayer = new RGBALayer(layer.id, layer.rgba, {
-                opacity: layer.opacity ?? 1,
-              });
-              neuroSurface.addLayer(rgbaLayer);
-              return;
-            }
-
-            const canUseGPU =
-              useGPUCompositing &&
-              layer.volumeData &&
-              layer.volumeDims &&
-              layer.volumeDims.length === 3;
-
-            let layerInstance: any;
-
-            if (canUseGPU) {
-              const volumeData = new Float32Array(layer.volumeData!);
-              layerInstance = new VolumeProjectionLayer(layer.id, volumeData, layer.volumeDims!, {
-                affineMatrix: layer.affineMatrix,
-                colormap: colorMap,
-                range: layer.range,
-                threshold: layer.threshold,
-                opacity: layer.opacity ?? 1,
-              });
-            } else {
-              layerInstance = new DataLayer(
-                layer.id,
-                layer.values,
-                layer.indices ?? null,
-                colorMap,
-                {
-                  range: layer.range,
-                  threshold: layer.threshold,
-                  opacity: layer.opacity ?? 1,
-                }
-              );
-            }
-
-            neuroSurface.addLayer(layerInstance);
-          });
+        if (
+          !previousInput ||
+          !renderedSurface ||
+          isSurfaceGeometryChanged(previousInput, item)
+        ) {
+          mountRenderedSurface(item);
+          changed = true;
+          structuralChange = true;
+          continue;
         }
 
-        viewer.addSurface(neuroSurface, item.handle);
-        renderedSurfacesRef.current.set(item.handle, neuroSurface);
-
-        console.log('[SurfaceViewCanvas] Surface added:', {
-          handle: item.handle,
-          vertexCount: item.geometry.vertices.length / 3,
-          faceCount: item.geometry.faces.length / 3,
-          layerCount: item.layers.size,
-          meshExists: !!neuroSurface.mesh,
+        const plan = planSurfaceReconciliation(previousInput, item, {
+          previousUseGPUProjection,
+          nextUseGPUProjection: useGPUCompositing,
         });
+
+        if (plan.requiresRebuild) {
+          mountRenderedSurface(item);
+          changed = true;
+          structuralChange = true;
+          continue;
+        }
+
+        if (plan.compositingModeChanged && renderedSurface.setCompositingMode) {
+          renderedSurface.setCompositingMode(useGPUCompositing);
+          changed = true;
+        }
+
+        for (const layerId of plan.removeLayerIds) {
+          renderedSurface.removeLayer(layerId);
+          changed = true;
+        }
+
+        for (const layerSpec of plan.addLayers) {
+          renderedSurface.addLayer(buildLayerInstance(layerSpec));
+          changed = true;
+        }
+
+        for (const layerSpec of plan.updateLayers) {
+          applyLayerUpdate(renderedSurface, layerSpec);
+          changed = true;
+        }
+
+        if (plan.orderChanged && plan.orderedLayerIds.length > 0) {
+          renderedSurface.setLayerOrder(plan.orderedLayerIds);
+          changed = true;
+        }
+
+        renderedSurfaceInputsRef.current.set(item.handle, item);
       }
 
-      if (viewer.centerCamera && !hasCenteredCamera.current) {
+      lastUseGPUProjectionRef.current = useGPUCompositing;
+
+      if (structuralChange && viewer.centerCamera && !hasCenteredCamera.current) {
         const controls = viewer.controls;
         const wasAutoRotating = controls && controls.autoRotate ? controls.autoRotate : false;
 
@@ -437,13 +681,13 @@ export const SurfaceViewCanvas: React.FC<SurfaceViewCanvasProps> = ({
             }
           }
         });
-      } else {
+      } else if (changed) {
         viewer.requestRender();
       }
     } catch (error) {
       console.error('Failed to load surface geometry:', error);
     }
-  }, [isInitialized, surfacesRenderKey, renderSettings.surfaceColor, renderSettings.useGPUProjection]);
+  }, [isInitialized, surfacesToRender, projectionSettings.useGPUProjection]);
 
   // Update viewpoint.
   useEffect(() => {
@@ -478,123 +722,37 @@ export const SurfaceViewCanvas: React.FC<SurfaceViewCanvasProps> = ({
   useEffect(() => {
     if (!viewerRef.current || renderedSurfacesRef.current.size === 0) return;
 
-    const smoothingValue = renderSettings.smoothing;
+    const smoothingValue = displaySettings.smoothing;
     if (Math.abs(smoothingValue - lastSmoothingValue.current) < 0.01) return;
 
     renderedSurfacesRef.current.forEach((renderedSurface, handle) => {
       const original = originalGeometryRef.current.get(handle);
       if (!original) return;
-
-      const mesh = renderedSurface?.mesh;
-      if (!mesh || !mesh.geometry) return;
-      const threeGeometry = mesh.geometry;
-      const positionAttribute = threeGeometry.getAttribute('position');
-      if (!positionAttribute) return;
-
-      if (smoothingValue === 0) {
-        positionAttribute.array.set(original.vertices);
-        positionAttribute.needsUpdate = true;
-        threeGeometry.computeVertexNormals();
-        threeGeometry.computeBoundingBox();
-        threeGeometry.computeBoundingSphere();
-        return;
-      }
-
-      positionAttribute.array.set(original.vertices);
-      positionAttribute.needsUpdate = true;
-
-      const iterations = Math.ceil(smoothingValue * 5);
-      const lambda = 0.3 + smoothingValue * 0.4;
-      const method = smoothingValue > 0.5 ? 'taubin' : 'laplacian';
-
-      try {
-        LaplacianSmoothing.smoothGeometry(
-          threeGeometry,
-          iterations,
-          lambda,
-          method,
-          true,
-          -0.53
-        );
-      } catch (error) {
-        console.error('Failed to apply smoothing:', error);
-      }
+      applySmoothingToRenderedSurface(renderedSurface, original, smoothingValue);
     });
 
     lastSmoothingValue.current = smoothingValue;
     viewerRef.current.requestRender();
-  }, [renderSettings.smoothing, surfacesRenderKey]);
+  }, [displaySettings.smoothing, renderHandlesKey]);
 
-  // Apply render settings to all rendered surfaces.
+  // Apply surface display/material settings to all rendered surfaces.
   useEffect(() => {
     if (!viewerRef.current || renderedSurfacesRef.current.size === 0) return;
 
     renderedSurfacesRef.current.forEach((renderedSurface) => {
-      if (renderedSurface.updateConfig) {
-        renderedSurface.updateConfig({
-          alpha: renderSettings.opacity,
-          flatShading: renderSettings.flatShading,
-          shininess: renderSettings.shininess,
-          specularColor: renderSettings.specularColor,
-          emissive: renderSettings.emissiveColor,
-          emissiveIntensity: renderSettings.emissiveIntensity,
-        });
-      }
-
-      const mesh = renderedSurface.mesh;
-      if (mesh && mesh.material) {
-        const material = mesh.material as any;
-
-        if (material.wireframe !== undefined) {
-          material.wireframe = renderSettings.wireframe;
-        }
-
-        if (material.flatShading !== undefined) {
-          material.flatShading = renderSettings.flatShading;
-        }
-
-        if (material.color && material.color.set) {
-          material.color.set(renderSettings.surfaceColor);
-        }
-
-        if (mesh.geometry && mesh.geometry.computeVertexNormals) {
-          mesh.geometry.computeVertexNormals();
-        }
-
-        material.needsUpdate = true;
-      }
+      applySurfaceRenderSettings(renderedSurface, displaySettings, materialSettings);
     });
 
-    if (viewerRef.current.scene) {
-      const scene = viewerRef.current.scene;
-
-      scene.traverse((child: any) => {
-        if (child.isAmbientLight) {
-          child.intensity = renderSettings.ambientLightIntensity;
-        } else if (child.isDirectionalLight) {
-          if (child.userData?.role !== 'fill') {
-            child.intensity = renderSettings.directionalLightIntensity;
-            if (renderSettings.lightPosition) {
-              child.position.set(...renderSettings.lightPosition);
-            }
-          }
-        }
-      });
-
-      let fillLight = scene.getObjectByName('fillLight');
-      if (!fillLight && renderSettings.fillLightIntensity && renderSettings.fillLightIntensity > 0) {
-        fillLight = new THREE.DirectionalLight(0xffffff, renderSettings.fillLightIntensity);
-        fillLight.name = 'fillLight';
-        fillLight.userData.role = 'fill';
-        fillLight.position.set(-100, -100, -50);
-        scene.add(fillLight);
-      } else if (fillLight) {
-        fillLight.intensity = renderSettings.fillLightIntensity || 0;
-      }
-    }
-
     viewerRef.current.requestRender();
-  }, [renderSettings, surfacesRenderKey]);
+  }, [displaySettings, materialSettings, renderHandlesKey]);
+
+  // Apply scene lighting settings.
+  useEffect(() => {
+    if (!viewerRef.current) return;
+
+    applySceneRenderSettings(viewerRef.current, lightingSettings);
+    viewerRef.current.requestRender();
+  }, [lightingSettings]);
 
   return (
     <div

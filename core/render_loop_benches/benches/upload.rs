@@ -7,23 +7,29 @@ use wgpu::*;
 const DIM: [u32; 3] = [256, 256, 256]; // ~64 MiB for f32
 const BYTES: usize = (DIM[0] * DIM[1] * DIM[2]) as usize * 4; // R32Float
 
-fn setup_gpu() -> (Instance, Adapter, Device, Queue) {
+fn setup_gpu() -> Result<(Instance, Adapter, Device, Queue), String> {
     block_on(async {
         let instance = Instance::new(InstanceDescriptor::default());
         let adapter = instance
             .request_adapter(&RequestAdapterOptions::default())
             .await
-            .expect("no adapter");
+            .ok_or_else(|| "no adapter available".to_string())?;
         let (device, queue) = adapter
             .request_device(&DeviceDescriptor::default(), None)
             .await
-            .expect("device");
-        (instance, adapter, device, queue)
+            .map_err(|err| format!("request device failed: {err}"))?;
+        Ok((instance, adapter, device, queue))
     })
 }
 
 fn bench_upload(c: &mut Criterion) {
-    let (_inst, _adap, device, queue) = setup_gpu();
+    let (_inst, _adap, device, queue) = match setup_gpu() {
+        Ok(gpu) => gpu,
+        Err(err) => {
+            eprintln!("Skipping Texture Upload benchmark: {err}");
+            return;
+        }
+    };
     let tex_format = TextureFormat::R32Float;
     let texture = device.create_texture(&TextureDescriptor {
         label: Some("bench_texture"),

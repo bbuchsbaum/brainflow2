@@ -3,7 +3,7 @@
  * Slides out from the right side showing all volume metadata
  */
 
-import React, { useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useLayer, layerSelectors } from '@/stores/layerStore';
 import type { VolumeMetadata } from '@/stores/layerStore';
 import { 
@@ -16,6 +16,11 @@ import {
 } from 'react-icons/vsc';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from '@/components/ui/shadcn/sheet';
 import { cn } from '@/utils/cn';
+import {
+  formatVolumeDataRange,
+  formatVolumeDimensions,
+  formatVolumeSpacing,
+} from '@/utils/metadataFormatting';
 
 interface MetadataDrawerProps {
   layerId: string;
@@ -26,54 +31,43 @@ interface MetadataDrawerProps {
 }
 
 interface MetadataSection {
+  id: string;
   title: string;
   fields: Array<{
     label: string;
     value: string | null;
     copyable?: boolean;
     mono?: boolean;
+    multiline?: boolean;
   }>;
 }
 
 export function MetadataDrawer({ layerId, isOpen, onOpenChange, isPinned = false, onPinToggle }: MetadataDrawerProps) {
   const [expandedSections, setExpandedSections] = useState<Set<string>>(new Set(['basic', 'spatial']));
   const [copiedField, setCopiedField] = useState<string | null>(null);
+  const resetTimerRef = useRef<number | null>(null);
   
   // Get layer and metadata using typed selectors
   const layer = useLayer(state => layerSelectors.getLayerById(state, layerId));
   const metadata = useLayer(state => layerSelectors.getLayerMetadata(state, layerId)) || null;
-  
-  if (!layer || !metadata) {
-    return null;
-  }
-  
-  // Copy to clipboard
-  const copyToClipboard = async (text: string, fieldName: string) => {
-    try {
-      await navigator.clipboard.writeText(text);
-      setCopiedField(fieldName);
-      setTimeout(() => setCopiedField(null), 2000);
-    } catch (err) {
-      console.error('Failed to copy:', err);
-    }
-  };
-  
-  // Toggle section expansion
-  const toggleSection = (sectionTitle: string) => {
-    setExpandedSections(prev => {
-      const next = new Set(prev);
-      if (next.has(sectionTitle)) {
-        next.delete(sectionTitle);
-      } else {
-        next.add(sectionTitle);
+
+  useEffect(() => {
+    return () => {
+      if (resetTimerRef.current !== null) {
+        window.clearTimeout(resetTimerRef.current);
       }
-      return next;
-    });
-  };
+    };
+  }, []);
   
   // Build metadata sections
-  const sections: MetadataSection[] = [
+  const sections: MetadataSection[] = useMemo(() => {
+    if (!layer || !metadata) {
+      return [];
+    }
+
+    return [
     {
+      id: 'basic',
       title: 'Basic Information',
       fields: [
         { label: 'Layer Name', value: layer.name },
@@ -83,16 +77,17 @@ export function MetadataDrawer({ layerId, isOpen, onOpenChange, isPinned = false
       ]
     },
     {
+      id: 'spatial',
       title: 'Spatial Properties',
       fields: [
         { 
           label: 'Dimensions', 
-          value: metadata.dimensions ? metadata.dimensions.join(' × ') + ' voxels' : null,
+          value: metadata.dimensions ? `${formatVolumeDimensions(metadata)} voxels` : null,
           mono: true
         },
         { 
           label: 'Resolution', 
-          value: metadata.spacing ? metadata.spacing.map(s => s.toFixed(3)).join(' × ') + ' mm' : null,
+          value: metadata.spacing ? formatVolumeSpacing(metadata) : null,
           mono: true
         },
         { 
@@ -112,11 +107,12 @@ export function MetadataDrawer({ layerId, isOpen, onOpenChange, isPinned = false
       ]
     },
     {
+      id: 'statistics',
       title: 'Data Statistics',
       fields: [
         {
           label: 'Data Range',
-          value: metadata.dataRange ? `[${metadata.dataRange.min.toFixed(2)}, ${metadata.dataRange.max.toFixed(2)}]` : null,
+          value: metadata.dataRange ? formatVolumeDataRange(metadata) : null,
           mono: true
         },
         {
@@ -138,6 +134,7 @@ export function MetadataDrawer({ layerId, isOpen, onOpenChange, isPinned = false
       ]
     },
     {
+      id: 'bounds',
       title: 'World Bounds',
       fields: [
         {
@@ -164,6 +161,7 @@ export function MetadataDrawer({ layerId, isOpen, onOpenChange, isPinned = false
       ]
     },
     {
+      id: 'matrices',
       title: 'Transformation Matrices',
       fields: [
         {
@@ -171,6 +169,7 @@ export function MetadataDrawer({ layerId, isOpen, onOpenChange, isPinned = false
           value: metadata.voxelToWorld ? 
             formatMatrix(metadata.voxelToWorld) : null,
           mono: true,
+          multiline: true,
           copyable: true
         },
         {
@@ -178,11 +177,13 @@ export function MetadataDrawer({ layerId, isOpen, onOpenChange, isPinned = false
           value: metadata.worldToVoxel ?
             formatMatrix(metadata.worldToVoxel) : null,
           mono: true,
+          multiline: true,
           copyable: true
         }
       ]
     }
   ];
+  }, [layer, metadata]);
   
   // Format 4x4 matrix
   function formatMatrix(matrix: number[]): string {
@@ -197,6 +198,44 @@ export function MetadataDrawer({ layerId, isOpen, onOpenChange, isPinned = false
     }
     return rows.join('\n');
   }
+
+  if (!layer || !metadata) {
+    return null;
+  }
+  
+  // Copy to clipboard
+  const copyToClipboard = async (text: string, fieldName: string) => {
+    if (!navigator.clipboard?.writeText) {
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopiedField(fieldName);
+      if (resetTimerRef.current !== null) {
+        window.clearTimeout(resetTimerRef.current);
+      }
+      resetTimerRef.current = window.setTimeout(() => {
+        setCopiedField(null);
+        resetTimerRef.current = null;
+      }, 2000);
+    } catch (err) {
+      console.error('Failed to copy:', err);
+    }
+  };
+  
+  // Toggle section expansion
+  const toggleSection = (sectionTitle: string) => {
+    setExpandedSections(prev => {
+      const next = new Set(prev);
+      if (next.has(sectionTitle)) {
+        next.delete(sectionTitle);
+      } else {
+        next.add(sectionTitle);
+      }
+      return next;
+    });
+  };
   
   return (
     <Sheet open={isOpen} onOpenChange={isPinned ? undefined : onOpenChange}>
@@ -210,6 +249,7 @@ export function MetadataDrawer({ layerId, isOpen, onOpenChange, isPinned = false
             <div className="flex items-center gap-2">
               {onPinToggle && (
                 <button
+                  type="button"
                   onClick={onPinToggle}
                   className={cn(
                     "p-2 rounded-md transition-colors",
@@ -236,8 +276,7 @@ export function MetadataDrawer({ layerId, isOpen, onOpenChange, isPinned = false
         {/* Content */}
         <div className="flex-1 overflow-y-auto p-6 space-y-3">
           {sections.map(section => {
-            const isExpanded = expandedSections.has(section.title.toLowerCase().replace(/\s+/g, ''));
-            const sectionKey = section.title.toLowerCase().replace(/\s+/g, '');
+            const isExpanded = expandedSections.has(section.id);
             
             return (
               <div
@@ -249,7 +288,10 @@ export function MetadataDrawer({ layerId, isOpen, onOpenChange, isPinned = false
               >
                 {/* Section header */}
                 <button
-                  onClick={() => toggleSection(sectionKey)}
+                  type="button"
+                  onClick={() => toggleSection(section.id)}
+                  aria-expanded={isExpanded}
+                  aria-controls={`metadata-section-${section.id}`}
                   className={cn(
                     "w-full flex items-center justify-between p-3",
                     "hover:bg-accent/10 transition-colors"
@@ -269,7 +311,7 @@ export function MetadataDrawer({ layerId, isOpen, onOpenChange, isPinned = false
                 
                 {/* Section content */}
                 {isExpanded && (
-                  <div className="px-3 pb-3 space-y-3 border-t">
+                  <div id={`metadata-section-${section.id}`} className="px-3 pb-3 space-y-3 border-t">
                     {section.fields.map(field => {
                       if (!field.value) return null;
                       
@@ -284,7 +326,10 @@ export function MetadataDrawer({ layerId, isOpen, onOpenChange, isPinned = false
                             </span>
                             {field.copyable && (
                               <button
+                                type="button"
                                 onClick={() => copyToClipboard(field.value!, fieldKey)}
+                                aria-label={isCopied ? `${field.label} copied` : `Copy ${field.label}`}
+                                data-copied={isCopied}
                                 className={cn(
                                   "p-1 rounded transition-all",
                                   "hover:bg-accent/20",
@@ -304,7 +349,7 @@ export function MetadataDrawer({ layerId, isOpen, onOpenChange, isPinned = false
                             className={cn(
                               "text-sm break-all",
                               field.mono && "font-mono bg-muted/50 px-2 py-1 rounded",
-                              field.label.includes('Matrix') && "whitespace-pre text-xs bg-muted p-2 rounded"
+                              field.multiline && "whitespace-pre text-xs bg-muted p-2 rounded"
                             )}
                           >
                             {field.value}

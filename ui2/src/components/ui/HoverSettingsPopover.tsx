@@ -8,6 +8,7 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useHoverSettingsPopoverStore } from '@/stores/hoverSettingsPopoverStore';
 import { HoverSettingsPanel } from './HoverSettingsPanel';
+import { clampPopoverPosition } from '@/utils/popoverPosition';
 
 export function HoverSettingsPopover() {
   const isOpen = useHoverSettingsPopoverStore((s) => s.isOpen);
@@ -28,15 +29,9 @@ export function HoverSettingsPopover() {
     setPopoverSize({ width: rect.width, height: rect.height });
   }, [isOpen]);
 
-  // Handle click outside and escape key
+  // Handle escape key
   useEffect(() => {
     if (!isOpen) return;
-
-    const handleClickOutside = (event: MouseEvent) => {
-      if (popoverRef.current && !popoverRef.current.contains(event.target as Node)) {
-        close();
-      }
-    };
 
     const handleEscape = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
@@ -44,15 +39,9 @@ export function HoverSettingsPopover() {
       }
     };
 
-    // Delay adding listener to avoid immediate close from opening click
-    const timeoutId = setTimeout(() => {
-      document.addEventListener('mousedown', handleClickOutside);
-    }, 0);
     document.addEventListener('keydown', handleEscape);
 
     return () => {
-      clearTimeout(timeoutId);
-      document.removeEventListener('mousedown', handleClickOutside);
       document.removeEventListener('keydown', handleEscape);
     };
   }, [isOpen, close]);
@@ -60,17 +49,26 @@ export function HoverSettingsPopover() {
   if (!isOpen) return null;
 
   // Calculate position to keep popover on screen
-  const pad = 8;
-  const maxX =
-    typeof window !== 'undefined' ? window.innerWidth - popoverSize.width - pad : x;
-  const maxY =
-    typeof window !== 'undefined' ? window.innerHeight - popoverSize.height - pad : y;
-  const left = Math.max(pad, Math.min(x, maxX));
-  const top = Math.max(pad, Math.min(y, maxY));
+  const { left, top } =
+    typeof window !== 'undefined'
+      ? clampPopoverPosition(
+          x,
+          y,
+          popoverSize,
+          { width: window.innerWidth, height: window.innerHeight },
+          8
+        )
+      : { left: x, top: y };
 
   return (
     <div
       className="fixed inset-0 z-50"
+      role="presentation"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) {
+          close();
+        }
+      }}
       onContextMenu={(e) => {
         e.preventDefault();
         close();
@@ -79,6 +77,9 @@ export function HoverSettingsPopover() {
       <div
         ref={popoverRef}
         className="absolute shadow-lg"
+        role="dialog"
+        aria-label="Hover settings"
+        aria-modal="false"
         style={{
           left,
           top,
@@ -87,6 +88,7 @@ export function HoverSettingsPopover() {
           borderRadius: '4px',
           minWidth: '220px',
         }}
+        onMouseDown={(event) => event.stopPropagation()}
       >
         <HoverSettingsPanel />
       </div>

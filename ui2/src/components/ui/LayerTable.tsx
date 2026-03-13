@@ -22,6 +22,7 @@ import {
   arrayMove,
   sortableKeyboardCoordinates,
 } from '@dnd-kit/sortable';
+import { LAYER_DRAG_MIME, serializeLayerDragData } from '@/utils/layerDrag';
 
 interface LayerTableProps {
   layers: Layer[];
@@ -149,6 +150,16 @@ const SortableLayerRow: React.FC<SortableLayerRowProps> = ({
   };
   const layerKindLabel = getLayerKindLabel(layer);
   const sourceLabel = getSourceLabel(layer);
+  const handleNativeDragStart = useCallback((event: React.DragEvent<HTMLButtonElement>) => {
+    if (!event.dataTransfer) {
+      return;
+    }
+
+    const payload = serializeLayerDragData({ layerId: layer.id });
+    event.dataTransfer.effectAllowed = 'copy';
+    event.dataTransfer.setData(LAYER_DRAG_MIME, payload);
+    event.dataTransfer.setData('application/json', payload);
+  }, [layer.id]);
 
   return (
     <div
@@ -177,6 +188,18 @@ const SortableLayerRow: React.FC<SortableLayerRowProps> = ({
         onClick={(e) => e.stopPropagation()}
       >
         <GripVertical className="h-4 w-4 text-muted-foreground/40 group-hover:text-muted-foreground" />
+      </button>
+
+      <button
+        type="button"
+        draggable
+        className="icon-btn shrink-0 text-[10px] font-medium text-muted-foreground hover:text-foreground"
+        aria-label={`Drag ${layer.name} to comparison view`}
+        title="Drag to comparison view"
+        onClick={(event) => event.stopPropagation()}
+        onDragStart={handleNativeDragStart}
+      >
+        Cmp
       </button>
 
       {/* Visibility toggle */}

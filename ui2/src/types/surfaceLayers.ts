@@ -7,8 +7,6 @@
  * SURF-107: Create surface-specific property types
  */
 
-import type { Layer, LayerRender } from './layers';
-
 /**
  * Surface-specific rendering properties (SURF-107)
  * These control the appearance of the mesh geometry itself

@@ -20,6 +20,11 @@ import type { Layer } from '@/types/layers';
 import { getSurfaceLoadingService, type SurfaceLoadingService } from './SurfaceLoadingService';
 import { surfaceOverlayService } from './SurfaceOverlayService';
 import { useSurfaceStore } from '@/stores/surfaceStore';
+import {
+  getActiveSurfaceCommandContext,
+  resolveSurfaceTargetSurfaceId,
+} from '@/utils/surfaceCommandContext';
+import type { DisplayOpenIntent } from '@/types/loadIntent';
 
 export type DisplayLoadIngress =
   | 'file-browser'
@@ -30,6 +35,7 @@ export type DisplayLoadIngress =
 export interface DisplayLoadRequest {
   path: string;
   ingress?: DisplayLoadIngress;
+  intent?: DisplayOpenIntent;
 }
 
 type DisplayLoadRoute = 'surface-overlay' | 'surface' | 'volume';
@@ -66,6 +72,7 @@ export class DisplayLifecycleOrchestrator {
     const startTime = performance.now();
     const path = request.path.trim();
     const ingress = request.ingress ?? 'programmatic';
+    const intent = request.intent ?? 'default';
 
     if (!path) {
       this.eventBus.emit('ui.notification', {
@@ -86,7 +93,7 @@ export class DisplayLifecycleOrchestrator {
     const filename = this.extractFilename(path);
     const route = this.resolveLoadRoute(path, filename);
 
-    console.log(`[DisplayLifecycleOrchestrator] loadFile (${ingress})`, { path, route });
+    console.log(`[DisplayLifecycleOrchestrator] loadFile (${ingress})`, { path, route, intent });
 
     switch (route) {
       case 'surface-overlay':
@@ -101,12 +108,12 @@ export class DisplayLifecycleOrchestrator {
         });
         return;
       case 'volume':
-        await this.loadVolume(path, filename, startTime);
+        await this.loadVolumeForIntent(path, filename, startTime, intent);
         return;
     }
   }
 
-  async loadDroppedFile(file: File): Promise<void> {
+  async loadDroppedFile(file: File, intent: DisplayOpenIntent = 'add-layer'): Promise<void> {
     const path = this.extractDroppedFilePath(file);
     if (!path) {
       this.eventBus.emit('ui.notification', {
@@ -119,16 +126,90 @@ export class DisplayLifecycleOrchestrator {
     await this.loadFile({
       path,
       ingress: 'drag-drop',
+      intent,
     });
   }
 
   private initializeIngressListeners(): void {
+    // Legacy double-click event (default intent)
     this.eventBus.on('filebrowser.file.doubleclick', ({ path }) => {
       void this.loadFile({
         path,
         ingress: 'file-browser',
       });
     });
+
+    // New intent-aware open event from context menu
+    this.eventBus.on('filebrowser.file.open', ({ path, intent }: { path: string; intent?: DisplayOpenIntent }) => {
+      void this.loadFile({
+        path,
+        ingress: 'file-browser',
+        intent: intent ?? 'default',
+      });
+    });
+  }
+
+  private async loadVolumeForIntent(
+    path: string,
+    filename: string,
+    startTime: number,
+    intent: DisplayOpenIntent
+  ): Promise<void> {
+    switch (intent) {
+      case 'default':
+      case 'add-layer':
+        await this.loadVolume(path, filename, startTime);
+        return;
+
+      case 'new-workspace': {
+        const { useWorkspaceStore } = await import('@/stores/workspaceStore');
+        await useWorkspaceStore.getState().createWorkspace('orthogonal-locked');
+        await this.loadVolume(path, filename, startTime);
+        return;
+      }
+
+      case 'comparison': {
+        const { useWorkspaceStore } = await import('@/stores/workspaceStore');
+        const { useComparisonStore } = await import('@/stores/comparisonStore');
+        const { useViewStateStore } = await import('@/stores/viewStateStore');
+
+        const workspaceStore = useWorkspaceStore.getState();
+        const sourceWorkspaceId = workspaceStore.activeWorkspaceId;
+        const sourceLayerIds = sourceWorkspaceId
+          ? useViewStateStore
+              .getState()
+              .getWorkspaceViewState(sourceWorkspaceId)
+              .layers.map((layer) => layer.id)
+          : [];
+        const comparisonWorkspaceId = await this.ensureComparisonWorkspace();
+        const addedLayer = await this.loadVolume(path, filename, startTime);
+
+        if (addedLayer) {
+          useComparisonStore.getState().initFromCurrentAndNewLayer(
+            comparisonWorkspaceId,
+            sourceLayerIds,
+            addedLayer.id,
+            addedLayer.name
+          );
+        }
+        return;
+      }
+    }
+  }
+
+  private async ensureComparisonWorkspace(): Promise<string> {
+    const { useWorkspaceStore } = await import('@/stores/workspaceStore');
+    const workspaceStore = useWorkspaceStore.getState();
+    const existing = Array.from(workspaceStore.workspaces.values()).find(
+      (workspace) => workspace.type === 'comparison'
+    );
+
+    if (existing) {
+      workspaceStore.activateWorkspace(existing.id);
+      return existing.id;
+    }
+
+    return workspaceStore.createWorkspace('comparison');
   }
 
   private hasSupportedExtension(path: string): boolean {
@@ -175,13 +256,13 @@ export class DisplayLifecycleOrchestrator {
     return activeRoutes[0];
   }
 
-  private async loadVolume(path: string, filename: string, startTime: number): Promise<void> {
+  private async loadVolume(path: string, filename: string, startTime: number): Promise<Layer | null> {
     if (useLoadingQueueStore.getState().isLoading(path)) {
       this.eventBus.emit('ui.notification', {
         type: 'info',
         message: `File is already being loaded: ${filename}`,
       });
-      return;
+      return null;
     }
 
     const queueId = useLoadingQueueStore.getState().enqueue({
@@ -223,6 +304,7 @@ export class DisplayLifecycleOrchestrator {
         layerId: addedLayer.id,
         durationMs: performance.now() - startTime,
       });
+      return addedLayer;
     } catch (error) {
       useLoadingQueueStore.getState().markError(queueId, error as Error);
       this.eventBus.emit('file.error', { path, error: error as Error });
@@ -230,11 +312,13 @@ export class DisplayLifecycleOrchestrator {
         type: 'error',
         message: `Failed to load ${filename}: ${(error as Error).message}`,
       });
+      return null;
     }
   }
 
   private async loadSurfaceOverlay(path: string, filename: string): Promise<void> {
-    const surfaces = Array.from(useSurfaceStore.getState().surfaces.values());
+    const surfaceState = useSurfaceStore.getState();
+    const surfaces = Array.from(surfaceState.surfaces.values());
 
     if (surfaces.length === 0) {
       this.eventBus.emit('ui.notification', {
@@ -244,10 +328,11 @@ export class DisplayLifecycleOrchestrator {
       return;
     }
 
+    const commandContext = getActiveSurfaceCommandContext();
     const targetSurfaceId =
       surfaces.length === 1
         ? surfaces[0].handle
-        : useSurfaceStore.getState().activeSurfaceId || surfaces[0].handle;
+        : resolveSurfaceTargetSurfaceId(commandContext, surfaceState.surfaces) || surfaces[0].handle;
     const targetSurface = surfaces.find((surface) => surface.handle === targetSurfaceId);
 
     if (!targetSurface) {
@@ -266,8 +351,7 @@ export class DisplayLifecycleOrchestrator {
     }
 
     try {
-      const dataLayer = await surfaceOverlayService.loadSurfaceOverlay(path, targetSurfaceId);
-      await surfaceOverlayService.applyOverlayToSurface(targetSurfaceId, dataLayer.id);
+      await surfaceOverlayService.loadSurfaceOverlay(path, targetSurfaceId);
       this.eventBus.emit('ui.notification', {
         type: 'info',
         message: `Loaded overlay: ${filename}`,

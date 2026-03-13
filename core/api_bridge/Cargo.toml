@@ -34,6 +34,7 @@ render_loop = { path = "../render_loop" } # For RenderLoopService
 uuid = { version = "1.4", features = ["v4"] } # For generating IDs
 futures = "0.3" # For block_on (though consider replacing with async runtime)
 bridge_types = { path = "../bridge_types" } # NEW: Shared types/traits
+field_table = { path = "../field_table" }
 nifti_loader = { path = "../loaders/nifti", package = "nifti-loader" } # Keep for NiftiLoader registration
 gifti_loader = { path = "../loaders/gifti", package = "gifti-loader" } # GIFTI support
 brainflow-loaders = { path = "../loaders" } # CORRECTED: Match package name

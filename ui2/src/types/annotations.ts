@@ -2,6 +2,8 @@
  * Annotation types for neuroimaging visualization
  */
 
+import type { ScreenCoordinates } from './coordinates';
+
 export interface AnnotationStyle {
   color: string;
   opacity: number;
@@ -13,6 +15,7 @@ export interface BaseAnnotation {
   id: string;
   type: 'marker' | 'roi' | 'measurement' | 'label';
   world_mm: [number, number, number];
+  screenPos?: ScreenCoordinates;
   visible: boolean;
   selected: boolean;
   group?: string;

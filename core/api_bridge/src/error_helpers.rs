@@ -11,12 +11,12 @@ pub fn file_not_found_error(path: &str) -> BridgeError {
         .and_then(|n| n.to_str())
         .unwrap_or(path);
 
-    BridgeError::Io { 
-        code: 1001, 
+    BridgeError::Io {
+        code: 1001,
         details: format!(
-            "Could not find file '{}'. Please check that the file exists and you have permission to read it.", 
+            "Could not find file '{}'. Please check that the file exists and you have permission to read it.",
             filename
-        )
+        ),
     }
 }
 
@@ -52,12 +52,12 @@ pub fn gpu_allocation_error(_volume_id: &str, reason: &str) -> BridgeError {
         };
     }
 
-    BridgeError::GpuError { 
-        code: 6001, 
+    BridgeError::GpuError {
+        code: 6001,
         details: format!(
-            "Could not allocate GPU resources for volume: {}. Try closing other volumes to free up memory.", 
+            "Could not allocate GPU resources for volume: {}. Try closing other volumes to free up memory.",
             reason
-        )
+        ),
     }
 }
 
@@ -69,12 +69,12 @@ pub fn unsupported_format_error(path: &str) -> BridgeError {
         .and_then(|e| e.to_str())
         .unwrap_or("unknown");
 
-    BridgeError::Input { 
-        code: 2002, 
+    BridgeError::Input {
+        code: 2002,
         details: format!(
-            "File format '.{}' is not supported. Supported formats: NIfTI (.nii, .nii.gz), GIFTI (.gii)", 
+            "File format '.{}' is not supported. Supported formats: NIfTI (.nii, .nii.gz), GIFTI (.gii)",
             extension
-        )
+        ),
     }
 }
 

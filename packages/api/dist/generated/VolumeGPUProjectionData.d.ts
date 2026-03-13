@@ -1,0 +1,31 @@
+import type { DataRange } from "./DataRange";
+/**
+ * Volume data for GPU-based surface projection
+ * This provides raw volume data and transforms for GPU shaders to sample directly
+ */
+export type VolumeGPUProjectionData = {
+    /**
+     * Raw volume data as f32 values (normalized to 0-1 range)
+     */
+    volume_data: Array<number>;
+    /**
+     * Volume dimensions [x, y, z]
+     */
+    dims: [number, number, number];
+    /**
+     * 4x4 affine matrix in column-major order (voxel to world transform)
+     */
+    affine_matrix: [number, number, number, number, number, number, number, number, number, number, number, number, number, number, number, number];
+    /**
+     * Data range (min, max) of the original volume values
+     */
+    data_range: DataRange;
+    /**
+     * Volume ID for reference
+     */
+    volume_id: string;
+    /**
+     * Timepoint used (for 4D volumes)
+     */
+    timepoint: number | null;
+};

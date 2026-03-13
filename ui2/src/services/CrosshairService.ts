@@ -48,7 +48,7 @@ export class CrosshairService {
     this.subscriptionInitialized = true;
     
     // Get initial state safely
-    let lastCrosshair;
+    let lastCrosshair: { world_mm: WorldCoordinates; visible: boolean };
     try {
       lastCrosshair = useViewStateStore.getState().viewState.crosshair;
     } catch (error) {

@@ -8,14 +8,19 @@ import { useLayerStore } from '@/stores/layerStore';
 import { useViewStateStore } from '@/stores/viewStateStore';
 
 interface ROIStatsWorkspaceProps {
+  workspaceId?: string;
   containerWidth?: number;
   containerHeight?: number;
 }
 
-export function ROIStatsWorkspace({ containerWidth = 800, containerHeight = 600 }: ROIStatsWorkspaceProps) {
+export function ROIStatsWorkspace({
+  workspaceId,
+  containerWidth = 800,
+  containerHeight = 600
+}: ROIStatsWorkspaceProps) {
   const layers = useLayerStore(state => state.layers);
   const layerMetadata = useLayerStore(state => state.layerMetadata);
-  const viewState = useViewStateStore(state => state.viewState);
+  const viewState = useViewStateStore(state => state.getWorkspaceViewState(workspaceId));
   const [selectedRadius, setSelectedRadius] = useState(5); // mm
   const [stats, setStats] = useState<{mean: number; std: number; min: number; max: number; voxelCount: number} | null>(null);
   

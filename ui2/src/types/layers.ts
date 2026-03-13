@@ -2,6 +2,9 @@
  * Layer types for neuroimaging visualization
  */
 
+import type { AtlasConfig } from './atlas';
+import type { AtlasPaletteKind } from './atlasPalette';
+
 export interface Layer {
   id: string;
   name: string;
@@ -18,7 +21,12 @@ export interface LayerRender {
   intensity: [number, number];
   threshold: [number, number];
   colormap: string;
+  colormapId?: number;
   interpolation: 'nearest' | 'linear';
+  atlasConfig?: AtlasConfig;
+  atlasPaletteKind?: AtlasPaletteKind;
+  atlasPaletteSeed?: number;
+  atlasMaxLabel?: number;
 }
 
 export interface LayerState extends Layer {

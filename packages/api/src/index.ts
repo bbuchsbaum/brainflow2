@@ -21,6 +21,37 @@ import type {
  */
 export type Result<T, E = string> = { Ok: T; Err?: never } | { Ok?: never; Err: E };
 
+export type RenderOutputFormat = 'png' | 'rgba';
+export type FrameReadbackMode = 'blocking' | 'skip';
+
+export interface FrameRenderDiagnostics {
+    prepare_ms: number;
+    render_ms: number;
+    readback_ms: number;
+    total_ms: number;
+    visible_layers: number;
+    updated_layer_slots: number;
+    reused_layer_state: boolean;
+    readback_mode: FrameReadbackMode;
+}
+
+export interface RenderViewDiagnostics {
+    requested_view: string | null;
+    format: string;
+    parse_ms: number;
+    service_lock_ms: number;
+    target_setup_ms: number;
+    layer_processing_ms: number;
+    render_loop_ms: number;
+    encode_ms: number;
+    total_ms: number;
+    visible_layer_count: number;
+    output_bytes: number;
+    output_dimensions: [number, number];
+    warnings: string[];
+    frame: FrameRenderDiagnostics;
+}
+
 export interface CoreApi {
     // File operations
     // Loads a file (NIfTI, GIfTI, potentially others via plugins)
@@ -52,17 +83,14 @@ export interface CoreApi {
     set_crosshair(world_coords: [number, number, number]): Promise<void>;
     set_view_plane(plane_id: 0 | 1 | 2): Promise<void>; // 0=Ax, 1=Cor, 2=Sag
 
-    // Render Loop Management
+    // Render target management
     init_render_loop(canvas_id: string): Promise<void>;
     resize_canvas(width: number, height: number): Promise<void>;
-    update_frame_ubo(
-        view_proj: number[],          // 16 elements for 4x4 matrix
-        world_to_voxel: number[],     // 16 elements for 4x4 matrix
-        crosshair_voxel: number[],    // 4 elements
-        view_plane_normal: number[],  // 4 elements
-        view_plane_distance: number
-    ): Promise<void>;
-    render_frame(): Promise<void>;
+
+    // Declarative rendering
+    render_view(stateJson: string, format?: RenderOutputFormat): Promise<Uint8Array>;
+    render_views(stateJson: string, format?: RenderOutputFormat): Promise<Uint8Array>;
+    submit_view(stateJson: string): Promise<RenderViewDiagnostics>;
 }
 
 // --- Data Model Handles & Specs ---

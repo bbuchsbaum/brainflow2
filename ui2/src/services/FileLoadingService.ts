@@ -10,14 +10,19 @@ import {
   initializeDisplayLifecycleOrchestrator,
   type DisplayLoadIngress,
 } from './DisplayLifecycleOrchestrator';
+import type { DisplayOpenIntent } from '@/types/loadIntent';
 
 export class FileLoadingService {
-  async loadFile(path: string, ingress: DisplayLoadIngress = 'programmatic'): Promise<void> {
-    await getDisplayLifecycleOrchestrator().loadFile({ path, ingress });
+  async loadFile(
+    path: string,
+    ingress: DisplayLoadIngress = 'programmatic',
+    intent: DisplayOpenIntent = 'default'
+  ): Promise<void> {
+    await getDisplayLifecycleOrchestrator().loadFile({ path, ingress, intent });
   }
 
-  async loadDroppedFile(file: File): Promise<void> {
-    await getDisplayLifecycleOrchestrator().loadDroppedFile(file);
+  async loadDroppedFile(file: File, intent: DisplayOpenIntent = 'add-layer'): Promise<void> {
+    await getDisplayLifecycleOrchestrator().loadDroppedFile(file, intent);
   }
 }
 

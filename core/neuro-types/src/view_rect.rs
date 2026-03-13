@@ -217,7 +217,7 @@ fn vec3_distance(a: [f32; 3], b: [f32; 3]) -> f32 {
 ///
 /// - `origin_mm`: World coordinates of the top-left pixel center
 /// - `u_mm`: Per-pixel world displacement vector for moving right (X direction)
-/// - `v_mm`: Per-pixel world displacement vector for moving down (Y direction)  
+/// - `v_mm`: Per-pixel world displacement vector for moving down (Y direction)
 /// - `width_px`/`height_px`: Actual pixel dimensions (may differ from requested)
 ///
 /// # Important Notes for Frontend Integration
@@ -236,7 +236,7 @@ fn vec3_distance(a: [f32; 3], b: [f32; 3]) -> f32 {
 /// 3. The resulting dimensions ensure square pixels and complete anatomical coverage
 ///
 /// For a typical MNI brain (193×229×193 voxels):
-/// - Anatomical extent might be ~193mm × ~229mm  
+/// - Anatomical extent might be ~193mm × ~229mm
 /// - Requested 512×512 would create different pixel sizes for X/Y
 /// - Actual 432×512 ensures square pixels and complete brain coverage
 ///
@@ -344,7 +344,7 @@ impl ViewRectMm {
     /// # Why Dimensions May Differ
     ///
     /// For a typical MNI brain volume (193×229×193 voxels):
-    /// - Anatomical extent might be ~193mm × ~229mm  
+    /// - Anatomical extent might be ~193mm × ~229mm
     /// - Requested 512×512 would create different pixel sizes for X/Y (non-square pixels)
     /// - Actual 432×512 ensures square pixels and complete brain coverage
     ///

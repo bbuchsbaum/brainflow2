@@ -12,12 +12,14 @@ import { hoverInfoService } from '@/services/HoverInfoService';
 import { useHoverSettingsStore, selectThrottleMs } from '@/stores/hoverSettingsStore';
 import { useMouseCoordinateStore } from '@/stores/mouseCoordinateStore';
 import { useStatusBarStore } from '@/stores/statusBarStore';
-import { useTooltipStore, type ViewId, type ViewTooltipEntry } from '@/stores/tooltipStore';
+import { useTooltipStore, type ViewTooltipEntry } from '@/stores/tooltipStore';
 import type { HoverContext, HoverInfoEntry } from '@/types/hoverInfo';
+
+type AnatomicalViewId = 'axial' | 'sagittal' | 'coronal';
 
 export interface UseHoverInfoOptions {
   /** View identifier for this component */
-  viewId: string;
+  viewId: AnatomicalViewId;
   /** ID of the primary/active layer (if any) */
   activeLayerId?: string;
   /** ID of the active atlas layer (if any) */
@@ -139,7 +141,7 @@ export function useHoverInfo(options: UseHoverInfoOptions): UseHoverInfoResult {
           if (settings.showInTooltip && entries.length > 0) {
             const tooltipStore = useTooltipStore.getState();
             tooltipStore.setTooltip({
-              viewId: viewId as ViewId,
+              viewId,
               screen: { x: sample.clientX, y: sample.clientY },
               world: worldCoord,
               entries: entries.map(toTooltipEntry),

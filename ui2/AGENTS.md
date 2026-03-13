@@ -43,7 +43,7 @@ The main React/TypeScript frontend application for Brainflow2, providing an inte
 ### Working In This Directory
 
 **Critical Architecture Patterns:**
-1. **Declarative API**: Send complete view state to backend via `apply_and_render_view_state`, not multiple imperative commands
+1. **Declarative API**: Send complete view state to backend via `render_view`/`render_views`/`submit_view`, not multiple imperative commands
 2. **Zustand for Cross-Panel State**: GoldenLayout creates isolated React roots per panel, so ALL cross-panel state MUST use Zustand stores, NOT React Context
 3. **Service Layer Pattern**: Business logic lives in services (`src/services/`), components are thin wrappers
 4. **Coordinate System Awareness**: GPU uses Y=0 at bottom (OpenGL), CPU uses Y=0 at top (image convention). Y-flip happens at GPU buffer readback boundary only.
@@ -138,7 +138,7 @@ const viewState = {
 };
 
 // Single atomic update
-await invoke('plugin:api-bridge|apply_and_render_view_state', { state: viewState });
+await invoke('plugin:api-bridge|render_view', { stateJson: JSON.stringify(viewState), format: 'rgba' });
 ```
 
 ## Dependencies

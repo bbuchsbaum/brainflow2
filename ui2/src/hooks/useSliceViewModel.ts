@@ -9,28 +9,7 @@ import type { ViewPlane } from '@/types/coordinates';
 import type { RenderContext } from '@/types/renderContext';
 import { SLIDER_HEIGHT } from '@/components/views/constants';
 
-const tupleEquals = (a?: readonly number[], b?: readonly number[]) => {
-  if (a === b) return true;
-  if (!a || !b) return false;
-  if (a.length !== b.length) return false;
-  for (let i = 0; i < a.length; i += 1) {
-    if (!Object.is(a[i], b[i])) return false;
-  }
-  return true;
-};
-
 type ViewId = 'axial' | 'sagittal' | 'coronal';
-
-const viewPlaneEquals = (a?: ViewPlane, b?: ViewPlane) => {
-  if (a === b) return true;
-  if (!a || !b) return a === b;
-  return (
-    tupleEquals(a.origin_mm, b.origin_mm) &&
-    tupleEquals(a.u_mm, b.u_mm) &&
-    tupleEquals(a.v_mm, b.v_mm) &&
-    tupleEquals(a.dim_px, b.dim_px)
-  );
-};
 
 export function useSliceViewModel(
   viewId: ViewId,
@@ -43,14 +22,10 @@ export function useSliceViewModel(
   }
   // Subscribe to view state using selectors that return stable references
   const viewPlane = useViewStateStore(
-    React.useCallback((s) => s.viewState.views[viewId] as ViewPlane | undefined, [viewId]),
-    viewPlaneEquals
+    React.useCallback((s) => s.viewState.views[viewId] as ViewPlane | undefined, [viewId])
   );
 
-  const crosshairWorld = useViewStateStore(
-    (s) => s.viewState.crosshair.world_mm,
-    tupleEquals
-  );
+  const crosshairWorld = useViewStateStore((s) => s.viewState.crosshair.world_mm);
   const crosshairVisible = useViewStateStore((s) => s.viewState.crosshair.visible);
   const crosshair = React.useMemo(
     () => ({ visible: crosshairVisible, world_mm: crosshairWorld }),

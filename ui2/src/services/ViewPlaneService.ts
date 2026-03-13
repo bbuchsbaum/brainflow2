@@ -158,7 +158,7 @@ export class ViewPlaneService {
       origin_mm: origin,
       u_mm,
       v_mm,
-      size: viewDimensions
+      dim_px: viewDimensions
     };
   }
 
@@ -175,7 +175,7 @@ export class ViewPlaneService {
     if (!a || !b) return false;
     
     // Check dimensions
-    if (a.size[0] !== b.size[0] || a.size[1] !== b.size[1]) {
+    if (a.dim_px[0] !== b.dim_px[0] || a.dim_px[1] !== b.dim_px[1]) {
       return false;
     }
     
@@ -230,7 +230,7 @@ export class ViewPlaneService {
     min: [number, number, number]; 
     max: [number, number, number] 
   } {
-    const [width, height] = viewPlane.size;
+    const [width, height] = viewPlane.dim_px;
     
     // Calculate the four corners of the view
     const corners = [

@@ -12,17 +12,17 @@ impl TestSliceGenerator {
     pub fn axial_slice(z_mm: f32, fov_mm: [f32; 2], dim_px: [u32; 2]) -> SliceSpec {
         SliceSpec::axial_at(z_mm, fov_mm, dim_px)
     }
-    
+
     /// Create a coronal slice at the given Y coordinate
     pub fn coronal_slice(y_mm: f32, fov_mm: [f32; 2], dim_px: [u32; 2]) -> SliceSpec {
         SliceSpec::coronal_at(y_mm, fov_mm, dim_px)
     }
-    
+
     /// Create a sagittal slice at the given X coordinate
     pub fn sagittal_slice(x_mm: f32, fov_mm: [f32; 2], dim_px: [u32; 2]) -> SliceSpec {
         SliceSpec::sagittal_at(x_mm, fov_mm, dim_px)
     }
-    
+
     /// Create an oblique slice with custom orientation
     pub fn oblique_slice(
         origin_mm: [f32; 3],
@@ -36,20 +36,20 @@ impl TestSliceGenerator {
         let sin_x = rotation_x.sin();
         let cos_y = rotation_y.cos();
         let sin_y = rotation_y.sin();
-        
+
         // Combined rotation: Y rotation followed by X rotation
         let u_mm = [
             cos_y,
             sin_x * sin_y,
             -cos_x * sin_y,
         ];
-        
+
         let v_mm = [
             0.0,
             cos_x,
             sin_x,
         ];
-        
+
         SliceSpec {
             origin_mm,
             u_mm,
@@ -59,7 +59,7 @@ impl TestSliceGenerator {
             border_mode: neuro_types::BorderMode::Transparent,
         }
     }
-    
+
     /// Generate a set of standard test slices
     pub fn standard_test_slices() -> Vec<(&'static str, SliceSpec)> {
         vec![
@@ -88,7 +88,7 @@ impl TestLayerGenerator {
             visual: LayerVisual::default(),
         }
     }
-    
+
     /// Create a layer with custom intensity window
     pub fn windowed_layer(
         volume_id: usize,
@@ -98,14 +98,14 @@ impl TestLayerGenerator {
     ) -> LayerSpec {
         let mut visual = LayerVisual::default();
         visual.intensity_range = Some([intensity_min, intensity_max]);
-        
+
         LayerSpec {
             volume_id: VolumeHandle::new(volume_id),
             world_from_voxel: transform,
             visual,
         }
     }
-    
+
     /// Create a layer with colormap
     pub fn colormap_layer(
         volume_id: usize,
@@ -116,14 +116,14 @@ impl TestLayerGenerator {
         let mut visual = LayerVisual::default();
         visual.colormap = colormap;
         visual.opacity = opacity;
-        
+
         LayerSpec {
             volume_id: VolumeHandle::new(volume_id),
             world_from_voxel: transform,
             visual,
         }
     }
-    
+
     /// Create a thresholded overlay layer
     pub fn overlay_layer(
         volume_id: usize,
@@ -135,7 +135,7 @@ impl TestLayerGenerator {
         let mut visual = LayerVisual::overlay();
         visual.colormap = colormap;
         visual.threshold_range = Some([threshold_min, threshold_max]);
-        
+
         LayerSpec {
             volume_id: VolumeHandle::new(volume_id),
             world_from_voxel: transform,
@@ -152,12 +152,12 @@ impl TestRequestGenerator {
     pub fn single_layer(slice: SliceSpec, layer: LayerSpec) -> CompositeRequest {
         CompositeRequest::new(slice, vec![layer])
     }
-    
+
     /// Create a multi-layer composite request
     pub fn multi_layer(slice: SliceSpec, layers: Vec<LayerSpec>) -> CompositeRequest {
         CompositeRequest::new(slice, layers)
     }
-    
+
     /// Create a standard anatomical + overlay request
     pub fn anatomical_with_overlay(
         slice: SliceSpec,
@@ -175,7 +175,7 @@ impl TestRequestGenerator {
             f32::INFINITY,
             neuro_types::Colormap::Hot,
         );
-        
+
         CompositeRequest::new(slice, vec![anat_layer, overlay_layer])
     }
 }
@@ -187,46 +187,46 @@ impl TestAnalysis {
     /// Calculate per-channel statistics for an RGBA image
     pub fn channel_statistics(rgba: &[u8]) -> ChannelStats {
         assert!(rgba.len() % 4 == 0, "Invalid RGBA data length");
-        
+
         let num_pixels = rgba.len() / 4;
         let mut stats = ChannelStats::default();
-        
+
         for i in 0..num_pixels {
             let offset = i * 4;
             let r = rgba[offset] as f32;
             let g = rgba[offset + 1] as f32;
             let b = rgba[offset + 2] as f32;
             let a = rgba[offset + 3] as f32;
-            
+
             stats.r_sum += r;
             stats.g_sum += g;
             stats.b_sum += b;
             stats.a_sum += a;
-            
+
             stats.r_min = stats.r_min.min(r);
             stats.g_min = stats.g_min.min(g);
             stats.b_min = stats.b_min.min(b);
             stats.a_min = stats.a_min.min(a);
-            
+
             stats.r_max = stats.r_max.max(r);
             stats.g_max = stats.g_max.max(g);
             stats.b_max = stats.b_max.max(b);
             stats.a_max = stats.a_max.max(a);
-            
+
             if a > 0.0 {
                 stats.non_transparent_pixels += 1;
             }
         }
-        
+
         let n = num_pixels as f32;
         stats.r_mean = stats.r_sum / n;
         stats.g_mean = stats.g_sum / n;
         stats.b_mean = stats.b_sum / n;
         stats.a_mean = stats.a_sum / n;
-        
+
         stats
     }
-    
+
     /// Check if an image is mostly transparent
     pub fn is_mostly_transparent(rgba: &[u8], threshold: f32) -> bool {
         let stats = Self::channel_statistics(rgba);

@@ -10,6 +10,7 @@ import { getLayoutService } from './layoutService';
 import { formatTauriError } from '@/utils/formatTauriError';
 import { normalizeSurfaceHemisphere } from '@/utils/surfaceIdentity';
 import { getTransport, type BackendTransport } from './transport';
+import { applySurfaceSelectionInContext } from '@/utils/surfaceCommandContext';
 
 export interface SurfaceLoadOptions {
   path: string;
@@ -50,6 +51,20 @@ export class SurfaceLoadingService {
   constructor() {
     this.eventBus = getEventBus();
     this.transport = getTransport();
+  }
+
+  async requestSurfaceFileSelection(): Promise<void> {
+    try {
+      await this.transport.invoke<void>('open_file_dialog');
+    } catch (error) {
+      throw new Error(formatTauriError(error));
+    }
+  }
+
+  private activateLoadedSurface(surfaceHandle: string): void {
+    // Surface loading creates or opens its own view; it should update the legacy/global
+    // selection target without retargeting an unrelated explicit surface view.
+    applySurfaceSelectionInContext(surfaceHandle, 'geometry', null, null);
   }
   
   /**
@@ -103,7 +118,7 @@ export class SurfaceLoadingService {
       
       const loadedSurface = await this.loadSurfaceFromPath(path);
       const surfaceStore = useSurfaceStore.getState();
-      surfaceStore.addSurface(loadedSurface, autoActivate);
+      surfaceStore.addSurface(loadedSurface, false);
 
       const geometry = await this.fetchSurfaceGeometry(loadedSurface.handle);
       surfaceStore.setSurfaceGeometry(loadedSurface.handle, geometry);
@@ -114,7 +129,7 @@ export class SurfaceLoadingService {
       
       // Auto-activate if requested
       if (autoActivate) {
-        surfaceStore.setActiveSurface(loadedSurface.handle);
+        this.activateLoadedSurface(loadedSurface.handle);
       }
       
       // Complete loading
@@ -176,8 +191,7 @@ export class SurfaceLoadingService {
    */
   async validateSurfaceFile(path: string): Promise<boolean> {
     try {
-      // Check file extension
-      if (!path.toLowerCase().endsWith('.gii')) {
+      if (!this.isSupportedSurfaceFile(path)) {
         console.warn(`[SurfaceLoadingService] Invalid file extension:`, path);
         return false;
       }
@@ -363,7 +377,7 @@ export class SurfaceLoadingService {
         faceCount: result.face_count || 0,
       });
       const surfaceStore = useSurfaceStore.getState();
-      surfaceStore.addSurface(surface, true);
+      surfaceStore.addSurface(surface, false);
 
       const geometry = await this.fetchSurfaceGeometry(surface.handle);
       surfaceStore.setSurfaceGeometry(surface.handle, geometry);
@@ -374,8 +388,7 @@ export class SurfaceLoadingService {
       // Update progress: surface registered
       useLoadingQueueStore.getState().updateProgress(queueId, 80);
 
-      // Set as active surface
-      useSurfaceStore.getState().setActiveSurface(surfaceHandle);
+      this.activateLoadedSurface(surfaceHandle);
 
       // Complete loading
       useLoadingQueueStore.getState().markComplete(queueId);
@@ -443,7 +456,6 @@ export class SurfaceLoadingService {
         surfaceType,
       },
       layers: new Map(),
-      displayLayers: new Map(),
       metadata: {
         vertexCount: result.vertex_count || 0,
         faceCount: result.face_count || 0,
@@ -485,7 +497,6 @@ export class SurfaceLoadingService {
         surfaceType,
       },
       layers: new Map(),
-      displayLayers: new Map(),
       metadata: {
         vertexCount: metadata.vertexCount,
         faceCount: metadata.faceCount,

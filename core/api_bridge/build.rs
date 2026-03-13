@@ -32,10 +32,7 @@ const COMMANDS: &[&str] = &[
     "update_frame_for_synchronized_view",
     "set_crosshair",
     "set_view_plane",
-    // "render_frame", // REMOVED - Redundant with apply_and_render_view_state
     "create_offscreen_render_target",
-    // "render_to_image", // REMOVED - Redundant with apply_and_render_view_state
-    // "render_to_image_binary", // REMOVED - Redundant with apply_and_render_view_state
     "clear_render_layers",
     "update_layer_opacity",
     "update_layer_colormap",
@@ -48,9 +45,8 @@ const COMMANDS: &[&str] = &[
     "compute_layer_histogram",
     "sample_world_coordinate",
     "render_view", // New unified render method
-    "apply_and_render_view_state",
-    "apply_and_render_view_state_binary",
-    "apply_and_render_view_state_raw",
+    "submit_view",
+    "render_views",
     "query_slice_axis_meta",
     "batch_render_slices",
     // Atlas management commands

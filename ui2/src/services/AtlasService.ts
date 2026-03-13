@@ -6,6 +6,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { safeListen, safeUnlisten, type Unlisten } from '@/utils/eventUtils';
 import { getVolumeLoadingService } from './VolumeLoadingService';
 import { AtlasPaletteService } from './AtlasPaletteService';
+import type { VolumeHandle } from './apiService';
 import { formatTauriError } from '@/utils/formatTauriError';
 import { useLoadingQueueStore } from '@/stores/loadingQueueStore';
 import type { Layer } from '@/types/layers';
@@ -67,7 +68,7 @@ export class AtlasService {
    */
   static async getCatalog(signal?: AbortSignal): Promise<AtlasCatalogEntry[]> {
     try {
-      const result = await invoke('plugin:api-bridge|get_atlas_catalog');
+      const result = await invoke<AtlasCatalogEntry[]>('plugin:api-bridge|get_atlas_catalog');
       
       // Check if the operation was aborted
       if (signal?.aborted) {
@@ -89,7 +90,7 @@ export class AtlasService {
    */
   static async getFilteredAtlases(filter: AtlasFilter, signal?: AbortSignal): Promise<AtlasCatalogEntry[]> {
     try {
-      const result = await invoke('plugin:api-bridge|get_filtered_atlases', { filter });
+      const result = await invoke<AtlasCatalogEntry[]>('plugin:api-bridge|get_filtered_atlases', { filter });
       
       // Check if the operation was aborted
       if (signal?.aborted) {
@@ -111,7 +112,7 @@ export class AtlasService {
    */
   static async getAtlasEntry(atlasId: string, signal?: AbortSignal): Promise<AtlasCatalogEntry | null> {
     try {
-      const result = await invoke('plugin:api-bridge|get_atlas_entry', { atlasId });
+      const result = await invoke<AtlasCatalogEntry | null>('plugin:api-bridge|get_atlas_entry', { atlasId });
       
       // Check if the operation was aborted
       if (signal?.aborted) {
@@ -133,7 +134,7 @@ export class AtlasService {
    */
   static async toggleFavorite(atlasId: string, signal?: AbortSignal): Promise<boolean> {
     try {
-      const result = await invoke('plugin:api-bridge|toggle_atlas_favorite', { atlasId });
+      const result = await invoke<boolean>('plugin:api-bridge|toggle_atlas_favorite', { atlasId });
       
       // Check if the operation was aborted
       if (signal?.aborted) {
@@ -155,7 +156,7 @@ export class AtlasService {
    */
   static async getRecentAtlases(signal?: AbortSignal): Promise<AtlasCatalogEntry[]> {
     try {
-      const result = await invoke('plugin:api-bridge|get_recent_atlases');
+      const result = await invoke<AtlasCatalogEntry[]>('plugin:api-bridge|get_recent_atlases');
       
       // Check if the operation was aborted
       if (signal?.aborted) {
@@ -177,7 +178,7 @@ export class AtlasService {
    */
   static async getFavoriteAtlases(signal?: AbortSignal): Promise<AtlasCatalogEntry[]> {
     try {
-      const result = await invoke('plugin:api-bridge|get_favorite_atlases');
+      const result = await invoke<AtlasCatalogEntry[]>('plugin:api-bridge|get_favorite_atlases');
       
       // Check if the operation was aborted
       if (signal?.aborted) {
@@ -199,7 +200,7 @@ export class AtlasService {
    */
   static async validateConfig(config: AtlasConfig, signal?: AbortSignal): Promise<boolean> {
     try {
-      const result = await invoke('plugin:api-bridge|validate_atlas_config', { config });
+      const result = await invoke<boolean>('plugin:api-bridge|validate_atlas_config', { config });
       
       // Check if the operation was aborted
       if (signal?.aborted) {
@@ -564,25 +565,23 @@ export class AtlasService {
       }
 
       const volumeInfo = result.volume_handle_info;
-      const volumeHandle: {
-        id: string;
-        name: string;
-        dims: [number, number, number];
-        dtype: string;
-        volume_type: string;
-        current_timepoint: number;
-        num_timepoints?: number;
-        time_series_info?: unknown;
-        path: string;
-      } = {
+      const volumeHandle: VolumeHandle = {
         id: volumeInfo.id,
         name: volumeInfo.name,
         dims: volumeInfo.dims as [number, number, number],
         dtype: volumeInfo.dtype,
         volume_type: volumeInfo.volume_type,
         current_timepoint: volumeInfo.current_timepoint ?? 0,
-        num_timepoints: volumeInfo.num_timepoints,
-        time_series_info: volumeInfo.time_series_info,
+        num_timepoints: volumeInfo.num_timepoints ?? undefined,
+        time_series_info:
+          volumeInfo.time_series_info && typeof volumeInfo.time_series_info === 'object'
+            ? (volumeInfo.time_series_info as {
+                num_timepoints: number;
+                tr: number | null;
+                temporal_unit: string | null;
+                acquisition_time: number | null;
+              })
+            : undefined,
         path: `atlas:${result.atlas_metadata.id}`,
       };
 

@@ -9,10 +9,16 @@ import { getTransport } from './transport';
 import { getEventBus } from '@/events/EventBus';
 import { useActivePanelStore } from '@/stores/activePanelStore';
 import { useActiveRenderContextStore } from '@/stores/activeRenderContextStore';
+import { useSurfaceStore } from '@/stores/surfaceStore';
 import { useViewStateStore } from '@/stores/viewStateStore';
 import { useMouseCoordinateStore } from '@/stores/mouseCoordinateStore';
 import type { ViewState } from '@/types/viewState';
 import type { ViewType } from '@/types/coordinates';
+import {
+  buildSurfaceViewExporterKey,
+  parseSurfaceViewContextId,
+  resolveBoundSurfaceHandle,
+} from '@/utils/surfaceViewContext';
 
 export type ExportFormat = 'png' | 'jpg';
 
@@ -24,7 +30,7 @@ export interface ExportOptions {
 type NormalizedExportOptions = Required<Pick<ExportOptions, 'format' | 'transparentBackground'>>;
 type ExporterFn = (options: NormalizedExportOptions) => Promise<Uint8Array>;
 
-class ViewExportService {
+export class ViewExportService {
   private exporters = new Map<string, ExporterFn>();
   private transport = getTransport();
   private eventBus = getEventBus();
@@ -275,6 +281,16 @@ class ViewExportService {
     }
 
     if (typeLower === 'surfaceview') {
+      const surfaceViewHandles = useSurfaceStore.getState().surfaceViewHandles;
+      const exporterKey = buildSurfaceViewExporterKey(
+        componentType,
+        componentState,
+        surfaceViewHandles
+      );
+      if (exporterKey) {
+        return exporterKey;
+      }
+
       const handle = componentState?.surfaceHandle;
       if (typeof handle === 'string') {
         return `surfaceview:${handle}`.toLowerCase();
@@ -305,7 +321,16 @@ class ViewExportService {
     }
 
     if (typeLower === 'surfaceview') {
-      const handle = componentState?.surfaceHandle;
+      const surfaceViewHandles = useSurfaceStore.getState().surfaceViewHandles;
+      const surfaceViewId =
+        typeof componentState?.surfaceViewId === 'string' ? componentState.surfaceViewId : null;
+      const fallbackSurfaceHandle =
+        typeof componentState?.surfaceHandle === 'string' ? componentState.surfaceHandle : null;
+      const handle = resolveBoundSurfaceHandle(
+        surfaceViewId,
+        surfaceViewHandles,
+        fallbackSurfaceHandle
+      );
       if (typeof handle === 'string') {
         return `surface-${handle}-${ts}.${format}`;
       }
@@ -334,7 +359,8 @@ class ViewExportService {
     }
 
     if (idLower.startsWith('surfaceview:')) {
-      const handle = sanitize(idLower.slice('surfaceview:'.length));
+      const parsed = parseSurfaceViewContextId(idLower);
+      const handle = sanitize(parsed?.surfaceHandle ?? idLower.slice('surfaceview:'.length));
       return handle ? `surface-${handle}-${ts}.${format}` : `surface-${ts}.${format}`;
     }
 

@@ -1,0 +1,20 @@
+import type { SurfaceGeometryType } from "./SurfaceGeometryType";
+import type { SurfaceHemisphere } from "./SurfaceHemisphere";
+import type { SurfaceSpace } from "./SurfaceSpace";
+/**
+ * Request to load a surface template
+ */
+export type SurfaceTemplateRequest = {
+    /**
+     * Surface space/template
+     */
+    space: SurfaceSpace;
+    /**
+     * Surface geometry type
+     */
+    geometry_type: SurfaceGeometryType;
+    /**
+     * Hemisphere
+     */
+    hemisphere: SurfaceHemisphere;
+};

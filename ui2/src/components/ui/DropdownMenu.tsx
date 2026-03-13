@@ -1,14 +1,21 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useMemo, useState } from 'react';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/shadcn/popover';
+import { cn } from '@/utils/cn';
 
-interface DropdownMenuItem {
-  id: string;
-  label: React.ReactNode;
-  icon?: React.ReactNode;
-  disabled?: boolean;
-  danger?: boolean;
-  separator?: boolean;
-  onClick?: () => void;
-}
+export type DropdownMenuItem =
+  | {
+      id: string;
+      separator: true;
+    }
+  | {
+      id: string;
+      label: React.ReactNode;
+      icon?: React.ReactNode;
+      disabled?: boolean;
+      danger?: boolean;
+      separator?: false;
+      onClick?: () => void;
+    };
 
 interface DropdownMenuProps {
   trigger: React.ReactNode;
@@ -18,107 +25,110 @@ interface DropdownMenuProps {
   onItemClick?: (item: DropdownMenuItem) => void;
 }
 
+type PopoverPlacement = {
+  align: 'start' | 'end';
+  side: 'top' | 'bottom';
+};
+
+const POSITION_TO_POPOVER: Record<NonNullable<DropdownMenuProps['position']>, PopoverPlacement> = {
+  'bottom-left': { side: 'bottom', align: 'start' },
+  'bottom-right': { side: 'bottom', align: 'end' },
+  'top-left': { side: 'top', align: 'start' },
+  'top-right': { side: 'top', align: 'end' },
+};
+
+function renderTrigger(trigger: React.ReactNode, isOpen: boolean) {
+  if (React.isValidElement(trigger)) {
+    return React.cloneElement(trigger as React.ReactElement<any>, {
+      'aria-haspopup': 'menu',
+      'aria-expanded': isOpen,
+    });
+  }
+
+  return (
+    <button
+      type="button"
+      className="inline-flex items-center"
+      aria-haspopup="menu"
+      aria-expanded={isOpen}
+    >
+      {trigger}
+    </button>
+  );
+}
+
 export const DropdownMenu: React.FC<DropdownMenuProps> = ({
   trigger,
   items,
   position = 'bottom-left',
   className = '',
-  onItemClick
+  onItemClick,
 }) => {
   const [isOpen, setIsOpen] = useState(false);
-  const dropdownRef = useRef<HTMLDivElement>(null);
+  const placement = POSITION_TO_POPOVER[position];
 
-  const toggleDropdown = () => {
-    setIsOpen(!isOpen);
-  };
+  const menuItems = useMemo(
+    () =>
+      items.map((item) => {
+        if (item.separator) {
+          return (
+            <hr key={item.id} className="my-1 border-border" role="separator" />
+          );
+        }
 
-  const closeDropdown = () => {
-    setIsOpen(false);
-  };
+        const toneClass = item.disabled
+          ? 'text-muted-foreground/50 cursor-not-allowed'
+          : item.danger
+            ? 'text-destructive hover:bg-destructive/10'
+            : 'text-popover-foreground hover:bg-accent';
 
-  const handleItemClick = (item: DropdownMenuItem) => {
-    if (item.disabled) return;
-    
-    item.onClick?.();
-    onItemClick?.(item);
-    closeDropdown();
-  };
+        return (
+          <button
+            key={item.id}
+            type="button"
+            role="menuitem"
+            className={cn(
+              'flex w-full items-center gap-2 rounded-sm px-3 py-1.5 text-left text-sm transition-colors outline-none',
+              toneClass
+            )}
+            disabled={item.disabled}
+            onClick={() => {
+              if (item.disabled) {
+                return;
+              }
 
-  // Handle click outside
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
-        closeDropdown();
-      }
-    };
-
-    if (isOpen) {
-      document.addEventListener('mousedown', handleClickOutside);
-      return () => document.removeEventListener('mousedown', handleClickOutside);
-    }
-  }, [isOpen]);
-
-  // Handle escape key
-  useEffect(() => {
-    const handleEscape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        closeDropdown();
-      }
-    };
-
-    if (isOpen) {
-      document.addEventListener('keydown', handleEscape);
-      return () => document.removeEventListener('keydown', handleEscape);
-    }
-  }, [isOpen]);
-
-  const positionClasses = {
-    'bottom-left': 'top-full left-0 mt-1',
-    'bottom-right': 'top-full right-0 mt-1',
-    'top-left': 'bottom-full left-0 mb-1',
-    'top-right': 'bottom-full right-0 mb-1'
-  };
+              item.onClick?.();
+              onItemClick?.(item);
+              setIsOpen(false);
+            }}
+          >
+            {item.icon && (
+              <span className="flex h-4 w-4 items-center justify-center">
+                {item.icon}
+              </span>
+            )}
+            {item.label}
+          </button>
+        );
+      }),
+    [items, onItemClick]
+  );
 
   return (
-    <div ref={dropdownRef} className={`relative inline-block ${className}`}>
-      <div onClick={toggleDropdown} className="cursor-pointer">
-        {trigger}
-      </div>
-
-      {isOpen && (
-        <div 
-          className={`absolute z-50 min-w-48 bg-white border border-gray-200 rounded-md shadow-lg py-1 ${positionClasses[position]}`}
-        >
-          {items.map((item) => {
-            if (item.separator) {
-              return <hr key={item.id} className="my-1 border-gray-100" />;
-            }
-
-            return (
-              <button
-                key={item.id}
-                type="button"
-                className={`w-full flex items-center gap-2 px-3 py-1.5 text-left text-sm transition-colors ${
-                  item.disabled
-                    ? 'text-gray-400 cursor-not-allowed'
-                    : item.danger
-                    ? 'text-red-600 hover:bg-red-50'
-                    : 'text-gray-700 hover:bg-gray-100'
-                }`}
-                disabled={item.disabled}
-                onClick={() => handleItemClick(item)}
-              >
-                {item.icon && (
-                  <span className="w-4 h-4 flex items-center justify-center">
-                    {item.icon}
-                  </span>
-                )}
-                {item.label}
-              </button>
-            );
-          })}
-        </div>
-      )}
-    </div>
+    <Popover open={isOpen} onOpenChange={setIsOpen}>
+      <PopoverTrigger asChild>
+        {renderTrigger(trigger, isOpen)}
+      </PopoverTrigger>
+      <PopoverContent
+        side={placement.side}
+        align={placement.align}
+        sideOffset={6}
+        className={cn('z-50 min-w-48 p-1', className)}
+        role="menu"
+        aria-orientation="vertical"
+      >
+        {menuItems}
+      </PopoverContent>
+    </Popover>
   );
 };

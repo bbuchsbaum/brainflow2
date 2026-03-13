@@ -9,7 +9,7 @@ We've removed all in-view crosshair controls (toolbars, floating buttons) from t
 ### Frontend (Completed)
 
 1. **Removed all in-view controls**:
-   - Removed ViewToolbar from FlexibleOrthogonalView
+   - Removed ViewToolbar from OrthogonalPanelsWorkspace
    - Removed unused ViewToolbar import from OrthogonalViewContainer
    - Views now have clean, unobstructed display areas
 

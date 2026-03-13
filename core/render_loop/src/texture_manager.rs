@@ -51,7 +51,9 @@ impl TextureManager {
         let filter_mode = if supports_float32_filterable {
             wgpu::FilterMode::Linear
         } else {
-            println!("WARNING: Using nearest neighbor sampling for volume textures because FLOAT32_FILTERABLE is not supported");
+            println!(
+                "WARNING: Using nearest neighbor sampling for volume textures because FLOAT32_FILTERABLE is not supported"
+            );
             wgpu::FilterMode::Nearest
         };
 

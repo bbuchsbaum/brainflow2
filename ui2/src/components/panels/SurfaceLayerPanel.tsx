@@ -22,25 +22,29 @@ import { SurfaceMetadataDrawer } from '@/components/ui/SurfaceMetadataDrawer';
 import { SurfaceControlPanel } from './SurfaceControlPanel';
 import { getSurfaceLoadingService } from '@/services/SurfaceLoadingService';
 import { surfaceOverlayService } from '@/services/SurfaceOverlayService';
+import { getConfirmationService } from '@/services/ConfirmationService';
 import { PanelHeader } from '@/components/ui/PanelHeader';
+import {
+  applySurfaceSelectionInContext,
+  resolveSurfaceSelectionViewId,
+} from '@/utils/surfaceCommandContext';
+import { useSurfaceCommandContextValue } from '@/hooks/useSurfaceSelectionContext';
 
 export const SurfaceLayerPanel: React.FC = () => {
   // Track expanded surfaces
   const [expandedSurfaces, setExpandedSurfaces] = useState<Set<string>>(new Set());
   const {
-    surfaces,
     activeSurfaceId,
+    explicitSurfaceViewId,
     selectedItemType,
     selectedLayerId,
-    isLoading,
-    loadError,
-    setActiveSurface,
-    clearError,
-    setSelectedItem,
-    addDataLayer,
-    updateLayerProperty,
-    setSurfaceVisibility,
-  } = useSurfaceStore();
+  } = useSurfaceCommandContextValue();
+  const surfaces = useSurfaceStore((state) => state.surfaces);
+  const isLoading = useSurfaceStore((state) => state.isLoading);
+  const loadError = useSurfaceStore((state) => state.loadError);
+  const clearError = useSurfaceStore((state) => state.clearError);
+  const updateLayerProperty = useSurfaceStore((state) => state.updateLayerProperty);
+  const setSurfaceVisibility = useSurfaceStore((state) => state.setSurfaceVisibility);
   
   // State for metadata drawer
   const [metadataSurfaceId, setMetadataSurfaceId] = useState<string | null>(null);
@@ -48,35 +52,36 @@ export const SurfaceLayerPanel: React.FC = () => {
   // Convert Map to array for rendering
   const surfaceList = Array.from(surfaces.entries());
   
+  const resolveSelectionSurfaceViewId = useCallback(
+    (surfaceId: string) => resolveSurfaceSelectionViewId(surfaceId, explicitSurfaceViewId),
+    [explicitSurfaceViewId]
+  );
+
   const handleLoadSurface = useCallback(async () => {
-    // In a real implementation, this would open a file dialog
-    // For now, we'll use a hardcoded path or prompt
-    const path = prompt('Enter surface file path (.gii):');
-    if (path) {
-      try {
-        const handle = await getSurfaceLoadingService().loadSurfaceFile({
-          path,
-          autoActivate: true,
-          validateMesh: true,
-        });
-        if (handle) {
-          setActiveSurface(handle);
-        }
-      } catch (error) {
-        console.error('Failed to load surface:', error);
-      }
+    try {
+      await getSurfaceLoadingService().requestSurfaceFileSelection();
+    } catch (error) {
+      console.error('Failed to open surface picker:', error);
     }
-  }, [setActiveSurface]);
+  }, [surfaces]);
   
   const handleSelectGeometry = useCallback((surfaceId: string) => {
-    setActiveSurface(surfaceId);
-    setSelectedItem('geometry');
-  }, [setActiveSurface, setSelectedItem]);
+    applySurfaceSelectionInContext(
+      surfaceId,
+      'geometry',
+      null,
+      resolveSelectionSurfaceViewId(surfaceId)
+    );
+  }, [resolveSelectionSurfaceViewId]);
   
   const handleSelectDataLayer = useCallback((surfaceId: string, layerId: string) => {
-    setActiveSurface(surfaceId);
-    setSelectedItem('dataLayer', layerId);
-  }, [setActiveSurface, setSelectedItem]);
+    applySurfaceSelectionInContext(
+      surfaceId,
+      'dataLayer',
+      layerId,
+      resolveSelectionSurfaceViewId(surfaceId)
+    );
+  }, [resolveSelectionSurfaceViewId]);
   
   const toggleExpanded = useCallback((surfaceId: string) => {
     setExpandedSurfaces(prev => {
@@ -99,31 +104,25 @@ export const SurfaceLayerPanel: React.FC = () => {
   }, []);
   
   const handleAddDataLayer = useCallback(async (surfaceId: string) => {
-    // In a real implementation, this would open a file dialog
-    const path = prompt('Enter data overlay file path (.gii):');
-    if (path) {
-      // Mock data layer for now
-      const mockLayer = {
-        id: `layer-${Date.now()}`,
-        name: path.split('/').pop() || 'data',
-        values: new Float32Array(0),
-        colormap: 'viridis',
-        range: [-1, 1] as [number, number],
-        dataRange: [-1, 1] as [number, number],
-        opacity: 1,
-        visible: true,
-      };
-      addDataLayer(surfaceId, mockLayer);
+    try {
+      await surfaceOverlayService.requestOverlayFileSelection(surfaceId);
+    } catch (error) {
+      console.error('Failed to open overlay picker:', error);
     }
-  }, [addDataLayer]);
+  }, []);
   
   const handleRemoveSurface = useCallback((surfaceId: string, e: React.MouseEvent) => {
     e.stopPropagation(); // Prevent selection when removing
-    if (confirm('Remove this surface?')) {
+    const surfaceName = surfaces.get(surfaceId)?.name;
+    void getConfirmationService().confirmSurfaceRemoval(surfaceName).then((confirmed) => {
+      if (!confirmed) {
+        return;
+      }
+
       void getSurfaceLoadingService().unloadSurface(surfaceId).catch((error) => {
         console.error('Failed to remove surface:', error);
       });
-    }
+    });
   }, []);
 
   const handleToggleSurfaceVisibility = useCallback((surfaceId: string, e: React.MouseEvent) => {
@@ -137,16 +136,18 @@ export const SurfaceLayerPanel: React.FC = () => {
     setSurfaceVisibility(surfaceId, nextVisible);
 
     if (nextVisible) {
-      setActiveSurface(surfaceId);
-      setSelectedItem('geometry');
-    } else if (activeSurfaceId === surfaceId) {
-      const fallback = surfaceList.find(([id, candidate]) => id !== surfaceId && candidate.visible !== false);
-      if (fallback) {
-        setActiveSurface(fallback[0]);
-        setSelectedItem('geometry');
-      }
+      applySurfaceSelectionInContext(
+        surfaceId,
+        'geometry',
+        null,
+        resolveSelectionSurfaceViewId(surfaceId)
+      );
     }
-  }, [surfaces, setSurfaceVisibility, setActiveSurface, setSelectedItem, activeSurfaceId, surfaceList]);
+  }, [
+    resolveSelectionSurfaceViewId,
+    setSurfaceVisibility,
+    surfaces,
+  ]);
   
   return (
     <div className="flex flex-col h-full bg-background">
@@ -377,12 +378,17 @@ export const SurfaceLayerPanel: React.FC = () => {
                               <button
                                 onClick={(e) => {
                                   e.stopPropagation();
-                                  const ok = window.confirm(`Remove layer "${layer.name}"?`);
-                                  if (ok) {
-                                    void surfaceOverlayService.removeSurfaceDataLayer(id, layerId).catch((error) => {
-                                      console.error('Failed to remove surface layer:', error);
+                                  void getConfirmationService()
+                                    .confirmSurfaceLayerRemoval(layer.name)
+                                    .then((confirmed) => {
+                                      if (!confirmed) {
+                                        return;
+                                      }
+
+                                      void surfaceOverlayService.removeSurfaceDataLayer(id, layerId).catch((error) => {
+                                        console.error('Failed to remove surface layer:', error);
+                                      });
                                     });
-                                  }
                                 }}
                                 className="p-1 hover:bg-muted/50 rounded-[2px] opacity-0 group-hover:opacity-100 transition-opacity"
                                 title="Remove Layer"

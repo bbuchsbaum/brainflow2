@@ -6,6 +6,8 @@
 
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useContextMenuStore } from '@/stores/contextMenuStore';
+import { clampContextMenuPosition } from '@/utils/contextMenuPosition';
+import { cn } from '@/utils/cn';
 
 export function ContextMenu() {
   const isOpen = useContextMenuStore((s) => s.isOpen);
@@ -26,37 +28,45 @@ export function ContextMenu() {
   useEffect(() => {
     if (!isOpen) return;
 
-    const handleClickOutside = (event: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
-        close();
-      }
-    };
-
     const handleEscape = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
         close();
       }
     };
 
-    document.addEventListener('mousedown', handleClickOutside);
     document.addEventListener('keydown', handleEscape);
     return () => {
-      document.removeEventListener('mousedown', handleClickOutside);
       document.removeEventListener('keydown', handleEscape);
     };
   }, [isOpen, close]);
 
+  useEffect(() => {
+    if (!isOpen) return;
+    menuRef.current?.focus();
+  }, [isOpen, items.length]);
+
   if (!isOpen) return null;
 
-  const pad = 6;
-  const maxX = typeof window !== 'undefined' ? window.innerWidth - menuSize.width - pad : x;
-  const maxY = typeof window !== 'undefined' ? window.innerHeight - menuSize.height - pad : y;
-  const left = Math.max(pad, Math.min(x, maxX));
-  const top = Math.max(pad, Math.min(y, maxY));
+  const { left, top } =
+    typeof window !== 'undefined'
+      ? clampContextMenuPosition(
+          x,
+          y,
+          menuSize,
+          { width: window.innerWidth, height: window.innerHeight },
+          6
+        )
+      : { left: x, top: y };
 
   return (
     <div
       className="fixed inset-0 z-50"
+      role="presentation"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) {
+          close();
+        }
+      }}
       onContextMenu={(e) => {
         e.preventDefault();
         close();
@@ -64,13 +74,13 @@ export function ContextMenu() {
     >
       <div
         ref={menuRef}
-        className="absolute min-w-48 shadow-lg py-1"
+        tabIndex={-1}
+        role="menu"
+        aria-orientation="vertical"
+        className="absolute min-w-48 rounded-[1px] border border-border bg-card py-1 shadow-lg outline-none"
         style={{
           left,
           top,
-          backgroundColor: 'hsl(var(--card))',
-          border: '1px solid hsl(var(--border))',
-          borderRadius: '1px'
         }}
       >
         {items.map((item) => {
@@ -78,27 +88,28 @@ export function ContextMenu() {
             return (
               <hr
                 key={item.id}
-                className="my-1"
-                style={{ borderColor: 'hsl(var(--border))' }}
+                className="my-1 border-border"
+                role="separator"
               />
             );
           }
 
           const isDisabled = Boolean(item.disabled);
-          const color = isDisabled
-            ? 'hsl(var(--muted-foreground) / 0.5)'
-            : item.danger
-              ? 'hsl(var(--destructive))'
-              : 'hsl(var(--foreground))';
 
           return (
             <button
               key={item.id}
               type="button"
-              className={`w-full flex items-center gap-2 px-3 py-1.5 text-left text-[11px] uppercase tracking-wider font-mono transition-colors ${
-                isDisabled ? 'cursor-not-allowed' : 'hover:bg-muted/50'
-              }`}
-              style={{ color }}
+              role="menuitem"
+              aria-disabled={isDisabled}
+              className={cn(
+                'flex w-full items-center gap-2 px-3 py-1.5 text-left text-[11px] font-mono uppercase tracking-wider transition-colors',
+                isDisabled
+                  ? 'cursor-not-allowed text-muted-foreground/50'
+                  : item.danger
+                    ? 'text-destructive hover:bg-destructive/10'
+                    : 'text-foreground hover:bg-muted/50'
+              )}
               disabled={isDisabled}
               onClick={() => {
                 if (isDisabled) return;
@@ -114,4 +125,3 @@ export function ContextMenu() {
     </div>
   );
 }
-

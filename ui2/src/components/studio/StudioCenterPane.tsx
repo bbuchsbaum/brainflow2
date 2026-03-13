@@ -1,0 +1,218 @@
+import { getStudioDisplayService } from '@/services/studio/StudioDisplayService';
+import { getStudioCoordinationService } from '@/services/studio/StudioCoordinationService';
+import { useSetStudioStore } from '@/stores/setStudioStore';
+import { buildDeckArtifact, useStudioDerivedState } from '@/hooks/useStudioDerivedState';
+import type {
+  SpatialFieldSetSummary,
+  StudioComparePaneSpec,
+  StudioCohortSummary,
+} from '@/types/studio';
+import { LensCanvas } from './LensCanvas';
+import { StudioStrip } from './StudioStrip';
+
+function buildCompareArtifact(args: {
+  pane: StudioComparePaneSpec | null;
+  activeSet: SpatialFieldSetSummary | null;
+  compareCohort: StudioCohortSummary | null;
+  scopeCohort: StudioCohortSummary | null;
+  activeMemberId: string | null;
+  activeExpressionId: string | null;
+}) {
+  const { pane, activeSet, compareCohort, scopeCohort, activeMemberId, activeExpressionId } = args;
+  if (!pane) {
+    return null;
+  }
+
+  return {
+    id: `compare:${pane.id}`,
+    kind: pane.id === 'current' ? ('member' as const) : ('compare-pane' as const),
+    lens: 'compare' as const,
+    title: pane.title,
+    subtitle: pane.subtitle,
+    recipe: pane.recipe,
+    sourcePath: pane.binding?.sourcePath ?? null,
+    materializationKey: pane.binding?.materializationKey ?? null,
+    materializedAtMs: pane.binding?.materializedAtMs ?? null,
+    supportLabel: activeSet?.supportLabel ?? null,
+    alignmentClass: activeSet?.alignmentClass ?? null,
+    activeMemberId,
+    cohortId: compareCohort?.id ?? null,
+    cohortLabel: compareCohort?.label ?? null,
+    cohortOriginKind: compareCohort?.originKind ?? null,
+    cohortOriginLabel: compareCohort?.originLabel ?? null,
+    scopeCohortId: scopeCohort?.id ?? null,
+    scopeCohortLabel: scopeCohort?.label ?? null,
+    scopeCohortOriginKind: scopeCohort?.originKind ?? null,
+    scopeCohortOriginLabel: scopeCohort?.originLabel ?? null,
+    activeExpressionId,
+    paneId: pane.id,
+    bindingKind: pane.binding?.kind ?? null,
+    status: pane.status,
+    capturedAtMs: 0,
+  };
+}
+
+export function StudioCenterPane() {
+  const {
+    activeSet,
+    activeFeature,
+    activeLens,
+    activeMemberId,
+    activeExpressionId,
+    activeMember,
+    compareCohort,
+    scopeCohort,
+    activeExpression,
+    comparePaneSpecs,
+    comparePaneLoading,
+    compareRefreshingPaneIds,
+    activeArtifact,
+    cohortList,
+    activeIssueLabel,
+    designSearch,
+    activeFilterLabels,
+    sortLabel,
+    visibleMemberIds,
+  } = useStudioDerivedState();
+
+  const setActiveLens = useSetStudioStore((state) => state.setActiveLens);
+  const setActiveMember = useSetStudioStore((state) => state.setActiveMember);
+  const setCompareCohort = useSetStudioStore((state) => state.setCompareCohort);
+  const setActiveScopeCohort = useSetStudioStore((state) => state.setActiveScopeCohort);
+  const drillToCohort = useSetStudioStore((state) => state.drillToCohort);
+  const setActiveArtifact = useSetStudioStore((state) => state.setActiveArtifact);
+
+  const handleOpenComparePane = (pane: StudioComparePaneSpec) => {
+    setActiveArtifact(
+      buildCompareArtifact({
+        pane,
+        activeSet,
+        compareCohort,
+        scopeCohort,
+        activeMemberId,
+        activeExpressionId,
+      })
+    );
+
+    const sourcePath = pane.binding?.ready ? pane.binding.sourcePath?.trim() ?? null : null;
+    if (!sourcePath) {
+      return;
+    }
+
+    void getStudioDisplayService().ensureSourcePathDisplayed(sourcePath, [sourcePath]);
+  };
+
+  const handleInspectComparePane = (pane: StudioComparePaneSpec) => {
+    setActiveArtifact(
+      buildCompareArtifact({
+        pane,
+        activeSet,
+        compareCohort,
+        scopeCohort,
+        activeMemberId,
+        activeExpressionId,
+      })
+    );
+  };
+
+  const handleInspectCurrentArtifact = () => {
+    if (activeLens === 'compare') {
+      const currentPane = comparePaneSpecs.find((pane) => pane.id === 'current') ?? null;
+      setActiveArtifact(
+        buildCompareArtifact({
+          pane: currentPane,
+          activeSet,
+          compareCohort,
+          scopeCohort,
+          activeMemberId,
+          activeExpressionId,
+        })
+      );
+      return;
+    }
+
+    setActiveArtifact(
+      buildDeckArtifact({
+        activeSet,
+        activeMember,
+        activeFeatureLabel: activeFeature?.label ?? null,
+        scopeCohort,
+        activeExpressionId,
+      })
+    );
+  };
+
+  const handleOpenCurrentSource = () => {
+    const sourcePath =
+      (activeArtifact?.lens === activeLens ? activeArtifact.sourcePath?.trim() : null) ??
+      activeMember?.sourcePath?.trim() ??
+      null;
+    if (!sourcePath) {
+      return;
+    }
+
+    void getStudioDisplayService().ensureSourcePathDisplayed(sourcePath, [sourcePath]);
+  };
+
+  const handleRecomputeComparePane = (pane: StudioComparePaneSpec) => {
+    if (pane.binding?.kind !== 'derived_field') {
+      return;
+    }
+
+    void getStudioCoordinationService().refreshComparePanes({
+      activeSet,
+      activeMember,
+      compareCohort,
+      activeExpression,
+      forceRematerialize: true,
+      refreshingPaneIds: [pane.id],
+      notifyLabel: pane.title,
+    });
+  };
+
+  return (
+    <div className="flex min-h-0 flex-1 flex-col gap-3">
+      <div className="min-h-0 flex-1">
+        <LensCanvas
+          activeLens={activeLens}
+          activeSet={activeSet}
+          activeFeature={activeFeature}
+          activeArtifact={activeArtifact}
+          activeMemberId={activeMemberId}
+          activeMember={activeMember}
+          compareCohort={compareCohort}
+          activeExpression={activeExpression}
+          cohorts={cohortList}
+          comparePaneSpecs={comparePaneSpecs}
+          comparePaneLoading={comparePaneLoading}
+          compareRefreshingPaneIds={compareRefreshingPaneIds}
+          scopeCohortLabel={scopeCohort?.label ?? null}
+          searchLabel={designSearch.trim() || null}
+          filterLabels={activeFilterLabels}
+          sortLabel={sortLabel}
+          onSelectLens={setActiveLens}
+          onSelectMember={setActiveMember}
+          onSelectCohort={setCompareCohort}
+          onDrillToCohort={drillToCohort}
+          onOpenComparePane={handleOpenComparePane}
+          onInspectComparePane={handleInspectComparePane}
+          onRecomputeComparePane={handleRecomputeComparePane}
+          onInspectCurrentArtifact={handleInspectCurrentArtifact}
+          onOpenCurrentSource={handleOpenCurrentSource}
+          onClearScope={() => setActiveScopeCohort(null)}
+          visibleMemberIds={visibleMemberIds}
+        />
+      </div>
+      <StudioStrip
+        memberIds={visibleMemberIds}
+        activeMemberId={activeMemberId}
+        scopeLabel={scopeCohort?.label ?? null}
+        issueFocusLabel={activeIssueLabel}
+        searchLabel={designSearch.trim() || null}
+        filterLabels={activeFilterLabels}
+        sortLabel={sortLabel}
+        onSelectMember={setActiveMember}
+      />
+    </div>
+  );
+}

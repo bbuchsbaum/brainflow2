@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ViewState } from '@/types/viewState';
 import { RenderCoordinator, setMultiViewBatchEnabled } from '@/services/RenderCoordinator';
+import { clearRenderDiagnostics, getRenderDiagnostics } from '@/services/render/RenderDiagnostics';
 
 const renderMock = vi.fn();
 const renderBatchMock = vi.fn();
@@ -61,6 +62,7 @@ function createViewState(): ViewState {
 beforeEach(() => {
   renderMock.mockReset();
   renderBatchMock.mockReset();
+  clearRenderDiagnostics();
   renderMock.mockImplementation(async () => ({
     bitmap: null as unknown as ImageBitmap,
     renderTime: 1,
@@ -90,6 +92,9 @@ describe('RenderCoordinator multi-view flag', () => {
 
     expect(renderBatchMock).not.toHaveBeenCalled();
     expect(renderMock).toHaveBeenCalledTimes(3);
+    expect(
+      getRenderDiagnostics().filter((entry) => entry.stage === 'render-coordinator.single')
+    ).toHaveLength(3);
     coordinator.dispose();
   });
 
@@ -107,6 +112,12 @@ describe('RenderCoordinator multi-view flag', () => {
 
     expect(renderBatchMock).toHaveBeenCalledTimes(1);
     expect(renderMock).not.toHaveBeenCalled();
+    expect(
+      getRenderDiagnostics().find((entry) => entry.stage === 'render-coordinator.batch')?.detail
+    ).toMatchObject({
+      viewCount: 3,
+      fallback: false
+    });
     coordinator.dispose();
   });
 });

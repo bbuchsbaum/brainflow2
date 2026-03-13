@@ -5,9 +5,10 @@
 
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { FlexibleSlicePanel } from './FlexibleSlicePanel';
-import { useViewStateStore } from '@/stores/viewStateStore';
 import { useViewLayoutStore } from '@/stores/viewLayoutStore';
 import { getFileLoadingService } from '@/services/FileLoadingService';
+import { readFileDragData } from '@/utils/layerDrag';
+import { resolveDropOpenIntent } from '@/types/loadIntent';
 
 interface OrthogonalViewContainerProps {
   className?: string;
@@ -69,21 +70,28 @@ export function OrthogonalViewContainer({ className = '', containerWidth, contai
     e.preventDefault();
     e.stopPropagation();
     setIsDragging(false);
-    
+    const fileLoadingService = getFileLoadingService();
+    const intent = resolveDropOpenIntent(e);
     const files = Array.from(e.dataTransfer.files);
     const validExtensions = ['.nii', '.nii.gz', '.gii'];
-    
-    const fileLoadingService = getFileLoadingService();
-    
+
     for (const file of files) {
       const hasValidExtension = validExtensions.some(ext => 
         file.name.toLowerCase().endsWith(ext)
       );
       
       if (hasValidExtension) {
-        // Use the loadDroppedFile method which handles Tauri file paths
-        await fileLoadingService.loadDroppedFile(file);
+        await fileLoadingService.loadDroppedFile(file, intent);
       }
+    }
+
+    if (files.length > 0) {
+      return;
+    }
+
+    const draggedFile = readFileDragData(e.dataTransfer);
+    if (draggedFile?.path) {
+      await fileLoadingService.loadFile(draggedFile.path, 'drag-drop', intent);
     }
   }, []);
   

@@ -49,7 +49,7 @@ impl RoiOverlayDashboard {
             background-color: #f5f5f5;
             color: #333;
         }}
-        
+
         .header {{
             background: white;
             padding: 20px 30px;
@@ -57,17 +57,17 @@ impl RoiOverlayDashboard {
             box-shadow: 0 2px 4px rgba(0,0,0,0.1);
             margin-bottom: 30px;
         }}
-        
+
         h1 {{
             margin: 0 0 10px 0;
             color: #2c3e50;
         }}
-        
+
         .description {{
             color: #666;
             line-height: 1.6;
         }}
-        
+
         .test-section {{
             background: white;
             padding: 25px;
@@ -75,26 +75,26 @@ impl RoiOverlayDashboard {
             box-shadow: 0 2px 4px rgba(0,0,0,0.1);
             margin-bottom: 20px;
         }}
-        
+
         .test-section h2 {{
             color: #2c3e50;
             margin-top: 0;
             border-bottom: 2px solid #e9ecef;
             padding-bottom: 10px;
         }}
-        
+
         .test-section h3 {{
             color: #495057;
             margin-top: 20px;
         }}
-        
+
         .image-grid {{
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
             gap: 20px;
             margin-top: 20px;
         }}
-        
+
         .image-container {{
             text-align: center;
             background: #f8f9fa;
@@ -102,12 +102,12 @@ impl RoiOverlayDashboard {
             padding: 15px;
             transition: transform 0.2s;
         }}
-        
+
         .image-container:hover {{
             transform: translateY(-2px);
             box-shadow: 0 4px 8px rgba(0,0,0,0.1);
         }}
-        
+
         .image-container img {{
             max-width: 100%;
             height: auto;
@@ -116,37 +116,37 @@ impl RoiOverlayDashboard {
             background: white;
             border: 1px solid #dee2e6;
         }}
-        
+
         .image-container h4 {{
             margin: 10px 0 5px 0;
             color: #495057;
             font-size: 16px;
         }}
-        
+
         .image-container p {{
             margin: 0;
             color: #6c757d;
             font-size: 14px;
         }}
-        
+
         .roi-info {{
             background: #e9ecef;
             padding: 15px;
             border-radius: 6px;
             margin: 15px 0;
         }}
-        
+
         .roi-info h4 {{
             margin-top: 0;
             color: #495057;
         }}
-        
+
         .roi-list {{
             list-style: none;
             padding: 0;
             margin: 10px 0;
         }}
-        
+
         .roi-list li {{
             padding: 8px 12px;
             background: #f8f9fa;
@@ -156,21 +156,21 @@ impl RoiOverlayDashboard {
             align-items: center;
             gap: 10px;
         }}
-        
+
         .colormap-indicator {{
             width: 20px;
             height: 20px;
             border-radius: 3px;
             border: 1px solid #dee2e6;
         }}
-        
+
         .blend-mode-grid {{
             display: grid;
             grid-template-columns: repeat(3, 1fr);
             gap: 15px;
             margin-top: 15px;
         }}
-        
+
         .modal {{
             display: none;
             position: fixed;
@@ -182,7 +182,7 @@ impl RoiOverlayDashboard {
             background-color: rgba(0,0,0,0.9);
             cursor: pointer;
         }}
-        
+
         .modal-content {{
             margin: auto;
             display: block;
@@ -193,14 +193,14 @@ impl RoiOverlayDashboard {
             left: 50%;
             transform: translate(-50%, -50%);
         }}
-        
+
         .modal-caption {{
             text-align: center;
             color: #ccc;
             padding: 10px;
             font-size: 16px;
         }}
-        
+
         .close {{
             position: absolute;
             top: 15px;
@@ -210,11 +210,11 @@ impl RoiOverlayDashboard {
             font-weight: bold;
             cursor: pointer;
         }}
-        
+
         .close:hover {{
             color: #bbb;
         }}
-        
+
         .success-badge {{
             background: #28a745;
             color: white;
@@ -223,7 +223,7 @@ impl RoiOverlayDashboard {
             font-size: 12px;
             font-weight: bold;
         }}
-        
+
         .info-badge {{
             background: #17a2b8;
             color: white;
@@ -243,12 +243,12 @@ impl RoiOverlayDashboard {
             correctly handles multiple volumes, blend modes, and transparency settings in world coordinates.
         </p>
     </div>
-    
+
     <!-- Single ROI Overlay Test -->
     <div class="test-section">
         <h2>Test 1: Single ROI Overlay <span class="success-badge">PASSED</span></h2>
         <p>Validates basic layer functionality by overlaying a single spherical ROI on the MNI template.</p>
-        
+
         <div class="roi-info">
             <h4>ROI Parameters:</h4>
             <ul class="roi-list">
@@ -261,7 +261,7 @@ impl RoiOverlayDashboard {
                 </li>
             </ul>
         </div>
-        
+
         <h3>Axial View</h3>
         <div class="image-grid">
             <div class="image-container">
@@ -275,7 +275,7 @@ impl RoiOverlayDashboard {
                 <p>2 layers composited</p>
             </div>
         </div>
-        
+
         <h3>Sagittal View</h3>
         <div class="image-grid">
             <div class="image-container">
@@ -289,7 +289,7 @@ impl RoiOverlayDashboard {
                 <p>2 layers composited</p>
             </div>
         </div>
-        
+
         <h3>Coronal View</h3>
         <div class="image-grid">
             <div class="image-container">
@@ -304,12 +304,12 @@ impl RoiOverlayDashboard {
             </div>
         </div>
     </div>
-    
+
     <!-- Multiple ROI Overlay Test -->
     <div class="test-section">
         <h2>Test 2: Multiple ROI Overlay <span class="success-badge">PASSED</span></h2>
         <p>Tests the system's ability to render multiple ROI layers simultaneously with different colormaps.</p>
-        
+
         <div class="roi-info">
             <h4>ROI Configuration (5 ROIs):</h4>
             <ul class="roi-list">
@@ -341,7 +341,7 @@ impl RoiOverlayDashboard {
             </ul>
             <p><strong>All ROIs:</strong> 60% opacity, Normal blend mode</p>
         </div>
-        
+
         <div class="image-grid">
             <div class="image-container">
                 <img src="multi_roi_overlay_axial.png" alt="Multiple ROI Overlay - Axial" onclick="openModal(this)">
@@ -350,12 +350,12 @@ impl RoiOverlayDashboard {
             </div>
         </div>
     </div>
-    
+
     <!-- Overlapping ROI Transparency Test -->
     <div class="test-section">
         <h2>Test 3: Overlapping ROI Transparency <span class="success-badge">PASSED</span></h2>
         <p>Validates different blend modes for overlapping ROIs to ensure proper transparency handling.</p>
-        
+
         <div class="roi-info">
             <h4>Test Configuration:</h4>
             <ul class="roi-list">
@@ -372,7 +372,7 @@ impl RoiOverlayDashboard {
             </ul>
             <p>The large radius ensures significant overlap for blend mode testing.</p>
         </div>
-        
+
         <h3>Blend Mode Comparison</h3>
         <div class="blend-mode-grid">
             <div class="image-container">
@@ -392,29 +392,29 @@ impl RoiOverlayDashboard {
             </div>
         </div>
     </div>
-    
+
     <!-- Modal for image zoom -->
     <div id="imageModal" class="modal" onclick="closeModal()">
         <span class="close">&times;</span>
         <img class="modal-content" id="modalImage">
         <div id="modalCaption" class="modal-caption"></div>
     </div>
-    
+
     <script>
         function openModal(img) {{
             const modal = document.getElementById('imageModal');
             const modalImg = document.getElementById('modalImage');
             const captionText = document.getElementById('modalCaption');
-            
+
             modal.style.display = 'block';
             modalImg.src = img.src;
             captionText.innerHTML = img.alt;
         }}
-        
+
         function closeModal() {{
             document.getElementById('imageModal').style.display = 'none';
         }}
-        
+
         // Close modal on escape key
         document.addEventListener('keydown', function(event) {{
             if (event.key === 'Escape') {{

@@ -69,4 +69,29 @@ describe('CommandPaletteDialog', () => {
     });
     expect(runFirst).not.toHaveBeenCalled();
   });
+
+  it('closes when the overlay is clicked', async () => {
+    const onClose = vi.fn();
+
+    render(
+      <CommandPaletteDialog
+        open
+        onClose={onClose}
+        commands={[
+          {
+            id: 'cmd.one',
+            title: 'First Command',
+            run: vi.fn(),
+          },
+        ]}
+      />
+    );
+
+    const dialog = await screen.findByRole('dialog');
+    fireEvent.click(dialog.parentElement!);
+
+    await waitFor(() => {
+      expect(onClose).toHaveBeenCalledTimes(1);
+    });
+  });
 });

@@ -8,7 +8,7 @@ use crate::{CompositeRequest, Result};
 /// RGBA image data (width * height * 4 bytes)
 pub type RgbaImage = Vec<u8>;
 
-/// Slice data for single-layer extraction  
+/// Slice data for single-layer extraction
 #[derive(Debug, Clone)]
 pub struct SliceData {
     /// Raw intensity data as f32 values
@@ -22,7 +22,7 @@ pub struct SliceData {
 pub struct CompositeSliceData {
     /// RGBA data (premultiplied alpha)
     pub data: RgbaImage,
-    /// Dimensions [width, height]  
+    /// Dimensions [width, height]
     pub dimensions: [u32; 2],
 }
 
@@ -103,7 +103,7 @@ pub trait SliceProviderExt: SliceProvider {
         self.composite_rgba(&request)
     }
 
-    /// Extract a sagittal slice at the given X coordinate  
+    /// Extract a sagittal slice at the given X coordinate
     fn sagittal_slice_rgba(
         &self,
         layers: Vec<crate::LayerSpec>,

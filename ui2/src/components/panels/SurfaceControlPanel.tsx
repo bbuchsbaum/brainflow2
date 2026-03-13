@@ -8,16 +8,17 @@ import React from 'react';
 import { useSurfaceStore } from '@/stores/surfaceStore';
 import { SurfaceGeometryControls } from './SurfaceGeometryControls';
 import { SurfaceDataLayerControls } from './SurfaceDataLayerControls';
-import { cn } from '@/utils/cn';
 import { Settings2, Layers, Info } from 'lucide-react';
+import { useSurfaceCommandContextValue } from '@/hooks/useSurfaceSelectionContext';
 
 export const SurfaceControlPanel: React.FC = () => {
-  const { 
-    selectedItemType, 
-    selectedLayerId,
+  const {
     activeSurfaceId,
-    surfaces 
-  } = useSurfaceStore();
+    explicitSurfaceViewId,
+    selectedItemType,
+    selectedLayerId,
+  } = useSurfaceCommandContextValue();
+  const surfaces = useSurfaceStore((state) => state.surfaces);
 
   // No selection
   if (!selectedItemType || !activeSurfaceId) {
@@ -57,7 +58,17 @@ export const SurfaceControlPanel: React.FC = () => {
       {/* Controls */}
       <div className="flex-1 overflow-y-auto">
         {selectedItemType === 'geometry' ? (
-          <SurfaceGeometryControls />
+          explicitSurfaceViewId ? (
+            <SurfaceGeometryControls surfaceViewId={explicitSurfaceViewId} />
+          ) : (
+            <div className="h-full flex flex-col items-center justify-center p-4 text-center">
+              <Info className="h-8 w-8 text-muted-foreground/30 mb-2" />
+              <p className="text-sm text-muted-foreground">No active surface view</p>
+              <p className="text-xs text-muted-foreground mt-1">
+                Focus a surface tab to edit per-view geometry settings
+              </p>
+            </div>
+          )
         ) : selectedLayerId ? (
           <SurfaceDataLayerControls 
             surfaceId={activeSurfaceId} 

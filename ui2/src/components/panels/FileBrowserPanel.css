@@ -674,64 +674,10 @@
 }
 
 /* Remote mount modal */
-.remote-mount-overlay {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: color-mix(in srgb, var(--app-bg-primary) 72%, transparent);
-  z-index: 20;
-  padding: var(--app-spacing-md);
-}
-
-.remote-mount-modal {
-  width: min(560px, 100%);
-  max-height: min(92vh, 760px);
-  display: flex;
-  flex-direction: column;
-  background: var(--app-bg-secondary);
-  border: 1px solid var(--app-border);
-  box-shadow: var(--app-shadow-lg);
-  border-radius: var(--app-radius-md);
-  overflow: hidden;
-}
-
-.remote-mount-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  gap: var(--app-spacing-md);
-  border-bottom: 1px solid var(--app-border);
-  padding: var(--app-spacing-md);
-}
-
-.remote-mount-title {
-  margin: 0;
-  font-size: var(--app-role-title-size);
-  font-weight: var(--app-role-title-weight);
-  color: var(--app-text-primary);
-}
-
 .remote-mount-subtitle {
   margin: var(--app-spacing-xs) 0 0;
   font-size: var(--app-role-body-size);
   color: var(--app-text-secondary);
-}
-
-.remote-mount-close {
-  border: 1px solid transparent;
-  background: transparent;
-  color: var(--app-text-muted);
-  width: var(--app-control-height-md);
-  height: var(--app-control-height-md);
-  line-height: 1;
-  cursor: pointer;
-}
-
-.remote-mount-close:hover:not(:disabled) {
-  background: var(--app-bg-hover);
-  color: var(--app-text-primary);
 }
 
 .remote-mount-body {
@@ -874,8 +820,7 @@
   color: #fff;
 }
 
-.remote-mount-footer > button:focus-visible,
-.remote-mount-close:focus-visible {
+.remote-mount-footer > button:focus-visible {
   outline: var(--app-focus-ring-width) solid var(--app-focus-ring-color);
   outline-offset: var(--app-focus-ring-offset);
 }

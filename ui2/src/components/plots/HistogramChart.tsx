@@ -12,7 +12,7 @@ import { LinearGradient } from '@visx/gradient';
 import { useTooltip, TooltipWithBounds, defaultStyles } from '@visx/tooltip';
 import { localPoint } from '@visx/event';
 import type { HistogramChartProps, HistogramBin } from '@/types/histogram';
-import { colormaps } from '@/components/ui/ColormapSelector';
+import { colormaps } from '@/components/ui/colormapOptions';
 
 const surfaceColor = 'hsl(var(--card))';
 const borderColor = 'hsl(var(--border))';
@@ -428,7 +428,7 @@ export const HistogramChart: React.FC<HistogramChartProps> = ({
             <AxisBottom
               top={innerHeight}
               scale={xScale}
-              tickFormat={(value) => value.toFixed(0)}
+              tickFormat={(value) => Number(value).toFixed(0)}
               stroke={axisStroke}
               tickStroke={axisStroke}
               tickLabelProps={() => ({

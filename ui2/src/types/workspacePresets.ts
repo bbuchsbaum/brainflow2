@@ -1,6 +1,6 @@
 import type { WorkspaceConfig, WorkspaceType } from '@/types/workspace';
 
-export type WorkspacePresetId = 'read' | 'explore' | 'analyze' | 'compare';
+export type WorkspacePresetId = 'read' | 'explore' | 'analyze' | 'compare' | 'studio';
 
 export interface WorkspacePreset {
   id: WorkspacePresetId;
@@ -22,7 +22,7 @@ export const WORKSPACE_PRESETS: WorkspacePreset[] = [
   {
     id: 'explore',
     label: 'Explore',
-    description: 'Flexible orthogonal views for interactive navigation.',
+    description: 'Linked orthogonal panels for interactive navigation.',
     workspaceType: 'orthogonal-flexible',
     shortcut: 'Cmd/Ctrl+2',
   },
@@ -41,13 +41,16 @@ export const WORKSPACE_PRESETS: WorkspacePreset[] = [
   {
     id: 'compare',
     label: 'Compare',
-    description: 'Lightbox layout for side-by-side comparison.',
-    workspaceType: 'lightbox',
-    workspaceConfig: {
-      sliceOrientation: 'axial',
-      thumbnailSize: 112,
-    },
+    description: 'Side-by-side panels for comparing layers independently.',
+    workspaceType: 'comparison',
     shortcut: 'Cmd/Ctrl+4',
+  },
+  {
+    id: 'studio',
+    label: 'Set Studio',
+    description: 'Design-aware field-table workspace for cohort browsing and comparison.',
+    workspaceType: 'set-studio',
+    shortcut: 'Cmd/Ctrl+5',
   },
 ];
 
@@ -56,6 +59,7 @@ export const WORKSPACE_PRESET_BY_ID: Record<WorkspacePresetId, WorkspacePreset> 
   explore: WORKSPACE_PRESETS[1],
   analyze: WORKSPACE_PRESETS[2],
   compare: WORKSPACE_PRESETS[3],
+  studio: WORKSPACE_PRESETS[4],
 };
 
 export function getWorkspacePresetById(id: WorkspacePresetId): WorkspacePreset {

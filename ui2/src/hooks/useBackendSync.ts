@@ -3,16 +3,11 @@
  * This is where the coalescing magic happens
  */
 
-import { useEffect, useRef } from 'react';
-import { useViewStateStore } from '@/stores/viewStateStore';
-import { useRenderStateStore } from '@/stores/renderStateStore';
+import { useEffect } from 'react';
 import { coalesceUtils } from '@/stores/middleware/coalesceUpdatesMiddleware';
 import { getApiService } from '@/services/apiService';
-import type { ViewState } from '@/types/viewState';
 
 export function useBackendSync() {
-  const viewState = useViewStateStore(state => state.viewState);
-  const prevViewStateRef = useRef<ViewState | null>(null);
   const apiService = getApiService();
   
   // Set up the backend update callback
@@ -21,11 +16,14 @@ export function useBackendSync() {
     import('@/services/OptimizedRenderService').then(({ getOptimizedRenderService }) => {
       const optimizedRenderService = getOptimizedRenderService();
       
-      const updateBackend = async (state: ViewState, tag?: string) => {
-        const updateTime = performance.now();
+      const updateBackend = async (
+        state: import('@/types/viewState').ViewState,
+        revisions?: import('@/types/viewState').ViewStateRevisions,
+        tag?: string
+      ) => {
         try {
           // Use OptimizedRenderService for intelligent view-specific rendering
-          await optimizedRenderService.renderChangedViews(state, tag);
+          await optimizedRenderService.renderChangedViews(state, tag, revisions);
           
           // Log optimization metrics periodically
           const metrics = optimizedRenderService.getMetrics();
@@ -48,29 +46,6 @@ export function useBackendSync() {
       coalesceUtils.setBackendCallback(updateBackend);
     });
   }, [apiService]);
-  
-  // Schedule backend updates when ViewState changes
-  useEffect(() => {
-    // Skip initial mount
-    if (prevViewStateRef.current === null) {
-      prevViewStateRef.current = viewState;
-      // console.log('[useBackendSync] Initial mount, skipping update');
-      return;
-    }
-    
-    // Check if state actually changed
-    if (JSON.stringify(prevViewStateRef.current) !== JSON.stringify(viewState)) {
-      // console.log('[useBackendSync] ViewState changed:', {
-      //   layers: viewState.layers.length,
-      //   layerIds: viewState.layers.map(l => l.id),
-      //   crosshair: viewState.crosshair.world_mm
-      // });
-      
-      // The coalescing middleware will handle scheduling
-      // We just need to update our reference
-      prevViewStateRef.current = viewState;
-    }
-  }, [viewState]);
   
   return {
     // Could return sync status, error states, etc.

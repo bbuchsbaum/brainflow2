@@ -30,6 +30,8 @@
 - Common commands:
   - `pnpm dev` or `cargo tauri dev`: run desktop app with hot reload.
   - `pnpm -r build` + `cargo tauri build`: production build.
+  - `make local:deploy` or `make local-deploy`: build the macOS app bundle and install a `~/bin/brainflow` launcher that points at the repo-local bundle.
+  - `make local:install` or `make local-install`: install the `~/bin/brainflow` launcher; the macOS release bundle can be built later.
   - `cargo xtask ts-bindings`: regenerate TypeScript bindings (drops files into `packages/api/src/generated`).
 - Testing:
   - Rust: `cargo test --workspace`.

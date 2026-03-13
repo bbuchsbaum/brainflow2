@@ -123,6 +123,74 @@ describe('RemoteMountDialog', () => {
     });
   });
 
+  it('closes on Escape when idle', async () => {
+    const { onClose } = setupDialog();
+
+    await waitFor(() => {
+      expect(invokeMock).toHaveBeenCalledWith('list_remote_mount_profiles');
+    });
+
+    fireEvent.keyDown(document, { key: 'Escape' });
+
+    await waitFor(() => {
+      expect(onClose).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  it('does not close on Escape while a connection is pending', async () => {
+    let resolveConnect: ((value: unknown) => void) | null = null;
+    const connectPromise = new Promise((resolve) => {
+      resolveConnect = resolve;
+    });
+
+    invokeMock.mockImplementation((cmd: string, _args?: InvokeArgs) => {
+      if (cmd === 'list_remote_mount_profiles') {
+        return Promise.resolve([]);
+      }
+      if (cmd === 'remote_mount_connect') {
+        return connectPromise;
+      }
+      return Promise.reject(new Error(`Unhandled command: ${cmd}`));
+    });
+
+    const { onClose } = setupDialog();
+
+    await waitFor(() => {
+      expect(invokeMock).toHaveBeenCalledWith('list_remote_mount_profiles');
+    });
+
+    fillPasswordForm();
+    fireEvent.click(screen.getByRole('button', { name: 'Connect' }));
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Connecting…' })).toBeDisabled();
+      expect(screen.getByRole('button', { name: 'Close modal' })).toBeDisabled();
+    });
+
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(onClose).not.toHaveBeenCalled();
+
+    resolveConnect?.({
+      status: 'connected',
+      mount: {
+        mount_id: 'mount-pending',
+        local_path: '/tmp/brainflow/mounts/mount-pending',
+        display_name: 'alice@login.example.org:/data',
+        origin: {
+          label: 'alice@login.example.org:/data',
+          host: 'login.example.org',
+          port: 2222,
+          user: 'alice',
+          remote_path: '/data',
+        },
+      },
+    });
+
+    await waitFor(() => {
+      expect(onClose).toHaveBeenCalledTimes(1);
+    });
+  });
+
   it('connects directly when backend returns connected', async () => {
     const mount = {
       mount_id: 'mount-1',

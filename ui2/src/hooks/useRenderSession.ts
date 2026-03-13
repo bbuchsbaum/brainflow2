@@ -26,7 +26,7 @@ interface UseRenderSessionOptions {
 }
 
 interface UseRenderSessionReturn {
-  canvasRef: React.RefObject<HTMLCanvasElement>;
+  canvasRef: React.RefObject<HTMLCanvasElement | null>;
   isLoading: boolean;
   error: Error | null;
   lastRenderTime: number | null;
@@ -38,7 +38,7 @@ interface UseRenderSessionReturn {
     viewType: 'axial' | 'sagittal' | 'coronal',
     width?: number,
     height?: number
-  ) => Promise<void>;
+  ) => Promise<ImageBitmap | null>;
   
   renderToCanvas: (
     viewState: ViewState,

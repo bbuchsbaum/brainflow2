@@ -16,6 +16,9 @@ import React, { useEffect, useState, useCallback } from 'react';
 import { useRenderCanvas } from '@/hooks/useRenderCanvas';
 import { RenderOverlays, CoordinateDisplay, NoLayersOverlay, LoadingVolumeOverlay } from '@/components/ui/RenderOverlays';
 import type { RenderContext } from '@/types/renderContext';
+import type { DisplayOpenIntent } from '@/types/loadIntent';
+import { resolveDropOpenIntent } from '@/types/loadIntent';
+import { readFileDragData } from '@/utils/layerDrag';
 
 export interface SliceRendererProps {
   // Dimensions
@@ -45,7 +48,8 @@ export interface SliceRendererProps {
   
   // Drag and drop
   enableDragDrop?: boolean;
-  onFileDrop?: (file: File) => void;
+  onFileDrop?: (file: File, intent: DisplayOpenIntent) => void;
+  onPathDrop?: (path: string, intent: DisplayOpenIntent) => void;
   
   // Mouse interactions
   onMouseMove?: (event: React.MouseEvent<HTMLDivElement>) => void;
@@ -85,6 +89,7 @@ export function SliceRenderer({
   showLoadingVolume = false,
   enableDragDrop = false,
   onFileDrop,
+  onPathDrop,
   onMouseMove,
   onMouseDown,
   onMouseUp,
@@ -157,16 +162,23 @@ export function SliceRenderer({
   }, [enableDragDrop]);
   
   const handleDrop = useCallback((e: React.DragEvent) => {
-    if (!enableDragDrop || !onFileDrop) return;
+    if (!enableDragDrop) return;
     e.preventDefault();
     e.stopPropagation();
     setIsDragging(false);
-    
+
+    const intent = resolveDropOpenIntent(e);
     const files = Array.from(e.dataTransfer.files);
     if (files.length > 0) {
-      onFileDrop(files[0]);
+      onFileDrop?.(files[0], intent);
+      return;
     }
-  }, [enableDragDrop, onFileDrop]);
+
+    const draggedFile = readFileDragData(e.dataTransfer);
+    if (draggedFile?.path) {
+      onPathDrop?.(draggedFile.path, intent);
+    }
+  }, [enableDragDrop, onFileDrop, onPathDrop]);
   
   return (
     <div 

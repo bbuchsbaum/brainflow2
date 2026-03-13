@@ -39,6 +39,7 @@
 import { useMemo, useCallback } from 'react';
 import { useLayerStore } from '@/stores/layerStore';
 import { useSurfaceStore } from '@/stores/surfaceStore';
+import { applySurfaceSelectionInContext } from '@/utils/surfaceCommandContext';
 import { 
   UnifiedLayerService, 
   unifiedLayerService,
@@ -156,11 +157,10 @@ export function useUnifiedLayers(): UnifiedLayersResult {
       // For volumes, use the existing selection mechanism
       selectLayerInStore(id);
     } else {
-      // For surfaces, we might want to handle differently
-      // For now, clear volume selection when selecting a surface
+      // Generic layer selection is not scoped to an explicit surface view.
+      // Update the shared surface selection target without retargeting a bound view.
       selectLayerInStore(null);
-      // TODO: Add surface selection to surfaceStore if needed
-      useSurfaceStore.getState().setActiveSurface(id);
+      applySurfaceSelectionInContext(id, 'geometry', null, null);
     }
   }, [getLayerById, selectLayerInStore]);
   

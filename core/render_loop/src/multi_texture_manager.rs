@@ -232,7 +232,7 @@ impl MultiTextureManager {
             _ => {
                 return Err(RenderLoopError::UnsupportedVolumeFormat(
                     volume.voxel_type(),
-                ))
+                ));
             }
         };
 
@@ -245,7 +245,7 @@ impl MultiTextureManager {
                 return Err(RenderLoopError::Internal {
                     code: 6002,
                     details: format!("Unsupported texture format: {:?}", format),
-                })
+                });
             }
         };
 
@@ -744,7 +744,7 @@ impl MultiTextureManager {
             _ => {
                 return Err(RenderLoopError::UnsupportedVolumeFormat(
                     volume.voxel_type(),
-                ))
+                ));
             }
         };
 

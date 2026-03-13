@@ -23,7 +23,7 @@ interface TemplateStageProgressPayload {
 }
 
 export class ProgressService {
-  private eventBus: EventBus;
+  private eventBus: EventBus = getEventBus();
   private unlisteners: Array<Unlisten> = [];
   private loadingQueueUnsubscribe: (() => void) | null = null;
   private initialized = false;
@@ -36,7 +36,6 @@ export class ProgressService {
       return;
     }
     
-    this.eventBus = getEventBus();
     this.initializeEventListeners();
     this.initializeTauriListeners();
     this.initialized = true;

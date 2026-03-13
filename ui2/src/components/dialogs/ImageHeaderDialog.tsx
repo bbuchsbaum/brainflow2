@@ -5,10 +5,11 @@
  * Opened via Cmd+I shortcut or the ⓘ button in the layer list.
  */
 
-import React, { useEffect, useRef, useState, useCallback } from 'react';
-import { X, ChevronDown, Copy, Check } from 'lucide-react';
+import React, { useEffect, useState, useCallback } from 'react';
+import { ChevronDown, Copy, Check } from 'lucide-react';
 import { getApiService } from '@/services/apiService';
 import type { NiftiHeaderInfo } from '@/services/apiService';
+import { Modal } from '@/components/ui/Modal';
 
 interface ImageHeaderDialogProps {
   open: boolean;
@@ -89,7 +90,6 @@ export function ImageHeaderDialog({ open, onClose, volumeId }: ImageHeaderDialog
   const [info, setInfo] = useState<NiftiHeaderInfo | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const dialogRef = useRef<HTMLDivElement>(null);
 
   // Fetch header info when dialog opens
   useEffect(() => {
@@ -112,32 +112,6 @@ export function ImageHeaderDialog({ open, onClose, volumeId }: ImageHeaderDialog
       });
   }, [open, volumeId]);
 
-  // Escape to close
-  useEffect(() => {
-    if (!open) return;
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
-    };
-    window.addEventListener('keydown', handler);
-    return () => window.removeEventListener('keydown', handler);
-  }, [open, onClose]);
-
-  // Click outside to close
-  useEffect(() => {
-    if (!open) return;
-    const handler = (e: MouseEvent) => {
-      if (dialogRef.current && !dialogRef.current.contains(e.target as Node)) {
-        onClose();
-      }
-    };
-    // Delay so the opening click doesn't immediately close
-    const id = setTimeout(() => document.addEventListener('mousedown', handler), 0);
-    return () => {
-      clearTimeout(id);
-      document.removeEventListener('mousedown', handler);
-    };
-  }, [open, onClose]);
-
   if (!open) return null;
 
   const is4D = info != null && info.num_timepoints != null;
@@ -153,29 +127,16 @@ export function ImageHeaderDialog({ open, onClose, volumeId }: ImageHeaderDialog
   }
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4"
-      style={{ backgroundColor: 'rgba(0,0,0,0.75)' }}
+    <Modal
+      isOpen={open}
+      onClose={onClose}
+      title="Image Header"
+      ariaLabel="Image Header"
+      size="lg"
+      bodyClassName="p-0"
+      className="max-w-lg rounded-xl ring-1 ring-white/10 shadow-2xl"
     >
-      <div
-        ref={dialogRef}
-        className="w-full max-w-lg rounded-xl ring-1 ring-white/10 shadow-2xl max-h-[90vh] overflow-hidden flex flex-col"
-        style={{ backgroundColor: 'var(--app-bg-secondary, #0f172a)' }}
-      >
-        {/* Header */}
-        <div
-          className="flex items-center justify-between px-6 py-4 border-b flex-shrink-0"
-          style={{ borderColor: 'var(--app-border-subtle, #1e293b)' }}
-        >
-          <h2 className="text-base font-semibold" style={{ color: 'var(--app-text-primary, #e2e8f0)' }}>
-            Image Header
-          </h2>
-          <button onClick={onClose} className="icon-btn" aria-label="Close">
-            <X className="w-4 h-4" />
-          </button>
-        </div>
-
-        {/* Body */}
+      <div className="max-h-[90vh] overflow-hidden flex flex-col">
         <div className="flex-1 overflow-y-auto">
           {loading && (
             <div className="flex items-center justify-center py-12 text-gray-400 text-sm">
@@ -264,7 +225,6 @@ export function ImageHeaderDialog({ open, onClose, volumeId }: ImageHeaderDialog
           )}
         </div>
 
-        {/* Footer */}
         <div
           className="px-6 py-3 border-t flex justify-end flex-shrink-0"
           style={{ borderColor: 'var(--app-border-subtle, #1e293b)' }}
@@ -277,6 +237,6 @@ export function ImageHeaderDialog({ open, onClose, volumeId }: ImageHeaderDialog
           </button>
         </div>
       </div>
-    </div>
+    </Modal>
   );
 }

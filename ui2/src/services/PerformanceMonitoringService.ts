@@ -29,8 +29,9 @@ class PerformanceMonitoringService {
   private alerts: PerformanceAlert[] = [];
   private enabled = process.env.NODE_ENV === 'development';
 
-  private thresholds = {
+  private thresholds: Partial<Record<keyof PerformanceMetrics, number>> = {
     renderTime: 16, // 60fps
+    updateFrequency: 60, // updates/sec
     wheelEventRate: 10, // events/sec
     memoryUsage: 500 * 1024 * 1024, // 500MB
     reRenderCount: 100, // per minute

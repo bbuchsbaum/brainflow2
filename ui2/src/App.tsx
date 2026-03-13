@@ -11,6 +11,9 @@ import { CrosshairProvider } from '@/contexts/CrosshairContext';
 import { useMountListener } from '@/hooks/useMountListener';
 import { useServicesInit } from '@/hooks/useServicesInit';
 import { useStatusBarInit } from '@/hooks/useStatusBarInit';
+import { useStudioAppModeSync } from '@/hooks/useStudioAppModeSync';
+import { useStudioCoordination } from '@/hooks/useStudioCoordination';
+import { useStudioStatusBridge } from '@/hooks/useStudioStatusBridge';
 import { useWorkspaceMenuListener } from '@/hooks/useWorkspaceMenuListener';
 import { usePanelMenuListener } from '@/hooks/usePanelMenuListener';
 import { useAtlasMenuListener } from '@/hooks/useAtlasMenuListener';
@@ -22,6 +25,7 @@ import { initializeCrosshairMenuService, destroyCrosshairMenuService } from '@/s
 import { CrosshairSettingsDialog } from '@/components/dialogs/CrosshairSettingsDialog';
 import { GoToCoordinateDialog } from '@/components/dialogs/GoToCoordinateDialog';
 import { ImageHeaderDialog } from '@/components/dialogs/ImageHeaderDialog';
+import { ConfirmationDialogHost } from '@/components/dialogs/ConfirmationDialogHost';
 import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts';
 import { useNavigationShortcuts } from '@/hooks/useNavigationShortcuts';
 import { PerformanceDashboard } from '@/components/debug/PerformanceDashboard';
@@ -30,9 +34,12 @@ import { storeLog } from '@/utils/debugLog';
 import { KeyboardShortcutsDialog } from '@/components/dialogs/KeyboardShortcutsDialog';
 import { getKeyboardShortcutService } from '@/services/KeyboardShortcutService';
 import { useLayerStore } from '@/stores/layerStore';
+import { useAppModeStore } from '@/stores/appModeStore';
+import { getSetStudioService } from '@/services/studio/SetStudioService';
 import { WorkspacePresetSelector } from '@/components/ui/WorkspacePresetSelector';
 import { LayoutLibrarySelector } from '@/components/ui/LayoutLibrarySelector';
 import { CommandPaletteDialog, type CommandPaletteCommand } from '@/components/dialogs/CommandPaletteDialog';
+import { ContextMenu } from '@/components/ui/ContextMenu';
 import { getLayoutService, type SidebarPanelType } from '@/services/layoutService';
 import { getTransport } from '@/services/transport';
 import { WORKSPACE_PRESETS } from '@/types/workspacePresets';
@@ -100,8 +107,17 @@ function AppContent() {
   const selectedLayerId = useLayerStore(s => s.selectedLayerId);
   const layers = useLayerStore(s => s.layers);
   const applyWorkspacePreset = useWorkspaceStore(s => s.applyWorkspacePreset);
+  const activeWorkspaceType = useWorkspaceStore((state) => {
+    const workspaceId = state.activeWorkspaceId;
+    return workspaceId ? state.workspaces.get(workspaceId)?.type ?? null : null;
+  });
+  const appMode = useAppModeStore((state) => state.mode);
   const savedLayouts = useLayoutLibraryStore(s => s.layouts);
   const loadSavedLayout = useLayoutLibraryStore(s => s.loadLayout);
+
+  useStudioAppModeSync(activeWorkspaceType);
+  useStudioCoordination();
+  useStudioStatusBridge();
 
   // Initialize KeyboardShortcutService early (single global listener)
   useEffect(() => {
@@ -183,12 +199,77 @@ function AppContent() {
         },
       },
       {
+        id: 'studio.open',
+        title: 'Open Set Studio',
+        subtitle: 'Switch into the Studio workspace.',
+        keywords: ['studio', 'set', 'cohort', 'compare'],
+        group: 'Studio',
+        shortcut: 'Cmd/Ctrl+5',
+        run: async () => {
+          await getSetStudioService().openStudioWorkspace();
+        },
+      },
+      {
+        id: 'studio.importTable',
+        title: 'Set Studio: Import Table',
+        subtitle: 'Open the quick TSV/CSV table import flow.',
+        keywords: ['studio', 'table', 'tsv', 'csv', 'import'],
+        group: 'Studio',
+        run: async () => {
+          await getSetStudioService().openTableImportInStudio();
+        },
+      },
+      {
+        id: 'studio.importManifest',
+        title: 'Set Studio: Import NFTab Manifest',
+        subtitle: 'Open manifest preview and import for Studio.',
+        keywords: ['studio', 'manifest', 'nftab', 'import'],
+        group: 'Studio',
+        run: async () => {
+          await getSetStudioService().openManifestInStudio();
+        },
+      },
+      {
+        id: 'studio.discoverFiles',
+        title: 'Set Studio: Discover Files',
+        subtitle: 'Open regex-based file discovery for Studio.',
+        keywords: ['studio', 'discover', 'regex', 'files'],
+        group: 'Studio',
+        run: async () => {
+          await getSetStudioService().openRegexDiscoveryInStudio();
+        },
+      },
+      {
         id: 'panel.volumes',
         title: 'Show Volumes Panel',
         subtitle: 'Focus right sidebar Volumes tab.',
         keywords: ['panel', 'volumes', 'layers'],
         group: 'Panels',
         run: () => focusSidebarPanel('LayerPanel'),
+      },
+      {
+        id: 'panel.files',
+        title: 'Show Files Panel',
+        subtitle: 'Focus left sidebar Files tab.',
+        keywords: ['panel', 'files', 'browser'],
+        group: 'Panels',
+        run: () => focusSidebarPanel('FileBrowser'),
+      },
+      {
+        id: 'panel.subjects',
+        title: 'Show Subjects Panel',
+        subtitle: 'Focus left sidebar Subjects tab.',
+        keywords: ['panel', 'subjects', 'studio', 'design'],
+        group: 'Panels',
+        run: () => focusSidebarPanel('StudioDesignPanel'),
+      },
+      {
+        id: 'panel.details',
+        title: 'Show Details Panel',
+        subtitle: 'Focus right sidebar Details tab.',
+        keywords: ['panel', 'details', 'studio', 'inspector'],
+        group: 'Panels',
+        run: () => focusSidebarPanel('StudioInspectorPanel'),
       },
       {
         id: 'panel.atlases',
@@ -420,7 +501,7 @@ function AppContent() {
       <MetadataStatusBridge />
       <ProgressDebug />
       <GlobalProgressBar />
-      <div className="flex-1 overflow-hidden">
+      <div className={`relative flex-1 overflow-hidden ${appMode === 'studio' ? 'animate-[studioFocusIn_160ms_ease-out]' : ''}`}>
         <GoldenLayoutRoot />
       </div>
       <StatusBar
@@ -434,7 +515,9 @@ function AppContent() {
         onCrosshairClick={() => setShowGoToCoordinate(true)}
       />
       <NotificationToast />
+      <ContextMenu />
       <TooltipOverlay />
+      <ConfirmationDialogHost />
       
       {/* Crosshair Settings Dialog */}
       {showCrosshairSettings && (

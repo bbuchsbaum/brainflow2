@@ -5,16 +5,19 @@
  */
 
 import { create } from 'zustand';
+import { subscribeWithSelector } from 'zustand/middleware';
 
 interface LayoutDragState {
   isDragging: boolean;
   setDragging: (dragging: boolean) => void;
 }
 
-export const useLayoutDragStore = create<LayoutDragState>((set) => ({
-  isDragging: false,
-  setDragging: (dragging) => {
-    console.log(`[LayoutDragStore] Dragging state changed to: ${dragging}`);
-    set({ isDragging: dragging });
-  },
-}));
+export const useLayoutDragStore = create<LayoutDragState>()(
+  subscribeWithSelector((set) => ({
+    isDragging: false,
+    setDragging: (dragging) => {
+      console.log(`[LayoutDragStore] Dragging state changed to: ${dragging}`);
+      set({ isDragging: dragging });
+    },
+  }))
+);

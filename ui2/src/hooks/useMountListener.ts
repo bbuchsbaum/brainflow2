@@ -6,7 +6,13 @@ import { useEffect } from 'react';
 import { safeListen, safeUnlisten } from '@/utils/eventUtils';
 import { useFileBrowserStore } from '@/stores/fileBrowserStore';
 import { getFileLoadingService } from '@/services/FileLoadingService';
+import { mountRemoteFromStartupSpec, type StartupRemoteMountSpec } from '@/services/RemoteMountService';
+import { getEventBus } from '@/events/EventBus';
+import { getTransport } from '@/services/transport';
+import { formatTauriError } from '@/utils/formatTauriError';
+import { areServicesInitialized } from './useServicesInit';
 import type { MountSource } from '@/types/filesystem';
+import type { DisplayOpenIntent } from '@/types/loadIntent';
 
 interface MountEvent {
   path: string;
@@ -16,6 +22,19 @@ interface MountEvent {
 
 interface OpenFileEvent {
   path: string;
+  intent?: DisplayOpenIntent;
+}
+
+interface RemoteMountEvent {
+  spec: StartupRemoteMountSpec;
+}
+
+function isTauriRuntime(): boolean {
+  try {
+    return typeof window !== 'undefined' && Boolean((window as any).__TAURI__);
+  } catch {
+    return false;
+  }
 }
 
 export function useMountListener() {
@@ -24,8 +43,38 @@ export function useMountListener() {
     
     let mountUnlisten: (() => void) | null = null;
     let openFileUnlisten: (() => void) | null = null;
+    let remoteMountUnlisten: (() => void) | null = null;
+    let unsubscribeServicesInitialized: (() => void) | null = null;
+    let listenersReady = false;
+    let servicesReady = areServicesInitialized();
+    let startupActionsFlushed = false;
+    let startupActionsFlushInFlight = false;
+    let cancelled = false;
+
+    const tryFlushStartupActions = async () => {
+      if (
+        cancelled ||
+        startupActionsFlushed ||
+        startupActionsFlushInFlight ||
+        !listenersReady ||
+        !servicesReady ||
+        !isTauriRuntime()
+      ) {
+        return;
+      }
+
+      startupActionsFlushInFlight = true;
+      try {
+        await getTransport().invoke<number>('flush_startup_actions');
+        startupActionsFlushed = true;
+      } catch (error) {
+        console.error('Failed to flush startup actions:', error);
+      } finally {
+        startupActionsFlushInFlight = false;
+      }
+    };
     
-    // Listen for mount-directory-event and open-file-event from Tauri
+    // Listen for startup mount/open events from Tauri
     const setupListeners = async () => {
       try {
         mountUnlisten = await safeListen<MountEvent>('mount-directory-event', async (event) => {
@@ -73,28 +122,59 @@ export function useMountListener() {
 
         openFileUnlisten = await safeListen<OpenFileEvent>('open-file-event', async (event) => {
           const path = event.payload.path;
+          const intent = event.payload.intent ?? 'default';
           console.log('Open file event received:', path);
           if (!path || !path.trim()) {
             return;
           }
-          await getFileLoadingService().loadFile(path, 'file-dialog');
+          await getFileLoadingService().loadFile(path, 'file-dialog', intent);
         });
+
+        remoteMountUnlisten = await safeListen<RemoteMountEvent>(
+          'mount-remote-event',
+          async (event) => {
+            try {
+              await mountRemoteFromStartupSpec(event.payload.spec);
+            } catch (error) {
+              const message =
+                formatTauriError(error) || 'Failed to mount remote folder from startup.';
+              console.error('Remote startup mount failed:', error);
+              getEventBus().emit('ui.notification', { type: 'error', message });
+            }
+          }
+        );
+
+        listenersReady = true;
+        servicesReady = areServicesInitialized();
+        await tryFlushStartupActions();
       } catch (error) {
         console.error('Failed to setup filesystem listeners:', error);
       }
     };
-    
+
+    unsubscribeServicesInitialized = getEventBus().on('services.allInitialized', () => {
+      servicesReady = true;
+      void tryFlushStartupActions();
+    });
+
     setupListeners();
 
     // Cleanup listener on unmount
     return () => {
+      cancelled = true;
       void (async () => {
         try {
+          if (unsubscribeServicesInitialized) {
+            unsubscribeServicesInitialized();
+          }
           if (mountUnlisten) {
             await safeUnlisten(mountUnlisten);
           }
           if (openFileUnlisten) {
             await safeUnlisten(openFileUnlisten);
+          }
+          if (remoteMountUnlisten) {
+            await safeUnlisten(remoteMountUnlisten);
           }
         } catch (error) {
           console.error('Failed to teardown filesystem listeners:', error);

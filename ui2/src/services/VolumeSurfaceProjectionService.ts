@@ -11,6 +11,11 @@ import { getEventBus } from '@/events/EventBus';
 import type { SurfaceDataLayer } from './SurfaceOverlayService';
 import type { AtlasConfig } from '@/types/atlas';
 import type { AtlasPaletteLut, AtlasPaletteResponse } from '@/types/atlasPalette';
+import {
+  applySurfaceSelectionInContext,
+  getActiveSurfaceCommandContext,
+  resolveSurfaceSelectionViewId,
+} from '@/utils/surfaceCommandContext';
 
 const DEBUG_PROJECTION = false;
 
@@ -457,12 +462,18 @@ export class VolumeSurfaceProjectionService {
     const range: [number, number] = result.data_range
       ? [result.data_range.min, result.data_range.max]
       : [0, 1];
+    const dataHandle = unwrapHandleId(result.data_handle);
+    const surfaceId = unwrapHandleId(result.surface_handle);
+
+    if (!dataHandle || !surfaceId) {
+      throw new Error('Projection result did not include valid surface/data handles');
+    }
 
     return {
       id: `vol2surf-${Date.now()}`,
       name,
-      dataHandle: result.data_handle.id,
-      surfaceId: result.surface_handle.id,
+      dataHandle,
+      surfaceId,
       colormap,
       range,
       opacity,
@@ -530,6 +541,7 @@ export class VolumeSurfaceProjectionService {
       timepoint?: number;
       colormap?: string;
       opacity?: number;
+      surfaceViewId?: string | null;
       /** When true, fetches volume data for GPU projection instead of CPU per-vertex values */
       useGPUProjection?: boolean;
       /** When provided, treat volume values as categorical labels and color using this LUT */
@@ -540,6 +552,11 @@ export class VolumeSurfaceProjectionService {
     const surfaceStore = useSurfaceStore.getState();
     const colormap = options?.colormap ?? 'viridis';
     const opacity = options?.opacity ?? 1.0;
+    const selectionSurfaceViewId =
+      resolveSurfaceSelectionViewId(
+        surfaceId,
+        options?.surfaceViewId ?? getActiveSurfaceCommandContext().explicitSurfaceViewId
+      );
 
     if (options?.useGPUProjection) {
       // GPU path: Fetch volume data for GPU-based projection
@@ -599,8 +616,12 @@ export class VolumeSurfaceProjectionService {
             atlasMaxLabel: options.atlasPalette.lut.max_label,
           });
 
-          surfaceStore.setActiveSurface(surfaceId);
-          surfaceStore.setSelectedItem('dataLayer', layerId);
+          applySurfaceSelectionInContext(
+            surfaceId,
+            'dataLayer',
+            layerId,
+            selectionSurfaceViewId
+          );
 
           getEventBus().emit('surface.overlayApplied', {
             surfaceId,
@@ -710,8 +731,12 @@ export class VolumeSurfaceProjectionService {
             atlasMaxLabel: options.atlasPalette.lut.max_label,
           });
 
-          surfaceStore.setActiveSurface(surfaceId);
-          surfaceStore.setSelectedItem('dataLayer', layerId);
+          applySurfaceSelectionInContext(
+            surfaceId,
+            'dataLayer',
+            layerId,
+            selectionSurfaceViewId
+          );
 
           debugLog('projectAndDisplay', 'Atlas RGBA layer added', {
             layerId,
@@ -778,11 +803,15 @@ export class VolumeSurfaceProjectionService {
       });
 
       // Ensure the canvas uses the GPU compositing pipeline for VolumeProjectionLayer.
-      surfaceStore.updateRenderSettings({ useGPUProjection: true });
+      surfaceStore.updateSurfaceProjectionSettingsForSurface(surfaceId, { useGPUProjection: true });
 
       // Make the new layer immediately visible in the UI.
-      surfaceStore.setActiveSurface(surfaceId);
-      surfaceStore.setSelectedItem('dataLayer', layer.id);
+      applySurfaceSelectionInContext(
+        surfaceId,
+        'dataLayer',
+        layer.id,
+        selectionSurfaceViewId
+      );
 
       debugLog('projectAndDisplay', 'GPU projection layer added', {
         layerId: layer.id,
@@ -861,8 +890,12 @@ export class VolumeSurfaceProjectionService {
     });
 
     // Make the new layer immediately visible in the UI (SurfaceControlPanel relies on selection state).
-    surfaceStore.setActiveSurface(surfaceId);
-    surfaceStore.setSelectedItem('dataLayer', layerId);
+    applySurfaceSelectionInContext(
+      surfaceId,
+      'dataLayer',
+      layerId,
+      selectionSurfaceViewId
+    );
 
     debugLog('projectAndDisplay', 'Added layer to surface store', {
       surfaceId,

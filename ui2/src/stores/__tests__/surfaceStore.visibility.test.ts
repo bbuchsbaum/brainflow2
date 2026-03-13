@@ -1,5 +1,10 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import { useSurfaceStore, type LoadedSurface } from '@/stores/surfaceStore';
+import { useActivePanelStore } from '@/stores/activePanelStore';
+import { useActiveRenderContextStore } from '@/stores/activeRenderContextStore';
+import {
+  useSurfaceStore,
+  type LoadedSurface,
+} from '@/stores/surfaceStore';
 
 function makeSurface(handle: string, hemisphere: 'left' | 'right'): LoadedSurface {
   return {
@@ -13,7 +18,6 @@ function makeSurface(handle: string, hemisphere: 'left' | 'right'): LoadedSurfac
       surfaceType: 'pial',
     },
     layers: new Map(),
-    displayLayers: new Map(),
     metadata: {
       vertexCount: 0,
       faceCount: 0,
@@ -26,6 +30,13 @@ function makeSurface(handle: string, hemisphere: 'left' | 'right'): LoadedSurfac
 
 describe('surfaceStore.setSurfaceVisibility', () => {
   beforeEach(() => {
+    useActivePanelStore.setState({
+      componentType: null,
+      componentState: null,
+    });
+    useActiveRenderContextStore.setState({
+      activeId: null,
+    });
     useSurfaceStore.setState({
       surfaces: new Map(),
       activeSurfaceId: null,
@@ -33,6 +44,9 @@ describe('surfaceStore.setSurfaceVisibility', () => {
       selectedLayerId: null,
       isLoading: false,
       loadError: null,
+      surfaceViewSettings: new Map(),
+      surfaceViewHandles: new Map(),
+      surfaceViewSelections: new Map(),
     });
   });
 
@@ -46,6 +60,16 @@ describe('surfaceStore.setSurfaceVisibility', () => {
         ['rh', right],
       ]),
       activeSurfaceId: 'lh',
+      selectedItemType: 'dataLayer',
+      selectedLayerId: 'layer-lh',
+      surfaceViewHandles: new Map([['view-1', 'lh']]),
+      surfaceViewSelections: new Map([
+        ['view-1', {
+          activeSurfaceId: 'lh',
+          selectedItemType: 'dataLayer',
+          selectedLayerId: 'layer-lh',
+        }],
+      ]),
     });
 
     useSurfaceStore.getState().setSurfaceVisibility('lh', false);
@@ -53,6 +77,13 @@ describe('surfaceStore.setSurfaceVisibility', () => {
     const state = useSurfaceStore.getState();
     expect(state.surfaces.get('lh')?.visible).toBe(false);
     expect(state.activeSurfaceId).toBe('rh');
+    expect(state.selectedItemType).toBe('geometry');
+    expect(state.selectedLayerId).toBeNull();
+    expect(state.surfaceViewSelections.get('view-1')).toEqual({
+      activeSurfaceId: 'rh',
+      selectedItemType: 'geometry',
+      selectedLayerId: null,
+    });
   });
 
   it('activates a surface when made visible and no active selection exists', () => {

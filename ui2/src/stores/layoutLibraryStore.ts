@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import type { LayoutConfig } from 'golden-layout';
 import { getLayoutService } from '@/services/layoutService';
+import { cloneLayoutConfig } from '@/utils/layoutConfigUtils';
 
 const STORAGE_KEY = 'brainflow2-layout-library';
 const LAYOUT_LIBRARY_SCHEMA_VERSION = 1;
@@ -37,10 +38,6 @@ function makeDefaultPayload(): LayoutLibraryPayload {
     activeLayoutId: null,
     layouts: [],
   };
-}
-
-function cloneLayoutConfig(config: LayoutConfig): LayoutConfig {
-  return JSON.parse(JSON.stringify(config)) as LayoutConfig;
 }
 
 function isLayoutConfig(value: unknown): value is LayoutConfig {
@@ -274,3 +271,7 @@ export const useLayoutLibraryStore = create<LayoutLibraryStore>((set, get) => ({
     set({ lastError: null });
   },
 }));
+
+export function getLayoutLibraryLastError(): string | null {
+  return useLayoutLibraryStore.getState().lastError;
+}

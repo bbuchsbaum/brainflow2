@@ -129,7 +129,7 @@ fn test_world_space_shader_compilation() {
         let (device, _queue) = adapter
             .request_device(&wgpu::DeviceDescriptor {
                 label: Some("Test Device"),
-                required_features: wgpu::Features::TEXTURE_BINDING_ARRAY 
+                required_features: wgpu::Features::TEXTURE_BINDING_ARRAY
                     | wgpu::Features::SAMPLED_TEXTURE_AND_STORAGE_BUFFER_ARRAY_NON_UNIFORM_INDEXING,
                 required_limits: wgpu::Limits::default(),
             }, None)

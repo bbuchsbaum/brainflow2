@@ -3,9 +3,8 @@
  * Shows surface properties, mesh statistics, and coordinate information
  */
 
-import React, { useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useSurfaceStore } from '@/stores/surfaceStore';
-import type { Surface } from '@/stores/surfaceStore';
 import { 
   VscChevronDown,
   VscChevronRight,
@@ -25,6 +24,7 @@ interface SurfaceMetadataDrawerProps {
 }
 
 interface MetadataSection {
+  id: string;
   title: string;
   fields: Array<{
     label: string;
@@ -40,44 +40,23 @@ export function SurfaceMetadataDrawer({
   onOpenChange 
 }: SurfaceMetadataDrawerProps) {
   const [expandedSections, setExpandedSections] = useState<Set<string>>(
-    new Set(['mesh', 'properties'])
+    new Set(['basic', 'mesh'])
   );
   const [copiedField, setCopiedField] = useState<string | null>(null);
+  const resetTimerRef = useRef<number | null>(null);
   
   // Get surface from store
   const surface = useSurfaceStore(state => 
     state.surfaces.get(surfaceId)
   );
-  
-  if (!surface) {
-    return null;
-  }
-  
-  // Copy to clipboard
-  const handleCopy = async (label: string, value: string | number | null) => {
-    if (value === null) return;
-    
-    try {
-      await navigator.clipboard.writeText(String(value));
-      setCopiedField(label);
-      setTimeout(() => setCopiedField(null), 2000);
-    } catch (error) {
-      console.error('Failed to copy:', error);
-    }
-  };
-  
-  // Toggle section expansion
-  const toggleSection = (sectionTitle: string) => {
-    setExpandedSections(prev => {
-      const next = new Set(prev);
-      if (next.has(sectionTitle)) {
-        next.delete(sectionTitle);
-      } else {
-        next.add(sectionTitle);
+
+  useEffect(() => {
+    return () => {
+      if (resetTimerRef.current !== null) {
+        window.clearTimeout(resetTimerRef.current);
       }
-      return next;
-    });
-  };
+    };
+  }, []);
   
   // Format file size
   const formatFileSize = (bytes?: number): string => {
@@ -93,17 +72,24 @@ export function SurfaceMetadataDrawer({
   };
   
   // Build metadata sections
-  const sections: MetadataSection[] = [
+  const sections: MetadataSection[] = useMemo(() => {
+    if (!surface) {
+      return [];
+    }
+
+    return [
     {
+      id: 'basic',
       title: 'Basic Information',
       fields: [
         { label: 'Name', value: surface.name || 'Unnamed Surface' },
         { label: 'Handle', value: surface.handle, copyable: true, mono: true },
-        { label: 'Path', value: surface.path || 'N/A', copyable: true, mono: true },
+        { label: 'Path', value: surface.metadata.path || 'N/A', copyable: true, mono: true },
         { label: 'Visible', value: surface.visible ? 'Yes' : 'No' },
       ]
     },
     {
+      id: 'mesh',
       title: 'Mesh Statistics',
       fields: [
         { 
@@ -127,40 +113,28 @@ export function SurfaceMetadataDrawer({
       ]
     },
     {
-      title: 'Coordinate System',
+      id: 'geometry',
+      title: 'Geometry',
       fields: [
         { 
-          label: 'Space', 
-          value: surface.metadata?.coordinateSpace || 'Native' 
+          label: 'Geometry Loaded',
+          value:
+            surface.geometry.vertices.length > 0 && surface.geometry.faces.length > 0
+              ? 'Yes'
+              : 'Pending',
         },
         { 
-          label: 'Units', 
-          value: surface.metadata?.units || 'mm' 
+          label: 'Vertex Components',
+          value: formatNumber(surface.geometry.vertices.length),
         },
         {
-          label: 'Bounds X',
-          value: surface.metadata?.bounds ? 
-            `[${surface.metadata.bounds.min[0].toFixed(2)}, ${surface.metadata.bounds.max[0].toFixed(2)}]` : 
-            'Unknown',
-          mono: true
-        },
-        {
-          label: 'Bounds Y',
-          value: surface.metadata?.bounds ? 
-            `[${surface.metadata.bounds.min[1].toFixed(2)}, ${surface.metadata.bounds.max[1].toFixed(2)}]` : 
-            'Unknown',
-          mono: true
-        },
-        {
-          label: 'Bounds Z',
-          value: surface.metadata?.bounds ? 
-            `[${surface.metadata.bounds.min[2].toFixed(2)}, ${surface.metadata.bounds.max[2].toFixed(2)}]` : 
-            'Unknown',
-          mono: true
+          label: 'Face Indices',
+          value: formatNumber(surface.geometry.faces.length),
         },
       ]
     },
     {
+      id: 'memory',
       title: 'Memory Usage',
       fields: [
         { 
@@ -182,6 +156,43 @@ export function SurfaceMetadataDrawer({
       ]
     },
   ];
+  }, [surface]);
+
+  if (!surface) {
+    return null;
+  }
+  
+  // Copy to clipboard
+  const handleCopy = async (label: string, value: string | number | null) => {
+    if (value === null || !navigator.clipboard?.writeText) return;
+    
+    try {
+      await navigator.clipboard.writeText(String(value));
+      setCopiedField(label);
+      if (resetTimerRef.current !== null) {
+        window.clearTimeout(resetTimerRef.current);
+      }
+      resetTimerRef.current = window.setTimeout(() => {
+        setCopiedField(null);
+        resetTimerRef.current = null;
+      }, 2000);
+    } catch (error) {
+      console.error('Failed to copy:', error);
+    }
+  };
+  
+  // Toggle section expansion
+  const toggleSection = (sectionTitle: string) => {
+    setExpandedSections(prev => {
+      const next = new Set(prev);
+      if (next.has(sectionTitle)) {
+        next.delete(sectionTitle);
+      } else {
+        next.add(sectionTitle);
+      }
+      return next;
+    });
+  };
   
   return (
     <Sheet open={isOpen} onOpenChange={onOpenChange}>
@@ -198,9 +209,10 @@ export function SurfaceMetadataDrawer({
             </div>
             <Button
               variant="ghost"
-              size="icon"
+              size="sm"
               onClick={() => onOpenChange(false)}
               className="h-8 w-8"
+              aria-label="Close surface metadata"
             >
               <VscClose className="h-4 w-4" />
             </Button>
@@ -211,19 +223,22 @@ export function SurfaceMetadataDrawer({
           {sections.map((section) => (
             <div key={section.title} className="border rounded-lg overflow-hidden">
               <button
-                onClick={() => toggleSection(section.title)}
+                type="button"
+                onClick={() => toggleSection(section.id)}
+                aria-expanded={expandedSections.has(section.id)}
+                aria-controls={`surface-metadata-section-${section.id}`}
                 className="w-full px-4 py-3 bg-muted/30 hover:bg-muted/50 transition-colors flex items-center justify-between"
               >
                 <span className="text-sm font-medium">{section.title}</span>
-                {expandedSections.has(section.title) ? (
+                {expandedSections.has(section.id) ? (
                   <VscChevronDown className="h-4 w-4" />
                 ) : (
                   <VscChevronRight className="h-4 w-4" />
                 )}
               </button>
               
-              {expandedSections.has(section.title) && (
-                <div className="p-4 space-y-3">
+              {expandedSections.has(section.id) && (
+                <div id={`surface-metadata-section-${section.id}`} className="p-4 space-y-3">
                   {section.fields.map((field) => (
                     <div key={field.label} className="flex items-start justify-between">
                       <span className="text-sm text-muted-foreground">
@@ -238,7 +253,10 @@ export function SurfaceMetadataDrawer({
                         </span>
                         {field.copyable && field.value !== null && (
                           <button
+                            type="button"
                             onClick={() => handleCopy(field.label, field.value)}
+                            aria-label={copiedField === field.label ? `${field.label} copied` : `Copy ${field.label}`}
+                            data-copied={copiedField === field.label}
                             className="p-1 hover:bg-muted rounded transition-colors"
                             title="Copy to clipboard"
                           >

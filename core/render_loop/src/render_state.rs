@@ -286,7 +286,7 @@ pub struct LayerStateManager {
     count_buffer: Option<Buffer>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct LayerInfo {
     /// Atlas layer index
     pub atlas_index: u32,

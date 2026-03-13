@@ -1,5 +1,5 @@
 //! Ellipsoid-based tests for coordinate transformation validation
-//! 
+//!
 //! This module uses oriented ellipsoids as ground truth to validate
 //! coordinate transformations across various volume configurations.
 
@@ -14,13 +14,13 @@ use std::f64::consts::PI;
 pub struct EllipsoidTestConfig {
     /// The ellipsoid to test
     pub ellipsoid: OrientedEllipsoid,
-    
+
     /// Different volume configurations to test
     pub volume_configs: Vec<VolumeConfig>,
-    
+
     /// Validation tolerance settings
     pub tolerance: ValidationTolerance,
-    
+
     /// Test description
     pub description: String,
 }
@@ -30,16 +30,16 @@ pub struct EllipsoidTestConfig {
 pub struct VolumeConfig {
     /// Volume dimensions [x, y, z]
     pub dimensions: [usize; 3],
-    
+
     /// Voxel spacing in mm [dx, dy, dz]
     pub spacing_mm: [f64; 3],
-    
+
     /// Origin offset in mm [x, y, z]
     pub origin_mm: [f64; 3],
-    
+
     /// Optional rotation/reorientation matrix
     pub orientation: Option<nalgebra::Matrix4<f64>>,
-    
+
     /// Description for test output
     pub description: String,
 }
@@ -75,7 +75,7 @@ impl EllipsoidTestConfig {
                 tolerance: ValidationTolerance::default(),
                 description: "Basic isotropic test".to_string(),
             },
-            
+
             // Test 2: Anisotropic voxels
             Self {
                 ellipsoid: OrientedEllipsoid::new(
@@ -106,7 +106,7 @@ impl EllipsoidTestConfig {
                 },
                 description: "Anisotropic voxel test".to_string(),
             },
-            
+
             // Test 3: Extreme aspect ratio (O3's suggestion)
             Self {
                 ellipsoid: OrientedEllipsoid::new(
@@ -131,7 +131,7 @@ impl EllipsoidTestConfig {
                 },
                 description: "Extreme aspect ratio test".to_string(),
             },
-            
+
             // Test 4: Rotated coordinate system
             Self {
                 ellipsoid: OrientedEllipsoid::new(
@@ -152,7 +152,7 @@ impl EllipsoidTestConfig {
                 tolerance: ValidationTolerance::default(),
                 description: "Rotated volume space test".to_string(),
             },
-            
+
             // Test 5: Partial FOV (O3's suggestion)
             Self {
                 ellipsoid: OrientedEllipsoid::new(
@@ -178,7 +178,7 @@ impl EllipsoidTestConfig {
                 },
                 description: "Partial FOV test".to_string(),
             },
-            
+
             // Test 6: Small ellipsoid (near voxel size)
             Self {
                 ellipsoid: OrientedEllipsoid::new(
@@ -205,11 +205,11 @@ impl EllipsoidTestConfig {
             },
         ]
     }
-    
+
     /// Generate random test configurations for property-based testing
     pub fn generate_random_tests(seed: u64, count: usize) -> Vec<Self> {
         let mut rng = StdRng::seed_from_u64(seed);
-        
+
         (0..count).map(|i| {
             // Random ellipsoid parameters
             let center = Point3::new(
@@ -217,13 +217,13 @@ impl EllipsoidTestConfig {
                 rng.gen_range(-30.0..30.0),
                 rng.gen_range(-30.0..30.0),
             );
-            
+
             let radii = Vector3::new(
                 rng.gen_range(5.0..25.0),
                 rng.gen_range(5.0..25.0),
                 rng.gen_range(5.0..25.0),
             );
-            
+
             // Random orientation using quaternion to avoid gimbal lock
             let rotation = Rotation3::from_quaternion(
                 UnitQuaternion::from_quaternion(
@@ -235,9 +235,9 @@ impl EllipsoidTestConfig {
                     ).normalize()
                 )
             );
-            
+
             let intensity = rng.gen_range(50.0..250.0);
-            
+
             // Random volume configuration
             let volume_config = VolumeConfig {
                 dimensions: [
@@ -267,7 +267,7 @@ impl EllipsoidTestConfig {
                 },
                 description: format!("Random config #{}", i),
             };
-            
+
             Self {
                 ellipsoid: OrientedEllipsoid::new(center, radii, rotation, intensity)
                     .expect("Failed to create random ellipsoid"),
@@ -282,7 +282,7 @@ impl EllipsoidTestConfig {
             }
         }).collect()
     }
-    
+
     /// Create edge case tests
     pub fn edge_case_tests() -> Vec<Self> {
         vec![
@@ -306,7 +306,7 @@ impl EllipsoidTestConfig {
                 tolerance: ValidationTolerance::default(),
                 description: "Degenerate orientation test".to_string(),
             },
-            
+
             // 90 degree rotations
             Self {
                 ellipsoid: OrientedEllipsoid::new(
@@ -327,7 +327,7 @@ impl EllipsoidTestConfig {
                 tolerance: ValidationTolerance::default(),
                 description: "90-degree rotation test".to_string(),
             },
-            
+
             // Very large ellipsoid (stress test)
             Self {
                 ellipsoid: OrientedEllipsoid::new(
@@ -365,19 +365,19 @@ fn create_rotation_matrix(roll: f64, pitch: f64, yaw: f64) -> nalgebra::Matrix4<
 pub struct EllipsoidTestResult {
     /// Test configuration name
     pub test_name: String,
-    
+
     /// Volume configuration description
     pub volume_config: String,
-    
+
     /// Computed metrics
     pub metrics: neuro_types::OverlapMetrics,
-    
+
     /// Whether the test passed tolerance checks
     pub passed: bool,
-    
+
     /// CPU computation time in milliseconds
     pub cpu_time_ms: f64,
-    
+
     /// GPU computation time in milliseconds (if available)
     pub gpu_time_ms: Option<f64>,
 }
@@ -393,18 +393,18 @@ impl EllipsoidTestResults {
     pub fn new() -> Self {
         Self::default()
     }
-    
+
     /// Add a test result
     pub fn add_result(&mut self, result: EllipsoidTestResult) {
         self.results.push(result);
     }
-    
+
     /// Get summary statistics
     pub fn summary(&self) -> TestSummary {
         let total = self.results.len();
         let passed = self.results.iter().filter(|r| r.passed).count();
         let failed = total - passed;
-        
+
         let avg_dice = if total > 0 {
             self.results.iter()
                 .map(|r| r.metrics.dice_coefficient)
@@ -412,7 +412,7 @@ impl EllipsoidTestResults {
         } else {
             0.0
         };
-        
+
         let avg_cpu_time = if total > 0 {
             self.results.iter()
                 .map(|r| r.cpu_time_ms)
@@ -420,7 +420,7 @@ impl EllipsoidTestResults {
         } else {
             0.0
         };
-        
+
         TestSummary {
             total_tests: total,
             passed,
@@ -429,11 +429,11 @@ impl EllipsoidTestResults {
             average_cpu_time_ms: avg_cpu_time,
         }
     }
-    
+
     /// Print detailed results
     pub fn print_detailed(&self) {
         println!("\n=== Ellipsoid Test Results ===\n");
-        
+
         for result in &self.results {
             println!("Test: {} - {}", result.test_name, result.volume_config);
             println!("  Status: {}", if result.passed { "PASSED" } else { "FAILED" });
@@ -448,11 +448,11 @@ impl EllipsoidTestResults {
             }
             println!();
         }
-        
+
         let summary = self.summary();
         println!("=== Summary ===");
         println!("Total tests: {}", summary.total_tests);
-        println!("Passed: {} ({:.1}%)", summary.passed, 
+        println!("Passed: {} ({:.1}%)", summary.passed,
             100.0 * summary.passed as f64 / summary.total_tests as f64);
         println!("Failed: {}", summary.failed);
         println!("Average Dice: {:.4}", summary.average_dice);
@@ -473,36 +473,36 @@ pub struct TestSummary {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_standard_suite_creation() {
         let suite = EllipsoidTestConfig::standard_test_suite();
         assert!(!suite.is_empty());
-        
+
         // Verify all ellipsoids are valid
         for config in &suite {
             assert!(config.ellipsoid.volume_mm3() > 0.0);
             assert!(!config.volume_configs.is_empty());
         }
     }
-    
+
     #[test]
     fn test_random_generation() {
         let random_tests = EllipsoidTestConfig::generate_random_tests(42, 10);
         assert_eq!(random_tests.len(), 10);
-        
+
         // Verify all generated tests are valid
         for config in &random_tests {
             assert!(config.ellipsoid.volume_mm3() > 0.0);
             assert_eq!(config.volume_configs.len(), 1);
         }
     }
-    
+
     #[test]
     fn test_edge_cases() {
         let edge_cases = EllipsoidTestConfig::edge_case_tests();
         assert!(!edge_cases.is_empty());
-        
+
         // Verify edge cases are valid
         for config in &edge_cases {
             assert!(config.ellipsoid.volume_mm3() > 0.0);

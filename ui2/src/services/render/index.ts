@@ -3,7 +3,5 @@ export {
   RenderFeatureFlags,
   setBinaryIPC,
   setRawRGBA,
-  setDebugBrighten,
-  setUseNewRenderAPI,
-  setLegacyRenderFallbackEnabled
+  setDebugBrighten
 } from './RenderFeatureFlags';

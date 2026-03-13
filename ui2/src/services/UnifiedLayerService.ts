@@ -277,7 +277,7 @@ export class UnifiedLayerService {
    */
   public getAvailableSurfacesForMapping(): ManagedLayer[] {
     // Return surfaces that aren't already vol2surf mapped
-    return this.getSurfaceLayers().filter(layer => !layer.sourceVolumeId);
+    return this.getSurfaceLayers().filter((layer) => !isVol2SurfLayer(layer));
   }
 
   /**

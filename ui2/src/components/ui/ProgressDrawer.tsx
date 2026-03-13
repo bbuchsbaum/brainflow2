@@ -3,7 +3,7 @@
  * Slides out from the right side of the window
  */
 
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useId, useRef } from 'react';
 import { useProgressStore, type ProgressTask } from '@/stores/progressStore';
 import { getProgressService } from '@/services/ProgressService';
 import { 
@@ -85,7 +85,8 @@ function TestProgressButtons() {
 }
 
 export function ProgressDrawer({ onClose }: ProgressDrawerProps) {
-  const drawerRef = useRef<HTMLDivElement>(null);
+  const closeButtonRef = useRef<HTMLButtonElement | null>(null);
+  const titleId = useId();
   
   // Subscribe to the raw tasks Map
   const tasksMap = useProgressStore(state => state.tasks);
@@ -109,21 +110,9 @@ export function ProgressDrawer({ onClose }: ProgressDrawerProps) {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [onClose]);
   
-  // Handle click outside
   useEffect(() => {
-    function handleClickOutside(e: MouseEvent) {
-      if (drawerRef.current && !drawerRef.current.contains(e.target as Node)) {
-        onClose();
-      }
-    }
-    
-    // Delay to avoid immediate close from the open click
-    setTimeout(() => {
-      window.addEventListener('mousedown', handleClickOutside);
-    }, 100);
-    
-    return () => window.removeEventListener('mousedown', handleClickOutside);
-  }, [onClose]);
+    closeButtonRef.current?.focus();
+  }, []);
   
   function formatDuration(startTime: number, endTime?: number): string {
     const duration = (endTime || Date.now()) - startTime;
@@ -174,28 +163,30 @@ export function ProgressDrawer({ onClose }: ProgressDrawerProps) {
       <div 
         className="fixed inset-0 bg-black/50 z-40 animate-fade-in"
         onClick={onClose}
+        data-testid="progress-drawer-backdrop"
       />
       
       {/* Drawer */}
       <div
-        ref={drawerRef}
         className="fixed right-0 top-0 bottom-0 w-96 z-50 shadow-xl animate-slide-in-right overflow-hidden flex flex-col"
         style={{ 
           backgroundColor: 'var(--layer-bg)',
           borderLeft: '1px solid var(--layer-divider)'
         }}
-        role="region"
-        aria-label="Progress panel"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
       >
         {/* Header */}
         <div 
           className="flex items-center justify-between p-4"
           style={{ borderBottom: '1px solid var(--layer-divider)' }}
         >
-          <h2 className="text-lg font-semibold" style={{ color: 'var(--layer-text)' }}>
+          <h2 id={titleId} className="text-lg font-semibold" style={{ color: 'var(--layer-text)' }}>
             Progress Tasks
           </h2>
           <button
+            ref={closeButtonRef}
             onClick={onClose}
             className="p-1 rounded hover:bg-gray-700/50 transition-colors"
             title="Close"

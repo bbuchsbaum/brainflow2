@@ -83,7 +83,7 @@ describe('FileBrowserPanel unmount overflow action', () => {
     render(<FileBrowserPanel />);
 
     fireEvent.click(screen.getByRole('button', { name: 'Files actions' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Unmount Selected' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Unmount Selected' }));
 
     await waitFor(() => {
       expect(invokeMock).toHaveBeenCalledWith('remote_mount_unmount', {
@@ -116,7 +116,7 @@ describe('FileBrowserPanel unmount overflow action', () => {
     render(<FileBrowserPanel />);
 
     fireEvent.click(screen.getByRole('button', { name: 'Files actions' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Unmount Selected' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Unmount Selected' }));
 
     await waitFor(() => {
       const state = useFileBrowserStore.getState();
@@ -147,7 +147,7 @@ describe('FileBrowserPanel unmount overflow action', () => {
     render(<FileBrowserPanel />);
 
     fireEvent.click(screen.getByRole('button', { name: 'Files actions' }));
-    const unmountButton = screen.getByRole('button', { name: 'Unmount Selected' });
+    const unmountButton = screen.getByRole('menuitem', { name: 'Unmount Selected' });
     expect(unmountButton).toBeDisabled();
   });
 });

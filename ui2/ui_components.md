@@ -184,8 +184,8 @@ graph TD
 
 ## 4. Backend Communication (`ApiService` & Rust Facade)
 
-*   **Rust Backend Facade:** A new command, `apply_and_render_view_state(viewStateJson: string)`, will be added to `api_bridge/src/lib.rs`. This command will parse the JSON `ViewState` and internally call the existing fine-grained Rust functions (`set_crosshair`, `update_layer`, `update_frame_ubo`, `render_to_image_binary`). This provides atomicity and simplifies the frontend API surface.
-*   **Frontend `ApiService`:** This singleton will primarily use the new `apply_and_render_view_state` command. It will also expose other commands like `fs_list_directory` and `sample_world_coordinate`. It uses `createImageBitmap` to decode returned image data off the main thread.
+*   **Rust Backend Facade:** The bridge exposes declarative commands centered on `render_view(stateJson, format)`, `submit_view(stateJson)`, and `render_views(stateJson, format)`. These commands parse the frontend `ViewState`, update rendering state atomically, and either return image bytes or diagnostics.
+*   **Frontend `ApiService`:** This singleton primarily uses `render_view` for single-view output, `render_views` for multi-view packets, and `submit_view` for no-readback submission. It also exposes other commands like `fs_list_directory` and `sample_world_coordinate`.
 
 ## 5. Component Implementation Details
 
@@ -300,7 +300,7 @@ The `OrthogonalViewport` is the core of the user's interaction and requires prec
 *   **Matrix Orientation Guarantee:** A critical integration test will be added. This test will:
     1.  Create a phantom volume in Rust with a known, asymmetric pattern.
     2.  Define a `SliceSpec` in the test with a non-trivial orientation.
-    3.  Call the `apply_and_render_view_state` command with this spec.
+    3.  Call the `render_view` command with this spec.
     4.  Assert that the returned PNG bytes match a "golden" snapshot file.
     This test runs in CI and will immediately fail if a change in `nalgebra`, `wgpu`, or the frontend's matrix math causes an axis flip or scaling error.
 

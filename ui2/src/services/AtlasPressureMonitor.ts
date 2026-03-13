@@ -29,7 +29,7 @@ const EVICTION_BACKOFF_MS = 15_000;
 const RECOVERY_MARGIN = 2;
 
 export class AtlasPressureMonitor {
-  private timerId: ReturnType<typeof setInterval> | null = null;
+  private timerId: number | null = null;
   private lastStats: AtlasStats | null = null;
   private lastWarnedFreeLayers: number | null = null;
   private lastFullEvents = 0;
@@ -53,7 +53,7 @@ export class AtlasPressureMonitor {
 
   stop() {
     if (this.timerId) {
-      clearInterval(this.timerId);
+      window.clearInterval(this.timerId);
       this.timerId = null;
       console.log('[AtlasPressureMonitor] Stopped polling atlas metrics');
     }

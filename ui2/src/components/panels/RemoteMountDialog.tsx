@@ -1,20 +1,15 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { Button } from '@/components/ui/shadcn/button';
+import { Modal } from '@/components/ui/Modal';
 import { getTransport } from '@/services/transport';
+import {
+  listRemoteMountProfiles,
+  type ConnectedRemoteMount,
+  type RemoteAuthMethod,
+  type RemoteMountConnectResult,
+  type RemoteMountProfile,
+} from '@/services/RemoteMountService';
 import { formatTauriError } from '@/utils/formatTauriError';
-
-type RemoteAuthMethod = 'password' | 'key_file' | 'agent' | 'keyboard_interactive';
-
-interface RemoteMountProfile {
-  id: string;
-  name: string;
-  host: string;
-  port: number;
-  user: string;
-  remote_path: string;
-  auth_method: string;
-  has_password: boolean;
-  updated_at_ms?: number;
-}
 
 interface RemoteHostKeyChallenge {
   challenge_id: string;
@@ -36,24 +31,6 @@ interface RemoteAuthChallenge {
   instructions: string;
   prompts: RemoteAuthPrompt[];
 }
-
-export interface ConnectedRemoteMount {
-  mount_id: string;
-  local_path: string;
-  display_name: string;
-  origin: {
-    label: string;
-    host: string;
-    port: number;
-    user: string;
-    remote_path: string;
-  };
-}
-
-type RemoteMountConnectResult =
-  | { status: 'connected'; mount: ConnectedRemoteMount }
-  | { status: 'need_host_key'; challenge: RemoteHostKeyChallenge }
-  | { status: 'need_auth'; challenge: RemoteAuthChallenge };
 
 type RemoteDialogStep = 'form' | 'host_key' | 'auth';
 
@@ -157,6 +134,9 @@ function sortProfilesByMostRecent(profiles: RemoteMountProfile[]): RemoteMountPr
 }
 
 export function RemoteMountDialog({ isOpen, onClose, onMounted }: RemoteMountDialogProps) {
+  const profileSelectRef = useRef<HTMLSelectElement | null>(null);
+  const authInputRef = useRef<HTMLInputElement | null>(null);
+  const trustButtonRef = useRef<HTMLButtonElement | null>(null);
   const [profiles, setProfiles] = useState<RemoteMountProfile[]>([]);
   const [profilesLoading, setProfilesLoading] = useState(false);
   const [selectedProfileId, setSelectedProfileId] = useState('');
@@ -180,6 +160,24 @@ export function RemoteMountDialog({ isOpen, onClose, onMounted }: RemoteMountDia
       return;
     }
 
+    if (step === 'host_key') {
+      trustButtonRef.current?.focus();
+      return;
+    }
+
+    if (step === 'auth') {
+      authInputRef.current?.focus();
+      return;
+    }
+
+    profileSelectRef.current?.focus();
+  }, [isOpen, step]);
+
+  useEffect(() => {
+    if (!isOpen) {
+      return;
+    }
+
     let active = true;
 
     const bootstrap = async () => {
@@ -194,9 +192,7 @@ export function RemoteMountDialog({ isOpen, onClose, onMounted }: RemoteMountDia
       setForm(DEFAULT_FORM);
 
       try {
-        const loadedProfiles = await getTransport().invoke<RemoteMountProfile[]>(
-          'list_remote_mount_profiles'
-        );
+        const loadedProfiles = await listRemoteMountProfiles();
         if (!active) return;
         const sortedProfiles = sortProfilesByMostRecent(loadedProfiles);
         setProfiles(sortedProfiles);
@@ -423,33 +419,31 @@ export function RemoteMountDialog({ isOpen, onClose, onMounted }: RemoteMountDia
   }
 
   return (
-    <div className="remote-mount-overlay" role="presentation">
-      <div className="remote-mount-modal" role="dialog" aria-modal="true" aria-label="Remote mount">
-        <div className="remote-mount-header">
-          <div>
-            <h3 className="remote-mount-title">Mount Remote Folder</h3>
-            <p className="remote-mount-subtitle">
-              Connect over SSH and mount into a local cache path.
-            </p>
-          </div>
-          <button
-            type="button"
-            className="remote-mount-close"
-            onClick={onClose}
-            disabled={pending}
-            aria-label="Close"
-          >
-            ×
-          </button>
-        </div>
+    <Modal
+      isOpen={isOpen}
+      onClose={onClose}
+      title="Mount Remote Folder"
+      ariaLabel="Remote mount"
+      size="xl"
+      initialFocusRef={profileSelectRef}
+      closeOnEscape={!pending}
+      closeOnOverlayClick={!pending}
+      closeButtonDisabled={pending}
+      bodyClassName="p-0"
+      className="max-w-[560px]"
+    >
+      <p className="remote-mount-subtitle px-4 pt-4">
+        Connect over SSH and mount into a local cache path.
+      </p>
 
-        <div className="remote-mount-body">
+      <div className="remote-mount-body">
           {step === 'form' && (
             <div className="remote-mount-form-grid">
               <label className="remote-mount-field">
                 <span>Saved Profile</span>
                 <div className="remote-mount-profile-row">
                   <select
+                    ref={profileSelectRef}
                     value={selectedProfileId}
                     onChange={(event) => handleProfileSelect(event.target.value)}
                     disabled={pending || profilesLoading}
@@ -649,6 +643,7 @@ export function RemoteMountDialog({ isOpen, onClose, onMounted }: RemoteMountDia
                   <label key={`${prompt.prompt}-${index}`} className="remote-mount-field">
                     <span>{prompt.prompt || `Response ${index + 1}`}</span>
                     <input
+                      ref={index === 0 ? authInputRef : undefined}
                       type={prompt.echo ? 'text' : 'password'}
                       value={authResponses[index] ?? ''}
                       onChange={(event) =>
@@ -672,38 +667,58 @@ export function RemoteMountDialog({ isOpen, onClose, onMounted }: RemoteMountDia
         <div className="remote-mount-footer">
           {step === 'form' && (
             <>
-              <button type="button" onClick={onClose} disabled={pending}>
+              <Button type="button" variant="outline" onClick={onClose} disabled={pending}>
                 Cancel
-              </button>
-              <button type="button" className="primary" onClick={() => void handleConnect()} disabled={pending}>
+              </Button>
+              <Button
+                type="button"
+                className="primary"
+                onClick={() => void handleConnect()}
+                disabled={pending}
+              >
                 {pending ? 'Connecting…' : 'Connect'}
-              </button>
+              </Button>
             </>
           )}
 
           {step === 'host_key' && (
             <>
-              <button type="button" onClick={() => void handleHostKeyDecision(false)} disabled={pending}>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => void handleHostKeyDecision(false)}
+                disabled={pending}
+              >
                 Reject
-              </button>
-              <button type="button" className="primary" onClick={() => void handleHostKeyDecision(true)} disabled={pending}>
+              </Button>
+              <Button
+                type="button"
+                className="primary"
+                ref={trustButtonRef}
+                onClick={() => void handleHostKeyDecision(true)}
+                disabled={pending}
+              >
                 Trust & Continue
-              </button>
+              </Button>
             </>
           )}
 
           {step === 'auth' && (
             <>
-              <button type="button" onClick={onClose} disabled={pending}>
+              <Button type="button" variant="outline" onClick={onClose} disabled={pending}>
                 Cancel
-              </button>
-              <button type="button" className="primary" onClick={() => void handleAuthSubmit()} disabled={pending}>
+              </Button>
+              <Button
+                type="button"
+                className="primary"
+                onClick={() => void handleAuthSubmit()}
+                disabled={pending}
+              >
                 {pending ? 'Submitting…' : 'Continue'}
-              </button>
+              </Button>
             </>
           )}
         </div>
-      </div>
-    </div>
+    </Modal>
   );
 }

@@ -7,7 +7,7 @@ import { safeListen, safeUnlisten } from '@/utils/eventUtils';
 import { useViewStateStore } from '@/stores/viewStateStore';
 
 export class CrosshairMenuService {
-  private static instance: CrosshairMenuService | null = null;
+  static instance: CrosshairMenuService | null = null;
   private unlistenFn: (() => void) | null = null;
 
   private constructor() {

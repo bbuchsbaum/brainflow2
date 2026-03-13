@@ -86,7 +86,7 @@ pub struct CameraState {
 pub enum SliceOrientation {
     /// Axial/Transverse - looking down Z axis
     Axial,
-    /// Coronal - looking down Y axis  
+    /// Coronal - looking down Y axis
     Coronal,
     /// Sagittal - looking down X axis
     Sagittal,
@@ -189,10 +189,78 @@ impl LayerConfig {
     }
 }
 
+/// Timing breakdown for a single request_frame call.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FrameReadbackMode {
+    Blocking,
+    Skip,
+}
+
+impl Default for FrameReadbackMode {
+    fn default() -> Self {
+        Self::Blocking
+    }
+}
+
+/// Options controlling how request_frame completes after GPU submission.
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize)]
+pub struct FrameRequestOptions {
+    #[serde(default)]
+    pub readback_mode: FrameReadbackMode,
+}
+
+/// Timing breakdown for a single request_frame call.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FrameDiagnostics {
+    /// CPU-side setup and state preparation before GPU submission
+    pub prepare_ms: f32,
+
+    /// Render pass encoding + queue submission time
+    pub render_ms: f32,
+
+    /// Texture copy, map, and CPU unpack time
+    pub readback_ms: f32,
+
+    /// Total request_frame wall-clock time
+    pub total_ms: f32,
+
+    /// Number of visible layers prepared for the frame
+    pub visible_layers: u32,
+
+    /// Number of layer slots uploaded to the GPU for this frame.
+    #[serde(default)]
+    pub updated_layer_slots: u32,
+
+    /// Whether the request reused the previously uploaded layer state package.
+    #[serde(default)]
+    pub reused_layer_state: bool,
+
+    /// Whether the frame bytes were read back synchronously or skipped.
+    #[serde(default)]
+    pub readback_mode: FrameReadbackMode,
+}
+
+impl Default for FrameDiagnostics {
+    fn default() -> Self {
+        Self {
+            prepare_ms: 0.0,
+            render_ms: 0.0,
+            readback_ms: 0.0,
+            total_ms: 0.0,
+            visible_layers: 0,
+            updated_layer_slots: 0,
+            reused_layer_state: false,
+            readback_mode: FrameReadbackMode::Blocking,
+        }
+    }
+}
+
 /// Result of a frame render request
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FrameResult {
-    /// Rendered image as base64-encoded PNG or raw RGBA
+    /// Rendered image as base64-encoded PNG or raw RGBA.
+    /// This is empty when readback is skipped by request options.
     pub image_data: Vec<u8>,
 
     /// Actual dimensions of rendered image
@@ -209,6 +277,9 @@ pub struct FrameResult {
 
     /// Whether CPU fallback was used
     pub used_cpu_fallback: bool,
+
+    /// Stage timings for the live render path
+    pub diagnostics: FrameDiagnostics,
 }
 
 impl ViewState {

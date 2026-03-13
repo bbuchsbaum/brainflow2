@@ -3,7 +3,7 @@ use volmath::{DenseVolume3, NeuroSpace3, NeuroSpaceExt};
 
 /// Creates a test volume with distinct patterns on each axis:
 /// - X axis: Vertical stripes (alternating values every X slice)
-/// - Y axis: Horizontal stripes (alternating values every Y slice)  
+/// - Y axis: Horizontal stripes (alternating values every Y slice)
 /// - Z axis: Gradient (increasing values along Z)
 fn create_patterned_volume() -> DenseVolume3<f32> {
     let dims = [64, 64, 64];

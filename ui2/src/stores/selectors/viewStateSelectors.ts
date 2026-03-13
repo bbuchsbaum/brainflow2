@@ -4,25 +4,27 @@
  */
 
 import { useViewStateStore } from '../viewStateStore';
-import { shallow } from 'zustand/shallow';
 
 /**
  * Subscribe only to timepoint changes
  */
 export const useTimepointSelector = () => 
-  useViewStateStore(state => state.viewState.timepoint);
+  useViewStateStore(state => state.viewState.timepoint ?? 0);
 
 /**
  * Subscribe only to crosshair changes
  */
 export const useCrosshairSelector = () => 
-  useViewStateStore(state => state.viewState.crosshair, shallow);
+  useViewStateStore(state => state.viewState.crosshair);
 
 /**
  * Subscribe only to specific slice position
  */
 export const useSlicePositionSelector = (viewId: string) => 
-  useViewStateStore(state => state.viewState.slicePositions[viewId]);
+  useViewStateStore(state => {
+    const view = state.viewState.views[viewId as keyof typeof state.viewState.views];
+    return view?.origin_mm;
+  });
 
 /**
  * Subscribe to time navigation data (timepoint + navigation state)
@@ -30,10 +32,9 @@ export const useSlicePositionSelector = (viewId: string) =>
 export const useTimeNavDataSelector = () => 
   useViewStateStore(
     state => ({
-      timepoint: state.viewState.timepoint,
-      hasTimeNavigation: state.viewState.timeNavigation?.enabled
-    }),
-    shallow // Use shallow comparison for object stability
+      timepoint: state.viewState.timepoint ?? 0,
+      hasTimeNavigation: state.viewState.timepoint !== undefined
+    })
   );
 
 /**
@@ -44,8 +45,7 @@ export const useViewDataSelector = (viewId: 'axial' | 'sagittal' | 'coronal') =>
     state => ({
       viewPlane: state.viewState.views[viewId],
       crosshair: state.viewState.crosshair
-    }),
-    shallow
+    })
   );
 
 /**
@@ -57,8 +57,7 @@ export const useLayerVisibilitySelector = () =>
       id: layer.id,
       visible: layer.visible,
       opacity: layer.opacity
-    })),
-    shallow
+    }))
   );
 
 /**
@@ -69,7 +68,6 @@ export const useRenderDataSelector = () =>
     state => ({
       layers: state.viewState.layers.filter(l => l.visible && l.opacity > 0),
       crosshairVisible: state.viewState.crosshair.visible,
-      timepoint: state.viewState.timepoint
-    }),
-    shallow
+      timepoint: state.viewState.timepoint ?? 0
+    })
   );

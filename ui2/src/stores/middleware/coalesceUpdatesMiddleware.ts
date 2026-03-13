@@ -8,10 +8,18 @@
  * Implementation follows the architectural blueprint pattern.
  */
 
-import type { StateCreator } from 'zustand/vanilla';
-import type { ViewState } from '@/types/viewState';
+import type { StateCreator, StoreMutatorIdentifier } from 'zustand/vanilla';
+import type { ViewState, ViewStateRevisions } from '@/types/viewState';
 import { useLayoutDragStore } from '@/stores/layoutDragStore';
 import { useDragSourceStore } from '@/stores/dragSourceStore';
+import { recordRenderDiagnostic } from '@/services/render/RenderDiagnostics';
+import {
+  areCrosshairStatesEqual,
+  areViewLayerListsEqual,
+  areViewPlaneGeometryEqual,
+  cloneViewStateRevisions,
+  TRACKED_VIEW_TYPES
+} from '@/utils/viewStateTracking';
 
 // Global state for coalescing - persists across store instances
 let pendingState: ViewState | null = null;
@@ -21,47 +29,82 @@ let rafId: number | null = null;
 let pendingForceDimensionUpdate = false;
 let isEnabled = true;
 let lastFlushedState: ViewState | null = null;
+let pendingRevisions: ViewStateRevisions | null = null;
+let lastFlushedRevisions: ViewStateRevisions | null = null;
+let pendingQueuedAt: number | null = null;
+let pendingUpdateCount = 0;
 
 // Callback for backend updates - will be injected
-let backendUpdateCallback: ((viewState: ViewState) => void) | null = null;
+let backendUpdateCallback:
+  | ((viewState: ViewState, revisions?: ViewStateRevisions) => void)
+  | null = null;
 
 /**
  * Check if only dimensions changed between two ViewStates
  * Now properly handles the views field and dim_px comparisons
  */
-function isDimensionOnlyChange(current: ViewState, previous: ViewState | null): boolean {
+function isDimensionOnlyChange(
+  current: ViewState,
+  previous: ViewState | null,
+  currentRevisions: ViewStateRevisions | null,
+  previousRevisions: ViewStateRevisions | null
+): boolean {
   if (!previous) return false;
-  
-  // Compare layers and crosshair - these should be identical for dimension-only changes
-  if (JSON.stringify(current.layers) !== JSON.stringify(previous.layers)) {
-    return false;
-  }
-  
-  if (JSON.stringify(current.crosshair) !== JSON.stringify(previous.crosshair)) {
-    return false;
-  }
-  
-  // Compare views, but exclude dim_px fields - only dim_px should change in dimension-only updates
-  const viewTypes: (keyof typeof current.views)[] = ['axial', 'sagittal', 'coronal'];
-  
-  for (const viewType of viewTypes) {
-    const currentView = current.views[viewType];
-    const previousView = previous.views[viewType];
-    
-    if (!currentView && !previousView) continue;
-    if (!currentView || !previousView) return false;
-    
-    // Compare everything except dim_px
-    if (JSON.stringify(currentView.origin_mm) !== JSON.stringify(previousView.origin_mm) ||
-        JSON.stringify(currentView.u_mm) !== JSON.stringify(previousView.u_mm) ||
-        JSON.stringify(currentView.v_mm) !== JSON.stringify(previousView.v_mm)) {
+
+  if (currentRevisions && previousRevisions) {
+    if (currentRevisions.layers !== previousRevisions.layers) {
       return false;
     }
-    
-    // dim_px is allowed to be different in dimension-only changes
+    if (currentRevisions.crosshair !== previousRevisions.crosshair) {
+      return false;
+    }
+    if (currentRevisions.timepoint !== previousRevisions.timepoint) {
+      return false;
+    }
   }
-  
-  return true;
+  if (!currentRevisions || !previousRevisions) {
+    if (!areViewLayerListsEqual(current.layers, previous.layers)) {
+      return false;
+    }
+  }
+
+  if (!areCrosshairStatesEqual(current.crosshair, previous.crosshair)) {
+    return false;
+  }
+  if (current.timepoint !== previous.timepoint) {
+    return false;
+  }
+
+  let sawViewRevision = false;
+
+  for (const viewType of TRACKED_VIEW_TYPES) {
+    const currentView = current.views[viewType];
+    const previousView = previous.views[viewType];
+
+    if (!currentView || !previousView) {
+      return false;
+    }
+
+    const viewRevisionChanged = currentRevisions && previousRevisions
+      ? currentRevisions.views[viewType] !== previousRevisions.views[viewType]
+      : true;
+
+    if (!viewRevisionChanged) {
+      continue;
+    }
+
+    sawViewRevision = true;
+
+    if (!areViewPlaneGeometryEqual(currentView, previousView)) {
+      return false;
+    }
+  }
+
+  return sawViewRevision;
+}
+
+function getViewStateRevisions(state: { viewStateRevisions?: ViewStateRevisions } | null | undefined) {
+  return state?.viewStateRevisions ? cloneViewStateRevisions(state.viewStateRevisions) : null;
 }
 
 /**
@@ -70,6 +113,8 @@ function isDimensionOnlyChange(current: ViewState, previous: ViewState | null): 
 function flushState(forceDimensionUpdate = false) {
   const flushTime = performance.now();
   if (pendingState && backendUpdateCallback && isEnabled) {
+    const queuedAt = pendingQueuedAt ?? flushTime;
+    const updatesCoalesced = pendingUpdateCount;
     // Check for different types of dragging
     const isLayoutDragging = useLayoutDragStore.getState().isDragging;
     const dragSource = useDragSourceStore.getState().draggingSource;
@@ -93,7 +138,10 @@ function flushState(forceDimensionUpdate = false) {
     
     // Check if this is a dimension-only update
     // IMPORTANT: Always allow dimension updates to pass through for proper rendering after resize
-    if (!forceDimensionUpdate && isDimensionOnlyChange(pendingState, lastFlushedState)) {
+    const isDimensionOnly =
+      !forceDimensionUpdate &&
+      isDimensionOnlyChange(pendingState, lastFlushedState, pendingRevisions, lastFlushedRevisions);
+    if (isDimensionOnly) {
       console.log(`[coalesceMiddleware ${flushTime.toFixed(0)}ms] 📏 Dimension-only update detected - allowing for proper resize handling`);
       // Don't skip dimension updates - they're essential for proper rendering after panel resizes
     }
@@ -107,11 +155,12 @@ function flushState(forceDimensionUpdate = false) {
     // Add data source tracking
     console.log(`[coalesceMiddleware] Flushing state with ${pendingState.layers.length} layers:`);
     pendingState.layers.forEach((layer, index) => {
-      console.log(`[coalesceMiddleware] Layer ${index}: id=${layer.id}, type=${layer.type}, intensity=${JSON.stringify(layer.intensity)}`);
+      const layerType = (layer as { type?: string }).type ?? 'volume';
+      console.log(`[coalesceMiddleware] Layer ${index}: id=${layer.id}, type=${layerType}, intensity=${JSON.stringify(layer.intensity)}`);
     });
     
     // Enhanced intensity monitoring
-    pendingState.layers.forEach((layer, index) => {
+    pendingState.layers.forEach((layer) => {
       if (layer.intensity && Array.isArray(layer.intensity) && layer.intensity.length >= 2) {
         const [min, max] = layer.intensity;
         
@@ -139,12 +188,24 @@ function flushState(forceDimensionUpdate = false) {
     
     try {
       // Store this state as the last flushed state
-      lastFlushedState = JSON.parse(JSON.stringify(pendingState)); // Deep clone
-      backendUpdateCallback(pendingState);
+      lastFlushedState = pendingState;
+      lastFlushedRevisions = pendingRevisions ? cloneViewStateRevisions(pendingRevisions) : null;
+      backendUpdateCallback(pendingState, pendingRevisions ?? undefined);
+      recordRenderDiagnostic('coalesce.flush', flushTime - queuedAt, {
+        updatesCoalesced,
+        forceDimensionUpdate,
+        dimensionOnly: isDimensionOnly,
+        dragMode: isLayoutDragging ? 'layout' : isSliderDragging ? 'slider' : 'none',
+        layerCount: pendingState.layers.length,
+        stateRevision: pendingRevisions?.state ?? null
+      });
     } catch (error) {
       console.error('[coalesceMiddleware] Error flushing state to backend:', error);
     }
     pendingState = null;
+    pendingRevisions = null;
+    pendingQueuedAt = null;
+    pendingUpdateCount = 0;
   } else {
     if (!pendingState) {
       console.log(`[coalesceMiddleware ${flushTime.toFixed(0)}ms] No pending state to flush`);
@@ -152,6 +213,11 @@ function flushState(forceDimensionUpdate = false) {
       console.log(`[coalesceMiddleware ${flushTime.toFixed(0)}ms] No backend callback set`);
     } else if (!isEnabled) {
       console.log(`[coalesceMiddleware ${flushTime.toFixed(0)}ms] Coalescing disabled`);
+    }
+    if (!pendingState) {
+      pendingRevisions = null;
+      pendingQueuedAt = null;
+      pendingUpdateCount = 0;
     }
   }
   rafId = null;
@@ -166,7 +232,7 @@ export interface CoalesceConfig {
   /**
    * Callback to send state updates to backend
    */
-  onStateUpdate?: (viewState: ViewState) => void;
+  onStateUpdate?: (viewState: ViewState, revisions?: ViewStateRevisions) => void;
   
   /**
    * Whether coalescing is enabled (default: true)
@@ -192,10 +258,17 @@ export interface CoalesceConfig {
  * This middleware intercepts state changes and batches them using
  * requestAnimationFrame to prevent overwhelming the backend.
  */
-export const coalesceUpdatesMiddleware = <T extends { viewState: ViewState }>(
+export const coalesceUpdatesMiddleware = <
+  T extends { viewState: ViewState; viewStateRevisions?: ViewStateRevisions }
+>(
   config: CoalesceConfig = {}
 ) => {
-  return (stateCreator: StateCreator<T>) => {
+  return <
+    Mps extends [StoreMutatorIdentifier, unknown][] = [],
+    Mcs extends [StoreMutatorIdentifier, unknown][] = []
+  >(
+    stateCreator: StateCreator<T, Mps, Mcs>
+  ): StateCreator<T, Mps, Mcs> => {
     return (set: any, get: any, api: any) => {
       // Configure coalescing for this store instance
       const localBackendCallback = config.onStateUpdate || backendUpdateCallback;
@@ -209,6 +282,12 @@ export const coalesceUpdatesMiddleware = <T extends { viewState: ViewState }>(
         // If we have a viewState in the new state, coalesce the backend update
         const newState = get();
         if (newState && newState.viewState && localIsEnabled) {
+          const newRevisions = getViewStateRevisions(newState);
+          const latestKnownRevision = pendingRevisions?.state ?? lastFlushedRevisions?.state ?? null;
+          if (newRevisions && latestKnownRevision !== null && newRevisions.state === latestKnownRevision) {
+            return result;
+          }
+
           const queueTime = performance.now();
           // console.log(`[coalesceMiddleware ${queueTime.toFixed(0)}ms] 📥 QUEUING state update:`);
           // console.log(`  - layers: ${newState.viewState.layers.length}`);
@@ -229,6 +308,11 @@ export const coalesceUpdatesMiddleware = <T extends { viewState: ViewState }>(
           
           // Store the latest state for batching
           pendingState = newState.viewState;
+          pendingRevisions = newRevisions;
+          if (pendingQueuedAt === null) {
+            pendingQueuedAt = queueTime;
+          }
+          pendingUpdateCount += 1;
           
           // Update global callback if provided locally
           if (localBackendCallback) {
@@ -274,44 +358,9 @@ export const coalesceUpdatesMiddleware = <T extends { viewState: ViewState }>(
       };
       
       // Create the store with the coalesced set function
-      const store = stateCreator(coalescedSet, get, api);
+      const store = stateCreator(coalescedSet as typeof set, get, api);
       
-      // Return store with additional metadata
-      return {
-        ...store,
-        // Expose the original set for internal use
-        _originalSet: (updater: any) => {
-          // Apply the state change immediately without coalescing
-          const result = set(updater);
-          
-          // Get the new state and immediately send to backend
-          const newState = get();
-          const effectiveCallback = localBackendCallback || backendUpdateCallback;
-          if (newState && newState.viewState && effectiveCallback && localIsEnabled) {
-            console.log('[coalesceMiddleware] Immediate update - bypassing coalescing');
-            try {
-              effectiveCallback(newState.viewState);
-              // Update last flushed state so we don't re-send the same state
-              lastFlushedState = JSON.parse(JSON.stringify(newState.viewState));
-              // Clear any pending state since we just sent it
-              pendingState = null;
-              // Cancel any scheduled flush
-              if (rafId) {
-                if (typeof rafId === 'number' && rafId > 0) {
-                  cancelAnimationFrame(rafId);
-                } else {
-                  clearTimeout(rafId as any);
-                }
-                rafId = null;
-              }
-            } catch (error) {
-              console.error('[coalesceMiddleware] Error sending immediate update:', error);
-            }
-          }
-          
-          return result;
-        }
-      };
+      return store;
     };
   };
 };
@@ -323,7 +372,9 @@ export const coalesceUtils = {
   /**
    * Set the backend update callback
    */
-  setBackendCallback: (callback: (viewState: ViewState) => void) => {
+  setBackendCallback: (
+    callback: (viewState: ViewState, revisions?: ViewStateRevisions) => void
+  ) => {
     backendUpdateCallback = callback;
   },
   
@@ -378,12 +429,33 @@ export const coalesceUtils = {
     }
     pendingState = null;
     lastFlushedState = null;
-  }
-};
+    pendingRevisions = null;
+    lastFlushedRevisions = null;
+    pendingForceDimensionUpdate = false;
+    pendingQueuedAt = null;
+    pendingUpdateCount = 0;
+    backendUpdateCallback = null;
+  },
 
-/**
- * Type helper for stores using coalescing middleware
- */
-export type WithCoalescing<T> = T & {
-  _originalSet: (updater: any) => void;
+  /**
+   * Clear pending updates but retain the configured backend callback and enabled state.
+   * Useful when the active workspace projection changes and any queued state is no longer valid.
+   */
+  discardPending: () => {
+    if (rafId) {
+      if (typeof rafId === 'number' && rafId > 0) {
+        cancelAnimationFrame(rafId);
+      } else {
+        clearTimeout(rafId as any);
+      }
+      rafId = null;
+    }
+    pendingState = null;
+    lastFlushedState = null;
+    pendingRevisions = null;
+    lastFlushedRevisions = null;
+    pendingForceDimensionUpdate = false;
+    pendingQueuedAt = null;
+    pendingUpdateCount = 0;
+  }
 };

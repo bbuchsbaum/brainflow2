@@ -7,6 +7,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { ApiService } from '../apiService';
 import { MockTransport } from '../transport';
 import { createMockViewState } from '../../test-setup';
+import { clearRenderDiagnostics, getRenderDiagnostics } from '../render/RenderDiagnostics';
 
 describe('ApiService', () => {
   let apiService: ApiService;
@@ -15,12 +16,15 @@ describe('ApiService', () => {
   beforeEach(() => {
     mockTransport = new MockTransport();
     mockTransport.clearCallLog();
+    clearRenderDiagnostics();
     apiService = new ApiService(mockTransport);
+    apiService.setRawRGBA(true);
   });
 
   describe('applyAndRenderViewState', () => {
     it('should render view state using new render_view API by default', async () => {
       const viewState = createMockViewState();
+      viewState.timepoint = 7;
       // Add a test layer so we actually call the backend
       viewState.layers = [{
         id: 'test-layer',
@@ -41,18 +45,26 @@ describe('ApiService', () => {
         }
       }];
       
-      const result = await apiService.applyAndRenderViewState(viewState);
+      const result = await apiService.applyAndRenderViewState(viewState, 'axial');
       
       expect(result).toBeDefined();
       expect(result.width).toBe(256);
       expect(result.height).toBe(256);
       
       const calls = mockTransport.getCallLog();
-      // The API may make multiple calls due to fallback logic
       const renderViewCall = calls.find(c => c.cmd === 'render_view');
       expect(renderViewCall).toBeDefined();
+      expect(calls).toHaveLength(1);
       expect(renderViewCall.args.stateJson).toBeDefined();
       expect(renderViewCall.args.format).toBe('rgba'); // Should default to rgba
+      expect(JSON.parse(renderViewCall.args.stateJson).timepoint).toBe(7);
+      expect(calls.some(c => c.cmd.startsWith('apply_and_render_view_state'))).toBe(false);
+      expect(
+        getRenderDiagnostics().find((entry) => entry.stage === 'api.render_view')?.detail
+      ).toMatchObject({
+        format: 'rgba',
+        ok: true
+      });
     });
 
     it('should serialize view state correctly', async () => {
@@ -81,16 +93,12 @@ describe('ApiService', () => {
       await apiService.applyAndRenderViewState(viewState);
       
       const calls = mockTransport.getCallLog();
-      // This test might use render_view (stateJson) or legacy API (viewStateJson)
       const args = calls[0].args;
-      const serializedState = JSON.parse(args.stateJson || args.viewStateJson);
+      const serializedState = JSON.parse(args.stateJson);
       expect(serializedState.crosshair.world_mm).toEqual([10, 20, 30]);
     });
 
-    it('should use new render_view API when enabled', async () => {
-      // Enable the new API
-      apiService.setUseNewRenderAPI(true);
-
+    it('should use render_view for single-view rendering', async () => {
       const viewState = createMockViewState();
       // Add a test layer so we actually call the backend
       viewState.layers = [{
@@ -112,18 +120,152 @@ describe('ApiService', () => {
         }
       }];
       
-      const result = await apiService.applyAndRenderViewState(viewState);
+      const result = await apiService.applyAndRenderViewState(viewState, 'axial');
       
       expect(result).toBeDefined();
       expect(result.width).toBe(256);
       expect(result.height).toBe(256);
       
       const calls = mockTransport.getCallLog();
-      // The API may make multiple calls due to fallback logic
       const renderViewCall = calls.find(c => c.cmd === 'render_view');
       expect(renderViewCall).toBeDefined();
+      expect(calls).toHaveLength(1);
       expect(renderViewCall.args.stateJson).toBeDefined();
       expect(renderViewCall.args.format).toBe('rgba'); // Should default to rgba
+    });
+
+    it('should render multiple views via render_views and emit diagnostics', async () => {
+      const viewState = createMockViewState();
+      viewState.timepoint = 11;
+      viewState.layers = [{
+        id: 'test-layer',
+        volumeId: 'test-volume',
+        visible: true,
+        opacity: 1.0,
+        colormap: 'gray',
+        intensity: [0, 1000] as [number, number],
+        threshold: [0, 1000] as [number, number],
+        render: {
+          colormapId: 0,
+          intensityMin: 0,
+          intensityMax: 1000,
+          blendMode: 0,
+          thresholdLow: 0,
+          thresholdHigh: 1000,
+          thresholdMode: 0
+        }
+      }];
+
+      const result = await apiService.renderViewStateMulti(viewState, ['axial', 'sagittal']);
+
+      expect(result.axial).toBeTruthy();
+      expect(result.sagittal).toBeTruthy();
+
+      const calls = mockTransport.getCallLog();
+      const renderViewsCall = calls.find(c => c.cmd === 'render_views');
+      expect(renderViewsCall).toBeDefined();
+      expect(JSON.parse(renderViewsCall!.args.stateJson).timepoint).toBe(11);
+      expect(
+        getRenderDiagnostics().find((entry) => entry.stage === 'api.render_views')?.detail
+      ).toMatchObject({
+        format: 'rgba',
+        viewCount: 2,
+        layerCount: 1
+      });
+    });
+
+    it('should submit view state without readback and emit diagnostics', async () => {
+      const viewState = createMockViewState();
+      viewState.timepoint = 13;
+      viewState.layers = [{
+        id: 'test-layer',
+        volumeId: 'test-volume',
+        visible: true,
+        opacity: 1.0,
+        colormap: 'gray',
+        intensity: [0, 1000] as [number, number],
+        threshold: [0, 1000] as [number, number],
+        render: {
+          colormapId: 0,
+          intensityMin: 0,
+          intensityMax: 1000,
+          blendMode: 0,
+          thresholdLow: 0,
+          thresholdHigh: 1000,
+          thresholdMode: 0
+        }
+      }];
+
+      const diagnostics = await apiService.submitViewState(viewState, 'axial', 320, 200);
+
+      expect(diagnostics.requested_view).toBe('axial');
+      expect(diagnostics.output_dimensions).toEqual([320, 200]);
+      expect(diagnostics.output_bytes).toBe(0);
+      expect(diagnostics.visible_layer_count).toBe(1);
+      expect(diagnostics.frame.readback_mode).toBe('skip');
+
+      const calls = mockTransport.getCallLog();
+      const submitViewCall = calls.find(c => c.cmd === 'submit_view');
+      expect(submitViewCall).toBeDefined();
+      const serializedState = JSON.parse(submitViewCall!.args.stateJson);
+      expect(serializedState.timepoint).toBe(13);
+      expect(serializedState.requestedView).toMatchObject({
+        type: 'axial',
+        width: 320,
+        height: 200
+      });
+      expect(
+        getRenderDiagnostics().find((entry) => entry.stage === 'api.submit_view')?.detail
+      ).toMatchObject({
+        format: 'rgba',
+        viewType: 'axial',
+        width: 320,
+        height: 200,
+        layerCount: 1,
+        ok: true,
+        readbackMode: 'skip'
+      });
+    });
+
+    it('should not auto-fallback to legacy commands when render_view fails', async () => {
+      mockTransport.setMockResponse('render_view', () => {
+        throw new Error('render_view failed');
+      });
+
+      const viewState = createMockViewState();
+      viewState.layers = [{
+        id: 'test-layer',
+        volumeId: 'test-volume',
+        visible: true,
+        opacity: 1.0,
+        colormap: 'gray',
+        intensity: [0, 1000] as [number, number],
+        threshold: [0, 1000] as [number, number],
+        render: {
+          colormapId: 0,
+          intensityMin: 0,
+          intensityMax: 1000,
+          blendMode: 0,
+          thresholdLow: 0,
+          thresholdHigh: 1000,
+          thresholdMode: 0
+        }
+      }];
+
+      const result = await apiService.applyAndRenderViewState(viewState, 'axial');
+
+      expect(result).toBeNull();
+
+      const calls = mockTransport.getCallLog();
+      expect(calls).toHaveLength(1);
+      expect(calls[0].cmd).toBe('render_view');
+      expect(calls.some(c => c.cmd.startsWith('apply_and_render_view_state'))).toBe(false);
+      expect(
+        getRenderDiagnostics().find((entry) => entry.stage === 'api.render_view')?.detail
+      ).toMatchObject({
+        format: 'rgba',
+        ok: false
+      });
     });
   });
 
@@ -221,24 +363,6 @@ describe('ApiService', () => {
 
       const calls = mockTransport.getCallLog();
       expect(calls[0].cmd).toBe('get_atlas_stats');
-    });
-  });
-
-  describe('render loop operations', () => {
-    it('should initialize render loop', async () => {
-      await apiService.initRenderLoop(512, 512);
-      
-      const calls = mockTransport.getCallLog();
-      expect(calls[0].cmd).toBe('init_render_loop');
-      expect(calls[0].args).toEqual({ width: 512, height: 512 });
-    });
-
-    it('should resize canvas', async () => {
-      await apiService.resizeCanvas(1024, 768);
-      
-      const calls = mockTransport.getCallLog();
-      expect(calls[0].cmd).toBe('resize_canvas');
-      expect(calls[0].args).toEqual({ width: 1024, height: 768 });
     });
   });
 

@@ -6,7 +6,7 @@
  */
 
 import React, { useEffect, useRef, useState } from 'react';
-import { X, Loader2 } from 'lucide-react';
+import { Loader2 } from 'lucide-react';
 import { Label } from '@/components/ui/shadcn/label';
 import { Switch } from '@/components/ui/shadcn/switch';
 import {
@@ -17,6 +17,7 @@ import {
   SelectValue,
 } from '@/components/ui/shadcn/select';
 import { Button } from '@/components/ui/shadcn/button';
+import { Modal } from '@/components/ui/Modal';
 import { getViewExportService } from '@/services/ViewExportService';
 import { getTransport } from '@/services/transport';
 import { useExportDialogStore } from '@/stores/exportDialogStore';
@@ -42,6 +43,7 @@ export function ExportImageDialog() {
   const bytesRef = useRef<Uint8Array | null>(null);
   const mimeRef = useRef<string | null>(null);
   const captureSeqRef = useRef(0);
+  const fileNameInputRef = useRef<HTMLInputElement | null>(null);
   const [isSaving, setIsSaving] = useState(false);
 
   useEffect(() => {
@@ -94,21 +96,20 @@ export function ExportImageDialog() {
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ backgroundColor: 'rgba(0,0,0,0.8)' }}>
-      <div
-        className="w-full max-w-3xl rounded-sm ring-1 ring-white/10 shadow-2xl overflow-hidden flex flex-col"
-        style={{ backgroundColor: 'var(--app-bg-secondary, #0f172a)' }}
-      >
-        {/* Header */}
-        <div className="flex items-center justify-between px-5 py-3 border-b" style={{ borderColor: 'var(--app-border-subtle, #1e293b)' }}>
-          <h2 className="text-lg font-semibold" style={{ color: 'var(--app-text-primary, #e2e8f0)' }}>Export Active View</h2>
-          <button onClick={close} className="icon-btn" aria-label="Close export dialog">
-            <X className="w-5 h-5" />
-          </button>
-        </div>
-
-        {/* Content */}
-        <div className="flex flex-col md:flex-row gap-4 p-4">
+    <Modal
+      isOpen={isOpen}
+      onClose={close}
+      title="Export Active View"
+      ariaLabel="Export Active View"
+      size="xl"
+      initialFocusRef={fileNameInputRef}
+      closeOnOverlayClick={!isSaving}
+      closeOnEscape={!isSaving}
+      closeButtonDisabled={isSaving}
+      bodyClassName="p-0"
+      className="max-w-3xl rounded-sm ring-1 ring-white/10 shadow-2xl"
+    >
+      <div className="flex flex-col md:flex-row gap-4 p-4">
           {/* Preview */}
           <div className="flex-1 min-h-[300px] bg-black/40 rounded-sm flex items-center justify-center overflow-hidden">
             {isCapturing && (
@@ -162,6 +163,7 @@ export function ExportImageDialog() {
             <div className="space-y-1">
               <Label className="text-sm text-muted-foreground">File name</Label>
               <input
+                ref={fileNameInputRef}
                 className="w-full rounded-md bg-background/60 border border-border px-2 py-1.5 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
                 value={suggestedName}
                 onChange={(e) => setSuggestedName(e.target.value)}
@@ -187,8 +189,7 @@ export function ExportImageDialog() {
               </Button>
             </div>
           </div>
-        </div>
       </div>
-    </div>
+    </Modal>
   );
 }

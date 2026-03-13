@@ -12,16 +12,14 @@
  * - Built-in performance tracking
  */
 
-import React, { useState, useEffect, useLayoutEffect, useCallback, useRef, useMemo } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { useViewStateStore } from '@/stores/viewStateStore';
 import { MosaicCell } from './MosaicCell';
 import { MosaicCellErrorBoundary } from './MosaicCellErrorBoundary';
 import { getMosaicRenderService } from '@/services/MosaicRenderService';
-import { calculateInitialPage, calculateVolumeCenter, getAxisIndex } from '@/utils/mosaicUtils';
+import { calculateInitialPage, calculateVolumeCenter } from '@/utils/mosaicUtils';
 import { getApiService } from '@/services/apiService';
 import { MosaicToolbar } from '@/components/ui/MosaicToolbar';
-import type { ViewState } from '@/types/viewState';
-import type { WorldCoordinates } from '@/types/coordinates';
 import { RenderErrorBoundary } from '@/components/ui/RenderErrorBoundary';
 import './MosaicView.css';
 
@@ -37,7 +35,13 @@ function MosaicViewPromiseRaw({
 }: MosaicViewPromiseProps) {
   console.log('[MosaicViewPromise] Component rendering/mounting');
   
-  const viewState = useViewStateStore(state => state.viewState);
+  const layers = useViewStateStore(state => state.getWorkspaceViewState(workspaceId).layers);
+  const layerRevision = useViewStateStore(
+    state => state.getWorkspaceViewStateRevisions(workspaceId).layers
+  );
+  const timepointRevision = useViewStateStore(
+    state => state.getWorkspaceViewStateRevisions(workspaceId).timepoint
+  );
   const setCrosshair = useViewStateStore(state => state.setCrosshair);
   const [currentPage, setCurrentPage] = useState(0);
   const [sliceAxis, setSliceAxis] = useState<'axial' | 'sagittal' | 'coronal'>('axial');
@@ -59,8 +63,8 @@ function MosaicViewPromiseRaw({
   
   // Get visible layers
   const visibleLayers = useMemo(() => 
-    viewState.layers.filter(layer => layer.visible && layer.opacity > 0),
-    [viewState.layers]
+    layers.filter(layer => layer.visible && layer.opacity > 0),
+    [layers]
   );
   
   // Get primary volume for metadata
@@ -231,9 +235,9 @@ function MosaicViewPromiseRaw({
       visibleLayersLength: visibleLayers.length,
       sliceAxis,
       cellSize,
-      viewStateKeys: Object.keys(viewState),
-      hasLayers: !!viewState.layers,
-      layerCount: viewState.layers?.length
+      layerCount: layers.length,
+      layerRevision,
+      timepointRevision
     });
     
     if (sliceIndices.length === 0 || visibleLayers.length === 0) {
@@ -264,14 +268,8 @@ function MosaicViewPromiseRaw({
     cellSize.width,
     cellSize.height,
     visibleLayers.length,
-    // Use JSON.stringify to detect deep changes in layer properties
-    JSON.stringify(visibleLayers.map(l => ({
-      id: l.id,
-      intensity: l.intensity,
-      threshold: l.threshold,
-      colormap: l.colormap,
-      opacity: l.opacity
-    })))
+    layerRevision,
+    timepointRevision
   ]);
   
   // Handle page navigation

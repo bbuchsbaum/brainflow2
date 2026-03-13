@@ -28,10 +28,8 @@ export class TauriTransport implements BackendTransport {
     // Commands from the api-bridge plugin need the plugin namespace
     const apiBridgeCommands = [
       'render_view', // New unified render method
+      'submit_view', // No-readback submission path
       'render_views', // Multi-view batched render
-      'apply_and_render_view_state',
-      'apply_and_render_view_state_binary',
-      'apply_and_render_view_state_raw',
       'load_file',
       'load_surface',
       'unload_surface',
@@ -85,7 +83,9 @@ export class TauriTransport implements BackendTransport {
       'get_nifti_header_info',
       // Surface template commands
       'load_surface_template',
-      'get_surface_template_catalog'
+      'get_surface_template_catalog',
+      'preview_set_studio_imports',
+      'materialize_set_studio_compare_panes'
     ];
     
     if (apiBridgeCommands.includes(cmd)) {
@@ -179,28 +179,107 @@ export class MockTransport implements BackendTransport {
           }
           return buffer;
         }
-        
-      case 'apply_and_render_view_state':
-        // Return mock PNG data as Uint8Array for binary optimization
-        return new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]); // PNG header
-        
-      case 'apply_and_render_view_state_binary':
-        // Return mock PNG data as Uint8Array for binary optimization
-        return new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]); // PNG header
-        
-      case 'apply_and_render_view_state_raw':
-        // Return mock RGBA data directly as Uint8Array
-        const w = 256;
-        const h = 256;
-        const raw = new Uint8Array(w * h * 4);
-        // Fill with mock data (semi-transparent gray)
-        for (let i = 0; i < raw.length; i += 4) {
-          raw[i] = 128;     // R
-          raw[i + 1] = 128; // G
-          raw[i + 2] = 128; // B
-          raw[i + 3] = 200; // A
+
+      case 'submit_view': {
+        const rawState = typeof args?.stateJson === 'string' ? args.stateJson : '{}';
+        let requestedView: { type?: string; width?: number; height?: number } = {};
+        let visibleLayerCount = 0;
+        try {
+          const parsedState = JSON.parse(rawState);
+          requestedView = parsedState?.requestedView || {};
+          visibleLayerCount = Array.isArray(parsedState?.layers)
+            ? parsedState.layers.filter((layer: any) => layer?.visible !== false && (layer?.opacity ?? 0) > 0).length
+            : 0;
+        } catch {
+          requestedView = {};
+          visibleLayerCount = 0;
         }
-        return raw;
+
+        return {
+          requested_view: requestedView.type ?? 'axial',
+          format: 'rgba',
+          parse_ms: 0.5,
+          service_lock_ms: 0.25,
+          target_setup_ms: 0.5,
+          layer_processing_ms: 0.75,
+          render_loop_ms: 1.5,
+          encode_ms: 0,
+          total_ms: 3.5,
+          visible_layer_count: visibleLayerCount,
+          output_bytes: 0,
+          output_dimensions: [requestedView.width ?? 256, requestedView.height ?? 256],
+          warnings: [],
+          frame: {
+            prepare_ms: 0.5,
+            render_ms: 1.5,
+            readback_ms: 0,
+            total_ms: 2.0,
+            visible_layers: visibleLayerCount,
+            updated_layer_slots: visibleLayerCount,
+            reused_layer_state: false,
+            readback_mode: 'skip'
+          }
+        };
+      }
+
+      case 'render_views': {
+        const rawState = typeof args?.stateJson === 'string' ? args.stateJson : '{}';
+        let requestedViews: Array<{ type: string; width: number; height: number }> = [];
+        try {
+          requestedViews = JSON.parse(rawState)?.requestedViews || [];
+        } catch {
+          requestedViews = [];
+        }
+
+        const views = requestedViews.length > 0
+          ? requestedViews
+          : [
+              { type: 'axial', width: 256, height: 256 },
+              { type: 'sagittal', width: 256, height: 256 }
+            ];
+        const viewCodes: Record<string, number> = { axial: 0, sagittal: 1, coronal: 2 };
+        const payloads = views.map((view, index) => {
+          const payload = new Uint8Array(view.width * view.height * 4);
+          for (let i = 0; i < payload.length; i += 4) {
+            payload[i] = 64 + index * 32;
+            payload[i + 1] = 128;
+            payload[i + 2] = 160;
+            payload[i + 3] = 255;
+          }
+          return {
+            code: viewCodes[view.type] ?? 0,
+            width: view.width,
+            height: view.height,
+            payload
+          };
+        });
+
+        const metadataBytes = 4 + payloads.length * 13;
+        const payloadBytes = payloads.reduce((sum, entry) => sum + entry.payload.length, 0);
+        const buffer = new Uint8Array(metadataBytes + payloadBytes);
+        const dataView = new DataView(buffer.buffer);
+        dataView.setUint32(0, payloads.length, true);
+
+        let offset = 4;
+        payloads.forEach((entry) => {
+          buffer[offset] = entry.code;
+          offset += 1;
+          dataView.setUint32(offset, entry.width, true);
+          offset += 4;
+          dataView.setUint32(offset, entry.height, true);
+          offset += 4;
+          dataView.setUint32(offset, entry.payload.length, true);
+          offset += 4;
+        });
+
+        payloads.forEach((entry) => {
+          buffer.set(entry.payload, offset);
+          offset += entry.payload.length;
+        });
+
+        return buffer;
+      }
+        
       case 'recalculate_view_for_dimensions': {
         const dims = args?.dimensions || [256, 256];
         return {

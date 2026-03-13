@@ -64,7 +64,7 @@ export const SurfaceDataLayerControls: React.FC<SurfaceDataLayerControlsProps> =
 
   const isCategoricalLayer = isAtlasCategorical || isReferenceCategorical;
 
-  const atlasPaletteKind = (layer.atlasPaletteKind as AtlasPaletteKind | undefined) ?? 'maximin_view';
+  const atlasPaletteKind = (layer?.atlasPaletteKind as AtlasPaletteKind | undefined) ?? 'maximin_view';
 
   const remapLabelsToRgba = useCallback((labels: Uint32Array, lutRgb: number[]) => {
     const rgba = new Float32Array(labels.length * 4);
@@ -159,7 +159,7 @@ export const SurfaceDataLayerControls: React.FC<SurfaceDataLayerControlsProps> =
   );
 
   // Use dataRange (true data extent) for slider bounds, or fall back to range
-  const trueDataRange = layer.dataRange || layer.range;
+  const trueDataRange = layer?.dataRange || layer?.range || [0, 1];
 
   const atlasRange = useMemo(() => {
     const maxLabel = layer?.atlasMaxLabel ?? (layer?.dataRange?.[1] ?? 0);

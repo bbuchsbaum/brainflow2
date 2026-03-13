@@ -6,12 +6,13 @@
  */
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { X, ChevronDown } from 'lucide-react';
+import { ChevronDown } from 'lucide-react';
 import { Label } from '@/components/ui/shadcn/label';
 import { Switch } from '@/components/ui/shadcn/switch';
 import { Slider } from '@/components/ui/shadcn/slider';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/shadcn/radio-group';
 import { Button } from '@/components/ui/shadcn/button';
+import { Modal } from '@/components/ui/Modal';
 import { useCrosshairSettings } from '@/contexts/CrosshairContext';
 import type { CrosshairSettings } from '@/contexts/CrosshairContext';
 
@@ -23,7 +24,7 @@ export function CrosshairSettingsDialog({ onClose }: CrosshairSettingsDialogProp
   const { settings: currentSettings, updateSettings } = useCrosshairSettings();
   const [localSettings, setLocalSettings] = useState<CrosshairSettings>(currentSettings);
   const [mirrorExpanded, setMirrorExpanded] = useState(localSettings.showMirror);
-  const dialogRef = useRef<HTMLDivElement>(null);
+  const visibleSwitchRef = useRef<HTMLButtonElement | null>(null);
   // Store the initial settings to revert on cancel
   const initialSettingsRef = useRef<CrosshairSettings>(currentSettings);
 
@@ -31,7 +32,6 @@ export function CrosshairSettingsDialog({ onClose }: CrosshairSettingsDialogProp
     key: K,
     value: CrosshairSettings[K]
   ) => {
-    console.log('[CrosshairSettingsDialog] Updating setting:', key, '=', value);
     setLocalSettings(prev => ({ ...prev, [key]: value }));
     // Immediately update the actual settings for real-time preview
     updateSettings({ [key]: value } as Partial<CrosshairSettings>);
@@ -72,9 +72,8 @@ export function CrosshairSettingsDialog({ onClose }: CrosshairSettingsDialogProp
   // Keyboard shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        handleCancel();
-      } else if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+        e.preventDefault();
         handleDone();
       }
     };
@@ -82,21 +81,6 @@ export function CrosshairSettingsDialog({ onClose }: CrosshairSettingsDialogProp
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [handleCancel, handleDone]);
-
-  // Click outside to close
-  useEffect(() => {
-    const handleClickOutside = (e: MouseEvent) => {
-      if (dialogRef.current && !dialogRef.current.contains(e.target as Node)) {
-        handleCancel();
-      }
-    };
-
-    setTimeout(() => {
-      document.addEventListener('mousedown', handleClickOutside);
-    }, 0);
-
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, [handleCancel]);
 
   // Field component for consistent layout
   const Field: React.FC<{ label: string; children: React.ReactNode }> = ({ label, children }) => (
@@ -107,29 +91,16 @@ export function CrosshairSettingsDialog({ onClose }: CrosshairSettingsDialogProp
   );
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ backgroundColor: 'rgba(0, 0, 0, 0.8)' }}>
-      <div
-        ref={dialogRef}
-        className="w-full max-w-sm rounded-xl ring-1 ring-white/10 shadow-2xl
-                   max-h-[90vh] overflow-hidden flex flex-col mx-auto"
-        style={{ 
-          backgroundColor: 'var(--app-bg-secondary, #0f172a)',
-          borderColor: 'var(--app-border, #334155)'
-        }}
-      >
-        {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b" style={{ borderColor: 'var(--app-border-subtle, #1e293b)' }}>
-          <h2 className="text-lg font-semibold" style={{ color: 'var(--app-text-primary, #e2e8f0)' }}>Crosshair Settings</h2>
-          <button
-            onClick={handleCancel}
-            className="icon-btn"
-            aria-label="Close dialog"
-          >
-            <X className="w-5 h-5" />
-          </button>
-        </div>
-
-        {/* Content */}
+    <Modal
+      isOpen={true}
+      onClose={handleCancel}
+      title="Crosshair Settings"
+      ariaLabel="Crosshair Settings"
+      size="sm"
+      initialFocusRef={visibleSwitchRef}
+      bodyClassName="p-0"
+      className="max-w-sm rounded-xl ring-1 ring-white/10 shadow-2xl"
+    >
         <div className="flex-1 overflow-y-auto">
           {/* Visibility Section */}
           <section className="px-6 py-5 border-b space-y-4" style={{ borderColor: 'var(--app-border-subtle, #1e293b)' }}>
@@ -137,6 +108,7 @@ export function CrosshairSettingsDialog({ onClose }: CrosshairSettingsDialogProp
             <Field label="Show crosshairs">
               <div className="flex items-center justify-between">
                 <Switch
+                  ref={visibleSwitchRef}
                   checked={localSettings.visible}
                   onCheckedChange={(checked) => updateLocalSetting('visible', checked)}
                 />
@@ -278,7 +250,6 @@ export function CrosshairSettingsDialog({ onClose }: CrosshairSettingsDialogProp
             </Button>
           </div>
         </div>
-      </div>
-    </div>
+    </Modal>
   );
 }

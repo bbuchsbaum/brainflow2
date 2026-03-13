@@ -3,7 +3,6 @@
  * Manages navigation through time for 4D volumes
  */
 
-import type { ViewStateStore } from '@/stores/viewStateStore';
 import { useViewStateStore } from '@/stores/viewStateStore';
 import { useLayerStore } from '@/stores/layerStore';
 import { getEventBus } from '@/events/EventBus';
@@ -75,7 +74,7 @@ class TimeNavigationService {
         this.eventBus.emit('ui.notification', {
           type: 'error',
           message:
-            'Failed to update timepoint on backend. Visual state may be out of sync.'
+            'Failed to persist timepoint on backend. Rendering will stay current, but some backend-derived data may be out of sync.'
         });
       }
     });

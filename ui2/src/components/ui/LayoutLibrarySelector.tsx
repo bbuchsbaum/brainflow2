@@ -1,8 +1,9 @@
 import React, { useMemo } from 'react';
 import { ChevronDown, FolderOpen, Pencil, Save, Trash2 } from 'lucide-react';
-import { DropdownMenu } from './DropdownMenu';
-import { useLayoutLibraryStore } from '@/stores/layoutLibraryStore';
+import { DropdownMenu, type DropdownMenuItem } from './DropdownMenu';
+import { getLayoutLibraryLastError, useLayoutLibraryStore } from '@/stores/layoutLibraryStore';
 import { cn } from '@/utils/cn';
+import { getConfirmationService } from '@/services/ConfirmationService';
 
 interface LayoutLibrarySelectorProps {
   className?: string;
@@ -23,16 +24,16 @@ export function LayoutLibrarySelector({ className }: LayoutLibrarySelectorProps)
   );
 
   const showLastError = () => {
-    const error = useLayoutLibraryStore.getState().lastError;
-    if (error) {
-      window.alert(error);
+    const lastError = getLayoutLibraryLastError();
+    if (lastError) {
+      getConfirmationService().showError(lastError);
       clearError();
     }
   };
 
-  const promptSaveLayout = () => {
+  const promptSaveLayout = async () => {
     const suggestedName = `Layout ${new Date().toLocaleString()}`;
-    const name = window.prompt('Save current layout as:', suggestedName);
+    const name = await getConfirmationService().promptLayoutSaveName(suggestedName);
     if (!name) {
       return;
     }
@@ -43,8 +44,8 @@ export function LayoutLibrarySelector({ className }: LayoutLibrarySelectorProps)
     }
   };
 
-  const promptRenameLayout = (layoutId: string, currentName: string) => {
-    const nextName = window.prompt(`Rename layout '${currentName}' to:`, currentName);
+  const promptRenameLayout = async (layoutId: string, currentName: string) => {
+    const nextName = await getConfirmationService().promptLayoutRename(currentName);
     if (!nextName || nextName === currentName) {
       return;
     }
@@ -56,27 +57,30 @@ export function LayoutLibrarySelector({ className }: LayoutLibrarySelectorProps)
   };
 
   const promptDeleteLayout = (layoutId: string, name: string) => {
-    const confirmed = window.confirm(`Delete saved layout '${name}'?`);
-    if (!confirmed) {
-      return;
-    }
+    void getConfirmationService().confirmLayoutDeletion(name).then((confirmed) => {
+      if (!confirmed) {
+        return;
+      }
 
-    const ok = deleteLayout(layoutId);
-    if (!ok) {
-      showLastError();
-    }
+      const ok = deleteLayout(layoutId);
+      if (!ok) {
+        showLastError();
+      }
+    });
   };
 
-  const items = [
+  const items: DropdownMenuItem[] = [
     {
       id: 'layout.save',
       label: 'Save Current Layout…',
       icon: <Save className="h-3.5 w-3.5" />,
-      onClick: promptSaveLayout,
+      onClick: () => {
+        void promptSaveLayout();
+      },
     },
     {
       id: 'layout.sep.load',
-      separator: true,
+      separator: true as const,
     },
     ...(
       layouts.length > 0
@@ -101,13 +105,15 @@ export function LayoutLibrarySelector({ className }: LayoutLibrarySelectorProps)
     ),
     {
       id: 'layout.sep.manage',
-      separator: true,
+      separator: true as const,
     },
     ...layouts.map((layout) => ({
       id: `layout.rename.${layout.id}`,
       label: `Rename: ${layout.name}`,
       icon: <Pencil className="h-3.5 w-3.5" />,
-      onClick: () => promptRenameLayout(layout.id, layout.name),
+      onClick: () => {
+        void promptRenameLayout(layout.id, layout.name);
+      },
     })),
     ...layouts.map((layout) => ({
       id: `layout.delete.${layout.id}`,

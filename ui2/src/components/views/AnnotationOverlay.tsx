@@ -28,6 +28,11 @@ export const AnnotationOverlay: React.FC<AnnotationOverlayProps> = ({
   const [containerSize, setContainerSize] = useState({ width: 0, height: 0 });
   const transform = useCoordinateTransform();
 
+  const hasScreenPos = (
+    annotation: Annotation | (Annotation & { screenPos?: Annotation['screenPos'] }) | null
+  ): annotation is Annotation & { screenPos: NonNullable<Annotation['screenPos']> } =>
+    annotation !== null && annotation.screenPos !== undefined;
+
   // Efficiently filter and project annotations
   const visibleAnnotations = useMemo(() => {
     return sortAnnotationsByZOrder(
@@ -40,7 +45,7 @@ export const AnnotationOverlay: React.FC<AnnotationOverlayProps> = ({
             screenPos
           } : null;
         })
-        .filter(ann => ann !== null)
+        .filter(hasScreenPos)
     );
   }, [annotations, transform, plane]);
 
@@ -109,7 +114,7 @@ export const AnnotationOverlay: React.FC<AnnotationOverlayProps> = ({
                 <MarkerAnnotation
                   key={annotation.id}
                   annotation={annotation}
-                  screenPos={annotation.screenPos}
+                  screenPos={annotation.screenPos!}
                 />
               );
             case 'roi':
@@ -117,7 +122,7 @@ export const AnnotationOverlay: React.FC<AnnotationOverlayProps> = ({
                 <ROIAnnotation
                   key={annotation.id}
                   annotation={annotation}
-                  screenPos={annotation.screenPos}
+                  screenPos={annotation.screenPos!}
                   plane={plane}
                 />
               );
@@ -126,7 +131,7 @@ export const AnnotationOverlay: React.FC<AnnotationOverlayProps> = ({
                 <LabelAnnotation
                   key={annotation.id}
                   annotation={annotation}
-                  screenPos={annotation.screenPos}
+                  screenPos={annotation.screenPos!}
                 />
               );
             case 'measurement':
@@ -134,7 +139,7 @@ export const AnnotationOverlay: React.FC<AnnotationOverlayProps> = ({
                 <MeasurementAnnotation
                   key={annotation.id}
                   annotation={annotation}
-                  screenPos={annotation.screenPos}
+                  screenPos={annotation.screenPos!}
                   plane={plane}
                 />
               );

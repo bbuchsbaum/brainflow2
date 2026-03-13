@@ -13,12 +13,13 @@ describe('workspace presets', () => {
     });
   });
 
-  it('defines four core presets', () => {
+  it('defines five core presets', () => {
     expect(WORKSPACE_PRESETS.map((preset) => preset.id)).toEqual([
       'read',
       'explore',
       'analyze',
       'compare',
+      'studio',
     ]);
   });
 
@@ -42,5 +43,10 @@ describe('workspace presets', () => {
     expect(readWorkspaceId).not.toBe(compareWorkspaceId);
     expect(state.activeWorkspaceId).toBe(compareWorkspaceId);
     expect(state.workspaces.get(compareWorkspaceId)?.presetId).toBe('compare');
+  });
+
+  it('uses a stable default title when comparison workspaces are created directly', async () => {
+    const workspaceId = await useWorkspaceStore.getState().createWorkspace('comparison');
+    expect(useWorkspaceStore.getState().workspaces.get(workspaceId)?.title).toBe('Comparison View');
   });
 });

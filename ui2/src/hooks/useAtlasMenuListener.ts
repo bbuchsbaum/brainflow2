@@ -11,6 +11,7 @@
 import { useEffect } from 'react';
 import { isNoopUnlisten, safeListen } from '@/utils/eventUtils';
 import { AtlasService } from '@/services/AtlasService';
+import { getConfirmationService } from '@/services/ConfirmationService';
 import { getVolumeSurfaceProjectionService } from '@/services/VolumeSurfaceProjectionService';
 import { useActivePanelStore } from '@/stores/activePanelStore';
 import { useSurfaceStore } from '@/stores/surfaceStore';
@@ -22,6 +23,10 @@ import { withTimeout } from '@/utils/withTimeout';
 import { formatElapsedMs } from './atlasMenuUtils';
 import { handleSurfaceAtlasPreset } from './atlasMenuSurfaceLoader';
 import type { AtlasMenuActionEvent } from './atlasMenuTypes';
+import {
+  getActiveSurfaceCommandContext,
+  resolveSurfaceTargetSurfaceId,
+} from '@/utils/surfaceCommandContext';
 
 let atlasMenuListenerInitialized = false;
 let atlasMenuListenerSetupInFlight = false;
@@ -139,7 +144,7 @@ export function useAtlasMenuListener() {
 // Volume atlas loading handler
 // ---------------------------------------------------------------------------
 
-async function handleVolumeAtlasPreset(
+export async function handleVolumeAtlasPreset(
   payload: AtlasMenuActionEvent['payload'],
   eventBus: ReturnType<typeof getEventBus>
 ): Promise<void> {
@@ -174,12 +179,11 @@ async function handleVolumeAtlasPreset(
   }
 
   // Check if we should load to surface or volume based on context
-  const activePanel = useActivePanelStore.getState().componentType;
   const surfaceState = useSurfaceStore.getState();
-  const isSurfaceContext = activePanel === 'SurfacePanel' || activePanel === 'surfaceView';
+  const commandContext = getActiveSurfaceCommandContext();
+  const isSurfaceContext = commandContext.explicitSurfaceViewId !== null;
   const hasSurfaces = surfaceState.surfaces.size > 0;
-  const activeSurfaceId =
-    surfaceState.activeSurfaceId ?? surfaceState.surfaces.keys().next().value ?? null;
+  const activeSurfaceId = resolveSurfaceTargetSurfaceId(commandContext, surfaceState.surfaces);
   const hasVolumeLayers = useLayerStore.getState().layers.length > 0;
 
   // Only cortical atlases are candidates for surface projection
@@ -187,10 +191,9 @@ async function handleVolumeAtlasPreset(
 
   let shouldProjectToSurface = false;
   if (isSurfaceProjectable && hasSurfaces && activeSurfaceId && isSurfaceContext) {
-    const projectToSurface = window.confirm(
-      `"${entry.name}" — Project onto active surface?\n\nOK = Project to surface\nCancel = Load as volume overlay`
+    shouldProjectToSurface = await getConfirmationService().confirmAtlasSurfaceProjection(
+      entry.name
     );
-    shouldProjectToSurface = projectToSurface;
   } else if (!isSurfaceProjectable && isSurfaceContext && hasSurfaces) {
     eventBus.emit('ui.notification', {
       type: 'info',
@@ -199,7 +202,8 @@ async function handleVolumeAtlasPreset(
   }
 
   console.log('[useAtlasMenuListener] Context decision:', {
-    activePanel,
+    activePanel: useActivePanelStore.getState().componentType,
+    explicitSurfaceViewId: commandContext.explicitSurfaceViewId,
     isSurfaceContext,
     hasSurfaces,
     activeSurfaceId,
@@ -209,7 +213,13 @@ async function handleVolumeAtlasPreset(
   });
 
   if (shouldProjectToSurface) {
-    await handleVolumeToSurfaceProjection(config, entry, activeSurfaceId!, eventBus);
+    await handleVolumeToSurfaceProjection(
+      config,
+      entry,
+      activeSurfaceId!,
+      eventBus,
+      commandContext.explicitSurfaceViewId
+    );
   } else {
     await handleVolumeOverlay(config, entry, eventBus);
   }
@@ -219,7 +229,8 @@ async function handleVolumeToSurfaceProjection(
   config: AtlasConfig,
   entry: { name: string },
   activeSurfaceId: string,
-  eventBus: ReturnType<typeof getEventBus>
+  eventBus: ReturnType<typeof getEventBus>,
+  surfaceViewId: string | null
 ): Promise<void> {
   const tLoadAtlas = Date.now();
   console.log('[useAtlasMenuListener] Loading atlas for surface projection...', config);
@@ -282,6 +293,7 @@ async function handleVolumeToSurfaceProjection(
     atlasName,
     {
       opacity: 1.0,
+      surfaceViewId,
       useGPUProjection: true,
       ...(palette ? { atlasPalette: palette, atlasConfig: config } : { colormap: 'turbo' }),
     }

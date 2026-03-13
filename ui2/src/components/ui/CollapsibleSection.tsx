@@ -4,7 +4,8 @@
  * Replaces heavy bordered buttons with minimal header styling
  */
 
-import React, { useState, ReactNode, ComponentType } from 'react';
+import React, { useState } from 'react';
+import type { ReactNode, ComponentType } from 'react';
 import { ChevronRight } from 'lucide-react';
 import { cn } from '@/utils/cn';
 

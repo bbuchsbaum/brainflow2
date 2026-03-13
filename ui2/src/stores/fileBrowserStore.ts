@@ -17,7 +17,7 @@ enableMapSet();
 // Declare global interface for store
 declare global {
   interface Window {
-    __fileBrowserStore?: any;
+    __fileBrowserStore?: ReturnType<typeof createFileBrowserStore>;
   }
 }
 
@@ -253,7 +253,7 @@ const createFileBrowserStore = () => create<FileBrowserStore>()(
         };
         
         const node = findNode(get().entries);
-        if (node && node.type === 'directory' && !node.children) {
+        if (node && node.type === 'directory' && (!node.children || node.children.length === 0)) {
           get().loadDirectory(path);
         }
       },
@@ -440,7 +440,7 @@ const createFileBrowserStore = () => create<FileBrowserStore>()(
 );
 
 // Export store with global instance sharing
-export const useFileBrowserStore = (() => {
+export const useFileBrowserStore: ReturnType<typeof createFileBrowserStore> = (() => {
   if (typeof window !== 'undefined' && window.__fileBrowserStore) {
     console.log('Using existing fileBrowserStore from window');
     return window.__fileBrowserStore;

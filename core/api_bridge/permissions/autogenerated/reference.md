@@ -22,10 +22,7 @@ Default permissions for api-bridge plugin
 - `allow-update-frame-for-synchronized-view`
 - `allow-set-crosshair`
 - `allow-set-view-plane`
-- `allow-render-frame`
 - `allow-create-offscreen-render-target`
-- `allow-render-to-image`
-- `allow-render-to-image-binary`
 - `allow-add-render-layer`
 - `allow-remove-render-layer`
 - `allow-clear-render-layers`
@@ -36,9 +33,6 @@ Default permissions for api-bridge plugin
 - `allow-update-layer-intensity`
 - `allow-update-layer-threshold`
 - `allow-sample-world-coordinate`
-- `allow-apply-and-render-view-state`
-- `allow-apply-and-render-view-state-binary`
-- `allow-apply-and-render-view-state-raw`
 - `allow-query-slice-axis-meta`
 - `allow-batch-render-slices`
 - `allow-get-atlas-catalog`
@@ -57,6 +51,7 @@ Default permissions for api-bridge plugin
 - `allow-get-volume-info`
 - `allow-get-nifti-header-info`
 - `allow-render-view`
+- `allow-submit-view`
 - `allow-render-views`
 - `allow-get-template-catalog`
 - `allow-get-filtered-templates`
@@ -104,84 +99,6 @@ Enables the add_render_layer command without any pre-configured scope.
 <td>
 
 Denies the add_render_layer command without any pre-configured scope.
-
-</td>
-</tr>
-
-<tr>
-<td>
-
-`api-bridge:allow-apply-and-render-view-state`
-
-</td>
-<td>
-
-Enables the apply_and_render_view_state command without any pre-configured scope.
-
-</td>
-</tr>
-
-<tr>
-<td>
-
-`api-bridge:deny-apply-and-render-view-state`
-
-</td>
-<td>
-
-Denies the apply_and_render_view_state command without any pre-configured scope.
-
-</td>
-</tr>
-
-<tr>
-<td>
-
-`api-bridge:allow-apply-and-render-view-state-binary`
-
-</td>
-<td>
-
-Enables the apply_and_render_view_state_binary command without any pre-configured scope.
-
-</td>
-</tr>
-
-<tr>
-<td>
-
-`api-bridge:deny-apply-and-render-view-state-binary`
-
-</td>
-<td>
-
-Denies the apply_and_render_view_state_binary command without any pre-configured scope.
-
-</td>
-</tr>
-
-<tr>
-<td>
-
-`api-bridge:allow-apply-and-render-view-state-raw`
-
-</td>
-<td>
-
-Enables the apply_and_render_view_state_raw command without any pre-configured scope.
-
-</td>
-</tr>
-
-<tr>
-<td>
-
-`api-bridge:deny-apply-and-render-view-state-raw`
-
-</td>
-<td>
-
-Denies the apply_and_render_view_state_raw command without any pre-configured scope.
 
 </td>
 </tr>
@@ -2087,84 +2004,6 @@ Denies the remove_volume command without any pre-configured scope.
 <tr>
 <td>
 
-`api-bridge:allow-render-frame`
-
-</td>
-<td>
-
-Enables the render_frame command without any pre-configured scope.
-
-</td>
-</tr>
-
-<tr>
-<td>
-
-`api-bridge:deny-render-frame`
-
-</td>
-<td>
-
-Denies the render_frame command without any pre-configured scope.
-
-</td>
-</tr>
-
-<tr>
-<td>
-
-`api-bridge:allow-render-to-image`
-
-</td>
-<td>
-
-Enables the render_to_image command without any pre-configured scope.
-
-</td>
-</tr>
-
-<tr>
-<td>
-
-`api-bridge:deny-render-to-image`
-
-</td>
-<td>
-
-Denies the render_to_image command without any pre-configured scope.
-
-</td>
-</tr>
-
-<tr>
-<td>
-
-`api-bridge:allow-render-to-image-binary`
-
-</td>
-<td>
-
-Enables the render_to_image_binary command without any pre-configured scope.
-
-</td>
-</tr>
-
-<tr>
-<td>
-
-`api-bridge:deny-render-to-image-binary`
-
-</td>
-<td>
-
-Denies the render_to_image_binary command without any pre-configured scope.
-
-</td>
-</tr>
-
-<tr>
-<td>
-
 `api-bridge:allow-render-view`
 
 </td>
@@ -2470,6 +2309,32 @@ Enables the start_atlas_progress_monitoring command without any pre-configured s
 <td>
 
 Denies the start_atlas_progress_monitoring command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:allow-submit-view`
+
+</td>
+<td>
+
+Enables the submit_view command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:deny-submit-view`
+
+</td>
+<td>
+
+Denies the submit_view command without any pre-configured scope.
 
 </td>
 </tr>

@@ -1,4 +1,4 @@
-import { DisplayLayer } from '../types/displayLayer';
+import type { DisplayLayer } from '../types/displayLayer';
 
 /**
  * Helpers to translate shared DisplayLayer DTOs into neurosurface layer configs.

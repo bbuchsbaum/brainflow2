@@ -7,23 +7,23 @@
  * historical purposes and to prevent errors in code that still calls it.
  */
 
-import { useLayerStore } from '@/stores/layerStore';
-import { useViewStateStore } from '@/stores/viewStateStore';
-
 /**
  * Migrate all layer render properties from layerStore to viewStateStore
  * @returns true if migration was performed, false if already migrated
  */
 export function migrateLayerRenderToViewState(): boolean {
+  const alreadyComplete = isMigrationComplete();
+
   // Migration is no longer needed as layerRender has been removed from layerStore
   // and ViewState is now the single source of truth for render properties
   console.log('[Migration] layerRender has been removed from layerStore - no migration needed');
   
   // Mark migration as complete if not already marked
-  if (typeof window !== 'undefined' && !isMigrationComplete()) {
+  if (typeof window !== 'undefined' && !alreadyComplete) {
     window.localStorage.setItem('layerRenderMigrated', 'true');
   }
-  
+
+  return !alreadyComplete;
 }
 
 /**

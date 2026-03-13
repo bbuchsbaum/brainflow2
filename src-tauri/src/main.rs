@@ -12,16 +12,111 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tauri::menu::{Menu, MenuItemBuilder, PredefinedMenuItem, SubmenuBuilder};
 use tauri::AppHandle;
-use tauri::{Emitter, Manager};
-use templates::{TemplateService, TemplateSpace, TemplateType};
+use tauri::{Emitter, Manager, State};
+use templates::TemplateService;
 use tokio::sync::Mutex as TokioMutex;
 
 mod menu_builder;
+mod startup_args;
+
+use startup_args::{
+    format_cli_help, parse_startup_args, EarlyExit, StartupAction, StartupActionQueue,
+    StartupRemoteMountSpec,
+};
 
 #[derive(Clone, serde::Serialize, serde::Deserialize)]
 struct MountedDir {
     id: String,
     path: String,
+}
+
+fn emit_mount_directory_event(app_handle: &AppHandle, path: &str) -> Result<(), tauri::Error> {
+    println!("Emitting mount-directory-event with path: {}", path);
+    app_handle.emit("mount-directory-event", serde_json::json!({ "path": path }))
+}
+
+fn emit_open_file_event(
+    app_handle: &AppHandle,
+    path: &str,
+    intent: Option<&str>,
+) -> Result<(), tauri::Error> {
+    println!(
+        "Emitting open-file-event with path: {} and intent: {:?}",
+        path, intent
+    );
+    app_handle.emit(
+        "open-file-event",
+        serde_json::json!({
+            "path": path,
+            "intent": intent,
+        }),
+    )
+}
+
+fn emit_workspace_action_event(
+    app_handle: &AppHandle,
+    workspace_type: &str,
+) -> Result<(), tauri::Error> {
+    println!(
+        "Emitting workspace-action for startup workspace type: {}",
+        workspace_type
+    );
+    app_handle.emit(
+        "workspace-action",
+        serde_json::json!({
+            "action": "new-workspace",
+            "payload": {
+                "type": workspace_type
+            }
+        }),
+    )
+}
+
+fn emit_template_menu_action_event(
+    app_handle: &AppHandle,
+    template_id: &str,
+) -> Result<(), tauri::Error> {
+    println!(
+        "Emitting template-menu-action for startup template: {}",
+        template_id
+    );
+    app_handle.emit(
+        "template-menu-action",
+        serde_json::json!({
+            "action": "load-template",
+            "payload": {
+                "template_id": template_id
+            }
+        }),
+    )
+}
+
+fn emit_remote_mount_event(
+    app_handle: &AppHandle,
+    spec: &StartupRemoteMountSpec,
+) -> Result<(), tauri::Error> {
+    println!("Emitting mount-remote-event for startup remote mount");
+    let payload = match spec {
+        StartupRemoteMountSpec::Profile { profile } => serde_json::json!({
+            "spec": {
+                "kind": "profile",
+                "profile": profile,
+            }
+        }),
+        StartupRemoteMountSpec::Direct {
+            user,
+            host,
+            remote_path,
+        } => serde_json::json!({
+            "spec": {
+                "kind": "direct",
+                "user": user,
+                "host": host,
+                "remotePath": remote_path,
+            }
+        }),
+    };
+    app_handle.emit("mount-remote-event", payload)
 }
 
 // Command to open the mount dialog
@@ -43,12 +138,8 @@ fn open_mount_dialog(app_handle: AppHandle) {
             if let Some(folder) = folder_path {
                 // FilePath enum has Display implementation, convert to string
                 let path_str = folder.to_string();
-                println!("Emitting mount-directory-event with path: {}", path_str);
                 // Emit an event to the frontend with the selected path
-                match app_handle_clone.emit(
-                    "mount-directory-event",
-                    serde_json::json!({ "path": path_str }),
-                ) {
+                match emit_mount_directory_event(&app_handle_clone, &path_str) {
                     Ok(_) => println!("Event emitted successfully"),
                     Err(e) => eprintln!("Failed to emit event: {}", e),
                 }
@@ -62,7 +153,7 @@ fn open_mount_dialog(app_handle: AppHandle) {
 
 // Command to open a file picker and request immediate file load in frontend
 #[tauri::command]
-fn open_file_dialog(app_handle: AppHandle) {
+fn open_file_dialog(app_handle: AppHandle, intent: Option<String>) {
     use tauri_plugin_dialog::DialogExt;
 
     println!("Opening file dialog...");
@@ -89,10 +180,7 @@ fn open_file_dialog(app_handle: AppHandle) {
             println!("File dialog callback triggered with: {:?}", file_path);
             if let Some(file) = file_path {
                 let path_str = file.to_string();
-                println!("Emitting open-file-event with path: {}", path_str);
-                match app_handle_clone
-                    .emit("open-file-event", serde_json::json!({ "path": path_str }))
-                {
+                match emit_open_file_event(&app_handle_clone, &path_str, intent.as_deref()) {
                     Ok(_) => println!("Open file event emitted successfully"),
                     Err(e) => eprintln!("Failed to emit open file event: {}", e),
                 }
@@ -119,8 +207,65 @@ async fn update_dynamic_menus(
     Ok(())
 }
 
+#[tauri::command]
+fn flush_startup_actions(
+    app_handle: AppHandle,
+    startup_actions: State<'_, StartupActionQueue>,
+) -> Result<usize, String> {
+    let pending = startup_actions.drain();
+    let pending_count = pending.len();
+
+    for action in pending {
+        let result = match action {
+            StartupAction::Mount { path } => emit_mount_directory_event(&app_handle, &path),
+            StartupAction::RemoteMount { spec } => emit_remote_mount_event(&app_handle, &spec),
+            StartupAction::OpenFile { path } => emit_open_file_event(&app_handle, &path, None),
+            StartupAction::Workspace { workspace_type } => {
+                emit_workspace_action_event(&app_handle, &workspace_type)
+            }
+            StartupAction::Template { template_id } => {
+                emit_template_menu_action_event(&app_handle, &template_id)
+            }
+        };
+
+        result.map_err(|error| format!("Failed to emit startup action: {error}"))?;
+    }
+
+    Ok(pending_count)
+}
+
 fn main() {
     // Initialize state components BEFORE the builder
+    let program_name = std::env::args()
+        .next()
+        .and_then(|arg| {
+            std::path::Path::new(&arg)
+                .file_name()
+                .map(|name| name.to_string_lossy().into_owned())
+        })
+        .unwrap_or_else(|| "brainflow".to_string());
+    let current_dir = std::env::current_dir().unwrap_or_else(|error| {
+        eprintln!("Failed to resolve current working directory: {}", error);
+        std::path::PathBuf::from(".")
+    });
+    let parsed_startup_args = parse_startup_args(std::env::args_os().skip(1), &current_dir);
+    if let Some(early_exit) = &parsed_startup_args.early_exit {
+        match early_exit {
+            EarlyExit::Help => println!("{}", format_cli_help(&program_name)),
+            EarlyExit::Version => println!("Brainflow {}", env!("CARGO_PKG_VERSION")),
+        }
+        return;
+    }
+    for warning in &parsed_startup_args.warnings {
+        eprintln!("[startup] {}", warning);
+    }
+    if !parsed_startup_args.actions.is_empty() {
+        println!(
+            "Queued {} startup actions from command line",
+            parsed_startup_args.actions.len()
+        );
+    }
+    let startup_action_queue = StartupActionQueue::new(parsed_startup_args.actions);
 
     let volume_registry = Arc::new(TokioMutex::new(api_bridge::VolumeRegistry::new()));
     // Initialize the new layer map state
@@ -137,6 +282,10 @@ fn main() {
             let mount_dir = MenuItemBuilder::new("Mount Directory...")
                 .id("mount_directory")
                 .accelerator("CmdOrCtrl+O")
+                .build(app)?;
+            let open_file = MenuItemBuilder::new("Open File...")
+                .id("open_file")
+                .accelerator("CmdOrCtrl+Shift+O")
                 .build(app)?;
 
             // Build templates menu directly
@@ -295,17 +444,61 @@ fn main() {
                         .item(&PredefinedMenuItem::quit(app, None)?)
                         .build()?,
                     &{
+                        #[cfg(target_os = "macos")]
                         let file_menu = SubmenuBuilder::new(app, "File")
+                            .item(&open_file)
+                            .item(
+                                &SubmenuBuilder::new(app, "Open File As")
+                                    .item(
+                                        &MenuItemBuilder::new("Add As Layer")
+                                            .id("open_file_as_add_layer")
+                                            .build(app)?,
+                                    )
+                                    .item(
+                                        &MenuItemBuilder::new("Open In New Tab")
+                                            .id("open_file_as_new_workspace")
+                                            .build(app)?,
+                                    )
+                                    .item(
+                                        &MenuItemBuilder::new("Open In Comparison View")
+                                            .id("open_file_as_comparison")
+                                            .build(app)?,
+                                    )
+                                    .build()?,
+                            )
+                            .separator()
                             .item(&mount_dir)
                             .separator()
                             .item(&PredefinedMenuItem::close_window(app, None)?);
 
                         #[cfg(not(target_os = "macos"))]
-                        {
-                            file_menu = file_menu
+                        let file_menu = SubmenuBuilder::new(app, "File")
+                            .item(&open_file)
+                            .item(
+                                &SubmenuBuilder::new(app, "Open File As")
+                                    .item(
+                                        &MenuItemBuilder::new("Add As Layer")
+                                            .id("open_file_as_add_layer")
+                                            .build(app)?,
+                                    )
+                                    .item(
+                                        &MenuItemBuilder::new("Open In New Tab")
+                                            .id("open_file_as_new_workspace")
+                                            .build(app)?,
+                                    )
+                                    .item(
+                                        &MenuItemBuilder::new("Open In Comparison View")
+                                            .id("open_file_as_comparison")
+                                            .build(app)?,
+                                    )
+                                    .build()?,
+                            )
+                            .separator()
+                            .item(&mount_dir)
+                            .separator()
+                            .item(&PredefinedMenuItem::close_window(app, None)?)
                                 .separator()
                                 .item(&PredefinedMenuItem::quit(app, None)?);
-                        }
 
                         file_menu.build()?
                     },
@@ -375,7 +568,7 @@ fn main() {
                                         .build(app)?,
                                 )
                                 .item(
-                                    &MenuItemBuilder::new("Orthogonal (Flexible)")
+                                    &MenuItemBuilder::new("Orthogonal Panels")
                                         .id("workspace_orthogonal_flexible")
                                         .accelerator("CmdOrCtrl+2")
                                         .build(app)?,
@@ -394,12 +587,25 @@ fn main() {
                                         .accelerator("CmdOrCtrl+4")
                                         .build(app)?,
                                 )
+                                .item(
+                                    &MenuItemBuilder::new("Comparison View")
+                                        .id("workspace_comparison")
+                                        .accelerator("CmdOrCtrl+5")
+                                        .build(app)?,
+                                )
+                                .separator()
+                                .item(
+                                    &MenuItemBuilder::new("Set Studio")
+                                        .id("workspace_set_studio")
+                                        .accelerator("CmdOrCtrl+6")
+                                        .build(app)?,
+                                )
                                 .separator()
                                 // Analysis workspaces
                                 .item(
                                     &MenuItemBuilder::new("ROI Statistics (Demo)")
                                         .id("workspace_roi_stats")
-                                        .accelerator("CmdOrCtrl+5")
+                                        .accelerator("CmdOrCtrl+7")
                                         .build(app)?,
                                 )
                                 .separator()
@@ -407,7 +613,7 @@ fn main() {
                                 .item(
                                     &MenuItemBuilder::new("Coordinate Converter (Demo)")
                                         .id("workspace_coordinate_converter")
-                                        .accelerator("CmdOrCtrl+6")
+                                        .accelerator("CmdOrCtrl+8")
                                         .build(app)?,
                                 )
                                 .build()?,
@@ -435,6 +641,26 @@ fn main() {
                         let handle = app.app_handle().clone();
                         // Call synchronously since it's no longer async
                         open_mount_dialog(handle);
+                    }
+                    "open_file" => {
+                        println!("Open file menu item clicked");
+                        let handle = app.app_handle().clone();
+                        open_file_dialog(handle, None);
+                    }
+                    "open_file_as_add_layer" => {
+                        println!("Open file as layer menu item clicked");
+                        let handle = app.app_handle().clone();
+                        open_file_dialog(handle, Some("add-layer".to_string()));
+                    }
+                    "open_file_as_new_workspace" => {
+                        println!("Open file in new workspace menu item clicked");
+                        let handle = app.app_handle().clone();
+                        open_file_dialog(handle, Some("new-workspace".to_string()));
+                    }
+                    "open_file_as_comparison" => {
+                        println!("Open file in comparison workspace menu item clicked");
+                        let handle = app.app_handle().clone();
+                        open_file_dialog(handle, Some("comparison".to_string()));
                     }
                     "toggle_crosshair" => {
                         println!("Toggle crosshair menu item clicked");
@@ -493,6 +719,8 @@ fn main() {
                             "workspace_orthogonal_flexible" => "orthogonal-flexible",
                             "workspace_mosaic" => "mosaic",
                             "workspace_lightbox" => "lightbox",
+                            "workspace_comparison" => "comparison",
+                            "workspace_set_studio" => "set-studio",
                             "workspace_roi_stats" => "roi-stats",
                             "workspace_coordinate_converter" => "coordinate-converter",
                             _ => return,
@@ -655,10 +883,12 @@ fn main() {
             tauri_plugin_fs::init(), // Scope is now handled by capabilities/default.json
         )
         .plugin(api_bridge::plugin()) // Re-enabled with proper configuration
+        .manage(startup_action_queue)
         .invoke_handler(tauri::generate_handler![
             open_mount_dialog,
             open_file_dialog,
-            update_dynamic_menus
+            update_dynamic_menus,
+            flush_startup_actions
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

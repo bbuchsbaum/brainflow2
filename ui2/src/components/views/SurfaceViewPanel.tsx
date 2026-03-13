@@ -13,10 +13,12 @@ import {
   type TemplateflowSurfaceIdentity,
 } from '@/utils/surfaceIdentity';
 import { getSurfaceLoadingService } from '@/services/SurfaceLoadingService';
+import { useResolvedSurfaceViewState } from '@/hooks/useSurfaceSelectionContext';
 
 interface SurfaceViewPanelProps {
   surfaceHandle?: string;
   path?: string;
+  surfaceViewId?: string;
 }
 
 function parseTemplateIdentity(surface: LoadedSurface): TemplateflowSurfaceIdentity | null {
@@ -125,19 +127,39 @@ export function collectRenderSurfaces(
 
 export const SurfaceViewPanel: React.FC<SurfaceViewPanelProps> = ({ 
   surfaceHandle, 
-  path 
+  path,
+  surfaceViewId,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
+  const resolvedSurfaceViewId = useRef(surfaceViewId ?? surfaceHandle ?? 'surface-view').current;
   const [dimensions, setDimensions] = useState({ width: 800, height: 600 });
-  
+  const surfaces = useSurfaceStore((state) => state.surfaces);
   const {
-    surfaces,
-    activeSurfaceId,
-    isLoading,
-    loadError,
-    setActiveSurface,
-    clearError,
-  } = useSurfaceStore();
+    activeSurfaceId: selectedSurfaceId,
+    boundSurfaceId,
+    renderAnchorSurfaceId,
+    selectedItemType,
+  } = useResolvedSurfaceViewState(resolvedSurfaceViewId, surfaceHandle);
+  const isLoading = useSurfaceStore((state) => state.isLoading);
+  const loadError = useSurfaceStore((state) => state.loadError);
+  const clearError = useSurfaceStore((state) => state.clearError);
+  const registerSurfaceView = useSurfaceStore((state) => state.registerSurfaceView);
+  const unregisterSurfaceView = useSurfaceStore((state) => state.unregisterSurfaceView);
+  const activateSurfaceView = useSurfaceStore((state) => state.activateSurfaceView);
+  const setSurfaceSelectionForView = useSurfaceStore((state) => state.setSurfaceSelectionForView);
+
+  useEffect(() => {
+    if (!surfaceHandle) {
+      return;
+    }
+
+    if (!useSurfaceStore.getState().surfaceViewHandles.has(resolvedSurfaceViewId)) {
+      registerSurfaceView(resolvedSurfaceViewId, surfaceHandle);
+    }
+    return () => {
+      unregisterSurfaceView(resolvedSurfaceViewId);
+    };
+  }, [registerSurfaceView, resolvedSurfaceViewId, surfaceHandle, unregisterSurfaceView]);
   
   // Handle initial load
   useEffect(() => {
@@ -151,7 +173,7 @@ export const SurfaceViewPanel: React.FC<SurfaceViewPanelProps> = ({
             validateMesh: true,
           });
           if (handle) {
-            setActiveSurface(handle);
+            setSurfaceSelectionForView(resolvedSurfaceViewId, handle, 'geometry');
           }
         } catch (error) {
           console.error('Failed to load surface from path:', error);
@@ -159,7 +181,7 @@ export const SurfaceViewPanel: React.FC<SurfaceViewPanelProps> = ({
       } else if (surfaceHandle) {
         // Set active if already loaded
         if (surfaces.has(surfaceHandle)) {
-          setActiveSurface(surfaceHandle);
+          setSurfaceSelectionForView(resolvedSurfaceViewId, surfaceHandle, 'geometry');
         } else {
           console.warn('Surface handle not found in store:', surfaceHandle);
         }
@@ -167,7 +189,7 @@ export const SurfaceViewPanel: React.FC<SurfaceViewPanelProps> = ({
     };
     
     loadInitialSurface();
-  }, [path, surfaceHandle, setActiveSurface]);
+  }, [path, resolvedSurfaceViewId, setSurfaceSelectionForView, surfaceHandle, surfaces]);
   
   // Handle container resize
   useEffect(() => {
@@ -226,21 +248,29 @@ export const SurfaceViewPanel: React.FC<SurfaceViewPanelProps> = ({
   }, []);
   
   // Get active surface
+  const anchorSurfaceId = useMemo(
+    () =>
+      renderAnchorSurfaceId && surfaces.has(renderAnchorSurfaceId)
+        ? renderAnchorSurfaceId
+        : (surfaceHandle && surfaces.has(surfaceHandle) ? surfaceHandle : selectedSurfaceId),
+    [renderAnchorSurfaceId, selectedSurfaceId, surfaceHandle, surfaces]
+  );
+
   const activeSurface = useMemo(
     () => {
-      if (activeSurfaceId) {
-        const selected = surfaces.get(activeSurfaceId);
+      if (anchorSurfaceId) {
+        const selected = surfaces.get(anchorSurfaceId);
         if (selected) {
           return selected;
         }
       }
       return Array.from(surfaces.values()).find((surface) => surface.visible !== false) ?? null;
     },
-    [surfaces, activeSurfaceId]
+    [surfaces, anchorSurfaceId]
   );
   const renderSurfaces = useMemo(
-    () => collectRenderSurfaces(surfaces, activeSurfaceId),
-    [surfaces, activeSurfaceId]
+    () => collectRenderSurfaces(surfaces, anchorSurfaceId),
+    [surfaces, anchorSurfaceId]
   );
   
   
@@ -279,6 +309,15 @@ export const SurfaceViewPanel: React.FC<SurfaceViewPanelProps> = ({
           <SurfaceViewCanvas
             surface={activeSurface}
             renderSurfaces={renderSurfaces}
+            surfaceViewId={resolvedSurfaceViewId}
+            surfaceContextHandle={boundSurfaceId ?? activeSurface.handle}
+            onActivateSurface={() => {
+              if (!selectedSurfaceId || !selectedItemType || selectedSurfaceId !== activeSurface.handle) {
+                setSurfaceSelectionForView(resolvedSurfaceViewId, activeSurface.handle, 'geometry');
+                return;
+              }
+              activateSurfaceView(resolvedSurfaceViewId);
+            }}
             width={dimensions.width}
             height={dimensions.height}
           />

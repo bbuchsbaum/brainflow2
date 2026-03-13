@@ -9,6 +9,11 @@ import { AtlasService } from '@/services/AtlasService';
 import { getEventBus } from '@/events/EventBus';
 import { getLayoutService } from '@/services/layoutService';
 import { normalizeLateralHemisphere } from '@/utils/surfaceIdentity';
+import {
+  applySurfaceSelectionInContext,
+  getActiveSurfaceCommandContext,
+  resolveSurfaceSelectionViewId,
+} from '@/utils/surfaceCommandContext';
 import { buildLabelRgbaFromLabelInfo } from './atlasSurfaceColorUtils';
 import {
   formatElapsedMs,
@@ -219,6 +224,7 @@ export async function handleSurfaceAtlasPreset(
   payload: AtlasPresetPayload,
   eventBus: ReturnType<typeof getEventBus>
 ): Promise<void> {
+  const commandContext = getActiveSurfaceCommandContext();
   const surfType = inferPreferredSurfaceType(payload.surf_type);
   const atlasName =
     payload.atlas_id +
@@ -371,25 +377,32 @@ export async function handleSurfaceAtlasPreset(
     });
   }
 
-  const currentActiveSurfaceId = useSurfaceStore.getState().activeSurfaceId;
+  const surfaceState = useSurfaceStore.getState();
+  const currentActiveSurfaceId = commandContext.activeSurfaceId;
   const visibleSurfaceId =
     (currentActiveSurfaceId && appliedLayers.some((entry) => entry.surfaceId === currentActiveSurfaceId)
       ? currentActiveSurfaceId
       : appliedLayers[0]?.surfaceId) ?? null;
-  if (visibleSurfaceId && currentActiveSurfaceId !== visibleSurfaceId) {
-    useSurfaceStore.getState().setActiveSurface(visibleSurfaceId);
-  }
 
   if (visibleSurfaceId) {
     const layerForActiveSurface =
       appliedLayers.find((entry) => entry.surfaceId === visibleSurfaceId) ?? appliedLayers[0];
     if (layerForActiveSurface) {
-      useSurfaceStore.getState().setSelectedItem('dataLayer', layerForActiveSurface.layerId);
+      const scopedSurfaceViewId = resolveSurfaceSelectionViewId(
+        visibleSurfaceId,
+        commandContext.explicitSurfaceViewId
+      );
+      applySurfaceSelectionInContext(
+        visibleSurfaceId,
+        'dataLayer',
+        layerForActiveSurface.layerId,
+        scopedSurfaceViewId
+      );
     }
   }
 
   if (visibleSurfaceId) {
-    const visibleSurfacePath = useSurfaceStore.getState().surfaces.get(visibleSurfaceId)?.metadata?.path;
+    const visibleSurfacePath = surfaceState.surfaces.get(visibleSurfaceId)?.metadata?.path;
     const layoutService = getLayoutService();
     layoutService.ensureSurfaceView(visibleSurfaceId, visibleSurfacePath);
     layoutService.focusSurfacePanel();

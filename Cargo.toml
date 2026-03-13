@@ -9,6 +9,7 @@ members = [
   "core/volmath",
   "core/api_bridge",
   "core/bridge_types",
+  "core/field_table",
   "core/atlases",
   "core/templates",
   "xtask", "core/colormap", "core/neuro-core", "core/neuro-cpu", "core/neuro-types", "core/neuro-integration-tests",

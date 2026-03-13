@@ -3,16 +3,18 @@
  */
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { X, Loader, AlertTriangle, CheckCircle, Info, ExternalLink } from 'lucide-react';
-import { AtlasService } from '../../services/AtlasService';
+import { Loader, AlertTriangle, CheckCircle, Info } from 'lucide-react';
+import { AtlasService } from '@/services/AtlasService';
+import { Button } from '@/components/ui/shadcn/button';
+import { Modal } from '@/components/ui/Modal';
 import type {
   AtlasCatalogEntry,
   AtlasConfig,
   AtlasLoadResult,
   SpaceInfo,
   ResolutionInfo,
-} from '../../types/atlas';
-import { getDataTypeDisplayName } from '../../types/atlas';
+} from '@/types/atlas';
+import { getDataTypeDisplayName } from '@/types/atlas';
 
 interface AtlasConfigModalProps {
   isOpen: boolean;
@@ -27,6 +29,7 @@ export const AtlasConfigModal: React.FC<AtlasConfigModalProps> = ({
   atlas,
   onLoad,
 }) => {
+  const firstFieldRef = useRef<HTMLSelectElement | null>(null);
   // Configuration state
   const [config, setConfig] = useState<AtlasConfig>({
     atlas_id: atlas.id,
@@ -46,7 +49,7 @@ export const AtlasConfigModal: React.FC<AtlasConfigModalProps> = ({
   const isMountedRef = useRef(true);
 
   // Safe state setter that checks if component is still mounted
-  const safeSetState = useCallback(<T,>(setter: React.Dispatch<React.SetStateAction<T>>, value: React.SetStateAction<T>) => {
+  const safeSetState = useCallback(<T,>(setter: React.Dispatch<React.SetStateAction<T>>, value: NoInfer<React.SetStateAction<T>>) => {
     if (isMountedRef.current) {
       setter(value);
     }
@@ -162,44 +165,27 @@ export const AtlasConfigModal: React.FC<AtlasConfigModalProps> = ({
     return atlas.allowed_spaces.find(space => space.id === spaceId);
   };
 
-  const getResolutionInfo = (resolutionValue: string): ResolutionInfo | undefined => {
-    return atlas.resolutions.find(res => res.value === resolutionValue);
-  };
-
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-      <div 
-        className="rounded-lg shadow-xl max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto"
-        style={{ backgroundColor: 'var(--app-bg-secondary)' }}
-      >
-        {/* Header */}
-        <div 
-          className="flex items-center justify-between p-6"
-          style={{ borderBottom: '1px solid var(--app-border)' }}
-        >
+    <Modal
+      isOpen={isOpen}
+      onClose={onClose}
+      title={atlas.name}
+      ariaLabel={`${atlas.name} atlas configuration`}
+      size="xl"
+      initialFocusRef={firstFieldRef}
+      bodyClassName="p-0"
+      className="max-w-2xl"
+    >
+      <div className="max-h-[90vh] overflow-y-auto">
+        <div className="space-y-6 p-6">
           <div>
-            <h2 className="text-xl font-semibold" style={{ color: 'var(--app-text-primary)' }}>{atlas.name}</h2>
-            <p className="text-sm mt-1" style={{ color: 'var(--app-text-secondary)' }}>Configure atlas loading parameters</p>
+            <p className="text-sm mt-1" style={{ color: 'var(--app-text-secondary)' }}>
+              Configure atlas loading parameters
+            </p>
           </div>
-          <button
-            onClick={onClose}
-            className="p-2 rounded-full transition-colors"
-            style={{ color: 'var(--app-text-secondary)' }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.backgroundColor = 'var(--app-bg-hover)';
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.backgroundColor = 'transparent';
-            }}
-          >
-            <X size={20} />
-          </button>
-        </div>
 
-        {/* Content */}
-        <div className="p-6 space-y-6">
           {/* Atlas Information */}
           <div 
             className="rounded-lg p-4"
@@ -234,6 +220,7 @@ export const AtlasConfigModal: React.FC<AtlasConfigModalProps> = ({
                 Space/Template
               </label>
               <select
+                ref={firstFieldRef}
                 value={config.space}
                 onChange={(e) => setConfig(prev => ({ ...prev, space: e.target.value }))}
                 className="w-full rounded-md px-3 py-2 text-sm"
@@ -417,9 +404,9 @@ export const AtlasConfigModal: React.FC<AtlasConfigModalProps> = ({
             </div>
           )}
         </div>
+      </div>
 
-        {/* Footer */}
-        <div 
+      <div 
           className="flex items-center justify-between p-6"
           style={{ 
             borderTop: '1px solid var(--app-border)', 
@@ -441,49 +428,22 @@ export const AtlasConfigModal: React.FC<AtlasConfigModalProps> = ({
           </div>
 
           <div className="flex gap-3">
-            <button
+            <Button
               onClick={onClose}
-              className="px-4 py-2 text-sm rounded-md transition-colors"
-              style={{
-                border: '1px solid var(--app-border)',
-                color: 'var(--app-text-primary)',
-                backgroundColor: 'transparent',
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.backgroundColor = 'var(--app-bg-hover)';
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.backgroundColor = 'transparent';
-              }}
+              variant="outline"
             >
               Cancel
-            </button>
-            <button
+            </Button>
+            <Button
               onClick={handleLoadAtlas}
               disabled={isLoading || !!validationError}
-              className="px-4 py-2 text-sm rounded-md transition-colors flex items-center gap-2"
-              style={{
-                backgroundColor: isLoading || validationError ? 'rgba(59, 130, 246, 0.5)' : 'var(--app-accent)',
-                color: 'white',
-                cursor: isLoading || validationError ? 'not-allowed' : 'pointer',
-              }}
-              onMouseEnter={(e) => {
-                if (!isLoading && !validationError) {
-                  e.currentTarget.style.backgroundColor = '#1d4ed8';
-                }
-              }}
-              onMouseLeave={(e) => {
-                if (!isLoading && !validationError) {
-                  e.currentTarget.style.backgroundColor = 'var(--app-accent)';
-                }
-              }}
+              className="flex items-center gap-2"
             >
               {isLoading && <Loader size={14} className="animate-spin" />}
               {isLoading ? 'Loading...' : 'Load Atlas'}
-            </button>
+            </Button>
           </div>
-        </div>
       </div>
-    </div>
+    </Modal>
   );
 };

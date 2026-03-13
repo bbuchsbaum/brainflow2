@@ -32,6 +32,7 @@ export interface VolumeLoadConfig {
   sourcePath: string; // Original path or identifier
   layerType?: Layer['type'];
   visible?: boolean;
+  atlasMetadata?: LayerInfo['atlasMetadata'];
 }
 
 export class VolumeLoadingService {
@@ -73,7 +74,15 @@ export class VolumeLoadingService {
     
     const startTime = performance.now();
     volumeDebugLog(`[VolumeLoadingService] Starting loadVolume with config:`, JSON.stringify(config));
-    const { volumeHandle, displayName, source, sourcePath, layerType, visible = true } = config;
+    const {
+      volumeHandle,
+      displayName,
+      source,
+      sourcePath,
+      layerType,
+      visible = true,
+      atlasMetadata,
+    } = config;
     
     volumeDebugLog(`[VolumeLoadingService ${startTime.toFixed(0)}ms] Loading volume from ${source}:`, {
       id: volumeHandle.id,
@@ -111,6 +120,7 @@ export class VolumeLoadingService {
         type: layerType || this.inferLayerType(displayName, source),
         visible: visible,
         order: currentLayerCount,
+        atlasMetadata,
         // Add 4D time series metadata
         volumeType: volumeHandle.volume_type === 'TimeSeries4D' ? 'TimeSeries4D' : 'Volume3D',
         timeSeriesInfo: volumeHandle.time_series_info ? {
@@ -216,7 +226,7 @@ export class VolumeLoadingService {
       // Clean up any partial state
       try {
         VolumeHandleStore.clearVolumeHandle(volumeHandle.id);
-        useLayerStore.getState().clearLayerMetadata(volumeHandle.id);
+        useLayerStore.getState().clearLayerMetadata?.(volumeHandle.id);
       } catch (cleanupError) {
         console.error('[VolumeLoadingService] Cleanup error:', cleanupError);
       }
@@ -251,7 +261,8 @@ export class VolumeLoadingService {
         return {
           min: [0, 0, 0] as [number, number, number],
           max: [dimX, dimY, dimZ] as [number, number, number],
-          center: [dimX / 2, dimY / 2, dimZ / 2] as [number, number, number]
+          center: [dimX / 2, dimY / 2, dimZ / 2] as [number, number, number],
+          dims: [dimX, dimY, dimZ] as [number, number, number],
         };
       }
       

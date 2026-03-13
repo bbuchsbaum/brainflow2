@@ -409,6 +409,7 @@ pub struct LayerPatch {
 /// Represents a node in the file tree, optimized for flat list transfer
 #[derive(Debug, Serialize, Clone, TS)]
 #[ts(export)]
+#[serde(rename_all = "camelCase")]
 pub struct FlatNode {
     pub id: String,                // Full path (unique identifier)
     pub name: String,              // File/Dir name
@@ -799,4 +800,276 @@ pub struct SurfaceTemplateCatalogEntry {
     pub geometry_type: SurfaceGeometryType,
     pub hemisphere: SurfaceHemisphere,
     pub vertex_count: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq, Eq)]
+#[ts(export)]
+#[serde(rename_all = "snake_case")]
+pub enum StudioImportMode {
+    Manifest,
+    Regex,
+    Table,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq, Eq)]
+#[ts(export)]
+#[serde(rename_all = "snake_case")]
+pub enum StudioSupportKind {
+    Volume,
+    Surface,
+    Mixed,
+    Unknown,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq, Eq)]
+#[ts(export)]
+#[serde(rename_all = "kebab-case")]
+pub enum StudioAlignmentClass {
+    SameGrid,
+    SameSpace,
+    SameTopology,
+    Mixed,
+    Unknown,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq, Eq)]
+#[ts(export)]
+#[serde(rename_all = "snake_case")]
+pub enum StudioExpressionKind {
+    Member,
+    Reducer,
+    Comparison,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq, Eq)]
+#[ts(export)]
+#[serde(rename_all = "snake_case")]
+pub enum StudioComparePaneStatus {
+    Live,
+    Pending,
+    Blocked,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq, Eq)]
+#[ts(export)]
+#[serde(rename_all = "snake_case")]
+pub enum StudioCompareBindingKind {
+    MemberSource,
+    DerivedField,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq, Eq)]
+#[ts(export)]
+#[serde(rename_all = "snake_case")]
+pub enum StudioAuditSeverity {
+    Ok,
+    Warning,
+    Error,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
+#[serde(rename_all = "camelCase")]
+pub struct StudioFeatureSummary {
+    pub id: String,
+    pub label: String,
+    pub kind: StudioSupportKind,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
+#[serde(rename_all = "snake_case")]
+pub enum StudioCohortOriginKind {
+    Imported,
+    SavedSnapshot,
+    IssueFocus,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
+#[serde(rename_all = "camelCase")]
+pub struct StudioCohortSummary {
+    pub id: String,
+    pub label: String,
+    pub member_count: usize,
+    pub description: String,
+    pub member_ids: Vec<String>,
+    pub origin_kind: StudioCohortOriginKind,
+    pub origin_label: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
+#[serde(rename_all = "camelCase")]
+pub struct StudioFieldExpressionSummary {
+    pub id: String,
+    pub label: String,
+    pub kind: StudioExpressionKind,
+    pub recipe: String,
+    pub cohort_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
+#[serde(rename_all = "camelCase")]
+pub struct StudioJoinIssueDetail {
+    pub message: String,
+    pub member_ids: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
+#[serde(rename_all = "camelCase")]
+pub struct StudioJoinAuditSummary {
+    pub matched_rows: usize,
+    pub unmatched_rows: usize,
+    pub duplicate_keys: usize,
+    pub severity: StudioAuditSeverity,
+    pub issue_details: Vec<StudioJoinIssueDetail>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
+#[serde(rename_all = "camelCase")]
+pub struct StudioSupportAuditSummary {
+    pub support_label: String,
+    pub alignment_class: StudioAlignmentClass,
+    pub ready_for_compare: bool,
+    pub severity: StudioAuditSeverity,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
+#[serde(rename_all = "camelCase")]
+pub struct StudioIngestAuditSummary {
+    pub source_label: String,
+    pub join: StudioJoinAuditSummary,
+    pub support: StudioSupportAuditSummary,
+    pub notes: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
+#[serde(rename_all = "camelCase")]
+pub struct StudioMemberSummary {
+    pub id: String,
+    pub source_path: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
+#[serde(rename_all = "camelCase")]
+pub struct StudioDesignRowPreview {
+    pub id: String,
+    pub cells: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
+#[serde(rename_all = "camelCase")]
+pub struct StudioDesignTablePreview {
+    pub columns: Vec<String>,
+    pub rows: Vec<StudioDesignRowPreview>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
+#[serde(rename_all = "camelCase")]
+pub struct SpatialFieldSetSummary {
+    pub id: String,
+    pub name: String,
+    pub member_count: usize,
+    pub primary_feature_id: Option<String>,
+    pub support_kind: StudioSupportKind,
+    pub support_label: String,
+    pub alignment_class: StudioAlignmentClass,
+    pub design_columns: Vec<String>,
+    pub design_table_preview: Option<StudioDesignTablePreview>,
+    pub member_summaries: Vec<StudioMemberSummary>,
+    pub member_ids: Vec<String>,
+    pub saved_cohort_ids: Vec<String>,
+    pub ingest_audit: StudioIngestAuditSummary,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
+#[serde(rename_all = "camelCase")]
+pub struct StudioMaterializationStatus {
+    pub warm: usize,
+    pub preview: usize,
+    pub pending: usize,
+    pub failed: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
+#[serde(rename_all = "camelCase")]
+pub struct StudioImportCandidate {
+    pub id: String,
+    pub label: String,
+    pub description: String,
+    pub mode: StudioImportMode,
+    pub source_hint: String,
+    pub set: SpatialFieldSetSummary,
+    pub features: Vec<StudioFeatureSummary>,
+    pub cohorts: Vec<StudioCohortSummary>,
+    pub expressions: Vec<StudioFieldExpressionSummary>,
+    pub materialization: Option<StudioMaterializationStatus>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
+#[serde(rename_all = "camelCase")]
+pub struct StudioImportPreviewRequest {
+    pub mode: StudioImportMode,
+    pub manifest_path: Option<String>,
+    pub discovery_root: Option<String>,
+    pub file_pattern: Option<String>,
+    pub table_source_label: Option<String>,
+    pub table_headers: Option<Vec<String>>,
+    pub table_rows: Option<Vec<Vec<String>>>,
+    pub table_file_path_column: Option<String>,
+    pub table_subject_id_column: Option<String>,
+    pub table_excluded_columns: Option<Vec<String>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
+#[serde(rename_all = "camelCase")]
+pub struct StudioComparePaneSpec {
+    pub id: String,
+    pub title: String,
+    pub subtitle: String,
+    pub status: StudioComparePaneStatus,
+    pub reason: String,
+    pub recipe: Option<String>,
+    pub binding: Option<StudioComparePaneBinding>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
+#[serde(rename_all = "camelCase")]
+pub struct StudioComparePaneBinding {
+    pub kind: StudioCompareBindingKind,
+    pub ready: bool,
+    pub source_path: Option<String>,
+    pub materialization_key: Option<String>,
+    pub materialized_at_ms: Option<u64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
+#[serde(rename_all = "camelCase")]
+pub struct StudioCompareMaterializeRequest {
+    pub support_label: String,
+    pub compare_ready: bool,
+    pub force_rematerialize: bool,
+    pub active_member_id: Option<String>,
+    pub active_member_source_path: Option<String>,
+    pub cohort_member_source_paths: Vec<String>,
+    pub compare_cohort_id: Option<String>,
+    pub compare_cohort_label: Option<String>,
+    pub compare_cohort_member_count: Option<usize>,
+    pub active_expression_label: Option<String>,
+    pub active_expression_recipe: Option<String>,
 }

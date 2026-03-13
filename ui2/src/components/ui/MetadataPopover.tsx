@@ -1,14 +1,14 @@
-import React, { useState } from 'react';
-import { useLayerStore } from '@/stores/layerStore';
-import { 
-  Popover, 
-  PopoverContent, 
-  PopoverTrigger, 
-  PopoverArrow 
-} from '@/components/ui/shadcn/popover';
+import React, { useEffect, useRef, useState } from 'react';
+import { useLayer, layerSelectors } from '@/stores/layerStore';
+import { Popover, PopoverContent, PopoverTrigger, PopoverArrow } from '@/components/ui/shadcn/popover';
 import { cn } from '@/utils/cn';
-import type { VolumeMetadata } from '@/stores/layerStore';
 import { Copy, Check } from 'lucide-react';
+import {
+  formatVolumeDataRange,
+  formatVolumeDimensions,
+  formatVolumeSpacing,
+  formatVolumeVoxelSummary,
+} from '@/utils/metadataFormatting';
 
 interface MetadataPopoverProps {
   layerId: string;
@@ -19,38 +19,44 @@ export const MetadataPopover: React.FC<MetadataPopoverProps> = ({
   layerId, 
   children 
 }) => {
-  const metadata = useLayerStore(state => state.getLayerMetadata(layerId));
-  const layer = useLayerStore(state => state.layers.find(l => l.id === layerId));
+  const metadata = useLayer((state) => layerSelectors.getLayerMetadata(state, layerId));
+  const layer = useLayer((state) => layerSelectors.getLayerById(state, layerId));
   const [copiedField, setCopiedField] = useState<string | null>(null);
+  const resetTimerRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (resetTimerRef.current !== null) {
+        window.clearTimeout(resetTimerRef.current);
+      }
+    };
+  }, []);
   
   if (!metadata || !layer) {
     return <>{children}</>;
   }
 
-  // Format dimensions as "X × Y × Z"
-  const formatDimensions = () => {
-    if (!metadata.dimensions) return 'Unknown';
-    return metadata.dimensions.join(' × ');
-  };
-
-  // Format spacing with units
-  const formatSpacing = () => {
-    if (!metadata.spacing) return 'Unknown';
-    return metadata.spacing.map(s => `${s.toFixed(2)} mm`).join(' × ');
-  };
-
-  // Format data range
-  const formatDataRange = () => {
-    if (!metadata.dataRange) return 'Unknown';
-    return `[${metadata.dataRange.min.toFixed(2)}, ${metadata.dataRange.max.toFixed(2)}]`;
-  };
+  const dimensionsText = formatVolumeDimensions(metadata);
+  const spacingText = formatVolumeSpacing(metadata);
+  const dataRangeText = formatVolumeDataRange(metadata);
+  const voxelSummary = formatVolumeVoxelSummary(metadata);
 
   // Copy to clipboard handler
   const copyToClipboard = async (text: string, field: string) => {
+    if (!navigator.clipboard?.writeText) {
+      return;
+    }
+
     try {
       await navigator.clipboard.writeText(text);
       setCopiedField(field);
-      setTimeout(() => setCopiedField(null), 2000);
+      if (resetTimerRef.current !== null) {
+        window.clearTimeout(resetTimerRef.current);
+      }
+      resetTimerRef.current = window.setTimeout(() => {
+        setCopiedField(null);
+        resetTimerRef.current = null;
+      }, 2000);
     } catch (err) {
       console.error('Failed to copy:', err);
     }
@@ -66,49 +72,21 @@ export const MetadataPopover: React.FC<MetadataPopoverProps> = ({
         side="right" 
         align="center"
         className={cn(
-          // Layout and spacing
-          "!p-4",
-          "w-80 max-w-[90vw]",
-          // Appearance - with explicit full opacity
-          "bg-popover/100 text-popover-foreground/100",
-          "rounded-[var(--radius)]",
-          "border border-border",
-          "shadow-lg",
-          // Z-index to ensure visibility
-          "z-[100]",
-          // Animations
-          "data-[state=open]:animate-in",
-          "data-[state=closed]:animate-out",
-          "data-[state=closed]:fade-out-0",
-          "data-[state=open]:fade-in-0",
-          "data-[state=closed]:zoom-out-95",
-          "data-[state=open]:zoom-in-95",
-          "data-[side=right]:slide-in-from-left-2",
-          "data-[side=left]:slide-in-from-right-2",
-          "data-[side=top]:slide-in-from-bottom-2",
-          "data-[side=bottom]:slide-in-from-top-2"
+          'z-[100] w-80 max-w-[90vw] p-0'
         )}
-        style={{
-          // Fallback inline styles with hardcoded dark theme colors
-          backgroundColor: 'rgba(15, 23, 42, 1)', // #0f172a with full opacity
-          color: 'rgba(226, 232, 240, 1)', // #e2e8f0 with full opacity
-          padding: '16px', // Reduced padding by half
-        }}
-        sideOffset={16}
+        sideOffset={12}
         collisionPadding={12}
         avoidCollisions={true}
         aria-label="Metadata information"
-        role="dialog"
         aria-describedby="metadata-content"
       >
         <PopoverArrow className="fill-popover" />
         
-        {/* Inner wrapper for additional padding */}
-        <div className="p-2">
+        <div className="p-4">
           {/* Header Section */}
           <div className="mb-4 pb-4 border-b border-border/50">
             <h3 className="text-sm font-semibold text-popover-foreground mb-1">
-              {layer?.name || 'Unknown Layer'}
+              {layer.name}
             </h3>
             <p className="text-xs text-muted-foreground">
               Layer Metadata
@@ -128,12 +106,14 @@ export const MetadataPopover: React.FC<MetadataPopoverProps> = ({
                   <span className="text-xs text-muted-foreground">Dimensions</span>
                   <div className="flex items-center gap-2">
                     <span className="text-sm font-medium text-popover-foreground tabular-nums">
-                      {formatDimensions()}
+                      {dimensionsText}
                     </span>
                     <button
-                      onClick={() => copyToClipboard(formatDimensions(), 'dimensions')}
+                      type="button"
+                      onClick={() => copyToClipboard(dimensionsText, 'dimensions')}
                       className="ml-2 p-1 rounded hover:bg-accent/30 transition-colors"
-                      aria-label="Copy dimensions"
+                      aria-label={copiedField === 'dimensions' ? 'Dimensions copied' : 'Copy dimensions'}
+                      data-copied={copiedField === 'dimensions'}
                     >
                       {copiedField === 'dimensions' ? (
                         <Check className="h-3.5 w-3.5 text-green-500" />
@@ -148,7 +128,7 @@ export const MetadataPopover: React.FC<MetadataPopoverProps> = ({
                 <div className="flex items-center justify-between mx-2 px-3 py-2 rounded-md border border-accent/20 hover:border-accent/30 transition-colors">
                   <span className="text-xs text-muted-foreground">Resolution</span>
                   <span className="text-sm font-medium text-popover-foreground tabular-nums">
-                    {formatSpacing()}
+                    {spacingText}
                   </span>
                 </div>
 
@@ -156,7 +136,7 @@ export const MetadataPopover: React.FC<MetadataPopoverProps> = ({
                 <div className="flex items-center justify-between mx-2 px-3 py-2 rounded-md border border-accent/20 hover:border-accent/30 transition-colors">
                   <span className="text-xs text-muted-foreground">Data Range</span>
                   <span className="text-sm font-medium font-mono text-popover-foreground">
-                    {formatDataRange()}
+                    {dataRangeText}
                   </span>
                 </div>
 
@@ -171,19 +151,12 @@ export const MetadataPopover: React.FC<MetadataPopoverProps> = ({
                 )}
 
                 {/* Voxel info */}
-                {metadata.totalVoxels && (
+                {voxelSummary && (
                   <div className="flex items-center justify-between mx-2 px-3 py-2 rounded-md border border-accent/20 hover:border-accent/30 transition-colors">
                     <span className="text-xs text-muted-foreground">Voxels</span>
-                    <div className="text-sm font-medium text-popover-foreground">
-                      <span className="tabular-nums">
-                        {(metadata.totalVoxels / 1_000_000).toFixed(1)}M
-                      </span>
-                      {metadata.nonZeroVoxels && (
-                        <span className="text-muted-foreground text-xs ml-1">
-                          ({((metadata.nonZeroVoxels / metadata.totalVoxels) * 100).toFixed(1)}%)
-                        </span>
-                      )}
-                    </div>
+                    <span className="text-sm font-medium text-popover-foreground tabular-nums">
+                      {voxelSummary}
+                    </span>
                   </div>
                 )}
               </div>

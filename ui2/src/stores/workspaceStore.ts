@@ -61,6 +61,8 @@ const workspaceCounter: Record<WorkspaceType, number> = {
   'orthogonal-flexible': 0,
   'mosaic': 0,
   'lightbox': 0,
+  'comparison': 0,
+  'set-studio': 0,
   'roi-stats': 0,
   'coordinate-converter': 0
 };
@@ -126,7 +128,7 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
         // Create panel states Map
         const panelStates = new Map();
         
-        // Initialize panel states for flexible orthogonal view
+        // Initialize panel states for the orthogonal panels workspace
         if (type === 'orthogonal-flexible') {
           panelStates.set('axial', {
             id: 'axial',
@@ -156,17 +158,21 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
           panelStates
         };
         
-        set(state => {
-          // Deactivate current workspace
-          if (state.activeWorkspaceId) {
-            const current = state.workspaces.get(state.activeWorkspaceId);
-            if (current) current.isActive = false;
+        const currentState = get();
+        const nextWorkspaces = new Map(currentState.workspaces);
+
+        if (currentState.activeWorkspaceId) {
+          const current = nextWorkspaces.get(currentState.activeWorkspaceId);
+          if (current) {
+            nextWorkspaces.set(current.id, { ...current, isActive: false });
           }
-          
-          // Add new workspace with isActive set to true
-          const newWorkspace = { ...workspace, isActive: true };
-          state.workspaces.set(id, newWorkspace);
-          state.activeWorkspaceId = id;
+        }
+
+        const newWorkspace: Workspace = { ...workspace, isActive: true };
+        nextWorkspaces.set(id, newWorkspace);
+        set({
+          workspaces: nextWorkspaces,
+          activeWorkspaceId: id,
         });
         
         console.log(`[WorkspaceStore] Created workspace: ${id} (${title})`);
@@ -190,79 +196,96 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
       },
       
       activateWorkspace: (id) => {
-        set(state => {
-          const workspace = state.workspaces.get(id);
-          if (!workspace) {
-            console.warn(`[WorkspaceStore] Cannot activate non-existent workspace: ${id}`);
-            return;
+        const currentState = get();
+        const workspace = currentState.workspaces.get(id);
+        if (!workspace) {
+          console.warn(`[WorkspaceStore] Cannot activate non-existent workspace: ${id}`);
+          return;
+        }
+
+        const nextWorkspaces = new Map(currentState.workspaces);
+        if (currentState.activeWorkspaceId) {
+          const current = nextWorkspaces.get(currentState.activeWorkspaceId);
+          if (current) {
+            nextWorkspaces.set(current.id, { ...current, isActive: false });
           }
-          
-          // Deactivate current
-          if (state.activeWorkspaceId) {
-            const current = state.workspaces.get(state.activeWorkspaceId);
-            if (current) current.isActive = false;
-          }
-          
-          // Activate new
-          workspace.isActive = true;
-          state.activeWorkspaceId = id;
-          
-          console.log(`[WorkspaceStore] Activated workspace: ${id}`);
+        }
+        nextWorkspaces.set(id, { ...workspace, isActive: true });
+
+        set({
+          workspaces: nextWorkspaces,
+          activeWorkspaceId: id,
         });
+
+        console.log(`[WorkspaceStore] Activated workspace: ${id}`);
       },
       
       closeWorkspace: (id) => {
-        set(state => {
-          const workspace = state.workspaces.get(id);
-          if (!workspace) return;
-          
-          state.workspaces.delete(id);
-          
-          // If closing active workspace, activate another
-          if (state.activeWorkspaceId === id) {
-            const remaining = Array.from(state.workspaces.values());
-            if (remaining.length > 0) {
-              const next = remaining[remaining.length - 1];
-              next.isActive = true;
-              state.activeWorkspaceId = next.id;
-            } else {
-              state.activeWorkspaceId = null;
-            }
+        const currentState = get();
+        if (!currentState.workspaces.has(id)) return;
+
+        const nextWorkspaces = new Map(currentState.workspaces);
+        nextWorkspaces.delete(id);
+
+        let nextActiveWorkspaceId = currentState.activeWorkspaceId;
+        if (currentState.activeWorkspaceId === id) {
+          const remaining = Array.from(nextWorkspaces.values());
+          if (remaining.length > 0) {
+            const next = remaining[remaining.length - 1];
+            nextWorkspaces.set(next.id, { ...next, isActive: true });
+            nextActiveWorkspaceId = next.id;
+          } else {
+            nextActiveWorkspaceId = null;
           }
-          
-          console.log(`[WorkspaceStore] Closed workspace: ${id}`);
+        }
+
+        set({
+          workspaces: nextWorkspaces,
+          activeWorkspaceId: nextActiveWorkspaceId,
         });
+
+        console.log(`[WorkspaceStore] Closed workspace: ${id}`);
       },
       
       updateWorkspaceLayout: (id, layoutConfig) => {
-        set(state => {
-          const workspace = state.workspaces.get(id);
-          if (workspace) {
-            workspace.layoutConfig = layoutConfig;
-            console.log(`[WorkspaceStore] Updated layout for workspace: ${id}`);
-          }
-        });
+        const currentState = get();
+        const workspace = currentState.workspaces.get(id);
+        if (!workspace) {
+          return;
+        }
+
+        const nextWorkspaces = new Map(currentState.workspaces);
+        nextWorkspaces.set(id, { ...workspace, layoutConfig });
+        set({ workspaces: nextWorkspaces });
+        console.log(`[WorkspaceStore] Updated layout for workspace: ${id}`);
       },
       
       updatePanelState: (workspaceId, panelId, updates) => {
-        set(state => {
-          const workspace = state.workspaces.get(workspaceId);
-          if (!workspace) return;
-          
-          const panelState = workspace.panelStates.get(panelId);
-          if (panelState) {
-            Object.assign(panelState, updates);
-          } else {
-            workspace.panelStates.set(panelId, {
-              id: panelId,
-              type: 'unknown',
-              isVisible: true,
-              ...updates
-            });
-          }
-          
-          console.log(`[WorkspaceStore] Updated panel state: ${panelId} in workspace ${workspaceId}`);
+        const currentState = get();
+        const workspace = currentState.workspaces.get(workspaceId);
+        if (!workspace) return;
+
+        const nextPanelStates = new Map(workspace.panelStates);
+        const panelState = nextPanelStates.get(panelId);
+        if (panelState) {
+          nextPanelStates.set(panelId, { ...panelState, ...updates });
+        } else {
+          nextPanelStates.set(panelId, {
+            id: panelId,
+            type: 'unknown',
+            isVisible: true,
+            ...updates
+          });
+        }
+
+        const nextWorkspaces = new Map(currentState.workspaces);
+        nextWorkspaces.set(workspaceId, {
+          ...workspace,
+          panelStates: nextPanelStates,
         });
+        set({ workspaces: nextWorkspaces });
+
+        console.log(`[WorkspaceStore] Updated panel state: ${panelId} in workspace ${workspaceId}`);
       },
       
       recoverPanel: (workspaceId, panelId) => {
@@ -311,9 +334,11 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
         
         const baseNames: Record<WorkspaceType, string> = {
           'orthogonal-locked': 'Orthogonal View',
-          'orthogonal-flexible': 'Flexible View',
+          'orthogonal-flexible': 'Orthogonal Panels',
           'mosaic': 'Mosaic View',
           'lightbox': 'Lightbox View',
+          'comparison': 'Comparison View',
+          'set-studio': 'Set Studio',
           'roi-stats': 'ROI Statistics',
           'coordinate-converter': 'Coordinate Converter'
         };
@@ -363,19 +388,31 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
         },
         setItem: (name, value) => {
           try {
-            const data = { ...value };
+            const data = value as {
+              state: {
+                workspaces: Map<string, Workspace>;
+              };
+            } & Record<string, unknown>;
+            const serializableData: Record<string, unknown> = { ...data };
             if (data.state.workspaces instanceof Map) {
-              // Create a deep copy to avoid modifying frozen objects
-              const workspacesArray = Array.from(data.state.workspaces.entries()).map(([id, workspace]) => {
-                const workspaceCopy = { ...workspace };
-                if (workspace.panelStates instanceof Map) {
-                  workspaceCopy.panelStates = Array.from(workspace.panelStates.entries());
-                }
-                return [id, workspaceCopy];
-              });
-              data.state.workspaces = workspacesArray;
+              const serializedWorkspaces = Array.from(data.state.workspaces.entries()).map(
+                ([id, workspace]) => [
+                  id,
+                  {
+                    ...workspace,
+                    panelStates:
+                      workspace.panelStates instanceof Map
+                        ? Array.from(workspace.panelStates.entries())
+                        : [],
+                  },
+                ]
+              );
+              serializableData.state = {
+                ...data.state,
+                workspaces: serializedWorkspaces,
+              };
             }
-            localStorage.setItem(name, JSON.stringify(data));
+            localStorage.setItem(name, JSON.stringify(serializableData));
           } catch (error) {
             console.error('[WorkspaceStore] Failed to save to storage:', error);
           }

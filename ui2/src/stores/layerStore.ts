@@ -47,7 +47,7 @@ export interface VolumeMetadata {
 // Declare global interface for store
 declare global {
   interface Window {
-    __layerStore?: any;
+    __layerStore?: ReturnType<typeof createLayerStore>;
   }
 }
 
@@ -372,7 +372,7 @@ const createLayerStore = () => create<LayerState>()(
 );
 
 // Export store with global instance sharing
-export const useLayerStore = (() => {
+export const useLayerStore: ReturnType<typeof createLayerStore> = (() => {
   if (typeof window !== 'undefined' && window.__layerStore) {
     return window.__layerStore;
   }

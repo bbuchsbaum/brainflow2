@@ -18,7 +18,7 @@
 
 import { create } from 'zustand';
 import { immer } from 'zustand/middleware/immer';
-import type { RenderContext } from '@/types/renderContext';
+import type { RenderContext, RenderContextType } from '@/types/renderContext';
 
 export interface RenderState {
   isRendering: boolean;
@@ -49,7 +49,7 @@ interface RenderStateStore {
   getContext: (id: string) => RenderContext | undefined;
   setRenderingWithContext: (context: RenderContext, isRendering: boolean) => void;
   setImageWithContext: (context: RenderContext, image: ImageBitmap | null) => void;
-  getContextsOfType: (type: 'slice' | 'mosaic-cell') => RenderContext[];
+  getContextsOfType: (type: RenderContextType) => RenderContext[];
   
   // Debugging helpers
   getAllStates: () => { [id: string]: RenderState };

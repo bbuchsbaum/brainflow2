@@ -5,9 +5,18 @@
 
 import React, { useEffect, useRef, useCallback, useState } from 'react';
 import ReactDOM from 'react-dom/client';
-import { GoldenLayout, LayoutConfig, ComponentContainer, Stack, ComponentItem } from 'golden-layout';
+import {
+  GoldenLayout,
+  LayoutConfig,
+  ComponentContainer,
+  Stack,
+  ComponentItem,
+  type ComponentItemConfig,
+  type ContentItem,
+} from 'golden-layout';
 import { useWorkspaceStore } from '@/stores/workspaceStore';
 import { useActivePanelStore } from '@/stores/activePanelStore';
+import { useAppModeStore } from '@/stores/appModeStore';
 import { safeListen, safeUnlisten } from '@/utils/eventUtils';
 import { debounce } from 'lodash';
 import type { WorkspaceType } from '@/types/workspace';
@@ -16,12 +25,16 @@ import { getLayoutService } from '@/services/layoutService';
 
 // Import workspace components
 import { OrthogonalViewContainer } from '@/components/views/OrthogonalViewContainer';
-import { FlexibleOrthogonalView } from '@/components/views/FlexibleOrthogonalView';
+import { OrthogonalPanelsWorkspace } from '@/components/views/OrthogonalPanelsWorkspace';
 import { MosaicViewPromise } from '@/components/views/MosaicViewPromise';
 import { LightboxView } from '@/components/views/LightboxView';
 import { ROIStatsWorkspace } from '@/components/analysis/ROIStatsWorkspace';
 import { CoordinateConverterWorkspace } from '@/components/tools/CoordinateConverterWorkspace';
 import { SurfaceViewPanel } from '@/components/views/SurfaceViewPanel';
+import { SetStudioWorkspace } from '@/components/studio/SetStudioWorkspace';
+import { ComparisonWorkspace } from '@/components/views/ComparisonWorkspace';
+import { StudioDesignPanel } from '@/components/studio/StudioDesignPanel';
+import { StudioInspectorPanel } from '@/components/studio/StudioInspectorPanel';
 
 // Import side panel components
 import { FileBrowserPanel } from '@/components/panels/FileBrowserPanel';
@@ -32,6 +45,65 @@ import { ClusterPanel } from '@/components/panels/ClusterPanel';
 import { AtlasPanel } from '@/components/panels/AtlasPanel';
 
 // GoldenLayout styles are imported in index.css to ensure proper cascade order
+
+const isStateRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === 'object' && value !== null && !Array.isArray(value);
+
+const getComponentState = (item: ComponentItem | ComponentContainer | null | undefined): Record<string, unknown> => {
+  const rawState = item instanceof ComponentContainer ? item.initialState : item?.container.initialState;
+  return isStateRecord(rawState) ? rawState : {};
+};
+
+const getCenterWorkspaceStack = (layout: GoldenLayout): Stack | null => {
+  const root = layout.rootItem;
+  if (!root || root.type !== 'row') {
+    return null;
+  }
+
+  const centerStack = root.contentItems[1];
+  return centerStack?.type === 'stack' ? (centerStack as Stack) : null;
+};
+
+const getLeftSidebarStack = (layout: GoldenLayout): Stack | null => {
+  const root = layout.rootItem;
+  if (!root || root.type !== 'row') {
+    return null;
+  }
+
+  const leftColumn = root.contentItems[0];
+  if (!leftColumn || leftColumn.type !== 'column') {
+    return null;
+  }
+
+  const leftStack = leftColumn.contentItems[0];
+  return leftStack?.type === 'stack' ? (leftStack as Stack) : null;
+};
+
+const getRightSidebarStack = (layout: GoldenLayout): Stack | null => {
+  const root = layout.rootItem;
+  if (!root || root.type !== 'row') {
+    return null;
+  }
+
+  const rightColumn = root.contentItems[2];
+  if (!rightColumn || rightColumn.type !== 'column') {
+    return null;
+  }
+
+  const rightStack = rightColumn.contentItems[0];
+  return rightStack?.type === 'stack' ? (rightStack as Stack) : null;
+};
+
+const findComponentItemByType = (stack: Stack | null, componentType: string): ComponentItem | null => {
+  if (!stack) {
+    return null;
+  }
+
+  const match = stack.contentItems.find(
+    (item) => item.type === 'component' && (item as ComponentItem).componentType === componentType
+  );
+  return match?.type === 'component' ? (match as ComponentItem) : null;
+};
 
 // Workspace component wrapper for GoldenLayout
 interface WorkspaceComponentProps {
@@ -53,15 +125,19 @@ const WorkspaceComponent: React.FC<WorkspaceComponentProps> = ({ workspaceId, wo
     case 'orthogonal-locked':
       return <OrthogonalViewContainer />;
     case 'orthogonal-flexible':
-      return <FlexibleOrthogonalView workspaceId={workspaceId} />;
+      return <OrthogonalPanelsWorkspace />;
     case 'mosaic':
       return <MosaicViewPromise workspaceId={workspaceId} />;
     case 'lightbox':
       return <LightboxView workspaceId={workspaceId} />;
+    case 'comparison':
+      return <ComparisonWorkspace workspaceId={workspaceId} />;
     case 'roi-stats':
       return <ROIStatsWorkspace workspaceId={workspaceId} />;
     case 'coordinate-converter':
       return <CoordinateConverterWorkspace workspaceId={workspaceId} />;
+    case 'set-studio':
+      return <SetStudioWorkspace />;
     default:
       return <div className="h-full flex items-center justify-center text-muted-foreground">Unknown workspace type: {workspaceType}</div>;
   }
@@ -73,9 +149,11 @@ export function GoldenLayoutRoot() {
   const reactRootsRef = useRef<Map<string, ReactDOM.Root>>(new Map());
   const [isLayoutReady, setIsLayoutReady] = useState(false);
   const addedWorkspacesRef = useRef<Set<string>>(new Set());
+  const pendingWorkspaceAddsRef = useRef<Set<string>>(new Set());
   
   const workspaces = useWorkspaceStore(state => state.workspaces);
   const activeWorkspaceId = useWorkspaceStore(state => state.activeWorkspaceId);
+  const appMode = useAppModeStore(state => state.mode);
   const store = useWorkspaceStore();
 
   // Helper to add a workspace tab
@@ -83,29 +161,20 @@ export function GoldenLayoutRoot() {
     if (!layoutRef.current) return;
     
     // Skip if already added
-    if (addedWorkspacesRef.current.has(workspaceId)) {
+    if (addedWorkspacesRef.current.has(workspaceId) || pendingWorkspaceAddsRef.current.has(workspaceId)) {
       console.log(`[GoldenLayoutRoot] Workspace ${workspaceId} already added, skipping`);
       return;
     }
 
     try {
       // Find the center stack in the layout
-      const root = layoutRef.current.rootItem;
-      if (!root || root.type !== 'row') {
-        console.error('[GoldenLayoutRoot] Root is not a row');
-        return;
-      }
-
-      // The center stack should be the second item (index 1) in the row
-      const centerStack = root.contentItems[1];
-      if (!centerStack || centerStack.type !== 'stack') {
+      const stack = getCenterWorkspaceStack(layoutRef.current);
+      if (!stack) {
         console.error('[GoldenLayoutRoot] Center stack not found');
         return;
       }
 
-      // Add the workspace to the center stack
-      const stack = centerStack as Stack;
-      const newItemConfig = {
+      const newItemConfig: ComponentItemConfig = {
         type: 'component' as const,
         componentType: 'Workspace',
         title,
@@ -115,19 +184,47 @@ export function GoldenLayoutRoot() {
         }
       };
       
-      console.log('[GoldenLayoutRoot] Creating new item with config:', newItemConfig);
-      const componentItem = layoutRef.current.newItem(newItemConfig);
+      pendingWorkspaceAddsRef.current.add(workspaceId);
 
-      stack.addChild(componentItem);
-      addedWorkspacesRef.current.add(workspaceId);
-      console.log(`[GoldenLayoutRoot] Added workspace tab: ${workspaceId} (${title})`);
+      requestAnimationFrame(() => {
+        try {
+          if (!layoutRef.current) {
+            pendingWorkspaceAddsRef.current.delete(workspaceId);
+            return;
+          }
 
-      // If nothing has marked an active panel yet, treat this workspace as active.
-      const activePanelStore = useActivePanelStore.getState();
-      if (!activePanelStore.componentType) {
-        activePanelStore.setActivePanel('Workspace', { workspaceId, workspaceType });
-      }
+          const liveStack = getCenterWorkspaceStack(layoutRef.current);
+          if (!liveStack) {
+            pendingWorkspaceAddsRef.current.delete(workspaceId);
+            console.error('[GoldenLayoutRoot] Center stack not found during deferred workspace add');
+            return;
+          }
+
+          console.log('[GoldenLayoutRoot] Creating new item with config:', newItemConfig);
+
+          try {
+            liveStack.addItem(newItemConfig);
+          } catch {
+            const componentItem = layoutRef.current.newItem(newItemConfig);
+            liveStack.addChild(componentItem, undefined, true);
+          }
+
+          pendingWorkspaceAddsRef.current.delete(workspaceId);
+          addedWorkspacesRef.current.add(workspaceId);
+          console.log(`[GoldenLayoutRoot] Added workspace tab: ${workspaceId} (${title})`);
+
+          // If nothing has marked an active panel yet, treat this workspace as active.
+          const activePanelStore = useActivePanelStore.getState();
+          if (!activePanelStore.componentType) {
+            activePanelStore.setActivePanel('Workspace', { workspaceId, workspaceType });
+          }
+        } catch (error) {
+          pendingWorkspaceAddsRef.current.delete(workspaceId);
+          console.error('[GoldenLayoutRoot] Failed to add workspace tab:', error);
+        }
+      });
     } catch (error) {
+      pendingWorkspaceAddsRef.current.delete(workspaceId);
       console.error('[GoldenLayoutRoot] Failed to add workspace tab:', error);
     }
   }, []);
@@ -136,14 +233,13 @@ export function GoldenLayoutRoot() {
   const removeWorkspaceTab = useCallback((workspaceId: string) => {
     if (!layoutRef.current) return;
 
-    const root = layoutRef.current.rootItem;
-    if (!root || root.type !== 'stack') return;
+    const stack = getCenterWorkspaceStack(layoutRef.current);
+    if (!stack) return;
 
-    const stack = root as Stack;
     const item = stack.contentItems.find(item => {
       if (item.type === 'component') {
         const componentItem = item as ComponentItem;
-        const state = componentItem.container.initialState || componentItem.container.componentState || {};
+        const state = getComponentState(componentItem);
         return state.workspaceId === workspaceId;
       }
       return false;
@@ -152,6 +248,7 @@ export function GoldenLayoutRoot() {
     if (item) {
       item.remove();
       addedWorkspacesRef.current.delete(workspaceId);
+      pendingWorkspaceAddsRef.current.delete(workspaceId);
       console.log(`[GoldenLayoutRoot] Removed workspace tab: ${workspaceId}`);
     }
   }, []);
@@ -253,17 +350,19 @@ export function GoldenLayoutRoot() {
     };
 
     registerSidePanelComponent('FileBrowser', FileBrowserPanel);
+    registerSidePanelComponent('StudioDesignPanel', StudioDesignPanel);
     registerSidePanelComponent('LayerPanel', VolumeLayerPanel);  // Keep old name for compatibility
     registerSidePanelComponent('SurfacePanel', SurfaceLayerPanel);  // Surface management panel
     registerSidePanelComponent('PlotPanel', PlotPanel);
     registerSidePanelComponent('ClusterPanel', ClusterPanel);
     registerSidePanelComponent('AtlasPanel', AtlasPanel);
+    registerSidePanelComponent('StudioInspectorPanel', StudioInspectorPanel);
     
     // Register surface view component
     goldenLayout.registerComponent('surfaceView', (container: ComponentContainer, state: any) => {
       console.log('[GoldenLayoutRoot] SurfaceView component created, state:', state);
       
-      const { surfaceHandle, path } = state || {};
+      const { surfaceHandle, path, surfaceViewId } = state || {};
       
       if (!surfaceHandle) {
         console.error('[GoldenLayoutRoot] Invalid surface configuration:', state);
@@ -285,6 +384,7 @@ export function GoldenLayoutRoot() {
           <SurfaceViewPanel 
             surfaceHandle={surfaceHandle}
             path={path}
+            surfaceViewId={surfaceViewId}
           />
         </React.StrictMode>
       );
@@ -303,11 +403,7 @@ export function GoldenLayoutRoot() {
 
       if (item && item.type === 'component') {
         const componentItem = item as ComponentItem;
-        // In v2, state might be accessed via initialComponentState
-        const state =
-          componentItem.container.initialState ||
-          componentItem.container.componentState ||
-          {};
+        const state = getComponentState(componentItem);
 
         const componentType =
           (componentItem as any).componentType ||
@@ -317,7 +413,7 @@ export function GoldenLayoutRoot() {
 
         activePanelStore.setActivePanel(componentType, state || null);
 
-        const workspaceId = (state as any).workspaceId;
+        const workspaceId = typeof state.workspaceId === 'string' ? state.workspaceId : null;
         if (workspaceId && workspaceId !== store.activeWorkspaceId) {
           console.log(`[GoldenLayoutRoot] Active workspace changed to: ${workspaceId}`);
           store.activateWorkspace(workspaceId);
@@ -336,10 +432,21 @@ export function GoldenLayoutRoot() {
             type: 'column',
             width: 17.25,
             content: [{
-              type: 'component',
-              componentType: 'FileBrowser',
-              title: 'Files',
-              componentState: {}
+              type: 'stack',
+              content: [
+                {
+                  type: 'component',
+                  componentType: 'FileBrowser',
+                  title: 'Files',
+                  componentState: {}
+                },
+                {
+                  type: 'component',
+                  componentType: 'StudioDesignPanel',
+                  title: 'Subjects',
+                  componentState: {}
+                }
+              ]
             }]
           },
           {
@@ -371,6 +478,12 @@ export function GoldenLayoutRoot() {
                     componentType: 'SurfacePanel',
                     title: 'Surfaces',
                     componentState: {}
+                  },
+                  {
+                    type: 'component',
+                    componentType: 'StudioInspectorPanel',
+                    title: 'Details',
+                    componentState: {}
                   }
                 ]
               }
@@ -383,8 +496,12 @@ export function GoldenLayoutRoot() {
     goldenLayout.loadLayout(config);
     
     // Add panel event listener for menu-triggered panel additions
-    const handlePanelAdd = (event: CustomEvent) => {
-      const { panelType } = event.detail;
+    const handlePanelAdd = (event: Event) => {
+      const customEvent = event as CustomEvent<{ panelType?: string }>;
+      const panelType = customEvent.detail?.panelType;
+      if (!panelType) {
+        return;
+      }
       console.log(`[GoldenLayoutRoot] Adding panel: ${panelType}`);
       
       try {
@@ -451,7 +568,7 @@ export function GoldenLayoutRoot() {
           }
         };
     
-    window.addEventListener('golden-layout-add-panel', handlePanelAdd);
+    window.addEventListener('golden-layout-add-panel', handlePanelAdd as EventListener);
     
     // Mark layout as ready after a small delay
     setTimeout(() => {
@@ -460,7 +577,7 @@ export function GoldenLayoutRoot() {
 
     return () => {
       // Remove panel event listener
-      window.removeEventListener('golden-layout-add-panel', handlePanelAdd);
+      window.removeEventListener('golden-layout-add-panel', handlePanelAdd as EventListener);
       
       // First destroy GoldenLayout which will trigger component destroy events
       if (layoutRef.current) {
@@ -476,6 +593,58 @@ export function GoldenLayoutRoot() {
       });
     };
   }, []); // Only run once on mount
+
+  useEffect(() => {
+    if (!layoutRef.current || !isLayoutReady) {
+      return;
+    }
+
+    const leftStack = getLeftSidebarStack(layoutRef.current);
+    const rightStack = getRightSidebarStack(layoutRef.current);
+    const leftTarget =
+      appMode === 'studio'
+        ? findComponentItemByType(leftStack, 'StudioDesignPanel')
+        : findComponentItemByType(leftStack, 'FileBrowser');
+    const rightTarget =
+      appMode === 'studio'
+        ? findComponentItemByType(rightStack, 'StudioInspectorPanel')
+        : findComponentItemByType(rightStack, 'LayerPanel');
+
+    if (leftStack && leftTarget) {
+      leftStack.setActiveComponentItem(leftTarget, true);
+    }
+    if (rightStack && rightTarget) {
+      rightStack.setActiveComponentItem(rightTarget, true);
+    }
+  }, [appMode, isLayoutReady]);
+
+  useEffect(() => {
+    if (!layoutRef.current || !isLayoutReady || !activeWorkspaceId) {
+      return;
+    }
+
+    const stack = getCenterWorkspaceStack(layoutRef.current);
+    if (!stack) {
+      return;
+    }
+
+    const target = stack.contentItems.find((item) => {
+      if (item.type !== 'component') {
+        return false;
+      }
+      const componentItem = item as ComponentItem;
+      const state = getComponentState(componentItem);
+      return state.workspaceId === activeWorkspaceId;
+    });
+
+    if (target && target.type === 'component') {
+      try {
+        stack.setActiveComponentItem(target as ComponentItem, true);
+      } catch (error) {
+        console.warn('[GoldenLayoutRoot] Failed to focus active workspace tab:', error);
+      }
+    }
+  }, [activeWorkspaceId, isLayoutReady]);
 
   // Create default workspace after GoldenLayout is ready
   useEffect(() => {
@@ -522,19 +691,25 @@ export function GoldenLayoutRoot() {
     if (!layoutRef.current) return;
 
     const handleResize = debounce(() => {
-      if (layoutRef.current) {
+      if (layoutRef.current && containerRef.current) {
         console.log('[GoldenLayoutRoot] Updating layout size after resize');
-        layoutRef.current.updateSize();
+        layoutRef.current.updateSize(
+          containerRef.current.offsetWidth,
+          containerRef.current.offsetHeight
+        );
       }
     }, 100);
 
     window.addEventListener('resize', handleResize);
     
     // Also listen for container resize using ResizeObserver
-    const resizeObserver = new ResizeObserver(debounce((entries) => {
-      if (layoutRef.current) {
+    const resizeObserver = new ResizeObserver(debounce(() => {
+      if (layoutRef.current && containerRef.current) {
         console.log('[GoldenLayoutRoot] Container resized, updating layout');
-        layoutRef.current.updateSize();
+        layoutRef.current.updateSize(
+          containerRef.current.offsetWidth,
+          containerRef.current.offsetHeight
+        );
       }
     }, 100));
     

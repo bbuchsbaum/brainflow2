@@ -9,8 +9,9 @@ The src-tauri directory contains the Tauri v2 application entry point that boots
 ## Key Files
 | File | Description |
 |------|-------------|
-| `src/lib.rs` | Main application setup: initializes tracing, creates shared state, spawns async service initialization, and configures Tauri builder |
-| `src/main.rs` | Entry point that simply calls `lib::run()` |
+| `src/lib.rs` | Older alternate bootstrap path kept for library/mobile-style builds; not the active desktop entry point |
+| `src/main.rs` | Active desktop entry point: builds menus, initializes BridgeState/RenderLoopService, registers shell commands, and queues startup CLI actions until the frontend is ready |
+| `src/startup_args.rs` | Startup CLI parser and queued action model for `--mount PATH`, remote mounts (`profile:NAME`, `user@host:/path`), and positional file/surface loads |
 | `src/menu_builder.rs` | Application menu construction (File, Edit, View menus) |
 | `tauri.conf.json` | Tauri configuration: window settings, build commands, bundle config, security policies |
 | `Cargo.toml` | Dependencies: tauri runtime, api_bridge plugin, core services |
@@ -44,11 +45,13 @@ When working with the Tauri application shell:
 - **Shared state**: Use `Arc<TokioMutex<T>>` for state shared between commands
 - **State management**: VolumeRegistry, LayerMap, BridgeState managed via Tauri state
 - **Command registration**: All commands come from `api_bridge` plugin - see `core/api_bridge/ADDING_COMMANDS.md`
+- **Startup CLI actions**: Parse launch args in `main.rs`, queue them in `StartupActionQueue`, and flush them only after the frontend registers its mount/open listeners and reports services ready
+- **Supported startup flags**: `--mount` (local or remote via `profile:NAME` / `user@host:/path`), positional file paths, `--open`, `--workspace`, `--template`, plus `--help` / `--version`; prefer extending the typed startup action queue instead of special-casing startup behavior elsewhere
 - **Tracing**: Configured with EnvFilter for flexible log levels (default: `info,brainflow=debug,render_loop=trace`)
 - **Menu**: Platform-specific menu handling via `menu_builder.rs`
 
 ### Adding New Commands
-**Do not add commands here.** Commands belong in `core/api_bridge/`. See `/core/api_bridge/ADDING_COMMANDS.md` for the 4-step process:
+**Most data/render commands belong in `core/api_bridge/`.** Shell/bootstrap commands that only coordinate Tauri startup, menus, dialogs, or frontend event handoff may live in `src/main.rs`. For `api_bridge` commands, see `/core/api_bridge/ADDING_COMMANDS.md` for the 4-step process:
 1. Define command in `api_bridge/src/lib.rs`
 2. Add to `COMMANDS` array in `api_bridge/build.rs`
 3. Add to `generate_handler!` macro in `api_bridge/src/lib.rs`

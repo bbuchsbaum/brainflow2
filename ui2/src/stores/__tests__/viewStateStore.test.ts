@@ -152,6 +152,20 @@ describe('ViewStateStore', () => {
       expect(state.views.coronal.origin_mm[1]).toBe(20); // Y-coordinate
     });
 
+    it('should increment revision counters for targeted crosshair and view updates', async () => {
+      const initialRevisions = useViewStateStore.getState().viewStateRevisions;
+
+      await store.setCrosshair([10, 20, 30], true);
+
+      const nextRevisions = useViewStateStore.getState().viewStateRevisions;
+      expect(nextRevisions.state).toBe(initialRevisions.state + 1);
+      expect(nextRevisions.crosshair).toBe(initialRevisions.crosshair + 1);
+      expect(nextRevisions.views.axial).toBe(initialRevisions.views.axial + 1);
+      expect(nextRevisions.views.sagittal).toBe(initialRevisions.views.sagittal + 1);
+      expect(nextRevisions.views.coronal).toBe(initialRevisions.views.coronal + 1);
+      expect(nextRevisions.layers).toBe(initialRevisions.layers);
+    });
+
     it('should handle crosshair visibility changes', async () => {
       // Act - Set position first, then change visibility
       await store.setCrosshair([5, 10, 15]);
@@ -264,6 +278,21 @@ describe('ViewStateStore', () => {
       const updatedLayer = state.layers.find(l => l.id === 'updateLayer');
       expect(updatedLayer?.visible).toBe(false);
       expect(updatedLayer?.name).toBe('Updated Layer');
+    });
+
+    it('should track layer revisions for setViewState mutations', () => {
+      const initialRevisions = useViewStateStore.getState().viewStateRevisions;
+
+      store.setViewState((state) => {
+        state.layers.push(createTestLayer('layer-revision'));
+        return state;
+      });
+
+      const nextRevisions = useViewStateStore.getState().viewStateRevisions;
+      expect(nextRevisions.state).toBe(initialRevisions.state + 1);
+      expect(nextRevisions.layers).toBe(initialRevisions.layers + 1);
+      expect(nextRevisions.crosshair).toBe(initialRevisions.crosshair);
+      expect(nextRevisions.views.axial).toBe(initialRevisions.views.axial);
     });
 
     it('should handle updating non-existent layer gracefully', () => {
@@ -437,6 +466,10 @@ describe('ViewStateStore', () => {
             world_mm: [10, 20, 30],
             visible: true
           }
+        }),
+        expect.objectContaining({
+          state: expect.any(Number),
+          crosshair: expect.any(Number)
         })
       );
       expect(coalesceUtils.hasPendingUpdate()).toBe(false);

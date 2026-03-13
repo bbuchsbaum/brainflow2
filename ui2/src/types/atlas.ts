@@ -4,25 +4,28 @@
  */
 
 import type { VolumeHandleInfo } from '@brainflow/api';
-export enum AtlasSource {
-  BuiltIn = "BuiltIn",
-  TemplateFlow = "TemplateFlow",
-  Custom = "Custom",
-}
+export const AtlasSource = {
+  BuiltIn: "BuiltIn",
+  TemplateFlow: "TemplateFlow",
+  Custom: "Custom",
+} as const;
+export type AtlasSource = typeof AtlasSource[keyof typeof AtlasSource];
 
-export enum AtlasDataType {
-  Volume = "Volume",
-  Surface = "Surface",
-  Both = "Both",
-}
+export const AtlasDataType = {
+  Volume: "Volume",
+  Surface: "Surface",
+  Both: "Both",
+} as const;
+export type AtlasDataType = typeof AtlasDataType[keyof typeof AtlasDataType];
 
-export enum AtlasCategory {
-  Cortical = "Cortical",
-  Subcortical = "Subcortical",
-  WholeBrain = "WholeBrain",
-  Specialized = "Specialized",
-  Template = "Template",
-}
+export const AtlasCategory = {
+  Cortical: "Cortical",
+  Subcortical: "Subcortical",
+  WholeBrain: "WholeBrain",
+  Specialized: "Specialized",
+  Template: "Template",
+} as const;
+export type AtlasCategory = typeof AtlasCategory[keyof typeof AtlasCategory];
 
 export interface SpaceInfo {
   id: string;
@@ -64,20 +67,22 @@ export interface AtlasCatalogEntry {
   download_size_mb?: number;
 }
 
-export enum LoadingStage {
-  CheckingCache = "CheckingCache",
-  Downloading = "Downloading",
-  Loading = "Loading",
-  Processing = "Processing",
-  Complete = "Complete",
-  Error = "Error",
-}
+export const LoadingStage = {
+  CheckingCache: "CheckingCache",
+  Downloading: "Downloading",
+  Loading: "Loading",
+  Processing: "Processing",
+  Complete: "Complete",
+  Error: "Error",
+} as const;
+export type LoadingStage = typeof LoadingStage[keyof typeof LoadingStage];
 
-export enum AtlasLoadStatus {
-  InProgress = "InProgress",
-  Completed = "Completed",
-  Failed = "Failed",
-}
+export const AtlasLoadStatus = {
+  InProgress: "InProgress",
+  Completed: "Completed",
+  Failed: "Failed",
+} as const;
+export type AtlasLoadStatus = typeof AtlasLoadStatus[keyof typeof AtlasLoadStatus];
 
 export interface AtlasLoadProgress {
   atlas_id: string;

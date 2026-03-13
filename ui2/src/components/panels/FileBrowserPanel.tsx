@@ -18,9 +18,17 @@ import { useFileBrowserStore } from '@/stores/fileBrowserStore';
 import type { FileTreeNode, DragFileData, MountSource } from '@/types/filesystem';
 import { getEventBus } from '@/events/EventBus';
 import { getTransport } from '@/services/transport';
+import {
+  mountConnectedRemoteDirectory,
+  type ConnectedRemoteMount,
+} from '@/services/RemoteMountService';
 import { PanelErrorBoundary } from '../common/PanelErrorBoundary';
 import { PanelHeader } from '@/components/ui/PanelHeader';
-import { RemoteMountDialog, type ConnectedRemoteMount } from './RemoteMountDialog';
+import { RemoteMountDialog } from './RemoteMountDialog';
+import { useContextMenuStore } from '@/stores/contextMenuStore';
+import type { ContextMenuItem } from '@/stores/contextMenuStore';
+import { FILE_DRAG_MIME } from '@/utils/layerDrag';
+import type { DisplayOpenIntent } from '@/types/loadIntent';
 
 interface FileNodeData {
   id: string;
@@ -55,7 +63,7 @@ function formatRemoteHostLabel(mountSource: MountSource): string {
   return mountSource.label ?? 'remote';
 }
 
-const FileTreeItem: React.FC<FileTreeItemProps> = ({ node, style, dragHandle }) => {
+const FileTreeItem: React.FC<FileTreeItemProps> = ({ node, style }) => {
   const { data } = node;
   const fileBrowserStore = useFileBrowserStore();
   const selectedPath = useFileBrowserStore(state => state.selectedPath);
@@ -210,22 +218,92 @@ const FileTreeItem: React.FC<FileTreeItemProps> = ({ node, style, dragHandle }) 
   
   function handleDragStart(event: React.DragEvent) {
     if (!event.dataTransfer) return;
-    
+
     const dragData: DragFileData = {
       path: data.path,
       name: data.name,
       type: data.type,
       extension: data.extension
     };
-    
-    event.dataTransfer.setData('application/json', JSON.stringify(dragData));
+
+    const json = JSON.stringify(dragData);
+    event.dataTransfer.setData(FILE_DRAG_MIME, json);
+    event.dataTransfer.setData('application/json', json);
     event.dataTransfer.effectAllowed = 'copy';
   }
   
   function handleContextMenu(event: React.MouseEvent) {
     event.preventDefault();
-    // TODO: Show context menu
-    console.log('Context menu for:', data.path);
+    event.stopPropagation();
+
+    const eventBus = getEventBus();
+    const contextMenu = useContextMenuStore.getState();
+
+    if (isDirectory) {
+      // Directory context menu — minimal for now
+      contextMenu.open(event.clientX, event.clientY, [
+        {
+          id: 'open-dir',
+          label: 'Expand',
+          onClick: () => {
+            if (!node.isOpen) {
+              node.toggle();
+              if (!data.children || data.children.length === 0) {
+                fileBrowserStore.loadDirectory(data.path);
+              }
+            }
+          },
+        },
+      ]);
+      return;
+    }
+
+    // File context menu
+    const items: ContextMenuItem[] = [
+      {
+        id: 'open-default',
+        label: 'Open',
+        onClick: () => {
+          eventBus.emit('filebrowser.file.open', {
+            path: data.path,
+            intent: 'default' as DisplayOpenIntent,
+          });
+        },
+      },
+      {
+        id: 'add-layer',
+        label: 'Add As Layer',
+        onClick: () => {
+          eventBus.emit('filebrowser.file.open', {
+            path: data.path,
+            intent: 'add-layer' as DisplayOpenIntent,
+          });
+        },
+      },
+      { id: 'sep-1', label: '', separator: true },
+      {
+        id: 'new-workspace',
+        label: 'Open In New Tab',
+        onClick: () => {
+          eventBus.emit('filebrowser.file.open', {
+            path: data.path,
+            intent: 'new-workspace' as DisplayOpenIntent,
+          });
+        },
+      },
+      {
+        id: 'comparison',
+        label: 'Open In Comparison View',
+        onClick: () => {
+          eventBus.emit('filebrowser.file.open', {
+            path: data.path,
+            intent: 'comparison' as DisplayOpenIntent,
+          });
+        },
+      },
+    ];
+
+    contextMenu.open(event.clientX, event.clientY, items);
   }
   
   const displayName = formatDisplayName(data.name, isDirectory);
@@ -233,7 +311,6 @@ const FileTreeItem: React.FC<FileTreeItemProps> = ({ node, style, dragHandle }) 
 
   return (
     <div
-      ref={dragHandle}
       style={{
         ...style,
         paddingLeft: `${style.paddingLeft || 0}px`
@@ -251,10 +328,12 @@ const FileTreeItem: React.FC<FileTreeItemProps> = ({ node, style, dragHandle }) 
           className="expand-button"
           onClick={(e) => {
             e.stopPropagation();
+            // Check before toggling — after toggle(), isOpen has already flipped
+            const wasOpen = node.isOpen;
             node.toggle();
-            
+
             // Load directory contents when opening
-            if (!node.isOpen && (!data.children || data.children.length === 0)) {
+            if (!wasOpen && (!data.children || data.children.length === 0)) {
               fileBrowserStore.loadDirectory(data.path);
             }
           }}
@@ -327,7 +406,6 @@ const FileBrowserPanelContent: React.FC = () => {
   useEffect(() => {
     console.log('FileBrowserPanel mounted with store:', {
       storeInstance: fileBrowserStore,
-      isWindowStore: window.__fileBrowserStore === fileBrowserStore,
       windowStore: window.__fileBrowserStore
     });
   }, []);
@@ -532,18 +610,7 @@ const FileBrowserPanelContent: React.FC = () => {
   }
 
   async function handleRemoteMounted(mount: ConnectedRemoteMount) {
-    await fileBrowserStore.mountDirectory(mount.local_path, {
-      displayName: mount.display_name,
-      mountSource: {
-        kind: 'remote',
-        label: mount.origin.label,
-        mountId: mount.mount_id,
-        host: mount.origin.host,
-        port: mount.origin.port,
-        user: mount.origin.user,
-        remotePath: mount.origin.remote_path,
-      },
-    });
+    await mountConnectedRemoteDirectory(mount);
   }
 
   async function unmountSelectedRoot() {
@@ -838,10 +905,11 @@ const FileBrowserPanelContent: React.FC = () => {
                   
                   // If it's a directory, toggle its state
                   if (node.isInternal) {
+                    const wasOpen = node.isOpen;
                     node.toggle();
-                    
+
                     // If we just opened the folder, load its contents
-                    if (!node.isOpen && (!node.data.children || node.data.children.length === 0)) {
+                    if (!wasOpen && (!node.data.children || node.data.children.length === 0)) {
                       fileBrowserStore.loadDirectory(node.data.path);
                     }
                   }

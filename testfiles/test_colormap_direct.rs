@@ -3,7 +3,7 @@ fn main() {
     // Test if we can access the colormap crate
     match std::process::Command::new("cargo")
         .args(&["metadata", "--format-version", "1"])
-        .output() 
+        .output()
     {
         Ok(output) => {
             let metadata = String::from_utf8_lossy(&output.stdout);
@@ -15,7 +15,7 @@ fn main() {
         }
         Err(e) => println!("Failed to run cargo metadata: {}", e),
     }
-    
+
     // Check if colormap is a local crate
     if std::path::Path::new("core/colormap").exists() {
         println!("Found local colormap crate at core/colormap");

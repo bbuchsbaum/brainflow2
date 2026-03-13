@@ -4,7 +4,10 @@
  */
 
 import React from 'react';
-import { useSurfaceStore } from '@/stores/surfaceStore';
+import {
+  DEFAULT_SURFACE_VIEW_SETTINGS,
+  useSurfaceStore,
+} from '@/stores/surfaceStore';
 import { Switch } from '@/components/ui/shadcn/switch';
 import { CollapsibleSection } from '@/components/ui/CollapsibleSection';
 import { SingleSlider } from '@/components/ui/SingleSlider';
@@ -74,8 +77,35 @@ const ColorRow: React.FC<{
   </div>
 );
 
-export const SurfaceGeometryControls: React.FC = () => {
-  const { renderSettings, updateRenderSettings } = useSurfaceStore();
+interface SurfaceGeometryControlsProps {
+  surfaceViewId: string;
+}
+
+export const SurfaceGeometryControls: React.FC<SurfaceGeometryControlsProps> = ({ surfaceViewId }) => {
+  const lightingSettings = useSurfaceStore(
+    (state) =>
+      state.surfaceViewSettings.get(surfaceViewId)?.lightingSettings ??
+      DEFAULT_SURFACE_VIEW_SETTINGS.lightingSettings
+  );
+  const displaySettings = useSurfaceStore(
+    (state) =>
+      state.surfaceViewSettings.get(surfaceViewId)?.displaySettings ??
+      DEFAULT_SURFACE_VIEW_SETTINGS.displaySettings
+  );
+  const materialSettings = useSurfaceStore(
+    (state) =>
+      state.surfaceViewSettings.get(surfaceViewId)?.materialSettings ??
+      DEFAULT_SURFACE_VIEW_SETTINGS.materialSettings
+  );
+  const projectionSettings = useSurfaceStore(
+    (state) =>
+      state.surfaceViewSettings.get(surfaceViewId)?.projectionSettings ??
+      DEFAULT_SURFACE_VIEW_SETTINGS.projectionSettings
+  );
+  const updateLightingSettings = useSurfaceStore((state) => state.updateSurfaceViewLightingSettings);
+  const updateDisplaySettings = useSurfaceStore((state) => state.updateSurfaceViewDisplaySettings);
+  const updateMaterialSettings = useSurfaceStore((state) => state.updateSurfaceViewMaterialSettings);
+  const updateProjectionSettings = useSurfaceStore((state) => state.updateSurfaceViewProjectionSettings);
 
   const lightPresets = [
     { name: 'Bright', values: { ambientLightIntensity: 1.2, directionalLightIntensity: 1.5, fillLightIntensity: 0.7 } },
@@ -93,21 +123,21 @@ export const SurfaceGeometryControls: React.FC = () => {
     { name: 'Default', position: [100, 100, 100] as [number, number, number] },
   ];
 
-  const activePosition = renderSettings.lightPosition || lightPositions[3].position;
+  const activePosition = lightingSettings.lightPosition || lightPositions[3].position;
   const activePositionName =
     lightPositions.find((p) => p.position.every((v, idx) => v === activePosition[idx]))?.name || 'Default';
 
   const handlePositionSelect = (name: string) => {
     const preset = lightPositions.find((p) => p.name === name);
     if (preset) {
-      updateRenderSettings({ lightPosition: preset.position });
+      updateLightingSettings(surfaceViewId, { lightPosition: preset.position });
     }
   };
 
   const handlePresetApply = (presetName: string) => {
     const preset = lightPresets.find((p) => p.name === presetName);
     if (preset) {
-      updateRenderSettings(preset.values);
+      updateLightingSettings(surfaceViewId, preset.values);
     }
   };
 
@@ -120,8 +150,8 @@ export const SurfaceGeometryControls: React.FC = () => {
             label="Ambient"
             min={0}
             max={1}
-            value={renderSettings.ambientLightIntensity}
-            onChange={(value) => updateRenderSettings({ ambientLightIntensity: value })}
+            value={lightingSettings.ambientLightIntensity}
+            onChange={(value) => updateLightingSettings(surfaceViewId, { ambientLightIntensity: value })}
             layout="strip"
             compact
             highContrast
@@ -134,8 +164,8 @@ export const SurfaceGeometryControls: React.FC = () => {
             label="Directional"
             min={0}
             max={2}
-            value={renderSettings.directionalLightIntensity}
-            onChange={(value) => updateRenderSettings({ directionalLightIntensity: value })}
+            value={lightingSettings.directionalLightIntensity}
+            onChange={(value) => updateLightingSettings(surfaceViewId, { directionalLightIntensity: value })}
             layout="strip"
             compact
             highContrast
@@ -148,8 +178,8 @@ export const SurfaceGeometryControls: React.FC = () => {
             label="Fill"
             min={0}
             max={1}
-            value={renderSettings.fillLightIntensity || 0.5}
-            onChange={(value) => updateRenderSettings({ fillLightIntensity: value })}
+            value={lightingSettings.fillLightIntensity || 0.5}
+            onChange={(value) => updateLightingSettings(surfaceViewId, { fillLightIntensity: value })}
             layout="strip"
             compact
             highContrast
@@ -189,20 +219,20 @@ export const SurfaceGeometryControls: React.FC = () => {
         <div className="rounded-sm border border-border/50 bg-muted/10">
           <ToggleRow
             label="Wireframe"
-            checked={renderSettings.wireframe}
-            onChange={(checked) => updateRenderSettings({ wireframe: checked })}
+            checked={displaySettings.wireframe}
+            onChange={(checked) => updateDisplaySettings(surfaceViewId, { wireframe: checked })}
           />
           <ToggleRow
             label="Flat Shading"
-            checked={renderSettings.flatShading}
-            onChange={(checked) => updateRenderSettings({ flatShading: checked })}
+            checked={displaySettings.flatShading}
+            onChange={(checked) => updateDisplaySettings(surfaceViewId, { flatShading: checked })}
           />
           <SingleSlider
             label="Opacity"
             min={0}
             max={1}
-            value={renderSettings.opacity}
-            onChange={(value) => updateRenderSettings({ opacity: value })}
+            value={displaySettings.opacity}
+            onChange={(value) => updateDisplaySettings(surfaceViewId, { opacity: value })}
             layout="strip"
             compact
             highContrast
@@ -215,8 +245,8 @@ export const SurfaceGeometryControls: React.FC = () => {
             label="Smoothing"
             min={0}
             max={1}
-            value={renderSettings.smoothing}
-            onChange={(value) => updateRenderSettings({ smoothing: value })}
+            value={displaySettings.smoothing}
+            onChange={(value) => updateDisplaySettings(surfaceViewId, { smoothing: value })}
             layout="strip"
             compact
             highContrast
@@ -233,20 +263,20 @@ export const SurfaceGeometryControls: React.FC = () => {
         <div className="rounded-sm border border-border/50 bg-muted/10">
           <ColorRow
             label="Surface Color"
-            value={renderSettings.surfaceColor}
-            onChange={(value) => updateRenderSettings({ surfaceColor: value })}
+            value={materialSettings.surfaceColor}
+            onChange={(value) => updateMaterialSettings(surfaceViewId, { surfaceColor: value })}
           />
           <ColorRow
             label="Specular Color"
-            value={renderSettings.specularColor}
-            onChange={(value) => updateRenderSettings({ specularColor: value })}
+            value={materialSettings.specularColor}
+            onChange={(value) => updateMaterialSettings(surfaceViewId, { specularColor: value })}
           />
           <SingleSlider
             label="Shininess"
             min={0}
             max={200}
-            value={renderSettings.shininess}
-            onChange={(value) => updateRenderSettings({ shininess: value })}
+            value={materialSettings.shininess}
+            onChange={(value) => updateMaterialSettings(surfaceViewId, { shininess: value })}
             layout="strip"
             compact
             highContrast
@@ -257,15 +287,15 @@ export const SurfaceGeometryControls: React.FC = () => {
           />
           <ColorRow
             label="Emissive Color"
-            value={renderSettings.emissiveColor}
-            onChange={(value) => updateRenderSettings({ emissiveColor: value })}
+            value={materialSettings.emissiveColor}
+            onChange={(value) => updateMaterialSettings(surfaceViewId, { emissiveColor: value })}
           />
           <SingleSlider
             label="Emissive Intensity"
             min={0}
             max={1}
-            value={renderSettings.emissiveIntensity}
-            onChange={(value) => updateRenderSettings({ emissiveIntensity: value })}
+            value={materialSettings.emissiveIntensity}
+            onChange={(value) => updateMaterialSettings(surfaceViewId, { emissiveIntensity: value })}
             layout="strip"
             compact
             highContrast
@@ -282,11 +312,11 @@ export const SurfaceGeometryControls: React.FC = () => {
         <div className="rounded-sm border border-border/50 bg-muted/10">
           <ToggleRow
             label="GPU Mode"
-            checked={renderSettings.useGPUProjection}
-            onChange={(checked) => updateRenderSettings({ useGPUProjection: checked })}
+            checked={projectionSettings.useGPUProjection}
+            onChange={(checked) => updateProjectionSettings(surfaceViewId, { useGPUProjection: checked })}
           />
           <div className="px-2 py-2 text-[10px] text-muted-foreground">
-            {renderSettings.useGPUProjection ? (
+            {projectionSettings.useGPUProjection ? (
               <span>GPU mode: Volume data is sampled directly in the shader. Better for 4D time series.</span>
             ) : (
               <span>CPU mode: Per-vertex values are pre-computed. More reliable on all hardware.</span>

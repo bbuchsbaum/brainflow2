@@ -4,15 +4,18 @@
  */
 
 import React from 'react';
+import { Button } from '@/components/ui/Button';
 
 interface LayerEmptyStateProps {
   onRefresh?: () => void;
   showRefreshButton?: boolean;
+  onOpenSetStudio?: () => void;
 }
 
 export const LayerEmptyState: React.FC<LayerEmptyStateProps> = ({
   onRefresh,
-  showRefreshButton = false
+  showRefreshButton = false,
+  onOpenSetStudio,
 }) => {
   return (
     <div className="h-full flex flex-col items-center justify-center p-6 text-center select-none">
@@ -50,6 +53,17 @@ export const LayerEmptyState: React.FC<LayerEmptyStateProps> = ({
       <p className="mt-4 text-[9px] text-muted-foreground/40 max-w-[160px] leading-relaxed font-mono uppercase tracking-wider">
         Import volumes via File Browser
       </p>
+
+      {onOpenSetStudio ? (
+        <div className="mt-4">
+          <Button variant="ghost" size="sm" onClick={onOpenSetStudio}>
+            Open Set Studio
+          </Button>
+          <div className="mt-2 text-[9px] uppercase tracking-wider text-muted-foreground/40 font-mono">
+            Shortcut Cmd/Ctrl+5
+          </div>
+        </div>
+      ) : null}
 
       {showRefreshButton && onRefresh && (
         <button

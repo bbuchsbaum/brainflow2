@@ -40,6 +40,10 @@ export const LayerDropdown: React.FC<LayerDropdownProps> = ({
       <Popover open={isOpen} onOpenChange={setIsOpen}>
         <PopoverTrigger asChild>
           <button
+            type="button"
+            aria-haspopup="listbox"
+            aria-expanded={isOpen}
+            aria-label="Select active layer"
             className={cn(
               "w-full h-10 px-3 flex items-center justify-between",
               "rounded-md border bg-background text-[13px]",
@@ -73,11 +77,16 @@ export const LayerDropdown: React.FC<LayerDropdownProps> = ({
           className="w-[var(--radix-popover-trigger-width)] p-0" 
           align="start"
           sideOffset={4}
+          role="listbox"
+          aria-label="Active layer options"
         >
           <div className="max-h-[280px] overflow-y-auto">
             {layers.map((layer) => (
               <div
                 key={layer.id}
+                role="option"
+                aria-selected={layer.id === selectedLayerId}
+                tabIndex={0}
                 className={cn(
                   "flex items-center h-11 px-4 cursor-pointer",
                   "transition-all duration-150",
@@ -89,6 +98,13 @@ export const LayerDropdown: React.FC<LayerDropdownProps> = ({
                 onClick={() => {
                   onSelect(layer.id);
                   setIsOpen(false);
+                }}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter' || event.key === ' ') {
+                    event.preventDefault();
+                    onSelect(layer.id);
+                    setIsOpen(false);
+                  }
                 }}
               >
                 {/* Layer name */}
@@ -105,9 +121,11 @@ export const LayerDropdown: React.FC<LayerDropdownProps> = ({
                 {/* Info button */}
                 {onShowMetadata && (
                   <button
+                    type="button"
                     onClick={(e) => {
                       e.stopPropagation();
                       onShowMetadata(layer.id);
+                      setIsOpen(false);
                     }}
                     className={cn(
                       "w-6 h-6 flex items-center justify-center rounded",
@@ -115,6 +133,7 @@ export const LayerDropdown: React.FC<LayerDropdownProps> = ({
                       "hover:bg-accent/20 transition-colors"
                     )}
                     title="Show metadata"
+                    aria-label={`Show metadata for ${layer.name}`}
                   >
                     <VscInfo className="w-3.5 h-3.5" />
                   </button>
@@ -122,6 +141,7 @@ export const LayerDropdown: React.FC<LayerDropdownProps> = ({
 
                 {/* Visibility toggle */}
                 <button
+                  type="button"
                   onClick={(e) => {
                     e.stopPropagation();
                     onToggleVisibility(layer.id);
@@ -132,6 +152,7 @@ export const LayerDropdown: React.FC<LayerDropdownProps> = ({
                     "hover:bg-accent/20 transition-colors"
                   )}
                   title={layer.visible ? 'Hide layer' : 'Show layer'}
+                  aria-label={`${layer.visible ? 'Hide' : 'Show'} ${layer.name}`}
                 >
                   {layer.visible ? (
                     <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">

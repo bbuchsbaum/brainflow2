@@ -13,12 +13,11 @@ export function useStatusBarService() {
   useEffect(() => {
     const service = getStatusBarService();
     
-    // Initialize the service with the status updater
-    service.initialize(statusUpdater);
+    service.initialize();
 
     // Cleanup on unmount
     return () => {
       service.cleanup();
     };
-  }, [statusUpdater]); // Include statusUpdater in dependencies
+  }, [statusUpdater]);
 }

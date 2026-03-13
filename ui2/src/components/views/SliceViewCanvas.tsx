@@ -26,6 +26,7 @@ import { useDisplayOptionsStore } from '@/stores/displayOptionsStore';
 import { useViewContextMenu } from '@/hooks/useViewContextMenu';
 import { useActiveRenderable } from '@/hooks/useActiveRenderable';
 import { useHoverInfo } from '@/hooks/useHoverInfo';
+import type { DisplayOpenIntent } from '@/types/loadIntent';
 
 // Anatomical orientation labels per view (LPI convention)
 const ORIENTATION_LABELS: Record<string, { top: string; bottom: string; left: string; right: string }> = {
@@ -312,7 +313,9 @@ function SliceViewCanvasRaw({ viewId, width, height, className = '' }: SliceView
   useEffect(() => { showTimeOverlayRef.current = showTimeOverlay; }, [showTimeOverlay]);
   const throttledHandleWheel = useMemo(() => {
     const fn = throttle((event: React.WheelEvent<HTMLDivElement>) => {
-      event.preventDefault();
+      if (event.cancelable) {
+        event.preventDefault();
+      }
       markActive();
       const primary = layersRef.current.find(l => l.visible);
       if (!primary) return;
@@ -368,11 +371,17 @@ function SliceViewCanvasRaw({ viewId, width, height, className = '' }: SliceView
   const handleContextMenu = useViewContextMenu(viewId);
 
   // Handle file drops
-  const handleFileDrop = useCallback(async (file: File) => {
+  const handleFileDrop = useCallback(async (file: File, intent: DisplayOpenIntent) => {
     // Use FileLoadingService to load the file
     const { getFileLoadingService } = await import('@/services/FileLoadingService');
     const fileService = getFileLoadingService();
-    await fileService.loadDroppedFile(file);
+    await fileService.loadDroppedFile(file, intent);
+  }, []);
+
+  const handlePathDrop = useCallback(async (path: string, intent: DisplayOpenIntent) => {
+    const { getFileLoadingService } = await import('@/services/FileLoadingService');
+    const fileService = getFileLoadingService();
+    await fileService.loadFile(path, 'drag-drop', intent);
   }, []);
 
   // For Allotment compatibility, we need proper height inheritance
@@ -408,6 +417,7 @@ function SliceViewCanvasRaw({ viewId, width, height, className = '' }: SliceView
           onMouseLeave={handleMouseLeave}
           onWheel={throttledHandleWheel}
           onFileDrop={handleFileDrop}
+          onPathDrop={handlePathDrop}
           enableDragDrop={true}
           showLoading={false}
           showNoLayers={!hasLayers && !isLoadingAnyLayer}

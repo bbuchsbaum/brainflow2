@@ -1,5 +1,5 @@
 //! Visual debugging output for ellipsoid coordinate transformation tests
-//! 
+//!
 //! Generates HTML reports with side-by-side comparisons of CPU/GPU rendering,
 //! slice views, difference maps, and interactive navigation.
 
@@ -30,7 +30,7 @@ pub struct VisualDebugConfig {
 #[derive(Debug, Clone)]
 pub enum SliceOrientation {
     Axial,    // Z slices (XY plane)
-    Coronal,  // Y slices (XZ plane) 
+    Coronal,  // Y slices (XZ plane)
     Sagittal, // X slices (YZ plane)
 }
 
@@ -87,21 +87,21 @@ impl VisualDebugGenerator {
     pub fn generate_report(&self, results: &EllipsoidTestResults) -> Result<String> {
         // Create output directory
         fs::create_dir_all(&self.config.output_dir)?;
-        
+
         // Generate images for each test result
         let mut test_data = Vec::new();
         for (i, result) in results.results.iter().enumerate() {
             let test_images = self.generate_test_images(result, i)?;
             test_data.push(test_images);
         }
-        
+
         // Generate HTML report
         let html_path = format!("{}/ellipsoid_debug_report.html", self.config.output_dir);
         self.generate_html_report(&html_path, results, &test_data)?;
-        
+
         // Copy static assets (CSS, JS)
         self.copy_static_assets()?;
-        
+
         Ok(html_path)
     }
 
@@ -120,30 +120,30 @@ impl VisualDebugGenerator {
         // TODO: Visual debugging needs to be updated for current test structure
         // Generate ground truth volume - this requires access to original ellipsoid and volume config
         // let ground_truth_volume = self.create_ground_truth_volume(&result.config.ellipsoid, &result.config.volume_configs[0])?;
-        
+
         // For each orientation, generate slice images
         for orientation in &self.config.slice_orientations {
             let orientation_name = format!("{:?}", orientation).to_lowercase();
-            
+
             // Generate evenly spaced slice indices
             // TODO: Temporarily disabled until visual debugging is restructured
             // let slice_indices = self.calculate_slice_indices(&ground_truth_volume, orientation);
             let slice_indices = vec![0, 1, 2]; // Temporary placeholder
-            
+
             for (slice_idx, slice_index) in slice_indices.iter().enumerate() {
                 // TODO: Extract slices from volumes when visual debugging is restructured
                 // let gt_slice = self.extract_slice(&ground_truth_volume, orientation, *slice_index)?;
-                
+
                 // Generate image filenames
                 let gt_filename = format!("test_{}_gt_{}_{}.png", test_index, orientation_name, slice_idx);
                 let cpu_filename = format!("test_{}_cpu_{}_{}.png", test_index, orientation_name, slice_idx);
                 let gpu_filename = format!("test_{}_gpu_{}_{}.png", test_index, orientation_name, slice_idx);
                 let diff_filename = format!("test_{}_diff_{}_{}.png", test_index, orientation_name, slice_idx);
-                
+
                 // TODO: Save ground truth image when available
                 // let gt_path = format!("{}/{}", self.config.output_dir, gt_filename);
                 // self.save_slice_image(&gt_slice, &gt_path, &self.config.color_schemes.ground_truth)?;
-                
+
                 image_set.ground_truth_images.push(SliceImage {
                     filename: gt_filename,
                     orientation: orientation.clone(),
@@ -181,7 +181,7 @@ impl VisualDebugGenerator {
             [volume_config.spacing_mm[0] as f32, volume_config.spacing_mm[1] as f32, volume_config.spacing_mm[2] as f32],
             [volume_config.origin_mm[0] as f32, volume_config.origin_mm[1] as f32, volume_config.origin_mm[2] as f32],
         );
-        
+
         ellipsoid.rasterize_supersampled(&mut volume, 2)?;
         Ok(volume)
     }
@@ -190,10 +190,10 @@ impl VisualDebugGenerator {
     fn calculate_slice_indices(&self, volume: &SimpleVolume, orientation: &SliceOrientation) -> Vec<usize> {
         let max_index = match orientation {
             SliceOrientation::Axial => volume.dimensions[2],
-            SliceOrientation::Coronal => volume.dimensions[1], 
+            SliceOrientation::Coronal => volume.dimensions[1],
             SliceOrientation::Sagittal => volume.dimensions[0],
         };
-        
+
         let step = max_index / (self.config.slices_per_orientation + 1);
         (1..=self.config.slices_per_orientation)
             .map(|i| i * step)
@@ -208,9 +208,9 @@ impl VisualDebugGenerator {
             SliceOrientation::Coronal => (volume.dimensions[0], volume.dimensions[2]),
             SliceOrientation::Sagittal => (volume.dimensions[1], volume.dimensions[2]),
         };
-        
+
         let mut slice_data = vec![0.0; width * height];
-        
+
         for y in 0..height {
             for x in 0..width {
                 let coords = match orientation {
@@ -218,28 +218,28 @@ impl VisualDebugGenerator {
                     SliceOrientation::Coronal => [x, slice_index, y],
                     SliceOrientation::Sagittal => [slice_index, x, y],
                 };
-                
+
                 if let Some(value) = volume.get_at_coords(coords) {
                     slice_data[y * width + x] = value;
                 }
             }
         }
-        
+
         Ok(slice_data)
     }
 
     /// Save a 2D slice as a PNG image with specified colormap
     fn save_slice_image(&self, slice_data: &[f32], path: &str, color_scheme: &ColorScheme) -> Result<()> {
         use image::{ImageBuffer, Rgb};
-        
+
         let (width, height) = self.config.image_size;
         let mut img = ImageBuffer::new(width as u32, height as u32);
-        
+
         // Find data range for normalization
         let min_val = slice_data.iter().fold(f32::INFINITY, |a, &b| a.min(b));
         let max_val = slice_data.iter().fold(f32::NEG_INFINITY, |a, &b| a.max(b));
         let range = max_val - min_val;
-        
+
         // Resize slice data to image dimensions if needed
         let resized_data = if slice_data.len() == width * height {
             slice_data.to_vec()
@@ -247,7 +247,7 @@ impl VisualDebugGenerator {
             // Simple nearest neighbor resampling
             self.resize_slice_data(slice_data, width, height)?
         };
-        
+
         for (x, y, pixel) in img.enumerate_pixels_mut() {
             let idx = (y as usize * width + x as usize).min(resized_data.len() - 1);
             let normalized = if range > 0.0 {
@@ -255,11 +255,11 @@ impl VisualDebugGenerator {
             } else {
                 0.0
             }.clamp(0.0, 1.0);
-            
+
             let color = self.apply_colormap(normalized, color_scheme);
             *pixel = Rgb([color.0, color.1, color.2]);
         }
-        
+
         img.save(path)?;
         Ok(())
     }
@@ -269,19 +269,19 @@ impl VisualDebugGenerator {
         // Assume square input for simplicity
         let input_size = (data.len() as f32).sqrt() as usize;
         let mut resized = vec![0.0; target_width * target_height];
-        
+
         for y in 0..target_height {
             for x in 0..target_width {
                 let src_x = (x * input_size / target_width).min(input_size - 1);
                 let src_y = (y * input_size / target_height).min(input_size - 1);
                 let src_idx = src_y * input_size + src_x;
-                
+
                 if src_idx < data.len() {
                     resized[y * target_width + x] = data[src_idx];
                 }
             }
         }
-        
+
         Ok(resized)
     }
 
@@ -343,21 +343,21 @@ impl VisualDebugGenerator {
     fn copy_static_assets(&self) -> Result<()> {
         // Read CSS and JS from static directory
         let static_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("static");
-        
+
         let css_path = static_dir.join("debug_report.css");
         let js_path = static_dir.join("debug_report.js");
-        
+
         if css_path.exists() && js_path.exists() {
             let css_content = fs::read_to_string(&css_path)?;
             let js_content = fs::read_to_string(&js_path)?;
-            
+
             fs::write(format!("{}/debug_report.css", self.config.output_dir), css_content)?;
             fs::write(format!("{}/debug_report.js", self.config.output_dir), js_content)?;
         } else {
             // Fallback: embed minimal CSS/JS inline
             self.write_embedded_assets()?;
         }
-        
+
         Ok(())
     }
 
@@ -372,7 +372,7 @@ impl VisualDebugGenerator {
         .metrics-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; }
         .metric { background: #f9f9f9; padding: 10px; border-radius: 4px; }
         "#;
-        
+
         let minimal_js = r#"
         document.addEventListener('DOMContentLoaded', function() {
             console.log('Debug report loaded');
@@ -384,17 +384,17 @@ impl VisualDebugGenerator {
             });
         });
         "#;
-        
+
         fs::write(format!("{}/debug_report.css", self.config.output_dir), minimal_css)?;
         fs::write(format!("{}/debug_report.js", self.config.output_dir), minimal_js)?;
-        
+
         Ok(())
     }
 
     /// Create the HTML template with embedded data
     fn create_html_template(&self, results: &EllipsoidTestResults, test_data: &[TestImageSet]) -> Result<String> {
         let summary = results.summary();
-        
+
         let mut html = String::new();
         html.push_str(&format!(r#"
 <!DOCTYPE html>
@@ -469,7 +469,7 @@ impl VisualDebugGenerator {
         let mut section = format!(r#"
         <section id="test-{}" class="test-section">
             <h2>Test {}: {}</h2>
-            
+
             <div class="metrics-dashboard">
                 <h3>Validation Metrics</h3>
                 <div class="metrics-grid">
@@ -497,7 +497,7 @@ impl VisualDebugGenerator {
 "#, orientation));
 
             // Add ground truth images for this orientation
-            for img in test.ground_truth_images.iter().filter(|img| 
+            for img in test.ground_truth_images.iter().filter(|img|
                 format!("{:?}", img.orientation).to_lowercase() == *orientation
             ) {
                 section.push_str(&format!(
@@ -575,7 +575,7 @@ impl SimpleVolume {
     pub fn new(dimensions: [usize; 3], spacing: [f32; 3], origin: [f32; 3]) -> Self {
         let size = dimensions[0] * dimensions[1] * dimensions[2];
         let data = vec![0.0; size];
-        
+
         // Create voxel-to-world transformation matrix
         let voxel_to_world = Matrix4::new(
             spacing[0], 0.0, 0.0, origin[0],
@@ -583,7 +583,7 @@ impl SimpleVolume {
             0.0, 0.0, spacing[2], origin[2],
             0.0, 0.0, 0.0, 1.0,
         );
-        
+
         Self {
             dimensions,
             spacing,
@@ -598,11 +598,11 @@ impl VolumeRasterizer for SimpleVolume {
     fn dimensions(&self) -> [usize; 3] {
         self.dimensions
     }
-    
+
     fn voxel_to_world_matrix(&self) -> Matrix4<f32> {
         self.voxel_to_world
     }
-    
+
     fn set_at_coords(&mut self, coords: [usize; 3], value: f32) -> neuro_types::Result<()> {
         let idx = coords[2] * self.dimensions[0] * self.dimensions[1]
                 + coords[1] * self.dimensions[0]
@@ -618,26 +618,26 @@ impl Volume for SimpleVolume {
     fn dimensions(&self) -> [usize; 3] {
         self.dimensions
     }
-    
+
     fn spacing(&self) -> [f32; 3] {
         self.spacing
     }
-    
+
     fn origin(&self) -> [f32; 3] {
         self.origin
     }
-    
+
     fn get_at_coords(&self, coords: [usize; 3]) -> Option<f32> {
         let idx = coords[2] * self.dimensions[0] * self.dimensions[1]
                 + coords[1] * self.dimensions[0]
                 + coords[0];
         self.data.get(idx).copied()
     }
-    
+
     fn voxel_to_world_matrix(&self) -> Matrix4<f32> {
         self.voxel_to_world
     }
-    
+
     fn dtype_name(&self) -> &str {
         "f32"
     }
@@ -666,8 +666,8 @@ fn format_metrics(metrics: &neuro_types::OverlapMetrics) -> String {
             <span class="metric-label">Volume Difference:</span>
             <span class="metric-value">{:.1}%</span>
         </div>
-    "#, 
-        if metrics.dice_coefficient > 0.95 { "excellent" } 
+    "#,
+        if metrics.dice_coefficient > 0.95 { "excellent" }
         else if metrics.dice_coefficient > 0.90 { "good" }
         else if metrics.dice_coefficient > 0.80 { "fair" }
         else { "poor" },

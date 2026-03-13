@@ -5,7 +5,8 @@
  * Aligns labels and controls for better visual hierarchy.
  */
 
-import React, { ReactNode } from 'react';
+import React from 'react';
+import type { ReactNode } from 'react';
 import { Label } from '@/components/ui/shadcn/label';
 
 interface FieldRowProps {

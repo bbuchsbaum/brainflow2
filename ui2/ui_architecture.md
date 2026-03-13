@@ -144,14 +144,10 @@ class ApiService {
 
   // Replaces the single atomic call with a sequence of fine-grained commands
   async updateAndRender(viewState: ViewState): Promise<void> {
-    // A Promise.all can run these in parallel if the backend supports it.
-    await Promise.all([
-      invoke('set_crosshair', { position: viewState.crosshair.position, visible: viewState.crosshair.visible }),
-      invoke('update_frame_ubo', { camera: viewState.camera }), // Simplified payload
-      invoke('update_all_layers', { layers: viewState.layers.map(l => l.render) }),
-    ]);
-
-    const imageData = await invoke('render_to_image_binary');
+    const imageData = await invoke('render_view', {
+      stateJson: JSON.stringify(viewState),
+      format: 'rgba'
+    });
     // Use createImageBitmap to decode off the main thread.
     const imageBitmap = await createImageBitmap(new Blob([imageData], { type: 'image/png' }));
     imageCache.update(viewState.camera.orientation, imageBitmap);
@@ -165,36 +161,21 @@ class ApiService {
 ```
 
 **B. Rust Backend Facade (Recommended):**
-To maintain atomicity and simplicity on the frontend, a new facade command will be added in Rust.
+To maintain atomicity and simplicity on the frontend, the bridge exposes declarative render commands in Rust.
 
 ```rust
 // api_bridge/src/lib.rs
 
-// New ViewState struct for deserialization from frontend
-#[derive(Deserialize)]
-struct ViewStatePayload { /* ... fields matching the frontend's ViewState ... */ }
-
 #[command]
-async fn apply_and_render_view_state(
+async fn render_view(
   state_json: String,
+  format: String,
   state: State<'_, BridgeState>
 ) -> BridgeResult<Vec<u8>> {
-    let view_state: ViewStatePayload = serde_json::from_str(&state_json)?;
-
-    // 1. Set crosshair (non-blocking)
-    set_crosshair(view_state.crosshair.position, &state).await?;
-
-    // 2. Update layers (non-blocking)
-    update_all_layers(view_state.layers, &state).await?;
-
-    // 3. Update frame camera (non-blocking)
-    update_frame_ubo(view_state.camera.to_ubo(), &state).await?;
-
-    // 4. Render and return image
-    render_to_image_binary(&state).await
+    render_view_process(state_json, state.inner().clone(), RenderFormat::from_str(&format)?).await
 }
 ```
-*Decision: The facade approach in Rust is superior as it guarantees atomicity and keeps the frontend simpler. The `ApiService` will use this single `apply_and_render_view_state` command.*
+*Decision: The facade approach in Rust is superior as it guarantees atomicity and keeps the frontend simpler. The `ApiService` uses `render_view` for single-view output, `submit_view` for no-readback submission, and `render_views` for multi-view output.*
 
 ## 5. Feature-Specific Services
 

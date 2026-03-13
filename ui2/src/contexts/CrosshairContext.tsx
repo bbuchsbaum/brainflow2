@@ -5,7 +5,8 @@
  * New code should use the Zustand store directly.
  */
 
-import React, { createContext, useContext, ReactNode } from 'react';
+import React, { createContext, useContext } from 'react';
+import type { ReactNode } from 'react';
 import { useCrosshairSettingsStore, MEDICAL_COLOR_PRESETS, type CrosshairSettings, type ColorPreset } from '@/stores/crosshairSettingsStore';
 
 interface CrosshairContextValue {

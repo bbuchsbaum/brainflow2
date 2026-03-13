@@ -14,7 +14,11 @@ interface Coordinates {
   z: number;
 }
 
-export function CoordinateConverterWorkspace() {
+interface CoordinateConverterWorkspaceProps {
+  workspaceId?: string;
+}
+
+export function CoordinateConverterWorkspace(_: CoordinateConverterWorkspaceProps) {
   const layers = useLayerStore(state => state.layers);
   const layerMetadata = useLayerStore(state => state.layerMetadata);
   
@@ -26,7 +30,7 @@ export function CoordinateConverterWorkspace() {
   // Get active layer for voxel size info
   const activeLayer = layers.find(l => l.visible);
   const metadata = activeLayer ? layerMetadata.get(activeLayer.id) : undefined;
-  const voxelSize = metadata?.voxelSizes || [1, 1, 1];
+  const voxelSize = metadata?.spacing || [1, 1, 1];
   
   // Conversion function (simplified - in reality would use affine transforms)
   const convertCoordinates = () => {

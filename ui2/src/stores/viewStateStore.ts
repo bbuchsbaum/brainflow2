@@ -1,18 +1,34 @@
 /**
- * ViewState Store - The single source of truth for the entire application
- * Uses Zustand with coalescing middleware for efficient backend updates
+ * ViewState Store
+ *
+ * Compatibility surface for the active workspace's view state, backed by
+ * per-workspace snapshots. Existing selectors can keep reading `viewState`
+ * and `viewStateRevisions`, while new code can access explicit workspace
+ * entries when needed.
  */
 
 import { create } from 'zustand';
-import { temporal } from 'zundo';
+import { subscribeWithSelector } from 'zustand/middleware';
 import { immer } from 'zustand/middleware/immer';
-import type { ViewState } from '@/types/viewState';
+import { enablePatches, produceWithPatches } from 'immer';
+import type { ViewState, ViewStateRevisions } from '@/types/viewState';
 import type { ViewType, ViewPlane, WorldCoordinates } from '@/types/coordinates';
 import { coalesceUpdatesMiddleware, coalesceUtils } from './middleware/coalesceUpdatesMiddleware';
 import { getApiService } from '@/services/apiService';
 import { getViewPlaneService } from '@/services/ViewPlaneService';
 import { useViewLayoutStore } from './viewLayoutStore';
 import { storeLog, storeWarn, storeError, storeTrace } from '@/utils/debugLog';
+import {
+  applyViewStateRevisionPatches,
+  areViewStatesEqual,
+  cloneViewStateRevisions,
+  createInitialViewStateRevisions,
+} from '@/utils/viewStateTracking';
+import { useWorkspaceStore } from './workspaceStore';
+
+enablePatches();
+
+const DEFAULT_WORKSPACE_KEY = '__default_workspace__';
 
 // Declare global interface for store
 declare global {
@@ -21,27 +37,33 @@ declare global {
   }
 }
 
+function getInitialResizeState(): Record<ViewType, Promise<void> | null> {
+  return {
+    axial: null,
+    sagittal: null,
+    coronal: null,
+  };
+}
+
 // Initial view state - placeholder views until a volume is loaded
 function getInitialViewState(): ViewState {
-  // Create simple placeholder views
-  // These will be replaced by backend-calculated views when a volume is loaded
-  const defaultViews = {
+  const defaultViews: Record<ViewType, ViewPlane> = {
     axial: {
       origin_mm: [-100, 100, 0],
-      u_mm: [0.390625, 0, 0],    // 200mm / 512px
-      v_mm: [0, -0.390625, 0],   // -Y for anterior to posterior
+      u_mm: [0.390625, 0, 0],
+      v_mm: [0, -0.390625, 0],
       dim_px: [512, 512] as [number, number]
     },
     sagittal: {
       origin_mm: [0, 100, 100],
-      u_mm: [0, -0.390625, 0],   // -Y for anterior to posterior
-      v_mm: [0, 0, -0.390625],   // -Z for superior to inferior
+      u_mm: [0, -0.390625, 0],
+      v_mm: [0, 0, -0.390625],
       dim_px: [512, 512] as [number, number]
     },
     coronal: {
       origin_mm: [-100, 0, 100],
-      u_mm: [0.390625, 0, 0],    // +X for left to right
-      v_mm: [0, 0, -0.390625],   // -Z for superior to inferior
+      u_mm: [0.390625, 0, 0],
+      v_mm: [0, 0, -0.390625],
       dim_px: [512, 512] as [number, number]
     }
   };
@@ -56,8 +78,27 @@ function getInitialViewState(): ViewState {
   };
 }
 
+function cloneValue<T>(value: T): T {
+  if (typeof structuredClone === 'function') {
+    return structuredClone(value);
+  }
+  return JSON.parse(JSON.stringify(value)) as T;
+}
+
+function cloneViewState(viewState: ViewState): ViewState {
+  return cloneValue(viewState);
+}
+
+function toWorkspaceKey(workspaceId?: string | null): string {
+  return workspaceId ?? DEFAULT_WORKSPACE_KEY;
+}
+
 interface ViewStateStore {
   viewState: ViewState;
+  viewStateRevisions: ViewStateRevisions;
+  workspaceViewStates: Map<string, ViewState>;
+  workspaceViewStateRevisions: Map<string, ViewStateRevisions>;
+  activeWorkspaceKey: string;
 
   // Track pending resize operations to prevent race conditions
   resizeInFlight: Record<ViewType, Promise<void> | null>;
@@ -69,13 +110,14 @@ interface ViewStateStore {
   updateView: (viewType: ViewType, plane: ViewPlane) => void;
   updateViewDimensions: (viewType: ViewType, dimensions: [number, number]) => Promise<void>;
   updateDimensionsAndPreserveScale: (viewType: ViewType, dimensions: [number, number]) => Promise<void>;
-  // Layer operations removed - use setViewState to update layers
 
   // Helpers
   getView: (viewType: ViewType) => ViewPlane;
   getViews: () => Record<ViewType, ViewPlane>;
+  getWorkspaceViewState: (workspaceId?: string | null) => ViewState;
+  getWorkspaceViewStateRevisions: (workspaceId?: string | null) => ViewStateRevisions;
 
-  // For undo/redo (provided by temporal middleware)
+  // For undo/redo - currently scoped to active workspace compatibility surface
   undo: () => void;
   redo: () => void;
   canUndo: () => boolean;
@@ -87,400 +129,378 @@ interface ViewStateStore {
 
 // Create store only once and attach to window for cross-root sharing
 const createViewStateStore = () => create<ViewStateStore>()(
-  temporal(
+  subscribeWithSelector(
     coalesceUpdatesMiddleware<ViewStateStore>({
-      // Backend callback will be set by ApiService
       enabled: true,
-      useTimeout: false // Use requestAnimationFrame in production
+      useTimeout: false
     })(
-      immer((set, get) => ({
-        viewState: getInitialViewState(),
+      immer<ViewStateStore>((set, get) => {
+        const getCurrentWorkspaceKey = () => get().activeWorkspaceKey;
 
-        // Initialize resize tracking
-        resizeInFlight: {
-          axial: null,
-          sagittal: null,
-          coronal: null
-        },
-
-        setViewState: (updater) => set((state) => {
-          const timestamp = performance.now();
-          const oldState = state.viewState;
-          storeLog('viewStateStore', `${timestamp.toFixed(0)}ms setViewState called`);
-          storeLog('viewStateStore', `  - Current layers: ${oldState.layers.length}`);
-          storeLog('viewStateStore', `  - Layer ids:`, oldState.layers.map(l => l.id));
-
-          // Track who's calling setViewState
-          const stack = new Error().stack;
-          const caller = typeof stack === 'string'
-            ? stack.split('\n')[3]?.trim() || 'unknown'
-            : 'unknown';
-          storeLog('viewStateStore', `  - Called from: ${caller}`);
-
-          // Log the full stack trace if we're updating with 20-80% values
-          if (oldState.layers.some(layer =>
-            layer.intensity && layer.intensity[0] > 1969 && layer.intensity[0] < 1970)) {
-            storeWarn('viewStateStore', 'Stack trace for 20-80% update:');
-            storeTrace('viewStateStore', '');
-          }
-
-          const updated = updater(state.viewState);
-          if (updated) {
-            storeLog('viewStateStore', `${(performance.now() - timestamp).toFixed(2)}ms State updated:`);
-            storeLog('viewStateStore', `  - New layers: ${updated.layers.length}`);
-            storeLog('viewStateStore', `  - Layer ids:`, updated.layers.map(l => l.id));
-
-            // Check for problematic intensity values
-            updated.layers.forEach(layer => {
-              if (layer.intensity) {
-                storeLog('viewStateStore', `  - Layer ${layer.id} intensity: [${layer.intensity[0].toFixed(2)}, ${layer.intensity[1].toFixed(2)}]`);
-
-                // Check for 20-80% values (1969.6 to 7878.4 for data range 0-9848)
-                if (layer.intensity[0] > 1969 && layer.intensity[0] < 1970 &&
-                    layer.intensity[1] > 7878 && layer.intensity[1] < 7879) {
-                  storeError('viewStateStore', `WARNING: 20-80% default intensity detected for layer ${layer.id}!`);
-                  storeError('viewStateStore', `This update is resetting user's intensity values!`);
-                  storeError('viewStateStore', 'Update details:', {
-                    layerId: layer.id,
-                    intensity: layer.intensity,
-                    caller: caller,
-                    timestamp: timestamp
-                  });
-                  storeTrace('viewStateStore', 'Stack trace for problematic intensity update:');
-                }
-              }
-            });
-
-            state.viewState = updated;
-          } else {
-            storeLog('viewStateStore', `${(performance.now() - timestamp).toFixed(2)}ms No state update (updater returned void)`);
-          }
-        }),
-
-        setCrosshairVisible: (visible) => {
-          set((state) => {
-            state.viewState.crosshair.visible = visible;
-          });
-        },
-
-        setCrosshair: async (position, updateViews = false, immediate = false) => {
-          storeLog('viewStateStore', 'setCrosshair called with:', {
-            position,
-            updateViews,
-            immediate,
-            positionType: Array.isArray(position) ? 'array' : typeof position
-          });
-
-          // Validate position parameter
-          if (!Array.isArray(position) || position.length !== 3) {
-            throw new Error(`setCrosshair expects position as [x, y, z] array, got: ${JSON.stringify(position)}`);
-          }
-
-          // Wait for any pending resizes to complete before updating crosshair
+        const applyViewStateUpdate = (
+          recipe: (draft: ViewState) => ViewState | void
+        ): ViewState => {
           const currentState = get();
-          const resizePromises = Object.values(currentState.resizeInFlight).filter(p => p !== null);
+          const workspaceKey = getCurrentWorkspaceKey();
+          const currentViewState =
+            currentState.workspaceViewStates.get(workspaceKey) ?? currentState.viewState;
+          const currentRevisions =
+            currentState.workspaceViewStateRevisions.get(workspaceKey) ?? currentState.viewStateRevisions;
 
-          if (resizePromises.length > 0) {
-            storeLog('viewStateStore', `Waiting for ${resizePromises.length} pending resize(s) before updating crosshair`);
-            try {
-              await Promise.all(resizePromises);
-              storeLog('viewStateStore', 'All resizes complete, proceeding with crosshair update');
-            } catch (error) {
-              storeWarn('viewStateStore', 'Resize failed, but continuing with crosshair update:', error);
-            }
-          }
-
-          // Normal update path (with Immer)
-          set((state) => {
-            try {
-              const [x, y, z] = position;
-              storeLog('viewStateStore', `Setting crosshair via normal path to: [${x}, ${y}, ${z}]`);
-
-              // With Immer, we can mutate the draft
-              state.viewState.crosshair.world_mm = [x, y, z];
-              state.viewState.crosshair.visible = true;
-
-              if (updateViews) {
-                // Update view plane positions to show the slice containing the crosshair
-                // This only updates the out-of-plane coordinate for each view
-                const views = state.viewState.views;
-
-                // For each view, we need to find the normal vector to determine
-                // which coordinate to update for the slice position
-
-                // Helper to calculate normal vector (cross product of u and v)
-                const calculateNormal = (u: [number, number, number], v: [number, number, number]): [number, number, number] => {
-                  return [
-                    u[1] * v[2] - u[2] * v[1],
-                    u[2] * v[0] - u[0] * v[2],
-                    u[0] * v[1] - u[1] * v[0]
-                  ];
-                };
-
-                // Helper to update the origin to show the slice at the crosshair position
-                const updateSlicePosition = (view: ViewPlane, crosshair: [number, number, number]): [number, number, number] => {
-                  const u = [view.u_mm[0], view.u_mm[1], view.u_mm[2]];
-                  const v = [view.v_mm[0], view.v_mm[1], view.v_mm[2]];
-                  const normal = calculateNormal(u, v);
-
-                  // Normalize the normal vector
-                  const mag = Math.sqrt(normal[0]**2 + normal[1]**2 + normal[2]**2);
-                  const n_norm = [normal[0]/mag, normal[1]/mag, normal[2]/mag];
-
-                  // Project crosshair onto the normal to get the distance from origin
-                  const distance = crosshair[0] * n_norm[0] + crosshair[1] * n_norm[1] + crosshair[2] * n_norm[2];
-
-                  // Project current origin onto normal
-                  const origin_distance = view.origin_mm[0] * n_norm[0] + view.origin_mm[1] * n_norm[1] + view.origin_mm[2] * n_norm[2];
-
-                  // Calculate the offset needed
-                  const offset = distance - origin_distance;
-
-                  // Update origin by moving along the normal
-                  return [
-                    view.origin_mm[0] + offset * n_norm[0],
-                    view.origin_mm[1] + offset * n_norm[1],
-                    view.origin_mm[2] + offset * n_norm[2]
-                  ];
-                };
-
-                // Update each view's origin to show the slice at the crosshair
-                views.axial.origin_mm = updateSlicePosition(views.axial, [x, y, z]);
-                views.sagittal.origin_mm = updateSlicePosition(views.sagittal, [x, y, z]);
-                views.coronal.origin_mm = updateSlicePosition(views.coronal, [x, y, z]);
-
-                storeLog('viewStateStore', `Updated slice positions for crosshair at [${x.toFixed(1)}, ${y.toFixed(1)}, ${z.toFixed(1)}]`);
-              }
-            } catch (error) {
-              storeError('viewStateStore', 'Error in setCrosshair:', error);
-              throw error;
+          const [nextViewState, patches] = produceWithPatches(currentViewState, (draft) => {
+            const updated = recipe(draft);
+            if (updated) {
+              return updated;
             }
           });
 
-          // If immediate update requested (e.g., for slider drags), force flush
-          if (immediate) {
-            storeLog('viewStateStore', 'Immediate update requested - forcing flush');
-            coalesceUtils.flush(true);
-          }
-        },
-
-        updateView: (viewType, plane) => set((state) => {
-          state.viewState.views[viewType] = plane;
-        }),
-
-        updateViewDimensions: async (viewType, dimensions) => {
-          // DEPRECATED: This method is kept for backward compatibility
-          // Use updateDimensionsAndPreserveScale for resize operations
-          storeWarn('viewStateStore', 'updateViewDimensions is deprecated. Use updateDimensionsAndPreserveScale instead.');
-
-          const [newWidth, newHeight] = dimensions;
-
-          // Guard against zero or negative dimensions
-          if (newWidth <= 0 || newHeight <= 0) {
-            storeWarn('viewStateStore', `Invalid dimensions for ${viewType}: ${newWidth}x${newHeight}, skipping update`);
-            return;
+          if (patches.length === 0) {
+            return currentViewState;
           }
 
-          // Simple dimension update without any direct render calls
-          // The coalescing middleware will handle the render
+          const nextRevisions = applyViewStateRevisionPatches(currentRevisions, patches);
+
           set((state) => {
-            state.viewState.views[viewType].dim_px = dimensions;
-          });
-        },
-
-        updateDimensionsAndPreserveScale: async (viewType, dimensions) => {
-          const [newWidth, newHeight] = dimensions;
-          storeLog('viewStateStore', `updateDimensionsAndPreserveScale called for ${viewType}:`, {
-            requested: { width: newWidth, height: newHeight },
-            timestamp: performance.now()
+            state.workspaceViewStates.set(workspaceKey, nextViewState);
+            state.workspaceViewStateRevisions.set(workspaceKey, nextRevisions);
+            state.viewState = nextViewState;
+            state.viewStateRevisions = nextRevisions;
           });
 
-          // Guard against zero or negative dimensions
-          if (newWidth <= 0 || newHeight <= 0) {
-            storeWarn('viewStateStore', `Invalid dimensions for ${viewType}: ${newWidth}x${newHeight}, skipping update`);
-            return;
-          }
+          return nextViewState;
+        };
 
-          // Get current state
-          const currentState = get();
-          const view = currentState.viewState.views[viewType];
-          const [oldWidth, oldHeight] = view.dim_px;
+        return {
+          viewState: getInitialViewState(),
+          viewStateRevisions: createInitialViewStateRevisions(),
+          workspaceViewStates: new Map([[DEFAULT_WORKSPACE_KEY, getInitialViewState()]]),
+          workspaceViewStateRevisions: new Map([[DEFAULT_WORKSPACE_KEY, createInitialViewStateRevisions()]]),
+          activeWorkspaceKey: DEFAULT_WORKSPACE_KEY,
+          resizeInFlight: getInitialResizeState(),
 
-          storeLog('viewStateStore', `Current view state for ${viewType}:`, {
-            dimensions: { width: oldWidth, height: oldHeight },
-            origin_mm: view.origin_mm,
-            u_mm: view.u_mm,
-            v_mm: view.v_mm
-          });
+          setViewState: (updater) => {
+            const timestamp = performance.now();
+            const oldState = get().viewState;
+            storeLog('viewStateStore', `${timestamp.toFixed(0)}ms setViewState called`);
+            storeLog('viewStateStore', `  - Current layers: ${oldState.layers.length}`);
+            storeLog('viewStateStore', `  - Layer ids:`, oldState.layers.map(l => l.id));
 
-          // If dimensions haven't changed, skip
-          if (oldWidth === newWidth && oldHeight === newHeight) {
-            storeLog('viewStateStore', `Dimensions unchanged for ${viewType}, skipping update`);
-            return;
-          }
+            const stack = new Error().stack;
+            const caller = typeof stack === 'string'
+              ? stack.split('\n')[3]?.trim() || 'unknown'
+              : 'unknown';
+            storeLog('viewStateStore', `  - Called from: ${caller}`);
 
-          // Check if we have any layers (volumes) loaded
-          const layers = currentState.viewState.layers;
-          if (layers.length === 0) {
-            storeLog('viewStateStore', 'No layers loaded, updating dimensions only');
-            // No volumes loaded, just update dimensions
-            set((state) => {
-              state.viewState.views[viewType].dim_px = dimensions;
-            });
-            return;
-          }
+            if (oldState.layers.some(layer =>
+              layer.intensity && layer.intensity[0] > 1969 && layer.intensity[0] < 1970)) {
+              storeWarn('viewStateStore', 'Stack trace for 20-80% update:');
+              storeTrace('viewStateStore', '');
+            }
 
-          // Get the first visible layer's volume ID
-          const visibleLayer = layers.find(l => l.visible && l.opacity > 0);
-          if (!visibleLayer || !visibleLayer.volumeId) {
-            storeWarn('viewStateStore', 'No visible layer with volume ID found, layers:', layers);
-            // Just update dimensions
-            set((state) => {
-              state.viewState.views[viewType].dim_px = dimensions;
-            });
-            return;
-          }
+            const nextState = applyViewStateUpdate((draft) => updater(draft));
+            if (nextState !== oldState) {
+              storeLog('viewStateStore', `${(performance.now() - timestamp).toFixed(2)}ms State updated:`);
+              storeLog('viewStateStore', `  - New layers: ${nextState.layers.length}`);
+              storeLog('viewStateStore', `  - Layer ids:`, nextState.layers.map(l => l.id));
 
-          storeLog('viewStateStore', `Using volume ${visibleLayer.volumeId} for recalculation`);
+              nextState.layers.forEach(layer => {
+                if (layer.intensity) {
+                  storeLog('viewStateStore', `  - Layer ${layer.id} intensity: [${layer.intensity[0].toFixed(2)}, ${layer.intensity[1].toFixed(2)}]`);
 
-          try {
-            const layoutStoreState = useViewLayoutStore.getState();
-            const isLockedLayout = layoutStoreState.isLocked();
-            const apiService = getApiService();
-
-            if (isLockedLayout) {
-              storeLog('viewStateStore', 'Layout locked - recalculating all views atomically');
-
-              const currentViews = currentState.viewState.views;
-              const widthScale = oldWidth > 0 ? newWidth / oldWidth : 1;
-              const heightScale = oldHeight > 0 ? newHeight / oldHeight : 1;
-
-              const dimsByView: Record<ViewType, [number, number]> = {
-                axial: [...currentViews.axial.dim_px],
-                sagittal: [...currentViews.sagittal.dim_px],
-                coronal: [...currentViews.coronal.dim_px]
-              };
-
-              dimsByView[viewType] = [newWidth, newHeight];
-
-              (['axial', 'sagittal', 'coronal'] as ViewType[]).forEach((vt) => {
-                if (vt === viewType) {
-                  return;
-                }
-                const currentDims = currentViews[vt].dim_px;
-                const scaledDims: [number, number] = [
-                  Math.max(1, Math.round(currentDims[0] * widthScale)),
-                  Math.max(1, Math.round(currentDims[1] * heightScale))
-                ];
-                dimsByView[vt] = scaledDims;
-              });
-
-              const backendViews = await apiService.recalculateAllViews(
-                visibleLayer.volumeId,
-                dimsByView,
-                currentState.viewState.crosshair.world_mm as [number, number, number]
-              );
-
-              storeLog('viewStateStore', 'Backend response for locked layout:', backendViews);
-
-              set((state) => {
-                (['axial', 'sagittal', 'coronal'] as ViewType[]).forEach((vt) => {
-                  const backendView = backendViews[vt];
-                  if (backendView) {
-                    state.viewState.views[vt] = backendView;
-                  } else {
-                    state.viewState.views[vt].dim_px = dimsByView[vt];
+                  if (layer.intensity[0] > 1969 && layer.intensity[0] < 1970 &&
+                      layer.intensity[1] > 7878 && layer.intensity[1] < 7879) {
+                    storeError('viewStateStore', `WARNING: 20-80% default intensity detected for layer ${layer.id}!`);
+                    storeError('viewStateStore', `This update is resetting user's intensity values!`);
+                    storeError('viewStateStore', 'Update details:', {
+                      layerId: layer.id,
+                      intensity: layer.intensity,
+                      caller,
+                      timestamp
+                    });
+                    storeTrace('viewStateStore', 'Stack trace for problematic intensity update:');
                   }
-                });
+                }
               });
+            } else {
+              storeLog('viewStateStore', `${(performance.now() - timestamp).toFixed(2)}ms No state update (updater returned void)`);
+            }
+          },
 
+          setCrosshairVisible: (visible) => {
+            applyViewStateUpdate((state) => {
+              state.crosshair.visible = visible;
+            });
+          },
+
+          setCrosshair: async (position, updateViews = false, immediate = false) => {
+            storeLog('viewStateStore', 'setCrosshair called with:', {
+              position,
+              updateViews,
+              immediate,
+              positionType: Array.isArray(position) ? 'array' : typeof position
+            });
+
+            if (!Array.isArray(position) || position.length !== 3) {
+              throw new Error(`setCrosshair expects position as [x, y, z] array, got: ${JSON.stringify(position)}`);
+            }
+
+            const currentState = get();
+            const resizePromises = Object.values(currentState.resizeInFlight).filter(p => p !== null);
+
+            if (resizePromises.length > 0) {
+              storeLog('viewStateStore', `Waiting for ${resizePromises.length} pending resize(s) before updating crosshair`);
+              try {
+                await Promise.all(resizePromises);
+                storeLog('viewStateStore', 'All resizes complete, proceeding with crosshair update');
+              } catch (error) {
+                storeWarn('viewStateStore', 'Resize failed, but continuing with crosshair update:', error);
+              }
+            }
+
+            applyViewStateUpdate((state) => {
+              try {
+                const [x, y, z] = position;
+                storeLog('viewStateStore', `Setting crosshair via normal path to: [${x}, ${y}, ${z}]`);
+
+                state.crosshair.world_mm = [x, y, z];
+                state.crosshair.visible = true;
+
+                if (updateViews) {
+                  const views = state.views;
+
+                  const calculateNormal = (u: [number, number, number], v: [number, number, number]): [number, number, number] => {
+                    return [
+                      u[1] * v[2] - u[2] * v[1],
+                      u[2] * v[0] - u[0] * v[2],
+                      u[0] * v[1] - u[1] * v[0]
+                    ];
+                  };
+
+                  const updateSlicePosition = (view: ViewPlane, crosshair: [number, number, number]): [number, number, number] => {
+                    const u: [number, number, number] = [view.u_mm[0], view.u_mm[1], view.u_mm[2]];
+                    const v: [number, number, number] = [view.v_mm[0], view.v_mm[1], view.v_mm[2]];
+                    const normal = calculateNormal(u, v);
+                    const mag = Math.sqrt(normal[0]**2 + normal[1]**2 + normal[2]**2);
+                    const nNorm = [normal[0] / mag, normal[1] / mag, normal[2] / mag];
+
+                    const distance = crosshair[0] * nNorm[0] + crosshair[1] * nNorm[1] + crosshair[2] * nNorm[2];
+                    const originDistance = view.origin_mm[0] * nNorm[0] + view.origin_mm[1] * nNorm[1] + view.origin_mm[2] * nNorm[2];
+                    const offset = distance - originDistance;
+
+                    return [
+                      view.origin_mm[0] + offset * nNorm[0],
+                      view.origin_mm[1] + offset * nNorm[1],
+                      view.origin_mm[2] + offset * nNorm[2]
+                    ];
+                  };
+
+                  views.axial.origin_mm = updateSlicePosition(views.axial, [x, y, z]);
+                  views.sagittal.origin_mm = updateSlicePosition(views.sagittal, [x, y, z]);
+                  views.coronal.origin_mm = updateSlicePosition(views.coronal, [x, y, z]);
+
+                  storeLog('viewStateStore', `Updated slice positions for crosshair at [${x.toFixed(1)}, ${y.toFixed(1)}, ${z.toFixed(1)}]`);
+                }
+              } catch (error) {
+                storeError('viewStateStore', 'Error in setCrosshair:', error);
+                throw error;
+              }
+            });
+
+            if (immediate) {
+              storeLog('viewStateStore', 'Immediate update requested - forcing flush');
+              coalesceUtils.flush(true);
+            }
+          },
+
+          updateView: (viewType, plane) => {
+            applyViewStateUpdate((state) => {
+              state.views[viewType] = plane;
+            });
+          },
+
+          updateViewDimensions: async (viewType, dimensions) => {
+            storeWarn('viewStateStore', 'updateViewDimensions is deprecated. Use updateDimensionsAndPreserveScale instead.');
+
+            const [newWidth, newHeight] = dimensions;
+            if (newWidth <= 0 || newHeight <= 0) {
+              storeWarn('viewStateStore', `Invalid dimensions for ${viewType}: ${newWidth}x${newHeight}, skipping update`);
               return;
             }
 
-            // unlocked layout - single view update
-            storeLog('viewStateStore', `Attempting backend recalculation for ${viewType}...`);
+            applyViewStateUpdate((state) => {
+              state.views[viewType].dim_px = dimensions;
+            });
+          },
 
-            const newView = await apiService.recalculateViewForDimensions(
-              visibleLayer.volumeId,
-              viewType,
-              [newWidth, newHeight],
-              currentState.viewState.crosshair.world_mm
-            );
-
-            storeLog('viewStateStore', `Backend response for ${viewType}:`, {
-              requestedDims: [newWidth, newHeight],
-              returnedView: newView
+          updateDimensionsAndPreserveScale: async (viewType, dimensions) => {
+            const [newWidth, newHeight] = dimensions;
+            storeLog('viewStateStore', `updateDimensionsAndPreserveScale called for ${viewType}:`, {
+              requested: { width: newWidth, height: newHeight },
+              timestamp: performance.now()
             });
 
-            // Update the view with backend-calculated values
-            set((state) => {
-              storeLog('viewStateStore', `Updating view state for ${viewType} with backend values`);
-              state.viewState.views[viewType] = newView;
+            if (newWidth <= 0 || newHeight <= 0) {
+              storeWarn('viewStateStore', `Invalid dimensions for ${viewType}: ${newWidth}x${newHeight}, skipping update`);
+              return;
+            }
+
+            const currentState = get();
+            const view = currentState.viewState.views[viewType];
+            const [oldWidth, oldHeight] = view.dim_px;
+
+            storeLog('viewStateStore', `Current view state for ${viewType}:`, {
+              dimensions: { width: oldWidth, height: oldHeight },
+              origin_mm: view.origin_mm,
+              u_mm: view.u_mm,
+              v_mm: view.v_mm
             });
 
-          } catch (error) {
-            storeError('viewStateStore', 'Backend recalculation failed, using frontend fallback:', error);
+            if (oldWidth === newWidth && oldHeight === newHeight) {
+              storeLog('viewStateStore', `Dimensions unchanged for ${viewType}, skipping update`);
+              return;
+            }
 
-            // Frontend fallback: Recalculate view to maintain full anatomical extent
-            // This mimics what the backend ViewRectMm::full_extent does
+            const layers = currentState.viewState.layers;
+            if (layers.length === 0) {
+              storeLog('viewStateStore', 'No layers loaded, updating dimensions only');
+              applyViewStateUpdate((state) => {
+                state.views[viewType].dim_px = dimensions;
+              });
+              return;
+            }
 
-            // Get anatomical bounds for this layer
+            const visibleLayer = layers.find(l => l.visible && l.opacity > 0);
+            if (!visibleLayer || !visibleLayer.volumeId) {
+              storeWarn('viewStateStore', 'No visible layer with volume ID found, layers:', layers);
+              applyViewStateUpdate((state) => {
+                state.views[viewType].dim_px = dimensions;
+              });
+              return;
+            }
+
+            storeLog('viewStateStore', `Using volume ${visibleLayer.volumeId} for recalculation`);
+
             try {
+              const layoutStoreState = useViewLayoutStore.getState();
+              const isLockedLayout = layoutStoreState.isLocked();
               const apiService = getApiService();
-              const bounds = await apiService.getVolumeBounds(visibleLayer.volumeId);
 
-              storeLog('viewStateStore', 'Got volume bounds:', bounds);
+              if (isLockedLayout) {
+                storeLog('viewStateStore', 'Layout locked - recalculating all views atomically');
 
-              // Calculate extent based on view type
-              let widthMm: number, heightMm: number;
-              const crosshair = currentState.viewState.crosshair.world_mm;
+                const currentViews = currentState.viewState.views;
+                const widthScale = oldWidth > 0 ? newWidth / oldWidth : 1;
+                const heightScale = oldHeight > 0 ? newHeight / oldHeight : 1;
 
-              switch (viewType) {
-                case 'axial':
-                  // XY plane - width is X extent, height is Y extent
-                  widthMm = bounds.max[0] - bounds.min[0];
-                  heightMm = bounds.max[1] - bounds.min[1];
-                  break;
-                case 'sagittal':
-                  // YZ plane - width is Y extent, height is Z extent
-                  widthMm = bounds.max[1] - bounds.min[1];
-                  heightMm = bounds.max[2] - bounds.min[2];
-                  break;
-                case 'coronal':
-                  // XZ plane - width is X extent, height is Z extent
-                  widthMm = bounds.max[0] - bounds.min[0];
-                  heightMm = bounds.max[2] - bounds.min[2];
-                  break;
+                const dimsByView: Record<ViewType, [number, number]> = {
+                  axial: [...currentViews.axial.dim_px],
+                  sagittal: [...currentViews.sagittal.dim_px],
+                  coronal: [...currentViews.coronal.dim_px]
+                };
+
+                dimsByView[viewType] = [newWidth, newHeight];
+
+                (['axial', 'sagittal', 'coronal'] as ViewType[]).forEach((vt) => {
+                  if (vt === viewType) {
+                    return;
+                  }
+                  const currentDims = currentViews[vt].dim_px;
+                  dimsByView[vt] = [
+                    Math.max(1, Math.round(currentDims[0] * widthScale)),
+                    Math.max(1, Math.round(currentDims[1] * heightScale))
+                  ];
+                });
+
+                const backendViews = await apiService.recalculateAllViews(
+                  visibleLayer.volumeId,
+                  dimsByView,
+                  currentState.viewState.crosshair.world_mm as [number, number, number]
+                );
+
+                storeLog('viewStateStore', 'Backend response for locked layout:', backendViews);
+
+                applyViewStateUpdate((state) => {
+                  (['axial', 'sagittal', 'coronal'] as ViewType[]).forEach((vt) => {
+                    const backendView = backendViews[vt];
+                    if (backendView) {
+                      state.views[vt] = backendView;
+                    } else {
+                      state.views[vt].dim_px = dimsByView[vt];
+                    }
+                  });
+                });
+
+                return;
               }
 
-              // Use ViewPlaneService for consistent pixel size calculation
-              const viewPlaneService = getViewPlaneService();
-              const pixelSize = viewPlaneService.calculatePixelSize(widthMm, heightMm, newWidth, newHeight);
+              storeLog('viewStateStore', `Attempting backend recalculation for ${viewType}...`);
 
-              storeLog('viewStateStore', 'Frontend calculation:', {
-                extentMm: { width: widthMm, height: heightMm },
-                newDimensions: { width: newWidth, height: newHeight },
-                pixelSize
+              const newView = await apiService.recalculateViewForDimensions(
+                visibleLayer.volumeId,
+                viewType,
+                [newWidth, newHeight],
+                currentState.viewState.crosshair.world_mm
+              );
+
+              storeLog('viewStateStore', `Backend response for ${viewType}:`, {
+                requestedDims: [newWidth, newHeight],
+                returnedView: newView
               });
 
-              // Calculate new origin and vectors
-              let newOrigin: [number, number, number];
-              let newU: [number, number, number];
-              let newV: [number, number, number];
-              const currentView = currentState.viewState.views[viewType];
+              applyViewStateUpdate((state) => {
+                storeLog('viewStateStore', `Updating view state for ${viewType} with backend values`);
+                state.views[viewType] = newView;
+              });
 
-              // Preserve current display direction when building fallback views.
-              // This avoids flipped-affine regressions (e.g. Schaefer MNI with negative X axis).
-              const signed = (value: number, fallbackSign: 1 | -1): 1 | -1 => {
-                if (value > 0) return 1;
-                if (value < 0) return -1;
-                return fallbackSign;
-              };
+            } catch (error) {
+              storeError('viewStateStore', 'Backend recalculation failed, using frontend fallback:', error);
 
-              switch (viewType) {
-                case 'axial':
-                  // XY plane: preserve existing X/Y direction signs.
-                  {
+              try {
+                const apiService = getApiService();
+                const bounds = await apiService.getVolumeBounds(visibleLayer.volumeId);
+                storeLog('viewStateStore', 'Got volume bounds:', bounds);
+
+                let widthMm: number;
+                let heightMm: number;
+                const crosshair = currentState.viewState.crosshair.world_mm;
+
+                switch (viewType) {
+                  case 'axial':
+                    widthMm = bounds.max[0] - bounds.min[0];
+                    heightMm = bounds.max[1] - bounds.min[1];
+                    break;
+                  case 'sagittal':
+                    widthMm = bounds.max[1] - bounds.min[1];
+                    heightMm = bounds.max[2] - bounds.min[2];
+                    break;
+                  case 'coronal':
+                    widthMm = bounds.max[0] - bounds.min[0];
+                    heightMm = bounds.max[2] - bounds.min[2];
+                    break;
+                }
+
+                const viewPlaneService = getViewPlaneService();
+                const pixelSize = viewPlaneService.calculatePixelSize(widthMm, heightMm, newWidth, newHeight);
+
+                storeLog('viewStateStore', 'Frontend calculation:', {
+                  extentMm: { width: widthMm, height: heightMm },
+                  newDimensions: { width: newWidth, height: newHeight },
+                  pixelSize
+                });
+
+                let newOrigin: [number, number, number];
+                let newU: [number, number, number];
+                let newV: [number, number, number];
+                const currentView = currentState.viewState.views[viewType];
+
+                const signed = (value: number, fallbackSign: 1 | -1): 1 | -1 => {
+                  if (value > 0) return 1;
+                  if (value < 0) return -1;
+                  return fallbackSign;
+                };
+
+                switch (viewType) {
+                  case 'axial': {
                     const xSign = signed(currentView.u_mm[0], 1);
                     const ySign = signed(currentView.v_mm[1], -1);
                     newOrigin = [
@@ -490,11 +510,9 @@ const createViewStateStore = () => create<ViewStateStore>()(
                     ];
                     newU = [xSign * pixelSize, 0, 0];
                     newV = [0, ySign * pixelSize, 0];
+                    break;
                   }
-                  break;
-                case 'sagittal':
-                  // YZ plane: preserve existing Y/Z direction signs.
-                  {
+                  case 'sagittal': {
                     const ySign = signed(currentView.u_mm[1], -1);
                     const zSign = signed(currentView.v_mm[2], -1);
                     newOrigin = [
@@ -504,11 +522,9 @@ const createViewStateStore = () => create<ViewStateStore>()(
                     ];
                     newU = [0, ySign * pixelSize, 0];
                     newV = [0, 0, zSign * pixelSize];
+                    break;
                   }
-                  break;
-                case 'coronal':
-                  // XZ plane: preserve existing X/Z direction signs.
-                  {
+                  case 'coronal': {
                     const xSign = signed(currentView.u_mm[0], 1);
                     const zSign = signed(currentView.v_mm[2], -1);
                     newOrigin = [
@@ -518,65 +534,134 @@ const createViewStateStore = () => create<ViewStateStore>()(
                     ];
                     newU = [xSign * pixelSize, 0, 0];
                     newV = [0, 0, zSign * pixelSize];
+                    break;
                   }
-                  break;
+                }
+
+                applyViewStateUpdate((state) => {
+                  storeLog('viewStateStore', `Updating view state for ${viewType} with frontend calculation`);
+                  state.views[viewType] = {
+                    origin_mm: newOrigin,
+                    u_mm: newU,
+                    v_mm: newV,
+                    dim_px: dimensions
+                  };
+                });
+
+              } catch (boundsError) {
+                storeError('viewStateStore', 'Failed to get volume bounds:', boundsError);
+                applyViewStateUpdate((state) => {
+                  state.views[viewType].dim_px = dimensions;
+                });
               }
-
-              // Update the view with recalculated values
-              set((state) => {
-                storeLog('viewStateStore', `Updating view state for ${viewType} with frontend calculation`);
-                const updatedView = {
-                  origin_mm: newOrigin,
-                  u_mm: newU,
-                  v_mm: newV,
-                  dim_px: dimensions
-                };
-                storeLog('viewStateStore', 'New view state:', updatedView);
-                state.viewState.views[viewType] = updatedView;
-              });
-
-            } catch (boundsError) {
-              storeError('viewStateStore', 'Failed to get volume bounds:', boundsError);
-              // Final fallback: just update dimensions
-              set((state) => {
-                state.viewState.views[viewType].dim_px = dimensions;
-              });
             }
-          }
-        },
+          },
 
+          resetToDefaults: () => {
+            const defaultState = getInitialViewState();
+            if (areViewStatesEqual(get().viewState, defaultState)) {
+              return;
+            }
 
-        // Layer operations removed - use setViewState to update layers
+            applyViewStateUpdate(() => defaultState);
+          },
 
-        resetToDefaults: () => set((state) => {
-          state.viewState = getInitialViewState();
-        }),
+          getView: (viewType) => get().viewState.views[viewType],
+          getViews: () => get().viewState.views,
+          getWorkspaceViewState: (workspaceId) => {
+            const workspaceKey = toWorkspaceKey(workspaceId ?? get().activeWorkspaceKey);
+            return get().workspaceViewStates.get(workspaceKey) ?? get().viewState;
+          },
+          getWorkspaceViewStateRevisions: (workspaceId) => {
+            const workspaceKey = toWorkspaceKey(workspaceId ?? get().activeWorkspaceKey);
+            return get().workspaceViewStateRevisions.get(workspaceKey) ?? get().viewStateRevisions;
+          },
 
-        // Helper methods
-        getView: (viewType) => get().viewState.views[viewType],
-        getViews: () => get().viewState.views,
-
-        // Undo/redo (provided by temporal middleware)
-        undo: () => {},  // Will be overridden by temporal
-        redo: () => {},  // Will be overridden by temporal
-        canUndo: () => false, // Will be overridden by temporal
-        canRedo: () => false, // Will be overridden by temporal
-      }))
-    ),
-    {
-      limit: 50, // Keep 50 states in history
-      equality: (a, b) => JSON.stringify(a.viewState) === JSON.stringify(b.viewState)
-    }
+          undo: () => {},
+          redo: () => {},
+          canUndo: () => false,
+          canRedo: () => false,
+        };
+      })
+    )
   )
 );
 
 // Export store with global instance sharing
-export const useViewStateStore = (() => {
+export const useViewStateStore: ReturnType<typeof createViewStateStore> = (() => {
   if (typeof window !== 'undefined' && window.__viewStateStore) {
     return window.__viewStateStore;
   }
 
   const store = createViewStateStore();
+
+  const syncWithWorkspaceStore = (
+    activeWorkspaceId: string | null,
+    workspaceIds: Set<string>
+  ) => {
+    coalesceUtils.discardPending();
+
+    const nextActiveKey = toWorkspaceKey(activeWorkspaceId);
+    const currentState = store.getState();
+    const nextWorkspaceViewStates = new Map(currentState.workspaceViewStates);
+    const nextWorkspaceViewStateRevisions = new Map(currentState.workspaceViewStateRevisions);
+
+    for (const key of Array.from(nextWorkspaceViewStates.keys())) {
+      if (key !== DEFAULT_WORKSPACE_KEY && !workspaceIds.has(key)) {
+        nextWorkspaceViewStates.delete(key);
+        nextWorkspaceViewStateRevisions.delete(key);
+      }
+    }
+
+    if (!nextWorkspaceViewStates.has(nextActiveKey)) {
+      const seedState =
+        currentState.activeWorkspaceKey === DEFAULT_WORKSPACE_KEY && nextActiveKey !== DEFAULT_WORKSPACE_KEY
+          ? cloneViewState(currentState.viewState)
+          : getInitialViewState();
+      const seedRevisions =
+        currentState.activeWorkspaceKey === DEFAULT_WORKSPACE_KEY && nextActiveKey !== DEFAULT_WORKSPACE_KEY
+          ? cloneViewStateRevisions(currentState.viewStateRevisions)
+          : createInitialViewStateRevisions();
+      nextWorkspaceViewStates.set(nextActiveKey, seedState);
+      nextWorkspaceViewStateRevisions.set(nextActiveKey, seedRevisions);
+    }
+
+    const nextViewState = nextWorkspaceViewStates.get(nextActiveKey) ?? getInitialViewState();
+    const nextViewStateRevisions =
+      nextWorkspaceViewStateRevisions.get(nextActiveKey) ?? createInitialViewStateRevisions();
+
+    store.setState({
+      workspaceViewStates: nextWorkspaceViewStates,
+      workspaceViewStateRevisions: nextWorkspaceViewStateRevisions,
+      activeWorkspaceKey: nextActiveKey,
+      viewState: nextViewState,
+      viewStateRevisions: nextViewStateRevisions,
+      resizeInFlight: getInitialResizeState(),
+    });
+  };
+
+  let lastActiveWorkspaceId = useWorkspaceStore.getState().activeWorkspaceId;
+  let lastWorkspaceIds = new Set(useWorkspaceStore.getState().workspaces.keys());
+
+  syncWithWorkspaceStore(lastActiveWorkspaceId, lastWorkspaceIds);
+
+  useWorkspaceStore.subscribe((workspaceState) => {
+    const nextActiveWorkspaceId = workspaceState.activeWorkspaceId;
+    const nextWorkspaceIds = new Set(workspaceState.workspaces.keys());
+
+    const activeChanged = nextActiveWorkspaceId !== lastActiveWorkspaceId;
+    const workspaceSetChanged =
+      nextWorkspaceIds.size !== lastWorkspaceIds.size ||
+      Array.from(nextWorkspaceIds).some((id) => !lastWorkspaceIds.has(id));
+
+    if (!activeChanged && !workspaceSetChanged) {
+      return;
+    }
+
+    lastActiveWorkspaceId = nextActiveWorkspaceId;
+    lastWorkspaceIds = nextWorkspaceIds;
+    syncWithWorkspaceStore(nextActiveWorkspaceId, nextWorkspaceIds);
+  });
 
   if (typeof window !== 'undefined') {
     window.__viewStateStore = store;

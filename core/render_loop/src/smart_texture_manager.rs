@@ -274,8 +274,7 @@ impl SmartTextureManager {
         let dims = space.dims();
         let dimensions = [dims[0] as u32, dims[1] as u32, dims[2] as u32];
         let max_3d_dim = device.limits().max_texture_dimension_3d;
-        if dimensions[0] > max_3d_dim || dimensions[1] > max_3d_dim || dimensions[2] > max_3d_dim
-        {
+        if dimensions[0] > max_3d_dim || dimensions[1] > max_3d_dim || dimensions[2] > max_3d_dim {
             return Err(RenderLoopError::Internal {
                 code: 6006,
                 details: format!(
@@ -338,7 +337,7 @@ impl SmartTextureManager {
             _ => {
                 return Err(RenderLoopError::UnsupportedVolumeFormat(
                     volume.voxel_type(),
-                ))
+                ));
             }
         };
 
@@ -351,7 +350,7 @@ impl SmartTextureManager {
                 return Err(RenderLoopError::Internal {
                     code: 6002,
                     details: format!("Unsupported texture format: {:?}", format),
-                })
+                });
             }
         };
 

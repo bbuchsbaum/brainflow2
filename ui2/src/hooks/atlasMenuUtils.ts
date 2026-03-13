@@ -4,6 +4,7 @@
 
 import { useSurfaceStore } from '@/stores/surfaceStore';
 import { normalizeLateralHemisphere } from '@/utils/surfaceIdentity';
+import { getActiveSurfaceCommandContext } from '@/utils/surfaceCommandContext';
 import type { AtlasConfig, SurfaceAtlasLoadResult } from '@/types/atlas';
 
 export function formatElapsedMs(startMs: number): number {
@@ -72,8 +73,9 @@ export function inferPreferredSurfaceType(requested?: string): string {
   }
 
   const surfaceState = useSurfaceStore.getState();
-  const activeSurface = surfaceState.activeSurfaceId
-    ? surfaceState.surfaces.get(surfaceState.activeSurfaceId)
+  const commandContext = getActiveSurfaceCommandContext();
+  const activeSurface = commandContext.activeSurfaceId
+    ? surfaceState.surfaces.get(commandContext.activeSurfaceId)
     : null;
   const activeType = activeSurface?.geometry?.surfaceType || activeSurface?.metadata?.surfaceType;
   if (activeType && allowed.has(activeType)) {

@@ -19,7 +19,6 @@ function createSurface(
       surfaceType,
     },
     layers: new Map(),
-    displayLayers: new Map(),
     metadata: {
       vertexCount: 0,
       faceCount: 0,

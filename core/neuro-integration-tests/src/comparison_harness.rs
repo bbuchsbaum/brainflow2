@@ -20,7 +20,7 @@ impl ComparisonHarness {
         gpu_provider: Box<dyn SliceProvider>,
     ) -> Result<Self> {
         let runtime = Runtime::new().context("Failed to create tokio runtime")?;
-        
+
         Ok(Self {
             cpu_provider,
             gpu_provider,
@@ -28,7 +28,7 @@ impl ComparisonHarness {
             runtime,
         })
     }
-    
+
     /// Create a harness with custom differential testing configuration
     pub fn with_config(
         cpu_provider: Box<dyn SliceProvider>,
@@ -36,7 +36,7 @@ impl ComparisonHarness {
         config: DiffTestConfig,
     ) -> Result<Self> {
         let runtime = Runtime::new().context("Failed to create tokio runtime")?;
-        
+
         Ok(Self {
             cpu_provider,
             gpu_provider,
@@ -44,7 +44,7 @@ impl ComparisonHarness {
             runtime,
         })
     }
-    
+
     /// Run a single differential test
     pub fn run_test(
         &self,
@@ -52,23 +52,23 @@ impl ComparisonHarness {
         test_name: &str,
     ) -> Result<TestResult> {
         println!("Running differential test: {}", test_name);
-        
+
         // Time the CPU execution
         let cpu_start = std::time::Instant::now();
         let cpu_result = self.cpu_provider.composite_rgba(request)
             .context("CPU provider failed")?;
         let cpu_duration = cpu_start.elapsed();
-        
+
         // Time the GPU execution
         let gpu_start = std::time::Instant::now();
         let gpu_result = self.gpu_provider.composite_rgba(request)
             .context("GPU provider failed")?;
         let gpu_duration = gpu_start.elapsed();
-        
+
         // Compare outputs
         let diff_result = self.tester.compare_outputs(&cpu_result, &gpu_result, test_name)
             .context("Differential comparison failed")?;
-        
+
         Ok(TestResult {
             test_name: test_name.to_string(),
             passed: diff_result.passed,
@@ -80,7 +80,7 @@ impl ComparisonHarness {
             gpu_output_size: gpu_result.len(),
         })
     }
-    
+
     /// Run a suite of tests
     pub fn run_test_suite(
         &self,
@@ -89,7 +89,7 @@ impl ComparisonHarness {
         let mut results = Vec::new();
         let mut passed = 0;
         let mut failed = 0;
-        
+
         for (test_name, request) in tests {
             match self.run_test(&request, test_name) {
                 Ok(result) => {
@@ -100,7 +100,7 @@ impl ComparisonHarness {
                         failed += 1;
                         println!("✗ {} - FAILED", test_name);
                         println!("  Max abs diff: {}", result.diff_result.max_abs_diff);
-                        println!("  Failed pixels: {} / {}", 
+                        println!("  Failed pixels: {} / {}",
                                 result.diff_result.failed_pixels,
                                 result.diff_result.total_pixels);
                     }
@@ -113,20 +113,20 @@ impl ComparisonHarness {
                 }
             }
         }
-        
+
         let total_tests = passed + failed;
         let pass_rate = if total_tests > 0 {
             100.0 * passed as f64 / total_tests as f64
         } else {
             0.0
         };
-        
+
         // Calculate average speedup for passed tests
         let avg_speedup = results.iter()
             .filter(|r| r.passed)
             .map(|r| r.speedup)
             .fold(0.0, |acc, s| acc + s) / passed.max(1) as f64;
-        
+
         TestSuiteResult {
             total_tests,
             passed,
@@ -198,7 +198,7 @@ impl TestSuiteResult {
         println!("Passed: {} ({:.1}%)", self.passed, self.pass_rate);
         println!("Failed: {}", self.failed);
         println!("Average GPU Speedup: {:.2}x", self.avg_speedup);
-        
+
         if self.failed > 0 {
             println!("\nFailed Tests:");
             for result in &self.results {
@@ -207,7 +207,7 @@ impl TestSuiteResult {
                 }
             }
         }
-        
+
         println!("\nPerformance Summary:");
         for result in &self.results {
             if result.passed {
@@ -219,7 +219,7 @@ impl TestSuiteResult {
             }
         }
     }
-    
+
     /// Export results to JSON
     pub fn to_json(&self) -> Result<String> {
         // For now, just create a simple JSON representation
@@ -258,7 +258,7 @@ impl TestSuiteResult {
                 .collect::<Vec<_>>()
                 .join(",\n        ")
         );
-        
+
         Ok(json)
     }
 }
@@ -278,32 +278,32 @@ impl HarnessBuilder {
             config: DiffTestConfig::default(),
         }
     }
-    
+
     pub fn with_cpu_provider(mut self, provider: Box<dyn SliceProvider>) -> Self {
         self.cpu_provider = Some(provider);
         self
     }
-    
+
     pub fn with_gpu_provider(mut self, provider: Box<dyn SliceProvider>) -> Self {
         self.gpu_provider = Some(provider);
         self
     }
-    
+
     pub fn with_tolerance(mut self, max_abs_diff: u8, max_rel_diff: f32) -> Self {
         self.config.max_abs_diff = max_abs_diff;
         self.config.max_rel_diff = max_rel_diff;
         self
     }
-    
+
     pub fn with_debug_images(mut self, enabled: bool) -> Self {
         self.config.save_debug_images = enabled;
         self
     }
-    
+
     pub fn build(self) -> Result<ComparisonHarness> {
         let cpu = self.cpu_provider.context("CPU provider not set")?;
         let gpu = self.gpu_provider.context("GPU provider not set")?;
-        
+
         ComparisonHarness::with_config(cpu, gpu, self.config)
     }
 }

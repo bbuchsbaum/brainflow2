@@ -16,7 +16,7 @@ Instead of the frontend making multiple imperative commands to update individual
 await invoke('set_crosshair', { position: [10, 20, 30] });
 await invoke('set_layer_opacity', { layerId: 'layer1', opacity: 0.8 });
 await invoke('set_colormap', { layerId: 'layer1', colormap: 'viridis' });
-await invoke('render_frame');
+// followed by a separate render command
 ```
 
 The frontend declares the complete desired state and sends it as a single object:
@@ -32,7 +32,7 @@ const viewState = {
   ],
   camera: { orientation: 'axial', zoom: 1.0, ... }
 };
-await invoke('apply_and_render_view_state', { state: viewState });
+await invoke('render_view', { stateJson: JSON.stringify(viewState), format: 'rgba' });
 ```
 
 ### Benefits
@@ -45,7 +45,7 @@ await invoke('apply_and_render_view_state', { state: viewState });
 
 ### Implementation Details
 
-The backend provides a single `apply_and_render_view_state` command that:
+The backend provides a `render_view` command for single-view output, a `submit_view` command for no-readback submission, and a `render_views` command for multi-view output. These commands:
 1. Deserializes the ViewState JSON
 2. Updates all rendering parameters atomically
 3. Renders the frame

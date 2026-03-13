@@ -14,7 +14,7 @@ pub enum TemplateType {
     /// T1-weighted anatomical image
     #[serde(rename = "T1w")]
     T1w,
-    /// T2-weighted anatomical image  
+    /// T2-weighted anatomical image
     #[serde(rename = "T2w")]
     T2w,
     /// FLAIR (Fluid Attenuated Inversion Recovery)
@@ -296,7 +296,7 @@ pub struct TemplateLoadResult {
     pub volume_handle_info: bridge_types::VolumeHandleInfo, // Complete volume handle information
 }
 
-/// Error types for template operations  
+/// Error types for template operations
 #[derive(Debug, thiserror::Error, Clone, Serialize, Deserialize, TS)]
 #[ts(export)]
 #[serde(tag = "type", content = "data")]

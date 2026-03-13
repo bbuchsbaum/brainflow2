@@ -8,6 +8,16 @@ export interface VolumeHandle {
   name: string;
   dims: [number, number, number];
   dtype: string;
+  volume_type?: string;
+  num_timepoints?: number;
+  current_timepoint?: number;
+  time_series_info?: {
+    num_timepoints: number;
+    tr: number | null;
+    temporal_unit: string | null;
+    acquisition_time: number | null;
+  };
+  path?: string;
 }
 
 export interface SampleResult {

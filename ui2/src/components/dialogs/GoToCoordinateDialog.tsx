@@ -6,9 +6,9 @@
  */
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { X } from 'lucide-react';
 import { Button } from '@/components/ui/shadcn/button';
 import { Label } from '@/components/ui/shadcn/label';
+import { Modal } from '@/components/ui/Modal';
 import { useViewStateStore } from '@/stores/viewStateStore';
 import { useLayerStore } from '@/stores/layerStore';
 import { getApiService } from '@/services/apiService';
@@ -27,7 +27,7 @@ interface CoordInputs {
 }
 
 export function GoToCoordinateDialog({ open, onClose }: GoToCoordinateDialogProps) {
-  const dialogRef = useRef<HTMLDivElement>(null);
+  const firstInputRef = useRef<HTMLInputElement>(null);
   const [space, setSpace] = useState<CoordSpace>('world');
   const [inputs, setInputs] = useState<CoordInputs>({ x: '0', y: '0', z: '0' });
   const [bounds, setBounds] = useState<{ min: [number, number, number]; max: [number, number, number] } | null>(null);
@@ -118,29 +118,13 @@ export function GoToCoordinateDialog({ open, onClose }: GoToCoordinateDialogProp
   useEffect(() => {
     if (!open) return;
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        onClose();
-      } else if (e.key === 'Enter') {
+      if (e.key === 'Enter') {
         handleGo();
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [open, handleGo, onClose]);
-
-  // Click outside to close
-  useEffect(() => {
-    if (!open) return;
-    const handleClickOutside = (e: MouseEvent) => {
-      if (dialogRef.current && !dialogRef.current.contains(e.target as Node)) {
-        onClose();
-      }
-    };
-    setTimeout(() => {
-      document.addEventListener('mousedown', handleClickOutside);
-    }, 0);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, [open, onClose]);
+  }, [open, handleGo]);
 
   if (!open) return null;
 
@@ -156,33 +140,17 @@ export function GoToCoordinateDialog({ open, onClose }: GoToCoordinateDialogProp
   };
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4"
-      style={{ backgroundColor: 'rgba(0, 0, 0, 0.8)' }}
+    <Modal
+      isOpen={open}
+      onClose={onClose}
+      title="Go to Coordinate"
+      ariaLabel="Go to Coordinate"
+      size="sm"
+      initialFocusRef={firstInputRef}
+      bodyClassName="p-0"
+      className="max-w-xs rounded-xl ring-1 ring-white/10 shadow-2xl"
     >
-      <div
-        ref={dialogRef}
-        className="w-full max-w-xs rounded-xl ring-1 ring-white/10 shadow-2xl flex flex-col"
-        style={{
-          backgroundColor: 'var(--app-bg-secondary, #0f172a)',
-          borderColor: 'var(--app-border, #334155)',
-        }}
-      >
-        {/* Header */}
-        <div
-          className="flex items-center justify-between px-5 py-4 border-b"
-          style={{ borderColor: 'var(--app-border-subtle, #1e293b)' }}
-        >
-          <h2 className="text-base font-semibold" style={{ color: 'var(--app-text-primary, #e2e8f0)' }}>
-            Go to Coordinate
-          </h2>
-          <button onClick={onClose} className="icon-btn" aria-label="Close dialog">
-            <X className="w-4 h-4" />
-          </button>
-        </div>
-
-        {/* Content */}
-        <div className="px-5 py-4 space-y-4">
+      <div className="px-5 py-4 space-y-4">
           {/* Space toggle */}
           <div className="flex items-center gap-2">
             <button
@@ -215,6 +183,7 @@ export function GoToCoordinateDialog({ open, onClose }: GoToCoordinateDialogProp
               <div key={axis} className="space-y-1">
                 <Label className="text-xs text-gray-400 uppercase">{axis}</Label>
                 <input
+                  ref={axis === 'x' ? firstInputRef : undefined}
                   type="number"
                   value={inputs[axis]}
                   onChange={e => setInputs(prev => ({ ...prev, [axis]: e.target.value }))}
@@ -231,32 +200,30 @@ export function GoToCoordinateDialog({ open, onClose }: GoToCoordinateDialogProp
               Coordinate is outside volume bounds.
             </p>
           )}
-        </div>
+      </div>
 
-        {/* Footer */}
-        <div
-          className="px-5 py-3 border-t flex items-center justify-between gap-2"
-          style={{ borderColor: 'var(--app-border-subtle, #1e293b)' }}
-        >
-          <Button onClick={handleCurrent} variant="outline" size="sm" className="text-xs">
-            Current
+      <div
+        className="px-5 py-3 border-t flex items-center justify-between gap-2"
+        style={{ borderColor: 'var(--app-border-subtle, #1e293b)' }}
+      >
+        <Button onClick={handleCurrent} variant="outline" size="sm" className="text-xs">
+          Current
+        </Button>
+        <div className="flex gap-2">
+          <Button onClick={onClose} variant="ghost" size="sm" className="text-xs">
+            Cancel
           </Button>
-          <div className="flex gap-2">
-            <Button onClick={onClose} variant="ghost" size="sm" className="text-xs">
-              Cancel
-            </Button>
-            <Button
-              onClick={handleGo}
-              variant="default"
-              size="sm"
-              className="text-xs"
-              disabled={isLoading || parseCoords() === null}
-            >
-              Go
-            </Button>
-          </div>
+          <Button
+            onClick={handleGo}
+            variant="default"
+            size="sm"
+            className="text-xs"
+            disabled={isLoading || parseCoords() === null}
+          >
+            Go
+          </Button>
         </div>
       </div>
-    </div>
+    </Modal>
   );
 }

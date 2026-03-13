@@ -3,6 +3,7 @@ import { useLayers, useSelectedLayerId, useSelectedLayer, layerSelectors, useLay
 import { useViewStateStore } from '@/stores/viewStateStore';
 import { useWorkspaceStore } from '@/stores/workspaceStore';
 import { getLayerService } from '@/services/LayerService';
+import { getConfirmationService } from '@/services/ConfirmationService';
 import { LayerTable } from '../ui/LayerTable';
 import { MetadataDrawer } from '../ui/MetadataDrawer';
 import { useMetadataShortcut } from '@/hooks/useMetadataShortcut';
@@ -13,6 +14,7 @@ import { LayerEmptyState } from './LayerEmptyState';
 import { LayerStatusBar } from './LayerStatusBar';
 import { PanelErrorBoundary } from '../common/PanelErrorBoundary';
 import { getEventBus } from '@/events/EventBus';
+import { getSetStudioService } from '@/services/studio/SetStudioService';
 import type { LayerRender, Layer } from '@/types/layers';
 import { BarChart3, Info, Layers, Palette } from 'lucide-react';
 import './LayerPanel.css';
@@ -224,15 +226,22 @@ const VolumeLayerPanelContent: React.FC = () => {
     }
 
     const layer = layers.find((item) => item.id === layerId);
-    const confirmed = window.confirm(`Remove layer "${layer?.name ?? layerId}"?`);
-    if (!confirmed) {
-      return;
-    }
+    void getConfirmationService()
+      .confirmVolumeLayerRemoval(layer?.name ?? layerId)
+      .then((confirmed) => {
+        if (!confirmed) {
+          return;
+        }
 
-    void getLayerService().removeLayer(layerId).catch((error) => {
-      console.error('[VolumeLayerPanel] Failed to remove layer:', error);
-    });
+        void getLayerService().removeLayer(layerId).catch((error) => {
+          console.error('[VolumeLayerPanel] Failed to remove layer:', error);
+        });
+      });
   }, [layers, serviceInitialized]);
+
+  const handleOpenSetStudio = useCallback(() => {
+    void getSetStudioService().openStudioWorkspace();
+  }, []);
 
   const getLayerOpacity = useCallback((layerId: string) => {
     const vsl = viewStateLayers.find(l => l.id === layerId);
@@ -453,7 +462,7 @@ const VolumeLayerPanelContent: React.FC = () => {
                   getLayerOpacity={getLayerOpacity}
                 />
               ) : (
-                <LayerEmptyState />
+                <LayerEmptyState onOpenSetStudio={handleOpenSetStudio} />
               )}
 
               {!selectedLayer && layers.length > 0 && (
@@ -482,7 +491,7 @@ const VolumeLayerPanelContent: React.FC = () => {
                   sectionMode="inspect"
                 />
               ) : (
-                <LayerEmptyState />
+                <LayerEmptyState onOpenSetStudio={handleOpenSetStudio} />
               )}
             </section>
           )}
@@ -503,7 +512,7 @@ const VolumeLayerPanelContent: React.FC = () => {
                   sectionMode="mapping"
                 />
               ) : (
-                <LayerEmptyState />
+                <LayerEmptyState onOpenSetStudio={handleOpenSetStudio} />
               )}
             </section>
           )}

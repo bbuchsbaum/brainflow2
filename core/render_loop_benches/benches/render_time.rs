@@ -2,13 +2,18 @@ use criterion::{criterion_group, criterion_main, Criterion};
 use pollster::block_on;
 use render_loop::render_state::BlendMode;
 use render_loop::test_fixtures::create_test_pattern_volume;
-use render_loop::view_state::{LayerConfig, SliceOrientation, ViewId, ViewState};
+use render_loop::view_state::{
+    FrameReadbackMode, FrameRequestOptions, LayerConfig, SliceOrientation, ViewId, ViewState,
+};
 use render_loop::RenderLoopService;
 
-fn setup_service() -> RenderLoopService {
+fn setup_service() -> Result<RenderLoopService, String> {
     block_on(async {
-        let mut svc = RenderLoopService::new().await.expect("init render loop");
-        svc.load_shaders().expect("load shaders");
+        let mut svc = RenderLoopService::new()
+            .await
+            .map_err(|err| format!("init render loop: {err}"))?;
+        svc.load_shaders()
+            .map_err(|err| format!("load shaders: {err}"))?;
 
         // Register a small test volume (u8 pattern)
         let vol = create_test_pattern_volume();
@@ -17,14 +22,20 @@ fn setup_service() -> RenderLoopService {
             &vol,
             wgpu::TextureFormat::R8Unorm,
         )
-        .expect("register volume");
+        .map_err(|err| format!("register volume: {err}"))?;
 
-        svc
+        Ok(svc)
     })
 }
 
 fn bench_render_time(c: &mut Criterion) {
-    let mut svc = setup_service();
+    let mut svc = match setup_service() {
+        Ok(service) => service,
+        Err(err) => {
+            eprintln!("Skipping RenderFrame benchmark: {err}");
+            return;
+        }
+    };
 
     // Fixed view id + state
     let view_id = ViewId::new("bench-view");
@@ -38,13 +49,27 @@ fn bench_render_time(c: &mut Criterion) {
     );
 
     // Use offscreen render target so pipeline creation doesn't require a surface
-    svc.create_offscreen_target(512, 512)
-        .expect("offscreen target");
+    if let Err(err) = svc.create_offscreen_target(512, 512) {
+        eprintln!("Skipping RenderFrame benchmark: offscreen target setup failed: {err}");
+        return;
+    }
 
     let mut group = c.benchmark_group("RenderFrame");
     group.bench_function("request_frame_512_rgba", |b| {
         b.iter(|| {
             let _ = block_on(svc.request_frame(view_id.clone(), state.clone())).expect("frame");
+        });
+    });
+    group.bench_function("request_frame_512_skip_readback", |b| {
+        b.iter(|| {
+            let _ = block_on(svc.request_frame_with_options(
+                view_id.clone(),
+                state.clone(),
+                FrameRequestOptions {
+                    readback_mode: FrameReadbackMode::Skip,
+                },
+            ))
+            .expect("frame");
         });
     });
     group.finish();

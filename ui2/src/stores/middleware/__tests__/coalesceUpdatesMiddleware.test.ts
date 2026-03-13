@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import { create } from 'zustand';
 import { coalesceUpdatesMiddleware, coalesceUtils } from '../coalesceUpdatesMiddleware';
 import type { ViewState } from '@/types/viewState';
+import { clearRenderDiagnostics, getRenderDiagnostics } from '@/services/render/RenderDiagnostics';
 
 // Mock ViewState for testing
 const createMockViewState = (id: string): ViewState => ({
@@ -64,6 +65,7 @@ describe('CoalesceUpdatesMiddleware', () => {
   beforeEach(() => {
     mockBackendCallback = vi.fn();
     coalesceUtils.clearPending();
+    clearRenderDiagnostics();
     
     // Create test store with coalescing middleware
     testStore = create<TestStore>()(
@@ -96,6 +98,7 @@ describe('CoalesceUpdatesMiddleware', () => {
 
   afterEach(() => {
     coalesceUtils.clearPending();
+    clearRenderDiagnostics();
     vi.clearAllTimers();
   });
 
@@ -126,7 +129,8 @@ describe('CoalesceUpdatesMiddleware', () => {
       expect(mockBackendCallback).toHaveBeenCalledWith(
         expect.objectContaining({
           _testId: 'update3'
-        })
+        }),
+        undefined
       );
     });
 
@@ -154,8 +158,17 @@ describe('CoalesceUpdatesMiddleware', () => {
             world_mm: [9, 18, 27],
             visible: true
           }
-        })
+        }),
+        undefined
       );
+
+      const diagnostic = getRenderDiagnostics().find((entry) => entry.stage === 'coalesce.flush');
+      expect(diagnostic).toBeDefined();
+      expect(diagnostic?.detail).toMatchObject({
+        updatesCoalesced: 10,
+        dragMode: 'none',
+        forceDimensionUpdate: false
+      });
     });
   });
 
@@ -245,7 +258,8 @@ describe('CoalesceUpdatesMiddleware', () => {
       expect(mockBackendCallback).toHaveBeenCalledWith(
         expect.objectContaining({
           _testId: 'manual-flush'
-        })
+        }),
+        undefined
       );
     });
 
