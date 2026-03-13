@@ -34,6 +34,7 @@ interface CompareLensProps {
   onInspectPane: (pane: StudioComparePaneSpec) => void;
   onInspectCurrent: () => void;
   onOpenCurrentSource: () => void;
+  onOpenCompareView: () => void;
   onRecomputePane: (pane: StudioComparePaneSpec) => void;
 }
 
@@ -59,6 +60,7 @@ export function CompareLens({
   onInspectPane,
   onInspectCurrent,
   onOpenCurrentSource,
+  onOpenCompareView,
   onRecomputePane,
 }: CompareLensProps) {
   const supportLabel = activeSet?.supportLabel ?? 'unknown support';
@@ -91,6 +93,9 @@ export function CompareLens({
             onClick: onOpenCurrentSource,
           },
         ]
+      : []),
+    ...(displayedArtifact?.paneId && displayedArtifact.paneId !== 'current' && displayedArtifact.sourcePath && activeMember?.sourcePath
+      ? [{ label: 'Open Compare View', onClick: onOpenCompareView }]
       : []),
   ];
   const switcherPanes = [

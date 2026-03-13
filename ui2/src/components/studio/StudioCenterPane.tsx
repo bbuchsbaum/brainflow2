@@ -154,6 +154,27 @@ export function StudioCenterPane() {
     void getStudioDisplayService().ensureSourcePathDisplayed(sourcePath, [sourcePath]);
   };
 
+  const handleOpenCompareView = () => {
+    const currentSourcePath = activeMember?.sourcePath?.trim() ?? '';
+    const compareSourcePath =
+      activeArtifact?.lens === 'compare' ? activeArtifact.sourcePath?.trim() ?? '' : '';
+    if (!currentSourcePath || !compareSourcePath) {
+      return;
+    }
+
+    const managedCurrentSourcePaths =
+      activeSet?.memberSummaries
+        .map((candidate) => candidate.sourcePath?.trim() ?? '')
+        .filter((path): path is string => path.length > 0) ?? [];
+
+    void getStudioDisplayService().openComparisonForPaths({
+      currentSourcePath,
+      compareSourcePath,
+      managedCurrentSourcePaths,
+      compareLabel: activeArtifact?.title ?? null,
+    });
+  };
+
   const handleRecomputeComparePane = (pane: StudioComparePaneSpec) => {
     if (pane.binding?.kind !== 'derived_field') {
       return;
@@ -199,6 +220,7 @@ export function StudioCenterPane() {
           onRecomputeComparePane={handleRecomputeComparePane}
           onInspectCurrentArtifact={handleInspectCurrentArtifact}
           onOpenCurrentSource={handleOpenCurrentSource}
+          onOpenCompareView={handleOpenCompareView}
           onClearScope={() => setActiveScopeCohort(null)}
           visibleMemberIds={visibleMemberIds}
         />

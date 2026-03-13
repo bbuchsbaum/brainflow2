@@ -39,6 +39,7 @@ interface LensCanvasProps {
   onRecomputeComparePane: (pane: StudioComparePaneSpec) => void;
   onInspectCurrentArtifact: () => void;
   onOpenCurrentSource: () => void;
+  onOpenCompareView: () => void;
   onClearScope: () => void;
   visibleMemberIds?: string[];
 }
@@ -74,6 +75,7 @@ export function LensCanvas({
   onRecomputeComparePane,
   onInspectCurrentArtifact,
   onOpenCurrentSource,
+  onOpenCompareView,
   onClearScope,
   visibleMemberIds,
 }: LensCanvasProps) {
@@ -126,6 +128,7 @@ export function LensCanvas({
               onRecomputePane={onRecomputeComparePane}
               onInspectCurrent={onInspectCurrentArtifact}
               onOpenCurrentSource={onOpenCurrentSource}
+              onOpenCompareView={onOpenCompareView}
             />
           ) : (
             <DeckLens

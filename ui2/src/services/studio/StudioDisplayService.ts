@@ -2,6 +2,8 @@ import { getFileLoadingService } from '@/services/FileLoadingService';
 import { getLayerService } from '@/services/LayerService';
 import { useLayerStore } from '@/stores/layerStore';
 import type { SpatialFieldSetSummary } from '@/types/studio';
+import { useWorkspaceStore } from '@/stores/workspaceStore';
+import { useComparisonStore } from '@/stores/comparisonStore';
 
 export class StudioDisplayService {
   private static instance: StudioDisplayService | null = null;
@@ -38,35 +40,62 @@ export class StudioDisplayService {
     sourcePath: string,
     managedSourcePaths: string[] = []
   ): Promise<void> {
-    const normalizedPath = sourcePath.trim();
+    const normalizedPath = this.normalizePath(sourcePath);
     if (!normalizedPath) {
       return;
     }
 
-    const existingLayerId = this.findLayerIdBySourcePath(normalizedPath);
-    if (existingLayerId) {
-      this.syncSourcePathVisibility(managedSourcePaths, existingLayerId);
-      useLayerStore.getState().selectLayer(existingLayerId);
+    const layerId = await this.ensureLayerLoaded(normalizedPath, 'default');
+    if (!layerId) {
       return;
     }
 
-    if (this.inFlightPath === normalizedPath) {
+    this.syncSourcePathVisibility(managedSourcePaths, layerId);
+    useLayerStore.getState().selectLayer(layerId);
+  }
+
+  async openComparisonForPaths(args: {
+    currentSourcePath: string;
+    compareSourcePath: string;
+    managedCurrentSourcePaths?: string[];
+    compareLabel?: string | null;
+  }): Promise<void> {
+    const currentSourcePath = this.normalizePath(args.currentSourcePath);
+    const compareSourcePath = this.normalizePath(args.compareSourcePath);
+    if (!currentSourcePath || !compareSourcePath || currentSourcePath === compareSourcePath) {
       return;
     }
 
-    this.inFlightPath = normalizedPath;
-    try {
-      await getFileLoadingService().loadFile(normalizedPath, 'programmatic');
-      const loadedLayerId = this.findLayerIdBySourcePath(normalizedPath);
-      if (loadedLayerId) {
-        this.syncSourcePathVisibility(managedSourcePaths, loadedLayerId);
-        useLayerStore.getState().selectLayer(loadedLayerId);
-      }
-    } finally {
-      if (this.inFlightPath === normalizedPath) {
-        this.inFlightPath = null;
-      }
+    await this.ensureSourcePathDisplayed(
+      currentSourcePath,
+      args.managedCurrentSourcePaths ?? []
+    );
+
+    const currentLayerId = this.findLayerIdBySourcePath(currentSourcePath);
+    if (!currentLayerId) {
+      return;
     }
+
+    const compareLayerId = await this.ensureLayerLoaded(compareSourcePath, 'add-layer');
+    if (!compareLayerId) {
+      return;
+    }
+
+    const compareLayer = useLayerStore
+      .getState()
+      .layers.find((layer) => layer.id === compareLayerId);
+    if (compareLayer && !compareLayer.visible) {
+      getLayerService().toggleVisibility(compareLayerId, true);
+    }
+
+    const comparisonWorkspaceId = await this.ensureComparisonWorkspace();
+    useComparisonStore.getState().initFromCurrentAndNewLayer(
+      comparisonWorkspaceId,
+      [currentLayerId],
+      compareLayerId,
+      args.compareLabel ?? undefined
+    );
+    useWorkspaceStore.getState().activateWorkspace(comparisonWorkspaceId);
   }
 
   private findLayerIdBySourcePath(sourcePath: string): string | null {
@@ -103,6 +132,48 @@ export class StudioDisplayService {
         layerService.toggleVisibility(layer.id, shouldBeVisible);
       }
     });
+  }
+
+  private normalizePath(sourcePath: string | null | undefined): string {
+    return sourcePath?.trim() ?? '';
+  }
+
+  private async ensureLayerLoaded(
+    sourcePath: string,
+    intent: 'default' | 'add-layer'
+  ): Promise<string | null> {
+    const existingLayerId = this.findLayerIdBySourcePath(sourcePath);
+    if (existingLayerId) {
+      return existingLayerId;
+    }
+
+    if (this.inFlightPath === sourcePath) {
+      return null;
+    }
+
+    this.inFlightPath = sourcePath;
+    try {
+      await getFileLoadingService().loadFile(sourcePath, 'programmatic', intent);
+      return this.findLayerIdBySourcePath(sourcePath);
+    } finally {
+      if (this.inFlightPath === sourcePath) {
+        this.inFlightPath = null;
+      }
+    }
+  }
+
+  private async ensureComparisonWorkspace(): Promise<string> {
+    const workspaceStore = useWorkspaceStore.getState();
+    const existing = Array.from(workspaceStore.workspaces.values()).find(
+      (workspace) => workspace.type === 'comparison'
+    );
+
+    if (existing) {
+      workspaceStore.activateWorkspace(existing.id);
+      return existing.id;
+    }
+
+    return workspaceStore.createWorkspace('comparison');
   }
 }
 
