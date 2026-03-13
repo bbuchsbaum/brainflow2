@@ -1,8 +1,8 @@
 /**
  * MosaicCell Component
- * 
- * Renders a single cell in the MosaicView grid with crosshair support.
- * Wraps SliceRenderer and adds crosshair rendering functionality.
+ *
+ * Renders a single cell in the MosaicView grid on top of the shared
+ * SliceViewport, while keeping mosaic-specific mirror crosshair logic local.
  */
 
 import { useCallback, useRef, useMemo } from 'react';

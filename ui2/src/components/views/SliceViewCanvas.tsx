@@ -1,9 +1,9 @@
 /**
  * SliceViewCanvas Component
  *
- * A unified implementation of SliceView using SliceRenderer.
- * This replaces the custom canvas management in SliceView with
- * the same approach used by MosaicCell for consistency.
+ * Orthogonal slice view implementation built on the shared SliceViewport.
+ * Higher-level behaviors like hover info, window/level, wheel navigation,
+ * and context menus stay here while viewport mechanics are shared.
  */
 
 import React, { useRef, useCallback, useMemo, useEffect } from 'react';

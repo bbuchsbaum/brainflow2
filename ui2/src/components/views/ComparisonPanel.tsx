@@ -1,8 +1,8 @@
 /**
  * ComparisonPanel Component
  *
- * Renders a single comparison panel with its own SliceRenderer,
- * crosshair overlay, and panel header with layer badges.
+ * Renders a single comparison panel with a shared SliceViewport
+ * plus a comparison-specific header and drag/drop behavior.
  * Uses tag-based rendering (same pattern as MosaicCell).
  */
 
