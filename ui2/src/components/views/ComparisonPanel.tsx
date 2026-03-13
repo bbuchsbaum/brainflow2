@@ -6,18 +6,14 @@
  * Uses tag-based rendering (same pattern as MosaicCell).
  */
 
-import { useCallback, useRef, useMemo, useEffect } from 'react';
-import type { MouseEvent } from 'react';
-import { SliceRenderer } from './SliceRenderer';
+import { useCallback, useRef, useMemo } from 'react';
+import { SliceViewport } from './SliceViewport';
 import { useViewStateStore } from '@/stores/viewStateStore';
-import { useRenderStateStore } from '@/stores/renderStateStore';
-import { drawCrosshair, getLineDash, type CrosshairStyle } from '@/utils/crosshairUtils';
-import { CoordinateTransform } from '@/utils/coordinates';
+import { getLineDash, type CrosshairStyle } from '@/utils/crosshairUtils';
 import { useCrosshairSettingsStore } from '@/stores/crosshairSettingsStore';
 import { comparisonTag } from '@/services/ComparisonRenderService';
 import type { ComparisonPanelConfig } from '@/types/comparison';
-import type { ViewPlane } from '@/types/coordinates';
-import { readFileDragData, readLayerDragData } from '@/utils/layerDrag';
+import { useViewportDropTarget } from './viewport/useViewportDropTarget';
 
 interface ComparisonPanelProps {
   panel: ComparisonPanelConfig;
@@ -61,121 +57,30 @@ export function ComparisonPanel({
     },
   }), [tag, width, height, panel.id, panel.viewType]);
 
-  // Register context
-  useEffect(() => {
-    const store = useRenderStateStore.getState();
-    store.registerContext(renderContext);
-  }, [renderContext]);
-
   const crosshair = useViewStateStore(state => state.viewState.crosshair);
   const viewPlane = useViewStateStore(state => state.viewState.views[panel.viewType]);
   const crosshairSettings = useCrosshairSettingsStore(state => state.getViewSettings(panel.viewType));
   const setCrosshair = useRef(useViewStateStore.getState().setCrosshair).current;
+  const crosshairStyle = useMemo<CrosshairStyle>(() => ({
+    color: crosshairSettings.activeColor,
+    lineWidth: crosshairSettings.activeThickness,
+    lineDash: getLineDash(crosshairSettings.activeStyle, crosshairSettings.activeThickness),
+    opacity: 1,
+  }), [
+    crosshairSettings.activeColor,
+    crosshairSettings.activeThickness,
+    crosshairSettings.activeStyle,
+  ]);
 
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const imagePlacementRef = useRef<{
-    x: number; y: number; width: number; height: number;
-    imageWidth: number; imageHeight: number;
-  } | null>(null);
-  const viewPlaneRef = useRef<ViewPlane | null>(null);
-
-  useEffect(() => {
-    if (viewPlane) viewPlaneRef.current = viewPlane;
-  }, [viewPlane]);
-
-  // Keep crosshair data in refs for stable customRender
-  const crosshairRef = useRef(crosshair);
-  useEffect(() => { crosshairRef.current = crosshair; }, [crosshair]);
-  const crosshairSettingsRef = useRef(crosshairSettings);
-  useEffect(() => { crosshairSettingsRef.current = crosshairSettings; }, [crosshairSettings]);
-
-  // Custom render callback to draw crosshair overlay
-  const customRender = useCallback((
-    ctx: CanvasRenderingContext2D,
-    placement: { x: number; y: number; width: number; height: number; imageWidth: number; imageHeight: number }
-  ) => {
-    imagePlacementRef.current = placement;
-    const cr = crosshairRef.current;
-    const chs = crosshairSettingsRef.current;
-    const vp = viewPlaneRef.current;
-    if (!cr?.visible || !chs?.visible || !vp) return;
-
-    const screenCoord = CoordinateTransform.worldToScreen(cr.world_mm, vp);
-    if (!screenCoord) return;
-
-    const scaleX = placement.width / placement.imageWidth;
-    const scaleY = placement.height / placement.imageHeight;
-    const canvasX = placement.x + screenCoord[0] * scaleX;
-    const canvasY = placement.y + screenCoord[1] * scaleY;
-
-    const style: CrosshairStyle = {
-      color: chs.activeColor,
-      lineWidth: chs.activeThickness,
-      lineDash: getLineDash(chs.activeStyle, chs.activeThickness),
-      opacity: 1,
-    };
-
-    drawCrosshair({ ctx, canvasX, canvasY, bounds: placement, style });
-  }, []);
-
-  // Handle mouse clicks to update global crosshair
-  const handleMouseDown = useCallback((event: MouseEvent<HTMLDivElement>) => {
-    if (event.button !== 0) return;
-    if (!canvasRef.current || !imagePlacementRef.current) return;
-    const currentView = viewPlaneRef.current;
-    if (!currentView) return;
-
-    const canvas = canvasRef.current;
-    const rect = canvas.getBoundingClientRect();
-    const scaleX = canvas.width / rect.width;
-    const scaleY = canvas.height / rect.height;
-
-    const canvasX = (event.clientX - rect.left) * scaleX;
-    const canvasY = (event.clientY - rect.top) * scaleY;
-
-    const placement = imagePlacementRef.current;
-    if (canvasX < placement.x || canvasX > placement.x + placement.width ||
-        canvasY < placement.y || canvasY > placement.y + placement.height) {
-      return;
-    }
-
-    const imageX = (canvasX - placement.x) / placement.width * placement.imageWidth;
-    const imageY = (canvasY - placement.y) / placement.height * placement.imageHeight;
-
-    const worldCoord = CoordinateTransform.screenToWorld(imageX, imageY, currentView);
+  const handleWorldClick = useCallback((worldCoord: [number, number, number]) => {
     setCrosshair(worldCoord, true);
   }, [setCrosshair]);
 
-  const handleCanvasReady = useCallback((canvas: HTMLCanvasElement) => {
-    canvasRef.current = canvas;
-  }, []);
-
-  // Drag-drop support — accept layer drops
-  const handleDragOver = useCallback((e: React.DragEvent) => {
-    e.preventDefault();
-    e.dataTransfer.dropEffect = 'copy';
-  }, []);
-
-  const handleDrop = useCallback((e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    const files = Array.from(e.dataTransfer.files);
-    if (files.length > 0) {
-      void onNativeFileDrop?.(panel.id, files[0]);
-      return;
-    }
-
-    const data = readLayerDragData(e.dataTransfer);
-    if (data?.layerId && onLayerDrop) {
-      onLayerDrop(panel.id, data.layerId);
-      return;
-    }
-
-    const fileData = readFileDragData(e.dataTransfer);
-    if (fileData?.path && onFileDrop) {
-      void onFileDrop(panel.id, fileData.path);
-    }
-  }, [panel.id, onFileDrop, onLayerDrop, onNativeFileDrop]);
+  const { handleDragOver, handleDrop } = useViewportDropTarget({
+    onLayerDrop: (layerId) => onLayerDrop?.(panel.id, layerId),
+    onPathDrop: (path) => onFileDrop?.(panel.id, path),
+    onNativeFileDrop: (file) => onNativeFileDrop?.(panel.id, file),
+  });
 
   const canvasHeight = Math.max(height - COMPARISON_PANEL_HEADER_HEIGHT, 64);
 
@@ -243,15 +148,18 @@ export function ComparisonPanel({
       </div>
 
       {/* Canvas */}
-      <div className="flex-1 relative" onClick={handleMouseDown}>
-        <SliceRenderer
+      <div className="flex-1 relative">
+        <SliceViewport
           width={width}
           height={canvasHeight}
           context={renderContext}
           tag={tag}
-          customRender={customRender}
-          onCanvasReady={handleCanvasReady}
-          className="w-full h-full cursor-crosshair"
+          viewPlane={viewPlane}
+          crosshair={crosshair}
+          crosshairStyle={crosshairStyle}
+          onWorldClick={handleWorldClick}
+          className="w-full h-full"
+          canvasClassName="cursor-crosshair"
         />
       </div>
     </div>

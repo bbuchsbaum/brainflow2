@@ -12,6 +12,7 @@ import { useViewStateStore } from '@/stores/viewStateStore';
 import { useRenderStateStore } from '@/stores/renderStateStore';
 import type { ViewState } from '@/types/viewState';
 import type { ComparisonPanelConfig } from '@/types/comparison';
+import { resizeViewPlanePreservingFieldOfView } from '@/utils/viewGeometry';
 
 export interface ComparisonRenderRequest {
   panel: ComparisonPanelConfig;
@@ -40,21 +41,13 @@ export class ComparisonRenderService {
     height: number
   ): ViewState {
     const currentView = globalViewState.views[panel.viewType];
-    const baseWidth = currentView.dim_px?.[0] || width;
-    const baseHeight = currentView.dim_px?.[1] || height;
-    const totalU = currentView.u_mm.map((component) => component * baseWidth) as [number, number, number];
-    const totalV = currentView.v_mm.map((component) => component * baseHeight) as [number, number, number];
+    const resizedView = resizeViewPlanePreservingFieldOfView(currentView, width, height);
 
     return {
       ...globalViewState,
       views: {
         ...globalViewState.views,
-        [panel.viewType]: {
-          ...currentView,
-          u_mm: totalU.map((component) => component / width) as [number, number, number],
-          v_mm: totalV.map((component) => component / height) as [number, number, number],
-          dim_px: [width, height],
-        },
+        [panel.viewType]: resizedView,
       },
       layers: globalViewState.layers.map(layer => ({
         ...layer,

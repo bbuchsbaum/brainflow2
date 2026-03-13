@@ -33,6 +33,7 @@ import { getVolumeApiService } from './volume/VolumeApiService';
 import { getLayerGpuService } from './layer/LayerGpuService';
 import { getBatchRenderService } from './mosaic/BatchRenderService';
 import { recordRenderDiagnostic } from './render/RenderDiagnostics';
+import { buildRequestedViewPayload } from '@/utils/viewGeometry';
 
 // Re-export interfaces for backward compatibility
 export type { VolumeHandle } from './volume/VolumeApiService';
@@ -135,26 +136,7 @@ export class ApiService {
 
     if (viewType && viewState.views[viewType]) {
       const view = viewState.views[viewType];
-      const baseWidth = view.dim_px?.[0] > 0 ? view.dim_px[0] : width;
-      const baseHeight = view.dim_px?.[1] > 0 ? view.dim_px[1] : height;
-      payload.requestedView = {
-        type: viewType,
-        origin_mm: [...view.origin_mm, 1.0],
-        u_mm: [
-          view.u_mm[0] * baseWidth,
-          view.u_mm[1] * baseWidth,
-          view.u_mm[2] * baseWidth,
-          0.0
-        ],
-        v_mm: [
-          view.v_mm[0] * baseHeight,
-          view.v_mm[1] * baseHeight,
-          view.v_mm[2] * baseHeight,
-          0.0
-        ],
-        width,
-        height
-      };
+      payload.requestedView = buildRequestedViewPayload(viewType, view, width, height);
     }
 
     return {

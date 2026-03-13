@@ -5,16 +5,12 @@
  * Wraps SliceRenderer and adds crosshair rendering functionality.
  */
 
-import { useCallback, useRef, useEffect, useMemo } from 'react';
-import type { MouseEvent } from 'react';
-import { SliceRenderer } from './SliceRenderer';
+import { useCallback, useRef, useMemo } from 'react';
+import { SliceViewport } from './SliceViewport';
 import { useViewStateStore } from '@/stores/viewStateStore';
-import { useRenderStateStore } from '@/stores/renderStateStore';
 import { getMosaicRenderService } from '@/services/MosaicRenderService';
 import { drawCrosshair, getLineDash } from '@/utils/crosshairUtils';
-import { CoordinateTransform } from '@/utils/coordinates';
 import { useCrosshairSettingsStore } from '@/stores/crosshairSettingsStore';
-import type { ViewPlane } from '@/types/coordinates';
 import type { CrosshairStyle } from '@/utils/crosshairUtils';
 
 interface MosaicCellProps {
@@ -71,44 +67,13 @@ export function MosaicCell({
   // Use Zustand store for crosshair settings - works across all React roots
   const crosshairSettings = useCrosshairSettingsStore(state => state.getViewSettings(axis));
   
-  // Register context with the store for type-safe rendering
-  const hasRegisteredRef = useRef(false);
-  useEffect(() => {
-    if (hasRegisteredRef.current) return;
-    const store = useRenderStateStore.getState();
-    const existing = store.getContext?.(renderContext.id);
-    if (!existing) {
-      store.registerContext(renderContext);
-      console.log(`[MosaicCell] Registered context for ${renderContext.id} (slice ${sliceIndex})`);
-    } else {
-      console.log(`[MosaicCell] Context already registered for ${renderContext.id} (slice ${sliceIndex})`);
-    }
-    hasRegisteredRef.current = true;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [renderContext.id, sliceIndex]);
-  
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const imagePlacementRef = useRef<{
-    x: number;
-    y: number;
-    width: number;
-    height: number;
-    imageWidth: number;
-    imageHeight: number;
-  } | null>(null);
-  const viewPlaneRef = useRef<ViewPlane | null>(null);
   const slicePositionRef = useRef<number>(0);
-  const lastImageRef = useRef<ImageBitmap | null>(null);
-  // Store the redraw function from SliceRenderer
-  const redrawCanvasRef = useRef<(() => void) | null>(null);
+
   // Custom render function to draw crosshairs
   const customRender = useCallback((
     ctx: CanvasRenderingContext2D,
     placement: { x: number; y: number; width: number; height: number; imageWidth: number; imageHeight: number }
   ) => {
-    // Store image placement for click handling
-    imagePlacementRef.current = placement;
-    
     // Try to get the view plane from the current ViewState
     // But if it doesn't exist, just skip crosshair rendering
     // This prevents crashes when viewState changes
@@ -117,10 +82,7 @@ export function MosaicCell({
       return;
     }
     const currentViewPlane = axisViewPlane;
-    
-    // Store the view plane reference
-    viewPlaneRef.current = currentViewPlane;
-    
+
     // Get the actual slice position from MosaicRenderService
     // This is the true mm position without any centering offsets
     const storedSlicePosition = mosaicRenderService.getSlicePositionForTag(tag);
@@ -210,53 +172,9 @@ export function MosaicCell({
     }
   }, [axis, sliceIndex, crosshair, axisViewPlane, mosaicRenderService, crosshairSettings]);
   
-  // Note: We no longer need manual redraw triggers for settings changes
-  // The customRender dependency on crosshairSettings ensures SliceRenderer
-  // will automatically redraw when settings change via Zustand
-  
-  // Cleanup on unmount
-  useEffect(() => {
-    return () => {
-      // Clear the reference but don't close the bitmap
-      // Let garbage collection handle it to avoid issues with async operations
-      if (lastImageRef.current) {
-        lastImageRef.current = null;
-        console.debug(`[MosaicCell ${tag}] Cleared ImageBitmap reference on unmount`);
-      }
-    };
-  }, [tag]);
-  
-  // Handle mouse clicks to update crosshair
-  const handleMouseDown = useCallback((event: MouseEvent<HTMLDivElement>) => {
-    if (!onCrosshairClick || !imagePlacementRef.current || !viewPlaneRef.current) return;
-    
-    // Get canvas element
-    const canvas = (event.currentTarget as HTMLDivElement).querySelector('canvas');
-    if (!canvas) return;
-    
-    const rect = canvas.getBoundingClientRect();
-    const scaleX = canvas.width / rect.width;
-    const scaleY = canvas.height / rect.height;
-    
-    // Convert click position to canvas coordinates
-    const canvasX = (event.clientX - rect.left) * scaleX;
-    const canvasY = (event.clientY - rect.top) * scaleY;
-    
-    const placement = imagePlacementRef.current;
-    
-    // Check if click is within the image bounds
-    if (canvasX < placement.x || canvasX > placement.x + placement.width ||
-        canvasY < placement.y || canvasY > placement.y + placement.height) {
-      return;
-    }
-    
-    // Transform canvas coordinates to image coordinates
-    const imageX = (canvasX - placement.x) / placement.width * placement.imageWidth;
-    const imageY = (canvasY - placement.y) / placement.height * placement.imageHeight;
-    
-    // Transform to world coordinates
-    const worldCoord = CoordinateTransform.screenToWorld(imageX, imageY, viewPlaneRef.current);
-    
+  const handleWorldClick = useCallback((worldCoord: [number, number, number]) => {
+    if (!onCrosshairClick) return;
+
     // Update the world coordinate based on the slice position
     let finalWorldCoord: [number, number, number];
     switch (axis) {
@@ -270,43 +188,19 @@ export function MosaicCell({
         finalWorldCoord = [worldCoord[0], slicePositionRef.current, worldCoord[2]];
         break;
     }
-    
+
     onCrosshairClick(finalWorldCoord);
   }, [axis, onCrosshairClick]);
   
-  // Callback to store canvas ref and last image
-  const handleCanvasReady = useCallback((canvas: HTMLCanvasElement) => {
-    canvasRef.current = canvas;
-  }, []);
-  
-  // Store the redraw function when SliceRenderer provides it
-  const handleRedrawReady = useCallback((redrawFn: () => void) => {
-    console.log(`[MosaicCell ${tag}] Received redraw function from SliceRenderer`);
-    redrawCanvasRef.current = redrawFn;
-  }, [tag]);
-  
-  const handleImageReceived = useCallback((imageBitmap: ImageBitmap) => {
-    // Don't dispose the old bitmap - let it be garbage collected
-    // This prevents issues with React effects trying to use disposed bitmaps
-    
-    // Store new bitmap
-    lastImageRef.current = imageBitmap;
-    
-    // Browser handles memory management automatically
-    console.debug(`[MosaicCell ${tag}] Received new image ${imageBitmap.width}x${imageBitmap.height}`);
-  }, [tag]);
-  
   return (
-    <SliceRenderer
+    <SliceViewport
       width={width}
       height={height}
-      context={renderContext}  // NEW: Pass structured context instead of tag string
-      tag={tag}                // Keep for now for backward compatibility during transition
+      context={renderContext}
+      tag={tag}
+      viewPlane={axisViewPlane}
       customRender={customRender}
-      onMouseDown={handleMouseDown}
-      onCanvasReady={handleCanvasReady}
-      onRedrawReady={handleRedrawReady}
-      onImageReceived={handleImageReceived}
+      onWorldClick={handleWorldClick}
       className="cursor-crosshair"
       canvasClassName="mosaic-cell-canvas"
     />

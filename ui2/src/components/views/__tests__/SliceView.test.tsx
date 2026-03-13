@@ -103,8 +103,13 @@ describe('SliceView', () => {
 
     render(<SliceView viewId="axial" width={256} height={256} />);
 
-    expect(screen.getByText('No volumes loaded')).toBeInTheDocument();
-    expect(screen.getByText('Double-click a file or drag & drop')).toBeInTheDocument();
+    expect(screen.getByText('Volume Buffer Empty')).toBeInTheDocument();
+    expect(
+      screen.getByText((_, element) =>
+        element?.tagName === 'P' &&
+        (element.textContent?.includes('Double-click a file or drag & drop') ?? false)
+      )
+    ).toBeInTheDocument();
     expect(document.querySelector('input[type="range"]')).toBeNull();
   });
 

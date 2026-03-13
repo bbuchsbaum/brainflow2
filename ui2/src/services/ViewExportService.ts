@@ -14,6 +14,7 @@ import { useViewStateStore } from '@/stores/viewStateStore';
 import { useMouseCoordinateStore } from '@/stores/mouseCoordinateStore';
 import type { ViewState } from '@/types/viewState';
 import type { ViewType } from '@/types/coordinates';
+import { buildRequestedViewPayload } from '@/utils/viewGeometry';
 import {
   buildSurfaceViewExporterKey,
   parseSurfaceViewContextId,
@@ -233,24 +234,7 @@ export class ViewExportService {
     };
 
     if (view) {
-      payload.requestedView = {
-        type: viewType,
-        origin_mm: [...view.origin_mm, 1.0],
-        u_mm: [
-          view.u_mm[0] * width,
-          view.u_mm[1] * width,
-          view.u_mm[2] * width,
-          0.0
-        ],
-        v_mm: [
-          view.v_mm[0] * height,
-          view.v_mm[1] * height,
-          view.v_mm[2] * height,
-          0.0
-        ],
-        width,
-        height
-      };
+      payload.requestedView = buildRequestedViewPayload(viewType, view, width, height);
     }
 
     if (transparentBackground) {

@@ -1,7 +1,6 @@
 import React from 'react';
 import { useViewStateStore } from '@/stores/viewStateStore';
 import { useLayerStore } from '@/stores/layerStore';
-import { useRenderStateStore } from '@/stores/renderStateStore';
 import { useDisplayOptionsStore } from '@/stores/displayOptionsStore';
 import { useCrosshairSettingsStore } from '@/stores/crosshairSettingsStore';
 import { assertNoRenderPhaseWrites } from '@/utils/devAssert';
@@ -94,31 +93,6 @@ export function useSliceViewModel(
     }),
     [viewId, dims.width, canvasHeight]
   );
-
-  // Register/sync context (scheduled/idempotent at store layer)
-  React.useEffect(() => {
-    const store = useRenderStateStore.getState();
-    const existing = store.getContext?.(viewId);
-    if (!existing) {
-      store.registerContext(renderContext);
-      return;
-    }
-    const { width, height } = renderContext.dimensions;
-    const dimsChanged =
-      existing.dimensions?.width !== width || existing.dimensions?.height !== height;
-    const typeChanged = existing.type !== renderContext.type;
-    // Metadata changes are uncommon; let store equality check handle it.
-
-    if (dimsChanged || typeChanged) {
-      // Schedule to avoid render-phase writes
-      const force = () => useRenderStateStore.getState().registerContext(renderContext);
-      if (typeof requestAnimationFrame !== 'undefined') {
-        requestAnimationFrame(force);
-      } else {
-        setTimeout(force, 16);
-      }
-    }
-  }, [viewId, renderContext]);
 
   return React.useMemo(
     () => ({
