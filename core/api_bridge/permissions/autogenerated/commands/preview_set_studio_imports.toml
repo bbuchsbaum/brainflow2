@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-preview-set-studio-imports"
+description = "Enables the preview_set_studio_imports command without any pre-configured scope."
+commands.allow = ["preview_set_studio_imports"]
+
+[[permission]]
+identifier = "deny-preview-set-studio-imports"
+description = "Denies the preview_set_studio_imports command without any pre-configured scope."
+commands.deny = ["preview_set_studio_imports"]

@@ -67,6 +67,8 @@ Default permissions for api-bridge plugin
 - `allow-load-surface-overlay`
 - `allow-get-surface-overlay-data`
 - `allow-set-layer-mask`
+- `allow-preview-set-studio-imports`
+- `allow-materialize-set-studio-compare-panes`
 
 ## Permission Table
 
@@ -1588,6 +1590,32 @@ Denies the load_template_by_id command without any pre-configured scope.
 <tr>
 <td>
 
+`api-bridge:allow-materialize-set-studio-compare-panes`
+
+</td>
+<td>
+
+Enables the materialize_set_studio_compare_panes command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:deny-materialize-set-studio-compare-panes`
+
+</td>
+<td>
+
+Denies the materialize_set_studio_compare_panes command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
 `api-bridge:allow-patch-layer`
 
 </td>
@@ -1633,6 +1661,32 @@ Enables the preview_parcel_binding_coverage command without any pre-configured s
 <td>
 
 Denies the preview_parcel_binding_coverage command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:allow-preview-set-studio-imports`
+
+</td>
+<td>
+
+Enables the preview_set_studio_imports command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:deny-preview-set-studio-imports`
+
+</td>
+<td>
+
+Denies the preview_set_studio_imports command without any pre-configured scope.
 
 </td>
 </tr>

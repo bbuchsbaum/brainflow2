@@ -64,6 +64,9 @@ const COMMANDS: &[&str] = &[
     // Surface template commands
     "load_surface_template",
     "get_surface_template_catalog",
+    // Set Studio commands
+    "preview_set_studio_imports",
+    "materialize_set_studio_compare_panes",
 ];
 
 fn main() {

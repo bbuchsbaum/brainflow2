@@ -1,11 +1,8 @@
-import { useAppModeStore } from '@/stores/appModeStore';
 import { getSetStudioService } from '@/services/studio/SetStudioService';
 import { useStudioDerivedState } from '@/hooks/useStudioDerivedState';
 import { StudioCenterPane } from './StudioCenterPane';
-import { StudioDesignPanel } from './StudioDesignPanel';
 import { StudioEmptyState } from './StudioEmptyState';
 import { StudioImportDialog } from './StudioImportDialog';
-import { StudioInspectorPanel } from './StudioInspectorPanel';
 import { StudioToolbar } from './StudioToolbar';
 
 interface SetStudioWorkspaceProps {
@@ -18,11 +15,8 @@ export function SetStudioWorkspace({
   containerHeight: _containerHeight,
 }: SetStudioWorkspaceProps) {
   const studioService = getSetStudioService();
-  const appMode = useAppModeStore((state) => state.mode);
   const { activeSet, activeFeature, activeLens, compareCohort, workspaceReadiness } =
     useStudioDerivedState();
-
-  const showNativeStudioSidebars = appMode === 'studio';
 
   if (!activeSet) {
     return (
@@ -66,22 +60,9 @@ export function SetStudioWorkspace({
           </div>
         ) : null}
 
-        {showNativeStudioSidebars ? (
-          <div className="flex min-h-0 flex-1 flex-col gap-3 p-3">
-            <StudioCenterPane />
-          </div>
-        ) : (
-          <div
-            className="grid min-h-0 flex-1 gap-3 p-3"
-            style={{
-              gridTemplateColumns: 'minmax(220px, 26%) minmax(0, 1fr) minmax(180px, 20%)',
-            }}
-          >
-            <StudioDesignPanel />
-            <StudioCenterPane />
-            <StudioInspectorPanel />
-          </div>
-        )}
+        <div className="flex min-h-0 flex-1 flex-col gap-3 p-3">
+          <StudioCenterPane />
+        </div>
       </div>
     </div>
   );

@@ -65,5 +65,7 @@ permissions = [
     "allow-load-surface-atlas",
     "allow-load-surface-overlay",
     "allow-get-surface-overlay-data",
-    "allow-set-layer-mask"
+    "allow-set-layer-mask",
+    "allow-preview-set-studio-imports",
+    "allow-materialize-set-studio-compare-panes"
 ]
