@@ -47,20 +47,19 @@ export function useSliceViewModel(
   const primaryLayer = React.useMemo(() => layers.find((l) => l.visible), [layers]);
   const primaryLayerId = primaryLayer?.id ?? '';
 
-  // Display options for primary layer (read-once pattern to avoid Map churn)
-  const primaryOptions = React.useMemo(() => {
-    const store = useDisplayOptionsStore.getState();
-    const opts = store.options.get(primaryLayerId);
-    if (!opts) {
-      return {
-        showBorder: false,
-        borderThicknessPx: 1,
-        showOrientationMarkers: true,
-        showValueOnHover: true,
-      };
-    }
-    return opts;
-  }, [primaryLayerId]);
+  // Display options for primary layer — subscribe reactively so toggles take effect
+  const DEFAULT_DISPLAY_OPTIONS = React.useMemo(() => ({
+    showBorder: false,
+    borderThicknessPx: 1,
+    showOrientationMarkers: true,
+    showValueOnHover: true,
+  }), []);
+  const primaryOptions = useDisplayOptionsStore(
+    React.useCallback(
+      (s) => s.options.get(primaryLayerId) ?? DEFAULT_DISPLAY_OPTIONS,
+      [primaryLayerId, DEFAULT_DISPLAY_OPTIONS]
+    )
+  ) ?? DEFAULT_DISPLAY_OPTIONS;
 
   // Crosshair settings: select the full settings object (stable ref) and derive
   const crosshairSettingsRoot = useCrosshairSettingsStore((s) => s.settings);

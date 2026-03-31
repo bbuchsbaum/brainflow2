@@ -169,16 +169,29 @@ export class ApiService {
       width: number;
       height: number;
       layerCount: number;
-    }
+    },
+    markId?: string
   ): Promise<{ imageData: Uint8Array; isRawRGBAFormat: boolean }> {
+    performance.mark(`${markId}-serialize-start`);
     const stateJson = JSON.stringify(declarativeViewState);
+    performance.mark(`${markId}-serialize-end`);
+    performance.measure(`render:serialize`, `${markId}-serialize-start`, `${markId}-serialize-end`);
+    performance.clearMarks(`${markId}-serialize-start`);
+    performance.clearMarks(`${markId}-serialize-end`);
+
     const startTime = performance.now();
     const cmd = 'render_view';
     const args = { stateJson, format };
     const stage = 'api.render_view';
 
+    performance.mark(`${markId}-ipc-start`);
     try {
       const response = await this.transport.invoke<Uint8Array>(cmd, args);
+      performance.mark(`${markId}-ipc-end`);
+      performance.measure(`render:ipc`, `${markId}-ipc-start`, `${markId}-ipc-end`);
+      performance.clearMarks(`${markId}-ipc-start`);
+      performance.clearMarks(`${markId}-ipc-end`);
+
       recordRenderDiagnostic(stage, performance.now() - startTime, {
         format,
         viewType: diagnostics.viewType,
@@ -194,6 +207,7 @@ export class ApiService {
         isRawRGBAFormat: format === 'rgba'
       };
     } catch (error) {
+      performance.clearMarks(`${markId}-ipc-start`);
       recordRenderDiagnostic(stage, performance.now() - startTime, {
         format,
         viewType: diagnostics.viewType,
@@ -316,7 +330,9 @@ export class ApiService {
     }
 
     const format = renderFlags.useRawRGBA ? 'rgba' : 'png';
+    const markId = `render-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
 
+    performance.mark(`${markId}-start`);
     try {
       const { imageData, isRawRGBAFormat } = await this.requestSingleViewBytes(
         declarativeViewState,
@@ -326,13 +342,24 @@ export class ApiService {
           width,
           height,
           layerCount: visibleLayerCount
-        }
+        },
+        markId
       );
 
       apiDebugLog(`[ApiService] render_view completed (${format}, ${imageData.length} bytes)`);
 
-      return this.decodeImageBuffer(imageData, isRawRGBAFormat);
+      performance.mark(`${markId}-decode-start`);
+      const bitmap = await this.decodeImageBuffer(imageData, isRawRGBAFormat);
+      performance.mark(`${markId}-decode-end`);
+      performance.measure(`render:decode`, `${markId}-decode-start`, `${markId}-decode-end`);
+      performance.measure(`render:total`, `${markId}-start`, `${markId}-decode-end`);
+      performance.clearMarks(`${markId}-start`);
+      performance.clearMarks(`${markId}-decode-start`);
+      performance.clearMarks(`${markId}-decode-end`);
+      return bitmap;
     } catch (error) {
+      performance.clearMarks(`${markId}-start`);
+      performance.clearMarks(`${markId}-decode-start`);
       console.error('[ApiService] render_view failed:', error);
       console.error(`[ApiService] Error type: ${(error as any)?.constructor?.name}`);
       console.error(`[ApiService] Error message: ${(error as any)?.message}`);

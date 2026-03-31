@@ -8,21 +8,24 @@ export function useRenderContextRegistration(context: RenderContext): void {
     const existing = store.getContext?.(context.id);
     if (!existing) {
       store.registerContext(context);
-      return;
-    }
+    } else {
+      const { width, height } = context.dimensions;
+      const dimsChanged =
+        existing.dimensions?.width !== width || existing.dimensions?.height !== height;
+      const typeChanged = existing.type !== context.type;
 
-    const { width, height } = context.dimensions;
-    const dimsChanged =
-      existing.dimensions?.width !== width || existing.dimensions?.height !== height;
-    const typeChanged = existing.type !== context.type;
-
-    if (dimsChanged || typeChanged) {
-      const syncContext = () => useRenderStateStore.getState().registerContext(context);
-      if (typeof requestAnimationFrame !== 'undefined') {
-        requestAnimationFrame(syncContext);
-      } else {
-        setTimeout(syncContext, 16);
+      if (dimsChanged || typeChanged) {
+        const syncContext = () => useRenderStateStore.getState().registerContext(context);
+        if (typeof requestAnimationFrame !== 'undefined') {
+          requestAnimationFrame(syncContext);
+        } else {
+          setTimeout(syncContext, 16);
+        }
       }
     }
+
+    return () => {
+      useRenderStateStore.getState().clearContext(context.id);
+    };
   }, [context]);
 }

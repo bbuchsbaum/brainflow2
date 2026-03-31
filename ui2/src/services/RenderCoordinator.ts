@@ -11,17 +11,9 @@ import type { ViewState } from '@/types/viewState';
 import type { ViewType } from '@/types/coordinates';
 import type { RenderSession } from './RenderSession';
 import { recordRenderDiagnostic } from '@/services/render/RenderDiagnostics';
+import { createDebugLogger } from '@/utils/debug';
 
-const DEBUG_RENDER_COORDINATOR =
-  import.meta.env.DEV &&
-  typeof window !== 'undefined' &&
-  window.localStorage.getItem('brainflow2-debug-render-coordinator') === 'true';
-
-const renderDebugLog = (...args: unknown[]) => {
-  if (DEBUG_RENDER_COORDINATOR) {
-    console.log(...args);
-  }
-};
+const renderDebugLog = createDebugLogger('render-coordinator');
 
 export interface RenderRequest {
   viewState: ViewState;

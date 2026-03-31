@@ -47,6 +47,7 @@ interface RenderStateStore {
   // NEW: Context-aware actions
   registerContext: (context: RenderContext) => void;
   getContext: (id: string) => RenderContext | undefined;
+  clearContext: (id: string) => void;
   setRenderingWithContext: (context: RenderContext, isRendering: boolean) => void;
   setImageWithContext: (context: RenderContext, image: ImageBitmap | null) => void;
   getContextsOfType: (type: RenderContextType) => RenderContext[];
@@ -223,7 +224,15 @@ export const useRenderStateStore = create<RenderStateStore>()(
     getContext: (id) => {
       return get().contexts[id];
     },
-    
+
+    clearContext: (id) => {
+      set((state) => {
+        delete state.contexts[id];
+        delete state.states[id];
+        console.log(`[RenderStateStore] Cleared context and state for ${id}`);
+      });
+    },
+
     setRenderingWithContext: (context, isRendering) => {
       // Register context if not already registered
       if (!get().contexts[context.id]) {
