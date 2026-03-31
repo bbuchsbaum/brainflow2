@@ -13,6 +13,9 @@ import type { ViewState } from '@/types/viewState';
 import type { ViewPlane } from '@/types/coordinates';
 import { CoordinateTransform } from '@/utils/coordinates';
 import { getViewPlaneService } from '@/services/ViewPlaneService';
+import { createDebugLogger } from '@/utils/debug';
+
+const debug = createDebugLogger('mosaic-render');
 
 export interface MosaicRenderRequest {
   sliceIndex: number;
@@ -41,7 +44,7 @@ class MosaicRenderService {
   async renderMosaicCell(request: MosaicRenderRequest): Promise<void> {
     const { sliceIndex, axis, cellId, width, height } = request;
     
-    console.log(`[MosaicRenderService] DEBUG - Starting render for cell:`, {
+    debug(`[MosaicRenderService] Starting render for cell:`, {
       cellId,
       sliceIndex,
       axis,
@@ -60,7 +63,7 @@ class MosaicRenderService {
       // Get current view state
       const currentViewState = useViewStateStore.getState().viewState;
       
-      console.log(`[MosaicRenderService] DEBUG - Current ViewState structure:`, {
+      debug(`[MosaicRenderService] Current ViewState structure:`, {
         cellId,
         hasLayers: !!currentViewState.layers,
         layerCount: currentViewState.layers?.length,
@@ -87,9 +90,9 @@ class MosaicRenderService {
         sliceIndex
       );
       this.slicePositions.set(cellId, slicePosition);
-      console.log(`[MosaicRenderService] Stored slice position ${slicePosition}mm for cell ${cellId}`);
+      debug(`[MosaicRenderService] Stored slice position ${slicePosition}mm for cell ${cellId}`);
       
-      console.log(`[MosaicRenderService] DEBUG - Modified ViewState for slice ${sliceIndex}:`, {
+      debug(`[MosaicRenderService] Modified ViewState for slice ${sliceIndex}:`, {
         cellId,
         hasModifiedViews: !!modifiedViewState.views,
         modifiedViewKeys: Object.keys(modifiedViewState.views || {}),
@@ -98,7 +101,7 @@ class MosaicRenderService {
       
       // Render using the normal pipeline with correct cell dimensions
       // This ensures backend renders at the exact size needed for the canvas
-      console.log(`[MosaicRenderService] DEBUG - Calling applyAndRenderViewState for ${cellId} WITH dimensions ${width}x${height}`);
+      debug(`[MosaicRenderService] Calling applyAndRenderViewState for ${cellId} WITH dimensions ${width}x${height}`);
       
       const imageBitmap = await this.apiService.applyAndRenderViewState(
         modifiedViewState,
@@ -107,7 +110,7 @@ class MosaicRenderService {
         height  // Pass actual cell height to match canvas size
       );
       
-      console.log(`[MosaicRenderService] DEBUG - Render result for ${cellId}:`, {
+      debug(`[MosaicRenderService] Render result for ${cellId}:`, {
         hasImageBitmap: !!imageBitmap,
         imageBitmapType: imageBitmap ? imageBitmap.constructor.name : 'null',
         imageBitmapSize: imageBitmap ? `${imageBitmap.width}x${imageBitmap.height}` : 'N/A'
@@ -118,12 +121,12 @@ class MosaicRenderService {
         const renderStore = useRenderStateStore.getState();
         renderStore.setImage(cellId, imageBitmap);
         renderStore.setRendering(cellId, false);
-        console.log(`[MosaicRenderService] DEBUG - Updated store with image for ${cellId}`);
+        debug(`[MosaicRenderService] Updated store with image for ${cellId}`);
       } else {
         throw new Error('No image returned from backend');
       }
     } catch (error) {
-      console.error(`[MosaicRenderService] DEBUG - Error rendering ${cellId}:`, {
+      console.error(`[MosaicRenderService] Error rendering ${cellId}:`, {
         error,
         errorMessage: error instanceof Error ? error.message : String(error),
         errorStack: error instanceof Error ? error.stack : undefined,
@@ -137,16 +140,16 @@ class MosaicRenderService {
       renderStore.setRendering(cellId, false);
     } finally {
       this.activeRenders.delete(cellId);
-      console.log(`[MosaicRenderService] DEBUG - Finished processing ${cellId}`);
+      debug(`[MosaicRenderService] Finished processing ${cellId}`);
     }
   }
-  
+
   /**
    * Render multiple mosaic cells with batched processing for controlled concurrency
    */
   async renderMosaicGrid(requests: MosaicRenderRequest[]): Promise<void> {
-    console.log(`[MosaicRenderService] Starting batched rendering: ${requests.length} requests, max concurrent: ${MosaicRenderService.MAX_CONCURRENT_RENDERS}`);
-    console.log('[MosaicRenderService] Request details:', requests.map(r => ({
+    debug(`[MosaicRenderService] Starting batched rendering: ${requests.length} requests, max concurrent: ${MosaicRenderService.MAX_CONCURRENT_RENDERS}`);
+    debug('[MosaicRenderService] Request details:', requests.map(r => ({
       cellId: r.cellId,
       sliceIndex: r.sliceIndex,
       axis: r.axis,
@@ -159,7 +162,7 @@ class MosaicRenderService {
     // Process batches sequentially, but items within each batch in parallel
     for (let batchIndex = 0; batchIndex < batches.length; batchIndex++) {
       const batch = batches[batchIndex];
-      console.log(`[MosaicRenderService] Processing batch ${batchIndex + 1}/${batches.length} with ${batch.length} renders`);
+      debug(`[MosaicRenderService] Processing batch ${batchIndex + 1}/${batches.length} with ${batch.length} renders`);
       
       // Process batch with controlled concurrency
       const batchPromises = batch.map(async (request) => {
@@ -180,10 +183,10 @@ class MosaicRenderService {
       // Log batch results
       const batchSuccessful = batchResults.filter(r => r.success).length;
       const batchFailed = batchResults.filter(r => !r.success).length;
-      console.log(`[MosaicRenderService] Batch ${batchIndex + 1} complete: ${batchSuccessful} successful, ${batchFailed} failed. Running total: ${results.successful}/${requests.length} successful`);
+      debug(`[MosaicRenderService] Batch ${batchIndex + 1} complete: ${batchSuccessful} successful, ${batchFailed} failed. Running total: ${results.successful}/${requests.length} successful`);
     }
     
-    console.log(`[MosaicRenderService] All batches complete: ${results.successful}/${requests.length} successful`);
+    debug(`[MosaicRenderService] All batches complete: ${results.successful}/${requests.length} successful`);
     
     if (results.failed > 0) {
       console.warn('[MosaicRenderService] Some cells failed to render:', results.errors);
@@ -203,12 +206,21 @@ class MosaicRenderService {
   }
   
   /**
-   * Cancel active renders for given cell IDs
+   * Cancel active renders for given cell IDs and clean up their state
    */
   cancelRenders(cellIds: string[]): void {
     for (const cellId of cellIds) {
       this.activeRenders.delete(cellId);
+      this.slicePositions.delete(cellId);
     }
+  }
+
+  /**
+   * Destroy the service, clearing all accumulated state
+   */
+  destroy(): void {
+    this.activeRenders.clear();
+    this.slicePositions.clear();
   }
   
   /**
@@ -228,7 +240,7 @@ class MosaicRenderService {
     slicePosition: number,
     viewPlane: ViewPlane
   ): CrosshairInfo {
-    console.log(`[MosaicRenderService] calculateCrosshairForCell:`, {
+    debug(`[MosaicRenderService] calculateCrosshairForCell:`, {
       globalCrosshair,
       axis,
       slicePosition,
@@ -257,7 +269,7 @@ class MosaicRenderService {
         isOnSlice = diff < 1.0;
         break;
     }
-    console.log(`[MosaicRenderService] Slice at ${slicePosition}, crosshair diff: ${diff}, isOnSlice: ${isOnSlice}`);
+    debug(`[MosaicRenderService] Slice at ${slicePosition}, crosshair diff: ${diff}, isOnSlice: ${isOnSlice}`);
     
     if (!isOnSlice) {
       // This is a mirror crosshair - project the global crosshair onto this slice
@@ -276,7 +288,7 @@ class MosaicRenderService {
       
       // Transform to screen coordinates without plane tolerance check
       const screenCoord = CoordinateTransform.worldToScreenUnchecked(projectedCrosshair, viewPlane);
-      console.log(`[MosaicRenderService] Mirror crosshair:`, {
+      debug(`[MosaicRenderService] Mirror crosshair:`, {
         projectedCrosshair,
         screenCoord,
         isActive: false
@@ -288,7 +300,7 @@ class MosaicRenderService {
     } else {
       // This is the active crosshair slice
       const screenCoord = CoordinateTransform.worldToScreenUnchecked(globalCrosshair, viewPlane);
-      console.log(`[MosaicRenderService] Active crosshair:`, {
+      debug(`[MosaicRenderService] Active crosshair:`, {
         globalCrosshair,
         screenCoord,
         isActive: true
@@ -378,7 +390,7 @@ class MosaicRenderService {
     // sliceIndex 0 should be at sliceMin (most inferior for axial)
     const slicePosition_mm = sliceMin + (sliceIndex * (sliceRange / totalSlices));
     
-    console.log(`[MosaicRenderService] Slice ${sliceIndex} position: ${slicePosition_mm}mm (range: ${sliceMin} to ${sliceMax})`);
+    debug(`[MosaicRenderService] Slice ${sliceIndex} position: ${slicePosition_mm}mm (range: ${sliceMin} to ${sliceMax})`);
     
     // CRITICAL FIX: Calculate proper ViewPlane for this cell's dimensions
     // This ensures the entire slice fits within the cell, not a zoomed portion
@@ -503,7 +515,7 @@ class MosaicRenderService {
       }
     };
     
-    console.log(`[MosaicRenderService] Correctly framed ViewState for ${axis} slice ${sliceIndex}:`, {
+    debug(`[MosaicRenderService] Correctly framed ViewState for ${axis} slice ${sliceIndex}:`, {
       slicePosition_mm,
       crosshair: modifiedViewState.crosshair.world_mm,
       newViewPlane,
@@ -593,4 +605,11 @@ export function getMosaicRenderService(): MosaicRenderService {
     instance = new MosaicRenderService();
   }
   return instance;
+}
+
+export function destroyMosaicRenderService(): void {
+  if (instance) {
+    instance.destroy();
+    instance = null;
+  }
 }

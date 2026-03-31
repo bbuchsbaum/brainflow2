@@ -20,6 +20,9 @@ import {
   cloneViewStateRevisions,
   TRACKED_VIEW_TYPES
 } from '@/utils/viewStateTracking';
+import { createDebugLogger } from '@/utils/debug';
+
+const debug = createDebugLogger('coalesce-middleware');
 
 // Global state for coalescing - persists across store instances
 let pendingState: ViewState | null = null;
@@ -122,7 +125,7 @@ function flushState(forceDimensionUpdate = false) {
     
     // Different behavior for different drag types
     if (isLayoutDragging && !forceDimensionUpdate) {
-      console.log(`[coalesceMiddleware ${flushTime.toFixed(0)}ms] 🚧 Skipping flush - layout drag in progress`);
+      debug(`[coalesceMiddleware ${flushTime.toFixed(0)}ms] Skipping flush - layout drag in progress`);
       // Don't clear pendingState - we want to flush it when drag ends
       rafId = null;
       // Important: Keep the pending state but schedule another check
@@ -133,30 +136,30 @@ function flushState(forceDimensionUpdate = false) {
     
     // For slider dragging, we want immediate updates
     if (isSliderDragging) {
-      console.log(`[coalesceMiddleware ${flushTime.toFixed(0)}ms] 🎛️ Slider drag detected - allowing immediate flush`);
+      debug(`[coalesceMiddleware ${flushTime.toFixed(0)}ms] Slider drag detected - allowing immediate flush`);
     }
-    
+
     // Check if this is a dimension-only update
     // IMPORTANT: Always allow dimension updates to pass through for proper rendering after resize
     const isDimensionOnly =
       !forceDimensionUpdate &&
       isDimensionOnlyChange(pendingState, lastFlushedState, pendingRevisions, lastFlushedRevisions);
     if (isDimensionOnly) {
-      console.log(`[coalesceMiddleware ${flushTime.toFixed(0)}ms] 📏 Dimension-only update detected - allowing for proper resize handling`);
+      debug(`[coalesceMiddleware ${flushTime.toFixed(0)}ms] Dimension-only update detected - allowing for proper resize handling`);
       // Don't skip dimension updates - they're essential for proper rendering after panel resizes
     }
-    
+
     if (forceDimensionUpdate) {
-      console.log(`[coalesceMiddleware ${flushTime.toFixed(0)}ms] 🚀 FORCE flushing state (dimension update) to backend`);
+      debug(`[coalesceMiddleware ${flushTime.toFixed(0)}ms] FORCE flushing state (dimension update) to backend`);
     } else {
-      console.log(`[coalesceMiddleware ${flushTime.toFixed(0)}ms] 🚀 Flushing state with content changes to backend`);
+      debug(`[coalesceMiddleware ${flushTime.toFixed(0)}ms] Flushing state with content changes to backend`);
     }
-    
+
     // Add data source tracking
-    console.log(`[coalesceMiddleware] Flushing state with ${pendingState.layers.length} layers:`);
+    debug(`[coalesceMiddleware] Flushing state with ${pendingState.layers.length} layers:`);
     pendingState.layers.forEach((layer, index) => {
       const layerType = (layer as { type?: string }).type ?? 'volume';
-      console.log(`[coalesceMiddleware] Layer ${index}: id=${layer.id}, type=${layerType}, intensity=${JSON.stringify(layer.intensity)}`);
+      debug(`[coalesceMiddleware] Layer ${index}: id=${layer.id}, type=${layerType}, intensity=${JSON.stringify(layer.intensity)}`);
     });
     
     // Enhanced intensity monitoring
@@ -208,11 +211,11 @@ function flushState(forceDimensionUpdate = false) {
     pendingUpdateCount = 0;
   } else {
     if (!pendingState) {
-      console.log(`[coalesceMiddleware ${flushTime.toFixed(0)}ms] No pending state to flush`);
+      debug(`[coalesceMiddleware ${flushTime.toFixed(0)}ms] No pending state to flush`);
     } else if (!backendUpdateCallback) {
-      console.log(`[coalesceMiddleware ${flushTime.toFixed(0)}ms] No backend callback set`);
+      debug(`[coalesceMiddleware ${flushTime.toFixed(0)}ms] No backend callback set`);
     } else if (!isEnabled) {
-      console.log(`[coalesceMiddleware ${flushTime.toFixed(0)}ms] Coalescing disabled`);
+      debug(`[coalesceMiddleware ${flushTime.toFixed(0)}ms] Coalescing disabled`);
     }
     if (!pendingState) {
       pendingRevisions = null;
@@ -349,7 +352,7 @@ export const coalesceUpdatesMiddleware = <
             }
             // For slider dragging, let the flush happen normally
             else if (isSliderDragging) {
-              console.log(`[coalesceMiddleware ${queueTime.toFixed(0)}ms] 🎛️ Slider drag - allowing normal flush`);
+              debug(`[coalesceMiddleware ${queueTime.toFixed(0)}ms] Slider drag - allowing normal flush`);
             }
           }
         }
@@ -389,10 +392,10 @@ export const coalesceUtils = {
    * Force flush any pending state immediately
    */
   flush: (forceDimensionUpdate = false) => {
-    console.log('[coalesceUtils.flush] Requested flush (scheduled). forceDimensionUpdate:', forceDimensionUpdate);
-    console.log('[coalesceUtils.flush] Pending state exists:', pendingState !== null);
-    console.log('[coalesceUtils.flush] Layout dragging:', useLayoutDragStore.getState().isDragging);
-    console.log('[coalesceUtils.flush] Drag source:', useDragSourceStore.getState().draggingSource);
+    debug('[coalesceUtils.flush] Requested flush (scheduled). forceDimensionUpdate:', forceDimensionUpdate);
+    debug('[coalesceUtils.flush] Pending state exists:', pendingState !== null);
+    debug('[coalesceUtils.flush] Layout dragging:', useLayoutDragStore.getState().isDragging);
+    debug('[coalesceUtils.flush] Drag source:', useDragSourceStore.getState().draggingSource);
 
     // Record that a forced dimension update has been requested; this will be
     // honored on the next scheduled flush without executing during render.
