@@ -221,9 +221,9 @@ function AppContent() {
       },
       {
         id: 'studio.importManifest',
-        title: 'Set Studio: Import NFTab Manifest',
+        title: 'Set Studio: Import NeuroTabs Manifest',
         subtitle: 'Open manifest preview and import for Studio.',
-        keywords: ['studio', 'manifest', 'nftab', 'import'],
+        keywords: ['studio', 'manifest', 'neurotabs', 'import'],
         group: 'Studio',
         run: async () => {
           await getSetStudioService().openManifestInStudio();

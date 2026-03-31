@@ -55,10 +55,6 @@ export class RenderEventChannel {
   static forMosaicCell(cellId: string): string {
     return `mosaic.${cellId}`;
   }
-  
-  static forLightbox(index: number): string {
-    return `lightbox.${index}`;
-  }
 }
 
 // Factory for creating render channels
