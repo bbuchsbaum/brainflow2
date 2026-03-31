@@ -13,13 +13,14 @@ describe('workspace presets', () => {
     });
   });
 
-  it('defines five core presets', () => {
+  it('defines six core presets', () => {
     expect(WORKSPACE_PRESETS.map((preset) => preset.id)).toEqual([
       'read',
       'explore',
       'analyze',
       'compare',
       'studio',
+      'bids',
     ]);
   });
 

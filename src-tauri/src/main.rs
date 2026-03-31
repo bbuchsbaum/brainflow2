@@ -151,6 +151,35 @@ fn open_mount_dialog(app_handle: AppHandle) {
     println!("Dialog setup complete");
 }
 
+// Command to open a folder picker for BIDS dataset selection
+#[tauri::command]
+fn open_bids_dialog(app_handle: AppHandle) {
+    use tauri_plugin_dialog::DialogExt;
+
+    println!("Opening BIDS directory dialog...");
+
+    let app_handle_clone = app_handle.clone();
+
+    app_handle
+        .dialog()
+        .file()
+        .set_title("Select BIDS Dataset")
+        .pick_folder(move |folder_path| {
+            println!("BIDS dialog callback triggered with: {:?}", folder_path);
+            if let Some(folder) = folder_path {
+                let path_str = folder.to_string();
+                match app_handle_clone.emit("bids-directory-event", serde_json::json!({ "path": path_str })) {
+                    Ok(_) => println!("BIDS directory event emitted successfully"),
+                    Err(e) => eprintln!("Failed to emit bids-directory-event: {}", e),
+                }
+            } else {
+                println!("BIDS dialog was cancelled");
+            }
+        });
+
+    println!("BIDS dialog setup complete");
+}
+
 // Command to open a file picker and request immediate file load in frontend
 #[tauri::command]
 fn open_file_dialog(app_handle: AppHandle, intent: Option<String>) {
@@ -861,6 +890,7 @@ fn main() {
         .manage(startup_action_queue)
         .invoke_handler(tauri::generate_handler![
             open_mount_dialog,
+            open_bids_dialog,
             open_file_dialog,
             update_dynamic_menus,
             flush_startup_actions

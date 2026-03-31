@@ -6,7 +6,7 @@ import { useWorkspaceStore } from '@/stores/workspaceStore';
 import { WORKSPACE_PRESETS, type WorkspacePresetId } from '@/types/workspacePresets';
 import { cn } from '@/utils/cn';
 
-const PRESET_ORDER: WorkspacePresetId[] = ['read', 'explore', 'analyze', 'compare'];
+const PRESET_ORDER: WorkspacePresetId[] = ['read', 'explore', 'analyze', 'compare', 'studio', 'bids'];
 const SHORTCUT_CATEGORY = 'Workspace Presets';
 
 interface WorkspacePresetSelectorProps {

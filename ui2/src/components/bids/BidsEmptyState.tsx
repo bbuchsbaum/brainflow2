@@ -2,6 +2,11 @@ import React, { useState } from 'react';
 import { Button } from '@/components/ui/Button';
 import { getTransport } from '@/services/transport';
 import { useBidsStore } from '@/stores/bidsStore';
+import { safeListen } from '@/utils/eventUtils';
+
+interface BidsDirectoryEvent {
+  path: string;
+}
 
 export function BidsEmptyState() {
   const [opening, setOpening] = useState(false);
@@ -15,23 +20,23 @@ export function BidsEmptyState() {
 
     try {
       const transport = getTransport();
-      // open_bids_dialog returns the selected path, or null if cancelled
-      const selectedPath = await transport.invoke<string | null>('open_bids_dialog');
-      if (selectedPath) {
-        await scanDataset(selectedPath);
-      }
+
+      // Listen for the directory selected event before invoking the dialog
+      const unlisten = await safeListen<BidsDirectoryEvent>('bids-directory-event', async (event) => {
+        await unlisten();
+        setOpening(false);
+        if (event.payload?.path) {
+          await scanDataset(event.payload.path);
+        }
+      });
+
+      // Fire-and-forget: Rust opens native dialog and emits bids-directory-event on selection
+      await transport.invoke<void>('open_bids_dialog');
     } catch (err) {
-      // Fallback: invoke the generic mount dialog so the user can at least navigate
-      try {
-        const transport = getTransport();
-        await transport.invoke<void>('open_mount_dialog');
-      } catch {
-        setOpenError(
-          err instanceof Error ? err.message : 'Could not open a directory picker. Use File > Open BIDS Dataset\u2026'
-        );
-      }
-    } finally {
       setOpening(false);
+      setOpenError(
+        err instanceof Error ? err.message : 'Could not open a directory picker. Use File > Open BIDS Dataset\u2026'
+      );
     }
   }
 

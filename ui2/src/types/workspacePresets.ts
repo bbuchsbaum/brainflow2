@@ -1,6 +1,6 @@
 import type { WorkspaceConfig, WorkspaceType } from '@/types/workspace';
 
-export type WorkspacePresetId = 'read' | 'explore' | 'analyze' | 'compare' | 'studio';
+export type WorkspacePresetId = 'read' | 'explore' | 'analyze' | 'compare' | 'studio' | 'bids';
 
 export interface WorkspacePreset {
   id: WorkspacePresetId;
@@ -52,6 +52,13 @@ export const WORKSPACE_PRESETS: WorkspacePreset[] = [
     workspaceType: 'set-studio',
     shortcut: 'Cmd/Ctrl+5',
   },
+  {
+    id: 'bids',
+    label: 'BIDS',
+    description: 'Explore BIDS datasets.',
+    workspaceType: 'bids-explorer',
+    shortcut: 'Cmd/Ctrl+6',
+  },
 ];
 
 export const WORKSPACE_PRESET_BY_ID: Record<WorkspacePresetId, WorkspacePreset> = {
@@ -60,6 +67,7 @@ export const WORKSPACE_PRESET_BY_ID: Record<WorkspacePresetId, WorkspacePreset> 
   analyze: WORKSPACE_PRESETS[2],
   compare: WORKSPACE_PRESETS[3],
   studio: WORKSPACE_PRESETS[4],
+  bids: WORKSPACE_PRESETS[5],
 };
 
 export function getWorkspacePresetById(id: WorkspacePresetId): WorkspacePreset {
