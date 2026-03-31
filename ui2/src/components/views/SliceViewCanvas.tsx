@@ -410,10 +410,12 @@ function SliceViewCanvasRaw({ viewId, width, height, className = '' }: SliceView
 }
 
 // Export with error boundary
-export function SliceViewCanvas(props: SliceViewCanvasProps) {
+const SliceViewCanvasInner = React.memo(SliceViewCanvasRaw);
+
+export const SliceViewCanvas = React.memo(function SliceViewCanvas(props: SliceViewCanvasProps) {
   return (
     <RenderErrorBoundary viewId={props.viewId}>
-      <SliceViewCanvasRaw {...props} />
+      <SliceViewCanvasInner {...props} />
     </RenderErrorBoundary>
   );
-}
+});

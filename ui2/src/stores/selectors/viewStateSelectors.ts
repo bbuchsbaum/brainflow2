@@ -3,6 +3,7 @@
  * Provides selective subscriptions to reduce unnecessary re-renders
  */
 
+import { useShallow } from 'zustand/react/shallow';
 import { useViewStateStore } from '../viewStateStore';
 
 /**
@@ -29,45 +30,45 @@ export const useSlicePositionSelector = (viewId: string) =>
 /**
  * Subscribe to time navigation data (timepoint + navigation state)
  */
-export const useTimeNavDataSelector = () => 
+export const useTimeNavDataSelector = () =>
   useViewStateStore(
-    state => ({
+    useShallow((state) => ({
       timepoint: state.viewState.timepoint ?? 0,
       hasTimeNavigation: state.viewState.timepoint !== undefined
-    })
+    }))
   );
 
 /**
  * Subscribe to view-specific data (view plane + crosshair)
  */
-export const useViewDataSelector = (viewId: 'axial' | 'sagittal' | 'coronal') => 
+export const useViewDataSelector = (viewId: 'axial' | 'sagittal' | 'coronal') =>
   useViewStateStore(
-    state => ({
+    useShallow((state) => ({
       viewPlane: state.viewState.views[viewId],
       crosshair: state.viewState.crosshair
-    })
+    }))
   );
 
 /**
  * Subscribe to layer visibility data
  */
-export const useLayerVisibilitySelector = () => 
+export const useLayerVisibilitySelector = () =>
   useViewStateStore(
-    state => state.viewState.layers.map(layer => ({
+    useShallow((state) => state.viewState.layers.map(layer => ({
       id: layer.id,
       visible: layer.visible,
       opacity: layer.opacity
-    }))
+    })))
   );
 
 /**
  * Subscribe to render-relevant data only
  */
-export const useRenderDataSelector = () => 
+export const useRenderDataSelector = () =>
   useViewStateStore(
-    state => ({
+    useShallow((state) => ({
       layers: state.viewState.layers.filter(l => l.visible && l.opacity > 0),
       crosshairVisible: state.viewState.crosshair.visible,
       timepoint: state.viewState.timepoint ?? 0
-    })
+    }))
   );

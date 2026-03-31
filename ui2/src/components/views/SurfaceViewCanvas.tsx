@@ -301,7 +301,7 @@ function removeRenderedSurface(viewer: NeuroSurfaceViewerInstance, handle: strin
   }
 }
 
-export const SurfaceViewCanvas: React.FC<SurfaceViewCanvasProps> = ({
+const SurfaceViewCanvasInner: React.FC<SurfaceViewCanvasProps> = ({
   surface,
   renderSurfaces,
   surfaceViewId,
@@ -773,3 +773,5 @@ export const SurfaceViewCanvas: React.FC<SurfaceViewCanvasProps> = ({
     />
   );
 };
+
+export const SurfaceViewCanvas = React.memo(SurfaceViewCanvasInner);

@@ -12,7 +12,7 @@
  * - Built-in performance tracking
  */
 
-import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import { useState, useEffect, useRef, useMemo, useCallback, memo } from 'react';
 import { useViewStateStore } from '@/stores/viewStateStore';
 import { MosaicCell } from './MosaicCell';
 import { MosaicCellErrorBoundary } from './MosaicCellErrorBoundary';
@@ -451,11 +451,13 @@ function MosaicViewPromiseRaw({
   );
 }
 
+const MosaicViewPromiseMemo = memo(MosaicViewPromiseRaw);
+
 // Export the wrapped version with error boundary
-export function MosaicViewPromise(props: MosaicViewPromiseProps) {
+export const MosaicViewPromise = memo(function MosaicViewPromise(props: MosaicViewPromiseProps) {
   return (
     <RenderErrorBoundary viewId={`mosaic-${props.workspaceId || 'default'}`}>
-      <MosaicViewPromiseRaw {...props} />
+      <MosaicViewPromiseMemo {...props} />
     </RenderErrorBoundary>
   );
-}
+});

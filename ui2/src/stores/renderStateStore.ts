@@ -58,8 +58,8 @@ interface RenderStateStore {
   getAllContexts: () => { [id: string]: RenderContext };
 }
 
-// Default state for new views
-const defaultRenderState: RenderState = {
+// Default state for new views (module-level constant — never mutate)
+const DEFAULT_RENDER_STATE: RenderState = {
   isRendering: false,
   error: null,
   lastImage: null,
@@ -76,7 +76,7 @@ export const useRenderStateStore = create<RenderStateStore>()(
       set((state) => {
         // Ensure state exists for this ID
         if (!(id in state.states)) {
-          state.states[id] = { ...defaultRenderState };
+          state.states[id] = { ...DEFAULT_RENDER_STATE };
         }
         
         const renderState = state.states[id];
@@ -99,7 +99,7 @@ export const useRenderStateStore = create<RenderStateStore>()(
       set((state) => {
         // Ensure state exists for this ID
         if (!(id in state.states)) {
-          state.states[id] = { ...defaultRenderState };
+          state.states[id] = { ...DEFAULT_RENDER_STATE };
         }
         
         const renderState = state.states[id];
@@ -118,7 +118,7 @@ export const useRenderStateStore = create<RenderStateStore>()(
       set((state) => {
         // Ensure state exists for this ID
         if (!(id in state.states)) {
-          state.states[id] = { ...defaultRenderState };
+          state.states[id] = { ...DEFAULT_RENDER_STATE };
         }
         
         const renderState = state.states[id];
@@ -143,8 +143,8 @@ export const useRenderStateStore = create<RenderStateStore>()(
         return states[id];
       }
       
-      // Return a copy of default state for new IDs
-      return { ...defaultRenderState };
+      // Return the shared default state for new IDs (do not mutate)
+      return DEFAULT_RENDER_STATE;
     },
     
     clearState: (id) => {
@@ -214,7 +214,7 @@ export const useRenderStateStore = create<RenderStateStore>()(
 
         // Also ensure state exists for this context
         if (!(context.id in state.states)) {
-          state.states[context.id] = { ...defaultRenderState };
+          state.states[context.id] = { ...DEFAULT_RENDER_STATE };
         }
 
         console.log(`[RenderStateStore] Registered/updated context ${context.id} (type: ${context.type})`);
@@ -275,7 +275,7 @@ export const useRenderStateStore = create<RenderStateStore>()(
 // Helper hooks for component usage
 export function useRenderState(id: string): RenderState {
   // Subscribe directly to the state object for proper reactivity
-  return useRenderStateStore((state) => state.states[id] || defaultRenderState);
+  return useRenderStateStore((state) => state.states[id] || DEFAULT_RENDER_STATE);
 }
 
 export function useIsRendering(id: string): boolean {
