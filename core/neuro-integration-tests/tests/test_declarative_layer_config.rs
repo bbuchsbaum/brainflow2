@@ -2,7 +2,9 @@
 //! This is a simpler test focused on layer management
 
 use nifti_loader::load_nifti_volume_auto;
-use render_loop::view_state::{CameraState, LayerConfig, SliceOrientation, ViewId, ViewState};
+use render_loop::view_state::{
+    CameraState, InterpolationMode, LayerConfig, SliceOrientation, ViewState,
+};
 use render_loop::{BlendMode, RenderLoopService};
 use std::path::Path;
 
@@ -98,9 +100,11 @@ async fn test_declarative_layer_config() {
             intensity_window: data_range,
             threshold: None,
             visible: true,
+            interpolation: InterpolationMode::default(),
         }],
         viewport_size,
         show_crosshair: true,
+        timepoint: None,
     };
 
     // Set view state
@@ -140,6 +144,7 @@ async fn test_declarative_layer_config() {
                 intensity_window: data_range,
                 threshold: None,
                 visible: true,
+                interpolation: InterpolationMode::default(),
             },
             LayerConfig {
                 volume_id: volume_id.clone(),
@@ -149,10 +154,12 @@ async fn test_declarative_layer_config() {
                 intensity_window: (data_range.0 * 0.5, data_range.1 * 0.8),
                 threshold: None,
                 visible: true,
+                interpolation: InterpolationMode::default(),
             },
         ],
         viewport_size,
         show_crosshair: true,
+        timepoint: None,
     };
 
     gpu_service

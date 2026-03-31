@@ -4,7 +4,9 @@
 use neuro_integration_tests::DifferentialTestHarness;
 use neuro_types::{ViewOrientation, ViewRectMm, VolumeMetadata};
 use nifti_loader::load_nifti_volume_auto;
-use render_loop::view_state::{CameraState, LayerConfig, SliceOrientation, ViewId, ViewState};
+use render_loop::view_state::{
+    CameraState, InterpolationMode, LayerConfig, SliceOrientation, ViewId, ViewState,
+};
 use render_loop::{BlendMode, RenderLoopService};
 use std::path::Path;
 
@@ -310,9 +312,11 @@ async fn render_declarative(
             intensity_window: data_range,
             threshold: None,
             visible: true,
+            interpolation: InterpolationMode::default(),
         }],
         viewport_size: [view_rect.width_px, view_rect.height_px],
         show_crosshair: true,
+        timepoint: None,
     };
 
     // Use set_view_state to configure layers

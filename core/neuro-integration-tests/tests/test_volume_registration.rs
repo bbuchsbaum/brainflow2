@@ -75,7 +75,9 @@ async fn test_register_volume_with_upload() {
     println!("✅ Volume registered successfully with ID: mni_brain_auto");
 
     // Verify we can use it with ViewState
-    use render_loop::view_state::{CameraState, LayerConfig, SliceOrientation, ViewState};
+    use render_loop::view_state::{
+        CameraState, InterpolationMode, LayerConfig, SliceOrientation, ViewState,
+    };
     use render_loop::BlendMode;
 
     let view_state = ViewState {
@@ -97,9 +99,11 @@ async fn test_register_volume_with_upload() {
             intensity_window: data_range,
             threshold: None,
             visible: true,
+            interpolation: InterpolationMode::default(),
         }],
         viewport_size: [256, 256],
         show_crosshair: true,
+        timepoint: None,
     };
 
     // This should work without errors
@@ -145,6 +149,7 @@ async fn test_register_volume_with_upload() {
                 intensity_window: data_range,
                 threshold: None,
                 visible: true,
+                interpolation: InterpolationMode::default(),
             },
             LayerConfig {
                 volume_id: "brain_mask".to_string(),
@@ -154,10 +159,12 @@ async fn test_register_volume_with_upload() {
                 intensity_window: (data_range.0 * 0.5, data_range.1 * 0.8),
                 threshold: None,
                 visible: true,
+                interpolation: InterpolationMode::default(),
             },
         ],
         viewport_size: [256, 256],
         show_crosshair: true,
+        timepoint: None,
     };
 
     gpu_service
@@ -182,7 +189,9 @@ async fn test_invalid_volume_id() {
     gpu_service.load_shaders().expect("Failed to load shaders");
 
     // Try to use a non-existent volume
-    use render_loop::view_state::{CameraState, LayerConfig, SliceOrientation, ViewState};
+    use render_loop::view_state::{
+        CameraState, InterpolationMode, LayerConfig, SliceOrientation, ViewState,
+    };
     use render_loop::BlendMode;
 
     let view_state = ViewState {
@@ -204,9 +213,11 @@ async fn test_invalid_volume_id() {
             intensity_window: (0.0, 1.0),
             threshold: None,
             visible: true,
+            interpolation: InterpolationMode::default(),
         }],
         viewport_size: [256, 256],
         show_crosshair: true,
+        timepoint: None,
     };
 
     // This should fail with a proper error

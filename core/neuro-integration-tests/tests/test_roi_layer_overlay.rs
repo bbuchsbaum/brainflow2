@@ -8,7 +8,7 @@ use neuro_integration_tests::RoiOverlayDashboard;
 use neuro_types::{ViewOrientation, ViewRectMm, VolumeMetadata};
 use nifti_loader::load_nifti_volume_auto;
 use render_loop::render_state::BlendMode;
-use render_loop::view_state::{LayerConfig, ViewId, ViewState};
+use render_loop::view_state::{InterpolationMode, LayerConfig, ViewId, ViewState};
 use render_loop::RenderLoopService;
 use std::path::Path;
 use volmath::{spherical_roi, LogicalNeuroVol, NeuroVol, ROIVol};
@@ -272,6 +272,7 @@ async fn test_single_roi_overlay() {
             intensity_window: (0.5, 1.5), // Window that ensures 1.0 maps to bright color
             threshold: None,
             visible: true,
+            interpolation: InterpolationMode::default(),
         });
 
         overlay_state.crosshair_world = roi_center_mm;
@@ -451,6 +452,7 @@ async fn test_multiple_roi_overlay() {
             intensity_window: (0.5, 1.5), // Window that ensures 1.0 maps to bright color
             threshold: None,
             visible: true,
+            interpolation: InterpolationMode::default(),
         });
     }
 
@@ -618,6 +620,7 @@ async fn test_overlapping_roi_transparency() {
             intensity_window: (0.5, 1.5), // Window that ensures 1.0 maps to bright color
             threshold: None,
             visible: true,
+            interpolation: InterpolationMode::default(),
         });
         state.layers.push(LayerConfig {
             volume_id: "roi2".to_string(),
@@ -627,6 +630,7 @@ async fn test_overlapping_roi_transparency() {
             intensity_window: (0.5, 1.5), // Window that ensures 1.0 maps to bright color
             threshold: None,
             visible: true,
+            interpolation: InterpolationMode::default(),
         });
 
         state.show_crosshair = false;
