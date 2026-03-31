@@ -5,9 +5,12 @@
 
 import { describe, it, expect, beforeEach } from 'vitest';
 import { ApiService } from '../apiService';
-import { MockTransport } from '../transport';
+import { MockTransport, setTransport } from '../transport';
 import { createMockViewState } from '../../test-setup';
 import { clearRenderDiagnostics, getRenderDiagnostics } from '../render/RenderDiagnostics';
+import { resetFilesystemService } from '../filesystem/FilesystemService';
+import { resetVolumeApiService } from '../volume/VolumeApiService';
+import { resetLayerGpuService } from '../layer/LayerGpuService';
 
 describe('ApiService', () => {
   let apiService: ApiService;
@@ -17,6 +20,11 @@ describe('ApiService', () => {
     mockTransport = new MockTransport();
     mockTransport.clearCallLog();
     clearRenderDiagnostics();
+    // Reset domain service singletons so they pick up the new mockTransport
+    resetFilesystemService();
+    resetVolumeApiService();
+    resetLayerGpuService();
+    setTransport(mockTransport);
     apiService = new ApiService(mockTransport);
     apiService.setRawRGBA(true);
   });

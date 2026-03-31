@@ -113,12 +113,17 @@ vi.mock('@/stores/renderStateStore', () => ({
   useRenderStateStore: { getState: renderStateStoreMock.getState },
 }));
 
-vi.mock('@/stores/displayOptionsStore', () => ({
-  __esModule: true,
-  useDisplayOptionsStore: {
-    getState: () => ({ options: new Map<string, any>() }),
-  },
-}));
+vi.mock('@/stores/displayOptionsStore', () => {
+  const state = { options: new Map<string, any>() };
+  const useDisplayOptionsStore = ((selector?: (s: typeof state) => any) => {
+    return selector ? selector(state) : state;
+  }) as any;
+  useDisplayOptionsStore.getState = () => state;
+  useDisplayOptionsStore.setState = vi.fn();
+  useDisplayOptionsStore.subscribe = vi.fn(() => vi.fn());
+  useDisplayOptionsStore.destroy = vi.fn();
+  return { __esModule: true, useDisplayOptionsStore };
+});
 
 vi.mock('@/stores/crosshairSettingsStore', () => ({
   __esModule: true,

@@ -35,6 +35,7 @@ const mockWorkspaceStoreState = {
 
 const mockComparisonStoreState = {
   initFromCurrentAndNewLayer: vi.fn(),
+  ensurePanelsForLayers: vi.fn(),
 };
 
 vi.mock('@/services/FileLoadingService', () => ({
@@ -124,11 +125,10 @@ describe('StudioDisplayService', () => {
       'add-layer'
     );
     expect(mockWorkspaceStoreState.createWorkspace).toHaveBeenCalledWith('comparison');
-    expect(mockComparisonStoreState.initFromCurrentAndNewLayer).toHaveBeenCalledWith(
+    expect(mockComparisonStoreState.ensurePanelsForLayers).toHaveBeenCalledWith(
       'comparison-workspace-1',
-      ['layer-current'],
-      'layer-compare',
-      'Z-score'
+      ['layer-current', 'layer-compare'],
+      expect.any(Map)
     );
     expect(mockWorkspaceStoreState.activateWorkspace).toHaveBeenCalledWith('comparison-workspace-1');
   });
@@ -157,11 +157,10 @@ describe('StudioDisplayService', () => {
     expect(mockFileLoadingService.loadFile).not.toHaveBeenCalled();
     expect(mockWorkspaceStoreState.createWorkspace).not.toHaveBeenCalled();
     expect(mockLayerService.toggleVisibility).toHaveBeenCalledWith('layer-compare', true);
-    expect(mockComparisonStoreState.initFromCurrentAndNewLayer).toHaveBeenCalledWith(
+    expect(mockComparisonStoreState.ensurePanelsForLayers).toHaveBeenCalledWith(
       'comparison-existing',
-      ['layer-current'],
-      'layer-compare',
-      'Residual'
+      ['layer-current', 'layer-compare'],
+      expect.any(Map)
     );
     expect(mockWorkspaceStoreState.activateWorkspace).toHaveBeenCalledWith('comparison-existing');
   });
