@@ -25,6 +25,7 @@ import {
   resolveSurfaceTargetSurfaceId,
 } from '@/utils/surfaceCommandContext';
 import type { DisplayOpenIntent } from '@/types/loadIntent';
+import { parseBidsFilename, formatBidsDisplayName } from '@/utils/bids';
 
 export type DisplayLoadIngress =
   | 'file-browser'
@@ -303,7 +304,7 @@ export class DisplayLifecycleOrchestrator {
 
       const addedLayer = await this.volumeLoadingService.loadVolume({
         volumeHandle,
-        displayName: volumeHandle.name || filename,
+        displayName: this.smartLayerName(volumeHandle.name || filename),
         source: 'file',
         sourcePath: path,
         layerType: this.inferLayerType(filename),
@@ -384,6 +385,12 @@ export class DisplayLifecycleOrchestrator {
         message: `Failed to load overlay ${filename}: ${(error as Error).message}`,
       });
     }
+  }
+
+  /** Attempt BIDS filename parsing for a human-readable layer name; fall back to raw filename. */
+  private smartLayerName(filename: string): string {
+    const parsed = parseBidsFilename(filename);
+    return parsed ? formatBidsDisplayName(parsed) : filename;
   }
 
   private inferLayerType(filename: string): Layer['type'] {
