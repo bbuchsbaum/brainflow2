@@ -159,8 +159,7 @@ export const useCrosshairSettingsStore = create<CrosshairSettingsStore>()(
       
       loadSettings: async () => {
         try {
-          // TODO: Implement Tauri persistence
-          // For now, just use localStorage
+          // Persistence via localStorage (works in Tauri WebView across restarts)
           const stored = localStorage.getItem('crosshair-settings');
           if (stored) {
             const parsed = JSON.parse(stored) as CrosshairSettings;
@@ -183,8 +182,7 @@ export const useCrosshairSettingsStore = create<CrosshairSettingsStore>()(
       saveSettings: async () => {
         const settings = get().settings;
         try {
-          // TODO: Implement Tauri persistence
-          // For now, use localStorage
+          // Persistence via localStorage (works in Tauri WebView across restarts)
           localStorage.setItem('crosshair-settings', JSON.stringify(settings));
         } catch (error) {
           console.error('Failed to save crosshair settings:', error);
