@@ -8,6 +8,7 @@ import { immer } from 'zustand/middleware/immer';
 import { subscribeWithSelector } from 'zustand/middleware';
 import { enableMapSet } from 'immer';
 import type { ComparisonPanelConfig, ComparisonLayout } from '@/types/comparison';
+import type { ViewPlane } from '@/types/coordinates';
 
 enableMapSet();
 
@@ -23,6 +24,8 @@ interface ComparisonState {
   layouts: Map<string, ComparisonLayout>;
   /** Global orientation per workspace */
   globalViewTypes: Map<string, 'axial' | 'sagittal' | 'coronal'>;
+  /** Resolved per-panel views used for rendering/crosshair projection */
+  panelViewPlanes: Map<string, ViewPlane>;
 }
 
 interface ComparisonActions {
@@ -34,6 +37,9 @@ interface ComparisonActions {
 
   /** Add a panel with specified layers */
   addPanel: (workspaceId: string, layerIds: string[], label?: string) => void;
+
+  /** Ensure one panel exists for each listed layer, preserving existing panels */
+  ensurePanelsForLayers: (workspaceId: string, layerIds: string[], layerLabels?: Map<string, string>) => void;
 
   /** Remove a panel */
   removePanel: (workspaceId: string, panelId: string) => void;
@@ -62,6 +68,12 @@ interface ComparisonActions {
   /** Get the global view type for a workspace */
   getGlobalViewType: (workspaceId: string) => 'axial' | 'sagittal' | 'coronal';
 
+  /** Persist the resolved view plane for a panel */
+  setPanelViewPlane: (panelId: string, viewPlane: ViewPlane | null) => void;
+
+  /** Read the resolved view plane for a panel */
+  getPanelViewPlane: (panelId: string) => ViewPlane | undefined;
+
   /** Clear a workspace's comparison config */
   clearWorkspace: (workspaceId: string) => void;
 }
@@ -72,6 +84,7 @@ export const useComparisonStore = create<ComparisonState & ComparisonActions>()(
       panels: new Map(),
       layouts: new Map(),
       globalViewTypes: new Map(),
+      panelViewPlanes: new Map(),
 
       initFromLayers: (workspaceId, layerIds, layerLabels) => {
         set(state => {
@@ -112,13 +125,41 @@ export const useComparisonStore = create<ComparisonState & ComparisonActions>()(
       addPanel: (workspaceId, layerIds, label) => {
         set(state => {
           const existing = state.panels.get(workspaceId) ?? [];
-          existing.push({
-            id: nextPanelId(),
-            label: label ?? `Panel ${existing.length + 1}`,
-            visibleLayerIds: new Set(layerIds),
-            viewType: state.globalViewTypes.get(workspaceId) ?? 'axial',
+          const nextPanels = [
+            ...existing,
+            {
+              id: nextPanelId(),
+              label: label ?? `Panel ${existing.length + 1}`,
+              visibleLayerIds: new Set(layerIds),
+              viewType: state.globalViewTypes.get(workspaceId) ?? 'axial',
+            },
+          ];
+          state.panels.set(workspaceId, nextPanels);
+        });
+      },
+
+      ensurePanelsForLayers: (workspaceId, layerIds, layerLabels) => {
+        set(state => {
+          const existing = state.panels.get(workspaceId) ?? [];
+          const existingLayerIds = new Set(
+            existing.flatMap((panel) => Array.from(panel.visibleLayerIds))
+          );
+          const nextPanels = [...existing];
+
+          layerIds.forEach((layerId) => {
+            if (!layerId || existingLayerIds.has(layerId)) {
+              return;
+            }
+            nextPanels.push({
+              id: nextPanelId(),
+              label: layerLabels?.get(layerId) ?? `Panel ${nextPanels.length + 1}`,
+              visibleLayerIds: new Set([layerId]),
+              viewType: state.globalViewTypes.get(workspaceId) ?? 'axial',
+            });
+            existingLayerIds.add(layerId);
           });
-          state.panels.set(workspaceId, existing);
+
+          state.panels.set(workspaceId, nextPanels);
         });
       },
 
@@ -126,8 +167,11 @@ export const useComparisonStore = create<ComparisonState & ComparisonActions>()(
         set(state => {
           const existing = state.panels.get(workspaceId);
           if (!existing) return;
-          const idx = existing.findIndex(p => p.id === panelId);
-          if (idx >= 0) existing.splice(idx, 1);
+          state.panelViewPlanes.delete(panelId);
+          state.panels.set(
+            workspaceId,
+            existing.filter((panel) => panel.id !== panelId)
+          );
         });
       },
 
@@ -135,8 +179,14 @@ export const useComparisonStore = create<ComparisonState & ComparisonActions>()(
         set(state => {
           const panels = state.panels.get(workspaceId);
           if (!panels) return;
-          const panel = panels.find(p => p.id === panelId);
-          if (panel) panel.visibleLayerIds.add(layerId);
+          state.panels.set(
+            workspaceId,
+            panels.map((panel) =>
+              panel.id === panelId
+                ? { ...panel, visibleLayerIds: new Set([...panel.visibleLayerIds, layerId]) }
+                : panel
+            )
+          );
         });
       },
 
@@ -144,8 +194,17 @@ export const useComparisonStore = create<ComparisonState & ComparisonActions>()(
         set(state => {
           const panels = state.panels.get(workspaceId);
           if (!panels) return;
-          const panel = panels.find(p => p.id === panelId);
-          if (panel) panel.visibleLayerIds.delete(layerId);
+          state.panels.set(
+            workspaceId,
+            panels.map((panel) => {
+              if (panel.id !== panelId) {
+                return panel;
+              }
+              const nextLayerIds = new Set(panel.visibleLayerIds);
+              nextLayerIds.delete(layerId);
+              return { ...panel, visibleLayerIds: nextLayerIds };
+            })
+          );
         });
       },
 
@@ -153,8 +212,13 @@ export const useComparisonStore = create<ComparisonState & ComparisonActions>()(
         set(state => {
           const panels = state.panels.get(workspaceId);
           if (!panels) return;
-          const panel = panels.find(p => p.id === panelId);
-          if (panel) panel.viewType = viewType;
+          state.panelViewPlanes.delete(panelId);
+          state.panels.set(
+            workspaceId,
+            panels.map((panel) =>
+              panel.id === panelId ? { ...panel, viewType } : panel
+            )
+          );
         });
       },
 
@@ -163,9 +227,11 @@ export const useComparisonStore = create<ComparisonState & ComparisonActions>()(
           state.globalViewTypes.set(workspaceId, viewType);
           const panels = state.panels.get(workspaceId);
           if (panels) {
-            for (const panel of panels) {
-              panel.viewType = viewType;
-            }
+            panels.forEach((panel) => state.panelViewPlanes.delete(panel.id));
+            state.panels.set(
+              workspaceId,
+              panels.map((panel) => ({ ...panel, viewType }))
+            );
           }
         });
       },
@@ -188,8 +254,24 @@ export const useComparisonStore = create<ComparisonState & ComparisonActions>()(
         return get().globalViewTypes.get(workspaceId) ?? 'axial';
       },
 
+      setPanelViewPlane: (panelId, viewPlane) => {
+        set((state) => {
+          if (viewPlane) {
+            state.panelViewPlanes.set(panelId, viewPlane);
+            return;
+          }
+          state.panelViewPlanes.delete(panelId);
+        });
+      },
+
+      getPanelViewPlane: (panelId) => {
+        return get().panelViewPlanes.get(panelId);
+      },
+
       clearWorkspace: (workspaceId) => {
         set(state => {
+          const panels = state.panels.get(workspaceId) ?? [];
+          panels.forEach((panel) => state.panelViewPlanes.delete(panel.id));
           state.panels.delete(workspaceId);
           state.layouts.delete(workspaceId);
           state.globalViewTypes.delete(workspaceId);

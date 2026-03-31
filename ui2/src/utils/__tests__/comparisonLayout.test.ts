@@ -2,19 +2,19 @@ import { describe, expect, it } from 'vitest';
 import { getComparisonGridSpec, getComparisonPanelDimensions } from '@/utils/comparisonLayout';
 
 describe('comparisonLayout', () => {
-  it('accounts for the new-panel drop zone when sizing row layouts', () => {
+  it('sizes row layouts by real panels only', () => {
     expect(getComparisonGridSpec(2, 'row')).toEqual({
-      cols: 3,
+      cols: 2,
       rows: 1,
-      slotCount: 3,
+      slotCount: 2,
     });
 
     expect(
       getComparisonPanelDimensions({ width: 900, height: 300 }, 2, 'row')
     ).toMatchObject({
-      cols: 3,
+      cols: 2,
       rows: 1,
-      width: 297,
+      width: 448,
       height: 300,
     });
   });

@@ -18,9 +18,8 @@ export function getComparisonGridSpec(
   panelCount: number,
   layout: ComparisonLayout
 ): ComparisonGridSpec {
-  const slotCount = Math.max(panelCount + 1, 1);
-
   if (layout === 'row') {
+    const slotCount = Math.max(panelCount, 1);
     return {
       cols: slotCount,
       rows: 1,
@@ -28,6 +27,7 @@ export function getComparisonGridSpec(
     };
   }
 
+  const slotCount = Math.max(panelCount + 1, 1);
   const cols = Math.min(slotCount, 2);
   const rows = Math.ceil(slotCount / cols);
 

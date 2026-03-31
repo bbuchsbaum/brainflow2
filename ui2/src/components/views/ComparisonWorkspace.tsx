@@ -18,6 +18,7 @@ import { getComparisonGridSpec, getComparisonPanelDimensions } from '@/utils/com
 import { getFileLoadingService } from '@/services/FileLoadingService';
 import { findNewLayerId } from '@/utils/layerLoadResult';
 import { useWorkspaceStore } from '@/stores/workspaceStore';
+import { useViewportDropTarget } from './viewport/useViewportDropTarget';
 
 interface ComparisonWorkspaceProps {
   workspaceId?: string;
@@ -110,6 +111,7 @@ function ComparisonWorkspaceRaw({ workspaceId = 'comparison-default' }: Comparis
     if (panels.length === 0) return;
 
     const requests = panels.map(panel => ({
+      workspaceId,
       panel,
       width: panelDimensions.width,
       height: renderHeight,
@@ -204,29 +206,43 @@ function ComparisonWorkspaceRaw({ workspaceId = 'comparison-default' }: Comparis
     addPanel(workspaceId, []);
   }, [workspaceId, addPanel]);
 
+  const { handleDragOver: handleWorkspaceDragOver, handleDrop: handleWorkspaceDrop } = useViewportDropTarget({
+    onLayerDrop: handleNewPanelDrop,
+    onPathDrop: handleDroppedFilePathToNewPanel,
+    onNativeFileDrop: handleDroppedNativeFileToNewPanel,
+  });
+
   if (panels.length === 0 && visibleLayerIds.length === 0) {
     return (
-      <div className="flex items-center justify-center h-full text-zinc-500 text-sm">
-        Load volumes to start comparing
+      <div className="flex h-full items-center justify-center bg-background px-6">
+        <div className="rounded-appsm border border-border bg-card px-6 py-5 text-center shadow-sm">
+          <p className="bf-role-section text-foreground">Comparison View</p>
+          <p className="mt-2 text-sm text-muted-foreground">
+            Load or drag volumes to start comparing.
+          </p>
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="flex flex-col h-full w-full bg-zinc-950">
+    <div className="flex h-full w-full flex-col bg-background text-foreground">
       {/* Toolbar */}
-      <div className="flex items-center gap-2 px-2 shrink-0 bg-zinc-900 border-b border-zinc-800 select-none" style={{ height: 32 }}>
-        <span className="text-[11px] text-zinc-400 font-medium">Compare</span>
+      <div
+        className="flex shrink-0 items-center gap-3 border-b border-border bg-card px-3 select-none"
+        style={{ height: 36 }}
+      >
+        <span className="bf-role-section text-foreground">Compare</span>
 
         {/* Global orientation */}
-        <div className="flex items-center gap-0.5 ml-2">
+        <div className="ml-1 flex items-center gap-1 rounded-appsm border border-border bg-background p-0.5">
           {(['axial', 'sagittal', 'coronal'] as const).map(vt => (
             <button
               key={vt}
-              className={`text-[10px] px-1.5 py-0.5 rounded ${
+              className={`bf-control-sm rounded-appsm border px-2 text-[10px] font-semibold transition-colors ${
                 globalViewType === vt
-                  ? 'bg-blue-600 text-white'
-                  : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700'
+                  ? 'border-primary bg-primary/10 text-primary'
+                  : 'border-border bg-background text-muted-foreground hover:border-primary/60 hover:text-foreground'
               }`}
               onClick={() => setGlobalViewType(workspaceId, vt)}
               title={`Set all panels to ${vt}`}
@@ -237,10 +253,12 @@ function ComparisonWorkspaceRaw({ workspaceId = 'comparison-default' }: Comparis
         </div>
 
         {/* Layout toggle */}
-        <div className="flex items-center gap-0.5 ml-2">
+        <div className="flex items-center gap-1 rounded-appsm border border-border bg-background p-0.5">
           <button
-            className={`text-[10px] px-1.5 py-0.5 rounded ${
-              layout === 'row' ? 'bg-zinc-600 text-white' : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700'
+            className={`bf-control-sm rounded-appsm border px-2 text-[10px] font-semibold transition-colors ${
+              layout === 'row'
+                ? 'border-primary bg-primary/10 text-primary'
+                : 'border-border bg-background text-muted-foreground hover:border-primary/60 hover:text-foreground'
             }`}
             onClick={() => setLayout(workspaceId, 'row')}
             title="Row layout"
@@ -248,8 +266,10 @@ function ComparisonWorkspaceRaw({ workspaceId = 'comparison-default' }: Comparis
             Row
           </button>
           <button
-            className={`text-[10px] px-1.5 py-0.5 rounded ${
-              layout === 'grid' ? 'bg-zinc-600 text-white' : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700'
+            className={`bf-control-sm rounded-appsm border px-2 text-[10px] font-semibold transition-colors ${
+              layout === 'grid'
+                ? 'border-primary bg-primary/10 text-primary'
+                : 'border-border bg-background text-muted-foreground hover:border-primary/60 hover:text-foreground'
             }`}
             onClick={() => setLayout(workspaceId, 'grid')}
             title="Grid layout"
@@ -260,7 +280,7 @@ function ComparisonWorkspaceRaw({ workspaceId = 'comparison-default' }: Comparis
 
         {/* Add panel */}
         <button
-          className="text-[10px] px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-400 hover:bg-zinc-700 ml-auto"
+          className="bf-control-sm ml-auto rounded-appsm border border-border bg-background px-2.5 text-[10px] font-semibold text-muted-foreground transition-colors hover:border-primary/60 hover:text-foreground"
           onClick={handleAddEmptyPanel}
           title="Add empty panel"
         >
@@ -271,11 +291,15 @@ function ComparisonWorkspaceRaw({ workspaceId = 'comparison-default' }: Comparis
       {/* Panel grid */}
       <div
         ref={containerRef}
-        className="flex-1 p-1 overflow-auto"
+        className="flex-1 overflow-auto bg-background p-2"
+        onDragOver={handleWorkspaceDragOver}
+        onDrop={handleWorkspaceDrop}
         style={{
           display: 'grid',
           gridTemplateColumns: `repeat(${gridSpec.cols}, minmax(0, 1fr))`,
-          gap: '4px',
+          gridTemplateRows: `repeat(${gridSpec.rows}, minmax(${panelDimensions.height}px, ${panelDimensions.height}px))`,
+          gridAutoRows: `${panelDimensions.height}px`,
+          gap: '8px',
         }}
       >
         {panels.map(panel => (
@@ -293,11 +317,13 @@ function ComparisonWorkspaceRaw({ workspaceId = 'comparison-default' }: Comparis
             onNativeFileDrop={handleDroppedNativeFileToPanel}
           />
         ))}
-        <NewPanelDropZone
-          onDrop={handleNewPanelDrop}
-          onFileDrop={handleDroppedFilePathToNewPanel}
-          onNativeFileDrop={handleDroppedNativeFileToNewPanel}
-        />
+        {layout === 'grid' && (
+          <NewPanelDropZone
+            onDrop={handleNewPanelDrop}
+            onFileDrop={handleDroppedFilePathToNewPanel}
+            onNativeFileDrop={handleDroppedNativeFileToNewPanel}
+          />
+        )}
       </div>
     </div>
   );

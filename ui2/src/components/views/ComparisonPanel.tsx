@@ -9,6 +9,7 @@
 import { useCallback, useRef, useMemo } from 'react';
 import { SliceViewport } from './SliceViewport';
 import { useViewStateStore } from '@/stores/viewStateStore';
+import { useComparisonStore } from '@/stores/comparisonStore';
 import { getLineDash, type CrosshairStyle } from '@/utils/crosshairUtils';
 import { useCrosshairSettingsStore } from '@/stores/crosshairSettingsStore';
 import { comparisonTag } from '@/services/ComparisonRenderService';
@@ -58,7 +59,9 @@ export function ComparisonPanel({
   }), [tag, width, height, panel.id, panel.viewType]);
 
   const crosshair = useViewStateStore(state => state.viewState.crosshair);
-  const viewPlane = useViewStateStore(state => state.viewState.views[panel.viewType]);
+  const fallbackViewPlane = useViewStateStore(state => state.viewState.views[panel.viewType]);
+  const resolvedViewPlane = useComparisonStore(state => state.getPanelViewPlane(panel.id));
+  const viewPlane = resolvedViewPlane ?? fallbackViewPlane;
   const crosshairSettings = useCrosshairSettingsStore(state => state.getViewSettings(panel.viewType));
   const setCrosshair = useRef(useViewStateStore.getState().setCrosshair).current;
   const crosshairStyle = useMemo<CrosshairStyle>(() => ({
@@ -85,66 +88,73 @@ export function ComparisonPanel({
   const canvasHeight = Math.max(height - COMPARISON_PANEL_HEADER_HEIGHT, 64);
 
   const layerBadges = Array.from(panel.visibleLayerIds);
+  const badgeLayerIds = layerBadges.length > 1 ? layerBadges : [];
 
   return (
     <div
-      className="flex flex-col h-full border border-zinc-700 rounded overflow-hidden bg-zinc-900"
+      className="flex h-full flex-col overflow-hidden rounded-appsm border border-border bg-card shadow-sm"
+      style={{ minHeight: `${height}px`, height: `${height}px` }}
       onDragOver={handleDragOver}
       onDrop={handleDrop}
     >
       {/* Panel header */}
       <div
-        className="flex items-center gap-1 px-2 shrink-0 bg-zinc-800 border-b border-zinc-700 select-none"
+        className="flex shrink-0 items-center gap-2 border-b border-border bg-muted/10 px-3 select-none"
         style={{ height: COMPARISON_PANEL_HEADER_HEIGHT }}
       >
-        <span className="text-[11px] text-zinc-300 font-medium truncate mr-1">
-          {panel.label}
-        </span>
+        <div className="flex min-w-0 flex-1 items-center gap-2">
+          <span className="truncate text-[11px] font-medium text-foreground" title={panel.label}>
+            {panel.label}
+          </span>
 
-        {/* Layer badges */}
-        <div className="flex items-center gap-0.5 flex-1 min-w-0 overflow-hidden">
-          {layerBadges.map(lid => (
-            <span
-              key={lid}
-              className="inline-flex items-center gap-0.5 bg-zinc-700 text-zinc-300 text-[9px] px-1 rounded max-w-[80px] truncate"
-              title={layerNames.get(lid) ?? lid}
-            >
-              {layerNames.get(lid) ?? lid}
-              <button
-                className="text-zinc-500 hover:text-zinc-200 ml-0.5"
-                onClick={() => onRemoveLayer(panel.id, lid)}
-                title="Remove layer"
+          {/* Extra layer badges only; single-layer panels use the title alone */}
+          <div className="flex min-w-0 items-center gap-1 overflow-hidden">
+            {badgeLayerIds.map(lid => (
+              <span
+                key={lid}
+                className="inline-flex min-w-0 max-w-[132px] items-center gap-0.5 rounded-appsm border border-border bg-background px-1.5 text-[9px] text-muted-foreground"
+                title={layerNames.get(lid) ?? lid}
               >
-                ×
-              </button>
-            </span>
-          ))}
+                <span className="truncate">{layerNames.get(lid) ?? lid}</span>
+                <button
+                  className="ml-0.5 shrink-0 text-muted-foreground transition-colors hover:text-foreground"
+                  onClick={() => onRemoveLayer(panel.id, lid)}
+                  title="Remove layer"
+                >
+                  ×
+                </button>
+              </span>
+            ))}
+          </div>
+
           {layerBadges.length === 0 && (
-            <span className="text-[9px] text-zinc-500 italic">
+            <span className="text-[9px] italic text-muted-foreground">
               Drop a layer or file here
             </span>
           )}
         </div>
 
-        {/* Per-panel orientation override */}
-        <select
-          className="bg-zinc-700 text-zinc-300 text-[10px] rounded px-0.5 cursor-pointer border-none outline-none"
-          value={panel.viewType}
-          onChange={e => onViewTypeChange(panel.id, e.target.value as 'axial' | 'sagittal' | 'coronal')}
-        >
-          <option value="axial">Ax</option>
-          <option value="sagittal">Sag</option>
-          <option value="coronal">Cor</option>
-        </select>
+        <div className="flex shrink-0 items-center gap-1">
+          {/* Per-panel orientation override */}
+          <select
+            className="rounded-appsm border border-border bg-background px-1 py-0.5 text-[10px] text-foreground outline-none transition-colors hover:border-primary/60"
+            value={panel.viewType}
+            onChange={e => onViewTypeChange(panel.id, e.target.value as 'axial' | 'sagittal' | 'coronal')}
+          >
+            <option value="axial">Ax</option>
+            <option value="sagittal">Sag</option>
+            <option value="coronal">Cor</option>
+          </select>
 
-        {/* Remove panel */}
-        <button
-          className="text-zinc-500 hover:text-red-400 text-[12px] ml-0.5"
-          onClick={() => onRemovePanel(panel.id)}
-          title="Remove panel"
-        >
-          ✕
-        </button>
+          {/* Remove panel */}
+          <button
+            className="text-[12px] text-muted-foreground transition-colors hover:text-destructive"
+            onClick={() => onRemovePanel(panel.id)}
+            title="Remove panel"
+          >
+            ✕
+          </button>
+        </div>
       </div>
 
       {/* Canvas */}

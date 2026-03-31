@@ -9,6 +9,43 @@ export interface RequestedViewPayload {
   height: number;
 }
 
+function vectorMagnitude(vector: [number, number, number]): number {
+  return Math.hypot(vector[0], vector[1], vector[2]);
+}
+
+function scaleVector(
+  vector: [number, number, number],
+  scale: number
+): [number, number, number] {
+  return [
+    vector[0] * scale,
+    vector[1] * scale,
+    vector[2] * scale,
+  ];
+}
+
+function addVectors(
+  left: [number, number, number],
+  right: [number, number, number]
+): [number, number, number] {
+  return [
+    left[0] + right[0],
+    left[1] + right[1],
+    left[2] + right[2],
+  ];
+}
+
+function subtractVectors(
+  left: [number, number, number],
+  right: [number, number, number]
+): [number, number, number] {
+  return [
+    left[0] - right[0],
+    left[1] - right[1],
+    left[2] - right[2],
+  ];
+}
+
 export function resizeViewPlanePreservingFieldOfView(
   view: ViewPlane,
   width: number,
@@ -16,13 +53,38 @@ export function resizeViewPlanePreservingFieldOfView(
 ): ViewPlane {
   const baseWidth = view.dim_px?.[0] > 0 ? view.dim_px[0] : width;
   const baseHeight = view.dim_px?.[1] > 0 ? view.dim_px[1] : height;
-  const totalU = view.u_mm.map((component) => component * baseWidth) as [number, number, number];
-  const totalV = view.v_mm.map((component) => component * baseHeight) as [number, number, number];
+  const uMagnitude = vectorMagnitude(view.u_mm);
+  const vMagnitude = vectorMagnitude(view.v_mm);
+
+  if (uMagnitude === 0 || vMagnitude === 0) {
+    return {
+      ...view,
+      dim_px: [width, height],
+    };
+  }
+
+  const totalUMm = uMagnitude * baseWidth;
+  const totalVMm = vMagnitude * baseHeight;
+  const pixelSize = Math.max(totalUMm / Math.max(width, 1), totalVMm / Math.max(height, 1));
+
+  const uDirection = scaleVector(view.u_mm, 1 / uMagnitude);
+  const vDirection = scaleVector(view.v_mm, 1 / vMagnitude);
+  const resizedU = scaleVector(uDirection, pixelSize);
+  const resizedV = scaleVector(vDirection, pixelSize);
+  const originalCenter = addVectors(
+    view.origin_mm,
+    addVectors(scaleVector(view.u_mm, baseWidth / 2), scaleVector(view.v_mm, baseHeight / 2))
+  );
+  const resizedOrigin = subtractVectors(
+    originalCenter,
+    addVectors(scaleVector(resizedU, width / 2), scaleVector(resizedV, height / 2))
+  );
 
   return {
     ...view,
-    u_mm: totalU.map((component) => component / width) as [number, number, number],
-    v_mm: totalV.map((component) => component / height) as [number, number, number],
+    origin_mm: resizedOrigin,
+    u_mm: resizedU,
+    v_mm: resizedV,
     dim_px: [width, height],
   };
 }
