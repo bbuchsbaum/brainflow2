@@ -11,6 +11,18 @@
 import type { ViewType } from './coordinates';
 
 /**
+ * Branded tag type for mosaic cell events.
+ * Format: `mosaic-${workspaceId}-${axis}-${index}`
+ * Using a template literal type ensures typos are caught at compile time.
+ */
+export type MosaicTag = `mosaic-${string}`;
+
+/** Helper to create a type-safe mosaic tag */
+export function mosaicTag(workspaceId: string, axis: ViewType, index: number): MosaicTag {
+  return `mosaic-${workspaceId}-${axis}-${index}`;
+}
+
+/**
  * Base render event data shared by all render events
  */
 interface BaseRenderEvent {
@@ -39,7 +51,7 @@ export interface SliceViewRenderEvent extends BaseRenderEvent {
  */
 export interface MosaicViewRenderEvent extends BaseRenderEvent {
   /** Unique tag for this mosaic cell (e.g., 'mosaic-default-axial-96') */
-  tag: string;
+  tag: MosaicTag;
   /** The rendered image bitmap */
   imageBitmap?: ImageBitmap;
   /** Never include viewType in MosaicView events */
@@ -73,7 +85,7 @@ export interface RenderStartEvent {
   /** For SliceView */
   viewType?: ViewType;
   /** For MosaicView */
-  tag?: string;
+  tag?: MosaicTag;
   /** Optional message */
   message?: string;
 }
@@ -100,7 +112,7 @@ export interface RenderErrorEvent {
   /** For SliceView */
   viewType?: ViewType;
   /** For MosaicView */
-  tag?: string;
+  tag?: MosaicTag;
   /** The error that occurred */
   error: Error | { message: string; stack?: string };
   /** Optional context about when the error occurred */
@@ -155,7 +167,7 @@ export function createSliceViewEvent(
  * Helper to create a properly typed MosaicView render event
  */
 export function createMosaicViewEvent(
-  tag: string,
+  tag: MosaicTag,
   imageBitmap?: ImageBitmap,
   error?: Error
 ): MosaicViewRenderEvent {

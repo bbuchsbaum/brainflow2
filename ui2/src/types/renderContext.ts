@@ -6,6 +6,7 @@
  */
 
 import type { ViewPlane } from './coordinates';
+import type { MosaicTag } from './renderEvents';
 
 /**
  * Type of render context - helps with debugging and routing
@@ -91,7 +92,7 @@ export class RenderContextFactory {
     height: number,
     viewPlane?: ViewPlane
   ): RenderContext {
-    const id = `mosaic-${workspaceId}-${axis}-${sliceIndex}`;
+    const id: MosaicTag = `mosaic-${workspaceId}-${axis}-${sliceIndex}`;
     return {
       id,  // Use the tag directly as ID
       type: 'mosaic-cell',
