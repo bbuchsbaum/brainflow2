@@ -3,6 +3,29 @@ import type { DraggedResource } from '@/types/loadIntent';
 export const LAYER_DRAG_MIME = 'application/x-brainflow-layer+json';
 export const FILE_DRAG_MIME = 'application/x-brainflow-file+json';
 
+/**
+ * Cross-panel drag data bridge.
+ *
+ * GoldenLayout creates isolated React roots per panel, and its internal
+ * drag-drop handling can swallow native events before they reach React's
+ * delegated listeners.  We work around this by stashing drag payload in a
+ * module-level variable that any panel can read — no reliance on
+ * `dataTransfer.getData()` across panel boundaries.
+ */
+let _activeDragData: FileDragData | null = null;
+
+export function setActiveDragData(data: FileDragData | null): void {
+  _activeDragData = data;
+}
+
+export function getActiveDragData(): FileDragData | null {
+  return _activeDragData;
+}
+
+export function clearActiveDragData(): void {
+  _activeDragData = null;
+}
+
 export interface LayerDragData {
   layerId: string;
 }
@@ -77,7 +100,18 @@ export function readFileDragData(dataTransfer: DataTransfer | null): FileDragDat
 
   return (
     parseFileDragData(dataTransfer.getData(FILE_DRAG_MIME)) ??
-    parseFileDragData(dataTransfer.getData('application/json'))
+    parseFileDragData(dataTransfer.getData('application/json')) ??
+    (() => {
+      const plainTextPath = dataTransfer.getData('text/plain')?.trim();
+      if (!plainTextPath) {
+        return null;
+      }
+      return {
+        path: plainTextPath,
+        name: plainTextPath.split(/[\\/]/).pop() ?? plainTextPath,
+        type: 'file',
+      };
+    })()
   );
 }
 

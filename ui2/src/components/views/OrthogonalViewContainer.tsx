@@ -7,7 +7,7 @@ import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { FlexibleSlicePanel } from './FlexibleSlicePanel';
 import { useViewLayoutStore } from '@/stores/viewLayoutStore';
 import { getFileLoadingService } from '@/services/FileLoadingService';
-import { readFileDragData } from '@/utils/layerDrag';
+import { readFileDragData, getActiveDragData, clearActiveDragData } from '@/utils/layerDrag';
 import { resolveDropOpenIntent } from '@/types/loadIntent';
 
 interface OrthogonalViewContainerProps {
@@ -44,64 +44,91 @@ export function OrthogonalViewContainer({ className = '', containerWidth, contai
     }
   }, [containerWidth, containerHeight]);
   
-  // Handle file drop at container level
-  const handleDragOver = useCallback((e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setIsDragging(true);
-  }, []);
-  
-  const handleDragLeave = useCallback((e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    
-    // Only set dragging to false if we're leaving the container entirely
-    const rect = containerRef.current?.getBoundingClientRect();
-    if (rect) {
-      const x = e.clientX;
-      const y = e.clientY;
-      if (x <= rect.left || x >= rect.right || y <= rect.top || y >= rect.bottom) {
+  // Native event listeners for drag-and-drop.
+  // We use native listeners (not React synthetic) because GoldenLayout's
+  // isolated React roots can interfere with React event delegation.
+  // Tauri's native drag interception is disabled via dragDropEnabled:false
+  // in tauri.conf.json so HTML5 drag events flow normally.
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+
+    const onDragOver = (e: DragEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
+      setIsDragging(true);
+    };
+
+    const onDragLeave = (e: DragEvent) => {
+      const rect = el.getBoundingClientRect();
+      if (
+        e.clientX <= rect.left ||
+        e.clientX >= rect.right ||
+        e.clientY <= rect.top ||
+        e.clientY >= rect.bottom
+      ) {
         setIsDragging(false);
       }
-    }
-  }, []);
-  
-  const handleDrop = useCallback(async (e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setIsDragging(false);
-    const fileLoadingService = getFileLoadingService();
-    const intent = resolveDropOpenIntent(e);
-    const files = Array.from(e.dataTransfer.files);
-    const validExtensions = ['.nii', '.nii.gz', '.gii'];
+    };
 
-    for (const file of files) {
-      const hasValidExtension = validExtensions.some(ext => 
-        file.name.toLowerCase().endsWith(ext)
-      );
-      
-      if (hasValidExtension) {
-        await fileLoadingService.loadDroppedFile(file, intent);
+    const onDrop = (e: DragEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      setIsDragging(false);
+
+      const fileLoadingService = getFileLoadingService();
+      const intent = resolveDropOpenIntent({
+        altKey: e.altKey,
+        shiftKey: e.shiftKey,
+      });
+
+      // 1. Native OS file drops (from Finder)
+      const files = e.dataTransfer ? Array.from(e.dataTransfer.files) : [];
+      if (files.length > 0) {
+        const validExtensions = ['.nii', '.nii.gz', '.gii'];
+        for (const file of files) {
+          if (validExtensions.some((ext) => file.name.toLowerCase().endsWith(ext))) {
+            void fileLoadingService.loadDroppedFile(file, intent);
+          }
+        }
+        clearActiveDragData();
+        return;
       }
-    }
 
-    if (files.length > 0) {
-      return;
-    }
+      // 2. Cross-panel bridge (in-app drags across GoldenLayout panels)
+      const bridgeData = getActiveDragData();
+      if (bridgeData?.path) {
+        void fileLoadingService.loadFile(bridgeData.path, 'drag-drop', intent);
+        clearActiveDragData();
+        return;
+      }
 
-    const draggedFile = readFileDragData(e.dataTransfer);
-    if (draggedFile?.path) {
-      await fileLoadingService.loadFile(draggedFile.path, 'drag-drop', intent);
-    }
+      // 3. Fallback: dataTransfer (same React root)
+      if (e.dataTransfer) {
+        const draggedFile = readFileDragData(e.dataTransfer);
+        if (draggedFile?.path) {
+          void fileLoadingService.loadFile(draggedFile.path, 'drag-drop', intent);
+        }
+      }
+      clearActiveDragData();
+    };
+
+    el.addEventListener('dragover', onDragOver);
+    el.addEventListener('dragleave', onDragLeave);
+    el.addEventListener('drop', onDrop);
+
+    return () => {
+      el.removeEventListener('dragover', onDragOver);
+      el.removeEventListener('dragleave', onDragLeave);
+      el.removeEventListener('drop', onDrop);
+    };
   }, []);
   
   return (
     <div 
       ref={containerRef}
       className={`orthogonal-view-container ${className} h-full w-full relative bg-gray-900`}
-      onDragOver={handleDragOver}
-      onDragLeave={handleDragLeave}
-      onDrop={handleDrop}
     >
       {/* Toggle button - minimal design */}
       <button

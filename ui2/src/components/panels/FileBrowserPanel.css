@@ -276,6 +276,14 @@
   white-space: nowrap;
 }
 
+.file-tree-item[draggable="true"] {
+  cursor: grab;
+}
+
+.file-tree-item[draggable="true"]:active {
+  cursor: grabbing;
+}
+
 .file-tree-item:hover {
   background-color: var(--app-bg-hover);
 }
@@ -651,26 +659,6 @@
 .file-browser-panel .retry-button:hover {
   background-color: var(--app-bg-hover);
   border-color: var(--app-border);
-}
-
-/* Status bar */
-.file-browser-panel .status-bar {
-  background-color: var(--app-bg-quaternary);
-  border-top: 1px solid var(--app-border);
-  padding: var(--app-spacing-xs) var(--app-spacing-md);
-  font-size: var(--app-role-label-size);
-  color: var(--app-text-muted);
-  display: flex;
-  align-items: center;
-  gap: var(--app-spacing-sm);
-  min-height: 28px;
-  overflow: hidden;
-}
-
-.file-browser-panel .status-bar > span {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 /* Remote mount modal */

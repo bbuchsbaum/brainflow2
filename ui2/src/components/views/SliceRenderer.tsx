@@ -151,6 +151,7 @@ export function SliceRenderer({
     if (!enableDragDrop) return;
     e.preventDefault();
     e.stopPropagation();
+    e.dataTransfer.dropEffect = 'copy';
     setIsDragging(true);
   }, [enableDragDrop]);
   

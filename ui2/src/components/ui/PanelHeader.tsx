@@ -42,14 +42,12 @@ export const PanelHeader: React.FC<PanelHeaderProps> = ({
   const actionLabelBase = (actionsAriaLabel ?? title) || 'Panel';
 
   return (
-    <div className={`flex items-center justify-between border-b border-border bg-muted/10 px-3 py-2 ${className}`}>
-      {!hideTitle ? (
+    <div className={`flex items-center ${hideTitle ? 'justify-end' : 'justify-between'} border-b border-border bg-muted/10 px-3 py-1.5 ${className}`}>
+      {!hideTitle && (
         <div className="flex items-center gap-2 min-w-0">
           {icon && <span className="text-muted-foreground shrink-0">{icon}</span>}
           <h3 className="bf-role-section text-foreground truncate">{title}</h3>
         </div>
-      ) : (
-        <div aria-hidden="true" />
       )}
 
       <div className="flex items-center gap-1.5 shrink-0">

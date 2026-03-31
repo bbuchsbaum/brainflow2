@@ -26,6 +26,7 @@ import { useViewContextMenu } from '@/hooks/useViewContextMenu';
 import { useActiveRenderable } from '@/hooks/useActiveRenderable';
 import { useHoverInfo } from '@/hooks/useHoverInfo';
 import type { DisplayOpenIntent } from '@/types/loadIntent';
+import { CoordinateTransform } from '@/utils/coordinates';
 
 // Anatomical orientation labels per view (LPI convention)
 const ORIENTATION_LABELS: Record<string, { top: string; bottom: string; left: string; right: string }> = {
