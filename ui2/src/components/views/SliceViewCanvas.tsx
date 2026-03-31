@@ -237,10 +237,8 @@ function SliceViewCanvasRaw({ viewId, width, height, className = '' }: SliceView
   const showTimeOverlayRef = useRef(showTimeOverlay);
   useEffect(() => { showTimeOverlayRef.current = showTimeOverlay; }, [showTimeOverlay]);
   const throttledHandleWheel = useMemo(() => {
-    const fn = throttle((event: React.WheelEvent<HTMLDivElement>) => {
-      if (event.cancelable) {
-        event.preventDefault();
-      }
+    const fn = throttle((event: WheelEvent) => {
+      event.preventDefault();
       markActive();
       const primary = layersRef.current.find(l => l.visible);
       if (!primary) return;
@@ -255,7 +253,8 @@ function SliceViewCanvasRaw({ viewId, width, height, className = '' }: SliceView
       } else {
         const { min, max, step } = sliderBoundsRef.current;
         const curr = sliderValueRef.current;
-        const delta = event.deltaY > 0 ? step : -step;
+        const multiplier = event.shiftKey ? 10 : 1;
+        const delta = event.deltaY > 0 ? step * multiplier : -step * multiplier;
         const next = Math.max(min, Math.min(max, curr + delta));
         if (!Object.is(next, curr)) {
           sliceNavService.updateSlicePosition(viewId, next);
@@ -265,6 +264,14 @@ function SliceViewCanvasRaw({ viewId, width, height, className = '' }: SliceView
     return fn;
   }, [viewId, sliceNavService, timeNavService, markActive]);
   useEffect(() => () => throttledHandleWheel.cancel(), [throttledHandleWheel]);
+
+  // Attach native wheel listener with { passive: false } so preventDefault() works
+  useEffect(() => {
+    const el = containerAreaRef.current;
+    if (!el) return;
+    el.addEventListener('wheel', throttledHandleWheel, { passive: false });
+    return () => el.removeEventListener('wheel', throttledHandleWheel);
+  }, [throttledHandleWheel]);
 
   const handleCanvasReady = useCallback((canvas: HTMLCanvasElement) => {
     canvasRef.current = canvas;
@@ -346,7 +353,6 @@ function SliceViewCanvasRaw({ viewId, width, height, className = '' }: SliceView
           onWorldClick={handleWorldClick}
           onMouseMove={handleMouseMove}
           onMouseLeave={handleMouseLeave}
-          onWheel={throttledHandleWheel}
           onFileDrop={handleFileDrop}
           onPathDrop={handlePathDrop}
           enableDragDrop={true}

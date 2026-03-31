@@ -11,6 +11,12 @@ import { useViewStateStore } from '@/stores/viewStateStore';
 import type { ViewLayer } from '@/types/viewState';
 import { VolumeHandleStore } from './VolumeHandleStore';
 import type { LayerInfo } from '@/stores/layerStore';
+import { histogramService } from './HistogramService';
+import {
+  computeAdaptiveIntensityRange,
+  computeFallbackIntensityRange,
+  type IntensityRangeOptions,
+} from './IntensityRangeComputer';
 
 const DEBUG_LAYER_API =
   import.meta.env.DEV &&
@@ -129,35 +135,45 @@ export class LayerApiImpl implements LayerApi {
       
       if (gpuInfo.data_range) {
         layerDebugLog(`[LayerApiImpl ${performance.now() - addLayerStartTime}ms] Volume data range: [${gpuInfo.data_range.min}, ${gpuInfo.data_range.max}]`);
-        const min = gpuInfo.data_range.min;
-        const max = gpuInfo.data_range.max;
-        const range = max - min;
-        const isLabelLike = newLayer.type === 'label';
 
-        // For label atlases, use full range and nearest interpolation to preserve parcel IDs.
-        // Generic scalar volumes keep the contrast-oriented defaults.
-        const intensityMin = isLabelLike ? min : min + (range * 0.20);
-        const intensityMax = isLabelLike ? max : min + (range * 0.80);
-        const threshold: [number, number] = isLabelLike
-          ? [0, 0]
-          : [min + (range / 2), min + (range / 2)];
+        // Get existing metadata (set by VolumeLoadingService) for source info
+        const earlyMetadata = useLayerStore.getState().getLayerMetadata(newLayer.id) || {};
+        const isLabelLike = newLayer.type === 'label';
+        const rangeOptions: IntensityRangeOptions = {
+          layerType: newLayer.type,
+          source: (earlyMetadata as any).source,
+          isBinaryLike: gpuInfo.is_binary_like,
+          dataRange: gpuInfo.data_range,
+        };
+
+        // Adaptive intensity range from histogram percentiles; fallback to 20-80% on failure
+        let rangeResult;
+        try {
+          const histogram = await histogramService.computeHistogram({
+            layerId: newLayer.id,
+            binCount: 256,
+            excludeZeros: true,
+          });
+          rangeResult = computeAdaptiveIntensityRange(histogram, rangeOptions);
+          layerDebugLog(`[LayerApiImpl] Adaptive intensity (${rangeResult.method}):`, rangeResult.intensity);
+        } catch (histError) {
+          console.warn(`[LayerApiImpl] Histogram unavailable for ${newLayer.id}, using fallback:`, histError);
+          rangeResult = computeFallbackIntensityRange(rangeOptions);
+        }
 
         renderProps = {
           opacity: 1.0,
-          intensity: [intensityMin, intensityMax],
-          threshold,
-          colormap: 'gray',
+          intensity: rangeResult.intensity,
+          threshold: rangeResult.threshold,
+          colormap: rangeResult.suggestedColormap ?? 'gray',
           interpolation: isLabelLike ? 'nearest' : 'linear',
         };
-        
+
         layerDebugLog(`[LayerApiImpl ${performance.now() - addLayerStartTime}ms] Created render properties:`, JSON.stringify(renderProps));
         
-        // Get existing metadata to preserve worldBounds that was set earlier
-        const existingMetadata = useLayerStore.getState().getLayerMetadata(newLayer.id) || {};
-        
-        // Merge with new metadata from GPU info
+        // Merge with new metadata from GPU info (earlyMetadata already read above)
         const metadata = {
-          ...existingMetadata,  // Preserve existing metadata like worldBounds
+          ...earlyMetadata,  // Preserve existing metadata like worldBounds
           dataRange: gpuInfo.data_range,
           centerWorld: gpuInfo.center_world,
           isBinaryLike: gpuInfo.is_binary_like,

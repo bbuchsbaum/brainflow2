@@ -28,12 +28,16 @@ import { ImageHeaderDialog } from '@/components/dialogs/ImageHeaderDialog';
 import { ConfirmationDialogHost } from '@/components/dialogs/ConfirmationDialogHost';
 import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts';
 import { useNavigationShortcuts } from '@/hooks/useNavigationShortcuts';
+import { useActiveRenderContextStore } from '@/stores/activeRenderContextStore';
+import { useRenderStateStore } from '@/stores/renderStateStore';
+import { getEventBus } from '@/events/EventBus';
 import { PerformanceDashboard } from '@/components/debug/PerformanceDashboard';
 import { migrateLayerRenderToViewState, isMigrationComplete } from '@/utils/migrateLayerRenderToViewState';
 import { storeLog } from '@/utils/debugLog';
 import { KeyboardShortcutsDialog } from '@/components/dialogs/KeyboardShortcutsDialog';
 import { getKeyboardShortcutService } from '@/services/KeyboardShortcutService';
 import { useLayerStore } from '@/stores/layerStore';
+import { useViewStateStore } from '@/stores/viewStateStore';
 import { useAppModeStore } from '@/stores/appModeStore';
 import { getSetStudioService } from '@/services/studio/SetStudioService';
 import { WorkspacePresetSelector } from '@/components/ui/WorkspacePresetSelector';
@@ -396,6 +400,93 @@ function AppContent() {
     });
     return unregister;
   }, [selectedLayerId, layers]);
+
+  // Register number key shortcuts: 1-9 toggle layer visibility, 0 shows all
+  useEffect(() => {
+    const service = getKeyboardShortcutService();
+    const unregisterFns: Array<() => void> = [];
+
+    // Keys 1-9: toggle visibility of nth layer
+    for (let n = 1; n <= 9; n++) {
+      const layerIndex = n - 1;
+      unregisterFns.push(service.register({
+        id: `layers.toggle${n}`,
+        key: String(n),
+        category: 'Layers',
+        description: `Toggle layer ${n} visibility`,
+        handler: () => {
+          const viewLayers = useViewStateStore.getState().viewState.layers;
+          if (layerIndex >= viewLayers.length) return;
+          const targetId = viewLayers[layerIndex].id;
+          useViewStateStore.getState().setViewState((state) => {
+            const layer = state.layers.find(l => l.id === targetId);
+            if (layer) {
+              layer.visible = !layer.visible;
+            }
+          });
+        },
+      }));
+    }
+
+    // Key 0: show all layers
+    unregisterFns.push(service.register({
+      id: 'layers.showAll',
+      key: '0',
+      category: 'Layers',
+      description: 'Show all layers',
+      handler: () => {
+        useViewStateStore.getState().setViewState((state) => {
+          state.layers.forEach(layer => {
+            layer.visible = true;
+          });
+        });
+      },
+    }));
+
+    return () => {
+      unregisterFns.forEach(fn => fn());
+    };
+  }, []);
+
+  // Register Cmd+Shift+C shortcut to copy the active view to clipboard
+  useEffect(() => {
+    const service = getKeyboardShortcutService();
+    const unregister = service.register({
+      id: 'app.copyViewToClipboard',
+      key: 'c',
+      modifiers: { meta: true, shift: true },
+      category: 'Export',
+      description: 'Copy view to clipboard',
+      handler: async () => {
+        const activeId = useActiveRenderContextStore.getState().activeId;
+        if (!activeId) {
+          getEventBus().emit('ui.notification', { type: 'warning', message: 'No active view to copy' });
+          return;
+        }
+        const bitmap = useRenderStateStore.getState().getState(activeId).lastImage;
+        if (!bitmap) {
+          getEventBus().emit('ui.notification', { type: 'warning', message: 'No rendered image available' });
+          return;
+        }
+        try {
+          const canvas = new OffscreenCanvas(bitmap.width, bitmap.height);
+          const ctx = canvas.getContext('2d');
+          if (!ctx) throw new Error('Could not get 2D context');
+          ctx.drawImage(bitmap, 0, 0);
+          const blob = await canvas.convertToBlob({ type: 'image/png' });
+          await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
+          getEventBus().emit('ui.notification', { type: 'success', message: 'View copied to clipboard' });
+        } catch (err) {
+          console.error('[App] copyViewToClipboard failed:', err);
+          getEventBus().emit('ui.notification', {
+            type: 'error',
+            message: err instanceof Error ? err.message : 'Failed to copy to clipboard',
+          });
+        }
+      },
+    });
+    return unregister;
+  }, []);
 
   // Initialize crosshair menu service
   useEffect(() => {

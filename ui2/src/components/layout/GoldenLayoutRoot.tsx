@@ -22,6 +22,7 @@ import { debounce } from 'lodash';
 import type { WorkspaceType } from '@/types/workspace';
 import { CrosshairProvider } from '@/contexts/CrosshairContext';
 import { getLayoutService } from '@/services/layoutService';
+import { PanelErrorBoundary } from '@/components/common/PanelErrorBoundary';
 
 // Import workspace components
 import { OrthogonalViewContainer } from '@/components/views/OrthogonalViewContainer';
@@ -284,12 +285,14 @@ export function GoldenLayoutRoot() {
       
       root.render(
         <React.StrictMode>
-          <CrosshairProvider>
-            <WorkspaceComponent 
-              workspaceId={workspaceId} 
-              workspaceType={workspaceType}
-            />
-          </CrosshairProvider>
+          <PanelErrorBoundary panelName={`Workspace:${workspaceType}`}>
+            <CrosshairProvider>
+              <WorkspaceComponent
+                workspaceId={workspaceId}
+                workspaceType={workspaceType}
+              />
+            </CrosshairProvider>
+          </PanelErrorBoundary>
         </React.StrictMode>
       );
 
@@ -323,9 +326,11 @@ export function GoldenLayoutRoot() {
         const shouldUseStrictMode = name !== 'AtlasPanel' && name !== 'VolumeLayerPanel' && name !== 'LayerPanel';
         
         const componentElement = (
-          <Component {...(state || {})} />
+          <PanelErrorBoundary panelName={name}>
+            <Component {...(state || {})} />
+          </PanelErrorBoundary>
         );
-        
+
         root.render(
           shouldUseStrictMode ? (
             <React.StrictMode>
@@ -375,11 +380,13 @@ export function GoldenLayoutRoot() {
       
       root.render(
         <React.StrictMode>
-          <SurfaceViewPanel 
-            surfaceHandle={surfaceHandle}
-            path={path}
-            surfaceViewId={surfaceViewId}
-          />
+          <PanelErrorBoundary panelName="SurfaceView">
+            <SurfaceViewPanel
+              surfaceHandle={surfaceHandle}
+              path={path}
+              surfaceViewId={surfaceViewId}
+            />
+          </PanelErrorBoundary>
         </React.StrictMode>
       );
 
