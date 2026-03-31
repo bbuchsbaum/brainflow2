@@ -27,7 +27,9 @@ import { PanelHeader } from '@/components/ui/PanelHeader';
 import { RemoteMountDialog } from './RemoteMountDialog';
 import { useContextMenuStore } from '@/stores/contextMenuStore';
 import type { ContextMenuItem } from '@/stores/contextMenuStore';
-import { FILE_DRAG_MIME } from '@/utils/layerDrag';
+import { useWorkspaceStore } from '@/stores/workspaceStore';
+import { useBidsStore } from '@/stores/bidsStore';
+import { FILE_DRAG_MIME, setActiveDragData, clearActiveDragData } from '@/utils/layerDrag';
 import type { DisplayOpenIntent } from '@/types/loadIntent';
 
 interface FileNodeData {
@@ -219,6 +221,9 @@ const FileTreeItem: React.FC<FileTreeItemProps> = ({ node, style }) => {
   function handleDragStart(event: React.DragEvent) {
     if (!event.dataTransfer) return;
 
+    // Stop propagation so react-arborist doesn't intercept the drag
+    event.stopPropagation();
+
     const dragData: DragFileData = {
       path: data.path,
       name: data.name,
@@ -226,9 +231,13 @@ const FileTreeItem: React.FC<FileTreeItemProps> = ({ node, style }) => {
       extension: data.extension
     };
 
+    // Store in cross-panel bridge (GoldenLayout may swallow dataTransfer)
+    setActiveDragData(dragData);
+
     const json = JSON.stringify(dragData);
     event.dataTransfer.setData(FILE_DRAG_MIME, json);
     event.dataTransfer.setData('application/json', json);
+    event.dataTransfer.setData('text/plain', data.path);
     event.dataTransfer.effectAllowed = 'copy';
   }
   
@@ -240,21 +249,46 @@ const FileTreeItem: React.FC<FileTreeItemProps> = ({ node, style }) => {
     const contextMenu = useContextMenuStore.getState();
 
     if (isDirectory) {
-      // Directory context menu — minimal for now
-      contextMenu.open(event.clientX, event.clientY, [
-        {
-          id: 'open-dir',
-          label: 'Expand',
-          onClick: () => {
-            if (!node.isOpen) {
-              node.toggle();
-              if (!data.children || data.children.length === 0) {
-                fileBrowserStore.loadDirectory(data.path);
+      const dirPath = data.path;
+      const clientX = event.clientX;
+      const clientY = event.clientY;
+
+      void (async () => {
+        let isBids = false;
+        try {
+          isBids = await getTransport().invoke<boolean>('check_bids_directory', { path: dirPath });
+        } catch {
+          // Non-fatal: show menu without BIDS option if check fails
+        }
+
+        const dirItems: ContextMenuItem[] = [
+          {
+            id: 'open-dir',
+            label: 'Expand',
+            onClick: () => {
+              if (!node.isOpen) {
+                node.toggle();
+                if (!data.children || data.children.length === 0) {
+                  fileBrowserStore.loadDirectory(dirPath);
+                }
               }
-            }
+            },
           },
-        },
-      ]);
+        ];
+
+        if (isBids) {
+          dirItems.push({
+            id: 'open-bids',
+            label: 'Open as BIDS Dataset',
+            onClick: () => {
+              void useWorkspaceStore.getState().createWorkspace('bids-explorer');
+              void useBidsStore.getState().scanDataset(dirPath);
+            },
+          });
+        }
+
+        contextMenu.open(clientX, clientY, dirItems);
+      })();
       return;
     }
 
@@ -316,9 +350,10 @@ const FileTreeItem: React.FC<FileTreeItemProps> = ({ node, style }) => {
         paddingLeft: `${style.paddingLeft || 0}px`
       }}
       className={`file-tree-item ${isSelected ? 'selected' : ''} ${isDirectory ? 'font-medium' : ''}`}
-      draggable={data.type === 'file'}
+      draggable={!isDirectory}
+      onDragStart={!isDirectory ? handleDragStart : undefined}
+      onDragEnd={!isDirectory ? () => clearActiveDragData() : undefined}
       onDoubleClick={handleDoubleClick}
-      onDragStart={handleDragStart}
       onContextMenu={handleContextMenu}
     >
       {/* Expand/collapse indicator for directories */}
@@ -382,7 +417,6 @@ const FileTreeItem: React.FC<FileTreeItemProps> = ({ node, style }) => {
       
       {/* File metadata */}
       <div className="file-meta">
-        {/* File size (for files only) */}
         {data.type === 'file' && data.size && (
           <span className="file-size">
             {formatFileSize(data.size)}
@@ -401,14 +435,6 @@ const FileBrowserPanelContent: React.FC = () => {
   const [mountActionPending, setMountActionPending] = useState(false);
   const [remoteDialogOpen, setRemoteDialogOpen] = useState(false);
   const treeContainerRef = useRef<HTMLDivElement>(null);
-  
-  // Debug store instance
-  useEffect(() => {
-    console.log('FileBrowserPanel mounted with store:', {
-      storeInstance: fileBrowserStore,
-      windowStore: window.__fileBrowserStore
-    });
-  }, []);
   
   // Reactive values from store
   const currentPath = useFileBrowserStore(state => state.currentPath);
@@ -452,43 +478,6 @@ const FileBrowserPanelContent: React.FC = () => {
     return entries.length === 1 ? entries[0] : null;
   }, [currentPath, entries, selectedRootMount]);
 
-  const activeRemoteHostLabel = useMemo(() => {
-    const mountSource = activeRootMount?.mountSource;
-    if (mountSource?.kind !== 'remote') {
-      return null;
-    }
-
-    return formatRemoteHostLabel(mountSource);
-  }, [activeRootMount]);
-
-  const activeRemoteRootPath = useMemo(() => {
-    const mountSource = activeRootMount?.mountSource;
-    if (mountSource?.kind !== 'remote') {
-      return null;
-    }
-    return mountSource.remotePath ?? null;
-  }, [activeRootMount]);
-  
-  // Debug: log when component re-renders
-  useEffect(() => {
-    console.log('FileBrowserPanel re-rendered with entries:', entries.length, 'currentPath:', currentPath);
-  });
-  
-  // Debug: Subscribe to store changes
-  useEffect(() => {
-    const unsubscribe = useFileBrowserStore.subscribe(
-      (state) => state.entries,
-      (entries) => {
-        console.log('FileBrowserPanel: Store entries changed:', {
-          entriesLength: entries.length,
-          entries: entries.map(e => ({ path: e.path, name: e.name }))
-        });
-      }
-    );
-    
-    return unsubscribe;
-  }, []);
-  
   // Handle container resize
   useEffect(() => {
     if (!treeContainerRef.current) return;
@@ -543,14 +532,6 @@ const FileBrowserPanelContent: React.FC = () => {
     
     const data = searchQuery ? searchResults : entries;
     const converted = convertToTreeData(data);
-    console.log('FileBrowserPanel - treeData updated:', {
-      entriesLength: entries.length,
-      dataLength: data.length,
-      convertedLength: converted.length,
-      firstItem: converted[0],
-      allItems: converted
-    });
-    
     return converted;
   }, [entries, searchResults, searchQuery]);
   
@@ -669,6 +650,7 @@ const FileBrowserPanelContent: React.FC = () => {
       <PanelHeader
         title="Files"
         icon={<VscFolder className="h-4 w-4" />}
+        hideTitle={true}
         primaryAction={
           hasMountedDirectory
             ? {
@@ -890,7 +872,7 @@ const FileBrowserPanelContent: React.FC = () => {
           }}>
             {(treeSize.width > 0 && treeSize.height > 0) || treeData.length > 0 ? (
               <Tree
-                key={`tree-${entries.length}`}
+                key={`tree-v2-${entries.length}`}
                 data={treeData}
                 openByDefault={false}
                 width={treeSize.width || 300}
@@ -916,6 +898,8 @@ const FileBrowserPanelContent: React.FC = () => {
                 }}
                 disableMultiSelection={true}
                 disableEdit={true}
+                disableDrag={true}
+                disableDrop={true}
               >
                 {(props: any) => <FileTreeItem {...props} />}
               </Tree>
@@ -928,28 +912,6 @@ const FileBrowserPanelContent: React.FC = () => {
         )}
       </div>
       
-      {/* Status bar */}
-      <div className="status-bar">
-        {searchQuery ? (
-          `${searchResults.length} result${searchResults.length === 1 ? '' : 's'}`
-        ) : (
-          `${treeData.length} item${treeData.length === 1 ? '' : 's'}`
-        )}
-        {activeRemoteHostLabel && (
-          <span style={{ marginLeft: '8px' }} title={`Remote host: ${activeRemoteHostLabel}`}>
-            • Remote: {activeRemoteHostLabel}
-          </span>
-        )}
-        {activeRemoteRootPath && (
-          <span style={{ marginLeft: '8px' }} title={`Remote root: ${activeRemoteRootPath}`}>
-            • Root: {activeRemoteRootPath}
-          </span>
-        )}
-        {selectedPath && (
-          <span style={{ marginLeft: '8px' }}>• {selectedPath.split('/').pop()} selected</span>
-        )}
-      </div>
-
       <RemoteMountDialog
         isOpen={remoteDialogOpen}
         onClose={() => {

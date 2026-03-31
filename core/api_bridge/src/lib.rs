@@ -9083,6 +9083,448 @@ async fn materialize_set_studio_compare_panes(
     Ok(field_table::materialize_compare_panes(request))
 }
 
+#[command]
+#[tracing::instrument(skip_all, err, name = "api.check_bids_directory")]
+async fn check_bids_directory(
+    path: String,
+) -> BridgeResult<bool> {
+    let dir = std::path::PathBuf::from(&path);
+    let has_description = dir.join("dataset_description.json").exists();
+    let has_participants = dir.join("participants.tsv").exists();
+    Ok(has_description && has_participants)
+}
+
+#[command]
+#[tracing::instrument(skip_all, err, name = "api.scan_bids_dataset")]
+async fn scan_bids_dataset(
+    dataset_path: String,
+    state: State<'_, BridgeState>,
+) -> BridgeResult<bridge_types::bids::BidsDatasetSummary> {
+    use bids_rust::{BidsProject, ComplianceChecker};
+    use bridge_types::bids::*;
+
+    info!("Bridge: scan_bids_dataset called for {}", dataset_path);
+
+    let dir = PathBuf::from(&dataset_path);
+
+    // Materialize key files for remote mount support
+    let desc_path = dir.join("dataset_description.json");
+    let participants_path = dir.join("participants.tsv");
+    materialize_remote_file_if_needed(state.inner(), &desc_path).await?;
+    materialize_remote_file_if_needed(state.inner(), &participants_path).await?;
+
+    // Load the BIDS project (blocking I/O on spawn_blocking)
+    let dataset_path_clone = dataset_path.clone();
+    let summary = tokio::task::spawn_blocking(move || -> BridgeResult<BidsDatasetSummary> {
+        let project = BidsProject::with_options(
+            &dataset_path_clone,
+            bids_rust::DerivativesMode::Auto,
+            false, // non-strict: allow missing participants.tsv
+        )
+        .map_err(|e| BridgeError::Input {
+            code: 3001,
+            details: format!("Failed to load BIDS dataset: {}", e),
+        })?;
+
+        // --- Summary counts ---
+        let proj_summary = project.summary();
+        let session_ids: Vec<String> = project.sessions().into_iter().map(|s| s.to_string()).collect();
+        let task_ids: Vec<String> = project.tasks().to_vec();
+        let modalities: Vec<String> = proj_summary.modalities.clone();
+
+        // --- Dataset description fields ---
+        let ds_name = project
+            .description
+            .get("Name")
+            .and_then(|v| v.as_str())
+            .unwrap_or(&project.name)
+            .to_string();
+        let bids_version = project
+            .description
+            .get("BIDSVersion")
+            .and_then(|v| v.as_str())
+            .unwrap_or("unknown")
+            .to_string();
+        let license = project
+            .description
+            .get("License")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+        let authors: Vec<String> = project
+            .description
+            .get("Authors")
+            .and_then(|v| v.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                    .collect()
+            })
+            .unwrap_or_default();
+
+        // --- Coverage matrix ---
+        let subjects: Vec<String> = project.participants().into_iter().map(|s| s.to_string()).collect();
+
+        // Collect all files and build a lookup: (subject, session, suffix, task) -> Vec<BidsFile>
+        let all_files = project.search_files().strict(false).collect().unwrap_or_default();
+
+        // Discover unique columns from the file set
+        let mut col_set: Vec<BidsCoverageColumn> = Vec::new();
+        let mut col_keys: HashSet<String> = HashSet::new();
+
+        for f in &all_files {
+            let sub = f.entities.get("sub");
+            if sub.is_none() {
+                continue; // skip non-subject files
+            }
+            let ses = f.entities.get("ses").cloned();
+            let task = f.entities.get("task").cloned();
+            let suffix = &f.suffix;
+            let modality = f.kind.as_deref().unwrap_or("other");
+
+            let key = format!(
+                "{}|{}|{}|{}",
+                ses.as_deref().unwrap_or(""),
+                modality,
+                suffix,
+                task.as_deref().unwrap_or("")
+            );
+            if col_keys.insert(key) {
+                let label = {
+                    let mut parts = Vec::new();
+                    if let Some(s) = &ses {
+                        parts.push(format!("ses-{}", s));
+                    }
+                    parts.push(suffix.clone());
+                    if let Some(t) = &task {
+                        parts.push(format!("task-{}", t));
+                    }
+                    parts.join("_")
+                };
+                col_set.push(BidsCoverageColumn {
+                    session: ses,
+                    modality: modality.to_string(),
+                    suffix: suffix.clone(),
+                    task,
+                    label,
+                });
+            }
+        }
+        col_set.sort_by(|a, b| a.label.cmp(&b.label));
+
+        // Build cells: subjects (rows) x columns
+        let mut cells: Vec<Vec<BidsCoverageCell>> = Vec::with_capacity(subjects.len());
+        for sub in &subjects {
+            let mut row: Vec<BidsCoverageCell> = Vec::with_capacity(col_set.len());
+            for col in &col_set {
+                // Find matching files for this subject + column
+                let matching: Vec<&bids_rust::BidsFile> = all_files
+                    .iter()
+                    .filter(|f| {
+                        f.entities.get("sub").map(|s| s.as_str()) == Some(sub.as_str())
+                            && f.entities.get("ses").as_ref().map(|s| s.as_str())
+                                == col.session.as_deref()
+                            && f.suffix == col.suffix
+                            && f.entities.get("task").as_ref().map(|s| s.as_str())
+                                == col.task.as_deref()
+                    })
+                    .collect();
+
+                let run_count = matching.len();
+                let mut size_bytes = 0u64;
+                let mut file_paths: Vec<String> = Vec::new();
+                for mf in &matching {
+                    size_bytes += std::fs::metadata(&mf.path)
+                        .map(|m| m.len())
+                        .unwrap_or(0);
+                    file_paths.push(mf.path.display().to_string());
+                }
+
+                row.push(BidsCoverageCell {
+                    present: run_count > 0,
+                    run_count,
+                    size_bytes,
+                    file_paths,
+                });
+            }
+            cells.push(row);
+        }
+
+        let coverage = BidsCoverageMatrix {
+            subjects: subjects.clone(),
+            columns: col_set,
+            cells,
+        };
+
+        // --- Participants ---
+        let participant_columns: Vec<String> = {
+            let mut cols: HashSet<String> = HashSet::new();
+            for p in project.participants_full() {
+                for k in p.metadata.keys() {
+                    cols.insert(k.clone());
+                }
+            }
+            let mut sorted: Vec<String> = cols.into_iter().collect();
+            sorted.sort();
+            sorted
+        };
+
+        let participants: Vec<BidsParticipantRow> = project
+            .participants_full()
+            .iter()
+            .map(|p| BidsParticipantRow {
+                participant_id: p.id.clone(),
+                values: p.metadata.clone(),
+            })
+            .collect();
+
+        // --- Task designs ---
+        let task_designs: Vec<BidsTaskDesign> = {
+            let all_events = project.read_all_events().unwrap_or_default();
+            let mut by_task: HashMap<String, Vec<&bids_rust::EventData>> = HashMap::new();
+            for ev in &all_events {
+                if let Some(task) = &ev.task {
+                    by_task.entry(task.clone()).or_default().push(ev);
+                }
+            }
+            let mut designs: Vec<BidsTaskDesign> = Vec::new();
+            for (task, events_list) in &by_task {
+                let mut trial_type_set: HashSet<String> = HashSet::new();
+                let mut events_per_type: HashMap<String, usize> = HashMap::new();
+                let mut total_duration: f64 = 0.0;
+                let mut total_events: usize = 0;
+
+                for ev in events_list {
+                    for tt in &ev.trial_type {
+                        trial_type_set.insert(tt.clone());
+                        *events_per_type.entry(tt.clone()).or_insert(0) += 1;
+                    }
+                    for d in &ev.duration {
+                        total_duration += d;
+                        total_events += 1;
+                    }
+                }
+
+                let avg_duration_secs = if total_events > 0 {
+                    total_duration / total_events as f64
+                } else {
+                    0.0
+                };
+
+                let mut trial_types: Vec<String> = trial_type_set.into_iter().collect();
+                trial_types.sort();
+
+                designs.push(BidsTaskDesign {
+                    task: task.clone(),
+                    trial_types,
+                    avg_duration_secs,
+                    total_runs: events_list.len(),
+                    events_per_type,
+                });
+            }
+            designs.sort_by(|a, b| a.task.cmp(&b.task));
+            designs
+        };
+
+        // --- Validation ---
+        let validation: BidsValidationResult = {
+            let checker = ComplianceChecker::new();
+            match checker.check_project(&project) {
+                Ok(result) => {
+                    let mut all_issues: Vec<BidsValidationIssue> = Vec::new();
+                    let mut critical_count = 0usize;
+                    let mut warning_count = 0usize;
+
+                    for issue in &result.issues {
+                        let sev = match issue.severity {
+                            bids_rust::compliance::Severity::Critical => "critical",
+                            bids_rust::compliance::Severity::High => "high",
+                            bids_rust::compliance::Severity::Medium => "medium",
+                            bids_rust::compliance::Severity::Low => "low",
+                        };
+                        if matches!(
+                            issue.severity,
+                            bids_rust::compliance::Severity::Critical
+                                | bids_rust::compliance::Severity::High
+                        ) {
+                            critical_count += 1;
+                        }
+                        all_issues.push(BidsValidationIssue {
+                            severity: sev.to_string(),
+                            description: issue.description.clone(),
+                            file: issue.file.as_ref().map(|p| p.display().to_string()),
+                            rule: issue.rule.clone(),
+                        });
+                    }
+                    for w in &result.warnings {
+                        warning_count += 1;
+                        let sev = match w.severity {
+                            bids_rust::compliance::Severity::Critical => "critical",
+                            bids_rust::compliance::Severity::High => "high",
+                            bids_rust::compliance::Severity::Medium => "medium",
+                            bids_rust::compliance::Severity::Low => "low",
+                        };
+                        all_issues.push(BidsValidationIssue {
+                            severity: sev.to_string(),
+                            description: w.description.clone(),
+                            file: w.file.as_ref().map(|p| p.display().to_string()),
+                            rule: w.rule.clone(),
+                        });
+                    }
+
+                    BidsValidationResult {
+                        passed: result.passed,
+                        critical_count,
+                        warning_count,
+                        issues: all_issues,
+                    }
+                }
+                Err(e) => {
+                    warn!("BIDS validation failed: {}", e);
+                    BidsValidationResult {
+                        passed: false,
+                        critical_count: 1,
+                        warning_count: 0,
+                        issues: vec![BidsValidationIssue {
+                            severity: "critical".to_string(),
+                            description: format!("Validation error: {}", e),
+                            file: None,
+                            rule: "validation_error".to_string(),
+                        }],
+                    }
+                }
+            }
+        };
+
+        // --- Storage by modality ---
+        let mut storage_by_modality: HashMap<String, u64> = HashMap::new();
+        for f in &all_files {
+            let modality = f.kind.as_deref().unwrap_or("other").to_string();
+            let size = std::fs::metadata(&f.path).map(|m| m.len()).unwrap_or(0);
+            *storage_by_modality.entry(modality).or_insert(0) += size;
+        }
+
+        Ok(BidsDatasetSummary {
+            path: dataset_path_clone,
+            name: ds_name,
+            bids_version,
+            license,
+            authors,
+            subject_count: proj_summary.n_participants,
+            session_ids,
+            task_ids,
+            modalities,
+            total_file_count: proj_summary.n_files,
+            total_size_bytes: proj_summary.total_size.unwrap_or(0),
+            coverage,
+            participants,
+            participant_columns,
+            task_designs,
+            validation,
+            storage_by_modality,
+        })
+    })
+    .await
+    .map_err(|e| BridgeError::Internal {
+        code: 3002,
+        details: format!("Task join error: {}", e),
+    })??;
+
+    info!("scan_bids_dataset complete: {} subjects", summary.subject_count);
+    Ok(summary)
+}
+
+#[command]
+#[tracing::instrument(skip_all, err, name = "api.get_bids_events")]
+async fn get_bids_events(
+    dataset_path: String,
+    subject: String,
+    task: String,
+    session: Option<String>,
+    run: Option<String>,
+    state: State<'_, BridgeState>,
+) -> BridgeResult<Vec<bridge_types::bids::BidsEventRow>> {
+    use bids_rust::BidsProject;
+    use bridge_types::bids::BidsEventRow;
+
+    info!(
+        "Bridge: get_bids_events called for sub-{} task-{} in {}",
+        subject, task, dataset_path
+    );
+
+    let dir = PathBuf::from(&dataset_path);
+    materialize_remote_file_if_needed(state.inner(), &dir.join("dataset_description.json")).await?;
+
+    let rows = tokio::task::spawn_blocking(move || -> BridgeResult<Vec<BidsEventRow>> {
+        let project = BidsProject::with_options(
+            &dataset_path,
+            bids_rust::DerivativesMode::None,
+            false,
+        )
+        .map_err(|e| BridgeError::Input {
+            code: 3001,
+            details: format!("Failed to load BIDS dataset: {}", e),
+        })?;
+
+        // Search for event files matching subject + task
+        let mut search = project.search_files().subject(&subject).task(&task).suffix("events").extension("tsv");
+        if let Some(ref ses) = session {
+            search = search.session(ses);
+        }
+        if let Some(ref r) = run {
+            search = search.run(r);
+        }
+
+        let event_files = search.collect().unwrap_or_default();
+        if event_files.is_empty() {
+            info!("No events found for sub-{} task-{}", subject, task);
+            return Ok(Vec::new());
+        }
+
+        let reader = bids_rust::io::EventsReader::new();
+        let mut rows: Vec<BidsEventRow> = Vec::new();
+
+        for file in &event_files {
+            match bids_rust::io::BidsReader::read(&reader, file) {
+                Ok(event_data) => {
+                    // Convert parallel vectors into individual rows
+                    let len = event_data.onset.len();
+                    for i in 0..len {
+                        let mut additional: HashMap<String, String> = HashMap::new();
+                        for (col_name, col_values) in &event_data.additional_columns {
+                            if let Some(val) = col_values.get(i) {
+                                additional.insert(col_name.clone(), val.clone());
+                            }
+                        }
+                        rows.push(BidsEventRow {
+                            onset: event_data.onset.get(i).copied().unwrap_or(0.0),
+                            duration: event_data.duration.get(i).copied().unwrap_or(0.0),
+                            trial_type: event_data
+                                .trial_type
+                                .get(i)
+                                .cloned()
+                                .unwrap_or_default(),
+                            additional,
+                        });
+                    }
+                }
+                Err(e) => {
+                    warn!("Failed to read event file {:?}: {}", file.path, e);
+                }
+            }
+        }
+
+        Ok(rows)
+    })
+    .await
+    .map_err(|e| BridgeError::Internal {
+        code: 3002,
+        details: format!("Task join error: {}", e),
+    })??;
+
+    info!("get_bids_events returning {} rows", rows.len());
+    Ok(rows)
+}
+
 // --- Surface Template Commands ---
 
 /// Load a surface template from TemplateFlow
@@ -9440,6 +9882,9 @@ pub fn plugin<R: Runtime>() -> TauriPlugin<R> {
             clear_template_cache,
             preview_set_studio_imports,
             materialize_set_studio_compare_panes,
+            check_bids_directory,
+            scan_bids_dataset,
+            get_bids_events,
         ])
         .setup(|app, _| {
             // Initialize the bridge state

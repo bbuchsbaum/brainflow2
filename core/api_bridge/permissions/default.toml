@@ -67,5 +67,8 @@ permissions = [
     "allow-get-surface-overlay-data",
     "allow-set-layer-mask",
     "allow-preview-set-studio-imports",
-    "allow-materialize-set-studio-compare-panes"
+    "allow-materialize-set-studio-compare-panes",
+    "allow-check-bids-directory",
+    "allow-scan-bids-dataset",
+    "allow-get-bids-events"
 ]

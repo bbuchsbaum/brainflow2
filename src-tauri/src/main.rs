@@ -582,38 +582,16 @@ fn main() {
                                         .build(app)?,
                                 )
                                 .item(
-                                    &MenuItemBuilder::new("Lightbox View")
-                                        .id("workspace_lightbox")
-                                        .accelerator("CmdOrCtrl+4")
-                                        .build(app)?,
-                                )
-                                .item(
                                     &MenuItemBuilder::new("Comparison View")
                                         .id("workspace_comparison")
-                                        .accelerator("CmdOrCtrl+5")
+                                        .accelerator("CmdOrCtrl+4")
                                         .build(app)?,
                                 )
                                 .separator()
                                 .item(
                                     &MenuItemBuilder::new("Set Studio")
                                         .id("workspace_set_studio")
-                                        .accelerator("CmdOrCtrl+6")
-                                        .build(app)?,
-                                )
-                                .separator()
-                                // Analysis workspaces
-                                .item(
-                                    &MenuItemBuilder::new("ROI Statistics (Demo)")
-                                        .id("workspace_roi_stats")
-                                        .accelerator("CmdOrCtrl+7")
-                                        .build(app)?,
-                                )
-                                .separator()
-                                // Tool workspaces
-                                .item(
-                                    &MenuItemBuilder::new("Coordinate Converter (Demo)")
-                                        .id("workspace_coordinate_converter")
-                                        .accelerator("CmdOrCtrl+8")
+                                        .accelerator("CmdOrCtrl+5")
                                         .build(app)?,
                                 )
                                 .build()?,
@@ -718,11 +696,8 @@ fn main() {
                             "workspace_orthogonal_locked" => "orthogonal-locked",
                             "workspace_orthogonal_flexible" => "orthogonal-flexible",
                             "workspace_mosaic" => "mosaic",
-                            "workspace_lightbox" => "lightbox",
                             "workspace_comparison" => "comparison",
                             "workspace_set_studio" => "set-studio",
-                            "workspace_roi_stats" => "roi-stats",
-                            "workspace_coordinate_converter" => "coordinate-converter",
                             _ => return,
                         };
 

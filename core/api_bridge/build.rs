@@ -67,6 +67,9 @@ const COMMANDS: &[&str] = &[
     // Set Studio commands
     "preview_set_studio_imports",
     "materialize_set_studio_compare_panes",
+    "check_bids_directory",
+    "scan_bids_dataset",
+    "get_bids_events",
 ];
 
 fn main() {

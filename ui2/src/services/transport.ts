@@ -85,7 +85,10 @@ export class TauriTransport implements BackendTransport {
       'load_surface_template',
       'get_surface_template_catalog',
       'preview_set_studio_imports',
-      'materialize_set_studio_compare_panes'
+      'materialize_set_studio_compare_panes',
+      'check_bids_directory',
+      'scan_bids_dataset',
+      'get_bids_events'
     ];
     
     if (apiBridgeCommands.includes(cmd)) {

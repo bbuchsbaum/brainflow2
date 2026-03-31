@@ -12,6 +12,9 @@ use volmath::{DenseVolume3, VolumeMathError};
 // --- Import for ts-rs ---
 use ts_rs::TS;
 
+pub mod bids;
+pub use bids::*;
+
 // --- Moved from nifti_loader ---
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub enum VolumeSendable {

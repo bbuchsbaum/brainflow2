@@ -271,71 +271,6 @@ export class MosaicViewFactory implements ViewFactory {
 }
 
 /**
- * Factory for lightbox view
- */
-export class LightboxViewFactory implements ViewFactory {
-  getDefaultConfig(): Partial<WorkspaceConfig> {
-    return {
-      sliceOrientation: 'axial',
-      thumbnailSize: 128
-    };
-  }
-  
-  createLayout(config?: WorkspaceConfig): LayoutConfig {
-    const orientation = config?.sliceOrientation || 'axial';
-    const thumbnailSize = config?.thumbnailSize || 128;
-    
-    return {
-      root: {
-        type: 'row',
-        content: [
-          {
-            type: 'column',
-            width: 17.25,
-            content: [{
-              type: 'component',
-              componentType: 'FileBrowser',
-              title: 'Files',
-              componentState: {}
-            }]
-          },
-          {
-            type: 'component',
-            componentType: 'LightboxView',
-            title: `Lightbox ${orientation.charAt(0).toUpperCase() + orientation.slice(1)}`,
-            width: 59.75,
-            componentState: {
-              orientation,
-              thumbnailSize
-            }
-          },
-          {
-            type: 'column',
-            width: 23,
-            content: [
-              {
-                type: 'component',
-                componentType: 'LayerPanel',
-                title: 'Volumes',
-                height: 60,
-                componentState: {}
-              },
-              {
-                type: 'component',
-                componentType: 'PlotPanel',
-                title: 'Time Series',
-                height: 40,
-                componentState: {}
-              }
-            ]
-          }
-        ]
-      }
-    };
-  }
-}
-
-/**
  * Factory for Set Studio
  */
 export class SetStudioFactory implements ViewFactory {
@@ -407,55 +342,19 @@ export class SetStudioFactory implements ViewFactory {
 }
 
 /**
- * Factory for ROI Stats workspace
+ * Factory for BIDS Explorer workspace
  */
-export class ROIStatsFactory implements ViewFactory {
+export class BidsExplorerFactory implements ViewFactory {
   getDefaultConfig(): Partial<WorkspaceConfig> {
     return {};
   }
-  
-  createLayout(config?: WorkspaceConfig): LayoutConfig {
-    return {
-      root: {
-        type: 'row',
-        content: [
-          {
-            type: 'column',
-            width: 17.25,
-            content: [{
-              type: 'component',
-              componentType: 'FileBrowser',
-              title: 'Files',
-              componentState: {}
-            }]
-          },
-          {
-            type: 'component',
-            componentType: 'ROIStatsWorkspace',
-            title: 'ROI Statistics',
-            width: 82.75,
-            componentState: {}
-          }
-        ]
-      }
-    };
-  }
-}
 
-/**
- * Factory for Coordinate Converter workspace
- */
-export class CoordinateConverterFactory implements ViewFactory {
-  getDefaultConfig(): Partial<WorkspaceConfig> {
-    return {};
-  }
-  
-  createLayout(config?: WorkspaceConfig): LayoutConfig {
+  createLayout(_config?: WorkspaceConfig): LayoutConfig {
     return {
       root: {
         type: 'component',
-        componentType: 'CoordinateConverterWorkspace',
-        title: 'Coordinate Converter',
+        componentType: 'BidsExplorerWorkspace',
+        title: 'BIDS Explorer',
         componentState: {}
       }
     };
@@ -523,11 +422,9 @@ export function initializeViewRegistry() {
   ViewRegistry.register('orthogonal-locked', new OrthogonalLockedFactory());
   ViewRegistry.register('orthogonal-flexible', new OrthogonalPanelsFactory());
   ViewRegistry.register('mosaic', new MosaicViewFactory());
-  ViewRegistry.register('lightbox', new LightboxViewFactory());
   ViewRegistry.register('comparison', new ComparisonViewFactory());
   ViewRegistry.register('set-studio', new SetStudioFactory());
-  ViewRegistry.register('roi-stats', new ROIStatsFactory());
-  ViewRegistry.register('coordinate-converter', new CoordinateConverterFactory());
+  ViewRegistry.register('bids-explorer', new BidsExplorerFactory());
   
   console.log('[ViewRegistry] Initialized with all view factories');
 }

@@ -69,6 +69,9 @@ Default permissions for api-bridge plugin
 - `allow-set-layer-mask`
 - `allow-preview-set-studio-imports`
 - `allow-materialize-set-studio-compare-panes`
+- `allow-check-bids-directory`
+- `allow-scan-bids-dataset`
+- `allow-get-bids-events`
 
 ## Permission Table
 
@@ -153,6 +156,32 @@ Enables the batch_render_slices command without any pre-configured scope.
 <td>
 
 Denies the batch_render_slices command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:allow-check-bids-directory`
+
+</td>
+<td>
+
+Enables the check_bids_directory command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:deny-check-bids-directory`
+
+</td>
+<td>
+
+Denies the check_bids_directory command without any pre-configured scope.
 
 </td>
 </tr>
@@ -621,6 +650,32 @@ Enables the get_atlas_subscription_count command without any pre-configured scop
 <td>
 
 Denies the get_atlas_subscription_count command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:allow-get-bids-events`
+
+</td>
+<td>
+
+Enables the get_bids_events command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:deny-get-bids-events`
+
+</td>
+<td>
+
+Denies the get_bids_events command without any pre-configured scope.
 
 </td>
 </tr>
@@ -2233,6 +2288,32 @@ Enables the sample_world_coordinate command without any pre-configured scope.
 <td>
 
 Denies the sample_world_coordinate command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:allow-scan-bids-dataset`
+
+</td>
+<td>
+
+Enables the scan_bids_dataset command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:deny-scan-bids-dataset`
+
+</td>
+<td>
+
+Denies the scan_bids_dataset command without any pre-configured scope.
 
 </td>
 </tr>

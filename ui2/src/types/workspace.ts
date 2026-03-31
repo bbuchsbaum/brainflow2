@@ -19,11 +19,9 @@ export type WorkspaceType =
   | 'orthogonal-locked'
   | 'orthogonal-flexible'
   | 'mosaic'
-  | 'lightbox'
   | 'comparison'
   | 'set-studio'
-  | 'roi-stats'
-  | 'coordinate-converter';
+  | 'bids-explorer';
 
 /**
  * Represents a complete workspace with its layout and state
@@ -65,9 +63,6 @@ export interface WorkspaceConfig {
   // Common options
   sliceOrientation?: ViewType;  // Which anatomical plane (default: 'axial')
   
-  // Lightbox-specific options
-  thumbnailSize?: number;       // Size of each thumbnail (default: 128)
-  
   // Mosaic navigation options
   sliceRange?: {
     start: number;              // Starting slice index
@@ -83,11 +78,9 @@ export const WORKSPACE_METADATA: Record<WorkspaceType, { category: WorkspaceCate
   'orthogonal-locked': { category: 'visualization', name: 'Orthogonal (Locked)' },
   'orthogonal-flexible': { category: 'visualization', name: 'Orthogonal Panels' },
   'mosaic': { category: 'visualization', name: 'Mosaic View' },
-  'lightbox': { category: 'visualization', name: 'Lightbox View' },
   'comparison': { category: 'visualization', name: 'Comparison View' },
   'set-studio': { category: 'analysis', name: 'Set Studio', singleton: true },
-  'roi-stats': { category: 'analysis', name: 'ROI Statistics', singleton: true },
-  'coordinate-converter': { category: 'tool', name: 'Coordinate Converter', singleton: true }
+  'bids-explorer': { category: 'analysis', name: 'BIDS Explorer', singleton: true }
 };
 
 /**
@@ -101,14 +94,9 @@ export const DEFAULT_WORKSPACE_CONFIGS: Record<WorkspaceType, Partial<WorkspaceC
     columns: 3,
     sliceOrientation: 'axial'
   },
-  'lightbox': {
-    sliceOrientation: 'axial',
-    thumbnailSize: 128
-  },
   'comparison': {},
   'set-studio': {},
-  'roi-stats': {},
-  'coordinate-converter': {}
+  'bids-explorer': {}
 };
 
 /**

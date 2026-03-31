@@ -234,6 +234,7 @@ dependencies = [
  "async-trait",
  "atlases",
  "base64 0.22.1",
+ "bids-rust",
  "brainflow-loaders",
  "bridge_types",
  "colormap",
@@ -711,6 +712,27 @@ dependencies = [
  "blowfish",
  "pbkdf2 0.12.2",
  "sha2",
+]
+
+[[package]]
+name = "bids-rust"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "csv",
+ "dirs 5.0.1",
+ "indexmap 2.9.0",
+ "log",
+ "nalgebra 0.32.6",
+ "num-traits 0.2.19",
+ "once_cell",
+ "regex",
+ "serde",
+ "serde_json",
+ "thiserror 1.0.69",
+ "url",
+ "walkdir",
 ]
 
 [[package]]

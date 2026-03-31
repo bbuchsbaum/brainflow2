@@ -60,11 +60,9 @@ const workspaceCounter: Record<WorkspaceType, number> = {
   'orthogonal-locked': 0,
   'orthogonal-flexible': 0,
   'mosaic': 0,
-  'lightbox': 0,
   'comparison': 0,
   'set-studio': 0,
-  'roi-stats': 0,
-  'coordinate-converter': 0
+  'bids-explorer': 0
 };
 
 // Clear workspaces on startup for clean slate
@@ -336,11 +334,9 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
           'orthogonal-locked': 'Orthogonal View',
           'orthogonal-flexible': 'Orthogonal Panels',
           'mosaic': 'Mosaic View',
-          'lightbox': 'Lightbox View',
           'comparison': 'Comparison View',
           'set-studio': 'Set Studio',
-          'roi-stats': 'ROI Statistics',
-          'coordinate-converter': 'Coordinate Converter'
+          'bids-explorer': 'BIDS Explorer'
         };
         
         const count = workspaceCounter[type];

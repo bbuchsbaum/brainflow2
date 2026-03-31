@@ -27,12 +27,10 @@ import { getLayoutService } from '@/services/layoutService';
 import { OrthogonalViewContainer } from '@/components/views/OrthogonalViewContainer';
 import { OrthogonalPanelsWorkspace } from '@/components/views/OrthogonalPanelsWorkspace';
 import { MosaicViewPromise } from '@/components/views/MosaicViewPromise';
-import { LightboxView } from '@/components/views/LightboxView';
-import { ROIStatsWorkspace } from '@/components/analysis/ROIStatsWorkspace';
-import { CoordinateConverterWorkspace } from '@/components/tools/CoordinateConverterWorkspace';
 import { SurfaceViewPanel } from '@/components/views/SurfaceViewPanel';
 import { SetStudioWorkspace } from '@/components/studio/SetStudioWorkspace';
 import { ComparisonWorkspace } from '@/components/views/ComparisonWorkspace';
+import { BidsExplorerWorkspace } from '@/components/bids/BidsExplorerWorkspace';
 import { StudioDesignPanel } from '@/components/studio/StudioDesignPanel';
 import { StudioInspectorPanel } from '@/components/studio/StudioInspectorPanel';
 
@@ -128,16 +126,12 @@ const WorkspaceComponent: React.FC<WorkspaceComponentProps> = ({ workspaceId, wo
       return <OrthogonalPanelsWorkspace />;
     case 'mosaic':
       return <MosaicViewPromise workspaceId={workspaceId} />;
-    case 'lightbox':
-      return <LightboxView workspaceId={workspaceId} />;
     case 'comparison':
       return <ComparisonWorkspace workspaceId={workspaceId} />;
-    case 'roi-stats':
-      return <ROIStatsWorkspace workspaceId={workspaceId} />;
-    case 'coordinate-converter':
-      return <CoordinateConverterWorkspace workspaceId={workspaceId} />;
     case 'set-studio':
       return <SetStudioWorkspace />;
+    case 'bids-explorer':
+      return <BidsExplorerWorkspace workspaceId={workspaceId} />;
     default:
       return <div className="h-full flex items-center justify-center text-muted-foreground">Unknown workspace type: {workspaceType}</div>;
   }

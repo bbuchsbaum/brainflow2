@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-scan-bids-dataset"
+description = "Enables the scan_bids_dataset command without any pre-configured scope."
+commands.allow = ["scan_bids_dataset"]
+
+[[permission]]
+identifier = "deny-scan-bids-dataset"
+description = "Denies the scan_bids_dataset command without any pre-configured scope."
+commands.deny = ["scan_bids_dataset"]
