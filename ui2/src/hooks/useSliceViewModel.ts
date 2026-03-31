@@ -7,6 +7,7 @@ import { assertNoRenderPhaseWrites } from '@/utils/devAssert';
 import type { ViewPlane } from '@/types/coordinates';
 import type { RenderContext } from '@/types/renderContext';
 import { SLIDER_HEIGHT } from '@/components/views/constants';
+import { useAdaptiveResolution } from '@/hooks/useAdaptiveResolution';
 
 type ViewId = 'axial' | 'sagittal' | 'coronal';
 
@@ -81,16 +82,19 @@ export function useSliceViewModel(
     };
   }, [crosshairSettingsRoot, viewId]);
 
+  // Adaptive resolution: reduce render target during interaction for faster feedback
+  const adaptive = useAdaptiveResolution({ width: dims.width, height: canvasHeight });
+
   // RenderContext for this view (idempotent registration handled via effect)
   // Create a fresh object when dimensions change; registration effect is idempotent.
   const renderContext: RenderContext = React.useMemo(
     () => ({
       id: viewId,
       type: 'slice',
-      dimensions: { width: dims.width, height: canvasHeight },
+      dimensions: { width: adaptive.renderWidth, height: adaptive.renderHeight },
       metadata: { viewType: viewId },
     }),
-    [viewId, dims.width, canvasHeight]
+    [viewId, adaptive.renderWidth, adaptive.renderHeight]
   );
 
   return React.useMemo(
@@ -106,6 +110,7 @@ export function useSliceViewModel(
       primaryLayer,
       primaryOptions,
       crosshairSettings,
+      adaptive,
     }),
     [
       viewPlane,
@@ -119,6 +124,7 @@ export function useSliceViewModel(
       primaryLayer,
       primaryOptions,
       crosshairSettings,
+      adaptive,
     ]
   );
 }
