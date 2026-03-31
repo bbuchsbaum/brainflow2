@@ -39,7 +39,23 @@ jobs:
         
       - name: Rust Clippy
         run: cargo clippy --workspace --all-targets -- -D warnings
-        
+
+      # Shader validation
+      - name: Install naga-cli
+        run: cargo install naga-cli --locked
+
+      - name: Validate WGSL Shaders
+        run: |
+          failed=0
+          for shader in core/render_loop/shaders/*.wgsl; do
+            echo "Validating $shader..."
+            if ! naga "$shader" 2>&1; then
+              echo "FAIL: $shader"
+              failed=1
+            fi
+          done
+          exit $failed
+
       # TypeScript checks
       - name: TypeScript Format Check
         run: pnpm --filter ui format:check

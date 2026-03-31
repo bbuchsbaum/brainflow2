@@ -27,6 +27,23 @@ help:
 	@echo "  local:deploy       Build the macOS app bundle and install ~/bin/brainflow."
 	@echo "  local-deploy       Alias for local:deploy."
 	@echo "  linux:appimage     Build AppImage bundle."
+	@echo "  validate-shaders   Validate all WGSL shaders with naga."
+
+.PHONY: validate-shaders
+validate-shaders:
+	@command -v naga >/dev/null 2>&1 || { echo "Installing naga-cli..."; cargo install naga-cli --locked; }
+	@failed=0; \
+	for shader in core/render_loop/shaders/*.wgsl; do \
+		printf "  %-50s" "$$shader"; \
+		if naga "$$shader" 2>/dev/null; then \
+			echo "OK"; \
+		else \
+			echo "FAIL"; \
+			naga "$$shader" 2>&1 | sed 's/^/    /'; \
+			failed=1; \
+		fi; \
+	done; \
+	if [ $$failed -eq 0 ]; then echo "All shaders valid."; else echo "Shader validation failed."; exit 1; fi
 
 .PHONY: mac\:build
 mac\:build:
