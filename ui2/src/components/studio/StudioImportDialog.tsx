@@ -8,7 +8,7 @@ import { TsvImportWizard } from './TsvImportWizard';
 
 const IMPORT_TABS: Array<{ mode: StudioImportMode; label: string; description: string }> = [
   { mode: 'table', label: 'From Table', description: 'TSV or CSV with file paths and design variables' },
-  { mode: 'manifest', label: 'NFTab Manifest', description: 'Pre-built manifest file' },
+  { mode: 'manifest', label: 'NeuroTabs Manifest', description: 'Pre-built manifest file' },
   { mode: 'regex', label: 'Discover Files', description: 'Find files by pattern' },
 ];
 
@@ -56,7 +56,7 @@ export function StudioImportDialog() {
   const dialogTitle = mode === 'table'
     ? 'Import From Table'
     : mode === 'manifest'
-      ? 'Import NFTab Manifest'
+      ? 'Import NeuroTabs Manifest'
       : 'Discover Files By Regex';
 
   return (
@@ -126,7 +126,8 @@ export function StudioImportDialog() {
               </div>
             </div>
 
-            <div className="bg-background p-5 overflow-y-auto">
+            <div className="bg-background flex flex-col overflow-hidden">
+             <div className="flex-1 overflow-y-auto p-5">
               {mode !== 'table' ? (
                 <>
                   <div className="mb-4 flex items-center justify-between gap-3">
@@ -168,7 +169,7 @@ export function StudioImportDialog() {
                           className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
                           value={manifestPath}
                           onChange={(event) => setManifestPath(event.target.value)}
-                          placeholder="/path/to/study.nftab.yaml"
+                          placeholder="/path/to/study.neurotabs.yaml"
                         />
                       </div>
                     ) : (
@@ -246,7 +247,8 @@ export function StudioImportDialog() {
                 <div className="text-sm text-muted-foreground">No preview candidate available.</div>
               )}
 
-              <div className="mt-6 flex items-center justify-between gap-3">
+             </div>
+              <div className="shrink-0 border-t border-border px-5 py-3 flex items-center justify-between gap-3">
                 <div className="text-xs text-muted-foreground">
                   {readiness?.state === 'ready'
                     ? 'Studio will open this set ready for Compare.'

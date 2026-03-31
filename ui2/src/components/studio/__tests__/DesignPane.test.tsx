@@ -31,7 +31,7 @@ const ACTIVE_SET: SpatialFieldSetSummary = {
   memberIds: ['sub001', 'sub002', 'sub003'],
   savedCohortIds: ['cohort-1'],
   ingestAudit: {
-    sourceLabel: 'NFTab manifest',
+    sourceLabel: 'NeuroTabs manifest',
     join: {
       matchedRows: 3,
       unmatchedRows: 0,

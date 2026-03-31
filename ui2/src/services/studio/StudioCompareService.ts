@@ -9,6 +9,20 @@ import type {
 import type { BackendTransport } from '@/services/transport';
 import { getTransport } from '@/services/transport';
 
+const demoTemplateSource = (templateId: string) => `template:${templateId}`;
+
+const DEMO_COMPARE_BINDINGS = {
+  'cohort-mean': demoTemplateSource('MNI152NLin2009cAsym_GM_2mm'),
+  residual: demoTemplateSource('MNI152NLin2009cAsym_WM_2mm'),
+  zscore: demoTemplateSource('MNI152NLin2009cAsym_CSF_2mm'),
+} as const;
+
+const DEMO_MATERIALIZED_AT_MS = 0;
+
+function isDemoSourceSet(activeSet: SpatialFieldSetSummary | null): boolean {
+  return activeSet?.sourceKind === 'demo';
+}
+
 export function buildStudioComparePaneSpecs(args: {
   activeSet: SpatialFieldSetSummary | null;
   activeMember: StudioMemberSummary | null;
@@ -19,6 +33,7 @@ export function buildStudioComparePaneSpecs(args: {
   const compareReady = activeSet?.ingestAudit.support.readyForCompare ?? false;
   const hasMemberPath = Boolean(activeMember?.sourcePath);
   const cohortSelected = Boolean(compareCohort);
+  const useDemoBindings = isDemoSourceSet(activeSet) && compareReady && cohortSelected;
 
   return [
     {
@@ -44,56 +59,70 @@ export function buildStudioComparePaneSpecs(args: {
       subtitle: compareCohort
         ? `${compareCohort.memberCount} members`
         : 'Select a cohort to enable derived panes',
-      status: cohortSelected ? (compareReady ? 'pending' : 'blocked') : 'blocked',
+      status: cohortSelected ? (compareReady ? (useDemoBindings ? 'live' : 'pending') : 'blocked') : 'blocked',
       reason: !cohortSelected
         ? 'No cohort selected.'
+        : useDemoBindings
+          ? 'Using the seeded demo cohort artifact.'
         : compareReady
           ? 'Waiting for derived cohort materialization.'
           : 'Set ingest audit does not yet permit compare-safe reductions.',
       recipe: compareCohort ? `mean(cohort:${compareCohort.id})` : null,
       binding: {
         kind: 'derived_field',
-        ready: false,
-        sourcePath: null,
+        ready: useDemoBindings,
+        sourcePath: useDemoBindings ? DEMO_COMPARE_BINDINGS['cohort-mean'] : null,
         materializationKey: compareCohort ? `cohort-mean:${compareCohort.id}` : null,
-        materializedAtMs: null,
+        materializedAtMs: useDemoBindings ? DEMO_MATERIALIZED_AT_MS : null,
       },
     },
     {
       id: 'residual',
       title: 'Residual',
       subtitle: activeMember ? `${activeMember.id} - cohort mean` : 'Current minus cohort mean',
-      status: cohortSelected && compareReady && hasMemberPath ? 'pending' : 'blocked',
-      reason:
+      status:
         cohortSelected && compareReady && hasMemberPath
+          ? (useDemoBindings ? 'live' : 'pending')
+          : 'blocked',
+      reason:
+        useDemoBindings
+          ? 'Using the seeded demo residual artifact.'
+          : cohortSelected && compareReady && hasMemberPath
           ? 'Waiting for derived residual handle.'
           : 'Needs a bound current member and compare-safe cohort.',
       recipe: compareCohort && activeMember ? `residual(member:${activeMember.id}, cohort:${compareCohort.id})` : null,
       binding: {
         kind: 'derived_field',
-        ready: false,
-        sourcePath: null,
+        ready: useDemoBindings && hasMemberPath,
+        sourcePath: useDemoBindings && hasMemberPath ? DEMO_COMPARE_BINDINGS.residual : null,
         materializationKey:
           compareCohort && activeMember ? `residual:${activeMember.id}:${compareCohort.id}` : null,
-        materializedAtMs: null,
+        materializedAtMs:
+          useDemoBindings && hasMemberPath ? DEMO_MATERIALIZED_AT_MS : null,
       },
     },
     {
       id: 'zscore',
       title: 'Z-score',
       subtitle: activeExpression?.label ?? 'Cohort-relative comparison',
-      status: cohortSelected && compareReady && Boolean(activeExpression) ? 'pending' : 'blocked',
-      reason:
+      status:
         cohortSelected && compareReady && Boolean(activeExpression)
+          ? (useDemoBindings ? 'live' : 'pending')
+          : 'blocked',
+      reason:
+        useDemoBindings
+          ? 'Using the seeded demo comparison artifact.'
+          : cohortSelected && compareReady && Boolean(activeExpression)
           ? 'Expression is defined; waiting for materialized compare output.'
           : 'Needs an active comparison expression and compare-safe cohort.',
       recipe: activeExpression?.recipe ?? null,
       binding: {
         kind: 'derived_field',
-        ready: false,
-        sourcePath: null,
+        ready: useDemoBindings && Boolean(activeExpression),
+        sourcePath: useDemoBindings && activeExpression ? DEMO_COMPARE_BINDINGS.zscore : null,
         materializationKey: compareCohort && activeExpression ? `zscore:${compareCohort.id}:${activeExpression.id}` : null,
-        materializedAtMs: null,
+        materializedAtMs:
+          useDemoBindings && activeExpression ? DEMO_MATERIALIZED_AT_MS : null,
       },
     },
   ];

@@ -155,25 +155,44 @@ export class DisplayLifecycleOrchestrator {
     startTime: number,
     intent: DisplayOpenIntent
   ): Promise<void> {
+    const { useWorkspaceStore } = await import('@/stores/workspaceStore');
+    const workspaceStore = useWorkspaceStore.getState();
+    const activeWorkspace = workspaceStore.activeWorkspaceId
+      ? workspaceStore.getWorkspace(workspaceStore.activeWorkspaceId)
+      : null;
+
     switch (intent) {
       case 'default':
-      case 'add-layer':
-        await this.loadVolume(path, filename, startTime);
+      case 'add-layer': {
+        const addedLayer = await this.loadVolume(path, filename, startTime);
+
+        if (addedLayer && activeWorkspace?.type === 'comparison') {
+          const { useComparisonStore } = await import('@/stores/comparisonStore');
+          const { useLayerStore } = await import('@/stores/layerStore');
+          const layerNames = new Map<string, string>();
+          useLayerStore.getState().layers.forEach((layer) => {
+            layerNames.set(layer.id, layer.name ?? layer.id);
+          });
+          useComparisonStore.getState().ensurePanelsForLayers(
+            activeWorkspace.id,
+            [addedLayer.id],
+            layerNames
+          );
+        }
         return;
+      }
 
       case 'new-workspace': {
-        const { useWorkspaceStore } = await import('@/stores/workspaceStore');
         await useWorkspaceStore.getState().createWorkspace('orthogonal-locked');
         await this.loadVolume(path, filename, startTime);
         return;
       }
 
       case 'comparison': {
-        const { useWorkspaceStore } = await import('@/stores/workspaceStore');
         const { useComparisonStore } = await import('@/stores/comparisonStore');
         const { useViewStateStore } = await import('@/stores/viewStateStore');
+        const { useLayerStore } = await import('@/stores/layerStore');
 
-        const workspaceStore = useWorkspaceStore.getState();
         const sourceWorkspaceId = workspaceStore.activeWorkspaceId;
         const sourceLayerIds = sourceWorkspaceId
           ? useViewStateStore
@@ -185,11 +204,14 @@ export class DisplayLifecycleOrchestrator {
         const addedLayer = await this.loadVolume(path, filename, startTime);
 
         if (addedLayer) {
-          useComparisonStore.getState().initFromCurrentAndNewLayer(
+          const layerNames = new Map<string, string>();
+          useLayerStore.getState().layers.forEach((layer) => {
+            layerNames.set(layer.id, layer.name ?? layer.id);
+          });
+          useComparisonStore.getState().ensurePanelsForLayers(
             comparisonWorkspaceId,
-            sourceLayerIds,
-            addedLayer.id,
-            addedLayer.name
+            [...sourceLayerIds, addedLayer.id],
+            layerNames
           );
         }
         return;

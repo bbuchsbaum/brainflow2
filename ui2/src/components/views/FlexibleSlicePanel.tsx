@@ -135,8 +135,13 @@ export const FlexibleSlicePanel = memo(function FlexibleSlicePanel({
     return () => resizeObserver.disconnect();
   }, [viewId, throttledUpdateDimensions]);
   
+  // Allow drag events to bubble up to parent (e.g. OrthogonalViewContainer)
+  const handleDragOver = React.useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+  }, []);
+
   return (
-    <div ref={containerRef} className="h-full w-full bg-black">
+    <div ref={containerRef} className="h-full w-full bg-black" onDragOver={handleDragOver}>
       <SliceView
         viewId={viewId}
         width={dimensions.width}

@@ -12,7 +12,7 @@
  * - Built-in performance tracking
  */
 
-import { useState, useEffect, useRef, useMemo } from 'react';
+import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useViewStateStore } from '@/stores/viewStateStore';
 import { MosaicCell } from './MosaicCell';
 import { MosaicCellErrorBoundary } from './MosaicCellErrorBoundary';
@@ -21,6 +21,9 @@ import { calculateInitialPage, calculateVolumeCenter } from '@/utils/mosaicUtils
 import { getApiService } from '@/services/apiService';
 import { MosaicToolbar } from '@/components/ui/MosaicToolbar';
 import { RenderErrorBoundary } from '@/components/ui/RenderErrorBoundary';
+import { getFileLoadingService } from '@/services/FileLoadingService';
+import { readFileDragData } from '@/utils/layerDrag';
+import { resolveDropOpenIntent } from '@/types/loadIntent';
 import './MosaicView.css';
 
 interface MosaicViewPromiseProps {
@@ -52,8 +55,52 @@ function MosaicViewPromiseRaw({
   const [hasInitialized, setHasInitialized] = useState(false);
   
   const gridRef = useRef<HTMLDivElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
   const mosaicRenderService = getMosaicRenderService();
   const apiService = getApiService();
+  const [isDragging, setIsDragging] = useState(false);
+
+  // Drag and drop handlers
+  const handleDragOver = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'copy';
+    setIsDragging(true);
+  }, []);
+
+  const handleDragLeave = useCallback((e: React.DragEvent) => {
+    const rect = containerRef.current?.getBoundingClientRect();
+    if (rect) {
+      const { clientX: x, clientY: y } = e;
+      if (x <= rect.left || x >= rect.right || y <= rect.top || y >= rect.bottom) {
+        setIsDragging(false);
+      }
+    }
+  }, []);
+
+  const handleDrop = useCallback(async (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+
+    const fileLoadingService = getFileLoadingService();
+    const intent = resolveDropOpenIntent(e);
+
+    // Native OS files
+    const files = Array.from(e.dataTransfer.files);
+    for (const file of files) {
+      const lower = file.name.toLowerCase();
+      if (lower.endsWith('.nii') || lower.endsWith('.nii.gz') || lower.endsWith('.gii')) {
+        await fileLoadingService.loadDroppedFile(file, intent);
+      }
+    }
+    if (files.length > 0) return;
+
+    // Internal file browser drag
+    const draggedFile = readFileDragData(e.dataTransfer);
+    if (draggedFile?.path) {
+      await fileLoadingService.loadFile(draggedFile.path, 'drag-drop', intent);
+    }
+  }, []);
   
   // Log component lifecycle
   useEffect(() => {
@@ -310,8 +357,20 @@ function MosaicViewPromiseRaw({
   if (!primaryVolumeId || totalSlices === 0) {
     console.log('[MosaicViewPromise] No volume to display:', { primaryVolumeId, totalSlices });
     return (
-      <div className="flex items-center justify-center h-full text-gray-500">
-        No volume loaded
+      <div
+        className="flex items-center justify-center h-full text-gray-500 relative"
+        onDragOver={handleDragOver}
+        onDragLeave={handleDragLeave}
+        onDrop={handleDrop}
+      >
+        {isDragging ? (
+          <div className="bg-white rounded-lg px-6 py-4 shadow-2xl">
+            <div className="text-blue-600 font-semibold text-lg">Drop to load volume</div>
+            <div className="text-gray-500 text-sm mt-1">Supported: .nii, .nii.gz, .gii</div>
+          </div>
+        ) : (
+          'No volume loaded — drag a file here'
+        )}
       </div>
     );
   }
@@ -327,7 +386,22 @@ function MosaicViewPromiseRaw({
   });
   
   return (
-    <div className="mosaic-container">
+    <div
+      ref={containerRef}
+      className="mosaic-container relative"
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+    >
+      {/* Drop overlay */}
+      {isDragging && (
+        <div className="absolute inset-0 bg-blue-500 bg-opacity-10 pointer-events-none flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg px-6 py-4 shadow-2xl">
+            <div className="text-blue-600 font-semibold text-lg">Drop to add layer</div>
+            <div className="text-gray-500 text-sm mt-1">Supported: .nii, .nii.gz, .gii</div>
+          </div>
+        </div>
+      )}
       {/* Sticky toolbar */}
       <MosaicToolbar
         axis={sliceAxis}

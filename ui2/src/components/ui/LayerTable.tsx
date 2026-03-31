@@ -22,7 +22,6 @@ import {
   arrayMove,
   sortableKeyboardCoordinates,
 } from '@dnd-kit/sortable';
-import { LAYER_DRAG_MIME, serializeLayerDragData } from '@/utils/layerDrag';
 
 interface LayerTableProps {
   layers: Layer[];
@@ -86,7 +85,7 @@ const LayerNameWithTooltip: React.FC<{ name: string; isSelected: boolean }> = ({
     <span
       ref={textRef}
       className={cn(
-        "flex-1 text-[13px] font-medium truncate",
+        "min-w-0 flex-1 truncate text-[13px] font-medium",
         isSelected ? "text-accent" : "text-foreground"
       )}
     >
@@ -150,17 +149,6 @@ const SortableLayerRow: React.FC<SortableLayerRowProps> = ({
   };
   const layerKindLabel = getLayerKindLabel(layer);
   const sourceLabel = getSourceLabel(layer);
-  const handleNativeDragStart = useCallback((event: React.DragEvent<HTMLButtonElement>) => {
-    if (!event.dataTransfer) {
-      return;
-    }
-
-    const payload = serializeLayerDragData({ layerId: layer.id });
-    event.dataTransfer.effectAllowed = 'copy';
-    event.dataTransfer.setData(LAYER_DRAG_MIME, payload);
-    event.dataTransfer.setData('application/json', payload);
-  }, [layer.id]);
-
   return (
     <div
       ref={setNodeRef}
@@ -170,7 +158,7 @@ const SortableLayerRow: React.FC<SortableLayerRowProps> = ({
       aria-selected={isSelected}
       tabIndex={isSelected ? 0 : -1}
       className={cn(
-        "layer-row group border-l-[3px]",
+        "layer-row group min-w-0 overflow-hidden border-l-[3px]",
         isSelected
           ? "border-l-accent bg-muted/40"
           : "border-l-transparent hover:border-l-border",
@@ -188,18 +176,6 @@ const SortableLayerRow: React.FC<SortableLayerRowProps> = ({
         onClick={(e) => e.stopPropagation()}
       >
         <GripVertical className="h-4 w-4 text-muted-foreground/40 group-hover:text-muted-foreground" />
-      </button>
-
-      <button
-        type="button"
-        draggable
-        className="icon-btn shrink-0 text-[10px] font-medium text-muted-foreground hover:text-foreground"
-        aria-label={`Drag ${layer.name} to comparison view`}
-        title="Drag to comparison view"
-        onClick={(event) => event.stopPropagation()}
-        onDragStart={handleNativeDragStart}
-      >
-        Cmp
       </button>
 
       {/* Visibility toggle */}
@@ -231,93 +207,76 @@ const SortableLayerRow: React.FC<SortableLayerRowProps> = ({
       )}
 
       <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-1.5">
+        {/* Row 1: name + action buttons */}
+        <div className="flex min-w-0 items-center gap-1">
           <LayerNameWithTooltip name={layer.name} isSelected={isSelected} />
           {layer.loading && (
-            <span className="rounded border border-border bg-muted px-1 py-px text-[9px] font-medium uppercase tracking-[0.08em] text-muted-foreground">
+            <span className="shrink-0 rounded border border-border bg-muted px-1 py-px text-[9px] font-medium uppercase tracking-[0.08em] text-muted-foreground">
               Loading
             </span>
           )}
           {layer.error && (
-            <span className="rounded border border-destructive/40 bg-destructive/10 px-1 py-px text-[9px] font-medium uppercase tracking-[0.08em] text-destructive">
+            <span className="shrink-0 rounded border border-destructive/40 bg-destructive/10 px-1 py-px text-[9px] font-medium uppercase tracking-[0.08em] text-destructive">
               Error
             </span>
           )}
+          <div className="flex shrink-0 items-center ml-auto" onClick={(e) => e.stopPropagation()}>
+            {onRemove && (
+              <button
+                className={cn(
+                  "icon-btn",
+                  "rounded-md transition-colors",
+                  "hover:bg-destructive/20 active:bg-destructive/30"
+                )}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onRemove();
+                }}
+                aria-label={`Remove ${layer.name}`}
+              >
+                <Trash2 className="h-3.5 w-3.5 text-muted-foreground hover:text-destructive" />
+              </button>
+            )}
+            <DropdownMenu
+              position="bottom-right"
+              trigger={
+                <button
+                  type="button"
+                  className="icon-btn rounded-md"
+                  aria-label={`Layer actions for ${layer.name}`}
+                >
+                  <MoreHorizontal className="h-3.5 w-3.5 text-muted-foreground" />
+                </button>
+              }
+              items={[
+                {
+                  id: 'metadata',
+                  label: 'View metadata',
+                  icon: <Info className="h-3.5 w-3.5" />,
+                  onClick: onShowMetadata,
+                },
+                {
+                  id: 'remove',
+                  label: 'Remove layer',
+                  icon: <Trash2 className="h-3.5 w-3.5" />,
+                  danger: true,
+                  disabled: !onRemove,
+                  onClick: onRemove,
+                },
+              ]}
+            />
+          </div>
         </div>
+        {/* Row 2: metadata badge + opacity percentage */}
         <div className="mt-0.5 flex items-center gap-1.5 text-[10px] text-muted-foreground">
-          <span className="rounded border border-border px-1 py-px uppercase tracking-[0.08em]">
+          <span className="shrink-0 rounded border border-border px-1 py-px uppercase tracking-[0.08em]">
             {layerKindLabel}
           </span>
           {sourceLabel && (
             <span className="truncate">Source: {sourceLabel}</span>
           )}
+          <span className="ml-auto shrink-0 tabular-nums">{Math.round(opacity * 100)}%</span>
         </div>
-      </div>
-
-      {/* Opacity mini-slider */}
-      <div
-        className="flex items-center gap-1 shrink-0"
-        onClick={(e) => e.stopPropagation()}
-        title={`Opacity: ${Math.round(opacity * 100)}%`}
-      >
-        <input
-          type="range"
-          min={0}
-          max={100}
-          value={Math.round(opacity * 100)}
-          onChange={(e) => onOpacityChange(Number(e.target.value) / 100)}
-          className="layer-opacity-slider w-[52px]"
-          aria-label={`Opacity for ${layer.name}`}
-        />
-      </div>
-
-      {onRemove && (
-        <button
-          className={cn(
-            "icon-btn",
-            "transition-colors",
-            "hover:bg-destructive/20 active:bg-destructive/30",
-            "rounded-md"
-          )}
-          onClick={(e) => {
-            e.stopPropagation();
-            onRemove();
-          }}
-          aria-label={`Remove ${layer.name}`}
-        >
-          <Trash2 className="h-4 w-4 text-muted-foreground hover:text-destructive" />
-        </button>
-      )}
-
-      <div className="shrink-0" onClick={(event) => event.stopPropagation()}>
-        <DropdownMenu
-          position="bottom-right"
-          trigger={
-            <button
-              type="button"
-              className="icon-btn rounded-md"
-              aria-label={`Layer actions for ${layer.name}`}
-            >
-              <MoreHorizontal className="h-4 w-4 text-muted-foreground" />
-            </button>
-          }
-          items={[
-            {
-              id: 'metadata',
-              label: 'View metadata',
-              icon: <Info className="h-3.5 w-3.5" />,
-              onClick: onShowMetadata,
-            },
-            {
-              id: 'remove',
-              label: 'Remove layer',
-              icon: <Trash2 className="h-3.5 w-3.5" />,
-              danger: true,
-              disabled: !onRemove,
-              onClick: onRemove,
-            },
-          ]}
-        />
       </div>
     </div>
   );

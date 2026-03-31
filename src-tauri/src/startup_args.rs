@@ -6,10 +6,8 @@ pub const SUPPORTED_WORKSPACE_TYPES: &[&str] = &[
     "orthogonal-locked",
     "orthogonal-flexible",
     "mosaic",
-    "lightbox",
+    "comparison",
     "set-studio",
-    "roi-stats",
-    "coordinate-converter",
 ];
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -359,10 +357,8 @@ fn normalize_workspace_type(raw: &str) -> Option<String> {
             "orthogonal-flexible"
         }
         "mosaic" => "mosaic",
-        "lightbox" => "lightbox",
+        "comparison" | "compare" => "comparison",
         "set-studio" | "setstudio" => "set-studio",
-        "roi-stats" | "roistats" => "roi-stats",
-        "coordinate-converter" | "coord" | "coords" => "coordinate-converter",
         _ => return None,
     };
 
@@ -542,7 +538,7 @@ mod tests {
         assert_eq!(
             invalid_workspace.warnings,
             vec![
-                "Ignoring unsupported workspace type 'wat'. Expected one of: orthogonal-locked, orthogonal-flexible, mosaic, lightbox, set-studio, roi-stats, coordinate-converter".to_string()
+                "Ignoring unsupported workspace type 'wat'. Expected one of: orthogonal-locked, orthogonal-flexible, mosaic, comparison, set-studio".to_string()
             ]
         );
         assert!(invalid_workspace.actions.is_empty());

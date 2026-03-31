@@ -28,6 +28,27 @@ const EVICTION_BACKOFF_MS = 15_000;
  */
 const RECOVERY_MARGIN = 2;
 
+export function getLowWatermarkNotification(stats: AtlasStats): {
+  level: 'warning';
+  message: string;
+} {
+  if (stats.freeLayers === 0) {
+    return {
+      level: 'warning',
+      message: `GPU atlas is at capacity (${stats.usedLayers}/${stats.totalLayers}). Existing images may still display, but loading new layers may require releasing hidden layers.`,
+    };
+  }
+
+  return {
+    level: 'warning',
+    message: `GPU atlas capacity low: ${stats.freeLayers} free of ${stats.totalLayers} layers remaining. Consider removing unused layers.`,
+  };
+}
+
+export function shouldEmitLowWatermarkNotification(stats: AtlasStats): boolean {
+  return !stats.is3D;
+}
+
 export class AtlasPressureMonitor {
   private timerId: number | null = null;
   private lastStats: AtlasStats | null = null;
@@ -79,6 +100,11 @@ export class AtlasPressureMonitor {
   }
 
   private checkLowWatermark(stats: AtlasStats, timestamp: number) {
+    if (!shouldEmitLowWatermarkNotification(stats)) {
+      this.lastWarnedFreeLayers = null;
+      return;
+    }
+
     // Ignore pressure warnings when no layers are loaded. At startup the atlas
     // may report 0 free / 1 total as a sentinel state, which is noisy if the
     // user has not uploaded any volumes yet.
@@ -99,26 +125,17 @@ export class AtlasPressureMonitor {
     }
 
     if (stats.freeLayers <= LOW_WATERMARK_THRESHOLD) {
-      const isCritical = stats.freeLayers === 0;
       const shouldNotify =
         this.lastWarnedFreeLayers === null || stats.freeLayers < this.lastWarnedFreeLayers;
 
       if (shouldNotify) {
         this.lastWarnedFreeLayers = stats.freeLayers;
-        this.emitPressureEvent(
-          isCritical ? 'critical' : 'warning',
-          stats,
-          timestamp,
-          'low-watermark'
-        );
-
-        const message = isCritical
-          ? `GPU atlas capacity exhausted (${stats.usedLayers}/${stats.totalLayers}). Unload hidden layers to continue rendering.`
-          : `GPU atlas capacity low: ${stats.freeLayers} free of ${stats.totalLayers} layers remaining. Consider removing unused layers.`;
+        this.emitPressureEvent('warning', stats, timestamp, 'low-watermark');
+        const notification = getLowWatermarkNotification(stats);
 
         this.eventBus.emit('ui.notification', {
-          type: isCritical ? 'error' : 'warning',
-          message
+          type: notification.level,
+          message: notification.message,
         });
       }
       return;

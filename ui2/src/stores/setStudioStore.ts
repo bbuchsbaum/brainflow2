@@ -113,6 +113,17 @@ interface SetStudioStoreState {
   ) => void;
 }
 
+const demoTemplateSource = (templateId: string) => `template:${templateId}`;
+
+const DEMO_MEMBER_SOURCE_PATHS = {
+  sub001: demoTemplateSource('MNI152NLin2009cAsym_T1w_2mm'),
+  sub002: demoTemplateSource('MNI152NLin2009cAsym_T2w_2mm'),
+  sub003: demoTemplateSource('MNI152NLin2009cAsym_brain_2mm'),
+  sub004: demoTemplateSource('MNI152NLin2009cAsym_T1w_2mm'),
+  sub005: demoTemplateSource('MNI152NLin2009cAsym_T2w_2mm'),
+  sub006: demoTemplateSource('MNI152NLin2009cAsym_brain_2mm'),
+} as const;
+
 const DEMO_SET: SpatialFieldSetSummary = {
   id: 'study-a',
   name: 'Study A',
@@ -133,17 +144,17 @@ const DEMO_SET: SpatialFieldSetSummary = {
     ],
   },
   memberSummaries: [
-    { id: 'sub001', sourcePath: null },
-    { id: 'sub002', sourcePath: null },
-    { id: 'sub003', sourcePath: null },
-    { id: 'sub004', sourcePath: null },
-    { id: 'sub005', sourcePath: null },
-    { id: 'sub006', sourcePath: null },
+    { id: 'sub001', sourcePath: DEMO_MEMBER_SOURCE_PATHS.sub001 },
+    { id: 'sub002', sourcePath: DEMO_MEMBER_SOURCE_PATHS.sub002 },
+    { id: 'sub003', sourcePath: DEMO_MEMBER_SOURCE_PATHS.sub003 },
+    { id: 'sub004', sourcePath: DEMO_MEMBER_SOURCE_PATHS.sub004 },
+    { id: 'sub005', sourcePath: DEMO_MEMBER_SOURCE_PATHS.sub005 },
+    { id: 'sub006', sourcePath: DEMO_MEMBER_SOURCE_PATHS.sub006 },
   ],
   memberIds: ['sub001', 'sub002', 'sub003', 'sub004', 'sub005', 'sub006'],
   savedCohortIds: ['matched-ctl-site-a', 'young-controls', 'cases-site-b'],
   ingestAudit: {
-    sourceLabel: 'NFTab manifest',
+    sourceLabel: 'NeuroTabs manifest',
     join: {
       matchedRows: 42,
       unmatchedRows: 1,
@@ -199,7 +210,7 @@ const MANIFEST_IMPORT_SET: SpatialFieldSetSummary = {
   memberIds: ['sub101', 'sub102', 'sub103', 'sub104', 'sub105', 'sub106'],
   savedCohortIds: ['controls-site-a', 'cases-site-a'],
   ingestAudit: {
-    sourceLabel: 'NFTab manifest',
+    sourceLabel: 'NeuroTabs manifest',
     join: {
       matchedRows: 36,
       unmatchedRows: 0,
@@ -625,10 +636,10 @@ function parseDelimitedRows(
 const IMPORT_CANDIDATES: StudioImportCandidate[] = [
   {
     id: 'candidate-manifest-a',
-    label: 'NFTab manifest preview',
+    label: 'NeuroTabs manifest preview',
     description: 'Prepared manifest import with a clean join and compare-safe support.',
     mode: 'manifest',
-    sourceHint: '/data/studyA/studyA.nftab.yaml',
+    sourceHint: '/data/studyA/studyA.neurotabs.yaml',
     set: MANIFEST_IMPORT_SET,
     features: MANIFEST_FEATURES,
     cohorts: MANIFEST_COHORTS,
@@ -726,7 +737,7 @@ export const useSetStudioStore = create<SetStudioStoreState>((set, get) => ({
     isLoading: false,
     error: null,
     source: null,
-    manifestPath: '/data/studyA/studyA.nftab.yaml',
+    manifestPath: '/data/studyA/studyA.neurotabs.yaml',
     discoveryRoot: '.',
     filePattern: String.raw`.*_statmap\.nii(\.gz)?$`,
     tsvWizard: DEFAULT_TSV_WIZARD,

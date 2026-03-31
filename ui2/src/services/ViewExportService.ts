@@ -137,7 +137,7 @@ export class ViewExportService {
       const wsType = componentState?.workspaceType;
       const wsTypeLower = typeof wsType === 'string' ? wsType.toLowerCase() : null;
 
-      if (wsTypeLower === 'mosaic' || wsTypeLower === 'lightbox') {
+      if (wsTypeLower === 'mosaic') {
         throw new Error(`No exporter registered for workspace type '${wsTypeLower}'`);
       }
 
@@ -258,9 +258,6 @@ export class ViewExportService {
         if (wsTypeLower === 'mosaic') {
           return typeof wsId === 'string' ? `mosaic:${wsId}`.toLowerCase() : 'mosaic';
         }
-        if (wsTypeLower === 'lightbox') {
-          return typeof wsId === 'string' ? `lightbox:${wsId}`.toLowerCase() : 'lightbox';
-        }
       }
     }
 
@@ -335,11 +332,6 @@ export class ViewExportService {
     if (idLower.startsWith('mosaic:')) {
       const wsId = sanitize(idLower.slice('mosaic:'.length));
       return wsId ? `mosaic-${wsId}-${ts}.${format}` : `mosaic-${ts}.${format}`;
-    }
-
-    if (idLower.startsWith('lightbox:')) {
-      const wsId = sanitize(idLower.slice('lightbox:'.length));
-      return wsId ? `lightbox-${wsId}-${ts}.${format}` : `lightbox-${ts}.${format}`;
     }
 
     if (idLower.startsWith('surfaceview:')) {

@@ -28,15 +28,15 @@ export function PropertyRow({
   className
 }: PropertyRowProps) {
   return (
-    <div className={cn('flex justify-between items-baseline gap-3', className)}>
-      <span className="bf-role-section text-muted-foreground shrink-0">
+    <div className={cn('flex justify-between items-baseline gap-2 min-w-0', className)}>
+      <span className="bf-role-section text-muted-foreground shrink-0 whitespace-nowrap text-[11px]">
         {label}
       </span>
       <span
         className={cn(
-          'bf-role-value text-foreground',
+          'bf-role-value text-foreground text-right whitespace-nowrap',
           mono ? 'bf-role-mono tabular-nums' : 'font-medium',
-          truncate && 'truncate'
+          truncate && 'truncate min-w-0'
         )}
         style={maxValueWidth ? { maxWidth: maxValueWidth } : undefined}
       >

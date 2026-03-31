@@ -26,7 +26,7 @@ export function StudioEmptyState({
         <div className="mt-5 flex flex-wrap gap-3">
           <Button onClick={onImportTable}>Import Table (TSV/CSV)</Button>
           <Button variant="secondary" onClick={onImportManifest}>
-            NFTab Manifest
+            NeuroTabs Manifest
           </Button>
           <Button variant="secondary" onClick={onDiscoverFiles}>
             Discover Files

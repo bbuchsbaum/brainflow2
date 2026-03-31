@@ -37,10 +37,11 @@ const mockWorkspaceStoreState = {
   activeWorkspaceId: 'workspace-active' as string | null,
   createWorkspace: vi.fn(async (type: string) => `${type}-workspace-1`),
   activateWorkspace: vi.fn(),
+  getWorkspace: vi.fn((id: string) => mockWorkspaceStoreState.workspaces.get(id) ?? null),
 };
 
 const mockComparisonStoreState = {
-  initFromCurrentAndNewLayer: vi.fn(),
+  ensurePanelsForLayers: vi.fn(),
 };
 
 const mockViewStateStoreState = {
@@ -163,7 +164,9 @@ describe('DisplayLifecycleOrchestrator', () => {
     mockWorkspaceStoreState.createWorkspace.mockClear();
     mockWorkspaceStoreState.createWorkspace.mockImplementation(async (type: string) => `${type}-workspace-1`);
     mockWorkspaceStoreState.activateWorkspace.mockClear();
-    mockComparisonStoreState.initFromCurrentAndNewLayer.mockClear();
+    mockWorkspaceStoreState.getWorkspace.mockClear();
+    mockWorkspaceStoreState.getWorkspace.mockImplementation((id: string) => mockWorkspaceStoreState.workspaces.get(id) ?? null);
+    mockComparisonStoreState.ensurePanelsForLayers.mockClear();
     mockViewStateStoreState.getWorkspaceViewState.mockClear();
     mockViewStateStoreState.getWorkspaceViewState.mockReturnValue({
       layers: [{ id: 'layer-existing-1' }, { id: 'layer-existing-2' }],
@@ -376,11 +379,45 @@ describe('DisplayLifecycleOrchestrator', () => {
     });
 
     expect(mockWorkspaceStoreState.activateWorkspace).toHaveBeenCalledWith('comparison-workspace-1');
-    expect(mockComparisonStoreState.initFromCurrentAndNewLayer).toHaveBeenCalledWith(
+    expect(mockComparisonStoreState.ensurePanelsForLayers).toHaveBeenCalledWith(
       'comparison-workspace-1',
-      ['layer-existing-1', 'layer-existing-2'],
-      'layer-compare',
-      'Compare Volume'
+      ['layer-existing-1', 'layer-existing-2', 'layer-compare'],
+      expect.any(Map)
+    );
+  });
+
+  it('adds a panel when opening another volume while comparison workspace is active', async () => {
+    mockApiService.loadFile.mockResolvedValue({
+      id: 'vol-4',
+      name: 'Later Volume',
+      path: '/tmp/later-volume.nii.gz',
+      dims: [64, 64, 64],
+      dtype: 'f32',
+      volume_type: 'Volume3D',
+    });
+    mockVolumeLoadingService.loadVolume.mockResolvedValue({
+      id: 'layer-later',
+      name: 'Later Volume',
+    });
+    mockWorkspaceStoreState.workspaces = new Map([
+      ['comparison-workspace-1', { id: 'comparison-workspace-1', type: 'comparison' }],
+    ]);
+    mockWorkspaceStoreState.activeWorkspaceId = 'comparison-workspace-1';
+
+    const { DisplayLifecycleOrchestrator } = await import('../DisplayLifecycleOrchestrator');
+    const orchestrator = DisplayLifecycleOrchestrator.getInstance();
+
+    await orchestrator.loadFile({
+      path: '/tmp/later-volume.nii.gz',
+      ingress: 'file-browser',
+      intent: 'default',
+    });
+
+    expect(mockVolumeLoadingService.loadVolume).toHaveBeenCalledTimes(1);
+    expect(mockComparisonStoreState.ensurePanelsForLayers).toHaveBeenCalledWith(
+      'comparison-workspace-1',
+      ['layer-later'],
+      expect.any(Map)
     );
   });
 });

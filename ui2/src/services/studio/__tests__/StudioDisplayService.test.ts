@@ -5,6 +5,10 @@ const mockFileLoadingService = {
   loadFile: vi.fn(),
 };
 
+const mockTemplateService = {
+  loadTemplateBySourcePath: vi.fn(),
+};
+
 const mockLayerService = {
   toggleVisibility: vi.fn(),
 };
@@ -35,6 +39,10 @@ const mockComparisonStoreState = {
 
 vi.mock('@/services/FileLoadingService', () => ({
   getFileLoadingService: () => mockFileLoadingService,
+}));
+
+vi.mock('@/services/TemplateService', () => ({
+  getTemplateService: () => mockTemplateService,
 }));
 
 vi.mock('@/services/LayerService', () => ({
@@ -85,6 +93,17 @@ describe('StudioDisplayService', () => {
         mockLayerStoreState.layerMetadata.set('layer-compare', {
           sourcePath: '/tmp/compare.nii.gz',
         });
+      }
+    });
+
+    mockTemplateService.loadTemplateBySourcePath.mockImplementation(async (sourcePath: string) => {
+      if (sourcePath === 'template:MNI152NLin2009cAsym_GM_2mm') {
+        mockLayerStoreState.layers.push({
+          id: 'layer-template',
+          sourcePath,
+          visible: true,
+        });
+        mockLayerStoreState.layerMetadata.set('layer-template', { sourcePath });
       }
     });
   });
@@ -145,5 +164,20 @@ describe('StudioDisplayService', () => {
       'Residual'
     );
     expect(mockWorkspaceStoreState.activateWorkspace).toHaveBeenCalledWith('comparison-existing');
+  });
+
+  it('loads template-backed sources through TemplateService instead of FileLoadingService', async () => {
+    const service = new StudioDisplayService();
+
+    await service.ensureSourcePathDisplayed(
+      'template:MNI152NLin2009cAsym_GM_2mm',
+      ['template:MNI152NLin2009cAsym_GM_2mm']
+    );
+
+    expect(mockTemplateService.loadTemplateBySourcePath).toHaveBeenCalledWith(
+      'template:MNI152NLin2009cAsym_GM_2mm'
+    );
+    expect(mockFileLoadingService.loadFile).not.toHaveBeenCalled();
+    expect(mockLayerStoreState.selectLayer).toHaveBeenCalledWith('layer-template');
   });
 });

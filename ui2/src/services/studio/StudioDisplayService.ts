@@ -1,5 +1,6 @@
 import { getFileLoadingService } from '@/services/FileLoadingService';
 import { getLayerService } from '@/services/LayerService';
+import { getTemplateService } from '@/services/TemplateService';
 import { useLayerStore } from '@/stores/layerStore';
 import type { SpatialFieldSetSummary } from '@/types/studio';
 import { useWorkspaceStore } from '@/stores/workspaceStore';
@@ -89,11 +90,14 @@ export class StudioDisplayService {
     }
 
     const comparisonWorkspaceId = await this.ensureComparisonWorkspace();
-    useComparisonStore.getState().initFromCurrentAndNewLayer(
+    const layerNames = new Map<string, string>();
+    useLayerStore.getState().layers.forEach((layer) => {
+      layerNames.set(layer.id, layer.name ?? layer.id);
+    });
+    useComparisonStore.getState().ensurePanelsForLayers(
       comparisonWorkspaceId,
-      [currentLayerId],
-      compareLayerId,
-      args.compareLabel ?? undefined
+      [currentLayerId, compareLayerId],
+      layerNames
     );
     useWorkspaceStore.getState().activateWorkspace(comparisonWorkspaceId);
   }
@@ -138,6 +142,10 @@ export class StudioDisplayService {
     return sourcePath?.trim() ?? '';
   }
 
+  private isTemplateSource(sourcePath: string): boolean {
+    return sourcePath.startsWith('template:');
+  }
+
   private async ensureLayerLoaded(
     sourcePath: string,
     intent: 'default' | 'add-layer'
@@ -153,7 +161,11 @@ export class StudioDisplayService {
 
     this.inFlightPath = sourcePath;
     try {
-      await getFileLoadingService().loadFile(sourcePath, 'programmatic', intent);
+      if (this.isTemplateSource(sourcePath)) {
+        await getTemplateService().loadTemplateBySourcePath(sourcePath);
+      } else {
+        await getFileLoadingService().loadFile(sourcePath, 'programmatic', intent);
+      }
       return this.findLayerIdBySourcePath(sourcePath);
     } finally {
       if (this.inFlightPath === sourcePath) {

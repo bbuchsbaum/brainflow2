@@ -53,7 +53,7 @@ export function SetPanel() {
             <div className="mt-1 text-xs text-muted-foreground">
               {activeSetId
                 ? `${activeSet?.memberCount ?? 0} members · ${activeSet?.supportLabel ?? 'Unknown support'}`
-                : 'Open Set Studio or import an NFTab manifest to begin.'}
+                : 'Open Set Studio or import a NeuroTabs manifest to begin.'}
             </div>
             {activeSet ? (
               <>

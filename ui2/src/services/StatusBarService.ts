@@ -20,8 +20,10 @@ const formatCoord = (coord: [number, number, number]): string => {
 type AtlasSeverity = 'warning' | 'critical' | 'recovered' | undefined;
 
 const formatAtlasSummary = (stats: AtlasStats, severity: AtlasSeverity = undefined): string => {
-  const base = `Atlas ${stats.usedLayers}/${stats.totalLayers}`;
-  const free = `${stats.freeLayers} free`;
+  const base = stats.is3D
+    ? `3D atlas ${stats.usedLayers > 0 ? 'occupied' : 'idle'}`
+    : `Atlas ${stats.usedLayers}/${stats.totalLayers}`;
+  const free = stats.is3D ? null : `${stats.freeLayers} free`;
   const events = stats.fullEvents > 0 ? `full x${stats.fullEvents}` : null;
 
   let status: string | null = null;

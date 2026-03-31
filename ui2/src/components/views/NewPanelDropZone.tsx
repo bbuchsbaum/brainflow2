@@ -51,10 +51,10 @@ export function NewPanelDropZone({ onDrop, onFileDrop, onNativeFileDrop }: NewPa
 
   return (
     <div
-      className={`flex items-center justify-center border-2 border-dashed rounded min-h-[120px] transition-colors ${
+      className={`flex min-h-[120px] items-center justify-center rounded-appsm border-2 border-dashed transition-colors ${
         isOver
-          ? 'border-blue-400 bg-blue-900/20 text-blue-300'
-          : 'border-zinc-600 text-zinc-500 hover:border-zinc-500'
+          ? 'border-primary bg-primary/10 text-primary'
+          : 'border-border bg-card text-muted-foreground hover:border-primary/40 hover:text-foreground'
       }`}
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}

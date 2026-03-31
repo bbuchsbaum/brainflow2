@@ -269,7 +269,7 @@ export const VolumePanel: React.FC<VolumePanelProps> = ({
               label="Layer"
               value={layer.name}
               truncate
-              maxValueWidth="140px"
+              maxValueWidth="60%"
             />
             {metadata?.dimensions && (
               <PropertyRow

@@ -99,6 +99,22 @@ export class TemplateService {
   /**
    * Load a template by its menu ID (e.g., "MNI152NLin2009cAsym_T1w_1mm")
    */
+  async loadTemplateById(templateId: string): Promise<void> {
+    await this.loadTemplate(templateId);
+  }
+
+  async loadTemplateBySourcePath(sourcePath: string): Promise<void> {
+    const templateId = sourcePath.startsWith('template:')
+      ? sourcePath.slice('template:'.length).trim()
+      : sourcePath.trim();
+
+    if (!templateId) {
+      throw new Error('Cannot load a template from an empty source identifier');
+    }
+
+    await this.loadTemplate(templateId);
+  }
+
   private async loadTemplate(templateId: string): Promise<void> {
     const startTime = performance.now();
     console.log(`[TemplateService ${startTime.toFixed(0)}ms] Loading template: ${templateId}`);

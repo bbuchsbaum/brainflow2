@@ -7,7 +7,7 @@
 import { create } from 'zustand';
 import { subscribeWithSelector } from 'zustand/middleware';
 
-export type ViewId = 'axial' | 'sagittal' | 'coronal' | 'mosaic' | 'lightbox';
+export type ViewId = 'axial' | 'sagittal' | 'coronal' | 'mosaic';
 
 export type TooltipKind = 'atlas-region' | 'intensity' | 'coord' | 'custom';
 

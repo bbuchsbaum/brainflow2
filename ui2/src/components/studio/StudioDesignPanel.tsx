@@ -207,7 +207,7 @@ export function StudioDesignPanel() {
             },
             {
               id: 'import-manifest',
-              label: 'NFTab Manifest',
+              label: 'NeuroTabs Manifest',
               onClick: () => { void studioService.openManifestInStudio(); },
             },
             {
