@@ -101,3 +101,7 @@ export function getLayerGpuService(): LayerGpuService {
   }
   return instance;
 }
+
+export function resetLayerGpuService(): void {
+  instance = null;
+}

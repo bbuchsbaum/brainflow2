@@ -254,3 +254,7 @@ export function getVolumeApiService(): VolumeApiService {
   }
   return instance;
 }
+
+export function resetVolumeApiService(): void {
+  instance = null;
+}

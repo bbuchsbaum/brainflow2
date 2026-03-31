@@ -93,6 +93,21 @@ export class VolumeLoadingService {
     });
     
     try {
+      // 0. Dedup: if an atlas layer with the same metadata already exists, reuse it
+      if (source === 'atlas' && atlasMetadata) {
+        const existingLayers = useLayerStore.getState().layers;
+        const duplicate = existingLayers.find(
+          (l: any) =>
+            l.source === 'atlas' &&
+            l.sourcePath === sourcePath &&
+            l.atlasMetadata?.id === atlasMetadata.id
+        );
+        if (duplicate) {
+          volumeDebugLog(`[VolumeLoadingService] Reusing existing atlas layer: ${duplicate.id}`);
+          return duplicate as Layer;
+        }
+      }
+
       // 1. Store volume handle for future reference
       volumeDebugLog(`[VolumeLoadingService ${performance.now() - startTime}ms] Storing volume handle`);
       VolumeHandleStore.setVolumeHandle(volumeHandle.id, volumeHandle);

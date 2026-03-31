@@ -33,3 +33,7 @@ export function getFilesystemService(): FilesystemService {
   }
   return instance;
 }
+
+export function resetFilesystemService(): void {
+  instance = null;
+}
