@@ -72,6 +72,7 @@ Default permissions for api-bridge plugin
 - `allow-check-bids-directory`
 - `allow-scan-bids-dataset`
 - `allow-get-bids-events`
+- `allow-compute-temporal-metric`
 
 ## Permission Table
 
@@ -312,6 +313,32 @@ Enables the compute_layer_histogram command without any pre-configured scope.
 <td>
 
 Denies the compute_layer_histogram command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:allow-compute-temporal-metric`
+
+</td>
+<td>
+
+Enables the compute_temporal_metric command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:deny-compute-temporal-metric`
+
+</td>
+<td>
+
+Denies the compute_temporal_metric command without any pre-configured scope.
 
 </td>
 </tr>
@@ -2262,6 +2289,32 @@ Enables the sample_layer_value_at_world command without any pre-configured scope
 <td>
 
 Denies the sample_layer_value_at_world command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:allow-sample-voxel-timeseries`
+
+</td>
+<td>
+
+Enables the sample_voxel_timeseries command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:deny-sample-voxel-timeseries`
+
+</td>
+<td>
+
+Denies the sample_voxel_timeseries command without any pre-configured scope.
 
 </td>
 </tr>

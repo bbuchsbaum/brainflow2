@@ -168,7 +168,10 @@ fn open_bids_dialog(app_handle: AppHandle) {
             println!("BIDS dialog callback triggered with: {:?}", folder_path);
             if let Some(folder) = folder_path {
                 let path_str = folder.to_string();
-                match app_handle_clone.emit("bids-directory-event", serde_json::json!({ "path": path_str })) {
+                match app_handle_clone.emit(
+                    "bids-directory-event",
+                    serde_json::json!({ "path": path_str }),
+                ) {
                     Ok(_) => println!("BIDS directory event emitted successfully"),
                     Err(e) => eprintln!("Failed to emit bids-directory-event: {}", e),
                 }
@@ -526,8 +529,8 @@ fn main() {
                             .item(&mount_dir)
                             .separator()
                             .item(&PredefinedMenuItem::close_window(app, None)?)
-                                .separator()
-                                .item(&PredefinedMenuItem::quit(app, None)?);
+                            .separator()
+                            .item(&PredefinedMenuItem::quit(app, None)?);
 
                         file_menu.build()?
                     },

@@ -2456,6 +2456,7 @@ dependencies = [
  "nifti 0.16.0",
  "nifti-loader",
  "regex",
+ "serde",
  "serde_json",
  "serde_yaml",
  "walkdir",

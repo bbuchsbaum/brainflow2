@@ -1,9 +1,9 @@
 use std::{convert::TryInto, path::PathBuf, sync::Arc};
 
 use api_bridge::{
-    BridgeState, VolumeMetadataInfo, render_view_for_testing,
-    render_view_with_diagnostics_for_testing, render_views_for_testing,
+    render_view_for_testing, render_view_with_diagnostics_for_testing, render_views_for_testing,
     render_views_with_diagnostics_for_testing, submit_view_with_diagnostics_for_testing,
+    BridgeState, VolumeMetadataInfo,
 };
 use bridge_types::{BridgeError, TimeSeriesInfo, VolumeSendable, VolumeType};
 use render_loop::view_state::FrameReadbackMode;
@@ -950,13 +950,10 @@ async fn render_view_rejects_4d_request_without_timepoint() {
         }
     });
 
-    let error = render_view_with_diagnostics_for_testing(
-        payload.to_string(),
-        &bridge_state,
-        Some("rgba"),
-    )
-    .await
-    .expect_err("4D render without timepoint should fail");
+    let error =
+        render_view_with_diagnostics_for_testing(payload.to_string(), &bridge_state, Some("rgba"))
+            .await
+            .expect_err("4D render without timepoint should fail");
 
     match error {
         BridgeError::Input { code, details } => {
