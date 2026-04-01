@@ -59,8 +59,9 @@ class HistogramService {
       return pending;
     }
     
-    // Create new request with retry logic
-    const promise = this.fetchHistogramWithRetry(request);
+    // GPU readiness is guaranteed before histogram requests (see LayerApiImpl),
+    // so no retry logic is needed here.
+    const promise = this.fetchHistogram(request);
     this.pendingRequests.set(cacheKey, promise);
     
     try {
@@ -168,47 +169,6 @@ class HistogramService {
       console.error('[HistogramService] Failed to compute histogram:', error);
       throw error;
     }
-  }
-  
-  /**
-   * Fetch histogram with retry logic for timing-related failures
-   */
-  private async fetchHistogramWithRetry(request: HistogramRequest, maxRetries: number = 3): Promise<HistogramData> {
-    let lastError: any;
-    
-    for (let attempt = 1; attempt <= maxRetries; attempt++) {
-      try {
-        return await this.fetchHistogram(request);
-      } catch (error: any) {
-        lastError = error;
-        
-        // Check if this is a retryable error (volume not found)
-        const isRetryable = error?.code === 4044 || 
-                           error?.message?.includes('not found') ||
-                           error?.message?.includes('Volume for layer');
-        
-        if (isRetryable && attempt < maxRetries) {
-          console.log(`[HistogramService] Attempt ${attempt}/${maxRetries} failed with retryable error, retrying...`);
-          console.log(`[HistogramService] Error was:`, error?.message || error);
-          
-          // Exponential backoff: 200ms, 400ms, 800ms
-          const delay = 200 * Math.pow(2, attempt - 1);
-          await new Promise(resolve => setTimeout(resolve, delay));
-          continue;
-        }
-        
-        // Non-retryable error or max attempts reached
-        if (!isRetryable) {
-          console.error(`[HistogramService] Non-retryable error:`, error);
-        } else {
-          console.error(`[HistogramService] Max retry attempts (${maxRetries}) reached`);
-        }
-        break;
-      }
-    }
-    
-    // Re-throw the last error
-    throw lastError;
   }
   
   private getCacheKey(request: HistogramRequest): string {

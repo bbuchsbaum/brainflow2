@@ -35,6 +35,14 @@ function isTauriEnv(): boolean {
   }
 }
 
+function hasTauriEventInternals(): boolean {
+  try {
+    return isTauriEnv() && !!(window as any).__TAURI_EVENT_PLUGIN_INTERNALS__;
+  } catch {
+    return false;
+  }
+}
+
 export async function safeListen<T = any>(
   event: string,
   handler: (event: any) => void
@@ -57,12 +65,13 @@ export async function safeUnlisten(unlisten?: Promise<Unlisten> | Unlisten | nul
   if (!unlisten) return;
   try {
     const fn = typeof unlisten === 'function' ? unlisten : await unlisten;
-    if (typeof fn === 'function') {
-      const p = fn();
-      // Await promise-like results to catch plugin/runtime mismatches
-      if (p && typeof (p as Promise<void>).then === 'function') {
-        await (p as Promise<void>);
-      }
+    if (typeof fn !== 'function') return;
+    // Skip if this is a tagged no-op or if Tauri event internals are missing
+    if (isNoopUnlisten(fn) || !hasTauriEventInternals()) return;
+    const p = fn();
+    // Await promise-like results to catch plugin/runtime mismatches
+    if (p && typeof (p as Promise<void>).then === 'function') {
+      await (p as Promise<void>);
     }
   } catch (err) {
     // If tauri internals are not available, ignore; otherwise log a warning once

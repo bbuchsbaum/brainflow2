@@ -33,6 +33,7 @@ export interface EventMap {
   'layer.metadata.updated': { layerId: string; metadata: any };
   'layer.updated': { layerId: string; updates?: Record<string, unknown> };
   'layer.render.changed': { layerId: string; renderProps: Record<string, unknown> };
+  'layer.gpu.ready': { layerId: string };
 
   // Annotation events
   'annotation.added': { annotation: Annotation };
