@@ -6,7 +6,7 @@
  * and context menus stay here while viewport mechanics are shared.
  */
 
-import React, { useRef, useCallback, useMemo, useEffect } from 'react';
+import React, { useRef, useCallback, useMemo, useEffect, useState } from 'react';
 import { SliceViewport, type SliceViewportPlacement } from './SliceViewport';
 import { SliceSlider } from '@/components/ui/SliceSlider';
 import { getSliceNavigationService } from '@/services/SliceNavigationService';
@@ -27,6 +27,9 @@ import { useActiveRenderable } from '@/hooks/useActiveRenderable';
 import { useHoverInfo } from '@/hooks/useHoverInfo';
 import type { DisplayOpenIntent } from '@/types/loadIntent';
 import { CoordinateTransform } from '@/utils/coordinates';
+import { TemporalHeatmapOverlay } from './TemporalHeatmapOverlay';
+import { TemporalMetricSelector, type TemporalMetricOption } from '@/components/ui/TemporalMetricSelector';
+import type { SliceAxis } from '@/services/TemporalHeatmapService';
 
 // Anatomical orientation labels per view (LPI convention)
 const ORIENTATION_LABELS: Record<string, { top: string; bottom: string; left: string; right: string }> = {
@@ -77,6 +80,34 @@ function SliceViewCanvasRaw({ viewId, width, height, className = '' }: SliceView
     duration: 500,
     position: 'center'
   });
+
+  // Temporal heatmap state
+  const [temporalMetric, setTemporalMetric] = useState<TemporalMetricOption>('none');
+  const [heatmapOpacity, setHeatmapOpacity] = useState(0.5);
+
+  // Detect whether the primary layer is a 4D volume
+  const is4DVolume = useMemo(() => {
+    if (!primaryLayer?.volumeId) return false;
+    const metadata = useLayerStore.getState().layerMetadata.get(primaryLayer.volumeId);
+    return metadata?.volumeType === 'TimeSeries4D';
+  }, [primaryLayer?.volumeId, layers]);
+
+  // Map viewId to SliceAxis for the heatmap service
+  const sliceAxis = useMemo((): SliceAxis => {
+    if (viewId === 'sagittal') return 'sagittal';
+    if (viewId === 'coronal') return 'coronal';
+    return 'axial';
+  }, [viewId]);
+
+  // Current slice index in voxel space (integer, clamped to valid range)
+  const heatmapSliceIndex = useMemo(() => {
+    if (!primaryLayer?.volumeId) return 0;
+    const metadata = useLayerStore.getState().layerMetadata.get(primaryLayer.volumeId);
+    const dims = metadata?.dims;
+    if (!dims) return 0;
+    const axisIdx = viewId === 'sagittal' ? 0 : viewId === 'coronal' ? 1 : 2;
+    return Math.max(0, Math.min(dims[axisIdx] - 1, Math.round(crosshair.world_mm[axisIdx])));
+  }, [primaryLayer?.volumeId, viewId, crosshair.world_mm, layers]);
 
   // Container ref for window/level hook
   const containerAreaRef = useRef<HTMLDivElement>(null);
@@ -363,6 +394,19 @@ function SliceViewCanvasRaw({ viewId, width, height, className = '' }: SliceView
           className="w-full h-full"
         />
 
+        {/* Temporal heatmap overlay */}
+        {is4DVolume && temporalMetric !== 'none' && primaryLayer?.volumeId && (
+          <TemporalHeatmapOverlay
+            volumeId={primaryLayer.volumeId}
+            metric={temporalMetric}
+            axis={sliceAxis}
+            sliceIndex={heatmapSliceIndex}
+            width={width}
+            height={canvasHeight}
+            opacity={heatmapOpacity}
+          />
+        )}
+
         {/* Window/level drag overlay */}
         {overlayProps && (
           <div style={overlayProps.style}>{overlayProps.children}</div>
@@ -380,6 +424,28 @@ function SliceViewCanvasRaw({ viewId, width, height, className = '' }: SliceView
             step={sliderBounds.step}
             onChange={handleSliderChange}
           />
+        </div>
+      )}
+
+      {/* Temporal metric selector (only for 4D volumes) */}
+      {is4DVolume && (
+        <div className="absolute top-1 right-1 flex items-center gap-1">
+          <TemporalMetricSelector
+            value={temporalMetric}
+            onChange={setTemporalMetric}
+          />
+          {temporalMetric !== 'none' && (
+            <input
+              type="range"
+              min={0}
+              max={1}
+              step={0.05}
+              value={heatmapOpacity}
+              onChange={(e) => setHeatmapOpacity(Number(e.target.value))}
+              title="Overlay opacity"
+              className="w-16 accent-blue-400"
+            />
+          )}
         </div>
       )}
 

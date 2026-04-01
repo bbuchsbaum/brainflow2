@@ -17,6 +17,7 @@ import {
   computeFallbackIntensityRange,
   type IntensityRangeOptions,
 } from './IntensityRangeComputer';
+import { getEventBus } from '@/events/EventBus';
 
 const DEBUG_LAYER_API =
   import.meta.env.DEV &&
@@ -130,9 +131,23 @@ export class LayerApiImpl implements LayerApi {
       const gpuElapsed = performance.now() - gpuStartTime;
       layerDebugLog(`[LayerApiImpl ${performance.now() - addLayerStartTime}ms] GPU resources allocated in ${gpuElapsed.toFixed(0)}ms:`, JSON.stringify(gpuInfo));
       
-      // Store volume metadata before adding the layer so view-layer defaults
-      // can be derived deterministically from metadata.
-      
+      // Confirm GPU readiness before any downstream queries (histogram, etc.)
+      // so consumers never race the texture upload.
+      try {
+        const isReady = await this.apiService.waitForLayerReady(newLayer.id, 500, 20);
+        if (!isReady) {
+          console.warn(
+            `[LayerApiImpl ${performance.now() - addLayerStartTime}ms] Backend readiness timed out for layer ${newLayer.id}; continuing with best effort`
+          );
+        }
+      } catch (readinessError) {
+        console.warn(
+          `[LayerApiImpl ${performance.now() - addLayerStartTime}ms] Readiness probe unavailable for layer ${newLayer.id}; continuing`,
+          readinessError
+        );
+      }
+      getEventBus().emit('layer.gpu.ready', { layerId: newLayer.id });
+
       if (gpuInfo.data_range) {
         layerDebugLog(`[LayerApiImpl ${performance.now() - addLayerStartTime}ms] Volume data range: [${gpuInfo.data_range.min}, ${gpuInfo.data_range.max}]`);
 
@@ -170,7 +185,7 @@ export class LayerApiImpl implements LayerApi {
         };
 
         layerDebugLog(`[LayerApiImpl ${performance.now() - addLayerStartTime}ms] Created render properties:`, JSON.stringify(renderProps));
-        
+
         // Merge with new metadata from GPU info (earlyMetadata already read above)
         const metadata = {
           ...earlyMetadata,  // Preserve existing metadata like worldBounds
@@ -191,14 +206,14 @@ export class LayerApiImpl implements LayerApi {
         };
         layerDebugLog(`[LayerApiImpl ${performance.now() - addLayerStartTime}ms] Setting layer metadata:`, JSON.stringify(metadata));
         useLayerStore.getState().setLayerMetadata(newLayer.id, metadata);
-        
+
         // Validate render properties were created
         if (!renderProps) {
           const error = `[LayerApiImpl] Failed to create render properties for layer: ${newLayer.id}`;
           console.error(error);
           throw new Error(error);
         }
-        
+
         // Validate metadata was stored
         const storedMetadata = useLayerStore.getState().layerMetadata.get(newLayer.id);
         if (!storedMetadata) {
@@ -206,7 +221,7 @@ export class LayerApiImpl implements LayerApi {
           console.error(error);
           throw new Error(error);
         }
-        
+
         layerDebugLog(`[LayerApiImpl] Successfully created render properties for layer ${newLayer.id}:`, {
           intensityRange: [renderProps.intensity[0], renderProps.intensity[1]],
           thresholdRange: [renderProps.threshold[0], renderProps.threshold[1]],
@@ -214,22 +229,6 @@ export class LayerApiImpl implements LayerApi {
         });
       } else {
         console.warn(`[LayerApiImpl ${performance.now() - addLayerStartTime}ms] No data_range in GPU info!`);
-      }
-      
-      // Readiness probe is best-effort and should not stall the UI load path.
-      // Keep timeout short to avoid adding multi-second latency to each load.
-      try {
-        const isReady = await this.apiService.waitForLayerReady(newLayer.id, 500, 20);
-        if (!isReady) {
-          console.warn(
-            `[LayerApiImpl ${performance.now() - addLayerStartTime}ms] Backend readiness timed out for layer ${newLayer.id}; continuing with best effort`
-          );
-        }
-      } catch (readinessError) {
-        console.warn(
-          `[LayerApiImpl ${performance.now() - addLayerStartTime}ms] Readiness probe unavailable for layer ${newLayer.id}; continuing`,
-          readinessError
-        );
       }
       
     } catch (error) {

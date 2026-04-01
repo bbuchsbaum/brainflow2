@@ -70,6 +70,7 @@ const COMMANDS: &[&str] = &[
     "check_bids_directory",
     "scan_bids_dataset",
     "get_bids_events",
+    "compute_temporal_metric",
 ];
 
 fn main() {

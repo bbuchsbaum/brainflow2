@@ -4,40 +4,40 @@ use volmath::DenseVolume3;
 use volmath::DenseVolumeExt; // Import DenseVolumeExt trait
 use volmath::NeuroSpaceExt; // Import NeuroSpaceExt trait
 use volmath::NeuroVecTrait; // Import NeuroVecTrait for volume() method // Import DenseVolume3 type
-// Import neuroim types through volmath re-exports
-// use wgpu; // No longer needed directly
+                            // Import neuroim types through volmath re-exports
+                            // use wgpu; // No longer needed directly
 use std::collections::{HashMap, HashSet};
 use std::convert::TryInto;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tauri::State; // Need State for accessing registry
-// Import types from bridge_types
+                  // Import types from bridge_types
 use bridge_types::{
-    self, BatchRenderRequest, BridgeError, BridgeResult, DataRange, FlatNode, GpuTextureFormat,
-    LayerPatch, Loader, NiftiHeaderInfo, RemoteAuthChallenge, RemoteAuthPrompt,
+    self, icons, BatchRenderRequest, BridgeError, BridgeResult, DataRange, FlatNode,
+    GpuTextureFormat, LayerPatch, Loader, NiftiHeaderInfo, RemoteAuthChallenge, RemoteAuthPrompt,
     RemoteHostKeyChallenge, RemoteMountConnectRequest, RemoteMountConnectResult, RemoteMountInfo,
     RemoteMountOrigin, RemoteMountProfile, SliceAxisMeta, SliceInfo, StudioImportCandidate,
     StudioImportPreviewRequest, TextureCoordinates, TreePayload, VolumeHandleInfo,
-    VolumeLayerGpuInfo, VolumeSendable, icons,
+    VolumeLayerGpuInfo, VolumeSendable,
 };
 use colormap::colormap_by_name;
 // Import NiftiLoader for registration
 // use nifti_loader::NiftiLoader;
 use render_loop::RenderLoopService; // Remove unused RenderLoopError
-// Import async_trait attribute
-// use async_trait::async_trait;
+                                    // Import async_trait attribute
+                                    // use async_trait::async_trait;
 use log::{debug, error, info, warn}; // Added error, warn, and debug
 use serde::{Deserialize, Serialize}; // Need Serialize/Deserialize for new types
 use serde_json; // For JSON parsing
 use ts_rs::TS;
 use uuid; // For generating unique IDs // Add TS trait
-// Use futures::executor::block_on when needed (now removed)
-// use futures;
-// Added imports for plugin creation
+          // Use futures::executor::block_on when needed (now removed)
+          // use futures;
+          // Added imports for plugin creation
 use tauri::plugin::{Builder, TauriPlugin};
-use tauri::{Emitter, Manager, Runtime, generate_handler};
+use tauri::{generate_handler, Emitter, Manager, Runtime};
 // Re-add tokio::sync::Mutex
 use directories::ProjectDirs;
 use keyring::Entry as KeyringEntry;
@@ -50,7 +50,7 @@ use remotely::ssh::{
 use remotely::{FilesystemProbeOptions, RemoteClient};
 use tokio::runtime::Handle;
 use tokio::sync::Mutex;
-use tokio::time::{MissedTickBehavior, interval};
+use tokio::time::{interval, MissedTickBehavior};
 use tracing; // Add tracing facade import // For get_initial_views
 
 // Imports for fs_list_directory
@@ -259,7 +259,9 @@ impl LayerLease {
         render_service: &mut RenderLoopService,
         reason: &'static str,
     ) -> BridgeResult<Option<ReleaseOutcome>> {
-        self.inner.release_with_service(render_service, reason).await
+        self.inner
+            .release_with_service(render_service, reason)
+            .await
     }
 }
 
@@ -531,7 +533,11 @@ fn compute_data_range_from_volume(volume_data: &VolumeSendable) -> (f32, f32) {
                     max = max.max(value);
                 }
             }
-            if min > max { (0.0, 1.0) } else { (min, max) }
+            if min > max {
+                (0.0, 1.0)
+            } else {
+                (min, max)
+            }
         }
         VolumeSendable::Vec4DI16(vec) => {
             let mut min = f32::MAX;
@@ -541,7 +547,11 @@ fn compute_data_range_from_volume(volume_data: &VolumeSendable) -> (f32, f32) {
                 min = min.min(value);
                 max = max.max(value);
             }
-            if min > max { (0.0, 1.0) } else { (min, max) }
+            if min > max {
+                (0.0, 1.0)
+            } else {
+                (min, max)
+            }
         }
         VolumeSendable::Vec4DU8(vec) => {
             let mut min = f32::MAX;
@@ -551,7 +561,11 @@ fn compute_data_range_from_volume(volume_data: &VolumeSendable) -> (f32, f32) {
                 min = min.min(value);
                 max = max.max(value);
             }
-            if min > max { (0.0, 1.0) } else { (min, max) }
+            if min > max {
+                (0.0, 1.0)
+            } else {
+                (min, max)
+            }
         }
         VolumeSendable::Vec4DI8(vec) => {
             let mut min = f32::MAX;
@@ -561,7 +575,11 @@ fn compute_data_range_from_volume(volume_data: &VolumeSendable) -> (f32, f32) {
                 min = min.min(value);
                 max = max.max(value);
             }
-            if min > max { (0.0, 1.0) } else { (min, max) }
+            if min > max {
+                (0.0, 1.0)
+            } else {
+                (min, max)
+            }
         }
         VolumeSendable::Vec4DU16(vec) => {
             let mut min = f32::MAX;
@@ -571,7 +589,11 @@ fn compute_data_range_from_volume(volume_data: &VolumeSendable) -> (f32, f32) {
                 min = min.min(value);
                 max = max.max(value);
             }
-            if min > max { (0.0, 1.0) } else { (min, max) }
+            if min > max {
+                (0.0, 1.0)
+            } else {
+                (min, max)
+            }
         }
         VolumeSendable::Vec4DI32(vec) => {
             let mut min = f32::MAX;
@@ -581,7 +603,11 @@ fn compute_data_range_from_volume(volume_data: &VolumeSendable) -> (f32, f32) {
                 min = min.min(value);
                 max = max.max(value);
             }
-            if min > max { (0.0, 1.0) } else { (min, max) }
+            if min > max {
+                (0.0, 1.0)
+            } else {
+                (min, max)
+            }
         }
         VolumeSendable::Vec4DU32(vec) => {
             let mut min = f32::MAX;
@@ -591,7 +617,11 @@ fn compute_data_range_from_volume(volume_data: &VolumeSendable) -> (f32, f32) {
                 min = min.min(value);
                 max = max.max(value);
             }
-            if min > max { (0.0, 1.0) } else { (min, max) }
+            if min > max {
+                (0.0, 1.0)
+            } else {
+                (min, max)
+            }
         }
         VolumeSendable::Vec4DF64(vec) => {
             let mut min = f32::MAX;
@@ -603,7 +633,11 @@ fn compute_data_range_from_volume(volume_data: &VolumeSendable) -> (f32, f32) {
                     max = max.max(value);
                 }
             }
-            if min > max { (0.0, 1.0) } else { (min, max) }
+            if min > max {
+                (0.0, 1.0)
+            } else {
+                (min, max)
+            }
         }
     }
 }
@@ -6886,10 +6920,16 @@ struct ViewPlane {
     v_mm: [f32; 3],
 }
 
+fn default_crosshair_rgba() -> [f32; 4] {
+    [0.0, 1.0, 0.0, 0.8]
+}
+
 #[derive(Deserialize, Debug, Clone)]
 struct CrosshairState {
     world_mm: [f32; 3],
     visible: bool,
+    #[serde(default = "default_crosshair_rgba")]
+    color: [f32; 4],
 }
 
 #[derive(Deserialize, Debug, Clone)]
@@ -7375,7 +7415,8 @@ async fn render_frontend_view_with_diagnostics(
         crosshair_world: frontend_state.crosshair.world_mm,
         layers: backend_layers,
         viewport_size: [width, height],
-        show_crosshair: false,
+        show_crosshair: frontend_state.crosshair.visible,
+        crosshair_color: frontend_state.crosshair.color,
         timepoint: frontend_state.timepoint,
     };
 
@@ -9085,9 +9126,7 @@ async fn materialize_set_studio_compare_panes(
 
 #[command]
 #[tracing::instrument(skip_all, err, name = "api.check_bids_directory")]
-async fn check_bids_directory(
-    path: String,
-) -> BridgeResult<bool> {
+async fn check_bids_directory(path: String) -> BridgeResult<bool> {
     let dir = std::path::PathBuf::from(&path);
     let has_description = dir.join("dataset_description.json").exists();
     let has_participants = dir.join("participants.tsv").exists();
@@ -9128,7 +9167,11 @@ async fn scan_bids_dataset(
 
         // --- Summary counts ---
         let proj_summary = project.summary();
-        let session_ids: Vec<String> = project.sessions().into_iter().map(|s| s.to_string()).collect();
+        let session_ids: Vec<String> = project
+            .sessions()
+            .into_iter()
+            .map(|s| s.to_string())
+            .collect();
         let task_ids: Vec<String> = project.tasks().to_vec();
         let modalities: Vec<String> = proj_summary.modalities.clone();
 
@@ -9162,10 +9205,18 @@ async fn scan_bids_dataset(
             .unwrap_or_default();
 
         // --- Coverage matrix ---
-        let subjects: Vec<String> = project.participants().into_iter().map(|s| s.to_string()).collect();
+        let subjects: Vec<String> = project
+            .participants()
+            .into_iter()
+            .map(|s| s.to_string())
+            .collect();
 
         // Collect all files and build a lookup: (subject, session, suffix, task) -> Vec<BidsFile>
-        let all_files = project.search_files().strict(false).collect().unwrap_or_default();
+        let all_files = project
+            .search_files()
+            .strict(false)
+            .collect()
+            .unwrap_or_default();
 
         // Discover unique columns from the file set
         let mut col_set: Vec<BidsCoverageColumn> = Vec::new();
@@ -9233,9 +9284,7 @@ async fn scan_bids_dataset(
                 let mut size_bytes = 0u64;
                 let mut file_paths: Vec<String> = Vec::new();
                 for mf in &matching {
-                    size_bytes += std::fs::metadata(&mf.path)
-                        .map(|m| m.len())
-                        .unwrap_or(0);
+                    size_bytes += std::fs::metadata(&mf.path).map(|m| m.len()).unwrap_or(0);
                     file_paths.push(mf.path.display().to_string());
                 }
 
@@ -9429,7 +9478,10 @@ async fn scan_bids_dataset(
         details: format!("Task join error: {}", e),
     })??;
 
-    info!("scan_bids_dataset complete: {} subjects", summary.subject_count);
+    info!(
+        "scan_bids_dataset complete: {} subjects",
+        summary.subject_count
+    );
     Ok(summary)
 }
 
@@ -9455,18 +9507,20 @@ async fn get_bids_events(
     materialize_remote_file_if_needed(state.inner(), &dir.join("dataset_description.json")).await?;
 
     let rows = tokio::task::spawn_blocking(move || -> BridgeResult<Vec<BidsEventRow>> {
-        let project = BidsProject::with_options(
-            &dataset_path,
-            bids_rust::DerivativesMode::None,
-            false,
-        )
-        .map_err(|e| BridgeError::Input {
-            code: 3001,
-            details: format!("Failed to load BIDS dataset: {}", e),
-        })?;
+        let project =
+            BidsProject::with_options(&dataset_path, bids_rust::DerivativesMode::None, false)
+                .map_err(|e| BridgeError::Input {
+                    code: 3001,
+                    details: format!("Failed to load BIDS dataset: {}", e),
+                })?;
 
         // Search for event files matching subject + task
-        let mut search = project.search_files().subject(&subject).task(&task).suffix("events").extension("tsv");
+        let mut search = project
+            .search_files()
+            .subject(&subject)
+            .task(&task)
+            .suffix("events")
+            .extension("tsv");
         if let Some(ref ses) = session {
             search = search.session(ses);
         }
@@ -9498,11 +9552,7 @@ async fn get_bids_events(
                         rows.push(BidsEventRow {
                             onset: event_data.onset.get(i).copied().unwrap_or(0.0),
                             duration: event_data.duration.get(i).copied().unwrap_or(0.0),
-                            trial_type: event_data
-                                .trial_type
-                                .get(i)
-                                .cloned()
-                                .unwrap_or_default(),
+                            trial_type: event_data.trial_type.get(i).cloned().unwrap_or_default(),
                             additional,
                         });
                     }
@@ -9665,8 +9715,8 @@ async fn load_surface_template(
 /// Get available surface template catalog
 #[command]
 #[tracing::instrument(skip_all, err, name = "api.get_surface_template_catalog")]
-async fn get_surface_template_catalog()
--> BridgeResult<Vec<bridge_types::SurfaceTemplateCatalogEntry>> {
+async fn get_surface_template_catalog(
+) -> BridgeResult<Vec<bridge_types::SurfaceTemplateCatalogEntry>> {
     info!("Bridge: get_surface_template_catalog called");
 
     let mut entries = Vec::new();
@@ -9794,6 +9844,262 @@ fn parse_template_id(template_id: &str) -> BridgeResult<templates::TemplateConfi
     ))
 }
 
+// --- Temporal Metric Command ---
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct TemporalMetricResult {
+    pub width: u32,
+    pub height: u32,
+    pub data: Vec<f32>,
+}
+
+#[command]
+#[tracing::instrument(skip_all, err, name = "api.compute_temporal_metric")]
+async fn compute_temporal_metric(
+    volume_id: String,
+    metric: String,
+    axis: String,
+    slice_index: u32,
+    state: State<'_, BridgeState>,
+) -> BridgeResult<TemporalMetricResult> {
+    info!(
+        "compute_temporal_metric: volume={}, metric={}, axis={}, slice={}",
+        volume_id, metric, axis, slice_index
+    );
+    let registry = state.volume_registry.lock().await;
+    let entry = registry
+        .get_entry(&volume_id)
+        .ok_or_else(|| BridgeError::VolumeNotFound {
+            code: 4041,
+            details: format!("Volume {} not found", volume_id),
+        })?;
+    if metric != "variance" && metric != "mean" {
+        return Err(BridgeError::Input {
+            code: 2010,
+            details: format!("Unknown metric '{}'. Supported: variance, mean", metric),
+        });
+    }
+    match &entry.data {
+        VolumeSendable::Vec4DF32(vec) => {
+            let d = vec.data.dim();
+            let flat: Vec<f32> = vec.data.iter().copied().collect();
+            compute_metric_slice_inner(
+                &flat,
+                d.0,
+                d.1,
+                d.2,
+                d.3,
+                &axis,
+                slice_index as usize,
+                &metric,
+            )
+        }
+        VolumeSendable::Vec4DI16(vec) => {
+            let d = vec.data.dim();
+            let flat: Vec<f32> = vec.data.iter().map(|&v| v as f32).collect();
+            compute_metric_slice_inner(
+                &flat,
+                d.0,
+                d.1,
+                d.2,
+                d.3,
+                &axis,
+                slice_index as usize,
+                &metric,
+            )
+        }
+        VolumeSendable::Vec4DU8(vec) => {
+            let d = vec.data.dim();
+            let flat: Vec<f32> = vec.data.iter().map(|&v| v as f32).collect();
+            compute_metric_slice_inner(
+                &flat,
+                d.0,
+                d.1,
+                d.2,
+                d.3,
+                &axis,
+                slice_index as usize,
+                &metric,
+            )
+        }
+        VolumeSendable::Vec4DI8(vec) => {
+            let d = vec.data.dim();
+            let flat: Vec<f32> = vec.data.iter().map(|&v| v as f32).collect();
+            compute_metric_slice_inner(
+                &flat,
+                d.0,
+                d.1,
+                d.2,
+                d.3,
+                &axis,
+                slice_index as usize,
+                &metric,
+            )
+        }
+        VolumeSendable::Vec4DU16(vec) => {
+            let d = vec.data.dim();
+            let flat: Vec<f32> = vec.data.iter().map(|&v| v as f32).collect();
+            compute_metric_slice_inner(
+                &flat,
+                d.0,
+                d.1,
+                d.2,
+                d.3,
+                &axis,
+                slice_index as usize,
+                &metric,
+            )
+        }
+        VolumeSendable::Vec4DI32(vec) => {
+            let d = vec.data.dim();
+            let flat: Vec<f32> = vec.data.iter().map(|&v| v as f32).collect();
+            compute_metric_slice_inner(
+                &flat,
+                d.0,
+                d.1,
+                d.2,
+                d.3,
+                &axis,
+                slice_index as usize,
+                &metric,
+            )
+        }
+        VolumeSendable::Vec4DU32(vec) => {
+            let d = vec.data.dim();
+            let flat: Vec<f32> = vec.data.iter().map(|&v| v as f32).collect();
+            compute_metric_slice_inner(
+                &flat,
+                d.0,
+                d.1,
+                d.2,
+                d.3,
+                &axis,
+                slice_index as usize,
+                &metric,
+            )
+        }
+        VolumeSendable::Vec4DF64(vec) => {
+            let d = vec.data.dim();
+            let flat: Vec<f32> = vec.data.iter().map(|&v| v as f32).collect();
+            compute_metric_slice_inner(
+                &flat,
+                d.0,
+                d.1,
+                d.2,
+                d.3,
+                &axis,
+                slice_index as usize,
+                &metric,
+            )
+        }
+        _ => Err(BridgeError::Input {
+            code: 2011,
+            details: "compute_temporal_metric requires a 4D volume".to_string(),
+        }),
+    }
+}
+
+fn compute_metric_slice_inner(
+    data: &[f32],
+    nx: usize,
+    ny: usize,
+    nz: usize,
+    nt: usize,
+    axis: &str,
+    slice_index: usize,
+    metric: &str,
+) -> BridgeResult<TemporalMetricResult> {
+    let (width, height) = match axis {
+        "axial" | "z" => {
+            if slice_index >= nz {
+                return Err(BridgeError::Input {
+                    code: 2012,
+                    details: format!("slice_index {} >= nz {}", slice_index, nz),
+                });
+            }
+            (nx as u32, ny as u32)
+        }
+        "coronal" | "y" => {
+            if slice_index >= ny {
+                return Err(BridgeError::Input {
+                    code: 2012,
+                    details: format!("slice_index {} >= ny {}", slice_index, ny),
+                });
+            }
+            (nx as u32, nz as u32)
+        }
+        "sagittal" | "x" => {
+            if slice_index >= nx {
+                return Err(BridgeError::Input {
+                    code: 2012,
+                    details: format!("slice_index {} >= nx {}", slice_index, nx),
+                });
+            }
+            (ny as u32, nz as u32)
+        }
+        _ => {
+            return Err(BridgeError::Input {
+                code: 2013,
+                details: format!("Unknown axis '{}'", axis),
+            })
+        }
+    };
+    let total = (width * height) as usize;
+    let mut result = vec![0.0f32; total];
+    let idx =
+        |x: usize, y: usize, z: usize, t: usize| x * (ny * nz * nt) + y * (nz * nt) + z * nt + t;
+    let compute_val = |vals: &[f32]| -> f32 {
+        let n = vals.len() as f32;
+        let mean = vals.iter().sum::<f32>() / n;
+        if metric == "mean" {
+            mean
+        } else {
+            vals.iter()
+                .map(|&v| {
+                    let d = v - mean;
+                    d * d
+                })
+                .sum::<f32>()
+                / n
+        }
+    };
+    match axis {
+        "axial" | "z" => {
+            let z = slice_index;
+            for x in 0..nx {
+                for y in 0..ny {
+                    let vals: Vec<f32> = (0..nt).map(|t| data[idx(x, y, z, t)]).collect();
+                    result[x * ny + y] = compute_val(&vals);
+                }
+            }
+        }
+        "coronal" | "y" => {
+            let y = slice_index;
+            for x in 0..nx {
+                for z in 0..nz {
+                    let vals: Vec<f32> = (0..nt).map(|t| data[idx(x, y, z, t)]).collect();
+                    result[x * nz + z] = compute_val(&vals);
+                }
+            }
+        }
+        _ => {
+            let x = slice_index;
+            for y in 0..ny {
+                for z in 0..nz {
+                    let vals: Vec<f32> = (0..nt).map(|t| data[idx(x, y, z, t)]).collect();
+                    result[y * nz + z] = compute_val(&vals);
+                }
+            }
+        }
+    }
+    Ok(TemporalMetricResult {
+        width,
+        height,
+        data: result,
+    })
+}
+
 // --- Plugin Creation ---
 pub fn create_plugin<R: Runtime>() -> TauriPlugin<R> {
     plugin()
@@ -9885,6 +10191,7 @@ pub fn plugin<R: Runtime>() -> TauriPlugin<R> {
             check_bids_directory,
             scan_bids_dataset,
             get_bids_events,
+            compute_temporal_metric,
         ])
         .setup(|app, _| {
             // Initialize the bridge state

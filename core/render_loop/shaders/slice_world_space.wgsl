@@ -17,6 +17,7 @@ struct FrameUbo {
 struct CrosshairUbo {
     world_position: vec3<f32>,
     show_crosshair: u32,     // 0 = hide, 1 = show
+    crosshair_color: vec4<f32>,
 };
 
 // --- Per-Layer Storage Buffer ---
@@ -389,7 +390,7 @@ fn fs_main(input: VsOut) -> @location(0) vec4<f32> {
     
     // Draw crosshair if enabled
     if (crosshair.show_crosshair == 1u) {
-        let crosshair_color = vec4<f32>(0.0, 1.0, 0.0, 0.8); // Green
+        let crosshair_color = crosshair.crosshair_color;
         
         // Calculate pixel size in world space (guard against division by zero)
         let pixel_size_x = length(frame.u_mm.xyz) / max(f32(frame.target_dim.x), 1.0);

@@ -79,6 +79,7 @@ impl GpuSliceAdapter {
             layers: gpu_layers,
             viewport_size: slice.dim_px,
             show_crosshair: false,
+            crosshair_color: [0.0, 1.0, 0.0, 0.8],
             timepoint: None,
         })
     }
@@ -229,6 +230,7 @@ impl SliceSpecMapper {
             layers: gpu_layers,
             viewport_size: slice.dim_px,
             show_crosshair: false,
+            crosshair_color: [0.0, 1.0, 0.0, 0.8],
             timepoint: None,
         })
     }

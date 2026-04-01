@@ -113,7 +113,7 @@ pub struct LayerUbo {
     // We define the fields in Rust matching WGSL order. Bytemuck requires careful alignment.
 }
 
-// Updated CrosshairUbo to include show_crosshair flag
+// Updated CrosshairUbo to include show_crosshair flag and color
 #[repr(C)]
 #[derive(Debug, Copy, Clone, Pod, Zeroable)]
 pub struct CrosshairUboUpdated {
@@ -121,13 +121,16 @@ pub struct CrosshairUboUpdated {
     pub world_position: [f32; 3],
     /// 0 = hide, 1 = show
     pub show_crosshair: u32,
+    /// RGBA color [r, g, b, a] in 0.0-1.0 range
+    pub crosshair_color: [f32; 4],
 }
 
 impl Default for CrosshairUboUpdated {
     fn default() -> Self {
         Self {
             world_position: [0.0; 3],
-            show_crosshair: 1, // Show by default
+            show_crosshair: 1,                     // Show by default
+            crosshair_color: [0.0, 1.0, 0.0, 0.8], // Default green
         }
     }
 }

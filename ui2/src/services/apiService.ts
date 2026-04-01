@@ -26,8 +26,18 @@ const apiDebugLog = (...args: unknown[]) => {
   }
 };
 
+import { useCrosshairSettingsStore } from '@/stores/crosshairSettingsStore';
+
 // Domain service imports
 import { renderFlags } from './render/RenderFeatureFlags';
+
+function hexToRgba(hex: string, alpha = 1.0): [number, number, number, number] {
+  const clean = hex.replace('#', '');
+  const r = parseInt(clean.substring(0, 2), 16) / 255;
+  const g = parseInt(clean.substring(2, 4), 16) / 255;
+  const b = parseInt(clean.substring(4, 6), 16) / 255;
+  return [r, g, b, alpha];
+}
 import { getFilesystemService } from './filesystem/FilesystemService';
 import { getVolumeApiService } from './volume/VolumeApiService';
 import { getLayerGpuService } from './layer/LayerGpuService';
@@ -127,9 +137,13 @@ export class ApiService {
     }
 
     const { visibleLayers, payloadLayers } = this.getVisibleRenderLayers(viewState);
+    const crosshairColor = hexToRgba(
+      useCrosshairSettingsStore.getState().settings.activeColor,
+      0.8
+    );
     const payload: any = {
       views: viewState.views,
-      crosshair: crosshairToUse,
+      crosshair: { ...crosshairToUse, color: crosshairColor },
       layers: payloadLayers,
       timepoint: viewState.timepoint
     };
@@ -689,9 +703,13 @@ export class ApiService {
       return empty;
     }
 
+    const multiCrosshairColor = hexToRgba(
+      useCrosshairSettingsStore.getState().settings.activeColor,
+      0.8
+    );
     const payload: any = {
       views: viewState.views,
-      crosshair: viewState.crosshair,
+      crosshair: { ...viewState.crosshair, color: multiCrosshairColor },
       layers: payloadLayers,
       timepoint: viewState.timepoint,
       requestedViews: viewTypes.map((viewType) => {

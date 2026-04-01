@@ -27,6 +27,7 @@ struct FrameUbo {
 struct CrosshairUbo {
     world_position: vec3<f32>,
     show_crosshair: u32,     // 0 = hide, 1 = show
+    crosshair_color: vec4<f32>,
 };
 
 // --- Per-Layer Storage Buffer ---
@@ -325,7 +326,7 @@ fn drawCrosshairOptimized(world_mm: vec3<f32>, pixel_size: f32) -> vec4<f32> {
     let z_visible = abs_normal.z < 0.9 && dist.z < thickness && max(dist.x, dist.y) < thickness * 20.0;
     
     if (x_visible || y_visible || z_visible) {
-        return vec4<f32>(0.0, 1.0, 0.0, 0.8); // Green crosshair
+        return crosshair.crosshair_color;
     }
     
     return vec4<f32>(0.0);

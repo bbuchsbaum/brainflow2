@@ -3,6 +3,10 @@
 use crate::render_state::{BlendMode, ThresholdMode};
 use serde::{Deserialize, Serialize};
 
+fn default_crosshair_color() -> [f32; 4] {
+    [0.0, 1.0, 0.0, 0.8]
+}
+
 /// Interpolation modes for volume sampling
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "lowercase")]
@@ -51,6 +55,11 @@ pub struct ViewState {
     /// Note: Crosshairs are rendered as UI overlays, not in the volume data.
     /// This field is preserved for UI components to determine crosshair visibility.
     pub show_crosshair: bool,
+
+    /// RGBA color for the crosshair [r, g, b, a] in 0.0-1.0 range.
+    /// Defaults to green [0.0, 1.0, 0.0, 0.8] if not supplied.
+    #[serde(default = "default_crosshair_color")]
+    pub crosshair_color: [f32; 4],
 
     /// Current timepoint for 4D volumes (0-indexed)
     /// Only used when displaying 4D time series data
@@ -318,6 +327,7 @@ impl ViewState {
             }],
             viewport_size: [512, 512],
             show_crosshair: true,
+            crosshair_color: default_crosshair_color(),
             timepoint: None,
         }
     }
@@ -428,6 +438,7 @@ impl ViewState {
             }],
             viewport_size,
             show_crosshair: true,
+            crosshair_color: default_crosshair_color(),
             timepoint: None,
         }
     }
@@ -510,6 +521,7 @@ impl ViewState {
             }],
             viewport_size: [view_rect.width_px, view_rect.height_px],
             show_crosshair: true,
+            crosshair_color: default_crosshair_color(),
             timepoint: None,
         }
     }
@@ -628,6 +640,7 @@ mod tests {
             layers: vec![],
             viewport_size: [512, 512],
             show_crosshair: true,
+            crosshair_color: default_crosshair_color(),
             timepoint: None,
         };
 

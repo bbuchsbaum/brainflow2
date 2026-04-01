@@ -70,5 +70,6 @@ permissions = [
     "allow-materialize-set-studio-compare-panes",
     "allow-check-bids-directory",
     "allow-scan-bids-dataset",
-    "allow-get-bids-events"
+    "allow-get-bids-events",
+    "allow-compute-temporal-metric"
 ]

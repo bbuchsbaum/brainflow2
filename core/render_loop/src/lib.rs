@@ -2514,6 +2514,7 @@ impl RenderLoopService {
         let crosshair_data = CrosshairUboUpdated {
             world_position: world_coords,
             show_crosshair: 1, // Always show for now
+            crosshair_color: [0.0, 1.0, 0.0, 0.8],
         };
         self.queue.write_buffer(
             &self.crosshair_ubo_buffer,
@@ -2524,19 +2525,21 @@ impl RenderLoopService {
         // The FrameUBO's crosshair_voxel field must be updated via update_frame_ubo.
     }
 
-    /// Update crosshair position and visibility
-    pub fn update_crosshair_position(&self, world_coords: [f32; 3], show: bool) {
+    /// Update crosshair position, visibility, and color
+    pub fn update_crosshair_position(&self, world_coords: [f32; 3], show: bool, color: [f32; 4]) {
         log::debug!(
-            "update_crosshair_position: Position [{:.2}, {:.2}, {:.2}], Show: {}",
+            "update_crosshair_position: Position [{:.2}, {:.2}, {:.2}], Show: {}, Color: {:?}",
             world_coords[0],
             world_coords[1],
             world_coords[2],
-            show
+            show,
+            color
         );
 
         let crosshair_data = CrosshairUboUpdated {
             world_position: world_coords,
             show_crosshair: if show { 1 } else { 0 },
+            crosshair_color: color,
         };
         self.queue.write_buffer(
             &self.crosshair_ubo_buffer,
@@ -4262,7 +4265,11 @@ impl RenderLoopService {
         self.update_frame_ubo(frame_ubo.origin_mm, frame_ubo.u_mm, frame_ubo.v_mm);
 
         // Update crosshair
-        self.update_crosshair_position(state.crosshair_world, state.show_crosshair);
+        self.update_crosshair_position(
+            state.crosshair_world,
+            state.show_crosshair,
+            state.crosshair_color,
+        );
 
         // Prepare layer data
         let mut layer_infos = Vec::new();
@@ -4757,7 +4764,11 @@ impl RenderLoopService {
         }
 
         // Update crosshair position
-        self.update_crosshair_position(view_state.crosshair_world, view_state.show_crosshair);
+        self.update_crosshair_position(
+            view_state.crosshair_world,
+            view_state.show_crosshair,
+            view_state.crosshair_color,
+        );
 
         // Calculate field of view and slice parameters from view state
         let fov_mm = view_state.camera.fov_mm;
