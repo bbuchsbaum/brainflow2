@@ -864,6 +864,20 @@ pub enum StudioCompareBindingKind {
 #[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq, Eq)]
 #[ts(export)]
 #[serde(rename_all = "snake_case")]
+pub enum StudioCompareCacheStatus {
+    Source,
+    Hit,
+    Miss,
+    Stale,
+    Forced,
+    Synthetic,
+    Unavailable,
+    Failed,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq, Eq)]
+#[ts(export)]
+#[serde(rename_all = "snake_case")]
 pub enum StudioAuditSeverity {
     Ok,
     Warning,
@@ -1058,6 +1072,9 @@ pub struct StudioComparePaneBinding {
     pub source_path: Option<String>,
     pub materialization_key: Option<String>,
     pub materialized_at_ms: Option<u64>,
+    pub cache_status: StudioCompareCacheStatus,
+    pub cache_message: Option<String>,
+    pub provenance_path: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]

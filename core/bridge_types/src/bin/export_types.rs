@@ -52,15 +52,33 @@ fn main() {
         eprintln!("Failed to export LayerPatch: {}", e);
     }
 
-    if let Err(e) = BidsDatasetSummary::export_all() { eprintln!("Warning: {e}"); }
-    if let Err(e) = BidsCoverageMatrix::export_all() { eprintln!("Warning: {e}"); }
-    if let Err(e) = BidsCoverageColumn::export_all() { eprintln!("Warning: {e}"); }
-    if let Err(e) = BidsCoverageCell::export_all() { eprintln!("Warning: {e}"); }
-    if let Err(e) = BidsParticipantRow::export_all() { eprintln!("Warning: {e}"); }
-    if let Err(e) = BidsTaskDesign::export_all() { eprintln!("Warning: {e}"); }
-    if let Err(e) = BidsEventRow::export_all() { eprintln!("Warning: {e}"); }
-    if let Err(e) = BidsValidationResult::export_all() { eprintln!("Warning: {e}"); }
-    if let Err(e) = BidsValidationIssue::export_all() { eprintln!("Warning: {e}"); }
+    if let Err(e) = BidsDatasetSummary::export_all() {
+        eprintln!("Warning: {e}");
+    }
+    if let Err(e) = BidsCoverageMatrix::export_all() {
+        eprintln!("Warning: {e}");
+    }
+    if let Err(e) = BidsCoverageColumn::export_all() {
+        eprintln!("Warning: {e}");
+    }
+    if let Err(e) = BidsCoverageCell::export_all() {
+        eprintln!("Warning: {e}");
+    }
+    if let Err(e) = BidsParticipantRow::export_all() {
+        eprintln!("Warning: {e}");
+    }
+    if let Err(e) = BidsTaskDesign::export_all() {
+        eprintln!("Warning: {e}");
+    }
+    if let Err(e) = BidsEventRow::export_all() {
+        eprintln!("Warning: {e}");
+    }
+    if let Err(e) = BidsValidationResult::export_all() {
+        eprintln!("Warning: {e}");
+    }
+    if let Err(e) = BidsValidationIssue::export_all() {
+        eprintln!("Warning: {e}");
+    }
 
     println!("TypeScript type export completed for bridge_types");
 }
