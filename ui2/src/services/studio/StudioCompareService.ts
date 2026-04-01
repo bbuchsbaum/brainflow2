@@ -28,8 +28,12 @@ export function buildStudioComparePaneSpecs(args: {
   activeMember: StudioMemberSummary | null;
   compareCohort: StudioCohortSummary | null;
   activeExpression: StudioFieldExpressionSummary | null;
+},
+options?: {
+  syntheticFallback?: boolean;
 }): StudioComparePaneSpec[] {
   const { activeSet, activeMember, compareCohort, activeExpression } = args;
+  const syntheticFallback = options?.syntheticFallback ?? false;
   const compareReady = activeSet?.ingestAudit.support.readyForCompare ?? false;
   const hasMemberPath = Boolean(activeMember?.sourcePath);
   const cohortSelected = Boolean(compareCohort);
@@ -51,6 +55,11 @@ export function buildStudioComparePaneSpecs(args: {
         sourcePath: activeMember?.sourcePath ?? null,
         materializationKey: null,
         materializedAtMs: null,
+        cacheStatus: 'source',
+        cacheMessage: hasMemberPath
+          ? 'Bound directly to the active member source path.'
+          : 'No member source path is available.',
+        provenancePath: null,
       },
     },
     {
@@ -62,6 +71,8 @@ export function buildStudioComparePaneSpecs(args: {
       status: cohortSelected ? (compareReady ? (useDemoBindings ? 'live' : 'pending') : 'blocked') : 'blocked',
       reason: !cohortSelected
         ? 'No cohort selected.'
+        : syntheticFallback && useDemoBindings
+          ? 'Showing a synthetic demo cohort preview because backend materialization failed.'
         : useDemoBindings
           ? 'Using the seeded demo cohort artifact.'
         : compareReady
@@ -74,6 +85,19 @@ export function buildStudioComparePaneSpecs(args: {
         sourcePath: useDemoBindings ? DEMO_COMPARE_BINDINGS['cohort-mean'] : null,
         materializationKey: compareCohort ? `cohort-mean:${compareCohort.id}` : null,
         materializedAtMs: useDemoBindings ? DEMO_MATERIALIZED_AT_MS : null,
+        cacheStatus: useDemoBindings
+          ? (syntheticFallback ? 'synthetic' : 'hit')
+          : 'unavailable',
+        cacheMessage: !cohortSelected
+          ? 'No cohort selected.'
+          : syntheticFallback && useDemoBindings
+            ? 'Backend materialization failed; showing a synthetic demo cohort preview.'
+          : useDemoBindings
+            ? 'Using the seeded demo cohort artifact.'
+            : compareReady
+              ? 'Backend materialization has not produced a cache entry yet.'
+              : 'Compare-safe reductions are unavailable for this set.',
+        provenancePath: null,
       },
     },
     {
@@ -85,7 +109,9 @@ export function buildStudioComparePaneSpecs(args: {
           ? (useDemoBindings ? 'live' : 'pending')
           : 'blocked',
       reason:
-        useDemoBindings
+        syntheticFallback && useDemoBindings
+          ? 'Showing a synthetic demo residual preview because backend materialization failed.'
+          : useDemoBindings
           ? 'Using the seeded demo residual artifact.'
           : cohortSelected && compareReady && hasMemberPath
           ? 'Waiting for derived residual handle.'
@@ -99,6 +125,19 @@ export function buildStudioComparePaneSpecs(args: {
           compareCohort && activeMember ? `residual:${activeMember.id}:${compareCohort.id}` : null,
         materializedAtMs:
           useDemoBindings && hasMemberPath ? DEMO_MATERIALIZED_AT_MS : null,
+        cacheStatus:
+          useDemoBindings && hasMemberPath
+            ? (syntheticFallback ? 'synthetic' : 'hit')
+            : 'unavailable',
+        cacheMessage:
+          syntheticFallback && useDemoBindings
+            ? 'Backend materialization failed; showing a synthetic demo residual preview.'
+            : useDemoBindings
+            ? 'Using the seeded demo residual artifact.'
+            : cohortSelected && compareReady && hasMemberPath
+              ? 'Backend materialization has not produced a residual cache entry yet.'
+              : 'Residual materialization is not available yet.',
+        provenancePath: null,
       },
     },
     {
@@ -110,7 +149,9 @@ export function buildStudioComparePaneSpecs(args: {
           ? (useDemoBindings ? 'live' : 'pending')
           : 'blocked',
       reason:
-        useDemoBindings
+        syntheticFallback && useDemoBindings
+          ? 'Showing a synthetic demo comparison preview because backend materialization failed.'
+          : useDemoBindings
           ? 'Using the seeded demo comparison artifact.'
           : cohortSelected && compareReady && Boolean(activeExpression)
           ? 'Expression is defined; waiting for materialized compare output.'
@@ -123,6 +164,19 @@ export function buildStudioComparePaneSpecs(args: {
         materializationKey: compareCohort && activeExpression ? `zscore:${compareCohort.id}:${activeExpression.id}` : null,
         materializedAtMs:
           useDemoBindings && activeExpression ? DEMO_MATERIALIZED_AT_MS : null,
+        cacheStatus:
+          useDemoBindings && Boolean(activeExpression)
+            ? (syntheticFallback ? 'synthetic' : 'hit')
+            : 'unavailable',
+        cacheMessage:
+          syntheticFallback && useDemoBindings
+            ? 'Backend materialization failed; showing a synthetic demo comparison preview.'
+            : useDemoBindings
+            ? 'Using the seeded demo comparison artifact.'
+            : cohortSelected && compareReady && Boolean(activeExpression)
+              ? 'Backend materialization has not produced a z-score cache entry yet.'
+              : 'Z-score materialization is not available yet.',
+        provenancePath: null,
       },
     },
   ];
@@ -150,7 +204,7 @@ export class StudioCompareService {
       );
     } catch (error) {
       console.warn('[StudioCompareService] Falling back to local compare-pane builder:', error);
-      return buildStudioComparePaneSpecs(args);
+      return buildStudioComparePaneSpecs(args, { syntheticFallback: true });
     }
   }
 

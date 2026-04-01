@@ -1719,7 +1719,10 @@ export const useSetStudioStore = create<SetStudioStoreState>((set, get) => ({
       currentArtifact?.sourcePath === artifact?.sourcePath &&
       currentArtifact?.recipe === artifact?.recipe &&
       currentArtifact?.materializationKey === artifact?.materializationKey &&
-      currentArtifact?.materializedAtMs === artifact?.materializedAtMs
+      currentArtifact?.materializedAtMs === artifact?.materializedAtMs &&
+      currentArtifact?.cacheStatus === artifact?.cacheStatus &&
+      currentArtifact?.cacheMessage === artifact?.cacheMessage &&
+      currentArtifact?.provenancePath === artifact?.provenancePath
     ) {
       return;
     }

@@ -83,7 +83,7 @@ export function CompareLens({
       ? `${displayedArtifact.recipe ?? displayedArtifact.title} · ${
           displayedArtifact.sourcePath ?? displayedArtifact.materializationKey
         }`
-      : paneFooter(currentPane);
+      : paneFooter(currentPane, refreshingPaneIds);
   const viewerActions = [
     { label: 'Inspect', onClick: onInspectCurrent },
     ...((displayedArtifact?.sourcePath ?? activeMember?.sourcePath)
@@ -294,6 +294,15 @@ function CompareResultSummary({ pane }: { pane: StudioComparePaneSpec | undefine
             'Waiting for a renderable output'}
         </div>
       </div>
+      {pane.binding ? (
+        <div>
+          <div className="text-xs text-muted-foreground">Cache</div>
+          <div className="mt-1 text-sm text-foreground">
+            {describeCacheStatus(pane.binding.cacheStatus)}
+            {pane.binding.cacheMessage ? ` · ${pane.binding.cacheMessage}` : ''}
+          </div>
+        </div>
+      ) : null}
       {pane.recipe ? (
         <div>
           <div className="text-xs text-muted-foreground">Recipe</div>
@@ -391,8 +400,11 @@ function paneBadge(
   if (pane && refreshingPaneIds.includes(pane.id)) {
     return 'refreshing';
   }
-  if (pane?.binding?.kind === 'derived_field' && pane.binding.ready) {
-    return 'cached';
+  if (pane?.binding) {
+    const cacheBadge = cacheBadgeLabel(pane.binding.cacheStatus);
+    if (cacheBadge) {
+      return cacheBadge;
+    }
   }
   switch (pane?.status) {
     case 'live':
@@ -437,12 +449,16 @@ function paneFooter(
           second: '2-digit',
         })}.`
       : '';
+  const cacheText = pane.binding?.cacheMessage ? ` Cache: ${pane.binding.cacheMessage}.` : '';
+  const provenanceText = pane.binding?.provenancePath
+    ? ` Provenance: ${pane.binding.provenancePath}.`
+    : '';
   const refreshingText = refreshingPaneIds.includes((pane as StudioComparePaneSpec).id)
     ? ' Recompute in progress.'
     : '';
   return pane.recipe
-    ? `${pane.reason} ${bindingText}.${materializedText}${refreshingText} Recipe: ${pane.recipe}`
-    : `${pane.reason} ${bindingText}.${materializedText}${refreshingText}`;
+    ? `${pane.reason} ${bindingText}.${materializedText}${cacheText}${provenanceText}${refreshingText} Recipe: ${pane.recipe}`
+    : `${pane.reason} ${bindingText}.${materializedText}${cacheText}${provenanceText}${refreshingText}`;
 }
 
 function paneActions(
@@ -490,4 +506,52 @@ function paneActions(
     });
   }
   return actions.length > 0 ? actions : undefined;
+}
+
+function cacheBadgeLabel(
+  status: NonNullable<StudioComparePaneSpec['binding']>['cacheStatus']
+): string | null {
+  switch (status) {
+    case 'source':
+      return 'source';
+    case 'hit':
+      return 'cache hit';
+    case 'miss':
+      return 'cache miss';
+    case 'stale':
+      return 'rebuilt';
+    case 'forced':
+      return 'forced';
+    case 'synthetic':
+      return 'synthetic';
+    case 'failed':
+      return 'failed';
+    case 'unavailable':
+    default:
+      return null;
+  }
+}
+
+function describeCacheStatus(
+  status: NonNullable<StudioComparePaneSpec['binding']>['cacheStatus']
+): string {
+  switch (status) {
+    case 'source':
+      return 'Source-backed';
+    case 'hit':
+      return 'Manifest-validated cache hit';
+    case 'miss':
+      return 'Materialized after cache miss';
+    case 'stale':
+      return 'Stale cache entry was rebuilt';
+    case 'forced':
+      return 'Cache entry was force-rematerialized';
+    case 'synthetic':
+      return 'Synthetic preview after backend fallback';
+    case 'failed':
+      return 'Materialization failed';
+    case 'unavailable':
+    default:
+      return 'No cache entry available';
+  }
 }

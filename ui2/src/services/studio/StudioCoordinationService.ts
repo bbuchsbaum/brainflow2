@@ -2,6 +2,7 @@ import { getEventBus } from '@/events/EventBus';
 import { computeStudioDerivedSnapshot, buildDeckArtifact } from '@/hooks/useStudioDerivedState';
 import { useSetStudioStore } from '@/stores/setStudioStore';
 import type {
+  StudioArtifactSummary,
   StudioComparePaneSpec,
   StudioFieldExpressionSummary,
   StudioMemberSummary,
@@ -18,7 +19,7 @@ function buildCompareArtifact(args: {
   scopeCohort: StudioCohortSummary | null;
   activeMemberId: string | null;
   activeExpressionId: string | null;
-}) {
+}): StudioArtifactSummary | null {
   const { pane, activeSet, compareCohort, scopeCohort, activeMemberId, activeExpressionId } = args;
   if (!pane || !activeSet) {
     return null;
@@ -34,6 +35,9 @@ function buildCompareArtifact(args: {
     sourcePath: pane.binding?.sourcePath ?? null,
     materializationKey: pane.binding?.materializationKey ?? null,
     materializedAtMs: pane.binding?.materializedAtMs ?? null,
+    cacheStatus: pane.binding?.cacheStatus ?? null,
+    cacheMessage: pane.binding?.cacheMessage ?? null,
+    provenancePath: pane.binding?.provenancePath ?? null,
     supportLabel: activeSet.supportLabel,
     alignmentClass: activeSet.alignmentClass,
     activeMemberId,

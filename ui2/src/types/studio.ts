@@ -16,6 +16,15 @@ export type StudioAlignmentClass =
 export type StudioExpressionKind = 'member' | 'reducer' | 'comparison';
 export type StudioComparePaneStatus = 'live' | 'pending' | 'blocked';
 export type StudioCompareBindingKind = 'member_source' | 'derived_field';
+export type StudioCompareCacheStatus =
+  | 'source'
+  | 'hit'
+  | 'miss'
+  | 'stale'
+  | 'forced'
+  | 'synthetic'
+  | 'unavailable'
+  | 'failed';
 export type StudioArtifactKind = 'member' | 'compare-pane';
 
 export type StudioAuditSeverity = 'ok' | 'warning' | 'error';
@@ -185,6 +194,9 @@ export interface StudioComparePaneBinding {
   sourcePath: string | null;
   materializationKey: string | null;
   materializedAtMs: number | null;
+  cacheStatus: StudioCompareCacheStatus;
+  cacheMessage: string | null;
+  provenancePath: string | null;
 }
 
 export interface StudioCompareMaterializeRequest {
@@ -211,6 +223,9 @@ export interface StudioArtifactSummary {
   sourcePath: string | null;
   materializationKey: string | null;
   materializedAtMs: number | null;
+  cacheStatus: StudioCompareCacheStatus | null;
+  cacheMessage: string | null;
+  provenancePath: string | null;
   supportLabel: string | null;
   alignmentClass: StudioAlignmentClass | null;
   activeMemberId: string | null;

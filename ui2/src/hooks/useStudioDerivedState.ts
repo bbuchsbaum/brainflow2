@@ -380,7 +380,7 @@ export function buildDeckArtifact(args: {
   activeFeatureLabel: string | null;
   scopeCohort: StudioCohortSummary | null;
   activeExpressionId: string | null;
-}) {
+}): StudioArtifactSummary | null {
   const { activeSet, activeMember, activeFeatureLabel, scopeCohort, activeExpressionId } = args;
   if (!activeSet || !activeMember) {
     return null;
@@ -398,6 +398,11 @@ export function buildDeckArtifact(args: {
     sourcePath: activeMember.sourcePath,
     materializationKey: null,
     materializedAtMs: null,
+    cacheStatus: activeMember.sourcePath ? 'source' : 'unavailable',
+    cacheMessage: activeMember.sourcePath
+      ? 'Bound directly to the active member source path.'
+      : 'No source path is bound for this member.',
+    provenancePath: null,
     supportLabel: activeSet.supportLabel,
     alignmentClass: activeSet.alignmentClass,
     activeMemberId: activeMember.id,

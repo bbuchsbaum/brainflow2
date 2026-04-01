@@ -95,7 +95,39 @@ export function InspectorPane({
     if (artifact.materializedAtMs) {
       return formatTimestamp(artifact.materializedAtMs);
     }
+    if (artifact.cacheStatus === 'source') {
+      return 'Source-backed';
+    }
+    if (artifact.cacheStatus === 'failed') {
+      return 'Materialization failed';
+    }
+    if (artifact.cacheStatus === 'synthetic') {
+      return 'Synthetic preview';
+    }
     return artifact.bindingKind === 'derived_field' ? 'Pending or not cached' : 'Source-backed';
+  };
+
+  const cacheLabel = (artifact: StudioArtifactSummary | null): string => {
+    switch (artifact?.cacheStatus) {
+      case 'source':
+        return 'Source-backed';
+      case 'hit':
+        return 'Cache hit';
+      case 'miss':
+        return 'Cache miss';
+      case 'stale':
+        return 'Rebuilt stale cache';
+      case 'forced':
+        return 'Forced rematerialization';
+      case 'synthetic':
+        return 'Synthetic preview';
+      case 'failed':
+        return 'Materialization failed';
+      case 'unavailable':
+        return 'Unavailable';
+      default:
+        return 'Unknown';
+    }
   };
 
   const copyText = async (text: string | null, label: string) => {
@@ -222,6 +254,11 @@ export function InspectorPane({
               <InfoRow label="Expression" value={activeArtifact?.recipe ?? activeExpression?.recipe ?? 'Deck(member)'} />
               <InfoRow label="Compare" value={activeCompareLabel} />
               <InfoRow label="Scope" value={scopeCohort?.label ?? 'All members'} />
+              <InfoRow label="Cache" value={cacheLabel(activeArtifact)} />
+              <InfoRow
+                label="Provenance"
+                value={activeArtifact?.provenancePath ?? 'No manifest-backed provenance path'}
+              />
             </DetailSection>
 
             {activeSet ? (
@@ -258,6 +295,15 @@ export function InspectorPane({
                   }}
                 >
                   Copy Path
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    void copyText(activeArtifact?.provenancePath ?? null, 'Provenance path');
+                  }}
+                >
+                  Copy Provenance Path
                 </Button>
                 <Button
                   variant="ghost"

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildStudioComparePaneSpecs } from '../StudioCompareService';
+import { buildStudioComparePaneSpecs, StudioCompareService } from '../StudioCompareService';
 import type {
   SpatialFieldSetSummary,
   StudioCohortSummary,
@@ -90,6 +90,8 @@ describe('buildStudioComparePaneSpecs', () => {
       binding: {
         ready: true,
         sourcePath: 'template:MNI152NLin2009cAsym_GM_2mm',
+        cacheStatus: 'hit',
+        provenancePath: null,
       },
     });
     expect(specs.find((pane) => pane.id === 'residual')).toMatchObject({
@@ -97,6 +99,7 @@ describe('buildStudioComparePaneSpecs', () => {
       binding: {
         ready: true,
         sourcePath: 'template:MNI152NLin2009cAsym_WM_2mm',
+        cacheStatus: 'hit',
       },
     });
     expect(specs.find((pane) => pane.id === 'zscore')).toMatchObject({
@@ -104,6 +107,7 @@ describe('buildStudioComparePaneSpecs', () => {
       binding: {
         ready: true,
         sourcePath: 'template:MNI152NLin2009cAsym_CSF_2mm',
+        cacheStatus: 'hit',
       },
     });
   });
@@ -121,6 +125,7 @@ describe('buildStudioComparePaneSpecs', () => {
       binding: {
         ready: false,
         sourcePath: null,
+        cacheStatus: 'unavailable',
       },
     });
     expect(specs.find((pane) => pane.id === 'zscore')).toMatchObject({
@@ -128,7 +133,36 @@ describe('buildStudioComparePaneSpecs', () => {
       binding: {
         ready: false,
         sourcePath: null,
+        cacheStatus: 'unavailable',
       },
     });
+  });
+
+  it('marks fallback demo bindings as synthetic instead of cached', async () => {
+    const service = new StudioCompareService({
+      invoke: async () => {
+        throw new Error('backend unavailable');
+      },
+    });
+
+    const specs = await service.materializeComparePanes({
+      activeSet: demoSet,
+      activeMember,
+      compareCohort,
+      activeExpression,
+    });
+
+    expect(specs.find((pane) => pane.id === 'cohort-mean')).toMatchObject({
+      status: 'live',
+      binding: {
+        ready: true,
+        cacheStatus: 'synthetic',
+      },
+    });
+    expect(specs.find((pane) => pane.id === 'cohort-mean')?.binding?.cacheMessage).toContain(
+      'synthetic demo cohort preview'
+    );
+    expect(specs.find((pane) => pane.id === 'residual')?.binding?.cacheStatus).toBe('synthetic');
+    expect(specs.find((pane) => pane.id === 'zscore')?.binding?.cacheStatus).toBe('synthetic');
   });
 });
