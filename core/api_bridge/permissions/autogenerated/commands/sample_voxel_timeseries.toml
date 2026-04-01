@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-sample-voxel-timeseries"
+description = "Enables the sample_voxel_timeseries command without any pre-configured scope."
+commands.allow = ["sample_voxel_timeseries"]
+
+[[permission]]
+identifier = "deny-sample-voxel-timeseries"
+description = "Denies the sample_voxel_timeseries command without any pre-configured scope."
+commands.deny = ["sample_voxel_timeseries"]
