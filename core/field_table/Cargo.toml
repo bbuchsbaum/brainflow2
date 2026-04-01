@@ -13,6 +13,7 @@ ndarray = "0.15.6"
 nifti = { version = "0.16.0", features = ["ndarray", "nalgebra_affine"] }
 nifti-loader = { path = "../loaders/nifti" }
 regex = "1.11.1"
+serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 serde_yaml = "0.9.34"
 walkdir = "2.5.0"

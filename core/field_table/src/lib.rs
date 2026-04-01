@@ -1,26 +1,60 @@
 use bridge_types::{
     SpatialFieldSetSummary, StudioAlignmentClass, StudioAuditSeverity, StudioCohortOriginKind,
-    StudioCohortSummary, StudioCompareBindingKind, StudioCompareMaterializeRequest, StudioComparePaneBinding,
-    StudioComparePaneSpec, StudioComparePaneStatus, StudioDesignRowPreview,
-    StudioDesignTablePreview, StudioExpressionKind, StudioFeatureSummary,
-    StudioFieldExpressionSummary, StudioImportCandidate, StudioImportMode,
-    StudioImportPreviewRequest, StudioIngestAuditSummary, StudioJoinAuditSummary,
-    StudioJoinIssueDetail,
-    StudioMaterializationStatus, StudioMemberSummary, StudioSupportAuditSummary,
-    StudioSupportKind,
+    StudioCohortSummary, StudioCompareBindingKind, StudioCompareCacheStatus,
+    StudioCompareMaterializeRequest, StudioComparePaneBinding, StudioComparePaneSpec,
+    StudioComparePaneStatus, StudioDesignRowPreview, StudioDesignTablePreview,
+    StudioExpressionKind, StudioFeatureSummary, StudioFieldExpressionSummary,
+    StudioImportCandidate, StudioImportMode, StudioImportPreviewRequest, StudioIngestAuditSummary,
+    StudioJoinAuditSummary, StudioJoinIssueDetail, StudioMaterializationStatus,
+    StudioMemberSummary, StudioSupportAuditSummary, StudioSupportKind,
 };
 use csv::ReaderBuilder;
 use ndarray::ShapeBuilder;
 use nifti::{writer::WriterOptions, NiftiObject, ReaderOptions};
 use regex::Regex;
-use serde_json::Value;
+use serde::{Deserialize, Serialize};
+use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::UNIX_EPOCH;
 use walkdir::WalkDir;
 
-pub fn preview_import_candidates(request: StudioImportPreviewRequest) -> Vec<StudioImportCandidate> {
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+struct StudioCacheInputStamp {
+    role: String,
+    path: String,
+    exists: bool,
+    modified_at_ms: Option<u64>,
+    size_bytes: Option<u64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+struct StudioCacheManifest {
+    version: u8,
+    materialization_key: String,
+    artifact_kind: String,
+    recipe: Option<String>,
+    support_label: String,
+    output_path: String,
+    created_at_ms: u64,
+    input_stamps: Vec<StudioCacheInputStamp>,
+    provenance: Value,
+}
+
+#[derive(Debug, Clone)]
+struct StudioCompareMaterializationRecord {
+    output_path: String,
+    cache_status: StudioCompareCacheStatus,
+    cache_message: String,
+    provenance_path: Option<String>,
+}
+
+pub fn preview_import_candidates(
+    request: StudioImportPreviewRequest,
+) -> Vec<StudioImportCandidate> {
     match request.mode {
         StudioImportMode::Manifest => vec![manifest_candidate(&request)],
         StudioImportMode::Regex => vec![regex_candidate(&request)],
@@ -49,10 +83,13 @@ pub fn materialize_compare_panes(
             "Set ingest audit does not yet permit compare-safe reductions.".to_string()
         })
     };
-    let cohort_mean_live_path = cohort_mean_materialization.as_ref().ok().cloned();
+    let cohort_mean_live_path = cohort_mean_materialization
+        .as_ref()
+        .ok()
+        .map(|record| record.output_path.clone());
     let cohort_mean_ready = cohort_mean_live_path.is_some();
     let cohort_mean_reason = match &cohort_mean_materialization {
-        Ok(path) => format!("Derived cohort mean is cached at {}.", path),
+        Ok(record) => format_materialization_reason("Derived cohort mean", record),
         Err(message) => {
             if !cohort_selected {
                 "No cohort selected.".to_string()
@@ -85,10 +122,13 @@ pub fn materialize_compare_panes(
             "Residual materialization is not ready.".to_string()
         })
     };
-    let residual_live_path = residual_materialization.as_ref().ok().cloned();
+    let residual_live_path = residual_materialization
+        .as_ref()
+        .ok()
+        .map(|record| record.output_path.clone());
     let residual_ready = residual_live_path.is_some();
     let residual_reason = match &residual_materialization {
-        Ok(path) => format!("Derived residual is cached at {}.", path),
+        Ok(record) => format_materialization_reason("Derived residual", record),
         Err(message) => {
             if cohort_selected && request.compare_ready && has_member_path {
                 format!("Residual materialization failed: {}", message)
@@ -123,12 +163,17 @@ pub fn materialize_compare_panes(
             "Z-score materialization is not ready.".to_string()
         })
     };
-    let zscore_live_path = zscore_materialization.as_ref().ok().cloned();
+    let zscore_live_path = zscore_materialization
+        .as_ref()
+        .ok()
+        .map(|record| record.output_path.clone());
     let zscore_ready = zscore_live_path.is_some();
     let zscore_reason = match &zscore_materialization {
-        Ok(path) => format!("Derived z-score is cached at {}.", path),
+        Ok(record) => format_materialization_reason("Derived z-score", record),
         Err(message) => {
-            if cohort_selected && request.compare_ready && request.active_expression_recipe.is_some()
+            if cohort_selected
+                && request.compare_ready
+                && request.active_expression_recipe.is_some()
             {
                 format!("Z-score materialization failed: {}", message)
             } else {
@@ -168,6 +213,17 @@ pub fn materialize_compare_panes(
                     .active_member_source_path
                     .as_deref()
                     .and_then(file_modified_ms),
+                cache_status: if has_member_path {
+                    StudioCompareCacheStatus::Source
+                } else {
+                    StudioCompareCacheStatus::Unavailable
+                },
+                cache_message: Some(if has_member_path {
+                    "Bound directly to the active member source path.".to_string()
+                } else {
+                    "No member source path is available.".to_string()
+                }),
+                provenance_path: None,
             }),
         },
         StudioComparePaneSpec {
@@ -192,16 +248,11 @@ pub fn materialize_compare_panes(
                 .compare_cohort_id
                 .as_ref()
                 .map(|cohort_id| format!("mean(cohort:{})", cohort_id)),
-            binding: Some(StudioComparePaneBinding {
-                kind: StudioCompareBindingKind::DerivedField,
-                ready: cohort_mean_ready,
-                source_path: cohort_mean_live_path,
-                materialization_key: cohort_mean_key,
-                materialized_at_ms: cohort_mean_materialization
-                    .as_ref()
-                    .ok()
-                    .and_then(|path| file_modified_ms(path)),
-            }),
+            binding: Some(derived_binding(
+                &cohort_mean_materialization,
+                cohort_mean_key,
+                cohort_selected && request.compare_ready,
+            )),
         },
         StudioComparePaneSpec {
             id: "residual".to_string(),
@@ -217,21 +268,17 @@ pub fn materialize_compare_panes(
             },
             reason: residual_reason,
             recipe: match (&request.active_member_id, &request.compare_cohort_id) {
-                (Some(member_id), Some(cohort_id)) => {
-                    Some(format!("residual(member:{}, cohort:{})", member_id, cohort_id))
-                }
+                (Some(member_id), Some(cohort_id)) => Some(format!(
+                    "residual(member:{}, cohort:{})",
+                    member_id, cohort_id
+                )),
                 _ => None,
             },
-            binding: Some(StudioComparePaneBinding {
-                kind: StudioCompareBindingKind::DerivedField,
-                ready: residual_ready,
-                source_path: residual_live_path,
-                materialization_key: residual_key,
-                materialized_at_ms: residual_materialization
-                    .as_ref()
-                    .ok()
-                    .and_then(|path| file_modified_ms(path)),
-            }),
+            binding: Some(derived_binding(
+                &residual_materialization,
+                residual_key,
+                cohort_selected && request.compare_ready && has_member_path,
+            )),
         },
         StudioComparePaneSpec {
             id: "zscore".to_string(),
@@ -247,16 +294,13 @@ pub fn materialize_compare_panes(
             },
             reason: zscore_reason,
             recipe: request.active_expression_recipe.clone(),
-            binding: Some(StudioComparePaneBinding {
-                kind: StudioCompareBindingKind::DerivedField,
-                ready: zscore_ready,
-                source_path: zscore_live_path,
-                materialization_key: zscore_key,
-                materialized_at_ms: zscore_materialization
-                    .as_ref()
-                    .ok()
-                    .and_then(|path| file_modified_ms(path)),
-            }),
+            binding: Some(derived_binding(
+                &zscore_materialization,
+                zscore_key,
+                cohort_selected
+                    && request.compare_ready
+                    && request.active_expression_recipe.is_some(),
+            )),
         },
     ]
 }
@@ -286,28 +330,375 @@ fn build_materialization_key(namespace: &str, parts: &[&str]) -> String {
     format!("{}:{:016x}", namespace, hash)
 }
 
+fn current_timestamp_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_millis() as u64)
+        .unwrap_or(0)
+}
+
+fn make_input_stamp(role: &str, path: &str) -> StudioCacheInputStamp {
+    let trimmed_path = path.trim().to_string();
+    let metadata = fs::metadata(&trimmed_path).ok();
+    let modified_at_ms = metadata
+        .as_ref()
+        .and_then(|value| value.modified().ok())
+        .and_then(|modified| modified.duration_since(UNIX_EPOCH).ok())
+        .map(|duration| duration.as_millis() as u64);
+    let size_bytes = metadata.as_ref().map(|value| value.len());
+    StudioCacheInputStamp {
+        role: role.to_string(),
+        path: trimmed_path,
+        exists: metadata.is_some(),
+        modified_at_ms,
+        size_bytes,
+    }
+}
+
+fn build_cache_manifest(
+    materialization_key: &str,
+    artifact_kind: &str,
+    recipe: Option<String>,
+    support_label: &str,
+    output_path: &Path,
+    input_stamps: Vec<StudioCacheInputStamp>,
+    provenance: Value,
+) -> StudioCacheManifest {
+    StudioCacheManifest {
+        version: 1,
+        materialization_key: materialization_key.to_string(),
+        artifact_kind: artifact_kind.to_string(),
+        recipe,
+        support_label: support_label.to_string(),
+        output_path: output_path.to_string_lossy().into_owned(),
+        created_at_ms: current_timestamp_ms(),
+        input_stamps,
+        provenance,
+    }
+}
+
+fn build_compare_provenance(
+    artifact_kind: &str,
+    request: &StudioCompareMaterializeRequest,
+    cohort_source_count: usize,
+) -> Value {
+    json!({
+        "artifactKind": artifact_kind,
+        "supportLabel": request.support_label,
+        "activeMemberId": request.active_member_id,
+        "activeMemberSourcePath": request.active_member_source_path,
+        "compareCohortId": request.compare_cohort_id,
+        "compareCohortLabel": request.compare_cohort_label,
+        "compareCohortMemberCount": request.compare_cohort_member_count,
+        "activeExpressionLabel": request.active_expression_label,
+        "activeExpressionRecipe": request.active_expression_recipe,
+        "cohortSourceCount": cohort_source_count,
+    })
+}
+
+fn cache_paths(materialization_key: &str) -> Result<(PathBuf, PathBuf), String> {
+    let root = studio_cache_root()
+        .map_err(|error| format!("Failed to prepare Studio cache directory: {}", error))?;
+    Ok((
+        root.join(format!("{}.nii.gz", materialization_key)),
+        root.join(format!("{}.manifest.json", materialization_key)),
+    ))
+}
+
+fn read_cache_manifest(path: &Path) -> Result<StudioCacheManifest, String> {
+    let manifest_text = fs::read_to_string(path).map_err(|error| {
+        format!(
+            "Failed to read cache manifest {}: {}",
+            path.display(),
+            error
+        )
+    })?;
+    serde_json::from_str(&manifest_text).map_err(|error| {
+        format!(
+            "Failed to parse cache manifest {}: {}",
+            path.display(),
+            error
+        )
+    })
+}
+
+fn write_cache_manifest(path: &Path, manifest: &StudioCacheManifest) -> Result<(), String> {
+    let serialized = serde_json::to_string_pretty(manifest)
+        .map_err(|error| format!("Failed to serialize cache manifest: {}", error))?;
+    fs::write(path, serialized).map_err(|error| {
+        format!(
+            "Failed to write cache manifest {}: {}",
+            path.display(),
+            error
+        )
+    })
+}
+
+fn describe_input_stamp_delta(
+    recorded: &[StudioCacheInputStamp],
+    expected: &[StudioCacheInputStamp],
+) -> Option<String> {
+    if recorded.len() != expected.len() {
+        return Some(format!(
+            "Input set changed (recorded {} entries, current {}).",
+            recorded.len(),
+            expected.len()
+        ));
+    }
+
+    for (recorded_stamp, expected_stamp) in recorded.iter().zip(expected.iter()) {
+        if recorded_stamp.role != expected_stamp.role || recorded_stamp.path != expected_stamp.path
+        {
+            return Some(format!(
+                "Input binding changed for role {} (recorded {}, current {}).",
+                expected_stamp.role, recorded_stamp.path, expected_stamp.path
+            ));
+        }
+        if recorded_stamp.exists != expected_stamp.exists {
+            return Some(format!(
+                "Input availability changed for {}.",
+                expected_stamp.path
+            ));
+        }
+        if recorded_stamp.modified_at_ms != expected_stamp.modified_at_ms {
+            return Some(format!(
+                "Input timestamp changed for {}.",
+                expected_stamp.path
+            ));
+        }
+        if recorded_stamp.size_bytes != expected_stamp.size_bytes {
+            return Some(format!("Input size changed for {}.", expected_stamp.path));
+        }
+    }
+
+    None
+}
+
+fn validate_cache_manifest(
+    recorded: &StudioCacheManifest,
+    expected: &StudioCacheManifest,
+) -> Result<(), String> {
+    if recorded.version != expected.version {
+        return Err(format!(
+            "Manifest version changed ({} -> {}).",
+            recorded.version, expected.version
+        ));
+    }
+    if recorded.materialization_key != expected.materialization_key {
+        return Err("Materialization key changed.".to_string());
+    }
+    if recorded.artifact_kind != expected.artifact_kind {
+        return Err("Artifact kind changed.".to_string());
+    }
+    if recorded.recipe != expected.recipe {
+        return Err("Recipe changed.".to_string());
+    }
+    if recorded.support_label != expected.support_label {
+        return Err("Support label changed.".to_string());
+    }
+    if recorded.output_path != expected.output_path {
+        return Err("Output path changed.".to_string());
+    }
+    if let Some(delta) = describe_input_stamp_delta(&recorded.input_stamps, &expected.input_stamps)
+    {
+        return Err(delta);
+    }
+    if recorded.provenance != expected.provenance {
+        return Err("Provenance contract changed.".to_string());
+    }
+    Ok(())
+}
+
+fn resolve_cache_plan(
+    expected_manifest: StudioCacheManifest,
+    force_rematerialize: bool,
+) -> Result<
+    (
+        Option<StudioCompareMaterializationRecord>,
+        PathBuf,
+        PathBuf,
+        StudioCacheManifest,
+        StudioCompareCacheStatus,
+        String,
+    ),
+    String,
+> {
+    let (output_path, manifest_path) = cache_paths(&expected_manifest.materialization_key)?;
+
+    if force_rematerialize {
+        return Ok((
+            None,
+            output_path,
+            manifest_path,
+            expected_manifest,
+            StudioCompareCacheStatus::Forced,
+            "Force rematerialize was requested.".to_string(),
+        ));
+    }
+
+    match (output_path.exists(), manifest_path.exists()) {
+        (true, true) => {
+            let recorded_manifest = read_cache_manifest(&manifest_path)?;
+            match validate_cache_manifest(&recorded_manifest, &expected_manifest) {
+                Ok(()) => Ok((
+                    Some(StudioCompareMaterializationRecord {
+                        output_path: output_path.to_string_lossy().into_owned(),
+                        cache_status: StudioCompareCacheStatus::Hit,
+                        cache_message: "Manifest matched the current inputs.".to_string(),
+                        provenance_path: Some(manifest_path.to_string_lossy().into_owned()),
+                    }),
+                    output_path,
+                    manifest_path,
+                    expected_manifest,
+                    StudioCompareCacheStatus::Hit,
+                    "Manifest matched the current inputs.".to_string(),
+                )),
+                Err(reason) => Ok((
+                    None,
+                    output_path,
+                    manifest_path,
+                    expected_manifest,
+                    StudioCompareCacheStatus::Stale,
+                    format!("Stale cache entry detected: {}", reason),
+                )),
+            }
+        }
+        (false, false) => Ok((
+            None,
+            output_path,
+            manifest_path,
+            expected_manifest,
+            StudioCompareCacheStatus::Miss,
+            "No prior cache entry was found.".to_string(),
+        )),
+        (true, false) => Ok((
+            None,
+            output_path,
+            manifest_path,
+            expected_manifest,
+            StudioCompareCacheStatus::Stale,
+            "Cached output existed without a manifest.".to_string(),
+        )),
+        (false, true) => Ok((
+            None,
+            output_path,
+            manifest_path,
+            expected_manifest,
+            StudioCompareCacheStatus::Stale,
+            "Cache manifest existed but the artifact file was missing.".to_string(),
+        )),
+    }
+}
+
+fn format_materialization_reason(
+    label: &str,
+    record: &StudioCompareMaterializationRecord,
+) -> String {
+    match record.cache_status {
+        StudioCompareCacheStatus::Hit => format!("{} cache hit at {}.", label, record.output_path),
+        StudioCompareCacheStatus::Miss => {
+            format!(
+                "{} materialized after cache miss at {}.",
+                label, record.output_path
+            )
+        }
+        StudioCompareCacheStatus::Stale => {
+            format!(
+                "{} rebuilt a stale cache entry at {}.",
+                label, record.output_path
+            )
+        }
+        StudioCompareCacheStatus::Forced => {
+            format!(
+                "{} was force-rematerialized at {}.",
+                label, record.output_path
+            )
+        }
+        StudioCompareCacheStatus::Synthetic => {
+            format!(
+                "{} is using a synthetic preview at {}.",
+                label, record.output_path
+            )
+        }
+        StudioCompareCacheStatus::Source => {
+            format!("{} is source-backed at {}.", label, record.output_path)
+        }
+        StudioCompareCacheStatus::Unavailable => format!("{} is not available yet.", label),
+        StudioCompareCacheStatus::Failed => format!("{} materialization failed.", label),
+    }
+}
+
+fn derived_binding(
+    materialization: &Result<StudioCompareMaterializationRecord, String>,
+    materialization_key: Option<String>,
+    eligible_for_materialization: bool,
+) -> StudioComparePaneBinding {
+    match materialization {
+        Ok(record) => StudioComparePaneBinding {
+            kind: StudioCompareBindingKind::DerivedField,
+            ready: true,
+            source_path: Some(record.output_path.clone()),
+            materialization_key,
+            materialized_at_ms: file_modified_ms(&record.output_path),
+            cache_status: record.cache_status.clone(),
+            cache_message: Some(record.cache_message.clone()),
+            provenance_path: record.provenance_path.clone(),
+        },
+        Err(message) => StudioComparePaneBinding {
+            kind: StudioCompareBindingKind::DerivedField,
+            ready: false,
+            source_path: None,
+            materialization_key,
+            materialized_at_ms: None,
+            cache_status: if eligible_for_materialization {
+                StudioCompareCacheStatus::Failed
+            } else {
+                StudioCompareCacheStatus::Unavailable
+            },
+            cache_message: Some(message.clone()),
+            provenance_path: None,
+        },
+    }
+}
+
 fn materialize_cohort_mean(
     request: &StudioCompareMaterializeRequest,
     materialization_key: Option<&str>,
-) -> Result<String, String> {
-    let candidate_paths: Vec<&str> = request
+) -> Result<StudioCompareMaterializationRecord, String> {
+    let mut candidate_paths: Vec<String> = request
         .cohort_member_source_paths
         .iter()
         .map(|path| path.trim())
         .filter(|path| !path.is_empty())
+        .map(ToOwned::to_owned)
         .collect();
+    candidate_paths.sort();
     if candidate_paths.is_empty() {
         return Err("No cohort member source paths were provided.".to_string());
     }
 
     let materialization_key = materialization_key
         .ok_or_else(|| "No materialization key was computed for the cohort mean.".to_string())?;
-    let output_path = studio_cache_root()
-        .map_err(|error| format!("Failed to prepare Studio cache directory: {}", error))?
-        .join(format!("{}.nii.gz", materialization_key));
-
-    if output_path.exists() && !request.force_rematerialize {
-        return Ok(output_path.to_string_lossy().into_owned());
+    let (output_path, _) = cache_paths(materialization_key)?;
+    let expected_manifest = build_cache_manifest(
+        materialization_key,
+        "cohort_mean",
+        request
+            .compare_cohort_id
+            .as_ref()
+            .map(|cohort_id| format!("mean(cohort:{})", cohort_id)),
+        &request.support_label,
+        &output_path,
+        candidate_paths
+            .iter()
+            .map(|path| make_input_stamp("cohort_member", path))
+            .collect(),
+        build_compare_provenance("cohort_mean", request, candidate_paths.len()),
+    );
+    let (reuse_record, output_path, manifest_path, manifest, cache_status, cache_message) =
+        resolve_cache_plan(expected_manifest, request.force_rematerialize)?;
+    if let Some(record) = reuse_record {
+        return Ok(record);
     }
 
     let mut sum_data: Option<Vec<f32>> = None;
@@ -315,7 +706,7 @@ fn materialize_cohort_mean(
     let mut reference_source_path: Option<&str> = None;
     let mut used_paths = 0usize;
 
-    for source_path in candidate_paths {
+    for source_path in &candidate_paths {
         let path = Path::new(source_path);
         let (volume, _affine) = nifti_loader::load_nifti_volume_auto(path)
             .map_err(|error| format!("Failed to load {}: {}", source_path, error))?;
@@ -331,7 +722,7 @@ fn materialize_cohort_mean(
             }
             None => {
                 dims = Some(volume_dims.clone());
-                reference_source_path = Some(source_path);
+                reference_source_path = Some(source_path.as_str());
                 sum_data = Some(vec![0.0; values.len()]);
             }
             _ => {}
@@ -356,19 +747,25 @@ fn materialize_cohort_mean(
     }
 
     let dims = dims.ok_or_else(|| "Missing dimensions for cohort mean.".to_string())?;
-    let reference_source_path =
-        reference_source_path.ok_or_else(|| "Missing reference source path for cohort mean.".to_string())?;
+    let reference_source_path = reference_source_path
+        .ok_or_else(|| "Missing reference source path for cohort mean.".to_string())?;
     write_f32_nifti(&output_path, &dims, reference_source_path, &mean_data)
         .map_err(|error| format!("Failed to write cohort mean NIfTI: {}", error))?;
+    write_cache_manifest(&manifest_path, &manifest)?;
 
-    Ok(output_path.to_string_lossy().into_owned())
+    Ok(StudioCompareMaterializationRecord {
+        output_path: output_path.to_string_lossy().into_owned(),
+        cache_status,
+        cache_message,
+        provenance_path: Some(manifest_path.to_string_lossy().into_owned()),
+    })
 }
 
 fn materialize_residual(
     request: &StudioCompareMaterializeRequest,
     materialization_key: Option<&str>,
     cohort_mean_path: Option<&str>,
-) -> Result<String, String> {
+) -> Result<StudioCompareMaterializationRecord, String> {
     let member_source_path = request
         .active_member_source_path
         .as_deref()
@@ -381,20 +778,56 @@ fn materialize_residual(
         .ok_or_else(|| "No cohort mean path was provided.".to_string())?;
     let materialization_key = materialization_key
         .ok_or_else(|| "No materialization key was computed for the residual.".to_string())?;
-    let output_path = studio_cache_root()
-        .map_err(|error| format!("Failed to prepare Studio cache directory: {}", error))?
-        .join(format!("{}.nii.gz", materialization_key));
-
-    if output_path.exists() && !request.force_rematerialize {
-        return Ok(output_path.to_string_lossy().into_owned());
+    let mut cohort_paths: Vec<String> = request
+        .cohort_member_source_paths
+        .iter()
+        .map(|path| path.trim())
+        .filter(|path| !path.is_empty())
+        .map(ToOwned::to_owned)
+        .collect();
+    cohort_paths.sort();
+    let (output_path, _) = cache_paths(materialization_key)?;
+    let mut input_stamps = vec![make_input_stamp("active_member", member_source_path)];
+    input_stamps.extend(
+        cohort_paths
+            .iter()
+            .map(|path| make_input_stamp("cohort_member", path)),
+    );
+    let expected_manifest = build_cache_manifest(
+        materialization_key,
+        "residual",
+        match (&request.active_member_id, &request.compare_cohort_id) {
+            (Some(member_id), Some(cohort_id)) => Some(format!(
+                "residual(member:{}, cohort:{})",
+                member_id, cohort_id
+            )),
+            _ => None,
+        },
+        &request.support_label,
+        &output_path,
+        input_stamps,
+        build_compare_provenance("residual", request, cohort_paths.len()),
+    );
+    let (reuse_record, output_path, manifest_path, manifest, cache_status, cache_message) =
+        resolve_cache_plan(expected_manifest, request.force_rematerialize)?;
+    if let Some(record) = reuse_record {
+        return Ok(record);
     }
 
     let (member_volume, _member_affine) =
-        nifti_loader::load_nifti_volume_auto(Path::new(member_source_path))
-            .map_err(|error| format!("Failed to load member source {}: {}", member_source_path, error))?;
+        nifti_loader::load_nifti_volume_auto(Path::new(member_source_path)).map_err(|error| {
+            format!(
+                "Failed to load member source {}: {}",
+                member_source_path, error
+            )
+        })?;
     let (cohort_mean_volume, _mean_affine) =
-        nifti_loader::load_nifti_volume_auto(Path::new(cohort_mean_path))
-            .map_err(|error| format!("Failed to load cached cohort mean {}: {}", cohort_mean_path, error))?;
+        nifti_loader::load_nifti_volume_auto(Path::new(cohort_mean_path)).map_err(|error| {
+            format!(
+                "Failed to load cached cohort mean {}: {}",
+                cohort_mean_path, error
+            )
+        })?;
 
     let (member_values, member_dims) = extract_volume_values(&member_volume)
         .map_err(|error| format!("{} ({})", error, member_source_path))?;
@@ -412,17 +845,28 @@ fn materialize_residual(
         .zip(cohort_values.iter())
         .map(|(member, cohort)| member - cohort)
         .collect();
-    write_f32_nifti(&output_path, &member_dims, member_source_path, &residual_data)
-        .map_err(|error| format!("Failed to write residual NIfTI: {}", error))?;
+    write_f32_nifti(
+        &output_path,
+        &member_dims,
+        member_source_path,
+        &residual_data,
+    )
+    .map_err(|error| format!("Failed to write residual NIfTI: {}", error))?;
+    write_cache_manifest(&manifest_path, &manifest)?;
 
-    Ok(output_path.to_string_lossy().into_owned())
+    Ok(StudioCompareMaterializationRecord {
+        output_path: output_path.to_string_lossy().into_owned(),
+        cache_status,
+        cache_message,
+        provenance_path: Some(manifest_path.to_string_lossy().into_owned()),
+    })
 }
 
 fn materialize_zscore(
     request: &StudioCompareMaterializeRequest,
     materialization_key: Option<&str>,
     cohort_mean_path: Option<&str>,
-) -> Result<String, String> {
+) -> Result<StudioCompareMaterializationRecord, String> {
     let member_source_path = request
         .active_member_source_path
         .as_deref()
@@ -435,30 +879,53 @@ fn materialize_zscore(
         .ok_or_else(|| "No cohort mean path was provided.".to_string())?;
     let materialization_key = materialization_key
         .ok_or_else(|| "No materialization key was computed for the z-score.".to_string())?;
-    let output_path = studio_cache_root()
-        .map_err(|error| format!("Failed to prepare Studio cache directory: {}", error))?
-        .join(format!("{}.nii.gz", materialization_key));
-
-    if output_path.exists() && !request.force_rematerialize {
-        return Ok(output_path.to_string_lossy().into_owned());
-    }
-
-    let cohort_paths: Vec<&str> = request
+    let mut cohort_paths: Vec<String> = request
         .cohort_member_source_paths
         .iter()
         .map(|path| path.trim())
         .filter(|path| !path.is_empty())
+        .map(ToOwned::to_owned)
         .collect();
+    cohort_paths.sort();
     if cohort_paths.is_empty() {
         return Err("No cohort member source paths were provided.".to_string());
     }
+    let (output_path, _) = cache_paths(materialization_key)?;
+    let mut input_stamps = vec![make_input_stamp("active_member", member_source_path)];
+    input_stamps.extend(
+        cohort_paths
+            .iter()
+            .map(|path| make_input_stamp("cohort_member", path)),
+    );
+    let expected_manifest = build_cache_manifest(
+        materialization_key,
+        "zscore",
+        request.active_expression_recipe.clone(),
+        &request.support_label,
+        &output_path,
+        input_stamps,
+        build_compare_provenance("zscore", request, cohort_paths.len()),
+    );
+    let (reuse_record, output_path, manifest_path, manifest, cache_status, cache_message) =
+        resolve_cache_plan(expected_manifest, request.force_rematerialize)?;
+    if let Some(record) = reuse_record {
+        return Ok(record);
+    }
 
     let (member_volume, _member_affine) =
-        nifti_loader::load_nifti_volume_auto(Path::new(member_source_path))
-            .map_err(|error| format!("Failed to load member source {}: {}", member_source_path, error))?;
+        nifti_loader::load_nifti_volume_auto(Path::new(member_source_path)).map_err(|error| {
+            format!(
+                "Failed to load member source {}: {}",
+                member_source_path, error
+            )
+        })?;
     let (cohort_mean_volume, _mean_affine) =
-        nifti_loader::load_nifti_volume_auto(Path::new(cohort_mean_path))
-            .map_err(|error| format!("Failed to load cached cohort mean {}: {}", cohort_mean_path, error))?;
+        nifti_loader::load_nifti_volume_auto(Path::new(cohort_mean_path)).map_err(|error| {
+            format!(
+                "Failed to load cached cohort mean {}: {}",
+                cohort_mean_path, error
+            )
+        })?;
 
     let (member_values, member_dims) = extract_volume_values(&member_volume)
         .map_err(|error| format!("{} ({})", error, member_source_path))?;
@@ -473,10 +940,11 @@ fn materialize_zscore(
 
     let mut variance = vec![0.0f32; member_values.len()];
     let mut cohort_count = 0usize;
-    for cohort_path in cohort_paths {
+    for cohort_path in &cohort_paths {
         let (cohort_volume, _cohort_affine) =
-            nifti_loader::load_nifti_volume_auto(Path::new(cohort_path))
-                .map_err(|error| format!("Failed to load cohort member {}: {}", cohort_path, error))?;
+            nifti_loader::load_nifti_volume_auto(Path::new(cohort_path)).map_err(|error| {
+                format!("Failed to load cohort member {}: {}", cohort_path, error)
+            })?;
         let (cohort_values, cohort_dims) = extract_volume_values(&cohort_volume)
             .map_err(|error| format!("{} ({})", error, cohort_path))?;
         if cohort_dims != member_dims {
@@ -515,8 +983,14 @@ fn materialize_zscore(
         .collect();
     write_f32_nifti(&output_path, &member_dims, member_source_path, &zscore_data)
         .map_err(|error| format!("Failed to write z-score NIfTI: {}", error))?;
+    write_cache_manifest(&manifest_path, &manifest)?;
 
-    Ok(output_path.to_string_lossy().into_owned())
+    Ok(StudioCompareMaterializationRecord {
+        output_path: output_path.to_string_lossy().into_owned(),
+        cache_status,
+        cache_message,
+        provenance_path: Some(manifest_path.to_string_lossy().into_owned()),
+    })
 }
 
 fn studio_cache_root() -> Result<PathBuf, std::io::Error> {
@@ -558,7 +1032,10 @@ fn extract_volume_values(
             vol.values().into_iter().map(|value| value as f32).collect(),
             vol.space().dim.clone(),
         )),
-        _ => Err("Only 3D NIfTI volumes are currently supported for cohort mean materialization.".to_string()),
+        _ => Err(
+            "Only 3D NIfTI volumes are currently supported for cohort mean materialization."
+                .to_string(),
+        ),
     }
 }
 
@@ -699,16 +1176,16 @@ fn manifest_fallback_candidate(manifest_path: &str, message: &str) -> StudioImpo
             saved_cohort_ids: vec!["all-members".to_string()],
             ingest_audit: StudioIngestAuditSummary {
                 source_label: "NFTab manifest".to_string(),
-            join: StudioJoinAuditSummary {
-                matched_rows: 36,
-                unmatched_rows: 1,
-                duplicate_keys: 0,
-                severity: StudioAuditSeverity::Warning,
-                issue_details: vec![StudioJoinIssueDetail {
-                    message: message.to_string(),
-                    member_ids: Vec::new(),
-                }],
-            },
+                join: StudioJoinAuditSummary {
+                    matched_rows: 36,
+                    unmatched_rows: 1,
+                    duplicate_keys: 0,
+                    severity: StudioAuditSeverity::Warning,
+                    issue_details: vec![StudioJoinIssueDetail {
+                        message: message.to_string(),
+                        member_ids: Vec::new(),
+                    }],
+                },
                 support: StudioSupportAuditSummary {
                     support_label: "MNI152 2mm template".to_string(),
                     alignment_class: StudioAlignmentClass::SameGrid,
@@ -782,7 +1259,11 @@ fn regex_candidate(request: &StudioImportPreviewRequest) -> StudioImportCandidat
     let matched_paths = discover_matching_files(&discovery_root, regex.as_ref(), 24);
     let matched_files = matched_paths.len();
     let matched_rows = if matched_files > 0 { matched_files } else { 28 };
-    let unmatched_rows = if matched_files > 0 { matched_files.min(3) } else { 0 };
+    let unmatched_rows = if matched_files > 0 {
+        matched_files.min(3)
+    } else {
+        0
+    };
     let duplicate_keys = if matched_files > 8 { 1 } else { 0 };
     let severity = if root_exists && regex.is_some() {
         if duplicate_keys > 0 || unmatched_rows > 0 {
@@ -842,8 +1323,21 @@ fn regex_candidate(request: &StudioImportPreviewRequest) -> StudioImportCandidat
             id: member.id.clone(),
             cells: vec![
                 member.id.clone(),
-                if member.id.contains("case") { "case" } else { "control" }.to_string(),
-                format!("ses-{:02}", (regex_member_ids.iter().position(|id| id == &member.id).unwrap_or(0) % 2) + 1),
+                if member.id.contains("case") {
+                    "case"
+                } else {
+                    "control"
+                }
+                .to_string(),
+                format!(
+                    "ses-{:02}",
+                    (regex_member_ids
+                        .iter()
+                        .position(|id| id == &member.id)
+                        .unwrap_or(0)
+                        % 2)
+                        + 1
+                ),
                 "site-b".to_string(),
             ],
         })
@@ -972,12 +1466,14 @@ fn table_candidate(request: &StudioImportPreviewRequest) -> StudioImportCandidat
     let file_col_idx = headers.iter().position(|header| header == &file_column);
     let subject_col_idx = headers.iter().position(|header| header == &subject_column);
 
-    if headers.is_empty() || rows.is_empty() || file_col_idx.is_none() || subject_col_idx.is_none() {
+    if headers.is_empty() || rows.is_empty() || file_col_idx.is_none() || subject_col_idx.is_none()
+    {
         return StudioImportCandidate {
             id: "candidate-table-preview".to_string(),
             label: "Table import preview".to_string(),
-            description: "The table preview is incomplete; map the file path and subject ID columns first."
-                .to_string(),
+            description:
+                "The table preview is incomplete; map the file path and subject ID columns first."
+                    .to_string(),
             mode: StudioImportMode::Table,
             source_hint: source_label.clone(),
             set: SpatialFieldSetSummary {
@@ -1001,8 +1497,9 @@ fn table_candidate(request: &StudioImportPreviewRequest) -> StudioImportCandidat
                         duplicate_keys: 0,
                         severity: StudioAuditSeverity::Error,
                         issue_details: vec![StudioJoinIssueDetail {
-                            message: "File path and subject ID columns must be mapped before preview."
-                                .to_string(),
+                            message:
+                                "File path and subject ID columns must be mapped before preview."
+                                    .to_string(),
                             member_ids: Vec::new(),
                         }],
                     },
@@ -1043,7 +1540,9 @@ fn table_candidate(request: &StudioImportPreviewRequest) -> StudioImportCandidat
         .iter()
         .enumerate()
         .filter(|(index, header)| {
-            *index != file_col_idx && *index != subject_col_idx && !excluded_columns.contains(*header)
+            *index != file_col_idx
+                && *index != subject_col_idx
+                && !excluded_columns.contains(*header)
         })
         .map(|(_, header)| header.clone())
         .collect();
@@ -1093,14 +1592,25 @@ fn table_candidate(request: &StudioImportPreviewRequest) -> StudioImportCandidat
     let mut subject_counts = HashMap::new();
     for detail in &row_details {
         if !detail.subject_id.is_empty() {
-            *subject_counts.entry(detail.subject_id.clone()).or_insert(0usize) += 1;
+            *subject_counts
+                .entry(detail.subject_id.clone())
+                .or_insert(0usize) += 1;
         }
     }
     let duplicate_subject_ids = subject_counts
         .iter()
-        .filter_map(|(subject_id, count)| if *count > 1 { Some(subject_id.clone()) } else { None })
+        .filter_map(|(subject_id, count)| {
+            if *count > 1 {
+                Some(subject_id.clone())
+            } else {
+                None
+            }
+        })
         .collect::<Vec<_>>();
-    let duplicate_subject_set = duplicate_subject_ids.iter().cloned().collect::<HashSet<_>>();
+    let duplicate_subject_set = duplicate_subject_ids
+        .iter()
+        .cloned()
+        .collect::<HashSet<_>>();
     let missing_subject_rows = row_details
         .iter()
         .filter(|detail| detail.subject_id.is_empty())
@@ -1160,7 +1670,9 @@ fn table_candidate(request: &StudioImportPreviewRequest) -> StudioImportCandidat
         .collect::<Vec<_>>();
     let duplicate_keys = row_details
         .iter()
-        .filter(|detail| !detail.subject_id.is_empty() && duplicate_subject_set.contains(&detail.subject_id))
+        .filter(|detail| {
+            !detail.subject_id.is_empty() && duplicate_subject_set.contains(&detail.subject_id)
+        })
         .count();
     let unmatched_rows = rows.len().saturating_sub(member_summaries.len());
     let mut issue_details = Vec::new();
@@ -1252,8 +1764,9 @@ fn table_candidate(request: &StudioImportPreviewRequest) -> StudioImportCandidat
         }
     )];
     if !ready_for_compare {
-        notes.push("File paths and NIfTI support need cleanup before compare-safe reductions."
-            .to_string());
+        notes.push(
+            "File paths and NIfTI support need cleanup before compare-safe reductions.".to_string(),
+        );
     } else {
         notes.push("All validated rows resolve to same-grid NIfTI volumes.".to_string());
     }
@@ -1299,7 +1812,10 @@ fn table_candidate(request: &StudioImportPreviewRequest) -> StudioImportCandidat
         id: "candidate-table-preview".to_string(),
         label: format!("Table import ({})", source_label),
         description: if ready_for_compare {
-            format!("Validated {} importable member files from the table.", member_ids.len())
+            format!(
+                "Validated {} importable member files from the table.",
+                member_ids.len()
+            )
         } else {
             format!(
                 "Validated {} importable member files with {} audit issue(s).",
@@ -1410,25 +1926,41 @@ struct ManifestPreview {
 fn inspect_manifest_preview(manifest_path: &str) -> Result<ManifestPreview, String> {
     let manifest_file = Path::new(manifest_path);
     if !manifest_file.exists() {
-        return Err(format!("Manifest path {} was not found on disk.", manifest_path));
+        return Err(format!(
+            "Manifest path {} was not found on disk.",
+            manifest_path
+        ));
     }
 
     let manifest_text = fs::read_to_string(manifest_file)
         .map_err(|error| format!("Failed to read manifest {}: {}", manifest_path, error))?;
     let manifest_value = parse_manifest_value(&manifest_text, manifest_file)?;
 
-    let dataset_id = get_string(&manifest_value, "dataset_id")
-        .unwrap_or_else(|| manifest_file.file_stem().and_then(|stem| stem.to_str()).unwrap_or("dataset").to_string());
+    let dataset_id = get_string(&manifest_value, "dataset_id").unwrap_or_else(|| {
+        manifest_file
+            .file_stem()
+            .and_then(|stem| stem.to_str())
+            .unwrap_or("dataset")
+            .to_string()
+    });
     let primary_feature_id = get_string(&manifest_value, "primary_feature")
-        .or_else(|| manifest_value.get("features").and_then(|features| features.as_object()).and_then(|map| map.keys().next().cloned()))
+        .or_else(|| {
+            manifest_value
+                .get("features")
+                .and_then(|features| features.as_object())
+                .and_then(|map| map.keys().next().cloned())
+        })
         .ok_or_else(|| "Manifest does not declare any features.".to_string())?;
     let feature_map = manifest_value
         .get("features")
         .and_then(|value| value.as_object())
         .ok_or_else(|| "Manifest features section is missing or invalid.".to_string())?;
-    let primary_feature = feature_map
-        .get(&primary_feature_id)
-        .ok_or_else(|| format!("Primary feature {} was not found in features.", primary_feature_id))?;
+    let primary_feature = feature_map.get(&primary_feature_id).ok_or_else(|| {
+        format!(
+            "Primary feature {} was not found in features.",
+            primary_feature_id
+        )
+    })?;
 
     let feature_kind = primary_feature
         .get("logical")
@@ -1471,20 +2003,26 @@ fn inspect_manifest_preview(manifest_path: &str) -> Result<ManifestPreview, Stri
 
     let observation_table =
         inspect_observation_table(manifest_file, &manifest_value, &design_columns)?;
-    let duplicate_keys = observation_table.duplicate_row_ids.max(observation_table.duplicate_axes);
+    let duplicate_keys = observation_table
+        .duplicate_row_ids
+        .max(observation_table.duplicate_axes);
     let unmatched_rows = observation_table.rows_missing_source_path;
-    let join_severity = if duplicate_keys > 0 || observation_table.row_count == 0 || unmatched_rows > 0 {
-        StudioAuditSeverity::Warning
-    } else {
-        StudioAuditSeverity::Ok
-    };
+    let join_severity =
+        if duplicate_keys > 0 || observation_table.row_count == 0 || unmatched_rows > 0 {
+            StudioAuditSeverity::Warning
+        } else {
+            StudioAuditSeverity::Ok
+        };
 
     let mut notes = vec![
         format!(
             "Observation table preview loaded {} rows from {}.",
             observation_table.row_count, observation_table.table_path
         ),
-        format!("Primary feature {} has logical kind {}.", primary_feature_id, feature_kind),
+        format!(
+            "Primary feature {} has logical kind {}.",
+            primary_feature_id, feature_kind
+        ),
     ];
     notes.extend(support_notes);
     notes.extend(observation_table.notes);
@@ -1528,7 +2066,9 @@ fn inspect_manifest_preview(manifest_path: &str) -> Result<ManifestPreview, Stri
             support: StudioSupportAuditSummary {
                 support_label,
                 alignment_class,
-                ready_for_compare: compare_ready && duplicate_keys == 0 && observation_table.row_count > 0,
+                ready_for_compare: compare_ready
+                    && duplicate_keys == 0
+                    && observation_table.row_count > 0,
                 severity: if compare_ready {
                     StudioAuditSeverity::Ok
                 } else {
@@ -1553,7 +2093,8 @@ fn inspect_manifest_preview(manifest_path: &str) -> Result<ManifestPreview, Stri
             id: cohort_id.clone(),
             label: "All members".to_string(),
             member_count,
-            description: "Cohort spanning all observation rows in the manifest preview.".to_string(),
+            description: "Cohort spanning all observation rows in the manifest preview."
+                .to_string(),
             member_ids: set.member_ids.clone(),
             origin_kind: StudioCohortOriginKind::Imported,
             origin_label: Some("Manifest observation table".to_string()),
@@ -1579,11 +2120,16 @@ fn inspect_manifest_preview(manifest_path: &str) -> Result<ManifestPreview, Stri
 }
 
 fn parse_manifest_value(text: &str, path: &Path) -> Result<Value, String> {
-    let extension = path.extension().and_then(|ext| ext.to_str()).unwrap_or_default();
+    let extension = path
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .unwrap_or_default();
     if extension.eq_ignore_ascii_case("json") {
-        serde_json::from_str(text).map_err(|error| format!("Failed to parse JSON manifest: {}", error))
+        serde_json::from_str(text)
+            .map_err(|error| format!("Failed to parse JSON manifest: {}", error))
     } else {
-        serde_yaml::from_str(text).map_err(|error| format!("Failed to parse YAML manifest: {}", error))
+        serde_yaml::from_str(text)
+            .map_err(|error| format!("Failed to parse YAML manifest: {}", error))
     }
 }
 
@@ -1666,13 +2212,22 @@ fn inspect_delimited_table(
     delimiter: u8,
 ) -> Result<ObservationTablePreview, String> {
     if !path.exists() {
-        return Err(format!("Observation table {} was not found.", path.display()));
+        return Err(format!(
+            "Observation table {} was not found.",
+            path.display()
+        ));
     }
 
     let mut reader = ReaderBuilder::new()
         .delimiter(delimiter)
         .from_path(path)
-        .map_err(|error| format!("Failed to open observation table {}: {}", path.display(), error))?;
+        .map_err(|error| {
+            format!(
+                "Failed to open observation table {}: {}",
+                path.display(),
+                error
+            )
+        })?;
 
     let headers = reader
         .headers()
@@ -1682,7 +2237,13 @@ fn inspect_delimited_table(
     let row_id_index = headers
         .iter()
         .position(|header| header == row_id)
-        .ok_or_else(|| format!("Row id column {} was not found in {}.", row_id, path.display()))?;
+        .ok_or_else(|| {
+            format!(
+                "Row id column {} was not found in {}.",
+                row_id,
+                path.display()
+            )
+        })?;
     let axis_indices: Vec<usize> = observation_axes
         .iter()
         .filter_map(|axis| headers.iter().position(|header| header == axis))
@@ -1730,7 +2291,11 @@ fn inspect_delimited_table(
                 .and_then(|index| record.get(index))
                 .map(str::trim)
                 .filter(|value| !value.is_empty())
-                .map(|value| resolve_relative_path(manifest_file, value).to_string_lossy().to_string());
+                .map(|value| {
+                    resolve_relative_path(manifest_file, value)
+                        .to_string_lossy()
+                        .to_string()
+                });
             if source_path.is_none() {
                 rows_missing_source_path += 1;
                 if missing_source_path_rows.len() < 5 {
@@ -1826,10 +2391,7 @@ fn inspect_delimited_table(
     if duplicate_axes > 0 {
         for axis_value in &duplicate_axis_values {
             join_issue_details.push(StudioJoinIssueDetail {
-                message: format!(
-                    "Duplicate observation-axis tuple detected: {}.",
-                    axis_value
-                ),
+                message: format!("Duplicate observation-axis tuple detected: {}.", axis_value),
                 member_ids: Vec::new(),
             });
         }
@@ -1975,11 +2537,15 @@ fn map_alignment_class(value: &str) -> StudioAlignmentClass {
 }
 
 fn get_string(value: &Value, key: &str) -> Option<String> {
-    value.get(key).and_then(Value::as_str).map(ToString::to_string)
+    value
+        .get(key)
+        .and_then(Value::as_str)
+        .map(ToString::to_string)
 }
 
 fn get_string_array(value: &Value, key: &str) -> Vec<String> {
-    value.get(key)
+    value
+        .get(key)
         .and_then(Value::as_array)
         .map(|values| {
             values
@@ -2074,8 +2640,7 @@ fn discovery_notes(
 
     if duplicate_keys > 0 {
         notes.push(
-            "A duplicate subject-session key was inferred from the discovery preview."
-                .to_string(),
+            "A duplicate subject-session key was inferred from the discovery preview.".to_string(),
         );
     } else {
         notes.push("No duplicate keys were inferred from the discovery preview.".to_string());
@@ -2263,7 +2828,10 @@ mod tests {
         assert_eq!(preview.set.ingest_audit.join.matched_rows, 2);
         assert_eq!(preview.set.ingest_audit.join.unmatched_rows, 0);
         assert!(preview.set.ingest_audit.support.ready_for_compare);
-        assert_eq!(preview.set.member_ids, vec!["sub001".to_string(), "sub002".to_string()]);
+        assert_eq!(
+            preview.set.member_ids,
+            vec!["sub001".to_string(), "sub002".to_string()]
+        );
         assert_eq!(
             preview.set.member_summaries[0].source_path.as_deref(),
             Some(member_a_path.to_string_lossy().as_ref())
@@ -2287,10 +2855,7 @@ mod tests {
                 .cells,
             vec!["sub001".to_string(), "control".to_string()]
         );
-        assert_eq!(
-            preview.cohorts[0].id,
-            "table-all-members"
-        );
+        assert_eq!(preview.cohorts[0].id, "table-all-members");
         assert_eq!(
             preview.expressions[1].recipe,
             "zscore(current, cohort:table-all-members)"
@@ -2304,11 +2869,12 @@ mod tests {
         let temp_dir = make_temp_dir("compare-materialize");
         let member_a_path = temp_dir.join("sub001.nii.gz");
         let member_b_path = temp_dir.join("sub002.nii.gz");
+        let support_label = format!("MNI152 2mm {}", temp_dir.display());
         save_test_nifti(&member_a_path, &[1.0, 3.0, 5.0, 7.0], [2, 2, 1]);
         save_test_nifti(&member_b_path, &[3.0, 5.0, 7.0, 9.0], [2, 2, 1]);
 
         let panes = materialize_compare_panes(StudioCompareMaterializeRequest {
-            support_label: "MNI152 2mm".to_string(),
+            support_label: support_label.clone(),
             compare_ready: true,
             force_rematerialize: false,
             active_member_id: Some("sub001".to_string()),
@@ -2331,13 +2897,25 @@ mod tests {
             panes[0].binding.as_ref().map(|binding| &binding.kind),
             Some(&StudioCompareBindingKind::MemberSource)
         );
+        assert_eq!(
+            panes[0]
+                .binding
+                .as_ref()
+                .map(|binding| binding.cache_status.clone()),
+            Some(StudioCompareCacheStatus::Source)
+        );
         assert_eq!(panes[1].status, StudioComparePaneStatus::Live);
-        assert!(
+        assert!(panes[1]
+            .binding
+            .as_ref()
+            .map(|binding| binding.ready)
+            .unwrap_or(false));
+        assert_eq!(
             panes[1]
                 .binding
                 .as_ref()
-                .map(|binding| binding.ready)
-                .unwrap_or(false)
+                .map(|binding| binding.cache_status.clone()),
+            Some(StudioCompareCacheStatus::Miss)
         );
         let cohort_mean_path = panes[1]
             .binding
@@ -2345,6 +2923,12 @@ mod tests {
             .and_then(|binding| binding.source_path.as_ref())
             .expect("cohort mean path");
         assert!(Path::new(cohort_mean_path).exists());
+        let cohort_mean_manifest_path = panes[1]
+            .binding
+            .as_ref()
+            .and_then(|binding| binding.provenance_path.as_ref())
+            .expect("cohort mean manifest path");
+        assert!(Path::new(cohort_mean_manifest_path).exists());
         let residual_path = panes[2]
             .binding
             .as_ref()
@@ -2352,6 +2936,13 @@ mod tests {
             .expect("residual path");
         assert_eq!(panes[2].status, StudioComparePaneStatus::Live);
         assert!(Path::new(residual_path).exists());
+        assert_eq!(
+            panes[2]
+                .binding
+                .as_ref()
+                .map(|binding| binding.cache_status.clone()),
+            Some(StudioCompareCacheStatus::Miss)
+        );
         let zscore_path = panes[3]
             .binding
             .as_ref()
@@ -2359,33 +2950,153 @@ mod tests {
             .expect("zscore path");
         assert_eq!(panes[3].status, StudioComparePaneStatus::Live);
         assert!(Path::new(zscore_path).exists());
-        assert!(
-            panes[1]
-                .binding
-                .as_ref()
-                .and_then(|binding| binding.materialization_key.as_ref())
-                .map(|key| key.starts_with("cohort-mean:"))
-                .unwrap_or(false)
-        );
-        assert!(
-            panes[1]
-                .binding
-                .as_ref()
-                .and_then(|binding| binding.materialized_at_ms)
-                .is_some()
-        );
-        assert!(
+        assert_eq!(
             panes[3]
                 .binding
                 .as_ref()
-                .and_then(|binding| binding.materialized_at_ms)
-                .is_some()
+                .map(|binding| binding.cache_status.clone()),
+            Some(StudioCompareCacheStatus::Miss)
         );
-        assert_eq!(panes[3].recipe.as_deref(), Some("zscore(current, cohort:controls)"));
+        assert!(panes[1]
+            .binding
+            .as_ref()
+            .and_then(|binding| binding.materialization_key.as_ref())
+            .map(|key| key.starts_with("cohort-mean:"))
+            .unwrap_or(false));
+        assert!(panes[1]
+            .binding
+            .as_ref()
+            .and_then(|binding| binding.materialized_at_ms)
+            .is_some());
+        assert!(panes[3]
+            .binding
+            .as_ref()
+            .and_then(|binding| binding.materialized_at_ms)
+            .is_some());
+        assert_eq!(
+            panes[3].recipe.as_deref(),
+            Some("zscore(current, cohort:controls)")
+        );
         let (zscore_volume, _affine) =
             nifti_loader::load_nifti_volume_auto(Path::new(zscore_path)).expect("load zscore");
-        let (zscore_values, _dims) = extract_volume_values(&zscore_volume).expect("extract zscore values");
+        let (zscore_values, _dims) =
+            extract_volume_values(&zscore_volume).expect("extract zscore values");
         assert_eq!(zscore_values, vec![-1.0, -1.0, -1.0, -1.0]);
+
+        let cached_panes = materialize_compare_panes(StudioCompareMaterializeRequest {
+            support_label: support_label.clone(),
+            compare_ready: true,
+            force_rematerialize: false,
+            active_member_id: Some("sub001".to_string()),
+            active_member_source_path: Some(member_a_path.to_string_lossy().into_owned()),
+            cohort_member_source_paths: vec![
+                member_a_path.to_string_lossy().into_owned(),
+                member_b_path.to_string_lossy().into_owned(),
+            ],
+            compare_cohort_id: Some("controls".to_string()),
+            compare_cohort_label: Some("Controls".to_string()),
+            compare_cohort_member_count: Some(12),
+            active_expression_label: Some("Z-score vs controls".to_string()),
+            active_expression_recipe: Some("zscore(current, cohort:controls)".to_string()),
+        });
+        assert_eq!(
+            cached_panes[1]
+                .binding
+                .as_ref()
+                .map(|binding| binding.cache_status.clone()),
+            Some(StudioCompareCacheStatus::Hit)
+        );
+        assert_eq!(
+            cached_panes[2]
+                .binding
+                .as_ref()
+                .map(|binding| binding.cache_status.clone()),
+            Some(StudioCompareCacheStatus::Hit)
+        );
+        assert_eq!(
+            cached_panes[3]
+                .binding
+                .as_ref()
+                .map(|binding| binding.cache_status.clone()),
+            Some(StudioCompareCacheStatus::Hit)
+        );
+
+        let forced_panes = materialize_compare_panes(StudioCompareMaterializeRequest {
+            support_label: support_label.clone(),
+            compare_ready: true,
+            force_rematerialize: true,
+            active_member_id: Some("sub001".to_string()),
+            active_member_source_path: Some(member_a_path.to_string_lossy().into_owned()),
+            cohort_member_source_paths: vec![
+                member_a_path.to_string_lossy().into_owned(),
+                member_b_path.to_string_lossy().into_owned(),
+            ],
+            compare_cohort_id: Some("controls".to_string()),
+            compare_cohort_label: Some("Controls".to_string()),
+            compare_cohort_member_count: Some(12),
+            active_expression_label: Some("Z-score vs controls".to_string()),
+            active_expression_recipe: Some("zscore(current, cohort:controls)".to_string()),
+        });
+        assert_eq!(
+            forced_panes[1]
+                .binding
+                .as_ref()
+                .map(|binding| binding.cache_status.clone()),
+            Some(StudioCompareCacheStatus::Forced)
+        );
+        assert_eq!(
+            forced_panes[2]
+                .binding
+                .as_ref()
+                .map(|binding| binding.cache_status.clone()),
+            Some(StudioCompareCacheStatus::Forced)
+        );
+        assert_eq!(
+            forced_panes[3]
+                .binding
+                .as_ref()
+                .map(|binding| binding.cache_status.clone()),
+            Some(StudioCompareCacheStatus::Forced)
+        );
+
+        save_test_nifti(&member_b_path, &[5.0, 7.0, 9.0, 11.0], [2, 2, 1]);
+        let rebuilt_panes = materialize_compare_panes(StudioCompareMaterializeRequest {
+            support_label,
+            compare_ready: true,
+            force_rematerialize: false,
+            active_member_id: Some("sub001".to_string()),
+            active_member_source_path: Some(member_a_path.to_string_lossy().into_owned()),
+            cohort_member_source_paths: vec![
+                member_a_path.to_string_lossy().into_owned(),
+                member_b_path.to_string_lossy().into_owned(),
+            ],
+            compare_cohort_id: Some("controls".to_string()),
+            compare_cohort_label: Some("Controls".to_string()),
+            compare_cohort_member_count: Some(12),
+            active_expression_label: Some("Z-score vs controls".to_string()),
+            active_expression_recipe: Some("zscore(current, cohort:controls)".to_string()),
+        });
+        assert_eq!(
+            rebuilt_panes[1]
+                .binding
+                .as_ref()
+                .map(|binding| binding.cache_status.clone()),
+            Some(StudioCompareCacheStatus::Stale)
+        );
+        assert_eq!(
+            rebuilt_panes[2]
+                .binding
+                .as_ref()
+                .map(|binding| binding.cache_status.clone()),
+            Some(StudioCompareCacheStatus::Stale)
+        );
+        assert_eq!(
+            rebuilt_panes[3]
+                .binding
+                .as_ref()
+                .map(|binding| binding.cache_status.clone()),
+            Some(StudioCompareCacheStatus::Stale)
+        );
 
         fs::remove_dir_all(temp_dir).expect("cleanup temp dir");
     }
@@ -2463,10 +3174,7 @@ features:
                 .as_ref()
                 .expect("design preview")
                 .columns,
-            vec![
-                "subject".to_string(),
-                "diagnosis".to_string(),
-            ]
+            vec!["subject".to_string(), "diagnosis".to_string(),]
         );
         assert_eq!(
             preview
