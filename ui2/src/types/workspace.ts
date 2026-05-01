@@ -21,7 +21,8 @@ export type WorkspaceType =
   | 'mosaic'
   | 'comparison'
   | 'set-studio'
-  | 'bids-explorer';
+  | 'bids-explorer'
+  | 'analysis-workbench';
 
 /**
  * Represents a complete workspace with its layout and state
@@ -80,7 +81,8 @@ export const WORKSPACE_METADATA: Record<WorkspaceType, { category: WorkspaceCate
   'mosaic': { category: 'visualization', name: 'Mosaic View' },
   'comparison': { category: 'visualization', name: 'Comparison View' },
   'set-studio': { category: 'analysis', name: 'Set Studio', singleton: true },
-  'bids-explorer': { category: 'analysis', name: 'BIDS Explorer', singleton: true }
+  'bids-explorer': { category: 'analysis', name: 'BIDS Explorer', singleton: true },
+  'analysis-workbench': { category: 'analysis', name: 'Analysis Workbench', singleton: true },
 };
 
 /**
@@ -96,7 +98,8 @@ export const DEFAULT_WORKSPACE_CONFIGS: Record<WorkspaceType, Partial<WorkspaceC
   },
   'comparison': {},
   'set-studio': {},
-  'bids-explorer': {}
+  'bids-explorer': {},
+  'analysis-workbench': {},
 };
 
 /**

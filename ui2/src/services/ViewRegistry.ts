@@ -362,6 +362,26 @@ export class BidsExplorerFactory implements ViewFactory {
 }
 
 /**
+ * Factory for Analysis Workbench workspace
+ */
+export class AnalysisWorkbenchFactory implements ViewFactory {
+  getDefaultConfig(): Partial<WorkspaceConfig> {
+    return {};
+  }
+
+  createLayout(_config?: WorkspaceConfig): LayoutConfig {
+    return {
+      root: {
+        type: 'component',
+        componentType: 'AnalysisWorkbenchWorkspace',
+        title: 'Analysis Workbench',
+        componentState: {}
+      }
+    };
+  }
+}
+
+/**
  * Factory for comparison view
  */
 export class ComparisonViewFactory implements ViewFactory {
@@ -425,6 +445,7 @@ export function initializeViewRegistry() {
   ViewRegistry.register('comparison', new ComparisonViewFactory());
   ViewRegistry.register('set-studio', new SetStudioFactory());
   ViewRegistry.register('bids-explorer', new BidsExplorerFactory());
+  ViewRegistry.register('analysis-workbench', new AnalysisWorkbenchFactory());
   
   console.log('[ViewRegistry] Initialized with all view factories');
 }

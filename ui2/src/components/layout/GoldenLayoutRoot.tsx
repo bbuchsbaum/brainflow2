@@ -32,6 +32,7 @@ import { SurfaceViewPanel } from '@/components/views/SurfaceViewPanel';
 import { SetStudioWorkspace } from '@/components/studio/SetStudioWorkspace';
 import { ComparisonWorkspace } from '@/components/views/ComparisonWorkspace';
 import { BidsExplorerWorkspace } from '@/components/bids/BidsExplorerWorkspace';
+import { AnalysisWorkbenchWorkspace } from '@/components/analysis/AnalysisWorkbenchWorkspace';
 import { StudioDesignPanel } from '@/components/studio/StudioDesignPanel';
 import { StudioInspectorPanel } from '@/components/studio/StudioInspectorPanel';
 
@@ -133,6 +134,8 @@ const WorkspaceComponent: React.FC<WorkspaceComponentProps> = ({ workspaceId, wo
       return <SetStudioWorkspace />;
     case 'bids-explorer':
       return <BidsExplorerWorkspace workspaceId={workspaceId} />;
+    case 'analysis-workbench':
+      return <AnalysisWorkbenchWorkspace workspaceId={workspaceId} />;
     default:
       return <div className="h-full flex items-center justify-center text-muted-foreground">Unknown workspace type: {workspaceType}</div>;
   }

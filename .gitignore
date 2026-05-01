@@ -18,6 +18,7 @@ src-tauri/target/
 # Local tool state
 .omc/
 .pnpm-store/
+.mote/
 
 # Ephemeral AI investigation reports
 claude-instance/
