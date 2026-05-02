@@ -70,6 +70,10 @@ struct LayerMetadata {
     _padding7: u32,
 };
 
+const LAYER_MODE_SCALAR: u32 = 0u;
+const LAYER_MODE_LABEL: u32 = 1u;
+const LAYER_MODE_MASK: u32 = 2u;
+
 // --- Bind Group 0: Per-Frame Globals ---
 @group(0) @binding(0) var<uniform> frame: FrameUbo;
 @group(0) @binding(1) var<uniform> crosshair: CrosshairUbo;
@@ -246,8 +250,14 @@ fn sampleLayer(layer: LayerData, world_mm: vec3<f32>) -> vec4<f32> {
         }
     }
     
-    // Sample from the appropriate texture using the layer's interpolation mode
-    let raw_value = sampleVolumeTexture(layer.texture_index, tex_coord, layer.interpolation_mode);
+    // Label and mask layers must not interpolate categorical/binary IDs.
+    let force_nearest = layer.layer_mode == LAYER_MODE_LABEL ||
+                        layer.layer_mode == LAYER_MODE_MASK ||
+                        layer.is_mask == 1u;
+    let interpolation_mode = select(layer.interpolation_mode, 0u, force_nearest);
+    let raw_sample = sampleVolumeTexture(layer.texture_index, tex_coord, interpolation_mode);
+    // Label mode treats samples as integer IDs for thresholding and palette lookup.
+    let raw_value = select(raw_sample, round(raw_sample), layer.layer_mode == LAYER_MODE_LABEL);
 
     // Raw sampling debug mode: show intensity as grayscale for a single texture index.
     if (SLICE_DEBUG_MODE == 1u && layer.texture_index == SLICE_DEBUG_TEXTURE_INDEX) {
@@ -256,7 +266,7 @@ fn sampleLayer(layer: LayerData, world_mm: vec3<f32>) -> vec4<f32> {
     }
     
     // Handle binary masks
-    if (layer.is_mask == 1u) {
+    if (layer.is_mask == 1u || layer.layer_mode == LAYER_MODE_MASK) {
         // For binary masks, any non-zero value should be visible
         let alpha = select(0.0, layer.opacity, raw_value > 0.1);
         return vec4<f32>(vec3<f32>(1.0), alpha);

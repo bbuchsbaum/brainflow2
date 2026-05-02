@@ -73,6 +73,10 @@ struct LayerMetadata {
     _padding: vec3<u32>,
 };
 
+const LAYER_MODE_SCALAR: u32 = 0u;
+const LAYER_MODE_LABEL: u32 = 1u;
+const LAYER_MODE_MASK: u32 = 2u;
+
 // --- Bind Group 0: Per-Frame Globals ---
 @group(0) @binding(0) var<uniform> frame: FrameUbo;
 @group(0) @binding(1) var<uniform> crosshair: CrosshairUbo;
@@ -260,11 +264,17 @@ fn sampleLayerOptimized(layer: LayerData, world_mm: vec3<f32>, pixel_size: f32) 
         }
     }
 
-    // Sample from texture with LOD and interpolation mode
-    let raw_value = sampleVolumeTextureOptimized(layer.texture_index, tex_coord, lod, layer.interpolation_mode);
+    // Label and mask layers must not interpolate categorical/binary IDs.
+    let force_nearest = layer.layer_mode == LAYER_MODE_LABEL ||
+                        layer.layer_mode == LAYER_MODE_MASK ||
+                        layer.is_mask == 1u;
+    let interpolation_mode = select(layer.interpolation_mode, 0u, force_nearest);
+    let raw_sample = sampleVolumeTextureOptimized(layer.texture_index, tex_coord, lod, interpolation_mode);
+    // Label mode treats samples as integer IDs for thresholding and palette lookup.
+    let raw_value = select(raw_sample, round(raw_sample), layer.layer_mode == LAYER_MODE_LABEL);
     
     // Fast path for binary masks
-    if (layer.is_mask == 1u) {
+    if (layer.is_mask == 1u || layer.layer_mode == LAYER_MODE_MASK) {
         let alpha = select(0.0, layer.opacity, raw_value > 0.1);
         return vec4<f32>(1.0, 1.0, 1.0, alpha);
     }

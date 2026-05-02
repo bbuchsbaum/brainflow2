@@ -7580,6 +7580,13 @@ async fn prepare_frontend_layers_for_render(
                 "cubic" => render_loop::view_state::InterpolationMode::Cubic,
                 _ => render_loop::view_state::InterpolationMode::Linear,
             };
+            let interpolation = match layer.layer_mode {
+                render_loop::render_state::LayerMode::Label
+                | render_loop::render_state::LayerMode::Mask => {
+                    render_loop::view_state::InterpolationMode::Nearest
+                }
+                render_loop::render_state::LayerMode::Scalar => interpolation,
+            };
 
             let mut backend_layer = render_loop::view_state::LayerConfig {
                 volume_id: layer.volume_id.clone(),
