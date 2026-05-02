@@ -93,6 +93,10 @@ export class TauriTransport implements BackendTransport {
       'scan_bids_dataset',
       'get_bids_events',
       'compute_temporal_metric',
+      'list_analyses',
+      'start_analysis',
+      'cancel_analysis',
+      'get_analysis_job_status',
     ];
     
     if (apiBridgeCommands.includes(cmd)) {
