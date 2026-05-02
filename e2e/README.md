@@ -61,6 +61,37 @@ npm test -- --ui
 npm test -- --update-snapshots
 ```
 
+## Remote Mount Coverage
+
+Remote-mount automation is opt-in because it requires an SSH fixture that can exercise trust and auth edge cases without embedding secrets in the repo.
+
+Recommended matrix:
+
+1. Known-host success
+2. Unknown-host trust prompt
+3. Host-key mismatch failure
+4. Keyboard-interactive / OTP challenge
+5. Auth denial
+6. Local mount baseline in the same run
+
+Suggested environment variables:
+
+```bash
+export BRAINFLOW_E2E_SSH_HOST=...
+export BRAINFLOW_E2E_SSH_PORT=22
+export BRAINFLOW_E2E_SSH_USER=...
+export BRAINFLOW_E2E_SSH_PASSWORD=...
+export BRAINFLOW_E2E_SSH_KEY_PATH=/absolute/path/to/test/key
+export BRAINFLOW_E2E_SSH_OTP_SECRET=...
+```
+
+When these are configured, remote-mount tests should verify:
+
+- `Mount Remote (SSH)…` completes the guided flow
+- the mounted root shows the SSH origin indicator
+- child rows do not show remote provenance badges
+- opening a remote neuroimaging file stages to cache and still loads through the normal pipeline
+
 ## CI Integration
 
 Tests can be run in CI with:

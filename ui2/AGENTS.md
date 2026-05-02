@@ -40,6 +40,26 @@ The main React/TypeScript frontend application for Brainflow2, providing an inte
 
 ## For AI Agents
 
+### Design System Reference
+
+The UI is converging on **mockup 7 / Integrated workspace**. The canonical specification for visual style, layout, tokens, typography, and per-component contracts lives in [`../resdesign/Design.md`](../resdesign/Design.md).
+
+Read `Design.md` before:
+- Adding a new panel, dock, or workspace surface.
+- Touching colors, spacing, radii, typography, or icon sizing.
+- Deciding where a control belongs (one editable home per setting).
+- Wiring the inspector / plot / time row / status bar / left rail.
+- Auditing whether a screen matches the intended direction (use the §20 acceptance checklist).
+
+Key invariants from `Design.md` (do not violate without reason):
+- Right inspector top-level modes are `INSPECTOR | ANNOTATE` — **not** `Surface | Volume | Atlas | Annotate`.
+- Inspector is selection-driven; sections vary by layer kind (volume / surface / atlas / annotation).
+- `STATS` in the inspector is summary-only; the histogram chart lives in the bottom Plot dock, not the inspector.
+- A 4D layer surfaces exactly one canonical pinned time row in the center workspace; do not add a second time scrubber to the inspector.
+- The bottom dock is a single dock with `Activity | Plot | Log` tabs — not separate persistent log panels.
+- `Integrated` is one of `Orthogonal | Surface | Integrated | Mosaic | Compare`; it is a display-mode option, not the universal shell.
+- Use the `--bf-*` token names from §3.1 of `Design.md` for new surfaces; the `--app-*` tokens in `src/styles/theme.css` map onto the same palette.
+
 ### Working In This Directory
 
 **Critical Architecture Patterns:**
@@ -68,6 +88,7 @@ npm run build         # TypeScript compilation + Vite build
 
 **Key Development Guidelines:**
 - Read `CLAUDE.md` for declarative API philosophy and architecture details
+- Read `../resdesign/Design.md` for the canonical mockup-7 design system (tokens, layout, typography, per-component contracts, acceptance checklist)
 - State management: Use Zustand stores for all cross-component state
 - Golden Layout isolation: Never use React Context for state shared across panels
 - Service pattern: Keep components thin, logic in services

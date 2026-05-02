@@ -165,6 +165,18 @@ Frontend ← Handle/SharedArrayBuffer ← GPU Resources ← File I/O
 6. Rust prepares GPU resources, renders via WebGPU
 7. Zero-copy transfer of results to frontend
 
+### Remote Mount Flow
+
+Remote mounts extend the normal file-open path without introducing a second loader/render fork.
+
+1. `ui2` starts the SSH flow from `RemoteMountDialog`.
+2. `api_bridge` delegates protocol work to `remotely`.
+3. `remotely` handles host-key validation, keyboard-interactive prompts, remote listing/stat, retries, and streamed downloads.
+4. `api_bridge` stores non-secret profile metadata, retrieves secrets from the OS keychain, registers mounted roots by `mount_id`, and stages remote file requests into the managed local cache.
+5. Once a remote file is materialized locally, Brainflow reuses the existing local `load_file` and render pipeline unchanged.
+
+That ownership split is important: SSH/session semantics belong in `remotely`, while Brainflow owns application policy, cached-file lifecycle, generated bridge contracts, and the user-facing Files workflow.
+
 ### Handle System
 ```typescript
 // Frontend works with handles, not raw data

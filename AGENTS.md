@@ -17,6 +17,7 @@
   - `volmath/` + `neuro-*`: Math/linear algebra helpers and canonical neuroimaging interfaces shared across CPU/GPU implementations.
   - `colormap/`: Color map definitions and helpers.
 - `ui2/`: Current React app (GoldenLayout-based workspace, Zustand stores, Radix UI). Entry `src/main.tsx` mounts `App.tsx`; services/hooks coordinate with backend events. Tailwind configured via `tailwind.config.js`.
+  - Analysis workbench lives under `ui2/src/components/analysis/` + `ui2/src/stores/analysisStore.ts`; it is a singleton workspace for discovery, job launch, polling, cancellation, and artifact handoff.
 - `packages/`: Shared TS packages.
   - `api/`: Published API client; consumes generated bindings under `src/generated`.
   - `plugin-sdk/`, `legacy-ts/`: SDK scaffolding and older TS assets.
@@ -28,15 +29,20 @@
 ## Development Loops
 - Install deps: `pnpm install` (root) + `cargo fetch`. UI uses pnpm workspace; legacy npm lock in `ui2` exists for compatibility.
 - Common commands:
-  - `pnpm dev` or `cargo tauri dev`: run desktop app with hot reload.
+  - `cargo tauri dev`: run the full desktop app with hot reload; prefer this when backend/Tauri behavior matters.
+  - `pnpm dev`: run the UI dev loop only; many app features require the Tauri backend.
   - `pnpm -r build` + `cargo tauri build`: production build.
   - `make local:deploy` or `make local-deploy`: build the macOS app bundle and install a `~/bin/brainflow` launcher that points at the repo-local bundle.
   - `make local:install` or `make local-install`: install the `~/bin/brainflow` launcher; the macOS release bundle can be built later.
   - `cargo xtask ts-bindings`: regenerate TypeScript bindings (drops files into `packages/api/src/generated`).
+- Quality checks:
+  - Rust formatting/linting: `cargo fmt --all`, `cargo clippy --workspace --all-targets`.
+  - TypeScript formatting/linting: `pnpm format`, `pnpm lint`.
 - Testing:
   - Rust: `cargo test --workspace`.
   - UI unit tests: `pnpm --filter ui2 test` (vitest) or `pnpm --filter ui test:unit` if legacy packages required.
   - E2E: `pnpm --filter ui test:e2e` (runs Playwright in `e2e/`).
+  - Remote mount slice of the matrix: `cargo test -p api-bridge remote_mount_`, `pnpm --filter temp-ui exec vitest run src/services/__tests__/RemoteMountService.test.ts src/components/panels/__tests__/RemoteMountDialog.test.tsx src/components/panels/__tests__/FileBrowserPanel.remoteOrigin.test.tsx src/components/panels/__tests__/FileBrowserPanel.unmount.test.tsx`, then `cargo xtask ts-bindings`.
   - GPU/regression scripts: `tools/test-render-pipeline.sh`, `tools/test-bridge.js`, `scripts/run-differential-tests.sh`.
   - Benches (Criterion):
     - Upload (runtime): `CRITERION_DEBUG=1 cargo bench -p render_loop_benches --bench upload`
@@ -46,9 +52,14 @@
 
 ## Integration Notes
 - Backend state: `api_bridge` maintains `VolumeRegistry`, surface registries, and menu-driven template loading. Commands emit events (`volume-loaded`, `mount-directory-event`) consumed by UI hooks (`useMountListener`, etc.).
+- Analysis backend: `core/api_bridge/src/analysis.rs` now plugs into `BridgeState` and exposes `list_analyses`, `start_analysis`, `cancel_analysis`, and `get_analysis_job_status`. Discovery scans bundled plugins under `plugins/analyses/*` plus the user plugin dir, and the first workbench slice currently supports runnable single-volume analyses.
+- Remote mounts: `RemoteMountDialog` and `RemoteMountService` drive `remote_mount_connect` / challenge-response commands, while `api_bridge` keeps the `RemoteMountRegistry`, saved-profile metadata, and staged cache. SSH/session behavior stays in `remotely`; Brainflow owns command translation, keychain-backed credential policy, cache freshness metadata, and the handoff back into the existing local `load_file` path via `materialize_remote_file_if_needed()`.
+- Recovery behavior is split deliberately: `remotely` retries retryable SFTP list/stat/download operations once and exposes recovery hooks; `api_bridge` converts those hooks into `remote-mount-recovery` app events and tracing warnings, and `useMountListener` turns them into warning notifications for the UI.
 - Templates & atlases: `TemplateService` and `AtlasService` feed menu builders in `src-tauri/main.rs`; ensure new resources register there and in TS bindings.
 - Shared enums/structs annotated with `#[ts(export)]` for TS binding generation. Keep them ASCII-friendly and update `packages/api` after changes.
 - Frontend bootstraps services via hooks (`useServicesInit`, `useStatusBarInit`, `useMountListener`); global state lives in Zustand stores under `ui2/src/stores` with coalescing middleware to prevent render loops.
+- GoldenLayout creates isolated React roots per docked panel. Any state that must update across panels must live in a global store/service such as Zustand, not React Context.
+- Files-panel remote provenance is intentionally root-only: mounted remote roots carry the SSH origin badge/tooltip, while child rows should render with the same affordances as local entries.
 - GPU slice rendering: orchestrated in `render_loop`; front-end requests GPU handles via bridge commands and receives metadata (`VolumeLayerGpuInfo`, view states) for WebGPU canvas components.
 - Slice display sharing: `SliceRenderer` is the low-level bitmap canvas primitive, while `ui2/src/components/views/SliceViewport.tsx` is the shared mid-level viewport used by orthogonal `SliceViewCanvas`, `ComparisonPanel`, and `MosaicCell`. Keep render scheduling workspace-specific (`ComparisonRenderService`, `MosaicRenderService`, orthogonal view services), but route context registration, placement bookkeeping, click-to-world mapping, and standard crosshair overlays through the shared viewport/hooks unless a workspace has a documented special case (for example mosaic mirror-crosshair styling).
 - GPU atlas allocations are guarded by `LayerLease`; releases (manual or drop) clean up `layer_to_*` maps and free atlas slots. A watchdog (`BridgeState::start_layer_watchdog`) reclaims stale leases, and atlas capacity updates surface through `atlas.metrics`/`atlas.pressure`/`atlas.eviction` events.
@@ -58,8 +69,32 @@
 - 4D time series support: `coord_to_grid_for_volume` now handles `DenseNeuroVec` coordinates (fourth axis optional in inputs) and associated unit tests pin the behaviour.
 - Time navigation: `TimeNavigationService`/`useTimeNavigation` drive `set_volume_timepoint` via `ApiService`; layer metadata `currentTimepoint` stays in sync so render + histogram paths pull the correct 3D volume.
 
+## Tauri Command Bridge
+- Parameter naming crosses conventions automatically: JavaScript calls use camelCase (`originMm`, `layerId`), while Rust command args use snake_case (`origin_mm`, `layer_id`).
+- Adding a new Tauri command usually requires four coordinated updates:
+  1. Define the Rust command function with `#[command]`.
+  2. Add it to `COMMANDS` in `core/api_bridge/build.rs`.
+  3. Add it to the `generate_handler!` macro in the relevant Rust entrypoint.
+  4. Add it to `apiBridgeCommands` in `ui2/src/services/transport.ts`.
+- Commands need permissions in `core/api_bridge/permissions/default.toml`, for example `permissions = ["allow-update-frame-ubo", "allow-patch-layer"]`.
+- Frontend invocation uses the plugin namespace, for example `invoke('plugin:api-bridge|update_frame_ubo', { originMm, uMm, vMm })`.
+- See `core/api_bridge/ADDING_COMMANDS.md` before changing command surfaces.
+
+## Rendering & Coordinates
+- World space uses LPI neuroimaging coordinates. GPU/WebGPU internals use Y=0 at bottom; CPU/image buffers use Y=0 at top.
+- Keep Y-flips isolated to GPU buffer readback (`render_to_buffer()`); do not add compensating flips to geometry, slice specs, or CPU renderer paths.
+- CPU rendering (`neuro-cpu`) uses image convention internally and should match GPU output after readback.
+- Preserve square pixels for medical imaging. When fitting an extent into a viewport, use a uniform pixel size: `max(extentX / dimX, extentY / dimY)`.
+- Backend reference for aspect-ratio preservation: `core/neuro-types/src/view_rect.rs` (`SliceGeometry::full_extent`).
+
+## UI Layout Caveats
+- In GoldenLayout panels, React Context is panel-local because each panel has its own React root; use Zustand or services for cross-panel state.
+- In Allotment panes, avoid relying on nested `flex`/`flex-1` layouts for critical content such as bottom slice sliders. Use absolute positioning or explicit dimensions inside the pane.
+
 ## Useful References
 - High-level architecture & plans: `memory-bank/ARCHITECTURE.md`, `memory-bank/Implementation_Roadmap.md`.
+- Analysis plugin protocol: `docs/analysis_plugins.md`, bundled example at `plugins/analyses/example/`.
+- Remote mount architecture + runbook: `memory-bank/REMOTE_MOUNTS.md`.
 - UI layout & component catalogs: `ui2/ui_architecture.md`, `ui2/docs/`.
 - Backend deep dives: `core/api_bridge/docs/`, `core/render_loop/benchmarks.rs` for performance context.
 - Operational logs: `dev_log.txt`, `tauri_dev_log.txt`, `tools/dev-watch.sh` monitors bridge changes.

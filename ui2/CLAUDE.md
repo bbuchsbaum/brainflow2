@@ -2,6 +2,20 @@
 
 This file provides guidance to Claude Code when working with the UI2 React frontend code.
 
+## Design System — `resdesign/Design.md`
+
+**Read [`resdesign/Design.md`](../resdesign/Design.md) before any visual, layout, or token-level work.** It is the canonical specification for the mockup-7 / Integrated workspace direction this codebase is converging on.
+
+`Design.md` covers:
+- **Product principles** — medical accuracy first, layers as source of visual truth, inspector follows selection, one editable home per control, Plot as first-class dock, Integrated as a display mode.
+- **App shell layout** — three-column frame (320 px left rail | fluid center | 376 px right inspector), 40 px top bar, 44 px status bar, 220 px bottom dock; named `layout` constants in §2.2.
+- **Color tokens** — full `--bf-*` CSS-variable set (backgrounds, borders, text, brand/accent, semantic, anatomical orientation colors, plot, shadows, radii, spacing, sizes) in §3.1.
+- **Typography** — `--bf-font-sans` / `--bf-font-mono`, `.bf-type-*` classes, tabular-numeric rules for numeric readouts.
+- **Component contracts** — panel chrome, top bar, left rail (connections, BIDS tree, layer rows, summary), center viewer (ortho cards, time row, surface viewport), bottom dock (Activity / Plot / Log tabs), right inspector (`INSPECTOR | ANNOTATE` modes, active-layer banner, contextual sections per layer kind, summary-only Stats), status bar, controls (buttons, inputs, sliders, toggles).
+- **Acceptance checklist** — §20 lists the concrete checks that determine whether a build matches the intended direction.
+
+When in doubt about colors, sizes, naming, or where a control belongs: consult `Design.md` first; only depart from it with an explicit reason. Existing `--app-*` tokens in `theme.css` map onto the `--bf-*` token names in `Design.md` — prefer the canonical token names from `Design.md` for new surfaces.
+
 ## Declarative API Philosophy
 
 The Brainflow2 architecture uses a **declarative API** pattern to minimize coupling between the frontend and backend. This approach was introduced during the Rust backend refactoring to create a cleaner, more maintainable interface.
