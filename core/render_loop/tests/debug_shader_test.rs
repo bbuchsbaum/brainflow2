@@ -77,6 +77,9 @@ fn test_debug_shader_world_coordinate_variation() {
         threshold_mode: ThresholdMode::Range,
         texture_coords: (0.0, 0.0, 1.0, 1.0),
         is_mask: false,
+        has_alpha_mask: false,
+        layer_mode: Default::default(),
+        interpolation_mode: 1,
     };
 
     // Use proper API to set layer info

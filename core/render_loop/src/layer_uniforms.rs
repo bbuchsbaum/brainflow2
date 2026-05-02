@@ -1,8 +1,8 @@
 // Layer uniform buffer management
 
 use crate::render_state::LayerInfo;
-use crate::{shaders::uniforms::ActiveLayerCount, LayerUboStd140};
 use crate::LayerMode;
+use crate::{shaders::uniforms::ActiveLayerCount, LayerUboStd140};
 use bytemuck;
 use log::debug;
 use nalgebra::Matrix4;

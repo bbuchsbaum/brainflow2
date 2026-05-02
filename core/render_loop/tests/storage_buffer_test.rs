@@ -47,6 +47,8 @@ fn test_storage_buffer_many_layers() {
                 intensity_window: (0.0, 1.0),
                 threshold: None,
                 visible: true,
+                interpolation: Default::default(),
+                layer_mode: Default::default(),
             });
         }
 
@@ -122,6 +124,9 @@ fn test_storage_buffer_dynamic_resize() {
                     threshold_mode: ThresholdMode::Range,
                     texture_coords: (0.0, 0.0, 1.0, 1.0),
                     is_mask: false,
+                    has_alpha_mask: false,
+                    layer_mode: Default::default(),
+                    interpolation_mode: 1,
                 })
                 .collect();
 

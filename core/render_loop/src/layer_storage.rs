@@ -566,7 +566,10 @@ mod tests {
 
         manager.update_layers(&device, &queue, &layout, &layers, &dims, &transforms);
 
-        assert_eq!(manager.layer_data[0].layer_mode, crate::LayerMode::Label as u32);
+        assert_eq!(
+            manager.layer_data[0].layer_mode,
+            crate::LayerMode::Label as u32
+        );
         assert_eq!(manager.layer_data[0].interpolation_mode, 0);
     }
 }
