@@ -7,6 +7,7 @@ import { create } from 'zustand';
 import { immer } from 'zustand/middleware/immer';
 import { subscribeWithSelector } from 'zustand/middleware';
 import { enableMapSet } from 'immer';
+import type { LoadingQueueRetryContext } from './loadingQueueStore';
 
 // Enable Map and Set support in Immer
 enableMapSet();
@@ -16,6 +17,17 @@ export type ProgressTaskType = 'file-load' | 'computation' | 'export' | 'renderi
 
 // Progress task status
 export type ProgressStatus = 'active' | 'completed' | 'error' | 'cancelled';
+
+export interface ProgressTaskMetadata {
+  filePath?: string;
+  volumeId?: string;
+  layerId?: string;
+  queueId?: string;
+  sourcePath?: string;
+  sourceType?: string;
+  retry?: LoadingQueueRetryContext;
+  [key: string]: unknown;
+}
 
 // Individual progress task
 export interface ProgressTask {
@@ -29,13 +41,10 @@ export interface ProgressTask {
   endTime?: number;
   error?: Error;
   cancellable?: boolean;
+  retryable?: boolean;
+  retrying?: boolean;
   // Optional metadata for specific task types
-  metadata?: {
-    filePath?: string;
-    volumeId?: string;
-    layerId?: string;
-    [key: string]: any;
-  };
+  metadata?: ProgressTaskMetadata;
 }
 
 // Store state interface

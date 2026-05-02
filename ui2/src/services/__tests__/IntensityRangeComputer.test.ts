@@ -116,7 +116,7 @@ describe('computeAdaptiveIntensityRange', () => {
     expect(result.method).toBe('symmetric-percentile');
     expect(result.intensity[0]).toBeCloseTo(-result.intensity[1], 1);
     expect(result.intensity[1]).toBeGreaterThan(0);
-    expect(result.suggestedColormap).toBe('fmri-red-blue');
+    expect(result.suggestedColormap).toBe('fmri');
   });
 
   it('does not suggest colormap for anatomical volumes', () => {

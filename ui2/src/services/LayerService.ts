@@ -142,9 +142,6 @@ export class LayerService {
    * Toggle layer visibility
    */
   toggleVisibility(id: string, visible: boolean): void {
-    // Update opacity (single source of truth)
-    this.patchLayer(id, { opacity: visible ? 1.0 : 0.0 });
-
     // Keep local stores in sync immediately for responsive UI.
     useLayerStore.getState().updateLayer(id, { visible });
     useViewStateStore.getState().setViewState((state) => {
@@ -158,6 +155,13 @@ export class LayerService {
     
     // Emit event for immediate UI update
     this.eventBus.emit('layer.visibility', { layerId: id, visible });
+
+    void this.api.updateLayer(id, { visible }).then(() => {
+      this.clearError(id);
+    }).catch((error) => {
+      this.recordError(id, error as Error);
+      this.eventBus.emit('layer.error', { layerId: id, error: error as Error });
+    });
   }
 
   /**

@@ -47,8 +47,8 @@ class LayerEvictionService {
       const viewLayer = viewLayers.find(vl => vl.id === layer.id);
       const isVisible = viewLayer?.visible ?? layer.visible;
       const meta = layerMetadata.get(layer.id);
-      if (isVisible && meta && !meta.evicted) {
-        setLayerMetadata(layer.id, { ...meta, lastRenderTime: now });
+      if (isVisible && meta && meta.gpuResident !== false) {
+        setLayerMetadata(layer.id, { ...meta, evicted: false, lastRenderTime: now });
       }
     }
   }
@@ -60,8 +60,8 @@ class LayerEvictionService {
   touchLayer(layerId: string): void {
     const { layerMetadata, setLayerMetadata } = useLayerStore.getState();
     const meta = layerMetadata.get(layerId);
-    if (meta) {
-      setLayerMetadata(layerId, { ...meta, lastRenderTime: performance.now() });
+    if (meta && meta.gpuResident !== false) {
+      setLayerMetadata(layerId, { ...meta, evicted: false, lastRenderTime: performance.now() });
     }
   }
 
@@ -73,17 +73,17 @@ class LayerEvictionService {
     const { layers, layerMetadata, setLayerMetadata } = useLayerStore.getState();
     const viewLayers = useViewStateStore.getState().viewState.layers;
 
-    // Count only non-evicted layers (layers with actual GPU textures)
+    // Count only layers that still hold live GPU resources.
     const activeGpuLayers = layers.filter(l => {
       const meta = layerMetadata.get(l.id);
-      return !meta?.evicted;
+      return meta?.gpuResident !== false;
     });
 
     if (activeGpuLayers.length <= MAX_GPU_LAYERS) {
       return;
     }
 
-    // Find candidates: invisible, non-evicted layers
+    // Find candidates: invisible GPU-resident layers
     const candidates = activeGpuLayers.filter(layer => {
       const viewLayer = viewLayers.find(vl => vl.id === layer.id);
       const isVisible = viewLayer?.visible ?? layer.visible;
@@ -124,7 +124,7 @@ class LayerEvictionService {
     // Mark the layer as evicted in metadata
     const meta = layerMetadata.get(lruLayer.id);
     if (meta) {
-      setLayerMetadata(lruLayer.id, { ...meta, evicted: true });
+      setLayerMetadata(lruLayer.id, { ...meta, evicted: true, gpuResident: false });
     }
   }
 }

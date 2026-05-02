@@ -44,6 +44,7 @@ export class LayerMetadataService {
         voxelToWorld: gpuInfo.voxel_to_world,
         worldToVoxel: gpuInfo.world_to_voxel,
         dataType: gpuInfo.tex_format,
+        gpuResident: false,
       };
       
       // Store the metadata

@@ -90,9 +90,16 @@ export class SurfaceLoadingService {
     
     // Add to loading queue
     const queueId = useLoadingQueueStore.getState().enqueue({
-      type: 'file',  // Using 'file' type since surfaces are loaded from files
+      type: 'surface-load',
       path: path,
-      displayName: filename
+      displayName: filename,
+      retry: {
+        kind: 'surface-load',
+        path,
+        displayName: filename,
+        autoActivate,
+        validateMesh,
+      },
     });
     
     try {
@@ -258,11 +265,30 @@ export class SurfaceLoadingService {
       return;
     }
     const surfaceName = surface.name || surfaceHandle;
+    const queuePath = `surface-unload:${surfaceHandle}`;
+    const queueStore = useLoadingQueueStore.getState();
+    if (queueStore.isLoading(queuePath)) {
+      return;
+    }
+    const queueId = queueStore.enqueue({
+      type: 'surface-unload',
+      path: queuePath,
+      displayName: surfaceName,
+      retry: {
+        kind: 'surface-unload',
+        surfaceHandle,
+        closeTabs,
+        notify,
+      },
+    });
 
     try {
+      queueStore.startLoading(queueId);
+      queueStore.updateProgress(queueId, 10);
       await this.transport.invoke<{ success: boolean; message: string }>('unload_surface', {
         handle: surfaceHandle,
       });
+      queueStore.updateProgress(queueId, 75);
 
       useSurfaceStore.getState().removeSurface(surfaceHandle);
 
@@ -276,7 +302,9 @@ export class SurfaceLoadingService {
           message: `Removed surface: ${surfaceName}`
         });
       }
+      queueStore.markComplete(queueId);
     } catch (error) {
+      queueStore.markError(queueId, error instanceof Error ? error : new Error(formatTauriError(error)));
       console.error('[SurfaceLoadingService] Failed to unload surface:', error);
       const message = formatTauriError(error);
       this.eventBus.emit('ui.notification', {

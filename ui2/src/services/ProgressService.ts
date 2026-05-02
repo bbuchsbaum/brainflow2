@@ -4,8 +4,17 @@
  */
 
 import { getEventBus, type EventBus } from '@/events/EventBus';
-import { useProgressStore, generateTaskId, type ProgressTaskType } from '@/stores/progressStore';
-import { useLoadingQueueStore, type LoadingQueueItem } from '@/stores/loadingQueueStore';
+import {
+  useProgressStore,
+  generateTaskId,
+  type ProgressTaskMetadata,
+  type ProgressTaskType,
+} from '@/stores/progressStore';
+import {
+  useLoadingQueueStore,
+  type LoadingQueueItem,
+  type LoadingQueueRetryContext,
+} from '@/stores/loadingQueueStore';
 import { safeListen, safeUnlisten, type Unlisten } from '@/utils/eventUtils';
 
 interface AtlasStageProgressPayload {
@@ -238,7 +247,7 @@ export class ProgressService {
     options?: {
       message?: string;
       cancellable?: boolean;
-      metadata?: Record<string, unknown>;
+      metadata?: ProgressTaskMetadata;
     }
   ): string {
     const taskId = generateTaskId(type);
@@ -288,6 +297,36 @@ export class ProgressService {
       useProgressStore.getState().cancelTask(taskId);
     }
   }
+
+  async retryTask(taskId: string): Promise<void> {
+    const task = useProgressStore.getState().getTask(taskId);
+    const retryContext = task?.metadata?.retry;
+
+    if (!task || task.status !== 'error' || !task.retryable || task.retrying || !retryContext) {
+      return;
+    }
+
+    useProgressStore.getState().updateTask(taskId, {
+      retrying: true,
+      retryable: false,
+      message: 'Retrying…',
+    });
+
+    try {
+      const started = await this.executeRetry(retryContext);
+      if (!started) {
+        throw new Error('Retry could not be started');
+      }
+      useProgressStore.getState().removeTask(taskId);
+    } catch (error) {
+      useProgressStore.getState().updateTask(taskId, {
+        retrying: false,
+        retryable: true,
+        message: 'Retry failed to start',
+        error: error instanceof Error ? error : new Error('Retry failed to start'),
+      });
+    }
+  }
   
   /**
    * Clean up listeners
@@ -322,10 +361,16 @@ export class ProgressService {
 
   private getTaskTypeFromLoadingItem(item: LoadingQueueItem): ProgressTaskType {
     switch (item.type) {
-      case 'file':
+      case 'volume-load':
+      case 'surface-load':
+      case 'surface-overlay-load':
       case 'template':
       case 'atlas':
         return 'file-load';
+      case 'volume-unload':
+      case 'surface-unload':
+      case 'surface-overlay-remove':
+        return 'generic';
       default:
         return 'generic';
     }
@@ -333,13 +378,47 @@ export class ProgressService {
 
   private getTaskTitleFromLoadingItem(item: LoadingQueueItem): string {
     switch (item.type) {
+      case 'volume-load':
+        return `Loading volume: ${item.displayName}`;
+      case 'surface-load':
+        return `Loading surface: ${item.displayName}`;
+      case 'surface-overlay-load':
+        return `Applying overlay: ${item.displayName}`;
+      case 'volume-unload':
+        return `Removing volume: ${item.displayName}`;
+      case 'surface-unload':
+        return `Removing surface: ${item.displayName}`;
+      case 'surface-overlay-remove':
+        return `Removing overlay: ${item.displayName}`;
       case 'template':
         return `Loading template: ${item.displayName}`;
       case 'atlas':
         return `Loading atlas: ${item.displayName}`;
-      case 'file':
       default:
-        return `Loading ${item.displayName}`;
+        return item.displayName;
+    }
+  }
+
+  private getCompletionMessageFromLoadingItem(item: LoadingQueueItem): string {
+    switch (item.type) {
+      case 'volume-load':
+        return `Loaded volume ${item.displayName}`;
+      case 'surface-load':
+        return `Loaded surface ${item.displayName}`;
+      case 'surface-overlay-load':
+        return `Applied overlay ${item.displayName}`;
+      case 'volume-unload':
+        return `Removed volume ${item.displayName}`;
+      case 'surface-unload':
+        return `Removed surface ${item.displayName}`;
+      case 'surface-overlay-remove':
+        return `Removed overlay ${item.displayName}`;
+      case 'template':
+        return `Loaded template ${item.displayName}`;
+      case 'atlas':
+        return `Loaded atlas ${item.displayName}`;
+      default:
+        return item.displayName;
     }
   }
 
@@ -357,10 +436,13 @@ export class ProgressService {
         message: queuePhase === 'queued' ? 'Queued' : 'Starting…',
         progress: queuePhase === 'queued' ? -1 : (item.progress ?? -1),
         status: 'active',
+        retryable: false,
+        retrying: false,
         metadata: {
           queueId: item.id,
           sourcePath: item.path,
           sourceType: item.type,
+          retry: item.retry,
         },
       });
       return;
@@ -383,6 +465,10 @@ export class ProgressService {
     this.loadingQueueTaskIds.set(item.id, taskId);
 
     if (item.status === 'error') {
+      useProgressStore.getState().updateTask(taskId, {
+        retryable: Boolean(item.retry),
+        retrying: false,
+      });
       useProgressStore
         .getState()
         .completeTask(taskId, item.error ?? new Error(`Failed to load ${item.displayName}`));
@@ -398,8 +484,10 @@ export class ProgressService {
 
     useProgressStore.getState().updateTask(taskId, {
       title: this.getTaskTitleFromLoadingItem(item),
-      message: `Loaded ${item.displayName}`,
+      message: this.getCompletionMessageFromLoadingItem(item),
       progress: 100,
+      retryable: false,
+      retrying: false,
     });
     useProgressStore.getState().completeTask(taskId);
     this.scheduleTaskCleanup(taskId, 8_000);
@@ -520,6 +608,56 @@ export class ProgressService {
 
     return null;
   }
+
+  private async executeRetry(retryContext: LoadingQueueRetryContext): Promise<boolean> {
+    switch (retryContext.kind) {
+      case 'volume-load': {
+        const { getDisplayLifecycleOrchestrator } = await import('./DisplayLifecycleOrchestrator');
+        return getDisplayLifecycleOrchestrator().retryVolumeLoad(
+          retryContext.path,
+          retryContext.intent ?? 'default'
+        );
+      }
+      case 'surface-load': {
+        const { getSurfaceLoadingService } = await import('./SurfaceLoadingService');
+        const handle = await getSurfaceLoadingService().loadSurfaceFile({
+          path: retryContext.path,
+          displayName: retryContext.displayName,
+          autoActivate: retryContext.autoActivate ?? true,
+          validateMesh: retryContext.validateMesh ?? true,
+        });
+        return handle !== null;
+      }
+      case 'surface-overlay-load': {
+        const { getDisplayLifecycleOrchestrator } = await import('./DisplayLifecycleOrchestrator');
+        return getDisplayLifecycleOrchestrator().retrySurfaceOverlayLoad(
+          retryContext.path,
+          retryContext.targetSurfaceId
+        );
+      }
+      case 'volume-unload': {
+        const { getLayerService } = await import('./LayerService');
+        await getLayerService().removeLayer(retryContext.layerId);
+        return true;
+      }
+      case 'surface-unload': {
+        const { getSurfaceLoadingService } = await import('./SurfaceLoadingService');
+        await getSurfaceLoadingService().unloadSurface(retryContext.surfaceHandle, {
+          closeTabs: retryContext.closeTabs,
+          notify: retryContext.notify,
+        });
+        return true;
+      }
+      case 'surface-overlay-remove': {
+        const { surfaceOverlayService } = await import('./SurfaceOverlayService');
+        await surfaceOverlayService.removeSurfaceDataLayer(
+          retryContext.surfaceId,
+          retryContext.layerId
+        );
+        return true;
+      }
+    }
+  }
 }
 
 // Singleton instance
@@ -564,7 +702,7 @@ export function useProgressService() {
       options?: {
         message?: string;
         cancellable?: boolean;
-        metadata?: Record<string, unknown>;
+        metadata?: ProgressTaskMetadata;
       }
     ) =>
       getProgressService().startTask(type, title, options),
@@ -573,6 +711,8 @@ export function useProgressService() {
     completeTask: (taskId: string, error?: Error) =>
       getProgressService().completeTask(taskId, error),
     cancelTask: (taskId: string) =>
-      getProgressService().cancelTask(taskId)
+      getProgressService().cancelTask(taskId),
+    retryTask: (taskId: string) =>
+      getProgressService().retryTask(taskId),
   };
 }

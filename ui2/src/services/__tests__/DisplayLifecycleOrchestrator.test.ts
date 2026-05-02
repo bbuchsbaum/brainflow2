@@ -197,9 +197,14 @@ describe('DisplayLifecycleOrchestrator', () => {
     expect(mockSurfaceLoadingService.loadSurfaceFile).not.toHaveBeenCalled();
     expect(mockSurfaceOverlayService.loadSurfaceOverlay).not.toHaveBeenCalled();
     expect(mockQueueState.enqueue).toHaveBeenCalledWith({
-      type: 'file',
+      type: 'volume-load',
       path: '/tmp/mni152.nii.gz',
       displayName: 'mni152.nii.gz',
+      retry: {
+        kind: 'volume-load',
+        path: '/tmp/mni152.nii.gz',
+        intent: 'default',
+      },
     });
     expect(mockEventBus.emit).toHaveBeenCalledWith('file.loading', { path: '/tmp/mni152.nii.gz' });
     expect(mockEventBus.emit).toHaveBeenCalledWith('file.loaded', {
@@ -247,6 +252,19 @@ describe('DisplayLifecycleOrchestrator', () => {
     expect(mockApiService.loadFile).not.toHaveBeenCalled();
     expect(mockVolumeLoadingService.loadVolume).not.toHaveBeenCalled();
     expect(mockSurfaceLoadingService.isSupportedSurfaceFile).not.toHaveBeenCalled();
+    expect(mockQueueState.enqueue).toHaveBeenCalledWith({
+      type: 'surface-overlay-load',
+      path: 'surface-overlay-load:surf-1:/tmp/atlas.label.gii',
+      displayName: 'atlas.label.gii',
+      retry: {
+        kind: 'surface-overlay-load',
+        path: '/tmp/atlas.label.gii',
+        targetSurfaceId: 'surf-1',
+      },
+    });
+    expect(mockQueueState.markComplete).toHaveBeenCalledWith('queue-1', {
+      layerId: 'overlay-1',
+    });
   });
 
   it('targets the focused surface view selection for overlays when multiple surfaces are loaded', async () => {

@@ -7,6 +7,7 @@ const {
   mockEventBusEmit,
   mockEnsureSurfaceView,
   mockFocusSurfacePanel,
+  mockCloseSurfaceViewTabs,
   mockQueueState,
   mockSurfaceStoreState,
 } = vi.hoisted(() => ({
@@ -15,6 +16,7 @@ const {
   mockEventBusEmit: vi.fn(),
   mockEnsureSurfaceView: vi.fn(),
   mockFocusSurfacePanel: vi.fn(),
+  mockCloseSurfaceViewTabs: vi.fn(),
   mockQueueState: {
     isLoading: vi.fn(() => false),
     enqueue: vi.fn(() => 'queue-1'),
@@ -24,9 +26,11 @@ const {
     markError: vi.fn(),
   },
   mockSurfaceStoreState: {
+    surfaces: new Map(),
     setLoadingState: vi.fn(),
     addSurface: vi.fn(),
     setSurfaceGeometry: vi.fn(),
+    removeSurface: vi.fn(),
   },
 }));
 
@@ -50,6 +54,7 @@ vi.mock('@/services/layoutService', () => ({
   getLayoutService: () => ({
     ensureSurfaceView: mockEnsureSurfaceView,
     focusSurfacePanel: mockFocusSurfacePanel,
+    closeSurfaceViewTabs: mockCloseSurfaceViewTabs,
   }),
 }));
 
@@ -70,6 +75,7 @@ describe('SurfaceLoadingService selection routing', () => {
     vi.clearAllMocks();
     mockQueueState.isLoading.mockReturnValue(false);
     mockQueueState.enqueue.mockReturnValue('queue-1');
+    mockSurfaceStoreState.surfaces = new Map();
   });
 
   it('activates loaded file surfaces through the shared selection helper without targeting a surface view', async () => {
@@ -104,6 +110,18 @@ describe('SurfaceLoadingService selection routing', () => {
     expect(mockSurfaceStoreState.addSurface).toHaveBeenCalledWith(expect.any(Object), false);
     expect(mockApplySurfaceSelectionInContext).toHaveBeenCalledWith('surface-1', 'geometry', null, null);
     expect(mockEnsureSurfaceView).toHaveBeenCalledWith('surface-1', '/tmp/lh.pial.gii');
+    expect(mockQueueState.enqueue).toHaveBeenCalledWith({
+      type: 'surface-load',
+      path: '/tmp/lh.pial.gii',
+      displayName: 'lh.pial.gii',
+      retry: {
+        kind: 'surface-load',
+        path: '/tmp/lh.pial.gii',
+        displayName: 'lh.pial.gii',
+        autoActivate: true,
+        validateMesh: false,
+      },
+    });
   });
 
   it('activates loaded template surfaces through the shared selection helper without targeting a surface view', async () => {
@@ -147,5 +165,31 @@ describe('SurfaceLoadingService selection routing', () => {
       'surface-template-1',
       'templateflow://fsaverage_pial_left'
     );
+  });
+
+  it('routes surface unload through the lifecycle queue before removing local state', async () => {
+    mockSurfaceStoreState.surfaces = new Map([
+      ['surface-1', { handle: 'surface-1', name: 'Left Pial' }],
+    ]);
+    mockInvoke.mockResolvedValue({ success: true, message: 'ok' });
+
+    const service = new SurfaceLoadingService();
+    await service.unloadSurface('surface-1');
+
+    expect(mockQueueState.enqueue).toHaveBeenCalledWith({
+      type: 'surface-unload',
+      path: 'surface-unload:surface-1',
+      displayName: 'Left Pial',
+      retry: {
+        kind: 'surface-unload',
+        surfaceHandle: 'surface-1',
+        closeTabs: true,
+        notify: true,
+      },
+    });
+    expect(mockQueueState.startLoading).toHaveBeenCalledWith('queue-1');
+    expect(mockQueueState.markComplete).toHaveBeenCalledWith('queue-1');
+    expect(mockSurfaceStoreState.removeSurface).toHaveBeenCalledWith('surface-1');
+    expect(mockCloseSurfaceViewTabs).toHaveBeenCalledWith('surface-1');
   });
 });

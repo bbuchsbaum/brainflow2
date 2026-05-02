@@ -8,6 +8,7 @@ import { getTransport } from './transport';
 import { AtlasService } from './AtlasService';
 import { useSurfaceStore } from '@/stores/surfaceStore';
 import { getEventBus } from '@/events/EventBus';
+import { useLoadingQueueStore } from '@/stores/loadingQueueStore';
 import { buildLabelRgbaFromPalette } from '@/hooks/atlasSurfaceColorUtils';
 import type { AtlasPaletteKind } from '@/types/atlasPalette';
 import {
@@ -458,18 +459,44 @@ export class SurfaceOverlayService {
       return;
     }
 
-    if (layer.dataHandle) {
-      await getTransport().invoke<{ success: boolean; message: string }>('unload_surface_overlay', {
-        handle: layer.dataHandle,
-      });
+    const queuePath = `surface-overlay-remove:${surfaceId}:${layerId}`;
+    const queueStore = useLoadingQueueStore.getState();
+    if (queueStore.isLoading(queuePath)) {
+      return;
     }
 
-    surfaceStore.removeDataLayer(surfaceId, layerId);
-
-    getEventBus().emit('surface.dataLayerRemoved', {
-      surfaceId,
-      layerId,
+    const queueId = queueStore.enqueue({
+      type: 'surface-overlay-remove',
+      path: queuePath,
+      displayName: layer.name,
+      retry: {
+        kind: 'surface-overlay-remove',
+        surfaceId,
+        layerId,
+      },
     });
+
+    try {
+      queueStore.startLoading(queueId);
+      queueStore.updateProgress(queueId, 10);
+
+      if (layer.dataHandle) {
+        await getTransport().invoke<{ success: boolean; message: string }>('unload_surface_overlay', {
+          handle: layer.dataHandle,
+        });
+      }
+
+      queueStore.updateProgress(queueId, 80);
+      surfaceStore.removeDataLayer(surfaceId, layerId);
+      getEventBus().emit('surface.dataLayerRemoved', {
+        surfaceId,
+        layerId,
+      });
+      queueStore.markComplete(queueId);
+    } catch (error) {
+      queueStore.markError(queueId, error instanceof Error ? error : new Error('Failed to remove overlay'));
+      throw error;
+    }
   }
   
   /**

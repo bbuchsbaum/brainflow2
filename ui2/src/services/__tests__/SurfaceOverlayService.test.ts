@@ -7,9 +7,17 @@ import {
   type LoadedSurface,
 } from '@/stores/surfaceStore';
 
-const { mockInvoke, mockEmit } = vi.hoisted(() => ({
+const { mockInvoke, mockEmit, mockQueueState } = vi.hoisted(() => ({
   mockInvoke: vi.fn(),
   mockEmit: vi.fn(),
+  mockQueueState: {
+    isLoading: vi.fn(() => false),
+    enqueue: vi.fn(() => 'queue-1'),
+    startLoading: vi.fn(),
+    updateProgress: vi.fn(),
+    markComplete: vi.fn(),
+    markError: vi.fn(),
+  },
 }));
 
 vi.mock('@/services/transport', () => ({
@@ -23,6 +31,12 @@ vi.mock('@/events/EventBus', () => ({
     emit: mockEmit,
     on: vi.fn(() => () => {}),
   }),
+}));
+
+vi.mock('@/stores/loadingQueueStore', () => ({
+  useLoadingQueueStore: {
+    getState: () => mockQueueState,
+  },
 }));
 
 function makeSurface(handle: string): LoadedSurface {
@@ -58,6 +72,12 @@ describe('SurfaceOverlayService', () => {
     });
     mockInvoke.mockReset();
     mockEmit.mockReset();
+    mockQueueState.isLoading.mockReturnValue(false);
+    mockQueueState.enqueue.mockReturnValue('queue-1');
+    mockQueueState.startLoading.mockReset();
+    mockQueueState.updateProgress.mockReset();
+    mockQueueState.markComplete.mockReset();
+    mockQueueState.markError.mockReset();
     useSurfaceStore.setState({
       surfaces: new Map(),
       activeSurfaceId: null,
@@ -175,6 +195,51 @@ describe('SurfaceOverlayService', () => {
       colormap: 'viridis',
       range: [0.25, 0.75],
       opacity: 1,
+    });
+  });
+
+  it('routes overlay removal through the lifecycle queue and removes the layer from state', async () => {
+    const surface = makeSurface('surface-1');
+    surface.layers.set('layer-1', {
+      id: 'layer-1',
+      name: 'My Overlay',
+      dataHandle: 'overlay-handle-1',
+      values: new Float32Array([0.25, 0.75]),
+      visible: true,
+      colormap: 'viridis',
+      range: [0.25, 0.75],
+      dataRange: [0.25, 0.75],
+      opacity: 1,
+    });
+    useSurfaceStore.setState({
+      surfaces: new Map([[surface.handle, surface]]),
+      activeSurfaceId: surface.handle,
+      selectedItemType: 'dataLayer',
+      selectedLayerId: 'layer-1',
+    });
+
+    mockInvoke.mockResolvedValue({ success: true, message: 'ok' });
+
+    await surfaceOverlayService.removeSurfaceDataLayer(surface.handle, 'layer-1');
+
+    expect(mockQueueState.enqueue).toHaveBeenCalledWith({
+      type: 'surface-overlay-remove',
+      path: 'surface-overlay-remove:surface-1:layer-1',
+      displayName: 'My Overlay',
+      retry: {
+        kind: 'surface-overlay-remove',
+        surfaceId: 'surface-1',
+        layerId: 'layer-1',
+      },
+    });
+    expect(mockQueueState.startLoading).toHaveBeenCalledWith('queue-1');
+    expect(mockQueueState.markComplete).toHaveBeenCalledWith('queue-1');
+    expect(useSurfaceStore.getState().surfaces.get(surface.handle)?.layers.has('layer-1')).toBe(false);
+    expect(useSurfaceStore.getState().selectedItemType).toBe('geometry');
+    expect(useSurfaceStore.getState().selectedLayerId).toBeNull();
+    expect(mockEmit).toHaveBeenCalledWith('surface.dataLayerRemoved', {
+      surfaceId: 'surface-1',
+      layerId: 'layer-1',
     });
   });
 

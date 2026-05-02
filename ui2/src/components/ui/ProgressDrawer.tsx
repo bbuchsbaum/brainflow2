@@ -156,6 +156,10 @@ export function ProgressDrawer({ onClose }: ProgressDrawerProps) {
         return '#6b7280';  // gray-500
     }
   }
+
+  async function handleRetry(taskId: string) {
+    await progressService.retryTask(taskId);
+  }
   
   return (
     <>
@@ -311,6 +315,25 @@ export function ProgressDrawer({ onClose }: ProgressDrawerProps) {
                     }}
                   >
                     {task.error.message}
+                  </div>
+                )}
+
+                {task.status === 'error' && task.retryable && (
+                  <div className="mt-2 flex justify-end">
+                    <button
+                      onClick={() => void handleRetry(task.id)}
+                      disabled={task.retrying}
+                      className="inline-flex items-center gap-1 px-2 py-1 rounded text-xs font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                      style={{
+                        backgroundColor: 'rgba(96, 165, 250, 0.12)',
+                        color: '#60a5fa',
+                      }}
+                      title="Retry task"
+                      aria-label="Retry task"
+                    >
+                      <VscSync className={task.retrying ? 'w-3.5 h-3.5 animate-spin' : 'w-3.5 h-3.5'} />
+                      {task.retrying ? 'Retrying…' : 'Retry'}
+                    </button>
                   </div>
                 )}
               </div>

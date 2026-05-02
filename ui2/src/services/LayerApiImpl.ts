@@ -18,6 +18,8 @@ import {
   type IntensityRangeOptions,
 } from './IntensityRangeComputer';
 import { getEventBus } from '@/events/EventBus';
+import { layerEvictionService } from './LayerEvictionService';
+import { useLoadingQueueStore } from '@/stores/loadingQueueStore';
 
 const DEBUG_LAYER_API =
   import.meta.env.DEV &&
@@ -32,6 +34,66 @@ const layerDebugLog = (...args: unknown[]) => {
 
 export class LayerApiImpl implements LayerApi {
   private apiService = getApiService();
+
+  private buildLayerMetadata(
+    existingMetadata: Record<string, unknown>,
+    gpuInfo: any,
+    renderProps: LayerRender | undefined,
+    gpuResident: boolean
+  ) {
+    return {
+      ...existingMetadata,
+      dataRange: gpuInfo.data_range ?? existingMetadata.dataRange,
+      centerWorld: gpuInfo.center_world,
+      isBinaryLike: gpuInfo.is_binary_like,
+      dimensions: gpuInfo.dim,
+      spacing: gpuInfo.spacing,
+      origin: gpuInfo.origin,
+      voxelToWorld: gpuInfo.voxel_to_world,
+      worldToVoxel: gpuInfo.world_to_voxel,
+      dataType: gpuInfo.tex_format,
+      renderProps: renderProps ?? existingMetadata.renderProps,
+      gpuResident,
+      evicted: gpuResident ? false : Boolean((existingMetadata as any).evicted),
+    };
+  }
+
+  private async reconcileGpuResidency(layerId: string): Promise<void> {
+    layerEvictionService.touchLayer(layerId);
+    await layerEvictionService.checkAndEvict();
+  }
+
+  private async ensureGpuResidentForLayer(id: string): Promise<void> {
+    const layer = useLayerStore.getState().getLayer(id);
+    if (!layer) {
+      return;
+    }
+
+    const existingMetadata = useLayerStore.getState().getLayerMetadata(id);
+    if (existingMetadata?.gpuResident !== false) {
+      return;
+    }
+
+    const gpuInfo = await this.apiService.requestLayerGpuResources(id, layer.volumeId, false);
+
+    try {
+      const isReady = await this.apiService.waitForLayerReady(id, 500, 20);
+      if (!isReady) {
+        console.warn(`[LayerApiImpl] Backend readiness timed out for promoted layer ${id}`);
+      }
+    } catch (readinessError) {
+      console.warn(`[LayerApiImpl] Readiness probe unavailable for promoted layer ${id}`, readinessError);
+    }
+
+    const nextMetadata = this.buildLayerMetadata(
+      existingMetadata ?? {},
+      gpuInfo,
+      existingMetadata?.renderProps,
+      true
+    );
+    useLayerStore.getState().setLayerMetadata(id, nextMetadata);
+    getEventBus().emit('layer.gpu.ready', { layerId: id });
+  }
 
   private toViewLayer(layer: Layer): ViewLayer {
     const layerMetadata = useLayerStore.getState().getLayerMetadata(layer.id);
@@ -58,12 +120,13 @@ export class LayerApiImpl implements LayerApi {
       name: layer.name,
       volumeId: layer.volumeId,
       visible: layer.visible,
-      opacity: metadataRenderProps?.opacity ?? (layer.visible ? 1.0 : 0.0),
+      opacity: layer.visible ? (metadataRenderProps?.opacity ?? 1.0) : 0.0,
       colormap: metadataRenderProps?.colormap ?? 'gray',
       intensity,
       threshold,
       blendMode: 'alpha',
       interpolation: metadataRenderProps?.interpolation ?? (isLabelLike ? 'nearest' : 'linear'),
+      layerMode: metadataRenderProps?.layerMode ?? (layer.type === 'mask' ? 'mask' : isLabelLike ? 'label' : 'scalar'),
     };
   }
 
@@ -119,50 +182,54 @@ export class LayerApiImpl implements LayerApi {
     layerDebugLog(`[LayerApiImpl ${performance.now() - addLayerStartTime}ms] Created layer with id=${newLayer.id}`);
     
     // Request GPU resources for the layer FIRST
-    // This uploads the volume to GPU and adds it to the render state
+    // Hidden layers only fetch metadata on initial load; visible layers allocate full GPU resources.
     layerDebugLog(`[LayerApiImpl ${performance.now() - addLayerStartTime}ms] Starting GPU resource allocation for layer ${newLayer.id}, volume ${newLayer.volumeId}`);
     const gpuStartTime = performance.now();
+    const metadataOnly = !newLayer.visible;
     
     // Declare renderProps outside try block so it's accessible throughout the function
     let renderProps: LayerRender | undefined;
     
     try {
-      const gpuInfo = await this.apiService.requestLayerGpuResources(newLayer.id, newLayer.volumeId);
+      const gpuInfo = await this.apiService.requestLayerGpuResources(
+        newLayer.id,
+        newLayer.volumeId,
+        metadataOnly
+      );
       const gpuElapsed = performance.now() - gpuStartTime;
       layerDebugLog(`[LayerApiImpl ${performance.now() - addLayerStartTime}ms] GPU resources allocated in ${gpuElapsed.toFixed(0)}ms:`, JSON.stringify(gpuInfo));
       
-      // Confirm GPU readiness before any downstream queries (histogram, etc.)
-      // so consumers never race the texture upload.
-      try {
-        const isReady = await this.apiService.waitForLayerReady(newLayer.id, 500, 20);
-        if (!isReady) {
+      if (!metadataOnly) {
+        try {
+          const isReady = await this.apiService.waitForLayerReady(newLayer.id, 500, 20);
+          if (!isReady) {
+            console.warn(
+              `[LayerApiImpl ${performance.now() - addLayerStartTime}ms] Backend readiness timed out for layer ${newLayer.id}; continuing with best effort`
+            );
+          }
+        } catch (readinessError) {
           console.warn(
-            `[LayerApiImpl ${performance.now() - addLayerStartTime}ms] Backend readiness timed out for layer ${newLayer.id}; continuing with best effort`
+            `[LayerApiImpl ${performance.now() - addLayerStartTime}ms] Readiness probe unavailable for layer ${newLayer.id}; continuing`,
+            readinessError
           );
         }
-      } catch (readinessError) {
-        console.warn(
-          `[LayerApiImpl ${performance.now() - addLayerStartTime}ms] Readiness probe unavailable for layer ${newLayer.id}; continuing`,
-          readinessError
-        );
+        getEventBus().emit('layer.gpu.ready', { layerId: newLayer.id });
       }
-      getEventBus().emit('layer.gpu.ready', { layerId: newLayer.id });
 
-      if (gpuInfo.data_range) {
-        layerDebugLog(`[LayerApiImpl ${performance.now() - addLayerStartTime}ms] Volume data range: [${gpuInfo.data_range.min}, ${gpuInfo.data_range.max}]`);
+      const earlyMetadata = useLayerStore.getState().getLayerMetadata(newLayer.id) || {};
+      const isLabelLike = newLayer.type === 'label';
+      const dataRange = gpuInfo.data_range ?? { min: 0, max: 100 };
+      const rangeOptions: IntensityRangeOptions = {
+        layerType: newLayer.type,
+        source: (earlyMetadata as any).source,
+        isBinaryLike: gpuInfo.is_binary_like,
+        dataRange,
+      };
 
-        // Get existing metadata (set by VolumeLoadingService) for source info
-        const earlyMetadata = useLayerStore.getState().getLayerMetadata(newLayer.id) || {};
-        const isLabelLike = newLayer.type === 'label';
-        const rangeOptions: IntensityRangeOptions = {
-          layerType: newLayer.type,
-          source: (earlyMetadata as any).source,
-          isBinaryLike: gpuInfo.is_binary_like,
-          dataRange: gpuInfo.data_range,
-        };
-
-        // Adaptive intensity range from histogram percentiles; fallback to 20-80% on failure
-        let rangeResult;
+      let rangeResult;
+      if (metadataOnly) {
+        rangeResult = computeFallbackIntensityRange(rangeOptions);
+      } else {
         try {
           const histogram = await histogramService.computeHistogram({
             layerId: newLayer.id,
@@ -175,62 +242,28 @@ export class LayerApiImpl implements LayerApi {
           console.warn(`[LayerApiImpl] Histogram unavailable for ${newLayer.id}, using fallback:`, histError);
           rangeResult = computeFallbackIntensityRange(rangeOptions);
         }
-
-        renderProps = {
-          opacity: 1.0,
-          intensity: rangeResult.intensity,
-          threshold: rangeResult.threshold,
-          colormap: rangeResult.suggestedColormap ?? 'gray',
-          interpolation: isLabelLike ? 'nearest' : 'linear',
-        };
-
-        layerDebugLog(`[LayerApiImpl ${performance.now() - addLayerStartTime}ms] Created render properties:`, JSON.stringify(renderProps));
-
-        // Merge with new metadata from GPU info (earlyMetadata already read above)
-        const metadata = {
-          ...earlyMetadata,  // Preserve existing metadata like worldBounds
-          dataRange: gpuInfo.data_range,
-          centerWorld: gpuInfo.center_world,
-          isBinaryLike: gpuInfo.is_binary_like,
-          // Add new metadata fields
-          dimensions: gpuInfo.dim,
-          spacing: gpuInfo.spacing,
-          origin: gpuInfo.origin,
-          voxelToWorld: gpuInfo.voxel_to_world,
-          worldToVoxel: gpuInfo.world_to_voxel,
-          // Map texture format to readable string
-          dataType: gpuInfo.tex_format,
-          // Persist initial render properties in metadata for deterministic defaults.
-          renderProps: renderProps,
-          // TODO: Add file path and format when available from volume handle
-        };
-        layerDebugLog(`[LayerApiImpl ${performance.now() - addLayerStartTime}ms] Setting layer metadata:`, JSON.stringify(metadata));
-        useLayerStore.getState().setLayerMetadata(newLayer.id, metadata);
-
-        // Validate render properties were created
-        if (!renderProps) {
-          const error = `[LayerApiImpl] Failed to create render properties for layer: ${newLayer.id}`;
-          console.error(error);
-          throw new Error(error);
-        }
-
-        // Validate metadata was stored
-        const storedMetadata = useLayerStore.getState().layerMetadata.get(newLayer.id);
-        if (!storedMetadata) {
-          const error = `[LayerApiImpl] Failed to store metadata for layer: ${newLayer.id}`;
-          console.error(error);
-          throw new Error(error);
-        }
-
-        layerDebugLog(`[LayerApiImpl] Successfully created render properties for layer ${newLayer.id}:`, {
-          intensityRange: [renderProps.intensity[0], renderProps.intensity[1]],
-          thresholdRange: [renderProps.threshold[0], renderProps.threshold[1]],
-          opacity: renderProps.opacity
-        });
-      } else {
-        console.warn(`[LayerApiImpl ${performance.now() - addLayerStartTime}ms] No data_range in GPU info!`);
       }
-      
+
+      renderProps = {
+        opacity: newLayer.visible ? 1.0 : 0.0,
+        intensity: rangeResult.intensity,
+        threshold: rangeResult.threshold,
+        colormap: rangeResult.suggestedColormap ?? 'gray',
+        interpolation: isLabelLike ? 'nearest' : 'linear',
+        layerMode: newLayer.type === 'mask' ? 'mask' : isLabelLike ? 'label' : 'scalar',
+      };
+
+      layerDebugLog(`[LayerApiImpl ${performance.now() - addLayerStartTime}ms] Created render properties:`, JSON.stringify(renderProps));
+
+      const metadata = this.buildLayerMetadata(
+        earlyMetadata,
+        gpuInfo,
+        renderProps,
+        !metadataOnly
+      );
+      layerDebugLog(`[LayerApiImpl ${performance.now() - addLayerStartTime}ms] Setting layer metadata:`, JSON.stringify(metadata));
+      useLayerStore.getState().setLayerMetadata(newLayer.id, metadata);
+    
     } catch (error) {
       const elapsed = performance.now() - addLayerStartTime;
       console.error(`[LayerApiImpl ${elapsed}ms] Failed to allocate GPU resources:`, error);
@@ -262,6 +295,10 @@ export class LayerApiImpl implements LayerApi {
       useLayerStore
         .getState()
         .layers.map((layer: LayerInfo) => ({ id: layer.id, name: layer.name, visible: layer.visible })));
+
+    if (!metadataOnly) {
+      await this.reconcileGpuResidency(newLayer.id);
+    }
     
     layerDebugLog(`[LayerApiImpl ${performance.now() - addLayerStartTime}ms] addLayer completed in ${(performance.now() - addLayerStartTime).toFixed(0)}ms`);
     return newLayer;
@@ -270,22 +307,50 @@ export class LayerApiImpl implements LayerApi {
   async removeLayer(id: string): Promise<void> {
     const layer = useLayerStore.getState().getLayer(id);
     const volumeId = layer?.volumeId ?? id;
+    const displayName = layer?.name ?? volumeId;
+    const queuePath = `volume-unload:${volumeId}`;
+    const queueStore = useLoadingQueueStore.getState();
 
-    // Release GPU resources first
-    await this.apiService.releaseLayerGpuResources(id);
-
-    // Best-effort volume-registry cleanup for symmetric unload flow.
-    try {
-      await this.apiService.unloadVolume(volumeId);
-    } catch (error) {
-      console.warn(`[LayerApiImpl] unloadVolume failed for ${volumeId}:`, error);
+    if (queueStore.isLoading(queuePath)) {
+      return;
     }
 
-    VolumeHandleStore.clearVolumeHandle(volumeId);
-    
-    // Remove from both stores explicitly.
-    useLayerStore.getState().removeLayer(id);
-    this.removeViewLayer(id);
+    const queueId = queueStore.enqueue({
+      type: 'volume-unload',
+      path: queuePath,
+      displayName,
+      retry: {
+        kind: 'volume-unload',
+        layerId: id,
+      },
+    });
+
+    try {
+      queueStore.startLoading(queueId);
+      queueStore.updateProgress(queueId, 10);
+
+      // Release GPU resources first
+      await this.apiService.releaseLayerGpuResources(id);
+      queueStore.updateProgress(queueId, 45);
+
+      // Best-effort volume-registry cleanup for symmetric unload flow.
+      try {
+        await this.apiService.unloadVolume(volumeId);
+      } catch (error) {
+        console.warn(`[LayerApiImpl] unloadVolume failed for ${volumeId}:`, error);
+      }
+
+      queueStore.updateProgress(queueId, 85);
+      VolumeHandleStore.clearVolumeHandle(volumeId);
+      
+      // Remove from both stores explicitly.
+      useLayerStore.getState().removeLayer(id);
+      this.removeViewLayer(id);
+      queueStore.markComplete(queueId);
+    } catch (error) {
+      queueStore.markError(queueId, error instanceof Error ? error : new Error('Failed to remove volume'));
+      throw error;
+    }
   }
   
   async updateLayer(id: string, updates: Partial<Layer>): Promise<Layer> {
@@ -294,10 +359,16 @@ export class LayerApiImpl implements LayerApi {
     
     // If visibility changed, update opacity
     if ('visible' in updates) {
+      if (updates.visible) {
+        await this.ensureGpuResidentForLayer(id);
+      }
       await this.patchLayerRender(id, { 
         opacity: updates.visible ? 1.0 : 0.0 
       });
       this.setViewLayerVisibility(id, updates.visible ?? true);
+      if (updates.visible) {
+        await this.reconcileGpuResidency(id);
+      }
     }
     
     // Return the updated layer (frontend manages the actual state)
@@ -392,8 +463,13 @@ export class LayerApiImpl implements LayerApi {
   }
   
   async loadLayerData(id: string): Promise<void> {
-    // Data is already loaded when volume is loaded
-    // This could be used for lazy loading in the future
+    const layer = useLayerStore.getState().getLayer(id);
+    if (!layer) {
+      throw new Error(`Layer not found: ${id}`);
+    }
+
     layerDebugLog('Layer data request for:', id);
+    await this.ensureGpuResidentForLayer(id);
+    await this.reconcileGpuResidency(id);
   }
 }

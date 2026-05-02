@@ -3,13 +3,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ProgressDrawer } from '../ProgressDrawer';
 import { useProgressStore, type ProgressTask } from '@/stores/progressStore';
 
-const { cancelTaskMock } = vi.hoisted(() => ({
+const { cancelTaskMock, retryTaskMock } = vi.hoisted(() => ({
   cancelTaskMock: vi.fn(),
+  retryTaskMock: vi.fn(),
 }));
 
 vi.mock('@/services/ProgressService', () => ({
   getProgressService: () => ({
     cancelTask: cancelTaskMock,
+    retryTask: retryTaskMock,
     startTask: vi.fn(),
     updateTask: vi.fn(),
     completeTask: vi.fn(),
@@ -28,6 +30,8 @@ function buildTask(overrides: Partial<ProgressTask>): ProgressTask {
     endTime: overrides.endTime,
     error: overrides.error,
     cancellable: overrides.cancellable,
+    retryable: overrides.retryable,
+    retrying: overrides.retrying,
     metadata: overrides.metadata,
   };
 }
@@ -35,6 +39,7 @@ function buildTask(overrides: Partial<ProgressTask>): ProgressTask {
 describe('ProgressDrawer', () => {
   beforeEach(() => {
     cancelTaskMock.mockReset();
+    retryTaskMock.mockReset();
     act(() => {
       useProgressStore.setState({ tasks: new Map() });
     });
@@ -115,6 +120,37 @@ describe('ProgressDrawer', () => {
     });
 
     expect(cancelTaskMock).toHaveBeenCalledWith('cancel-me');
+  });
+
+  it('dispatches retry for retryable error tasks', async () => {
+    const task = buildTask({
+      id: 'retry-me',
+      title: 'Retryable Task',
+      status: 'error',
+      error: new Error('Failed to load surface'),
+      retryable: true,
+      retrying: false,
+      metadata: {
+        retry: {
+          kind: 'surface-load',
+          path: '/tmp/lh.pial.gii',
+        },
+      },
+    });
+
+    act(() => {
+      useProgressStore.setState({
+        tasks: new Map([[task.id, task]]),
+      });
+    });
+
+    render(<ProgressDrawer onClose={vi.fn()} />);
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Retry task' }));
+    });
+
+    expect(retryTaskMock).toHaveBeenCalledWith('retry-me');
   });
 
   it('clears completed and cancelled tasks from the store', async () => {

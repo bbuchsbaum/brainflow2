@@ -114,7 +114,7 @@ export function computeAdaptiveIntensityRange(
       intensity: [-maxAbs, maxAbs],
       threshold: [0, 0],
       method: 'symmetric-percentile',
-      suggestedColormap: 'fmri-red-blue',
+      suggestedColormap: 'fmri',
     };
   }
 

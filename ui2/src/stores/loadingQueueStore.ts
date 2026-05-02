@@ -7,9 +7,52 @@ import { create } from 'zustand';
 import { immer } from 'zustand/middleware/immer';
 import { subscribeWithSelector } from 'zustand/middleware';
 import { nanoid } from 'nanoid';
+import type { DisplayOpenIntent } from '@/types/loadIntent';
 
-export type LoadingItemType = 'file' | 'template' | 'atlas';
+export type LoadingItemType =
+  | 'volume-load'
+  | 'surface-load'
+  | 'surface-overlay-load'
+  | 'volume-unload'
+  | 'surface-unload'
+  | 'surface-overlay-remove'
+  | 'template'
+  | 'atlas';
 export type LoadingStatus = 'queued' | 'loading' | 'complete' | 'error' | 'cancelled';
+
+export type LoadingQueueRetryContext =
+  | {
+      kind: 'volume-load';
+      path: string;
+      intent?: DisplayOpenIntent;
+    }
+  | {
+      kind: 'surface-load';
+      path: string;
+      displayName?: string;
+      autoActivate?: boolean;
+      validateMesh?: boolean;
+    }
+  | {
+      kind: 'surface-overlay-load';
+      path: string;
+      targetSurfaceId: string;
+    }
+  | {
+      kind: 'volume-unload';
+      layerId: string;
+    }
+  | {
+      kind: 'surface-unload';
+      surfaceHandle: string;
+      closeTabs?: boolean;
+      notify?: boolean;
+    }
+  | {
+      kind: 'surface-overlay-remove';
+      surfaceId: string;
+      layerId: string;
+    };
 
 export interface LoadingQueueItem {
   id: string; // unique queue ID
@@ -21,6 +64,7 @@ export interface LoadingQueueItem {
   startTime?: number;
   endTime?: number;
   error?: Error;
+  retry?: LoadingQueueRetryContext;
   result?: {
     layerId?: string;
     volumeId?: string;

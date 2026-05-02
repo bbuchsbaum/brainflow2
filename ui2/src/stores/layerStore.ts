@@ -7,7 +7,7 @@ import { create } from 'zustand';
 import { immer } from 'zustand/middleware/immer';
 import { subscribeWithSelector } from 'zustand/middleware';
 import { enableMapSet } from 'immer';
-import type { Layer } from '@/types/layers';
+import type { Layer, LayerRender } from '@/types/layers';
 import type { DataRange } from '@brainflow/api';
 import { getEventBus } from '@/events/EventBus';
 import { storeLog, storeWarn } from '@/utils/debugLog';
@@ -42,6 +42,10 @@ export interface VolumeMetadata {
   source?: string;                            // Logical source ('file', 'template', 'atlas', etc.)
   sourcePath?: string;                        // Original source identifier/path
   loadedAt?: string;                          // ISO timestamp when volume was loaded
+  renderProps?: LayerRender;                  // Initial/default render properties
+  gpuResident?: boolean;                      // Whether this layer currently has full GPU resources
+  evicted?: boolean;                          // Whether residency was dropped by the eviction service
+  lastRenderTime?: number;                    // Monotonic timestamp used by LRU eviction
 }
 
 // Declare global interface for store
