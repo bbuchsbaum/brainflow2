@@ -40,7 +40,7 @@ gifti_loader = { path = "../loaders/gifti", package = "gifti-loader" } # GIFTI s
 brainflow-loaders = { path = "../loaders" } # CORRECTED: Match package name
 neurosurf-rs = { workspace = true } # For surface geometry types
 log = "0.4" # Add log crate dependency
-tokio = { version = "1", features = ["sync", "test-util", "macros"] } # Add tokio for async Mutex and tests
+tokio = { version = "1", features = ["sync", "test-util", "macros", "rt", "time", "io-util", "process"] } # Add tokio for async mutexes, spawned jobs, timers, and sidecar I/O
 nalgebra = { version = "0.32", features = ["serde-serialize"] } # Added dependency for matrix math
 tracing = { workspace = true } # Add tracing dependency for instrumentation
 walkdir = "2" # ADDED: For directory traversal in fs_list_directory

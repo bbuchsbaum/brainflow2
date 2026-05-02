@@ -60,6 +60,7 @@ use brainflow_loaders as core_loaders;
 use gifti_loader;
 
 // Import error helpers
+mod analysis;
 mod error_context;
 mod error_helpers;
 mod user_errors;
@@ -1277,6 +1278,7 @@ impl SurfaceRegistry {
 const REMOTE_KEYRING_SERVICE: &str = "brainflow.remote_mount";
 const REMOTE_PROFILE_FILE: &str = "remote_mount_profiles.json";
 const REMOTE_CACHE_DIR_NAME: &str = "remote_mounts";
+const REMOTE_CACHE_METADATA_DIR_NAME: &str = ".metadata";
 const REMOTE_MOUNT_HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(45);
 const REMOTE_FS_OPERATION_TIMEOUT: Duration = Duration::from_secs(30);
 
@@ -1303,6 +1305,14 @@ struct PendingRemoteMountContext {
     request: NormalizedRemoteMountRequest,
 }
 
+#[derive(Debug, Clone, Serialize)]
+struct RemoteMountRecoveryEvent {
+    mount_id: String,
+    origin_label: String,
+    attempt: usize,
+    reason: String,
+}
+
 #[derive(Clone)]
 struct RemoteMountEntry {
     mount_id: String,
@@ -1314,6 +1324,18 @@ struct RemoteMountEntry {
     port: u16,
     user: String,
     client: Arc<RemoteClient>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+struct RemoteFileCacheMetadata {
+    version: u8,
+    mount_id: String,
+    host: String,
+    port: u16,
+    user: String,
+    remote_path: String,
+    remote_size: u64,
+    remote_modified_unix_secs: Option<u64>,
 }
 
 // --- Define App State to hold the registry ---
@@ -1335,6 +1357,9 @@ pub struct BridgeState {
     pub atlas_service: Arc<Mutex<AtlasService>>,
     // Template service for brain template management
     pub template_service: Arc<Mutex<templates::TemplateService>>,
+    // Analysis registry and running jobs
+    pub analysis_registry: Arc<Mutex<analysis::AnalysisRegistry>>,
+    pub analysis_jobs: Arc<Mutex<analysis::AnalysisJobManager>>,
     // Active remote mounts keyed by mount_id.
     pub remote_mounts: Arc<Mutex<HashMap<String, RemoteMountEntry>>>,
     // Pending host-key prompt context keyed by challenge UUID.
@@ -1364,6 +1389,8 @@ impl BridgeState {
             layer_leases: Arc::new(Mutex::new(HashMap::new())),
             atlas_service,
             template_service,
+            analysis_registry: Arc::new(Mutex::new(analysis::build_default_registry())),
+            analysis_jobs: Arc::new(Mutex::new(analysis::AnalysisJobManager::new())),
             remote_mounts: Arc::new(Mutex::new(HashMap::new())),
             pending_remote_host_key: Arc::new(Mutex::new(HashMap::new())),
             pending_remote_auth: Arc::new(Mutex::new(HashMap::new())),
@@ -1391,6 +1418,8 @@ impl BridgeState {
                 templates::TemplateService::new(cache_dir)
                     .map_err(|e| format!("Failed to initialize template service: {}", e))?,
             )),
+            analysis_registry: Arc::new(Mutex::new(analysis::build_default_registry())),
+            analysis_jobs: Arc::new(Mutex::new(analysis::AnalysisJobManager::new())),
             remote_mounts: Arc::new(Mutex::new(HashMap::new())),
             pending_remote_host_key: Arc::new(Mutex::new(HashMap::new())),
             pending_remote_auth: Arc::new(Mutex::new(HashMap::new())),
@@ -1534,18 +1563,29 @@ fn remote_cache_root() -> BridgeResult<PathBuf> {
     Ok(dirs.cache_dir().join(REMOTE_CACHE_DIR_NAME))
 }
 
-fn credential_account_key(host: &str, port: u16, user: &str) -> String {
+fn remote_cache_metadata_root() -> BridgeResult<PathBuf> {
+    Ok(remote_cache_root()?.join(REMOTE_CACHE_METADATA_DIR_NAME))
+}
+
+fn normalize_key_path(key_path: Option<&str>) -> Option<String> {
+    key_path
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+}
+
+fn password_credential_account_key(host: &str, port: u16, user: &str) -> String {
     format!("{user}@{host}:{port}")
 }
 
 fn read_cached_password(host: &str, port: u16, user: &str) -> Option<String> {
-    let account = credential_account_key(host, port, user);
+    let account = password_credential_account_key(host, port, user);
     let entry = KeyringEntry::new(REMOTE_KEYRING_SERVICE, &account).ok()?;
     entry.get_password().ok()
 }
 
 fn write_cached_password(host: &str, port: u16, user: &str, password: &str) -> BridgeResult<()> {
-    let account = credential_account_key(host, port, user);
+    let account = password_credential_account_key(host, port, user);
     let entry =
         KeyringEntry::new(REMOTE_KEYRING_SERVICE, &account).map_err(|e| BridgeError::Internal {
             code: 8203,
@@ -1560,10 +1600,190 @@ fn write_cached_password(host: &str, port: u16, user: &str, password: &str) -> B
 }
 
 fn delete_cached_password(host: &str, port: u16, user: &str) {
-    let account = credential_account_key(host, port, user);
+    let account = password_credential_account_key(host, port, user);
     if let Ok(entry) = KeyringEntry::new(REMOTE_KEYRING_SERVICE, &account) {
         let _ = entry.delete_password();
     }
+}
+
+fn key_passphrase_account_key(host: &str, port: u16, user: &str, key_path: Option<&str>) -> String {
+    let key_path = normalize_key_path(key_path).unwrap_or_else(|| "__default__".to_string());
+    format!("key-file:{user}@{host}:{port}:{key_path}")
+}
+
+fn read_cached_key_passphrase(
+    host: &str,
+    port: u16,
+    user: &str,
+    key_path: Option<&str>,
+) -> Option<String> {
+    let account = key_passphrase_account_key(host, port, user, key_path);
+    let entry = KeyringEntry::new(REMOTE_KEYRING_SERVICE, &account).ok()?;
+    entry.get_password().ok()
+}
+
+fn write_cached_key_passphrase(
+    host: &str,
+    port: u16,
+    user: &str,
+    key_path: Option<&str>,
+    passphrase: &str,
+) -> BridgeResult<()> {
+    let account = key_passphrase_account_key(host, port, user, key_path);
+    let entry =
+        KeyringEntry::new(REMOTE_KEYRING_SERVICE, &account).map_err(|e| BridgeError::Internal {
+            code: 8233,
+            details: format!("Failed to initialize credential store: {e}"),
+        })?;
+    entry
+        .set_password(passphrase)
+        .map_err(|e| BridgeError::Internal {
+            code: 8234,
+            details: format!("Failed to persist SSH key passphrase in keychain: {e}"),
+        })
+}
+
+fn delete_cached_key_passphrase(host: &str, port: u16, user: &str, key_path: Option<&str>) {
+    let account = key_passphrase_account_key(host, port, user, key_path);
+    if let Ok(entry) = KeyringEntry::new(REMOTE_KEYRING_SERVICE, &account) {
+        let _ = entry.delete_password();
+    }
+}
+
+fn remote_cache_metadata_path(
+    mount: &RemoteMountEntry,
+    local_path: &Path,
+) -> BridgeResult<PathBuf> {
+    let relative = local_path
+        .strip_prefix(&mount.local_root)
+        .map_err(|e| BridgeError::Input {
+            code: 8235,
+            details: format!(
+                "Local cache path '{}' is not inside mount '{}': {e}",
+                local_path.display(),
+                mount.local_root.display()
+            ),
+        })?;
+    let file_name = relative
+        .file_name()
+        .ok_or_else(|| BridgeError::Input {
+            code: 8236,
+            details: format!(
+                "Remote cache metadata requires a file path: {}",
+                local_path.display()
+            ),
+        })?
+        .to_string_lossy()
+        .to_string();
+
+    let mut metadata_dir = remote_cache_metadata_root()?.join(&mount.mount_id);
+    if let Some(parent) = relative.parent() {
+        metadata_dir = metadata_dir.join(parent);
+    }
+
+    Ok(metadata_dir.join(format!("{file_name}.json")))
+}
+
+fn remote_stat_modified_unix_secs(metadata: &remotely::fs::Metadata) -> Option<u64> {
+    metadata
+        .modified
+        .and_then(|value| value.duration_since(UNIX_EPOCH).ok())
+        .map(|duration| duration.as_secs())
+}
+
+async fn load_remote_file_cache_metadata(
+    metadata_path: &Path,
+) -> BridgeResult<Option<RemoteFileCacheMetadata>> {
+    if !tokio::fs::try_exists(metadata_path).await.unwrap_or(false) {
+        return Ok(None);
+    }
+
+    let bytes = tokio::fs::read(metadata_path)
+        .await
+        .map_err(|e| BridgeError::Io {
+            code: 8237,
+            details: format!(
+                "Failed to read remote cache metadata {}: {e}",
+                metadata_path.display()
+            ),
+        })?;
+
+    let metadata = serde_json::from_slice::<RemoteFileCacheMetadata>(&bytes).map_err(|e| {
+        BridgeError::Internal {
+            code: 8238,
+            details: format!(
+                "Failed to parse remote cache metadata {}: {e}",
+                metadata_path.display()
+            ),
+        }
+    })?;
+
+    Ok(Some(metadata))
+}
+
+async fn save_remote_file_cache_metadata(
+    metadata_path: &Path,
+    metadata: &RemoteFileCacheMetadata,
+) -> BridgeResult<()> {
+    if let Some(parent) = metadata_path.parent() {
+        tokio::fs::create_dir_all(parent)
+            .await
+            .map_err(|e| BridgeError::Io {
+                code: 8239,
+                details: format!(
+                    "Failed to create remote cache metadata directory {}: {e}",
+                    parent.display()
+                ),
+            })?;
+    }
+
+    let tmp_path = metadata_path.with_extension("json.tmp");
+    let payload = serde_json::to_vec_pretty(metadata).map_err(|e| BridgeError::Internal {
+        code: 8240,
+        details: format!(
+            "Failed to serialize remote cache metadata {}: {e}",
+            metadata_path.display()
+        ),
+    })?;
+
+    tokio::fs::write(&tmp_path, payload)
+        .await
+        .map_err(|e| BridgeError::Io {
+            code: 8241,
+            details: format!(
+                "Failed to write remote cache metadata temp file {}: {e}",
+                tmp_path.display()
+            ),
+        })?;
+
+    tokio::fs::rename(&tmp_path, metadata_path)
+        .await
+        .map_err(|e| BridgeError::Io {
+            code: 8242,
+            details: format!(
+                "Failed to finalize remote cache metadata {}: {e}",
+                metadata_path.display()
+            ),
+        })
+}
+
+fn remote_cache_metadata_matches(
+    metadata: &RemoteFileCacheMetadata,
+    mount_id: &str,
+    host: &str,
+    port: u16,
+    user: &str,
+    remote_path: &str,
+    remote_stat: &remotely::fs::Metadata,
+) -> bool {
+    metadata.version == 1
+        && metadata.mount_id == mount_id
+        && metadata.host == host
+        && metadata.port == port
+        && metadata.user == user
+        && metadata.remote_path == remote_path
+        && metadata.remote_size == remote_stat.size
+        && metadata.remote_modified_unix_secs == remote_stat_modified_unix_secs(remote_stat)
 }
 
 fn map_remotely_error(err: remotely::Error, code: u16) -> BridgeError {
@@ -1642,6 +1862,11 @@ fn normalize_remote_mount_request(
     let host = request.host.trim().to_string();
     let user = request.user.trim().to_string();
     let remote_path = sanitize_remote_path(&request.remote_path);
+    let key_path = normalize_key_path(request.key_path.as_deref());
+    let key_passphrase =
+        request
+            .key_passphrase
+            .and_then(|value| if value.is_empty() { None } else { Some(value) });
 
     if host.is_empty() {
         return Err(BridgeError::Input {
@@ -1675,8 +1900,8 @@ fn normalize_remote_mount_request(
         remote_path,
         auth_method,
         password: request.password,
-        key_path: request.key_path,
-        key_passphrase: request.key_passphrase,
+        key_path,
+        key_passphrase,
         verify_host_key: request.verify_host_key.unwrap_or(true),
         accept_unknown_host_keys: request.accept_unknown_host_keys.unwrap_or(false),
         known_hosts_path: request.known_hosts_path.map(PathBuf::from),
@@ -1705,15 +1930,23 @@ fn select_remote_auth(request: &NormalizedRemoteMountRequest) -> BridgeResult<Re
             Ok(RemoteAuthMethod::KeyboardInteractive { submethods: None })
         }
         "key_file" | "key" => {
+            let passphrase = request.key_passphrase.clone().or_else(|| {
+                read_cached_key_passphrase(
+                    &request.host,
+                    request.port,
+                    &request.user,
+                    request.key_path.as_deref(),
+                )
+            });
             if let Some(key_path) = request.key_path.as_ref() {
                 Ok(RemoteAuthMethod::KeyFile {
                     source: remotely::ssh::KeySource::File(PathBuf::from(key_path)),
-                    passphrase: request.key_passphrase.clone(),
+                    passphrase,
                 })
             } else {
                 Ok(RemoteAuthMethod::KeyFile {
                     source: remotely::ssh::KeySource::DefaultLocations,
-                    passphrase: request.key_passphrase.clone(),
+                    passphrase,
                 })
             }
         }
@@ -1800,6 +2033,7 @@ fn profile_id_for_request(request: &NormalizedRemoteMountRequest) -> String {
 async fn upsert_remote_profile(
     request: &NormalizedRemoteMountRequest,
     has_password: bool,
+    has_key_passphrase: bool,
 ) -> BridgeResult<()> {
     let mut profiles = load_remote_profiles().await?;
     let profile_id = profile_id_for_request(request);
@@ -1824,6 +2058,7 @@ async fn upsert_remote_profile(
         user: request.user.clone(),
         remote_path: request.remote_path.clone(),
         auth_method: request.auth_method.clone(),
+        key_path: request.key_path.clone(),
         verify_host_key: request.verify_host_key,
         accept_unknown_host_keys: request.accept_unknown_host_keys,
         known_hosts_path: request
@@ -1831,6 +2066,7 @@ async fn upsert_remote_profile(
             .as_ref()
             .map(|path| path.to_string_lossy().to_string()),
         has_password,
+        has_key_passphrase,
         updated_at_ms: now_unix_ms(),
     };
 
@@ -2016,13 +2252,41 @@ async fn list_local_directory(path: &Path) -> BridgeResult<TreePayload> {
 }
 
 async fn materialize_remote_file_if_needed(state: &BridgeState, path: &Path) -> BridgeResult<()> {
-    if path.exists() {
-        return Ok(());
-    }
-
     let Some((mount, remote_path)) = resolve_remote_mount_for_local_path(state, path).await else {
         return Ok(());
     };
+
+    let metadata_path = remote_cache_metadata_path(&mount, path)?;
+    let remote_stat = tokio::time::timeout(
+        REMOTE_FS_OPERATION_TIMEOUT,
+        mount.client.stat_blocking(Path::new(&remote_path)),
+    )
+    .await
+    .map_err(|_| BridgeError::Io {
+        code: 8243,
+        details: format!(
+            "Timed out after {}s while checking remote file '{}'.",
+            REMOTE_FS_OPERATION_TIMEOUT.as_secs(),
+            remote_path
+        ),
+    })?
+    .map_err(|e| map_remotely_error(e, 8243))?;
+
+    if path.exists() {
+        if let Some(metadata) = load_remote_file_cache_metadata(&metadata_path).await? {
+            if remote_cache_metadata_matches(
+                &metadata,
+                &mount.mount_id,
+                &mount.host,
+                mount.port,
+                &mount.user,
+                &remote_path,
+                &remote_stat,
+            ) {
+                return Ok(());
+            }
+        }
+    }
 
     if let Some(parent) = path.parent() {
         tokio::fs::create_dir_all(parent)
@@ -2038,7 +2302,10 @@ async fn materialize_remote_file_if_needed(state: &BridgeState, path: &Path) -> 
         mount.client.download_to_path_blocking(
             Path::new(&remote_path),
             path,
-            remotely::DownloadOptions::default(),
+            remotely::DownloadOptions {
+                sync_on_finish: true,
+                ..Default::default()
+            },
         ),
     )
     .await
@@ -2052,13 +2319,29 @@ async fn materialize_remote_file_if_needed(state: &BridgeState, path: &Path) -> 
     })?
     .map_err(|e| map_remotely_error(e, 8218))?;
 
+    save_remote_file_cache_metadata(
+        &metadata_path,
+        &RemoteFileCacheMetadata {
+            version: 1,
+            mount_id: mount.mount_id.clone(),
+            host: mount.host.clone(),
+            port: mount.port,
+            user: mount.user.clone(),
+            remote_path,
+            remote_size: remote_stat.size,
+            remote_modified_unix_secs: remote_stat_modified_unix_secs(&remote_stat),
+        },
+    )
+    .await?;
+
     Ok(())
 }
 
-async fn finalize_remote_mount(
+async fn finalize_remote_mount<R: Runtime>(
     state: &BridgeState,
     request: NormalizedRemoteMountRequest,
     client: RemoteClient,
+    app: tauri::AppHandle<R>,
 ) -> BridgeResult<RemoteMountConnectResult> {
     let mount_id = uuid::Uuid::new_v4().to_string();
     let cache_root = remote_cache_root()?;
@@ -2083,16 +2366,53 @@ async fn finalize_remote_mount(
             ),
         })?;
 
-    if request.remember_password {
-        if let Some(password) = request.password.as_ref() {
-            write_cached_password(&request.host, request.port, &request.user, password)?;
+    if request.auth_method == "password" {
+        if request.remember_password {
+            if let Some(password) = request.password.as_ref() {
+                write_cached_password(&request.host, request.port, &request.user, password)?;
+            }
+        } else {
+            delete_cached_password(&request.host, request.port, &request.user);
         }
-    } else if request.auth_method == "password" {
-        delete_cached_password(&request.host, request.port, &request.user);
+    }
+
+    if request.auth_method == "key_file" {
+        if request.remember_password {
+            if let Some(passphrase) = request.key_passphrase.as_ref() {
+                write_cached_key_passphrase(
+                    &request.host,
+                    request.port,
+                    &request.user,
+                    request.key_path.as_deref(),
+                    passphrase,
+                )?;
+            }
+        } else {
+            delete_cached_key_passphrase(
+                &request.host,
+                request.port,
+                &request.user,
+                request.key_path.as_deref(),
+            );
+        }
     }
 
     if request.save_profile {
-        upsert_remote_profile(&request, request.remember_password).await?;
+        let has_password = request.auth_method == "password"
+            && request.remember_password
+            && (request.password.is_some()
+                || read_cached_password(&request.host, request.port, &request.user).is_some());
+        let has_key_passphrase = request.auth_method == "key_file"
+            && request.remember_password
+            && (request.key_passphrase.is_some()
+                || read_cached_key_passphrase(
+                    &request.host,
+                    request.port,
+                    &request.user,
+                    request.key_path.as_deref(),
+                )
+                .is_some());
+        upsert_remote_profile(&request, has_password, has_key_passphrase).await?;
     }
 
     let display_name = request
@@ -2108,6 +2428,7 @@ async fn finalize_remote_mount(
     );
 
     let client = Arc::new(client);
+    install_remote_recovery_hook(&client, &mount_id, &origin_label, &app);
 
     let mount_entry = RemoteMountEntry {
         mount_id: mount_id.clone(),
@@ -2143,14 +2464,63 @@ async fn finalize_remote_mount(
     Ok(RemoteMountConnectResult::Connected { mount: mount_info })
 }
 
-async fn handle_remote_connect_outcome(
+fn remote_mount_info_from_entry(mount: &RemoteMountEntry) -> RemoteMountInfo {
+    RemoteMountInfo {
+        mount_id: mount.mount_id.clone(),
+        local_path: mount.local_root.to_string_lossy().to_string(),
+        display_name: mount.display_name.clone(),
+        origin: RemoteMountOrigin {
+            mount_id: mount.mount_id.clone(),
+            host: mount.host.clone(),
+            port: mount.port,
+            user: mount.user.clone(),
+            remote_path: mount.remote_root.clone(),
+            label: mount.origin_label.clone(),
+        },
+    }
+}
+
+fn install_remote_recovery_hook<R: Runtime>(
+    client: &RemoteClient,
+    mount_id: &str,
+    origin_label: &str,
+    app: &tauri::AppHandle<R>,
+) {
+    let mount_id = mount_id.to_string();
+    let origin_label = origin_label.to_string();
+    let app_handle = app.clone();
+
+    client.fs().set_recovery_hook(move |event| {
+        tracing::warn!(
+            mount_id = %mount_id,
+            origin = %origin_label,
+            attempt = event.attempt,
+            reason = %event.reason,
+            "Remote mount SFTP session recovered after retry"
+        );
+
+        let payload = RemoteMountRecoveryEvent {
+            mount_id: mount_id.clone(),
+            origin_label: origin_label.clone(),
+            attempt: event.attempt,
+            reason: event.reason.clone(),
+        };
+
+        if let Err(err) = app_handle.emit("remote-mount-recovery", &payload) {
+            tracing::debug!(mount_id = %mount_id, error = %err, "Failed to emit remote recovery event");
+        }
+    });
+}
+
+async fn handle_remote_connect_outcome<R: Runtime>(
     state: &BridgeState,
     context: PendingRemoteMountContext,
     outcome: RemoteConnectOutcome,
+    app: tauri::AppHandle<R>,
 ) -> BridgeResult<RemoteMountConnectResult> {
     match outcome {
         RemoteConnectOutcome::Connected(client) => {
-            finalize_remote_mount(state, context.request, client).await
+            finalize_remote_mount(state, context.request, client, app).await
         }
         RemoteConnectOutcome::NeedHostKeyConfirmation(challenge) => {
             {
@@ -4399,9 +4769,10 @@ async fn get_atlas_stats(state: State<'_, BridgeState>) -> BridgeResult<AtlasSta
 
 #[command]
 #[tracing::instrument(skip_all, err, name = "api.remote_mount_connect")]
-async fn remote_mount_connect(
+async fn remote_mount_connect<R: Runtime>(
     request: RemoteMountConnectRequest,
     state: State<'_, BridgeState>,
+    window: tauri::Window<R>,
 ) -> BridgeResult<RemoteMountConnectResult> {
     let normalized = normalize_remote_mount_request(request)?;
     let auth = select_remote_auth(&normalized)?;
@@ -4414,7 +4785,7 @@ async fn remote_mount_connect(
         auth,
         connect_timeout: Duration::from_secs(12),
         operation_timeout: Duration::from_secs(30),
-        retry_count: 0,
+        retry_count: 1,
         retry_delay: Duration::from_millis(250),
         verify_host_key: normalized.verify_host_key,
         accept_unknown_host_keys: normalized.accept_unknown_host_keys,
@@ -4440,15 +4811,17 @@ async fn remote_mount_connect(
     })?
     .map_err(|e| map_remotely_error(e, 8221))?;
 
-    handle_remote_connect_outcome(state.inner(), context, outcome).await
+    handle_remote_connect_outcome(state.inner(), context, outcome, window.app_handle().clone())
+        .await
 }
 
 #[command]
 #[tracing::instrument(skip_all, err, name = "api.remote_mount_respond_host_key")]
-async fn remote_mount_respond_host_key(
+async fn remote_mount_respond_host_key<R: Runtime>(
     challenge_id: String,
     trust: bool,
     state: State<'_, BridgeState>,
+    window: tauri::Window<R>,
 ) -> BridgeResult<RemoteMountConnectResult> {
     let challenge_uuid = uuid::Uuid::parse_str(&challenge_id).map_err(|e| BridgeError::Input {
         code: 8222,
@@ -4480,15 +4853,17 @@ async fn remote_mount_respond_host_key(
     })?
     .map_err(|e| map_remotely_error(e, 8224))?;
 
-    handle_remote_connect_outcome(state.inner(), context, outcome).await
+    handle_remote_connect_outcome(state.inner(), context, outcome, window.app_handle().clone())
+        .await
 }
 
 #[command]
 #[tracing::instrument(skip_all, err, name = "api.remote_mount_respond_auth")]
-async fn remote_mount_respond_auth(
+async fn remote_mount_respond_auth<R: Runtime>(
     conversation_id: String,
     responses: Vec<String>,
     state: State<'_, BridgeState>,
+    window: tauri::Window<R>,
 ) -> BridgeResult<RemoteMountConnectResult> {
     let conversation_uuid =
         uuid::Uuid::parse_str(&conversation_id).map_err(|e| BridgeError::Input {
@@ -4521,7 +4896,8 @@ async fn remote_mount_respond_auth(
     })?
     .map_err(|e| map_remotely_error(e, 8227))?;
 
-    handle_remote_connect_outcome(state.inner(), context, outcome).await
+    handle_remote_connect_outcome(state.inner(), context, outcome, window.app_handle().clone())
+        .await
 }
 
 #[command]
@@ -4557,12 +4933,79 @@ async fn remote_mount_unmount(
                 e
             );
         }
+        if let Ok(metadata_dir) =
+            remote_cache_metadata_root().map(|root| root.join(&mount.mount_id))
+        {
+            if let Err(e) = tokio::fs::remove_dir_all(&metadata_dir).await {
+                warn!(
+                    "Failed to purge remote cache metadata {}: {}",
+                    metadata_dir.display(),
+                    e
+                );
+            }
+        }
     }
 
     Ok(ReleaseResult {
         success: true,
         message: format!("Unmounted remote folder '{}'", mount.display_name),
     })
+}
+
+#[command]
+#[tracing::instrument(skip_all, err, name = "api.list_remote_mounts")]
+async fn list_remote_mounts(state: State<'_, BridgeState>) -> BridgeResult<Vec<RemoteMountInfo>> {
+    let mounts = state.remote_mounts.lock().await;
+    let mut items: Vec<RemoteMountInfo> =
+        mounts.values().map(remote_mount_info_from_entry).collect();
+    items.sort_by(|left, right| left.display_name.cmp(&right.display_name));
+    Ok(items)
+}
+
+#[command]
+#[tracing::instrument(skip_all, err, name = "api.list_remote_directory")]
+async fn list_remote_directory(
+    mount_id: String,
+    relative_path: Option<String>,
+    state: State<'_, BridgeState>,
+) -> BridgeResult<TreePayload> {
+    let mount = {
+        let mounts = state.remote_mounts.lock().await;
+        mounts.get(&mount_id).cloned()
+    }
+    .ok_or_else(|| BridgeError::Input {
+        code: 8244,
+        details: format!("Unknown remote mount id: {mount_id}"),
+    })?;
+
+    let mut local_path = mount.local_root.clone();
+    let requested = relative_path.unwrap_or_default();
+    for component in Path::new(requested.trim()).components() {
+        match component {
+            std::path::Component::CurDir | std::path::Component::RootDir => {}
+            std::path::Component::Normal(segment) => local_path.push(segment),
+            _ => {
+                return Err(BridgeError::Input {
+                    code: 8245,
+                    details: format!(
+                        "Remote directory path must stay inside the mounted root: {}",
+                        requested
+                    ),
+                });
+            }
+        }
+    }
+
+    list_remote_directory_for_local_path(state.inner(), &local_path)
+        .await?
+        .ok_or_else(|| BridgeError::Input {
+            code: 8246,
+            details: format!(
+                "Resolved remote directory '{}' is not within mount '{}'.",
+                local_path.display(),
+                mount_id
+            ),
+        })
 }
 
 #[command]
@@ -4593,6 +5036,12 @@ async fn remove_remote_mount_profile(profile_id: String) -> BridgeResult<()> {
 
     for profile in removed_profiles {
         delete_cached_password(&profile.host, profile.port, &profile.user);
+        delete_cached_key_passphrase(
+            &profile.host,
+            profile.port,
+            &profile.user,
+            profile.key_path.as_deref(),
+        );
     }
 
     save_remote_profiles(&profiles).await
@@ -6946,6 +7395,8 @@ struct LayerState {
     blend_mode: String,
     #[serde(default = "default_interpolation")]
     interpolation: String,
+    #[serde(rename = "layerMode", default)]
+    layer_mode: render_loop::render_state::LayerMode,
 }
 
 fn default_interpolation() -> String {
@@ -7146,6 +7597,7 @@ async fn prepare_frontend_layers_for_render(
                 },
                 visible: layer.visible,
                 interpolation,
+                layer_mode: layer.layer_mode,
             };
 
             info!(
@@ -9854,6 +10306,110 @@ pub struct TemporalMetricResult {
     pub data: Vec<f32>,
 }
 
+fn sample_voxel_timeseries_from_4d<F>(
+    dims: (usize, usize, usize, usize),
+    x: usize,
+    y: usize,
+    z: usize,
+    mut sample_at: F,
+) -> BridgeResult<Vec<f32>>
+where
+    F: FnMut(usize) -> f32,
+{
+    if x >= dims.0 || y >= dims.1 || z >= dims.2 {
+        return Err(BridgeError::Input {
+            code: 2023,
+            details: format!(
+                "Voxel ({}, {}, {}) is out of bounds for shape [{}, {}, {}]",
+                x, y, z, dims.0, dims.1, dims.2
+            ),
+        });
+    }
+
+    Ok((0..dims.3).map(&mut sample_at).collect())
+}
+
+fn sample_voxel_timeseries_from_volume(
+    volume: &VolumeSendable,
+    x: usize,
+    y: usize,
+    z: usize,
+) -> BridgeResult<Vec<f32>> {
+    match volume {
+        VolumeSendable::Vec4DF32(vec) => {
+            sample_voxel_timeseries_from_4d(vec.data.dim(), x, y, z, |t| vec.data[[x, y, z, t]])
+        }
+        VolumeSendable::Vec4DI16(vec) => {
+            sample_voxel_timeseries_from_4d(vec.data.dim(), x, y, z, |t| {
+                vec.data[[x, y, z, t]] as f32
+            })
+        }
+        VolumeSendable::Vec4DU8(vec) => {
+            sample_voxel_timeseries_from_4d(vec.data.dim(), x, y, z, |t| {
+                vec.data[[x, y, z, t]] as f32
+            })
+        }
+        VolumeSendable::Vec4DI8(vec) => {
+            sample_voxel_timeseries_from_4d(vec.data.dim(), x, y, z, |t| {
+                vec.data[[x, y, z, t]] as f32
+            })
+        }
+        VolumeSendable::Vec4DU16(vec) => {
+            sample_voxel_timeseries_from_4d(vec.data.dim(), x, y, z, |t| {
+                vec.data[[x, y, z, t]] as f32
+            })
+        }
+        VolumeSendable::Vec4DI32(vec) => {
+            sample_voxel_timeseries_from_4d(vec.data.dim(), x, y, z, |t| {
+                vec.data[[x, y, z, t]] as f32
+            })
+        }
+        VolumeSendable::Vec4DU32(vec) => {
+            sample_voxel_timeseries_from_4d(vec.data.dim(), x, y, z, |t| {
+                vec.data[[x, y, z, t]] as f32
+            })
+        }
+        VolumeSendable::Vec4DF64(vec) => {
+            sample_voxel_timeseries_from_4d(vec.data.dim(), x, y, z, |t| {
+                vec.data[[x, y, z, t]] as f32
+            })
+        }
+        _ => Err(BridgeError::Input {
+            code: 2024,
+            details: "sample_voxel_timeseries requires a 4D volume".to_string(),
+        }),
+    }
+}
+
+#[command]
+#[tracing::instrument(skip_all, err, name = "api.sample_voxel_timeseries")]
+async fn sample_voxel_timeseries(
+    volume_id: String,
+    voxel_x: u32,
+    voxel_y: u32,
+    voxel_z: u32,
+    state: State<'_, BridgeState>,
+) -> BridgeResult<Vec<f32>> {
+    info!(
+        "sample_voxel_timeseries: volume={}, voxel=({}, {}, {})",
+        volume_id, voxel_x, voxel_y, voxel_z
+    );
+
+    let registry = state.volume_registry.lock().await;
+    let entry = registry
+        .get_entry(&volume_id)
+        .ok_or_else(|| BridgeError::VolumeNotFound {
+            code: 4041,
+            details: format!("Volume {} not found", volume_id),
+        })?;
+
+    let x = voxel_x as usize;
+    let y = voxel_y as usize;
+    let z = voxel_z as usize;
+
+    sample_voxel_timeseries_from_volume(&entry.data, x, y, z)
+}
+
 #[command]
 #[tracing::instrument(skip_all, err, name = "api.compute_temporal_metric")]
 async fn compute_temporal_metric(
@@ -10108,6 +10664,10 @@ pub fn create_plugin<R: Runtime>() -> TauriPlugin<R> {
 pub fn plugin<R: Runtime>() -> TauriPlugin<R> {
     Builder::<R>::new("api-bridge")
         .invoke_handler(generate_handler![
+            analysis::list_analyses,
+            analysis::start_analysis,
+            analysis::cancel_analysis,
+            analysis::get_analysis_job_status,
             load_file,
             load_surface,
             unload_surface,
@@ -10135,6 +10695,8 @@ pub fn plugin<R: Runtime>() -> TauriPlugin<R> {
             remote_mount_respond_host_key,
             remote_mount_respond_auth,
             remote_mount_unmount,
+            list_remote_mounts,
+            list_remote_directory,
             list_remote_mount_profiles,
             remove_remote_mount_profile,
             init_render_loop,
@@ -10191,6 +10753,7 @@ pub fn plugin<R: Runtime>() -> TauriPlugin<R> {
             check_bids_directory,
             scan_bids_dataset,
             get_bids_events,
+            sample_voxel_timeseries,
             compute_temporal_metric,
         ])
         .setup(|app, _| {
@@ -10210,6 +10773,7 @@ mod tests {
     use bridge_types::Loaded;
     use nalgebra::Affine3;
     use std::path::PathBuf;
+    use std::time::Duration;
     use volmath::{DenseNeuroVec, DenseVolume3, NeuroSpace, NeuroSpace3};
 
     fn get_test_data_path() -> PathBuf {
@@ -10449,6 +11013,19 @@ mod tests {
         VolumeSendable::Vec4DF32(vec4d)
     }
 
+    fn make_4d_volume_sendable_with_timeseries() -> VolumeSendable {
+        let dims = vec![4usize, 4, 4, 4];
+        let spacing = vec![1.0, 1.0, 1.0, 1.0];
+        let origin = vec![0.0, 0.0, 0.0, 0.0];
+        let space = NeuroSpace::new(dims, Some(spacing), Some(origin), None, None).unwrap();
+        let mut vec4d = DenseNeuroVec::zeros(space).unwrap();
+        vec4d.data[[1, 2, 3, 0]] = 1.5;
+        vec4d.data[[1, 2, 3, 1]] = 2.5;
+        vec4d.data[[1, 2, 3, 2]] = 3.5;
+        vec4d.data[[1, 2, 3, 3]] = 4.5;
+        VolumeSendable::Vec4DF32(vec4d)
+    }
+
     #[test]
     fn coord_to_grid_for_4d_volume_with_time() {
         let sendable = make_4d_volume_sendable();
@@ -10476,6 +11053,37 @@ mod tests {
         );
     }
 
+    #[test]
+    fn sample_voxel_timeseries_extracts_expected_4d_trace() {
+        let sendable = make_4d_volume_sendable_with_timeseries();
+        let values =
+            sample_voxel_timeseries_from_volume(&sendable, 1, 2, 3).expect("timeseries sample");
+
+        assert_eq!(values, vec![1.5, 2.5, 3.5, 4.5]);
+    }
+
+    #[test]
+    fn sample_voxel_timeseries_rejects_3d_volume() {
+        let space_impl = <NeuroSpace as volmath::NeuroSpaceExt>::from_dims_spacing_origin(
+            vec![4, 4, 4],
+            vec![1.0, 1.0, 1.0],
+            vec![0.0, 0.0, 0.0],
+        )
+        .expect("Failed to create NeuroSpace");
+        let space = NeuroSpace3::new(space_impl);
+        let volume = DenseVolume3::<f32>::from_data(space.0, vec![0.0f32; 4 * 4 * 4]);
+        let sendable = VolumeSendable::VolF32(volume, Affine3::<f32>::identity());
+
+        let err = sample_voxel_timeseries_from_volume(&sendable, 1, 1, 1).unwrap_err();
+        match err {
+            BridgeError::Input { code, details } => {
+                assert_eq!(code, 2024);
+                assert!(details.contains("requires a 4D volume"));
+            }
+            other => panic!("expected 4D-volume input error, got {other:?}"),
+        }
+    }
+
     #[tokio::test]
     async fn test_volume_layer_spec_serialization() {
         let spec = VolumeLayerSpec {
@@ -10499,5 +11107,91 @@ mod tests {
             Some(SliceIndex::Relative(val)) => assert_eq!(val, 0.75),
             _ => panic!("Expected Relative slice index"),
         }
+    }
+
+    #[test]
+    fn remote_mount_profile_defaults_missing_new_fields() {
+        let profile: RemoteMountProfile = serde_json::from_str(
+            r#"{
+                "id":"profile-1",
+                "name":"Trillium",
+                "host":"login.example.org",
+                "port":22,
+                "user":"alice",
+                "remote_path":"/data",
+                "auth_method":"password",
+                "known_hosts_path":null
+            }"#,
+        )
+        .expect("profile should deserialize with defaults");
+
+        assert_eq!(profile.key_path, None);
+        assert!(profile.verify_host_key);
+        assert!(!profile.accept_unknown_host_keys);
+        assert!(!profile.has_password);
+        assert!(!profile.has_key_passphrase);
+        assert_eq!(profile.updated_at_ms, 0);
+    }
+
+    #[test]
+    fn key_passphrase_account_key_tracks_selected_key_file() {
+        let explicit = key_passphrase_account_key(
+            "login.example.org",
+            22,
+            "alice",
+            Some(" ~/.ssh/id_ed25519 "),
+        );
+        let default_key = key_passphrase_account_key("login.example.org", 22, "alice", None);
+
+        assert_eq!(
+            explicit,
+            "key-file:alice@login.example.org:22:~/.ssh/id_ed25519"
+        );
+        assert_eq!(
+            default_key,
+            "key-file:alice@login.example.org:22:__default__"
+        );
+    }
+
+    #[test]
+    fn remote_cache_metadata_compares_endpoint_and_remote_stat() {
+        let metadata = RemoteFileCacheMetadata {
+            version: 1,
+            mount_id: "mount-1".to_string(),
+            host: "login.example.org".to_string(),
+            port: 22,
+            user: "alice".to_string(),
+            remote_path: "/data/brain.nii.gz".to_string(),
+            remote_size: 1024,
+            remote_modified_unix_secs: Some(123),
+        };
+        let remote_stat = remotely::fs::Metadata {
+            file_type: remotely::fs::FileType::File,
+            size: 1024,
+            permissions: 0,
+            uid: None,
+            gid: None,
+            accessed: None,
+            modified: Some(UNIX_EPOCH + Duration::from_secs(123)),
+        };
+
+        assert!(remote_cache_metadata_matches(
+            &metadata,
+            "mount-1",
+            "login.example.org",
+            22,
+            "alice",
+            "/data/brain.nii.gz",
+            &remote_stat,
+        ));
+        assert!(!remote_cache_metadata_matches(
+            &metadata,
+            "mount-1",
+            "login.example.org",
+            22,
+            "alice",
+            "/data/other.nii.gz",
+            &remote_stat,
+        ));
     }
 }

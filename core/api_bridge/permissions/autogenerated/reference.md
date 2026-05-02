@@ -72,6 +72,7 @@ Default permissions for api-bridge plugin
 - `allow-check-bids-directory`
 - `allow-scan-bids-dataset`
 - `allow-get-bids-events`
+- `allow-sample-voxel-timeseries`
 - `allow-compute-temporal-metric`
 
 ## Permission Table
