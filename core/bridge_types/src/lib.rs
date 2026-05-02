@@ -5,6 +5,7 @@
 use nalgebra::Affine3;
 use render_loop::RenderLoopError;
 use serde::{Deserialize, Serialize};
+use serde_json::Value as JsonValue;
 use std::path::Path;
 use thiserror::Error;
 use volmath::{DenseVolume3, VolumeMathError};
@@ -541,11 +542,22 @@ pub struct RemoteMountProfile {
     pub user: String,
     pub remote_path: String,
     pub auth_method: String,
+    pub key_path: Option<String>,
+    #[serde(default = "default_remote_verify_host_key")]
     pub verify_host_key: bool,
+    #[serde(default)]
     pub accept_unknown_host_keys: bool,
     pub known_hosts_path: Option<String>,
+    #[serde(default)]
     pub has_password: bool,
+    #[serde(default)]
+    pub has_key_passphrase: bool,
+    #[serde(default)]
     pub updated_at_ms: u64,
+}
+
+fn default_remote_verify_host_key() -> bool {
+    true
 }
 
 // --- Volume Type Definitions ---
@@ -1092,4 +1104,129 @@ pub struct StudioCompareMaterializeRequest {
     pub compare_cohort_member_count: Option<usize>,
     pub active_expression_label: Option<String>,
     pub active_expression_recipe: Option<String>,
+}
+
+/// Kinds of inputs an analysis can accept.
+#[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq, Eq)]
+#[ts(export)]
+#[serde(rename_all = "snake_case")]
+pub enum AnalysisInputKind {
+    Volume,
+    Surface,
+    SurfaceData,
+    Roi,
+    File,
+}
+
+/// Declared kinds of artifacts an analysis may produce.
+#[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq, Eq)]
+#[ts(export)]
+#[serde(rename_all = "snake_case")]
+pub enum AnalysisArtifactKind {
+    Volume,
+    Surface,
+    SurfaceData,
+    Table,
+    File,
+    Image2d,
+    Metadata,
+}
+
+/// Execution backend for an analysis.
+/// Runner-specific configuration lives in the host and is not part of the UI contract.
+#[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq, Eq)]
+#[ts(export)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum AnalysisRunnerKind {
+    Builtin,
+    Sidecar,
+}
+
+/// Concrete input instance passed to an analysis run.
+/// The host may resolve handles to file paths before dispatch.
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct AnalysisInput {
+    /// Kind of input.
+    pub kind: AnalysisInputKind,
+    /// Optional registry handle (e.g., volume/surface id).
+    pub handle: Option<String>,
+    /// Optional resolved on-disk path for sidecar runners.
+    pub path: Option<String>,
+    /// Optional human-friendly name for UI display.
+    pub name: Option<String>,
+    /// Arbitrary extra metadata (space, units, etc).
+    #[ts(type = "any")]
+    pub metadata: JsonValue,
+}
+
+/// Declarative description of an analysis module.
+/// This is what the UI uses to render a parameter form and validate inputs.
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct AnalysisDescriptor {
+    pub id: String,
+    pub name: String,
+    pub version: String,
+    /// API version for compatibility with host/SDK.
+    pub api_version: String,
+    pub description: Option<String>,
+    pub inputs: Vec<AnalysisInputKind>,
+    /// JSON-Schema-ish parameter description. Unknown/additive fields are allowed.
+    #[ts(type = "any")]
+    pub params_schema: JsonValue,
+    pub outputs: Vec<AnalysisArtifactKind>,
+    pub runner: AnalysisRunnerKind,
+}
+
+/// Concrete artifact produced by an analysis job.
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct AnalysisArtifact {
+    pub kind: AnalysisArtifactKind,
+    /// Human-friendly name for display/layer titles.
+    pub name: Option<String>,
+    /// Path to artifact. For sidecars this is relative to the job output dir.
+    pub path: String,
+    /// Optional metadata describing the artifact (space, intent, etc).
+    #[ts(type = "any")]
+    pub metadata: JsonValue,
+}
+
+/// Request payload to start an analysis job.
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct AnalysisStartRequest {
+    pub analysis_id: String,
+    pub inputs: Vec<AnalysisInput>,
+    #[ts(type = "any")]
+    pub params: JsonValue,
+}
+
+/// Lifecycle state of an analysis job.
+#[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq, Eq)]
+#[ts(export)]
+#[serde(rename_all = "snake_case")]
+pub enum AnalysisJobState {
+    Queued,
+    Running,
+    Completed,
+    Failed,
+    Cancelled,
+}
+
+/// Snapshot status for an analysis job.
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct AnalysisJobStatus {
+    pub job_id: String,
+    pub analysis_id: String,
+    pub state: AnalysisJobState,
+    /// Epoch milliseconds.
+    pub started_at_ms: Option<u64>,
+    pub finished_at_ms: Option<u64>,
+    pub progress: Option<f32>,
+    pub message: Option<String>,
+    pub artifacts: Option<Vec<AnalysisArtifact>>,
+    pub error: Option<String>,
 }

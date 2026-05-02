@@ -52,6 +52,19 @@ fn main() {
         eprintln!("Failed to export LayerPatch: {}", e);
     }
 
+    if let Err(e) = RemoteMountInfo::export_all() {
+        eprintln!("Warning: {e}");
+    }
+    if let Err(e) = RemoteMountConnectRequest::export_all() {
+        eprintln!("Warning: {e}");
+    }
+    if let Err(e) = RemoteMountConnectResult::export_all() {
+        eprintln!("Warning: {e}");
+    }
+    if let Err(e) = RemoteMountProfile::export_all() {
+        eprintln!("Warning: {e}");
+    }
+
     if let Err(e) = BidsDatasetSummary::export_all() {
         eprintln!("Warning: {e}");
     }
