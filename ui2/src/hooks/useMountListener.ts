@@ -29,6 +29,13 @@ interface RemoteMountEvent {
   spec: StartupRemoteMountSpec;
 }
 
+interface RemoteMountRecoveryEvent {
+  mount_id: string;
+  origin_label: string;
+  attempt: number;
+  reason: string;
+}
+
 function isTauriRuntime(): boolean {
   try {
     return typeof window !== 'undefined' && Boolean((window as any).__TAURI__);
@@ -44,6 +51,7 @@ export function useMountListener() {
     let mountUnlisten: (() => void) | null = null;
     let openFileUnlisten: (() => void) | null = null;
     let remoteMountUnlisten: (() => void) | null = null;
+    let remoteRecoveryUnlisten: (() => void) | null = null;
     let unsubscribeServicesInitialized: (() => void) | null = null;
     let listenersReady = false;
     let servicesReady = areServicesInitialized();
@@ -144,6 +152,24 @@ export function useMountListener() {
           }
         );
 
+        remoteRecoveryUnlisten = await safeListen<RemoteMountRecoveryEvent>(
+          'remote-mount-recovery',
+          async (event) => {
+            const payload = event.payload;
+            if (!payload) {
+              return;
+            }
+
+            const attemptLabel = payload.attempt === 1 ? 'retry' : `retry ${payload.attempt}`;
+            const shortReason = payload.reason.split('\n')[0]?.trim() || 'transient SFTP error';
+
+            getEventBus().emit('ui.notification', {
+              type: 'warning',
+              message: `Remote mount recovered (${payload.origin_label}, ${attemptLabel}): ${shortReason}`,
+            });
+          }
+        );
+
         listenersReady = true;
         servicesReady = areServicesInitialized();
         await tryFlushStartupActions();
@@ -175,6 +201,9 @@ export function useMountListener() {
           }
           if (remoteMountUnlisten) {
             await safeUnlisten(remoteMountUnlisten);
+          }
+          if (remoteRecoveryUnlisten) {
+            await safeUnlisten(remoteRecoveryUnlisten);
           }
         } catch (error) {
           console.error('Failed to teardown filesystem listeners:', error);

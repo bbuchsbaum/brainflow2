@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import type { RemoteAuthChallenge, RemoteHostKeyChallenge } from '@brainflow/api';
 import { Button } from '@/components/ui/shadcn/button';
 import { Modal } from '@/components/ui/Modal';
 import { getTransport } from '@/services/transport';
@@ -10,27 +11,6 @@ import {
   type RemoteMountProfile,
 } from '@/services/RemoteMountService';
 import { formatTauriError } from '@/utils/formatTauriError';
-
-interface RemoteHostKeyChallenge {
-  challenge_id: string;
-  host: string;
-  port: number;
-  algorithm: string;
-  sha256_fingerprint: string;
-  disposition: 'unknown' | 'mismatch' | string;
-}
-
-interface RemoteAuthPrompt {
-  prompt: string;
-  echo: boolean;
-}
-
-interface RemoteAuthChallenge {
-  conversation_id: string;
-  name: string;
-  instructions: string;
-  prompts: RemoteAuthPrompt[];
-}
 
 type RemoteDialogStep = 'form' | 'host_key' | 'auth';
 
@@ -120,6 +100,37 @@ function withAuthHint(message: string, authMethod: RemoteAuthMethod): string {
   }
 
   return message;
+}
+
+function profileHasStoredSecret(
+  profile: RemoteMountProfile | null,
+  authMethod: RemoteAuthMethod
+): boolean {
+  if (!profile) {
+    return false;
+  }
+
+  if (authMethod === 'password') {
+    return profile.has_password;
+  }
+
+  if (authMethod === 'key_file') {
+    return profile.has_key_passphrase;
+  }
+
+  return false;
+}
+
+function rememberSecretLabel(authMethod: RemoteAuthMethod): string | null {
+  if (authMethod === 'password') {
+    return 'Remember password in OS keychain';
+  }
+
+  if (authMethod === 'key_file') {
+    return 'Remember key passphrase in OS keychain';
+  }
+
+  return null;
 }
 
 function sortProfilesByMostRecent(profiles: RemoteMountProfile[]): RemoteMountProfile[] {
@@ -220,17 +231,23 @@ export function RemoteMountDialog({ isOpen, onClose, onMounted }: RemoteMountDia
   }, [isOpen]);
 
   const applyProfile = (profile: RemoteMountProfile) => {
+    const authMethod = normalizeAuthMethod(profile.auth_method);
     setForm((prev) => ({
       ...prev,
       host: profile.host,
       port: String(profile.port),
       user: profile.user,
       remotePath: profile.remote_path,
-      authMethod: normalizeAuthMethod(profile.auth_method),
+      authMethod,
       password: '',
-      keyPath: '',
+      keyPath: profile.key_path ?? '',
       keyPassphrase: '',
-      rememberPassword: profile.has_password,
+      rememberPassword:
+        authMethod === 'password'
+          ? profile.has_password
+          : authMethod === 'key_file'
+            ? profile.has_key_passphrase
+            : false,
       saveProfile: true,
       profileName: profile.name,
     }));
@@ -304,7 +321,7 @@ export function RemoteMountDialog({ isOpen, onClose, onMounted }: RemoteMountDia
       setError('Host, user, and remote path are required.');
       return;
     }
-    if (form.authMethod === 'password' && !form.password.trim() && !selectedProfile?.has_password) {
+    if (form.authMethod === 'password' && !form.password.trim() && !profileHasStoredSecret(selectedProfile, 'password')) {
       setError('Password is required for password authentication.');
       return;
     }
@@ -328,7 +345,10 @@ export function RemoteMountDialog({ isOpen, onClose, onMounted }: RemoteMountDia
           key_path: form.authMethod === 'key_file' ? form.keyPath.trim() || undefined : undefined,
           key_passphrase:
             form.authMethod === 'key_file' ? form.keyPassphrase || undefined : undefined,
-          remember_password: form.authMethod === 'password' ? form.rememberPassword : false,
+          remember_password:
+            form.authMethod === 'password' || form.authMethod === 'key_file'
+              ? form.rememberPassword
+              : false,
           save_profile: form.saveProfile,
           profile_name: form.saveProfile ? form.profileName.trim() || undefined : undefined,
         },
@@ -512,12 +532,21 @@ export function RemoteMountDialog({ isOpen, onClose, onMounted }: RemoteMountDia
                 <span>Auth Method</span>
                 <select
                   value={form.authMethod}
-                  onChange={(event) =>
+                  onChange={(event) => {
+                    const nextAuthMethod = normalizeAuthMethod(event.target.value);
                     setForm((prev) => ({
                       ...prev,
-                      authMethod: normalizeAuthMethod(event.target.value),
-                    }))
-                  }
+                      authMethod: nextAuthMethod,
+                      rememberPassword:
+                        nextAuthMethod === 'password'
+                          ? (selectedProfile
+                              ? profileHasStoredSecret(selectedProfile, 'password')
+                              : true)
+                          : nextAuthMethod === 'key_file'
+                            ? profileHasStoredSecret(selectedProfile, 'key_file')
+                            : false,
+                    }));
+                  }}
                   disabled={pending}
                 >
                   <option value="password">Password</option>
@@ -537,7 +566,7 @@ export function RemoteMountDialog({ isOpen, onClose, onMounted }: RemoteMountDia
                       onChange={(event) =>
                         setForm((prev) => ({ ...prev, password: event.target.value }))
                       }
-                      placeholder={selectedProfile?.has_password ? 'Stored in keychain' : ''}
+                      placeholder={profileHasStoredSecret(selectedProfile, 'password') ? 'Stored in keychain' : ''}
                       disabled={pending}
                     />
                   </label>
@@ -550,7 +579,7 @@ export function RemoteMountDialog({ isOpen, onClose, onMounted }: RemoteMountDia
                       }
                       disabled={pending}
                     />
-                    <span>Remember password in OS keychain</span>
+                    <span>{rememberSecretLabel('password')}</span>
                   </label>
                 </>
               )}
@@ -576,9 +605,24 @@ export function RemoteMountDialog({ isOpen, onClose, onMounted }: RemoteMountDia
                       onChange={(event) =>
                         setForm((prev) => ({ ...prev, keyPassphrase: event.target.value }))
                       }
-                      placeholder="Only if your key is encrypted"
+                      placeholder={
+                        profileHasStoredSecret(selectedProfile, 'key_file')
+                          ? 'Stored in keychain'
+                          : 'Only if your key is encrypted'
+                      }
                       disabled={pending}
                     />
+                  </label>
+                  <label className="remote-mount-checkbox">
+                    <input
+                      type="checkbox"
+                      checked={form.rememberPassword}
+                      onChange={(event) =>
+                        setForm((prev) => ({ ...prev, rememberPassword: event.target.checked }))
+                      }
+                      disabled={pending}
+                    />
+                    <span>{rememberSecretLabel('key_file')}</span>
                   </label>
                   <p className="remote-mount-step-text">
                     Duo-enabled hosts often require a valid SSH key first, then prompt for second factor.

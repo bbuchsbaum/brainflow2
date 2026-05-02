@@ -65,6 +65,17 @@ function formatRemoteHostLabel(mountSource: MountSource): string {
   return mountSource.label ?? 'remote';
 }
 
+function buildRemoteMountUri(mountSource: MountSource): string | null {
+  if (!mountSource.host || !mountSource.remotePath) {
+    return null;
+  }
+
+  const encodedUser = mountSource.user ? `${encodeURIComponent(mountSource.user)}@` : '';
+  const port = mountSource.port && mountSource.port !== 22 ? `:${mountSource.port}` : '';
+
+  return `ssh://${encodedUser}${mountSource.host}${port}${mountSource.remotePath}`;
+}
+
 const FileTreeItem: React.FC<FileTreeItemProps> = ({ node, style }) => {
   const { data } = node;
   const fileBrowserStore = useFileBrowserStore();
@@ -79,8 +90,9 @@ const FileTreeItem: React.FC<FileTreeItemProps> = ({ node, style }) => {
       : null;
   const remoteHostLabel = remoteMountSource ? formatRemoteHostLabel(remoteMountSource) : null;
   const remoteRootPath = remoteMountSource?.remotePath ?? null;
+  const remoteUri = remoteMountSource ? buildRemoteMountUri(remoteMountSource) : null;
   const remoteOriginTooltip =
-    remoteMountSource?.label?.trim() || remoteHostLabel || null;
+    remoteUri || remoteMountSource?.label?.trim() || remoteHostLabel || null;
   const remoteRootTooltip = remoteRootPath ? `Remote root: ${remoteRootPath}` : null;
   const remoteMountRowTooltip =
     remoteMountSource &&

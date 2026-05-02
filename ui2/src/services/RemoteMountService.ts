@@ -1,61 +1,16 @@
 import { useFileBrowserStore } from '@/stores/fileBrowserStore';
+import type {
+  RemoteMountConnectResult as ApiRemoteMountConnectResult,
+  RemoteMountInfo as ApiRemoteMountInfo,
+  RemoteMountProfile as ApiRemoteMountProfile,
+} from '@brainflow/api';
 import { getTransport } from './transport';
 
 export type RemoteAuthMethod = 'password' | 'key_file' | 'agent' | 'keyboard_interactive';
 
-export interface RemoteMountProfile {
-  id: string;
-  name: string;
-  host: string;
-  port: number;
-  user: string;
-  remote_path: string;
-  auth_method: string;
-  verify_host_key?: boolean;
-  accept_unknown_host_keys?: boolean;
-  known_hosts_path?: string | null;
-  has_password: boolean;
-  updated_at_ms?: number;
-}
-
-export interface ConnectedRemoteMount {
-  mount_id: string;
-  local_path: string;
-  display_name: string;
-  origin: {
-    label: string;
-    host: string;
-    port: number;
-    user: string;
-    remote_path: string;
-  };
-}
-
-interface RemoteHostKeyChallenge {
-  challenge_id: string;
-  host: string;
-  port: number;
-  algorithm: string;
-  sha256_fingerprint: string;
-  disposition: 'unknown' | 'mismatch' | string;
-}
-
-interface RemoteAuthPrompt {
-  prompt: string;
-  echo: boolean;
-}
-
-interface RemoteAuthChallenge {
-  conversation_id: string;
-  name: string;
-  instructions: string;
-  prompts: RemoteAuthPrompt[];
-}
-
-export type RemoteMountConnectResult =
-  | { status: 'connected'; mount: ConnectedRemoteMount }
-  | { status: 'need_host_key'; challenge: RemoteHostKeyChallenge }
-  | { status: 'need_auth'; challenge: RemoteAuthChallenge };
+export type RemoteMountProfile = ApiRemoteMountProfile;
+export type ConnectedRemoteMount = ApiRemoteMountInfo;
+export type RemoteMountConnectResult = ApiRemoteMountConnectResult;
 
 export type StartupRemoteMountSpec =
   | { kind: 'profile'; profile: string }
@@ -149,8 +104,9 @@ async function buildStartupRemoteMountRequest(
     user: profile.user,
     remote_path: profile.remote_path,
     auth_method: profile.auth_method,
-    verify_host_key: profile.verify_host_key ?? true,
-    accept_unknown_host_keys: profile.accept_unknown_host_keys ?? false,
+    key_path: profile.key_path ?? undefined,
+    verify_host_key: profile.verify_host_key,
+    accept_unknown_host_keys: profile.accept_unknown_host_keys,
     known_hosts_path: profile.known_hosts_path ?? undefined,
     remember_password: false,
     save_profile: false,

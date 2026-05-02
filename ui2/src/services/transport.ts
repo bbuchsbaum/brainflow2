@@ -48,6 +48,8 @@ export class TauriTransport implements BackendTransport {
       'remote_mount_respond_host_key',
       'remote_mount_respond_auth',
       'remote_mount_unmount',
+      'list_remote_mounts',
+      'list_remote_directory',
       'list_remote_mount_profiles',
       'remove_remote_mount_profile',
       'sample_world_coordinate',
@@ -365,7 +367,7 @@ export class MockTransport implements BackendTransport {
           value: Math.random() * 1000,
           coordinate: args?.worldCoord || [0, 0, 0]
         };
-        
+
       default:
         console.warn(`Mock transport: No response defined for command '${cmd}'`);
         return null;

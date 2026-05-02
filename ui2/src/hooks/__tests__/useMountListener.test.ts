@@ -15,11 +15,22 @@ const {
   unlistenFns,
   storeState,
 } = vi.hoisted(() => {
-  type ListenerEvent = { payload?: { path?: string; intent?: string; spec?: unknown } };
+  type ListenerEvent = {
+    payload?: {
+      path?: string;
+      intent?: string;
+      spec?: unknown;
+      mount_id?: string;
+      origin_label?: string;
+      attempt?: number;
+      reason?: string;
+    };
+  };
   const listenerMap: Record<string, (event: ListenerEvent) => Promise<void> | void> = {};
   const unlistenA = vi.fn();
   const unlistenB = vi.fn();
   const unlistenC = vi.fn();
+  const unlistenD = vi.fn();
   const mockMountDirectoryFn = vi.fn().mockResolvedValue(undefined);
   const mockLoadFileFn = vi.fn().mockResolvedValue(undefined);
   const mockMountRemoteFromStartupSpecFn = vi.fn().mockResolvedValue(undefined);
@@ -34,7 +45,10 @@ const {
       if (event === 'open-file-event') {
         return unlistenB;
       }
-      return unlistenC;
+      if (event === 'mount-remote-event') {
+        return unlistenC;
+      }
+      return unlistenD;
     });
   const safeUnlistenFn = vi.fn().mockResolvedValue(undefined);
 
@@ -47,7 +61,7 @@ const {
     mockSafeListen: safeListenFn,
     mockSafeUnlisten: safeUnlistenFn,
     servicesReadyState: { value: true },
-    unlistenFns: [unlistenA, unlistenB, unlistenC],
+    unlistenFns: [unlistenA, unlistenB, unlistenC, unlistenD],
     storeState: {
       entries: [] as Array<{ path: string; name: string }>,
       rootPath: '',
@@ -120,12 +134,13 @@ describe('useMountListener', () => {
     renderHook(() => useMountListener());
 
     await waitFor(() => {
-      expect(mockSafeListen).toHaveBeenCalledTimes(3);
+      expect(mockSafeListen).toHaveBeenCalledTimes(4);
     });
 
     expect(listeners['mount-directory-event']).toBeTypeOf('function');
     expect(listeners['open-file-event']).toBeTypeOf('function');
     expect(listeners['mount-remote-event']).toBeTypeOf('function');
+    expect(listeners['remote-mount-recovery']).toBeTypeOf('function');
     await waitFor(() => {
       expect(mockInvoke).toHaveBeenCalledWith('flush_startup_actions');
     });
@@ -248,22 +263,52 @@ describe('useMountListener', () => {
     emitSpy.mockRestore();
   });
 
+  it('emits a warning notification when a remote mount recovers after retry', async () => {
+    const emitSpy = vi.spyOn(getEventBus(), 'emit');
+
+    renderHook(() => useMountListener());
+
+    await waitFor(() => {
+      expect(listeners['remote-mount-recovery']).toBeTypeOf('function');
+    });
+
+    await act(async () => {
+      await listeners['remote-mount-recovery']({
+        payload: {
+          mount_id: 'mount-remote-1',
+          origin_label: 'alice@login.example.org:/data',
+          attempt: 1,
+          reason: 'connection reset by peer',
+        },
+      });
+    });
+
+    expect(emitSpy).toHaveBeenCalledWith('ui.notification', {
+      type: 'warning',
+      message:
+        'Remote mount recovered (alice@login.example.org:/data, retry): connection reset by peer',
+    });
+
+    emitSpy.mockRestore();
+  });
+
   it('cleans up startup listeners on unmount', async () => {
     const { unmount } = renderHook(() => useMountListener());
 
     await waitFor(() => {
-      expect(mockSafeListen).toHaveBeenCalledTimes(3);
+      expect(mockSafeListen).toHaveBeenCalledTimes(4);
     });
 
     unmount();
 
     await waitFor(() => {
-      expect(mockSafeUnlisten).toHaveBeenCalledTimes(3);
+      expect(mockSafeUnlisten).toHaveBeenCalledTimes(4);
     });
 
     expect(mockSafeUnlisten).toHaveBeenCalledWith(unlistenFns[0]);
     expect(mockSafeUnlisten).toHaveBeenCalledWith(unlistenFns[1]);
     expect(mockSafeUnlisten).toHaveBeenCalledWith(unlistenFns[2]);
+    expect(mockSafeUnlisten).toHaveBeenCalledWith(unlistenFns[3]);
   });
 
   it('waits for services initialization before flushing startup actions', async () => {
@@ -272,7 +317,7 @@ describe('useMountListener', () => {
     renderHook(() => useMountListener());
 
     await waitFor(() => {
-      expect(mockSafeListen).toHaveBeenCalledTimes(3);
+      expect(mockSafeListen).toHaveBeenCalledTimes(4);
     });
 
     expect(mockInvoke).not.toHaveBeenCalled();

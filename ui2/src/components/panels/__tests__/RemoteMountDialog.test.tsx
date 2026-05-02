@@ -56,6 +56,8 @@ describe('RemoteMountDialog', () => {
             remote_path: '/old',
             auth_method: 'agent',
             has_password: false,
+            has_key_passphrase: false,
+            key_path: null,
             updated_at_ms: 10,
           },
           {
@@ -66,7 +68,9 @@ describe('RemoteMountDialog', () => {
             user: 'newuser',
             remote_path: '/new',
             auth_method: 'key_file',
+            key_path: '~/.ssh/id_new',
             has_password: false,
+            has_key_passphrase: true,
             updated_at_ms: 20,
           },
         ]);
@@ -83,6 +87,7 @@ describe('RemoteMountDialog', () => {
       expect(screen.getByLabelText('User')).toHaveValue('newuser');
       expect(screen.getByLabelText('Remote Folder')).toHaveValue('/new');
       expect(screen.getByLabelText('Auth Method')).toHaveValue('key_file');
+      expect(screen.getByLabelText('SSH Key File (optional)')).toHaveValue('~/.ssh/id_new');
     });
   });
 
@@ -310,6 +315,42 @@ describe('RemoteMountDialog', () => {
     await waitFor(() => {
       expect(onMounted).toHaveBeenCalledWith(mount);
       expect(onClose).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  it('renders a host-key mismatch warning when the server key changes', async () => {
+    invokeMock.mockImplementation((cmd: string) => {
+      if (cmd === 'list_remote_mount_profiles') {
+        return Promise.resolve([]);
+      }
+      if (cmd === 'remote_mount_connect') {
+        return Promise.resolve({
+          status: 'need_host_key',
+          challenge: {
+            challenge_id: 'challenge-mismatch',
+            host: 'login.example.org',
+            port: 22,
+            algorithm: 'ssh-ed25519',
+            sha256_fingerprint: 'SHA256:mismatch',
+            disposition: 'mismatch',
+          },
+        });
+      }
+      return Promise.reject(new Error(`Unhandled command: ${cmd}`));
+    });
+
+    setupDialog();
+
+    await waitFor(() => {
+      expect(invokeMock).toHaveBeenCalledWith('list_remote_mount_profiles');
+    });
+
+    fillPasswordForm();
+    fireEvent.click(screen.getByRole('button', { name: 'Connect' }));
+
+    await waitFor(() => {
+      expect(screen.getByText('Host key mismatch')).toBeInTheDocument();
+      expect(screen.getByText('ssh-ed25519 • SHA256:mismatch')).toBeInTheDocument();
     });
   });
 

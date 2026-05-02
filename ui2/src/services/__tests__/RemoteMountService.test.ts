@@ -114,10 +114,12 @@ describe('RemoteMountService', () => {
             user: 'brad',
             remote_path: '/scratch/brad',
             auth_method: 'agent',
+            key_path: null,
             verify_host_key: true,
             accept_unknown_host_keys: false,
             known_hosts_path: null,
             has_password: false,
+            has_key_passphrase: false,
             updated_at_ms: 1,
           },
         ]);
@@ -131,6 +133,7 @@ describe('RemoteMountService', () => {
             user: 'brad',
             remote_path: '/scratch/brad',
             auth_method: 'agent',
+            key_path: undefined,
             verify_host_key: true,
             accept_unknown_host_keys: false,
             known_hosts_path: undefined,
@@ -153,6 +156,66 @@ describe('RemoteMountService', () => {
     await mountRemoteFromStartupSpec({
       kind: 'profile',
       profile: 'trillium',
+    });
+
+    expect(invokeMock).toHaveBeenCalledWith('list_remote_mount_profiles');
+    expect(mountDirectoryMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('includes saved key file details when starting a key-based profile mount', async () => {
+    const invokeMock = vi.fn().mockImplementation((cmd: string, args?: any) => {
+      if (cmd === 'list_remote_mount_profiles') {
+        return Promise.resolve([
+          {
+            id: 'alice@login.example.org:22:/secure',
+            name: 'secure-key',
+            host: 'login.example.org',
+            port: 22,
+            user: 'alice',
+            remote_path: '/secure',
+            auth_method: 'key_file',
+            key_path: '~/.ssh/id_ed25519_secure',
+            verify_host_key: true,
+            accept_unknown_host_keys: false,
+            known_hosts_path: null,
+            has_password: false,
+            has_key_passphrase: true,
+            updated_at_ms: 2,
+          },
+        ]);
+      }
+
+      if (cmd === 'remote_mount_connect') {
+        expect(args).toEqual({
+          request: {
+            host: 'login.example.org',
+            port: 22,
+            user: 'alice',
+            remote_path: '/secure',
+            auth_method: 'key_file',
+            key_path: '~/.ssh/id_ed25519_secure',
+            verify_host_key: true,
+            accept_unknown_host_keys: false,
+            known_hosts_path: undefined,
+            remember_password: false,
+            save_profile: false,
+            profile_name: 'secure-key',
+          },
+        });
+        return Promise.resolve({
+          status: 'connected',
+          mount: CONNECTED_MOUNT,
+        });
+      }
+
+      return Promise.reject(new Error(`Unhandled command: ${cmd}`));
+    });
+
+    setTransport({ invoke: invokeMock } as BackendTransportLike);
+
+    await mountRemoteFromStartupSpec({
+      kind: 'profile',
+      profile: 'secure-key',
     });
 
     expect(invokeMock).toHaveBeenCalledWith('list_remote_mount_profiles');
