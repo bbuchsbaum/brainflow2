@@ -7,7 +7,8 @@
 
 import type { HoverInfoProvider, HoverInfoEntry, HoverContext } from '@/types/hoverInfo';
 import { useLayerStore } from '@/stores/layerStore';
-import { invoke } from '@tauri-apps/api/core';
+import { getTransport } from '@/services/transport';
+import { transformWorldToVoxelColumnMajor } from '@/utils/voxelTransform';
 
 const SPARKLINE_W = 60;
 const SPARKLINE_H = 24;
@@ -52,20 +53,6 @@ function buildSparklineSvg(values: number[]): string {
   );
 }
 
-/** Transform world mm coords to voxel coords using the 4x4 worldToVoxel matrix (flat, row-major). */
-function worldToVoxel(
-  worldToVoxelMatrix: number[],
-  world: [number, number, number]
-): [number, number, number] {
-  const m = worldToVoxelMatrix;
-  const [wx, wy, wz] = world;
-  // 4x4 homogeneous multiply: result = M * [wx, wy, wz, 1]
-  const vx = m[0] * wx + m[1] * wy + m[2] * wz + m[3];
-  const vy = m[4] * wx + m[5] * wy + m[6] * wz + m[7];
-  const vz = m[8] * wx + m[9] * wy + m[10] * wz + m[11];
-  return [vx, vy, vz];
-}
-
 // Debounce state
 let debounceTimer: ReturnType<typeof setTimeout> | null = null;
 let pendingResolve: ((result: HoverInfoEntry[] | null) => void) | null = null;
@@ -85,7 +72,17 @@ async function fetchSparkline(ctx: HoverContext): Promise<HoverInfoEntry[] | nul
   const metadata = state.getLayerMetadata(ctx.activeLayerId);
   if (!metadata?.worldToVoxel) return null;
 
-  const [vx, vy, vz] = worldToVoxel(metadata.worldToVoxel, ctx.worldCoord);
+  let voxelCoord: [number, number, number];
+  try {
+    voxelCoord = transformWorldToVoxelColumnMajor(
+      metadata.worldToVoxel,
+      ctx.worldCoord
+    );
+  } catch {
+    return null;
+  }
+
+  const [vx, vy, vz] = voxelCoord;
   const x = Math.round(vx);
   const y = Math.round(vy);
   const z = Math.round(vz);
@@ -112,7 +109,7 @@ async function fetchSparkline(ctx: HoverContext): Promise<HoverInfoEntry[] | nul
   }
 
   try {
-    const timeseries = await invoke<number[]>('plugin:api-bridge|sample_voxel_timeseries', {
+    const timeseries = await getTransport().invoke<number[]>('sample_voxel_timeseries', {
       volumeId,
       voxelX: x,
       voxelY: y,

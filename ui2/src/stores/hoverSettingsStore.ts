@@ -37,9 +37,23 @@ interface HoverSettingsState extends HoverSettings {
   reset: () => void;
 }
 
+const DEFAULT_ENABLED_PROVIDERS = [
+  'coords',
+  'intensity',
+  'atlas',
+  'sparkline',
+  'neurosynth',
+] as const;
+
+function mergeEnabledProviders(enabledProviders?: string[]): string[] {
+  return Array.from(
+    new Set([...(enabledProviders ?? []), ...DEFAULT_ENABLED_PROVIDERS])
+  );
+}
+
 const DEFAULT_SETTINGS: HoverSettings = {
   enabled: true,
-  enabledProviders: ['coords', 'intensity', 'atlas'],
+  enabledProviders: [...DEFAULT_ENABLED_PROVIDERS],
   showInTooltip: true,
   showInStatusBar: true,
   throttleMs: 40,
@@ -88,7 +102,28 @@ export const useHoverSettingsStore = create<HoverSettingsState>()(
     }),
     {
       name: 'brainflow-hover-settings',
-      version: 1,
+      version: 2,
+      migrate: (persistedState, version) => {
+        const state = persistedState as Partial<HoverSettings> | undefined;
+
+        if (!state) {
+          return DEFAULT_SETTINGS;
+        }
+
+        if (version < 2) {
+          return {
+            ...DEFAULT_SETTINGS,
+            ...state,
+            enabledProviders: mergeEnabledProviders(state.enabledProviders),
+          };
+        }
+
+        return {
+          ...DEFAULT_SETTINGS,
+          ...state,
+          enabledProviders: state.enabledProviders ?? [...DEFAULT_ENABLED_PROVIDERS],
+        };
+      },
     }
   )
 );

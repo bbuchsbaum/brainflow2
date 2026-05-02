@@ -53,6 +53,7 @@ export class TauriTransport implements BackendTransport {
       'list_remote_mount_profiles',
       'remove_remote_mount_profile',
       'sample_world_coordinate',
+      'sample_voxel_timeseries',
       'init_render_loop',
       'resize_canvas',
       'create_offscreen_render_target',
@@ -367,6 +368,9 @@ export class MockTransport implements BackendTransport {
           value: Math.random() * 1000,
           coordinate: args?.worldCoord || [0, 0, 0]
         };
+
+      case 'sample_voxel_timeseries':
+        return [0.1, 0.45, 0.8, 0.35, 0.6];
 
       default:
         console.warn(`Mock transport: No response defined for command '${cmd}'`);
