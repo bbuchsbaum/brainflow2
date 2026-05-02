@@ -6,6 +6,9 @@ entangling analysis logic with visualization/rendering.
 
 See `docs/analysis_bundle_architecture.md` for the longer‑term “analysis bundle” vision.
 
+The repo also includes a runnable bundled example under `plugins/analyses/example`
+that exercises the sidecar protocol against a selected volume.
+
 ## Contract Types
 
 Shared, versioned types live in `core/bridge_types/src/lib.rs`:
@@ -117,4 +120,3 @@ Exposed by the `api_bridge` plugin:
 
 These are minimal by design; future work can add richer provenance, bundle handling,
 and push‑style progress events.
-

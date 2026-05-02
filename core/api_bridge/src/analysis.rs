@@ -16,7 +16,7 @@ use bridge_types::{
 };
 use log::{debug, error, info, warn};
 use serde::Deserialize;
-use serde_json::Value as JsonValue;
+use serde_json::{json, Value as JsonValue};
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -29,6 +29,7 @@ use tokio::task::JoinHandle;
 use uuid::Uuid;
 
 const ANALYSIS_API_VERSION: &str = "0.1";
+const BUILTIN_COPY_VOLUME_ANALYSIS_ID: &str = "builtin-copy-volume";
 
 /// Internal runner configuration.
 #[derive(Debug, Clone)]
@@ -78,6 +79,13 @@ impl AnalysisRegistry {
 
     pub fn register(&mut self, def: AnalysisDefinition) {
         self.analyses.insert(def.descriptor.id.clone(), def);
+    }
+
+    pub fn register_builtin_analyses(&mut self) {
+        self.register(AnalysisDefinition {
+            descriptor: builtin_copy_volume_descriptor(),
+            runner: AnalysisRunner::Builtin,
+        });
     }
 
     /// Attempt to load sidecar analyses from the default plugin locations.
@@ -139,6 +147,13 @@ impl AnalysisRegistry {
             }
         }
     }
+}
+
+pub fn build_default_registry() -> AnalysisRegistry {
+    let mut registry = AnalysisRegistry::new();
+    registry.register_builtin_analyses();
+    registry.load_default_locations();
+    registry
 }
 
 #[derive(Debug, Deserialize)]
@@ -402,10 +417,15 @@ pub async fn start_analysis_job(
         }
 
         let result = match runner {
-            AnalysisRunner::Builtin => Err(BridgeError::Internal {
-                code: 11020,
-                details: "Builtin analyses not yet implemented".to_string(),
-            }),
+            AnalysisRunner::Builtin => {
+                run_builtin(
+                    &definition_descriptor,
+                    req_clone,
+                    &output_dir_str,
+                    Arc::clone(&status_arc_clone),
+                )
+                .await
+            }
             AnalysisRunner::Sidecar(spec) => {
                 run_sidecar(
                     &spec,
@@ -584,6 +604,155 @@ async fn run_sidecar(
     Ok(artifacts)
 }
 
+fn builtin_copy_volume_descriptor() -> AnalysisDescriptor {
+    AnalysisDescriptor {
+        id: BUILTIN_COPY_VOLUME_ANALYSIS_ID.to_string(),
+        name: "Builtin: Copy Selected Volume".to_string(),
+        version: "0.1.0".to_string(),
+        api_version: ANALYSIS_API_VERSION.to_string(),
+        description: Some(
+            "Smoke-test builtin analysis that copies the selected input volume into the job output directory and emits a small JSON report.".to_string(),
+        ),
+        inputs: vec![bridge_types::AnalysisInputKind::Volume],
+        params_schema: json!({
+            "type": "object",
+            "properties": {},
+            "additionalProperties": false,
+            "title": "No parameters"
+        }),
+        outputs: vec![
+            AnalysisArtifactKind::Volume,
+            AnalysisArtifactKind::Metadata,
+        ],
+        runner: AnalysisRunnerKind::Builtin,
+    }
+}
+
+async fn run_builtin(
+    descriptor: &AnalysisDescriptor,
+    request: AnalysisStartRequest,
+    output_dir: &str,
+    status_arc: Arc<Mutex<AnalysisJobStatus>>,
+) -> BridgeResult<Vec<AnalysisArtifact>> {
+    match descriptor.id.as_str() {
+        BUILTIN_COPY_VOLUME_ANALYSIS_ID => {
+            run_builtin_copy_volume(request, output_dir, status_arc).await
+        }
+        _ => Err(BridgeError::Internal {
+            code: 11021,
+            details: format!("Unknown builtin analysis '{}'", descriptor.id),
+        }),
+    }
+}
+
+async fn run_builtin_copy_volume(
+    request: AnalysisStartRequest,
+    output_dir: &str,
+    status_arc: Arc<Mutex<AnalysisJobStatus>>,
+) -> BridgeResult<Vec<AnalysisArtifact>> {
+    let input = request
+        .inputs
+        .iter()
+        .find(|input| {
+            matches!(input.kind, bridge_types::AnalysisInputKind::Volume)
+                && input.path.as_ref().map(|p| !p.is_empty()).unwrap_or(false)
+        })
+        .ok_or(BridgeError::Input {
+            code: 11022,
+            details:
+                "Builtin copy-volume analysis requires a volume input with a resolved file path"
+                    .to_string(),
+        })?;
+
+    let source_path = PathBuf::from(input.path.clone().unwrap_or_default());
+    if !source_path.exists() {
+        return Err(BridgeError::Io {
+            code: 11023,
+            details: format!(
+                "Input file for builtin analysis does not exist: {}",
+                source_path.display()
+            ),
+        });
+    }
+
+    {
+        let mut status = status_arc.lock().await;
+        status.progress = Some(0.25);
+        status.message = Some("Copying selected volume".to_string());
+    }
+
+    let source_name = source_path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("copied-volume.nii.gz");
+    let output_path = Path::new(output_dir).join(source_name);
+    fs::copy(&source_path, &output_path).map_err(|err| BridgeError::Io {
+        code: 11024,
+        details: format!(
+            "Failed to copy builtin analysis output from {} to {}: {}",
+            source_path.display(),
+            output_path.display(),
+            err
+        ),
+    })?;
+
+    {
+        let mut status = status_arc.lock().await;
+        status.progress = Some(0.8);
+        status.message = Some("Writing analysis report".to_string());
+    }
+
+    let report_path = Path::new(output_dir).join("analysis-report.json");
+    let report = json!({
+        "analysis_id": BUILTIN_COPY_VOLUME_ANALYSIS_ID,
+        "input_name": input.name,
+        "input_handle": input.handle,
+        "input_path": source_path,
+        "copied_output_path": output_path,
+        "params": request.params,
+    });
+    let report_bytes = serde_json::to_vec_pretty(&report).map_err(|err| BridgeError::Internal {
+        code: 11025,
+        details: format!("Failed to serialize builtin analysis report: {}", err),
+    })?;
+    fs::write(&report_path, report_bytes).map_err(|err| BridgeError::Io {
+        code: 11026,
+        details: format!(
+            "Failed to write builtin analysis report {}: {}",
+            report_path.display(),
+            err
+        ),
+    })?;
+
+    Ok(vec![
+        AnalysisArtifact {
+            kind: AnalysisArtifactKind::Volume,
+            name: Some(
+                input
+                    .name
+                    .as_ref()
+                    .map(|name| format!("Copy of {}", name))
+                    .unwrap_or_else(|| "Copied volume".to_string()),
+            ),
+            path: output_path.to_string_lossy().to_string(),
+            metadata: json!({
+                "source_input_handle": input.handle,
+                "source_input_name": input.name,
+                "builtin_analysis": BUILTIN_COPY_VOLUME_ANALYSIS_ID,
+            }),
+        },
+        AnalysisArtifact {
+            kind: AnalysisArtifactKind::Metadata,
+            name: Some("Analysis Report".to_string()),
+            path: report_path.to_string_lossy().to_string(),
+            metadata: json!({
+                "builtin_analysis": BUILTIN_COPY_VOLUME_ANALYSIS_ID,
+                "mime": "application/json",
+            }),
+        },
+    ])
+}
+
 // --- Tauri command wrappers ---
 
 /// List all registered analyses.
@@ -627,4 +796,184 @@ pub async fn get_analysis_job_status(
 ) -> BridgeResult<Option<AnalysisJobStatus>> {
     let jobs = state.analysis_jobs.lock().await;
     Ok(jobs.get_status(&job_id).await)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use bridge_types::{AnalysisArtifactKind, AnalysisInput, AnalysisInputKind, AnalysisJobState};
+    use std::path::{Path, PathBuf};
+    use std::time::Duration;
+
+    #[test]
+    fn default_registry_includes_builtin_analysis() {
+        let registry = build_default_registry();
+        let descriptors = registry.list();
+        assert!(descriptors
+            .iter()
+            .any(|descriptor| descriptor.id == BUILTIN_COPY_VOLUME_ANALYSIS_ID));
+    }
+
+    fn repo_analysis_plugins_dir() -> PathBuf {
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../plugins/analyses")
+            .canonicalize()
+            .expect("repo analysis plugin dir should resolve")
+    }
+
+    #[test]
+    fn bundled_example_sidecar_manifest_loads() {
+        let mut registry = AnalysisRegistry::new();
+        registry.load_from_dir(&repo_analysis_plugins_dir());
+
+        let descriptors = registry.list();
+        let example = descriptors
+            .iter()
+            .find(|descriptor| descriptor.id == "example-copy-volume-sidecar")
+            .expect("bundled example sidecar should load");
+
+        assert_eq!(example.runner, AnalysisRunnerKind::Sidecar);
+        assert_eq!(example.inputs, vec![AnalysisInputKind::Volume]);
+        assert_eq!(
+            example.outputs,
+            vec![AnalysisArtifactKind::Volume, AnalysisArtifactKind::Metadata]
+        );
+    }
+
+    #[tokio::test]
+    async fn builtin_copy_volume_job_completes_and_emits_artifacts() {
+        let source_dir =
+            std::env::temp_dir().join(format!("brainflow-analysis-test-{}", Uuid::new_v4()));
+        fs::create_dir_all(&source_dir).expect("create source dir");
+        let source_path = source_dir.join("source-volume.nii.gz");
+        fs::write(&source_path, b"fake-nifti").expect("write source file");
+
+        let registry = Arc::new(Mutex::new(AnalysisRegistry::new()));
+        {
+            let mut guard = registry.lock().await;
+            guard.register_builtin_analyses();
+        }
+        let jobs = Arc::new(Mutex::new(AnalysisJobManager::new()));
+
+        let request = AnalysisStartRequest {
+            analysis_id: BUILTIN_COPY_VOLUME_ANALYSIS_ID.to_string(),
+            inputs: vec![AnalysisInput {
+                kind: AnalysisInputKind::Volume,
+                handle: Some("vol-1".to_string()),
+                path: Some(source_path.to_string_lossy().to_string()),
+                name: Some("Source Volume".to_string()),
+                metadata: json!({}),
+            }],
+            params: json!({}),
+        };
+
+        let job_id = start_analysis_job(Arc::clone(&registry), Arc::clone(&jobs), request)
+            .await
+            .expect("start builtin analysis");
+
+        let final_status = loop {
+            let snapshot = {
+                let guard = jobs.lock().await;
+                guard
+                    .get_status(&job_id)
+                    .await
+                    .expect("job status should exist")
+            };
+
+            match snapshot.state {
+                AnalysisJobState::Queued | AnalysisJobState::Running => {
+                    tokio::time::sleep(Duration::from_millis(20)).await;
+                }
+                _ => break snapshot,
+            }
+        };
+
+        assert_eq!(final_status.state, AnalysisJobState::Completed);
+        let artifacts = final_status.artifacts.expect("completed artifacts");
+        assert!(artifacts
+            .iter()
+            .any(|artifact| artifact.kind == AnalysisArtifactKind::Volume));
+        assert!(artifacts
+            .iter()
+            .any(|artifact| artifact.kind == AnalysisArtifactKind::Metadata));
+        for artifact in artifacts {
+            assert!(
+                Path::new(&artifact.path).exists(),
+                "artifact path should exist: {}",
+                artifact.path
+            );
+        }
+
+        let _ = fs::remove_dir_all(source_dir);
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    #[tokio::test]
+    async fn bundled_example_sidecar_job_completes_and_emits_artifacts() {
+        let source_dir = std::env::temp_dir().join(format!(
+            "brainflow-sidecar-analysis-test-{}",
+            Uuid::new_v4()
+        ));
+        fs::create_dir_all(&source_dir).expect("create source dir");
+        let source_path = source_dir.join("source-volume.nii.gz");
+        fs::write(&source_path, b"fake-nifti").expect("write source file");
+
+        let registry = Arc::new(Mutex::new(AnalysisRegistry::new()));
+        {
+            let mut guard = registry.lock().await;
+            guard.load_from_dir(&repo_analysis_plugins_dir());
+        }
+        let jobs = Arc::new(Mutex::new(AnalysisJobManager::new()));
+
+        let request = AnalysisStartRequest {
+            analysis_id: "example-copy-volume-sidecar".to_string(),
+            inputs: vec![AnalysisInput {
+                kind: AnalysisInputKind::Volume,
+                handle: Some("vol-sidecar".to_string()),
+                path: Some(source_path.to_string_lossy().to_string()),
+                name: Some("Source Volume".to_string()),
+                metadata: json!({}),
+            }],
+            params: json!({ "label": "test sidecar run" }),
+        };
+
+        let job_id = start_analysis_job(Arc::clone(&registry), Arc::clone(&jobs), request)
+            .await
+            .expect("start sidecar analysis");
+
+        let final_status = loop {
+            let snapshot = {
+                let guard = jobs.lock().await;
+                guard
+                    .get_status(&job_id)
+                    .await
+                    .expect("job status should exist")
+            };
+
+            match snapshot.state {
+                AnalysisJobState::Queued | AnalysisJobState::Running => {
+                    tokio::time::sleep(Duration::from_millis(20)).await;
+                }
+                _ => break snapshot,
+            }
+        };
+
+        assert_eq!(final_status.state, AnalysisJobState::Completed);
+        let artifacts = final_status.artifacts.expect("completed artifacts");
+        assert!(artifacts
+            .iter()
+            .any(|artifact| artifact.kind == AnalysisArtifactKind::Volume));
+        assert!(artifacts
+            .iter()
+            .any(|artifact| artifact.kind == AnalysisArtifactKind::Metadata));
+        for artifact in artifacts {
+            assert!(
+                Path::new(&artifact.path).exists(),
+                "artifact path should exist: {}",
+                artifact.path
+            );
+        }
+
+        let _ = fs::remove_dir_all(source_dir);
+    }
 }

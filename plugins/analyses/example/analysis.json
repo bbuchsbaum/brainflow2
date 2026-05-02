@@ -1,30 +1,27 @@
 {
-  "id": "example-roi-stats",
-  "name": "Example ROI Statistics",
+  "id": "example-copy-volume-sidecar",
+  "name": "Example Sidecar: Copy Selected Volume",
   "version": "0.1.0",
   "api_version": "0.1",
-  "description": "Example sidecar analysis manifest (see docs/analysis_plugins.md).",
-  "inputs": ["volume", "roi"],
+  "description": "Runnable sidecar example that copies the selected volume into the job output directory and writes a JSON report.",
+  "inputs": ["volume"],
   "params_schema": {
     "type": "object",
     "properties": {
-      "radius_mm": {
-        "type": "number",
-        "default": 5.0,
-        "minimum": 0.5,
-        "maximum": 50.0,
-        "title": "ROI radius (mm)"
+      "label": {
+        "type": "string",
+        "default": "Example Sidecar Run",
+        "title": "Run label"
       }
     },
-    "required": ["radius_mm"]
+    "additionalProperties": false
   },
-  "outputs": ["table"],
+  "outputs": ["volume", "metadata"],
   "runner": {
     "type": "sidecar",
-    "command": "bin/roi_stats.py",
+    "command": "bin/copy_volume.py",
     "args": [],
     "env": {},
     "timeout_sec": 120
   }
 }
-
