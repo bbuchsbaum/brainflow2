@@ -24,6 +24,20 @@ vi.mock('@/components/panels/SurfaceDataLayerControls', () => ({
   }) => <div data-testid="data-layer-controls">{`${surfaceId}:${layerId}`}</div>,
 }));
 
+vi.mock('@/components/panels/SurfaceDerivedMappingControls', () => ({
+  SurfaceDerivedMappingControls: ({
+    surfaceId,
+    surfaceViewId,
+  }: {
+    surfaceId: string;
+    surfaceViewId?: string | null;
+  }) => (
+    <div data-testid="derived-mapping-controls">
+      {surfaceId}:{surfaceViewId ?? 'no-view'}
+    </div>
+  ),
+}));
+
 function makeSurface(handle: string): LoadedSurface {
   return {
     handle,
@@ -183,6 +197,39 @@ describe('SurfaceControlPanel', () => {
     render(<SurfaceControlPanel />);
 
     expect(screen.getByText('No active surface view')).toBeInTheDocument();
+  });
+
+  it('routes derived surfaces through the mapping inspector instead of plain geometry controls', () => {
+    const surface = makeSurface('surface-a');
+    surface.metadata.sourceVolumeId = 'vol-1';
+    surface.metadata.mappingOptions = {
+      method: 'trilinear',
+      projectionDepth: 2,
+      smoothingKernel: 1,
+    };
+
+    useSurfaceStore.setState({
+      surfaces: new Map([['surface-a', surface]]),
+      activeSurfaceId: 'surface-a',
+      selectedItemType: 'geometry',
+      surfaceViewHandles: new Map([['view-a', 'surface-a']]),
+      surfaceViewSelections: new Map([
+        ['view-a', {
+          activeSurfaceId: 'surface-a',
+          selectedItemType: 'geometry',
+          selectedLayerId: null,
+        }],
+      ]),
+    });
+    useActiveRenderContextStore.setState({
+      activeId: 'surfaceview:surface-a:view-a',
+    });
+
+    render(<SurfaceControlPanel />);
+
+    expect(screen.getByText('Derived Surface Controls')).toBeInTheDocument();
+    expect(screen.getByTestId('derived-mapping-controls')).toHaveTextContent('surface-a:view-a');
+    expect(screen.queryByTestId('geometry-controls')).not.toBeInTheDocument();
   });
 
   it('does not infer geometry controls from a bound view when no surface view is explicit', () => {

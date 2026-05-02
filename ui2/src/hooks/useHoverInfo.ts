@@ -20,6 +20,8 @@ type AnatomicalViewId = 'axial' | 'sagittal' | 'coronal';
 export interface UseHoverInfoOptions {
   /** View identifier for this component */
   viewId: AnatomicalViewId;
+  /** Layer-level gate for hover output */
+  enabled?: boolean;
   /** ID of the primary/active layer (if any) */
   activeLayerId?: string;
   /** ID of the active atlas layer (if any) */
@@ -61,7 +63,14 @@ function toTooltipEntry(entry: HoverInfoEntry): ViewTooltipEntry {
 }
 
 export function useHoverInfo(options: UseHoverInfoOptions): UseHoverInfoResult {
-  const { viewId, activeLayerId, activeAtlasId, canvasToWorld, onHoverStart } = options;
+  const {
+    viewId,
+    enabled = true,
+    activeLayerId,
+    activeAtlasId,
+    canvasToWorld,
+    onHoverStart,
+  } = options;
 
   // Local state for in-canvas hover overlay
   const [hoverValue, setHoverValue] = useState<number | null>(null);
@@ -75,6 +84,7 @@ export function useHoverInfo(options: UseHoverInfoOptions): UseHoverInfoResult {
   const activeAtlasIdRef = useRef(activeAtlasId);
   const canvasToWorldRef = useRef(canvasToWorld);
   const onHoverStartRef = useRef(onHoverStart);
+  const enabledRef = useRef(enabled);
 
   useEffect(() => {
     activeLayerIdRef.current = activeLayerId;
@@ -88,6 +98,30 @@ export function useHoverInfo(options: UseHoverInfoOptions): UseHoverInfoResult {
   useEffect(() => {
     onHoverStartRef.current = onHoverStart;
   }, [onHoverStart]);
+  useEffect(() => {
+    enabledRef.current = enabled;
+  }, [enabled]);
+
+  const clearHoverState = useCallback(() => {
+    setHoverValue(null);
+    setHoverEntries([]);
+
+    const mouseStore = useMouseCoordinateStore.getState();
+    mouseStore.clearMousePosition();
+
+    const statusStore = useStatusBarStore.getState();
+    statusStore.setValue('mouse', '--');
+    statusStore.setValue('value', '--');
+
+    const tooltipStore = useTooltipStore.getState();
+    tooltipStore.clearTooltip();
+  }, []);
+
+  useEffect(() => {
+    if (!enabled) {
+      clearHoverState();
+    }
+  }, [clearHoverState, enabled]);
 
   type HoverMouseSample = {
     clientX: number;
@@ -101,6 +135,11 @@ export function useHoverInfo(options: UseHoverInfoOptions): UseHoverInfoResult {
     return throttle(
       async (sample: HoverMouseSample) => {
         try {
+          if (!enabledRef.current) {
+            clearHoverState();
+            return;
+          }
+
           onHoverStartRef.current?.();
 
           const canvasX = sample.clientX - sample.rectLeft;
@@ -108,8 +147,7 @@ export function useHoverInfo(options: UseHoverInfoOptions): UseHoverInfoResult {
 
           const worldCoord = canvasToWorldRef.current(canvasX, canvasY);
           if (!worldCoord) {
-            setHoverValue(null);
-            setHoverEntries([]);
+            clearHoverState();
             return;
           }
 
@@ -165,14 +203,13 @@ export function useHoverInfo(options: UseHoverInfoOptions): UseHoverInfoResult {
           }
         } catch (err) {
           console.error('[useHoverInfo] Error handling mouse move:', err);
-          setHoverValue(null);
-          setHoverEntries([]);
+          clearHoverState();
         }
       },
       throttleMs,
       { leading: true, trailing: true }
     );
-  }, [viewId, throttleMs]);
+  }, [clearHoverState, throttleMs, viewId]);
 
   const handleMouseMove = useCallback(
     (event: React.MouseEvent) => {
@@ -200,19 +237,8 @@ export function useHoverInfo(options: UseHoverInfoOptions): UseHoverInfoResult {
 
   // Handle mouse leave
   const handleMouseLeave = useCallback(() => {
-    setHoverValue(null);
-    setHoverEntries([]);
-
-    const mouseStore = useMouseCoordinateStore.getState();
-    mouseStore.clearMousePosition();
-
-    const statusStore = useStatusBarStore.getState();
-    statusStore.setValue('mouse', '--');
-    statusStore.setValue('value', '--');
-
-    const tooltipStore = useTooltipStore.getState();
-    tooltipStore.clearTooltip();
-  }, []);
+    clearHoverState();
+  }, [clearHoverState]);
 
   return {
     handleMouseMove,

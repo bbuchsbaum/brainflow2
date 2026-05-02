@@ -15,6 +15,7 @@ interface RenderViewPayload {
     threshold: number[];
     blendMode?: string;
     interpolation?: string;
+    layerMode?: string;
   }>;
   requestedView?: {
     type: string;
@@ -127,6 +128,12 @@ export function validateRenderViewPayload(payload: unknown): ValidationResult {
       }
       if (layer.interpolation !== undefined && typeof layer.interpolation !== 'string') {
         errors.push(`layers[${index}].interpolation must be string when provided`);
+      }
+      if (
+        layer.layerMode !== undefined &&
+        !['scalar', 'label', 'mask'].includes(layer.layerMode)
+      ) {
+        errors.push(`layers[${index}].layerMode must be scalar, label, or mask when provided`);
       }
     });
   }

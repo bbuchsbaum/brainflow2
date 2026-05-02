@@ -228,6 +228,7 @@ export class ViewExportService {
         intensity: layer.intensity,
         threshold: layer.threshold,
         interpolation: layer.interpolation || 'linear',
+        layerMode: layer.layerMode ?? 'scalar',
         visible: true
       })),
       timepoint: viewState.timepoint

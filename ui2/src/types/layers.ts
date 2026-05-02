@@ -23,6 +23,7 @@ export interface LayerRender {
   colormap: string;
   colormapId?: number;
   interpolation: 'nearest' | 'linear';
+  layerMode?: 'scalar' | 'label' | 'mask';
   atlasConfig?: AtlasConfig;
   atlasPaletteKind?: AtlasPaletteKind;
   atlasPaletteSeed?: number;

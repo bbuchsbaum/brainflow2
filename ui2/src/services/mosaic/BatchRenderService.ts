@@ -97,7 +97,8 @@ export class BatchRenderService {
           blend_mode: layer.blendMode === 'alpha' ? 'Normal' : 'Normal',
           intensity_window: [intensityMin, intensityMax],
           threshold: null,
-          visible: layer.visible !== false
+          visible: layer.visible !== false,
+          layer_mode: layer.layerMode ?? 'scalar'
         };
       });
 

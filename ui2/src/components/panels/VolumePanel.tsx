@@ -27,7 +27,7 @@ import { useDisplayOptionsStore } from '@/stores/displayOptionsStore';
 const DEFAULT_LAYER_DISPLAY_OPTIONS = Object.freeze({
   showBorder: false,
   showOrientationMarkers: true,
-  showValueOnHover: true,
+  showValueOnHover: false,
 });
 
 interface VolumePanelProps {
@@ -324,11 +324,11 @@ export const VolumePanel: React.FC<VolumePanelProps> = ({
               />
 
               <CompactToggle
-                label="Value on Hover"
+                label="Hover Info"
                 value={showValueOnHover}
                 onChange={handleHoverToggle}
                 disabled={!render}
-                title="Display voxel values when hovering over the slice"
+                title="Enable or suppress hover tooltip, status-bar, and inline hover output for this layer"
               />
             </div>
           </CollapsibleSection>

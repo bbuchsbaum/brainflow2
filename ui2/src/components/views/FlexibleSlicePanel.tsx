@@ -76,14 +76,10 @@ export const FlexibleSlicePanel = memo(function FlexibleSlicePanel({
           // Cancel any pending throttled update
           throttledUpdateDimensions.cancel();
           
-          // Force final update on drag end
-          console.log(`[FlexibleSlicePanel ${viewId}] Drag end - final update:`, {
-            dimensions: { width, height },
-            timestamp: performance.now()
-          });
-          
-          // Update dimensions and vectors atomically (now async with backend)
-          // Temporarily disable backend dimension update during drag end for debugging
+          // Force final update on drag end — sync dimensions to ViewState
+          // and flush so the backend re-renders at the correct size.
+          void useViewStateStore.getState().updateDimensionsAndPreserveScale(viewId, [width, height])
+            .then(() => coalesceUtils.flush(true));
         }
       }
       
@@ -110,10 +106,12 @@ export const FlexibleSlicePanel = memo(function FlexibleSlicePanel({
             }
             return { width: clampedWidth, height: clampedHeight };
           });
-          // DISABLED: Backend dimension updates cause infinite render loop
-          // The store update triggers SliceViewCanvas re-renders with mismatched props
-          // TODO: Fix prop/store synchronization issue before re-enabling
-          // throttledUpdateDimensions(clampedWidth, clampedHeight);
+          // Sync dimensions to backend when not layout-dragging.
+          // During drag the coalescing middleware defers flushes anyway,
+          // and the drag-end handler forces a final sync.
+          if (!useLayoutDragStore.getState().isDragging) {
+            throttledUpdateDimensions(clampedWidth, clampedHeight);
+          }
         };
         // Defer updates to next frame to avoid nested layout commits
         requestAnimationFrame(schedule);
@@ -128,8 +126,7 @@ export const FlexibleSlicePanel = memo(function FlexibleSlicePanel({
     // Also defer initial size to next frame
     requestAnimationFrame(() => {
       setDimensions({ width: initialWidth, height: initialHeight });
-      // DISABLED: Backend dimension updates cause infinite render loop
-      // throttledUpdateDimensions(initialWidth, initialHeight);
+      throttledUpdateDimensions(initialWidth, initialHeight);
     });
     
     return () => resizeObserver.disconnect();

@@ -12,6 +12,9 @@ export type BlendMode = "Normal" | "Additive" | "Multiply" | "Maximum";
 // Matches Rust's ThresholdMode enum
 export type ThresholdMode = "Range" | "Absolute";
 
+// Matches Rust's LayerMode enum serde names
+export type LayerMode = "scalar" | "label" | "mask";
+
 // Matches Rust's ThresholdConfig struct
 export interface ThresholdConfig {
   mode: ThresholdMode;
@@ -37,6 +40,7 @@ export interface LayerConfig {
   intensity_window: [number, number]; // (f32, f32) tuple
   threshold: ThresholdConfig | null; // Option<ThresholdConfig>
   visible: boolean;
+  layer_mode?: LayerMode;
 }
 
 // Matches Rust's ViewState struct
@@ -75,6 +79,7 @@ export function isValidRustViewState(obj: any): obj is RustViewState {
     if (!['Normal', 'Additive', 'Multiply', 'Maximum'].includes(layer.blend_mode)) return false;
     if (!Array.isArray(layer.intensity_window) || layer.intensity_window.length !== 2) return false;
     if (typeof layer.visible !== 'boolean') return false;
+    if (layer.layer_mode !== undefined && !['scalar', 'label', 'mask'].includes(layer.layer_mode)) return false;
     
     // Validate threshold
     if (layer.threshold !== null) {

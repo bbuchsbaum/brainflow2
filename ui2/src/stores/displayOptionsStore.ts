@@ -23,7 +23,7 @@ const DEFAULT_OPTIONS: LayerDisplayOptions = Object.freeze({
   showBorder: false,
   borderThicknessPx: 1,
   showOrientationMarkers: true,
-  showValueOnHover: true,
+  showValueOnHover: false,
 });
 
 export const useDisplayOptionsStore = create<DisplayOptionsState>()(

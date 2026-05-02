@@ -26,6 +26,7 @@ export interface ViewLayer {
   threshold: [number, number];  // [low, high]
   blendMode?: 'alpha' | 'additive' | 'max' | 'min';
   interpolation?: 'nearest' | 'linear';  // Texture sampling mode
+  layerMode?: 'scalar' | 'label' | 'mask';
   atlasConfig?: AtlasConfig;
   atlasPaletteKind?: AtlasPaletteKind;
   atlasPaletteSeed?: number;

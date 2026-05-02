@@ -53,7 +53,7 @@ export function useSliceViewModel(
     showBorder: false,
     borderThicknessPx: 1,
     showOrientationMarkers: true,
-    showValueOnHover: true,
+    showValueOnHover: false,
   }), []);
   const primaryOptions = useDisplayOptionsStore(
     React.useCallback(

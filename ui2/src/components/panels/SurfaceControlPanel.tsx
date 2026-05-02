@@ -8,7 +8,8 @@ import React from 'react';
 import { useSurfaceStore } from '@/stores/surfaceStore';
 import { SurfaceGeometryControls } from './SurfaceGeometryControls';
 import { SurfaceDataLayerControls } from './SurfaceDataLayerControls';
-import { Settings2, Layers, Info } from 'lucide-react';
+import { SurfaceDerivedMappingControls } from './SurfaceDerivedMappingControls';
+import { Settings2, Layers, Info, GitBranch } from 'lucide-react';
 import { useSurfaceCommandContextValue } from '@/hooks/useSurfaceSelectionContext';
 
 export const SurfaceControlPanel: React.FC = () => {
@@ -38,15 +39,26 @@ export const SurfaceControlPanel: React.FC = () => {
     return null;
   }
 
+  const isDerivedSurface =
+    selectedItemType === 'geometry' &&
+    Boolean(surface.metadata?.sourceVolumeId);
+
   return (
     <div className="h-full flex flex-col bg-background">
       {/* Header */}
       <div className="flex items-center gap-2 px-3 py-2 border-b border-border bg-muted/20">
         {selectedItemType === 'geometry' ? (
-          <>
-            <Settings2 className="h-4 w-4 text-muted-foreground" />
-            <span className="text-[11px] font-semibold uppercase tracking-[0.12em]">Geometry Controls</span>
-          </>
+          isDerivedSurface ? (
+            <>
+              <GitBranch className="h-4 w-4 text-muted-foreground" />
+              <span className="text-[11px] font-semibold uppercase tracking-[0.12em]">Derived Surface Controls</span>
+            </>
+          ) : (
+            <>
+              <Settings2 className="h-4 w-4 text-muted-foreground" />
+              <span className="text-[11px] font-semibold uppercase tracking-[0.12em]">Geometry Controls</span>
+            </>
+          )
         ) : (
           <>
             <Layers className="h-4 w-4 text-muted-foreground" />
@@ -58,7 +70,12 @@ export const SurfaceControlPanel: React.FC = () => {
       {/* Controls */}
       <div className="flex-1 overflow-y-auto">
         {selectedItemType === 'geometry' ? (
-          explicitSurfaceViewId ? (
+          isDerivedSurface ? (
+            <SurfaceDerivedMappingControls
+              surfaceId={activeSurfaceId}
+              surfaceViewId={explicitSurfaceViewId}
+            />
+          ) : explicitSurfaceViewId ? (
             <SurfaceGeometryControls surfaceViewId={explicitSurfaceViewId} />
           ) : (
             <div className="h-full flex flex-col items-center justify-center p-4 text-center">

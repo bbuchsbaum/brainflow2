@@ -30,6 +30,10 @@ import { CoordinateTransform } from '@/utils/coordinates';
 import { TemporalHeatmapOverlay } from './TemporalHeatmapOverlay';
 import { TemporalMetricSelector, type TemporalMetricOption } from '@/components/ui/TemporalMetricSelector';
 import type { SliceAxis } from '@/services/TemporalHeatmapService';
+import {
+  computeTemporalHeatmapSliceIndex,
+  isTemporalHeatmapEligible,
+} from './temporalHeatmapState';
 
 // Anatomical orientation labels per view (LPI convention)
 const ORIENTATION_LABELS: Record<string, { top: string; bottom: string; left: string; right: string }> = {
@@ -39,6 +43,12 @@ const ORIENTATION_LABELS: Record<string, { top: string; bottom: string; left: st
 };
 
 const LABEL_OFFSET = 6; // px from edge
+
+function getSliceAxisIndex(viewId: SliceViewCanvasProps['viewId']): 0 | 1 | 2 {
+  if (viewId === 'sagittal') return 0;
+  if (viewId === 'coronal') return 1;
+  return 2;
+}
 
 // Equality helpers now live in the view-model hook; no need here.
 
@@ -84,13 +94,12 @@ function SliceViewCanvasRaw({ viewId, width, height, className = '' }: SliceView
   // Temporal heatmap state
   const [temporalMetric, setTemporalMetric] = useState<TemporalMetricOption>('none');
   const [heatmapOpacity, setHeatmapOpacity] = useState(0.5);
+  const axisIndex = getSliceAxisIndex(viewId);
 
   // Detect whether the primary layer is a 4D volume
   const is4DVolume = useMemo(() => {
-    if (!primaryLayer?.volumeId) return false;
-    const metadata = useLayerStore.getState().layerMetadata.get(primaryLayer.volumeId);
-    return metadata?.volumeType === 'TimeSeries4D';
-  }, [primaryLayer?.volumeId, layers]);
+    return isTemporalHeatmapEligible(primaryLayer);
+  }, [primaryLayer]);
 
   // Map viewId to SliceAxis for the heatmap service
   const sliceAxis = useMemo((): SliceAxis => {
@@ -101,13 +110,18 @@ function SliceViewCanvasRaw({ viewId, width, height, className = '' }: SliceView
 
   // Current slice index in voxel space (integer, clamped to valid range)
   const heatmapSliceIndex = useMemo(() => {
-    if (!primaryLayer?.volumeId) return 0;
-    const metadata = useLayerStore.getState().layerMetadata.get(primaryLayer.volumeId);
-    const dims = metadata?.dims;
-    if (!dims) return 0;
-    const axisIdx = viewId === 'sagittal' ? 0 : viewId === 'coronal' ? 1 : 2;
-    return Math.max(0, Math.min(dims[axisIdx] - 1, Math.round(crosshair.world_mm[axisIdx])));
-  }, [primaryLayer?.volumeId, viewId, crosshair.world_mm, layers]);
+    if (!primaryLayer?.id) return 0;
+    const metadata = useLayerStore.getState().getLayerMetadata(primaryLayer.id);
+    try {
+      return computeTemporalHeatmapSliceIndex(metadata, crosshair.world_mm, axisIndex);
+    } catch (error) {
+      console.warn(
+        `SliceViewCanvas ${viewId}: Failed to compute temporal heatmap slice index`,
+        error
+      );
+      return 0;
+    }
+  }, [axisIndex, crosshair.world_mm, primaryLayer?.id, viewId]);
 
   // Container ref for window/level hook
   const containerAreaRef = useRef<HTMLDivElement>(null);
@@ -120,12 +134,12 @@ function SliceViewCanvasRaw({ viewId, width, height, className = '' }: SliceView
 
   // Derive data range for active layer from layerStore metadata
   const dataRange = useMemo(() => {
-    if (!primaryLayer?.volumeId) return null;
-    const metadata = useLayerStore.getState().layerMetadata.get(primaryLayer.volumeId);
+    if (!primaryLayer?.id) return null;
+    const metadata = useLayerStore.getState().getLayerMetadata(primaryLayer.id);
     const dr = metadata?.dataRange;
     if (!dr) return null;
     return { min: dr.min, max: dr.max };
-  }, [primaryLayer?.volumeId]);
+  }, [primaryLayer?.id]);
 
   // Window/level handler: updates layer intensity in viewStateStore
   const handleWindowLevelUpdate = useCallback((intensity: [number, number]) => {
@@ -193,6 +207,7 @@ function SliceViewCanvasRaw({ viewId, width, height, className = '' }: SliceView
 
   const { handleMouseMove, handleMouseLeave, hoverValue } = useHoverInfo({
     viewId,
+    enabled: showHover,
     activeLayerId: primaryLayer?.id,
     activeAtlasId,
     canvasToWorld,
@@ -203,7 +218,6 @@ function SliceViewCanvasRaw({ viewId, width, height, className = '' }: SliceView
   const sliceNavService = getSliceNavigationService();
 
   // Get min/max/step (only depends on layers, not crosshair)
-  const axisIndex = viewId === 'axial' ? 2 : viewId === 'sagittal' ? 0 : 1;
   const sliderBounds = React.useMemo(() => {
     try {
       const range = sliceNavService.getSliceRange(viewId);
@@ -379,6 +393,8 @@ function SliceViewCanvasRaw({ viewId, width, height, className = '' }: SliceView
           viewPlane={viewPlane}
           crosshair={crosshair}
           crosshairStyle={crosshairStyle}
+          showSliceBorder={primaryOptions.showBorder}
+          sliceBorderWidth={primaryOptions.borderThicknessPx}
           onCanvasReady={handleCanvasReady}
           onPlacementChange={handlePlacementChange}
           onWorldClick={handleWorldClick}

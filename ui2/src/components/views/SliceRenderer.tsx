@@ -12,7 +12,7 @@
  * - Mouse interaction handling
  */
 
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useLayoutEffect, useState, useCallback } from 'react';
 import { useRenderCanvas } from '@/hooks/useRenderCanvas';
 import { RenderOverlays, CoordinateDisplay, NoLayersOverlay, LoadingVolumeOverlay } from '@/components/ui/RenderOverlays';
 import type { RenderContext } from '@/types/renderContext';
@@ -134,16 +134,12 @@ export function SliceRenderer({
     }
   }, [onRedrawReady, redrawCanvas]);
 
-  // Redraw when dimensions change
-  useEffect(() => {
+  // Canvas width/height updates clear the backing store immediately.
+  // Redraw the retained image before paint so splitter drags do not flash blank.
+  useLayoutEffect(() => {
     if (!canvasRef.current || !lastImage) return;
-    
-    // Schedule a redraw in the next animation frame
-    const rafId = requestAnimationFrame(() => {
-      redrawCanvas();
-    });
-    
-    return () => cancelAnimationFrame(rafId);
+
+    redrawCanvas();
   }, [width, height, lastImage, redrawCanvas]);
   
   // Drag and drop handlers

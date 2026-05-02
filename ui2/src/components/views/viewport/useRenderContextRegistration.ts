@@ -4,28 +4,14 @@ import type { RenderContext } from '@/types/renderContext';
 
 export function useRenderContextRegistration(context: RenderContext): void {
   useEffect(() => {
-    const store = useRenderStateStore.getState();
-    const existing = store.getContext?.(context.id);
-    if (!existing) {
-      store.registerContext(context);
-    } else {
-      const { width, height } = context.dimensions;
-      const dimsChanged =
-        existing.dimensions?.width !== width || existing.dimensions?.height !== height;
-      const typeChanged = existing.type !== context.type;
+    // Register after commit so dimension changes update the context in place
+    // without clearing the retained render state for the same viewport.
+    useRenderStateStore.getState().registerContext(context);
+  }, [context]);
 
-      if (dimsChanged || typeChanged) {
-        const syncContext = () => useRenderStateStore.getState().registerContext(context);
-        if (typeof requestAnimationFrame !== 'undefined') {
-          requestAnimationFrame(syncContext);
-        } else {
-          setTimeout(syncContext, 16);
-        }
-      }
-    }
-
+  useEffect(() => {
     return () => {
       useRenderStateStore.getState().clearContext(context.id);
     };
-  }, [context]);
+  }, [context.id]);
 }

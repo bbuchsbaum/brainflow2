@@ -27,6 +27,8 @@ interface SliceViewportProps {
     world_mm: [number, number, number];
   } | null;
   crosshairStyle?: CrosshairStyle | null;
+  showSliceBorder?: boolean;
+  sliceBorderWidth?: number;
   className?: string;
   canvasClassName?: string;
   showLoading?: boolean;
@@ -55,6 +57,8 @@ export function SliceViewport({
   viewPlane,
   crosshair,
   crosshairStyle,
+  showSliceBorder = false,
+  sliceBorderWidth = 1,
   className = '',
   canvasClassName = '',
   showLoading = true,
@@ -79,6 +83,8 @@ export function SliceViewport({
     viewPlane,
     crosshair,
     crosshairStyle,
+    showSliceBorder,
+    sliceBorderWidth,
     onCanvasReady,
     onPlacementChange,
     onWorldClick,

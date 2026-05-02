@@ -13,6 +13,8 @@ interface UseSliceViewportControllerArgs {
     world_mm: [number, number, number];
   } | null;
   crosshairStyle?: CrosshairStyle | null;
+  showSliceBorder?: boolean;
+  sliceBorderWidth?: number;
   onCanvasReady?: (canvas: HTMLCanvasElement) => void;
   onPlacementChange?: (placement: SliceViewportPlacement) => void;
   onWorldClick?: (worldCoord: [number, number, number], event: MouseEvent<HTMLDivElement>) => void;
@@ -20,10 +22,40 @@ interface UseSliceViewportControllerArgs {
   customRender?: SliceRendererProps['customRender'];
 }
 
+function drawSliceBorder(
+  ctx: CanvasRenderingContext2D,
+  placement: SliceViewportPlacement,
+  thickness: number
+) {
+  const safeThickness = Math.max(1, thickness);
+  const rootStyles =
+    typeof window !== 'undefined'
+      ? getComputedStyle(document.documentElement)
+      : null;
+  const borderToken = rootStyles?.getPropertyValue('--border').trim();
+  const borderColor = borderToken
+    ? `hsl(${borderToken} / 0.95)`
+    : 'rgba(148, 163, 184, 0.95)';
+
+  ctx.save();
+  ctx.strokeStyle = borderColor;
+  ctx.lineWidth = safeThickness;
+  const inset = safeThickness / 2;
+  ctx.strokeRect(
+    placement.x + inset,
+    placement.y + inset,
+    Math.max(0, placement.width - safeThickness),
+    Math.max(0, placement.height - safeThickness)
+  );
+  ctx.restore();
+}
+
 export function useSliceViewportController({
   viewPlane,
   crosshair,
   crosshairStyle,
+  showSliceBorder = false,
+  sliceBorderWidth = 1,
   onCanvasReady,
   onPlacementChange,
   onWorldClick,
@@ -35,6 +67,8 @@ export function useSliceViewportController({
   const viewPlaneRef = useRef<ViewPlane | null>(viewPlane ?? null);
   const crosshairRef = useRef(crosshair ?? null);
   const crosshairStyleRef = useRef(crosshairStyle ?? null);
+  const showSliceBorderRef = useRef(showSliceBorder);
+  const sliceBorderWidthRef = useRef(sliceBorderWidth);
   const customRenderRef = useRef(customRender);
   const onPlacementChangeRef = useRef(onPlacementChange);
 
@@ -49,6 +83,14 @@ export function useSliceViewportController({
   useEffect(() => {
     crosshairStyleRef.current = crosshairStyle ?? null;
   }, [crosshairStyle]);
+
+  useEffect(() => {
+    showSliceBorderRef.current = showSliceBorder;
+  }, [showSliceBorder]);
+
+  useEffect(() => {
+    sliceBorderWidthRef.current = sliceBorderWidth;
+  }, [sliceBorderWidth]);
 
   useEffect(() => {
     customRenderRef.current = customRender;
@@ -68,6 +110,10 @@ export function useSliceViewportController({
       placementRef.current = placement;
       onPlacementChangeRef.current?.(placement);
       customRenderRef.current?.(ctx, placement);
+
+      if (showSliceBorderRef.current) {
+        drawSliceBorder(ctx, placement, sliceBorderWidthRef.current);
+      }
 
       const currentCrosshair = crosshairRef.current;
       const currentStyle = crosshairStyleRef.current;

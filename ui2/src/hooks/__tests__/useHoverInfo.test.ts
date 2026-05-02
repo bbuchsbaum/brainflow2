@@ -86,6 +86,25 @@ describe('useHoverInfo', () => {
   });
 
   describe('handleMouseMove', () => {
+    it('does not query providers when layer hover output is disabled', async () => {
+      const provider = hoverInfoService.getProvider('test');
+      const { result } = renderHook(() =>
+        useHoverInfo({ ...defaultOptions, enabled: false })
+      );
+
+      await act(async () => {
+        result.current.handleMouseMove(createMockMouseEvent(100, 100));
+        await new Promise((r) => setTimeout(r, 100));
+      });
+
+      expect(result.current.hoverValue).toBeNull();
+      expect(result.current.hoverEntries).toEqual([]);
+      expect(provider?.getInfo).not.toHaveBeenCalled();
+      expect(useStatusBarStore.getState().values.mouse).toBe('--');
+      expect(useStatusBarStore.getState().values.value).toBe('--');
+      expect(useTooltipStore.getState().tooltip).toBeNull();
+    });
+
     it('calls canvasToWorld with canvas coordinates', async () => {
       const canvasToWorld = vi.fn(() => [10, 20, 30] as [number, number, number]);
       const { result } = renderHook(() =>
@@ -342,6 +361,32 @@ describe('useHoverInfo', () => {
 
       // No errors should occur
       expect(result.current.handleMouseMove).toBeDefined();
+    });
+
+    it('clears hover state when hover output is toggled off', async () => {
+      const { result, rerender } = renderHook(
+        (props: UseHoverInfoOptions) => useHoverInfo(props),
+        { initialProps: { ...defaultOptions, enabled: true } }
+      );
+
+      await act(async () => {
+        result.current.handleMouseMove(createMockMouseEvent(100, 100));
+        await new Promise((r) => setTimeout(r, 100));
+      });
+
+      await waitFor(() => {
+        expect(result.current.hoverValue).toBe(42);
+      });
+
+      rerender({ ...defaultOptions, enabled: false });
+
+      await waitFor(() => {
+        expect(result.current.hoverValue).toBeNull();
+        expect(result.current.hoverEntries).toEqual([]);
+        expect(useStatusBarStore.getState().values.mouse).toBe('--');
+        expect(useStatusBarStore.getState().values.value).toBe('--');
+        expect(useTooltipStore.getState().tooltip).toBeNull();
+      });
     });
   });
 
