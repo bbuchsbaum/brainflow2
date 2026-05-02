@@ -2,6 +2,7 @@
 
 use crate::render_state::LayerInfo;
 use crate::{shaders::uniforms::ActiveLayerCount, LayerUboStd140};
+use crate::LayerMode;
 use bytemuck;
 use log::debug;
 use nalgebra::Matrix4;
@@ -9,6 +10,21 @@ use wgpu::{util::DeviceExt, BindGroup, BindGroupLayout, Buffer, Device, Queue};
 
 /// Maximum number of layers supported
 pub const MAX_LAYERS: usize = 8;
+
+fn effective_layer_mode(layer: &LayerInfo) -> LayerMode {
+    if layer.is_mask {
+        LayerMode::Mask
+    } else {
+        layer.layer_mode
+    }
+}
+
+fn effective_interpolation_mode(layer: &LayerInfo) -> u32 {
+    match effective_layer_mode(layer) {
+        LayerMode::Label | LayerMode::Mask => 0,
+        LayerMode::Scalar => layer.interpolation_mode,
+    }
+}
 
 /// Manages layer uniform buffers and bind groups
 pub struct LayerUniformManager {
@@ -122,6 +138,8 @@ impl LayerUniformManager {
                 "  Converted to column-major array: {:?}",
                 world_to_voxel_array
             );
+            let layer_mode = effective_layer_mode(layer);
+            let interpolation_mode = effective_interpolation_mode(layer);
 
             self.layer_data[i] = LayerUboStd140 {
                 // Use column-major array for GPU
@@ -145,10 +163,10 @@ impl LayerUniformManager {
                 thresh_high: layer.threshold_range.1,
                 is_mask: if layer.is_mask { 1 } else { 0 },
                 has_alpha_mask: if layer.has_alpha_mask { 1 } else { 0 },
-                interpolation_mode: layer.interpolation_mode,
+                interpolation_mode,
                 draw_slice_border: 0,
                 border_thickness_px: 1.0,
-                layer_mode: layer.layer_mode as u32,
+                layer_mode: layer_mode as u32,
                 _pad: 0,
             };
         }
@@ -198,6 +216,8 @@ impl LayerUniformManager {
         }
 
         // Use the is_mask field from LayerInfo
+        let layer_mode = effective_layer_mode(layer);
+        let interpolation_mode = effective_interpolation_mode(layer);
 
         // Update the specific layer data
         self.layer_data[index] = LayerUboStd140 {
@@ -222,10 +242,10 @@ impl LayerUniformManager {
             thresh_high: layer.threshold_range.1,
             is_mask: if layer.is_mask { 1 } else { 0 },
             has_alpha_mask: if layer.has_alpha_mask { 1 } else { 0 },
-            interpolation_mode: layer.interpolation_mode,
+            interpolation_mode,
             draw_slice_border: 0,
             border_thickness_px: 1.0,
-            layer_mode: layer.layer_mode as u32,
+            layer_mode: layer_mode as u32,
             _pad: 0,
         };
 

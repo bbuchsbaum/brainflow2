@@ -1,7 +1,7 @@
 // Storage buffer version of layer management for dynamic layer support
 
 use crate::render_state::LayerInfo;
-use crate::LayerUboStd140;
+use crate::{LayerMode, LayerUboStd140};
 use bytemuck;
 use log::debug;
 use nalgebra::Matrix4;
@@ -19,6 +19,21 @@ use wgpu::BindGroup;
 type LayerBindGroup = slice_world_space_optimized::bind_groups::BindGroup1;
 #[cfg(not(feature = "typed-shaders"))]
 type LayerBindGroup = BindGroup;
+
+fn effective_layer_mode(layer: &LayerInfo) -> LayerMode {
+    if layer.is_mask {
+        LayerMode::Mask
+    } else {
+        layer.layer_mode
+    }
+}
+
+fn effective_interpolation_mode(layer: &LayerInfo) -> u32 {
+    match effective_layer_mode(layer) {
+        LayerMode::Label | LayerMode::Mask => 0,
+        LayerMode::Scalar => layer.interpolation_mode,
+    }
+}
 
 /// Layer metadata for shader
 #[repr(C)]
@@ -272,6 +287,8 @@ impl LayerStorageManager {
                 .get(&layer.atlas_index)
                 .copied()
                 .unwrap_or((false, 1.0_f32));
+            let layer_mode = effective_layer_mode(layer);
+            let interpolation_mode = effective_interpolation_mode(layer);
 
             debug!(
                 "LayerStorageManager::update_layers_with_display - layer {}: atlas_index={}, dims=({},{},{}), blend_mode={:?}, opacity={}, colormap_id={}, threshold=({:.3},{:.3}), threshold_mode={:?}",
@@ -330,10 +347,10 @@ impl LayerStorageManager {
                 thresh_high: layer.threshold_range.1,
                 is_mask: if layer.is_mask { 1 } else { 0 },
                 has_alpha_mask: if layer.has_alpha_mask { 1 } else { 0 },
-                interpolation_mode: layer.interpolation_mode,
+                interpolation_mode,
                 draw_slice_border: if border_enabled { 1 } else { 0 },
                 border_thickness_px: border_thickness.max(0.5_f32),
-                layer_mode: layer.layer_mode as u32,
+                layer_mode: layer_mode as u32,
                 _pad: 0,
             };
 
@@ -387,6 +404,8 @@ impl LayerStorageManager {
         // Update the specific layer data
         // TODO: Add display_overrides parameter to update_layer when implementing per-layer border settings
         let (border_enabled, border_thickness) = display_override;
+        let layer_mode = effective_layer_mode(layer);
+        let interpolation_mode = effective_interpolation_mode(layer);
 
         let layer_data = LayerUboStd140 {
             // Convert matrix to column-major format for GPU
@@ -410,10 +429,10 @@ impl LayerStorageManager {
             thresh_high: layer.threshold_range.1,
             is_mask: if layer.is_mask { 1 } else { 0 },
             has_alpha_mask: if layer.has_alpha_mask { 1 } else { 0 },
-            interpolation_mode: layer.interpolation_mode,
+            interpolation_mode,
             draw_slice_border: if border_enabled { 1 } else { 0 },
             border_thickness_px: border_thickness.max(0.5_f32),
-            layer_mode: layer.layer_mode as u32,
+            layer_mode: layer_mode as u32,
             _pad: 0,
         };
 
@@ -518,5 +537,36 @@ mod tests {
 
         assert_eq!(manager.active_count(), 5);
         assert!(manager.capacity() >= 5);
+    }
+
+    #[test]
+    fn label_mode_upload_forces_nearest_sampling() {
+        let (device, queue) = pollster::block_on(create_test_device());
+
+        let mut manager = LayerStorageManager::new(&device, 1);
+        let layout = LayerStorageManager::create_bind_group_layout(&device);
+        manager.create_bind_group(&device, &layout);
+
+        let layers = vec![LayerInfo {
+            atlas_index: 0,
+            opacity: 1.0,
+            blend_mode: BlendMode::Normal,
+            colormap_id: 0,
+            intensity_range: (0.0, 400.0),
+            threshold_range: (0.0, 0.0),
+            threshold_mode: ThresholdMode::Range,
+            texture_coords: (0.0, 0.0, 1.0, 1.0),
+            is_mask: false,
+            has_alpha_mask: false,
+            layer_mode: crate::LayerMode::Label,
+            interpolation_mode: 1,
+        }];
+        let dims = vec![(256, 256, 128)];
+        let transforms = vec![Matrix4::identity()];
+
+        manager.update_layers(&device, &queue, &layout, &layers, &dims, &transforms);
+
+        assert_eq!(manager.layer_data[0].layer_mode, crate::LayerMode::Label as u32);
+        assert_eq!(manager.layer_data[0].interpolation_mode, 0);
     }
 }
