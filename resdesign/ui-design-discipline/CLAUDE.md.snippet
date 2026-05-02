@@ -1,0 +1,10 @@
+## UI design-system discipline
+
+Use the `ui-design-discipline` skill for UI consistency audits, theme/token work, component library hardening, Storybook setup, and lint-guardrail rollout. (For opinionated style enforcement use `design-principles`; for green-field UI design use `frontend-design`.)
+
+Before editing UI code:
+
+1. Build a UI authority map.
+2. Check `docs/design-system/*`, theme/tokens files, shared UI components, Storybook, and lint configs.
+3. Move repeated visual decisions upward: tokens → utilities/theme → components → composition primitives → docs → lint.
+4. Keep changes small, documented, and testable.

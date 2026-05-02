@@ -1,0 +1,13 @@
+## UI design-system discipline
+
+Before making frontend UI, theme, component, Tailwind, CSS, or Storybook changes, use the `ui-design-discipline` skill.
+
+Rules:
+
+- First locate the UI source of truth: tokens, theme config, shared components, docs, Storybook, and lint rules.
+- Prefer semantic tokens over raw values.
+- Prefer shared component variants over screen-level class recipes.
+- Extract repeated list/card/row/header/page-shell patterns into composition primitives.
+- Add or update stories for shared UI components that change.
+- Add lint/CI guardrails only after the rule is documented.
+- Do not redesign broadly when the task is consistency; preserve the existing visual language unless asked otherwise.

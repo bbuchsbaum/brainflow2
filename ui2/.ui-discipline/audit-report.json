@@ -1,0 +1,2973 @@
+{
+  "root": "/Users/bbuchsbaum/code/brainflow2/ui2",
+  "package_manager": "npm",
+  "frameworks": [
+    "React",
+    "Tailwind CSS",
+    "Radix UI",
+    "Vite"
+  ],
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "lint": "eslint .",
+    "preview": "vite preview",
+    "test": "vitest",
+    "test:ui": "vitest --ui"
+  },
+  "paths": {
+    "tokens_theme": [
+      "src/index.css",
+      "src/styles/modern-ui.css",
+      "src/styles/shadcn.css",
+      "src/styles/slider.css",
+      "src/styles/theme.css",
+      "tailwind.config.js"
+    ],
+    "component_dirs": [
+      "src/components/ui"
+    ],
+    "storybook": [],
+    "docs": [],
+    "lint_ci": [
+      "eslint.config.js"
+    ]
+  },
+  "signals": {
+    "css_variable_definitions_top": [
+      [
+        "--background",
+        2
+      ],
+      [
+        "--foreground",
+        2
+      ],
+      [
+        "--primary",
+        2
+      ],
+      [
+        "--border",
+        2
+      ],
+      [
+        "--range-slider-bg",
+        1
+      ],
+      [
+        "--range-slider-thumb",
+        1
+      ],
+      [
+        "--range-slider-thumb-hover",
+        1
+      ],
+      [
+        "--range-slider-connect",
+        1
+      ],
+      [
+        "--bf-bg-app",
+        1
+      ],
+      [
+        "--bf-bg-shell",
+        1
+      ],
+      [
+        "--bf-bg-panel",
+        1
+      ],
+      [
+        "--bf-bg-panel-raised",
+        1
+      ],
+      [
+        "--bf-bg-panel-sunken",
+        1
+      ],
+      [
+        "--bf-bg-canvas",
+        1
+      ],
+      [
+        "--bf-bg-input",
+        1
+      ],
+      [
+        "--bf-bg-hover",
+        1
+      ],
+      [
+        "--bf-bg-active",
+        1
+      ],
+      [
+        "--bf-bg-selected",
+        1
+      ],
+      [
+        "--bf-border-subtle",
+        1
+      ],
+      [
+        "--bf-border",
+        1
+      ],
+      [
+        "--bf-border-strong",
+        1
+      ],
+      [
+        "--bf-border-focus",
+        1
+      ],
+      [
+        "--bf-divider",
+        1
+      ],
+      [
+        "--bf-text-primary",
+        1
+      ],
+      [
+        "--bf-text-secondary",
+        1
+      ],
+      [
+        "--bf-text-muted",
+        1
+      ],
+      [
+        "--bf-text-faint",
+        1
+      ],
+      [
+        "--bf-text-inverse",
+        1
+      ],
+      [
+        "--bf-brand",
+        1
+      ],
+      [
+        "--bf-accent",
+        1
+      ],
+      [
+        "--bf-accent-hover",
+        1
+      ],
+      [
+        "--bf-accent-active",
+        1
+      ],
+      [
+        "--bf-accent-soft",
+        1
+      ],
+      [
+        "--bf-success",
+        1
+      ],
+      [
+        "--bf-success-soft",
+        1
+      ],
+      [
+        "--bf-warning",
+        1
+      ],
+      [
+        "--bf-warning-soft",
+        1
+      ],
+      [
+        "--bf-danger",
+        1
+      ],
+      [
+        "--bf-danger-soft",
+        1
+      ],
+      [
+        "--bf-info",
+        1
+      ],
+      [
+        "--bf-axial",
+        1
+      ],
+      [
+        "--bf-sagittal",
+        1
+      ],
+      [
+        "--bf-coronal",
+        1
+      ],
+      [
+        "--bf-crosshair",
+        1
+      ],
+      [
+        "--bf-plot-line",
+        1
+      ],
+      [
+        "--bf-plot-grid",
+        1
+      ],
+      [
+        "--bf-plot-axis",
+        1
+      ],
+      [
+        "--bf-shadow-panel",
+        1
+      ],
+      [
+        "--bf-shadow-inset",
+        1
+      ],
+      [
+        "--bf-radius-xs",
+        1
+      ]
+    ],
+    "css_variable_uses_top": [
+      [
+        "--app-text-primary",
+        64
+      ],
+      [
+        "--app-border",
+        46
+      ],
+      [
+        "--app-text-muted",
+        43
+      ],
+      [
+        "--app-text-secondary",
+        41
+      ],
+      [
+        "--foreground",
+        36
+      ],
+      [
+        "--primary",
+        35
+      ],
+      [
+        "--app-border-subtle",
+        32
+      ],
+      [
+        "--app-accent",
+        30
+      ],
+      [
+        "--app-transition-fast",
+        26
+      ],
+      [
+        "--app-bg-hover",
+        25
+      ],
+      [
+        "--border",
+        24
+      ],
+      [
+        "--app-bg-tertiary",
+        24
+      ],
+      [
+        "--app-role-section-size",
+        21
+      ],
+      [
+        "--muted",
+        20
+      ],
+      [
+        "--app-bg-secondary",
+        20
+      ],
+      [
+        "--app-radius-sm",
+        19
+      ],
+      [
+        "--app-error",
+        19
+      ],
+      [
+        "--background",
+        18
+      ],
+      [
+        "--app-role-section-tracking",
+        17
+      ],
+      [
+        "--app-spacing-sm",
+        16
+      ],
+      [
+        "--app-spacing-xs",
+        16
+      ],
+      [
+        "--app-font-mono",
+        15
+      ],
+      [
+        "--app-control-height-md",
+        14
+      ],
+      [
+        "--muted-foreground",
+        13
+      ],
+      [
+        "--app-role-body-size",
+        13
+      ],
+      [
+        "--app-bg-active",
+        13
+      ],
+      [
+        "--app-success",
+        13
+      ],
+      [
+        "--accent",
+        12
+      ],
+      [
+        "--card",
+        11
+      ],
+      [
+        "--app-spacing-md",
+        11
+      ],
+      [
+        "--app-role-label-size",
+        10
+      ],
+      [
+        "--rule-thin",
+        10
+      ],
+      [
+        "--app-control-height-sm",
+        9
+      ],
+      [
+        "--layer-accent",
+        8
+      ],
+      [
+        "--app-warning",
+        8
+      ],
+      [
+        "--app-text-xs",
+        8
+      ],
+      [
+        "--destructive",
+        7
+      ],
+      [
+        "--bf-accent",
+        7
+      ],
+      [
+        "--app-text-disabled",
+        7
+      ],
+      [
+        "--layer-text",
+        6
+      ],
+      [
+        "--app-focus-ring-width",
+        6
+      ],
+      [
+        "--app-focus-ring-color",
+        6
+      ],
+      [
+        "--app-focus-ring-offset",
+        6
+      ],
+      [
+        "--app-border-strong",
+        6
+      ],
+      [
+        "--app-spacing-lg",
+        6
+      ],
+      [
+        "--app-bg-primary",
+        5
+      ],
+      [
+        "--layer-divider",
+        5
+      ],
+      [
+        "--app-accent-hover",
+        5
+      ],
+      [
+        "--app-surface-panel-raised",
+        5
+      ],
+      [
+        "--app-danger",
+        5
+      ]
+    ],
+    "component_names_top": [
+      [
+        "STORAGE_KEY",
+        5
+      ],
+      [
+        "Slider",
+        5
+      ],
+      [
+        "Button",
+        4
+      ],
+      [
+        "StatusBarSlot",
+        3
+      ],
+      [
+        "Toggle",
+        3
+      ],
+      [
+        "Chip",
+        3
+      ],
+      [
+        "FieldRow",
+        3
+      ],
+      [
+        "HEADER_HEIGHT",
+        3
+      ],
+      [
+        "MEDICAL_COLOR_PRESETS",
+        2
+      ],
+      [
+        "DEFAULT_SETTINGS",
+        2
+      ],
+      [
+        "TEST_LAYOUT",
+        2
+      ],
+      [
+        "SingleSlider",
+        2
+      ],
+      [
+        "PanelHeader",
+        2
+      ],
+      [
+        "Tooltip",
+        2
+      ],
+      [
+        "RenderOverlays",
+        2
+      ],
+      [
+        "RangeSlider",
+        2
+      ],
+      [
+        "ColormapSelector",
+        2
+      ],
+      [
+        "StatusBar",
+        2
+      ],
+      [
+        "Badge",
+        2
+      ],
+      [
+        "DropdownMenu",
+        2
+      ],
+      [
+        "IconButton",
+        2
+      ],
+      [
+        "Modal",
+        2
+      ],
+      [
+        "ProSlider",
+        2
+      ],
+      [
+        "LayerRow",
+        2
+      ],
+      [
+        "Popover",
+        2
+      ],
+      [
+        "PopoverTrigger",
+        2
+      ],
+      [
+        "PopoverArrow",
+        2
+      ],
+      [
+        "PopoverContent",
+        2
+      ],
+      [
+        "Sheet",
+        2
+      ],
+      [
+        "SheetTrigger",
+        2
+      ],
+      [
+        "SheetClose",
+        2
+      ],
+      [
+        "SheetPortal",
+        2
+      ],
+      [
+        "SheetOverlay",
+        2
+      ],
+      [
+        "SheetContent",
+        2
+      ],
+      [
+        "SheetHeader",
+        2
+      ],
+      [
+        "SheetFooter",
+        2
+      ],
+      [
+        "SheetTitle",
+        2
+      ],
+      [
+        "SheetDescription",
+        2
+      ],
+      [
+        "Label",
+        2
+      ],
+      [
+        "Switch",
+        2
+      ],
+      [
+        "RadioGroup",
+        2
+      ],
+      [
+        "RadioGroupItem",
+        2
+      ],
+      [
+        "Table",
+        2
+      ],
+      [
+        "TableHeader",
+        2
+      ],
+      [
+        "TableBody",
+        2
+      ],
+      [
+        "TableFooter",
+        2
+      ],
+      [
+        "TableRow",
+        2
+      ],
+      [
+        "TableHead",
+        2
+      ],
+      [
+        "TableCell",
+        2
+      ],
+      [
+        "TableCaption",
+        2
+      ],
+      [
+        "Select",
+        2
+      ],
+      [
+        "SelectGroup",
+        2
+      ],
+      [
+        "SelectValue",
+        2
+      ],
+      [
+        "SelectTrigger",
+        2
+      ],
+      [
+        "SelectScrollUpButton",
+        2
+      ],
+      [
+        "SelectScrollDownButton",
+        2
+      ],
+      [
+        "SelectContent",
+        2
+      ],
+      [
+        "SelectLabel",
+        2
+      ],
+      [
+        "SelectItem",
+        2
+      ],
+      [
+        "SelectSeparator",
+        2
+      ],
+      [
+        "StatusIcon",
+        2
+      ],
+      [
+        "DataCell",
+        2
+      ],
+      [
+        "Allotment",
+        2
+      ],
+      [
+        "Pane",
+        2
+      ],
+      [
+        "AllotmentWithPane",
+        2
+      ],
+      [
+        "TOOLBAR_STYLE",
+        2
+      ],
+      [
+        "ROW_STYLE",
+        2
+      ],
+      [
+        "PALETTE_TIMEOUT_MS",
+        2
+      ],
+      [
+        "EmptyState",
+        2
+      ],
+      [
+        "MosaicViewPromise",
+        2
+      ],
+      [
+        "FlexibleSlicePanel",
+        2
+      ],
+      [
+        "SliceViewCanvas",
+        2
+      ],
+      [
+        "CATEGORY",
+        2
+      ],
+      [
+        "DEBOUNCE_MS",
+        2
+      ],
+      [
+        "ErrorFallback",
+        1
+      ],
+      [
+        "AppContent",
+        1
+      ],
+      [
+        "App",
+        1
+      ],
+      [
+        "EMPTY_SCENE_STACK",
+        1
+      ],
+      [
+        "WORKSPACE_PRESETS",
+        1
+      ],
+      [
+        "WORKSPACE_PRESET_BY_ID",
+        1
+      ]
+    ],
+    "raw_hex_files": [
+      {
+        "path": "src/App.css",
+        "count": 3,
+        "examples": [
+          "#646cffaa",
+          "#61dafbaa",
+          "#888"
+        ]
+      },
+      {
+        "path": "src/index.css",
+        "count": 2,
+        "examples": [
+          "#000",
+          "#5C6370"
+        ]
+      },
+      {
+        "path": "src/types/surfaceLayers.ts",
+        "count": 1,
+        "examples": [
+          "#888888"
+        ]
+      },
+      {
+        "path": "src/types/filesystem.ts",
+        "count": 7,
+        "examples": [
+          "#3b82f6",
+          "#10b981",
+          "#f59e0b",
+          "#ef4444",
+          "#8b5cf6",
+          "#6b7280"
+        ]
+      },
+      {
+        "path": "src/stores/fileBrowserStore.ts",
+        "count": 14,
+        "examples": [
+          "#3b82f6",
+          "#10b981",
+          "#6b7280",
+          "#f59e0b",
+          "#ef4444",
+          "#8b5cf6"
+        ]
+      },
+      {
+        "path": "src/stores/crosshairSettingsStore.ts",
+        "count": 10,
+        "examples": [
+          "#e07830",
+          "#00ff00",
+          "#ff0000",
+          "#ffff00",
+          "#00ffff",
+          "#ff00ff",
+          "#ffffff",
+          "#0088ff"
+        ]
+      },
+      {
+        "path": "src/stores/surfaceStore.ts",
+        "count": 3,
+        "examples": [
+          "#CCCCCC",
+          "#ffffff",
+          "#000000"
+        ]
+      },
+      {
+        "path": "src/stores/__tests__/surfaceStore.settings.test.ts",
+        "count": 3,
+        "examples": [
+          "#112233",
+          "#ffffff"
+        ]
+      },
+      {
+        "path": "src/stores/__tests__/annotationStore.test.ts",
+        "count": 4,
+        "examples": [
+          "#ff0000",
+          "#00ff00"
+        ]
+      },
+      {
+        "path": "src/utils/crosshairUtils.ts",
+        "count": 2,
+        "examples": [
+          "#e07830",
+          "#808080"
+        ]
+      },
+      {
+        "path": "src/components/TooltipOverlay.tsx",
+        "count": 1,
+        "examples": [
+          "#e5e7eb"
+        ]
+      },
+      {
+        "path": "src/components/ui/ProgressDrawer.tsx",
+        "count": 15,
+        "examples": [
+          "#ef444420",
+          "#ef4444",
+          "#10b981",
+          "#6b7280",
+          "#94a3b8",
+          "#374151",
+          "#60a5fa"
+        ]
+      },
+      {
+        "path": "src/components/ui/TestProgress.tsx",
+        "count": 3,
+        "examples": [
+          "#666",
+          "#3b82f6",
+          "#ef4444"
+        ]
+      },
+      {
+        "path": "src/components/ui/colormapOptions.ts",
+        "count": 70,
+        "examples": [
+          "#000000",
+          "#ffffff",
+          "#440154",
+          "#31688e",
+          "#35b779",
+          "#fde725",
+          "#ff0000",
+          "#ffff00"
+        ]
+      },
+      {
+        "path": "src/components/ui/ProgressDrawer.css",
+        "count": 2,
+        "examples": [
+          "#10b981",
+          "#374151"
+        ]
+      },
+      {
+        "path": "src/components/ui/Slider.module.css",
+        "count": 8,
+        "examples": [
+          "#e5e7eb",
+          "#3b82f6",
+          "#2563eb",
+          "#9ca3af"
+        ]
+      },
+      {
+        "path": "src/components/ui/StatusBarProgress.tsx",
+        "count": 5,
+        "examples": [
+          "#d1d5db",
+          "#60a5fa",
+          "#111827"
+        ]
+      },
+      {
+        "path": "src/components/ui/LayerRow.tsx",
+        "count": 3,
+        "examples": [
+          "#f59e0b",
+          "#10b981",
+          "#3A3A3A"
+        ]
+      },
+      {
+        "path": "src/components/inspector/imaging/sections/RenderSection.tsx",
+        "count": 4,
+        "examples": [
+          "#2a3344"
+        ]
+      },
+      {
+        "path": "src/components/bids/BidsEventsTimeline.tsx",
+        "count": 8,
+        "examples": [
+          "#E69F00",
+          "#56B4E9",
+          "#009E73",
+          "#F0E442",
+          "#0072B2",
+          "#D55E00",
+          "#CC79A7",
+          "#888888"
+        ]
+      },
+      {
+        "path": "src/components/bids/BidsValidationPanel.tsx",
+        "count": 4,
+        "examples": [
+          "#dc2626",
+          "#ea580c",
+          "#f59e0b",
+          "#16a34a"
+        ]
+      },
+      {
+        "path": "src/components/panels/ActivityPanel.tsx",
+        "count": 7,
+        "examples": [
+          "#2f80ff",
+          "#35d36b",
+          "#ef4444",
+          "#566579"
+        ]
+      },
+      {
+        "path": "src/components/panels/FileBrowserPanel.tsx",
+        "count": 2,
+        "examples": [
+          "#10b981",
+          "#8b5cf6"
+        ]
+      },
+      {
+        "path": "src/components/panels/LogPanel.tsx",
+        "count": 3,
+        "examples": [
+          "#f59e0b",
+          "#ef4444"
+        ]
+      },
+      {
+        "path": "src/components/panels/FileBrowserPanel.test.ts",
+        "count": 3,
+        "examples": [
+          "#3b82f6",
+          "#6b7280"
+        ]
+      },
+      {
+        "path": "src/components/panels/FileBrowserPanel.css",
+        "count": 4,
+        "examples": [
+          "#000",
+          "#fff"
+        ]
+      },
+      {
+        "path": "src/components/annotations/MeasurementAnnotation.tsx",
+        "count": 10,
+        "examples": [
+          "#FF9500",
+          "#007ACC",
+          "#FFFFFF",
+          "#FFA500"
+        ]
+      },
+      {
+        "path": "src/components/annotations/ROIAnnotation.tsx",
+        "count": 5,
+        "examples": [
+          "#007ACC",
+          "#4ECDC4",
+          "#FFA500"
+        ]
+      },
+      {
+        "path": "src/components/annotations/LabelAnnotation.tsx",
+        "count": 8,
+        "examples": [
+          "#FFD93D",
+          "#FFFFFF",
+          "#007ACC",
+          "#FFA500"
+        ]
+      },
+      {
+        "path": "src/components/annotations/MarkerAnnotation.tsx",
+        "count": 4,
+        "examples": [
+          "#007ACC",
+          "#FF6B6B",
+          "#FFA500"
+        ]
+      },
+      {
+        "path": "src/components/dialogs/CommandPaletteDialog.tsx",
+        "count": 2,
+        "examples": [
+          "#e2e8f0"
+        ]
+      },
+      {
+        "path": "src/components/dialogs/GoToCoordinateDialog.tsx",
+        "count": 1,
+        "examples": [
+          "#1e293b"
+        ]
+      },
+      {
+        "path": "src/components/dialogs/KeyboardShortcutsDialog.tsx",
+        "count": 7,
+        "examples": [
+          "#64748b",
+          "#1e293b",
+          "#94a3b8",
+          "#334155",
+          "#e2e8f0"
+        ]
+      },
+      {
+        "path": "src/components/dialogs/CrosshairSettingsDialog.tsx",
+        "count": 6,
+        "examples": [
+          "#ffff00",
+          "#ff0000",
+          "#1e293b"
+        ]
+      },
+      {
+        "path": "src/components/dialogs/ImageHeaderDialog.tsx",
+        "count": 2,
+        "examples": [
+          "#1e293b"
+        ]
+      },
+      {
+        "path": "src/components/dialogs/CrosshairPreview.tsx",
+        "count": 3,
+        "examples": [
+          "#1a1a1a",
+          "#222222",
+          "#333333"
+        ]
+      },
+      {
+        "path": "src/components/dialogs/__tests__/CrosshairSettingsDialog.test.tsx",
+        "count": 2,
+        "examples": [
+          "#ffff00",
+          "#ff0000"
+        ]
+      },
+      {
+        "path": "src/components/views/SurfaceViewCanvas.tsx",
+        "count": 2,
+        "examples": [
+          "#000000",
+          "#CCCCCC"
+        ]
+      },
+      {
+        "path": "src/components/views/SurfaceAssociationBadge.tsx",
+        "count": 2,
+        "examples": [
+          "#f59e0b",
+          "#35d36b"
+        ]
+      },
+      {
+        "path": "src/components/views/MosaicView.css",
+        "count": 1,
+        "examples": [
+          "#d1d5db"
+        ]
+      },
+      {
+        "path": "src/components/views/OrthogonalPanelsWorkspace.css",
+        "count": 1,
+        "examples": [
+          "#000"
+        ]
+      },
+      {
+        "path": "src/components/views/__tests__/SliceView.test.tsx",
+        "count": 1,
+        "examples": [
+          "#ffffff"
+        ]
+      },
+      {
+        "path": "src/components/plots/HistogramChart.tsx",
+        "count": 4,
+        "examples": [
+          "#000000",
+          "#ffffff"
+        ]
+      },
+      {
+        "path": "src/hooks/useWindowLevel.ts",
+        "count": 1,
+        "examples": [
+          "#fff"
+        ]
+      },
+      {
+        "path": "src/hooks/__tests__/useSliceViewModel.snapshot.test.tsx",
+        "count": 1,
+        "examples": [
+          "#ffffff"
+        ]
+      },
+      {
+        "path": "src/hooks/__tests__/useVolToSurfProjection.test.ts",
+        "count": 9,
+        "examples": [
+          "#cccccc",
+          "#ffffff",
+          "#000000"
+        ]
+      },
+      {
+        "path": "src/services/apiService.ts",
+        "count": 6,
+        "examples": [
+          "#2a2a2a",
+          "#666",
+          "#1a1a1a",
+          "#401010",
+          "#ff8080"
+        ]
+      }
+    ],
+    "inline_style_files": [
+      {
+        "path": "src/components/TooltipOverlay.tsx",
+        "count": 6,
+        "examples": [
+          "style={{ ... }}"
+        ]
+      },
+      {
+        "path": "src/components/ui/LayerList.tsx",
+        "count": 1,
+        "examples": [
+          "style={{ ... }}"
+        ]
+      },
+      {
+        "path": "src/components/ui/SingleSlider.tsx",
+        "count": 24,
+        "examples": [
+          "style={{ ... }}"
+        ]
+      },
+      {
+        "path": "src/components/ui/ProgressDrawer.tsx",
+        "count": 20,
+        "examples": [
+          "style={{ ... }}"
+        ]
+      },
+      {
+        "path": "src/components/ui/ColormapPicker.tsx",
+        "count": 4,
+        "examples": [
+          "style={{ ... }}"
+        ]
+      },
+      {
+        "path": "src/components/ui/NotificationToast.tsx",
+        "count": 1,
+        "examples": [
+          "style={{ ... }}"
+        ]
+      },
+      {
+        "path": "src/components/ui/TransientOverlay.tsx",
+        "count": 1,
+        "examples": [
+          "style={{ ... }}"
+        ]
+      },
+      {
+        "path": "src/components/ui/TestProgress.tsx",
+        "count": 3,
+        "examples": [
+          "style={{ ... }}"
+        ]
+      },
+      {
+        "path": "src/components/ui/CrosshairSettingsPopover.tsx",
+        "count": 1,
+        "examples": [
+          "style={{ ... }}"
+        ]
+      },
+      {
+        "path": "src/components/ui/StatusBarProgress.tsx",
+        "count": 2,
+        "examples": [
+          "style={{ ... }}"
+        ]
+      },
+      {
+        "path": "src/components/ui/SliceSlider.tsx",
+        "count": 1,
+        "examples": [
+          "style={{ ... }}"
+        ]
+      },
+      {
+        "path": "src/components/ui/RangeSlider.tsx",
+        "count": 1,
+        "examples": [
+          "style={{ ... }}"
+        ]
+      },
+      {
+        "path": "src/components/ui/ContextMenu.tsx",
+        "count": 1,
+        "examples": [
+          "style={{ ... }}"
+        ]
+      },
+      {
+        "path": "src/components/ui/StatusBarSlot.tsx",
+        "count": 1,
+        "examples": [
+          "style={{ ... }}"
+        ]
+      },
+      {
+        "path": "src/components/ui/StatusBar.tsx",
+        "count": 1,
+        "examples": [
+          "style={{ ... }}"
+        ]
+      },
+      {
+        "path": "src/components/ui/TopAppBar.tsx",
+        "count": 6,
+        "examples": [
+          "style={{ ... }}"
+        ]
+      },
+      {
+        "path": "src/components/ui/DisplayModeSelector.tsx",
+        "count": 2,
+        "examples": [
+          "style={{ ... }}"
+        ]
+      },
+      {
+        "path": "src/components/ui/MosaicToolbar.tsx",
+        "count": 4,
+        "examples": [
+          "style={{ ... }}"
+        ]
+      },
+      {
+        "path": "src/components/ui/LayerRow.tsx",
+        "count": 4,
+        "examples": [
+          "style={{ ... }}"
+        ]
+      },
+      {
+        "path": "src/components/ui/ProSlider.tsx",
+        "count": 22,
+        "examples": [
+          "style={{ ... }}"
+        ]
+      },
+      {
+        "path": "src/components/ui/TimeSlider.tsx",
+        "count": 2,
+        "examples": [
+          "style={{ ... }}"
+        ]
+      },
+      {
+        "path": "src/components/ui/GlobalProgressBar.tsx",
+        "count": 4,
+        "examples": [
+          "style={{ ... }}"
+        ]
+      },
+      {
+        "path": "src/components/ui/HoverSettingsPopover.tsx",
+        "count": 1,
+        "examples": [
+          "style={{ ... }}"
+        ]
+      },
+      {
+        "path": "src/components/ui/shadcn/slider.tsx",
+        "count": 1,
+        "examples": [
+          "style={{ ... }}"
+        ]
+      },
+      {
+        "path": "src/components/studio/StudioComparePane.tsx",
+        "count": 2,
+        "examples": [
+          "style={{ ... }}"
+        ]
+      },
+      {
+        "path": "src/components/studio/StudioAuditBanner.tsx",
+        "count": 2,
+        "examples": [
+          "style={{ ... }}"
+        ]
+      },
+      {
+        "path": "src/components/studio/StudioStrip.tsx",
+        "count": 2,
+        "examples": [
+          "style={{ ... }}"
+        ]
+      },
+      {
+        "path": "src/components/studio/StudioTimeRow.tsx",
+        "count": 1,
+        "examples": [
+          "style={{ ... }}"
+        ]
+      },
+      {
+        "path": "src/components/studio/DesignPane.tsx",
+        "count": 2,
+        "examples": [
+          "style={{ ... }}"
+        ]
+      },
+      {
+        "path": "src/components/studio/StudioImportDialog.tsx",
+        "count": 3,
+        "examples": [
+          "style={{ ... }}"
+        ]
+      },
+      {
+        "path": "src/components/analysis/AnalysisWorkbenchWorkspace.tsx",
+        "count": 1,
+        "examples": [
+          "style={{ ... }}"
+        ]
+      },
+      {
+        "path": "src/components/inspector/InspectorRouter.tsx",
+        "count": 2,
+        "examples": [
+          "style={{ ... }}"
+        ]
+      },
+      {
+        "path": "src/components/inspector/imaging/InspectorSection.tsx",
+        "count": 1,
+        "examples": [
+          "style={{ ... }}"
+        ]
+      },
+      {
+        "path": "src/components/inspector/imaging/SceneStackItem.tsx",
+        "count": 1,
+        "examples": [
+          "style={{ ... }}"
+        ]
+      },
+      {
+        "path": "src/components/inspector/imaging/sections/GeometrySection.tsx",
+        "count": 1,
+        "examples": [
+          "style={{ ... }}"
+        ]
+      },
+      {
+        "path": "src/components/inspector/imaging/sections/MappingSection.tsx",
+        "count": 4,
+        "examples": [
+          "style={{ ... }}"
+        ]
+      },
+      {
+        "path": "src/components/inspector/imaging/sections/RenderSection.tsx",
+        "count": 8,
+        "examples": [
+          "style={{ ... }}"
+        ]
+      },
+      {
+        "path": "src/components/bids/BidsExplorerWorkspace.tsx",
+        "count": 7,
+        "examples": [
+          "style={{ ... }}"
+        ]
+      },
+      {
+        "path": "src/components/bids/BidsEventsTimeline.tsx",
+        "count": 16,
+        "examples": [
+          "style={{ ... }}"
+        ]
+      },
+      {
+        "path": "src/components/bids/BidsDetailTabs.tsx",
+        "count": 1,
+        "examples": [
+          "style={{ ... }}"
+        ]
+      },
+      {
+        "path": "src/components/bids/BidsEmptyState.tsx",
+        "count": 5,
+        "examples": [
+          "style={{ ... }}"
+        ]
+      },
+      {
+        "path": "src/components/bids/BidsValidationPanel.tsx",
+        "count": 9,
+        "examples": [
+          "style={{ ... }}"
+        ]
+      },
+      {
+        "path": "src/components/bids/BidsSummaryStrip.tsx",
+        "count": 5,
+        "examples": [
+          "style={{ ... }}"
+        ]
+      },
+      {
+        "path": "src/components/bids/BidsCoverageMatrix.tsx",
+        "count": 18,
+        "examples": [
+          "style={{ ... }}"
+        ]
+      },
+      {
+        "path": "src/components/layout/BottomWorkbenchDock.tsx",
+        "count": 6,
+        "examples": [
+          "style={{ ... }}"
+        ]
+      },
+      {
+        "path": "src/components/layout/GoldenLayoutRoot.tsx",
+        "count": 1,
+        "examples": [
+          "style={{ ... }}"
+        ]
+      },
+      {
+        "path": "src/components/panels/ActivityPanel.tsx",
+        "count": 15,
+        "examples": [
+          "style={{ ... }}"
+        ]
+      },
+      {
+        "path": "src/components/panels/FileBrowserPanel.tsx",
+        "count": 4,
+        "examples": [
+          "style={{ ... }}"
+        ]
+      },
+      {
+        "path": "src/components/panels/LayerEmptyState.tsx",
+        "count": 2,
+        "examples": [
+          "style={{ ... }}"
+        ]
+      },
+      {
+        "path": "src/components/panels/LogPanel.tsx",
+        "count": 11,
+        "examples": [
+          "style={{ ... }}"
+        ]
+      },
+      {
+        "path": "src/components/panels/VolumePanel.tsx",
+        "count": 4,
+        "examples": [
+          "style={{ ... }}"
+        ]
+      },
+      {
+        "path": "src/components/panels/SurfaceDataLayerControls.tsx",
+        "count": 4,
+        "examples": [
+          "style={{ ... }}"
+        ]
+      },
+      {
+        "path": "src/components/panels/VolumeLayerPanel.tsx",
+        "count": 2,
+        "examples": [
+          "style={{ ... }}"
+        ]
+      },
+      {
+        "path": "src/components/panels/InspectorAnnotatePanel.tsx",
+        "count": 6,
+        "examples": [
+          "style={{ ... }}"
+        ]
+      },
+      {
+        "path": "src/components/panels/LayerStatusBar.tsx",
+        "count": 4,
+        "examples": [
+          "style={{ ... }}"
+        ]
+      },
+      {
+        "path": "src/components/panels/LayerPropertiesManager.tsx",
+        "count": 1,
+        "examples": [
+          "style={{ ... }}"
+        ]
+      },
+      {
+        "path": "src/components/panels/SurfaceGeometryControls.tsx",
+        "count": 3,
+        "examples": [
+          "style={{ ... }}"
+        ]
+      },
+      {
+        "path": "src/components/panels/LayerInspectorContent.tsx",
+        "count": 7,
+        "examples": [
+          "style={{ ... }}"
+        ]
+      },
+      {
+        "path": "src/components/annotations/MeasurementAnnotation.tsx",
+        "count": 2,
+        "examples": [
+          "style={{ ... }}"
+        ]
+      },
+      {
+        "path": "src/components/annotations/ROIAnnotation.tsx",
+        "count": 1,
+        "examples": [
+          "style={{ ... }}"
+        ]
+      },
+      {
+        "path": "src/components/annotations/LabelAnnotation.tsx",
+        "count": 1,
+        "examples": [
+          "style={{ ... }}"
+        ]
+      },
+      {
+        "path": "src/components/dialogs/CommandPaletteDialog.tsx",
+        "count": 2,
+        "examples": [
+          "style={{ ... }}"
+        ]
+      },
+      {
+        "path": "src/components/dialogs/GoToCoordinateDialog.tsx",
+        "count": 1,
+        "examples": [
+          "style={{ ... }}"
+        ]
+      },
+      {
+        "path": "src/components/dialogs/AtlasConfigModal.tsx",
+        "count": 33,
+        "examples": [
+          "style={{ ... }}"
+        ]
+      },
+      {
+        "path": "src/components/dialogs/KeyboardShortcutsDialog.tsx",
+        "count": 4,
+        "examples": [
+          "style={{ ... }}"
+        ]
+      },
+      {
+        "path": "src/components/dialogs/CrosshairSettingsDialog.tsx",
+        "count": 4,
+        "examples": [
+          "style={{ ... }}"
+        ]
+      },
+      {
+        "path": "src/components/dialogs/ImageHeaderDialog.tsx",
+        "count": 2,
+        "examples": [
+          "style={{ ... }}"
+        ]
+      },
+      {
+        "path": "src/components/dialogs/CrosshairPreview.tsx",
+        "count": 1,
+        "examples": [
+          "style={{ ... }}"
+        ]
+      },
+      {
+        "path": "src/components/views/MosaicViewPromise.tsx",
+        "count": 1,
+        "examples": [
+          "style={{ ... }}"
+        ]
+      },
+      {
+        "path": "src/components/views/PinnedTimeRow.tsx",
+        "count": 1,
+        "examples": [
+          "style={{ ... }}"
+        ]
+      },
+      {
+        "path": "src/components/views/ComparisonPanel.tsx",
+        "count": 2,
+        "examples": [
+          "style={{ ... }}"
+        ]
+      },
+      {
+        "path": "src/components/views/SurfaceViewCanvas.tsx",
+        "count": 1,
+        "examples": [
+          "style={{ ... }}"
+        ]
+      },
+      {
+        "path": "src/components/views/SurfaceAssociationBadge.tsx",
+        "count": 5,
+        "examples": [
+          "style={{ ... }}"
+        ]
+      },
+      {
+        "path": "src/components/views/RenderOverlays.tsx",
+        "count": 1,
+        "examples": [
+          "style={{ ... }}"
+        ]
+      },
+      {
+        "path": "src/components/views/TemporalHeatmapOverlay.tsx",
+        "count": 1,
+        "examples": [
+          "style={{ ... }}"
+        ]
+      },
+      {
+        "path": "src/components/views/SurfaceViewPanel.tsx",
+        "count": 1,
+        "examples": [
+          "style={{ ... }}"
+        ]
+      },
+      {
+        "path": "src/components/views/IntegratedVolumeSurfaceWorkspace.tsx",
+        "count": 4,
+        "examples": [
+          "style={{ ... }}"
+        ]
+      },
+      {
+        "path": "src/components/views/ComparisonWorkspace.tsx",
+        "count": 2,
+        "examples": [
+          "style={{ ... }}"
+        ]
+      },
+      {
+        "path": "src/components/views/SliceViewCanvas.tsx",
+        "count": 6,
+        "examples": [
+          "style={{ ... }}"
+        ]
+      },
+      {
+        "path": "src/components/views/AnnotationOverlay.tsx",
+        "count": 1,
+        "examples": [
+          "style={{ ... }}"
+        ]
+      }
+    ],
+    "arbitrary_tailwind_files": [
+      {
+        "path": "src/index.css",
+        "count": 1,
+        "examples": [
+          "text-[10px]"
+        ]
+      },
+      {
+        "path": "src/components/ui/ViewToolbar.tsx",
+        "count": 3,
+        "examples": [
+          "bg-[var(--app-bg-secondary)]",
+          "border-[var(--app-border)]",
+          "bg-[var(--app-border)]"
+        ]
+      },
+      {
+        "path": "src/components/ui/LayerList.tsx",
+        "count": 1,
+        "examples": [
+          "text-[13px]"
+        ]
+      },
+      {
+        "path": "src/components/ui/SingleSlider.tsx",
+        "count": 21,
+        "examples": [
+          "text-[10px]",
+          "h-[2px]",
+          "w-[6px]",
+          "h-[12px]",
+          "top-[-5px]",
+          "text-[9px]",
+          "w-[8px]",
+          "h-[16px]"
+        ]
+      },
+      {
+        "path": "src/components/ui/LayerTable.tsx",
+        "count": 4,
+        "examples": [
+          "text-[13px]",
+          "text-[9px]",
+          "text-[10px]"
+        ]
+      },
+      {
+        "path": "src/components/ui/CrosshairToggle.tsx",
+        "count": 6,
+        "examples": [
+          "bg-[var(--app-accent)]",
+          "bg-[var(--app-accent-hover)]",
+          "bg-[var(--app-bg-secondary)]",
+          "text-[var(--app-text-secondary)]",
+          "bg-[var(--app-bg-hover)]",
+          "text-[var(--app-text-primary)]"
+        ]
+      },
+      {
+        "path": "src/components/ui/ColormapPicker.tsx",
+        "count": 18,
+        "examples": [
+          "text-[10px]",
+          "text-[var(--app-text-muted)]",
+          "text-[11px]",
+          "text-[var(--app-text-secondary)]",
+          "rounded-[1px]",
+          "border-[var(--app-border)]",
+          "border-[var(--layer-accent)]",
+          "min-w-[320px]"
+        ]
+      },
+      {
+        "path": "src/components/ui/NotificationToast.tsx",
+        "count": 1,
+        "examples": [
+          "text-[11px]"
+        ]
+      },
+      {
+        "path": "src/components/ui/PanelHeader.tsx",
+        "count": 1,
+        "examples": [
+          "text-[10px]"
+        ]
+      },
+      {
+        "path": "src/components/ui/CollapsibleSection.tsx",
+        "count": 1,
+        "examples": [
+          "max-h-[2000px]"
+        ]
+      },
+      {
+        "path": "src/components/ui/PropertyRow.tsx",
+        "count": 1,
+        "examples": [
+          "text-[11px]"
+        ]
+      },
+      {
+        "path": "src/components/ui/LayerDropdown.tsx",
+        "count": 6,
+        "examples": [
+          "text-[13px]",
+          "w-[var(--radix-popover-trigger-width)]",
+          "max-h-[280px]"
+        ]
+      },
+      {
+        "path": "src/components/ui/WorkspacePresetSelector.tsx",
+        "count": 2,
+        "examples": [
+          "text-[11px]",
+          "text-[10px]"
+        ]
+      },
+      {
+        "path": "src/components/ui/LoadingQueueIndicator.tsx",
+        "count": 1,
+        "examples": [
+          "min-w-[200px]"
+        ]
+      },
+      {
+        "path": "src/components/ui/MetadataDrawer.tsx",
+        "count": 2,
+        "examples": [
+          "w-[28rem]",
+          "max-w-[28rem]"
+        ]
+      },
+      {
+        "path": "src/components/ui/CrosshairSettingsPopover.tsx",
+        "count": 4,
+        "examples": [
+          "border-[var(--app-accent)]",
+          "border-[var(--app-border)]",
+          "text-[var(--app-text-secondary)]"
+        ]
+      },
+      {
+        "path": "src/components/ui/StatusBarProgress.tsx",
+        "count": 2,
+        "examples": [
+          "max-w-[200px]",
+          "text-[10px]"
+        ]
+      },
+      {
+        "path": "src/components/ui/RenderOverlays.tsx",
+        "count": 3,
+        "examples": [
+          "text-[10px]",
+          "text-[9px]"
+        ]
+      },
+      {
+        "path": "src/components/ui/ContextMenu.tsx",
+        "count": 2,
+        "examples": [
+          "rounded-[1px]",
+          "text-[11px]"
+        ]
+      },
+      {
+        "path": "src/components/ui/MosaicToolbar.tsx",
+        "count": 53,
+        "examples": [
+          "bg-[var(--app-bg-secondary)]",
+          "border-[var(--app-border)]",
+          "shadow-[var(--app-shadow-sm)]",
+          "w-[100px]",
+          "bg-[var(--app-bg-tertiary)]",
+          "text-[var(--app-text-primary)]",
+          "shadow-[var(--app-shadow-md)]",
+          "bg-[var(--app-bg-hover)]"
+        ]
+      },
+      {
+        "path": "src/components/ui/LayerRow.tsx",
+        "count": 7,
+        "examples": [
+          "h-[28px]",
+          "bg-[var(--layer-accent)]",
+          "text-[13px]",
+          "right-[28px]",
+          "w-[6px]",
+          "h-[6px]",
+          "bg-[#3A3A3A]"
+        ]
+      },
+      {
+        "path": "src/components/ui/ProSlider.tsx",
+        "count": 10,
+        "examples": [
+          "text-[9px]",
+          "text-[11px]",
+          "text-[10px]",
+          "h-[2px]"
+        ]
+      },
+      {
+        "path": "src/components/ui/TimeSlider.tsx",
+        "count": 3,
+        "examples": [
+          "bg-[var(--app-success)]",
+          "text-[var(--app-success)]"
+        ]
+      },
+      {
+        "path": "src/components/ui/Modal.tsx",
+        "count": 1,
+        "examples": [
+          "z-[110]"
+        ]
+      },
+      {
+        "path": "src/components/ui/SurfaceMetadataDrawer.tsx",
+        "count": 2,
+        "examples": [
+          "w-[400px]",
+          "w-[540px]"
+        ]
+      },
+      {
+        "path": "src/components/ui/MetadataPopover.tsx",
+        "count": 2,
+        "examples": [
+          "z-[100]",
+          "max-w-[90vw]"
+        ]
+      },
+      {
+        "path": "src/components/ui/shadcn/slider.tsx",
+        "count": 6,
+        "examples": [
+          "bg-[hsl(var(--muted))]",
+          "bg-[hsl(var(--primary))]",
+          "bg-[hsl(var(--card))]",
+          "border-[hsl(var(--primary))]"
+        ]
+      },
+      {
+        "path": "src/components/ui/shadcn/switch.tsx",
+        "count": 3,
+        "examples": [
+          "bg-[var(--app-accent)]",
+          "bg-[var(--app-bg-secondary)]",
+          "bg-[var(--app-bg-primary)]"
+        ]
+      },
+      {
+        "path": "src/components/ui/shadcn/select.tsx",
+        "count": 3,
+        "examples": [
+          "min-w-[8rem]",
+          "h-[var(--radix-select-trigger-height)]",
+          "min-w-[var(--radix-select-trigger-width)]"
+        ]
+      },
+      {
+        "path": "src/components/studio/StudioLensSwitcher.tsx",
+        "count": 3,
+        "examples": [
+          "text-[11px]",
+          "text-[9px]"
+        ]
+      },
+      {
+        "path": "src/components/studio/TsvImportWizard.tsx",
+        "count": 1,
+        "examples": [
+          "text-[11px]"
+        ]
+      },
+      {
+        "path": "src/components/studio/StudioToolbar.tsx",
+        "count": 1,
+        "examples": [
+          "text-[11px]"
+        ]
+      },
+      {
+        "path": "src/components/studio/StudioComparePane.tsx",
+        "count": 8,
+        "examples": [
+          "text-[11px]",
+          "text-[10px]",
+          "min-w-[180px]"
+        ]
+      },
+      {
+        "path": "src/components/studio/StudioRenderAdapter.tsx",
+        "count": 3,
+        "examples": [
+          "min-h-[320px]"
+        ]
+      },
+      {
+        "path": "src/components/studio/DeckLens.tsx",
+        "count": 3,
+        "examples": [
+          "text-[11px]"
+        ]
+      },
+      {
+        "path": "src/components/studio/StudioAuditBanner.tsx",
+        "count": 3,
+        "examples": [
+          "text-[11px]",
+          "max-w-[260px]",
+          "text-[10px]"
+        ]
+      },
+      {
+        "path": "src/components/studio/StudioStrip.tsx",
+        "count": 5,
+        "examples": [
+          "text-[11px]",
+          "min-w-[112px]",
+          "text-[10px]",
+          "max-w-[160px]"
+        ]
+      },
+      {
+        "path": "src/components/studio/StudioTimeRow.tsx",
+        "count": 3,
+        "examples": [
+          "text-[11px]",
+          "text-[10px]"
+        ]
+      },
+      {
+        "path": "src/components/studio/CompareLens.tsx",
+        "count": 2,
+        "examples": [
+          "text-[10px]"
+        ]
+      },
+      {
+        "path": "src/components/studio/StudioViewerPanel.tsx",
+        "count": 2,
+        "examples": [
+          "min-h-[220px]",
+          "text-[11px]"
+        ]
+      },
+      {
+        "path": "src/components/studio/DesignPane.tsx",
+        "count": 4,
+        "examples": [
+          "text-[10px]",
+          "text-[11px]"
+        ]
+      },
+      {
+        "path": "src/components/studio/StudioImportDialog.tsx",
+        "count": 1,
+        "examples": [
+          "text-[11px]"
+        ]
+      },
+      {
+        "path": "src/components/analysis/AnalysisWorkbenchWorkspace.tsx",
+        "count": 16,
+        "examples": [
+          "text-[10px]",
+          "text-[11px]",
+          "min-h-[220px]"
+        ]
+      },
+      {
+        "path": "src/components/inspector/InspectorRouter.tsx",
+        "count": 7,
+        "examples": [
+          "text-[15px]",
+          "text-[11px]",
+          "text-[12px]"
+        ]
+      },
+      {
+        "path": "src/components/inspector/analysis/AnalysisInspector.tsx",
+        "count": 2,
+        "examples": [
+          "text-[12px]",
+          "text-[11px]"
+        ]
+      },
+      {
+        "path": "src/components/inspector/bids/BidsInspector.tsx",
+        "count": 2,
+        "examples": [
+          "text-[12px]",
+          "text-[11px]"
+        ]
+      },
+      {
+        "path": "src/components/inspector/imaging/InspectorSection.tsx",
+        "count": 4,
+        "examples": [
+          "text-[11px]",
+          "text-[12px]",
+          "text-[10px]"
+        ]
+      },
+      {
+        "path": "src/components/inspector/imaging/SceneStack.tsx",
+        "count": 2,
+        "examples": [
+          "text-[10px]",
+          "text-[11px]"
+        ]
+      },
+      {
+        "path": "src/components/inspector/imaging/SelectedItemHeader.tsx",
+        "count": 4,
+        "examples": [
+          "text-[10px]",
+          "text-[14px]",
+          "text-[11px]"
+        ]
+      },
+      {
+        "path": "src/components/inspector/imaging/LoadSheet.tsx",
+        "count": 3,
+        "examples": [
+          "min-w-[180px]",
+          "text-[12px]",
+          "text-[10px]"
+        ]
+      },
+      {
+        "path": "src/components/inspector/imaging/SceneStackItem.tsx",
+        "count": 4,
+        "examples": [
+          "text-[11px]",
+          "text-[12px]"
+        ]
+      },
+      {
+        "path": "src/components/inspector/imaging/ImagingInspector.tsx",
+        "count": 1,
+        "examples": [
+          "text-[11px]"
+        ]
+      },
+      {
+        "path": "src/components/inspector/imaging/sections/ViewBehaviorSection.tsx",
+        "count": 3,
+        "examples": [
+          "text-[12px]"
+        ]
+      },
+      {
+        "path": "src/components/inspector/imaging/sections/GeometrySection.tsx",
+        "count": 5,
+        "examples": [
+          "text-[12px]"
+        ]
+      },
+      {
+        "path": "src/components/inspector/imaging/sections/MappingSection.tsx",
+        "count": 12,
+        "examples": [
+          "text-[12px]",
+          "text-[11px]"
+        ]
+      },
+      {
+        "path": "src/components/inspector/imaging/sections/DataSection.tsx",
+        "count": 2,
+        "examples": [
+          "text-[11px]"
+        ]
+      },
+      {
+        "path": "src/components/inspector/imaging/sections/RenderSection.tsx",
+        "count": 12,
+        "examples": [
+          "text-[11px]",
+          "text-[12px]",
+          "text-[10px]"
+        ]
+      },
+      {
+        "path": "src/components/inspector/imaging/sections/AdvancedSection.tsx",
+        "count": 1,
+        "examples": [
+          "text-[11px]"
+        ]
+      },
+      {
+        "path": "src/components/bids/BidsExplorerWorkspace.tsx",
+        "count": 2,
+        "examples": [
+          "text-[10px]"
+        ]
+      },
+      {
+        "path": "src/components/bids/BidsEmptyState.tsx",
+        "count": 2,
+        "examples": [
+          "bg-[hsl(var(--primary)/0.88)]",
+          "text-[11px]"
+        ]
+      },
+      {
+        "path": "src/components/bids/BidsCoverageMatrix.tsx",
+        "count": 3,
+        "examples": [
+          "text-[10px]"
+        ]
+      },
+      {
+        "path": "src/components/panels/LayerEmptyState.tsx",
+        "count": 6,
+        "examples": [
+          "max-h-[200px]",
+          "text-[9px]",
+          "max-w-[160px]"
+        ]
+      },
+      {
+        "path": "src/components/panels/VolumePanel.tsx",
+        "count": 1,
+        "examples": [
+          "w-[180px]"
+        ]
+      },
+      {
+        "path": "src/components/panels/SurfaceDataLayerControls.tsx",
+        "count": 15,
+        "examples": [
+          "text-[11px]",
+          "text-[10px]",
+          "w-[180px]"
+        ]
+      },
+      {
+        "path": "src/components/panels/SurfaceControlPanel.tsx",
+        "count": 3,
+        "examples": [
+          "text-[11px]"
+        ]
+      },
+      {
+        "path": "src/components/panels/VolumeLayerPanel.tsx",
+        "count": 4,
+        "examples": [
+          "min-h-[34px]",
+          "h-[320px]",
+          "min-h-[280px]"
+        ]
+      },
+      {
+        "path": "src/components/panels/SurfaceDerivedMappingControls.tsx",
+        "count": 3,
+        "examples": [
+          "text-[10px]",
+          "rounded-[2px]"
+        ]
+      },
+      {
+        "path": "src/components/panels/LayerStatusBar.tsx",
+        "count": 3,
+        "examples": [
+          "text-[9px]",
+          "text-[10px]"
+        ]
+      },
+      {
+        "path": "src/components/panels/LayerPropertiesManager.tsx",
+        "count": 1,
+        "examples": [
+          "text-[9px]"
+        ]
+      },
+      {
+        "path": "src/components/panels/RemoteMountDialog.tsx",
+        "count": 1,
+        "examples": [
+          "max-w-[560px]"
+        ]
+      },
+      {
+        "path": "src/components/panels/SurfaceGeometryControls.tsx",
+        "count": 9,
+        "examples": [
+          "text-[10px]",
+          "rounded-[2px]",
+          "pl-[110px]",
+          "rounded-[1px]"
+        ]
+      },
+      {
+        "path": "src/components/panels/SurfaceLayerPanel.tsx",
+        "count": 10,
+        "examples": [
+          "rounded-[2px]",
+          "text-[11px]",
+          "text-[10px]"
+        ]
+      },
+      {
+        "path": "src/components/panels/LayerInspectorContent.tsx",
+        "count": 1,
+        "examples": [
+          "w-[180px]"
+        ]
+      },
+      {
+        "path": "src/components/dialogs/CommandPaletteDialog.tsx",
+        "count": 2,
+        "examples": [
+          "max-h-[60vh]",
+          "text-[10px]"
+        ]
+      },
+      {
+        "path": "src/components/dialogs/ConfirmationDialogHost.tsx",
+        "count": 1,
+        "examples": [
+          "z-[120]"
+        ]
+      },
+      {
+        "path": "src/components/dialogs/AtlasConfigModal.tsx",
+        "count": 1,
+        "examples": [
+          "max-h-[90vh]"
+        ]
+      },
+      {
+        "path": "src/components/dialogs/ImageHeaderDialog.tsx",
+        "count": 1,
+        "examples": [
+          "max-h-[90vh]"
+        ]
+      },
+      {
+        "path": "src/components/dialogs/ExportImageDialog.tsx",
+        "count": 2,
+        "examples": [
+          "min-h-[300px]",
+          "max-h-[70vh]"
+        ]
+      },
+      {
+        "path": "src/components/views/ComparisonPanel.tsx",
+        "count": 6,
+        "examples": [
+          "text-[11px]",
+          "max-w-[132px]",
+          "text-[9px]",
+          "text-[10px]",
+          "text-[12px]"
+        ]
+      },
+      {
+        "path": "src/components/views/SurfaceViewPanel.tsx",
+        "count": 8,
+        "examples": [
+          "text-[10px]",
+          "text-[9px]",
+          "max-w-[160px]"
+        ]
+      }
+    ],
+    "button_like_files": [
+      {
+        "path": "src/App.tsx",
+        "count": 6,
+        "examples": [
+          "h-screen bg-gray-950 flex items-center justify-center",
+          "bg-red-900 border border-red-700 rounded-lg p-6 max-w-md",
+          "bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded",
+          "bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded"
+        ]
+      },
+      {
+        "path": "src/components/ui/ProgressDrawer.tsx",
+        "count": 13,
+        "examples": [
+          "flex-1 py-1.5 px-3 text-xs rounded transition-colors",
+          "py-1.5 px-3 text-xs rounded transition-colors",
+          "fixed inset-0 bg-black/50 z-40 animate-fade-in",
+          "p-1 rounded hover:bg-gray-700/50 transition-colors"
+        ]
+      },
+      {
+        "path": "src/components/ui/LayerTable.tsx",
+        "count": 7,
+        "examples": [
+          "h-4 w-4 text-muted-foreground/40 group-hover:text-muted-foreground",
+          "px-0.5 shrink-0",
+          "shrink-0 rounded border border-border bg-muted px-1 py-px text-[9px] font-medium uppercase tracking-[0.08em] text-muted-foreground",
+          "shrink-0 rounded border border-destructive/40 bg-destructive/10 px-1 py-px text-[9px] font-medium uppercase tracking-[0.08em] text-destructi"
+        ]
+      },
+      {
+        "path": "src/components/ui/ColormapPicker.tsx",
+        "count": 4,
+        "examples": [
+          "h-4 flex-1 rounded border",
+          "z-50 min-w-[320px] border-[var(--layer-divider)] bg-[var(--layer-bg)] p-3",
+          "h-4 w-12 rounded-[1px]",
+          "h-4 w-16 rounded border"
+        ]
+      },
+      {
+        "path": "src/components/ui/PanelHeader.tsx",
+        "count": 2,
+        "examples": [
+          "bf-control-sm rounded-appsm border border-border bg-background px-2.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-foreground ",
+          "icon-btn rounded-appsm"
+        ]
+      },
+      {
+        "path": "src/components/ui/CollapsibleSection.tsx",
+        "count": 1,
+        "examples": [
+          "w-full bf-control-md flex items-center justify-between px-1 py-1 hover:bg-muted/50 transition-colors group text-foreground rounded-appsm foc"
+        ]
+      },
+      {
+        "path": "src/components/ui/LayerDropdown.tsx",
+        "count": 2,
+        "examples": [
+          "text-[13px] text-muted-foreground text-center py-4",
+          "w-px h-4 bg-border"
+        ]
+      },
+      {
+        "path": "src/components/ui/RenderErrorBoundary.tsx",
+        "count": 4,
+        "examples": [
+          "flex flex-col items-center justify-center h-full bg-gray-900/50 text-gray-300 p-4",
+          "flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 \n                     text-white rounded transition-colors text-sm",
+          "cursor-pointer hover:text-gray-400",
+          "mt-2 p-2 bg-gray-800 rounded overflow-auto max-h-32"
+        ]
+      },
+      {
+        "path": "src/components/ui/MetadataDrawer.tsx",
+        "count": 2,
+        "examples": [
+          "px-6 py-4 border-b",
+          "px-3 pb-3 space-y-3 border-t"
+        ]
+      },
+      {
+        "path": "src/components/ui/StatusBarProgress.tsx",
+        "count": 2,
+        "examples": [
+          "flex items-center gap-2 px-3 py-1 text-xs hover:bg-gray-700/50 transition-colors cursor-pointer",
+          "px-1.5 py-0.5 rounded text-[10px] font-medium"
+        ]
+      },
+      {
+        "path": "src/components/ui/ContextMenu.tsx",
+        "count": 2,
+        "examples": [
+          "absolute min-w-48 rounded-[1px] border border-border bg-card py-1 shadow-lg outline-none",
+          "my-1 border-border"
+        ]
+      },
+      {
+        "path": "src/components/ui/DropdownMenu.tsx",
+        "count": 1,
+        "examples": [
+          "my-1 border-border"
+        ]
+      },
+      {
+        "path": "src/components/ui/MosaicToolbar.tsx",
+        "count": 13,
+        "examples": [
+          "h-8 w-[100px] text-xs bg-[var(--app-bg-tertiary)] border border-[var(--app-border)] text-[var(--app-text-primary)]",
+          "bg-[var(--app-bg-secondary)] border border-[var(--app-border)] shadow-[var(--app-shadow-md)]",
+          "text-[var(--app-text-primary)] hover:bg-[var(--app-bg-hover)] focus:bg-[var(--app-bg-hover)]",
+          "h-8 w-[72px] text-xs bg-[var(--app-bg-tertiary)] border border-[var(--app-border)] text-[var(--app-text-primary)]"
+        ]
+      },
+      {
+        "path": "src/components/ui/LayerRow.tsx",
+        "count": 4,
+        "examples": [
+          "relative flex items-center h-[28px] px-2 cursor-pointer transition-colors",
+          "w-2 h-2 rounded-full bg-[var(--layer-accent)]",
+          "absolute right-[28px] w-[6px] h-[6px] rounded-full",
+          "w-5 h-5 flex items-center justify-center rounded transition-colors text-neutral-400 hover:text-white hover:bg-[#3A3A3A]"
+        ]
+      },
+      {
+        "path": "src/components/ui/TimeSlider.tsx",
+        "count": 2,
+        "examples": [
+          "px-2 py-1 text-xs text-foreground bg-muted/80 rounded disabled:opacity-40 disabled:cursor-not-allowed hover:bg-muted"
+        ]
+      },
+      {
+        "path": "src/components/ui/SurfaceMetadataDrawer.tsx",
+        "count": 4,
+        "examples": [
+          "border rounded-lg overflow-hidden",
+          "w-full px-4 py-3 bg-muted/30 hover:bg-muted/50 transition-colors flex items-center justify-between",
+          "p-1 hover:bg-muted rounded transition-colors",
+          "mt-6 p-4 bg-muted/30 rounded-lg"
+        ]
+      },
+      {
+        "path": "src/components/ui/MetadataPopover.tsx",
+        "count": 9,
+        "examples": [
+          "mb-4 pb-4 border-b border-border/50",
+          "flex items-center justify-between mx-2 px-3 py-2 rounded-md border border-accent/20 hover:border-accent/30 transition-colors",
+          "ml-2 p-1 rounded hover:bg-accent/30 transition-colors",
+          "h-3.5 w-3.5 text-muted-foreground hover:text-popover-foreground"
+        ]
+      },
+      {
+        "path": "src/components/studio/StudioLensSwitcher.tsx",
+        "count": 4,
+        "examples": [
+          "flex flex-wrap items-center gap-3 rounded-lg border border-border bg-card px-3 py-2",
+          "inline-flex items-center rounded-md border border-border bg-background p-0.5",
+          "h-4 w-px bg-border",
+          "rounded-md border border-border bg-background px-2.5 py-1 text-xs text-foreground"
+        ]
+      },
+      {
+        "path": "src/components/studio/InspectorPane.tsx",
+        "count": 6,
+        "examples": [
+          "rounded-lg border border-border bg-background px-3 py-3",
+          "space-y-4 divide-y divide-border rounded-lg border border-border bg-background px-3 py-3",
+          "rounded-lg border border-border bg-background p-3",
+          "rounded-md border border-border bg-card px-3 py-2"
+        ]
+      },
+      {
+        "path": "src/components/studio/TsvImportWizard.tsx",
+        "count": 13,
+        "examples": [
+          "rounded-lg border border-border bg-card p-4",
+          "mt-3 w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground font-mono focus:outline-none focus:ring-1 focus:",
+          "rounded-lg border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-sm text-foreground",
+          "w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+        ]
+      },
+      {
+        "path": "src/components/studio/StudioComparePane.tsx",
+        "count": 10,
+        "examples": [
+          "flex items-center justify-between gap-3 border-b border-border bg-card/80 px-3 py-2",
+          "relative min-h-0 flex-1 bg-black",
+          "flex flex-wrap items-center gap-1.5 border-t border-border bg-card/80 px-3 py-2 text-[11px] text-muted-foreground",
+          "inline-flex items-center rounded-full border border-border bg-background/60 px-2 py-0.5 tabular-nums"
+        ]
+      },
+      {
+        "path": "src/components/studio/StudioStrip.tsx",
+        "count": 3,
+        "examples": [
+          "col-span-3 flex flex-col gap-2 rounded-lg border border-border bg-card p-3",
+          "px-3 py-2 text-xs text-muted-foreground",
+          "ml-0.5 inline-flex h-4 w-4 items-center justify-center rounded-full text-current/70 transition-colors hover:bg-background/40 hover:text-curr"
+        ]
+      },
+      {
+        "path": "src/components/studio/StudioTimeRow.tsx",
+        "count": 2,
+        "examples": [
+          "h-1 flex-1 cursor-pointer appearance-none rounded-full bg-border accent-sky-500 disabled:cursor-not-allowed",
+          "inline-flex h-7 w-7 items-center justify-center rounded-md border border-border bg-background text-muted-foreground transition-colors hover:"
+        ]
+      },
+      {
+        "path": "src/components/studio/CompareLens.tsx",
+        "count": 2,
+        "examples": [
+          "hidden text-[10px] text-muted-foreground hover:text-foreground",
+          "pointer-events-none absolute bottom-2 left-2 rounded-md border border-border/60 bg-background/70 px-2 py-0.5 text-[10px] uppercase tracking-"
+        ]
+      },
+      {
+        "path": "src/components/studio/DesignPane.tsx",
+        "count": 27,
+        "examples": [
+          "rounded-lg border border-border bg-background px-3 py-3",
+          "rounded-lg border border-border bg-background p-3",
+          "mt-3 rounded-md border border-amber-500/30 bg-amber-500/10 p-3",
+          "block w-full rounded-md px-2 py-1 text-left text-xs leading-5 text-foreground transition-colors hover:bg-amber-500/10"
+        ]
+      },
+      {
+        "path": "src/components/studio/StudioImportDialog.tsx",
+        "count": 20,
+        "examples": [
+          "max-w-4xl rounded-lg",
+          "flex border-b border-border bg-background px-4",
+          "absolute bottom-0 left-2 right-2 h-0.5 bg-foreground rounded-full",
+          "border-r border-border bg-background p-4 overflow-y-auto"
+        ]
+      },
+      {
+        "path": "src/components/analysis/AnalysisWorkbenchWorkspace.tsx",
+        "count": 24,
+        "examples": [
+          "rounded-appsm border border-border bg-card p-3 space-y-3",
+          "rounded-appsm border border-border px-2 py-1 text-[10px] uppercase tracking-[0.08em] text-muted-foreground",
+          "h-1.5 rounded-full bg-muted overflow-hidden",
+          "h-full bg-primary transition-[width]"
+        ]
+      },
+      {
+        "path": "src/components/inspector/InspectorRouter.tsx",
+        "count": 8,
+        "examples": [
+          "flex h-full min-h-0 flex-col overflow-hidden bg-background text-foreground",
+          "border-b border-border bg-card/40 px-3 pt-2.5 pb-2",
+          "inline-flex items-center gap-1 rounded-md border border-border bg-background px-2 py-1 text-[11px] text-muted-foreground transition-colors h",
+          "inline-flex h-6 w-6 items-center justify-center rounded-md border border-border bg-background text-muted-foreground transition-colors hover:"
+        ]
+      },
+      {
+        "path": "src/components/inspector/imaging/InspectorSection.tsx",
+        "count": 5,
+        "examples": [
+          "border-t border-border/60 first:border-t-0",
+          "flex w-full items-center justify-between px-3 py-2 text-left transition-colors hover:bg-accent/30",
+          "px-3 pb-3",
+          "flex items-center justify-between gap-3 py-1.5 text-[12px]"
+        ]
+      },
+      {
+        "path": "src/components/inspector/imaging/LoadSheet.tsx",
+        "count": 2,
+        "examples": [
+          "absolute right-2 top-12 z-30 min-w-[180px] overflow-hidden rounded-md border border-border bg-card shadow-lg",
+          "flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-[12px] transition-colors hover:bg-accent hover:text-accent-foregroun"
+        ]
+      },
+      {
+        "path": "src/components/inspector/imaging/sections/MappingSection.tsx",
+        "count": 2,
+        "examples": [
+          "mt-2 flex items-center justify-between border-t border-border/40 pt-2 text-[11px]",
+          "rounded-md border border-border bg-background px-2 py-0.5 text-[11px] text-foreground transition-colors hover:bg-accent hover:text-accent-fo"
+        ]
+      },
+      {
+        "path": "src/components/inspector/imaging/sections/DataSection.tsx",
+        "count": 3,
+        "examples": [
+          "mt-2 flex items-center justify-between border-t border-border/40 pt-2 text-[11px]",
+          "inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-sky-600 transition-colors hover:bg-accent/40 dark:text-sky-300",
+          "rounded-md border border-dashed border-border/60 bg-card/30 px-3 py-2 text-[11px] text-muted-foreground/70"
+        ]
+      },
+      {
+        "path": "src/components/inspector/imaging/sections/RenderSection.tsx",
+        "count": 8,
+        "examples": [
+          "rounded-md border border-border bg-background px-2 py-0.5 text-[11px] capitalize text-foreground",
+          "py-1.5 text-[12px]",
+          "w-14 rounded-md border border-border bg-background px-1 py-0.5 text-right font-mono text-[11px] tabular-nums text-foreground",
+          "absolute left-0 right-0 top-1/2 h-1 -translate-y-1/2 rounded-full"
+        ]
+      },
+      {
+        "path": "src/components/bids/BidsExplorerWorkspace.tsx",
+        "count": 7,
+        "examples": [
+          "absolute inset-0 flex flex-col items-center justify-center gap-3 bg-background",
+          "text-border",
+          "absolute inset-0 flex items-center justify-center bg-background",
+          "w-full px-8"
+        ]
+      },
+      {
+        "path": "src/components/bids/BidsDetailTabs.tsx",
+        "count": 2,
+        "examples": [
+          "text-border",
+          "flex border-b border-border px-4 shrink-0"
+        ]
+      },
+      {
+        "path": "src/components/bids/BidsValidationPanel.tsx",
+        "count": 1,
+        "examples": [
+          "text-left text-muted-foreground hover:text-foreground transition-colors"
+        ]
+      },
+      {
+        "path": "src/components/bids/BidsCoverageMatrix.tsx",
+        "count": 5,
+        "examples": [
+          "flex items-center gap-3 border-t border-border px-4",
+          "bf-control-sm rounded-appsm border border-border bg-background px-3 text-[10px] font-semibold uppercase tracking-[0.08em] text-primary trans",
+          "absolute bottom-full left-0 mb-1 rounded-appsm border border-border bg-card",
+          "bf-role-mono block w-full px-3 py-1.5 text-left text-[10px] text-foreground/80 transition-colors hover:bg-primary/10"
+        ]
+      },
+      {
+        "path": "src/components/panels/LayerEmptyState.tsx",
+        "count": 1,
+        "examples": [
+          "mt-3 px-3 py-1 text-[9px] uppercase tracking-wider font-mono border transition-colors pointer-events-auto"
+        ]
+      },
+      {
+        "path": "src/components/panels/VolumePanel.tsx",
+        "count": 2,
+        "examples": [
+          "flex items-center justify-between pb-2 border-b border-border",
+          "space-y-3 rounded-sm border border-border/50 bg-muted/10 p-2"
+        ]
+      },
+      {
+        "path": "src/components/panels/SurfaceDataLayerControls.tsx",
+        "count": 5,
+        "examples": [
+          "flex items-center justify-between pb-2 border-b border-border",
+          "space-y-3 rounded-sm border border-border/50 bg-muted/10 p-2",
+          "rounded-sm border border-border/50 bg-muted/10 px-2",
+          "w-16 h-6 px-2 text-[10px] font-mono border border-border bg-transparent text-foreground"
+        ]
+      },
+      {
+        "path": "src/components/panels/VolumeLayerPanel.tsx",
+        "count": 2,
+        "examples": [
+          "flex flex-col h-full overflow-hidden bg-card text-card-foreground shadow-sm border border-border font-sans",
+          "text-center py-4"
+        ]
+      },
+      {
+        "path": "src/components/panels/SurfaceDerivedMappingControls.tsx",
+        "count": 3,
+        "examples": [
+          "flex items-center justify-between gap-3 rounded-sm border border-border/50 bg-muted/10 px-3 py-2",
+          "shrink-0 px-2.5 py-1.5 text-[10px] uppercase tracking-[0.12em] font-semibold border border-border rounded-[2px] hover:bg-muted/40 transition",
+          "rounded-sm border border-dashed border-border/60 bg-muted/10 px-3 py-4 text-center"
+        ]
+      },
+      {
+        "path": "src/components/panels/SetPanel.tsx",
+        "count": 11,
+        "examples": [
+          "h-full overflow-auto bg-background text-foreground",
+          "rounded-lg border border-border bg-card p-3",
+          "rounded-md border border-border bg-background px-3 py-2 text-sm text-muted-foreground",
+          "rounded-md border border-border bg-background px-3 py-2 text-left text-sm text-foreground transition-colors hover:bg-accent hover:text-accen"
+        ]
+      },
+      {
+        "path": "src/components/panels/LayerPropertiesManager.tsx",
+        "count": 3,
+        "examples": [
+          "w-full flex flex-col items-center justify-center py-8",
+          "pt-4 border-t",
+          "px-3 py-1 text-sm border rounded hover:bg-accent"
+        ]
+      },
+      {
+        "path": "src/components/panels/RemoteMountDialog.tsx",
+        "count": 1,
+        "examples": [
+          "remote-mount-subtitle px-4 pt-4"
+        ]
+      },
+      {
+        "path": "src/components/panels/SurfaceGeometryControls.tsx",
+        "count": 16,
+        "examples": [
+          "flex flex-1 items-center border border-border rounded-[2px] overflow-hidden h-7",
+          "h-7 w-10 border border-border/60 rounded-[2px] bg-transparent cursor-pointer",
+          "rounded-sm border border-border/50 bg-muted/10",
+          "px-2"
+        ]
+      },
+      {
+        "path": "src/components/panels/SurfaceLayerPanel.tsx",
+        "count": 14,
+        "examples": [
+          "flex flex-col h-full bg-background",
+          "px-4 py-2 bg-destructive/10 text-destructive text-xs",
+          "text-destructive hover:text-destructive/80",
+          "p-1 hover:bg-muted/40 rounded-[2px]"
+        ]
+      },
+      {
+        "path": "src/components/panels/LayerInspectorContent.tsx",
+        "count": 1,
+        "examples": [
+          "bf-role-section flex items-center gap-1.5 px-2.5 py-1 border border-border bg-transparent hover:bg-muted/40 text-muted-foreground hover:text"
+        ]
+      },
+      {
+        "path": "src/components/panels/ClusterPanel.tsx",
+        "count": 16,
+        "examples": [
+          "mt-3 overflow-auto max-h-64 border border-border rounded",
+          "bg-card",
+          "px-2 py-1 text-left",
+          "odd:bg-background even:bg-card"
+        ]
+      },
+      {
+        "path": "src/components/common/PanelErrorBoundary.tsx",
+        "count": 3,
+        "examples": [
+          "bg-red-500/20 border border-red-500/50 rounded p-4",
+          "text-xs text-red-200 bg-red-900/20 p-2 rounded overflow-auto max-h-48",
+          "mt-3 px-3 py-1 bg-red-600 text-white text-sm rounded hover:bg-red-700 transition-colors"
+        ]
+      },
+      {
+        "path": "src/components/dialogs/CommandPaletteDialog.tsx",
+        "count": 6,
+        "examples": [
+          "max-w-2xl overflow-hidden rounded-sm border shadow-2xl",
+          "flex items-center gap-2 border-b px-3 py-2",
+          "flex-1 bg-transparent text-sm outline-none",
+          "max-h-[60vh] overflow-y-auto py-1"
+        ]
+      },
+      {
+        "path": "src/components/dialogs/GoToCoordinateDialog.tsx",
+        "count": 3,
+        "examples": [
+          "max-w-xs rounded-xl ring-1 ring-white/10 shadow-2xl",
+          "px-5 py-4 space-y-4",
+          "px-5 py-3 border-t flex items-center justify-between gap-2"
+        ]
+      },
+      {
+        "path": "src/components/dialogs/CrosshairSettingsDialog.tsx",
+        "count": 9,
+        "examples": [
+          "max-w-sm rounded-xl ring-1 ring-white/10 shadow-2xl",
+          "px-6 py-5 border-b space-y-4",
+          "h-8 w-16 rounded border border-gray-700 bg-gray-800 cursor-pointer hover:border-gray-600",
+          "border-b"
+        ]
+      },
+      {
+        "path": "src/components/dialogs/ImageHeaderDialog.tsx",
+        "count": 11,
+        "examples": [
+          "opacity-0 group-hover:opacity-60 transition-opacity",
+          "grid grid-cols-[140px_1fr] items-start gap-2 py-1",
+          "border-b",
+          "w-full px-6 py-3 flex items-center justify-between hover:bg-gray-800/30 transition-colors"
+        ]
+      },
+      {
+        "path": "src/components/views/ComparisonPanel.tsx",
+        "count": 6,
+        "examples": [
+          "flex h-full flex-col overflow-hidden rounded-appsm border border-border bg-card shadow-sm",
+          "flex shrink-0 items-center gap-2 border-b border-border bg-muted/10 px-3 select-none",
+          "inline-flex min-w-0 max-w-[132px] items-center gap-0.5 rounded-appsm border border-border bg-background px-1.5 text-[9px] text-muted-foregro",
+          "ml-0.5 shrink-0 text-muted-foreground transition-colors hover:text-foreground"
+        ]
+      },
+      {
+        "path": "src/components/views/OrthogonalViewContainer.tsx",
+        "count": 3,
+        "examples": [
+          "absolute top-3 right-3 z-20 p-2\n                   bg-gray-800/60 hover:bg-gray-700/60 \n                   text-gray-300 hover:text-white\n  ",
+          "absolute inset-0 bg-blue-500 bg-opacity-10 pointer-events-none flex items-center justify-center z-50",
+          "bg-white rounded-lg px-6 py-4 shadow-2xl"
+        ]
+      },
+      {
+        "path": "src/components/views/SurfaceViewPanel.tsx",
+        "count": 7,
+        "examples": [
+          "relative h-full w-full bg-background",
+          "absolute inset-0 flex items-center justify-center bg-background/80 z-10",
+          "bg-destructive/10 border border-destructive/20 text-destructive rounded-lg p-3 flex items-start gap-2",
+          "hover:bg-destructive/20 rounded p-1 transition-colors"
+        ]
+      },
+      {
+        "path": "src/components/views/ComparisonWorkspace.tsx",
+        "count": 8,
+        "examples": [
+          "flex h-full items-center justify-center bg-background px-6",
+          "rounded-appsm border border-border bg-card px-6 py-5 text-center shadow-sm",
+          "flex h-full w-full flex-col bg-background text-foreground",
+          "flex shrink-0 items-center gap-3 border-b border-border bg-card px-3 select-none"
+        ]
+      },
+      {
+        "path": "src/components/debug/PerformanceDashboard.tsx",
+        "count": 5,
+        "examples": [
+          "fixed top-4 right-4 bg-black bg-opacity-90 text-white p-4 rounded-lg z-50 max-w-md font-mono text-xs",
+          "text-gray-400 hover:text-white",
+          "mt-3 pt-2 border-t border-gray-700 flex gap-2",
+          "text-xs px-2 py-1 bg-gray-700 hover:bg-gray-600 rounded"
+        ]
+      }
+    ]
+  },
+  "counts": {
+    "raw_hex_files": 47,
+    "raw_hex_occurrences": 269,
+    "inline_style_files": 84,
+    "inline_style_occurrences": 375,
+    "arbitrary_tailwind_files": 83,
+    "arbitrary_tailwind_occurrences": 381,
+    "css_variable_definitions": 185,
+    "unique_css_variables_defined": 181,
+    "storybook_files": 0,
+    "docs_files": 0
+  },
+  "maturity_estimate": "emerging"
+}

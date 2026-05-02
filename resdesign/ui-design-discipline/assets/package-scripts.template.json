@@ -1,0 +1,10 @@
+{
+  "_comment": "Pick the script path that matches where the skill is installed in this repo. The agent should substitute the actual path before adding to package.json. Comments are not valid JSON; remove this _comment when copying.",
+  "scripts": {
+    "ui:audit:claude-project": "python3 .claude/skills/ui-design-discipline/scripts/ui_inventory.py --root .",
+    "ui:audit:codex-project": "python3 .agents/skills/ui-design-discipline/scripts/ui_inventory.py --root .",
+    "ui:audit:claude-user": "python3 ~/.claude/skills/ui-design-discipline/scripts/ui_inventory.py --root .",
+    "storybook": "storybook dev -p 6006",
+    "build-storybook": "storybook build"
+  }
+}
