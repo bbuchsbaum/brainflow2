@@ -17,6 +17,7 @@ import {
 import { useWorkspaceStore } from '@/stores/workspaceStore';
 import { useActivePanelStore } from '@/stores/activePanelStore';
 import { useAppModeStore } from '@/stores/appModeStore';
+import { useLayoutSettingsStore } from '@/stores/layoutSettingsStore';
 import { safeListen, safeUnlisten } from '@/utils/eventUtils';
 import { debounce } from 'lodash';
 import type { WorkspaceType } from '@/types/workspace';
@@ -24,25 +25,20 @@ import { CrosshairProvider } from '@/contexts/CrosshairContext';
 import { getLayoutService } from '@/services/layoutService';
 import { PanelErrorBoundary } from '@/components/common/PanelErrorBoundary';
 
-// Import workspace components
-import { OrthogonalViewContainer } from '@/components/views/OrthogonalViewContainer';
-import { OrthogonalPanelsWorkspace } from '@/components/views/OrthogonalPanelsWorkspace';
-import { MosaicViewPromise } from '@/components/views/MosaicViewPromise';
+// Workspace router — owns the workspaceType → component switch (extracted for testability).
+import { WorkspaceRouter } from '@/components/layout/WorkspaceRouter';
+
+// Workspace components only used in side panel registrations (everything else
+// the workspace switch needs is now imported by WorkspaceRouter).
 import { SurfaceViewPanel } from '@/components/views/SurfaceViewPanel';
-import { SetStudioWorkspace } from '@/components/studio/SetStudioWorkspace';
-import { ComparisonWorkspace } from '@/components/views/ComparisonWorkspace';
-import { BidsExplorerWorkspace } from '@/components/bids/BidsExplorerWorkspace';
-import { AnalysisWorkbenchWorkspace } from '@/components/analysis/AnalysisWorkbenchWorkspace';
 import { StudioDesignPanel } from '@/components/studio/StudioDesignPanel';
-import { StudioInspectorPanel } from '@/components/studio/StudioInspectorPanel';
 
 // Import side panel components
 import { FileBrowserPanel } from '@/components/panels/FileBrowserPanel';
-import { VolumeLayerPanel } from '@/components/panels/VolumeLayerPanel';
-import { SurfaceLayerPanel } from '@/components/panels/SurfaceLayerPanel';
 import { PlotPanel } from '@/components/panels/PlotPanel';
 import { ClusterPanel } from '@/components/panels/ClusterPanel';
-import { AtlasPanel } from '@/components/panels/AtlasPanel';
+// Right-rail Inspector — single tab; mode-aware via InspectorRouter.
+import { InspectorRouter } from '@/components/inspector/InspectorRouter';
 
 // GoldenLayout styles are imported in index.css to ensure proper cascade order
 
@@ -103,42 +99,6 @@ const findComponentItemByType = (stack: Stack | null, componentType: string): Co
     (item) => item.type === 'component' && (item as ComponentItem).componentType === componentType
   );
   return match?.type === 'component' ? (match as ComponentItem) : null;
-};
-
-// Workspace component wrapper for GoldenLayout
-interface WorkspaceComponentProps {
-  workspaceId: string;
-  workspaceType: WorkspaceType;
-}
-
-const WorkspaceComponent: React.FC<WorkspaceComponentProps> = ({ workspaceId, workspaceType }) => {
-  const workspace = useWorkspaceStore(state => 
-    state.workspaces.get(workspaceId)
-  );
-
-  if (!workspace) {
-    return <div className="h-full flex items-center justify-center text-muted-foreground">Workspace not found</div>;
-  }
-
-  // Render appropriate component based on workspace type
-  switch (workspaceType) {
-    case 'orthogonal-locked':
-      return <OrthogonalViewContainer />;
-    case 'orthogonal-flexible':
-      return <OrthogonalPanelsWorkspace />;
-    case 'mosaic':
-      return <MosaicViewPromise workspaceId={workspaceId} />;
-    case 'comparison':
-      return <ComparisonWorkspace workspaceId={workspaceId} />;
-    case 'set-studio':
-      return <SetStudioWorkspace />;
-    case 'bids-explorer':
-      return <BidsExplorerWorkspace workspaceId={workspaceId} />;
-    case 'analysis-workbench':
-      return <AnalysisWorkbenchWorkspace workspaceId={workspaceId} />;
-    default:
-      return <div className="h-full flex items-center justify-center text-muted-foreground">Unknown workspace type: {workspaceType}</div>;
-  }
 };
 
 export function GoldenLayoutRoot() {
@@ -210,6 +170,17 @@ export function GoldenLayoutRoot() {
           pendingWorkspaceAddsRef.current.delete(workspaceId);
           addedWorkspacesRef.current.add(workspaceId);
           console.log(`[GoldenLayoutRoot] Added workspace tab: ${workspaceId} (${title})`);
+
+          if (useWorkspaceStore.getState().activeWorkspaceId === workspaceId) {
+            const target = liveStack.contentItems.find((item) => {
+              if (item.type !== 'component') return false;
+              const state = getComponentState(item as ComponentItem);
+              return state.workspaceId === workspaceId;
+            });
+            if (target?.type === 'component') {
+              liveStack.setActiveComponentItem(target as ComponentItem, true);
+            }
+          }
 
           // If nothing has marked an active panel yet, treat this workspace as active.
           const activePanelStore = useActivePanelStore.getState();
@@ -290,7 +261,7 @@ export function GoldenLayoutRoot() {
         <React.StrictMode>
           <PanelErrorBoundary panelName={`Workspace:${workspaceType}`}>
             <CrosshairProvider>
-              <WorkspaceComponent
+              <WorkspaceRouter
                 workspaceId={workspaceId}
                 workspaceType={workspaceType}
               />
@@ -325,7 +296,9 @@ export function GoldenLayoutRoot() {
 
         const root = ReactDOM.createRoot(rootElement);
         
-        // Skip StrictMode for AtlasPanel and VolumeLayerPanel to prevent double-mounting race conditions
+        // Skip StrictMode for legacy panel registrations that mount canvas-rendering
+        // subtrees (now aliased to InspectorRouter). InspectorRouter itself is React-only
+        // chrome and is safe under StrictMode.
         const shouldUseStrictMode = name !== 'AtlasPanel' && name !== 'VolumeLayerPanel' && name !== 'LayerPanel';
         
         const componentElement = (
@@ -353,12 +326,18 @@ export function GoldenLayoutRoot() {
 
     registerSidePanelComponent('FileBrowser', FileBrowserPanel);
     registerSidePanelComponent('StudioDesignPanel', StudioDesignPanel);
-    registerSidePanelComponent('LayerPanel', VolumeLayerPanel);  // Keep old name for compatibility
-    registerSidePanelComponent('SurfacePanel', SurfaceLayerPanel);  // Surface management panel
     registerSidePanelComponent('PlotPanel', PlotPanel);
     registerSidePanelComponent('ClusterPanel', ClusterPanel);
-    registerSidePanelComponent('AtlasPanel', AtlasPanel);
-    registerSidePanelComponent('StudioInspectorPanel', StudioInspectorPanel);
+    // Right-rail Inspector — single canonical tab. Legacy componentTypes
+    // (LayerPanel / SurfacePanel / AtlasPanel / StudioInspectorPanel) alias
+    // to the same InspectorRouter so saved layouts and existing menu / preset
+    // wiring continue to resolve. The router internally dispatches the body
+    // by workspaceStore.activeWorkspace.type.
+    registerSidePanelComponent('Inspector', InspectorRouter);
+    registerSidePanelComponent('LayerPanel', InspectorRouter);
+    registerSidePanelComponent('SurfacePanel', InspectorRouter);
+    registerSidePanelComponent('AtlasPanel', InspectorRouter);
+    registerSidePanelComponent('StudioInspectorPanel', InspectorRouter);
     
     // Register surface view component
     goldenLayout.registerComponent('surfaceView', (container: ComponentContainer, state: any) => {
@@ -467,26 +446,8 @@ export function GoldenLayoutRoot() {
                 content: [
                   {
                     type: 'component',
-                    componentType: 'LayerPanel',
-                    title: 'Volumes',
-                    componentState: {}
-                  },
-                  {
-                    type: 'component',
-                    componentType: 'AtlasPanel',
-                    title: 'Atlases',
-                    componentState: {}
-                  },
-                  {
-                    type: 'component',
-                    componentType: 'SurfacePanel',
-                    title: 'Surfaces',
-                    componentState: {}
-                  },
-                  {
-                    type: 'component',
-                    componentType: 'StudioInspectorPanel',
-                    title: 'Details',
+                    componentType: 'Inspector',
+                    title: 'Inspector',
                     componentState: {}
                   }
                 ]
@@ -497,8 +458,27 @@ export function GoldenLayoutRoot() {
       }
     };
     
+    // Mote `bd-01KQJSP4GWGW9AJZRNBE5TVX0M`: GoldenLayout tree save/restore
+    // is intentionally NOT wired here. `saveLayout()` returns a resolved
+    // config and `loadLayout()` expects an unresolved `LayoutConfig`; the
+    // two shapes are not interchangeable, and a naive round-trip throws
+    // on the first restored field. The rest of the persistence story
+    // (workspace map in `workspaceStore`, dock sizes / log-collapsed flag
+    // / plot-maximized flag / integrated-mode preference in
+    // `layoutSettingsStore`, plot mode + selectionSource in
+    // `plotModeStore`) covers what users notice across reloads. Side-
+    // panel column widths and side-panel tab order are not yet preserved;
+    // a future mote can swap in the proper `LayoutConfig.fromResolved`
+    // (or equivalent) conversion before restoring.
+    //
+    // Stale state: if a prior session of this codebase wrote a
+    // `goldenLayoutState` payload via the broken save path, clear it
+    // here so it never feeds back into a load attempt.
+    if (useLayoutSettingsStore.getState().goldenLayoutState !== null) {
+      useLayoutSettingsStore.getState().setGoldenLayoutState(null);
+    }
     goldenLayout.loadLayout(config);
-    
+
     // Add panel event listener for menu-triggered panel additions
     const handlePanelAdd = (event: Event) => {
       const customEvent = event as CustomEvent<{ panelType?: string }>;
@@ -539,14 +519,30 @@ export function GoldenLayoutRoot() {
         // Determine where to add the panel based on its type
         const newItem = goldenLayout.newItem(panelConfig);
         
-        if (panelType === 'LayerPanel' || panelType === 'SurfacePanel' || panelType === 'AtlasPanel') {
-          // Add to the tabbed stack (first item in right column)
+        // The right rail now hosts a single Inspector tab. Any menu request
+        // for a legacy per-kind panel (LayerPanel / SurfacePanel / AtlasPanel
+        // / StudioInspectorPanel) collapses to focusing the existing Inspector
+        // tab instead of stacking duplicate inspectors.
+        const LEGACY_RIGHT_RAIL = new Set([
+          'LayerPanel',
+          'SurfacePanel',
+          'AtlasPanel',
+          'StudioInspectorPanel',
+          'Inspector',
+        ]);
+        if (LEGACY_RIGHT_RAIL.has(panelType)) {
           const tabbedStack = rightColumn.contentItems[0];
           if (tabbedStack && tabbedStack.type === 'stack') {
-            tabbedStack.addChild(newItem);
-            console.log(`[GoldenLayoutRoot] Panel ${panelType} added to tabbed stack`);
+            const existing = findComponentItemByType(tabbedStack as Stack, 'Inspector');
+            if (existing) {
+              (tabbedStack as Stack).setActiveComponentItem(existing, true);
+              console.log('[GoldenLayoutRoot] Inspector tab focused (legacy panel request)');
+            } else {
+              tabbedStack.addChild(newItem);
+              console.log(`[GoldenLayoutRoot] Panel ${panelType} added to inspector stack`);
+            }
           } else {
-            console.error('[GoldenLayoutRoot] Could not find tabbed stack for VolumePanel/AtlasPanel');
+            console.error('[GoldenLayoutRoot] Could not find inspector stack');
             rightColumn.addChild(newItem); // Fallback: add to column
           }
         } else {
@@ -563,9 +559,14 @@ export function GoldenLayoutRoot() {
         const getPanelTitle = (panelType: string): string => {
           switch (panelType) {
             case 'FileBrowser': return 'Files';
-            case 'LayerPanel': return 'Volumes';  // Updated to match new naming
-            case 'SurfacePanel': return 'Surfaces';
-            case 'AtlasPanel': return 'Atlases';
+            case 'Inspector': return 'Inspector';
+            // Legacy aliases: any per-kind right-rail request now resolves to
+            // the unified Inspector tab.
+            case 'LayerPanel':
+            case 'SurfacePanel':
+            case 'AtlasPanel':
+            case 'StudioInspectorPanel':
+              return 'Inspector';
             case 'PlotPanel': return 'Plots';
             case 'ClusterPanel': return 'Clusters';
             default: return panelType;
@@ -582,7 +583,7 @@ export function GoldenLayoutRoot() {
     return () => {
       // Remove panel event listener
       window.removeEventListener('golden-layout-add-panel', handlePanelAdd as EventListener);
-      
+
       // First destroy GoldenLayout which will trigger component destroy events
       if (layoutRef.current) {
         layoutRef.current.destroy();
@@ -609,10 +610,9 @@ export function GoldenLayoutRoot() {
       appMode === 'studio'
         ? findComponentItemByType(leftStack, 'StudioDesignPanel')
         : findComponentItemByType(leftStack, 'FileBrowser');
-    const rightTarget =
-      appMode === 'studio'
-        ? findComponentItemByType(rightStack, 'StudioInspectorPanel')
-        : findComponentItemByType(rightStack, 'LayerPanel');
+    // Right rail now hosts a single Inspector tab; focus it for both modes.
+    // Body content (imaging vs studio) is dispatched inside InspectorRouter.
+    const rightTarget = findComponentItemByType(rightStack, 'Inspector');
 
     if (leftStack && leftTarget) {
       leftStack.setActiveComponentItem(leftTarget, true);
@@ -653,18 +653,51 @@ export function GoldenLayoutRoot() {
   // Create default workspace after GoldenLayout is ready
   useEffect(() => {
     if (!isLayoutReady || !layoutRef.current) return;
-    
+
     // Only run once when layout becomes ready
     const workspaceArray = Array.from(workspaces.values());
     if (workspaceArray.length === 0) {
-      // Create a default FlexibleView workspace if none exist
-      console.log('[GoldenLayoutRoot] No workspaces found, creating default FlexibleView');
+      // Cold start: always FlexibleView. The persisted "integrated mode
+      // preference" (mote `bd-01KQJSP4GWGW9AJZRNBE5TVX0M`) is recorded
+      // for future surfaces but intentionally NOT used to override the
+      // initial workspace type — letting it do so caused stale picks
+      // (e.g. a previously-active BIDS Explorer) to silently override
+      // the orthogonal default after the workspaceStore migrate guard
+      // wiped the workspace map.
+      console.log('[GoldenLayoutRoot] No workspaces found, creating default orthogonal-flexible');
       store.createWorkspace('orthogonal-flexible').catch(error => {
         console.error('[GoldenLayoutRoot] Failed to create initial workspace:', error);
       });
     }
     // Don't add existing workspaces here - the subscription will handle it
-  }, [isLayoutReady, store]); // Only depend on layout ready and store
+  }, [isLayoutReady, store, workspaces]);
+
+  // Reconcile workspaces that already existed before the GoldenLayout
+  // subscription was attached. This matters now that workspace persistence
+  // survives reloads: the default GoldenLayout skeleton starts with an empty
+  // center stack, while the Zustand workspace map may already contain tabs.
+  useEffect(() => {
+    if (!isLayoutReady || !layoutRef.current) return;
+
+    const stack = getCenterWorkspaceStack(layoutRef.current);
+    if (!stack) return;
+
+    const liveWorkspaceIds = new Set<string>();
+    stack.contentItems.forEach((item) => {
+      if (item.type !== 'component') return;
+      const state = getComponentState(item as ComponentItem);
+      const workspaceId = typeof state.workspaceId === 'string' ? state.workspaceId : null;
+      if (workspaceId) liveWorkspaceIds.add(workspaceId);
+    });
+
+    workspaces.forEach((workspace, id) => {
+      if (liveWorkspaceIds.has(id)) {
+        addedWorkspacesRef.current.add(id);
+        return;
+      }
+      addWorkspaceTab(id, workspace.type, workspace.title);
+    });
+  }, [isLayoutReady, workspaces, addWorkspaceTab]);
 
   // Listen for workspace changes from Zustand
   useEffect(() => {

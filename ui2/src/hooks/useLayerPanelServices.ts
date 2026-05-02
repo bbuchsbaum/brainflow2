@@ -1,11 +1,17 @@
 /**
- * useLayerPanelServices - Manages service initialization for LayerPanel
- * Simplifies the complex retry logic into a single hook
+ * useLayerPanelServices - Tracks LayerService availability for the volume panel.
+ *
+ * Important: a slow startup is not itself an error. The panel should stay in an
+ * initializing state until LayerService becomes available or an explicit
+ * services.error event reports a real failure.
  */
 
-import { useState, useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { getLayerService } from '@/services/LayerService';
 import { getEventBus, type EventMap } from '@/events/EventBus';
+
+const MAX_BOOTSTRAP_ATTEMPTS = 10;
+const RETRY_DELAY_MS = 100;
 
 export function useLayerPanelServices() {
   const [isInitialized, setIsInitialized] = useState(false);
@@ -14,43 +20,56 @@ export function useLayerPanelServices() {
   useEffect(() => {
     let mounted = true;
     let attempts = 0;
-    const maxAttempts = 10; // 1 second max wait
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
 
     const checkService = () => {
-      if (!mounted) return;
+      if (!mounted) {
+        return;
+      }
 
       try {
         getLayerService();
         setIsInitialized(true);
         setError(null);
-      } catch (err) {
-        attempts++;
-        if (attempts < maxAttempts) {
-          setTimeout(checkService, 100);
-        } else {
-          // After 1 second, just assume it's ready
-          // The UI should be visible regardless
-          setIsInitialized(true);
-          setError('Service initialization delayed');
+      } catch {
+        attempts += 1;
+        if (attempts < MAX_BOOTSTRAP_ATTEMPTS) {
+          retryTimer = setTimeout(checkService, RETRY_DELAY_MS);
         }
       }
     };
 
-    // Also listen for explicit initialization
     const handleInit = (event: EventMap['services.initialized']) => {
       if (event.service === 'LayerService') {
         setIsInitialized(true);
+        setError(null);
       }
+    };
+
+    const handleError = (event: EventMap['services.error']) => {
+      const isLayerServiceError = event.service === 'LayerService';
+      const isFatalBootstrapError = !event.service && event.fatal;
+      if (!isLayerServiceError && !isFatalBootstrapError) {
+        return;
+      }
+
+      setIsInitialized(false);
+      setError(event.error || 'LayerService initialization failed');
     };
 
     const eventBus = getEventBus();
     const unsubscribeInit = eventBus.on('services.initialized', handleInit);
+    const unsubscribeError = eventBus.on('services.error', handleError);
 
     checkService();
 
     return () => {
       mounted = false;
+      if (retryTimer) {
+        clearTimeout(retryTimer);
+      }
       unsubscribeInit();
+      unsubscribeError();
     };
   }, []);
 

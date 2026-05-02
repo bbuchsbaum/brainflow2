@@ -626,9 +626,27 @@ export const useViewStateStore: ReturnType<typeof createViewStateStore> = (() =>
       nextWorkspaceViewStateRevisions.set(nextActiveKey, seedRevisions);
     }
 
-    const nextViewState = nextWorkspaceViewStates.get(nextActiveKey) ?? getInitialViewState();
-    const nextViewStateRevisions =
+    let nextViewState = nextWorkspaceViewStates.get(nextActiveKey) ?? getInitialViewState();
+    let nextViewStateRevisions =
       nextWorkspaceViewStateRevisions.get(nextActiveKey) ?? createInitialViewStateRevisions();
+
+    // Layer data is global today (`layerStore` is not workspace-scoped), while
+    // view geometry is now stored per workspace. If an existing/new workspace
+    // snapshot is empty but the current compatibility surface already has
+    // layers, seed the active workspace from that current state. Otherwise a
+    // workspace activation can leave visible canvases with retained images but
+    // `viewState.layers = []`, causing all crosshair/slice renders to be
+    // skipped as "no layers".
+    if (
+      nextViewState.layers.length === 0 &&
+      currentState.viewState.layers.length > 0 &&
+      nextActiveKey !== currentState.activeWorkspaceKey
+    ) {
+      nextViewState = cloneViewState(currentState.viewState);
+      nextViewStateRevisions = cloneViewStateRevisions(currentState.viewStateRevisions);
+      nextWorkspaceViewStates.set(nextActiveKey, nextViewState);
+      nextWorkspaceViewStateRevisions.set(nextActiveKey, nextViewStateRevisions);
+    }
 
     store.setState({
       workspaceViewStates: nextWorkspaceViewStates,

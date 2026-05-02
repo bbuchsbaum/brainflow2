@@ -61,14 +61,32 @@ const workspaceCounter: Record<WorkspaceType, number> = {
   'orthogonal-flexible': 0,
   'mosaic': 0,
   'comparison': 0,
+  'integrated': 0,
   'set-studio': 0,
-  'bids-explorer': 0
+  'bids-explorer': 0,
+  'analysis-workbench': 0,
 };
 
-// Clear workspaces on startup for clean slate
-if (typeof window !== 'undefined') {
-  localStorage.removeItem('brainflow2-workspace');
-}
+/**
+ * Persistence version for `brainflow2-workspace`. Bump and add a `migrate`
+ * branch below whenever the persisted state shape changes incompatibly.
+ *
+ * History:
+ *   v0 → v1: removed the unconditional `localStorage.removeItem` startup
+ *            wipe (mote `bd-01KQJSP4GWGW9AJZRNBE5TVX0M`). Anything written
+ *            by the pre-versioned codebase is treated as untrusted and
+ *            reset to defaults; from v1 onwards the persisted shape is
+ *            owned by the integrated workspace refactor.
+ *   v1 → v2: right-rail unification (mote
+ *            `bd-01KQMFC7B2S8SZYRZX62V6R0FZ`). The four legacy panel
+ *            componentTypes (LayerPanel / AtlasPanel / SurfacePanel /
+ *            StudioInspectorPanel) collapsed into a single `Inspector` tab
+ *            backed by `InspectorRouter`. Persisted layoutConfig trees
+ *            from v1 still mention the legacy types; rather than rewrite
+ *            them in-place we drop persisted workspaces so each workspace
+ *            regenerates its layout via `ViewRegistry.createLayout`.
+ */
+const WORKSPACE_PERSIST_VERSION = 2;
 
 export const useWorkspaceStore = create<WorkspaceStore>()(
   persist(
@@ -335,8 +353,10 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
           'orthogonal-flexible': 'Orthogonal Panels',
           'mosaic': 'Mosaic View',
           'comparison': 'Comparison View',
+          'integrated': 'Integrated Workspace',
           'set-studio': 'Set Studio',
-          'bids-explorer': 'BIDS Explorer'
+          'bids-explorer': 'BIDS Explorer',
+          'analysis-workbench': 'Analysis Workbench',
         };
         
         const count = workspaceCounter[type];
@@ -345,15 +365,43 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
     })),
     {
       name: 'brainflow2-workspace',
+      version: WORKSPACE_PERSIST_VERSION,
+      /**
+       * Versioned migrate guard (AC#4). Earlier sessions ran with no version
+       * field; if we encounter such a payload, drop the persisted workspaces
+       * and start fresh — same effect the legacy startup wipe used to give,
+       * but only on a known stale shape rather than every reload.
+       */
+      migrate: (persistedState: unknown, version: number) => {
+        // Reset on any future version mismatch. Unversioned payloads are
+        // already handled by `storage.getItem` returning null below — this
+        // branch only fires for v2+ payloads when an older codebase loads them.
+        if (version !== WORKSPACE_PERSIST_VERSION) {
+          return {
+            workspaces: new Map(),
+            activeWorkspaceId: null,
+          };
+        }
+        return persistedState as { workspaces: Map<string, Workspace>; activeWorkspaceId: string | null };
+      },
       // Custom serialization for Map
       storage: {
         getItem: (name) => {
           try {
             const str = localStorage.getItem(name);
             if (!str) return null;
-            
+
             const data = JSON.parse(str);
-            
+
+            // Mote `bd-01KQJSP4GWGW9AJZRNBE5TVX0M`: drop pre-versioning
+            // payloads at the storage boundary. zustand's `persist` middleware
+            // only invokes `migrate` when the persisted version is a number,
+            // so unversioned (legacy) blobs would otherwise pass through
+            // untouched. Returning null is the documented signal for "use
+            // initial state" — same effect the legacy startup wipe gave,
+            // but only on stale shapes rather than every reload.
+            if (typeof data?.version !== 'number') return null;
+
             // Validate and restore workspaces Map
             if (data.state && data.state.workspaces) {
               // Ensure workspaces is an array before converting to Map

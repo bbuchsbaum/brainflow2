@@ -68,26 +68,8 @@ const DEFAULT_LAYOUT_CONFIG: LayoutConfig = {
             content: [
               {
                 type: 'component',
-                componentType: 'LayerPanel',
-                title: 'Volumes',
-                componentState: {},
-              },
-              {
-                type: 'component',
-                componentType: 'AtlasPanel',
-                title: 'Atlases',
-                componentState: {},
-              },
-              {
-                type: 'component',
-                componentType: 'SurfacePanel',
-                title: 'Surfaces',
-                componentState: {},
-              },
-              {
-                type: 'component',
-                componentType: 'StudioInspectorPanel',
-                title: 'Details',
+                componentType: 'Inspector',
+                title: 'Inspector',
                 componentState: {},
               },
               {
@@ -107,6 +89,10 @@ const DEFAULT_LAYOUT_CONFIG: LayoutConfig = {
 export type SidebarPanelType =
   | 'FileBrowser'
   | 'StudioDesignPanel'
+  | 'Inspector'
+  // Legacy aliases — preserved so existing focus calls still resolve. All
+  // four redirect to the unified Inspector at the GoldenLayout registration
+  // layer (see `GoldenLayoutRoot.tsx`).
   | 'LayerPanel'
   | 'AtlasPanel'
   | 'SurfacePanel'
@@ -173,18 +159,17 @@ class LayoutServiceImpl implements LayoutService {
 
   private getPanelTitle(panelType: SidebarPanelType): string {
     switch (panelType) {
-      case 'LayerPanel':
-        return 'Volumes';
       case 'FileBrowser':
         return 'Files';
       case 'StudioDesignPanel':
         return 'Subjects';
+      case 'Inspector':
+      // Legacy aliases all collapse to the single Inspector tab.
+      case 'LayerPanel':
       case 'AtlasPanel':
-        return 'Atlases';
       case 'SurfacePanel':
-        return 'Surfaces';
       case 'StudioInspectorPanel':
-        return 'Details';
+        return 'Inspector';
       case 'SetPanel':
         return 'Set';
       default:
@@ -382,22 +367,33 @@ class LayoutServiceImpl implements LayoutService {
   }
 
   focusSidebarPanel(panelType: SidebarPanelType): void {
-    const sidebarStack = this.getStackForPanelType(panelType);
+    // Right-rail unification: every legacy per-kind panel collapses to the
+    // single Inspector tab. Resolve the requested type to the actual tab
+    // componentType BEFORE looking it up.
+    const resolvedType: SidebarPanelType =
+      panelType === 'LayerPanel' ||
+      panelType === 'AtlasPanel' ||
+      panelType === 'SurfacePanel' ||
+      panelType === 'StudioInspectorPanel'
+        ? 'Inspector'
+        : panelType;
+
+    const sidebarStack = this.getStackForPanelType(resolvedType);
     if (!sidebarStack || !this.layoutRef) {
-      console.warn(`[LayoutService] Cannot focus ${panelType} - sidebar stack unavailable`);
+      console.warn(`[LayoutService] Cannot focus ${resolvedType} - sidebar stack unavailable`);
       return;
     }
 
     const existingPanel = sidebarStack.contentItems.find(
-      (item) => isComponentItem(item) && item.componentType === panelType
+      (item) => isComponentItem(item) && item.componentType === resolvedType
     );
 
     if (existingPanel && isComponentItem(existingPanel)) {
       try {
         sidebarStack.setActiveComponentItem(existingPanel, true);
-        console.log(`[LayoutService] Focused sidebar panel: ${panelType}`);
+        console.log(`[LayoutService] Focused sidebar panel: ${resolvedType}`);
       } catch (error) {
-        console.warn(`[LayoutService] Failed to focus existing ${panelType}:`, error);
+        console.warn(`[LayoutService] Failed to focus existing ${resolvedType}:`, error);
       }
       return;
     }
@@ -405,17 +401,17 @@ class LayoutServiceImpl implements LayoutService {
     try {
       const newItem = this.layoutRef.newItem({
         type: 'component',
-        componentType: panelType,
-        title: this.getPanelTitle(panelType),
+        componentType: resolvedType,
+        title: this.getPanelTitle(resolvedType),
         componentState: {},
       });
       sidebarStack.addChild(newItem, undefined, true);
       if (newItem.type === 'component') {
         sidebarStack.setActiveComponentItem(newItem as ComponentItem, true);
       }
-      console.log(`[LayoutService] Added and focused missing sidebar panel: ${panelType}`);
+      console.log(`[LayoutService] Added and focused missing sidebar panel: ${resolvedType}`);
     } catch (error) {
-      console.error(`[LayoutService] Failed to add/focus sidebar panel ${panelType}:`, error);
+      console.error(`[LayoutService] Failed to add/focus sidebar panel ${resolvedType}:`, error);
     }
   }
 

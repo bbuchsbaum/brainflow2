@@ -16,6 +16,8 @@ import { getApiService } from '@/services/apiService';
 import { setMultiViewBatchEnabled } from '@/services/RenderCoordinator';
 import { getRenderTargetService } from '@/services/renderTarget/RenderTargetService';
 import { getEventBus } from '@/events/EventBus';
+import { bootstrapLogService } from '@/services/LogService';
+import { registerBuiltinHoverProviders } from '@/services/hoverProviders';
 import { useLayerStore } from '@/stores/layerStore';
 import { useViewStateStore } from '@/stores/viewStateStore';
 import { markRenderLoopAsInitialized } from './useRenderLoopInit';
@@ -57,8 +59,15 @@ export function useServicesInit() {
         // Initialize ViewRegistry first (needed for workspace creation)
         initializeViewRegistry();
         serviceInitDebugLog('[useServicesInit] ViewRegistry initialized');
-        
+
+        // LogService just subscribes to the EventBus, so it's safe to install
+        // before downstream services start emitting events.
+        bootstrapLogService();
+        serviceInitDebugLog('[useServicesInit] LogService bootstrapped');
+
         const eventBus = getEventBus();
+        registerBuiltinHoverProviders();
+        serviceInitDebugLog('[useServicesInit] HoverInfoService providers registered');
         
         // Initialize RenderLoop early so GPU resources are available for file loading.
         const apiService = getApiService();

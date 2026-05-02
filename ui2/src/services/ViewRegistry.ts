@@ -315,20 +315,8 @@ export class SetStudioFactory implements ViewFactory {
                   },
                   {
                     type: 'component',
-                    componentType: 'LayerPanel',
-                    title: 'Volumes',
-                    componentState: {}
-                  },
-                  {
-                    type: 'component',
-                    componentType: 'AtlasPanel',
-                    title: 'Atlases',
-                    componentState: {}
-                  },
-                  {
-                    type: 'component',
-                    componentType: 'SurfacePanel',
-                    title: 'Surfaces',
+                    componentType: 'Inspector',
+                    title: 'Inspector',
                     componentState: {}
                   }
                 ]

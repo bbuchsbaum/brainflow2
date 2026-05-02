@@ -5,6 +5,9 @@ interface FeatureFlagStore {
   multiViewBatch: boolean;
   setMultiViewBatchEnabled: (enabled: boolean) => void;
   toggleMultiViewBatch: () => void;
+  integratedWorkspaceV1: boolean;
+  setIntegratedWorkspaceV1Enabled: (enabled: boolean) => void;
+  toggleIntegratedWorkspaceV1: () => void;
 }
 
 export const useFeatureFlagStore = create<FeatureFlagStore>()(
@@ -16,6 +19,13 @@ export const useFeatureFlagStore = create<FeatureFlagStore>()(
       },
       toggleMultiViewBatch: () => {
         set({ multiViewBatch: !get().multiViewBatch });
+      },
+      integratedWorkspaceV1: false,
+      setIntegratedWorkspaceV1Enabled: (enabled) => {
+        set({ integratedWorkspaceV1: enabled });
+      },
+      toggleIntegratedWorkspaceV1: () => {
+        set({ integratedWorkspaceV1: !get().integratedWorkspaceV1 });
       }
     }),
     {

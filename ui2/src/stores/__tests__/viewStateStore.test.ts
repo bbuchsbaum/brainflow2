@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import { useViewStateStore } from '../viewStateStore';
 import { useViewLayoutStore } from '../viewLayoutStore';
+import { useWorkspaceStore } from '../workspaceStore';
 import { coalesceUtils } from '../middleware/coalesceUpdatesMiddleware';
 import type { ViewType, WorldCoordinates } from '@/types/coordinates';
 import type { Layer } from '@/types/layer';
@@ -32,6 +33,10 @@ describe('ViewStateStore', () => {
 
     // Reset store to initial state
     store.resetToDefaults();
+    useWorkspaceStore.setState({
+      workspaces: new Map(),
+      activeWorkspaceId: null,
+    });
 
     // Clear any pending coalescing updates
     coalesceUtils.clearPending();
@@ -402,6 +407,56 @@ describe('ViewStateStore', () => {
       expect(state.crosshair.world_mm).toEqual([0, 0, 0]);
       expect(state.crosshair.visible).toBe(true);
       expect(state.layers).toHaveLength(0);
+    });
+
+    it('preserves loaded layers when activating a workspace with an empty view-state snapshot', () => {
+      const layer = {
+        id: 'template-layer',
+        name: 'MNI template',
+        volumeId: 'template-volume',
+        visible: true,
+        opacity: 1,
+        colormap: 'gray',
+        intensity: [0, 100] as [number, number],
+        threshold: [0, 0] as [number, number],
+        blendMode: 'alpha',
+        interpolation: 'linear',
+      };
+
+      store.setViewState((state) => {
+        state.layers = [layer];
+      });
+
+      useWorkspaceStore.setState({
+        workspaces: new Map([
+          [
+            'orthogonal-1',
+            {
+              id: 'orthogonal-1',
+              type: 'orthogonal-flexible',
+              title: 'Orthogonal Panels',
+              presetId: null,
+              timestamp: 1,
+              isActive: true,
+              layoutConfig: {
+                root: {
+                  type: 'component',
+                  componentType: 'Workspace',
+                  title: 'Orthogonal Panels',
+                  componentState: {},
+                },
+              },
+              panelStates: new Map(),
+            },
+          ],
+        ]),
+        activeWorkspaceId: 'orthogonal-1',
+      });
+
+      const state = useViewStateStore.getState();
+      expect(state.activeWorkspaceKey).toBe('orthogonal-1');
+      expect(state.viewState.layers).toHaveLength(1);
+      expect(state.viewState.layers[0].id).toBe('template-layer');
     });
 
     const createTestLayer = (id: string): Layer => ({

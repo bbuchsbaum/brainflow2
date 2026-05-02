@@ -4,7 +4,6 @@ import { GoldenLayoutRoot } from '@/components/layout/GoldenLayoutRoot';
 import { NotificationToast } from '@/components/ui/NotificationToast';
 import { TooltipOverlay } from '@/components/TooltipOverlay';
 import { StatusBar } from '@/components/ui/StatusBar';
-import { MultiViewBatchToggle } from '@/components/ui/MultiViewBatchToggle';
 import { GlobalProgressBar } from '@/components/ui/GlobalProgressBar';
 import { StatusProvider } from '@/contexts/StatusContext';
 import { CrosshairProvider } from '@/contexts/CrosshairContext';
@@ -40,8 +39,8 @@ import { useLayerStore } from '@/stores/layerStore';
 import { useViewStateStore } from '@/stores/viewStateStore';
 import { useAppModeStore } from '@/stores/appModeStore';
 import { getSetStudioService } from '@/services/studio/SetStudioService';
-import { WorkspacePresetSelector } from '@/components/ui/WorkspacePresetSelector';
-import { LayoutLibrarySelector } from '@/components/ui/LayoutLibrarySelector';
+import { getAnalysisWorkbenchService } from '@/services/analysis/AnalysisWorkbenchService';
+import { TopAppBar } from '@/components/ui/TopAppBar';
 import { CommandPaletteDialog, type CommandPaletteCommand } from '@/components/dialogs/CommandPaletteDialog';
 import { ContextMenu } from '@/components/ui/ContextMenu';
 import { getLayoutService, type SidebarPanelType } from '@/services/layoutService';
@@ -52,7 +51,7 @@ import { useLayoutLibraryStore } from '@/stores/layoutLibraryStore';
 
 function ErrorFallback({ error, resetErrorBoundary }: any) {
   return (
-    <div className="h-screen bg-gray-950 flex items-center justify-center">
+    <div className="h-screen bg-bf-bg-app flex items-center justify-center">
       <div className="bg-red-900 border border-red-700 rounded-lg p-6 max-w-md">
         <h2 className="text-red-400 text-lg font-semibold mb-2">Something went wrong</h2>
         <pre className="text-red-300 text-sm mb-4 whitespace-pre-wrap">
@@ -244,12 +243,14 @@ function AppContent() {
         },
       },
       {
-        id: 'panel.volumes',
-        title: 'Show Volumes Panel',
-        subtitle: 'Focus right sidebar Volumes tab.',
-        keywords: ['panel', 'volumes', 'layers'],
-        group: 'Panels',
-        run: () => focusSidebarPanel('LayerPanel'),
+        id: 'analysis.openWorkbench',
+        title: 'Open Analysis Workbench',
+        subtitle: 'Inspect available analyses and run them against the selected volume.',
+        keywords: ['analysis', 'workbench', 'jobs', 'plugin'],
+        group: 'Analysis',
+        run: async () => {
+          await getAnalysisWorkbenchService().openWorkspace();
+        },
       },
       {
         id: 'panel.files',
@@ -268,28 +269,12 @@ function AppContent() {
         run: () => focusSidebarPanel('StudioDesignPanel'),
       },
       {
-        id: 'panel.details',
-        title: 'Show Details Panel',
-        subtitle: 'Focus right sidebar Details tab.',
-        keywords: ['panel', 'details', 'studio', 'inspector'],
+        id: 'panel.inspector',
+        title: 'Show Inspector',
+        subtitle: 'Focus right sidebar Inspector (volumes, surfaces, mappings, studio).',
+        keywords: ['panel', 'inspector', 'volumes', 'surfaces', 'atlas', 'mapping', 'details'],
         group: 'Panels',
-        run: () => focusSidebarPanel('StudioInspectorPanel'),
-      },
-      {
-        id: 'panel.atlases',
-        title: 'Show Atlases Panel',
-        subtitle: 'Focus right sidebar Atlases tab.',
-        keywords: ['panel', 'atlas', 'atlases'],
-        group: 'Panels',
-        run: () => focusSidebarPanel('AtlasPanel'),
-      },
-      {
-        id: 'panel.surfaces',
-        title: 'Show Surfaces Panel',
-        subtitle: 'Focus right sidebar Surfaces tab.',
-        keywords: ['panel', 'surface', 'surfaces'],
-        group: 'Panels',
-        run: () => focusSidebarPanel('SurfacePanel'),
+        run: () => focusSidebarPanel('Inspector'),
       },
       {
         id: 'app.goToCoordinate',
@@ -565,7 +550,7 @@ function AppContent() {
         ...guard.lastMetrics,
       };
       return (
-        <div className="h-screen bg-gray-950 flex items-center justify-center text-red-500">
+        <div className="h-screen bg-bf-bg-app flex items-center justify-center text-bf-danger">
           <div className="text-center">
             <h2 className="text-lg font-semibold mb-2">Render Loop Detected</h2>
             <p className="mb-4">The application encountered an infinite render loop</p>
@@ -589,6 +574,7 @@ function AppContent() {
   
   return (
     <div className="h-screen w-full flex flex-col overflow-hidden">
+      <TopAppBar />
       <MetadataStatusBridge />
       <ProgressDebug />
       <GlobalProgressBar />
@@ -596,13 +582,6 @@ function AppContent() {
         <GoldenLayoutRoot />
       </div>
       <StatusBar
-        rightContent={
-          <>
-            <LayoutLibrarySelector />
-            <WorkspacePresetSelector />
-            <MultiViewBatchToggle />
-          </>
-        }
         onCrosshairClick={() => setShowGoToCoordinate(true)}
       />
       <NotificationToast />
