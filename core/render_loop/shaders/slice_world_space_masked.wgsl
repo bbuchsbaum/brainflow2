@@ -53,7 +53,7 @@ struct LayerData {
     // --- Display options --- (next 16-byte block)
     drawSliceBorder : u32,             // 4 bytes, offset 144
     borderThicknessPx : f32,           // 4 bytes, offset 148
-    _padMask0       : u32,             // 4 bytes, offset 152
+    layer_mode      : u32,             // 4 bytes, offset 152 (0=scalar, 1=label, 2=mask)
     _padMask1       : u32,             // 4 bytes, offset 156
     // Total struct size: 160 bytes (matches Rust LayerUboStd140)
 };

@@ -333,7 +333,8 @@ impl LayerStorageManager {
                 interpolation_mode: layer.interpolation_mode,
                 draw_slice_border: if border_enabled { 1 } else { 0 },
                 border_thickness_px: border_thickness.max(0.5_f32),
-                _pad: [0; 2],
+                layer_mode: layer.layer_mode as u32,
+                _pad: 0,
             };
 
             self.layer_data.push(layer_data);
@@ -412,7 +413,8 @@ impl LayerStorageManager {
             interpolation_mode: layer.interpolation_mode,
             draw_slice_border: if border_enabled { 1 } else { 0 },
             border_thickness_px: border_thickness.max(0.5_f32),
-            _pad: [0; 2],
+            layer_mode: layer.layer_mode as u32,
+            _pad: 0,
         };
 
         if index < self.layer_data.len() {
@@ -504,6 +506,7 @@ mod tests {
                 texture_coords: (0.0, 0.0, 1.0, 1.0),
                 is_mask: false,
                 has_alpha_mask: false,
+                layer_mode: Default::default(),
                 interpolation_mode: 1,
             })
             .collect();

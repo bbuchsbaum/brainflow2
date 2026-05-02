@@ -27,7 +27,8 @@ async fn ubo_window_level_clamps_correctly() {
         interpolation_mode: 1, // Linear
         draw_slice_border: 0,
         border_thickness_px: 0.0,
-        _pad: [0; 2],
+        layer_mode: 0,
+        _pad: 0,
     };
 
     // Test the window/level math
@@ -55,7 +56,7 @@ fn ubo_field_offsets() {
     use std::mem::{offset_of, size_of};
 
     // Verify that the UBO struct layout matches std140 requirements
-    // Total size: 64 + 16 + 16 + 16 + 16 + 16 + 16 = 160 bytes
+    // Total size: 64 + 16 + 16 + 16 + 16 + 16 = 160 bytes
     assert_eq!(size_of::<LayerUboStd140>(), 160);
 
     // Check field offsets
@@ -77,7 +78,124 @@ fn ubo_field_offsets() {
     assert_eq!(offset_of!(LayerUboStd140, interpolation_mode), 140);
     assert_eq!(offset_of!(LayerUboStd140, draw_slice_border), 144);
     assert_eq!(offset_of!(LayerUboStd140, border_thickness_px), 148);
-    assert_eq!(offset_of!(LayerUboStd140, _pad), 152);
+    assert_eq!(offset_of!(LayerUboStd140, layer_mode), 152);
+    assert_eq!(offset_of!(LayerUboStd140, _pad), 156);
+}
+
+#[test]
+fn active_masked_wgsl_matches_layer_ubo_field_order() {
+    let expected_frame_fields = [
+        "origin_mm",
+        "u_mm",
+        "v_mm",
+        "atlas_dim",
+        "_padding_frame",
+        "target_dim",
+        "_padding_target",
+    ];
+    let expected_layer_fields = [
+        "world_to_voxel",
+        "texture_coords",
+        "dim",
+        "pad_slices",
+        "colormap_id",
+        "blend_mode",
+        "texture_index",
+        "threshold_mode",
+        "opacity",
+        "intensity_min",
+        "intensity_max",
+        "thresh_low",
+        "thresh_high",
+        "is_mask",
+        "has_alpha_mask",
+        "interpolation_mode",
+        "drawSliceBorder",
+        "borderThicknessPx",
+        "layer_mode",
+    ];
+
+    let shaders = [
+        (
+            "slice_world_space_masked.wgsl",
+            include_str!("../shaders/slice_world_space_masked.wgsl"),
+        ),
+        (
+            "slice_world_space_optimized_masked.wgsl",
+            include_str!("../shaders/slice_world_space_optimized_masked.wgsl"),
+        ),
+    ];
+
+    for (name, source) in shaders {
+        let frame_body = wgsl_struct_body(source, "FrameUbo")
+            .unwrap_or_else(|| panic!("{name} is missing FrameUbo"));
+        assert_fields_in_order(name, "FrameUbo", frame_body, &expected_frame_fields);
+
+        let layer_body = wgsl_struct_body(source, "LayerData")
+            .unwrap_or_else(|| panic!("{name} is missing LayerData"));
+        assert_fields_in_order(name, "LayerData", layer_body, &expected_layer_fields);
+        assert!(
+            layer_body.contains("Total struct size: 160 bytes"),
+            "{name} LayerData should document the 160-byte LayerUboStd140 stride"
+        );
+    }
+}
+
+#[tokio::test]
+async fn active_masked_wgsl_sources_validate_as_shader_modules() {
+    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::default());
+    let adapter = instance
+        .request_adapter(&wgpu::RequestAdapterOptions::default())
+        .await
+        .expect("Failed to find a WGPU adapter for shader validation");
+    let (device, _queue) = adapter
+        .request_device(&wgpu::DeviceDescriptor::default(), None)
+        .await
+        .expect("Failed to create WGPU device for shader validation");
+
+    let shaders = [
+        (
+            "slice_world_space_masked.wgsl",
+            include_str!("../shaders/slice_world_space_masked.wgsl"),
+        ),
+        (
+            "slice_world_space_optimized_masked.wgsl",
+            include_str!("../shaders/slice_world_space_optimized_masked.wgsl"),
+        ),
+    ];
+
+    for (name, source) in shaders {
+        device.push_error_scope(wgpu::ErrorFilter::Validation);
+        let _shader_module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some(name),
+            source: wgpu::ShaderSource::Wgsl(source.into()),
+        });
+        device.poll(wgpu::Maintain::Wait);
+        let error = device.pop_error_scope().await;
+        assert!(error.is_none(), "{name} failed WGSL validation: {error:?}");
+    }
+}
+
+fn wgsl_struct_body<'a>(source: &'a str, struct_name: &str) -> Option<&'a str> {
+    let start = source.find(&format!("struct {struct_name} {{"))?;
+    let body_start = source[start..].find('{')? + start + 1;
+    let body_end = source[body_start..].find("};")? + body_start;
+    Some(&source[body_start..body_end])
+}
+
+fn assert_fields_in_order(
+    shader_name: &str,
+    struct_name: &str,
+    body: &str,
+    expected_fields: &[&str],
+) {
+    let mut cursor = 0;
+    for field in expected_fields {
+        let relative = body[cursor..]
+            .find(field)
+            .unwrap_or_else(|| panic!("{shader_name} {struct_name} missing field {field}"));
+        cursor += relative + field.len();
+    }
 }
 
 #[test]
@@ -100,6 +218,7 @@ fn ubo_default_values() {
     assert_eq!(layer_ubo.interpolation_mode, 1); // Default to linear
     assert_eq!(layer_ubo.draw_slice_border, 0);
     assert_eq!(layer_ubo.border_thickness_px, 1.0);
+    assert_eq!(layer_ubo.layer_mode, 0);
 }
 
 #[test]

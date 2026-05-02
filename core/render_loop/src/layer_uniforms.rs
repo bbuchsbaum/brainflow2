@@ -148,7 +148,8 @@ impl LayerUniformManager {
                 interpolation_mode: layer.interpolation_mode,
                 draw_slice_border: 0,
                 border_thickness_px: 1.0,
-                _pad: [0; 2],
+                layer_mode: layer.layer_mode as u32,
+                _pad: 0,
             };
         }
 
@@ -224,7 +225,8 @@ impl LayerUniformManager {
             interpolation_mode: layer.interpolation_mode,
             draw_slice_border: 0,
             border_thickness_px: 1.0,
-            _pad: [0; 2],
+            layer_mode: layer.layer_mode as u32,
+            _pad: 0,
         };
 
         // Upload just the updated layer
@@ -304,6 +306,7 @@ mod tests {
             texture_coords: (0.0, 0.0, 1.0, 1.0),
             is_mask: false,
             has_alpha_mask: false,
+            layer_mode: Default::default(),
             interpolation_mode: 1,
         }];
 

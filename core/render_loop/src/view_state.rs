@@ -1,6 +1,6 @@
 // ViewState API - declarative rendering state management
 
-use crate::render_state::{BlendMode, ThresholdMode};
+use crate::render_state::{BlendMode, LayerMode, ThresholdMode};
 use serde::{Deserialize, Serialize};
 
 fn default_crosshair_color() -> [f32; 4] {
@@ -128,6 +128,10 @@ pub struct LayerConfig {
     /// Interpolation mode for sampling
     #[serde(default)]
     pub interpolation: InterpolationMode,
+
+    /// Rendering mode for shader-side layer semantics
+    #[serde(default)]
+    pub layer_mode: LayerMode,
 }
 
 /// Threshold configuration
@@ -149,6 +153,7 @@ impl LayerConfig {
             threshold: None,
             visible: true,
             interpolation: InterpolationMode::default(),
+            layer_mode: LayerMode::default(),
         }
     }
 
@@ -194,6 +199,12 @@ impl LayerConfig {
     /// Builder-style method to set interpolation mode
     pub fn with_interpolation(mut self, interpolation: InterpolationMode) -> Self {
         self.interpolation = interpolation;
+        self
+    }
+
+    /// Builder-style method to set layer rendering mode
+    pub fn with_layer_mode(mut self, layer_mode: LayerMode) -> Self {
+        self.layer_mode = layer_mode;
         self
     }
 }
@@ -324,6 +335,7 @@ impl ViewState {
                 threshold: None,
                 visible: true,
                 interpolation: InterpolationMode::default(),
+                layer_mode: LayerMode::default(),
             }],
             viewport_size: [512, 512],
             show_crosshair: true,
@@ -435,6 +447,7 @@ impl ViewState {
                 threshold: None,
                 visible: true,
                 interpolation: InterpolationMode::Linear,
+                layer_mode: LayerMode::default(),
             }],
             viewport_size,
             show_crosshair: true,
@@ -518,6 +531,7 @@ impl ViewState {
                 threshold: None,
                 visible: true,
                 interpolation: InterpolationMode::Linear,
+                layer_mode: LayerMode::default(),
             }],
             viewport_size: [view_rect.width_px, view_rect.height_px],
             show_crosshair: true,

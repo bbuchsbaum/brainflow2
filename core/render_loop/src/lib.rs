@@ -52,7 +52,7 @@ pub mod test_fixtures;
 // Re-export commonly used types from ubo module
 pub use ubo::{CrosshairUbo, CrosshairUboUpdated, FrameUbo, LayerUboStd140, ViewPlaneUbo};
 // Re-export render state types for external use
-pub use render_state::{BlendMode, LayerInfo, ThresholdMode};
+pub use render_state::{BlendMode, LayerInfo, LayerMode, ThresholdMode};
 // Re-export slice adapter for GPU-CPU differential testing
 pub use slice_adapter::{GpuSliceAdapter, SliceSpecMapper};
 // Re-export benchmarking utilities
@@ -2963,6 +2963,7 @@ impl RenderLoopService {
             threshold_mode: crate::render_state::ThresholdMode::Range,
             is_mask: false,
             has_alpha_mask: false,
+            layer_mode: Default::default(),
             interpolation_mode,
         };
 
@@ -3077,6 +3078,7 @@ impl RenderLoopService {
             texture_coords,
             is_mask: false,
             has_alpha_mask: false,
+            layer_mode: Default::default(),
             interpolation_mode: 1, // Default to linear for legacy method
         };
 
@@ -4326,6 +4328,7 @@ impl RenderLoopService {
                 texture_coords: (0.0, 0.0, 1.0, 1.0),
                 is_mask: false, // TODO: determine from volume metadata
                 has_alpha_mask: false,
+                layer_mode: layer_config.layer_mode,
                 interpolation_mode: interpolation_mode_u32,
             };
 

@@ -308,6 +308,8 @@ pub struct LayerInfo {
     pub is_mask: bool,
     /// Whether this layer has an alpha mask attached.
     pub has_alpha_mask: bool,
+    /// Layer rendering mode (scalar, categorical label, or mask)
+    pub layer_mode: LayerMode,
     /// Interpolation mode (0=nearest, 1=linear, 2=cubic)
     pub interpolation_mode: u32,
 }
@@ -334,6 +336,19 @@ pub enum ThresholdMode {
     Above = 2,
     /// Below threshold only
     Below = 3,
+}
+
+#[repr(u32)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum LayerMode {
+    /// Continuous scalar intensity layer.
+    #[default]
+    Scalar = 0,
+    /// Categorical integer label layer.
+    Label = 1,
+    /// Binary or alpha mask layer.
+    Mask = 2,
 }
 
 impl LayerStateManager {
@@ -466,6 +481,7 @@ mod tests {
             texture_coords: (0.0, 0.0, 1.0, 1.0),
             is_mask: false,
             has_alpha_mask: false,
+            layer_mode: Default::default(),
             interpolation_mode: 0, // nearest neighbor
         };
 

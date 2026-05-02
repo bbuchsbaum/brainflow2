@@ -19,8 +19,10 @@ struct FrameUbo {
     origin_mm : vec4<f32>,   // World position at NDC (0,0) (homogeneous, w = 1)
     u_mm      : vec4<f32>,   // World vector for NDC [0,1] in X direction
     v_mm      : vec4<f32>,   // World vector for NDC [0,1] in Y direction
+    atlas_dim : vec3<u32>,   // Dimensions of the 3D texture atlas
+    _padding_frame: u32,     // Padding to maintain alignment
     target_dim: vec2<u32>,   // Dimensions of the render target
-    _padding  : vec2<u32>,   // Padding to maintain 16-byte alignment
+    _padding_target: vec2<u32>, // Padding to maintain 16-byte alignment
 };
 
 // --- Crosshair UBO ---
@@ -31,36 +33,38 @@ struct CrosshairUbo {
 };
 
 // --- Per-Layer Storage Buffer ---
+// This MUST match the Rust LayerUboStd140 struct exactly (total size: 160 bytes).
 struct LayerData {
     // --- 16-byte aligned types first ---
-    world_to_voxel : mat4x4<f32>,      // Transform from world to voxel space
+    world_to_voxel : mat4x4<f32>,      // 64 bytes, offset 0
+    texture_coords : vec4<f32>,        // 16 bytes, offset 64
     
-    // --- Volume info ---
-    dim            : vec3<u32>,        // Volume dimensions
-    texture_index  : u32,              // Which texture to sample from
+    // --- Volume info with explicit padding ---
+    dim            : vec3<u32>,        // 12 bytes, offset 80
+    pad_slices     : u32,              // 4 bytes, offset 92
     
     // --- Rendering parameters ---
-    colormap_id    : u32,              // Colormap LUT index
-    blend_mode     : u32,              // 0=alpha, 1=add, 2=max, 3=min
-    threshold_mode : u32,              // 0=range, 1=absolute, 2=above, 3=below
-    _padding0      : u32,              // Padding for alignment
+    colormap_id    : u32,              // 4 bytes, offset 96
+    blend_mode     : u32,              // 4 bytes, offset 100
+    texture_index  : u32,              // 4 bytes, offset 104
+    threshold_mode : u32,              // 4 bytes, offset 108
     
-    opacity        : f32,              // Layer opacity
-    intensity_min  : f32,              // Intensity window min
-    intensity_max  : f32,              // Intensity window max
-    thresh_low     : f32,              // Threshold lower bound
+    opacity        : f32,              // 4 bytes, offset 112
+    intensity_min  : f32,              // 4 bytes, offset 116
+    intensity_max  : f32,              // 4 bytes, offset 120
+    thresh_low     : f32,              // 4 bytes, offset 124
     
-    thresh_high    : f32,              // Threshold upper bound
-    is_mask        : u32,              // 1 if binary mask
-    has_alpha_mask : u32,              // 1 if alpha mask attached
-    interpolation_mode : u32,          // 0=nearest, 1=linear, 2=cubic (future)
+    thresh_high    : f32,              // 4 bytes, offset 128
+    is_mask        : u32,              // 4 bytes, offset 132
+    has_alpha_mask : u32,              // 4 bytes, offset 136
+    interpolation_mode : u32,          // 4 bytes, offset 140
 
     // --- Display options ---
-    drawSliceBorder : u32,             // 0=off, 1=on
-    borderThicknessPx : f32,           // Thickness in pixels
-    _padOpt0        : u32,
-    _padOpt1        : u32,
-    // Total struct size: matches Rust LayerDataOptimized
+    drawSliceBorder : u32,             // 4 bytes, offset 144
+    borderThicknessPx : f32,           // 4 bytes, offset 148
+    layer_mode      : u32,             // 4 bytes, offset 152 (0=scalar, 1=label, 2=mask)
+    _padOpt1        : u32,             // 4 bytes, offset 156
+    // Total struct size: 160 bytes (matches Rust LayerUboStd140)
 };
 
 // --- Layer metadata ---

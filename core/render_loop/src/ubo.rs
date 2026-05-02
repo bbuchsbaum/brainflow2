@@ -167,7 +167,8 @@ pub struct LayerUboStd140 {
     pub interpolation_mode: u32,  // 4 bytes (0=nearest, 1=linear, 2=cubic)
     pub draw_slice_border: u32,   // 4 bytes (0/1)
     pub border_thickness_px: f32, // 4 bytes
-    pub _pad: [u32; 2],           // 8 bytes padding to complete 16-byte block
+    pub layer_mode: u32,          // 4 bytes (0=scalar, 1=label, 2=mask)
+    pub _pad: u32,                // 4 bytes padding to complete 16-byte block
                                   // Total size: 160 bytes (must match WGSL LayerData)
 }
 
@@ -192,15 +193,16 @@ impl Default for LayerUboStd140 {
             interpolation_mode: 1, // Default to linear
             draw_slice_border: 0,
             border_thickness_px: 1.0,
-            _pad: [0; 2],
+            layer_mode: 0,
+            _pad: 0,
         }
     }
 }
 
 // IMPORTANT: Keep LayerUboStd140 in byte-for-byte sync with the WGSL LayerData
-// struct in shaders/slice_world_space.wgsl. The shader currently expects a total
-// size of 152 bytes with std430 rules for the storage buffer. If you add or
-// reorder fields here or in WGSL, adjust both and update this check.
+// structs in the active masked slice shaders. The runtime storage buffer expects
+// a 160-byte stride. If you add or reorder fields here or in WGSL, adjust both
+// and update this check.
 const _: [(); 160] = [(); std::mem::size_of::<LayerUboStd140>()];
 
 // --- Optimized layer data struct for performance shader ---
