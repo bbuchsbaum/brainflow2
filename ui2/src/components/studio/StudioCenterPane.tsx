@@ -1,3 +1,4 @@
+import { useCallback, useState } from 'react';
 import { getStudioDisplayService } from '@/services/studio/StudioDisplayService';
 import { getStudioCoordinationService } from '@/services/studio/StudioCoordinationService';
 import { useSetStudioStore } from '@/stores/setStudioStore';
@@ -9,7 +10,9 @@ import type {
   StudioCohortSummary,
 } from '@/types/studio';
 import { LensCanvas } from './LensCanvas';
+import { StudioLensSwitcher } from './StudioLensSwitcher';
 import { StudioStrip } from './StudioStrip';
+import { StudioTimeRow } from './StudioTimeRow';
 
 function buildCompareArtifact(args: {
   pane: StudioComparePaneSpec | null;
@@ -79,12 +82,24 @@ export function StudioCenterPane() {
     visibleMemberIds,
   } = useStudioDerivedState();
 
+  const activeDesignFilters = useSetStudioStore((state) => state.activeDesignFilters);
   const setActiveLens = useSetStudioStore((state) => state.setActiveLens);
   const setActiveMember = useSetStudioStore((state) => state.setActiveMember);
   const setCompareCohort = useSetStudioStore((state) => state.setCompareCohort);
   const setActiveScopeCohort = useSetStudioStore((state) => state.setActiveScopeCohort);
   const drillToCohort = useSetStudioStore((state) => state.drillToCohort);
   const setActiveArtifact = useSetStudioStore((state) => state.setActiveArtifact);
+  const setDesignSearch = useSetStudioStore((state) => state.setDesignSearch);
+  const removeDesignFilter = useSetStudioStore((state) => state.removeDesignFilter);
+
+  // Pane-A-scoped frame index. The 4D detection / global frame integration is
+  // tracked separately; until a member-level frameCount/TR exists on the
+  // StudioMemberSummary contract, the time row stays disabled and this
+  // local state acts only as a placeholder for UI affordance verification.
+  const [paneAFrame, setPaneAFrame] = useState(0);
+  const handlePaneAFrame = useCallback((frame: number) => {
+    setPaneAFrame(frame);
+  }, []);
 
   const handleOpenComparePane = (pane: StudioComparePaneSpec) => {
     setActiveArtifact(
@@ -197,6 +212,14 @@ export function StudioCenterPane() {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-3">
+      <StudioLensSwitcher
+        activeLens={activeLens}
+        onSelectLens={setActiveLens}
+        compareCohort={compareCohort}
+        cohorts={cohortList}
+        onSelectCompareCohort={setCompareCohort}
+      />
+
       <div className="min-h-0 flex-1">
         <LensCanvas
           activeLens={activeLens}
@@ -215,7 +238,6 @@ export function StudioCenterPane() {
           searchLabel={designSearch.trim() || null}
           filterLabels={activeFilterLabels}
           sortLabel={sortLabel}
-          onSelectLens={setActiveLens}
           onSelectMember={setActiveMember}
           onSelectCohort={setCompareCohort}
           onDrillToCohort={drillToCohort}
@@ -229,6 +251,17 @@ export function StudioCenterPane() {
           visibleMemberIds={visibleMemberIds}
         />
       </div>
+
+      {activeLens === 'compare' ? (
+        <StudioTimeRow
+          activeMember={activeMember}
+          frameCount={null}
+          trSeconds={null}
+          frame={paneAFrame}
+          onFrameChange={handlePaneAFrame}
+        />
+      ) : null}
+
       <StudioStrip
         memberIds={visibleMemberIds}
         activeMemberId={activeMemberId}
@@ -236,8 +269,12 @@ export function StudioCenterPane() {
         issueFocusLabel={activeIssueLabel}
         searchLabel={designSearch.trim() || null}
         filterLabels={activeFilterLabels}
+        filters={activeDesignFilters}
         sortLabel={sortLabel}
         onSelectMember={setActiveMember}
+        onClearScope={() => setActiveScopeCohort(null)}
+        onClearSearch={() => setDesignSearch('')}
+        onRemoveFilter={removeDesignFilter}
       />
     </div>
   );

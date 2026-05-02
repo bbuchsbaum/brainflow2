@@ -5,6 +5,7 @@ import type { StudioImportCandidate, StudioImportMode } from '@/types/studio';
 
 export class SetIngestionService {
   private transport: BackendTransport;
+  private requestVersion = 0;
 
   constructor(transport: BackendTransport = getTransport()) {
     this.transport = transport;
@@ -13,12 +14,17 @@ export class SetIngestionService {
   async openImportPreview(mode: StudioImportMode): Promise<void> {
     const store = useSetStudioStore.getState();
     store.beginImportPreview(mode);
+    const requestId = ++this.requestVersion;
 
     try {
       const candidates = await this.transport.invoke<StudioImportCandidate[]>(
         'preview_set_studio_imports',
         this.buildPreviewRequest(mode)
       );
+
+      if (!this.isStillCurrent(requestId, mode)) {
+        return;
+      }
 
       if (Array.isArray(candidates) && candidates.length > 0) {
         useSetStudioStore
@@ -29,6 +35,9 @@ export class SetIngestionService {
 
       throw new Error('Backend returned no import preview candidates.');
     } catch (error) {
+      if (!this.isStillCurrent(requestId, mode)) {
+        return;
+      }
       const message =
         error instanceof Error ? error.message : 'Backend preview failed; using local fallback.';
       this.applyFallbackPreview(mode, message);
@@ -37,6 +46,20 @@ export class SetIngestionService {
 
   async validateTablePreview(): Promise<void> {
     await this.openImportPreview('table');
+  }
+
+  /**
+   * A preview request is "still current" only if no later request has been
+   * issued AND the dialog is still asking for the same mode. The mode check
+   * guards against the user switching tabs (manifest → regex → table) while
+   * a stale request is in flight.
+   */
+  private isStillCurrent(requestId: number, mode: StudioImportMode): boolean {
+    if (requestId !== this.requestVersion) {
+      return false;
+    }
+    const dialogMode = useSetStudioStore.getState().importDialog.mode;
+    return dialogMode === mode;
   }
 
   private getFallbackCandidates(mode: StudioImportMode): StudioImportCandidate[] {

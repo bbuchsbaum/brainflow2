@@ -10,6 +10,8 @@ interface StudioRenderAdapterProps {
   subtitle: string;
   footer?: string;
   actions?: Array<{ label: string; onClick: () => void }>;
+  /** When true, render only the canvas — caller owns the title/footer chrome. */
+  hideChrome?: boolean;
 }
 
 export function StudioRenderAdapter({
@@ -18,7 +20,22 @@ export function StudioRenderAdapter({
   subtitle,
   footer,
   actions,
+  hideChrome,
 }: StudioRenderAdapterProps) {
+  if (hideChrome) {
+    if (supportKind === 'volume') {
+      return <OrthogonalViewContainer className="h-full w-full" />;
+    }
+    if (supportKind === 'surface') {
+      return <SurfaceViewPanel />;
+    }
+    return (
+      <div className="flex h-full items-center justify-center px-4 text-center text-xs text-muted-foreground">
+        No renderer adapter for support kind {supportKind ?? 'unknown'}
+      </div>
+    );
+  }
+
   const header = (
     <div className="border-b border-border px-4 py-3 bg-card">
       <div className="flex items-start justify-between gap-3">
