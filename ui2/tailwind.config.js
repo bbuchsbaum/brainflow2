@@ -7,7 +7,9 @@ export default {
   theme: {
     extend: {
       colors: {
-        // Support for CSS variables with opacity
+        // ------------------------------------------------------------
+        // shadcn-compatible HSL bridge — projection of `--bf-*` tokens.
+        // ------------------------------------------------------------
         border: 'hsl(var(--border) / <alpha-value>)',
         input: 'hsl(var(--input) / <alpha-value>)',
         ring: 'hsl(var(--ring) / <alpha-value>)',
@@ -36,31 +38,104 @@ export default {
         accent: {
           DEFAULT: 'hsl(var(--accent) / <alpha-value>)',
           foreground: 'hsl(var(--accent-foreground) / <alpha-value>)',
-          400: '#fbbf24', // Medical yellow
-          500: '#f59e0b',
-          600: '#d97706',
         },
         destructive: {
           DEFAULT: 'hsl(var(--destructive) / <alpha-value>)',
           foreground: 'hsl(var(--destructive-foreground) / <alpha-value>)',
         },
-        // Neuroimaging-specific color palette
-        brain: {
-          50: '#f0f9ff',
-          100: '#e0f2fe',
-          200: '#bae6fd',
-          300: '#7dd3fc',
-          400: '#38bdf8',
-          500: '#0ea5e9',
-          600: '#0284c7',
-          700: '#0369a1',
-          800: '#075985',
-          900: '#0c4a6e',
+
+        // ------------------------------------------------------------
+        // Canonical Brainflow tokens — Design.md §3.1 (`bf-*`).
+        // Use these directly: bg-bf-bg-panel, text-bf-text-secondary,
+        // border-bf-border-subtle, ring-bf-border-focus, etc.
+        // ------------------------------------------------------------
+        bf: {
+          // Backgrounds
+          'bg-app': 'var(--bf-bg-app)',
+          'bg-shell': 'var(--bf-bg-shell)',
+          'bg-panel': 'var(--bf-bg-panel)',
+          'bg-panel-raised': 'var(--bf-bg-panel-raised)',
+          'bg-panel-sunken': 'var(--bf-bg-panel-sunken)',
+          'bg-canvas': 'var(--bf-bg-canvas)',
+          'bg-input': 'var(--bf-bg-input)',
+          'bg-hover': 'var(--bf-bg-hover)',
+          'bg-active': 'var(--bf-bg-active)',
+          'bg-selected': 'var(--bf-bg-selected)',
+          // Borders & dividers
+          'border-subtle': 'var(--bf-border-subtle)',
+          border: 'var(--bf-border)',
+          'border-strong': 'var(--bf-border-strong)',
+          'border-focus': 'var(--bf-border-focus)',
+          divider: 'var(--bf-divider)',
+          // Text
+          'text-primary': 'var(--bf-text-primary)',
+          'text-secondary': 'var(--bf-text-secondary)',
+          'text-muted': 'var(--bf-text-muted)',
+          'text-faint': 'var(--bf-text-faint)',
+          'text-inverse': 'var(--bf-text-inverse)',
+          // Brand & interaction
+          brand: 'var(--bf-brand)',
+          accent: 'var(--bf-accent)',
+          'accent-hover': 'var(--bf-accent-hover)',
+          'accent-active': 'var(--bf-accent-active)',
+          'accent-soft': 'var(--bf-accent-soft)',
+          // Semantic
+          success: 'var(--bf-success)',
+          'success-soft': 'var(--bf-success-soft)',
+          warning: 'var(--bf-warning)',
+          'warning-soft': 'var(--bf-warning-soft)',
+          danger: 'var(--bf-danger)',
+          'danger-soft': 'var(--bf-danger-soft)',
+          info: 'var(--bf-info)',
+          // Anatomical orientation
+          axial: 'var(--bf-axial)',
+          sagittal: 'var(--bf-sagittal)',
+          coronal: 'var(--bf-coronal)',
+          crosshair: 'var(--bf-crosshair)',
+          // Plot
+          'plot-line': 'var(--bf-plot-line)',
+          'plot-grid': 'var(--bf-plot-grid)',
+          'plot-axis': 'var(--bf-plot-axis)',
         },
-        gray: {
-          850: '#1e293b',
-          950: '#0f172a',
-        }
+      },
+      // Spacing scale aligned with Design.md §3.1 / §5
+      spacing: {
+        'control-xs': 'var(--app-control-height-xs)',
+        'control-sm': 'var(--app-control-height-sm)',
+        'control-md': 'var(--app-control-height-md)',
+        'dock-min': 'var(--app-dock-min-height)',
+        'dock-default': 'var(--app-dock-default-height)',
+        'colormap-strip': 'var(--app-layer-colormap-strip-height)',
+        'bf-1': 'var(--bf-space-1)',
+        'bf-2': 'var(--bf-space-2)',
+        'bf-3': 'var(--bf-space-3)',
+        'bf-4': 'var(--bf-space-4)',
+        'bf-5': 'var(--bf-space-5)',
+        'bf-6': 'var(--bf-space-6)',
+        'bf-topbar': 'var(--bf-topbar-h)',
+        'bf-statusbar': 'var(--bf-statusbar-h)',
+        'bf-time-row': 'var(--bf-time-row-h)',
+        'bf-control': 'var(--bf-control-h)',
+        'bf-control-sm': 'var(--bf-control-sm-h)',
+        'bf-panel-header': 'var(--bf-panel-header-h)',
+      },
+      borderRadius: {
+        appsm: 'var(--app-radius-sm)',
+        appmd: 'var(--app-radius-md)',
+        applg: 'var(--app-radius-lg)',
+        'bf-xs': 'var(--bf-radius-xs)',
+        'bf-sm': 'var(--bf-radius-sm)',
+        'bf-md': 'var(--bf-radius-md)',
+        'bf-lg': 'var(--bf-radius-lg)',
+        'bf-pill': 'var(--bf-radius-pill)',
+      },
+      boxShadow: {
+        'bf-panel': 'var(--bf-shadow-panel)',
+        'bf-inset': 'var(--bf-shadow-inset)',
+      },
+      transitionDuration: {
+        'bf-fast': 'var(--bf-motion-fast)',
+        'bf-normal': 'var(--bf-motion-normal)',
       },
       fontFamily: {
         mono: ['JetBrains Mono', 'Fira Code', 'monospace'],
@@ -76,25 +151,18 @@ export default {
         'role-title': 'var(--app-role-title-tracking)',
         'role-section': 'var(--app-role-section-tracking)',
       },
-      spacing: {
-        'control-xs': 'var(--app-control-height-xs)',
-        'control-sm': 'var(--app-control-height-sm)',
-        'control-md': 'var(--app-control-height-md)',
-      },
-      borderRadius: {
-        appsm: 'var(--app-radius-sm)',
-        appmd: 'var(--app-radius-md)',
-        applg: 'var(--app-radius-lg)',
-      },
       minHeight: {
         'control-xs': 'var(--app-control-height-xs)',
         'control-sm': 'var(--app-control-height-sm)',
         'control-md': 'var(--app-control-height-md)',
+        'dock-min': 'var(--app-dock-min-height)',
       },
       height: {
         'control-xs': 'var(--app-control-height-xs)',
         'control-sm': 'var(--app-control-height-sm)',
         'control-md': 'var(--app-control-height-md)',
+        'dock-default': 'var(--app-dock-default-height)',
+        'colormap-strip': 'var(--app-layer-colormap-strip-height)',
       },
     },
   },

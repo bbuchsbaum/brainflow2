@@ -1,85 +1,212 @@
+/*
+ * Brainflow theme — mockup7 / Integrated workspace direction.
+ *
+ * Two layers of tokens live here:
+ *
+ *   1. `--bf-*` (canonical) — the dark blue-black research palette
+ *      defined in `resdesign/Design.md` §3. New surfaces should consume
+ *      these directly.
+ *
+ *   2. `--app-*` (legacy alias) — every existing component reads from
+ *      these. They are now thin aliases over `--bf-*`, so a single edit
+ *      to a `--bf-*` value propagates through the entire app without
+ *      touching component code.
+ *
+ * The pre-mockup7 "cool concrete + Bauhaus 1px radii" palette has been
+ * retired. Light mode is no longer an authored variant — `Design.md`
+ * specifies a single dark research scheme. The `.dark` class is kept as
+ * a no-op alias so any consumer that toggles it still resolves the
+ * canonical mockup7 values.
+ *
+ * Migration policy:
+ *   - Adding a new color/size? Add the `--bf-*` token here, then alias
+ *     `--app-*` only if existing legacy code needs it.
+ *   - Migrating a component? Switch its `var(--app-*)` reads to
+ *     `var(--bf-*)` directly and stop relying on the alias layer.
+ */
+
 @layer base {
   :root {
-    /* Cool concrete palette (light) */
-    --background: 210 5% 93%;      /* Cool concrete */
-    --foreground: 210 10% 15%;     /* Graphite text */
+    color-scheme: dark;
 
-    --card: 210 5% 96%;             /* Warm concrete panels - unified with background */
-    --card-foreground: 210 10% 15%;
+    /* ────────────────────────────────────────────────────────────────
+     * Canonical mockup7 tokens (Design.md §3.1)
+     * ──────────────────────────────────────────────────────────────── */
 
-    --popover: 210 5% 96%;
-    --popover-foreground: 210 10% 15%;
+    /* App backgrounds */
+    --bf-bg-app: #05080c;
+    --bf-bg-shell: #07101a;
+    --bf-bg-panel: #0b1521;
+    --bf-bg-panel-raised: #101c2a;
+    --bf-bg-panel-sunken: #050b12;
+    --bf-bg-canvas: #020508;
+    --bf-bg-input: #08111c;
+    --bf-bg-hover: #122235;
+    --bf-bg-active: #16345d;
+    --bf-bg-selected: #123a72;
 
-    /* PRIMARY: Sharper cyan */
-    --primary: 180 75% 35%;
+    /* Borders and dividers */
+    --bf-border-subtle: rgba(148, 163, 184, 0.14);
+    --bf-border: rgba(148, 163, 184, 0.24);
+    --bf-border-strong: rgba(148, 163, 184, 0.38);
+    --bf-border-focus: #3b82f6;
+    --bf-divider: rgba(148, 163, 184, 0.16);
+
+    /* Text */
+    --bf-text-primary: #e6edf7;
+    --bf-text-secondary: #b7c4d4;
+    --bf-text-muted: #7f8fa3;
+    --bf-text-faint: #566579;
+    --bf-text-inverse: #020617;
+
+    /* Brand and interaction */
+    --bf-brand: #7c3aed;
+    --bf-accent: #2f80ff;
+    --bf-accent-hover: #4c93ff;
+    --bf-accent-active: #1f6feb;
+    --bf-accent-soft: rgba(47, 128, 255, 0.16);
+
+    /* Semantic */
+    --bf-success: #35d36b;
+    --bf-success-soft: rgba(53, 211, 107, 0.14);
+    --bf-warning: #f59e0b;
+    --bf-warning-soft: rgba(245, 158, 11, 0.14);
+    --bf-danger: #ef4444;
+    --bf-danger-soft: rgba(239, 68, 68, 0.14);
+    --bf-info: #38bdf8;
+
+    /* Anatomical orientation colors */
+    --bf-axial: #2f80ff;
+    --bf-sagittal: #40c463;
+    --bf-coronal: #ff9900;
+    --bf-crosshair: #58d957;
+
+    /* Plot colors */
+    --bf-plot-line: #38a3ff;
+    --bf-plot-grid: rgba(148, 163, 184, 0.18);
+    --bf-plot-axis: rgba(226, 232, 240, 0.55);
+
+    /* Shadows */
+    --bf-shadow-panel: 0 10px 32px rgba(0, 0, 0, 0.32);
+    --bf-shadow-inset: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+
+    /* Radii — mockup7 research scale (3-8px), replaces Bauhaus 1-2px */
+    --bf-radius-xs: 3px;
+    --bf-radius-sm: 4px;
+    --bf-radius-md: 6px;
+    --bf-radius-lg: 8px;
+    --bf-radius-pill: 999px;
+
+    /* Spacing */
+    --bf-space-1: 4px;
+    --bf-space-2: 8px;
+    --bf-space-3: 12px;
+    --bf-space-4: 16px;
+    --bf-space-5: 20px;
+    --bf-space-6: 24px;
+
+    /* Sizes */
+    --bf-topbar-h: 40px;
+    --bf-statusbar-h: 44px;
+    --bf-time-row-h: 48px;
+    --bf-control-h: 28px;
+    --bf-control-sm-h: 24px;
+    --bf-icon-button: 28px;
+    --bf-panel-header-h: 34px;
+
+    /* Fonts (Design.md §4.1) */
+    --bf-font-sans: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+      "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    --bf-font-mono: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+
+    /* Motion (Design.md §18.3) */
+    --bf-motion-fast: 100ms;
+    --bf-motion-normal: 160ms;
+
+    /* ────────────────────────────────────────────────────────────────
+     * shadcn-compatible HSL variables (used by Tailwind shadcn classes)
+     * Remapped to mockup7 values so any Tailwind consumer flips along
+     * with the rest of the app.
+     * ──────────────────────────────────────────────────────────────── */
+    --background: 211 38% 4%;          /* #05080c */
+    --foreground: 217 37% 93%;         /* #e6edf7 */
+    --card: 213 35% 9%;                /* #0b1521 */
+    --card-foreground: 217 37% 93%;
+    --popover: 213 35% 9%;
+    --popover-foreground: 217 37% 93%;
+    --primary: 217 100% 59%;           /* #2f80ff */
     --primary-foreground: 0 0% 100%;
-
-    /* SECONDARY: Neutral concrete */
-    --secondary: 210 8% 88%;
-    --secondary-foreground: 210 10% 15%;
-
-    /* MUTED: Grid line tone */
-    --muted: 210 10% 90%;
-    --muted-foreground: 210 5% 40%;
-
-    /* ACCENT: International orange */
-    --accent: 15 85% 55%;
+    --secondary: 213 30% 12%;
+    --secondary-foreground: 217 37% 93%;
+    --muted: 213 30% 14%;
+    --muted-foreground: 215 17% 57%;
+    --accent: 217 100% 65%;
     --accent-foreground: 0 0% 100%;
-
-    --destructive: 0 85% 60%;
+    --destructive: 0 84% 60%;
     --destructive-foreground: 0 0% 100%;
+    --border: 215 22% 30%;
+    --input: 215 30% 8%;
+    --ring: 217 100% 59%;
+    --radius: 6px;
 
-    --border: 210 5% 85%;
-    --input: 210 5% 85%;
-    --ring: 180 75% 35%;
+    /* ────────────────────────────────────────────────────────────────
+     * Legacy `--app-*` aliases — every existing component reads these.
+     * Each one delegates to a `--bf-*` value so the app inherits
+     * mockup7 colors without touching component code.
+     * ──────────────────────────────────────────────────────────────── */
 
-    --radius: 2px; /* Bauhaus-tightest corners */
+    /* Surfaces / backgrounds */
+    --app-bg-primary: var(--bf-bg-app);
+    --app-bg-secondary: var(--bf-bg-shell);
+    --app-bg-tertiary: var(--bf-bg-panel);
+    --app-bg-quaternary: var(--bf-bg-panel-raised);
+    --app-bg-hover: var(--bf-bg-hover);
+    --app-bg-active: var(--bf-bg-active);
 
-    /* App-scoped tokens mapped to palette */
-    --app-bg-primary: hsl(var(--background));
-    --app-bg-secondary: hsl(var(--secondary));
-    --app-bg-tertiary: hsl(var(--muted));
-    --app-bg-quaternary: hsl(var(--muted));
-    --app-bg-hover: hsla(210, 10%, 15%, 0.05);
-    --app-bg-active: hsla(210, 10%, 15%, 0.1);
+    /* Borders */
+    --app-border: var(--bf-border);
+    --app-border-subtle: var(--bf-border-subtle);
+    --app-border-strong: var(--bf-border-strong);
+    --app-border-active: var(--bf-accent);
 
-    --app-border: hsl(var(--border));
-    --app-border-subtle: hsla(210, 10%, 15%, 0.08);
-    --app-border-strong: hsla(210, 10%, 15%, 0.18);
+    /* Text */
+    --app-text-primary: var(--bf-text-primary);
+    --app-text-secondary: var(--bf-text-secondary);
+    --app-text-muted: var(--bf-text-muted);
+    --app-text-disabled: var(--bf-text-faint);
 
-    --app-text-primary: hsl(var(--foreground));
-    --app-text-secondary: hsla(210, 10%, 15%, 0.75);
-    --app-text-muted: hsla(210, 10%, 15%, 0.55);
-    --app-text-disabled: hsla(210, 10%, 15%, 0.35);
+    /* Brand / accent */
+    --app-accent: var(--bf-accent);
+    --app-accent-foreground: #ffffff;
+    --app-accent-hover: var(--bf-accent-hover);
+    --app-accent-active: var(--bf-accent-active);
+    --app-accent-text: var(--bf-accent);
+    --app-accent-muted: var(--bf-accent-soft);
 
-    --app-accent: hsl(var(--primary));
-    --app-accent-foreground: hsl(var(--primary-foreground));
-    --app-accent-hover: hsl(180 70% 32%);
-    --app-accent-active: hsl(180 70% 28%);
-    --app-accent-text: hsl(var(--accent));
-    --app-accent-muted: hsl(180 45% 55%);
+    /* Tabs / splitters */
+    --app-tab-inactive: var(--bf-bg-shell);
+    --app-tab-active: var(--bf-bg-panel);
+    --app-splitter: var(--bf-border);
+    --app-splitter-hover: var(--bf-accent);
 
-    --app-tab-inactive: hsl(var(--secondary));
-    --app-tab-active: hsl(var(--card));
-    --app-splitter: hsl(var(--border));
-    --app-splitter-hover: hsl(var(--primary));
+    /* Semantic */
+    --app-success: var(--bf-success);
+    --app-warning: var(--bf-warning);
+    --app-error: var(--bf-danger);
+    --app-info: var(--bf-info);
 
-    --app-success: #0f9960;
-    --app-warning: #f59e0b;
-    --app-error: #dc2626;
-    --app-info: hsl(var(--primary));
+    /* Layer rows (left rail) */
+    --layer-bg: var(--bf-bg-panel);
+    --layer-text: var(--bf-text-primary);
+    --layer-divider: var(--bf-divider);
+    --layer-hover: var(--bf-bg-hover);
+    --layer-selected: var(--bf-bg-selected);
+    --layer-accent: var(--bf-accent);
+    --layer-track-bg: var(--bf-bg-panel-sunken);
 
-    --layer-bg: hsl(var(--card));
-    --layer-text: hsl(var(--foreground));
-    --layer-divider: hsl(var(--border));
-    --layer-hover: hsla(25, 90%, 55%, 0.08);
-    --layer-selected: hsla(175, 60%, 40%, 0.12);
-    --layer-accent: hsl(var(--primary));
-    --layer-track-bg: hsl(var(--secondary));
-
-    /* Typography */
-    --app-font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Helvetica Neue', Arial, sans-serif;
-    --app-font-mono: 'JetBrains Mono', 'Fira Code', 'Monaco', 'Menlo', 'Consolas', 'Courier New', monospace;
+    /* Typography (legacy aliases over the canonical sans/mono) */
+    --app-font-sans: var(--bf-font-sans);
+    --app-font-mono: var(--bf-font-mono);
 
     /* Font sizes */
     --app-text-xs: 11px;
@@ -102,128 +229,139 @@
     --app-role-body-size: 12px;
     --app-role-body-weight: 400;
 
-    /* Spacing */
-    --app-spacing-xs: 4px;
-    --app-spacing-sm: 8px;
-    --app-spacing-md: 12px;
-    --app-spacing-lg: 16px;
-    --app-spacing-xl: 24px;
+    /* Spacing aliases */
+    --app-spacing-xs: var(--bf-space-1);
+    --app-spacing-sm: var(--bf-space-2);
+    --app-spacing-md: var(--bf-space-3);
+    --app-spacing-lg: var(--bf-space-4);
+    --app-spacing-xl: var(--bf-space-6);
 
-    /* Border radius - Bauhaus sharp edges */
-    --app-radius-sm: 1px;
-    --app-radius-md: 2px;
-    --app-radius-lg: 2px;
+    /* Border radius — was Bauhaus 1-2px, now mockup7 research scale */
+    --app-radius-sm: var(--bf-radius-xs);
+    --app-radius-md: var(--bf-radius-sm);
+    --app-radius-lg: var(--bf-radius-md);
 
     /* Shadows */
-    --app-shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.1);
-    --app-shadow-md: 0 6px 12px -4px rgba(0, 0, 0, 0.2);
-    --app-shadow-lg: 0 16px 32px -8px rgba(0, 0, 0, 0.25);
+    --app-shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.35);
+    --app-shadow-md: 0 8px 18px -6px rgba(0, 0, 0, 0.45);
+    --app-shadow-lg: var(--bf-shadow-panel);
 
     /* Transitions */
-    --app-transition-fast: 150ms ease;
-    --app-transition-base: 200ms ease;
+    --app-transition-fast: var(--bf-motion-fast) ease;
+    --app-transition-base: var(--bf-motion-normal) ease;
     --app-transition-slow: 300ms ease;
 
     /* Interaction controls */
-    --app-control-height-xs: 24px;
+    --app-control-height-xs: var(--bf-control-sm-h);
     --app-control-height-sm: 30px;
-    --app-control-height-md: 34px;
-    --app-focus-ring-color: hsl(var(--ring));
+    --app-control-height-md: var(--bf-panel-header-h);
+    --app-focus-ring-color: var(--bf-border-focus);
     --app-focus-ring-width: 2px;
     --app-focus-ring-offset: 1px;
 
-    /* Border weight tokens (Bauhaus precision) */
+    /* Border weight tokens (kept for any chrome that wants explicit rules) */
     --rule-thin: 1px;
     --rule-strong: 2px;
 
-    /* Unified scrollbar */
+    /* Unified scrollbar — toned for the dark research palette */
     --scrollbar-width: 6px;
     --scrollbar-track: transparent;
-    --scrollbar-thumb: hsla(210, 10%, 15%, 0.12);
-    --scrollbar-thumb-hover: hsla(210, 10%, 15%, 0.22);
+    --scrollbar-thumb: rgba(148, 163, 184, 0.18);
+    --scrollbar-thumb-hover: rgba(148, 163, 184, 0.32);
 
-    /* Top accent stripe */
-    --top-accent: hsl(var(--primary));
+    /* Top accent stripe — now uses the mockup7 blue */
+    --top-accent: var(--bf-accent);
     --top-accent-height: var(--rule-strong);
+
+    /* Mockup 7 / Integrated workspace surface tokens (legacy names preserved) */
+    --app-surface-canvas: var(--bf-bg-canvas);
+    --app-surface-panel-raised: var(--bf-bg-panel-raised);
+
+    /* Anatomical orientation aliases */
+    --app-axis-axial: var(--bf-axial);
+    --app-axis-sagittal: var(--bf-sagittal);
+    --app-axis-coronal: var(--bf-coronal);
+
+    /* Plot host palette aliases */
+    --app-plot-line: var(--bf-plot-line);
+    --app-plot-grid: var(--bf-plot-grid);
+    --app-plot-cursor: var(--bf-accent-hover);
+    --app-plot-zero: var(--bf-plot-axis);
+
+    /* Sizing — layer colormap strip + bottom workbench dock */
+    --app-layer-colormap-strip-height: 4px;
+    --app-dock-min-height: 120px;
+    --app-dock-default-height: 240px;
   }
 
-  /* Dark mode - "Midnight in the Desert" */
+  /*
+   * `.dark` is a no-op under mockup7: there is no separate dark variant
+   * because the canonical scheme is itself dark. Kept so any code that
+   * still toggles the class resolves to the same canonical tokens.
+   */
   .dark {
-    --background: 220 15% 10%;
-    --foreground: 40 10% 90%;
-
-    --card: 220 15% 14%;
-    --card-foreground: 40 10% 90%;
-
-    --popover: 220 15% 14%;
-    --popover-foreground: 40 10% 90%;
-
-    --primary: 175 50% 50%;
-    --primary-foreground: 220 15% 10%;
-
-    --secondary: 220 15% 18%;
-    --secondary-foreground: 40 10% 90%;
-
-    --muted: 220 15% 20%;
-    --muted-foreground: 215 10% 65%;
-
-    --accent: 30 80% 55%;
-    --accent-foreground: 0 0% 100%;
-
-    --destructive: 0 60% 50%;
-    --destructive-foreground: 0 0% 100%;
-
-    --border: 220 15% 20%;
-    --input: 220 15% 20%;
-    --ring: 175 50% 50%;
-
-    --app-bg-primary: hsl(var(--background));
-    --app-bg-secondary: hsl(var(--card));
-    --app-bg-tertiary: hsl(var(--secondary));
-    --app-bg-quaternary: hsl(var(--muted));
-    --app-bg-hover: hsla(40, 10%, 90%, 0.06);
-    --app-bg-active: hsla(40, 10%, 90%, 0.12);
-
-    --app-border: hsl(var(--border));
-    --app-border-subtle: hsla(40, 10%, 90%, 0.06);
-    --app-border-strong: hsla(40, 10%, 90%, 0.18);
-
-    --app-text-primary: hsl(var(--foreground));
-    --app-text-secondary: hsla(40, 10%, 90%, 0.75);
-    --app-text-muted: hsla(40, 10%, 90%, 0.55);
-    --app-text-disabled: hsla(40, 10%, 90%, 0.35);
-
-    --app-accent: hsl(var(--primary));
-    --app-accent-foreground: hsl(var(--primary-foreground));
-    --app-accent-hover: hsl(175 50% 45%);
-    --app-accent-active: hsl(175 50% 40%);
-    --app-accent-text: hsl(var(--accent));
-    --app-accent-muted: hsl(175 40% 65%);
-
-    --app-tab-inactive: hsl(var(--secondary));
-    --app-tab-active: hsl(var(--card));
-    --app-splitter: hsl(var(--border));
-    --app-splitter-hover: hsl(var(--primary));
-
-    --app-success: #22c55e;
-    --app-warning: #f59e0b;
-    --app-error: #ef4444;
-    --app-info: hsl(var(--primary));
-
-    --layer-bg: hsl(var(--card));
-    --layer-text: hsl(var(--foreground));
-    --layer-divider: hsl(var(--border));
-    --layer-hover: hsla(175, 50%, 50%, 0.08);
-    --layer-selected: hsla(175, 50%, 50%, 0.15);
-    --layer-accent: hsl(var(--primary));
-    --layer-track-bg: hsl(var(--secondary));
-
-    --app-shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.35);
-    --app-shadow-md: 0 8px 18px -6px rgba(0, 0, 0, 0.45);
-    --app-shadow-lg: 0 20px 40px -12px rgba(0, 0, 0, 0.55);
-
-    /* Dark scrollbar overrides */
-    --scrollbar-thumb: hsla(40, 10%, 90%, 0.1);
-    --scrollbar-thumb-hover: hsla(40, 10%, 90%, 0.2);
+    color-scheme: dark;
   }
+}
+
+/*
+ * Native <input type="range"> thumb override used by the Inspector's dual
+ * range slider (Intensity / Threshold rows).
+ *
+ * Why the selectors look heavy: `ui2/src/styles/slider.css` already defines
+ * a GLOBAL `input[type="range"]::-webkit-slider-thumb` rule (12×20 rectangle
+ * for the SliceSlider). That selector's specificity (tag+attribute+pseudo)
+ * beats a class+pseudo, so we have to match it with `input[type="range"]
+ * .bf-thumb-circle::-webkit-slider-thumb` to win the cascade. Same story
+ * for the hover variant.
+ *
+ * Usage: <input type="range" class="bf-thumb-circle ..." />
+ */
+input[type="range"].bf-thumb-circle {
+  -webkit-appearance: none;
+  appearance: none;
+  background: transparent;
+  pointer-events: none;
+}
+input[type="range"].bf-thumb-circle::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: hsl(199 89% 48%); /* sky-500 */
+  border: 0;
+  margin-top: 0;
+  box-shadow: 0 0 0 1px hsl(220 56% 4% / 0.7);
+  cursor: pointer;
+  pointer-events: auto;
+  transition: background-color 0.15s ease;
+}
+input[type="range"].bf-thumb-circle:hover::-webkit-slider-thumb,
+input[type="range"].bf-thumb-circle:focus-visible::-webkit-slider-thumb {
+  background: hsl(199 89% 60%);
+  border: 0;
+}
+input[type="range"].bf-thumb-circle::-webkit-slider-track {
+  background: transparent;
+  height: 0;
+  border: 0;
+}
+input[type="range"].bf-thumb-circle::-moz-range-thumb {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: hsl(199 89% 48%);
+  border: 0;
+  cursor: pointer;
+  pointer-events: auto;
+}
+input[type="range"].bf-thumb-circle:hover::-moz-range-thumb {
+  background: hsl(199 89% 60%);
+  border: 0;
+}
+input[type="range"].bf-thumb-circle::-moz-range-track {
+  background: transparent;
+  height: 0;
+  border: 0;
 }
