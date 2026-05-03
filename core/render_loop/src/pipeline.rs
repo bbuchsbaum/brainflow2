@@ -130,6 +130,7 @@ impl PipelineManager {
                         bind_group_layouts[0],
                         bind_group_layouts[1],
                         bind_group_layouts[2],
+                        bind_group_layouts[3],
                     )
                 } else {
                     device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {

@@ -3,21 +3,25 @@
 Objective
 - Evaluate reintroducing build-time typed shader bindings with `wgsl_to_wgpu`, without risking current runtime shader path.
 
-Status (2025-10-28)
-- ✅ T-020 compatibility sweep confirms `wgsl_to_wgpu 0.8.0` aligns with the pinned `wgpu 0.20.1 / naga 0.20.1` stack.
-- ✅ T-021/T-022 scaffolding in place: `render_loop` exposes a `typed-shaders` feature, build.rs now emits generated bindings for the slice shaders, and `shaders.rs` includes them behind the flag.
-- ✅ T-023 (phase 1): typed modules are registered via `ShaderManager` when the feature is enabled, keeping the runtime loader as the default path; `cargo check -p render_loop --features typed-shaders` passes.
-- ✅ Typed path now prefers the optimized slice shader: bind-group helpers are sourced from the generated module (including the nearest-neighbour sampler), `RenderLoopService` routes world-space renders through `slice_world_space_optimized`, and both execution modes are green (`cargo check -p render_loop`, `cargo check -p render_loop --features typed-shaders`, `cargo test -p render_loop --features typed-shaders --test typed_shaders_smoke`).
-- 🚧 T-023–T-026 remaining: refactor render pipeline to consume the new facade end-to-end (bind group wiring + override constants), stand up a feature-gated CI leg (`cargo check -p render_loop --features typed-shaders`), and benchmark typed vs runtime paths before any default flip.
+Status (2026-05-02)
+- Runtime WGSL is the authoritative shader path for the layer-rendering platform refresh and selected-parcel outline work.
+- The active runtime slice sources are `core/render_loop/shaders/slice_world_space_masked.wgsl` and `core/render_loop/shaders/slice_world_space_optimized_masked.wgsl`.
+- The `typed-shaders` feature is intentionally quarantined while the alpha-mask/runtime masked pipeline is active. `core/render_loop/src/lib.rs` emits a `compile_error!` when the feature is enabled.
+- Verification on 2026-05-02: `cargo check -p render_loop --features typed-shaders` reaches build-script generation, then fails at the explicit quarantine error: `typed-shaders are temporarily disabled while the alpha-mask pipeline is active.`
+- The build script still points at the older unmasked slice sources (`slice_world_space.wgsl`, `slice_world_space_optimized.wgsl`). Do not treat generated typed bindings as part of the current platform contract until generation is retargeted to the active masked shaders and the quarantine is removed.
+- Outline sidecar work should update the active runtime masked shaders and manual bind-group layouts only. Typed-shader retargeting is a separate follow-up, not a dependency for outline delivery.
+- Optional slice features use `SliceFeatureUbo` at bind group 3 in the active runtime pipeline. This keeps orthogonal feature state out of `LayerUboStd140`; typed-shader regeneration must include this feature group when the quarantine is lifted.
 
 Guardrails
 - Feature-gated: default build uses runtime WGSL. Typed path enabled via `render_loop` feature `typed-shaders`.
+- Quarantined: the feature currently fails fast by design. Do not use it to validate outline shader changes.
 - Separate CI job to build and test feature path; no change to default release pipeline until approved.
 - Git rollback: work on `feature/wgsl-bindings-trial`; tag baseline prior to experiment.
 
 Typed shader CI check
 - Workflow `.github/workflows/typed-shader-check.yml` executes on push/PR (main/develop) and runs `./tools/run-typed-shader-check.sh`.
-- Script: `tools/run-typed-shader-check.sh` runs the two commands we expect to wire into CI:
+- Current policy: this check is expected to fail until the quarantine is lifted. If the workflow is still enabled on protected branches, disable or mark it non-blocking before merging unrelated runtime shader work.
+- Script: `tools/run-typed-shader-check.sh` runs the two commands we expect to restore once typed bindings are retargeted:
   1. `cargo check -p render_loop --features typed-shaders`
   2. `cargo test -p render_loop --features typed-shaders --test typed_shaders_smoke`
 - Usage: `./tools/run-typed-shader-check.sh` (from repo root or any path).

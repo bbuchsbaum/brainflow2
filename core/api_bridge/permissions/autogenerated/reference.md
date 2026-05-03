@@ -21,6 +21,7 @@ Default permissions for api-bridge plugin
 - `allow-update-frame-ubo`
 - `allow-update-frame-for-synchronized-view`
 - `allow-set-crosshair`
+- `allow-update-slice-outline`
 - `allow-set-view-plane`
 - `allow-create-offscreen-render-target`
 - `allow-add-render-layer`
@@ -50,6 +51,7 @@ Default permissions for api-bridge plugin
 - `allow-get-volume-timepoint`
 - `allow-get-volume-info`
 - `allow-get-nifti-header-info`
+- `allow-peek-volume-metadata`
 - `allow-render-view`
 - `allow-submit-view`
 - `allow-render-views`
@@ -1725,6 +1727,32 @@ Denies the patch_layer command without any pre-configured scope.
 <tr>
 <td>
 
+`api-bridge:allow-peek-volume-metadata`
+
+</td>
+<td>
+
+Enables the peek_volume_metadata command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:deny-peek-volume-metadata`
+
+</td>
+<td>
+
+Denies the peek_volume_metadata command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
 `api-bridge:allow-preview-parcel-binding-coverage`
 
 </td>
@@ -2784,6 +2812,32 @@ Enables the update_layer_threshold command without any pre-configured scope.
 <td>
 
 Denies the update_layer_threshold command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:allow-update-slice-outline`
+
+</td>
+<td>
+
+Enables the update_slice_outline command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:deny-update-slice-outline`
+
+</td>
+<td>
+
+Denies the update_slice_outline command without any pre-configured scope.
 
 </td>
 </tr>

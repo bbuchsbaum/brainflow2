@@ -81,6 +81,13 @@ export interface CoreApi {
 
     // Crosshair and View Plane Updates
     set_crosshair(world_coords: [number, number, number]): Promise<void>;
+    update_slice_outline(
+        enabled: boolean,
+        outlineLayerIndex: number,
+        selectedLabelId: number,
+        color: [number, number, number, number],
+        thicknessPx: number
+    ): Promise<void>;
     set_view_plane(plane_id: 0 | 1 | 2): Promise<void>; // 0=Ax, 1=Cor, 2=Sag
 
     // Render target management

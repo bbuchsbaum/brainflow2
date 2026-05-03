@@ -70,6 +70,20 @@ struct LayerMetadata {
     _padding7: u32,
 };
 
+// --- Optional slice feature uniforms ---
+// Bound once at group 3 so new orthogonal slice features do not grow LayerData.
+struct SliceFeatureUbo {
+    outline_enabled: u32,
+    outline_layer_index: u32,
+    selected_label_id: u32,
+    _pad0: u32,
+    outline_color: vec4<f32>,
+    outline_thickness_px: f32,
+    _pad1_x: f32,
+    _pad1_y: f32,
+    _pad1_z: f32,
+};
+
 const LAYER_MODE_SCALAR: u32 = 0u;
 const LAYER_MODE_LABEL: u32 = 1u;
 const LAYER_MODE_MASK: u32 = 2u;
@@ -115,6 +129,9 @@ const LAYER_MODE_MASK: u32 = 2u;
 @group(2) @binding(26) var samplerLinear: sampler;
 @group(2) @binding(27) var colormapLutTexture: texture_2d_array<f32>;
 @group(2) @binding(28) var samplerNearest: sampler;
+
+// --- Bind Group 3: Optional Feature Uniforms ---
+@group(3) @binding(0) var<uniform> slice_features: SliceFeatureUbo;
 
 // --- Vertex Shader Output ---
 struct VsOut {
@@ -212,6 +229,53 @@ fn sampleMaskTexture(texture_index: u32, coord: vec3<f32>) -> f32 {
         case 12u: { return textureSampleLevel(maskTexture12, samplerNearest, coord, 0.0).r; }
         default: { return 1.0; }
     }
+}
+
+fn sampleLayerLabelId(layer: LayerData, world_mm: vec3<f32>) -> u32 {
+    let voxel_coord_h = layer.world_to_voxel * vec4<f32>(world_mm, 1.0);
+    if (voxel_coord_h.w <= 0.0) { return 0u; }
+
+    let voxel_coord = voxel_coord_h.xyz / voxel_coord_h.w;
+    let dim_f = vec3<f32>(layer.dim);
+    if (any(voxel_coord < vec3<f32>(0.0)) || any(voxel_coord >= dim_f)) {
+        return 0u;
+    }
+
+    let tex_coord = voxel_coord / dim_f;
+    let raw_value = sampleVolumeTexture(layer.texture_index, tex_coord, 0u);
+    return u32(max(round(raw_value), 0.0));
+}
+
+fn sampleSelectedLabelOutline(layer: LayerData, world_mm: vec3<f32>) -> vec4<f32> {
+    if (slice_features.outline_enabled == 0u || layer.layer_mode != LAYER_MODE_LABEL) {
+        return vec4<f32>(0.0);
+    }
+
+    let selected_label = slice_features.selected_label_id;
+    if (selected_label == 0u) {
+        return vec4<f32>(0.0);
+    }
+
+    let center_label = sampleLayerLabelId(layer, world_mm);
+    if (center_label != selected_label) {
+        return vec4<f32>(0.0);
+    }
+
+    let thickness_px = max(slice_features.outline_thickness_px, 1.0);
+    let du = frame.u_mm.xyz / max(f32(frame.target_dim.x), 1.0) * thickness_px;
+    let dv = frame.v_mm.xyz / max(f32(frame.target_dim.y), 1.0) * thickness_px;
+
+    let neighbor_differs =
+        sampleLayerLabelId(layer, world_mm + du) != selected_label ||
+        sampleLayerLabelId(layer, world_mm - du) != selected_label ||
+        sampleLayerLabelId(layer, world_mm + dv) != selected_label ||
+        sampleLayerLabelId(layer, world_mm - dv) != selected_label;
+
+    if (neighbor_differs) {
+        return slice_features.outline_color;
+    }
+
+    return vec4<f32>(0.0);
 }
 
 // Debug: visualize raw sampling for a specific texture index.
@@ -428,6 +492,11 @@ fn fs_main(input: VsOut) -> @location(0) vec4<f32> {
             layer_color = sampleLayer(layer, world_mm);
         }
         final_color = composite(final_color, layer_color, layer.blend_mode);
+
+        if (slice_features.outline_enabled == 1u && i == slice_features.outline_layer_index) {
+            let outline_color = sampleSelectedLabelOutline(layer, world_mm);
+            final_color = composite(final_color, outline_color, 0u);
+        }
     }
     
     // Draw crosshair if enabled

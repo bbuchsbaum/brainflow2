@@ -1,6 +1,6 @@
 use approx::assert_abs_diff_eq;
 use nalgebra::Matrix4;
-use render_loop::{LayerUboStd140, RenderLoopService};
+use render_loop::{LayerUboStd140, RenderLoopService, SliceFeatureUbo};
 
 #[tokio::test]
 async fn ubo_window_level_clamps_correctly() {
@@ -83,6 +83,62 @@ fn ubo_field_offsets() {
 }
 
 #[test]
+fn slice_feature_ubo_layout_and_defaults() {
+    use std::mem::{offset_of, size_of};
+
+    assert_eq!(size_of::<SliceFeatureUbo>(), 48);
+    assert_eq!(offset_of!(SliceFeatureUbo, outline_enabled), 0);
+    assert_eq!(offset_of!(SliceFeatureUbo, outline_layer_index), 4);
+    assert_eq!(offset_of!(SliceFeatureUbo, selected_label_id), 8);
+    assert_eq!(offset_of!(SliceFeatureUbo, _pad0), 12);
+    assert_eq!(offset_of!(SliceFeatureUbo, outline_color), 16);
+    assert_eq!(offset_of!(SliceFeatureUbo, outline_thickness_px), 32);
+    assert_eq!(offset_of!(SliceFeatureUbo, _pad1), 36);
+
+    let features = SliceFeatureUbo::default();
+    assert_eq!(features.outline_enabled, 0);
+    assert_eq!(features.outline_layer_index, 0);
+    assert_eq!(features.selected_label_id, 0);
+    assert_eq!(features.outline_color, [1.0, 1.0, 0.0, 1.0]);
+    assert_eq!(features.outline_thickness_px, 1.0);
+}
+
+#[test]
+fn slice_feature_wgsl_padding_does_not_use_vec3_after_scalar() {
+    let shaders = [
+        (
+            "slice_world_space_masked.wgsl",
+            include_str!("../shaders/slice_world_space_masked.wgsl"),
+        ),
+        (
+            "slice_world_space_optimized_masked.wgsl",
+            include_str!("../shaders/slice_world_space_optimized_masked.wgsl"),
+        ),
+    ];
+
+    for (name, source) in shaders {
+        let feature_body = wgsl_struct_body(source, "SliceFeatureUbo")
+            .unwrap_or_else(|| panic!("{name} is missing SliceFeatureUbo"));
+
+        assert!(
+            !feature_body.contains("vec3<f32>"),
+            "{name} SliceFeatureUbo must not use vec3 padding after \
+             outline_thickness_px. WGSL gives vec3 16-byte alignment there, \
+             making the shader expect a 64-byte uniform while Rust provides \
+             a 48-byte SliceFeatureUbo, which can black-frame the render."
+        );
+        assert!(
+            feature_body.contains("outline_thickness_px: f32")
+                && feature_body.contains("_pad1_x: f32")
+                && feature_body.contains("_pad1_y: f32")
+                && feature_body.contains("_pad1_z: f32"),
+            "{name} SliceFeatureUbo must use three scalar f32 pad fields after \
+             outline_thickness_px to match Rust SliceFeatureUbo's 48-byte layout"
+        );
+    }
+}
+
+#[test]
 fn active_masked_wgsl_matches_layer_ubo_field_order() {
     let expected_frame_fields = [
         "origin_mm",
@@ -114,6 +170,17 @@ fn active_masked_wgsl_matches_layer_ubo_field_order() {
         "borderThicknessPx",
         "layer_mode",
     ];
+    let expected_feature_fields = [
+        "outline_enabled",
+        "outline_layer_index",
+        "selected_label_id",
+        "_pad0",
+        "outline_color",
+        "outline_thickness_px",
+        "_pad1_x",
+        "_pad1_y",
+        "_pad1_z",
+    ];
 
     let shaders = [
         (
@@ -137,6 +204,19 @@ fn active_masked_wgsl_matches_layer_ubo_field_order() {
         assert!(
             layer_body.contains("Total struct size: 160 bytes"),
             "{name} LayerData should document the 160-byte LayerUboStd140 stride"
+        );
+
+        let feature_body = wgsl_struct_body(source, "SliceFeatureUbo")
+            .unwrap_or_else(|| panic!("{name} is missing SliceFeatureUbo"));
+        assert_fields_in_order(
+            name,
+            "SliceFeatureUbo",
+            feature_body,
+            &expected_feature_fields,
+        );
+        assert!(
+            source.contains("@group(3) @binding(0) var<uniform> slice_features"),
+            "{name} should bind slice feature uniforms at group 3 binding 0"
         );
     }
 }

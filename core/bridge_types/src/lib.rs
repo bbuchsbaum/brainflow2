@@ -610,6 +610,33 @@ pub struct SurfaceGeometryData {
     pub faces: Vec<u32>,
 }
 
+/// Lightweight, header-only metadata for the Files-panel preview.
+///
+/// Returned by the `peek_volume_metadata` command without ever
+/// loading the volume data into the GPU. Fields are camelCase in the
+/// generated TypeScript bindings.
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
+#[serde(rename_all = "camelCase")]
+pub struct PeekVolumeMetadata {
+    /// Path that was probed.
+    pub path: String,
+    /// Discriminator: "nifti" | "gifti".
+    pub kind: String,
+    /// Spatial (and optional time) dimensions.
+    pub dims: Vec<usize>,
+    /// Voxel size in mm. Empty for surface meshes.
+    pub voxel_size: Vec<f32>,
+    /// Data type string (e.g. "f32", "i16", "u8") if known.
+    pub dtype: Option<String>,
+    /// True when the probe identifies the volume as 4D.
+    pub is_four_d: bool,
+    /// Number of time points if applicable.
+    pub num_timepoints: Option<usize>,
+    /// Repetition time in seconds if applicable.
+    pub tr: Option<f32>,
+}
+
 /// Detailed NIfTI header metadata for display in the UI
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[ts(export)]

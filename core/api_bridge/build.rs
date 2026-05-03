@@ -13,6 +13,7 @@ const COMMANDS: &[&str] = &[
     "get_volume_timepoint",
     "get_volume_info",
     "get_nifti_header_info",
+    "peek_volume_metadata",
     // "get_timeseries_matrix", // REMOVED - Returns unimplemented
     "get_initial_views",
     "recalculate_view_for_dimensions",
@@ -31,6 +32,7 @@ const COMMANDS: &[&str] = &[
     "update_frame_ubo",
     "update_frame_for_synchronized_view",
     "set_crosshair",
+    "update_slice_outline",
     "set_view_plane",
     "create_offscreen_render_target",
     "clear_render_layers",

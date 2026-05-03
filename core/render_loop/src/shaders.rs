@@ -274,10 +274,11 @@ pub fn create_slice_pipeline_layout(
     global: &BindGroupLayout,
     layer: &BindGroupLayout,
     texture: &BindGroupLayout,
+    features: &BindGroupLayout,
 ) -> wgpu::PipelineLayout {
     device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
         label: Some("slice_world_space Pipeline Layout"),
-        bind_group_layouts: &[global, layer, texture],
+        bind_group_layouts: &[global, layer, texture, features],
         push_constant_ranges: &[],
     })
 }
@@ -459,6 +460,23 @@ pub mod layouts {
                     count: None,
                 },
             ],
+        })
+    }
+
+    /// Create bind group layout for optional slice-rendering feature uniforms (Group 3).
+    pub fn create_slice_feature_layout(device: &Device) -> BindGroupLayout {
+        device.create_bind_group_layout(&BindGroupLayoutDescriptor {
+            label: Some("Slice Feature Bind Group Layout"),
+            entries: &[BindGroupLayoutEntry {
+                binding: 0,
+                visibility: ShaderStages::FRAGMENT,
+                ty: BindingType::Buffer {
+                    ty: BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            }],
         })
     }
 

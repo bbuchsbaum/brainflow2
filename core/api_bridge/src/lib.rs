@@ -16,18 +16,18 @@ use tauri::State; // Need State for accessing registry
                   // Import types from bridge_types
 use bridge_types::{
     self, icons, BatchRenderRequest, BridgeError, BridgeResult, DataRange, FlatNode,
-    GpuTextureFormat, LayerPatch, Loader, NiftiHeaderInfo, RemoteAuthChallenge, RemoteAuthPrompt,
-    RemoteHostKeyChallenge, RemoteMountConnectRequest, RemoteMountConnectResult, RemoteMountInfo,
-    RemoteMountOrigin, RemoteMountProfile, SliceAxisMeta, SliceInfo, StudioImportCandidate,
-    StudioImportPreviewRequest, TextureCoordinates, TreePayload, VolumeHandleInfo,
-    VolumeLayerGpuInfo, VolumeSendable,
+    GpuTextureFormat, LayerPatch, Loader, NiftiHeaderInfo, PeekVolumeMetadata, RemoteAuthChallenge,
+    RemoteAuthPrompt, RemoteHostKeyChallenge, RemoteMountConnectRequest, RemoteMountConnectResult,
+    RemoteMountInfo, RemoteMountOrigin, RemoteMountProfile, SliceAxisMeta, SliceInfo,
+    StudioImportCandidate, StudioImportPreviewRequest, TextureCoordinates, TreePayload,
+    VolumeHandleInfo, VolumeLayerGpuInfo, VolumeSendable,
 };
 use colormap::colormap_by_name;
 // Import NiftiLoader for registration
 // use nifti_loader::NiftiLoader;
-use render_loop::RenderLoopService; // Remove unused RenderLoopError
-                                    // Import async_trait attribute
-                                    // use async_trait::async_trait;
+use render_loop::{RenderLoopService, SliceFeatureUbo}; // Remove unused RenderLoopError
+                                                       // Import async_trait attribute
+                                                       // use async_trait::async_trait;
 use log::{debug, error, info, warn}; // Added error, warn, and debug
 use serde::{Deserialize, Serialize}; // Need Serialize/Deserialize for new types
 use serde_json; // For JSON parsing
@@ -3321,6 +3321,83 @@ fn derive_orientation_string(affine: &nalgebra::Matrix4<f32>) -> String {
 }
 
 #[command]
+#[tracing::instrument(skip_all, err, name = "api.peek_volume_metadata")]
+async fn peek_volume_metadata(path: String) -> BridgeResult<PeekVolumeMetadata> {
+    info!("Bridge: peek_volume_metadata called for {}", path);
+
+    let path_buf = PathBuf::from(&path);
+    let lower = path.to_ascii_lowercase();
+
+    // GIfTI: surface meshes have no voxel grid, so report mesh dims via the
+    // gifti loader. The Files-panel only needs enough to render a one-line
+    // preview row.
+    if lower.ends_with(".gii") || lower.ends_with(".surf.gii") || lower.ends_with(".func.gii") {
+        let kind = if lower.ends_with(".surf.gii") {
+            "gifti-surf"
+        } else if lower.ends_with(".func.gii") {
+            "gifti-func"
+        } else {
+            "gifti"
+        };
+        return Ok(PeekVolumeMetadata {
+            path: path.clone(),
+            kind: kind.to_string(),
+            dims: Vec::new(),
+            voxel_size: Vec::new(),
+            dtype: None,
+            is_four_d: false,
+            num_timepoints: None,
+            tr: None,
+        });
+    }
+
+    // NIfTI / NIfTI.gz: use neuroim's header-only reader. Run on the blocking
+    // pool so we don't tie up the tokio reactor while reading from disk.
+    let header_info = tokio::task::spawn_blocking(move || {
+        neuroim::io::read_header(&path_buf)
+    })
+    .await
+    .map_err(|join_err| BridgeError::Internal {
+        code: 5040,
+        details: format!("peek_volume_metadata join error: {join_err}"),
+    })?
+    .map_err(|err| BridgeError::Loader {
+        code: 4040,
+        details: format!("Failed to read NIfTI header: {err}"),
+    })?;
+
+    let dims = header_info.dim.clone();
+    let mut voxel_size: Vec<f32> = header_info
+        .spacing
+        .iter()
+        .copied()
+        .take(3)
+        .collect();
+    while voxel_size.len() < 3 {
+        voxel_size.push(0.0);
+    }
+
+    let is_four_d = dims.len() >= 4 && dims[3] > 1;
+    let num_timepoints = if is_four_d { Some(dims[3]) } else { None };
+    let tr = if is_four_d && header_info.spacing.len() > 3 && header_info.spacing[3] > 0.0 {
+        Some(header_info.spacing[3])
+    } else {
+        None
+    };
+
+    Ok(PeekVolumeMetadata {
+        path,
+        kind: "nifti".to_string(),
+        dims,
+        voxel_size,
+        dtype: Some(header_info.datatype),
+        is_four_d,
+        num_timepoints,
+        tr,
+    })
+}
+
+#[command]
 #[tracing::instrument(skip_all, err, name = "api.get_nifti_header_info")]
 async fn get_nifti_header_info(
     volume_id: String,
@@ -5270,6 +5347,51 @@ async fn set_crosshair(
 
     // Update the crosshair UBO
     service.set_crosshair(world_coords_arr);
+
+    Ok(())
+}
+
+#[command]
+#[tracing::instrument(skip_all, err, name = "api.update_slice_outline")]
+async fn update_slice_outline(
+    enabled: bool,
+    outline_layer_index: u32,
+    selected_label_id: u32,
+    color: Vec<f32>,
+    thickness_px: f32,
+    state: State<'_, BridgeState>,
+) -> BridgeResult<()> {
+    if color.len() != 4 {
+        return Err(BridgeError::Input {
+            code: 2020,
+            details: "color must be a 4-element RGBA array".to_string(),
+        });
+    }
+
+    let color_arr: [f32; 4] = color.try_into().map_err(|_| BridgeError::Internal {
+        code: 5020,
+        details: "Failed to convert outline color to array".to_string(),
+    })?;
+
+    let service_guard = state.render_loop_service.lock().await;
+    let service_arc = service_guard
+        .as_ref()
+        .ok_or_else(|| BridgeError::ServiceNotInitialized {
+            code: 5006,
+            details:
+                "GPU rendering service is not initialized. Please initialize the render loop first."
+                    .to_string(),
+        })?;
+    let service = service_arc.lock().await;
+
+    service.update_slice_feature_ubo(SliceFeatureUbo {
+        outline_enabled: u32::from(enabled),
+        outline_layer_index,
+        selected_label_id,
+        outline_color: color_arr,
+        outline_thickness_px: thickness_px.max(1.0),
+        ..SliceFeatureUbo::default()
+    });
 
     Ok(())
 }
@@ -7397,10 +7519,62 @@ struct LayerState {
     interpolation: String,
     #[serde(rename = "layerMode", default)]
     layer_mode: render_loop::render_state::LayerMode,
+    #[serde(default)]
+    outline: Option<LayerOutlineState>,
 }
 
 fn default_interpolation() -> String {
     "linear".to_string()
+}
+
+#[derive(Deserialize, Debug, Clone)]
+struct LayerOutlineState {
+    #[serde(default)]
+    enabled: bool,
+    #[serde(rename = "selectedLabelId", default)]
+    selected_label_id: u32,
+    #[serde(default = "default_outline_rgba")]
+    color: [f32; 4],
+    #[serde(rename = "thicknessPx", default = "default_outline_thickness_px")]
+    thickness_px: f32,
+}
+
+fn default_outline_rgba() -> [f32; 4] {
+    [1.0, 1.0, 0.0, 1.0]
+}
+
+fn default_outline_thickness_px() -> f32 {
+    1.0
+}
+
+fn slice_features_from_frontend_layers(layers: &[LayerState]) -> SliceFeatureUbo {
+    let mut visible_layer_index = 0u32;
+
+    for layer in layers {
+        if !(layer.visible && layer.opacity > 0.0) {
+            continue;
+        }
+
+        if let Some(outline) = &layer.outline {
+            if outline.enabled
+                && outline.selected_label_id > 0
+                && layer.layer_mode == render_loop::render_state::LayerMode::Label
+            {
+                return SliceFeatureUbo {
+                    outline_enabled: 1,
+                    outline_layer_index: visible_layer_index,
+                    selected_label_id: outline.selected_label_id,
+                    outline_color: outline.color,
+                    outline_thickness_px: outline.thickness_px.max(1.0),
+                    ..SliceFeatureUbo::default()
+                };
+            }
+        }
+
+        visible_layer_index += 1;
+    }
+
+    SliceFeatureUbo::default()
 }
 
 #[derive(Debug, Clone)]
@@ -7914,6 +8088,7 @@ async fn render_frontend_view_with_diagnostics(
     info!("⏱️  Layer processing took: {:?}", layer_processing_time);
 
     let render_start = std::time::Instant::now();
+    service.update_slice_feature_ubo(slice_features_from_frontend_layers(&frontend_state.layers));
     let frame_result = service
         .request_frame_with_options(
             render_loop::view_state::ViewId::new("frontend_view"),
@@ -10689,6 +10864,7 @@ pub fn plugin<R: Runtime>() -> TauriPlugin<R> {
             get_volume_timepoint,
             get_volume_info,
             get_nifti_header_info,
+            peek_volume_metadata,
             // get_timeseries_matrix, // REMOVED - Returns unimplemented
             get_initial_views,
             recalculate_view_for_dimensions,
@@ -10712,6 +10888,7 @@ pub fn plugin<R: Runtime>() -> TauriPlugin<R> {
             update_frame_ubo,
             update_frame_for_synchronized_view,
             set_crosshair,
+            update_slice_outline,
             // set_view_plane, // Removed - view plane info now encoded in frame vectors
             clear_render_layers,
             update_layer_opacity,

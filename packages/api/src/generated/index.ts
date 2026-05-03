@@ -23,6 +23,7 @@ export * from './GpuUploadError';
 export * from './BidsValidationIssue';
 export * from './RemoteMountConnectRequest';
 export * from './BidsCoverageCell';
+export * from './PeekVolumeMetadata';
 export * from './DataRange';
 export * from './RemoteHostKeyChallenge';
 export * from './BidsCoverageMatrix';

@@ -205,6 +205,40 @@ impl Default for LayerUboStd140 {
 // and update this check.
 const _: [(); 160] = [(); std::mem::size_of::<LayerUboStd140>()];
 
+/// Sidecar feature uniforms for slice rendering.
+///
+/// This is intentionally separate from `LayerUboStd140`: optional rendering
+/// capabilities such as selected-label outlines should not grow every layer's
+/// hot-path layout. Group 3 is the stable feature-uniform slot for the active
+/// runtime slice shaders.
+#[repr(C)]
+#[derive(Debug, Copy, Clone, Pod, Zeroable)]
+pub struct SliceFeatureUbo {
+    pub outline_enabled: u32,
+    pub outline_layer_index: u32,
+    pub selected_label_id: u32,
+    pub _pad0: u32,
+    pub outline_color: [f32; 4],
+    pub outline_thickness_px: f32,
+    pub _pad1: [f32; 3],
+}
+
+impl Default for SliceFeatureUbo {
+    fn default() -> Self {
+        Self {
+            outline_enabled: 0,
+            outline_layer_index: 0,
+            selected_label_id: 0,
+            _pad0: 0,
+            outline_color: [1.0, 1.0, 0.0, 1.0],
+            outline_thickness_px: 1.0,
+            _pad1: [0.0; 3],
+        }
+    }
+}
+
+const _: [(); 48] = [(); std::mem::size_of::<SliceFeatureUbo>()];
+
 // --- Optimized layer data struct for performance shader ---
 // This struct includes precomputed values to reduce per-pixel calculations
 #[repr(C)]

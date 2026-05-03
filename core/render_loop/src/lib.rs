@@ -50,7 +50,9 @@ pub mod view_state;
 pub mod test_fixtures;
 
 // Re-export commonly used types from ubo module
-pub use ubo::{CrosshairUbo, CrosshairUboUpdated, FrameUbo, LayerUboStd140, ViewPlaneUbo};
+pub use ubo::{
+    CrosshairUbo, CrosshairUboUpdated, FrameUbo, LayerUboStd140, SliceFeatureUbo, ViewPlaneUbo,
+};
 // Re-export render state types for external use
 pub use render_state::{BlendMode, LayerInfo, LayerMode, ThresholdMode};
 // Re-export slice adapter for GPU-CPU differential testing
@@ -447,6 +449,7 @@ pub struct RenderLoopService {
     pub volume_atlas: TextureAtlas, // Now mutable via service methods
     pub frame_ubo_buffer: wgpu::Buffer, // ADDED: Frame UBO buffer
     pub crosshair_ubo_buffer: wgpu::Buffer,
+    pub slice_feature_ubo_buffer: wgpu::Buffer,
     pub global_bind_group_layout: wgpu::BindGroupLayout,
     // --- New fields for surface management --- Make public for BridgeState::default
     pub surface: Option<wgpu::Surface<'static>>, // Use 'static lifetime
@@ -460,6 +463,8 @@ pub struct RenderLoopService {
     pub frame_bind_group_layout: Option<wgpu::BindGroupLayout>,
     pub layer_bind_group_layout: Option<wgpu::BindGroupLayout>,
     pub texture_bind_group_layout: Option<wgpu::BindGroupLayout>,
+    pub slice_feature_bind_group_layout: Option<wgpu::BindGroupLayout>,
+    pub slice_feature_bind_group: Option<wgpu::BindGroup>,
     // --- Render state management ---
     pub render_state: RenderState,
     pub render_pass_manager: RenderPassManager,
@@ -616,6 +621,15 @@ impl RenderLoopService {
             });
         log::debug!("RenderLoopService: Crosshair UBO buffer created.");
 
+        let initial_slice_feature_data = SliceFeatureUbo::default();
+        let slice_feature_ubo_buffer =
+            device_arc.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("Slice Feature UBO Buffer"),
+                contents: bytemuck::bytes_of(&initial_slice_feature_data),
+                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            });
+        log::debug!("RenderLoopService: Slice feature UBO buffer created.");
+
         // --- Create Global Bind Group Layout using the standardized layout ---
         let global_bind_group_layout = shaders::layouts::create_frame_layout(&device_arc);
         log::debug!("RenderLoopService: Global bind group layout created.");
@@ -642,6 +656,18 @@ impl RenderLoopService {
             &device_arc,
             multi_texture_manager::MAX_TEXTURES as u32,
         ));
+        let slice_feature_bind_group_layout =
+            Some(shaders::layouts::create_slice_feature_layout(&device_arc));
+        let slice_feature_bind_group = slice_feature_bind_group_layout.as_ref().map(|layout| {
+            device_arc.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("Slice Feature Bind Group"),
+                layout,
+                entries: &[wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: slice_feature_ubo_buffer.as_entire_binding(),
+                }],
+            })
+        });
         // Create bind groups for the managers
         if let (Some(ref mut layer_storage), Some(ref layer_layout)) =
             (&mut layer_storage_manager, &layer_bind_group_layout)
@@ -657,6 +683,7 @@ impl RenderLoopService {
             volume_atlas,
             frame_ubo_buffer, // ADDED: Store frame UBO
             crosshair_ubo_buffer,
+            slice_feature_ubo_buffer,
             global_bind_group_layout,
             surface: None,
             surface_config: None,
@@ -666,6 +693,8 @@ impl RenderLoopService {
             frame_bind_group_layout,
             layer_bind_group_layout,
             texture_bind_group_layout,
+            slice_feature_bind_group_layout,
+            slice_feature_bind_group,
             render_state: RenderState::new(),
             render_pass_manager: RenderPassManager::new(),
             layer_state_manager: LayerStateManager::new(8), // Support up to 8 layers
@@ -968,6 +997,36 @@ impl RenderLoopService {
             self.texture_bind_group_id = Some(bind_group_id);
             self.texture_bind_group_layout = Some(layout);
         }
+        self.ensure_slice_feature_bind_group();
+    }
+
+    fn ensure_slice_feature_bind_group(&mut self) {
+        if self.slice_feature_bind_group_layout.is_none() {
+            self.slice_feature_bind_group_layout =
+                Some(shaders::layouts::create_slice_feature_layout(&self.device));
+        }
+
+        if self.slice_feature_bind_group.is_none() {
+            if let Some(layout) = self.slice_feature_bind_group_layout.as_ref() {
+                self.slice_feature_bind_group =
+                    Some(self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                        label: Some("Slice Feature Bind Group"),
+                        layout,
+                        entries: &[wgpu::BindGroupEntry {
+                            binding: 0,
+                            resource: self.slice_feature_ubo_buffer.as_entire_binding(),
+                        }],
+                    }));
+            }
+        }
+    }
+
+    pub fn update_slice_feature_ubo(&self, features: SliceFeatureUbo) {
+        self.queue.write_buffer(
+            &self.slice_feature_ubo_buffer,
+            0,
+            bytemuck::bytes_of(&features),
+        );
     }
 
     /// Ensure a render pipeline exists for the given shader
@@ -1026,6 +1085,13 @@ impl RenderLoopService {
                     code: 9005,
                     details: "Texture bind group layout not initialized".to_string(),
                 })?;
+        let slice_feature_layout =
+            self.slice_feature_bind_group_layout
+                .as_ref()
+                .ok_or_else(|| RenderLoopError::Internal {
+                    code: 9006,
+                    details: "Slice feature bind group layout not initialized".to_string(),
+                })?;
 
         // Get the shader (immutable borrow), load if not found
         let shader = match self.shader_manager.get_shader(&shader_name_owned) {
@@ -1081,7 +1147,12 @@ impl RenderLoopService {
         };
 
         // Now work with the pipeline manager
-        let bind_group_layouts = vec![global_layout, layer_layout, texture_layout];
+        let bind_group_layouts = vec![
+            global_layout,
+            layer_layout,
+            texture_layout,
+            slice_feature_layout,
+        ];
 
         let layout = self.pipeline_manager.get_or_create_layout(
             device,
@@ -1341,11 +1412,15 @@ impl RenderLoopService {
             &self.device,
             multi_texture_manager::MAX_TEXTURES as u32,
         );
+        let slice_feature_layout = shaders::layouts::create_slice_feature_layout(&self.device);
 
         // Store layouts for later use
         self.frame_bind_group_layout = Some(frame_layout);
         self.layer_bind_group_layout = Some(layer_storage_layout);
         self.texture_bind_group_layout = Some(texture_layout);
+        self.slice_feature_bind_group_layout = Some(slice_feature_layout);
+        self.slice_feature_bind_group = None;
+        self.ensure_slice_feature_bind_group();
 
         // Initialize layer storage manager for world-space rendering
         self.layer_storage_manager =
@@ -1383,6 +1458,8 @@ impl RenderLoopService {
                 layer_storage_manager.create_bind_group(&self.device, layer_layout);
             }
         }
+
+        self.ensure_slice_feature_bind_group();
 
         Ok(())
     }
@@ -3972,6 +4049,12 @@ impl RenderLoopService {
                 } else {
                     log::warn!("render_to_buffer: Multi-texture manager not initialized");
                 }
+
+                if let Some(feature_bind_group) = &self.slice_feature_bind_group {
+                    render_pass.set_bind_group(3, feature_bind_group, &[]);
+                } else {
+                    log::warn!("render_to_buffer: No slice feature bind group available");
+                }
             } else {
                 // Traditional rendering: use UBO and atlas texture bind groups
                 if let Some(layer_bind_group) = self.layer_uniform_manager.bind_group() {
@@ -4579,6 +4662,10 @@ impl RenderLoopService {
                     // Typed path also uses manual bind group for textures
                     render_pass.set_bind_group(2, texture_bind_group, &[]);
                 }
+            }
+
+            if let Some(feature_bind_group) = &self.slice_feature_bind_group {
+                render_pass.set_bind_group(3, feature_bind_group, &[]);
             }
 
             // Draw full screen quad

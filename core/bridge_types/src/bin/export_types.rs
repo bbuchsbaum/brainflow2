@@ -52,6 +52,10 @@ fn main() {
         eprintln!("Failed to export LayerPatch: {}", e);
     }
 
+    if let Err(e) = PeekVolumeMetadata::export_all() {
+        eprintln!("Failed to export PeekVolumeMetadata: {}", e);
+    }
+
     if let Err(e) = RemoteMountInfo::export_all() {
         eprintln!("Warning: {e}");
     }
