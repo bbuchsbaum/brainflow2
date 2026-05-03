@@ -106,6 +106,7 @@ export class ApiService {
         threshold: layer.threshold,
         interpolation: layer.interpolation || 'linear',
         layerMode: layer.layerMode ?? 'scalar',
+        outline: layer.outline,
         visible: true
       };
     });
@@ -572,6 +573,22 @@ export class ApiService {
 
   async patchLayer(layerId: string, patch: Record<string, any>): Promise<void> {
     return getLayerGpuService().patchLayer(layerId, patch);
+  }
+
+  async updateSliceOutline(options: {
+    enabled: boolean;
+    outlineLayerIndex: number;
+    selectedLabelId: number;
+    color: [number, number, number, number];
+    thicknessPx: number;
+  }): Promise<void> {
+    await this.transport.invoke('update_slice_outline', {
+      enabled: options.enabled,
+      outlineLayerIndex: options.outlineLayerIndex,
+      selectedLabelId: options.selectedLabelId,
+      color: options.color,
+      thicknessPx: options.thicknessPx
+    });
   }
 
   /**

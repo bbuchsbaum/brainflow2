@@ -5,13 +5,15 @@
  * SliceViewport, while keeping mosaic-specific mirror crosshair logic local.
  */
 
-import { useCallback, useRef, useMemo } from 'react';
-import { SliceViewport } from './SliceViewport';
+import { useCallback, useRef, useMemo, type MouseEvent } from 'react';
+import { SliceViewport, type SliceViewportPlacement } from './SliceViewport';
 import { useViewStateStore } from '@/stores/viewStateStore';
 import { getMosaicRenderService } from '@/services/MosaicRenderService';
 import { drawCrosshair, getLineDash } from '@/utils/crosshairUtils';
 import { useCrosshairSettingsStore } from '@/stores/crosshairSettingsStore';
+import { CoordinateTransform } from '@/utils/coordinates';
 import type { CrosshairStyle } from '@/utils/crosshairUtils';
+import type { ViewPlane } from '@/types/coordinates';
 
 interface MosaicCellProps {
   width: number;
@@ -68,20 +70,23 @@ export function MosaicCell({
   const crosshairSettings = useCrosshairSettingsStore(state => state.getViewSettings(axis));
   
   const slicePositionRef = useRef<number>(0);
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const placementRef = useRef<SliceViewportPlacement | null>(null);
+  const cellViewPlaneRef = useRef<ViewPlane | null>(null);
 
   // Custom render function to draw crosshairs
   const customRender = useCallback((
     ctx: CanvasRenderingContext2D,
     placement: { x: number; y: number; width: number; height: number; imageWidth: number; imageHeight: number }
   ) => {
-    // Try to get the view plane from the current ViewState
-    // But if it doesn't exist, just skip crosshair rendering
-    // This prevents crashes when viewState changes
-    if (!axisViewPlane) {
+    placementRef.current = placement;
+    const currentViewPlane = mosaicRenderService.getViewPlaneForTag(tag) ?? axisViewPlane;
+    cellViewPlaneRef.current = currentViewPlane ?? null;
+
+    if (!currentViewPlane) {
       console.warn(`[MosaicCell] No view plane available for axis ${axis}, skipping crosshair render`);
       return;
     }
-    const currentViewPlane = axisViewPlane;
 
     // Get the actual slice position from MosaicRenderService
     // This is the true mm position without any centering offsets
@@ -170,10 +175,44 @@ export function MosaicCell({
         style
       });
     }
-  }, [axis, sliceIndex, crosshair, axisViewPlane, mosaicRenderService, crosshairSettings]);
+  }, [axis, sliceIndex, crosshair, axisViewPlane, mosaicRenderService, crosshairSettings, tag]);
   
-  const handleWorldClick = useCallback((worldCoord: [number, number, number]) => {
+  const handleCanvasReady = useCallback((canvas: HTMLCanvasElement) => {
+    canvasRef.current = canvas;
+  }, []);
+
+  const handleMouseDown = useCallback((event: MouseEvent<HTMLDivElement>) => {
     if (!onCrosshairClick) return;
+    if (event.button !== 0) return;
+
+    const canvas = canvasRef.current;
+    const placement = placementRef.current;
+    const currentViewPlane =
+      cellViewPlaneRef.current ?? mosaicRenderService.getViewPlaneForTag(tag) ?? axisViewPlane;
+    if (!canvas || !placement || !currentViewPlane) return;
+
+    const rect = canvas.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0 || placement.width <= 0 || placement.height <= 0) {
+      return;
+    }
+
+    const scaleX = canvas.width / rect.width;
+    const scaleY = canvas.height / rect.height;
+    const canvasX = (event.clientX - rect.left) * scaleX;
+    const canvasY = (event.clientY - rect.top) * scaleY;
+
+    if (
+      canvasX < placement.x ||
+      canvasX > placement.x + placement.width ||
+      canvasY < placement.y ||
+      canvasY > placement.y + placement.height
+    ) {
+      return;
+    }
+
+    const imageX = ((canvasX - placement.x) / placement.width) * placement.imageWidth;
+    const imageY = ((canvasY - placement.y) / placement.height) * placement.imageHeight;
+    const worldCoord = CoordinateTransform.screenToWorld(imageX, imageY, currentViewPlane);
 
     // Update the world coordinate based on the slice position
     let finalWorldCoord: [number, number, number];
@@ -189,8 +228,9 @@ export function MosaicCell({
         break;
     }
 
+    event.preventDefault();
     onCrosshairClick(finalWorldCoord);
-  }, [axis, onCrosshairClick]);
+  }, [axis, axisViewPlane, mosaicRenderService, onCrosshairClick, tag]);
   
   return (
     <SliceViewport
@@ -200,7 +240,8 @@ export function MosaicCell({
       tag={tag}
       viewPlane={axisViewPlane}
       customRender={customRender}
-      onWorldClick={handleWorldClick}
+      onCanvasReady={handleCanvasReady}
+      onMouseDown={handleMouseDown}
       className="cursor-crosshair"
       canvasClassName="mosaic-cell-canvas"
     />

@@ -6,6 +6,7 @@
 import { getEventBus, type EventBus } from '@/events/EventBus';
 import { getApiService, type ApiService, type VolumeHandle } from './apiService';
 import { useLayerStore } from '@/stores/layerStore';
+import { useFileBrowserStore } from '@/stores/fileBrowserStore';
 import { getLayerService, type LayerService } from './LayerService';
 import type { Layer } from '@/types/layers';
 import type { LayerInfo } from '@/stores/layerStore';
@@ -146,7 +147,14 @@ export class VolumeLoadingService {
         } : undefined,
         currentTimepoint: volumeHandle.current_timepoint || 0
       };
-      
+
+      if (source === 'file' && sourcePath) {
+        useFileBrowserStore.getState().markFourD(
+          sourcePath,
+          volumeHandle.volume_type === 'TimeSeries4D'
+        );
+      }
+
       volumeDebugLog(`[VolumeLoadingService ${performance.now() - startTime}ms] Created layer object:`, layer);
       
       // 4. Set layer metadata BEFORE adding layer - CRITICAL TIMING

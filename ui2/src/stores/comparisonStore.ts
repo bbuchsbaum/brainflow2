@@ -94,6 +94,8 @@ export const useComparisonStore = create<ComparisonState & ComparisonActions>()(
             visibleLayerIds: new Set([id]),
             viewType: 'axial' as const,
           }));
+          const existing = state.panels.get(workspaceId) ?? [];
+          existing.forEach((panel) => state.panelViewPlanes.delete(panel.id));
           state.panels.set(workspaceId, panels);
           state.layouts.set(workspaceId, 'row');
           state.globalViewTypes.set(workspaceId, 'axial');
@@ -116,6 +118,8 @@ export const useComparisonStore = create<ComparisonState & ComparisonActions>()(
               viewType: 'axial' as const,
             },
           ];
+          const existing = state.panels.get(workspaceId) ?? [];
+          existing.forEach((panel) => state.panelViewPlanes.delete(panel.id));
           state.panels.set(workspaceId, panels);
           state.layouts.set(workspaceId, 'row');
           state.globalViewTypes.set(workspaceId, 'axial');
@@ -179,6 +183,7 @@ export const useComparisonStore = create<ComparisonState & ComparisonActions>()(
         set(state => {
           const panels = state.panels.get(workspaceId);
           if (!panels) return;
+          state.panelViewPlanes.delete(panelId);
           state.panels.set(
             workspaceId,
             panels.map((panel) =>
@@ -194,6 +199,7 @@ export const useComparisonStore = create<ComparisonState & ComparisonActions>()(
         set(state => {
           const panels = state.panels.get(workspaceId);
           if (!panels) return;
+          state.panelViewPlanes.delete(panelId);
           state.panels.set(
             workspaceId,
             panels.map((panel) => {
@@ -238,6 +244,8 @@ export const useComparisonStore = create<ComparisonState & ComparisonActions>()(
 
       setLayout: (workspaceId, layout) => {
         set(state => {
+          const panels = state.panels.get(workspaceId) ?? [];
+          panels.forEach((panel) => state.panelViewPlanes.delete(panel.id));
           state.layouts.set(workspaceId, layout);
         });
       },

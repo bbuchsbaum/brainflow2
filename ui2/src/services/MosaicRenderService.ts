@@ -37,6 +37,7 @@ class MosaicRenderService {
   private static readonly MAX_CONCURRENT_RENDERS = 4;
   // Store actual slice positions for each cell tag
   private slicePositions = new Map<string, number>();
+  private cellViewPlanes = new Map<string, ViewPlane>();
   
   /**
    * Render a single mosaic cell
@@ -91,6 +92,7 @@ class MosaicRenderService {
       );
       this.slicePositions.set(cellId, slicePosition);
       debug(`[MosaicRenderService] Stored slice position ${slicePosition}mm for cell ${cellId}`);
+      this.cellViewPlanes.set(cellId, modifiedViewState.views[axis]);
       
       debug(`[MosaicRenderService] Modified ViewState for slice ${sliceIndex}:`, {
         cellId,
@@ -212,6 +214,7 @@ class MosaicRenderService {
     for (const cellId of cellIds) {
       this.activeRenders.delete(cellId);
       this.slicePositions.delete(cellId);
+      this.cellViewPlanes.delete(cellId);
     }
   }
 
@@ -221,6 +224,7 @@ class MosaicRenderService {
   destroy(): void {
     this.activeRenders.clear();
     this.slicePositions.clear();
+    this.cellViewPlanes.clear();
   }
   
   /**
@@ -228,6 +232,10 @@ class MosaicRenderService {
    */
   getSlicePositionForTag(tag: string): number | undefined {
     return this.slicePositions.get(tag);
+  }
+
+  getViewPlaneForTag(tag: string): ViewPlane | undefined {
+    return this.cellViewPlanes.get(tag);
   }
   
   /**
@@ -419,10 +427,6 @@ class MosaicRenderService {
     // This is the key to showing the entire slice within the cell
     const pixelSize = viewPlaneService.calculatePixelSize(widthMm, heightMm, width, height);
     
-    // Calculate how many pixels the actual anatomy needs
-    const actualWidthPx = widthMm / pixelSize;
-    const actualHeightPx = heightMm / pixelSize;
-    
     // Calculate centering offsets when anatomy doesn't fill the entire canvas
     // This happens when one dimension is smaller than the other
     const offsets = viewPlaneService.calculateCenteringOffsets(
@@ -471,19 +475,11 @@ class MosaicRenderService {
         break;
     }
     
-    // Create the new ViewPlane for this specific slice
-    // Use actual dimensions needed for the anatomy, not the full canvas size
-    // This prevents the backend from rendering beyond what's needed
-    const actualDimPx: [number, number] = [
-      Math.ceil(actualWidthPx),
-      Math.ceil(actualHeightPx)
-    ];
-    
     const newViewPlane: ViewPlane = {
       origin_mm: newOrigin,
       u_mm: newU,
       v_mm: newV,
-      dim_px: actualDimPx  // Use actual anatomy dimensions, not canvas dimensions
+      dim_px: [width, height]
     };
     
     // Create the modified ViewState with both crosshair and proper ViewPlane

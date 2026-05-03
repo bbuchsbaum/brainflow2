@@ -50,33 +50,43 @@ export interface PinnedLocation {
   mountSource: MountSource;
 }
 
+export type FilesViewMode = 'tree' | 'bids' | 'images' | 'loaded';
+
+const VIEW_MODES: readonly FilesViewMode[] = ['tree', 'bids', 'images', 'loaded'] as const;
+
+function isViewMode(value: unknown): value is FilesViewMode {
+  return typeof value === 'string' && (VIEW_MODES as readonly string[]).includes(value);
+}
+
 interface PersistedShape {
   v: number;
   recents: RecentLocation[];
   pinned: PinnedLocation[];
   fourD: string[];
+  viewMode?: FilesViewMode;
 }
 
 function loadPersisted(): PersistedShape {
   if (typeof window === 'undefined') {
-    return { v: PERSIST_VERSION, recents: [], pinned: [], fourD: [] };
+    return { v: PERSIST_VERSION, recents: [], pinned: [], fourD: [], viewMode: 'tree' };
   }
   try {
     const raw = window.localStorage?.getItem(PERSIST_KEY);
-    if (!raw) return { v: PERSIST_VERSION, recents: [], pinned: [], fourD: [] };
+    if (!raw) return { v: PERSIST_VERSION, recents: [], pinned: [], fourD: [], viewMode: 'tree' };
     const parsed = JSON.parse(raw) as Partial<PersistedShape>;
     if (!parsed || parsed.v !== PERSIST_VERSION) {
-      return { v: PERSIST_VERSION, recents: [], pinned: [], fourD: [] };
+      return { v: PERSIST_VERSION, recents: [], pinned: [], fourD: [], viewMode: 'tree' };
     }
     return {
       v: PERSIST_VERSION,
       recents: Array.isArray(parsed.recents) ? parsed.recents.slice(0, RECENTS_LIMIT) : [],
       pinned: Array.isArray(parsed.pinned) ? parsed.pinned.slice(0, PINNED_LIMIT) : [],
       fourD: Array.isArray(parsed.fourD) ? parsed.fourD : [],
+      viewMode: isViewMode(parsed.viewMode) ? parsed.viewMode : 'tree',
     };
   } catch (error) {
     console.warn('fileBrowserStore: failed to load persisted state', error);
-    return { v: PERSIST_VERSION, recents: [], pinned: [], fourD: [] };
+    return { v: PERSIST_VERSION, recents: [], pinned: [], fourD: [], viewMode: 'tree' };
   }
 }
 
@@ -84,6 +94,7 @@ function persist(state: {
   recents: RecentLocation[];
   pinned: PinnedLocation[];
   fourDPaths: Set<string>;
+  viewMode: FilesViewMode;
 }) {
   if (typeof window === 'undefined') return;
   try {
@@ -92,6 +103,7 @@ function persist(state: {
       recents: state.recents,
       pinned: state.pinned,
       fourD: Array.from(state.fourDPaths),
+      viewMode: state.viewMode,
     };
     window.localStorage?.setItem(PERSIST_KEY, JSON.stringify(payload));
   } catch (error) {
@@ -157,12 +169,14 @@ interface FileBrowserActions {
   unpinLocation: (id: string) => void;
   isPinned: (path: string) => boolean;
   markFourD: (path: string, isFourD?: boolean) => void;
+  setViewMode: (mode: FilesViewMode) => void;
 }
 
 interface FileBrowserStateExtras {
   recents: RecentLocation[];
   pinned: PinnedLocation[];
   fourDPaths: Set<string>;
+  viewMode: FilesViewMode;
 }
 
 interface FileBrowserStore extends FileBrowserState, FileBrowserStateExtras, FileBrowserActions {}
@@ -190,6 +204,7 @@ const createFileBrowserStore = () => {
       recents: persisted.recents,
       pinned: persisted.pinned,
       fourDPaths: new Set<string>(persisted.fourD),
+      viewMode: persisted.viewMode ?? 'tree',
 
       // Mount operations
       mountDirectory: async (path, options) => {
@@ -229,7 +244,12 @@ const createFileBrowserStore = () => {
             kind: 'mount',
           };
           state.recents = [entry, ...filtered].slice(0, RECENTS_LIMIT);
-          persist({ recents: state.recents, pinned: state.pinned, fourDPaths: state.fourDPaths });
+          persist({
+            recents: state.recents,
+            pinned: state.pinned,
+            fourDPaths: state.fourDPaths,
+            viewMode: state.viewMode,
+          });
         });
 
         // Use queueMicrotask to ensure state is committed before loading
@@ -570,14 +590,24 @@ const createFileBrowserStore = () => {
             kind: 'file',
           };
           state.recents = [entry, ...filtered].slice(0, RECENTS_LIMIT);
-          persist({ recents: state.recents, pinned: state.pinned, fourDPaths: state.fourDPaths });
+          persist({
+            recents: state.recents,
+            pinned: state.pinned,
+            fourDPaths: state.fourDPaths,
+            viewMode: state.viewMode,
+          });
         });
       },
 
       clearRecents: () => {
         set((state) => {
           state.recents = [];
-          persist({ recents: state.recents, pinned: state.pinned, fourDPaths: state.fourDPaths });
+          persist({
+            recents: state.recents,
+            pinned: state.pinned,
+            fourDPaths: state.fourDPaths,
+            viewMode: state.viewMode,
+          });
         });
       },
 
@@ -586,7 +616,12 @@ const createFileBrowserStore = () => {
         set((state) => {
           if (state.pinned.some((p) => p.id === location.id)) return;
           state.pinned = [...state.pinned, location].slice(0, PINNED_LIMIT);
-          persist({ recents: state.recents, pinned: state.pinned, fourDPaths: state.fourDPaths });
+          persist({
+            recents: state.recents,
+            pinned: state.pinned,
+            fourDPaths: state.fourDPaths,
+            viewMode: state.viewMode,
+          });
         });
       },
 
@@ -595,7 +630,12 @@ const createFileBrowserStore = () => {
           const next = state.pinned.filter((p) => p.id !== id);
           if (next.length === state.pinned.length) return;
           state.pinned = next;
-          persist({ recents: state.recents, pinned: state.pinned, fourDPaths: state.fourDPaths });
+          persist({
+            recents: state.recents,
+            pinned: state.pinned,
+            fourDPaths: state.fourDPaths,
+            viewMode: state.viewMode,
+          });
         });
       },
 
@@ -613,7 +653,26 @@ const createFileBrowserStore = () => {
           } else {
             state.fourDPaths.delete(path);
           }
-          persist({ recents: state.recents, pinned: state.pinned, fourDPaths: state.fourDPaths });
+          persist({
+            recents: state.recents,
+            pinned: state.pinned,
+            fourDPaths: state.fourDPaths,
+            viewMode: state.viewMode,
+          });
+        });
+      },
+
+      setViewMode: (mode) => {
+        if (!isViewMode(mode)) return;
+        set((state) => {
+          if (state.viewMode === mode) return;
+          state.viewMode = mode;
+          persist({
+            recents: state.recents,
+            pinned: state.pinned,
+            fourDPaths: state.fourDPaths,
+            viewMode: state.viewMode,
+          });
         });
       },
     }))

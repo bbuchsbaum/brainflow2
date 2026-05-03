@@ -1,4 +1,5 @@
 import React from 'react';
+import type { NodeRendererProps } from 'react-arborist';
 import {
   VscChevronRight,
   VscChevronDown,
@@ -40,11 +41,7 @@ export interface FileNodeData {
   mountSource?: MountSource;
 }
 
-interface FileTreeRowProps {
-  node: any;
-  style: React.CSSProperties;
-  dragHandle?: React.Ref<HTMLDivElement>;
-}
+type FileTreeRowProps = NodeRendererProps<FileNodeData>;
 
 function formatRemoteHostLabel(mountSource: MountSource): string {
   if (mountSource.user && mountSource.host) {

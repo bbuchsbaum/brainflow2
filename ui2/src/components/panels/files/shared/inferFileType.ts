@@ -61,7 +61,7 @@ export function inferFileType(
     return {
       kind: 'surfGii',
       badge: 'SURF',
-      iconColor: '#10b981',
+      iconColor: 'var(--bf-icon-surface)',
       description: 'GIfTI surface mesh',
     };
   }
@@ -69,7 +69,7 @@ export function inferFileType(
     return {
       kind: 'funcGii',
       badge: 'FUNC',
-      iconColor: '#10b981',
+      iconColor: 'var(--bf-icon-surface)',
       description: 'GIfTI functional data',
     };
   }
@@ -78,13 +78,13 @@ export function inferFileType(
       ? {
           kind: 'fourDNii',
           badge: '4D',
-          iconColor: 'var(--blue-500)',
+          iconColor: 'var(--bf-icon-volume)',
           description: 'NIfTI 4D volume (gzip)',
         }
       : {
           kind: 'niiGz',
           badge: 'NII',
-          iconColor: 'var(--blue-500)',
+          iconColor: 'var(--bf-icon-volume)',
           description: 'NIfTI volume (gzip)',
         };
   }
@@ -93,13 +93,13 @@ export function inferFileType(
       ? {
           kind: 'fourDNii',
           badge: '4D',
-          iconColor: 'var(--blue-500)',
+          iconColor: 'var(--bf-icon-volume)',
           description: 'NIfTI 4D volume',
         }
       : {
           kind: 'nii',
           badge: 'NII',
-          iconColor: 'var(--blue-500)',
+          iconColor: 'var(--bf-icon-volume)',
           description: 'NIfTI volume',
         };
   }
@@ -107,7 +107,7 @@ export function inferFileType(
     return {
       kind: 'gii',
       badge: 'GII',
-      iconColor: '#10b981',
+      iconColor: 'var(--bf-icon-surface)',
       description: 'GIfTI file',
     };
   }
@@ -123,7 +123,7 @@ export function inferFileType(
     return {
       kind: 'mgz',
       badge: 'MGZ',
-      iconColor: '#8b5cf6',
+      iconColor: 'var(--bf-icon-freesurfer)',
       description: 'FreeSurfer MGZ volume',
     };
   }
@@ -131,7 +131,7 @@ export function inferFileType(
     return {
       kind: 'mgh',
       badge: 'MGH',
-      iconColor: '#8b5cf6',
+      iconColor: 'var(--bf-icon-freesurfer)',
       description: 'FreeSurfer MGH volume',
     };
   }

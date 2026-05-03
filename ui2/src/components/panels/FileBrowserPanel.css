@@ -4,32 +4,32 @@
 .file-browser-panel {
   height: 100%;
   width: 100%;
-  background-color: var(--app-bg-secondary);
-  color: var(--app-text-primary);
+  background-color: var(--bf-bg-shell);
+  color: var(--bf-text-primary);
   display: flex;
   flex-direction: column;
-  font-family: var(--app-font-sans);
+  font-family: var(--bf-font-sans);
   font-size: var(--app-text-base);
   position: relative;
 }
 
 /* Inline controls strip */
 .fb-controls {
-  background-color: var(--app-bg-tertiary);
-  border-bottom: 1px solid var(--app-border);
-  padding: var(--app-spacing-sm);
+  background-color: var(--bf-bg-panel);
+  border-bottom: 1px solid var(--bf-border);
+  padding: var(--bf-space-2);
 }
 
 .fb-path {
   flex: 1;
   min-width: 0;
-  margin-right: var(--app-spacing-sm);
+  margin-right: var(--bf-space-2);
 }
 
 .fb-path-value {
-  font-family: var(--app-font-mono);
+  font-family: var(--bf-font-mono);
   font-size: var(--app-text-xs);
-  color: var(--app-text-secondary);
+  color: var(--bf-text-secondary);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -38,30 +38,30 @@
 
 .fb-actions {
   display: flex;
-  gap: var(--app-spacing-xs);
+  gap: var(--bf-space-1);
 }
 
 .fb-action-btn {
   background: transparent;
   border: none;
-  color: var(--app-text-secondary);
+  color: var(--bf-text-secondary);
   padding: 0;
-  border-radius: var(--app-radius-sm);
+  border-radius: var(--bf-radius-xs);
   cursor: pointer;
   font-size: 14px;
-  transition: all var(--app-transition-fast);
+  transition: all var(--bf-motion-fast) ease;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: var(--app-control-height-md);
-  min-height: var(--app-control-height-md);
-  width: var(--app-control-height-md);
-  height: var(--app-control-height-md);
+  min-width: var(--bf-panel-header-h);
+  min-height: var(--bf-panel-header-h);
+  width: var(--bf-panel-header-h);
+  height: var(--bf-panel-header-h);
 }
 
 .fb-action-btn:hover:not(:disabled) {
-  background-color: var(--app-bg-hover);
-  color: var(--app-text-primary);
+  background-color: var(--bf-bg-hover);
+  color: var(--bf-text-primary);
 }
 
 .fb-action-btn:disabled {
@@ -71,13 +71,13 @@
 
 .fb-action-btn:focus-visible,
 .fb-search-clear:focus-visible {
-  outline: var(--app-focus-ring-width) solid var(--app-focus-ring-color);
+  outline: var(--app-focus-ring-width) solid var(--bf-border-focus);
   outline-offset: var(--app-focus-ring-offset);
 }
 
 .fb-controls-bottom {
   display: flex;
-  gap: var(--app-spacing-sm);
+  gap: var(--bf-space-2);
   align-items: center;
   /* Now the main controls container since we removed top controls */
 }
@@ -92,40 +92,40 @@
   left: 8px;
   top: 50%;
   transform: translateY(-50%);
-  color: var(--app-text-muted);
+  color: var(--bf-text-muted);
   pointer-events: none;
 }
 
 .fb-search-input {
-  background-color: var(--app-bg-secondary);
-  color: var(--app-text-primary);
-  border: 1px solid var(--app-border-subtle);
+  background-color: var(--bf-bg-shell);
+  color: var(--bf-text-primary);
+  border: 1px solid var(--bf-border-subtle);
   padding: 0 30px 0 28px;
   height: var(--app-control-height-sm);
   font-size: var(--app-role-body-size);
   font-weight: var(--app-role-body-weight);
-  border-radius: var(--app-radius-sm);
+  border-radius: var(--bf-radius-xs);
   width: 100%;
-  transition: all var(--app-transition-fast);
+  transition: all var(--bf-motion-fast) ease;
 }
 
 .fb-search-input:hover {
-  border-color: var(--app-border-strong);
+  border-color: var(--bf-border-strong);
 }
 
 .fb-search-input:focus {
   outline: none;
-  border-color: var(--app-accent);
-  box-shadow: 0 0 0 1px var(--app-accent);
+  border-color: var(--bf-accent);
+  box-shadow: 0 0 0 1px var(--bf-accent);
 }
 
 .fb-search-input:focus-visible {
-  outline: var(--app-focus-ring-width) solid var(--app-focus-ring-color);
+  outline: var(--app-focus-ring-width) solid var(--bf-border-focus);
   outline-offset: var(--app-focus-ring-offset);
 }
 
 .fb-search-input::placeholder {
-  color: var(--app-text-muted);
+  color: var(--bf-text-muted);
 }
 
 .fb-search-clear {
@@ -135,91 +135,91 @@
   transform: translateY(-50%);
   background: transparent;
   border: none;
-  color: var(--app-text-muted);
+  color: var(--bf-text-muted);
   cursor: pointer;
   padding: 0;
-  border-radius: var(--app-radius-sm);
-  transition: all var(--app-transition-fast);
+  border-radius: var(--bf-radius-xs);
+  transition: all var(--bf-motion-fast) ease;
   min-width: var(--app-control-height-sm);
   min-height: var(--app-control-height-sm);
 }
 
 .fb-search-clear:hover {
-  color: var(--app-text-secondary);
+  color: var(--bf-text-secondary);
 }
 
 .fb-sort {
   display: flex;
   align-items: center;
-  gap: var(--app-spacing-xs);
+  gap: var(--bf-space-1);
 }
 
 .fb-sort-select {
-  background-color: var(--app-bg-secondary);
-  color: var(--app-text-primary);
-  border: 1px solid var(--app-border-subtle);
+  background-color: var(--bf-bg-shell);
+  color: var(--bf-text-primary);
+  border: 1px solid var(--bf-border-subtle);
   padding: 0 24px 0 8px;
   height: var(--app-control-height-sm);
   font-size: var(--app-role-body-size);
   font-weight: var(--app-role-body-weight);
-  border-radius: var(--app-radius-sm);
+  border-radius: var(--bf-radius-xs);
   cursor: pointer;
   appearance: none;
   background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e");
   background-repeat: no-repeat;
   background-position: right 4px center;
   background-size: 12px;
-  transition: all var(--app-transition-fast);
+  transition: all var(--bf-motion-fast) ease;
 }
 
 .fb-sort-select:hover {
-  border-color: var(--app-border-strong);
+  border-color: var(--bf-border-strong);
 }
 
 .fb-sort-select:focus {
   outline: none;
-  border-color: var(--app-accent);
-  box-shadow: 0 0 0 1px var(--app-accent);
+  border-color: var(--bf-accent);
+  box-shadow: 0 0 0 1px var(--bf-accent);
 }
 
 .fb-sort-select:focus-visible {
-  outline: var(--app-focus-ring-width) solid var(--app-focus-ring-color);
+  outline: var(--app-focus-ring-width) solid var(--bf-border-focus);
   outline-offset: var(--app-focus-ring-offset);
 }
 
 .fb-sort-order {
   background: transparent;
   border: none;
-  color: var(--app-text-secondary);
+  color: var(--bf-text-secondary);
   cursor: pointer;
   padding: 0;
   font-size: 12px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: var(--app-control-height-md);
-  height: var(--app-control-height-md);
-  border-radius: var(--app-radius-sm);
-  transition: all var(--app-transition-fast);
+  width: var(--bf-panel-header-h);
+  height: var(--bf-panel-header-h);
+  border-radius: var(--bf-radius-xs);
+  transition: all var(--bf-motion-fast) ease;
 }
 
 .fb-sort-order:hover {
-  background-color: var(--app-bg-hover);
-  color: var(--app-text-primary);
+  background-color: var(--bf-bg-hover);
+  color: var(--bf-text-primary);
 }
 
 .fb-sort-order:focus-visible,
 .retry-button:focus-visible {
-  outline: var(--app-focus-ring-width) solid var(--app-focus-ring-color);
+  outline: var(--app-focus-ring-width) solid var(--bf-border-focus);
   outline-offset: var(--app-focus-ring-offset);
 }
 
 .fb-inline-error {
-  border-bottom: 1px solid color-mix(in srgb, var(--app-error) 24%, transparent);
-  background: color-mix(in srgb, var(--app-error) 10%, transparent);
-  color: var(--app-error);
+  border-bottom: 1px solid color-mix(in srgb, var(--bf-danger) 24%, transparent);
+  background: color-mix(in srgb, var(--bf-danger) 10%, transparent);
+  color: var(--bf-danger);
   font-size: var(--app-role-label-size);
-  padding: var(--app-spacing-xs) var(--app-spacing-sm);
+  padding: var(--bf-space-1) var(--bf-space-2);
 }
 
 
@@ -229,7 +229,7 @@
   min-height: 0;
   height: 100%;
   overflow: hidden;
-  background-color: var(--app-bg-secondary);
+  background-color: var(--bf-bg-shell);
   position: relative;
   display: flex;
   flex-direction: column;
@@ -268,10 +268,10 @@
   align-items: center;
   width: 100%;
   height: 100%;
-  padding: var(--app-spacing-xs) var(--app-spacing-md);
+  padding: var(--bf-space-1) var(--bf-space-3);
   font-size: var(--app-text-base);
-  color: var(--app-text-primary);
-  transition: background-color var(--app-transition-fast);
+  color: var(--bf-text-primary);
+  transition: background-color var(--bf-motion-fast) ease;
   position: relative;
   white-space: nowrap;
 }
@@ -285,25 +285,25 @@
 }
 
 .file-tree-item:hover {
-  background-color: var(--app-bg-hover);
+  background-color: var(--bf-bg-hover);
 }
 
 .file-tree-item.selected {
-  background-color: var(--app-accent-active);
+  background-color: var(--bf-accent-active);
   color: hsl(var(--primary-foreground)); /* Theme primary foreground */
 }
 
 .file-tree-item.selected:hover {
-  background-color: var(--app-accent-muted);
+  background-color: var(--bf-accent-soft);
 }
 
 .file-tree-item:active {
-  background-color: var(--app-bg-active);
+  background-color: var(--bf-bg-active);
 }
 
 .file-tree-item.font-medium {
   font-weight: 500;
-  color: var(--app-text-primary);
+  color: var(--bf-text-primary);
 }
 
 /* Expand/collapse button */
@@ -315,22 +315,22 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  color: var(--app-text-muted);
-  transition: all var(--app-transition-fast);
+  color: var(--bf-text-muted);
+  transition: all var(--bf-motion-fast) ease;
   width: 16px;
   height: 16px;
   flex-shrink: 0;
-  margin-right: var(--app-spacing-xs);
+  margin-right: var(--bf-space-1);
 }
 
 .file-tree-item .expand-button:hover {
-  color: var(--app-text-secondary);
+  color: var(--bf-text-secondary);
 }
 
 .file-tree-item .expand-button svg {
   width: 12px;
   height: 12px;
-  transition: transform var(--app-transition-fast);
+  transition: transform var(--bf-motion-fast) ease;
 }
 
 .file-tree-item .expand-button svg.rotate-90 {
@@ -342,14 +342,14 @@
   width: 16px;
   height: 16px;
   flex-shrink: 0;
-  margin-right: var(--app-spacing-xs);
+  margin-right: var(--bf-space-1);
 }
 
 /* File icons */
 .file-tree-item .file-icon {
   font-size: 16px;
   line-height: 1;
-  margin-right: var(--app-spacing-sm);
+  margin-right: var(--bf-space-2);
   flex-shrink: 0;
 }
 
@@ -358,7 +358,7 @@
   flex: 1;
   display: flex;
   align-items: center;
-  gap: var(--app-spacing-xs);
+  gap: var(--bf-space-1);
   overflow: hidden;
   min-width: 0;
 }
@@ -382,8 +382,8 @@
 
 .file-tree-item .file-name-tail {
   flex-shrink: 0;
-  color: var(--app-text-secondary);
-  font-family: var(--app-font-mono);
+  color: var(--bf-text-secondary);
+  font-family: var(--bf-font-mono);
 }
 
 .file-tree-item.selected .file-name-tail {
@@ -392,10 +392,10 @@
 
 .file-tree-item .remote-origin-badge {
   font-size: var(--app-text-xs);
-  font-family: var(--app-font-mono);
-  color: var(--app-text-secondary);
-  background: color-mix(in srgb, var(--app-bg-tertiary) 78%, transparent);
-  border: 1px solid var(--app-border-subtle);
+  font-family: var(--bf-font-mono);
+  color: var(--bf-text-secondary);
+  background: color-mix(in srgb, var(--bf-bg-panel) 78%, transparent);
+  border: 1px solid var(--bf-border-subtle);
   border-radius: 999px;
   padding: 1px 6px;
   max-width: 36%;
@@ -411,10 +411,10 @@
 
 .file-tree-item .remote-root-badge {
   font-size: var(--app-text-xs);
-  font-family: var(--app-font-mono);
-  color: color-mix(in srgb, var(--app-text-secondary) 88%, var(--app-accent) 12%);
-  background: color-mix(in srgb, var(--app-bg-tertiary) 72%, var(--app-accent) 8%);
-  border: 1px solid color-mix(in srgb, var(--app-border-subtle) 80%, var(--app-accent) 20%);
+  font-family: var(--bf-font-mono);
+  color: color-mix(in srgb, var(--bf-text-secondary) 88%, var(--bf-accent) 12%);
+  background: color-mix(in srgb, var(--bf-bg-panel) 72%, var(--bf-accent) 8%);
+  border: 1px solid color-mix(in srgb, var(--bf-border-subtle) 80%, var(--bf-accent) 20%);
   border-radius: 999px;
   padding: 1px 6px;
   max-width: 52%;
@@ -432,14 +432,14 @@
 .file-tree-item .file-meta {
   display: flex;
   align-items: center;
-  gap: var(--app-spacing-xs);
-  margin-left: var(--app-spacing-xs);
+  gap: var(--bf-space-1);
+  margin-left: var(--bf-space-1);
   flex-shrink: 0;
 }
 
 .file-tree-item .file-size {
   font-size: var(--app-text-xs);
-  color: var(--app-text-muted);
+  color: var(--bf-text-muted);
   white-space: nowrap;
 }
 
@@ -449,7 +449,7 @@
 
 /* Highlight for search */
 .file-tree-item mark {
-  background-color: var(--app-warning);
+  background-color: var(--bf-warning);
   color: hsl(var(--foreground)); /* Theme foreground */
   padding: 0 2px;
   border-radius: 2px;
@@ -462,9 +462,9 @@
   display: flex;
   align-items: center;
   justify-content: flex-start;
-  padding: var(--app-spacing-lg);
-  padding-top: clamp(var(--app-spacing-lg), 8vh, 5rem);
-  color: var(--app-text-muted);
+  padding: var(--bf-space-4);
+  padding-top: clamp(var(--bf-space-4), 8vh, 5rem);
+  color: var(--bf-text-muted);
   text-align: center;
   overflow-y: auto;
 }
@@ -472,22 +472,22 @@
 .file-browser-panel .empty-state-card {
   width: 100%;
   max-width: 380px;
-  border: 1px dashed var(--app-border);
-  border-radius: var(--app-radius-md);
+  border: 1px dashed var(--bf-border);
+  border-radius: var(--bf-radius-md);
   background: linear-gradient(
     180deg,
-    color-mix(in srgb, var(--app-bg-secondary) 80%, transparent),
-    color-mix(in srgb, var(--app-bg-secondary) 92%, var(--app-bg-tertiary) 8%)
+    color-mix(in srgb, var(--bf-bg-shell) 80%, transparent),
+    color-mix(in srgb, var(--bf-bg-shell) 92%, var(--bf-bg-panel) 8%)
   );
-  padding: var(--app-spacing-xl) var(--app-spacing-lg);
+  padding: var(--bf-space-6) var(--bf-space-4);
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: var(--app-spacing-md);
+  gap: var(--bf-space-3);
 }
 
 .file-browser-panel .empty-state-icon {
-  color: var(--app-text-muted);
+  color: var(--bf-text-muted);
   opacity: 0.9;
 }
 
@@ -497,7 +497,7 @@
   letter-spacing: var(--app-role-section-tracking);
   font-size: var(--app-role-section-size);
   font-weight: var(--app-role-section-weight);
-  color: var(--app-text-secondary);
+  color: var(--bf-text-secondary);
 }
 
 .file-browser-panel .empty-state-message {
@@ -505,7 +505,7 @@
   font-size: var(--app-role-body-size);
   font-weight: var(--app-role-body-weight);
   line-height: 1.45;
-  color: var(--app-text-muted);
+  color: var(--bf-text-muted);
   max-width: 30ch;
 }
 
@@ -513,46 +513,46 @@
   width: 100%;
   display: flex;
   flex-direction: column;
-  gap: var(--app-spacing-sm);
+  gap: var(--bf-space-2);
 }
 
 .file-browser-panel .empty-state-secondary-actions {
   width: 100%;
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: var(--app-spacing-sm);
+  gap: var(--bf-space-2);
 }
 
 .file-browser-panel .empty-state-button {
   width: 100%;
-  border: 1px solid var(--app-border-strong);
-  background: var(--app-bg-secondary);
-  color: var(--app-text-primary);
-  min-height: var(--app-control-height-md);
-  padding: 0 var(--app-spacing-md);
+  border: 1px solid var(--bf-border-strong);
+  background: var(--bf-bg-shell);
+  color: var(--bf-text-primary);
+  min-height: var(--bf-panel-header-h);
+  padding: 0 var(--bf-space-3);
   font-size: var(--app-role-body-size);
   font-weight: 500;
-  border-radius: var(--app-radius-sm);
+  border-radius: var(--bf-radius-xs);
   cursor: pointer;
-  transition: background-color var(--app-transition-fast), color var(--app-transition-fast), border-color var(--app-transition-fast);
+  transition: background-color var(--bf-motion-fast) ease, color var(--bf-motion-fast) ease, border-color var(--bf-motion-fast) ease;
 }
 
 .file-browser-panel .empty-state-button.primary {
-  background: var(--app-accent);
-  color: var(--app-accent-foreground);
-  border-color: color-mix(in srgb, var(--app-accent) 70%, #000 30%);
+  background: var(--bf-accent);
+  color: #ffffff;
+  border-color: color-mix(in srgb, var(--bf-accent) 70%, #000 30%);
 }
 
 .file-browser-panel .empty-state-button.secondary {
-  background: color-mix(in srgb, var(--app-bg-secondary) 82%, var(--app-bg-tertiary) 18%);
+  background: color-mix(in srgb, var(--bf-bg-shell) 82%, var(--bf-bg-panel) 18%);
 }
 
 .file-browser-panel .empty-state-button:hover:not(:disabled) {
-  background: var(--app-bg-hover);
+  background: var(--bf-bg-hover);
 }
 
 .file-browser-panel .empty-state-button.primary:hover:not(:disabled) {
-  background: var(--app-accent-hover);
+  background: var(--bf-accent-hover);
   color: #fff;
 }
 
@@ -562,25 +562,25 @@
 }
 
 .file-browser-panel .empty-state-button:focus-visible {
-  outline: var(--app-focus-ring-width) solid var(--app-focus-ring-color);
+  outline: var(--app-focus-ring-width) solid var(--bf-border-focus);
   outline-offset: var(--app-focus-ring-offset);
 }
 
 .file-browser-panel .empty-state-hint {
   margin: 0;
   font-size: var(--app-role-label-size);
-  color: var(--app-text-secondary);
+  color: var(--bf-text-secondary);
 }
 
 .file-browser-panel .empty-state-hint span {
-  font-family: var(--app-font-mono);
-  color: var(--app-text-secondary);
+  font-family: var(--bf-font-mono);
+  color: var(--bf-text-secondary);
 }
 
 .file-browser-panel .empty-state-error {
   margin: 0;
   font-size: var(--app-role-label-size);
-  color: var(--app-error);
+  color: var(--bf-danger);
 }
 
 /* Loading state */
@@ -589,14 +589,14 @@
   align-items: center;
   justify-content: center;
   height: 120px;
-  gap: var(--app-spacing-md);
+  gap: var(--bf-space-3);
 }
 
 .file-browser-panel .loading-spinner {
   width: 20px;
   height: 20px;
-  border: 2px solid var(--app-border);
-  border-top-color: var(--app-accent);
+  border: 2px solid var(--bf-border);
+  border-top-color: var(--bf-accent);
   border-radius: 50%;
   animation: spin 0.8s linear infinite;
 }
@@ -612,7 +612,7 @@
 
 .file-browser-panel .loading-text {
   font-size: var(--app-role-body-size);
-  color: var(--app-text-muted);
+  color: var(--bf-text-muted);
 }
 
 /* Error state */
@@ -622,119 +622,119 @@
   align-items: center;
   justify-content: center;
   height: 160px;
-  padding: var(--app-spacing-xl);
+  padding: var(--bf-space-6);
   text-align: center;
 }
 
 .file-browser-panel .error-icon {
   font-size: 32px;
-  margin-bottom: var(--app-spacing-md);
+  margin-bottom: var(--bf-space-3);
 }
 
 .file-browser-panel .error-title {
   font-size: var(--app-role-title-size);
   font-weight: 500;
-  color: var(--app-error);
-  margin-bottom: var(--app-spacing-xs);
+  color: var(--bf-danger);
+  margin-bottom: var(--bf-space-1);
 }
 
 .file-browser-panel .error-message {
   font-size: var(--app-role-body-size);
-  color: var(--app-text-muted);
-  margin-bottom: var(--app-spacing-md);
+  color: var(--bf-text-muted);
+  margin-bottom: var(--bf-space-3);
 }
 
 .file-browser-panel .retry-button {
-  background-color: var(--app-bg-active);
-  color: var(--app-text-primary);
-  border: 1px solid var(--app-border-strong);
+  background-color: var(--bf-bg-active);
+  color: var(--bf-text-primary);
+  border: 1px solid var(--bf-border-strong);
   min-height: var(--app-control-height-sm);
-  padding: 0 var(--app-spacing-lg);
+  padding: 0 var(--bf-space-4);
   font-size: var(--app-role-body-size);
-  border-radius: var(--app-radius-sm);
+  border-radius: var(--bf-radius-xs);
   cursor: pointer;
-  transition: all var(--app-transition-fast);
+  transition: all var(--bf-motion-fast) ease;
 }
 
 .file-browser-panel .retry-button:hover {
-  background-color: var(--app-bg-hover);
-  border-color: var(--app-border);
+  background-color: var(--bf-bg-hover);
+  border-color: var(--bf-border);
 }
 
 /* Remote mount modal */
 .remote-mount-subtitle {
-  margin: var(--app-spacing-xs) 0 0;
+  margin: var(--bf-space-1) 0 0;
   font-size: var(--app-role-body-size);
-  color: var(--app-text-secondary);
+  color: var(--bf-text-secondary);
 }
 
 .remote-mount-body {
   flex: 1;
   min-height: 0;
   overflow: auto;
-  padding: var(--app-spacing-md);
+  padding: var(--bf-space-3);
 }
 
 .remote-mount-form-grid {
   display: grid;
-  gap: var(--app-spacing-sm);
+  gap: var(--bf-space-2);
 }
 
 .remote-mount-row {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: var(--app-spacing-sm);
+  gap: var(--bf-space-2);
 }
 
 .remote-mount-field {
   display: grid;
-  gap: var(--app-spacing-xs);
+  gap: var(--bf-space-1);
 }
 
 .remote-mount-field > span {
   font-size: var(--app-role-label-size);
-  color: var(--app-text-secondary);
+  color: var(--bf-text-secondary);
 }
 
 .remote-mount-field > input,
 .remote-mount-field > select {
-  border: 1px solid var(--app-border-subtle);
-  background: var(--app-bg-tertiary);
-  color: var(--app-text-primary);
-  min-height: var(--app-control-height-md);
-  padding: 0 var(--app-spacing-sm);
-  border-radius: var(--app-radius-sm);
-  transition: border-color var(--app-transition-fast), box-shadow var(--app-transition-fast);
+  border: 1px solid var(--bf-border-subtle);
+  background: var(--bf-bg-panel);
+  color: var(--bf-text-primary);
+  min-height: var(--bf-panel-header-h);
+  padding: 0 var(--bf-space-2);
+  border-radius: var(--bf-radius-xs);
+  transition: border-color var(--bf-motion-fast) ease, box-shadow var(--bf-motion-fast) ease;
 }
 
 .remote-mount-field > input:focus,
 .remote-mount-field > select:focus {
   outline: none;
-  border-color: var(--app-accent);
-  box-shadow: 0 0 0 1px var(--app-accent);
+  border-color: var(--bf-accent);
+  box-shadow: 0 0 0 1px var(--bf-accent);
 }
 
 .remote-mount-profile-row {
   display: grid;
   grid-template-columns: 1fr auto;
-  gap: var(--app-spacing-xs);
+  gap: var(--bf-space-1);
 }
 
 .remote-mount-profile-row > button {
-  border: 1px solid var(--app-border-subtle);
-  background: var(--app-bg-tertiary);
-  color: var(--app-text-primary);
-  min-height: var(--app-control-height-md);
-  padding: 0 var(--app-spacing-sm);
-  border-radius: var(--app-radius-sm);
+  border: 1px solid var(--bf-border-subtle);
+  background: var(--bf-bg-panel);
+  color: var(--bf-text-primary);
+  min-height: var(--bf-panel-header-h);
+  padding: 0 var(--bf-space-2);
+  border-radius: var(--bf-radius-xs);
 }
 
 .remote-mount-checkbox {
   display: flex;
   align-items: center;
-  gap: var(--app-spacing-xs);
+  gap: var(--bf-space-1);
   font-size: var(--app-role-label-size);
-  color: var(--app-text-secondary);
+  color: var(--bf-text-secondary);
 }
 
 .remote-mount-checkbox > input {
@@ -744,72 +744,72 @@
 
 .remote-mount-step {
   display: grid;
-  gap: var(--app-spacing-xs);
-  border: 1px solid var(--app-border);
-  background: var(--app-bg-tertiary);
-  padding: var(--app-spacing-sm);
+  gap: var(--bf-space-1);
+  border: 1px solid var(--bf-border);
+  background: var(--bf-bg-panel);
+  padding: var(--bf-space-2);
 }
 
 .remote-mount-step-title {
   margin: 0;
   font-size: var(--app-role-body-size);
   font-weight: 600;
-  color: var(--app-text-primary);
+  color: var(--bf-text-primary);
 }
 
 .remote-mount-step-text {
   margin: 0;
   font-size: var(--app-role-label-size);
-  color: var(--app-text-secondary);
+  color: var(--bf-text-secondary);
 }
 
 .remote-mount-error {
-  margin-top: var(--app-spacing-sm);
-  border: 1px solid color-mix(in srgb, var(--app-error) 40%, transparent);
-  background: color-mix(in srgb, var(--app-error) 10%, transparent);
-  color: var(--app-error);
-  padding: var(--app-spacing-xs) var(--app-spacing-sm);
+  margin-top: var(--bf-space-2);
+  border: 1px solid color-mix(in srgb, var(--bf-danger) 40%, transparent);
+  background: color-mix(in srgb, var(--bf-danger) 10%, transparent);
+  color: var(--bf-danger);
+  padding: var(--bf-space-1) var(--bf-space-2);
   font-size: var(--app-role-label-size);
 }
 
 .remote-mount-footer {
   display: flex;
   justify-content: flex-end;
-  gap: var(--app-spacing-sm);
-  border-top: 1px solid var(--app-border);
-  padding: var(--app-spacing-sm) var(--app-spacing-md);
-  background: var(--app-bg-tertiary);
+  gap: var(--bf-space-2);
+  border-top: 1px solid var(--bf-border);
+  padding: var(--bf-space-2) var(--bf-space-3);
+  background: var(--bf-bg-panel);
 }
 
 .remote-mount-footer > button {
-  border: 1px solid var(--app-border-subtle);
-  background: var(--app-bg-secondary);
-  color: var(--app-text-primary);
-  min-height: var(--app-control-height-md);
-  padding: 0 var(--app-spacing-md);
+  border: 1px solid var(--bf-border-subtle);
+  background: var(--bf-bg-shell);
+  color: var(--bf-text-primary);
+  min-height: var(--bf-panel-header-h);
+  padding: 0 var(--bf-space-3);
   font-size: var(--app-role-label-size);
-  border-radius: var(--app-radius-sm);
-  transition: background-color var(--app-transition-fast), border-color var(--app-transition-fast), color var(--app-transition-fast);
+  border-radius: var(--bf-radius-xs);
+  transition: background-color var(--bf-motion-fast) ease, border-color var(--bf-motion-fast) ease, color var(--bf-motion-fast) ease;
 }
 
 .remote-mount-footer > button.primary {
-  background: var(--app-accent);
-  border-color: color-mix(in srgb, var(--app-accent) 65%, #000 35%);
-  color: var(--app-accent-foreground);
+  background: var(--bf-accent);
+  border-color: color-mix(in srgb, var(--bf-accent) 65%, #000 35%);
+  color: #ffffff;
 }
 
 .remote-mount-footer > button:hover:not(:disabled) {
-  background: var(--app-bg-hover);
-  border-color: var(--app-border-strong);
+  background: var(--bf-bg-hover);
+  border-color: var(--bf-border-strong);
 }
 
 .remote-mount-footer > button.primary:hover:not(:disabled) {
-  background: var(--app-accent-hover);
+  background: var(--bf-accent-hover);
   color: #fff;
 }
 
 .remote-mount-footer > button:focus-visible {
-  outline: var(--app-focus-ring-width) solid var(--app-focus-ring-color);
+  outline: var(--app-focus-ring-width) solid var(--bf-border-focus);
   outline-offset: var(--app-focus-ring-offset);
 }
 
@@ -825,22 +825,22 @@
 }
 
 .file-browser-panel ::-webkit-scrollbar-track {
-  background: var(--app-bg-tertiary);
+  background: var(--bf-bg-panel);
   border-radius: 5px;
 }
 
 .file-browser-panel ::-webkit-scrollbar-thumb {
-  background: var(--app-bg-active);
+  background: var(--bf-bg-active);
   border-radius: 5px;
-  border: 2px solid var(--app-bg-tertiary);
+  border: 2px solid var(--bf-bg-panel);
 }
 
 .file-browser-panel ::-webkit-scrollbar-thumb:hover {
-  background: var(--app-border-strong);
+  background: var(--bf-border-strong);
 }
 
 .file-browser-panel ::-webkit-scrollbar-corner {
-  background: var(--app-bg-tertiary);
+  background: var(--bf-bg-panel);
 }
 
 /* Utility classes */
@@ -861,7 +861,7 @@
   .file-browser-panel .file-meta {
     display: none;
   }
-  
+
   .file-browser-panel .path-bar {
     font-size: 11px;
   }
@@ -875,17 +875,27 @@
   }
 
   .file-browser-panel .empty-state {
-    padding: var(--app-spacing-md);
-    padding-top: var(--app-spacing-lg);
+    padding: var(--bf-space-3);
+    padding-top: var(--bf-space-4);
   }
 
   .file-browser-panel .empty-state-card {
     max-width: 100%;
-    padding: var(--app-spacing-lg) var(--app-spacing-md);
+    padding: var(--bf-space-4) var(--bf-space-3);
   }
 
   .file-browser-panel .empty-state-secondary-actions {
     grid-template-columns: 1fr;
+  }
+}
+
+/* P4 — narrow rail (320 px target, 280 px stress) responsive trims. */
+@media (max-width: 320px) {
+  .file-browser-panel .file-size {
+    display: none;
+  }
+  .fb-search-input {
+    padding-right: 24px;
   }
 }
 

@@ -229,6 +229,7 @@ export class ViewExportService {
         threshold: layer.threshold,
         interpolation: layer.interpolation || 'linear',
         layerMode: layer.layerMode ?? 'scalar',
+        outline: layer.outline,
         visible: true
       })),
       timepoint: viewState.timepoint

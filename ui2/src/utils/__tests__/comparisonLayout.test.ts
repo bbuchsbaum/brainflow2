@@ -14,7 +14,7 @@ describe('comparisonLayout', () => {
     ).toMatchObject({
       cols: 2,
       rows: 1,
-      width: 448,
+      width: 446,
       height: 300,
     });
   });
@@ -25,8 +25,8 @@ describe('comparisonLayout', () => {
     ).toMatchObject({
       cols: 2,
       rows: 2,
-      width: 298,
-      height: 198,
+      width: 296,
+      height: 196,
     });
   });
 });

@@ -293,6 +293,31 @@ describe('MosaicRenderService', () => {
   // ── Single cell render ──────────────────────────────────────
 
   describe('renderMosaicCell', () => {
+    it('keeps the anatomy centered by using full cell dimensions in the generated view plane', async () => {
+      const svc = getMosaicRenderService();
+
+      await svc.renderMosaicCell({
+        sliceIndex: 96,
+        axis: 'axial',
+        cellId: 'centered-cell',
+        width: 128,
+        height: 128,
+      });
+
+      const [viewStateArg, viewTypeArg, widthArg, heightArg] = mockApplyAndRenderViewState.mock.calls[0];
+      const view = viewStateArg.views.axial;
+      const centerX = view.origin_mm[0] + view.u_mm[0] * view.dim_px[0] / 2;
+      const centerY = view.origin_mm[1] + view.v_mm[1] * view.dim_px[1] / 2;
+
+      expect(svc.getViewPlaneForTag('centered-cell')).toEqual(view);
+      expect(viewTypeArg).toBe('axial');
+      expect(widthArg).toBe(128);
+      expect(heightArg).toBe(128);
+      expect(view.dim_px).toEqual([128, 128]);
+      expect(centerX).toBeCloseTo(0);
+      expect(centerY).toBeCloseTo(-18);
+    });
+
     it('stores slice position and calls apiService', async () => {
       const svc = getMosaicRenderService();
       await svc.renderMosaicCell({

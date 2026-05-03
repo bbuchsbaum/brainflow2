@@ -5,6 +5,7 @@ import { useSurfaceStore } from '@/stores/surfaceStore';
 import { ColormapPicker } from '@/components/ui/ColormapPicker';
 import type { SceneItem } from '@/types/sceneItem';
 import { InspectorSection, FieldRow } from '../InspectorSection';
+import { sampleLayerAtWorld } from '@/services/SamplingService';
 
 interface RenderSectionProps {
   item: SceneItem;
@@ -62,6 +63,7 @@ function VolumeRenderRows({
   const viewLayer = useViewStateStore((s) =>
     layerId ? s.viewState.layers.find((l) => l.id === layerId) ?? null : null
   );
+  const crosshairWorld = useViewStateStore((s) => s.viewState.crosshair.world_mm);
 
   if (!layer || !layerId || !viewLayer) return null;
 
@@ -73,6 +75,8 @@ function VolumeRenderRows({
   const opacity = viewLayer.opacity ?? 1;
   const colormap = viewLayer.colormap ?? '';
   const blendMode = viewLayer.blendMode ?? 'alpha';
+  const layerMode = viewLayer.layerMode ?? 'scalar';
+  const outline = viewLayer.outline ?? DEFAULT_OUTLINE;
 
   const setLayerField = <K extends keyof typeof viewLayer>(
     field: K,
@@ -148,6 +152,15 @@ function VolumeRenderRows({
         </FieldRow>
       ) : null}
 
+      {layerMode === 'label' ? (
+        <LabelOutlineBlock
+          outline={outline}
+          layerId={layerId}
+          crosshairWorld={crosshairWorld}
+          onChange={(next) => setLayerField('outline', next)}
+        />
+      ) : null}
+
       {layer.volumeType === 'TimeSeries4D' && layer.timeSeriesInfo ? (
         <FieldRow label="Time frame">
           <span
@@ -158,6 +171,124 @@ function VolumeRenderRows({
           </span>
         </FieldRow>
       ) : null}
+    </>
+  );
+}
+
+const DEFAULT_OUTLINE = {
+  enabled: false,
+  selectedLabelId: 0,
+  color: [1, 1, 0, 1] as [number, number, number, number],
+  thicknessPx: 1,
+};
+
+function rgbaToHex(rgba: [number, number, number, number]): string {
+  const toHex = (value: number) =>
+    Math.round(Math.max(0, Math.min(1, value)) * 255)
+      .toString(16)
+      .padStart(2, '0');
+  return `#${toHex(rgba[0])}${toHex(rgba[1])}${toHex(rgba[2])}`;
+}
+
+function hexToRgbaTuple(hex: string, alpha: number): [number, number, number, number] {
+  const clean = hex.replace('#', '');
+  return [
+    Number.parseInt(clean.slice(0, 2), 16) / 255,
+    Number.parseInt(clean.slice(2, 4), 16) / 255,
+    Number.parseInt(clean.slice(4, 6), 16) / 255,
+    alpha,
+  ];
+}
+
+function LabelOutlineBlock({
+  outline,
+  layerId,
+  crosshairWorld,
+  onChange,
+}: {
+  outline: typeof DEFAULT_OUTLINE;
+  layerId: string;
+  crosshairWorld: [number, number, number];
+  onChange: (next: typeof DEFAULT_OUTLINE) => void;
+}) {
+  const [sampling, setSampling] = useState(false);
+
+  const update = (patch: Partial<typeof DEFAULT_OUTLINE>) => {
+    onChange({
+      ...outline,
+      ...patch,
+      color: patch.color ?? outline.color,
+    });
+  };
+
+  const useCrosshairLabel = async () => {
+    if (sampling) return;
+    setSampling(true);
+    try {
+      const result = await sampleLayerAtWorld({ layerId, world: crosshairWorld });
+      if (result.value !== null) {
+        update({
+          selectedLabelId: Math.max(0, Math.round(result.value)),
+          enabled: true,
+        });
+      }
+    } finally {
+      setSampling(false);
+    }
+  };
+
+  return (
+    <>
+      <FieldRow label="Outline">
+        <Toggle checked={outline.enabled} onChange={(enabled) => update({ enabled })} />
+      </FieldRow>
+
+      <FieldRow label="Label ID">
+        <div className="flex items-center gap-2">
+          <input
+            type="number"
+            min={0}
+            step={1}
+            value={outline.selectedLabelId}
+            onChange={(e) =>
+              update({ selectedLabelId: Math.max(0, Math.round(Number(e.target.value) || 0)) })
+            }
+            className="w-16 rounded-sm bg-background px-1 text-right font-mono text-[11px] tabular-nums text-foreground outline-none ring-1 ring-border focus:ring-sky-500"
+            style={{ fontVariantNumeric: 'tabular-nums' }}
+          />
+          <button
+            type="button"
+            onClick={useCrosshairLabel}
+            disabled={sampling}
+            className="rounded-sm border border-border px-2 py-0.5 text-[11px] text-foreground transition-colors hover:bg-accent/40 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {sampling ? 'Sampling' : 'Crosshair'}
+          </button>
+        </div>
+      </FieldRow>
+
+      <FieldRow label="Thickness">
+        <Slider
+          value={outline.thicknessPx}
+          min={1}
+          max={8}
+          step={1}
+          onChange={(thicknessPx) => update({ thicknessPx })}
+        />
+        <span className="font-mono text-[11px] tabular-nums text-muted-foreground">
+          {Math.round(outline.thicknessPx)} px
+        </span>
+      </FieldRow>
+
+      <FieldRow label="Color">
+        <input
+          type="color"
+          value={rgbaToHex(outline.color)}
+          onChange={(e) => update({ color: hexToRgbaTuple(e.target.value, outline.color[3]) })}
+          className="h-5 w-8 cursor-pointer rounded-sm border border-border bg-transparent p-0"
+          aria-label="outline color"
+        />
+      </FieldRow>
     </>
   );
 }

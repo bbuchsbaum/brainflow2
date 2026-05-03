@@ -16,6 +16,12 @@ import type { ViewState } from '@/types/viewState';
 import type { ComparisonPanelConfig } from '@/types/comparison';
 import type { ViewPlane, WorldCoordinates } from '@/types/coordinates';
 import { resizeViewPlanePreservingFieldOfView } from '@/utils/viewGeometry';
+import { getViewPlaneService } from '@/services/ViewPlaneService';
+import { createDebugLogger } from '@/utils/debug';
+
+const debug = createDebugLogger('comparison-render');
+const COMPARISON_VIEW_PADDING_SCALE = 1.12;
+type VolumeBounds = { min: [number, number, number]; max: [number, number, number] };
 
 export interface ComparisonRenderRequest {
   workspaceId: string;
@@ -27,6 +33,28 @@ export interface ComparisonRenderRequest {
 /** Build a tag string for a comparison panel */
 export function comparisonTag(panelId: string, viewType: string): string {
   return `comp-${panelId}-${viewType}`;
+}
+
+export function padComparisonBounds(
+  bounds: VolumeBounds,
+  scale: number = COMPARISON_VIEW_PADDING_SCALE
+): VolumeBounds {
+  if (!Number.isFinite(scale) || scale <= 1) {
+    return bounds;
+  }
+
+  return {
+    min: [
+      (bounds.min[0] + bounds.max[0]) / 2 - ((bounds.max[0] - bounds.min[0]) * scale) / 2,
+      (bounds.min[1] + bounds.max[1]) / 2 - ((bounds.max[1] - bounds.min[1]) * scale) / 2,
+      (bounds.min[2] + bounds.max[2]) / 2 - ((bounds.max[2] - bounds.min[2]) * scale) / 2,
+    ],
+    max: [
+      (bounds.min[0] + bounds.max[0]) / 2 + ((bounds.max[0] - bounds.min[0]) * scale) / 2,
+      (bounds.min[1] + bounds.max[1]) / 2 + ((bounds.max[1] - bounds.min[1]) * scale) / 2,
+      (bounds.min[2] + bounds.max[2]) / 2 + ((bounds.max[2] - bounds.min[2]) * scale) / 2,
+    ],
+  };
 }
 
 export class ComparisonRenderService {
@@ -41,10 +69,17 @@ export class ComparisonRenderService {
   buildPanelViewState(
     globalViewState: ViewState,
     panel: ComparisonPanelConfig,
-    viewPlane: ViewPlane
+    viewPlane: ViewPlane,
+    crosshair?: WorldCoordinates
   ): ViewState {
     return {
       ...globalViewState,
+      crosshair: crosshair
+        ? {
+            ...globalViewState.crosshair,
+            world_mm: crosshair,
+          }
+        : globalViewState.crosshair,
       views: {
         ...globalViewState.views,
         [panel.viewType]: viewPlane,
@@ -58,7 +93,7 @@ export class ComparisonRenderService {
 
   private isPointInsideBounds(
     point: WorldCoordinates,
-    bounds?: { min: [number, number, number]; max: [number, number, number] }
+    bounds?: VolumeBounds
   ): boolean {
     if (!bounds) {
       return false;
@@ -70,7 +105,7 @@ export class ComparisonRenderService {
   }
 
   private getBoundsCenter(
-    bounds?: { min: [number, number, number]; max: [number, number, number] }
+    bounds?: VolumeBounds
   ): WorldCoordinates | null {
     if (!bounds) {
       return null;
@@ -83,12 +118,34 @@ export class ComparisonRenderService {
     ];
   }
 
+  private createBoundsFittedViewPlane(
+    panel: ComparisonPanelConfig,
+    bounds: VolumeBounds,
+    crosshair: WorldCoordinates,
+    width: number,
+    height: number
+  ): ViewPlane {
+    const paddedBounds = padComparisonBounds(bounds);
+    const slicePosition = panel.viewType === 'sagittal'
+      ? crosshair[0]
+      : panel.viewType === 'coronal'
+        ? crosshair[1]
+        : crosshair[2];
+
+    return getViewPlaneService().createSliceViewPlane(
+      panel.viewType,
+      slicePosition,
+      paddedBounds,
+      [width, height]
+    );
+  }
+
   private async resolvePanelViewPlane(
     globalViewState: ViewState,
     panel: ComparisonPanelConfig,
     width: number,
     height: number
-  ): Promise<ViewPlane> {
+  ): Promise<ViewPlane | { viewPlane: ViewPlane; crosshair: WorldCoordinates }> {
     const fallbackView = resizeViewPlanePreservingFieldOfView(
       globalViewState.views[panel.viewType],
       width,
@@ -103,21 +160,53 @@ export class ComparisonRenderService {
     }
 
     const metadata = useLayerStore.getState().getLayerMetadata(primaryLayer.id);
+    let bounds = metadata?.worldBounds as VolumeBounds | undefined;
+    let boundsSource: 'layer-metadata' | 'api' | 'missing' = bounds ? 'layer-metadata' : 'missing';
+    if (!bounds) {
+      try {
+        bounds = await this.apiService.getVolumeBounds(primaryLayer.volumeId);
+        boundsSource = 'api';
+      } catch (error) {
+        console.warn(
+          `[ComparisonRenderService] Failed to fetch bounds for panel ${panel.id}; falling back to backend fit`,
+          error
+        );
+      }
+    }
+
     const globalCrosshair = globalViewState.crosshair.world_mm;
-    const fallbackCrosshair = metadata?.centerWorld
-      ?? this.getBoundsCenter(metadata?.worldBounds)
-      ?? globalCrosshair;
-    const crosshair = this.isPointInsideBounds(globalCrosshair, metadata?.worldBounds)
+    const boundsCenter = this.getBoundsCenter(bounds) ?? globalCrosshair;
+    const crosshair = this.isPointInsideBounds(globalCrosshair, bounds)
       ? globalCrosshair
-      : fallbackCrosshair;
+      : boundsCenter;
+
+    if (bounds) {
+      debug(`[ComparisonRenderService] fitting panel ${panel.id} from bounds`, {
+        boundsSource,
+        bounds,
+        paddedBounds: padComparisonBounds(bounds),
+        requestedSize: { width, height },
+        globalCrosshair,
+        sliceCrosshair: crosshair,
+        viewType: panel.viewType,
+        primaryLayer: {
+          id: primaryLayer.id,
+          volumeId: primaryLayer.volumeId,
+        },
+      });
+
+      const viewPlane = this.createBoundsFittedViewPlane(panel, bounds, crosshair, width, height);
+      return { viewPlane, crosshair };
+    }
 
     try {
-      return await this.apiService.recalculateViewForDimensions(
+      const viewPlane = await this.apiService.recalculateViewForDimensions(
         primaryLayer.volumeId,
         panel.viewType,
         [width, height],
         crosshair
       );
+      return { viewPlane, crosshair };
     } catch (error) {
       console.warn(
         `[ComparisonRenderService] Falling back to resized global view for panel ${panel.id}`,
@@ -131,8 +220,18 @@ export class ComparisonRenderService {
    * Render all panels. Each panel gets its own apiService call with a
    * filtered ViewState. The rendered ImageBitmap is stored under a tag.
    */
+  async renderPanel(req: ComparisonRenderRequest): Promise<void> {
+    const tag = comparisonTag(req.panel.id, req.panel.viewType);
+    useRenderStateStore.getState().setRendering(tag, true);
+
+    const workspaceViewState = useViewStateStore
+      .getState()
+      .getWorkspaceViewState(req.workspaceId);
+
+    await this.renderSinglePanel(workspaceViewState, req);
+  }
+
   async renderPanels(panels: ComparisonRenderRequest[]): Promise<void> {
-    const globalViewState = useViewStateStore.getState().viewState;
     const renderStore = useRenderStateStore.getState();
 
     // Mark all as rendering
@@ -146,7 +245,10 @@ export class ComparisonRenderService {
 
     for (const batch of batches) {
       await Promise.all(
-        batch.map(req => this.renderSinglePanel(globalViewState, req))
+        batch.map(req => {
+          const workspaceViewState = useViewStateStore.getState().getWorkspaceViewState(req.workspaceId);
+          return this.renderSinglePanel(workspaceViewState, req);
+        })
       );
     }
   }
@@ -163,14 +265,33 @@ export class ComparisonRenderService {
     this.activeRenders.set(tag, requestId);
 
     try {
-      const panelView = await this.resolvePanelViewPlane(globalViewState, panel, width, height);
+      const resolvedPanelView = await this.resolvePanelViewPlane(globalViewState, panel, width, height);
+      const panelView = 'viewPlane' in resolvedPanelView
+        ? resolvedPanelView.viewPlane
+        : resolvedPanelView;
+      const panelCrosshair = 'viewPlane' in resolvedPanelView
+        ? resolvedPanelView.crosshair
+        : globalViewState.crosshair.world_mm;
 
       if (this.activeRenders.get(tag) !== requestId) {
         return;
       }
 
+      debug(`[ComparisonRenderService] resolved panel ${panel.id}`, {
+        tag,
+        requestSize: { width, height },
+        viewType: panel.viewType,
+        panelView: {
+          origin_mm: panelView.origin_mm,
+          u_mm: panelView.u_mm,
+          v_mm: panelView.v_mm,
+          dim_px: panelView.dim_px,
+        },
+        visibleLayerIds: Array.from(panel.visibleLayerIds),
+      });
+
       useComparisonStore.getState().setPanelViewPlane(panel.id, panelView);
-      const filteredState = this.buildPanelViewState(globalViewState, panel, panelView);
+      const filteredState = this.buildPanelViewState(globalViewState, panel, panelView, panelCrosshair);
 
       const imageBitmap = await this.apiService.applyAndRenderViewState(
         filteredState,
@@ -184,6 +305,14 @@ export class ComparisonRenderService {
       }
 
       if (imageBitmap) {
+        debug(`[ComparisonRenderService] rendered panel ${panel.id}`, {
+          tag,
+          requestSize: { width, height },
+          bitmapSize: {
+            width: imageBitmap.width,
+            height: imageBitmap.height,
+          },
+        });
         const renderStore = useRenderStateStore.getState();
         renderStore.setImage(tag, imageBitmap);
         renderStore.setRendering(tag, false);

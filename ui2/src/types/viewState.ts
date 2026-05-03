@@ -12,6 +12,13 @@ export interface CrosshairState {
   visible: boolean;
 }
 
+export interface LayerOutlineConfig {
+  enabled: boolean;
+  selectedLabelId: number;
+  color: [number, number, number, number];
+  thicknessPx: number;
+}
+
 // Layer render properties that match backend expectations
 export interface ViewLayer {
   id: string;
@@ -27,6 +34,7 @@ export interface ViewLayer {
   blendMode?: 'alpha' | 'additive' | 'max' | 'min';
   interpolation?: 'nearest' | 'linear';  // Texture sampling mode
   layerMode?: 'scalar' | 'label' | 'mask';
+  outline?: LayerOutlineConfig;
   atlasConfig?: AtlasConfig;
   atlasPaletteKind?: AtlasPaletteKind;
   atlasPaletteSeed?: number;

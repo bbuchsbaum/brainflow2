@@ -67,6 +67,7 @@ export class TauriTransport implements BackendTransport {
       'wait_for_layer_ready',
       'update_frame_ubo',
       'update_frame_for_synchronized_view',
+      'update_slice_outline',
       'recalculate_all_views',
       'recalculate_view_for_dimensions',
       'query_slice_axis_meta',
@@ -84,6 +85,7 @@ export class TauriTransport implements BackendTransport {
       'get_atlas_subscription_count',
       'get_atlas_stats',
       'get_nifti_header_info',
+      'peek_volume_metadata',
       // Surface template commands
       'load_surface_template',
       'get_surface_template_catalog',

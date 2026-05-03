@@ -35,4 +35,15 @@ describe('SliceRenderer', () => {
 
     expect(redrawCanvas).toHaveBeenCalledTimes(1);
   });
+
+  it('keeps canvas display size tied to its render dimensions by default', () => {
+    const { container } = render(
+      <SliceRenderer width={1024} height={768} viewType="axial" />
+    );
+
+    const canvas = container.querySelector('canvas');
+    expect(canvas).not.toHaveClass('h-full');
+    expect(canvas).not.toHaveClass('w-full');
+  });
+
 });

@@ -81,6 +81,11 @@
     --bf-coronal: #ff9900;
     --bf-crosshair: #58d957;
 
+    /* Files-panel file-type icon colors */
+    --bf-icon-volume: #2f80ff;     /* NIfTI / volumetric data — matches --bf-axial */
+    --bf-icon-surface: #10b981;    /* GIfTI surface / functional meshes */
+    --bf-icon-freesurfer: #8b5cf6; /* MGZ / MGH FreeSurfer volumes */
+
     /* Plot colors */
     --bf-plot-line: #38a3ff;
     --bf-plot-grid: rgba(148, 163, 184, 0.18);

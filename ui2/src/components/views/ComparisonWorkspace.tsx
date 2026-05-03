@@ -2,19 +2,22 @@
  * ComparisonWorkspace Component
  *
  * Top-level container for multi-panel comparison views.
- * Manages panel layout, global orientation controls, and triggers
- * ComparisonRenderService when ViewState or panel config changes.
+ * Manages panel layout and global orientation controls. Each panel owns
+ * its measured canvas size and render trigger.
  */
 
 import { useEffect, useRef, useMemo, useCallback, useState } from 'react';
 import { useViewStateStore } from '@/stores/viewStateStore';
 import { useComparisonStore } from '@/stores/comparisonStore';
 import { useLayerStore } from '@/stores/layerStore';
-import { getComparisonRenderService, comparisonTag } from '@/services/ComparisonRenderService';
-import { ComparisonPanel, COMPARISON_PANEL_HEADER_HEIGHT } from './ComparisonPanel';
+import { ComparisonPanel } from './ComparisonPanel';
 import { NewPanelDropZone } from './NewPanelDropZone';
 import { RenderErrorBoundary } from '@/components/ui/RenderErrorBoundary';
-import { getComparisonGridSpec, getComparisonPanelDimensions } from '@/utils/comparisonLayout';
+import {
+  COMPARISON_GRID_GAP,
+  getComparisonGridSpec,
+  getComparisonPanelDimensions,
+} from '@/utils/comparisonLayout';
 import { getFileLoadingService } from '@/services/FileLoadingService';
 import { findNewLayerId } from '@/utils/layerLoadResult';
 import { useWorkspaceStore } from '@/stores/workspaceStore';
@@ -34,9 +37,6 @@ function ComparisonWorkspaceRaw({ workspaceId = 'comparison-default' }: Comparis
   const panels = useComparisonStore(state => state.panels.get(workspaceId) ?? EMPTY_PANELS);
   const layout = useComparisonStore(state => state.layouts.get(workspaceId) ?? 'row');
   const globalViewType = useComparisonStore(state => state.globalViewTypes.get(workspaceId) ?? 'axial');
-  const viewStateRevision = useViewStateStore(
-    state => state.getWorkspaceViewStateRevisions(workspaceId).state
-  );
   const layers = useViewStateStore(state => state.getWorkspaceViewState(workspaceId).layers);
 
   // Store actions (stable refs)
@@ -99,37 +99,6 @@ function ComparisonWorkspaceRaw({ workspaceId = 'comparison-default' }: Comparis
     () => getComparisonGridSpec(panels.length, layout),
     [panels.length, layout]
   );
-
-  // Trigger renders when ViewState or panel config changes
-  const renderService = getComparisonRenderService();
-  const renderHeight = useMemo(
-    () => Math.max(panelDimensions.height - COMPARISON_PANEL_HEADER_HEIGHT, 64),
-    [panelDimensions.height]
-  );
-
-  useEffect(() => {
-    if (panels.length === 0) return;
-
-    const requests = panels.map(panel => ({
-      workspaceId,
-      panel,
-      width: panelDimensions.width,
-      height: renderHeight,
-    }));
-
-    renderService.renderPanels(requests);
-
-    // Cleanup
-    return () => {
-      const tags = panels.map(p => comparisonTag(p.id, p.viewType));
-      renderService.cancelRenders(tags);
-    };
-  }, [
-    panels,
-    panelDimensions.width,
-    renderHeight,
-    viewStateRevision,
-  ]);
 
   // Handlers
   const handleRemoveLayer = useCallback((panelId: string, layerId: string) => {
@@ -299,12 +268,13 @@ function ComparisonWorkspaceRaw({ workspaceId = 'comparison-default' }: Comparis
           gridTemplateColumns: `repeat(${gridSpec.cols}, minmax(0, 1fr))`,
           gridTemplateRows: `repeat(${gridSpec.rows}, minmax(${panelDimensions.height}px, ${panelDimensions.height}px))`,
           gridAutoRows: `${panelDimensions.height}px`,
-          gap: '8px',
+          gap: `${COMPARISON_GRID_GAP}px`,
         }}
       >
         {panels.map(panel => (
           <ComparisonPanel
             key={panel.id}
+            workspaceId={workspaceId}
             panel={panel}
             width={panelDimensions.width}
             height={panelDimensions.height}

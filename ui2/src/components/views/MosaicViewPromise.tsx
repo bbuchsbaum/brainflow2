@@ -340,6 +340,10 @@ function MosaicViewPromiseRaw({
     const newPage = Math.floor(newSlice / slicesPerPage);
     setCurrentPage(newPage);
   };
+
+  const handleCrosshairClick = useCallback((worldCoord: [number, number, number]) => {
+    void setCrosshair(worldCoord, true);
+  }, [setCrosshair]);
   
   // Update current slice when page changes (only if out of range)
   useEffect(() => {
@@ -441,7 +445,7 @@ function MosaicViewPromiseRaw({
                 tag={cellIds[i]}  // Pass tag for this cell
                 sliceIndex={sliceIndex}
                 axis={sliceAxis}
-                onCrosshairClick={setCrosshair}
+                onCrosshairClick={handleCrosshairClick}
               />
             </MosaicCellErrorBoundary>
           </div>

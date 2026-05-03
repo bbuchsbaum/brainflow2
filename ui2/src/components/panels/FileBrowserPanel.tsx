@@ -1,13 +1,11 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Tree } from 'react-arborist';
-import {
-  VscChevronUp,
-  VscChevronDown,
-  VscFolder,
-} from 'react-icons/vsc';
+import { VscFolder } from 'react-icons/vsc';
 import './FileBrowserPanel.css';
 import { useFileBrowserStore } from '@/stores/fileBrowserStore';
 import type { FileTreeNode } from '@/types/filesystem';
+import { getEventBus } from '@/events/EventBus';
+import type { DisplayOpenIntent } from '@/types/loadIntent';
 import { getTransport } from '@/services/transport';
 import {
   mountConnectedRemoteDirectory,
@@ -18,6 +16,14 @@ import { PanelHeader } from '@/components/ui/PanelHeader';
 import { RemoteMountDialog } from './RemoteMountDialog';
 import { FileTreeRow, type FileNodeData } from './files/FileTreeRow';
 import { FilesStartPanel } from './files/FilesStartPanel';
+import { SourceHeader } from './files/SourceHeader';
+import { FilterBar } from './files/FilterBar';
+import { SelectedFileSummary } from './files/SelectedFileSummary';
+import { FilesFooterStatus } from './files/FilesFooterStatus';
+import { ViewModeTabs } from './files/ViewModeTabs';
+import { ImagesView } from './files/ImagesView';
+import { LoadedView } from './files/LoadedView';
+import { BidsView } from './files/BidsView';
 
 const FileBrowserPanelContent: React.FC = () => {
   const fileBrowserStore = useFileBrowserStore();
@@ -39,6 +45,10 @@ const FileBrowserPanelContent: React.FC = () => {
   const sortBy = useFileBrowserStore((state) => state.sortBy);
   const sortOrder = useFileBrowserStore((state) => state.sortOrder);
   const selectedPath = useFileBrowserStore((state) => state.selectedPath);
+  const recentsCount = useFileBrowserStore((state) => state.recents.length);
+  const pinnedCount = useFileBrowserStore((state) => state.pinned.length);
+  const viewMode = useFileBrowserStore((state) => state.viewMode);
+  const setViewMode = useFileBrowserStore((state) => state.setViewMode);
   const pinLocation = useFileBrowserStore((state) => state.pinLocation);
   const unpinLocation = useFileBrowserStore((state) => state.unpinLocation);
   const isPinned = useFileBrowserStore((state) => state.isPinned);
@@ -50,6 +60,27 @@ const FileBrowserPanelContent: React.FC = () => {
         (entry) => selectedPath === entry.path || selectedPath.startsWith(`${entry.path}/`)
       ) ?? null
     );
+  }, [entries, selectedPath]);
+
+  const rootNode = useMemo<FileTreeNode | null>(() => {
+    if (entries.length === 0) return null;
+    if (selectedRootMount) return selectedRootMount;
+    return entries[0];
+  }, [entries, selectedRootMount]);
+
+  const selectedFileNode = useMemo<FileTreeNode | null>(() => {
+    if (!selectedPath) return null;
+    const visit = (nodes: FileTreeNode[]): FileTreeNode | null => {
+      for (const node of nodes) {
+        if (node.path === selectedPath) return node;
+        if (node.children) {
+          const found = visit(node.children);
+          if (found) return found;
+        }
+      }
+      return null;
+    };
+    return visit(entries);
   }, [entries, selectedPath]);
 
   // Handle container resize
@@ -208,6 +239,57 @@ const FileBrowserPanelContent: React.FC = () => {
     setMountActionError(null);
   }
 
+  function handlePanelKeyDown(event: React.KeyboardEvent<HTMLDivElement>) {
+    const target = event.target as HTMLElement | null;
+    const tag = target?.tagName?.toLowerCase();
+    const isEditable =
+      tag === 'input' ||
+      tag === 'textarea' ||
+      tag === 'select' ||
+      target?.getAttribute('contenteditable') === 'true';
+
+    const meta = event.metaKey || event.ctrlKey;
+
+    // ⌘O / Ctrl+O — open mount dialog. Always honored, even from the search box.
+    if (meta && (event.key === 'o' || event.key === 'O')) {
+      event.preventDefault();
+      void openMountDialog();
+      return;
+    }
+
+    if (isEditable) return;
+
+    // ⌘⌫ / Ctrl+Backspace — unmount the selected root.
+    if (meta && (event.key === 'Backspace' || event.key === 'Delete')) {
+      if (selectedRootMount) {
+        event.preventDefault();
+        void unmountSelectedRoot();
+      }
+      return;
+    }
+
+    const selectedFile = selectedFileNode;
+    if (!selectedFile || selectedFile.type !== 'file' || !selectedPath) return;
+
+    // Enter on selected file → default load.
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      getEventBus().emit('filebrowser.file.open', {
+        path: selectedPath,
+        intent: 'default' as DisplayOpenIntent,
+      });
+      return;
+    }
+
+    // Space → preview-only. The summary card already renders for the
+    // current selection; this just prevents the page from scrolling and
+    // re-affirms selection so the probe re-fires.
+    if (event.key === ' ' || event.code === 'Space') {
+      event.preventDefault();
+      fileBrowserStore.selectFile(selectedPath);
+    }
+  }
+
   const hasMountedDirectory = rootPath.trim().length > 0 || entries.length > 0;
   const isSearchEmptyState = searchQuery.trim().length > 0 && hasMountedDirectory;
   const refreshTargetPath = currentPath || rootPath;
@@ -219,7 +301,7 @@ const FileBrowserPanelContent: React.FC = () => {
   const selectedRootIsPinned = selectedRootMount ? isPinned(selectedRootMount.path) : false;
 
   return (
-    <div className="file-browser-panel">
+    <div className="file-browser-panel" onKeyDown={handlePanelKeyDown} tabIndex={-1}>
       <PanelHeader
         title="Files"
         icon={<VscFolder className="h-4 w-4" />}
@@ -296,68 +378,26 @@ const FileBrowserPanelContent: React.FC = () => {
       />
 
       {hasMountedDirectory && (
-        <div className="fb-controls">
-          <div className="fb-controls-bottom">
-            <div className="fb-search">
-              <svg
-                className="fb-search-icon"
-                width="14"
-                height="14"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth="2"
-                  d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
-                />
-              </svg>
-              <input
-                type="text"
-                placeholder="Search files..."
-                value={searchInput}
-                onChange={handleSearchInput}
-                className="fb-search-input"
-              />
-              {searchQuery && (
-                <button type="button" className="fb-search-clear" onClick={clearSearch}>
-                  <svg width="12" height="12" fill="currentColor" viewBox="0 0 20 20">
-                    <path
-                      fillRule="evenodd"
-                      d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z"
-                      clipRule="evenodd"
-                    />
-                  </svg>
-                </button>
-              )}
-            </div>
+        <SourceHeader rootNode={rootNode} selectedPath={selectedPath} />
+      )}
 
-            <div className="fb-sort">
-              <select
-                value={sortBy}
-                onChange={(e) => fileBrowserStore.setSortBy(e.target.value as any)}
-                className="fb-sort-select"
-              >
-                <option value="name">Name</option>
-                <option value="modified">Modified</option>
-                <option value="size">Size</option>
-                <option value="type">Type</option>
-              </select>
-              <button
-                type="button"
-                className="fb-sort-order"
-                onClick={() =>
-                  fileBrowserStore.setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc')
-                }
-                title={sortOrder === 'asc' ? 'Sort ascending' : 'Sort descending'}
-              >
-                {sortOrder === 'asc' ? <VscChevronUp /> : <VscChevronDown />}
-              </button>
-            </div>
-          </div>
-        </div>
+      {hasMountedDirectory && (
+        <ViewModeTabs value={viewMode} onChange={setViewMode} />
+      )}
+
+      {hasMountedDirectory && viewMode === 'tree' && (
+        <FilterBar
+          searchInput={searchInput}
+          searchQuery={searchQuery}
+          sortBy={sortBy}
+          sortOrder={sortOrder}
+          onSearchChange={handleSearchInput}
+          onClearSearch={clearSearch}
+          onSortByChange={(value) => fileBrowserStore.setSortBy(value)}
+          onToggleSortOrder={() =>
+            fileBrowserStore.setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc')
+          }
+        />
       )}
 
       {mountActionError && hasMountedDirectory && (
@@ -398,6 +438,12 @@ const FileBrowserPanelContent: React.FC = () => {
               void openFileDialog();
             }}
           />
+        ) : viewMode === 'images' ? (
+          <ImagesView rootNode={rootNode} selectedPath={selectedPath} />
+        ) : viewMode === 'loaded' ? (
+          <LoadedView />
+        ) : viewMode === 'bids' ? (
+          <BidsView rootNode={rootNode} />
         ) : isSearchEmptyState && treeData.length === 0 ? (
           <div className="empty-state">
             <div className="empty-state-card">
@@ -450,7 +496,7 @@ const FileBrowserPanelContent: React.FC = () => {
                 disableDrag={true}
                 disableDrop={true}
               >
-                {(props: any) => <FileTreeRow {...props} />}
+                {FileTreeRow}
               </Tree>
             ) : (
               <div style={{ padding: '20px', color: 'var(--app-text-muted)' }}>
@@ -460,6 +506,25 @@ const FileBrowserPanelContent: React.FC = () => {
           </div>
         )}
       </div>
+
+      {hasMountedDirectory && selectedFileNode && selectedFileNode.type === 'file' && (
+        <SelectedFileSummary
+          selectedPath={selectedPath}
+          selectedNode={{
+            name: selectedFileNode.name,
+            type: selectedFileNode.type,
+            size: selectedFileNode.size,
+          }}
+        />
+      )}
+
+      {hasMountedDirectory && (
+        <FilesFooterStatus
+          rootNode={rootNode}
+          recentsCount={recentsCount}
+          pinnedCount={pinnedCount}
+        />
+      )}
 
       <RemoteMountDialog
         isOpen={remoteDialogOpen}

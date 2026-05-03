@@ -16,6 +16,12 @@ interface RenderViewPayload {
     blendMode?: string;
     interpolation?: string;
     layerMode?: string;
+    outline?: {
+      enabled?: boolean;
+      selectedLabelId?: number;
+      color?: number[];
+      thicknessPx?: number;
+    };
   }>;
   requestedView?: {
     type: string;
@@ -134,6 +140,24 @@ export function validateRenderViewPayload(payload: unknown): ValidationResult {
         !['scalar', 'label', 'mask'].includes(layer.layerMode)
       ) {
         errors.push(`layers[${index}].layerMode must be scalar, label, or mask when provided`);
+      }
+      if (layer.outline !== undefined) {
+        if (!layer.outline || typeof layer.outline !== 'object') {
+          errors.push(`layers[${index}].outline must be an object when provided`);
+        } else {
+          if (typeof layer.outline.enabled !== 'boolean') {
+            errors.push(`layers[${index}].outline.enabled must be boolean`);
+          }
+          if (!Number.isFinite(layer.outline.selectedLabelId)) {
+            errors.push(`layers[${index}].outline.selectedLabelId must be finite number`);
+          }
+          if (!isFixedLengthArray(layer.outline.color, 4)) {
+            errors.push(`layers[${index}].outline.color must be [f32;4]`);
+          }
+          if (!Number.isFinite(layer.outline.thicknessPx)) {
+            errors.push(`layers[${index}].outline.thicknessPx must be finite number`);
+          }
+        }
       }
     });
   }

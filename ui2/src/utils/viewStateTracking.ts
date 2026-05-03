@@ -128,6 +128,20 @@ export function areCrosshairStatesEqual(left: CrosshairState, right: CrosshairSt
   return left.visible === right.visible && areWorldCoordinatesEqual(left.world_mm, right.world_mm);
 }
 
+function areLayerOutlinesEqual(left: ViewLayer['outline'], right: ViewLayer['outline']): boolean {
+  if (left === right) return true;
+  if (!left || !right) return false;
+  return (
+    left.enabled === right.enabled &&
+    left.selectedLabelId === right.selectedLabelId &&
+    left.thicknessPx === right.thicknessPx &&
+    left.color[0] === right.color[0] &&
+    left.color[1] === right.color[1] &&
+    left.color[2] === right.color[2] &&
+    left.color[3] === right.color[3]
+  );
+}
+
 export function areViewLayersEqual(
   left: Partial<ViewLayer>,
   right: Partial<ViewLayer>
@@ -166,6 +180,8 @@ export function areViewLayersEqual(
     leftColormap === rightColormap &&
     left.blendMode === right.blendMode &&
     left.interpolation === right.interpolation &&
+    left.layerMode === right.layerMode &&
+    areLayerOutlinesEqual(left.outline, right.outline) &&
     leftIntensity[0] === rightIntensity[0] &&
     leftIntensity[1] === rightIntensity[1] &&
     leftThreshold[0] === rightThreshold[0] &&

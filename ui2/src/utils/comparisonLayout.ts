@@ -12,7 +12,7 @@ export interface ComparisonPanelDimensions extends ComparisonGridSpec {
 }
 
 const MIN_PANEL_SIZE = 128;
-const GRID_GAP = 4;
+export const COMPARISON_GRID_GAP = 8;
 
 export function getComparisonGridSpec(
   panelCount: number,
@@ -46,8 +46,8 @@ export function getComparisonPanelDimensions(
   const { cols, rows, slotCount } = getComparisonGridSpec(panelCount, layout);
   const availableWidth = Math.max(containerSize.width, MIN_PANEL_SIZE);
   const availableHeight = Math.max(containerSize.height, MIN_PANEL_SIZE);
-  const width = Math.floor((availableWidth - GRID_GAP * (cols - 1)) / cols);
-  const height = Math.floor((availableHeight - GRID_GAP * (rows - 1)) / rows);
+  const width = Math.floor((availableWidth - COMPARISON_GRID_GAP * (cols - 1)) / cols);
+  const height = Math.floor((availableHeight - COMPARISON_GRID_GAP * (rows - 1)) / rows);
 
   return {
     cols,

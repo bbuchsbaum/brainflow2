@@ -6,17 +6,21 @@
  * Uses tag-based rendering (same pattern as MosaicCell).
  */
 
-import { useCallback, useRef, useMemo } from 'react';
+import { useCallback, useEffect, useRef, useMemo, useState } from 'react';
 import { SliceViewport } from './SliceViewport';
 import { useViewStateStore } from '@/stores/viewStateStore';
 import { useComparisonStore } from '@/stores/comparisonStore';
 import { getLineDash, type CrosshairStyle } from '@/utils/crosshairUtils';
 import { useCrosshairSettingsStore } from '@/stores/crosshairSettingsStore';
-import { comparisonTag } from '@/services/ComparisonRenderService';
+import { comparisonTag, getComparisonRenderService } from '@/services/ComparisonRenderService';
 import type { ComparisonPanelConfig } from '@/types/comparison';
 import { useViewportDropTarget } from './viewport/useViewportDropTarget';
+import { createDebugLogger } from '@/utils/debug';
+
+const debug = createDebugLogger('comparison-render');
 
 interface ComparisonPanelProps {
+  workspaceId: string;
   panel: ComparisonPanelConfig;
   width: number;
   height: number;
@@ -35,6 +39,7 @@ interface ComparisonPanelProps {
 export const COMPARISON_PANEL_HEADER_HEIGHT = 28;
 
 export function ComparisonPanel({
+  workspaceId,
   panel,
   width,
   height,
@@ -47,19 +52,109 @@ export function ComparisonPanel({
   onNativeFileDrop,
 }: ComparisonPanelProps) {
   const tag = comparisonTag(panel.id, panel.viewType);
+  const renderService = useMemo(() => getComparisonRenderService(), []);
+  const canvasContainerRef = useRef<HTMLDivElement>(null);
+  const fallbackCanvasSize = useMemo(() => ({
+    width: Math.max(1, Math.floor(width)),
+    height: Math.max(1, Math.floor(height - COMPARISON_PANEL_HEADER_HEIGHT)),
+  }), [width, height]);
+  const [measuredCanvasSize, setMeasuredCanvasSize] = useState<{
+    width: number;
+    height: number;
+  } | null>(null);
+  const canvasSize = measuredCanvasSize ?? fallbackCanvasSize;
+
+  useEffect(() => {
+    setMeasuredCanvasSize(null);
+  }, [fallbackCanvasSize.width, fallbackCanvasSize.height]);
+
+  useEffect(() => {
+    const node = canvasContainerRef.current;
+    if (!node) return;
+
+    const publishSize = (nextSize: { width: number; height: number }) => {
+      if (nextSize.width <= 0 || nextSize.height <= 0) return;
+
+      setMeasuredCanvasSize(current =>
+        current?.width === nextSize.width && current.height === nextSize.height
+          ? current
+          : nextSize
+      );
+      debug(`[ComparisonPanel] measured canvas ${panel.id}`, {
+        size: nextSize,
+        layoutSize: { width, height },
+        viewType: panel.viewType,
+      });
+    };
+
+    const rect = node.getBoundingClientRect();
+    publishSize({
+      width: Math.max(1, Math.floor(rect.width)),
+      height: Math.max(1, Math.floor(rect.height)),
+    });
+
+    const observer = new ResizeObserver(entries => {
+      const entry = entries[0];
+      if (!entry) return;
+
+      publishSize({
+        width: Math.max(1, Math.floor(entry.contentRect.width)),
+        height: Math.max(1, Math.floor(entry.contentRect.height)),
+      });
+    });
+
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [height, panel.id, panel.viewType, width]);
+
+  const viewStateRevision = useViewStateStore(
+    state => state.getWorkspaceViewStateRevisions(workspaceId).state
+  );
+
+  useEffect(() => {
+    void renderService.renderPanel({
+      workspaceId,
+      panel,
+      width: canvasSize.width,
+      height: canvasSize.height,
+    });
+
+    return () => {
+      renderService.cancelRenders([tag]);
+    };
+  }, [
+    canvasSize.width,
+    canvasSize.height,
+    panel,
+    renderService,
+    tag,
+    viewStateRevision,
+    workspaceId,
+  ]);
 
   const renderContext = useMemo(() => ({
     id: tag,
     type: 'comparison-panel' as const,
-    dimensions: { width, height },
+    dimensions: { width: canvasSize.width, height: canvasSize.height },
     metadata: {
       panelId: panel.id,
       viewType: panel.viewType,
     },
-  }), [tag, width, height, panel.id, panel.viewType]);
+  }), [tag, canvasSize.width, canvasSize.height, panel.id, panel.viewType]);
 
-  const crosshair = useViewStateStore(state => state.viewState.crosshair);
-  const fallbackViewPlane = useViewStateStore(state => state.viewState.views[panel.viewType]);
+  const workspaceCrosshairWorld = useViewStateStore(
+    state => state.getWorkspaceViewState(workspaceId).crosshair.world_mm
+  );
+  const workspaceCrosshairVisible = useViewStateStore(
+    state => state.getWorkspaceViewState(workspaceId).crosshair.visible
+  );
+  const crosshair = useMemo(() => ({
+    visible: workspaceCrosshairVisible,
+    world_mm: workspaceCrosshairWorld,
+  }), [workspaceCrosshairVisible, workspaceCrosshairWorld]);
+  const fallbackViewPlane = useViewStateStore(
+    state => state.getWorkspaceViewState(workspaceId).views[panel.viewType]
+  );
   const resolvedViewPlane = useComparisonStore(state => state.getPanelViewPlane(panel.id));
   const viewPlane = resolvedViewPlane ?? fallbackViewPlane;
   const crosshairSettings = useCrosshairSettingsStore(state => state.getViewSettings(panel.viewType));
@@ -84,8 +179,6 @@ export function ComparisonPanel({
     onPathDrop: (path) => onFileDrop?.(panel.id, path),
     onNativeFileDrop: (file) => onNativeFileDrop?.(panel.id, file),
   });
-
-  const canvasHeight = Math.max(height - COMPARISON_PANEL_HEADER_HEIGHT, 64);
 
   const layerBadges = Array.from(panel.visibleLayerIds);
   const badgeLayerIds = layerBadges.length > 1 ? layerBadges : [];
@@ -158,10 +251,10 @@ export function ComparisonPanel({
       </div>
 
       {/* Canvas */}
-      <div className="flex-1 relative">
+      <div ref={canvasContainerRef} className="flex-1 relative">
         <SliceViewport
-          width={width}
-          height={canvasHeight}
+          width={canvasSize.width}
+          height={canvasSize.height}
           context={renderContext}
           tag={tag}
           viewPlane={viewPlane}

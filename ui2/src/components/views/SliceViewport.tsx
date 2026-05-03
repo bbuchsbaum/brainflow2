@@ -1,5 +1,6 @@
 import type { MouseEvent } from 'react';
 import { SliceRenderer } from './SliceRenderer';
+import type { SliceRendererProps } from './SliceRenderer';
 import type { CrosshairStyle } from '@/utils/crosshairUtils';
 import type { ViewPlane } from '@/types/coordinates';
 import type { RenderContext } from '@/types/renderContext';
