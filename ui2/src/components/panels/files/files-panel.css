@@ -1,0 +1,348 @@
+/* Files panel — start state and shared row chrome.
+ * Tokens still target --app-* until P4 (--bf-* migration). */
+
+.files-start-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--app-spacing-md);
+  padding: var(--app-spacing-lg) var(--app-spacing-md);
+  overflow-y: auto;
+  height: 100%;
+  color: var(--app-text-primary);
+}
+
+.files-start-kicker {
+  margin: 0;
+  text-transform: uppercase;
+  letter-spacing: var(--app-role-section-tracking);
+  font-size: var(--app-role-section-size);
+  font-weight: var(--app-role-section-weight);
+  color: var(--app-text-secondary);
+}
+
+.files-start-message {
+  margin: 0;
+  font-size: var(--app-role-body-size);
+  color: var(--app-text-muted);
+  line-height: 1.4;
+}
+
+.files-start-commands {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--app-spacing-xs);
+}
+
+.files-start-command {
+  display: flex;
+  align-items: center;
+  gap: var(--app-spacing-sm);
+  width: 100%;
+  min-height: var(--app-control-height-md);
+  padding: 0 var(--app-spacing-md);
+  background: var(--app-bg-secondary);
+  border: 1px solid var(--app-border-subtle);
+  border-radius: var(--app-radius-sm);
+  color: var(--app-text-primary);
+  font-size: var(--app-role-body-size);
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color var(--app-transition-fast),
+    border-color var(--app-transition-fast),
+    color var(--app-transition-fast);
+}
+
+.files-start-command:hover:not(:disabled) {
+  background: var(--app-bg-hover);
+  border-color: var(--app-border-strong);
+}
+
+.files-start-command:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+
+.files-start-command:focus-visible {
+  outline: var(--app-focus-ring-width) solid var(--app-focus-ring-color);
+  outline-offset: var(--app-focus-ring-offset);
+}
+
+.files-start-command--primary {
+  background: var(--app-accent);
+  color: var(--app-accent-foreground);
+  border-color: color-mix(in srgb, var(--app-accent) 70%, #000 30%);
+}
+
+.files-start-command--primary:hover:not(:disabled) {
+  background: var(--app-accent-hover);
+  color: #fff;
+}
+
+.files-start-command-icon {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+}
+
+.files-start-command-label {
+  flex: 1;
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.files-start-command-shortcut {
+  font-family: var(--app-font-mono);
+  font-size: var(--app-text-xs);
+  color: color-mix(in srgb, currentColor 80%, transparent);
+}
+
+.files-start-error {
+  margin: 0;
+  padding: var(--app-spacing-xs) var(--app-spacing-sm);
+  border: 1px solid color-mix(in srgb, var(--app-error) 32%, transparent);
+  background: color-mix(in srgb, var(--app-error) 10%, transparent);
+  color: var(--app-error);
+  font-size: var(--app-role-label-size);
+  border-radius: var(--app-radius-sm);
+}
+
+.files-start-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--app-spacing-xs);
+}
+
+.files-start-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--app-spacing-sm);
+}
+
+.files-start-section-title {
+  text-transform: uppercase;
+  letter-spacing: var(--app-role-section-tracking);
+  font-size: var(--app-role-section-size);
+  font-weight: var(--app-role-section-weight);
+  color: var(--app-text-secondary);
+}
+
+.files-start-section-link {
+  background: none;
+  border: none;
+  color: var(--app-text-muted);
+  font-size: var(--app-role-label-size);
+  cursor: pointer;
+  padding: 0;
+}
+
+.files-start-section-link:hover {
+  color: var(--app-text-secondary);
+}
+
+.files-start-empty {
+  margin: 0;
+  font-size: var(--app-role-label-size);
+  color: var(--app-text-muted);
+  font-style: italic;
+}
+
+.files-start-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.files-start-row {
+  display: flex;
+  align-items: stretch;
+  gap: 2px;
+}
+
+.files-start-row-main {
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+  gap: var(--app-spacing-sm);
+  padding: 4px var(--app-spacing-sm);
+  border: 1px solid transparent;
+  background: transparent;
+  border-radius: var(--app-radius-sm);
+  color: var(--app-text-primary);
+  font-size: var(--app-role-body-size);
+  text-align: left;
+  cursor: pointer;
+  min-width: 0;
+}
+
+.files-start-row-main:hover {
+  background: var(--app-bg-hover);
+}
+
+.files-start-row-icon {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  color: var(--app-text-muted);
+}
+
+.files-start-row-label {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.files-start-row-meta {
+  font-family: var(--app-font-mono);
+  font-size: var(--app-text-xs);
+  color: var(--app-text-muted);
+  flex-shrink: 0;
+}
+
+.files-start-row-action {
+  flex: 0 0 auto;
+  width: var(--app-control-height-sm);
+  height: var(--app-control-height-sm);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--app-text-muted);
+  border-radius: var(--app-radius-sm);
+  cursor: pointer;
+  transition: color var(--app-transition-fast),
+    background-color var(--app-transition-fast);
+}
+
+.files-start-row-action:hover:not(:disabled) {
+  background: var(--app-bg-hover);
+  color: var(--app-text-secondary);
+}
+
+.files-start-row-action:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.files-start-drop {
+  margin-top: auto;
+  display: flex;
+  align-items: center;
+  gap: var(--app-spacing-md);
+  padding: var(--app-spacing-md);
+  border: 1px dashed var(--app-border);
+  border-radius: var(--app-radius-md);
+  background: color-mix(in srgb, var(--app-bg-secondary) 80%, var(--app-bg-tertiary) 20%);
+}
+
+.files-start-drop-icon {
+  width: 20px;
+  height: 20px;
+  color: var(--app-text-muted);
+  flex-shrink: 0;
+}
+
+.files-start-drop-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.files-start-drop-title {
+  margin: 0;
+  font-size: var(--app-role-body-size);
+  color: var(--app-text-secondary);
+}
+
+.files-start-drop-hint {
+  margin: 0;
+  font-size: var(--app-role-label-size);
+  color: var(--app-text-muted);
+}
+
+.files-start-drop-hint kbd {
+  font-family: var(--app-font-mono);
+  font-size: var(--app-text-xs);
+  background: var(--app-bg-tertiary);
+  border: 1px solid var(--app-border-subtle);
+  border-radius: 4px;
+  padding: 0 4px;
+}
+
+/* File type badge — shown next to file names in the tree. */
+.file-type-badge {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  margin-right: var(--app-spacing-xs);
+  padding: 0 5px;
+  height: 16px;
+  border-radius: 3px;
+  border: 1px solid var(--app-border-subtle);
+  background: color-mix(in srgb, var(--app-bg-tertiary) 78%, transparent);
+  color: var(--app-text-secondary);
+  font-family: var(--app-font-mono);
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  line-height: 1;
+}
+
+.file-type-badge--nii,
+.file-type-badge--niiGz {
+  border-color: color-mix(in srgb, var(--blue-500) 40%, transparent);
+  color: var(--blue-500);
+  background: color-mix(in srgb, var(--blue-500) 12%, transparent);
+}
+
+.file-type-badge--fourDNii {
+  border-color: color-mix(in srgb, var(--blue-500) 60%, transparent);
+  color: #fff;
+  background: var(--blue-500);
+}
+
+.file-type-badge--gii,
+.file-type-badge--surfGii,
+.file-type-badge--funcGii {
+  border-color: color-mix(in srgb, #10b981 40%, transparent);
+  color: #10b981;
+  background: color-mix(in srgb, #10b981 12%, transparent);
+}
+
+.file-type-badge--mgz,
+.file-type-badge--mgh {
+  border-color: color-mix(in srgb, #8b5cf6 40%, transparent);
+  color: #8b5cf6;
+  background: color-mix(in srgb, #8b5cf6 12%, transparent);
+}
+
+.file-type-badge--dicom {
+  border-color: color-mix(in srgb, var(--app-error) 40%, transparent);
+  color: var(--app-error);
+  background: color-mix(in srgb, var(--app-error) 10%, transparent);
+}
+
+.file-type-badge--analyze {
+  border-color: color-mix(in srgb, var(--app-warning) 40%, transparent);
+  color: var(--app-warning);
+  background: color-mix(in srgb, var(--app-warning) 12%, transparent);
+}
+
+.file-tree-item.selected .file-type-badge {
+  border-color: hsl(var(--primary));
+  color: hsl(var(--primary-foreground));
+  background: color-mix(in srgb, hsl(var(--primary)) 30%, transparent);
+}

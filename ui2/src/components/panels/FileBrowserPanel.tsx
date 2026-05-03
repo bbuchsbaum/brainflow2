@@ -1,22 +1,13 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Tree } from 'react-arborist';
-import { 
-  VscChevronRight, 
-  VscChevronDown, 
+import {
   VscChevronUp,
-  VscFolder, 
-  VscFolderOpened,
-  VscFile,
-  VscJson,
-  VscTable,
-  VscMarkdown,
-  VscFileCode,
-  VscFileBinary
+  VscChevronDown,
+  VscFolder,
 } from 'react-icons/vsc';
 import './FileBrowserPanel.css';
 import { useFileBrowserStore } from '@/stores/fileBrowserStore';
-import type { FileTreeNode, DragFileData, MountSource } from '@/types/filesystem';
-import { getEventBus } from '@/events/EventBus';
+import type { FileTreeNode } from '@/types/filesystem';
 import { getTransport } from '@/services/transport';
 import {
   mountConnectedRemoteDirectory,
@@ -25,419 +16,8 @@ import {
 import { PanelErrorBoundary } from '../common/PanelErrorBoundary';
 import { PanelHeader } from '@/components/ui/PanelHeader';
 import { RemoteMountDialog } from './RemoteMountDialog';
-import { useContextMenuStore } from '@/stores/contextMenuStore';
-import type { ContextMenuItem } from '@/stores/contextMenuStore';
-import { useWorkspaceStore } from '@/stores/workspaceStore';
-import { useBidsStore } from '@/stores/bidsStore';
-import { FILE_DRAG_MIME, setActiveDragData, clearActiveDragData } from '@/utils/layerDrag';
-import type { DisplayOpenIntent } from '@/types/loadIntent';
-
-interface FileNodeData {
-  id: string;
-  name: string;
-  path: string;
-  type: 'file' | 'directory';
-  size?: number;
-  extension?: string;
-  modified?: Date;
-  children?: FileNodeData[];
-  mountSource?: MountSource;
-}
-
-interface FileTreeItemProps {
-  node: any;
-  style: React.CSSProperties;
-  dragHandle?: React.Ref<HTMLDivElement>;
-}
-
-function formatRemoteHostLabel(mountSource: MountSource): string {
-  if (mountSource.user && mountSource.host) {
-    if (mountSource.port && mountSource.port !== 22) {
-      return `${mountSource.user}@${mountSource.host}:${mountSource.port}`;
-    }
-    return `${mountSource.user}@${mountSource.host}`;
-  }
-
-  if (mountSource.host) {
-    return mountSource.host;
-  }
-
-  return mountSource.label ?? 'remote';
-}
-
-function buildRemoteMountUri(mountSource: MountSource): string | null {
-  if (!mountSource.host || !mountSource.remotePath) {
-    return null;
-  }
-
-  const encodedUser = mountSource.user ? `${encodeURIComponent(mountSource.user)}@` : '';
-  const port = mountSource.port && mountSource.port !== 22 ? `:${mountSource.port}` : '';
-
-  return `ssh://${encodedUser}${mountSource.host}${port}${mountSource.remotePath}`;
-}
-
-const FileTreeItem: React.FC<FileTreeItemProps> = ({ node, style }) => {
-  const { data } = node;
-  const fileBrowserStore = useFileBrowserStore();
-  const selectedPath = useFileBrowserStore(state => state.selectedPath);
-  const searchQuery = useFileBrowserStore(state => state.searchQuery);
-  
-  const isSelected = selectedPath === data.path;
-  const isDirectory = data.type === 'directory';
-  const remoteMountSource =
-    isDirectory && node.level === 0 && data.mountSource?.kind === 'remote'
-      ? data.mountSource
-      : null;
-  const remoteHostLabel = remoteMountSource ? formatRemoteHostLabel(remoteMountSource) : null;
-  const remoteRootPath = remoteMountSource?.remotePath ?? null;
-  const remoteUri = remoteMountSource ? buildRemoteMountUri(remoteMountSource) : null;
-  const remoteOriginTooltip =
-    remoteUri || remoteMountSource?.label?.trim() || remoteHostLabel || null;
-  const remoteRootTooltip = remoteRootPath ? `Remote root: ${remoteRootPath}` : null;
-  const remoteMountRowTooltip =
-    remoteMountSource &&
-    [
-      `Mounted remote folder`,
-      `Name: ${data.name}`,
-      remoteOriginTooltip ? `Origin: ${remoteOriginTooltip}` : null,
-      remoteRootPath ? `Root: ${remoteRootPath}` : null,
-      `Local cache: ${data.path}`,
-    ]
-      .filter((value): value is string => Boolean(value))
-      .join('\n');
-  
-  // File type detection
-  const { icon: FileIcon, color: fileColor } = getFileIcon(data, node.isOpen);
-
-  function truncateMiddle(value: string, maxLength: number): string {
-    if (value.length <= maxLength) return value;
-    const left = Math.ceil((maxLength - 1) / 2);
-    const right = Math.floor((maxLength - 1) / 2);
-    return `${value.slice(0, left)}…${value.slice(value.length - right)}`;
-  }
-
-  function formatDisplayName(name: string, isDir: boolean): { head: string; tail: string | null } {
-    if (searchQuery.trim().length > 0) {
-      return { head: name, tail: null };
-    }
-
-    if (isDir) {
-      return { head: truncateMiddle(name, 34), tail: null };
-    }
-
-    const maxLength = 42;
-    if (name.length <= maxLength) {
-      return { head: name, tail: null };
-    }
-
-    const lowerName = name.toLowerCase();
-    const knownCompoundExtensions = ['.nii.gz', '.tar.gz', '.csv.gz', '.tsv.gz'];
-    const compoundMatch = knownCompoundExtensions.find(ext => lowerName.endsWith(ext));
-    const extensionLength = (() => {
-      if (compoundMatch) return compoundMatch.length;
-      const lastDot = name.lastIndexOf('.');
-      if (lastDot > 0 && name.length - lastDot <= 10) {
-        return name.length - lastDot;
-      }
-      return 0;
-    })();
-
-    const desiredTailLength = extensionLength > 0 ? extensionLength + 8 : 14;
-    const tailLength = Math.min(Math.max(desiredTailLength, 12), 20, name.length - 8);
-    const headLength = Math.max(8, maxLength - tailLength - 1);
-
-    return {
-      head: `${name.slice(0, headLength)}…`,
-      tail: name.slice(name.length - tailLength),
-    };
-  }
-  
-  function getFileIcon(node: FileNodeData, isOpen: boolean = false): { icon: React.ComponentType; color: string } {
-    if (node.type === 'directory') {
-      return { 
-        icon: isOpen ? VscFolderOpened : VscFolder, 
-        color: 'var(--app-text-secondary)' 
-      };
-    }
-    
-    const path = node.path.toLowerCase();
-    
-    // Neuroimaging files
-    if (path.endsWith('.nii') || path.endsWith('.nii.gz')) {
-      return { icon: VscFileBinary, color: 'var(--blue-500)' };
-    }
-    if (path.endsWith('.gii')) {
-      return { icon: VscFileBinary, color: '#10b981' };
-    }
-    if (path.endsWith('.img') || path.endsWith('.hdr')) {
-      return { icon: VscFileBinary, color: 'var(--app-warning)' };
-    }
-    if (path.endsWith('.dcm') || path.endsWith('.dicom')) {
-      return { icon: VscFileBinary, color: 'var(--app-error)' };
-    }
-    if (path.endsWith('.mgz') || path.endsWith('.mgh')) {
-      return { icon: VscFileBinary, color: '#8b5cf6' };
-    }
-    
-    // Data files
-    if (path.endsWith('.json')) {
-      return { icon: VscJson, color: 'var(--app-text-secondary)' };
-    }
-    if (path.endsWith('.tsv') || path.endsWith('.csv')) {
-      return { icon: VscTable, color: 'var(--app-text-secondary)' };
-    }
-    
-    // Text files
-    if (path.endsWith('.md')) {
-      return { icon: VscMarkdown, color: 'var(--app-text-secondary)' };
-    }
-    if (path.endsWith('.txt')) {
-      return { icon: VscFileCode, color: 'var(--app-text-secondary)' };
-    }
-    
-    // Default
-    return { icon: VscFile, color: 'var(--app-text-secondary)' };
-  }
-  
-  function formatFileSize(bytes?: number): string {
-    if (!bytes) return '';
-    
-    const units = ['B', 'KB', 'MB', 'GB'];
-    let size = bytes;
-    let unitIndex = 0;
-    
-    while (size >= 1024 && unitIndex < units.length - 1) {
-      size /= 1024;
-      unitIndex++;
-    }
-    
-    return `${size.toFixed(unitIndex > 0 ? 1 : 0)}${units[unitIndex]}`;
-  }
-  
-  function highlightText(text: string, query: string): string {
-    if (!query) return text;
-    
-    const regex = new RegExp(`(${query})`, 'gi');
-    return text.replace(regex, '<mark class="bg-yellow-200">$1</mark>');
-  }
-  
-  
-  function handleDoubleClick() {
-    if (!isDirectory) {
-      // Double-click to load file
-      const eventBus = getEventBus();
-      eventBus.emit('filebrowser.file.doubleclick', { path: data.path });
-    }
-  }
-  
-  function handleDragStart(event: React.DragEvent) {
-    if (!event.dataTransfer) return;
-
-    // Stop propagation so react-arborist doesn't intercept the drag
-    event.stopPropagation();
-
-    const dragData: DragFileData = {
-      path: data.path,
-      name: data.name,
-      type: data.type,
-      extension: data.extension
-    };
-
-    // Store in cross-panel bridge (GoldenLayout may swallow dataTransfer)
-    setActiveDragData(dragData);
-
-    const json = JSON.stringify(dragData);
-    event.dataTransfer.setData(FILE_DRAG_MIME, json);
-    event.dataTransfer.setData('application/json', json);
-    event.dataTransfer.setData('text/plain', data.path);
-    event.dataTransfer.effectAllowed = 'copy';
-  }
-  
-  function handleContextMenu(event: React.MouseEvent) {
-    event.preventDefault();
-    event.stopPropagation();
-
-    const eventBus = getEventBus();
-    const contextMenu = useContextMenuStore.getState();
-
-    if (isDirectory) {
-      const dirPath = data.path;
-      const clientX = event.clientX;
-      const clientY = event.clientY;
-
-      void (async () => {
-        let isBids = false;
-        try {
-          isBids = await getTransport().invoke<boolean>('check_bids_directory', { path: dirPath });
-        } catch {
-          // Non-fatal: show menu without BIDS option if check fails
-        }
-
-        const dirItems: ContextMenuItem[] = [
-          {
-            id: 'open-dir',
-            label: 'Expand',
-            onClick: () => {
-              if (!node.isOpen) {
-                node.toggle();
-                if (!data.children || data.children.length === 0) {
-                  fileBrowserStore.loadDirectory(dirPath);
-                }
-              }
-            },
-          },
-        ];
-
-        if (isBids) {
-          dirItems.push({
-            id: 'open-bids',
-            label: 'Open as BIDS Dataset',
-            onClick: () => {
-              void useWorkspaceStore.getState().createWorkspace('bids-explorer');
-              void useBidsStore.getState().scanDataset(dirPath);
-            },
-          });
-        }
-
-        contextMenu.open(clientX, clientY, dirItems);
-      })();
-      return;
-    }
-
-    // File context menu
-    const items: ContextMenuItem[] = [
-      {
-        id: 'open-default',
-        label: 'Open',
-        onClick: () => {
-          eventBus.emit('filebrowser.file.open', {
-            path: data.path,
-            intent: 'default' as DisplayOpenIntent,
-          });
-        },
-      },
-      {
-        id: 'add-layer',
-        label: 'Add As Layer',
-        onClick: () => {
-          eventBus.emit('filebrowser.file.open', {
-            path: data.path,
-            intent: 'add-layer' as DisplayOpenIntent,
-          });
-        },
-      },
-      { id: 'sep-1', label: '', separator: true },
-      {
-        id: 'new-workspace',
-        label: 'Open In New Tab',
-        onClick: () => {
-          eventBus.emit('filebrowser.file.open', {
-            path: data.path,
-            intent: 'new-workspace' as DisplayOpenIntent,
-          });
-        },
-      },
-      {
-        id: 'comparison',
-        label: 'Open In Comparison View',
-        onClick: () => {
-          eventBus.emit('filebrowser.file.open', {
-            path: data.path,
-            intent: 'comparison' as DisplayOpenIntent,
-          });
-        },
-      },
-    ];
-
-    contextMenu.open(event.clientX, event.clientY, items);
-  }
-  
-  const displayName = formatDisplayName(data.name, isDirectory);
-  const isSearchActive = searchQuery.trim().length > 0;
-
-  return (
-    <div
-      style={{
-        ...style,
-        paddingLeft: `${style.paddingLeft || 0}px`
-      }}
-      className={`file-tree-item ${isSelected ? 'selected' : ''} ${isDirectory ? 'font-medium' : ''}`}
-      draggable={!isDirectory}
-      onDragStart={!isDirectory ? handleDragStart : undefined}
-      onDragEnd={!isDirectory ? () => clearActiveDragData() : undefined}
-      onDoubleClick={handleDoubleClick}
-      onContextMenu={handleContextMenu}
-    >
-      {/* Expand/collapse indicator for directories */}
-      {isDirectory ? (
-        <button
-          type="button"
-          className="expand-button"
-          onClick={(e) => {
-            e.stopPropagation();
-            // Check before toggling — after toggle(), isOpen has already flipped
-            const wasOpen = node.isOpen;
-            node.toggle();
-
-            // Load directory contents when opening
-            if (!wasOpen && (!data.children || data.children.length === 0)) {
-              fileBrowserStore.loadDirectory(data.path);
-            }
-          }}
-        >
-          {node.isOpen ? <VscChevronDown /> : <VscChevronRight />}
-        </button>
-      ) : (
-        <div className="expand-spacer" />
-      )}
-      
-      {/* File/folder icon */}
-      <span 
-        className="file-icon"
-        style={{ color: fileColor }}
-      >
-        <FileIcon />
-      </span>
-      
-      {/* File/folder name */}
-      <div className="file-name" title={remoteMountRowTooltip || undefined}>
-        {isSearchActive ? (
-          <span
-            className="file-name-text"
-            title={remoteMountRowTooltip || data.name}
-            dangerouslySetInnerHTML={{
-              __html: highlightText(displayName.head, searchQuery),
-            }}
-          />
-        ) : (
-          <span className="file-name-text" title={remoteMountRowTooltip || data.name}>
-            <span className="file-name-head">{displayName.head}</span>
-            {displayName.tail && <span className="file-name-tail">{displayName.tail}</span>}
-          </span>
-        )}
-        {remoteHostLabel && (
-          <span className="remote-origin-badge" title={remoteOriginTooltip || remoteHostLabel}>
-            {remoteHostLabel}
-          </span>
-        )}
-        {remoteRootPath && (
-          <span className="remote-root-badge" title={remoteRootTooltip || remoteRootPath}>
-            {remoteRootPath}
-          </span>
-        )}
-      </div>
-      
-      {/* File metadata */}
-      <div className="file-meta">
-        {data.type === 'file' && data.size && (
-          <span className="file-size">
-            {formatFileSize(data.size)}
-          </span>
-        )}
-      </div>
-    </div>
-  );
-};
+import { FileTreeRow, type FileNodeData } from './files/FileTreeRow';
+import { FilesStartPanel } from './files/FilesStartPanel';
 
 const FileBrowserPanelContent: React.FC = () => {
   const fileBrowserStore = useFileBrowserStore();
@@ -447,89 +27,68 @@ const FileBrowserPanelContent: React.FC = () => {
   const [mountActionPending, setMountActionPending] = useState(false);
   const [remoteDialogOpen, setRemoteDialogOpen] = useState(false);
   const treeContainerRef = useRef<HTMLDivElement>(null);
-  
+
   // Reactive values from store
-  const currentPath = useFileBrowserStore(state => state.currentPath);
-  const rootPath = useFileBrowserStore(state => state.rootPath);
-  const entries = useFileBrowserStore(state => state.entries);
-  const loading = useFileBrowserStore(state => state.loading);
-  const error = useFileBrowserStore(state => state.error);
-  const searchQuery = useFileBrowserStore(state => state.searchQuery);
-  const searchResults = useFileBrowserStore(state => state.searchResults);
-  const sortBy = useFileBrowserStore(state => state.sortBy);
-  const sortOrder = useFileBrowserStore(state => state.sortOrder);
-  const selectedPath = useFileBrowserStore(state => state.selectedPath);
+  const currentPath = useFileBrowserStore((state) => state.currentPath);
+  const rootPath = useFileBrowserStore((state) => state.rootPath);
+  const entries = useFileBrowserStore((state) => state.entries);
+  const loading = useFileBrowserStore((state) => state.loading);
+  const error = useFileBrowserStore((state) => state.error);
+  const searchQuery = useFileBrowserStore((state) => state.searchQuery);
+  const searchResults = useFileBrowserStore((state) => state.searchResults);
+  const sortBy = useFileBrowserStore((state) => state.sortBy);
+  const sortOrder = useFileBrowserStore((state) => state.sortOrder);
+  const selectedPath = useFileBrowserStore((state) => state.selectedPath);
+  const pinLocation = useFileBrowserStore((state) => state.pinLocation);
+  const unpinLocation = useFileBrowserStore((state) => state.unpinLocation);
+  const isPinned = useFileBrowserStore((state) => state.isPinned);
 
   const selectedRootMount = useMemo(() => {
-    if (!selectedPath) {
-      return null;
-    }
-
+    if (!selectedPath) return null;
     return (
       entries.find(
-        (entry) =>
-          selectedPath === entry.path || selectedPath.startsWith(`${entry.path}/`)
+        (entry) => selectedPath === entry.path || selectedPath.startsWith(`${entry.path}/`)
       ) ?? null
     );
   }, [entries, selectedPath]);
 
-  const activeRootMount = useMemo(() => {
-    if (selectedRootMount) {
-      return selectedRootMount;
-    }
-
-    if (currentPath) {
-      const matchingRoot = entries.find(
-        (entry) => currentPath === entry.path || currentPath.startsWith(`${entry.path}/`)
-      );
-      if (matchingRoot) {
-        return matchingRoot;
-      }
-    }
-
-    return entries.length === 1 ? entries[0] : null;
-  }, [currentPath, entries, selectedRootMount]);
-
   // Handle container resize
   useEffect(() => {
     if (!treeContainerRef.current) return;
-    
-    // Initial size check
+
     const rect = treeContainerRef.current.getBoundingClientRect();
     if (rect.width > 0 && rect.height > 0) {
       setTreeSize({ width: rect.width, height: rect.height });
     }
-    
-    const resizeObserver = new ResizeObserver((entries) => {
-      for (const entry of entries) {
+
+    const resizeObserver = new ResizeObserver((observed) => {
+      for (const entry of observed) {
         const { width, height } = entry.contentRect;
         setTreeSize({ width, height });
       }
     });
-    
+
     resizeObserver.observe(treeContainerRef.current);
-    
-    // Fallback: check size after a delay
+
     const timeoutId = setTimeout(() => {
       if (treeContainerRef.current) {
-        const rect = treeContainerRef.current.getBoundingClientRect();
-        if (rect.width > 0 && rect.height > 0 && (treeSize.width === 0 || treeSize.height === 0)) {
-          setTreeSize({ width: rect.width, height: rect.height });
+        const r = treeContainerRef.current.getBoundingClientRect();
+        if (r.width > 0 && r.height > 0 && (treeSize.width === 0 || treeSize.height === 0)) {
+          setTreeSize({ width: r.width, height: r.height });
         }
       }
     }, 100);
-    
+
     return () => {
       resizeObserver.disconnect();
       clearTimeout(timeoutId);
     };
   }, []);
-  
+
   // Convert entries to format expected by react-arborist
   const treeData = useMemo(() => {
-    
     const convertToTreeData = (nodes: FileTreeNode[]): FileNodeData[] => {
-      return nodes.map(node => ({
+      return nodes.map((node) => ({
         id: node.id,
         name: node.name,
         path: node.path,
@@ -538,41 +97,33 @@ const FileBrowserPanelContent: React.FC = () => {
         extension: node.extension,
         modified: node.modified,
         mountSource: node.mountSource,
-        children: node.children ? convertToTreeData(node.children) : undefined
+        children: node.children ? convertToTreeData(node.children) : undefined,
       }));
     };
-    
+
     const data = searchQuery ? searchResults : entries;
-    const converted = convertToTreeData(data);
-    return converted;
+    return convertToTreeData(data);
   }, [entries, searchResults, searchQuery]);
-  
-  // Remove the automatic loading based on currentPath
-  // Directories are now loaded when mounted or expanded
-  
+
   function handleSearchInput(event: React.ChangeEvent<HTMLInputElement>) {
     const value = event.target.value;
     setSearchInput(value);
     fileBrowserStore.setSearchQuery(value);
   }
-  
+
   function clearSearch() {
     setSearchInput('');
     fileBrowserStore.clearSearch();
   }
-  
-  async function openMountDialog() {
-    if (mountActionPending) {
-      return;
-    }
 
+  async function openMountDialog() {
+    if (mountActionPending) return;
     setMountActionPending(true);
     setMountActionError(null);
-
     try {
       await getTransport().invoke<void>('open_mount_dialog');
-    } catch (error) {
-      console.error('Failed to open mount dialog:', error);
+    } catch (err) {
+      console.error('Failed to open mount dialog:', err);
       setMountActionError('Could not open folder picker. Use File > Mount Directory…');
     } finally {
       setMountActionPending(false);
@@ -580,17 +131,13 @@ const FileBrowserPanelContent: React.FC = () => {
   }
 
   async function openFileDialog() {
-    if (mountActionPending) {
-      return;
-    }
-
+    if (mountActionPending) return;
     setMountActionPending(true);
     setMountActionError(null);
-
     try {
       await getTransport().invoke<void>('open_file_dialog');
-    } catch (error) {
-      console.error('Failed to open file dialog:', error);
+    } catch (err) {
+      console.error('Failed to open file dialog:', err);
       setMountActionError('Could not open file picker. Please try again.');
     } finally {
       setMountActionPending(false);
@@ -607,9 +154,7 @@ const FileBrowserPanelContent: React.FC = () => {
   }
 
   async function unmountSelectedRoot() {
-    if (!selectedRootMount || mountActionPending) {
-      return;
-    }
+    if (!selectedRootMount || mountActionPending) return;
 
     setMountActionPending(true);
     setMountActionError(null);
@@ -643,6 +188,21 @@ const FileBrowserPanelContent: React.FC = () => {
     }
   }
 
+  function pinSelectedRoot() {
+    if (!selectedRootMount) return;
+    pinLocation({
+      id: selectedRootMount.path,
+      label: selectedRootMount.name,
+      path: selectedRootMount.path,
+      mountSource: selectedRootMount.mountSource ?? { kind: 'local' },
+    });
+  }
+
+  function unpinSelectedRoot() {
+    if (!selectedRootMount) return;
+    unpinLocation(selectedRootMount.path);
+  }
+
   function handleNoResultsReset() {
     clearSearch();
     setMountActionError(null);
@@ -656,7 +216,8 @@ const FileBrowserPanelContent: React.FC = () => {
     () => (navigator.platform.toLowerCase().includes('mac') ? 'Cmd+O' : 'Ctrl+O'),
     []
   );
-  
+  const selectedRootIsPinned = selectedRootMount ? isPinned(selectedRootMount.path) : false;
+
   return (
     <div className="file-browser-panel">
       <PanelHeader
@@ -677,6 +238,14 @@ const FileBrowserPanelContent: React.FC = () => {
         }
         overflowActions={[
           {
+            id: 'mount-local',
+            label: 'Mount Directory…',
+            onClick: () => {
+              void openMountDialog();
+            },
+            disabled: mountActionPending,
+          },
+          {
             id: 'mount-remote',
             label: 'Mount Remote (SSH)…',
             onClick: openRemoteMountDialog,
@@ -690,6 +259,15 @@ const FileBrowserPanelContent: React.FC = () => {
             },
             disabled: mountActionPending || !selectedRootMount,
             danger: true,
+          },
+          {
+            id: 'pin-selected',
+            label: selectedRootIsPinned ? 'Unpin Selected' : 'Pin Selected',
+            onClick: () => {
+              if (selectedRootIsPinned) unpinSelectedRoot();
+              else pinSelectedRoot();
+            },
+            disabled: !selectedRootMount,
           },
           {
             id: 'open-file',
@@ -717,71 +295,77 @@ const FileBrowserPanelContent: React.FC = () => {
         ]}
       />
 
-      {/* Inline controls strip */}
-      <div className="fb-controls">
-        {/* Search and sort */}
-        <div className="fb-controls-bottom">
-          <div className="fb-search">
-            <svg 
-              className="fb-search-icon"
-              width="14"
-              height="14"
-              fill="none" 
-              stroke="currentColor" 
-              viewBox="0 0 24 24"
-            >
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
-            </svg>
-            <input
-              type="text"
-              placeholder="Search files..."
-              value={searchInput}
-              onChange={handleSearchInput}
-              className="fb-search-input"
-            />
-            {searchQuery && (
+      {hasMountedDirectory && (
+        <div className="fb-controls">
+          <div className="fb-controls-bottom">
+            <div className="fb-search">
+              <svg
+                className="fb-search-icon"
+                width="14"
+                height="14"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth="2"
+                  d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+                />
+              </svg>
+              <input
+                type="text"
+                placeholder="Search files..."
+                value={searchInput}
+                onChange={handleSearchInput}
+                className="fb-search-input"
+              />
+              {searchQuery && (
+                <button type="button" className="fb-search-clear" onClick={clearSearch}>
+                  <svg width="12" height="12" fill="currentColor" viewBox="0 0 20 20">
+                    <path
+                      fillRule="evenodd"
+                      d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z"
+                      clipRule="evenodd"
+                    />
+                  </svg>
+                </button>
+              )}
+            </div>
+
+            <div className="fb-sort">
+              <select
+                value={sortBy}
+                onChange={(e) => fileBrowserStore.setSortBy(e.target.value as any)}
+                className="fb-sort-select"
+              >
+                <option value="name">Name</option>
+                <option value="modified">Modified</option>
+                <option value="size">Size</option>
+                <option value="type">Type</option>
+              </select>
               <button
                 type="button"
-                className="fb-search-clear"
-                onClick={clearSearch}
+                className="fb-sort-order"
+                onClick={() =>
+                  fileBrowserStore.setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc')
+                }
+                title={sortOrder === 'asc' ? 'Sort ascending' : 'Sort descending'}
               >
-                <svg width="12" height="12" fill="currentColor" viewBox="0 0 20 20">
-                  <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd"></path>
-                </svg>
+                {sortOrder === 'asc' ? <VscChevronUp /> : <VscChevronDown />}
               </button>
-            )}
-          </div>
-          
-          <div className="fb-sort">
-            <select
-              value={sortBy}
-              onChange={(e) => fileBrowserStore.setSortBy(e.target.value as any)}
-              className="fb-sort-select"
-            >
-              <option value="name">Name</option>
-              <option value="modified">Modified</option>
-              <option value="size">Size</option>
-              <option value="type">Type</option>
-            </select>
-            <button
-              type="button"
-              className="fb-sort-order"
-              onClick={() => fileBrowserStore.setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc')}
-              title={sortOrder === 'asc' ? 'Sort ascending' : 'Sort descending'}
-            >
-              {sortOrder === 'asc' ? <VscChevronUp /> : <VscChevronDown />}
-            </button>
+            </div>
           </div>
         </div>
-      </div>
+      )}
 
-      {mountActionError && (
+      {mountActionError && hasMountedDirectory && (
         <div className="fb-inline-error" role="status">
           {mountActionError}
         </div>
       )}
-      
-      {/* File tree with virtual scrolling */}
+
       <div className="tree-container">
         {loading && treeData.length === 0 ? (
           <div className="loading-state">
@@ -801,87 +385,42 @@ const FileBrowserPanelContent: React.FC = () => {
               Retry
             </button>
           </div>
-        ) : treeData.length === 0 ? (
+        ) : !hasMountedDirectory ? (
+          <FilesStartPanel
+            shortcutLabel={shortcutLabel}
+            pending={mountActionPending}
+            errorMessage={mountActionError}
+            onMountLocal={() => {
+              void openMountDialog();
+            }}
+            onMountRemote={openRemoteMountDialog}
+            onOpenFile={() => {
+              void openFileDialog();
+            }}
+          />
+        ) : isSearchEmptyState && treeData.length === 0 ? (
           <div className="empty-state">
             <div className="empty-state-card">
-              <div className="empty-state-icon" aria-hidden="true">
-                <svg
-                  width="34"
-                  height="34"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="1.25"
-                >
-                  <path d="M3 6h7l2 2h9v12H3V6z" />
-                </svg>
-              </div>
-
-              <p className="empty-state-kicker">
-                {isSearchEmptyState ? 'No Matching Files' : 'No Directory Mounted'}
-              </p>
-
+              <p className="empty-state-kicker">No Matching Files</p>
               <p className="empty-state-message">
-                {isSearchEmptyState
-                  ? 'No neuroimaging files match your current search. Reset search or mount another folder.'
-                  : 'Mount a directory to browse and load NIfTI/GIfTI files directly from the Files panel.'}
+                No neuroimaging files match your current search. Reset search or mount another folder.
               </p>
-
               <div className="empty-state-actions">
-                {isSearchEmptyState ? (
-                  <button
-                    type="button"
-                    className="empty-state-button secondary"
-                    onClick={handleNoResultsReset}
-                  >
-                    Clear Search
-                  </button>
-                ) : (
-                  <>
-                    <button
-                      type="button"
-                      className="empty-state-button primary"
-                      onClick={() => void openMountDialog()}
-                      disabled={mountActionPending}
-                    >
-                      {mountActionPending ? 'Opening…' : 'Mount Directory'}
-                    </button>
-                    <div className="empty-state-secondary-actions">
-                      <button
-                        type="button"
-                        className="empty-state-button secondary"
-                        onClick={openRemoteMountDialog}
-                        disabled={mountActionPending}
-                      >
-                        Mount Remote (SSH)…
-                      </button>
-                      <button
-                        type="button"
-                        className="empty-state-button secondary"
-                        onClick={() => void openFileDialog()}
-                        disabled={mountActionPending}
-                      >
-                        Open File...
-                      </button>
-                    </div>
-                  </>
-                )}
+                <button
+                  type="button"
+                  className="empty-state-button secondary"
+                  onClick={handleNoResultsReset}
+                >
+                  Clear Search
+                </button>
               </div>
-
-              {!isSearchEmptyState && (
-                <p className="empty-state-hint">
-                  Shortcut: <span>{shortcutLabel}</span> (File {'>'} Mount Directory…)
-                </p>
-              )}
-
             </div>
           </div>
         ) : (
-          <div ref={treeContainerRef} style={{ 
-            width: '100%', 
-            height: '100%', 
-            position: 'relative'
-          }}>
+          <div
+            ref={treeContainerRef}
+            style={{ width: '100%', height: '100%', position: 'relative' }}
+          >
             {(treeSize.width > 0 && treeSize.height > 0) || treeData.length > 0 ? (
               <Tree
                 key={`tree-v2-${entries.length}`}
@@ -894,16 +433,14 @@ const FileBrowserPanelContent: React.FC = () => {
                 overscanCount={5}
                 className="react-arborist"
                 onActivate={(node) => {
-                  // Always select the node that was clicked
                   fileBrowserStore.selectFile(node.data.path);
-                  
-                  // If it's a directory, toggle its state
                   if (node.isInternal) {
                     const wasOpen = node.isOpen;
                     node.toggle();
-
-                    // If we just opened the folder, load its contents
-                    if (!wasOpen && (!node.data.children || node.data.children.length === 0)) {
+                    if (
+                      !wasOpen &&
+                      (!node.data.children || node.data.children.length === 0)
+                    ) {
                       fileBrowserStore.loadDirectory(node.data.path);
                     }
                   }
@@ -913,7 +450,7 @@ const FileBrowserPanelContent: React.FC = () => {
                 disableDrag={true}
                 disableDrop={true}
               >
-                {(props: any) => <FileTreeItem {...props} />}
+                {(props: any) => <FileTreeRow {...props} />}
               </Tree>
             ) : (
               <div style={{ padding: '20px', color: 'var(--app-text-muted)' }}>
@@ -923,7 +460,7 @@ const FileBrowserPanelContent: React.FC = () => {
           </div>
         )}
       </div>
-      
+
       <RemoteMountDialog
         isOpen={remoteDialogOpen}
         onClose={() => {
@@ -935,7 +472,6 @@ const FileBrowserPanelContent: React.FC = () => {
   );
 };
 
-// Export wrapped component with error boundary
 export const FileBrowserPanel: React.FC = () => {
   return (
     <PanelErrorBoundary panelName="FileBrowserPanel">

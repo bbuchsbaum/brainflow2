@@ -21,6 +21,90 @@ declare global {
   }
 }
 
+const PERSIST_KEY = 'bf.fileBrowser.v1';
+const PERSIST_VERSION = 1;
+const RECENTS_LIMIT = 10;
+const PINNED_LIMIT = 12;
+
+export interface RecentLocation {
+  /** Path of the mounted root or opened file. */
+  path: string;
+  /** Display name (basename or remote label). */
+  displayName: string;
+  /** Mount metadata so we can re-mount or recolor the row. */
+  mountSource: MountSource;
+  /** Epoch ms of the most recent open. */
+  lastOpened: number;
+  /** Either 'mount' (a directory mount) or 'file' (a single opened file). */
+  kind: 'mount' | 'file';
+}
+
+export interface PinnedLocation {
+  /** Stable id (currently the path). */
+  id: string;
+  /** User-visible label; defaults to basename. */
+  label: string;
+  /** Path to mount or open. */
+  path: string;
+  /** Mount metadata so we can re-mount or rehydrate context. */
+  mountSource: MountSource;
+}
+
+interface PersistedShape {
+  v: number;
+  recents: RecentLocation[];
+  pinned: PinnedLocation[];
+  fourD: string[];
+}
+
+function loadPersisted(): PersistedShape {
+  if (typeof window === 'undefined') {
+    return { v: PERSIST_VERSION, recents: [], pinned: [], fourD: [] };
+  }
+  try {
+    const raw = window.localStorage?.getItem(PERSIST_KEY);
+    if (!raw) return { v: PERSIST_VERSION, recents: [], pinned: [], fourD: [] };
+    const parsed = JSON.parse(raw) as Partial<PersistedShape>;
+    if (!parsed || parsed.v !== PERSIST_VERSION) {
+      return { v: PERSIST_VERSION, recents: [], pinned: [], fourD: [] };
+    }
+    return {
+      v: PERSIST_VERSION,
+      recents: Array.isArray(parsed.recents) ? parsed.recents.slice(0, RECENTS_LIMIT) : [],
+      pinned: Array.isArray(parsed.pinned) ? parsed.pinned.slice(0, PINNED_LIMIT) : [],
+      fourD: Array.isArray(parsed.fourD) ? parsed.fourD : [],
+    };
+  } catch (error) {
+    console.warn('fileBrowserStore: failed to load persisted state', error);
+    return { v: PERSIST_VERSION, recents: [], pinned: [], fourD: [] };
+  }
+}
+
+function persist(state: {
+  recents: RecentLocation[];
+  pinned: PinnedLocation[];
+  fourDPaths: Set<string>;
+}) {
+  if (typeof window === 'undefined') return;
+  try {
+    const payload: PersistedShape = {
+      v: PERSIST_VERSION,
+      recents: state.recents,
+      pinned: state.pinned,
+      fourD: Array.from(state.fourDPaths),
+    };
+    window.localStorage?.setItem(PERSIST_KEY, JSON.stringify(payload));
+  } catch (error) {
+    console.warn('fileBrowserStore: failed to persist state', error);
+  }
+}
+
+function basename(path: string): string {
+  const trimmed = path.replace(/\/+$/, '');
+  const idx = trimmed.lastIndexOf('/');
+  return idx >= 0 ? trimmed.slice(idx + 1) : trimmed;
+}
+
 interface FileBrowserActions {
   // Mount operations
   mountDirectory: (
@@ -62,14 +146,34 @@ interface FileBrowserActions {
   getFileTypeInfo: (path: string) => { icon: string; color: string } | null;
   isNeuroimagingFile: (path: string) => boolean;
   flattenTree: () => FileTreeNode[];
+
+  // Recents / Pinned / 4D flags
+  recordOpenedFile: (
+    path: string,
+    options?: { displayName?: string; mountSource?: MountSource }
+  ) => void;
+  clearRecents: () => void;
+  pinLocation: (location: PinnedLocation) => void;
+  unpinLocation: (id: string) => void;
+  isPinned: (path: string) => boolean;
+  markFourD: (path: string, isFourD?: boolean) => void;
 }
 
-interface FileBrowserStore extends FileBrowserState, FileBrowserActions {}
+interface FileBrowserStateExtras {
+  recents: RecentLocation[];
+  pinned: PinnedLocation[];
+  fourDPaths: Set<string>;
+}
+
+interface FileBrowserStore extends FileBrowserState, FileBrowserStateExtras, FileBrowserActions {}
 
 // Create store only once and attach to window for cross-root sharing
-const createFileBrowserStore = () => create<FileBrowserStore>()(
-  subscribeWithSelector(
-    immer((set, get) => ({
+const createFileBrowserStore = () => {
+  const persisted = loadPersisted();
+
+  return create<FileBrowserStore>()(
+    subscribeWithSelector(
+      immer((set, get) => ({
       // Initial state
       currentPath: '',
       rootPath: '',
@@ -83,7 +187,10 @@ const createFileBrowserStore = () => create<FileBrowserStore>()(
       showHidden: false,
       sortBy: 'name',
       sortOrder: 'asc',
-      
+      recents: persisted.recents,
+      pinned: persisted.pinned,
+      fourDPaths: new Set<string>(persisted.fourD),
+
       // Mount operations
       mountDirectory: async (path, options) => {
         // Extract directory name from path
@@ -110,14 +217,28 @@ const createFileBrowserStore = () => create<FileBrowserStore>()(
             console.log('Mounted directory node added:', mountedNode);
           }
         });
-        
+
+        // Record in recents (LRU<=10) — dedupe by path, push to front.
+        set((state) => {
+          const filtered = state.recents.filter((r) => r.path !== path);
+          const entry: RecentLocation = {
+            path,
+            displayName: dirName,
+            mountSource: options?.mountSource ?? { kind: 'local' },
+            lastOpened: Date.now(),
+            kind: 'mount',
+          };
+          state.recents = [entry, ...filtered].slice(0, RECENTS_LIMIT);
+          persist({ recents: state.recents, pinned: state.pinned, fourDPaths: state.fourDPaths });
+        });
+
         // Use queueMicrotask to ensure state is committed before loading
         await new Promise<void>((resolve) => queueMicrotask(() => resolve()));
-        
+
         // Verify the node exists before loading
         const currentEntries = get().entries;
         console.log('Entries after mount:', currentEntries.map(e => e.path));
-        
+
         // Load the directory contents
         await get().loadDirectory(path);
       },
@@ -431,13 +552,74 @@ const createFileBrowserStore = () => create<FileBrowserStore>()(
           }
           return result;
         };
-        
+
         const { entries, searchQuery, searchResults } = get();
         return searchQuery ? searchResults : flatten(entries);
-      }
+      },
+
+      // Recents / Pinned / 4D flags
+      recordOpenedFile: (path, options) => {
+        if (!path) return;
+        set((state) => {
+          const filtered = state.recents.filter((r) => r.path !== path);
+          const entry: RecentLocation = {
+            path,
+            displayName: options?.displayName ?? basename(path) ?? path,
+            mountSource: options?.mountSource ?? { kind: 'local' },
+            lastOpened: Date.now(),
+            kind: 'file',
+          };
+          state.recents = [entry, ...filtered].slice(0, RECENTS_LIMIT);
+          persist({ recents: state.recents, pinned: state.pinned, fourDPaths: state.fourDPaths });
+        });
+      },
+
+      clearRecents: () => {
+        set((state) => {
+          state.recents = [];
+          persist({ recents: state.recents, pinned: state.pinned, fourDPaths: state.fourDPaths });
+        });
+      },
+
+      pinLocation: (location) => {
+        if (!location?.path) return;
+        set((state) => {
+          if (state.pinned.some((p) => p.id === location.id)) return;
+          state.pinned = [...state.pinned, location].slice(0, PINNED_LIMIT);
+          persist({ recents: state.recents, pinned: state.pinned, fourDPaths: state.fourDPaths });
+        });
+      },
+
+      unpinLocation: (id) => {
+        set((state) => {
+          const next = state.pinned.filter((p) => p.id !== id);
+          if (next.length === state.pinned.length) return;
+          state.pinned = next;
+          persist({ recents: state.recents, pinned: state.pinned, fourDPaths: state.fourDPaths });
+        });
+      },
+
+      isPinned: (path) => {
+        return get().pinned.some((p) => p.path === path);
+      },
+
+      markFourD: (path, isFourD = true) => {
+        if (!path) return;
+        set((state) => {
+          const has = state.fourDPaths.has(path);
+          if (isFourD === has) return;
+          if (isFourD) {
+            state.fourDPaths.add(path);
+          } else {
+            state.fourDPaths.delete(path);
+          }
+          persist({ recents: state.recents, pinned: state.pinned, fourDPaths: state.fourDPaths });
+        });
+      },
     }))
-  )
-);
+    )
+  );
+};
 
 // Export store with global instance sharing
 export const useFileBrowserStore: ReturnType<typeof createFileBrowserStore> = (() => {
