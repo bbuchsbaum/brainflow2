@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-peek-volume-metadata"
+description = "Enables the peek_volume_metadata command without any pre-configured scope."
+commands.allow = ["peek_volume_metadata"]
+
+[[permission]]
+identifier = "deny-peek-volume-metadata"
+description = "Denies the peek_volume_metadata command without any pre-configured scope."
+commands.deny = ["peek_volume_metadata"]

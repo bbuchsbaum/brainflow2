@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-update-slice-outline"
+description = "Enables the update_slice_outline command without any pre-configured scope."
+commands.allow = ["update_slice_outline"]
+
+[[permission]]
+identifier = "deny-update-slice-outline"
+description = "Denies the update_slice_outline command without any pre-configured scope."
+commands.deny = ["update_slice_outline"]
