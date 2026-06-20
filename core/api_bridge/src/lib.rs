@@ -1307,6 +1307,9 @@ pub struct BridgeState {
     pub pending_remote_host_key: Arc<Mutex<HashMap<uuid::Uuid, PendingRemoteMountContext>>>,
     // Pending keyboard-interactive context keyed by conversation UUID.
     pub pending_remote_auth: Arc<Mutex<HashMap<uuid::Uuid, PendingRemoteMountContext>>>,
+    // Precomputed volume->surface samplers keyed by sampler handle, for fast
+    // repeated projection (e.g. scrubbing a 4D time series onto a surface).
+    pub surface_samplers: Arc<Mutex<HashMap<String, SurfaceSampler>>>,
 }
 
 impl BridgeState {
@@ -1333,6 +1336,7 @@ impl BridgeState {
             remote_mounts: Arc::new(Mutex::new(HashMap::new())),
             pending_remote_host_key: Arc::new(Mutex::new(HashMap::new())),
             pending_remote_auth: Arc::new(Mutex::new(HashMap::new())),
+            surface_samplers: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
@@ -1360,6 +1364,7 @@ impl BridgeState {
             remote_mounts: Arc::new(Mutex::new(HashMap::new())),
             pending_remote_host_key: Arc::new(Mutex::new(HashMap::new())),
             pending_remote_auth: Arc::new(Mutex::new(HashMap::new())),
+            surface_samplers: Arc::new(Mutex::new(HashMap::new())),
         })
     }
 
@@ -6123,6 +6128,567 @@ pub async fn get_volume_for_projection_for_testing(
     get_volume_for_projection_impl(volume_id, timepoint, state).await
 }
 
+// ===========================================================================
+// CPU volume -> surface projection
+//
+// Samples an overlay volume at each surface vertex (treated as world-space, the
+// same convention the GPU projection path uses) to produce a per-vertex scalar
+// overlay. Pair with `get_volume_for_projection` (GPU path) — both feed the same
+// shared activation-map data model, one via a shader, one via precomputed values.
+// ===========================================================================
+
+/// How values are sampled along the cortical depth at each vertex.
+///
+/// Only `Midpoint` is implemented today; `Thickness`/`NormalLine` fall back to
+/// midpoint sampling (documented limitation).
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum VolToSurfSamplingMode {
+    Midpoint,
+    Thickness,
+    NormalLine,
+}
+
+impl Default for VolToSurfSamplingMode {
+    fn default() -> Self {
+        Self::Midpoint
+    }
+}
+
+/// How sampled voxel values are combined into a single per-vertex value.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum VolToSurfMappingFunction {
+    /// Trilinear interpolation of the surrounding voxels.
+    Average,
+    /// Nearest-voxel lookup (preserves discrete/label values).
+    NearestNeighbor,
+    /// Discrete mode; currently treated as nearest-neighbour.
+    Mode,
+}
+
+impl Default for VolToSurfMappingFunction {
+    fn default() -> Self {
+        Self::Average
+    }
+}
+
+/// Tunable parameters for a volume→surface projection. All optional; mirrors the
+/// frontend `VolToSurfProjectionParams`. Fields beyond `mapping_function` /
+/// `sampling_mode` / `fill` are accepted for forward-compatibility but not all
+/// are consulted yet (knn/sigma/radius/n_samples/depth_fractions are reserved
+/// for future KNN and thickness sampling).
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct VolToSurfProjectionParams {
+    #[serde(default)]
+    pub mapping_function: Option<VolToSurfMappingFunction>,
+    #[serde(default)]
+    pub knn: Option<u32>,
+    #[serde(default)]
+    pub sigma: Option<f32>,
+    #[serde(default)]
+    pub distance_threshold: Option<f32>,
+    #[serde(default)]
+    pub fill: Option<f32>,
+    #[serde(default)]
+    pub sampling_mode: Option<VolToSurfSamplingMode>,
+    #[serde(default)]
+    pub n_samples: Option<u32>,
+    #[serde(default)]
+    pub depth_fractions: Option<Vec<f32>>,
+    #[serde(default)]
+    pub radius: Option<f32>,
+}
+
+/// Result of a one-shot projection. The per-vertex values themselves live in the
+/// surface registry under `data_handle` (fetch via `get_surface_overlay_data`).
+#[derive(Debug, Clone, Serialize)]
+pub struct VolToSurfProjectionResult {
+    pub data_handle: String,
+    pub surface_handle: String,
+    pub volume_id: String,
+    pub valid_vertex_count: usize,
+    pub total_vertex_count: usize,
+    pub coverage_percent: f32,
+    pub data_range: Option<DataRange>,
+    pub params: VolToSurfProjectionParams,
+    pub timepoint: Option<usize>,
+}
+
+/// A precomputed mapping from surface vertices to template voxel coordinates,
+/// enabling O(vertices) re-projection across a 4D series without recomputing the
+/// world→voxel transform each frame.
+#[derive(Debug, Clone)]
+pub struct SurfaceSampler {
+    pub surface_id: String,
+    pub volume_dims: [usize; 3],
+    /// Per-vertex coordinate in the template's voxel space.
+    pub voxel_coords: Vec<[f32; 3]>,
+    pub sampling_mode: VolToSurfSamplingMode,
+}
+
+/// Lightweight descriptor returned to the frontend after creating a sampler.
+#[derive(Debug, Clone, Serialize)]
+pub struct SamplerInfo {
+    pub sampler_handle: String,
+    pub surface_handle: String,
+    pub volume_dims: [usize; 3],
+    pub vertex_count: usize,
+    pub sampling_mode: VolToSurfSamplingMode,
+    pub valid: bool,
+}
+
+/// Read a surface's vertices as world-space `[x, y, z]` triples.
+fn surface_world_vertices(entry: &SurfaceEntry) -> BridgeResult<Vec<[f32; 3]>> {
+    let verts = entry
+        .geometry
+        .vertices()
+        .map_err(|e| BridgeError::Internal {
+            code: 2002,
+            details: format!("Failed to get vertices: {}", e),
+        })?;
+    let mut out = Vec::with_capacity(verts.nrows());
+    for row in verts.rows() {
+        out.push([row[0] as f32, row[1] as f32, row[2] as f32]);
+    }
+    Ok(out)
+}
+
+#[inline]
+fn flat_index(dims: [usize; 3], x: usize, y: usize, z: usize) -> usize {
+    // x-fastest order, matching DenseVolume3::values().
+    x + dims[0] * (y + dims[1] * z)
+}
+
+/// Nearest-voxel sample; `None` when the voxel coordinate is out of bounds.
+#[inline]
+fn sample_nearest(data: &[f32], dims: [usize; 3], v: [f32; 3]) -> Option<f32> {
+    if dims[0] == 0 || dims[1] == 0 || dims[2] == 0 {
+        return None;
+    }
+    let xr = v[0].round();
+    let yr = v[1].round();
+    let zr = v[2].round();
+    if xr < 0.0 || yr < 0.0 || zr < 0.0 {
+        return None;
+    }
+    let (x, y, z) = (xr as usize, yr as usize, zr as usize);
+    if x >= dims[0] || y >= dims[1] || z >= dims[2] {
+        return None;
+    }
+    Some(data[flat_index(dims, x, y, z)])
+}
+
+/// Trilinear sample; `None` when the point lies outside `[0, dim-1]` on any axis.
+#[inline]
+fn sample_trilinear(data: &[f32], dims: [usize; 3], v: [f32; 3]) -> Option<f32> {
+    if dims[0] == 0 || dims[1] == 0 || dims[2] == 0 {
+        return None;
+    }
+    for i in 0..3 {
+        if v[i] < 0.0 || v[i] > (dims[i] as f32 - 1.0) {
+            return None;
+        }
+    }
+    let x0 = v[0].floor();
+    let y0 = v[1].floor();
+    let z0 = v[2].floor();
+    let (ix0, iy0, iz0) = (x0 as usize, y0 as usize, z0 as usize);
+    let ix1 = (ix0 + 1).min(dims[0] - 1);
+    let iy1 = (iy0 + 1).min(dims[1] - 1);
+    let iz1 = (iz0 + 1).min(dims[2] - 1);
+    let fx = v[0] - x0;
+    let fy = v[1] - y0;
+    let fz = v[2] - z0;
+    let at = |x: usize, y: usize, z: usize| data[flat_index(dims, x, y, z)];
+    let c00 = at(ix0, iy0, iz0) * (1.0 - fx) + at(ix1, iy0, iz0) * fx;
+    let c10 = at(ix0, iy1, iz0) * (1.0 - fx) + at(ix1, iy1, iz0) * fx;
+    let c01 = at(ix0, iy0, iz1) * (1.0 - fx) + at(ix1, iy0, iz1) * fx;
+    let c11 = at(ix0, iy1, iz1) * (1.0 - fx) + at(ix1, iy1, iz1) * fx;
+    let c0 = c00 * (1.0 - fy) + c10 * fy;
+    let c1 = c01 * (1.0 - fy) + c11 * fy;
+    Some(c0 * (1.0 - fz) + c1 * fz)
+}
+
+#[inline]
+fn sample_voxel(
+    data: &[f32],
+    dims: [usize; 3],
+    v: [f32; 3],
+    mapping: VolToSurfMappingFunction,
+) -> Option<f32> {
+    match mapping {
+        VolToSurfMappingFunction::Average => sample_trilinear(data, dims, v),
+        VolToSurfMappingFunction::NearestNeighbor | VolToSurfMappingFunction::Mode => {
+            sample_nearest(data, dims, v)
+        }
+    }
+}
+
+/// Materialize a volume frame as a flat `f32` buffer plus its dims and the
+/// world→voxel transform. Shared by projection and sampler creation.
+fn prepare_volume_frame(
+    volume: &VolumeSendable,
+    timepoint: usize,
+) -> BridgeResult<(Vec<f32>, [usize; 3], nalgebra::Affine3<f32>)> {
+    let volume_3d = extract_3d_volume_at_timepoint(volume, timepoint)?;
+    let dims_vec = get_spatial_dims_from_volume(&volume_3d);
+    let dims = [
+        *dims_vec.first().unwrap_or(&0),
+        *dims_vec.get(1).unwrap_or(&0),
+        *dims_vec.get(2).unwrap_or(&0),
+    ];
+    let data = volume_payload_as_f32(&volume_3d)?;
+    let world_to_voxel = get_affine_from_volume(&volume_3d)?.inverse();
+    Ok((data, dims, world_to_voxel))
+}
+
+/// Reduce a slice of per-vertex samples into a coverage summary + data range.
+fn summarize_samples(values: &[(bool, f32)]) -> (usize, Option<DataRange>) {
+    let mut valid = 0usize;
+    let mut min = f32::INFINITY;
+    let mut max = f32::NEG_INFINITY;
+    for &(ok, val) in values {
+        if ok {
+            valid += 1;
+            if val < min {
+                min = val;
+            }
+            if val > max {
+                max = val;
+            }
+        }
+    }
+    let range = if valid > 0 {
+        Some(DataRange { min, max })
+    } else {
+        None
+    };
+    (valid, range)
+}
+
+/// Core one-shot projection logic, shared by the command and tests.
+pub(crate) async fn project_volume_to_surface_impl(
+    volume_id: &str,
+    surface_id: &str,
+    params: VolToSurfProjectionParams,
+    timepoint: Option<usize>,
+    state: &BridgeState,
+) -> BridgeResult<VolToSurfProjectionResult> {
+    // Surface vertices (world space).
+    let vertices = {
+        let registry = state.surface_registry.lock().await;
+        let entry = registry
+            .get_surface(surface_id)
+            .ok_or_else(|| BridgeError::Input {
+                code: 2001,
+                details: format!("Surface not found: {}", surface_id),
+            })?;
+        surface_world_vertices(entry)?
+    };
+    let total = vertices.len();
+
+    // Volume frame as a flat f32 buffer + world→voxel transform.
+    let (data, dims, world_to_voxel) = {
+        let registry = state.volume_registry.lock().await;
+        let volume = registry
+            .get(volume_id)
+            .ok_or_else(|| BridgeError::VolumeNotFound {
+                code: 4045,
+                details: format!("Volume handle {} not found for projection", volume_id),
+            })?;
+        let tp = timepoint.unwrap_or_else(|| registry.get_timepoint(volume_id).unwrap_or(0));
+        prepare_volume_frame(volume, tp)?
+    };
+
+    let mapping = params.mapping_function.unwrap_or_default();
+    let fill = params.fill.unwrap_or(0.0);
+
+    let mut values: Vec<f64> = Vec::with_capacity(total);
+    let mut samples: Vec<(bool, f32)> = Vec::with_capacity(total);
+    for vtx in &vertices {
+        let point = nalgebra::Point3::new(vtx[0], vtx[1], vtx[2]);
+        let voxel = world_to_voxel.transform_point(&point);
+        match sample_voxel(&data, dims, [voxel.x, voxel.y, voxel.z], mapping) {
+            Some(val) => {
+                samples.push((true, val));
+                values.push(val as f64);
+            }
+            None => {
+                samples.push((false, fill));
+                values.push(fill as f64);
+            }
+        }
+    }
+
+    let (valid, data_range) = summarize_samples(&samples);
+    let coverage = if total > 0 {
+        (valid as f32 / total as f32) * 100.0
+    } else {
+        0.0
+    };
+
+    // Prefix with `overlay_{surface}_` so unload_surface cleans it up.
+    let data_handle = format!("overlay_{}_proj_{}", surface_id, volume_id);
+    {
+        let mut registry = state.surface_registry.lock().await;
+        registry.insert_data(data_handle.clone(), values);
+    }
+
+    Ok(VolToSurfProjectionResult {
+        data_handle,
+        surface_handle: surface_id.to_string(),
+        volume_id: volume_id.to_string(),
+        valid_vertex_count: valid,
+        total_vertex_count: total,
+        coverage_percent: coverage,
+        data_range,
+        params,
+        timepoint,
+    })
+}
+
+/// Project a volume onto a surface, producing a per-vertex overlay.
+#[command]
+#[tracing::instrument(skip_all, err, name = "api.project_volume_to_surface")]
+async fn project_volume_to_surface(
+    volume_id: String,
+    surface_id: String,
+    // Accepted for API compatibility; thickness sampling between white/pial
+    // surfaces is not yet implemented (midpoint sampling is used).
+    pial_surface_id: Option<String>,
+    params: Option<VolToSurfProjectionParams>,
+    timepoint: Option<usize>,
+    state: State<'_, BridgeState>,
+) -> BridgeResult<VolToSurfProjectionResult> {
+    let _ = pial_surface_id;
+    project_volume_to_surface_impl(
+        &volume_id,
+        &surface_id,
+        params.unwrap_or_default(),
+        timepoint,
+        state.inner(),
+    )
+    .await
+}
+
+/// Test-only entry point for [`project_volume_to_surface_impl`].
+pub async fn project_volume_to_surface_for_testing(
+    volume_id: &str,
+    surface_id: &str,
+    params: VolToSurfProjectionParams,
+    timepoint: Option<usize>,
+    state: &BridgeState,
+) -> BridgeResult<VolToSurfProjectionResult> {
+    project_volume_to_surface_impl(volume_id, surface_id, params, timepoint, state).await
+}
+
+/// Core sampler-creation logic, shared by the command and tests.
+pub(crate) async fn create_surface_sampler_impl(
+    surface_id: &str,
+    template_volume_id: &str,
+    params: VolToSurfProjectionParams,
+    state: &BridgeState,
+) -> BridgeResult<SamplerInfo> {
+    let vertices = {
+        let registry = state.surface_registry.lock().await;
+        let entry = registry
+            .get_surface(surface_id)
+            .ok_or_else(|| BridgeError::Input {
+                code: 2001,
+                details: format!("Surface not found: {}", surface_id),
+            })?;
+        surface_world_vertices(entry)?
+    };
+
+    // Precompute each vertex's coordinate in the template's voxel grid.
+    let (dims, world_to_voxel) = {
+        let registry = state.volume_registry.lock().await;
+        let volume = registry
+            .get(template_volume_id)
+            .ok_or_else(|| BridgeError::VolumeNotFound {
+                code: 4045,
+                details: format!(
+                    "Template volume {} not found for sampler",
+                    template_volume_id
+                ),
+            })?;
+        let (_, dims, w2v) = prepare_volume_frame(volume, 0)?;
+        (dims, w2v)
+    };
+
+    let voxel_coords: Vec<[f32; 3]> = vertices
+        .iter()
+        .map(|vtx| {
+            let point = nalgebra::Point3::new(vtx[0], vtx[1], vtx[2]);
+            let voxel = world_to_voxel.transform_point(&point);
+            [voxel.x, voxel.y, voxel.z]
+        })
+        .collect();
+    let vertex_count = voxel_coords.len();
+
+    let sampling_mode = params.sampling_mode.unwrap_or_default();
+    let sampler_handle = format!("sampler_{}_{}", surface_id, uuid::Uuid::new_v4());
+
+    let sampler = SurfaceSampler {
+        surface_id: surface_id.to_string(),
+        volume_dims: dims,
+        voxel_coords,
+        sampling_mode,
+    };
+
+    {
+        let mut samplers = state.surface_samplers.lock().await;
+        samplers.insert(sampler_handle.clone(), sampler);
+    }
+
+    Ok(SamplerInfo {
+        sampler_handle,
+        surface_handle: surface_id.to_string(),
+        volume_dims: dims,
+        vertex_count,
+        sampling_mode,
+        valid: true,
+    })
+}
+
+/// Create a reusable sampler that maps a surface onto a template volume grid.
+#[command]
+#[tracing::instrument(skip_all, err, name = "api.create_surface_sampler")]
+async fn create_surface_sampler(
+    surface_id: String,
+    pial_surface_id: Option<String>,
+    template_volume_id: String,
+    params: Option<VolToSurfProjectionParams>,
+    state: State<'_, BridgeState>,
+) -> BridgeResult<SamplerInfo> {
+    let _ = pial_surface_id;
+    create_surface_sampler_impl(
+        &surface_id,
+        &template_volume_id,
+        params.unwrap_or_default(),
+        state.inner(),
+    )
+    .await
+}
+
+/// Core sampler-application logic, shared by the command and tests.
+pub(crate) async fn apply_sampler_impl(
+    sampler_handle: &str,
+    volume_id: &str,
+    timepoint: Option<usize>,
+    mapping_function: VolToSurfMappingFunction,
+    fill: f32,
+    state: &BridgeState,
+) -> BridgeResult<VolToSurfProjectionResult> {
+    // Clone the precomputed coordinates out of the lock.
+    let sampler = {
+        let samplers = state.surface_samplers.lock().await;
+        samplers
+            .get(sampler_handle)
+            .cloned()
+            .ok_or_else(|| BridgeError::Input {
+                code: 2019,
+                details: format!("Sampler not found: {}", sampler_handle),
+            })?
+    };
+
+    let (data, dims, _world_to_voxel) = {
+        let registry = state.volume_registry.lock().await;
+        let volume = registry
+            .get(volume_id)
+            .ok_or_else(|| BridgeError::VolumeNotFound {
+                code: 4045,
+                details: format!("Volume handle {} not found for sampler", volume_id),
+            })?;
+        let tp = timepoint.unwrap_or_else(|| registry.get_timepoint(volume_id).unwrap_or(0));
+        prepare_volume_frame(volume, tp)?
+    };
+
+    // The sampler's voxel grid must match the volume being sampled.
+    if dims != sampler.volume_dims {
+        return Err(BridgeError::Input {
+            code: 2018,
+            details: format!(
+                "Sampler grid {:?} does not match volume grid {:?}",
+                sampler.volume_dims, dims
+            ),
+        });
+    }
+
+    let total = sampler.voxel_coords.len();
+    let mut values: Vec<f64> = Vec::with_capacity(total);
+    let mut samples: Vec<(bool, f32)> = Vec::with_capacity(total);
+    for coord in &sampler.voxel_coords {
+        match sample_voxel(&data, dims, *coord, mapping_function) {
+            Some(val) => {
+                samples.push((true, val));
+                values.push(val as f64);
+            }
+            None => {
+                samples.push((false, fill));
+                values.push(fill as f64);
+            }
+        }
+    }
+
+    let (valid, data_range) = summarize_samples(&samples);
+    let coverage = if total > 0 {
+        (valid as f32 / total as f32) * 100.0
+    } else {
+        0.0
+    };
+
+    let data_handle = format!("overlay_{}_sampler_{}", sampler.surface_id, volume_id);
+    {
+        let mut registry = state.surface_registry.lock().await;
+        registry.insert_data(data_handle.clone(), values);
+    }
+
+    Ok(VolToSurfProjectionResult {
+        data_handle,
+        surface_handle: sampler.surface_id,
+        volume_id: volume_id.to_string(),
+        valid_vertex_count: valid,
+        total_vertex_count: total,
+        coverage_percent: coverage,
+        data_range,
+        params: VolToSurfProjectionParams {
+            mapping_function: Some(mapping_function),
+            fill: Some(fill),
+            sampling_mode: Some(sampler.sampling_mode),
+            ..Default::default()
+        },
+        timepoint,
+    })
+}
+
+/// Apply a precomputed sampler to a volume frame (fast 4D re-projection).
+#[command]
+#[tracing::instrument(skip_all, err, name = "api.apply_sampler")]
+async fn apply_sampler(
+    sampler_handle: String,
+    volume_id: String,
+    timepoint: Option<usize>,
+    mapping_function: Option<VolToSurfMappingFunction>,
+    // Reserved for future KNN/Gaussian mapping; not consulted by the current
+    // nearest/trilinear sampler.
+    sigma: Option<f32>,
+    fill: Option<f32>,
+    state: State<'_, BridgeState>,
+) -> BridgeResult<VolToSurfProjectionResult> {
+    let _ = sigma;
+    apply_sampler_impl(
+        &sampler_handle,
+        &volume_id,
+        timepoint,
+        mapping_function.unwrap_or_default(),
+        fill.unwrap_or(0.0),
+        state.inner(),
+    )
+    .await
+}
+
 #[command]
 #[tracing::instrument(skip_all, err, name = "api.clear_render_layers")]
 async fn clear_render_layers(state: State<'_, BridgeState>) -> BridgeResult<()> {
@@ -10012,6 +10578,9 @@ pub fn plugin<R: Runtime>() -> TauriPlugin<R> {
             compute_layer_histogram,
             sample_world_coordinate,
             get_volume_for_projection,
+            project_volume_to_surface,
+            create_surface_sampler,
+            apply_sampler,
             render_view,
             submit_view,
             render_views,

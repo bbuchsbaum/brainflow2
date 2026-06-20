@@ -45,6 +45,9 @@ const COMMANDS: &[&str] = &[
     "compute_layer_histogram",
     "sample_world_coordinate",
     "get_volume_for_projection",
+    "project_volume_to_surface",
+    "create_surface_sampler",
+    "apply_sampler",
     "render_view", // New unified render method
     "submit_view",
     "render_views",
