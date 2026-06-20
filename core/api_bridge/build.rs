@@ -44,6 +44,7 @@ const COMMANDS: &[&str] = &[
     "patch_layer",
     "compute_layer_histogram",
     "sample_world_coordinate",
+    "get_volume_for_projection",
     "render_view", // New unified render method
     "submit_view",
     "render_views",

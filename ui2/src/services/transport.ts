@@ -51,6 +51,7 @@ export class TauriTransport implements BackendTransport {
       'list_remote_mount_profiles',
       'remove_remote_mount_profile',
       'sample_world_coordinate',
+      'get_volume_for_projection',
       'init_render_loop',
       'resize_canvas',
       'create_offscreen_render_target',

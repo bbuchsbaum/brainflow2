@@ -5589,12 +5589,14 @@ async fn compute_layer_histogram(
     })
 }
 
-#[command]
-#[tracing::instrument(skip_all, err, name = "api.sample_world_coordinate")]
-async fn sample_world_coordinate(
-    handle_id: String,
-    world_coords: Vec<f32>, // 3 elements for world position
-    state: State<'_, BridgeState>,
+/// Core CPU sampling logic shared by the Tauri command and tests.
+///
+/// Performs nearest-neighbour sampling of a volume (3D or current timepoint of a
+/// 4D series) at a world-space position. Out-of-bounds samples return `0.0`.
+pub(crate) async fn sample_world_coordinate_impl(
+    handle_id: &str,
+    world_coords: &[f32],
+    state: &BridgeState,
 ) -> BridgeResult<f32> {
     info!(
         "Bridge: sample_world_coordinate called for handle {} at {:?}",
@@ -5612,7 +5614,7 @@ async fn sample_world_coordinate(
     // Get the volume handle
     let registry = state.volume_registry.lock().await;
     let volume_data = registry
-        .get(&handle_id)
+        .get(handle_id)
         .ok_or_else(|| BridgeError::VolumeNotFound {
             code: 4001,
             details: format!("Volume handle {} not found", handle_id),
@@ -5632,7 +5634,7 @@ async fn sample_world_coordinate(
     );
 
     // Get current timepoint for 4D volumes
-    let timepoint = registry.get_timepoint(&handle_id).unwrap_or(0);
+    let timepoint = registry.get_timepoint(handle_id).unwrap_or(0);
 
     // Check bounds and sample
     let value = match volume_data {
@@ -5942,6 +5944,185 @@ async fn sample_world_coordinate(
     Ok(value)
 }
 
+/// Sample a voxel value at a world-space position for a raw volume handle.
+#[command]
+#[tracing::instrument(skip_all, err, name = "api.sample_world_coordinate")]
+async fn sample_world_coordinate(
+    handle_id: String,
+    world_coords: Vec<f32>, // 3 elements for world position
+    state: State<'_, BridgeState>,
+) -> BridgeResult<f32> {
+    sample_world_coordinate_impl(&handle_id, &world_coords, state.inner()).await
+}
+
+/// Test-only entry point for [`sample_world_coordinate_impl`].
+pub async fn sample_world_coordinate_for_testing(
+    handle_id: &str,
+    world_coords: &[f32],
+    state: &BridgeState,
+) -> BridgeResult<f32> {
+    sample_world_coordinate_impl(handle_id, world_coords, state).await
+}
+
+/// Resolve a UI layer id to its backing volume handle and sample at a world position.
+///
+/// Shared by the Tauri command and tests. Validates the world-coordinate length
+/// (code 2016) before resolving the layer mapping (code 2017).
+pub(crate) async fn sample_layer_value_at_world_impl(
+    layer_id: &str,
+    world_coords: &[f32],
+    state: &BridgeState,
+) -> BridgeResult<f32> {
+    if world_coords.len() != 3 {
+        return Err(BridgeError::Input {
+            code: 2016,
+            details: "world_coords must be [x, y, z] in mm".to_string(),
+        });
+    }
+
+    let handle_id = {
+        let map = state.layer_to_volume_map.lock().await;
+        map.get(layer_id).cloned().ok_or_else(|| BridgeError::Input {
+            code: 2017,
+            details: format!(
+                "No volume handle mapped for layer '{}'. Ensure the layer is registered.",
+                layer_id
+            ),
+        })?
+    };
+
+    sample_world_coordinate_impl(&handle_id, world_coords, state).await
+}
+
+/// Test-only entry point for [`sample_layer_value_at_world_impl`].
+pub async fn sample_layer_value_at_world_for_testing(
+    layer_id: &str,
+    world_coords: &[f32],
+    state: &BridgeState,
+) -> BridgeResult<f32> {
+    sample_layer_value_at_world_impl(layer_id, world_coords, state).await
+}
+
+/// Raw volume payload prepared for GPU-side volume→surface projection.
+///
+/// The activation map is shipped to the frontend once and sampled per-vertex in
+/// a shader, so a single volume layer can drive both the orthogonal slice
+/// renderer and the projected cortical overlay (the hybrid surface/volume view).
+#[derive(Debug, Clone, Serialize)]
+pub struct VolumeForProjection {
+    /// Spatial dimensions `[nx, ny, nz]`.
+    pub dims: [usize; 3],
+    /// Dense scalar data in x-fastest order, converted to `f32`.
+    pub volume_data: Vec<f32>,
+    /// Column-major 4×4 voxel→world affine (matches WebGPU/Three.js convention).
+    pub affine_matrix: [f32; 16],
+    /// Min/max of the data, for default intensity windowing.
+    pub data_range: DataRange,
+    /// Source volume handle, echoed for client-side bookkeeping.
+    pub volume_id: String,
+    /// Timepoint requested by the caller (echoed; `None` for plain 3D volumes).
+    pub timepoint: Option<usize>,
+}
+
+/// Extract a dense `f32` buffer from a 3D volume payload (post timepoint-extraction).
+fn volume_payload_as_f32(volume: &VolumeSendable) -> BridgeResult<Vec<f32>> {
+    let data = match volume {
+        VolumeSendable::VolF32(vol, _) => vol.values(),
+        VolumeSendable::VolF64(vol, _) => vol.values().into_iter().map(|v| v as f32).collect(),
+        VolumeSendable::VolI16(vol, _) => vol.values().into_iter().map(|v| v as f32).collect(),
+        VolumeSendable::VolI32(vol, _) => vol.values().into_iter().map(|v| v as f32).collect(),
+        VolumeSendable::VolI8(vol, _) => vol.values().into_iter().map(|v| v as f32).collect(),
+        VolumeSendable::VolU8(vol, _) => vol.values().into_iter().map(|v| v as f32).collect(),
+        VolumeSendable::VolU16(vol, _) => vol.values().into_iter().map(|v| v as f32).collect(),
+        VolumeSendable::VolU32(vol, _) => vol.values().into_iter().map(|v| v as f32).collect(),
+        other => {
+            return Err(BridgeError::Internal {
+                code: 5012,
+                details: format!(
+                    "volume_payload_as_f32 received an un-extracted 4D payload: {:?}",
+                    std::mem::discriminant(other)
+                ),
+            });
+        }
+    };
+    Ok(data)
+}
+
+/// Core logic for [`get_volume_for_projection`], shared with tests.
+pub(crate) async fn get_volume_for_projection_impl(
+    volume_id: &str,
+    timepoint: Option<usize>,
+    state: &BridgeState,
+) -> BridgeResult<VolumeForProjection> {
+    let registry = state.volume_registry.lock().await;
+    let volume = registry
+        .get(volume_id)
+        .ok_or_else(|| BridgeError::VolumeNotFound {
+            code: 4045,
+            details: format!("Volume handle {} not found for projection", volume_id),
+        })?;
+
+    // For 4D series, resolve the frame to project: explicit arg wins, else the
+    // registry's current timepoint, else the first frame.
+    let resolved_tp =
+        timepoint.unwrap_or_else(|| registry.get_timepoint(volume_id).unwrap_or(0));
+    let volume_3d = extract_3d_volume_at_timepoint(volume, resolved_tp)?;
+
+    let dims_vec = get_spatial_dims_from_volume(&volume_3d);
+    let dims = [
+        *dims_vec.first().unwrap_or(&0),
+        *dims_vec.get(1).unwrap_or(&0),
+        *dims_vec.get(2).unwrap_or(&0),
+    ];
+
+    let volume_data = volume_payload_as_f32(&volume_3d)?;
+
+    let (min, max) = compute_data_range_from_volume(&volume_3d);
+    let data_range = DataRange { min, max };
+
+    // nalgebra stores matrices column-major, so `as_slice` is already the
+    // column-major layout expected by WebGPU and Three.js.
+    let affine = get_affine_from_volume(&volume_3d)?;
+    let homogeneous = affine.to_homogeneous();
+    let affine_matrix: [f32; 16] = homogeneous
+        .as_slice()
+        .try_into()
+        .map_err(|_| BridgeError::Internal {
+            code: 5013,
+            details: "Affine matrix did not have 16 elements".to_string(),
+        })?;
+
+    Ok(VolumeForProjection {
+        dims,
+        volume_data,
+        affine_matrix,
+        data_range,
+        volume_id: volume_id.to_string(),
+        // Echo the caller's request: `None` stays `None` for plain 3D volumes.
+        timepoint,
+    })
+}
+
+/// Fetch a volume's raw data + affine for GPU-side volume→surface projection.
+#[command]
+#[tracing::instrument(skip_all, err, name = "api.get_volume_for_projection")]
+async fn get_volume_for_projection(
+    volume_id: String,
+    timepoint: Option<usize>,
+    state: State<'_, BridgeState>,
+) -> BridgeResult<VolumeForProjection> {
+    get_volume_for_projection_impl(&volume_id, timepoint, state.inner()).await
+}
+
+/// Test-only entry point for [`get_volume_for_projection_impl`].
+pub async fn get_volume_for_projection_for_testing(
+    volume_id: &str,
+    timepoint: Option<usize>,
+    state: &BridgeState,
+) -> BridgeResult<VolumeForProjection> {
+    get_volume_for_projection_impl(volume_id, timepoint, state).await
+}
+
 #[command]
 #[tracing::instrument(skip_all, err, name = "api.clear_render_layers")]
 async fn clear_render_layers(state: State<'_, BridgeState>) -> BridgeResult<()> {
@@ -5975,28 +6156,7 @@ async fn sample_layer_value_at_world(
     world_coords: Vec<f32>,
     state: State<'_, BridgeState>,
 ) -> BridgeResult<f32> {
-    if world_coords.len() != 3 {
-        return Err(BridgeError::Input {
-            code: 2016,
-            details: "world_coords must be [x, y, z] in mm".to_string(),
-        });
-    }
-
-    let handle_id = {
-        let map = state.layer_to_volume_map.lock().await;
-        map.get(&layer_id)
-            .cloned()
-            .ok_or_else(|| BridgeError::Input {
-                code: 2017,
-                details: format!(
-                    "No volume handle mapped for layer '{}'. Ensure the layer is registered.",
-                    layer_id
-                ),
-            })?
-    };
-
-    // Reuse the sampling logic from sample_world_coordinate
-    sample_world_coordinate(handle_id, world_coords, state).await
+    sample_layer_value_at_world_impl(&layer_id, &world_coords, state.inner()).await
 }
 
 async fn is_layer_ready_internal(layer_id: &str, state: &BridgeState) -> bool {
@@ -9851,6 +10011,7 @@ pub fn plugin<R: Runtime>() -> TauriPlugin<R> {
             patch_layer,
             compute_layer_histogram,
             sample_world_coordinate,
+            get_volume_for_projection,
             render_view,
             submit_view,
             render_views,

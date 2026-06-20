@@ -32,6 +32,7 @@ permissions = [
     "allow-update-layer-intensity",
     "allow-update-layer-threshold",
     "allow-sample-world-coordinate",
+    "allow-get-volume-for-projection",
     "allow-query-slice-axis-meta",
     "allow-batch-render-slices",
     "allow-get-atlas-catalog",
