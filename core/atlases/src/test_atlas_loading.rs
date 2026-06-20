@@ -79,6 +79,8 @@ impl AtlasLoadingTest {
                 networks: atlas.network_options.as_ref().map(|opts| opts[0]),
                 parcels: atlas.parcel_options.as_ref().map(|opts| opts[0]),
                 template_params: None,
+                data_type: None,
+                surf_type: None,
             };
 
             match self.service.validate_config(&valid_config).await {
@@ -97,6 +99,8 @@ impl AtlasLoadingTest {
                 networks: None,
                 parcels: None,
                 template_params: None,
+                data_type: None,
+                surf_type: None,
             };
 
             match self.service.validate_config(&invalid_config).await {
@@ -141,6 +145,8 @@ impl AtlasLoadingTest {
                 networks: atlas.network_options.as_ref().map(|opts| opts[0]),
                 parcels: atlas.parcel_options.as_ref().map(|opts| opts[0]),
                 template_params: None,
+                data_type: None,
+                surf_type: None,
             };
 
             let start_time = std::time::Instant::now();

@@ -101,10 +101,12 @@ async fn test_declarative_layer_config() {
             threshold: None,
             visible: true,
             interpolation: InterpolationMode::default(),
+            layer_mode: Default::default(),
             alpha_mod: None,
         }],
         viewport_size,
         show_crosshair: true,
+        crosshair_color: [0.0, 1.0, 0.0, 0.8],
         timepoint: None,
     };
 
@@ -146,6 +148,7 @@ async fn test_declarative_layer_config() {
                 threshold: None,
                 visible: true,
                 interpolation: InterpolationMode::default(),
+                layer_mode: Default::default(),
                 alpha_mod: None,
             },
             LayerConfig {
@@ -157,11 +160,13 @@ async fn test_declarative_layer_config() {
                 threshold: None,
                 visible: true,
                 interpolation: InterpolationMode::default(),
+                layer_mode: Default::default(),
                 alpha_mod: None,
             },
         ],
         viewport_size,
         show_crosshair: true,
+        crosshair_color: [0.0, 1.0, 0.0, 0.8],
         timepoint: None,
     };
 
