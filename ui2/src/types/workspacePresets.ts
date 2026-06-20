@@ -1,6 +1,6 @@
 import type { WorkspaceConfig, WorkspaceType } from '@/types/workspace';
 
-export type WorkspacePresetId = 'read' | 'explore' | 'analyze' | 'compare' | 'studio' | 'bids';
+export type WorkspacePresetId = 'read' | 'explore' | 'analyze' | 'compare' | 'hybrid' | 'studio' | 'bids';
 
 export interface WorkspacePreset {
   id: WorkspacePresetId;
@@ -59,6 +59,15 @@ export const WORKSPACE_PRESETS: WorkspacePreset[] = [
     workspaceType: 'bids-explorer',
     shortcut: 'Cmd/Ctrl+6',
   },
+  // Appended after the original presets so existing preset shortcuts and their
+  // index-based keyboard bindings are left untouched.
+  {
+    id: 'hybrid',
+    label: 'Surface + Volume',
+    description: 'Orthogonal slices over a 3D surface, sharing projected activation maps.',
+    workspaceType: 'hybrid-ortho-surface',
+    shortcut: 'Cmd/Ctrl+7',
+  },
 ];
 
 export const WORKSPACE_PRESET_BY_ID: Record<WorkspacePresetId, WorkspacePreset> = {
@@ -68,6 +77,7 @@ export const WORKSPACE_PRESET_BY_ID: Record<WorkspacePresetId, WorkspacePreset> 
   compare: WORKSPACE_PRESETS[3],
   studio: WORKSPACE_PRESETS[4],
   bids: WORKSPACE_PRESETS[5],
+  hybrid: WORKSPACE_PRESETS[6],
 };
 
 export function getWorkspacePresetById(id: WorkspacePresetId): WorkspacePreset {

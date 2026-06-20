@@ -61,6 +61,7 @@ const workspaceCounter: Record<WorkspaceType, number> = {
   'orthogonal-flexible': 0,
   'mosaic': 0,
   'comparison': 0,
+  'hybrid-ortho-surface': 0,
   'set-studio': 0,
   'bids-explorer': 0
 };
@@ -335,6 +336,7 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
           'orthogonal-flexible': 'Orthogonal Panels',
           'mosaic': 'Mosaic View',
           'comparison': 'Comparison View',
+          'hybrid-ortho-surface': 'Surface + Volume',
           'set-studio': 'Set Studio',
           'bids-explorer': 'BIDS Explorer'
         };

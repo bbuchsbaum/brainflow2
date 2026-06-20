@@ -20,6 +20,7 @@ export type WorkspaceType =
   | 'orthogonal-flexible'
   | 'mosaic'
   | 'comparison'
+  | 'hybrid-ortho-surface'
   | 'set-studio'
   | 'bids-explorer';
 
@@ -79,6 +80,7 @@ export const WORKSPACE_METADATA: Record<WorkspaceType, { category: WorkspaceCate
   'orthogonal-flexible': { category: 'visualization', name: 'Orthogonal Panels' },
   'mosaic': { category: 'visualization', name: 'Mosaic View' },
   'comparison': { category: 'visualization', name: 'Comparison View' },
+  'hybrid-ortho-surface': { category: 'visualization', name: 'Surface + Volume' },
   'set-studio': { category: 'analysis', name: 'Set Studio', singleton: true },
   'bids-explorer': { category: 'analysis', name: 'BIDS Explorer', singleton: true }
 };
@@ -95,6 +97,7 @@ export const DEFAULT_WORKSPACE_CONFIGS: Record<WorkspaceType, Partial<WorkspaceC
     sliceOrientation: 'axial'
   },
   'comparison': {},
+  'hybrid-ortho-surface': {},
   'set-studio': {},
   'bids-explorer': {}
 };
