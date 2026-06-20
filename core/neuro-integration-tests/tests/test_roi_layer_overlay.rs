@@ -274,6 +274,7 @@ async fn test_single_roi_overlay() {
             visible: true,
             interpolation: InterpolationMode::default(),
             layer_mode: Default::default(),
+            alpha_mod: None,
         });
 
         overlay_state.crosshair_world = roi_center_mm;
@@ -455,6 +456,7 @@ async fn test_multiple_roi_overlay() {
             visible: true,
             interpolation: InterpolationMode::default(),
             layer_mode: Default::default(),
+            alpha_mod: None,
         });
     }
 
@@ -624,6 +626,7 @@ async fn test_overlapping_roi_transparency() {
             visible: true,
             interpolation: InterpolationMode::default(),
             layer_mode: Default::default(),
+            alpha_mod: None,
         });
         state.layers.push(LayerConfig {
             volume_id: "roi2".to_string(),
@@ -635,6 +638,7 @@ async fn test_overlapping_roi_transparency() {
             visible: true,
             interpolation: InterpolationMode::default(),
             layer_mode: Default::default(),
+            alpha_mod: None,
         });
 
         state.show_crosshair = false;

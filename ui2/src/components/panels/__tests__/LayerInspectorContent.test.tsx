@@ -8,6 +8,15 @@ import { useLayerStore } from '@/stores/layerStore';
 import { useSurfaceStore } from '@/stores/surfaceStore';
 import { useViewStateStore } from '@/stores/viewStateStore';
 
+vi.mock('@/services/HistogramService', () => ({
+  histogramService: {
+    computeHistogram: vi.fn(() => new Promise(() => {})),
+    getSelectedLayerHistogram: vi.fn(() => new Promise(() => {})),
+    clearCache: vi.fn(),
+    clearLayerCache: vi.fn(),
+  },
+}));
+
 // AtlasPaletteService.applyToVolumeLayer makes a backend call when invoked. The
 // 6b tests never click the palette select (rendering it is enough), but the
 // import-time bindings are mocked here as a safety net for future tests.
@@ -50,7 +59,10 @@ function resetViewState() {
   });
 }
 
-function seedVolumeLayer(layer: Record<string, unknown>) {
+function seedVolumeLayer(
+  layer: Record<string, unknown>,
+  viewStateOverrides: Record<string, unknown> = {},
+) {
   act(() => {
     useLayerStore.setState({
       layers: [layer as never],
@@ -81,6 +93,7 @@ function seedVolumeLayer(layer: Record<string, unknown>) {
           threshold: [10, 90],
           interpolation: 'linear',
           order: 0,
+          ...viewStateOverrides,
         } as never,
       ];
     });
@@ -272,6 +285,46 @@ describe('LayerInspectorContent — kind dispatch (6b)', () => {
     expect(screen.getByTestId('layer-inspector-blend-nearest')).toBeInTheDocument();
     expect(screen.getByTestId('layer-inspector-blend-linear')).toBeInTheDocument();
   });
+
+  it.each([
+    ['alpha', false],
+    ['max', true],
+    ['min', true],
+  ])(
+    'sets Alpha controls from Inspector blend mode "%s"',
+    (blendMode, shouldDisable) => {
+      seedVolumeLayer(
+        { id: `vol-${blendMode}`, name: 'T1w', type: 'anatomical' },
+        {
+          blendMode,
+          alphaMod: { mode: 'linear', gamma: 1, center: 0 },
+        },
+      );
+
+      const summary: ActiveLayerSummary = {
+        id: `vol-${blendMode}`,
+        name: 'T1w',
+        typeLabel: 'Anatomical',
+        kind: 'volume-3d',
+        source: 'file',
+      };
+
+      render(<LayerInspectorContent layer={summary} />);
+
+      for (const testId of [
+        'alpha-mod-off',
+        'alpha-mod-linear',
+        'alpha-mod-gamma',
+      ]) {
+        const button = screen.getByTestId(testId);
+        if (shouldDisable) {
+          expect(button).toBeDisabled();
+        } else {
+          expect(button).not.toBeDisabled();
+        }
+      }
+    },
+  );
 });
 
 describe('LayerInspectorContent — wired into the InspectorAnnotatePanel shell', () => {

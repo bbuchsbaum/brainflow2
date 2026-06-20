@@ -45,7 +45,7 @@ struct LayerData {
     
     // --- Rendering parameters ---
     colormap_id    : u32,              // 4 bytes, offset 96
-    blend_mode     : u32,              // 4 bytes, offset 100
+    blend_mode     : u32,              // 4 bytes, offset 100 (0=alpha, 1=add, 2=max, 3=min, 4=multiply)
     texture_index  : u32,              // 4 bytes, offset 104
     threshold_mode : u32,              // 4 bytes, offset 108
     
@@ -64,7 +64,13 @@ struct LayerData {
     borderThicknessPx : f32,           // 4 bytes, offset 148
     layer_mode      : u32,             // 4 bytes, offset 152 (0=scalar, 1=label, 2=mask)
     _padOpt1        : u32,             // 4 bytes, offset 156
-    // Total struct size: 160 bytes (matches Rust LayerUboStd140)
+
+    // --- Intensity-modulated alpha ---
+    alpha_mod_mode  : u32,             // 4 bytes, offset 160 (0=off, 1=linear, 2=gamma)
+    alpha_gamma     : f32,             // 4 bytes, offset 164
+    alpha_center    : f32,             // 4 bytes, offset 168 (two-sided magnitude center)
+    _padAlpha       : f32,             // 4 bytes, offset 172 (reserved)
+    // Total struct size: 176 bytes (matches Rust LayerUboStd140)
 };
 
 // --- Layer metadata ---
@@ -282,6 +288,38 @@ fn sampleSelectedLabelOutlineOptimized(layer: LayerData, world_mm: vec3<f32>) ->
     return vec4<f32>(0.0);
 }
 
+fn alphaThresholdFloorMagnitude(layer: LayerData, raw_value: f32, hi: f32) -> f32 {
+    var floor_mag = 0.0;
+
+    if (layer.threshold_mode == 0u) {
+        // Range mode hides samples inside [low, high]. Visible samples ramp
+        // from the boundary they crossed, so signed thresholds like [-2, 2]
+        // ramp from magnitude 2 rather than from zero.
+        if (raw_value < layer.thresh_low) {
+            floor_mag = abs(layer.thresh_low - layer.alpha_center);
+        } else if (raw_value > layer.thresh_high) {
+            floor_mag = abs(layer.thresh_high - layer.alpha_center);
+        } else {
+            floor_mag = hi;
+        }
+    } else if (layer.threshold_mode == 1u) {
+        let abs_value = abs(raw_value);
+        if (abs_value > layer.thresh_high) {
+            floor_mag = layer.thresh_high;
+        } else if (abs_value < layer.thresh_low) {
+            floor_mag = 0.0;
+        } else {
+            floor_mag = hi;
+        }
+    } else if (layer.threshold_mode == 2u) {
+        floor_mag = abs(layer.thresh_low - layer.alpha_center);
+    } else {
+        floor_mag = abs(layer.thresh_high - layer.alpha_center);
+    }
+
+    return clamp(floor_mag, 0.0, hi);
+}
+
 // Optimized layer sampling with early exit
 fn sampleLayerOptimized(layer: LayerData, world_mm: vec3<f32>, pixel_size: f32) -> vec4<f32> {
     // Early exit if layer is fully transparent
@@ -353,7 +391,7 @@ fn sampleLayerOptimized(layer: LayerData, world_mm: vec3<f32>, pixel_size: f32) 
     // Use select() to avoid branching where possible
     if (layer.threshold_mode == 0u) {
         // Range mode (mode 0): hide samples inside the inclusive window so only
-        // the “extremes” render, matching the legacy UI semantics.
+        // the "extremes" render, matching the legacy UI semantics.
         let within_range = raw_value >= layer.thresh_low && raw_value <= layer.thresh_high;
         alpha = select(alpha, 0.0, within_range);
         
@@ -369,6 +407,22 @@ fn sampleLayerOptimized(layer: LayerData, world_mm: vec3<f32>, pixel_size: f32) 
         alpha = select(0.0, alpha, raw_value <= layer.thresh_high);
     }
 
+    // Intensity-modulated alpha ("transparent thresholding"): two-sided magnitude
+    // ramp from the threshold floor to the top of the visible intensity window.
+    if (layer.alpha_mod_mode != 0u && alpha > 0.0) {
+        let mag = abs(raw_value - layer.alpha_center);
+        let hi = max(
+            abs(layer.intensity_max - layer.alpha_center),
+            abs(layer.intensity_min - layer.alpha_center)
+        );
+        let lo = alphaThresholdFloorMagnitude(layer, raw_value, hi);
+        var t = clamp((mag - lo) / max(hi - lo, 1e-9), 0.0, 1.0);
+        if (layer.alpha_mod_mode == 2u) {
+            t = pow(t, max(layer.alpha_gamma, 1e-3));
+        }
+        alpha = alpha * t;
+    }
+
     if (layer.has_alpha_mask == 1u) {
         let mask_value = sampleMaskTexture(layer.texture_index, tex_coord);
         if (mask_value <= 0.0) {
@@ -376,7 +430,7 @@ fn sampleLayerOptimized(layer: LayerData, world_mm: vec3<f32>, pixel_size: f32) 
         }
         alpha *= mask_value;
     }
-    
+
     // Early exit if transparent after thresholding
     if (alpha <= 0.0) {
         return vec4<f32>(0.0);
@@ -405,17 +459,20 @@ fn compositeOptimized(dst: vec4<f32>, src: vec4<f32>, mode: u32) -> vec4<f32> {
     }
     
     // Optimized blending modes
-    if (mode == 0u) { // Alpha blending (most common)
+    if (mode == 1u) { // Additive
+        return vec4<f32>(saturate3(dst.rgb + src.rgb * src.a), max(dst.a, src.a));
+    } else if (mode == 2u) { // Max
+        return vec4<f32>(max(dst.rgb, src.rgb), max(dst.a, src.a));
+    } else if (mode == 3u) { // Min
+        return vec4<f32>(min(dst.rgb, src.rgb), max(dst.a, src.a));
+    } else if (mode == 4u) { // Multiply
+        let multiplied = dst.rgb * src.rgb;
+        return vec4<f32>(mix(dst.rgb, multiplied, src.a), max(dst.a, src.a));
+    } else { // Alpha blending (most common)
         let out_alpha = src.a + dst.a * (1.0 - src.a);
         let inv_src_a = 1.0 - src.a;
         let out_rgb = src.rgb * src.a + dst.rgb * dst.a * inv_src_a;
         return vec4<f32>(out_rgb / max(out_alpha, 0.00001), out_alpha);
-    } else if (mode == 1u) { // Additive
-        return vec4<f32>(saturate3(dst.rgb + src.rgb * src.a), max(dst.a, src.a));
-    } else if (mode == 2u) { // Max
-        return vec4<f32>(max(dst.rgb, src.rgb), max(dst.a, src.a));
-    } else { // Min
-        return vec4<f32>(min(dst.rgb, src.rgb), max(dst.a, src.a));
     }
 }
 

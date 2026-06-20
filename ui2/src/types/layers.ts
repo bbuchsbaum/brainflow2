@@ -2,14 +2,15 @@
  * Layer types for neuroimaging visualization
  */
 
-import type { AtlasConfig } from './atlas';
-import type { AtlasPaletteKind } from './atlasPalette';
+import type { AtlasConfig } from "./atlas";
+import type { AtlasPaletteKind } from "./atlasPalette";
+import type { AlphaModConfig } from "./viewState";
 
 export interface Layer {
   id: string;
   name: string;
   volumeId: string;
-  type: 'anatomical' | 'functional' | 'mask' | 'label';
+  type: "anatomical" | "functional" | "mask" | "label";
   visible: boolean;
   order: number;
   loading?: boolean;
@@ -22,8 +23,9 @@ export interface LayerRender {
   threshold: [number, number];
   colormap: string;
   colormapId?: number;
-  interpolation: 'nearest' | 'linear';
-  layerMode?: 'scalar' | 'label' | 'mask';
+  interpolation: "nearest" | "linear";
+  layerMode?: "scalar" | "label" | "mask";
+  alphaMod?: AlphaModConfig;
   atlasConfig?: AtlasConfig;
   atlasPaletteKind?: AtlasPaletteKind;
   atlasPaletteSeed?: number;

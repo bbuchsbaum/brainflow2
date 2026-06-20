@@ -207,6 +207,7 @@ fn test_pipeline_gradient_volume() {
             texture_coords: (0.0, 0.0, 1.0, 1.0),
             is_mask: false,
             interpolation_mode: 1,
+            ..Default::default()
         };
 
         // Set up axial slice through center (z=5)
@@ -322,6 +323,7 @@ fn test_pipeline_sphere_volume_multi_slice() {
                 texture_coords: (0.0, 0.0, 1.0, 1.0),
                 is_mask: false,
                 interpolation_mode: 1,
+                ..Default::default()
             };
 
             render_service.update_layer_uniforms_direct(
@@ -430,6 +432,7 @@ fn test_pipeline_multi_resolution_overlay() {
                 texture_coords: (0.0, 0.0, 1.0, 1.0),
                 is_mask: false,
                 interpolation_mode: 1,
+                ..Default::default()
             },
             LayerInfo {
                 atlas_index: func_tex,
@@ -442,6 +445,7 @@ fn test_pipeline_multi_resolution_overlay() {
                 texture_coords: (0.0, 0.0, 1.0, 1.0),
                 is_mask: false,
                 interpolation_mode: 1,
+                ..Default::default()
             },
         ];
 
@@ -620,6 +624,7 @@ fn test_pipeline_performance_baseline() {
             texture_coords: (0.0, 0.0, 1.0, 1.0),
             is_mask: false,
             interpolation_mode: 1,
+            ..Default::default()
         };
 
         render_service.update_layer_uniforms_direct(

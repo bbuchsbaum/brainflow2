@@ -313,6 +313,15 @@ pub struct LayerInfo {
     pub layer_mode: LayerMode,
     /// Interpolation mode (0=nearest, 1=linear, 2=cubic)
     pub interpolation_mode: u32,
+    /// Intensity-modulated alpha mode (0=off, 1=linear, 2=gamma).
+    /// When non-zero, overlay opacity becomes a monotonic function of the
+    /// two-sided magnitude |value - alpha_center|, ramped across the visible
+    /// intensity window above the threshold ("transparent thresholding").
+    pub alpha_mod_mode: u32,
+    /// Gamma exponent applied to the normalized magnitude when alpha_mod_mode == 2.
+    pub alpha_gamma: f32,
+    /// Center for two-sided magnitude in alpha modulation (0.0 for signed maps).
+    pub alpha_center: f32,
 }
 
 impl Default for LayerInfo {
@@ -330,6 +339,9 @@ impl Default for LayerInfo {
             has_alpha_mask: false,
             layer_mode: LayerMode::Scalar,
             interpolation_mode: 1,
+            alpha_mod_mode: 0,
+            alpha_gamma: 1.0,
+            alpha_center: 0.0,
         }
     }
 }
@@ -466,6 +478,7 @@ mod tests {
             has_alpha_mask: false,
             layer_mode: Default::default(),
             interpolation_mode: 0, // nearest neighbor
+            ..Default::default()
         };
 
         let idx = manager.add_layer(layer1.clone()).unwrap();

@@ -1,5 +1,6 @@
 use approx::assert_abs_diff_eq;
 use nalgebra::Matrix4;
+use render_loop::render_state::BlendMode;
 use render_loop::{LayerUboStd140, RenderLoopService, SliceFeatureUbo};
 
 #[tokio::test]
@@ -29,6 +30,7 @@ async fn ubo_window_level_clamps_correctly() {
         border_thickness_px: 0.0,
         layer_mode: 0,
         _pad: 0,
+        ..Default::default()
     };
 
     // Test the window/level math
@@ -56,8 +58,8 @@ fn ubo_field_offsets() {
     use std::mem::{offset_of, size_of};
 
     // Verify that the UBO struct layout matches std140 requirements
-    // Total size: 64 + 16 + 16 + 16 + 16 + 16 = 160 bytes
-    assert_eq!(size_of::<LayerUboStd140>(), 160);
+    // Total size: 64 + 16 + 16 + 16 + 16 + 16 + 16 = 176 bytes
+    assert_eq!(size_of::<LayerUboStd140>(), 176);
 
     // Check field offsets
     assert_eq!(offset_of!(LayerUboStd140, world_to_voxel), 0);
@@ -80,6 +82,10 @@ fn ubo_field_offsets() {
     assert_eq!(offset_of!(LayerUboStd140, border_thickness_px), 148);
     assert_eq!(offset_of!(LayerUboStd140, layer_mode), 152);
     assert_eq!(offset_of!(LayerUboStd140, _pad), 156);
+    assert_eq!(offset_of!(LayerUboStd140, alpha_mod_mode), 160);
+    assert_eq!(offset_of!(LayerUboStd140, alpha_gamma), 164);
+    assert_eq!(offset_of!(LayerUboStd140, alpha_center), 168);
+    assert_eq!(offset_of!(LayerUboStd140, _pad_alpha), 172);
 }
 
 #[test]
@@ -169,6 +175,9 @@ fn active_masked_wgsl_matches_layer_ubo_field_order() {
         "drawSliceBorder",
         "borderThicknessPx",
         "layer_mode",
+        "alpha_mod_mode",
+        "alpha_gamma",
+        "alpha_center",
     ];
     let expected_feature_fields = [
         "outline_enabled",
@@ -202,8 +211,8 @@ fn active_masked_wgsl_matches_layer_ubo_field_order() {
             .unwrap_or_else(|| panic!("{name} is missing LayerData"));
         assert_fields_in_order(name, "LayerData", layer_body, &expected_layer_fields);
         assert!(
-            layer_body.contains("Total struct size: 160 bytes"),
-            "{name} LayerData should document the 160-byte LayerUboStd140 stride"
+            layer_body.contains("Total struct size: 176 bytes"),
+            "{name} LayerData should document the 176-byte LayerUboStd140 stride"
         );
 
         let feature_body = wgsl_struct_body(source, "SliceFeatureUbo")
@@ -217,6 +226,193 @@ fn active_masked_wgsl_matches_layer_ubo_field_order() {
         assert!(
             source.contains("@group(3) @binding(0) var<uniform> slice_features"),
             "{name} should bind slice feature uniforms at group 3 binding 0"
+        );
+    }
+}
+
+#[test]
+fn alpha_mod_uses_visible_threshold_boundary_in_active_shaders() {
+    let shaders = [
+        (
+            "slice_world_space_masked.wgsl",
+            include_str!("../shaders/slice_world_space_masked.wgsl"),
+        ),
+        (
+            "slice_world_space_optimized_masked.wgsl",
+            include_str!("../shaders/slice_world_space_optimized_masked.wgsl"),
+        ),
+    ];
+
+    for (name, source) in shaders {
+        assert!(
+            source.contains("fn alphaThresholdFloorMagnitude"),
+            "{name} should isolate alpha modulation's threshold-boundary math"
+        );
+        assert!(
+            source.contains("raw_value < layer.thresh_low")
+                && source.contains("raw_value > layer.thresh_high"),
+            "{name} should ramp from the visible range boundary, not from thresh_low alone"
+        );
+        assert!(
+            !source.contains("let lo = clamp(layer.thresh_low, 0.0, hi);"),
+            "{name} regressed to the old signed-threshold alpha ramp"
+        );
+    }
+}
+
+fn alpha_threshold_floor_magnitude(layer: &LayerUboStd140, raw_value: f32, hi: f32) -> f32 {
+    let floor_mag = match layer.threshold_mode {
+        0 => {
+            if raw_value < layer.thresh_low {
+                (layer.thresh_low - layer.alpha_center).abs()
+            } else if raw_value > layer.thresh_high {
+                (layer.thresh_high - layer.alpha_center).abs()
+            } else {
+                hi
+            }
+        }
+        1 => {
+            let abs_value = raw_value.abs();
+            if abs_value > layer.thresh_high {
+                layer.thresh_high
+            } else if abs_value < layer.thresh_low {
+                0.0
+            } else {
+                hi
+            }
+        }
+        2 => (layer.thresh_low - layer.alpha_center).abs(),
+        _ => (layer.thresh_high - layer.alpha_center).abs(),
+    };
+
+    floor_mag.clamp(0.0, hi)
+}
+
+fn alpha_mod_factor(layer: &LayerUboStd140, raw_value: f32) -> f32 {
+    let hi = (layer.intensity_max - layer.alpha_center)
+        .abs()
+        .max((layer.intensity_min - layer.alpha_center).abs());
+    let lo = alpha_threshold_floor_magnitude(layer, raw_value, hi);
+    let mut t = ((raw_value - layer.alpha_center).abs() - lo) / (hi - lo).max(1e-9);
+    t = t.clamp(0.0, 1.0);
+
+    if layer.alpha_mod_mode == 2 {
+        t.powf(layer.alpha_gamma.max(1e-3))
+    } else {
+        t
+    }
+}
+
+#[test]
+fn alpha_mod_numeric_curve_starts_at_signed_range_boundaries() {
+    let layer = LayerUboStd140 {
+        intensity_min: -1.0,
+        intensity_max: 1.0,
+        thresh_low: -0.2,
+        thresh_high: 0.2,
+        threshold_mode: 0,
+        alpha_mod_mode: 1,
+        alpha_gamma: 1.0,
+        alpha_center: 0.0,
+        ..Default::default()
+    };
+
+    assert_abs_diff_eq!(alpha_mod_factor(&layer, 0.2), 0.0, epsilon = 1e-6);
+    assert_abs_diff_eq!(alpha_mod_factor(&layer, -0.2), 0.0, epsilon = 1e-6);
+    assert_abs_diff_eq!(alpha_mod_factor(&layer, 0.6), 0.5, epsilon = 1e-6);
+    assert_abs_diff_eq!(alpha_mod_factor(&layer, -0.6), 0.5, epsilon = 1e-6);
+    assert_abs_diff_eq!(alpha_mod_factor(&layer, 1.0), 1.0, epsilon = 1e-6);
+    assert_abs_diff_eq!(alpha_mod_factor(&layer, -1.0), 1.0, epsilon = 1e-6);
+}
+
+#[test]
+fn alpha_mod_numeric_curve_handles_absolute_and_gamma_modes() {
+    let absolute_layer = LayerUboStd140 {
+        intensity_min: -1.0,
+        intensity_max: 1.0,
+        thresh_low: 0.2,
+        thresh_high: 0.5,
+        threshold_mode: 1,
+        alpha_mod_mode: 1,
+        alpha_gamma: 1.0,
+        alpha_center: 0.0,
+        ..Default::default()
+    };
+
+    assert_abs_diff_eq!(
+        alpha_mod_factor(&absolute_layer, 0.1),
+        0.1,
+        epsilon = 1e-6
+    );
+    assert_abs_diff_eq!(
+        alpha_mod_factor(&absolute_layer, -0.1),
+        0.1,
+        epsilon = 1e-6
+    );
+    assert_abs_diff_eq!(
+        alpha_mod_factor(&absolute_layer, 0.5),
+        0.0,
+        epsilon = 1e-6
+    );
+    assert_abs_diff_eq!(
+        alpha_mod_factor(&absolute_layer, 0.75),
+        0.5,
+        epsilon = 1e-6
+    );
+    assert_abs_diff_eq!(
+        alpha_mod_factor(&absolute_layer, -0.75),
+        0.5,
+        epsilon = 1e-6
+    );
+
+    let gamma_layer = LayerUboStd140 {
+        alpha_mod_mode: 2,
+        alpha_gamma: 2.0,
+        ..absolute_layer
+    };
+
+    assert_abs_diff_eq!(
+        alpha_mod_factor(&gamma_layer, 0.75),
+        0.25,
+        epsilon = 1e-6
+    );
+}
+
+#[test]
+fn blend_mode_discriminants_match_active_masked_shaders() {
+    assert_eq!(BlendMode::Normal as u32, 0);
+    assert_eq!(BlendMode::Additive as u32, 1);
+    assert_eq!(BlendMode::Maximum as u32, 2);
+    assert_eq!(BlendMode::Minimum as u32, 3);
+    assert_eq!(BlendMode::Multiply as u32, 4);
+
+    let shaders = [
+        (
+            "slice_world_space_masked.wgsl",
+            include_str!("../shaders/slice_world_space_masked.wgsl"),
+        ),
+        (
+            "slice_world_space_optimized_masked.wgsl",
+            include_str!("../shaders/slice_world_space_optimized_masked.wgsl"),
+        ),
+    ];
+
+    for (name, source) in shaders {
+        assert!(
+            source.contains("2=max, 3=min, 4=multiply"),
+            "{name} should document the BlendMode discriminants used by Rust"
+        );
+        assert!(
+            source.contains("mode == 2u") || source.contains("case 2u"),
+            "{name} should branch on BlendMode::Maximum as 2"
+        );
+        assert!(
+            source.contains("mode == 3u") || source.contains("case 3u"),
+            "{name} should branch on BlendMode::Minimum as 3"
+        );
+        assert!(
+            source.contains("mode == 4u") || source.contains("case 4u"),
+            "{name} should branch on BlendMode::Multiply as 4"
         );
     }
 }
@@ -299,6 +495,9 @@ fn ubo_default_values() {
     assert_eq!(layer_ubo.draw_slice_border, 0);
     assert_eq!(layer_ubo.border_thickness_px, 1.0);
     assert_eq!(layer_ubo.layer_mode, 0);
+    assert_eq!(layer_ubo.alpha_mod_mode, 0); // Default: alpha modulation off
+    assert_eq!(layer_ubo.alpha_gamma, 1.0);
+    assert_eq!(layer_ubo.alpha_center, 0.0);
 }
 
 #[test]

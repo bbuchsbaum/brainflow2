@@ -165,11 +165,17 @@ pub struct LayerUboStd140 {
     pub is_mask: u32,             // 4 bytes
     pub has_alpha_mask: u32,      // 4 bytes
     pub interpolation_mode: u32,  // 4 bytes (0=nearest, 1=linear, 2=cubic)
-    pub draw_slice_border: u32,   // 4 bytes (0/1)
-    pub border_thickness_px: f32, // 4 bytes
-    pub layer_mode: u32,          // 4 bytes (0=scalar, 1=label, 2=mask)
-    pub _pad: u32,                // 4 bytes padding to complete 16-byte block
-                                  // Total size: 160 bytes (must match WGSL LayerData)
+    pub draw_slice_border: u32,   // 4 bytes, offset 144 (0/1)
+    pub border_thickness_px: f32, // 4 bytes, offset 148
+    pub layer_mode: u32,          // 4 bytes, offset 152 (0=scalar, 1=label, 2=mask)
+    pub _pad: u32,                // 4 bytes, offset 156 (completes 16-byte block)
+
+    // --- Intensity-modulated alpha (transparent thresholding) --- next 16-byte block
+    pub alpha_mod_mode: u32, // 4 bytes, offset 160 (0=off, 1=linear, 2=gamma)
+    pub alpha_gamma: f32,    // 4 bytes, offset 164 (gamma exponent for the ramp)
+    pub alpha_center: f32,   // 4 bytes, offset 168 (two-sided magnitude center)
+    pub _pad_alpha: f32,     // 4 bytes, offset 172 (reserved: soft-knee / alpha-floor)
+                             // Total size: 176 bytes (must match WGSL LayerData)
 }
 
 impl Default for LayerUboStd140 {
@@ -195,15 +201,19 @@ impl Default for LayerUboStd140 {
             border_thickness_px: 1.0,
             layer_mode: 0,
             _pad: 0,
+            alpha_mod_mode: 0, // Default: off (byte-identical to pre-feature rendering)
+            alpha_gamma: 1.0,  // Linear when enabled
+            alpha_center: 0.0, // Two-sided magnitude measured from 0
+            _pad_alpha: 0.0,
         }
     }
 }
 
 // IMPORTANT: Keep LayerUboStd140 in byte-for-byte sync with the WGSL LayerData
 // structs in the active masked slice shaders. The runtime storage buffer expects
-// a 160-byte stride. If you add or reorder fields here or in WGSL, adjust both
+// a 176-byte stride. If you add or reorder fields here or in WGSL, adjust both
 // and update this check.
-const _: [(); 160] = [(); std::mem::size_of::<LayerUboStd140>()];
+const _: [(); 176] = [(); std::mem::size_of::<LayerUboStd140>()];
 
 /// Sidecar feature uniforms for slice rendering.
 ///

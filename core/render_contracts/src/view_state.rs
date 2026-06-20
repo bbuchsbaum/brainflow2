@@ -12,10 +12,12 @@ pub enum BlendMode {
     Normal = 0,
     /// Additive blending.
     Additive = 1,
-    /// Multiplicative blending.
-    Multiply = 2,
     /// Maximum intensity.
-    Maximum = 3,
+    Maximum = 2,
+    /// Minimum intensity.
+    Minimum = 3,
+    /// Multiplicative blending.
+    Multiply = 4,
 }
 
 /// Threshold interpretation for a layer.
@@ -135,6 +137,45 @@ pub enum SliceOrientation {
     Sagittal,
 }
 
+/// Shape of the intensity-modulated alpha ("transparent thresholding") ramp.
+#[repr(u32)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "lowercase")]
+pub enum AlphaModMode {
+    /// No modulation: opacity is the flat per-layer value (current behavior).
+    #[default]
+    Off = 0,
+    /// Opacity rises linearly with normalized magnitude.
+    Linear = 1,
+    /// Opacity rises with magnitude raised to `gamma`.
+    Gamma = 2,
+}
+
+/// Intensity-modulated alpha configuration for a layer.
+///
+/// When `mode != Off`, overlay opacity becomes a monotonic function of the
+/// two-sided magnitude `|value - center|`, ramped from the threshold up to the
+/// top of the visible intensity window. Weak supra-threshold voxels fade into
+/// the background; strong voxels are opaque.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, TS)]
+pub struct AlphaModConfig {
+    pub mode: AlphaModMode,
+    /// Gamma exponent for the ramp (used when `mode == Gamma`).
+    pub gamma: f32,
+    /// Center for the two-sided magnitude (0.0 for signed/diverging maps).
+    pub center: f32,
+}
+
+impl Default for AlphaModConfig {
+    fn default() -> Self {
+        Self {
+            mode: AlphaModMode::Off,
+            gamma: 1.0,
+            center: 0.0,
+        }
+    }
+}
+
 /// Configuration for a single layer.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
 pub struct LayerConfig {
@@ -166,6 +207,11 @@ pub struct LayerConfig {
     /// Rendering mode for shader-side layer semantics.
     #[serde(default)]
     pub layer_mode: LayerMode,
+
+    /// Optional intensity-modulated alpha ("transparent thresholding").
+    /// `None` (or `mode == Off`) renders identically to a flat-opacity layer.
+    #[serde(default)]
+    pub alpha_mod: Option<AlphaModConfig>,
 }
 
 /// Threshold configuration.
@@ -188,7 +234,13 @@ impl LayerConfig {
             visible: true,
             interpolation: InterpolationMode::default(),
             layer_mode: LayerMode::default(),
+            alpha_mod: None,
         }
+    }
+
+    pub fn with_alpha_mod(mut self, alpha_mod: AlphaModConfig) -> Self {
+        self.alpha_mod = Some(alpha_mod);
+        self
     }
 
     pub fn with_opacity(mut self, opacity: f32) -> Self {

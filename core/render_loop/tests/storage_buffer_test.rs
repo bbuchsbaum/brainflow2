@@ -49,6 +49,7 @@ fn test_storage_buffer_many_layers() {
                 visible: true,
                 interpolation: Default::default(),
                 layer_mode: Default::default(),
+                alpha_mod: None,
             });
         }
 
@@ -132,6 +133,7 @@ fn test_storage_buffer_dynamic_resize() {
                     has_alpha_mask: false,
                     layer_mode: Default::default(),
                     interpolation_mode: 1,
+                    ..Default::default()
                 })
                 .collect();
 

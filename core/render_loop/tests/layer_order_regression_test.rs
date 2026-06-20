@@ -142,6 +142,7 @@ async fn test_layer_order_not_reversed() {
                 visible: true,
                 interpolation: InterpolationMode::Linear,
                 layer_mode: Default::default(),
+                alpha_mod: None,
             },
             LayerConfig {
                 volume_id: "overlay_vol".to_string(),
@@ -153,6 +154,7 @@ async fn test_layer_order_not_reversed() {
                 visible: true,
                 interpolation: InterpolationMode::Linear,
                 layer_mode: Default::default(),
+                alpha_mod: None,
             },
         ],
         viewport_size: [128, 128],
@@ -278,6 +280,7 @@ async fn test_layer_order_overlay_on_top() {
                 visible: true,
                 interpolation: InterpolationMode::Linear,
                 layer_mode: Default::default(),
+                alpha_mod: None,
             },
             // Layer 1: Overlay (should be rendered last = foreground, on top)
             LayerConfig {
@@ -290,6 +293,7 @@ async fn test_layer_order_overlay_on_top() {
                 visible: true,
                 interpolation: InterpolationMode::Linear,
                 layer_mode: Default::default(),
+                alpha_mod: None,
             },
         ],
         viewport_size: [128, 128],
@@ -437,6 +441,7 @@ async fn test_layer_order_with_transparency() {
                 visible: true,
                 interpolation: InterpolationMode::Linear,
                 layer_mode: Default::default(),
+                alpha_mod: None,
             },
             LayerConfig {
                 volume_id: "overlay_vol".to_string(),
@@ -448,6 +453,7 @@ async fn test_layer_order_with_transparency() {
                 visible: true,
                 interpolation: InterpolationMode::Linear,
                 layer_mode: Default::default(),
+                alpha_mod: None,
             },
         ],
         viewport_size: [128, 128],

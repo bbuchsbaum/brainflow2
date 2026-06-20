@@ -19,7 +19,8 @@ use bridge_types::{BridgeError, BridgeResult};
 use colormap::colormap_by_name;
 use render_loop::render_state::{BlendMode, LayerMode, ThresholdMode};
 use render_loop::view_state::{
-    CameraState, InterpolationMode, LayerConfig, SliceOrientation, ThresholdConfig, ViewState,
+    AlphaModConfig, AlphaModMode, CameraState, InterpolationMode, LayerConfig, SliceOrientation,
+    ThresholdConfig, ViewState,
 };
 use render_loop::SliceFeatureUbo;
 
@@ -116,10 +117,11 @@ pub(crate) fn frontend_layer_to_backend_layer(layer: &LayerState) -> Option<Laye
     };
 
     let blend_mode = match layer.blend_mode.as_str() {
-        "alpha" => BlendMode::Normal,
+        "alpha" | "normal" => BlendMode::Normal,
         "additive" => BlendMode::Additive,
-        "maximum" => BlendMode::Maximum,
-        "minimum" => BlendMode::Normal,
+        "max" | "maximum" => BlendMode::Maximum,
+        "min" | "minimum" => BlendMode::Minimum,
+        "multiply" => BlendMode::Multiply,
         _ => BlendMode::Normal,
     };
 
@@ -142,6 +144,23 @@ pub(crate) fn frontend_layer_to_backend_layer(layer: &LayerState) -> Option<Laye
         })
     };
 
+    let alpha_mod = layer.alpha_mod.as_ref().and_then(|am| {
+        let mode = match am.mode.as_str() {
+            "linear" => AlphaModMode::Linear,
+            "gamma" => AlphaModMode::Gamma,
+            _ => AlphaModMode::Off,
+        };
+        if mode == AlphaModMode::Off {
+            None
+        } else {
+            Some(AlphaModConfig {
+                mode,
+                gamma: am.gamma,
+                center: am.center,
+            })
+        }
+    });
+
     Some(LayerConfig {
         volume_id: layer.volume_id.clone(),
         opacity: layer.opacity,
@@ -152,6 +171,7 @@ pub(crate) fn frontend_layer_to_backend_layer(layer: &LayerState) -> Option<Laye
         visible: layer.visible,
         interpolation,
         layer_mode: layer.layer_mode,
+        alpha_mod,
     })
 }
 
@@ -442,6 +462,105 @@ mod tests {
         assert_eq!(layer.threshold.as_ref().unwrap().mode, ThresholdMode::Range);
         assert_eq!(layer.interpolation, InterpolationMode::Nearest);
         assert_eq!(layer.layer_mode, LayerMode::Label);
+    }
+
+    #[test]
+    fn alpha_mod_frontend_maps_to_backend_layer_config() {
+        use render_loop::view_state::AlphaModMode;
+
+        // gamma -> AlphaModMode::Gamma (fields preserved); off -> None; absent -> None.
+        let json = r#"{
+            "views": {
+                "axial":    {"origin_mm":[0.0,0.0,0.0],"u_mm":[1.0,0.0,0.0],"v_mm":[0.0,1.0,0.0]},
+                "sagittal": {"origin_mm":[0.0,0.0,0.0],"u_mm":[0.0,1.0,0.0],"v_mm":[0.0,0.0,1.0]},
+                "coronal":  {"origin_mm":[0.0,0.0,0.0],"u_mm":[1.0,0.0,0.0],"v_mm":[0.0,0.0,1.0]}
+            },
+            "crosshair": {"world_mm":[0.0,0.0,0.0],"visible":true,"color":[0.0,1.0,0.0,0.8]},
+            "layers": [
+                {"id":"gamma","volumeId":"v1","visible":true,"opacity":1.0,"colormap":"gray",
+                 "intensity":[-1.0,1.0],"threshold":[0.0,0.0],"blendMode":"alpha",
+                 "alphaMod":{"mode":"gamma","gamma":2.5,"center":0.1}},
+                {"id":"off","volumeId":"v2","visible":true,"opacity":1.0,"colormap":"gray",
+                 "intensity":[0.0,1.0],"threshold":[0.0,0.0],"blendMode":"alpha",
+                 "alphaMod":{"mode":"off","gamma":1.0,"center":0.0}},
+                {"id":"none","volumeId":"v3","visible":true,"opacity":1.0,"colormap":"gray",
+                 "intensity":[0.0,1.0],"threshold":[0.0,0.0],"blendMode":"alpha"}
+            ]
+        }"#;
+
+        let frontend = parse_frontend_view_state(json).expect("fixture parses");
+        let layers: Vec<_> = frontend
+            .layers
+            .iter()
+            .filter_map(frontend_layer_to_backend_layer)
+            .collect();
+        assert_eq!(layers.len(), 3);
+
+        let gamma = layers[0]
+            .alpha_mod
+            .as_ref()
+            .expect("gamma layer carries alpha_mod");
+        assert_eq!(gamma.mode, AlphaModMode::Gamma);
+        assert_eq!(gamma.gamma, 2.5);
+        assert_eq!(gamma.center, 0.1);
+
+        assert!(
+            layers[1].alpha_mod.is_none(),
+            "mode=off must map to None (flat-opacity layer)"
+        );
+        assert!(
+            layers[2].alpha_mod.is_none(),
+            "absent alphaMod must map to None"
+        );
+    }
+
+    #[test]
+    fn frontend_blend_mode_names_map_to_backend_contract() {
+        let layer = |id: &str, blend_mode: &str| {
+            format!(
+                r#"{{"id":"{id}","volumeId":"{id}","visible":true,"opacity":1.0,"colormap":"gray",
+                 "intensity":[0.0,1.0],"threshold":[0.0,0.0],"blendMode":"{blend_mode}"}}"#
+            )
+        };
+        let json = format!(
+            r#"{{
+            "views": {{
+                "axial":    {{"origin_mm":[0.0,0.0,0.0],"u_mm":[1.0,0.0,0.0],"v_mm":[0.0,1.0,0.0]}},
+                "sagittal": {{"origin_mm":[0.0,0.0,0.0],"u_mm":[0.0,1.0,0.0],"v_mm":[0.0,0.0,1.0]}},
+                "coronal":  {{"origin_mm":[0.0,0.0,0.0],"u_mm":[1.0,0.0,0.0],"v_mm":[0.0,0.0,1.0]}}
+            }},
+            "crosshair": {{"world_mm":[0.0,0.0,0.0],"visible":true,"color":[0.0,1.0,0.0,0.8]}},
+            "layers": [{}, {}, {}, {}, {}, {}, {}]
+        }}"#,
+            layer("alpha", "alpha"),
+            layer("additive", "additive"),
+            layer("max", "max"),
+            layer("min", "min"),
+            layer("maximum", "maximum"),
+            layer("minimum", "minimum"),
+            layer("multiply", "multiply")
+        );
+
+        let frontend = parse_frontend_view_state(&json).expect("fixture parses");
+        let modes: Vec<_> = frontend
+            .layers
+            .iter()
+            .filter_map(frontend_layer_to_backend_layer)
+            .map(|layer| layer.blend_mode)
+            .collect();
+
+        assert_eq!(
+            modes,
+            vec![
+                BlendMode::Normal,
+                BlendMode::Additive,
+                BlendMode::Maximum,
+                BlendMode::Minimum,
+                BlendMode::Maximum,
+                BlendMode::Minimum,
+                BlendMode::Multiply,
+            ]
+        );
     }
 
     #[test]

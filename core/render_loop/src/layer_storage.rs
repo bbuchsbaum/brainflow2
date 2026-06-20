@@ -352,6 +352,10 @@ impl LayerStorageManager {
                 border_thickness_px: border_thickness.max(0.5_f32),
                 layer_mode: layer_mode as u32,
                 _pad: 0,
+                alpha_mod_mode: layer.alpha_mod_mode,
+                alpha_gamma: layer.alpha_gamma,
+                alpha_center: layer.alpha_center,
+                _pad_alpha: 0.0,
             };
 
             self.layer_data.push(layer_data);
@@ -434,6 +438,10 @@ impl LayerStorageManager {
             border_thickness_px: border_thickness.max(0.5_f32),
             layer_mode: layer_mode as u32,
             _pad: 0,
+            alpha_mod_mode: layer.alpha_mod_mode,
+            alpha_gamma: layer.alpha_gamma,
+            alpha_center: layer.alpha_center,
+            _pad_alpha: 0.0,
         };
 
         if index < self.layer_data.len() {
@@ -527,6 +535,7 @@ mod tests {
                 has_alpha_mask: false,
                 layer_mode: Default::default(),
                 interpolation_mode: 1,
+                ..Default::default()
             })
             .collect();
 
@@ -560,6 +569,7 @@ mod tests {
             has_alpha_mask: false,
             layer_mode: crate::LayerMode::Label,
             interpolation_mode: 1,
+            ..Default::default()
         }];
         let dims = vec![(256, 256, 128)];
         let transforms = vec![Matrix4::identity()];

@@ -1,3 +1,4 @@
+import type { AlphaModConfig } from "./AlphaModConfig";
 import type { BlendMode } from "./BlendMode";
 import type { InterpolationMode } from "./InterpolationMode";
 import type { LayerMode } from "./LayerMode";
@@ -42,4 +43,9 @@ export type LayerConfig = {
      * Rendering mode for shader-side layer semantics.
      */
     layer_mode: LayerMode;
+    /**
+     * Optional intensity-modulated alpha ("transparent thresholding").
+     * `None` (or `mode == Off`) renders identically to a flat-opacity layer.
+     */
+    alpha_mod: AlphaModConfig | null;
 };

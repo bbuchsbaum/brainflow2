@@ -13,30 +13,31 @@
  * existing volume-side IA expects selection to flow.
  */
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from "react";
 
-import { useLayerStore } from '@/stores/layerStore';
-import { usePlotModeStore } from '@/stores/plotModeStore';
-import { useSurfaceStore } from '@/stores/surfaceStore';
-import { useViewStateStore } from '@/stores/viewStateStore';
-import { getEventBus } from '@/events/EventBus';
-import { histogramService } from '@/services/HistogramService';
-import type { HistogramData } from '@/types/histogram';
-import type { LayerRender } from '@/types/layers';
+import { useLayerStore } from "@/stores/layerStore";
+import { usePlotModeStore } from "@/stores/plotModeStore";
+import { useSurfaceStore } from "@/stores/surfaceStore";
+import { useViewStateStore } from "@/stores/viewStateStore";
+import { getEventBus } from "@/events/EventBus";
+import { histogramService } from "@/services/HistogramService";
+import type { HistogramData } from "@/types/histogram";
+import type { LayerRender } from "@/types/layers";
+import type { AlphaModConfig } from "@/types/viewState";
 
 /** Modes the shell exposes via the top toggle. Annotate is a *task mode*, not a data-type tab. */
-export type InspectorAnnotateMode = 'inspector' | 'annotate';
+export type InspectorAnnotateMode = "inspector" | "annotate";
 
 /**
  * Coarse classification of the active inspector target. Drives content
  * dispatch in `LayerInspectorContent` (6b).
  */
 export type ActiveLayerKind =
-  | 'atlas'
-  | 'volume-4d'
-  | 'volume-3d'
-  | 'surface'
-  | 'surface-data';
+  | "atlas"
+  | "volume-4d"
+  | "volume-3d"
+  | "surface"
+  | "surface-data";
 
 export interface ActiveLayerSummary {
   readonly id: string;
@@ -46,7 +47,7 @@ export interface ActiveLayerSummary {
   /** Coarse classification used for shell-level + content-level UX decisions. */
   readonly kind: ActiveLayerKind;
   /** Logical source if known: file/template/atlas/other. */
-  readonly source: 'file' | 'template' | 'atlas' | 'other' | null;
+  readonly source: "file" | "template" | "atlas" | "other" | null;
   /** For `surface-data` only: the parent surface handle. */
   readonly parentId?: string;
 }
@@ -56,17 +57,17 @@ function classifyVolumeLayer(
   isAtlas: boolean,
   isFourD: boolean,
 ): ActiveLayerKind {
-  if (isAtlas) return 'atlas';
-  if (isFourD) return 'volume-4d';
-  return 'volume-3d';
+  if (isAtlas) return "atlas";
+  if (isFourD) return "volume-4d";
+  return "volume-3d";
   void layerType;
 }
 
 const TYPE_LABEL_MAP: Record<string, string> = {
-  anatomical: 'Anatomical',
-  functional: 'Functional',
-  mask: 'Mask',
-  label: 'Label',
+  anatomical: "Anatomical",
+  functional: "Functional",
+  mask: "Mask",
+  label: "Label",
 };
 
 /**
@@ -93,7 +94,7 @@ export function useActiveLayerSummary(): ActiveLayerSummary | null {
   const layerSource = useLayerStore((state) => {
     if (!state.selectedLayerId) return null;
     const layer = state.layers.find((l) => l.id === state.selectedLayerId) as
-      | { source?: 'file' | 'template' | 'atlas' | 'other' }
+      | { source?: "file" | "template" | "atlas" | "other" }
       | undefined;
     return layer?.source ?? null;
   });
@@ -110,7 +111,7 @@ export function useActiveLayerSummary(): ActiveLayerSummary | null {
     const layer = state.layers.find((l) => l.id === state.selectedLayerId) as
       | { source?: string; atlasMetadata?: unknown }
       | undefined;
-    return layer?.source === 'atlas' || Boolean(layer?.atlasMetadata);
+    return layer?.source === "atlas" || Boolean(layer?.atlasMetadata);
   });
 
   // ---- Surface side (fallback) ---------------------------------------------
@@ -123,7 +124,7 @@ export function useActiveLayerSummary(): ActiveLayerSummary | null {
   });
   const surfaceDataLayerName = useSurfaceStore((state) => {
     if (
-      state.selectedItemType !== 'dataLayer' ||
+      state.selectedItemType !== "dataLayer" ||
       !state.activeSurfaceId ||
       !state.selectedLayerId
     ) {
@@ -138,7 +139,7 @@ export function useActiveLayerSummary(): ActiveLayerSummary | null {
     return {
       id: selectedLayerId,
       name: layerName,
-      typeLabel: layerType ? TYPE_LABEL_MAP[layerType] ?? layerType : 'Layer',
+      typeLabel: layerType ? (TYPE_LABEL_MAP[layerType] ?? layerType) : "Layer",
       kind: classifyVolumeLayer(layerType, isAtlas, isFourD),
       source: layerSource,
     };
@@ -146,7 +147,7 @@ export function useActiveLayerSummary(): ActiveLayerSummary | null {
 
   if (activeSurfaceId && surfaceName) {
     if (
-      surfaceItemType === 'dataLayer' &&
+      surfaceItemType === "dataLayer" &&
       surfaceDataLayerId &&
       surfaceDataLayerName
     ) {
@@ -154,17 +155,17 @@ export function useActiveLayerSummary(): ActiveLayerSummary | null {
         id: surfaceDataLayerId,
         parentId: activeSurfaceId,
         name: surfaceDataLayerName,
-        typeLabel: 'Surface Data',
-        kind: 'surface-data',
-        source: 'file',
+        typeLabel: "Surface Data",
+        kind: "surface-data",
+        source: "file",
       };
     }
     return {
       id: activeSurfaceId,
       name: surfaceName,
-      typeLabel: 'Surface',
-      kind: 'surface',
-      source: 'file',
+      typeLabel: "Surface",
+      kind: "surface",
+      source: "file",
     };
   }
 
@@ -191,7 +192,10 @@ export function useLayerRenderUpdater(layerId: string | null) {
         const layer = state.layers.find((l) => l.id === layerId);
         if (!layer) return;
 
-        if (updates.opacity !== undefined && !Object.is(layer.opacity, updates.opacity)) {
+        if (
+          updates.opacity !== undefined &&
+          !Object.is(layer.opacity, updates.opacity)
+        ) {
           layer.opacity = updates.opacity;
           layer.visible = updates.opacity > 0;
           didChange = true;
@@ -213,7 +217,24 @@ export function useLayerRenderUpdater(layerId: string | null) {
           }
         }
 
-        if (updates.interpolation && layer.interpolation !== updates.interpolation) {
+        if (updates.alphaMod !== undefined) {
+          const next: AlphaModConfig = updates.alphaMod;
+          const current = layer.alphaMod;
+          if (
+            !current ||
+            current.mode !== next.mode ||
+            current.gamma !== next.gamma ||
+            current.center !== next.center
+          ) {
+            layer.alphaMod = next;
+            didChange = true;
+          }
+        }
+
+        if (
+          updates.interpolation &&
+          layer.interpolation !== updates.interpolation
+        ) {
           layer.interpolation = updates.interpolation;
           didChange = true;
         }
@@ -240,7 +261,10 @@ export function useLayerRenderUpdater(layerId: string | null) {
           layerWithAtlas.colormapId = atlasUpdates.colormapId;
           didChange = true;
         }
-        if (atlasUpdates.atlasConfig && layerWithAtlas.atlasConfig !== atlasUpdates.atlasConfig) {
+        if (
+          atlasUpdates.atlasConfig &&
+          layerWithAtlas.atlasConfig !== atlasUpdates.atlasConfig
+        ) {
           layerWithAtlas.atlasConfig = atlasUpdates.atlasConfig;
           didChange = true;
         }
@@ -254,7 +278,7 @@ export function useLayerRenderUpdater(layerId: string | null) {
       });
 
       if (didChange) {
-        getEventBus().emit('layer.render.changed', {
+        getEventBus().emit("layer.render.changed", {
           layerId,
           renderProps: updates,
         });
@@ -324,7 +348,7 @@ export function useVolumeLayerStats(layerId: string | null): VolumeLayerStats {
     if (!layerId) return;
     const eventBus = getEventBus();
     const unsubscribe = eventBus.on(
-      'layer.render.changed',
+      "layer.render.changed",
       (event: { layerId: string }) => {
         if (event.layerId === layerId) {
           setData(null);
@@ -396,7 +420,9 @@ export function useVolumeLayerStats(layerId: string | null): VolumeLayerStats {
  * mode-switch is owned by `PlotPanel` reading the same store.
  */
 export function useOpenInPlot() {
-  const setActivePlotMode = usePlotModeStore((state) => state.setActivePlotMode);
+  const setActivePlotMode = usePlotModeStore(
+    (state) => state.setActivePlotMode,
+  );
   return useCallback(
     (modeId: string) => {
       setActivePlotMode(modeId);

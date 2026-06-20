@@ -230,6 +230,7 @@ async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
         texture_coords: (0.0, 0.0, 1.0, 1.0),
         is_mask: false,
         interpolation_mode: 1,
+        ..Default::default()
     };
 
     let mut tracker = FrameTimeTracker::new(100);

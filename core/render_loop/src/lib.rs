@@ -3071,6 +3071,7 @@ impl RenderLoopService {
             has_alpha_mask: false,
             layer_mode: Default::default(),
             interpolation_mode,
+            ..Default::default()
         };
 
         let layer_index = self
@@ -3186,6 +3187,7 @@ impl RenderLoopService {
             has_alpha_mask: false,
             layer_mode: Default::default(),
             interpolation_mode: 1, // Default to linear for legacy method
+            ..Default::default()
         };
 
         let index =
@@ -4415,6 +4417,13 @@ impl RenderLoopService {
                 view_state::InterpolationMode::Cubic => 2,
             };
 
+            // Intensity-modulated alpha ("transparent thresholding"). None / Off
+            // yields (0, 1.0, 0.0) which the shader treats as a flat-opacity layer.
+            let (alpha_mod_mode, alpha_gamma, alpha_center) = match &layer_config.alpha_mod {
+                Some(a) => (a.mode as u32, a.gamma, a.center),
+                None => (0u32, 1.0f32, 0.0f32),
+            };
+
             let layer_info = LayerInfo {
                 atlas_index: vol_entry.atlas_index,
                 opacity: layer_config.opacity,
@@ -4447,6 +4456,9 @@ impl RenderLoopService {
                 has_alpha_mask: false,
                 layer_mode: layer_config.layer_mode,
                 interpolation_mode: interpolation_mode_u32,
+                alpha_mod_mode,
+                alpha_gamma,
+                alpha_center,
             };
 
             layer_infos.push(layer_info);
@@ -4982,6 +4994,15 @@ impl RenderLoopService {
                 layer.colormap_id = layer_config.colormap_id;
                 layer.blend_mode = layer_config.blend_mode.clone();
                 layer.intensity_range = layer_config.intensity_window;
+
+                // Intensity-modulated alpha (None / Off => flat-opacity layer).
+                let (am_mode, am_gamma, am_center) = match &layer_config.alpha_mod {
+                    Some(a) => (a.mode as u32, a.gamma, a.center),
+                    None => (0u32, 1.0f32, 0.0f32),
+                };
+                layer.alpha_mod_mode = am_mode;
+                layer.alpha_gamma = am_gamma;
+                layer.alpha_center = am_center;
 
                 // Set threshold if specified
                 if let Some(threshold_config) = &layer_config.threshold {

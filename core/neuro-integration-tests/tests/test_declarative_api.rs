@@ -313,6 +313,7 @@ async fn render_declarative(
             threshold: None,
             visible: true,
             interpolation: InterpolationMode::default(),
+            alpha_mod: None,
         }],
         viewport_size: [view_rect.width_px, view_rect.height_px],
         show_crosshair: true,

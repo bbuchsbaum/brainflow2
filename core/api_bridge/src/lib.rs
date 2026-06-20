@@ -7626,10 +7626,28 @@ struct LayerState {
     layer_mode: render_loop::render_state::LayerMode,
     #[serde(default)]
     outline: Option<LayerOutlineState>,
+    #[serde(rename = "alphaMod", default)]
+    alpha_mod: Option<AlphaModState>,
 }
 
 fn default_interpolation() -> String {
     "linear".to_string()
+}
+
+/// Frontend payload for intensity-modulated alpha ("transparent thresholding").
+#[derive(Deserialize, Debug, Clone)]
+struct AlphaModState {
+    /// "off" | "linear" | "gamma".
+    #[serde(default)]
+    mode: String,
+    #[serde(default = "default_alpha_gamma")]
+    gamma: f32,
+    #[serde(default)]
+    center: f32,
+}
+
+fn default_alpha_gamma() -> f32 {
+    1.0
 }
 
 #[derive(Deserialize, Debug, Clone)]

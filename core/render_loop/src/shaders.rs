@@ -319,7 +319,7 @@ mod tests {
         assert_eq!(mem::size_of::<crate::FrameUbo>(), 80); // 3 * vec4 + atlas_dim + target_dim + padding
         assert_eq!(mem::size_of::<crate::CrosshairUbo>(), 16); // vec3 + pad
         assert_eq!(mem::size_of::<crate::ubo::ViewPlaneUbo>(), 16); // u32 + pad
-        assert_eq!(mem::size_of::<crate::LayerUboStd140>(), 160); // Fixed padding to match WGSL
+        assert_eq!(mem::size_of::<crate::LayerUboStd140>(), 176); // Fixed padding to match WGSL
     }
 }
 

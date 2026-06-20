@@ -101,6 +101,7 @@ async fn test_declarative_layer_config() {
             threshold: None,
             visible: true,
             interpolation: InterpolationMode::default(),
+            alpha_mod: None,
         }],
         viewport_size,
         show_crosshair: true,
@@ -145,6 +146,7 @@ async fn test_declarative_layer_config() {
                 threshold: None,
                 visible: true,
                 interpolation: InterpolationMode::default(),
+                alpha_mod: None,
             },
             LayerConfig {
                 volume_id: volume_id.clone(),
@@ -155,6 +157,7 @@ async fn test_declarative_layer_config() {
                 threshold: None,
                 visible: true,
                 interpolation: InterpolationMode::default(),
+                alpha_mod: None,
             },
         ],
         viewport_size,

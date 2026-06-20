@@ -80,6 +80,7 @@ fn test_debug_shader_world_coordinate_variation() {
         has_alpha_mask: false,
         layer_mode: Default::default(),
         interpolation_mode: 1,
+        ..Default::default()
     };
 
     // Use proper API to set layer info

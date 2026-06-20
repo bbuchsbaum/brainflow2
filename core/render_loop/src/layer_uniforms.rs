@@ -168,6 +168,10 @@ impl LayerUniformManager {
                 border_thickness_px: 1.0,
                 layer_mode: layer_mode as u32,
                 _pad: 0,
+                alpha_mod_mode: layer.alpha_mod_mode,
+                alpha_gamma: layer.alpha_gamma,
+                alpha_center: layer.alpha_center,
+                _pad_alpha: 0.0,
             };
         }
 
@@ -247,6 +251,10 @@ impl LayerUniformManager {
             border_thickness_px: 1.0,
             layer_mode: layer_mode as u32,
             _pad: 0,
+            alpha_mod_mode: layer.alpha_mod_mode,
+            alpha_gamma: layer.alpha_gamma,
+            alpha_center: layer.alpha_center,
+            _pad_alpha: 0.0,
         };
 
         // Upload just the updated layer
@@ -328,6 +336,7 @@ mod tests {
             has_alpha_mask: false,
             layer_mode: Default::default(),
             interpolation_mode: 1,
+            ..Default::default()
         }];
 
         let dims = vec![(256, 256, 128)];

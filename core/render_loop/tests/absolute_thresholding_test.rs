@@ -58,9 +58,10 @@ mod tests {
             border_thickness_px: 1.0,
             layer_mode: 0,
             _pad: 0,
+            ..Default::default()
         };
 
         assert_eq!(ubo.threshold_mode, 1);
-        assert_eq!(std::mem::size_of::<LayerUboStd140>(), 160);
+        assert_eq!(std::mem::size_of::<LayerUboStd140>(), 176);
     }
 }

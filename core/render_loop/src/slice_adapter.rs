@@ -105,6 +105,7 @@ impl GpuSliceAdapter {
             visible: layer.visual.opacity > 0.0,
             interpolation: InterpolationMode::Linear, // Default to linear
             layer_mode: Default::default(),
+            alpha_mod: None,
         })
     }
 
@@ -215,6 +216,7 @@ impl SliceSpecMapper {
                 visible: layer.visual.opacity > 0.0,
                 interpolation: InterpolationMode::Linear, // Default to linear
                 layer_mode: Default::default(),
+                alpha_mod: None,
             })
             .collect();
 
