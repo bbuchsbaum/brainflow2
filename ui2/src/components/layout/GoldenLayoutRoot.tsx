@@ -30,6 +30,7 @@ import { MosaicViewPromise } from '@/components/views/MosaicViewPromise';
 import { SurfaceViewPanel } from '@/components/views/SurfaceViewPanel';
 import { SetStudioWorkspace } from '@/components/studio/SetStudioWorkspace';
 import { ComparisonWorkspace } from '@/components/views/ComparisonWorkspace';
+import { HybridOrthoSurfaceWorkspace } from '@/components/views/HybridOrthoSurfaceWorkspace';
 import { BidsExplorerWorkspace } from '@/components/bids/BidsExplorerWorkspace';
 import { StudioDesignPanel } from '@/components/studio/StudioDesignPanel';
 import { StudioInspectorPanel } from '@/components/studio/StudioInspectorPanel';
@@ -128,6 +129,8 @@ const WorkspaceComponent: React.FC<WorkspaceComponentProps> = ({ workspaceId, wo
       return <MosaicViewPromise workspaceId={workspaceId} />;
     case 'comparison':
       return <ComparisonWorkspace workspaceId={workspaceId} />;
+    case 'hybrid-ortho-surface':
+      return <HybridOrthoSurfaceWorkspace />;
     case 'set-studio':
       return <SetStudioWorkspace />;
     case 'bids-explorer':

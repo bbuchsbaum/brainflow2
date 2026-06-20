@@ -417,12 +417,73 @@ export class ComparisonViewFactory implements ViewFactory {
   }
 }
 
+/**
+ * Factory for the hybrid surface/volume workspace: a row of orthogonal slices
+ * over a 3D surface view, sharing the same activation-map layers.
+ */
+export class HybridOrthoSurfaceFactory implements ViewFactory {
+  getDefaultConfig(): Partial<WorkspaceConfig> {
+    return {};
+  }
+
+  createLayout(config?: WorkspaceConfig): LayoutConfig {
+    return {
+      root: {
+        type: 'row',
+        content: [
+          {
+            type: 'column',
+            width: 17.25,
+            content: [{
+              type: 'component',
+              componentType: 'FileBrowser',
+              title: 'Files',
+              componentState: {}
+            }]
+          },
+          {
+            type: 'component',
+            componentType: 'HybridOrthoSurfaceView',
+            title: 'Surface + Volume',
+            width: 59.75,
+            componentState: {}
+          },
+          {
+            type: 'column',
+            width: 23,
+            content: [
+              {
+                type: 'stack',
+                content: [
+                  {
+                    type: 'component',
+                    componentType: 'LayerPanel',
+                    title: 'Volumes',
+                    componentState: {}
+                  },
+                  {
+                    type: 'component',
+                    componentType: 'SurfacePanel',
+                    title: 'Surfaces',
+                    componentState: {}
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    };
+  }
+}
+
 // Initialize the registry with all view types
 export function initializeViewRegistry() {
   ViewRegistry.register('orthogonal-locked', new OrthogonalLockedFactory());
   ViewRegistry.register('orthogonal-flexible', new OrthogonalPanelsFactory());
   ViewRegistry.register('mosaic', new MosaicViewFactory());
   ViewRegistry.register('comparison', new ComparisonViewFactory());
+  ViewRegistry.register('hybrid-ortho-surface', new HybridOrthoSurfaceFactory());
   ViewRegistry.register('set-studio', new SetStudioFactory());
   ViewRegistry.register('bids-explorer', new BidsExplorerFactory());
   
