@@ -16,6 +16,7 @@ The packages directory contains shared TypeScript packages managed via pnpm work
 |-----------|---------|
 | `api/` | Core TypeScript interfaces (@brainflow/api) - consumes generated bindings from `core/bridge_types/bindings/` |
 | `plugin-sdk/` | Plugin development SDK with templates and utilities for extending Brainflow functionality |
+| `visualization/` | Reusable React slice/surface viewer package (@brainflow/visualization) with store-free adapters |
 
 ## For AI Agents
 
@@ -41,6 +42,7 @@ When working with TypeScript packages:
 - **Module format**: All packages use ESM (`"type": "module"` in package.json)
 - **Type exports**: Ensure proper `types` and `exports` fields in package.json for TypeScript resolution
 - **Build output**: Compiled JavaScript + declaration files go to `dist/` directory
+- **Visualization package boundary**: `visualization/src/` must not import `ui2` stores, services, Tauri APIs, or app aliases; pass host integration through props/callbacks.
 
 ### Package Details
 
@@ -61,15 +63,28 @@ When working with TypeScript packages:
 - **Includes**: `templates/` directory with plugin scaffolding examples
 - **Target audience**: Third-party developers extending Brainflow
 
+#### @brainflow/visualization
+- **Purpose**: Store-free React visualization primitives for reusable slice and surface viewers
+- **Main export**: `dist/index.js` (ESM), plus `./slice` and `./surface` subpath exports
+- **Types**: `dist/index.d.ts`, `dist/slice/index.d.ts`, `dist/surface/index.d.ts`
+- **Build**: Runs `tsc -p tsconfig.json`
+- **Source structure**:
+  - `src/slice/` - slice viewport, canvas image surface, geometry helpers, drawing helpers
+  - `src/surface/` - neurosurface canvas, renderable types, reconciliation helpers
+  - `src/index.ts` - Main entry point, re-exports
+
 ## Dependencies
 
 ### Internal
 - `plugin-sdk` depends on `api` (via workspace protocol)
-- Both packages consumed by `ui2/` application
+- `visualization` is consumed by host apps that provide React/neurosurface and pass data through props
+- Packages are consumed by `ui2/` application and external extension code
 
 ### External
 - `typescript` ^5.0.0 - TypeScript compiler (devDependency for all packages)
 - `tsup` ^8.0.0 - Build tool for plugin-sdk (fast, zero-config bundler)
+- `react` / `react-dom` - peer dependencies for visualization components
+- `neurosurface` - peer dependency for the surface viewer export
 
 ### Generated Dependencies
 Types in `api/src/generated/` correspond to Rust types in `core/bridge_types/src/`:

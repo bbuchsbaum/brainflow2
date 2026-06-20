@@ -1,5 +1,6 @@
 use colormap::BuiltinColormap;
 use render_loop::RenderLoopService;
+use volmath::NeuroSpaceExt;
 use volmath::{DenseVolume3, NeuroSpace3};
 
 /// Creates a gradient volume for testing colormaps

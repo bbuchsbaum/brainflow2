@@ -1,3 +1,4 @@
+use nalgebra::Vector4;
 use render_loop::RenderLoopService;
 use volmath::space::{GridSpace, NeuroSpaceImpl};
 use volmath::{DenseVolume3, NeuroSpace3, NeuroSpaceExt};
@@ -30,6 +31,7 @@ async fn texture_upload_stride_10x10x10() {
         vec![0.0, 0.0, 0.0],
     )
     .expect("Failed to create NeuroSpace");
+    let grid_space = NeuroSpace3::new(space.clone());
     let volume = DenseVolume3::from_data(space.clone(), data.clone());
 
     // Upload volume - this is where stride handling happens
@@ -75,7 +77,7 @@ async fn texture_upload_stride_10x10x10() {
         service.set_crosshair(world_pos);
 
         // Verify the position maps to the correct voxel
-        let voxel = space.coord_to_grid(&world_pos);
+        let voxel = grid_space.coord_to_grid(&world_pos);
         let voxel_idx = [
             voxel[0].round() as usize,
             voxel[1].round() as usize,
@@ -160,6 +162,7 @@ async fn texture_upload_data_integrity() {
         vec![0.0, 0.0, 0.0],
     )
     .expect("Failed to create NeuroSpace");
+    let grid_space = NeuroSpace3::new(space.clone());
     let volume = DenseVolume3::from_data(space.clone(), data.clone());
 
     let result = service.upload_volume_3d(&volume);
@@ -184,11 +187,18 @@ async fn texture_upload_data_integrity() {
     ];
 
     for (voxel_idx, expected) in checks {
-        let world = space.grid_to_coord(&[
+        let voxel = Vector4::new(
             voxel_idx[0] as f32,
             voxel_idx[1] as f32,
             voxel_idx[2] as f32,
-        ]);
+            1.0,
+        );
+        let world_h = grid_space.voxel_to_world() * voxel;
+        let world = [
+            world_h.x / world_h.w,
+            world_h.y / world_h.w,
+            world_h.z / world_h.w,
+        ];
         service.set_crosshair(world);
 
         let linear_idx = voxel_idx[2] * 16 * 8 + voxel_idx[1] * 16 + voxel_idx[0];

@@ -5,6 +5,7 @@ use rand::Rng;
 // Example: assuming TextureAtlas is directly under render_loop
 use render_loop::TextureAtlas;
 use std::num::NonZeroU64;
+use wgpu::util::DeviceExt;
 use wgpu::*;
 
 const DIM: [u32; 3] = [256, 256, 256]; // ~64 MiB for f32

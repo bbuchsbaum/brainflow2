@@ -1,0 +1,24 @@
+import type { SliceOrientation } from "./SliceOrientation";
+/**
+ * Camera configuration in world space.
+ */
+export type CameraState = {
+    /**
+     * Point we are looking at in world coordinates.
+     */
+    world_center: [number, number, number];
+    /**
+     * Field of view in mm.
+     */
+    fov_mm: number;
+    /**
+     * Anatomical plane being viewed.
+     */
+    orientation: SliceOrientation;
+    /**
+     * Optional exact frame parameters for non-square FOVs.
+     */
+    frame_origin: [number, number, number, number] | null;
+    frame_u_vec: [number, number, number, number] | null;
+    frame_v_vec: [number, number, number, number] | null;
+};

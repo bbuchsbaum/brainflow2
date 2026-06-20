@@ -107,7 +107,8 @@ fn create_simple_anatomical() -> DenseVolume3<u8> {
     }
 
     use volmath::space::{NeuroSpace3, NeuroSpaceImpl};
-    let space_impl = NeuroSpaceExt::from_affine_matrix4(dims, Matrix4::identity());
+    let space_impl =
+        <volmath::NeuroSpace as NeuroSpaceExt>::from_affine_matrix4(dims, Matrix4::identity());
     let space = NeuroSpace3::new(space_impl);
     DenseVolume3::from_data(space.0, data)
 }

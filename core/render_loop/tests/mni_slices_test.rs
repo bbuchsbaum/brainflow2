@@ -71,9 +71,9 @@ async fn test_mni_brain_slices() {
     println!("Data range: [{}, {}]", data_range.0, data_range.1);
 
     // Get world bounds from the volume's space
-    let origin = volume.space.0.origin();
-    let spacing = volume.space.0.spacing();
-    let world_min = origin;
+    let origin = volume.space.origin();
+    let spacing = volume.space.spacing();
+    let world_min = origin.clone();
     let world_max = [
         origin[0] + (dims[0] as f32 - 1.0) * spacing[0],
         origin[1] + (dims[1] as f32 - 1.0) * spacing[1],

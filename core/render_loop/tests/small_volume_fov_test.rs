@@ -11,9 +11,12 @@ async fn small_volume_default_fov_is_full_size() {
     let spacing = [1.0, 1.0, 1.0];
     let origin = [0.0, 0.0, 0.0];
 
-    let space =
-        NeuroSpaceExt::from_dims_spacing_origin(dims.to_vec(), spacing.to_vec(), origin.to_vec())
-            .expect("Failed to create NeuroSpace");
+    let space = <volmath::NeuroSpace as NeuroSpaceExt>::from_dims_spacing_origin(
+        dims.to_vec(),
+        spacing.to_vec(),
+        origin.to_vec(),
+    )
+    .expect("Failed to create NeuroSpace");
     let space3 = NeuroSpace3::new(space);
     let data = vec![1.0f32; 1000];
     let volume = DenseVolume3::from_data(space3.0, data);
@@ -70,7 +73,7 @@ async fn verify_fov_calculation_for_various_volumes() {
     ];
 
     for (dims, spacing, origin, expected_fov) in test_cases {
-        let space = NeuroSpaceExt::from_dims_spacing_origin(
+        let space = <volmath::NeuroSpace as NeuroSpaceExt>::from_dims_spacing_origin(
             dims.to_vec(),
             spacing.to_vec(),
             origin.to_vec(),

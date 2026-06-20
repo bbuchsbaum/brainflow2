@@ -272,7 +272,7 @@ fn verify_volume_patterns(volume: &DenseVolume3<f32>) {
     // Check a few slices to ensure patterns are correct
 
     // Check Z=32 (middle axial slice) - should have mixed X and Y patterns
-    let axial_slice = volume.data_slice(2, 32).expect("Failed to get axial slice");
+    let axial_slice = volume.data_slice(2, 32);
     let mut x_variations = 0;
     let mut y_variations = 0;
 
@@ -301,8 +301,8 @@ fn verify_volume_patterns(volume: &DenseVolume3<f32>) {
     assert!(y_variations > 5, "Expected Y-axis stripes in axial slice");
 
     // Check gradient along Z
-    let z1_slice = volume.data_slice(2, 10).expect("Failed to get Z=10 slice");
-    let z2_slice = volume.data_slice(2, 50).expect("Failed to get Z=50 slice");
+    let z1_slice = volume.data_slice(2, 10);
+    let z2_slice = volume.data_slice(2, 50);
 
     let avg_z1: f32 = z1_slice.iter().sum::<f32>() / z1_slice.len() as f32;
     let avg_z2: f32 = z2_slice.iter().sum::<f32>() / z2_slice.len() as f32;

@@ -1,5 +1,6 @@
 use render_loop::RenderLoopService;
 use std::path::Path;
+use volmath::NeuroSpaceExt;
 
 #[tokio::test]
 #[ignore = "This test uses obsolete API methods that are incompatible with world-space rendering"]

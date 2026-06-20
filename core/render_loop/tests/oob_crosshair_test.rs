@@ -1,5 +1,5 @@
 use render_loop::RenderLoopService;
-use volmath::space::{GridSpace, NeuroSpaceImpl};
+use volmath::NeuroSpaceExt;
 use volmath::{DenseVolume3, NeuroSpace3};
 
 #[tokio::test]
@@ -12,8 +12,14 @@ async fn oob_crosshair_yields_constant() {
     let data = vec![100.0f32; 1000];
 
     // Create space with 1mm spacing at origin (0,0,0)
-    let space = NeuroSpaceImpl::from_dims_spacing_origin(dims, [1.0, 1.0, 1.0], [0.0, 0.0, 0.0]);
-    let volume = DenseVolume3::from_data(NeuroSpace3::new(space.clone()), data);
+    let space = <volmath::NeuroSpace as NeuroSpaceExt>::from_dims_spacing_origin(
+        dims.to_vec(),
+        vec![1.0, 1.0, 1.0],
+        vec![0.0, 0.0, 0.0],
+    )
+    .expect("Failed to create NeuroSpace");
+    let grid_space = NeuroSpace3::new(space.clone());
+    let volume = DenseVolume3::from_data(space, data);
 
     // Upload volume
     let result = service.upload_volume_3d(&volume);
@@ -56,7 +62,7 @@ async fn oob_crosshair_yields_constant() {
         service.set_crosshair(world_pos);
 
         // Verify the position maps to out-of-bounds voxel coordinates
-        let voxel = space.coord_to_grid(&world_pos);
+        let voxel = grid_space.coord_to_grid(&world_pos);
 
         // At least one coordinate should be out of bounds
         let is_oob = voxel[0] < 0.0
@@ -112,8 +118,14 @@ async fn oob_edge_cases() {
         7.0, 8.0, // z=1, y=1
     ];
 
-    let space = NeuroSpaceImpl::from_dims_spacing_origin(dims, [1.0, 1.0, 1.0], [0.0, 0.0, 0.0]);
-    let volume = DenseVolume3::from_data(NeuroSpace3::new(space.clone()), data);
+    let space = <volmath::NeuroSpace as NeuroSpaceExt>::from_dims_spacing_origin(
+        dims.to_vec(),
+        vec![1.0, 1.0, 1.0],
+        vec![0.0, 0.0, 0.0],
+    )
+    .expect("Failed to create NeuroSpace");
+    let grid_space = NeuroSpace3::new(space.clone());
+    let volume = DenseVolume3::from_data(space, data);
 
     let result = service.upload_volume_3d(&volume);
     assert!(result.is_ok());
@@ -138,7 +150,7 @@ async fn oob_edge_cases() {
     ];
 
     for (world_pos, should_be_in_bounds) in boundary_tests {
-        let voxel = space.coord_to_grid(&world_pos);
+        let voxel = grid_space.coord_to_grid(&world_pos);
 
         let is_in_bounds = voxel[0] >= 0.0
             && voxel[0] <= 1.0
@@ -167,9 +179,13 @@ async fn oob_with_transform() {
     let data = vec![50.0f32; 4000];
 
     // 3mm spacing, origin at (-30, -30, -15)
-    let space =
-        NeuroSpaceImpl::from_dims_spacing_origin(dims, [3.0, 3.0, 3.0], [-30.0, -30.0, -15.0]);
-    let volume = DenseVolume3::from_data(NeuroSpace3::new(space.clone()), data);
+    let space = <volmath::NeuroSpace as NeuroSpaceExt>::from_dims_spacing_origin(
+        dims.to_vec(),
+        vec![3.0, 3.0, 3.0],
+        vec![-30.0, -30.0, -15.0],
+    )
+    .expect("Failed to create NeuroSpace");
+    let volume = DenseVolume3::from_data(space, data);
 
     let result = service.upload_volume_3d(&volume);
     assert!(result.is_ok());

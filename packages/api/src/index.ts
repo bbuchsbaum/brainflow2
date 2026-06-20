@@ -3,8 +3,9 @@
  */
 
 // Import and re-export generated types
-export * from './generated';
-export * from './helpers';
+export type * from './generated';
+export * from './helpers.js';
+export * from './renderClient.js';
 
 // Import specific types we need to reference
 import type { 
@@ -15,42 +16,12 @@ import type {
     LayerSpec,
     ReleaseResult 
 } from './generated';
+import type { RenderOutputFormat, RenderViewDiagnostics } from './renderClient';
 
 /**
  * Generic Result type for Tauri commands, mirroring Rust's Result.
  */
 export type Result<T, E = string> = { Ok: T; Err?: never } | { Ok?: never; Err: E };
-
-export type RenderOutputFormat = 'png' | 'rgba';
-export type FrameReadbackMode = 'blocking' | 'skip';
-
-export interface FrameRenderDiagnostics {
-    prepare_ms: number;
-    render_ms: number;
-    readback_ms: number;
-    total_ms: number;
-    visible_layers: number;
-    updated_layer_slots: number;
-    reused_layer_state: boolean;
-    readback_mode: FrameReadbackMode;
-}
-
-export interface RenderViewDiagnostics {
-    requested_view: string | null;
-    format: string;
-    parse_ms: number;
-    service_lock_ms: number;
-    target_setup_ms: number;
-    layer_processing_ms: number;
-    render_loop_ms: number;
-    encode_ms: number;
-    total_ms: number;
-    visible_layer_count: number;
-    output_bytes: number;
-    output_dimensions: [number, number];
-    warnings: string[];
-    frame: FrameRenderDiagnostics;
-}
 
 export interface CoreApi {
     // File operations

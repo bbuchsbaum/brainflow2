@@ -6,7 +6,7 @@ import type { ViewPlane } from '@/types/coordinates';
 import type { RenderContext } from '@/types/renderContext';
 import type { DisplayOpenIntent } from '@/types/loadIntent';
 import { useRenderContextRegistration } from './viewport/useRenderContextRegistration';
-import { useSliceViewportController } from './viewport/useSliceViewportController';
+import { ReusableSliceViewport } from './sliceViewer';
 
 export interface SliceViewportPlacement {
   x: number;
@@ -80,42 +80,45 @@ export function SliceViewport({
   customRender,
 }: SliceViewportProps) {
   useRenderContextRegistration(context);
-  const { handleCanvasReady, handleMouseDown, handleRender } = useSliceViewportController({
-    viewPlane,
-    crosshair,
-    crosshairStyle,
-    showSliceBorder,
-    sliceBorderWidth,
-    onCanvasReady,
-    onPlacementChange,
-    onWorldClick,
-    onMouseDown,
-    customRender,
-  });
 
   return (
-    <div className={`relative w-full h-full ${className}`} onMouseDown={handleMouseDown}>
-      <SliceRenderer
-        width={width}
-        height={height}
-        context={context}
-        tag={tag}
-        showLoading={showLoading}
-        showError={showError}
-        showNoLayers={showNoLayers}
-        showLoadingVolume={showLoadingVolume}
-        enableDragDrop={enableDragDrop}
-        onFileDrop={onFileDrop}
-        onPathDrop={onPathDrop}
-        onMouseMove={onMouseMove}
-        onMouseUp={onMouseUp}
-        onMouseLeave={onMouseLeave}
-        onWheel={onWheel}
-        customRender={handleRender}
-        onCanvasReady={handleCanvasReady}
-        className="w-full h-full"
-        canvasClassName={canvasClassName}
-      />
-    </div>
+    <ReusableSliceViewport
+      width={width}
+      height={height}
+      viewPlane={viewPlane}
+      crosshair={crosshair}
+      crosshairStyle={crosshairStyle}
+      showSliceBorder={showSliceBorder}
+      sliceBorderWidth={sliceBorderWidth}
+      className={className}
+      onCanvasReady={onCanvasReady}
+      onPlacementChange={onPlacementChange}
+      onWorldClick={onWorldClick}
+      onMouseDown={onMouseDown}
+      customRender={customRender}
+      renderSurface={({ customRender: handleRender, onCanvasReady: handleCanvasReady }) => (
+        <SliceRenderer
+          width={width}
+          height={height}
+          context={context}
+          tag={tag}
+          showLoading={showLoading}
+          showError={showError}
+          showNoLayers={showNoLayers}
+          showLoadingVolume={showLoadingVolume}
+          enableDragDrop={enableDragDrop}
+          onFileDrop={onFileDrop}
+          onPathDrop={onPathDrop}
+          onMouseMove={onMouseMove}
+          onMouseUp={onMouseUp}
+          onMouseLeave={onMouseLeave}
+          onWheel={onWheel}
+          customRender={handleRender}
+          onCanvasReady={handleCanvasReady}
+          className="w-full h-full"
+          canvasClassName={canvasClassName}
+        />
+      )}
+    />
   );
 }

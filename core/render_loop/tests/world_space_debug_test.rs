@@ -3,6 +3,7 @@
 use pollster;
 use render_loop::test_fixtures::TestVolumeSet;
 use render_loop::{BlendMode, LayerInfo, RenderLoopService, ThresholdMode};
+use volmath::NeuroSpaceExt;
 
 #[test]
 fn test_world_space_shader_basic() {
@@ -50,6 +51,7 @@ fn test_world_space_shader_basic() {
             threshold_range: (1.0, 255.0), // Skip background
             threshold_mode: ThresholdMode::Range,
             texture_coords: (0.0, 0.0, 1.0, 1.0),
+            ..LayerInfo::default()
         }];
 
         // Update layer storage
@@ -174,7 +176,8 @@ fn test_world_space_coordinate_mapping() {
         // Create volume with identity transform (1mm voxels)
         use nalgebra::Matrix4;
         use volmath::space::{NeuroSpace3, NeuroSpaceImpl};
-        let space_impl = NeuroSpaceExt::from_affine_matrix4(dims, Matrix4::identity());
+        let space_impl =
+            <volmath::NeuroSpace as NeuroSpaceExt>::from_affine_matrix4(dims, Matrix4::identity());
         let space = NeuroSpace3::new(space_impl);
         let test_volume = volmath::DenseVolume3::from_data(space.0, data);
 
@@ -203,6 +206,7 @@ fn test_world_space_coordinate_mapping() {
             threshold_range: (0.0, 255.0),
             threshold_mode: ThresholdMode::Range,
             texture_coords: (0.0, 0.0, 1.0, 1.0),
+            ..LayerInfo::default()
         }];
 
         if let Some(layer_storage) = service.layer_storage_manager.as_mut() {

@@ -1,7 +1,7 @@
 use nalgebra::{Matrix4, Vector3};
 use render_loop::{BlendMode, FrameUbo, LayerInfo, RenderLoopService, ThresholdMode};
 use volmath::traits::Volume;
-use volmath::DenseVolume3;
+use volmath::{DenseVolume3, NeuroSpaceExt};
 
 #[test]
 fn test_threshold_simple() {
@@ -44,7 +44,8 @@ fn test_threshold_simple() {
         }
 
         let transform = Matrix4::new_translation(&Vector3::new(-4.0, -4.0, -4.0));
-        let space_impl = NeuroSpaceExt::from_affine_matrix4(dims, transform);
+        let space_impl =
+            <volmath::NeuroSpace as NeuroSpaceExt>::from_affine_matrix4(dims, transform);
         let space = volmath::space::NeuroSpace3::new(space_impl);
         let volume = DenseVolume3::from_data(space.0, data);
 
@@ -68,6 +69,7 @@ fn test_threshold_simple() {
             threshold_mode: ThresholdMode::Range,
             texture_coords: (0.0, 0.0, 1.0, 1.0),
             is_mask: false,
+            ..LayerInfo::default()
         };
 
         // Set up layer storage

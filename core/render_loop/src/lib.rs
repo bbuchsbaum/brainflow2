@@ -29,6 +29,7 @@ use wgpu::util::DeviceExt; // For create_buffer_init helper trait
 
 // --- Modules ---
 pub mod benchmarks;
+pub mod facade;
 pub mod layer_storage;
 pub mod layer_uniforms;
 pub mod layer_uniforms_optimized;
@@ -59,6 +60,11 @@ pub use render_state::{BlendMode, LayerInfo, LayerMode, ThresholdMode};
 pub use slice_adapter::{GpuSliceAdapter, SliceSpecMapper};
 // Re-export benchmarking utilities
 pub use benchmarks::{FrameTimeTracker, PerformanceComparison, RenderPassProfiler};
+pub use facade::{
+    RendererAdapterConfig, RendererAtlasConfig, RendererBackends, RendererDeviceConfig,
+    RendererFeaturePolicy, RendererFrameRequest, RendererLimits, RendererPowerPreference,
+    RendererVolumeFormat, RendererVolumeHandle, WgpuSliceRenderer, WgpuSliceRendererConfig,
+};
 // Re-export optimized renderer
 use layer_uniforms::LayerUniformManager;
 use multi_texture_manager::MultiTextureManager;
@@ -511,20 +517,25 @@ impl RenderLoopService {
     /// This function requests an adapter and device. It does *not* create a surface
     /// or swapchain yet, as that requires a window handle.
     pub async fn new() -> Result<Self, RenderLoopError> {
+        Self::new_with_config(WgpuSliceRendererConfig::default()).await
+    }
+
+    /// Initializes WGPU components using reusable renderer configuration.
+    pub async fn new_with_config(config: WgpuSliceRendererConfig) -> Result<Self, RenderLoopError> {
         log::info!("RenderLoopService: Initializing WGPU...");
 
         // 1. Create Instance
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
-            backends: wgpu::Backends::PRIMARY,
+            backends: config.adapter.backends.to_wgpu(),
             ..Default::default()
         });
 
         // 2. Request Adapter
         let adapter = instance
             .request_adapter(&wgpu::RequestAdapterOptions {
-                power_preference: wgpu::PowerPreference::HighPerformance,
+                power_preference: config.adapter.power_preference.to_wgpu(),
                 compatible_surface: None,
-                force_fallback_adapter: false,
+                force_fallback_adapter: config.adapter.force_fallback_adapter,
             })
             .await
             .ok_or(RenderLoopError::AdapterRequestFailed)?;
@@ -547,19 +558,28 @@ impl RenderLoopService {
         let mut required_features = wgpu::Features::TEXTURE_BINDING_ARRAY
             | wgpu::Features::SAMPLED_TEXTURE_AND_STORAGE_BUFFER_ARRAY_NON_UNIFORM_INDEXING;
 
-        // Only request FLOAT32_FILTERABLE if supported
-        if supports_float32_filterable {
-            required_features |= wgpu::Features::FLOAT32_FILTERABLE;
+        match config.device.float32_filterable {
+            RendererFeaturePolicy::RequestIfAvailable if supports_float32_filterable => {
+                required_features |= wgpu::Features::FLOAT32_FILTERABLE;
+            }
+            RendererFeaturePolicy::Require if supports_float32_filterable => {
+                required_features |= wgpu::Features::FLOAT32_FILTERABLE;
+            }
+            RendererFeaturePolicy::Require => {
+                return Err(RenderLoopError::Internal {
+                    code: 1710,
+                    details: "Configured renderer requires FLOAT32_FILTERABLE, but the selected adapter does not support it".to_string(),
+                });
+            }
+            RendererFeaturePolicy::Disable | RendererFeaturePolicy::RequestIfAvailable => {}
         }
 
         let adapter_limits = adapter.limits();
-        let mut required_limits = wgpu::Limits::downlevel_defaults()
-            .using_resolution(adapter_limits.clone())
-            .using_alignment(adapter_limits.clone());
-        let needed_sampled_textures = (multi_texture_manager::MAX_TEXTURES as u32) * 2 + 1;
-        required_limits.max_sampled_textures_per_shader_stage = required_limits
-            .max_sampled_textures_per_shader_stage
-            .max(needed_sampled_textures);
+        let needed_sampled_textures = config.atlas.required_sampled_textures();
+        let required_limits = config
+            .device
+            .limits
+            .to_wgpu_limits(&adapter_limits, needed_sampled_textures);
         log::info!(
             "RenderLoopService: Adapter limits max_texture_dimension_3d={}, requested={}",
             adapter_limits.max_texture_dimension_3d,
@@ -568,7 +588,7 @@ impl RenderLoopService {
         let (device, queue) = adapter
             .request_device(
                 &wgpu::DeviceDescriptor {
-                    label: Some("Brainflow Render Device"),
+                    label: config.device.label.as_deref(),
                     required_features,
                     required_limits,
                 },
@@ -584,18 +604,14 @@ impl RenderLoopService {
         // --- Create the default Texture Atlas ---
         // For 3D textures, we need to store actual volume data, not slices
         // Start with a reasonable default size that can hold a typical brain volume
-        let atlas_size = wgpu::Extent3d {
-            width: 256,
-            height: 256,
-            depth_or_array_layers: 256, // This is now the Z dimension for 3D texture
-        };
-        let atlas_format = wgpu::TextureFormat::R16Float;
+        let atlas_size = config.atlas.extent3d();
+        let atlas_format = config.atlas.format.to_wgpu();
 
         let volume_atlas = TextureAtlas::new_3d(
             &device_arc,
             atlas_format,
             atlas_size,
-            Some("Volume 3D Texture Atlas"),
+            config.atlas.label.as_deref(),
         );
 
         // --- Create the Frame UBO Buffer ---
@@ -640,13 +656,16 @@ impl RenderLoopService {
         // All builtin colormaps are now uploaded automatically
 
         // Initialize world-space rendering components
+        let runtime_max_textures = config.atlas.runtime_max_textures();
         let multi_texture_manager = Some(MultiTextureManager::new(
             &device_arc,
             &queue_arc,
-            multi_texture_manager::MAX_TEXTURES as u32,
+            runtime_max_textures,
         ));
-        let mut layer_storage_manager =
-            Some(layer_storage::LayerStorageManager::new(&device_arc, 32));
+        let mut layer_storage_manager = Some(layer_storage::LayerStorageManager::new(
+            &device_arc,
+            config.atlas.initial_layer_capacity,
+        ));
 
         // Create bind group layouts for world-space rendering
         let frame_bind_group_layout = Some(shaders::layouts::create_frame_layout(&device_arc));
@@ -654,7 +673,7 @@ impl RenderLoopService {
             Some(layer_storage::LayerStorageManager::create_bind_group_layout(&device_arc));
         let texture_bind_group_layout = Some(MultiTextureManager::create_bind_group_layout(
             &device_arc,
-            multi_texture_manager::MAX_TEXTURES as u32,
+            runtime_max_textures,
         ));
         let slice_feature_bind_group_layout =
             Some(shaders::layouts::create_slice_feature_layout(&device_arc));
@@ -2602,8 +2621,18 @@ impl RenderLoopService {
         // The FrameUBO's crosshair_voxel field must be updated via update_frame_ubo.
     }
 
-    /// Update crosshair position, visibility, and color
-    pub fn update_crosshair_position(&self, world_coords: [f32; 3], show: bool, color: [f32; 4]) {
+    /// Update crosshair position and visibility with the default renderer color.
+    pub fn update_crosshair_position(&self, world_coords: [f32; 3], show: bool) {
+        self.update_crosshair_position_with_color(world_coords, show, [0.0, 1.0, 0.0, 0.8]);
+    }
+
+    /// Update crosshair position, visibility, and color.
+    pub fn update_crosshair_position_with_color(
+        &self,
+        world_coords: [f32; 3],
+        show: bool,
+        color: [f32; 4],
+    ) {
         log::debug!(
             "update_crosshair_position: Position [{:.2}, {:.2}, {:.2}], Show: {}, Color: {:?}",
             world_coords[0],
@@ -4336,11 +4365,16 @@ impl RenderLoopService {
 
         // Convert camera state to frame UBO
         let (origin, u_vec, v_vec) = state.camera_to_frame_params();
+        let atlas_dims = self.volume_atlas.size();
         let frame_ubo = FrameUbo {
             origin_mm: origin,
             u_mm: u_vec,
             v_mm: v_vec,
-            atlas_dim: [256, 256, 256], // Use actual atlas dimensions
+            atlas_dim: [
+                atlas_dims.width,
+                atlas_dims.height,
+                atlas_dims.depth_or_array_layers,
+            ],
             _padding_frame: 0,
             target_dim: state.viewport_size,
             _padding_target: [0, 0],
@@ -4350,7 +4384,7 @@ impl RenderLoopService {
         self.update_frame_ubo(frame_ubo.origin_mm, frame_ubo.u_mm, frame_ubo.v_mm);
 
         // Update crosshair
-        self.update_crosshair_position(
+        self.update_crosshair_position_with_color(
             state.crosshair_world,
             state.show_crosshair,
             state.crosshair_color,
@@ -4854,7 +4888,7 @@ impl RenderLoopService {
         }
 
         // Update crosshair position
-        self.update_crosshair_position(
+        self.update_crosshair_position_with_color(
             view_state.crosshair_world,
             view_state.show_crosshair,
             view_state.crosshair_color,

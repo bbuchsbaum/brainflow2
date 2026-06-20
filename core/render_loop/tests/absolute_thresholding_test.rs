@@ -20,6 +20,7 @@ mod tests {
             threshold_mode: ThresholdMode::Absolute,
             texture_coords: (0.0, 0.0, 1.0, 1.0),
             is_mask: false,
+            ..LayerInfo::default()
         };
 
         assert_eq!(layer.threshold_mode, ThresholdMode::Absolute);

@@ -4,7 +4,7 @@
 # packages/api
 
 ## Purpose
-Core TypeScript interfaces and type definitions for Brainflow (@brainflow/api). Provides the API contract between frontend and backend, including auto-generated TypeScript bindings from Rust types. This is a pure type package with no runtime logic, ensuring type safety across the Tauri command boundary.
+Core TypeScript interfaces and app-neutral helper contracts for Brainflow (@brainflow/api). Provides the API contract between frontend and backend, including auto-generated TypeScript bindings from Rust types. Runtime helpers must use injected transports; this package must not import Tauri, UI stores, or app services.
 
 ## Key Files
 | File | Description |
@@ -22,16 +22,16 @@ Core TypeScript interfaces and type definitions for Brainflow (@brainflow/api). 
 ## For AI Agents
 
 ### Working In This Directory
-- This is a pure type package - no runtime logic
+- Keep this package app-neutral. Runtime helpers may exist, but they must take injected transports/invokers rather than importing Tauri directly.
 - DO NOT manually edit files in src/generated/ - they are auto-generated
 - To regenerate bindings: `cargo xtask ts-bindings` from repository root
 - When adding new Rust types, ensure they have `#[derive(Serialize, Deserialize)]` and `#[tsify(into_wasm_abi, from_wasm_abi)]`
 - Type definitions must match Rust structs exactly
-- Use helpers.ts for utility type functions (type guards, validators)
+- Use helpers.ts for utility type functions and transport-agnostic helper wrappers
 - Keep index.ts as the single export point
 
 ### Testing Requirements
-- No unit tests needed (pure types)
+- No broad unit suite is required; use TypeScript builds and focused smoke tests for helper contracts
 - Types are validated at compile time
 - Integration testing happens in ui2/ when using these types
 - Rust side validates types during tsify generation
@@ -52,4 +52,4 @@ Core TypeScript interfaces and type definitions for Brainflow (@brainflow/api). 
 ### External
 - typescript - Type checking and compilation
 
-<!-- MANUAL: Run `cargo xtask ts-bindings` to regenerate types after Rust changes -->
+<!-- MANUAL: Run `cargo xtask ts-bindings` to regenerate types after Rust changes. Do not add Tauri imports to this package; inject host transports instead. -->

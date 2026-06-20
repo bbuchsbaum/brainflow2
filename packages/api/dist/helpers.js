@@ -1,24 +1,14 @@
-// Lightweight wrappers around Tauri invoke for typed usage
-// Consumers may replace `tauriInvoke` with their own bridge if desired.
-let tauriInvokeRef = null;
+// Lightweight wrappers around an injected backend invoker.
+// Host apps own transport setup; this package stays Tauri-agnostic.
+let invokeRef = null;
 export function configureInvoker(invokeFn) {
-    tauriInvokeRef = invokeFn;
+    invokeRef = invokeFn;
 }
 function getInvoker() {
-    if (tauriInvokeRef)
-        return tauriInvokeRef;
-    // Attempt dynamic import of @tauri-apps/api/tauri if available
-    try {
-        // eslint-disable-next-line @typescript-eslint/no-var-requires
-        const { invoke } = require('@tauri-apps/api/tauri');
-        return invoke;
+    if (invokeRef) {
+        return invokeRef;
     }
-    catch {
-        if (typeof window?.__TAURI__?.invoke === 'function') {
-            return window.__TAURI__.invoke;
-        }
-        throw new Error('No Tauri invoke function configured. Call configureInvoker() first.');
-    }
+    throw new Error('No backend invoker configured. Call configureInvoker() from the host app first.');
 }
 // Set per-layer slice border
 export async function setLayerBorder(layerId, enabled, thicknessPx = 1) {

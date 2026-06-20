@@ -115,6 +115,7 @@ mod tests {
                         },
                         texture_coords: (0.0, 0.0, 1.0, 1.0),
                         is_mask: false,
+                        ..LayerInfo::default()
                     }
                 })
                 .collect();
@@ -230,6 +231,7 @@ mod tests {
                         threshold_mode: ThresholdMode::Range,
                         texture_coords: (0.0, 0.0, 1.0, 1.0),
                         is_mask: false,
+                        ..LayerInfo::default()
                     },
                     LayerInfo {
                         atlas_index: fine_idx,
@@ -241,6 +243,7 @@ mod tests {
                         threshold_mode: ThresholdMode::Range,
                         texture_coords: (0.0, 0.0, 1.0, 1.0),
                         is_mask: false,
+                        ..LayerInfo::default()
                     },
                 ];
 
@@ -283,6 +286,7 @@ mod tests {
                     threshold_mode: ThresholdMode::Range,
                     texture_coords: (0.0, 0.0, 1.0, 1.0),
                     is_mask: false,
+                    ..LayerInfo::default()
                 },
                 LayerInfo {
                     atlas_index: idx2,
@@ -294,6 +298,7 @@ mod tests {
                     threshold_mode: ThresholdMode::Range,
                     texture_coords: (0.0, 0.0, 1.0, 1.0),
                     is_mask: false,
+                    ..LayerInfo::default()
                 },
             ];
 

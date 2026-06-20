@@ -9,10 +9,19 @@ import type { BackendTransport } from './transport';
 import { getTransport } from './transport';
 import type { ViewState } from '@/types/viewState';
 import type { WorldCoordinates, ViewPlane, ViewType } from '@/types/coordinates';
-import type { VolumeBounds } from '@brainflow/api';
+import {
+  RenderClient,
+  configureInvoker,
+  decodePngPacket,
+  decodeRawRgbaPacket,
+  validateRenderViewPayload,
+  type DecodedRenderFrame,
+  type RenderOutputFormat,
+  type RenderViewDiagnostics,
+  type VolumeBounds
+} from '@brainflow/api';
 import { useRenderStore } from '@/stores/renderStore';
 import { RenderSession, createRenderSession } from './RenderSession';
-import { validateRenderViewPayload } from '@/utils/validateRenderViewPayload';
 import type { AtlasStats } from '@/types/atlas';
 
 const DEBUG_API_SERVICE =
@@ -50,41 +59,20 @@ export type { VolumeHandle } from './volume/VolumeApiService';
 export type { FileNode } from './filesystem/FilesystemService';
 export type { SampleResult, NiftiHeaderInfo } from './volume/VolumeApiService';
 
-export type FrameReadbackMode = 'blocking' | 'skip';
-
-export interface FrameRenderDiagnostics {
-  prepare_ms: number;
-  render_ms: number;
-  readback_ms: number;
-  total_ms: number;
-  visible_layers: number;
-  updated_layer_slots: number;
-  reused_layer_state: boolean;
-  readback_mode: FrameReadbackMode;
-}
-
-export interface RenderViewDiagnostics {
-  requested_view: string | null;
-  format: string;
-  parse_ms: number;
-  service_lock_ms: number;
-  target_setup_ms: number;
-  layer_processing_ms: number;
-  render_loop_ms: number;
-  encode_ms: number;
-  total_ms: number;
-  visible_layer_count: number;
-  output_bytes: number;
-  output_dimensions: [number, number];
-  warnings: string[];
-  frame: FrameRenderDiagnostics;
-}
+export type {
+  FrameReadbackMode,
+  FrameRenderDiagnostics,
+  RenderViewDiagnostics,
+} from '@brainflow/api';
 
 export class ApiService {
   private transport: BackendTransport;
+  private renderClient: RenderClient;
 
   constructor(transport: BackendTransport = getTransport()) {
     this.transport = transport;
+    configureInvoker((cmd, args) => this.transport.invoke(cmd, args));
+    this.renderClient = new RenderClient(this.transport);
     apiDebugLog(`[ApiService] Initialized with unified render_view API (RGBA mode: ${renderFlags.useRawRGBA ? 'ENABLED' : 'DISABLED'})`);
   }
 
@@ -161,25 +149,9 @@ export class ApiService {
     };
   }
 
-  private coerceBinaryResponse(result: unknown, context: string): Uint8Array {
-    if (result instanceof Uint8Array && result.length > 0) {
-      return result;
-    }
-
-    if (result instanceof ArrayBuffer && result.byteLength > 0) {
-      return new Uint8Array(result);
-    }
-
-    if (Array.isArray(result) && result.length > 0) {
-      return new Uint8Array(result);
-    }
-
-    throw new Error(`${context} returned invalid or empty result: ${typeof result}`);
-  }
-
   private async requestSingleViewBytes(
     declarativeViewState: unknown,
-    format: 'rgba' | 'png',
+    format: RenderOutputFormat,
     diagnostics: {
       viewType: string;
       width: number;
@@ -187,22 +159,25 @@ export class ApiService {
       layerCount: number;
     },
     markId?: string
-  ): Promise<{ imageData: Uint8Array; isRawRGBAFormat: boolean }> {
+  ): Promise<{ imageData: Uint8Array; frame: DecodedRenderFrame }> {
     performance.mark(`${markId}-serialize-start`);
     const stateJson = JSON.stringify(declarativeViewState);
     performance.mark(`${markId}-serialize-end`);
     performance.measure(`render:serialize`, `${markId}-serialize-start`, `${markId}-serialize-end`);
     performance.clearMarks(`${markId}-serialize-start`);
     performance.clearMarks(`${markId}-serialize-end`);
+    apiDebugLog(`[ApiService] render_view payload serialized to ${stateJson.length} bytes`);
 
     const startTime = performance.now();
     const cmd = 'render_view';
-    const args = { stateJson, format };
     const stage = 'api.render_view';
 
     performance.mark(`${markId}-ipc-start`);
     try {
-      const response = await this.transport.invoke<Uint8Array>(cmd, args);
+      const response = await this.renderClient.renderView(
+        declarativeViewState as any,
+        { format }
+      );
       performance.mark(`${markId}-ipc-end`);
       performance.measure(`render:ipc`, `${markId}-ipc-start`, `${markId}-ipc-end`);
       performance.clearMarks(`${markId}-ipc-start`);
@@ -219,8 +194,8 @@ export class ApiService {
       });
 
       return {
-        imageData: this.coerceBinaryResponse(response, cmd),
-        isRawRGBAFormat: format === 'rgba'
+        imageData: response.packet,
+        frame: response.frame
       };
     } catch (error) {
       performance.clearMarks(`${markId}-ipc-start`);
@@ -350,7 +325,7 @@ export class ApiService {
 
     performance.mark(`${markId}-start`);
     try {
-      const { imageData, isRawRGBAFormat } = await this.requestSingleViewBytes(
+      const { imageData, frame } = await this.requestSingleViewBytes(
         declarativeViewState,
         format,
         {
@@ -365,7 +340,7 @@ export class ApiService {
       apiDebugLog(`[ApiService] render_view completed (${format}, ${imageData.length} bytes)`);
 
       performance.mark(`${markId}-decode-start`);
-      const bitmap = await this.decodeImageBuffer(imageData, isRawRGBAFormat);
+      const bitmap = await this.decodeRenderFrameToBitmap(frame);
       performance.mark(`${markId}-decode-end`);
       performance.measure(`render:decode`, `${markId}-decode-start`, `${markId}-decode-end`);
       performance.measure(`render:total`, `${markId}-start`, `${markId}-decode-end`);
@@ -384,105 +359,72 @@ export class ApiService {
   }
 
   async decodeImageBuffer(imageData: Uint8Array, isRawRGBAFormat: boolean): Promise<ImageBitmap> {
-    apiDebugLog(`📍 [Decoding Section] Starting decode with:`);
-    apiDebugLog(`  Image data type: ${Object.prototype.toString.call(imageData)}`);
-    apiDebugLog(`  Image data size: ${imageData?.length || 'undefined'} bytes`);
-    apiDebugLog(`  isRawRGBAFormat: ${isRawRGBAFormat}`);
-    apiDebugLog(`  useRawRGBA: ${renderFlags.useRawRGBA}`);
+    apiDebugLog('[ApiService] Decoding render buffer:', {
+      type: Object.prototype.toString.call(imageData),
+      size: imageData?.length ?? 0,
+      isRawRGBAFormat,
+      useRawRGBA: renderFlags.useRawRGBA
+    });
 
     if (!imageData || !(imageData instanceof Uint8Array) || imageData.length === 0) {
-      console.error('[ApiService] CRITICAL: Invalid imageData received');
-      console.error(`[ApiService] imageData type: ${typeof imageData}`);
-      console.error(`[ApiService] imageData constructor: ${(imageData as any)?.constructor?.name}`);
-      console.error(`[ApiService] imageData length: ${(imageData as any)?.length}`);
-      console.error(`[ApiService] isRawRGBAFormat: ${isRawRGBAFormat}`);
       throw new Error('Invalid or empty image data received from backend');
     }
 
-    const byteArray = imageData;
-    apiDebugLog(`[ApiService] Processing valid byteArray: ${byteArray.length} bytes, format: ${isRawRGBAFormat ? 'RGBA' : 'PNG'}`);
-    apiDebugLog(`🔍 First 16 bytes (hex): ${Array.from(byteArray.slice(0, 16)).map(b => b.toString(16).padStart(2, '0')).join(' ')}`);
-    apiDebugLog(`🔍 Processing data: ${byteArray.length} bytes, isRawRGBA: ${isRawRGBAFormat}`);
-
-    if (isRawRGBAFormat && byteArray.length > 8) {
-      try {
-        const view = new DataView(byteArray.buffer, byteArray.byteOffset, byteArray.byteLength);
-        const imgWidth = view.getUint32(0, true);
-        const imgHeight = view.getUint32(4, true);
-
-        if (imgWidth > 10000 || imgHeight > 10000 || imgWidth === 0 || imgHeight === 0) {
-          console.error(`❌ Invalid dimensions read from raw RGBA header: ${imgWidth}x${imgHeight}`);
-          throw new Error(`Invalid raw RGBA dimensions: ${imgWidth}x${imgHeight}`);
-        }
-
-        const rgbaData = byteArray.slice(8);
-        apiDebugLog(`🚀 Raw RGBA dimensions: ${imgWidth}x${imgHeight}, data size: ${rgbaData.length} bytes`);
-
-        if (rgbaData.length !== imgWidth * imgHeight * 4) {
-          console.error(`❌ Invalid raw RGBA data: expected ${imgWidth * imgHeight * 4} bytes, got ${rgbaData.length}`);
-          throw new Error(`Raw RGBA validation failed: size mismatch. Expected ${imgWidth * imgHeight * 4}, got ${rgbaData.length}`);
-        }
-
-        let processedRgba: Uint8Array | Uint8ClampedArray = rgbaData;
-        if (renderFlags.debugBrighten) {
-          apiDebugLog('🔆 DEBUG: Artificially brightening raw RGBA data');
-          const brightenedRgba = new Uint8ClampedArray(rgbaData.length);
-          const brightenFactor = 10;
-          for (let i = 0; i < rgbaData.length; i += 4) {
-            brightenedRgba[i] = Math.min(255, rgbaData[i] * brightenFactor);
-            brightenedRgba[i + 1] = Math.min(255, rgbaData[i + 1] * brightenFactor);
-            brightenedRgba[i + 2] = Math.min(255, rgbaData[i + 2] * brightenFactor);
-            brightenedRgba[i + 3] = rgbaData[i + 3];
-          }
-          processedRgba = brightenedRgba;
-        }
-
-        const imageDataObj = new ImageData(new Uint8ClampedArray(processedRgba), imgWidth, imgHeight);
-        const bitmap = await createImageBitmap(imageDataObj);
-        apiDebugLog('🚀 Successfully created ImageBitmap from raw RGBA data (using browser defaults for color space and alpha)');
-        return bitmap;
-      } catch (error) {
-        console.error('❌ Raw RGBA decoding failed:', error);
-        throw error;
-      }
+    if (isRawRGBAFormat) {
+      return this.decodeRenderFrameToBitmap(decodeRawRgbaPacket(imageData));
     }
 
-    if (!isRawRGBAFormat) {
-      const pngSignature = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A];
-      const first8Bytes = Array.from(byteArray.slice(0, 8));
-      const isPNG = pngSignature.every((byte, i) => byte === first8Bytes[i]);
+    try {
+      return await this.decodeRenderFrameToBitmap(decodePngPacket(imageData));
+    } catch (error) {
+      if (imageData.length > 8) {
+        const view = new DataView(imageData.buffer, imageData.byteOffset, imageData.byteLength);
+        const possibleWidth = view.getUint32(0, true);
+        const possibleHeight = view.getUint32(4, true);
 
-      if (!isPNG) {
-        console.error('🔍 PNG signature validation failed');
-        console.error('🔍 Expected:', pngSignature.map(b => b.toString(16).padStart(2, '0')).join(' '));
-        console.error('🔍 Actual:', first8Bytes.map(b => b.toString(16).padStart(2, '0')).join(' '));
-
-        if (byteArray.length > 8) {
-          const view = new DataView(byteArray.buffer, byteArray.byteOffset, byteArray.byteLength);
-          const possibleWidth = view.getUint32(0, true);
-          const possibleHeight = view.getUint32(4, true);
-
-          if (possibleWidth > 0 && possibleWidth < 10000 && possibleHeight > 0 && possibleHeight < 10000) {
-            console.warn('🔍 Data appears to be raw RGBA despite PNG expectation - attempting recovery');
-            const rgbaData = byteArray.slice(8);
-            const imageDataObj = new ImageData(new Uint8ClampedArray(rgbaData), possibleWidth, possibleHeight);
-            return createImageBitmap(imageDataObj);
-          }
+        if (
+          possibleWidth > 0 &&
+          possibleWidth < 10000 &&
+          possibleHeight > 0 &&
+          possibleHeight < 10000
+        ) {
+          console.warn('[ApiService] Data appears to be raw RGBA despite PNG expectation; attempting recovery');
+          return this.decodeRenderFrameToBitmap(decodeRawRgbaPacket(imageData));
         }
-        throw new Error(`Data is not valid PNG and doesn't appear to be raw RGBA either`);
+      }
+      throw error;
+    }
+  }
+
+  private async decodeRenderFrameToBitmap(frame: DecodedRenderFrame): Promise<ImageBitmap> {
+    if (frame.format === 'rgba') {
+      let processedRgba: Uint8Array | Uint8ClampedArray = frame.rgba;
+      if (renderFlags.debugBrighten) {
+        const brightenedRgba = new Uint8ClampedArray(frame.rgba.length);
+        const brightenFactor = 10;
+        for (let i = 0; i < frame.rgba.length; i += 4) {
+          brightenedRgba[i] = Math.min(255, frame.rgba[i] * brightenFactor);
+          brightenedRgba[i + 1] = Math.min(255, frame.rgba[i + 1] * brightenFactor);
+          brightenedRgba[i + 2] = Math.min(255, frame.rgba[i + 2] * brightenFactor);
+          brightenedRgba[i + 3] = frame.rgba[i + 3];
+        }
+        processedRgba = brightenedRgba;
       }
 
-      try {
-        const blob = new Blob([byteArray], { type: 'image/png' });
-        const bitmap = await createImageBitmap(blob);
-        apiDebugLog(`🔍 PNG processed successfully: ${bitmap.width}x${bitmap.height}`);
-        return bitmap;
-      } catch (error) {
-        throw new Error(`PNG decoding failed: ${error instanceof Error ? error.message : String(error)}`);
-      }
+      const imageDataObj = new ImageData(
+        new Uint8ClampedArray(processedRgba),
+        frame.width,
+        frame.height
+      );
+      return createImageBitmap(imageDataObj);
     }
 
-    throw new Error('Failed to create bitmap from image data');
+    try {
+      const blob = new Blob([frame.png], { type: 'image/png' });
+      return await createImageBitmap(blob);
+    } catch (error) {
+      throw new Error(`PNG decoding failed: ${error instanceof Error ? error.message : String(error)}`);
+    }
   }
 
   // ── Filesystem delegation ──────────────────────────────────────────────────
@@ -678,9 +620,7 @@ export class ApiService {
     }
 
     try {
-      const diagnostics = await this.transport.invoke<RenderViewDiagnostics>('submit_view', {
-        stateJson: JSON.stringify(declarativeViewState)
-      });
+      const diagnostics = await this.renderClient.submitView(declarativeViewState as any);
       recordRenderDiagnostic('api.submit_view', performance.now() - startTime, {
         format: diagnostics.format,
         viewType,
@@ -764,89 +704,26 @@ export class ApiService {
     }
 
     const format = renderFlags.useRawRGBA ? 'rgba' : 'png';
-    const response = await this.transport.invoke<Uint8Array>('render_views', {
-      stateJson: JSON.stringify(payload),
-      format
-    });
+    const response = await this.renderClient.renderViews(payload as any, { format });
     recordRenderDiagnostic('api.render_views', performance.now() - startTime, {
       format,
       viewCount: viewTypes.length,
       layerCount: visibleLayers.length
     });
 
-    const byteArray = response instanceof Uint8Array ? response : new Uint8Array(response);
-    if (byteArray.length < 4) {
-      throw new Error('render_views returned an empty payload');
-    }
-
-    const viewCount = new DataView(byteArray.buffer, byteArray.byteOffset, byteArray.byteLength).getUint32(0, true);
-    let offset = 4;
-
-    type ViewMeta = {
-      viewType: ViewType;
-      width: number;
-      height: number;
-      length: number;
-    };
-
-    const codeToView: Record<number, ViewType> = {
-      0: 'axial',
-      1: 'sagittal',
-      2: 'coronal'
-    };
-
-    const segments: ViewMeta[] = [];
-    for (let i = 0; i < viewCount; i++) {
-      const code = byteArray[offset];
-      offset += 1;
-      const w = new DataView(byteArray.buffer, byteArray.byteOffset + offset, 4).getUint32(0, true);
-      offset += 4;
-      const h = new DataView(byteArray.buffer, byteArray.byteOffset + offset, 4).getUint32(0, true);
-      offset += 4;
-      const length = new DataView(byteArray.buffer, byteArray.byteOffset + offset, 4).getUint32(0, true);
-      offset += 4;
-
-      const vt = codeToView[code];
-      if (!vt) {
-        throw new Error(`Unknown view code returned from backend: ${code}`);
-      }
-
-      segments.push({ viewType: vt, width: w, height: h, length });
-    }
-
     const results: Partial<Record<ViewType, ImageBitmap | null>> = {};
 
-    for (const segment of segments) {
-      const { viewType, width, height, length } = segment;
-      const end = offset + length;
-      if (end > byteArray.length) {
-        throw new Error(`render_views payload truncated for view ${viewType}`);
-      }
-
-      const slice = byteArray.slice(offset, end);
-      offset = end;
-
+    for (const frame of response.frames) {
       try {
-        let bitmap: ImageBitmap;
-        if (format === 'rgba') {
-          const buffer = new ArrayBuffer(8 + slice.length);
-          const dv = new DataView(buffer);
-          dv.setUint32(0, width, true);
-          dv.setUint32(4, height, true);
-          new Uint8Array(buffer, 8).set(slice);
-          bitmap = await this.decodeImageBuffer(new Uint8Array(buffer), true);
-        } else {
-          bitmap = await this.decodeImageBuffer(slice, false);
-        }
-        results[viewType] = bitmap;
+        results[frame.viewType] = await this.decodeRenderFrameToBitmap(frame);
       } catch (error) {
-        console.error(`[ApiService] Failed to decode ${viewType} view from render_views:`, error);
-        results[viewType] = null;
+        console.error(`[ApiService] Failed to decode ${frame.viewType} view from render_views:`, error);
+        results[frame.viewType] = null;
       }
     }
 
     const elapsed = performance.now() - startTime;
-    apiDebugLog(`[ApiService] renderViewStateMulti decoded ${segments.length} views in ${elapsed.toFixed(1)}ms`);
+    apiDebugLog(`[ApiService] renderViewStateMulti decoded ${response.frames.length} views in ${elapsed.toFixed(1)}ms`);
 
     return results as Record<ViewType, ImageBitmap | null>;
   }

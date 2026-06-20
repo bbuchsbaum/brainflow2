@@ -47,25 +47,25 @@ fn assert_has_visible_content(bytes: &[u8], width: u32, height: u32) {
 fn view_vectors(view: &str) -> ([f32; 3], [f32; 3], [f32; 4], [f32; 4], [f32; 4]) {
     match view {
         "sagittal" => (
-            [5.0, 0.0, 0.0],
-            [0.0, 10.0, 0.0],
-            [5.0, 0.0, 0.0, 1.0],
-            [0.0, 10.0, 0.0, 0.0],
-            [0.0, 0.0, 10.0, 0.0],
+            [-37.0, -63.0, -31.0],
+            [0.0, 18.0, 0.0],
+            [-37.0, -63.0, -31.0, 1.0],
+            [0.0, 18.0, 0.0, 0.0],
+            [0.0, 0.0, 18.0, 0.0],
         ),
         "coronal" => (
-            [0.0, 5.0, 0.0],
-            [10.0, 0.0, 0.0],
-            [0.0, 5.0, 0.0, 1.0],
-            [10.0, 0.0, 0.0, 0.0],
-            [0.0, 0.0, 10.0, 0.0],
+            [-45.0, -55.0, -31.0],
+            [18.0, 0.0, 0.0],
+            [-45.0, -55.0, -31.0, 1.0],
+            [18.0, 0.0, 0.0, 0.0],
+            [0.0, 0.0, 18.0, 0.0],
         ),
         _ => (
-            [0.0, 0.0, 5.0],
-            [10.0, 0.0, 0.0],
-            [0.0, 0.0, 5.0, 1.0],
-            [10.0, 0.0, 0.0, 0.0],
-            [0.0, 10.0, 0.0, 0.0],
+            [-45.0, -63.0, -23.0],
+            [18.0, 0.0, 0.0],
+            [-45.0, -63.0, -23.0, 1.0],
+            [18.0, 0.0, 0.0, 0.0],
+            [0.0, 18.0, 0.0, 0.0],
         ),
     }
 }
@@ -146,7 +146,7 @@ async fn render_view_returns_rgba_buffer() {
                 "v_mm": [0.0, 0.0, 10.0]
             }
         },
-        "crosshair": {"world_mm": [5.0, 5.0, 5.0], "visible": false},
+        "crosshair": {"world_mm": [-37.0, -55.0, -23.0], "visible": false},
         "layers": [{
             "id": "layer-main",
             "volumeId": volume_id,
@@ -235,7 +235,7 @@ async fn render_view_reports_diagnostics() {
                 "v_mm": [0.0, 0.0, 10.0]
             }
         },
-        "crosshair": {"world_mm": [5.0, 5.0, 5.0], "visible": false},
+        "crosshair": {"world_mm": [-37.0, -55.0, -23.0], "visible": false},
         "layers": [{
             "id": "layer-main",
             "volumeId": volume_id,
@@ -336,7 +336,7 @@ async fn submit_view_reports_skip_readback_diagnostics() {
                 "v_mm": [0.0, 0.0, 10.0]
             }
         },
-        "crosshair": {"world_mm": [5.0, 5.0, 5.0], "visible": false},
+        "crosshair": {"world_mm": [-37.0, -55.0, -23.0], "visible": false},
         "layers": [{
             "id": "layer-main",
             "volumeId": volume_id,
@@ -435,7 +435,7 @@ async fn render_views_returns_multi_payload() {
                 "v_mm": [0.0, 0.0, 10.0]
             }
         },
-        "crosshair": {"world_mm": [5.0, 5.0, 5.0], "visible": false},
+        "crosshair": {"world_mm": [-37.0, -55.0, -23.0], "visible": false},
         "layers": [{
             "id": "layer-main",
             "volumeId": volume_id,
@@ -553,7 +553,7 @@ async fn render_views_reports_diagnostics() {
                 "v_mm": [0.0, 0.0, 10.0]
             }
         },
-        "crosshair": {"world_mm": [5.0, 5.0, 5.0], "visible": false},
+        "crosshair": {"world_mm": [-37.0, -55.0, -23.0], "visible": false},
         "layers": [{
             "id": "layer-main",
             "volumeId": volume_id,
@@ -677,7 +677,7 @@ async fn render_view_reports_single_slot_patch_when_one_layer_changes() {
                 "v_mm": [0.0, 0.0, 10.0]
             }
         },
-        "crosshair": {"world_mm": [5.0, 5.0, 5.0], "visible": false},
+        "crosshair": {"world_mm": [-37.0, -55.0, -23.0], "visible": false},
         "layers": [
             {
                 "id": "layer-main-a",
@@ -789,7 +789,7 @@ async fn render_view_reuploads_4d_layer_when_timepoint_changes() {
                 "v_mm": [0.0, 0.0, 10.0]
             }
         },
-        "crosshair": {"world_mm": [0.0, 0.0, 0.0], "visible": false},
+        "crosshair": {"world_mm": [-37.0, -55.0, -23.0], "visible": false},
         "layers": [{
             "id": "layer-4d-main",
             "volumeId": volume_id,
@@ -928,7 +928,7 @@ async fn render_view_rejects_4d_request_without_timepoint() {
                 "v_mm": [0.0, 0.0, 10.0]
             }
         },
-        "crosshair": {"world_mm": [0.0, 0.0, 0.0], "visible": false},
+        "crosshair": {"world_mm": [-37.0, -55.0, -23.0], "visible": false},
         "layers": [{
             "id": "layer-4d-missing-timepoint",
             "volumeId": volume_id,

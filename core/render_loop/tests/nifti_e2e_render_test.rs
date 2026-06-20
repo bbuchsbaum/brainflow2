@@ -3,7 +3,7 @@ use nifti_loader::load_nifti_volume_auto;
 use render_loop::{BlendMode, LayerInfo, RenderLoopService, ThresholdMode};
 use std::fs;
 use std::path::Path;
-use volmath::{DenseVolume3, NeuroSpace3, NeuroSpaceExt};
+use volmath::{DenseVolume3, NeuroSpaceExt};
 
 /// End-to-end test that loads a NIfTI file, renders it through the GPU pipeline,
 /// and saves the output as a PNG file for inspection.
@@ -49,7 +49,7 @@ async fn test_nifti_render_to_png() {
     };
 
     // Get volume info
-    let dims = volume.dims();
+    let dims = volume.space().dims();
     let data_range = volume.range().unwrap_or((0.0, 1.0));
     println!("Loaded volume dimensions: {:?}", dims);
     println!("Data range: [{}, {}]", data_range.0, data_range.1);
@@ -92,6 +92,7 @@ async fn test_nifti_render_to_png() {
         threshold_mode: ThresholdMode::Range,
         texture_coords: (0.0, 0.0, 1.0, 1.0),
         is_mask: false,
+        ..LayerInfo::default()
     };
 
     // Add the layer to the render state
@@ -245,6 +246,7 @@ async fn test_synthetic_volume_render_to_png() {
         threshold_mode: ThresholdMode::Range,
         texture_coords: (0.0, 0.0, 1.0, 1.0),
         is_mask: false,
+        ..LayerInfo::default()
     };
 
     service.layer_state_manager.add_layer(layer_info);
@@ -274,8 +276,12 @@ fn create_sphere_test_volume() -> DenseVolume3<f32> {
     let spacing = vec![1.0, 1.0, 1.0];
     let origin = vec![0.0, 0.0, 0.0];
 
-    let neuro_space = neuroim::NeuroSpace::from_dims_spacing_origin(dims.clone(), spacing, origin)
-        .expect("Failed to create NeuroSpace");
+    let neuro_space = <volmath::NeuroSpace as NeuroSpaceExt>::from_dims_spacing_origin(
+        dims.clone(),
+        spacing,
+        origin,
+    )
+    .expect("Failed to create NeuroSpace");
 
     let mut data = vec![0.0f32; dims[0] * dims[1] * dims[2]];
 
@@ -303,12 +309,5 @@ fn create_sphere_test_volume() -> DenseVolume3<f32> {
         }
     }
 
-    // Create a DenseNeuroVol from neuroim
-    let data_ndarray = ndarray::Array3::from_shape_vec((dims[0], dims[1], dims[2]), data)
-        .expect("Failed to create ndarray");
-    let dense_vol = neuroim::DenseNeuroVol::new(data_ndarray, neuro_space)
-        .expect("Failed to create DenseNeuroVol");
-
-    // Wrap in CompatibleVolume (aka DenseVolume3)
-    DenseVolume3::new(dense_vol)
+    DenseVolume3::from_data(neuro_space, data)
 }

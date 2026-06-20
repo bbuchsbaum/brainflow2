@@ -1,0 +1,42 @@
+{
+  "name": "@brainflow/visualization",
+  "version": "0.1.0",
+  "description": "Reusable Brainflow React visualization components and adapters",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./slice": {
+      "types": "./dist/slice/index.d.ts",
+      "import": "./dist/slice/index.js"
+    },
+    "./surface": {
+      "types": "./dist/surface/index.d.ts",
+      "import": "./dist/surface/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "peerDependencies": {
+    "neurosurface": "*",
+    "react": ">=18",
+    "react-dom": ">=18"
+  },
+  "devDependencies": {
+    "@types/react": "19.1.8",
+    "@types/react-dom": "19.1.6",
+    "neurosurface": "file:../../../jscode/surfviewjs",
+    "react": "19.1.0",
+    "react-dom": "19.1.0",
+    "typescript": "^5.0.0"
+  }
+}

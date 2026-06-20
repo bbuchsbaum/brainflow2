@@ -7,7 +7,7 @@ use render_loop::{
     RenderLoopService, ThresholdMode,
 };
 use std::time::Instant;
-use volmath::{space::GridSpace, traits::Volume, DenseVolume3};
+use volmath::{space::GridSpace, traits::Volume, DenseVolume3, NeuroSpaceExt};
 
 /// Performance test results
 #[derive(Debug)]
@@ -58,7 +58,8 @@ fn create_benchmark_volumes() -> Vec<DenseVolume3<f32>> {
         }
 
         let transform = Matrix4::new_translation(&Vector3::new(-128.0, -128.0, -96.0));
-        let space_impl = NeuroSpaceExt::from_affine_matrix4(dims, transform);
+        let space_impl =
+            <volmath::NeuroSpace as NeuroSpaceExt>::from_affine_matrix4(dims, transform);
         let space = NeuroSpace3::new(space_impl);
         volumes.push(DenseVolume3::from_data(space.0, data));
     }
@@ -79,7 +80,8 @@ fn create_benchmark_volumes() -> Vec<DenseVolume3<f32>> {
 
         let transform = Matrix4::new_nonuniform_scaling(&Vector3::new(3.0, 3.0, 3.0))
             * Matrix4::new_translation(&Vector3::new(-32.0, -32.0, -24.0));
-        let space_impl = NeuroSpaceExt::from_affine_matrix4(dims, transform);
+        let space_impl =
+            <volmath::NeuroSpace as NeuroSpaceExt>::from_affine_matrix4(dims, transform);
         let space = NeuroSpace3::new(space_impl);
         volumes.push(DenseVolume3::from_data(space.0, data));
     }
@@ -104,7 +106,8 @@ fn create_benchmark_volumes() -> Vec<DenseVolume3<f32>> {
 
         let transform = Matrix4::new_nonuniform_scaling(&Vector3::new(5.0, 5.0, 5.0))
             * Matrix4::new_translation(&Vector3::new(-24.0, -24.0, -18.0));
-        let space_impl = NeuroSpaceExt::from_affine_matrix4(dims, transform);
+        let space_impl =
+            <volmath::NeuroSpace as NeuroSpaceExt>::from_affine_matrix4(dims, transform);
         let space = NeuroSpace3::new(space_impl);
         volumes.push(DenseVolume3::from_data(space.0, data));
     }
@@ -152,6 +155,7 @@ async fn benchmark_shader_performance(
                 threshold_range: (-f32::INFINITY, f32::INFINITY),
                 threshold_mode: ThresholdMode::Range,
                 texture_coords: (0.0, 0.0, 1.0, 1.0),
+                ..LayerInfo::default()
             },
         )
         .collect();
@@ -521,7 +525,10 @@ fn test_memory_bandwidth_optimization() {
                             }
                         }
                     }
-                    let space_impl = NeuroSpaceExt::from_affine_matrix4(dims, Matrix4::identity());
+                    let space_impl = <volmath::NeuroSpace as NeuroSpaceExt>::from_affine_matrix4(
+                        dims,
+                        Matrix4::identity(),
+                    );
                     let space = NeuroSpace3::new(space_impl);
                     DenseVolume3::from_data(space.0, data)
                 },
@@ -536,7 +543,10 @@ fn test_memory_bandwidth_optimization() {
                             }
                         }
                     }
-                    let space_impl = NeuroSpaceExt::from_affine_matrix4(dims, Matrix4::identity());
+                    let space_impl = <volmath::NeuroSpace as NeuroSpaceExt>::from_affine_matrix4(
+                        dims,
+                        Matrix4::identity(),
+                    );
                     let space = NeuroSpace3::new(space_impl);
                     DenseVolume3::from_data(space.0, data)
                 },

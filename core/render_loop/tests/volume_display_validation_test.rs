@@ -47,7 +47,8 @@ fn test_volume_renders_not_black() {
             threshold_mode: ThresholdMode::Range,
             texture_coords: (0.0, 0.0, 1.0, 1.0),
             is_mask: false,
-            interpolation_mode: 1, // linear
+            interpolation_mode: 1, // linear,
+            ..LayerInfo::default()
         };
 
         // Configure world-to-voxel transform
@@ -112,7 +113,8 @@ fn test_binary_mask_renders_correctly() {
             threshold_mode: ThresholdMode::Range,
             texture_coords: (0.0, 0.0, 1.0, 1.0),
             is_mask: false,
-            interpolation_mode: 0, // nearest (for masks)
+            interpolation_mode: 0, // nearest (for masks),
+            ..LayerInfo::default()
         };
 
         let world_to_voxel = Matrix4::new(
@@ -159,7 +161,8 @@ fn test_crosshair_position() {
             threshold_mode: ThresholdMode::Range,
             texture_coords: (0.0, 0.0, 1.0, 1.0),
             is_mask: false,
-            interpolation_mode: 1, // linear
+            interpolation_mode: 1, // linear,
+            ..LayerInfo::default()
         };
 
         let world_to_voxel = Matrix4::new(

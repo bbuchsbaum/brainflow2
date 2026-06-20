@@ -2,6 +2,7 @@ use approx::assert_relative_eq;
 use nalgebra::Vector4;
 use render_loop::RenderLoopService;
 use volmath::space::NeuroSpaceImpl;
+use volmath::NeuroSpaceExt;
 use volmath::{DenseVolume3, NeuroSpace3};
 
 /// End-to-end test simulating the full pipeline from volume creation to rendering
@@ -40,7 +41,8 @@ async fn test_full_volume_upload_pipeline() {
         dims,
         [3.5, 3.5, 3.5],          // 3.5mm voxel spacing
         [-111.5, -111.5, -43.75], // Typical MRI origin
-    );
+    )
+    .expect("create test space");
     let volume = DenseVolume3::from_data(NeuroSpace3::new(space.clone()), data);
 
     // Step 4: Upload entire volume
@@ -180,7 +182,8 @@ async fn test_coordinate_precision() {
         dims,
         [1.234567, 2.345678, 3.456789],
         [-123.456, -234.567, -345.678],
-    );
+    )
+    .expect("create precision test space");
     let volume = DenseVolume3::from_data(NeuroSpace3::new(space.clone()), data);
 
     let result = service.upload_volume_3d(&volume);

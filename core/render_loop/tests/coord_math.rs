@@ -1,6 +1,7 @@
 use approx::assert_abs_diff_eq;
 use nalgebra::Vector4;
 use volmath::space::{GridSpace, NeuroSpaceImpl};
+use volmath::NeuroSpaceExt;
 
 /// Convert voxel coordinates to normalized texture coordinates (UVW)
 /// This matches the shader normalization: coord / (dim - 1)
@@ -19,7 +20,9 @@ fn world_to_texture_coords_roundtrip() {
     let spacing = [1.0, 1.0, 1.0];
     let origin = [0.0, 0.0, 0.0];
 
-    let space = NeuroSpaceImpl::from_dims_spacing_origin(dims, spacing, origin);
+    let space = volmath::NeuroSpace3::new(NeuroSpaceImpl::from_dims_spacing_origin(
+        dims, spacing, origin,
+    ));
 
     // Test world coordinate at center in LPI mm
     let world = [4.5, 4.5, 4.5];
@@ -66,7 +69,9 @@ fn world_to_texture_coords_corners() {
     let spacing = [1.0, 1.0, 1.0];
     let origin = [0.0, 0.0, 0.0];
 
-    let space = NeuroSpaceImpl::from_dims_spacing_origin(dims, spacing, origin);
+    let space = volmath::NeuroSpace3::new(NeuroSpaceImpl::from_dims_spacing_origin(
+        dims, spacing, origin,
+    ));
 
     // Test corner cases using actual implementation
     let test_cases = vec![
@@ -98,7 +103,9 @@ fn world_to_texture_coords_with_offset() {
     let spacing = [2.0, 2.0, 2.0]; // 2mm voxels
     let origin = [-50.0, -50.0, -50.0];
 
-    let space = NeuroSpaceImpl::from_dims_spacing_origin(dims, spacing, origin);
+    let space = volmath::NeuroSpace3::new(NeuroSpaceImpl::from_dims_spacing_origin(
+        dims, spacing, origin,
+    ));
 
     // World coordinate at volume center
     let world = [-1.0, -1.0, -1.0]; // Center of 50x50x50 with 2mm spacing
@@ -130,7 +137,9 @@ fn world_to_voxel_with_axis_flip() {
     let spacing = [1.0, 1.0, 2.0];
     let origin = [-31.5, -31.5, -31.0];
 
-    let space = NeuroSpaceImpl::from_dims_spacing_origin(dims, spacing, origin);
+    let space = volmath::NeuroSpace3::new(NeuroSpaceImpl::from_dims_spacing_origin(
+        dims, spacing, origin,
+    ));
 
     // Test several points
     let test_points = vec![
@@ -144,11 +153,11 @@ fn world_to_voxel_with_axis_flip() {
 
         // Verify voxel is non-negative when world is in bounds
         let in_bounds = world[0] >= origin[0]
-            && world[0] <= origin[0] + (dims[0] as f32 - 1.0) * spacing[0]
+            && world[0] <= origin[0] + (dims[0] as f64 - 1.0) * spacing[0]
             && world[1] >= origin[1]
-            && world[1] <= origin[1] + (dims[1] as f32 - 1.0) * spacing[1]
+            && world[1] <= origin[1] + (dims[1] as f64 - 1.0) * spacing[1]
             && world[2] >= origin[2]
-            && world[2] <= origin[2] + (dims[2] as f32 - 1.0) * spacing[2];
+            && world[2] <= origin[2] + (dims[2] as f64 - 1.0) * spacing[2];
 
         if in_bounds {
             assert!(

@@ -1,0 +1,16 @@
+[package]
+name = "render_contracts"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "export_types"
+path = "src/bin/export_types.rs"
+
+[dependencies]
+serde = { workspace = true }
+ts-rs = { workspace = true }
+neuro-types = { path = "../neuro-types" }
+
+[dev-dependencies]
+serde_json = { workspace = true }

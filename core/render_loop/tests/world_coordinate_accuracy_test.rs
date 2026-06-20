@@ -8,7 +8,7 @@ mod tests {
     use render_loop::{test_fixtures, RenderLoopService};
     use volmath::{
         space::{NeuroSpace3, NeuroSpaceImpl},
-        DenseVolume3,
+        DenseVolume3, NeuroSpaceExt,
     };
 
     /// Create a volume with markers at specific world positions
@@ -41,7 +41,8 @@ mod tests {
             }
         }
 
-        let space_impl = NeuroSpaceExt::from_affine_matrix4(dims, voxel_to_world);
+        let space_impl =
+            <volmath::NeuroSpace as NeuroSpaceExt>::from_affine_matrix4(dims, voxel_to_world);
         let space = NeuroSpace3::new(space_impl);
         DenseVolume3::from_data(space.0, data)
     }
@@ -110,6 +111,7 @@ mod tests {
                     threshold_range: (0.0, 1.0),
                     threshold_mode: ThresholdMode::Range,
                     texture_coords: (0.0, 0.0, 1.0, 1.0),
+                    ..LayerInfo::default()
                 },
                 LayerInfo {
                     atlas_index: idx2,
@@ -120,6 +122,7 @@ mod tests {
                     threshold_range: (0.0, 1.0),
                     threshold_mode: ThresholdMode::Range,
                     texture_coords: (0.0, 0.0, 1.0, 1.0),
+                    ..LayerInfo::default()
                 },
                 LayerInfo {
                     atlas_index: idx3,
@@ -130,6 +133,7 @@ mod tests {
                     threshold_range: (0.0, 1.0),
                     threshold_mode: ThresholdMode::Range,
                     texture_coords: (0.0, 0.0, 1.0, 1.0),
+                    ..LayerInfo::default()
                 },
             ];
 
@@ -175,7 +179,8 @@ mod tests {
                 1.0,
             );
 
-            let space_impl = NeuroSpaceExt::from_affine_matrix4(dims, transform);
+            let space_impl =
+                <volmath::NeuroSpace as NeuroSpaceExt>::from_affine_matrix4(dims, transform);
             let space = NeuroSpace3::new(space_impl);
             let volume = DenseVolume3::from_data(space.0, data);
 
@@ -247,7 +252,8 @@ mod tests {
                 1.0,
             );
 
-            let space_impl = NeuroSpaceExt::from_affine_matrix4(dims, transform);
+            let space_impl =
+                <volmath::NeuroSpace as NeuroSpaceExt>::from_affine_matrix4(dims, transform);
             let space = NeuroSpace3::new(space_impl);
             let volume = DenseVolume3::from_data(space.0, data);
 

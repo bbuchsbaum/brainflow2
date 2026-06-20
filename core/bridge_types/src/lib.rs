@@ -3,7 +3,6 @@
 // between api_bridge and loader crates.
 
 use nalgebra::Affine3;
-use render_loop::RenderLoopError;
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
 use std::path::Path;
@@ -121,18 +120,6 @@ pub enum BridgeError {
 
 // Example for mapping NiftiError (already present in nifti_loader)
 // impl From<NiftiError> for BridgeError { ... }
-
-// Add From<RenderLoopError>
-impl From<RenderLoopError> for BridgeError {
-    fn from(err: RenderLoopError) -> Self {
-        // Map RenderLoopError variants to appropriate BridgeError::GpuError variants
-        // Add codes as needed
-        BridgeError::GpuError {
-            code: 6001,
-            details: err.to_string(),
-        }
-    }
-}
 
 // Add From<GpuUploadError>
 impl From<GpuUploadError> for BridgeError {

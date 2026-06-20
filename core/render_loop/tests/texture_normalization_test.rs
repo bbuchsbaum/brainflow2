@@ -1,5 +1,6 @@
 use render_loop::RenderLoopService;
 use volmath::space::NeuroSpaceImpl;
+use volmath::NeuroSpaceExt;
 use volmath::{DenseVolume3, NeuroSpace3};
 
 /// Test that 3D texture coordinates are properly handled

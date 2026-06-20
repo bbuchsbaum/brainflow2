@@ -1,16 +1,11 @@
 import type { DisplayLayer } from '../types/displayLayer';
+import type { NeurosurfaceLayerConfig } from '@brainflow/visualization/surface';
+export type { NeurosurfaceLayerConfig };
 
 /**
  * Helpers to translate shared DisplayLayer DTOs into neurosurface layer configs.
  * These are pure converters; actual application to a viewer/surface happens elsewhere.
  */
-export type NeurosurfaceLayerConfig =
-  | { type: 'base'; id: string; color?: number; opacity?: number; visible?: boolean; order?: number }
-  | { type: 'data'; id: string; data: Float32Array | number[]; indices?: Uint32Array | number[]; colorMap?: any; range?: [number, number]; threshold?: [number, number]; opacity?: number; blendMode?: string; visible?: boolean; order?: number }
-  | { type: 'rgba'; id: string; data: Float32Array | number[]; opacity?: number; blendMode?: string; visible?: boolean; order?: number }
-  | { type: 'label'; id: string; labels: Uint32Array | Int32Array | number[]; labelDefs: Array<{ id: number; color: number; name?: string }>; defaultColor?: number; opacity?: number; visible?: boolean; order?: number }
-  | { type: 'outline'; id: string; roiLabels: Uint32Array | Int32Array | number[]; color?: number; opacity?: number; width?: number; halo?: boolean; haloColor?: number; haloWidth?: number; offset?: number; roiSubset?: number[] | null; visible?: boolean; blendMode?: string; order?: number };
-
 const toHex = (value: string | number | undefined): number | undefined => {
   if (value === undefined) return undefined;
   if (typeof value === 'number') return value;

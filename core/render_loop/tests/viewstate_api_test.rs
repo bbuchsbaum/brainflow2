@@ -1,10 +1,10 @@
 // Test the ViewState API for declarative rendering
 
 use pollster;
-use render_loop::render_state::BlendMode;
+use render_loop::render_state::{BlendMode, ThresholdMode};
 use render_loop::test_fixtures::{create_test_pattern_volume, TestVolumeSet};
 use render_loop::view_state::{LayerConfig, SliceOrientation, ViewId, ViewState};
-use render_loop::{RenderLoopError, RenderLoopService};
+use render_loop::RenderLoopService;
 
 /// Test that we can create and render with the ViewState API
 #[test]
@@ -32,26 +32,14 @@ fn test_viewstate_api_basic() {
 
         // Create view state
         let view_id = ViewId::new("test-view");
-        let state = ViewState {
-            layout_version: ViewState::CURRENT_VERSION,
-            camera: render_loop::view_state::CameraState {
-                world_center: [32.0, 32.0, 12.0],
-                fov_mm: 64.0,
-                orientation: SliceOrientation::Axial,
-            },
-            crosshair_world: [32.0, 32.0, 12.0],
-            layers: vec![LayerConfig {
-                volume_id: "test-volume".to_string(),
-                opacity: 1.0,
-                colormap_id: 0,
-                blend_mode: BlendMode::Normal,
-                intensity_window: (0.0, 1.0),
-                threshold: None,
-                visible: true,
-            }],
-            viewport_size: [512, 512],
-            show_crosshair: true,
-        };
+        let state = ViewState::from_basic_params(
+            "test-volume".to_string(),
+            [32.0, 32.0, 12.0],
+            SliceOrientation::Axial,
+            64.0,
+            [512, 512],
+            (0.0, 1.0),
+        );
 
         // Request frame
         let result = service
@@ -109,52 +97,27 @@ fn test_viewstate_multi_resolution() {
 
         // Create view state with multiple layers
         let view_id = ViewId::new("multi-res-view");
-        let state = ViewState {
-            layout_version: ViewState::CURRENT_VERSION,
-            camera: render_loop::view_state::CameraState {
-                world_center: [0.0, 0.0, 0.0], // World origin
-                fov_mm: 200.0,
-                orientation: SliceOrientation::Axial,
-            },
-            crosshair_world: [0.0, 0.0, 0.0],
-            layers: vec![
-                // Base anatomical layer
-                LayerConfig {
-                    volume_id: "anatomical".to_string(),
-                    opacity: 1.0,
-                    colormap_id: 0,
-                    blend_mode: BlendMode::Normal,
-                    intensity_window: (0.0, 1.0),
-                    threshold: None,
-                    visible: true,
-                },
-                // Functional overlay with transparency
-                LayerConfig {
-                    volume_id: "functional".to_string(),
-                    opacity: 0.7,
-                    colormap_id: 1, // Hot colormap
-                    blend_mode: BlendMode::Additive,
-                    intensity_window: (0.1, 0.8),
-                    threshold: Some(render_loop::view_state::ThresholdConfig {
-                        mode: render_loop::render_state::ThresholdMode::Above,
-                        range: (0.3, 1.0),
-                    }),
-                    visible: true,
-                },
-                // Detail patch (hidden by default)
-                LayerConfig {
-                    volume_id: "detail".to_string(),
-                    opacity: 1.0,
-                    colormap_id: 0,
-                    blend_mode: BlendMode::Normal,
-                    intensity_window: (0.0, 1.0),
-                    threshold: None,
-                    visible: false,
-                },
-            ],
-            viewport_size: [768, 768],
-            show_crosshair: true,
-        };
+        let state = ViewState::from_basic_params(
+            "anatomical".to_string(),
+            [0.0, 0.0, 0.0],
+            SliceOrientation::Axial,
+            200.0,
+            [768, 768],
+            (0.0, 1.0),
+        )
+        .with_layers(vec![
+            // Base anatomical layer
+            LayerConfig::new("anatomical".to_string()),
+            // Functional overlay with transparency
+            LayerConfig::new("functional".to_string())
+                .with_opacity(0.7)
+                .with_colormap(1)
+                .with_blend_mode(BlendMode::Additive)
+                .with_intensity_window(0.1, 0.8)
+                .with_threshold(ThresholdMode::Above, 0.3, 1.0),
+            // Detail patch (hidden by default)
+            LayerConfig::new("detail".to_string()).with_visibility(false),
+        ]);
 
         // Request frame
         let result = service
@@ -190,15 +153,9 @@ fn test_viewstate_validation() {
     assert!(state.validate().is_err());
 
     // Test invalid opacity
-    state.layers.push(LayerConfig {
-        volume_id: "test".to_string(),
-        opacity: 1.5, // Invalid
-        colormap_id: 0,
-        blend_mode: BlendMode::Normal,
-        intensity_window: (0.0, 1.0),
-        threshold: None,
-        visible: true,
-    });
+    state
+        .layers
+        .push(LayerConfig::new("test".to_string()).with_opacity(1.5));
     assert!(state.validate().is_err());
 
     // Fix and validate
@@ -229,26 +186,14 @@ fn test_viewstate_orientations() {
             SliceOrientation::Sagittal,
         ] {
             let view_id = ViewId::new(format!("view-{:?}", orientation));
-            let state = ViewState {
-                layout_version: ViewState::CURRENT_VERSION,
-                camera: render_loop::view_state::CameraState {
-                    world_center: [32.0, 32.0, 12.0],
-                    fov_mm: 64.0,
-                    orientation: *orientation,
-                },
-                crosshair_world: [32.0, 32.0, 12.0],
-                layers: vec![LayerConfig {
-                    volume_id: "test-vol".to_string(),
-                    opacity: 1.0,
-                    colormap_id: 0,
-                    blend_mode: BlendMode::Normal,
-                    intensity_window: (0.0, 1.0),
-                    threshold: None,
-                    visible: true,
-                }],
-                viewport_size: [256, 256],
-                show_crosshair: true,
-            };
+            let state = ViewState::from_basic_params(
+                "test-vol".to_string(),
+                [32.0, 32.0, 12.0],
+                *orientation,
+                64.0,
+                [256, 256],
+                (0.0, 1.0),
+            );
 
             let result = service
                 .request_frame(view_id, state)
@@ -264,18 +209,14 @@ fn test_viewstate_orientations() {
 /// Test camera parameter conversion
 #[test]
 fn test_camera_to_frame_params() {
-    let state = ViewState {
-        layout_version: ViewState::CURRENT_VERSION,
-        camera: render_loop::view_state::CameraState {
-            world_center: [100.0, 100.0, 50.0],
-            fov_mm: 200.0,
-            orientation: SliceOrientation::Axial,
-        },
-        crosshair_world: [100.0, 100.0, 50.0],
-        layers: vec![],
-        viewport_size: [512, 512],
-        show_crosshair: true,
-    };
+    let state = ViewState::from_basic_params(
+        "test".to_string(),
+        [100.0, 100.0, 50.0],
+        SliceOrientation::Axial,
+        200.0,
+        [512, 512],
+        (0.0, 1.0),
+    );
 
     let (origin, u, v) = state.camera_to_frame_params();
 

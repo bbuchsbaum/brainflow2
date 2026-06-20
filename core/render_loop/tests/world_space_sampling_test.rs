@@ -24,7 +24,7 @@ fn test_multi_texture_upload() {
         let volumes = TestVolumeSet::create_aligned();
 
         // Create multi-texture manager
-        let mut texture_manager = MultiTextureManager::new(16);
+        let mut texture_manager = MultiTextureManager::new(&device, &queue, 16);
 
         // Upload anatomical volume (1mm resolution)
         let (anat_idx, anat_tfm) = texture_manager
@@ -201,6 +201,7 @@ fn test_layer_data_structure() {
                 threshold_mode: ThresholdMode::Range,
                 texture_coords: (0.0, 0.0, 1.0, 1.0),
                 is_mask: false,
+                ..LayerInfo::default()
             },
             LayerInfo {
                 atlas_index: 1, // Functional volume
@@ -212,6 +213,7 @@ fn test_layer_data_structure() {
                 threshold_mode: ThresholdMode::Above,
                 texture_coords: (0.0, 0.0, 1.0, 1.0),
                 is_mask: false,
+                ..LayerInfo::default()
             },
             LayerInfo {
                 atlas_index: 2, // Detail patch
@@ -223,6 +225,7 @@ fn test_layer_data_structure() {
                 threshold_mode: ThresholdMode::Range,
                 texture_coords: (0.0, 0.0, 1.0, 1.0),
                 is_mask: false,
+                ..LayerInfo::default()
             },
         ];
 

@@ -63,6 +63,7 @@ use gifti_loader;
 mod analysis;
 mod error_context;
 mod error_helpers;
+mod render_bridge_adapter;
 mod user_errors;
 use error_context::*;
 use error_helpers::*;
@@ -3353,26 +3354,19 @@ async fn peek_volume_metadata(path: String) -> BridgeResult<PeekVolumeMetadata> 
 
     // NIfTI / NIfTI.gz: use neuroim's header-only reader. Run on the blocking
     // pool so we don't tie up the tokio reactor while reading from disk.
-    let header_info = tokio::task::spawn_blocking(move || {
-        neuroim::io::read_header(&path_buf)
-    })
-    .await
-    .map_err(|join_err| BridgeError::Internal {
-        code: 5040,
-        details: format!("peek_volume_metadata join error: {join_err}"),
-    })?
-    .map_err(|err| BridgeError::Loader {
-        code: 4040,
-        details: format!("Failed to read NIfTI header: {err}"),
-    })?;
+    let header_info = tokio::task::spawn_blocking(move || neuroim::io::read_header(&path_buf))
+        .await
+        .map_err(|join_err| BridgeError::Internal {
+            code: 5040,
+            details: format!("peek_volume_metadata join error: {join_err}"),
+        })?
+        .map_err(|err| BridgeError::Loader {
+            code: 4040,
+            details: format!("Failed to read NIfTI header: {err}"),
+        })?;
 
     let dims = header_info.dim.clone();
-    let mut voxel_size: Vec<f32> = header_info
-        .spacing
-        .iter()
-        .copied()
-        .take(3)
-        .collect();
+    let mut voxel_size: Vec<f32> = header_info.spacing.iter().copied().take(3).collect();
     while voxel_size.len() < 3 {
         voxel_size.push(0.0);
     }
@@ -6194,12 +6188,10 @@ async fn compute_layer_histogram(
     })
 }
 
-#[command]
-#[tracing::instrument(skip_all, err, name = "api.sample_world_coordinate")]
-async fn sample_world_coordinate(
-    handle_id: String,
-    world_coords: Vec<f32>, // 3 elements for world position
-    state: State<'_, BridgeState>,
+async fn sample_world_coordinate_impl(
+    handle_id: &str,
+    world_coords: &[f32],
+    state: &BridgeState,
 ) -> BridgeResult<f32> {
     info!(
         "Bridge: sample_world_coordinate called for handle {} at {:?}",
@@ -6548,6 +6540,28 @@ async fn sample_world_coordinate(
 }
 
 #[command]
+#[tracing::instrument(skip_all, err, name = "api.sample_world_coordinate")]
+async fn sample_world_coordinate(
+    handle_id: String,
+    world_coords: Vec<f32>, // 3 elements for world position
+    state: State<'_, BridgeState>,
+) -> BridgeResult<f32> {
+    sample_world_coordinate_impl(&handle_id, &world_coords, state.inner()).await
+}
+
+#[doc(hidden)]
+pub async fn sample_world_coordinate_for_testing<C>(
+    handle_id: &str,
+    world_coords: &C,
+    bridge_state: &BridgeState,
+) -> BridgeResult<f32>
+where
+    C: AsRef<[f32]> + ?Sized,
+{
+    sample_world_coordinate_impl(handle_id, world_coords.as_ref(), bridge_state).await
+}
+
+#[command]
 #[tracing::instrument(skip_all, err, name = "api.clear_render_layers")]
 async fn clear_render_layers(state: State<'_, BridgeState>) -> BridgeResult<()> {
     info!("Bridge: clear_render_layers called");
@@ -6573,12 +6587,10 @@ async fn clear_render_layers(state: State<'_, BridgeState>) -> BridgeResult<()> 
 
 /// Sample a voxel value at world-space position for a given UI layer id.
 /// Resolves the UI layer to its volume handle and performs nearest-neighbour sampling on CPU.
-#[command]
-#[tracing::instrument(skip_all, err, name = "api.sample_layer_value_at_world")]
-async fn sample_layer_value_at_world(
-    layer_id: String,
-    world_coords: Vec<f32>,
-    state: State<'_, BridgeState>,
+async fn sample_layer_value_at_world_impl(
+    layer_id: &str,
+    world_coords: &[f32],
+    state: &BridgeState,
 ) -> BridgeResult<f32> {
     if world_coords.len() != 3 {
         return Err(BridgeError::Input {
@@ -6589,7 +6601,7 @@ async fn sample_layer_value_at_world(
 
     let handle_id = {
         let map = state.layer_to_volume_map.lock().await;
-        map.get(&layer_id)
+        map.get(layer_id)
             .cloned()
             .ok_or_else(|| BridgeError::Input {
                 code: 2017,
@@ -6601,7 +6613,100 @@ async fn sample_layer_value_at_world(
     };
 
     // Reuse the sampling logic from sample_world_coordinate
-    sample_world_coordinate(handle_id, world_coords, state).await
+    sample_world_coordinate_impl(&handle_id, world_coords, state).await
+}
+
+#[command]
+#[tracing::instrument(skip_all, err, name = "api.sample_layer_value_at_world")]
+async fn sample_layer_value_at_world(
+    layer_id: String,
+    world_coords: Vec<f32>,
+    state: State<'_, BridgeState>,
+) -> BridgeResult<f32> {
+    sample_layer_value_at_world_impl(&layer_id, &world_coords, state.inner()).await
+}
+
+#[doc(hidden)]
+pub async fn sample_layer_value_at_world_for_testing<C>(
+    layer_id: &str,
+    world_coords: &C,
+    bridge_state: &BridgeState,
+) -> BridgeResult<f32>
+where
+    C: AsRef<[f32]> + ?Sized,
+{
+    sample_layer_value_at_world_impl(layer_id, world_coords.as_ref(), bridge_state).await
+}
+
+#[doc(hidden)]
+#[derive(Debug, Clone)]
+pub struct VolumeProjectionForTesting {
+    pub volume_id: String,
+    pub dims: [usize; 3],
+    pub volume_data: Vec<f32>,
+    pub affine_matrix: [f32; 16],
+    pub data_range: DataRange,
+    pub timepoint: Option<usize>,
+}
+
+fn volume_data_as_f32_for_projection(
+    volume_data: &VolumeSendable,
+    _timepoint: Option<usize>,
+) -> BridgeResult<Vec<f32>> {
+    match volume_data {
+        VolumeSendable::VolF32(vol, _) => Ok(vol.data()),
+        VolumeSendable::VolI16(vol, _) => Ok(vol.data().into_iter().map(|v| v as f32).collect()),
+        VolumeSendable::VolU8(vol, _) => Ok(vol.data().into_iter().map(|v| v as f32).collect()),
+        VolumeSendable::VolI8(vol, _) => Ok(vol.data().into_iter().map(|v| v as f32).collect()),
+        VolumeSendable::VolU16(vol, _) => Ok(vol.data().into_iter().map(|v| v as f32).collect()),
+        VolumeSendable::VolI32(vol, _) => Ok(vol.data().into_iter().map(|v| v as f32).collect()),
+        VolumeSendable::VolU32(vol, _) => Ok(vol.data().into_iter().map(|v| v as f32).collect()),
+        VolumeSendable::VolF64(vol, _) => Ok(vol.data().into_iter().map(|v| v as f32).collect()),
+        _ => Err(BridgeError::Input {
+            code: 2025,
+            details: "projection test helper currently supports 3D scalar volumes".to_string(),
+        }),
+    }
+}
+
+#[doc(hidden)]
+pub async fn get_volume_for_projection_for_testing(
+    volume_id: &str,
+    timepoint: Option<usize>,
+    bridge_state: &BridgeState,
+) -> BridgeResult<VolumeProjectionForTesting> {
+    let registry = bridge_state.volume_registry.lock().await;
+    let volume_data = registry
+        .get(volume_id)
+        .ok_or_else(|| BridgeError::VolumeNotFound {
+            code: 4045,
+            details: format!("Volume {} not found", volume_id),
+        })?;
+
+    let dims_vec = get_spatial_dims_from_volume(volume_data);
+    let dims = [
+        dims_vec.first().copied().unwrap_or(0),
+        dims_vec.get(1).copied().unwrap_or(0),
+        dims_vec.get(2).copied().unwrap_or(0),
+    ];
+    let volume_data_f32 = volume_data_as_f32_for_projection(volume_data, timepoint)?;
+    let affine = get_affine_from_volume(volume_data)?.to_homogeneous();
+    let mut affine_matrix = [0.0_f32; 16];
+    for col in 0..4 {
+        for row in 0..4 {
+            affine_matrix[col * 4 + row] = affine[(row, col)];
+        }
+    }
+    let (min, max) = compute_data_range_from_volume(volume_data);
+
+    Ok(VolumeProjectionForTesting {
+        volume_id: volume_id.to_string(),
+        dims,
+        volume_data: volume_data_f32,
+        affine_matrix,
+        data_range: DataRange { min, max },
+        timepoint,
+    })
 }
 
 async fn is_layer_ready_internal(layer_id: &str, state: &BridgeState) -> bool {
@@ -7547,36 +7652,6 @@ fn default_outline_thickness_px() -> f32 {
     1.0
 }
 
-fn slice_features_from_frontend_layers(layers: &[LayerState]) -> SliceFeatureUbo {
-    let mut visible_layer_index = 0u32;
-
-    for layer in layers {
-        if !(layer.visible && layer.opacity > 0.0) {
-            continue;
-        }
-
-        if let Some(outline) = &layer.outline {
-            if outline.enabled
-                && outline.selected_label_id > 0
-                && layer.layer_mode == render_loop::render_state::LayerMode::Label
-            {
-                return SliceFeatureUbo {
-                    outline_enabled: 1,
-                    outline_layer_index: visible_layer_index,
-                    selected_label_id: outline.selected_label_id,
-                    outline_color: outline.color,
-                    outline_thickness_px: outline.thickness_px.max(1.0),
-                    ..SliceFeatureUbo::default()
-                };
-            }
-        }
-
-        visible_layer_index += 1;
-    }
-
-    SliceFeatureUbo::default()
-}
-
 #[derive(Debug, Clone)]
 struct PreparedFrontendLayers {
     backend_layers: Vec<render_loop::view_state::LayerConfig>,
@@ -7730,55 +7805,17 @@ async fn prepare_frontend_layers_for_render(
                 }
             };
 
-            let colormap_id = match colormap_by_name(&layer.colormap) {
-                Some(id) => id.id() as u32,
-                None => {
-                    warn!(
-                        "Unknown colormap '{}', defaulting to grayscale",
-                        layer.colormap
-                    );
-                    0
-                }
-            };
+            if colormap_by_name(&layer.colormap).is_none() {
+                warn!(
+                    "Unknown colormap '{}', defaulting to grayscale",
+                    layer.colormap
+                );
+            }
 
-            let blend_mode = match layer.blend_mode.as_str() {
-                "alpha" => render_loop::render_state::BlendMode::Normal,
-                "additive" => render_loop::render_state::BlendMode::Additive,
-                "maximum" => render_loop::render_state::BlendMode::Maximum,
-                "minimum" => render_loop::render_state::BlendMode::Normal,
-                _ => render_loop::render_state::BlendMode::Normal,
-            };
-
-            let interpolation = match layer.interpolation.as_str() {
-                "nearest" => render_loop::view_state::InterpolationMode::Nearest,
-                "cubic" => render_loop::view_state::InterpolationMode::Cubic,
-                _ => render_loop::view_state::InterpolationMode::Linear,
-            };
-            let interpolation = match layer.layer_mode {
-                render_loop::render_state::LayerMode::Label
-                | render_loop::render_state::LayerMode::Mask => {
-                    render_loop::view_state::InterpolationMode::Nearest
-                }
-                render_loop::render_state::LayerMode::Scalar => interpolation,
-            };
-
-            let mut backend_layer = render_loop::view_state::LayerConfig {
-                volume_id: layer.volume_id.clone(),
-                opacity: layer.opacity,
-                colormap_id,
-                blend_mode,
-                intensity_window: (layer.intensity[0], layer.intensity[1]),
-                threshold: if layer.threshold[0] != 0.0 || layer.threshold[1] != 100.0 {
-                    Some(render_loop::view_state::ThresholdConfig {
-                        mode: render_loop::render_state::ThresholdMode::Range,
-                        range: (layer.threshold[0], layer.threshold[1]),
-                    })
-                } else {
-                    None
-                },
-                visible: layer.visible,
-                interpolation,
-                layer_mode: layer.layer_mode,
+            let backend_layer = match render_bridge_adapter::frontend_layer_to_backend_layer(layer)
+            {
+                Some(backend_layer) => backend_layer,
+                None => continue,
             };
 
             info!(
@@ -7791,8 +7828,6 @@ async fn prepare_frontend_layers_for_render(
                 layer.threshold[0],
                 layer.threshold[1]
             );
-
-            backend_layer.intensity_window = (layer.intensity[0], layer.intensity[1]);
 
             info!(
                 "Layer {} using frontend intensity window: [{:.1}, {:.1}]",
@@ -7832,15 +7867,9 @@ async fn render_frontend_view_with_diagnostics(
     prepared_layers: Option<&PreparedFrontendLayers>,
 ) -> BridgeResult<RenderViewTestOutput> {
     let total_start = std::time::Instant::now();
-    let requested_view = frontend_state
-        .requested_view
-        .as_ref()
-        .map(|view| view.view_type.clone());
-    let format_label = match format {
-        RenderFormat::Png => "png",
-        RenderFormat::RawRgba => "rgba",
-    }
-    .to_string();
+    let target = render_bridge_adapter::select_view_target(frontend_state);
+    let requested_view = target.requested_view.clone();
+    let format_label = format.label().to_string();
 
     if readback_mode == render_loop::view_state::FrameReadbackMode::Skip
         && format != RenderFormat::RawRgba
@@ -7851,28 +7880,16 @@ async fn render_frontend_view_with_diagnostics(
         });
     }
 
-    let (view_plane, width, height) = if let Some(req_view) = &frontend_state.requested_view {
+    if let Some(req_view) = &frontend_state.requested_view {
         debug!(
             "Using requested view '{}' with dimensions {}x{}",
             req_view.view_type, req_view.width, req_view.height
         );
-        match req_view.view_type.as_str() {
-            "sagittal" => (
-                &frontend_state.views.sagittal,
-                req_view.width,
-                req_view.height,
-            ),
-            "coronal" => (
-                &frontend_state.views.coronal,
-                req_view.width,
-                req_view.height,
-            ),
-            _ => (&frontend_state.views.axial, req_view.width, req_view.height),
-        }
     } else {
         debug!("No specific view requested, using axial view with default dimensions");
-        (&frontend_state.views.axial, 512u32, 512u32)
-    };
+    }
+    let width = target.width;
+    let height = target.height;
 
     debug!(
         "Creating render target for dimensions: {}x{}",
@@ -7922,49 +7939,8 @@ async fn render_frontend_view_with_diagnostics(
                 warnings[0] = "No backend layers created; submission skipped readback".to_string();
                 (Vec::new(), 0.0, 0usize, format_label.clone())
             } else {
-                let width = width as usize;
-                let height = height as usize;
-                let mut dark_image = vec![30u8; width * height * 4];
-
-                for y in 0..height {
-                    for x in 0..width {
-                        if x < 2 || x >= width - 2 || y < 2 || y >= height - 2 {
-                            let idx = (y * width + x) * 4;
-                            dark_image[idx] = 128;
-                            dark_image[idx + 1] = 0;
-                            dark_image[idx + 2] = 0;
-                            dark_image[idx + 3] = 255;
-                        }
-                    }
-                }
-
                 let encode_start = std::time::Instant::now();
-                use image::codecs::png::PngEncoder;
-                use image::{ImageBuffer, ImageEncoder, Rgba};
-                use std::io::Cursor;
-
-                let img_buffer: ImageBuffer<Rgba<u8>, Vec<u8>> =
-                    ImageBuffer::from_raw(width as u32, height as u32, dark_image).ok_or_else(
-                        || BridgeError::Internal {
-                            code: 5024,
-                            details: "Failed to create error image buffer".to_string(),
-                        },
-                    )?;
-
-                let mut png_data = Vec::new();
-                let encoder = PngEncoder::new(Cursor::new(&mut png_data));
-                encoder
-                    .write_image(
-                        img_buffer.as_raw(),
-                        width as u32,
-                        height as u32,
-                        image::ExtendedColorType::Rgba8,
-                    )
-                    .map_err(|e| BridgeError::Internal {
-                        code: 5025,
-                        details: format!("Failed to encode error PNG: {}", e),
-                    })?;
-
+                let png_data = render_bridge_adapter::encode_error_png_frame(width, height)?;
                 warn!("Returning error image (dark with red border) due to no layers");
                 let output_bytes = png_data.len();
                 (
@@ -8000,58 +7976,8 @@ async fn render_frontend_view_with_diagnostics(
         });
     }
 
-    let backend_view_state = render_loop::view_state::ViewState {
-        layout_version: render_loop::view_state::ViewState::CURRENT_VERSION,
-        camera: render_loop::view_state::CameraState {
-            world_center: frontend_state.crosshair.world_mm,
-            fov_mm: 256.0,
-            orientation: if let Some(req_view) = &frontend_state.requested_view {
-                match req_view.view_type.as_str() {
-                    "sagittal" => render_loop::view_state::SliceOrientation::Sagittal,
-                    "coronal" => render_loop::view_state::SliceOrientation::Coronal,
-                    _ => render_loop::view_state::SliceOrientation::Axial,
-                }
-            } else {
-                render_loop::view_state::SliceOrientation::Axial
-            },
-            frame_origin: if let Some(req_view) = &frontend_state.requested_view {
-                Some(req_view.origin_mm)
-            } else {
-                Some([
-                    view_plane.origin_mm[0],
-                    view_plane.origin_mm[1],
-                    view_plane.origin_mm[2],
-                    1.0,
-                ])
-            },
-            frame_u_vec: if let Some(req_view) = &frontend_state.requested_view {
-                Some(req_view.u_mm)
-            } else {
-                Some([
-                    view_plane.u_mm[0],
-                    view_plane.u_mm[1],
-                    view_plane.u_mm[2],
-                    0.0,
-                ])
-            },
-            frame_v_vec: if let Some(req_view) = &frontend_state.requested_view {
-                Some(req_view.v_mm)
-            } else {
-                Some([
-                    view_plane.v_mm[0],
-                    view_plane.v_mm[1],
-                    view_plane.v_mm[2],
-                    0.0,
-                ])
-            },
-        },
-        crosshair_world: frontend_state.crosshair.world_mm,
-        layers: backend_layers,
-        viewport_size: [width, height],
-        show_crosshair: frontend_state.crosshair.visible,
-        crosshair_color: frontend_state.crosshair.color,
-        timepoint: frontend_state.timepoint,
-    };
+    let backend_view_state =
+        render_bridge_adapter::build_backend_view_state(frontend_state, backend_layers, &target);
 
     info!(
         "Created backend ViewState with {} layers, crosshair at {:?}",
@@ -8082,13 +8008,15 @@ async fn render_frontend_view_with_diagnostics(
 
     info!(
         "Frame parameters - origin: {:?}, u: {:?}, v: {:?}",
-        view_plane.origin_mm, view_plane.u_mm, view_plane.v_mm
+        target.frame_origin, target.frame_u_vec, target.frame_v_vec
     );
 
     info!("⏱️  Layer processing took: {:?}", layer_processing_time);
 
     let render_start = std::time::Instant::now();
-    service.update_slice_feature_ubo(slice_features_from_frontend_layers(&frontend_state.layers));
+    service.update_slice_feature_ubo(render_bridge_adapter::slice_features_from_frontend_layers(
+        &frontend_state.layers,
+    ));
     let frame_result = service
         .request_frame_with_options(
             render_loop::view_state::ViewId::new("frontend_view"),
@@ -8174,54 +8102,19 @@ async fn render_frontend_view_with_diagnostics(
         (Vec::new(), std::time::Duration::ZERO)
     } else if format == RenderFormat::RawRgba {
         info!("🚀 RAW RGBA: Skipping PNG encoding, returning raw pixel data");
-
-        let mut raw_buffer = Vec::with_capacity(8 + rgba_data.len());
-        raw_buffer.extend_from_slice(&width.to_le_bytes());
-        raw_buffer.extend_from_slice(&height.to_le_bytes());
-        raw_buffer.extend_from_slice(&rgba_data);
+        let rgba_len = rgba_data.len();
+        let raw_buffer = render_bridge_adapter::encode_raw_rgba_frame(width, height, rgba_data);
 
         info!(
             "🚀 RAW RGBA: Returning {} bytes (8 byte header + {} RGBA bytes)",
             raw_buffer.len(),
-            rgba_data.len()
+            rgba_len
         );
 
         (raw_buffer, std::time::Duration::ZERO)
     } else {
         let png_encode_start = std::time::Instant::now();
-        use image::codecs::png::PngEncoder;
-        use image::{ImageBuffer, ImageEncoder, Rgba};
-        use std::io::Cursor;
-
-        let img_buffer: ImageBuffer<Rgba<u8>, Vec<u8>> =
-            ImageBuffer::from_raw(width, height, rgba_data).ok_or_else(|| {
-                BridgeError::Internal {
-                    code: 5022,
-                    details: format!(
-                        "Failed to create image buffer from RGBA data. Width: {}, Height: {}",
-                        width, height
-                    ),
-                }
-            })?;
-
-        let mut png_data = Vec::new();
-        let encoder = PngEncoder::new_with_quality(
-            Cursor::new(&mut png_data),
-            image::codecs::png::CompressionType::Fast,
-            image::codecs::png::FilterType::NoFilter,
-        );
-        encoder
-            .write_image(
-                img_buffer.as_raw(),
-                width,
-                height,
-                image::ExtendedColorType::Rgba8,
-            )
-            .map_err(|e| BridgeError::Internal {
-                code: 5023,
-                details: format!("Failed to encode PNG: {}", e),
-            })?;
-
+        let png_data = render_bridge_adapter::encode_png_frame(width, height, rgba_data)?;
         let png_encode_time = png_encode_start.elapsed();
         info!("⏱️  PNG encoding took: {:?}", png_encode_time);
         info!(
@@ -8295,7 +8188,7 @@ async fn render_view_process_with_diagnostics(
 ) -> BridgeResult<RenderViewTestOutput> {
     let parse_start = std::time::Instant::now();
     let frontend_state: FrontendViewState =
-        match serde_json::from_str::<FrontendViewState>(&view_state_json) {
+        match render_bridge_adapter::parse_frontend_view_state(&view_state_json) {
             Ok(state) => {
                 debug!(
                     "🎨 Successfully parsed ViewState with {} layers",
@@ -8393,25 +8286,6 @@ pub async fn submit_view_with_diagnostics_for_testing(
     .diagnostics)
 }
 
-struct MultiViewPacketEntry {
-    view_code: u8,
-    width: u32,
-    height: u32,
-    payload: Vec<u8>,
-}
-
-fn encode_view_type(view_type: &str) -> BridgeResult<u8> {
-    match view_type.to_lowercase().as_str() {
-        "axial" => Ok(0),
-        "sagittal" => Ok(1),
-        "coronal" => Ok(2),
-        other => Err(BridgeError::Input {
-            code: 4101,
-            details: format!("Unsupported view type '{}'", other),
-        }),
-    }
-}
-
 async fn render_views_process(
     state_json: String,
     bridge_state: &BridgeState,
@@ -8432,9 +8306,11 @@ async fn render_views_process_with_diagnostics(
     let total_start = std::time::Instant::now();
     let parse_start = std::time::Instant::now();
     let frontend_state: FrontendViewState =
-        serde_json::from_str(&state_json).map_err(|err| BridgeError::Input {
-            code: 4100,
-            details: format!("Failed to parse view state JSON: {}", err),
+        render_bridge_adapter::parse_frontend_view_state(&state_json).map_err(|err| {
+            BridgeError::Input {
+                code: 4100,
+                details: format!("Failed to parse view state JSON: {}", err),
+            }
         })?;
     let parse_time = parse_start.elapsed();
 
@@ -8469,11 +8345,12 @@ async fn render_views_process_with_diagnostics(
     let prepared_layers =
         prepare_frontend_layers_for_render(&base_state, bridge_state, &mut service).await?;
 
-    let mut entries: Vec<MultiViewPacketEntry> = Vec::with_capacity(requested_views.len());
+    let mut entries: Vec<render_bridge_adapter::MultiViewPacketEntry> =
+        Vec::with_capacity(requested_views.len());
     let mut per_view = Vec::with_capacity(requested_views.len());
 
     for request in requested_views {
-        let view_code = encode_view_type(&request.view_type)?;
+        let view_code = render_bridge_adapter::encode_view_type(&request.view_type)?;
         let width = request.width;
         let height = request.height;
 
@@ -8495,34 +8372,17 @@ async fn render_views_process_with_diagnostics(
         per_view.push(render_result.diagnostics);
 
         if format == RenderFormat::RawRgba {
-            if render_bytes.len() < 8 {
-                return Err(BridgeError::Internal {
-                    code: 5102,
-                    details: format!(
-                        "render_view returned insufficient data for view '{}'",
-                        state_for_view
-                            .requested_view
-                            .as_ref()
-                            .map(|view| view.view_type.as_str())
-                            .unwrap_or("unknown")
-                    ),
-                });
-            }
+            let (actual_width, actual_height, payload) =
+                render_bridge_adapter::split_raw_rgba_frame(&render_bytes)?;
 
-            let w_bytes: [u8; 4] = render_bytes[0..4].try_into().unwrap();
-            let h_bytes: [u8; 4] = render_bytes[4..8].try_into().unwrap();
-            let actual_width = u32::from_le_bytes(w_bytes);
-            let actual_height = u32::from_le_bytes(h_bytes);
-            let payload = render_bytes[8..].to_vec();
-
-            entries.push(MultiViewPacketEntry {
+            entries.push(render_bridge_adapter::MultiViewPacketEntry {
                 view_code,
                 width: actual_width,
                 height: actual_height,
                 payload,
             });
         } else {
-            entries.push(MultiViewPacketEntry {
+            entries.push(render_bridge_adapter::MultiViewPacketEntry {
                 view_code,
                 width,
                 height,
@@ -8532,35 +8392,10 @@ async fn render_views_process_with_diagnostics(
     }
 
     let packet_start = std::time::Instant::now();
-    let mut packet = Vec::new();
-    packet.extend_from_slice(&(entries.len() as u32).to_le_bytes());
-
-    for entry in &entries {
-        packet.push(entry.view_code);
-        packet.extend_from_slice(&entry.width.to_le_bytes());
-        packet.extend_from_slice(&entry.height.to_le_bytes());
-        let len_u32: u32 = entry
-            .payload
-            .len()
-            .try_into()
-            .map_err(|_| BridgeError::Internal {
-                code: 5103,
-                details: "Payload too large to encode in response".to_string(),
-            })?;
-        packet.extend_from_slice(&len_u32.to_le_bytes());
-    }
-
-    for entry in entries {
-        packet.extend_from_slice(&entry.payload);
-    }
-
+    let packet = render_bridge_adapter::encode_multi_view_packet(&entries)?;
     let packet_encode_ms = duration_ms(packet_start.elapsed());
     let total_ms = duration_ms(total_start.elapsed());
-    let format_label = match format {
-        RenderFormat::Png => "png",
-        RenderFormat::RawRgba => "rgba",
-    }
-    .to_string();
+    let format_label = format.label().to_string();
     let output_bytes = packet.len();
 
     Ok(RenderViewsTestOutput {

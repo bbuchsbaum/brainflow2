@@ -58,7 +58,7 @@ fn generate_ts_bindings() -> Result<()> {
     println!("Set TS_RS_EXPORT_DIR to: {}", output_dir.display());
 
     // Build crates that have types to export
-    let crates_to_build = vec!["bridge_types", "api-bridge"];
+    let crates_to_build = vec!["render_contracts", "bridge_types", "api-bridge"];
 
     // First, we need to build with the TS_RS_EXPORT_DIR set
     println!("Building crates to generate TypeScript bindings...");

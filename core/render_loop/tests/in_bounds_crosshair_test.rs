@@ -28,6 +28,7 @@ async fn in_bounds_crosshair_yields_gradient() {
         vec![0.0, 0.0, 0.0],
     )
     .expect("Failed to create NeuroSpace");
+    let grid_space = NeuroSpace3::new(space.clone());
     let volume = DenseVolume3::from_data(space, data);
 
     // Upload volume
@@ -68,7 +69,7 @@ async fn in_bounds_crosshair_yields_gradient() {
         service.set_crosshair(world_pos);
 
         // Verify the crosshair maps to the expected voxel
-        let voxel = space.coord_to_grid(&world_pos);
+        let voxel = grid_space.coord_to_grid(&world_pos);
         assert_relative_eq!(voxel[0], expected_voxel[0], epsilon = 1e-6);
         assert_relative_eq!(voxel[1], expected_voxel[1], epsilon = 1e-6);
         assert_relative_eq!(voxel[2], expected_voxel[2], epsilon = 1e-6);
@@ -120,6 +121,7 @@ async fn in_bounds_crosshair_non_identity_transform() {
         vec![-31.0, -31.0, -15.0],
     )
     .expect("Failed to create NeuroSpace");
+    let grid_space = NeuroSpace3::new(space.clone());
     let volume = DenseVolume3::from_data(space, data);
 
     // Upload volume
@@ -143,7 +145,7 @@ async fn in_bounds_crosshair_non_identity_transform() {
     ];
 
     for (world, expected_voxel) in test_cases {
-        let voxel = space.coord_to_grid(&world);
+        let voxel = grid_space.coord_to_grid(&world);
 
         assert_relative_eq!(voxel[0], expected_voxel[0], epsilon = 1e-4);
         assert_relative_eq!(voxel[1], expected_voxel[1], epsilon = 1e-4);

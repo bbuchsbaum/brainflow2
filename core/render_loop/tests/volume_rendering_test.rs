@@ -3,6 +3,7 @@
 use pollster::FutureExt;
 use render_loop::RenderLoopService;
 use volmath::space::NeuroSpaceImpl;
+use volmath::NeuroSpaceExt;
 use volmath::{DenseVolume3, NeuroSpace3};
 
 fn create_test_volume() -> DenseVolume3<f32> {

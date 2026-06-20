@@ -61,11 +61,12 @@
 - GoldenLayout creates isolated React roots per docked panel. Any state that must update across panels must live in a global store/service such as Zustand, not React Context.
 - Files-panel remote provenance is intentionally root-only: mounted remote roots carry the SSH origin badge/tooltip, while child rows should render with the same affordances as local entries.
 - GPU slice rendering: orchestrated in `render_loop`; front-end requests GPU handles via bridge commands and receives metadata (`VolumeLayerGpuInfo`, view states) for WebGPU canvas components.
+- Slice rendering feature uniforms: optional cross-layer slice features use the sidecar `SliceFeatureUbo` at bind group 3. Keep `LayerUboStd140` for per-layer display state; selected-label outlines and similar orthogonal features should flow through the sidecar rather than expanding every layer record.
 - Slice display sharing: `SliceRenderer` is the low-level bitmap canvas primitive, while `ui2/src/components/views/SliceViewport.tsx` is the shared mid-level viewport used by orthogonal `SliceViewCanvas`, `ComparisonPanel`, and `MosaicCell`. Keep render scheduling workspace-specific (`ComparisonRenderService`, `MosaicRenderService`, orthogonal view services), but route context registration, placement bookkeeping, click-to-world mapping, and standard crosshair overlays through the shared viewport/hooks unless a workspace has a documented special case (for example mosaic mirror-crosshair styling).
 - GPU atlas allocations are guarded by `LayerLease`; releases (manual or drop) clean up `layer_to_*` maps and free atlas slots. A watchdog (`BridgeState::start_layer_watchdog`) reclaims stale leases, and atlas capacity updates surface through `atlas.metrics`/`atlas.pressure`/`atlas.eviction` events.
 - Atlas pressure monitoring: `AtlasPressureMonitor` (started from `useServicesInit`) polls `get_atlas_stats`, emits `atlas.metrics`/`atlas.pressure`, raises toast notifications when free layers ≤2 or atlas exhaustion events occur, and auto-evicts the oldest hidden/non-essential layer after repeated atlas exhaustion with a 15s backoff; evictions also emit `atlas.eviction` and the status bar now shows live atlas capacity/severity.
-- Shader bindings: the default path still loads WGSL at runtime; enabling the `render_loop` feature flag `typed-shaders` runs the build-script through `wgsl_to_wgpu` 0.8.x and registers strongly-typed slice shaders (pipeline wiring in progress).
-- Typed-shader smoke test: `cargo test -p render_loop --features typed-shaders --test typed_shaders_smoke` exercises the slice shader pipeline behind the flag.
+- Shader bindings: the runtime masked WGSL path is authoritative for current slice rendering. Active sources are `core/render_loop/shaders/slice_world_space_masked.wgsl` and `core/render_loop/shaders/slice_world_space_optimized_masked.wgsl`.
+- Typed-shaders are quarantined while the alpha-mask/runtime masked pipeline is active. The `render_loop/typed-shaders` feature intentionally fails fast with a `compile_error!`; do not use it to validate outline or layer-mode work until `memory-bank/SHADER_BINDINGS_PLAN.md` is updated and generation is retargeted to the active masked shaders.
 - 4D time series support: `coord_to_grid_for_volume` now handles `DenseNeuroVec` coordinates (fourth axis optional in inputs) and associated unit tests pin the behaviour.
 - Time navigation: `TimeNavigationService`/`useTimeNavigation` drive `set_volume_timepoint` via `ApiService`; layer metadata `currentTimepoint` stays in sync so render + histogram paths pull the correct 3D volume.
 
@@ -100,7 +101,7 @@
 - Operational logs: `dev_log.txt`, `tauri_dev_log.txt`, `tools/dev-watch.sh` monitors bridge changes.
 
 ## Long‑Term Direction (at a glance)
-- Typed shader bindings trial (feature `typed-shaders`) using `wgsl_to_wgpu`; runtime WGSL remains default. CI check exists (`.github/workflows/typed-shader-check.yml`). Details: `memory-bank/SHADER_BINDINGS_PLAN.md`.
+- Typed shader bindings trial (feature `typed-shaders`) using `wgsl_to_wgpu`; currently quarantined, while runtime WGSL remains default and authoritative. Details: `memory-bank/SHADER_BINDINGS_PLAN.md`.
 - Three‑view sync + multi‑view batch rendering guarded by UI feature flags; legacy per‑view render is the safe fallback.
 - GPU resource safety: `LayerLease` RAII + watchdog; atlas pressure monitoring (`AtlasPressureMonitor`) surfaces telemetry and auto‑eviction with backoff.
 - 4D/time navigation path is wired end‑to‑end; ensure new features keep timepoint metadata in sync.
@@ -110,7 +111,7 @@
 Keep AGENTS.md current when touching core architecture, commands, or directory structure so future agents can ramp quickly.
 
 ## Known Caveats
-- Typed-shaders (wgsl_to_wgpu) colormap layout: the generated layout for the slice shader sets binding 16 (colormap LUT) to view_dimension D2, while the WGSL uses `texture_2d_array<f32>`. We currently bypass the generated group-2 bindings and build a manual wgpu bind group with D2Array to match the shader. Track upstream fix; keep the manual path until resolved. See memory-bank/SHADER_BINDINGS_PLAN.md.
+- Typed-shaders (wgsl_to_wgpu) are not part of the current rendering contract. The old generated path targeted unmasked slice shaders and had a colormap layout mismatch; keep the feature quarantined until generation targets the active masked shaders and the smoke test is restored. See memory-bank/SHADER_BINDINGS_PLAN.md.
 
 ## Core UI Stability Rules
 - **Selectors must be stable.** When reading Zustand stores from React, selectors may only return primitive values or references that already live in the store. Never build objects/arrays inline; instead memoise derived shapes in the component. Provide an explicit equality fn when comparing nested data.

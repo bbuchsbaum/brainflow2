@@ -26,6 +26,7 @@ The core directory contains the Rust backend workspace for Brainflow, implementi
 | `neuro-cpu/` | CPU-based volume rendering fallback for systems without WebGPU |
 | `neuro-integration-tests/` | Cross-component integration tests validating CPU/GPU consistency |
 | `neuro-types/` | Core neuroimaging types (slice specs, view rects, coordinate systems) |
+| `render_contracts/` | Transport-neutral render request/result/view-state contracts shared by Rust and TypeScript clients |
 | `render_loop/` | WebGPU rendering service with runtime-loaded WGSL shaders |
 | `render_loop_benches/` | Performance benchmarks for texture upload and rendering operations |
 | `templates/` | Template service for standard brain spaces (MNI152, fsaverage, etc.) |
@@ -63,6 +64,7 @@ When working in the core Rust workspace:
 All crates within this workspace depend on shared workspace dependencies defined in `../Cargo.toml`:
 - `bridge_types` - Used by most crates for shared types
 - `neuro-types` - Core neuroimaging types used throughout
+- `render_contracts` - Renderer-facing contracts without Tauri, WGPU, or UI dependencies
 - `volmath` - Spatial math operations
 - External path dependencies: `neuroatlas`, `neurosurf-rs`, `gifti` (local development paths)
 

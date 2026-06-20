@@ -145,6 +145,7 @@ fn test_render_single_volume_grayscale() {
             threshold_mode: ThresholdMode::Range,
             texture_coords: (0.0, 0.0, 1.0, 1.0),
             is_mask: false,
+            ..LayerInfo::default()
         };
 
         println!("Layer configuration:");
@@ -306,6 +307,7 @@ fn test_render_two_layer_overlay() {
                 threshold_mode: ThresholdMode::Range,
                 texture_coords: (0.0, 0.0, 1.0, 1.0),
                 is_mask: false,
+                ..LayerInfo::default()
             },
             LayerInfo {
                 atlas_index: overlay_handle,
@@ -317,6 +319,7 @@ fn test_render_two_layer_overlay() {
                 threshold_mode: ThresholdMode::Range,
                 texture_coords: (0.0, 0.0, 1.0, 1.0),
                 is_mask: false,
+                ..LayerInfo::default()
             },
         ];
 
@@ -496,6 +499,7 @@ fn test_render_different_orientations() {
             threshold_mode: ThresholdMode::Range,
             texture_coords: (0.0, 0.0, 1.0, 1.0),
             is_mask: false,
+            ..LayerInfo::default()
         };
 
         // Create bind groups for world-space rendering
@@ -694,6 +698,7 @@ fn test_render_threshold_modes() {
                 threshold_mode: mode,
                 texture_coords: (0.0, 0.0, 1.0, 1.0),
                 is_mask: false,
+                ..LayerInfo::default()
             };
 
             println!(
@@ -890,6 +895,7 @@ fn test_render_performance_tracking() {
             threshold_mode: ThresholdMode::Range,
             texture_coords: (0.0, 0.0, 1.0, 1.0),
             is_mask: false,
+            ..LayerInfo::default()
         };
 
         // Create bind groups for world-space rendering
@@ -1001,6 +1007,7 @@ fn test_render_world_coordinate_consistency() {
             threshold_mode: ThresholdMode::Range,
             texture_coords: (0.0, 0.0, 1.0, 1.0),
             is_mask: false,
+            ..LayerInfo::default()
         };
 
         // Create bind groups for world-space rendering

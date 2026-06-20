@@ -953,7 +953,6 @@ dependencies = [
  "async-trait",
  "nalgebra 0.32.6",
  "neuroim",
- "render_loop",
  "serde",
  "serde_json",
  "thiserror 1.0.69",
@@ -6702,6 +6701,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "render_contracts"
+version = "0.1.0"
+dependencies = [
+ "neuro-types",
+ "serde",
+ "serde_json",
+ "ts-rs 10.1.0",
+]
+
+[[package]]
 name = "render_loop"
 version = "0.1.0"
 dependencies = [
@@ -6727,6 +6736,7 @@ dependencies = [
  "pollster",
  "rand 0.8.5",
  "raw-window-handle",
+ "render_contracts",
  "serde",
  "tempfile",
  "thiserror 1.0.69",

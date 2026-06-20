@@ -1,6 +1,7 @@
 // Render state management module
 
 use crate::pipeline::PipelineKey;
+pub use render_contracts::{BlendMode, LayerMode, ThresholdMode};
 use std::collections::HashMap;
 use wgpu::{BindGroup, Buffer, TextureView};
 
@@ -314,41 +315,23 @@ pub struct LayerInfo {
     pub interpolation_mode: u32,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub enum BlendMode {
-    /// Normal alpha blending
-    Normal = 0,
-    /// Additive blending
-    Additive = 1,
-    /// Multiplicative blending
-    Multiply = 2,
-    /// Maximum intensity
-    Maximum = 3,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub enum ThresholdMode {
-    /// Range thresholding (default)
-    Range = 0,
-    /// Absolute value thresholding
-    Absolute = 1,
-    /// Above threshold only
-    Above = 2,
-    /// Below threshold only
-    Below = 3,
-}
-
-#[repr(u32)]
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum LayerMode {
-    /// Continuous scalar intensity layer.
-    #[default]
-    Scalar = 0,
-    /// Categorical integer label layer.
-    Label = 1,
-    /// Binary or alpha mask layer.
-    Mask = 2,
+impl Default for LayerInfo {
+    fn default() -> Self {
+        Self {
+            atlas_index: 0,
+            opacity: 1.0,
+            blend_mode: BlendMode::Normal,
+            colormap_id: 0,
+            intensity_range: (0.0, 1.0),
+            threshold_range: (0.0, 0.0),
+            threshold_mode: ThresholdMode::Range,
+            texture_coords: (0.0, 0.0, 1.0, 1.0),
+            is_mask: false,
+            has_alpha_mask: false,
+            layer_mode: LayerMode::Scalar,
+            interpolation_mode: 1,
+        }
+    }
 }
 
 impl LayerStateManager {

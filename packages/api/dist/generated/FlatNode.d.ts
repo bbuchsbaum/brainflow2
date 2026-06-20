@@ -4,7 +4,7 @@
 export type FlatNode = {
     id: string;
     name: string;
-    parent_idx: number | null;
-    icon_id: number;
-    is_dir: boolean;
+    parentIdx: number | null;
+    iconId: number;
+    isDir: boolean;
 };

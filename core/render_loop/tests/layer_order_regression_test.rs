@@ -141,6 +141,7 @@ async fn test_layer_order_not_reversed() {
                 threshold: None,
                 visible: true,
                 interpolation: InterpolationMode::Linear,
+                layer_mode: Default::default(),
             },
             LayerConfig {
                 volume_id: "overlay_vol".to_string(),
@@ -151,11 +152,13 @@ async fn test_layer_order_not_reversed() {
                 threshold: None,
                 visible: true,
                 interpolation: InterpolationMode::Linear,
+                layer_mode: Default::default(),
             },
         ],
         viewport_size: [128, 128],
         show_crosshair: false,
         timepoint: None,
+        crosshair_color: [0.0, 1.0, 0.0, 0.8],
     };
 
     // Request frame - this triggers the layer processing
@@ -274,6 +277,7 @@ async fn test_layer_order_overlay_on_top() {
                 threshold: None,
                 visible: true,
                 interpolation: InterpolationMode::Linear,
+                layer_mode: Default::default(),
             },
             // Layer 1: Overlay (should be rendered last = foreground, on top)
             LayerConfig {
@@ -285,11 +289,13 @@ async fn test_layer_order_overlay_on_top() {
                 threshold: None,
                 visible: true,
                 interpolation: InterpolationMode::Linear,
+                layer_mode: Default::default(),
             },
         ],
         viewport_size: [128, 128],
         show_crosshair: false,
         timepoint: None,
+        crosshair_color: [0.0, 1.0, 0.0, 0.8],
     };
 
     // Render the frame
@@ -430,6 +436,7 @@ async fn test_layer_order_with_transparency() {
                 threshold: None,
                 visible: true,
                 interpolation: InterpolationMode::Linear,
+                layer_mode: Default::default(),
             },
             LayerConfig {
                 volume_id: "overlay_vol".to_string(),
@@ -440,11 +447,13 @@ async fn test_layer_order_with_transparency() {
                 threshold: None,
                 visible: true,
                 interpolation: InterpolationMode::Linear,
+                layer_mode: Default::default(),
             },
         ],
         viewport_size: [128, 128],
         show_crosshair: false,
         timepoint: None,
+        crosshair_color: [0.0, 1.0, 0.0, 0.8],
     };
 
     let result = service

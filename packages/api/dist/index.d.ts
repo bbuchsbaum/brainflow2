@@ -1,9 +1,11 @@
 /**
  * @brainflow/api v0.1.1 - Core TypeScript Interfaces
  */
-export * from './generated';
-export * from './helpers';
+export type * from './generated';
+export * from './helpers.js';
+export * from './renderClient.js';
 import type { VolumeHandleInfo, VolumeLayerGpuInfo, BridgeError, TimeSeriesResult, LayerSpec, ReleaseResult } from './generated';
+import type { RenderOutputFormat, RenderViewDiagnostics } from './renderClient';
 /**
  * Generic Result type for Tauri commands, mirroring Rust's Result.
  */
@@ -14,34 +16,6 @@ export type Result<T, E = string> = {
     Ok?: never;
     Err: E;
 };
-export type RenderOutputFormat = 'png' | 'rgba';
-export type FrameReadbackMode = 'blocking' | 'skip';
-export interface FrameRenderDiagnostics {
-    prepare_ms: number;
-    render_ms: number;
-    readback_ms: number;
-    total_ms: number;
-    visible_layers: number;
-    updated_layer_slots: number;
-    reused_layer_state: boolean;
-    readback_mode: FrameReadbackMode;
-}
-export interface RenderViewDiagnostics {
-    requested_view: string | null;
-    format: string;
-    parse_ms: number;
-    service_lock_ms: number;
-    target_setup_ms: number;
-    layer_processing_ms: number;
-    render_loop_ms: number;
-    encode_ms: number;
-    total_ms: number;
-    visible_layer_count: number;
-    output_bytes: number;
-    output_dimensions: [number, number];
-    warnings: string[];
-    frame: FrameRenderDiagnostics;
-}
 export interface CoreApi {
     load_file(path: string): Promise<VolumeHandleInfo>;
     world_to_voxel(volumeId: string, worldCoord: [number, number, number]): Promise<[number, number, number] | null>;
@@ -50,6 +24,7 @@ export interface CoreApi {
     release_layer_gpu_resources(layerId: string): Promise<ReleaseResult>;
     supports_webgpu(): Promise<boolean>;
     set_crosshair(world_coords: [number, number, number]): Promise<void>;
+    update_slice_outline(enabled: boolean, outlineLayerIndex: number, selectedLabelId: number, color: [number, number, number, number], thicknessPx: number): Promise<void>;
     set_view_plane(plane_id: 0 | 1 | 2): Promise<void>;
     init_render_loop(canvas_id: string): Promise<void>;
     resize_canvas(width: number, height: number): Promise<void>;

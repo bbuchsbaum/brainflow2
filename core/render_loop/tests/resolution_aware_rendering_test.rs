@@ -109,6 +109,7 @@ mod tests {
                     threshold_range: (0.0, 1.0),
                     threshold_mode: ThresholdMode::Range,
                     texture_coords: (0.0, 0.0, 1.0, 1.0),
+                    ..LayerInfo::default()
                 },
                 LayerInfo {
                     atlas_index: func_idx,
@@ -119,6 +120,7 @@ mod tests {
                     threshold_range: (0.2, 1.0),
                     threshold_mode: ThresholdMode::Range,
                     texture_coords: (0.0, 0.0, 1.0, 1.0),
+                    ..LayerInfo::default()
                 },
             ];
 
@@ -225,6 +227,7 @@ mod tests {
                     threshold_range: (0.0, 1.0),
                     threshold_mode: ThresholdMode::Range,
                     texture_coords: (0.0, 0.0, 1.0, 1.0),
+                    ..LayerInfo::default()
                 },
                 // Functional overlay with transparency
                 LayerInfo {
@@ -236,6 +239,7 @@ mod tests {
                     threshold_range: (0.3, 1.0),
                     threshold_mode: ThresholdMode::Range,
                     texture_coords: (0.0, 0.0, 1.0, 1.0),
+                    ..LayerInfo::default()
                 },
                 // High-res detail patch
                 LayerInfo {
@@ -247,6 +251,7 @@ mod tests {
                     threshold_range: (0.0, 1.0),
                     threshold_mode: ThresholdMode::Range,
                     texture_coords: (0.0, 0.0, 1.0, 1.0),
+                    ..LayerInfo::default()
                 },
             ];
 

@@ -54,7 +54,7 @@ async fn test_mni_brain_slices_fixed_orientation() {
     // Get world bounds
     let origin = volume.space.origin();
     let spacing = volume.space.spacing();
-    let world_min = origin;
+    let world_min = origin.clone();
     let world_max = [
         origin[0] + (dims[0] as f32 - 1.0) * spacing[0],
         origin[1] + (dims[1] as f32 - 1.0) * spacing[1],

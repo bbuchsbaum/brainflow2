@@ -54,6 +54,7 @@ fn test_world_space_rendering_workflow() {
                 threshold_range: (0.0, 255.0),
                 threshold_mode: ThresholdMode::Range,
                 texture_coords: (0.0, 0.0, 1.0, 1.0),
+                ..LayerInfo::default()
             },
             LayerInfo {
                 atlas_index: func_idx,
@@ -64,6 +65,7 @@ fn test_world_space_rendering_workflow() {
                 threshold_range: (0.1, 1.0),
                 threshold_mode: ThresholdMode::Above,
                 texture_coords: (0.0, 0.0, 1.0, 1.0),
+                ..LayerInfo::default()
             },
             LayerInfo {
                 atlas_index: detail_idx,
@@ -74,6 +76,7 @@ fn test_world_space_rendering_workflow() {
                 threshold_range: (0.1, 1.0),
                 threshold_mode: ThresholdMode::Range,
                 texture_coords: (0.0, 0.0, 1.0, 1.0),
+                ..LayerInfo::default()
             },
         ];
 

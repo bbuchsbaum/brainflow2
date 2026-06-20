@@ -53,6 +53,7 @@ fn test_world_space_rendering_produces_output() {
                 threshold_range: (0.0, 255.0),
                 threshold_mode: ThresholdMode::Range,
                 texture_coords: (0.0, 0.0, 1.0, 1.0),
+                ..LayerInfo::default()
             },
             LayerInfo {
                 atlas_index: func_idx,
@@ -63,6 +64,7 @@ fn test_world_space_rendering_produces_output() {
                 threshold_range: (0.1, 1.0),
                 threshold_mode: ThresholdMode::Above,
                 texture_coords: (0.0, 0.0, 1.0, 1.0),
+                ..LayerInfo::default()
             },
         ];
 
@@ -185,6 +187,7 @@ fn test_multi_resolution_overlay() {
                 threshold_range: (0.0, 255.0),
                 threshold_mode: ThresholdMode::Range,
                 texture_coords: (0.0, 0.0, 1.0, 1.0),
+                ..LayerInfo::default()
             },
             LayerInfo {
                 atlas_index: func_idx,
@@ -195,6 +198,7 @@ fn test_multi_resolution_overlay() {
                 threshold_range: (0.2, 1.0),
                 threshold_mode: ThresholdMode::Above,
                 texture_coords: (0.0, 0.0, 1.0, 1.0),
+                ..LayerInfo::default()
             },
             LayerInfo {
                 atlas_index: detail_idx,
@@ -205,6 +209,7 @@ fn test_multi_resolution_overlay() {
                 threshold_range: (0.3, 1.0),
                 threshold_mode: ThresholdMode::Above,
                 texture_coords: (0.0, 0.0, 1.0, 1.0),
+                ..LayerInfo::default()
             },
         ];
 

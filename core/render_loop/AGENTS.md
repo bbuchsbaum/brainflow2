@@ -10,6 +10,7 @@ High-performance WebGPU rendering service for neuroimaging visualization. Implem
 | File | Description |
 |------|-------------|
 | `src/lib.rs` | RenderLoopService orchestrator - GPU device, queue, pipeline management |
+| `src/facade.rs` | Reusable `WgpuSliceRenderer` facade with neutral config/lifecycle API over the runtime WGPU path |
 | `src/pipeline.rs` | PipelineManager for render pipeline creation and caching |
 | `src/shaders.rs` | ShaderManager for runtime WGSL loading and validation |
 | `src/multi_texture_manager.rs` | 3D texture management for world-space rendering |
@@ -20,7 +21,7 @@ High-performance WebGPU rendering service for neuroimaging visualization. Implem
 | `src/layer_uniforms_optimized.rs` | Optimized layer uniforms implementation |
 | `src/ubo.rs` | std140-compliant uniform buffer structures |
 | `src/render_state.rs` | RenderState tracking current configuration |
-| `src/view_state.rs` | Per-view state management for multi-view rendering |
+| `src/view_state.rs` | WGPU view resources plus compatibility re-exports for `render_contracts` view-state types |
 | `src/optimized_renderer.rs` | Optimized rendering path |
 | `src/slice_variant.rs` | Slice orientation variants |
 | `src/slice_adapter.rs` | Adapter between neuro-types and render_loop |
@@ -41,6 +42,8 @@ This is the RENDERING CORE - extreme care required. Shaders are runtime-loaded W
 Run `cargo test -p render_loop` (50+ tests). Critical tests: world_space_rendering_test, coordinate_inversion_test, multi_volume_overlay_test. Visual outputs in test_output/ for manual inspection. Benchmarks with `cargo bench -p render_loop_benches`. Verify CPU/GPU parity with neuro-integration-tests. Tests require headless GPU (uses offscreen rendering). Use pollster for async operations in sync tests.
 
 ### Common Patterns
+- `WgpuSliceRenderer` is the reusable facade for external apps; keep new public lifecycle features there before exposing raw `RenderLoopService` internals
+- Runtime masked WGSL currently has a fixed multi-texture binding count; facade texture capacity config is clamped to that runtime minimum until shader generation/bindings become configurable
 - Offscreen rendering (avoids Tauri window handle complexity)
 - Storage buffers for dynamic layer count
 - 3D texture arrays for direct volume sampling
@@ -56,6 +59,7 @@ Run `cargo test -p render_loop` (50+ tests). Critical tests: world_space_renderi
 - `volmath` - Volume mathematics and DenseVolume3
 - `colormap` - Color mapping for visualization
 - `neuro-types` - Canonical slice extraction types (SliceSpec, ViewRectMm)
+- `render_contracts` - Transport-neutral view, layer, frame request/result, and diagnostics contracts
 
 ### External
 - `wgpu` (workspace 0.25.0) - WebGPU API (inherited from workspace)

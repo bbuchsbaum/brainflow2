@@ -58,11 +58,16 @@ fn test_storage_buffer_many_layers() {
                 world_center: [32.0, 32.0, 12.0],
                 fov_mm: 64.0,
                 orientation: SliceOrientation::Axial,
+                frame_origin: None,
+                frame_u_vec: None,
+                frame_v_vec: None,
             },
             crosshair_world: [32.0, 32.0, 12.0],
             layers,
             viewport_size: [512, 512],
             show_crosshair: true,
+            crosshair_color: [0.0, 1.0, 0.0, 0.8],
+            timepoint: None,
         };
 
         // With storage buffers, all 12 layers should work

@@ -13,8 +13,8 @@ mod multi_volume_overlay_tests {
     ) -> DenseVolume3<f32> {
         let space_impl = NeuroSpaceImpl::from_dims_spacing_origin(
             dims.to_vec(),
-            spacing.iter().copied().collect(),
-            origin.iter().copied().collect(),
+            spacing.to_vec(),
+            origin.to_vec(),
         )
         .expect("neuro space");
         let data = vec![0.0f32; dims.iter().product::<usize>()];

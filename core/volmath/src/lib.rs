@@ -33,8 +33,11 @@ pub mod space {
 pub struct NeuroSpaceWrapper(pub NeuroSpace);
 
 impl NeuroSpaceWrapper {
-    pub fn new(space: NeuroSpace) -> Self {
-        Self(space)
+    pub fn new<S>(space: S) -> Self
+    where
+        S: IntoNeuroSpaceCompat,
+    {
+        Self(space.into_neuro_space())
     }
 
     pub fn dims(&self) -> &[usize] {
@@ -86,6 +89,48 @@ impl NeuroSpaceWrapper {
         // Use the forward transform from the NeuroSpace
         self.0.trans.clone().fixed_resize::<4, 4>(0.0).cast::<f32>()
     }
+
+    pub fn coord_to_grid<C>(&self, coords: &[C; 3]) -> [f32; 3]
+    where
+        C: Copy + Into<f64>,
+    {
+        let world = nalgebra::Vector4::new(
+            coords[0].into() as f32,
+            coords[1].into() as f32,
+            coords[2].into() as f32,
+            1.0,
+        );
+        let voxel = self.world_to_voxel() * world;
+        [voxel.x / voxel.w, voxel.y / voxel.w, voxel.z / voxel.w]
+    }
+}
+
+pub trait IntoF64Vec {
+    fn into_f64_vec(self) -> Vec<f64>;
+}
+
+impl IntoF64Vec for Vec<f64> {
+    fn into_f64_vec(self) -> Vec<f64> {
+        self
+    }
+}
+
+impl IntoF64Vec for Vec<f32> {
+    fn into_f64_vec(self) -> Vec<f64> {
+        self.into_iter().map(f64::from).collect()
+    }
+}
+
+impl<const N: usize> IntoF64Vec for [f64; N] {
+    fn into_f64_vec(self) -> Vec<f64> {
+        self.into()
+    }
+}
+
+impl<const N: usize> IntoF64Vec for [f32; N] {
+    fn into_f64_vec(self) -> Vec<f64> {
+        self.into_iter().map(f64::from).collect()
+    }
 }
 
 // Extension trait to add methods directly to NeuroSpace for render_loop compatibility
@@ -95,15 +140,21 @@ pub trait NeuroSpaceExt {
     fn origin(&self) -> Vec<f32>;
     fn world_to_voxel(&self) -> nalgebra::Matrix4<f32>;
     fn voxel_to_world(&self) -> nalgebra::Matrix4<f32>;
-    fn from_affine_matrix4(
-        dims: Vec<usize>,
+    fn from_affine_matrix4<D>(
+        dims: D,
         transform: nalgebra::Matrix4<f32>,
-    ) -> std::result::Result<NeuroSpace, VolumeMathError>;
-    fn from_dims_spacing_origin(
-        dims: Vec<usize>,
-        spacing: Vec<f64>,
-        origin: Vec<f64>,
-    ) -> std::result::Result<NeuroSpace, VolumeMathError>;
+    ) -> std::result::Result<NeuroSpace, VolumeMathError>
+    where
+        D: Into<Vec<usize>>;
+    fn from_dims_spacing_origin<D, S, O>(
+        dims: D,
+        spacing: S,
+        origin: O,
+    ) -> std::result::Result<NeuroSpace, VolumeMathError>
+    where
+        D: Into<Vec<usize>>,
+        S: IntoF64Vec,
+        O: IntoF64Vec;
 }
 
 impl NeuroSpaceExt for NeuroSpace {
@@ -160,16 +211,19 @@ impl NeuroSpaceExt for NeuroSpace {
         result
     }
 
-    fn from_affine_matrix4(
-        dims: Vec<usize>,
+    fn from_affine_matrix4<D>(
+        dims: D,
         transform: nalgebra::Matrix4<f32>,
-    ) -> std::result::Result<NeuroSpace, VolumeMathError> {
+    ) -> std::result::Result<NeuroSpace, VolumeMathError>
+    where
+        D: Into<Vec<usize>>,
+    {
         // Convert f32 matrix to f64 for neuroim
         let transform_f64 = transform.cast::<f64>();
         let transform_dmatrix = nalgebra::DMatrix::from_fn(4, 4, |i, j| transform_f64[(i, j)]);
 
         NeuroSpace::new(
-            dims,
+            dims.into(),
             None, // spacing
             None, // origin
             None, // axes
@@ -178,19 +232,46 @@ impl NeuroSpaceExt for NeuroSpace {
         .map_err(|e| VolumeMathError::NeuroImError(e.to_string()))
     }
 
-    fn from_dims_spacing_origin(
-        dims: Vec<usize>,
-        spacing: Vec<f64>,
-        origin: Vec<f64>,
-    ) -> std::result::Result<NeuroSpace, VolumeMathError> {
+    fn from_dims_spacing_origin<D, S, O>(
+        dims: D,
+        spacing: S,
+        origin: O,
+    ) -> std::result::Result<NeuroSpace, VolumeMathError>
+    where
+        D: Into<Vec<usize>>,
+        S: IntoF64Vec,
+        O: IntoF64Vec,
+    {
         NeuroSpace::new(
-            dims,
-            Some(spacing),
-            Some(origin),
+            dims.into(),
+            Some(spacing.into_f64_vec()),
+            Some(origin.into_f64_vec()),
             None, // axes
             None, // transform
         )
         .map_err(|e| VolumeMathError::NeuroImError(e.to_string()))
+    }
+}
+
+pub trait IntoNeuroSpaceCompat {
+    fn into_neuro_space(self) -> NeuroSpace;
+}
+
+impl IntoNeuroSpaceCompat for NeuroSpace {
+    fn into_neuro_space(self) -> NeuroSpace {
+        self
+    }
+}
+
+impl IntoNeuroSpaceCompat for NeuroSpaceWrapper {
+    fn into_neuro_space(self) -> NeuroSpace {
+        self.0
+    }
+}
+
+impl IntoNeuroSpaceCompat for std::result::Result<NeuroSpace, VolumeMathError> {
+    fn into_neuro_space(self) -> NeuroSpace {
+        self.expect("failed to create NeuroSpace")
     }
 }
 
@@ -589,7 +670,11 @@ impl<T: neuroim::Numeric + Serialize + PartialEq> CompatibleVolume<T> {
         NumericType::from_typeid::<T>()
     }
 
-    pub fn from_data(space: NeuroSpace, data: Vec<T>) -> Self {
+    pub fn from_data<S>(space: S, data: Vec<T>) -> Self
+    where
+        S: IntoNeuroSpaceCompat,
+    {
+        let space = space.into_neuro_space();
         // Convert Vec to Array3 with proper shape - use Fortran order to match neuroim
         let dims = space.dim.clone();
 
