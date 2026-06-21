@@ -111,8 +111,17 @@ export class VolumeLoadingService {
       // 1. Store volume handle for future reference
       volumeDebugLog(`[VolumeLoadingService ${performance.now() - startTime}ms] Storing volume handle`);
       VolumeHandleStore.setVolumeHandle(volumeHandle.id, volumeHandle);
-      
-      // 2. Get volume bounds from backend - CRITICAL for histogram
+
+      // 2. Kick off the two independent backend round trips concurrently.
+      // get_volume_bounds and get_initial_views both only need the volume id
+      // (the target pixel size comes from the view store, not from the bounds),
+      // so awaiting them sequentially just stacks two IPC latencies on the
+      // load-to-display critical path. Starting the initial-views fetch here
+      // overlaps it with the bounds fetch. The promise swallows its own errors
+      // so it can never become an unhandled rejection if the bounds step throws.
+      const initialViewsPromise = this.prefetchInitialViews(volumeHandle);
+
+      // 3. Get volume bounds from backend - CRITICAL for histogram
       volumeDebugLog(`[VolumeLoadingService ${performance.now() - startTime}ms] Getting volume bounds from backend`);
       const volumeBounds = await this.getVolumeBounds(volumeHandle);
       
@@ -182,9 +191,9 @@ export class VolumeLoadingService {
         metadata: volumeHandle 
       });
       
-      // 6. Initialize views for the volume
+      // 6. Initialize views for the volume (reusing the prefetched views)
       volumeDebugLog(`[VolumeLoadingService ${performance.now() - startTime}ms] Initializing views`);
-      await this.initializeViews(volumeHandle, volumeBounds);
+      await this.initializeViews(volumeHandle, volumeBounds, initialViewsPromise);
       
       // 7. Add layer through layer service  
       volumeDebugLog(`[VolumeLoadingService ${performance.now() - startTime}ms] Adding layer through LayerService`);
@@ -286,40 +295,75 @@ export class VolumeLoadingService {
   }
   
   /**
+   * Computes the target pixel size from the current view store and starts the
+   * backend get_initial_views request, so it can run concurrently with the
+   * bounds fetch. Errors are swallowed (resolving to null) so the returned
+   * promise is always safe to leave un-awaited until initializeViews consumes
+   * it; on failure initializeViews falls back to a direct fetch.
+   */
+  private prefetchInitialViews(volumeHandle: VolumeHandle): Promise<any> {
+    try {
+      const maxPx = this.computeInitialViewsMaxPx();
+      return this.apiService!.getInitialViews(volumeHandle.id, maxPx).catch((error) => {
+        console.error('[VolumeLoadingService] Failed to prefetch initial views:', error);
+        return null;
+      });
+    } catch (error) {
+      console.error('[VolumeLoadingService] Failed to start initial views prefetch:', error);
+      return Promise.resolve(null);
+    }
+  }
+
+  /**
+   * Derives the maximum pixel dimensions across the three orthogonal views from
+   * the view store, used as the target size for backend-calculated views.
+   */
+  private computeInitialViewsMaxPx(): [number, number] {
+    const currentViews = useViewStateStore.getState().viewState.views;
+    const axialDims = currentViews.axial.dim_px;
+    const sagittalDims = currentViews.sagittal.dim_px;
+    const coronalDims = currentViews.coronal.dim_px;
+
+    const maxWidth = Math.max(axialDims[0], sagittalDims[0], coronalDims[0]);
+    const maxHeight = Math.max(axialDims[1], sagittalDims[1], coronalDims[1]);
+    return [maxWidth || 512, maxHeight || 512];
+  }
+
+  /**
    * Initialize views for the loaded volume
    */
-  private async initializeViews(volumeHandle: VolumeHandle, bounds: VolumeBounds): Promise<void> {
+  private async initializeViews(
+    volumeHandle: VolumeHandle,
+    bounds: VolumeBounds,
+    initialViewsPromise?: Promise<any>,
+  ): Promise<void> {
     try {
       // Set crosshair to volume center
       useViewStateStore.getState().setCrosshair(bounds.center, true);
-      
+
       // Calculate field of view
       const extentX = bounds.max[0] - bounds.min[0];
       const extentY = bounds.max[1] - bounds.min[1];
       const extentZ = bounds.max[2] - bounds.min[2];
       const maxExtent = Math.max(extentX, extentY, extentZ);
       const fov = maxExtent;
-      
+
       volumeDebugLog(`[VolumeLoadingService] Field of view: ${fov.toFixed(1)}mm`);
-      
-      // Get current view dimensions
-      const currentViews = useViewStateStore.getState().viewState.views;
-      const axialDims = currentViews.axial.dim_px;
-      const sagittalDims = currentViews.sagittal.dim_px;
-      const coronalDims = currentViews.coronal.dim_px;
-      
-      const maxWidth = Math.max(axialDims[0], sagittalDims[0], coronalDims[0]);
-      const maxHeight = Math.max(axialDims[1], sagittalDims[1], coronalDims[1]);
-      const maxPx: [number, number] = [maxWidth || 512, maxHeight || 512];
-      
-      // Get properly calculated views from the backend
-      const newViews = await this.apiService!.getInitialViews(volumeHandle.id, maxPx);
-      
+
+      // Reuse the concurrently-prefetched views when available; otherwise (or if
+      // the prefetch failed) fall back to a direct fetch so behaviour matches the
+      // previous sequential implementation.
+      let newViews = initialViewsPromise ? await initialViewsPromise : null;
+      if (!newViews) {
+        const maxPx = this.computeInitialViewsMaxPx();
+        newViews = await this.apiService!.getInitialViews(volumeHandle.id, maxPx);
+      }
+
       // Update each view in the store
       Object.entries(newViews).forEach(([viewType, plane]) => {
         useViewStateStore.getState().updateView(viewType as any, plane);
       });
-      
+
       volumeDebugLog(`[VolumeLoadingService] Views initialized`);
     } catch (error) {
       console.error('[VolumeLoadingService] Failed to initialize views:', error);
