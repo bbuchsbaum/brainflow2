@@ -8,33 +8,36 @@
  * invalid samples that should not change the host state.
  */
 
-import { CrosshairTimeSeriesPlotBody } from './CrosshairTimeSeriesPlot';
-import { isLayerFourD } from './crosshairTimeSeriesPlot.helpers';
-import type { PlotMode } from './plotHost.types';
+import {
+  CrosshairTimeSeriesPlotBody,
+  TIME_SERIES_MODE_ID,
+} from "./CrosshairTimeSeriesPlot";
+import { isLayerFourD } from "./crosshairTimeSeriesPlot.helpers";
+import type { PlotMode } from "./plotHost.types";
 
 export const crosshairTimeSeriesPlot: PlotMode = {
-  id: 'crosshair-time-series',
-  label: 'Time Series',
+  id: TIME_SERIES_MODE_ID,
+  label: "Time Series",
   supports: (ctx) => {
     if (!ctx.layerId) {
       return {
         supported: false,
-        reason: 'no-layer',
-        message: 'Select a 4D layer to plot a voxel time series.',
+        reason: "no-layer",
+        message: "Select a 4D layer to plot a voxel time series.",
       };
     }
     if (!isLayerFourD(ctx.layerId)) {
       return {
         supported: false,
-        reason: 'unsupported-layer',
-        message: 'Time series requires a 4D volume layer.',
+        reason: "unsupported-layer",
+        message: "Time series requires a 4D volume layer.",
       };
     }
     if (!ctx.crosshairMm) {
       return {
         supported: false,
-        reason: 'no-crosshair',
-        message: 'Place the crosshair in the volume to sample a time series.',
+        reason: "no-crosshair",
+        message: "Place the crosshair in the volume to sample a time series.",
       };
     }
     return { supported: true };

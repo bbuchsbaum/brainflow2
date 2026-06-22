@@ -46,6 +46,12 @@ const COMMANDS: &[&str] = &[
     "patch_layer",
     "compute_layer_histogram",
     "sample_world_coordinate",
+    "sample_layer_value_at_world",
+    "get_volume_for_projection",
+    "project_volume_to_surface",
+    "create_surface_sampler",
+    "apply_sampler",
+    "release_sampler",
     "render_view", // New unified render method
     "submit_view",
     "render_views",
@@ -60,6 +66,8 @@ const COMMANDS: &[&str] = &[
     "get_favorite_atlases",
     "validate_atlas_config",
     "load_atlas",
+    "get_atlas_palette",
+    "register_categorical_colormap",
     "load_surface_atlas",
     "start_atlas_progress_monitoring",
     "get_atlas_subscription_count",
@@ -68,12 +76,16 @@ const COMMANDS: &[&str] = &[
     "get_surface_template_catalog",
     // Set Studio commands
     "preview_set_studio_imports",
+    "promote_discovery_to_neurotabs",
     "materialize_set_studio_compare_panes",
     "check_bids_directory",
     "scan_bids_dataset",
     "get_bids_events",
     "sample_voxel_timeseries",
+    "sample_stack",
     "compute_temporal_metric",
+    "compute_region_stats",
+    "sample_set_at_world",
 ];
 
 fn main() {

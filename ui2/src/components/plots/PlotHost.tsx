@@ -23,14 +23,14 @@ import {
   useRef,
   useState,
   type ReactNode,
-} from 'react';
+} from "react";
 
 import type {
   PlotHostProps,
   PlotMode,
   PlotModeContext,
   PlotModeSupport,
-} from './plotHost.types';
+} from "./plotHost.types";
 
 const HOST_HEADER_HEIGHT = 28;
 
@@ -60,25 +60,25 @@ function EmptyState({ title, detail, testid }: EmptyStateProps) {
     <div
       data-testid={testid}
       style={{
-        position: 'absolute',
+        position: "absolute",
         inset: 0,
-        display: 'flex',
-        flexDirection: 'column',
-        alignItems: 'center',
-        justifyContent: 'center',
-        gap: '6px',
-        color: 'var(--app-text-muted)',
-        textAlign: 'center',
-        padding: '12px',
-        userSelect: 'none',
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+        justifyContent: "center",
+        gap: "6px",
+        color: "var(--app-text-muted)",
+        textAlign: "center",
+        padding: "12px",
+        userSelect: "none",
       }}
     >
       <span
         className="bf-role-section"
         style={{
-          color: 'var(--app-text-muted)',
-          letterSpacing: 'var(--app-role-section-tracking)',
-          textTransform: 'uppercase',
+          color: "var(--app-text-muted)",
+          letterSpacing: "var(--app-role-section-tracking)",
+          textTransform: "uppercase",
         }}
       >
         {title}
@@ -86,7 +86,7 @@ function EmptyState({ title, detail, testid }: EmptyStateProps) {
       {detail ? (
         <span
           className="bf-role-body"
-          style={{ color: 'var(--app-text-disabled)', maxWidth: '32ch' }}
+          style={{ color: "var(--app-text-disabled)", maxWidth: "32ch" }}
         >
           {detail}
         </span>
@@ -112,13 +112,13 @@ function ModeSelector({ modes, activeId, onChange }: ModeSelectorProps) {
         value={activeId}
         onChange={(e) => onChange(e.target.value)}
         style={{
-          height: '20px',
-          padding: '0 4px',
-          background: 'transparent',
-          color: 'var(--app-text-primary)',
-          border: '1px solid var(--app-border)',
-          borderRadius: 'var(--app-radius-sm)',
-          fontSize: 'var(--app-role-section-size)',
+          height: "20px",
+          padding: "0 4px",
+          background: "transparent",
+          color: "var(--app-text-primary)",
+          border: "1px solid var(--app-border)",
+          borderRadius: "var(--app-radius-sm)",
+          fontSize: "var(--app-role-section-size)",
         }}
       >
         {modes.map((m) => (
@@ -135,7 +135,7 @@ function ModeSelector({ modes, activeId, onChange }: ModeSelectorProps) {
       role="tablist"
       aria-label="Plot mode"
       data-testid="plot-host-mode-tabs"
-      style={{ display: 'inline-flex', gap: '2px' }}
+      style={{ display: "inline-flex", gap: "2px" }}
     >
       {modes.map((m) => {
         const active = m.id === activeId;
@@ -146,22 +146,26 @@ function ModeSelector({ modes, activeId, onChange }: ModeSelectorProps) {
             role="tab"
             aria-selected={active}
             data-testid={`plot-host-mode-${m.id}`}
-            data-active={active ? 'true' : 'false'}
+            data-active={active ? "true" : "false"}
             onClick={() => onChange(m.id)}
             className="bf-role-section"
             style={{
-              appearance: 'none',
-              padding: '2px 8px',
-              height: '20px',
-              border: '1px solid var(--app-border)',
-              borderColor: active ? 'var(--app-border-active)' : 'var(--app-border)',
-              background: active ? 'var(--app-bg-active)' : 'transparent',
-              color: active ? 'var(--app-text-primary)' : 'var(--app-text-muted)',
-              cursor: 'pointer',
-              borderRadius: 'var(--app-radius-sm)',
-              fontSize: 'var(--app-role-section-size)',
-              letterSpacing: 'var(--app-role-section-tracking)',
-              textTransform: 'uppercase',
+              appearance: "none",
+              padding: "2px 8px",
+              height: "20px",
+              border: "1px solid var(--app-border)",
+              borderColor: active
+                ? "var(--app-border-active)"
+                : "var(--app-border)",
+              background: active ? "var(--app-bg-active)" : "transparent",
+              color: active
+                ? "var(--app-text-primary)"
+                : "var(--app-text-muted)",
+              cursor: "pointer",
+              borderRadius: "var(--app-radius-sm)",
+              fontSize: "var(--app-role-section-size)",
+              letterSpacing: "var(--app-role-section-tracking)",
+              textTransform: "uppercase",
             }}
           >
             {m.label}
@@ -180,6 +184,8 @@ export function PlotHost({
   layerId,
   layerName,
   crosshairMm,
+  atlasLayerId,
+  hasCohort,
   loading = false,
   error = null,
   className,
@@ -190,7 +196,7 @@ export function PlotHost({
     height: 0,
   });
   const [internalModeId, setInternalModeId] = useState<string>(
-    () => defaultModeId ?? modes[0]?.id ?? '',
+    () => defaultModeId ?? modes[0]?.id ?? "",
   );
 
   const isControlled = modeId !== undefined;
@@ -200,7 +206,7 @@ export function PlotHost({
   useEffect(() => {
     if (isControlled) return;
     if (modes.length === 0) {
-      if (internalModeId !== '') setInternalModeId('');
+      if (internalModeId !== "") setInternalModeId("");
       return;
     }
     if (!modes.some((m) => m.id === internalModeId)) {
@@ -230,7 +236,7 @@ export function PlotHost({
       });
     };
     update();
-    if (typeof ResizeObserver === 'undefined') return;
+    if (typeof ResizeObserver === "undefined") return;
     const ro = new ResizeObserver(update);
     ro.observe(el);
     return () => ro.disconnect();
@@ -241,18 +247,31 @@ export function PlotHost({
       layerId,
       layerName,
       crosshairMm,
+      atlasLayerId,
+      hasCohort,
       width: bodySize.width,
       height: bodySize.height,
     }),
-    [layerId, layerName, crosshairMm, bodySize.width, bodySize.height],
+    [
+      layerId,
+      layerName,
+      crosshairMm,
+      atlasLayerId,
+      hasCohort,
+      bodySize.width,
+      bodySize.height,
+    ],
   );
 
-  const { mode, support } = useMemo(() => resolveMode(modes, activeId, ctx), [modes, activeId, ctx]);
+  const { mode, support } = useMemo(
+    () => resolveMode(modes, activeId, ctx),
+    [modes, activeId, ctx],
+  );
 
   let body: ReactNode;
   let bodyState: string;
   if (modes.length === 0) {
-    bodyState = 'no-modes';
+    bodyState = "no-modes";
     body = (
       <EmptyState
         title="No plot modes"
@@ -261,15 +280,10 @@ export function PlotHost({
       />
     );
   } else if (loading) {
-    bodyState = 'loading';
-    body = (
-      <EmptyState
-        title="Loading…"
-        testid="plot-host-loading"
-      />
-    );
+    bodyState = "loading";
+    body = <EmptyState title="Loading…" testid="plot-host-loading" />;
   } else if (error) {
-    bodyState = 'error';
+    bodyState = "error";
     body = (
       <EmptyState
         title="Plot error"
@@ -278,7 +292,7 @@ export function PlotHost({
       />
     );
   } else if (!mode) {
-    bodyState = 'no-mode';
+    bodyState = "no-mode";
     body = (
       <EmptyState
         title="Unknown plot mode"
@@ -288,15 +302,15 @@ export function PlotHost({
     );
   } else if (support && support.supported === false) {
     bodyState = support.reason;
-    if (support.reason === 'no-layer') {
+    if (support.reason === "no-layer") {
       body = (
         <EmptyState
           title="No layer selected"
-          detail={support.message ?? 'Select a layer to plot.'}
+          detail={support.message ?? "Select a layer to plot."}
           testid="plot-host-empty-no-layer"
         />
       );
-    } else if (support.reason === 'unsupported-layer') {
+    } else if (support.reason === "unsupported-layer") {
       body = (
         <EmptyState
           title="Unsupported layer"
@@ -308,13 +322,15 @@ export function PlotHost({
       body = (
         <EmptyState
           title="No crosshair"
-          detail={support.message ?? 'Place the crosshair in the volume to plot here.'}
+          detail={
+            support.message ?? "Place the crosshair in the volume to plot here."
+          }
           testid="plot-host-empty-no-crosshair"
         />
       );
     }
   } else {
-    bodyState = 'active';
+    bodyState = "active";
     body = mode.render(ctx);
   }
 
@@ -322,37 +338,44 @@ export function PlotHost({
 
   return (
     <div
-      className={className ? `bf-plot-host ${className}` : 'bf-plot-host'}
+      className={className ? `bf-plot-host ${className}` : "bf-plot-host"}
       data-testid="plot-host"
-      data-mode={activeId || ''}
+      data-mode={activeId || ""}
       data-state={bodyState}
       style={{
-        position: 'relative',
-        height: '100%',
-        width: '100%',
-        display: 'flex',
-        flexDirection: 'column',
-        background: 'var(--app-surface-panel-raised)',
-        color: 'var(--app-text-primary)',
-        overflow: 'hidden',
+        position: "relative",
+        height: "100%",
+        width: "100%",
+        display: "flex",
+        flexDirection: "column",
+        background: "var(--app-surface-panel-raised)",
+        color: "var(--app-text-primary)",
+        overflow: "hidden",
       }}
     >
       <div
         data-testid="plot-host-toolbar"
         style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          gap: '8px',
-          padding: '0 8px',
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: "8px",
+          padding: "0 8px",
           height: `${HOST_HEADER_HEIGHT}px`,
           minHeight: `${HOST_HEADER_HEIGHT}px`,
-          borderBottom: '1px solid var(--app-border-subtle)',
-          flex: '0 0 auto',
+          borderBottom: "1px solid var(--app-border-subtle)",
+          flex: "0 0 auto",
         }}
       >
-        <ModeSelector modes={modes} activeId={activeId} onChange={handleModeChange} />
-        <div data-testid="plot-host-toolbar-slot" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+        <ModeSelector
+          modes={modes}
+          activeId={activeId}
+          onChange={handleModeChange}
+        />
+        <div
+          data-testid="plot-host-toolbar-slot"
+          style={{ display: "flex", alignItems: "center", gap: "6px" }}
+        >
           {toolbarContent}
         </div>
       </div>
@@ -360,10 +383,10 @@ export function PlotHost({
         ref={bodyRef}
         data-testid="plot-host-body"
         style={{
-          position: 'relative',
-          flex: '1 1 auto',
+          position: "relative",
+          flex: "1 1 auto",
           minHeight: 0,
-          overflow: 'hidden',
+          overflow: "hidden",
         }}
       >
         {body}

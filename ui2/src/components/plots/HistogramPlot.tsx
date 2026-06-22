@@ -1,40 +1,61 @@
 /**
- * HistogramPlot — Phase 4b of the integrated workspace refactor.
+ * HistogramPlot — whole-volume intensity histogram.
  *
- * Extracts the histogram from `PlotPanel` as a `PlotMode` registered behind
- * the `PlotHost` boundary. The plot mode is the plot-host contract's first
- * concrete consumer; Phase 4c registers `CrosshairTimeSeriesPlot` next.
+ * Step 2: migrated onto the sample → frame → encoder pipeline. The body samples
+ * a whole-volume frame via `sampleProvider` (which calls the existing
+ * `compute_layer_histogram` path and stashes the rich histogram payload on
+ * `frame.meta.histogram`) and renders it through {@link EncodedPlotView}. The
+ * `hist` mark drives the same interactive `HistogramChart` as before — intensity
+ * window / threshold drag, colormap gradient, log scale, tooltips — so there is
+ * no interactivity regression; the layer render props + edit callbacks are
+ * threaded to the mark via the encoder context.
  *
- * Behavior parity with the existing PlotPanel histogram path:
- *   - data is fetched via the singleton `histogramService` with `binCount: 256`
- *     and `excludeZeros: true`, preserving its cache and pending-request
- *     deduplication;
- *   - the layer.render.changed listener is wired but the body itself does not
- *     trigger a recompute — `HistogramService` already invalidates its own
- *     cache on render.changed, and React rerenders the chart with the new
- *     render properties from `viewStateStore`;
- *   - `HistogramChart` is rendered with the same prop wiring (intensity,
- *     threshold, colormap, log scale, tooltips, intensity/threshold edits).
- *
- * The mode is deliberately driven by `ctx.layerId` (host-supplied) rather than
- * reading the layer store directly; the host owns layer-selection wiring.
+ * Behaviour parity preserved: `computeHistogram` is called with the legacy
+ * `{ binCount: 256, excludeZeros: true }` shape; the `layer.render.changed`
+ * listener is wired but does not recompute (HistogramService owns cache
+ * invalidation; React rerenders with new render props from `viewStateStore`).
  */
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from "react";
 
-import { HistogramChart } from './HistogramChart';
-import { histogramService } from '@/services/HistogramService';
-import { useViewStateStore } from '@/stores/viewStateStore';
-import { getEventBus } from '@/events/EventBus';
-import type { HistogramData } from '@/types/histogram';
+import { getEventBus } from "@/events/EventBus";
+import { sampleProvider } from "@/services/SampleProvider";
+import { useViewStateStore } from "@/stores/viewStateStore";
+import { column } from "@/plotting";
+import type { SampleFrame } from "@/plotting";
 
-import type { PlotModeContext } from './plotHost.types';
+import { EncodedPlotView } from "./EncodedPlotView";
+import type { EncoderContext } from "./encoder/types";
+import type { PlotModeContext } from "./plotHost.types";
 
-/** Padding (px) reserved around the histogram chart inside the mode body. */
-const HISTOGRAM_BODY_PADDING = 32;
+/** Mode id — also the key under which this mode's spec/params are persisted. */
+export const HISTOGRAM_MODE_ID = "histogram";
+
+/** Body padding (px) reserved around the encoded plot. */
+const HISTOGRAM_BODY_PADDING = 16;
 /** Minimum chart dimensions enforced when the body is collapsed. */
 const HISTOGRAM_MIN_WIDTH = 100;
 const HISTOGRAM_MIN_HEIGHT = 80;
+
+/**
+ * Placeholder whole-volume frame rendered before the histogram resolves. It
+ * carries the `hist` suggestion so the encoder mounts the (empty) HistogramChart
+ * immediately rather than flashing an empty box. (The mode gates out the
+ * no-layer case, so the body only mounts once a layer is selected.)
+ */
+const EMPTY_HIST_FRAME: SampleFrame = {
+  columns: [
+    column("binStart", "quantitative"),
+    column("binEnd", "quantitative"),
+    column("binCenter", "quantitative"),
+    column("count", "quantitative"),
+  ],
+  rows: [],
+  meta: {
+    locus: "wholeVolume",
+    suggested: { mark: "hist", encoding: { x: "binCenter", y: "count" } },
+  },
+};
 
 interface HistogramPlotBodyProps {
   ctx: PlotModeContext;
@@ -43,10 +64,8 @@ interface HistogramPlotBodyProps {
 export function HistogramPlotBody({ ctx }: HistogramPlotBodyProps) {
   const layerId = ctx.layerId;
 
-  // Select the layer object by reference so the snapshot is stable across
-  // unrelated state updates; derive render props in a memo. Returning a fresh
-  // object literal from the selector would cause useSyncExternalStore to
-  // detect a change on every render → infinite update loop.
+  // Select the layer object by reference so the snapshot is stable; derive the
+  // render props in a memo (an inline object selector would loop).
   const viewStateLayer = useViewStateStore((state) =>
     layerId ? state.viewState.layers.find((l) => l.id === layerId) : undefined,
   );
@@ -56,59 +75,59 @@ export function HistogramPlotBody({ ctx }: HistogramPlotBodyProps) {
       intensity: viewStateLayer.intensity,
       threshold: viewStateLayer.threshold,
       colormap: viewStateLayer.colormap,
-      opacity: viewStateLayer.opacity,
     };
   }, [viewStateLayer]);
 
-  const [histogramData, setHistogramData] = useState<HistogramData | null>(null);
+  const [frame, setFrame] = useState<SampleFrame | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<Error | null>(null);
   const [useLogScale, setUseLogScale] = useState(false);
 
-  const loadHistogram = useCallback(async () => {
-    if (!layerId) {
-      setHistogramData(null);
-      return;
-    }
-    setLoading(true);
-    setError(null);
-    try {
-      const data = await histogramService.computeHistogram({
-        layerId,
-        binCount: 256,
-        excludeZeros: true,
-      });
-      setHistogramData(data);
-    } catch (err) {
-      const original = err as Error;
-      const enhanced = new Error(
-        `Failed to compute histogram for layer ${layerId}: ${original.message}`,
-      );
-      enhanced.cause = original;
-      setError(enhanced);
-    } finally {
-      setLoading(false);
-    }
-  }, [layerId]);
-
+  // Stale-result guard: a slow histogram for a previous layer must not
+  // overwrite the current layer's frame if it resolves out of order.
   useEffect(() => {
     if (!layerId) {
-      setHistogramData(null);
+      setFrame(null);
+      setError(null);
+      setLoading(false);
       return;
     }
-    loadHistogram();
-  }, [layerId, loadHistogram]);
+    let cancelled = false;
+    setLoading(true);
+    setError(null);
+    sampleProvider
+      .sample({
+        datasetId: layerId,
+        locus: { kind: "wholeVolume" },
+        binCount: 256,
+      })
+      .then((result) => {
+        if (cancelled) return;
+        setFrame(result);
+        setLoading(false);
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        const original = err as Error;
+        const enhanced = new Error(
+          `Failed to compute histogram for layer ${layerId}: ${original.message}`,
+        );
+        enhanced.cause = original;
+        setError(enhanced);
+        setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [layerId]);
 
-  // Mirror the existing PlotPanel listener exactly: subscribe per-layer, do
-  // NOT trigger a recompute. HistogramService owns cache invalidation on
-  // render.changed; React's rerender propagates the new render properties.
+  // Subscribe per-layer, do NOT recompute (parity with prior behaviour).
   useEffect(() => {
     if (!layerId) return;
     const eventBus = getEventBus();
     const unsubscribe = eventBus.on(
-      'layer.render.changed',
+      "layer.render.changed",
       (_event: { layerId: string; renderProps: Record<string, unknown> }) => {
-        // No-op by design (see file header).
         void _event;
       },
     );
@@ -143,35 +162,55 @@ export function HistogramPlotBody({ ctx }: HistogramPlotBodyProps) {
     [layerId],
   );
 
-  const chartWidth = Math.max(ctx.width - HISTOGRAM_BODY_PADDING, HISTOGRAM_MIN_WIDTH);
-  const chartHeight = Math.max(ctx.height - HISTOGRAM_BODY_PADDING, HISTOGRAM_MIN_HEIGHT);
+  // Padding applies on every side, so subtract twice (matches the 16px box).
+  const chartWidth = Math.max(
+    ctx.width - HISTOGRAM_BODY_PADDING * 2,
+    HISTOGRAM_MIN_WIDTH,
+  );
+  const chartHeight = Math.max(
+    ctx.height - HISTOGRAM_BODY_PADDING * 2,
+    HISTOGRAM_MIN_HEIGHT,
+  );
+
+  const context: EncoderContext = useMemo(
+    () => ({
+      intensityWindow: layerRender?.intensity,
+      threshold: layerRender?.threshold,
+      colormap: layerRender?.colormap,
+      useLogScale,
+      onIntensityChange: handleIntensityChange,
+      onThresholdChange: handleThresholdChange,
+      onLogScaleChange: setUseLogScale,
+      loading,
+      error,
+    }),
+    [
+      layerRender,
+      useLogScale,
+      handleIntensityChange,
+      handleThresholdChange,
+      loading,
+      error,
+    ],
+  );
 
   return (
     <div
       data-testid="histogram-plot-body"
       style={{
-        position: 'absolute',
+        position: "absolute",
         inset: 0,
-        padding: '16px',
-        overflow: 'hidden',
-        background: 'transparent',
+        padding: "16px",
+        overflow: "hidden",
+        background: "transparent",
       }}
     >
-      <HistogramChart
-        data={histogramData}
+      <EncodedPlotView
+        modeId={HISTOGRAM_MODE_ID}
+        frame={frame ?? EMPTY_HIST_FRAME}
         width={chartWidth}
         height={chartHeight}
-        intensityWindow={layerRender?.intensity}
-        threshold={layerRender?.threshold}
-        colormap={layerRender?.colormap}
-        showAxes
-        showTooltips
-        useLogScale={useLogScale}
-        onIntensityChange={handleIntensityChange}
-        onThresholdChange={handleThresholdChange}
-        onLogScaleChange={setUseLogScale}
-        loading={loading}
-        error={error}
+        context={context}
       />
     </div>
   );

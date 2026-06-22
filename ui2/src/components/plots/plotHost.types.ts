@@ -21,18 +21,22 @@
  * spectrum, design matrix) plug in the same way.
  */
 
-import type { ReactNode } from 'react';
+import type { ReactNode } from "react";
 
 /** Reason a plot mode cannot render in the current context. */
 export type PlotModeUnsupportedReason =
-  | 'no-layer'
-  | 'unsupported-layer'
-  | 'no-crosshair';
+  | "no-layer"
+  | "unsupported-layer"
+  | "no-crosshair";
 
 /** Result returned by `PlotMode.supports`. */
 export type PlotModeSupport =
   | { readonly supported: true }
-  | { readonly supported: false; readonly reason: PlotModeUnsupportedReason; readonly message?: string };
+  | {
+      readonly supported: false;
+      readonly reason: PlotModeUnsupportedReason;
+      readonly message?: string;
+    };
 
 /** Context passed to a plot mode's lifecycle methods. */
 export interface PlotModeContext {
@@ -45,6 +49,15 @@ export interface PlotModeContext {
   /** Allocated drawing area (px) for the mode body, after host chrome. */
   readonly width: number;
   readonly height: number;
+  /**
+   * Reactive availability signals so `supports()` can react to data loading
+   * without reading stores non-reactively. The host populates them; modes may
+   * fall back to a direct store read when undefined (older callers).
+   */
+  /** Id of the active atlas (label) layer, if any. */
+  readonly atlasLayerId?: string | undefined;
+  /** Whether a sampleable Set-Studio cohort is active. */
+  readonly hasCohort?: boolean;
 }
 
 /** A registered plot mode. The host treats this as opaque content. */
@@ -78,6 +91,10 @@ export interface PlotHostProps {
   readonly layerName?: string;
   /** Crosshair world-mm position; passed through to mode contexts. */
   readonly crosshairMm?: readonly [number, number, number];
+  /** Active atlas (label) layer id; passed through to mode contexts. */
+  readonly atlasLayerId?: string;
+  /** Whether a sampleable cohort is active; passed through to mode contexts. */
+  readonly hasCohort?: boolean;
 
   /** When true, the host renders its loading state and skips mode rendering. */
   readonly loading?: boolean;

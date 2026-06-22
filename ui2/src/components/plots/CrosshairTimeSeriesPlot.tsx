@@ -1,33 +1,41 @@
 /**
- * CrosshairTimeSeriesPlot — Phase 4c of the integrated workspace refactor.
+ * CrosshairTimeSeriesPlot — voxel / sphere time-series plot.
  *
- * Plot-host-registered mode that samples the voxel time-series at the active
- * crosshair via the `sample_voxel_timeseries` Tauri command. Owns PRD Risk #3
- * (sampling cost) by:
- *   - throttling fetches to ≤ 30 Hz (33 ms minimum gap);
+ * Step 2: the body's sole job is *sampling* — it builds a {@link SampleRequest}
+ * from the active layer + crosshair + the sphere-radius/reducer params,
+ * resolves it to a {@link SampleFrame} via `sampleProvider`, and hands the
+ * frame to {@link EncodedPlotView}, which owns the spec, the encoding panel,
+ * and the mark rendering. Radius 0 (the default) samples the single nearest
+ * voxel; a positive radius averages (or otherwise reduces) a sphere of voxels
+ * around the crosshair per timepoint.
+ *
+ * Owns PRD Risk #3 (sampling cost) by:
+ *   - throttling fetches to <= 30 Hz (33 ms minimum gap);
  *   - skipping requests when the active layer is 3D, the crosshair is unset,
- *     or the world→voxel transform yields out-of-bounds coordinates;
- *   - reusing the request shape proven by `services/hoverProviders/sparklineProvider.ts`
- *     (`{ volumeId, voxelX, voxelY, voxelZ }`).
- *
- * The body component owns its own loading/error/empty states for in-flight
- * conditions; the host's empty-state machine handles the static gates
- * (`no-layer`, `no-crosshair`, `unsupported-layer`) via the mode's `supports`.
+ *     or the world->voxel transform yields out-of-bounds coordinates;
+ *   - de-duplicating on (voxel/world, radius, reduce) and cancelling stale
+ *     inflight requests via a monotonic token.
  */
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from "react";
 
-import { getTransport } from '@/services/transport';
+import { sampleProvider } from "@/services/SampleProvider";
+import { usePlotSpecStore } from "@/stores/plotSpecStore";
+import type { Locus, SampleFrame } from "@/plotting";
 
+import { EncodedPlotView } from "./EncodedPlotView";
 import {
   TIMESERIES_THROTTLE_MS,
   resolveTimeseriesVoxel,
-} from './crosshairTimeSeriesPlot.helpers';
-import type { PlotModeContext } from './plotHost.types';
+} from "./crosshairTimeSeriesPlot.helpers";
+import type { PlotModeContext } from "./plotHost.types";
 
-const PLOT_PADDING = 16;
+const PLOT_PADDING = 12;
 const MIN_PLOT_W = 80;
-const MIN_PLOT_H = 40;
+const MIN_PLOT_H = 60;
+
+/** Mode id — also the key under which this mode's spec/params are persisted. */
+export const TIME_SERIES_MODE_ID = "crosshair-time-series";
 
 interface TimeSeriesPlotBodyProps {
   ctx: PlotModeContext;
@@ -41,7 +49,13 @@ interface ThrottleState {
 
 export function CrosshairTimeSeriesPlotBody({ ctx }: TimeSeriesPlotBodyProps) {
   const { layerId, crosshairMm, width, height } = ctx;
-  const [data, setData] = useState<number[] | null>(null);
+  const radiusMm = usePlotSpecStore(
+    (s) => s.sphereRadiusMmByMode[TIME_SERIES_MODE_ID] ?? 0,
+  );
+  const reduce = usePlotSpecStore(
+    (s) => s.reduceByMode[TIME_SERIES_MODE_ID] ?? "mean",
+  );
+  const [frame, setFrame] = useState<SampleFrame | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<Error | null>(null);
   const throttleRef = useRef<ThrottleState>({
@@ -49,21 +63,37 @@ export function CrosshairTimeSeriesPlotBody({ ctx }: TimeSeriesPlotBodyProps) {
     lastDispatch: 0,
     inflightToken: 0,
   });
-  const lastKeyRef = useRef<string>('');
+  const lastKeyRef = useRef<string>("");
 
   useEffect(() => {
     const target = resolveTimeseriesVoxel(layerId, crosshairMm);
-    if (!target) {
-      // Drop stale data when target becomes invalid (e.g. crosshair leaves volume).
-      setData(null);
+    if (!target || !layerId || !crosshairMm) {
+      // Drop stale data when the target becomes invalid (e.g. crosshair leaves
+      // the volume). Bump the inflight token so a request already in flight
+      // cannot resurrect stale data over the just-cleared state.
+      throttleRef.current.inflightToken += 1;
+      setFrame(null);
       setError(null);
       setLoading(false);
       return;
     }
 
-    const key = `${target.volumeId}:${target.voxel.join(',')}`;
-    if (key === lastKeyRef.current && data !== null) {
-      // Same voxel as the previous successful sample — skip duplicate request.
+    const worldMm: [number, number, number] = [
+      crosshairMm[0],
+      crosshairMm[1],
+      crosshairMm[2],
+    ];
+    // Dedupe key. For a point (radius 0) the nearest voxel is authoritative, so
+    // key on the rounded voxel — sub-voxel crosshair moves don't change the
+    // sample. For a sphere, membership and per-voxel distances depend on the
+    // fractional world position, so key on the (quantized) world position.
+    const locusKey =
+      radiusMm > 0
+        ? `s:${worldMm.map((v) => v.toFixed(2)).join(",")}`
+        : `v:${target.voxel.join(",")}`;
+    const key = `${target.volumeId}:${locusKey}:${radiusMm}:${reduce}`;
+    if (key === lastKeyRef.current && frame !== null) {
+      // Same locus as the previous successful sample — skip duplicate request.
       return;
     }
 
@@ -73,7 +103,13 @@ export function CrosshairTimeSeriesPlotBody({ ctx }: TimeSeriesPlotBodyProps) {
     }
 
     const elapsed = Date.now() - throttleRef.current.lastDispatch;
-    const delay = elapsed >= TIMESERIES_THROTTLE_MS ? 0 : TIMESERIES_THROTTLE_MS - elapsed;
+    const delay =
+      elapsed >= TIMESERIES_THROTTLE_MS ? 0 : TIMESERIES_THROTTLE_MS - elapsed;
+
+    const locus: Locus =
+      radiusMm > 0
+        ? { kind: "sphere", worldMm, radiusMm }
+        : { kind: "point", worldMm };
 
     const token = ++throttleRef.current.inflightToken;
     const dispatch = () => {
@@ -83,16 +119,11 @@ export function CrosshairTimeSeriesPlotBody({ ctx }: TimeSeriesPlotBodyProps) {
 
       setLoading(true);
       setError(null);
-      getTransport()
-        .invoke<number[]>('sample_voxel_timeseries', {
-          volumeId: target.volumeId,
-          voxelX: target.voxel[0],
-          voxelY: target.voxel[1],
-          voxelZ: target.voxel[2],
-        })
+      sampleProvider
+        .sample({ datasetId: layerId, locus, reduce })
         .then((result) => {
           if (token !== throttleRef.current.inflightToken) return;
-          setData(result);
+          setFrame(result);
           setLoading(false);
         })
         .catch((err) => {
@@ -114,11 +145,14 @@ export function CrosshairTimeSeriesPlotBody({ ctx }: TimeSeriesPlotBodyProps) {
         clearTimeout(throttleHandle.current.pending);
         throttleHandle.current.pending = null;
       }
+      // Invalidate any in-flight request on teardown so a late resolve is
+      // ignored (no setState after the effect re-runs or the body unmounts).
+      throttleHandle.current.inflightToken += 1;
     };
-    // `data` is intentionally excluded — including it would cause the effect
-    // to refire after each successful sample. The dedupe above uses a ref.
+    // `frame` is intentionally excluded — including it would refire the effect
+    // after each successful sample. The dedupe above uses a ref.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [layerId, crosshairMm]);
+  }, [layerId, crosshairMm, radiusMm, reduce]);
 
   const plotWidth = Math.max(width - PLOT_PADDING * 2, MIN_PLOT_W);
   const plotHeight = Math.max(height - PLOT_PADDING * 2, MIN_PLOT_H);
@@ -127,17 +161,17 @@ export function CrosshairTimeSeriesPlotBody({ ctx }: TimeSeriesPlotBodyProps) {
     <div
       data-testid="crosshair-ts-plot-body"
       style={{
-        position: 'absolute',
+        position: "absolute",
         inset: 0,
         padding: `${PLOT_PADDING}px`,
-        overflow: 'hidden',
+        overflow: "hidden",
       }}
     >
-      {loading && data === null && (
+      {loading && frame === null && (
         <div
           data-testid="crosshair-ts-loading"
           className="bf-role-section"
-          style={{ color: 'var(--app-text-muted)' }}
+          style={{ color: "var(--app-text-muted)" }}
         >
           Sampling…
         </div>
@@ -146,79 +180,21 @@ export function CrosshairTimeSeriesPlotBody({ ctx }: TimeSeriesPlotBodyProps) {
         <div
           data-testid="crosshair-ts-error"
           className="bf-role-section"
-          style={{ color: 'var(--app-error)' }}
+          style={{ color: "var(--app-error)" }}
         >
           {error.message}
         </div>
       )}
-      {data && data.length >= 2 && (
-        <TimeSeriesLineChart data={data} width={plotWidth} height={plotHeight} />
-      )}
-    </div>
-  );
-}
-
-interface TimeSeriesLineChartProps {
-  data: number[];
-  width: number;
-  height: number;
-}
-
-function TimeSeriesLineChart({ data, width, height }: TimeSeriesLineChartProps) {
-  let min = Infinity;
-  let max = -Infinity;
-  for (const v of data) {
-    if (v < min) min = v;
-    if (v > max) max = v;
-  }
-  const range = max - min || 1;
-  const xStep = width / Math.max(data.length - 1, 1);
-  const points = data
-    .map((v, i) => {
-      const x = i * xStep;
-      const y = height - 1 - ((v - min) / range) * (height - 2);
-      return `${x.toFixed(1)},${y.toFixed(1)}`;
-    })
-    .join('L');
-  const zeroY = max > 0 && min < 0 ? height - 1 - ((0 - min) / range) * (height - 2) : null;
-
-  return (
-    <svg
-      data-testid="crosshair-ts-svg"
-      width={width}
-      height={height}
-      role="img"
-      aria-label="Voxel time-series"
-      style={{ display: 'block' }}
-    >
-      <line
-        x1={0}
-        y1={height / 2}
-        x2={width}
-        y2={height / 2}
-        stroke="var(--app-plot-grid)"
-        strokeWidth={0.5}
-      />
-      {zeroY !== null && (
-        <line
-          x1={0}
-          y1={zeroY}
-          x2={width}
-          y2={zeroY}
-          stroke="var(--app-plot-zero)"
-          strokeWidth={1}
-          strokeDasharray="2 2"
+      {frame && (
+        <EncodedPlotView
+          modeId={TIME_SERIES_MODE_ID}
+          frame={frame}
+          width={plotWidth}
+          height={plotHeight}
+          showLocus
         />
       )}
-      <path
-        d={`M${points}`}
-        fill="none"
-        stroke="var(--app-plot-line)"
-        strokeWidth={1.5}
-        strokeLinejoin="round"
-        strokeLinecap="round"
-      />
-    </svg>
+    </div>
   );
 }
 

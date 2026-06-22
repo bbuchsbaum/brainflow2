@@ -6,19 +6,19 @@
  * `./plotHost.types.ts` for the contract.
  */
 
-import { HistogramPlotBody } from './HistogramPlot';
-import type { PlotMode } from './plotHost.types';
+import { HistogramPlotBody, HISTOGRAM_MODE_ID } from "./HistogramPlot";
+import type { PlotMode } from "./plotHost.types";
 
 export const histogramPlot: PlotMode = {
-  id: 'histogram',
-  label: 'Histogram',
+  id: HISTOGRAM_MODE_ID,
+  label: "Histogram",
   supports: (ctx) =>
     ctx.layerId
       ? { supported: true }
       : {
           supported: false,
-          reason: 'no-layer',
-          message: 'Select a layer to plot a histogram.',
+          reason: "no-layer",
+          message: "Select a layer to plot a histogram.",
         },
   render: (ctx) => <HistogramPlotBody ctx={ctx} />,
 };

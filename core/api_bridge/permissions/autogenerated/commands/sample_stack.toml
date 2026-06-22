@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-sample-stack"
+description = "Enables the sample_stack command without any pre-configured scope."
+commands.allow = ["sample_stack"]
+
+[[permission]]
+identifier = "deny-sample-stack"
+description = "Denies the sample_stack command without any pre-configured scope."
+commands.deny = ["sample_stack"]
