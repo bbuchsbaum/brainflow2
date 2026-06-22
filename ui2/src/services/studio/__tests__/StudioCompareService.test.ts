@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { buildStudioComparePaneSpecs, StudioCompareService } from '../StudioCompareService';
 import type {
   SpatialFieldSetSummary,
@@ -164,5 +164,106 @@ describe('buildStudioComparePaneSpecs', () => {
     );
     expect(specs.find((pane) => pane.id === 'residual')?.binding?.cacheStatus).toBe('synthetic');
     expect(specs.find((pane) => pane.id === 'zscore')?.binding?.cacheStatus).toBe('synthetic');
+  });
+
+  it('builds materialization requests from the active role bindings', async () => {
+    const roleSet: SpatialFieldSetSummary = {
+      ...importedSet,
+      primaryFeatureId: 'tstat',
+      memberSummaries: [
+        {
+          id: 'sub001',
+          sourcePath: '/study/sub001/maps/beta.nii.gz',
+          bindings: [
+            {
+              role: 'beta',
+              featureId: 'beta',
+              sourceLocator: 'sub001/maps/beta.nii.gz',
+              sourcePath: '/study/sub001/maps/beta.nii.gz',
+              relativePath: 'sub001/maps/beta.nii.gz',
+              selector: null,
+              supportKind: 'volume',
+              supportLabel: 'MNI152 2mm template',
+              availability: 'available',
+              isPrimary: false,
+            },
+            {
+              role: 'tstat',
+              featureId: 'tstat',
+              sourceLocator: 'sub001/maps/tstat.nii.gz',
+              sourcePath: '/study/sub001/maps/tstat.nii.gz',
+              relativePath: 'sub001/maps/tstat.nii.gz',
+              selector: null,
+              supportKind: 'volume',
+              supportLabel: 'MNI152 2mm template',
+              availability: 'available',
+              isPrimary: true,
+            },
+          ],
+        },
+        {
+          id: 'sub002',
+          sourcePath: '/study/sub002/maps/beta.nii.gz',
+          bindings: [
+            {
+              role: 'tstat',
+              featureId: 'tstat',
+              sourceLocator: 'sub002/maps/tstat.nii.gz',
+              sourcePath: '/study/sub002/maps/tstat.nii.gz',
+              relativePath: 'sub002/maps/tstat.nii.gz',
+              selector: null,
+              supportKind: 'volume',
+              supportLabel: 'MNI152 2mm template',
+              availability: 'available',
+              isPrimary: true,
+            },
+          ],
+        },
+      ],
+      memberIds: ['sub001', 'sub002'],
+    };
+    const roleCohort: StudioCohortSummary = {
+      ...compareCohort,
+      memberIds: ['sub001', 'sub002'],
+      memberCount: 2,
+    };
+    const invoke = vi.fn().mockResolvedValue([]);
+    const service = new StudioCompareService({ invoke });
+
+    await service.materializeComparePanes({
+      activeSet: roleSet,
+      activeMember: roleSet.memberSummaries[0],
+      compareCohort: roleCohort,
+      activeExpression,
+    });
+
+    const request = invoke.mock.calls[0][1].request;
+    expect(request.activeMemberSourcePath).toBe('/study/sub001/maps/tstat.nii.gz');
+    expect(request.cohortMemberSourcePaths).toEqual([
+      '/study/sub001/maps/tstat.nii.gz',
+      '/study/sub002/maps/tstat.nii.gz',
+    ]);
+    expect(request.reducerSpecs).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ kind: 'sd', role: 'tstat' }),
+        expect.objectContaining({ kind: 'leave_one_out_mean', role: 'tstat', excludedMemberId: 'sub001' }),
+      ])
+    );
+    expect(request.cohortMemberRoleBindings).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          memberId: 'sub001',
+          role: 'tstat',
+          sourcePath: '/study/sub001/maps/tstat.nii.gz',
+          availability: 'available',
+        }),
+        expect.objectContaining({
+          memberId: 'sub002',
+          role: 'tstat',
+          sourcePath: '/study/sub002/maps/tstat.nii.gz',
+          availability: 'available',
+        }),
+      ])
+    );
   });
 });

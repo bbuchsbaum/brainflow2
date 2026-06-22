@@ -17,7 +17,7 @@ name: string,
  */
 color: [number, number, number] | null, 
 /**
- * Hemisphere: "Left", "Right", or None
+ * Hemisphere: "Left", "Right", or "Bilateral"
  */
 hemisphere: string | null, 
 /**

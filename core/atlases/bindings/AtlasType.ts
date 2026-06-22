@@ -3,4 +3,4 @@
 /**
  * Atlas type enumeration for type-safe atlas identification
  */
-export type AtlasType = "schaefer2018" | "glasser2016" | "freesurfer_aseg" | "olsen_mtl" | "hippocampus";
+export type AtlasType = "schaefer2018" | "glasser2016" | "freesurfer_aseg" | "olsen_mtl";

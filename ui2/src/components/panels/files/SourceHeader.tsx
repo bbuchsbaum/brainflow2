@@ -1,6 +1,7 @@
 import React from 'react';
 import { VscFolder, VscRemote } from 'react-icons/vsc';
 import type { FileTreeNode, MountSource } from '@/types/filesystem';
+import './SourceHeader.css';
 
 interface SourceHeaderProps {
   rootNode: FileTreeNode | null;

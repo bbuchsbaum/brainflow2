@@ -1,0 +1,20 @@
+import type { SpatialFieldSetSummary } from "./SpatialFieldSetSummary";
+import type { StudioCohortSummary } from "./StudioCohortSummary";
+import type { StudioDiscoveryPreviewSummary } from "./StudioDiscoveryPreviewSummary";
+import type { StudioFeatureSummary } from "./StudioFeatureSummary";
+import type { StudioFieldExpressionSummary } from "./StudioFieldExpressionSummary";
+import type { StudioImportMode } from "./StudioImportMode";
+import type { StudioMaterializationStatus } from "./StudioMaterializationStatus";
+export type StudioImportCandidate = {
+    id: string;
+    label: string;
+    description: string;
+    mode: StudioImportMode;
+    sourceHint: string;
+    set: SpatialFieldSetSummary;
+    features: Array<StudioFeatureSummary>;
+    cohorts: Array<StudioCohortSummary>;
+    expressions: Array<StudioFieldExpressionSummary>;
+    materialization: StudioMaterializationStatus | null;
+    discovery?: StudioDiscoveryPreviewSummary | null;
+};

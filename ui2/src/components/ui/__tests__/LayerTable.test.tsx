@@ -1,10 +1,12 @@
-import React from 'react';
-import { fireEvent, render, screen } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
-import { LayerTable } from '@/components/ui/LayerTable';
+import React from "react";
+import { fireEvent, render, screen } from "@testing-library/react";
+import { describe, expect, it, vi } from "vitest";
+import { LayerTable } from "@/components/ui/LayerTable";
 
-vi.mock('@dnd-kit/core', () => ({
-  DndContext: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
+vi.mock("@dnd-kit/core", () => ({
+  DndContext: ({ children }: { children: React.ReactNode }) => (
+    <div>{children}</div>
+  ),
   PointerSensor: class PointerSensorMock {},
   KeyboardSensor: class KeyboardSensorMock {},
   useSensor: () => ({}),
@@ -12,8 +14,10 @@ vi.mock('@dnd-kit/core', () => ({
   closestCenter: vi.fn(),
 }));
 
-vi.mock('@dnd-kit/sortable', () => ({
-  SortableContext: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
+vi.mock("@dnd-kit/sortable", () => ({
+  SortableContext: ({ children }: { children: React.ReactNode }) => (
+    <div>{children}</div>
+  ),
   verticalListSortingStrategy: vi.fn(),
   useSortable: () => ({
     attributes: {},
@@ -34,19 +38,19 @@ vi.mock('@dnd-kit/sortable', () => ({
 }));
 
 const baseLayer = {
-  id: 'layer-1',
-  name: 'Schaefer 100 parcels',
-  volumeId: 'vol-1',
-  type: 'label' as const,
+  id: "layer-1",
+  name: "Schaefer 100 parcels",
+  volumeId: "vol-1",
+  type: "label" as const,
   visible: true,
   order: 0,
-  source: 'atlas' as const,
-  layerType: 'volume' as const,
+  source: "atlas" as const,
+  layerType: "volume" as const,
   opacity: 0.8,
 };
 
-describe('LayerTable', () => {
-  it('renders metadata and exposes quick action buttons', () => {
+describe("LayerTable", () => {
+  it("renders metadata and exposes quick action buttons", () => {
     const onSelect = vi.fn();
     const onToggleVisibility = vi.fn();
     const onRemove = vi.fn();
@@ -58,18 +62,26 @@ describe('LayerTable', () => {
         onSelect={onSelect}
         onToggleVisibility={onToggleVisibility}
         onRemove={onRemove}
-      />
+      />,
     );
 
-    expect(screen.getByRole('option')).toBeInTheDocument();
-    expect(screen.getByText('Volume')).toBeInTheDocument();
-    expect(screen.getByText('Source: Atlas')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /Hide Schaefer 100 parcels/i })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /Remove Schaefer 100 parcels/i })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /Layer actions for Schaefer 100 parcels/i })).toBeInTheDocument();
+    expect(screen.getByRole("option")).toBeInTheDocument();
+    expect(screen.getByText("Volume")).toBeInTheDocument();
+    expect(screen.getByText("Source: Atlas")).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /Hide Schaefer 100 parcels/i }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /Remove Schaefer 100 parcels/i }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", {
+        name: /Layer actions for Schaefer 100 parcels/i,
+      }),
+    ).toBeInTheDocument();
   });
 
-  it('supports keyboard navigation and visibility toggle from listbox', () => {
+  it("supports keyboard navigation and visibility toggle from listbox", () => {
     const onSelect = vi.fn();
     const onToggleVisibility = vi.fn();
     const onRemove = vi.fn();
@@ -77,9 +89,9 @@ describe('LayerTable', () => {
       baseLayer,
       {
         ...baseLayer,
-        id: 'layer-2',
-        name: 'AAL Atlas',
-        volumeId: 'vol-2',
+        id: "layer-2",
+        name: "AAL Atlas",
+        volumeId: "vol-2",
         order: 1,
       },
     ];
@@ -91,24 +103,27 @@ describe('LayerTable', () => {
         onSelect={onSelect}
         onToggleVisibility={onToggleVisibility}
         onRemove={onRemove}
-      />
+      />,
     );
 
-    const listbox = screen.getByRole('listbox', { name: 'Layer list' });
-    expect(listbox).toHaveAttribute('aria-activedescendant', 'layer-option-layer-1');
+    const listbox = screen.getByRole("listbox", { name: "Layer list" });
+    expect(listbox).toHaveAttribute(
+      "aria-activedescendant",
+      "layer-option-layer-1",
+    );
 
-    fireEvent.keyDown(listbox, { key: 'ArrowDown' });
-    expect(onSelect).toHaveBeenCalledWith('layer-2');
+    fireEvent.keyDown(listbox, { key: "ArrowDown" });
+    expect(onSelect).toHaveBeenCalledWith("layer-2");
 
-    fireEvent.keyDown(listbox, { key: ' ' });
-    expect(onToggleVisibility).toHaveBeenCalledWith('layer-1');
+    fireEvent.keyDown(listbox, { key: " " });
+    expect(onToggleVisibility).toHaveBeenCalledWith("layer-1");
 
     const callsBefore = onSelect.mock.calls.length;
-    fireEvent.keyDown(listbox, { key: 'ArrowRight' });
+    fireEvent.keyDown(listbox, { key: "ArrowRight" });
     expect(onSelect).toHaveBeenCalledTimes(callsBefore);
   });
 
-  it('calls remove callback from row action', () => {
+  it("calls remove callback from row action", () => {
     const onSelect = vi.fn();
     const onToggleVisibility = vi.fn();
     const onRemove = vi.fn();
@@ -120,10 +135,60 @@ describe('LayerTable', () => {
         onSelect={onSelect}
         onToggleVisibility={onToggleVisibility}
         onRemove={onRemove}
-      />
+      />,
     );
 
-    fireEvent.click(screen.getByRole('button', { name: /Remove Schaefer 100 parcels/i }));
-    expect(onRemove).toHaveBeenCalledWith('layer-1');
+    fireEvent.click(
+      screen.getByRole("button", { name: /Remove Schaefer 100 parcels/i }),
+    );
+    expect(onRemove).toHaveBeenCalledWith("layer-1");
+  });
+
+  it("calls onViewOnSurface from the layer actions menu when a surface is loaded", () => {
+    const onViewOnSurface = vi.fn();
+
+    render(
+      <LayerTable
+        layers={[baseLayer]}
+        selectedLayerId="layer-1"
+        onSelect={vi.fn()}
+        onToggleVisibility={vi.fn()}
+        onViewOnSurface={onViewOnSurface}
+        canViewOnSurface
+      />,
+    );
+
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: /Layer actions for Schaefer 100 parcels/i,
+      }),
+    );
+    fireEvent.click(screen.getByRole("menuitem", { name: /View on surface/i }));
+    expect(onViewOnSurface).toHaveBeenCalledWith("layer-1");
+  });
+
+  it('disables "View on surface" when no surface is loaded', () => {
+    const onViewOnSurface = vi.fn();
+
+    render(
+      <LayerTable
+        layers={[baseLayer]}
+        selectedLayerId="layer-1"
+        onSelect={vi.fn()}
+        onToggleVisibility={vi.fn()}
+        onViewOnSurface={onViewOnSurface}
+        canViewOnSurface={false}
+      />,
+    );
+
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: /Layer actions for Schaefer 100 parcels/i,
+      }),
+    );
+    const item = screen.getByRole("menuitem", { name: /View on surface/i });
+    expect(item).toBeDisabled();
+    fireEvent.click(item);
+    expect(onViewOnSurface).not.toHaveBeenCalled();
   });
 });

@@ -1,6 +1,12 @@
 import React, { useMemo } from 'react';
-import type { FileTreeNode } from '@/types/filesystem';
+import './FlatList.css';
+import type { DragFileData, FileTreeNode } from '@/types/filesystem';
 import { useFileBrowserStore } from '@/stores/fileBrowserStore';
+import {
+  FILE_DRAG_MIME,
+  setActiveDragData,
+  clearActiveDragData,
+} from '@/utils/layerDrag';
 import { inferFileType, type FileKind } from './shared/inferFileType';
 import { FileTypeBadge } from './shared/FileTypeBadge';
 
@@ -87,6 +93,27 @@ export const ImagesView: React.FC<ImagesViewProps> = ({ rootNode, selectedPath }
     );
   }
 
+  function handleDragStart(event: React.DragEvent, row: FlatImageRow) {
+    if (!event.dataTransfer) return;
+    event.stopPropagation();
+
+    const extension = row.name.match(/\.[^.]+$/)?.[0];
+    const dragData: DragFileData = {
+      path: row.path,
+      name: row.name,
+      type: 'file',
+      extension,
+    };
+
+    setActiveDragData(dragData);
+
+    const json = JSON.stringify(dragData);
+    event.dataTransfer.setData(FILE_DRAG_MIME, json);
+    event.dataTransfer.setData('application/json', json);
+    event.dataTransfer.setData('text/plain', row.path);
+    event.dataTransfer.effectAllowed = 'copy';
+  }
+
   return (
     <ul className="fb-flat-list" role="list">
       {rows.map((row) => {
@@ -99,6 +126,9 @@ export const ImagesView: React.FC<ImagesViewProps> = ({ rootNode, selectedPath }
               className={`fb-flat-row${isSelected ? ' is-selected' : ''}`}
               onClick={() => selectFile(row.path)}
               title={row.path}
+              draggable
+              onDragStart={(event) => handleDragStart(event, row)}
+              onDragEnd={() => clearActiveDragData()}
             >
               <FileTypeBadge info={info} />
               <span className="fb-flat-row-name">{row.name}</span>

@@ -18,17 +18,23 @@
  * Zustand v5 doesn't loop infinitely on object-returning selectors.
  */
 
-import { useLayerStore } from '@/stores/layerStore';
-import { useSurfaceStore } from '@/stores/surfaceStore';
+import { useLayerStore } from "@/stores/layerStore";
+import { useSurfaceStore } from "@/stores/surfaceStore";
 
-export type SurfaceAssociationKind = 'missing' | 'loaded-unlinked' | 'loaded-linked';
+import { isTemplateSurfacePath } from "./surfaceProjectionResolution";
+
+export type SurfaceAssociationKind =
+  | "missing"
+  | "loaded-unlinked"
+  | "loaded-linked"
+  | "template-underlay";
 
 export interface SurfaceAssociationMissing {
-  readonly kind: 'missing';
+  readonly kind: "missing";
 }
 
 export interface SurfaceAssociationUnlinked {
-  readonly kind: 'loaded-unlinked';
+  readonly kind: "loaded-unlinked";
   readonly surfaceId: string;
   readonly surfaceName: string;
   /**
@@ -36,21 +42,33 @@ export interface SurfaceAssociationUnlinked {
    * has no `sourceVolumeId` at all. `'source-not-loaded'` = the surface
    * names a sourceVolumeId but no current volume layer matches.
    */
-  readonly reason: 'no-source-id' | 'source-not-loaded';
+  readonly reason: "no-source-id" | "source-not-loaded";
 }
 
 export interface SurfaceAssociationLinked {
-  readonly kind: 'loaded-linked';
+  readonly kind: "loaded-linked";
   readonly surfaceId: string;
   readonly surfaceName: string;
   readonly volumeLayerId: string;
   readonly volumeName: string;
 }
 
+/**
+ * The anchor surface was auto-mounted from a template catalog (its path uses
+ * the `templateflow://` scheme) and is serving as an MNI underlay rather than a
+ * subject-specific surface linked by `sourceVolumeId` (vol2surf M8).
+ */
+export interface SurfaceAssociationTemplateUnderlay {
+  readonly kind: "template-underlay";
+  readonly surfaceId: string;
+  readonly surfaceName: string;
+}
+
 export type SurfaceAssociationState =
   | SurfaceAssociationMissing
   | SurfaceAssociationUnlinked
-  | SurfaceAssociationLinked;
+  | SurfaceAssociationLinked
+  | SurfaceAssociationTemplateUnderlay;
 
 /**
  * Picks the surface that drives the association badge. Mirrors
@@ -85,12 +103,12 @@ export function useSurfaceAssociationState(): SurfaceAssociationState {
   // Snapshot the keys once per render — Map iteration order is stable, but
   // we still want to avoid returning a fresh array from a selector.
   const surfaceIdsKey = useSurfaceStore((s) =>
-    Array.from(s.surfaces.keys()).join('|'),
+    Array.from(s.surfaces.keys()).join("|"),
   );
   const visibilityKey = useSurfaceStore((s) => {
-    let parts = '';
+    let parts = "";
     s.surfaces.forEach((surface, id) => {
-      parts += `${id}:${surface.visible === false ? '0' : '1'};`;
+      parts += `${id}:${surface.visible === false ? "0" : "1"};`;
     });
     return parts;
   });
@@ -113,6 +131,10 @@ export function useSurfaceAssociationState(): SurfaceAssociationState {
     if (!anchorId) return undefined;
     return s.surfaces.get(anchorId)?.metadata.sourceVolumeId;
   });
+  const anchorPath = useSurfaceStore((s) => {
+    if (!anchorId) return undefined;
+    return s.surfaces.get(anchorId)?.metadata.path;
+  });
 
   // ---- Volume side ---------------------------------------------------------
   // Look up the matched volume layer by id (no array-shape selectors — those
@@ -128,29 +150,38 @@ export function useSurfaceAssociationState(): SurfaceAssociationState {
   void activeSurfaceId;
 
   if (!anchorId || !anchorName) {
-    return { kind: 'missing' };
+    return { kind: "missing" };
   }
 
   if (!anchorSourceVolumeId) {
+    // An auto-mounted template surface (templateflow:// path) has no
+    // sourceVolumeId by design — it's an underlay, not "unlinked" (vol2surf M8).
+    if (isTemplateSurfacePath(anchorPath)) {
+      return {
+        kind: "template-underlay",
+        surfaceId: anchorId,
+        surfaceName: anchorName,
+      };
+    }
     return {
-      kind: 'loaded-unlinked',
+      kind: "loaded-unlinked",
       surfaceId: anchorId,
       surfaceName: anchorName,
-      reason: 'no-source-id',
+      reason: "no-source-id",
     };
   }
 
   if (!volumeLayerName) {
     return {
-      kind: 'loaded-unlinked',
+      kind: "loaded-unlinked",
       surfaceId: anchorId,
       surfaceName: anchorName,
-      reason: 'source-not-loaded',
+      reason: "source-not-loaded",
     };
   }
 
   return {
-    kind: 'loaded-linked',
+    kind: "loaded-linked",
     surfaceId: anchorId,
     surfaceName: anchorName,
     volumeLayerId: anchorSourceVolumeId,

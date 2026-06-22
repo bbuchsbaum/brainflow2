@@ -6,16 +6,19 @@
  * then dispatches to tooltip, status bar, and returns local state for in-canvas overlay.
  */
 
-import { useCallback, useRef, useMemo, useEffect, useState } from 'react';
-import { throttle } from 'lodash';
-import { hoverInfoService } from '@/services/HoverInfoService';
-import { useHoverSettingsStore, selectThrottleMs } from '@/stores/hoverSettingsStore';
-import { useMouseCoordinateStore } from '@/stores/mouseCoordinateStore';
-import { useStatusBarStore } from '@/stores/statusBarStore';
-import { useTooltipStore, type ViewTooltipEntry } from '@/stores/tooltipStore';
-import type { HoverContext, HoverInfoEntry } from '@/types/hoverInfo';
+import { useCallback, useRef, useMemo, useEffect, useState } from "react";
+import { throttle } from "lodash";
+import { hoverInfoService } from "@/services/HoverInfoService";
+import {
+  useHoverSettingsStore,
+  selectThrottleMs,
+} from "@/stores/hoverSettingsStore";
+import { useMouseCoordinateStore } from "@/stores/mouseCoordinateStore";
+import { useStatusBarStore } from "@/stores/statusBarStore";
+import { useTooltipStore, type ViewTooltipEntry } from "@/stores/tooltipStore";
+import type { HoverContext, HoverInfoEntry } from "@/types/hoverInfo";
 
-type AnatomicalViewId = 'axial' | 'sagittal' | 'coronal';
+type AnatomicalViewId = "axial" | "sagittal" | "coronal";
 
 export interface UseHoverInfoOptions {
   /** View identifier for this component */
@@ -27,7 +30,10 @@ export interface UseHoverInfoOptions {
   /** ID of the active atlas layer (if any) */
   activeAtlasId?: string;
   /** Callback to convert canvas coordinates to world coordinates */
-  canvasToWorld: (canvasX: number, canvasY: number) => [number, number, number] | null;
+  canvasToWorld: (
+    canvasX: number,
+    canvasY: number,
+  ) => [number, number, number] | null;
   /** Called when hover starts/updates (for marking view as active) */
   onHoverStart?: () => void;
 }
@@ -55,10 +61,10 @@ function formatCoord(coord: [number, number, number]): string {
  */
 function toTooltipEntry(entry: HoverInfoEntry): ViewTooltipEntry {
   return {
-    kind: 'custom',
+    kind: "custom",
     label: entry.label,
     value: entry.value,
-    priority: (entry.priority ?? 50) < 30 ? 'high' : 'normal',
+    priority: (entry.priority ?? 50) < 30 ? "high" : "normal",
   };
 }
 
@@ -110,8 +116,8 @@ export function useHoverInfo(options: UseHoverInfoOptions): UseHoverInfoResult {
     mouseStore.clearMousePosition();
 
     const statusStore = useStatusBarStore.getState();
-    statusStore.setValue('mouse', '--');
-    statusStore.setValue('value', '--');
+    statusStore.setValue("mouse", "--");
+    statusStore.setValue("value", "--");
 
     const tooltipStore = useTooltipStore.getState();
     tooltipStore.clearTooltip();
@@ -169,11 +175,14 @@ export function useHoverInfo(options: UseHoverInfoOptions): UseHoverInfoResult {
           const settings = useHoverSettingsStore.getState();
 
           if (settings.showInStatusBar) {
-            statusStore.setValue('mouse', formatCoord(worldCoord));
+            statusStore.setValue("mouse", formatCoord(worldCoord));
             const intensityEntry = entries.find(
-              (e) => e.group === 'intensity' || e.label === 'Value'
+              (e) => e.group === "intensity" || e.label === "Value",
             );
-            statusStore.setValue('value', intensityEntry ? intensityEntry.value : '--');
+            statusStore.setValue(
+              "value",
+              intensityEntry ? intensityEntry.value : "--",
+            );
           }
 
           if (settings.showInTooltip && entries.length > 0) {
@@ -187,34 +196,36 @@ export function useHoverInfo(options: UseHoverInfoOptions): UseHoverInfoResult {
           }
 
           const intensityEntry = entries.find(
-            (e) => e.group === 'intensity' || e.label === 'Value'
+            (e) => e.group === "intensity" || e.label === "Value",
           );
           if (intensityEntry) {
             const value = parseFloat(intensityEntry.value);
             setHoverValue((prev) =>
-              Number.isFinite(value) && prev !== null && Math.abs(prev - value) < 1e-6
+              Number.isFinite(value) &&
+              prev !== null &&
+              Math.abs(prev - value) < 1e-6
                 ? prev
                 : Number.isFinite(value)
                   ? value
-                  : null
+                  : null,
             );
           } else {
             setHoverValue(null);
           }
         } catch (err) {
-          console.error('[useHoverInfo] Error handling mouse move:', err);
+          console.error("[useHoverInfo] Error handling mouse move:", err);
           clearHoverState();
         }
       },
       throttleMs,
-      { leading: true, trailing: true }
+      { leading: true, trailing: true },
     );
   }, [clearHoverState, throttleMs, viewId]);
 
   const handleMouseMove = useCallback(
     (event: React.MouseEvent) => {
       const target = event.currentTarget as HTMLElement | null;
-      if (!target || typeof target.getBoundingClientRect !== 'function') {
+      if (!target || typeof target.getBoundingClientRect !== "function") {
         return;
       }
       const rect = target.getBoundingClientRect();
@@ -225,7 +236,7 @@ export function useHoverInfo(options: UseHoverInfoOptions): UseHoverInfoResult {
         rectTop: rect.top,
       });
     },
-    [throttledMouseMove]
+    [throttledMouseMove],
   );
 
   // Cleanup throttled handler on unmount

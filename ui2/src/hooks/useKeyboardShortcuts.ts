@@ -4,21 +4,27 @@
  * Uses KeyboardShortcutService for centralized registration.
  */
 
-import { useEffect } from 'react';
-import { useTimeNavigation } from './useTimeNavigation';
-import { getTimeNavigationService } from '@/services/TimeNavigationService';
-import { getSliceNavigationService } from '@/services/SliceNavigationService';
-import { getEventBus } from '@/events/EventBus';
-import { getKeyboardShortcutService } from '@/services/KeyboardShortcutService';
-import { useActiveRenderContextStore } from '@/stores/activeRenderContextStore';
-import { useMouseCoordinateStore } from '@/stores/mouseCoordinateStore';
-import { useLayoutStateStore } from '@/stores/layoutStateStore';
-import type { ViewType } from '@/types/coordinates';
+import { useEffect } from "react";
+import { useTimeNavigation } from "./useTimeNavigation";
+import { getTimeNavigationService } from "@/services/TimeNavigationService";
+import { getSliceNavigationService } from "@/services/SliceNavigationService";
+import { getEventBus } from "@/events/EventBus";
+import { getKeyboardShortcutService } from "@/services/KeyboardShortcutService";
+import { useActiveRenderContextStore } from "@/stores/activeRenderContextStore";
+import { useMouseCoordinateStore } from "@/stores/mouseCoordinateStore";
+import { useLayoutStateStore } from "@/stores/layoutStateStore";
+import { useLayoutSettingsStore } from "@/stores/layoutSettingsStore";
+import type { ViewType } from "@/types/coordinates";
 
-const CATEGORY = 'Time Navigation';
-const SLICE_SHORTCUT_CATEGORY = 'Slice Navigation';
+const CATEGORY = "Time Navigation";
+const SLICE_SHORTCUT_CATEGORY = "Slice Navigation";
+const PLOT_SHORTCUT_CATEGORY = "Plot";
 
-const SLICE_VIEWS: ReadonlySet<ViewType> = new Set(['axial', 'sagittal', 'coronal']);
+const SLICE_VIEWS: ReadonlySet<ViewType> = new Set([
+  "axial",
+  "sagittal",
+  "coronal",
+]);
 
 function resolveActiveSliceView(): ViewType {
   const activeRenderable = useActiveRenderContextStore.getState().activeId;
@@ -51,14 +57,14 @@ export function useKeyboardShortcuts() {
   useEffect(() => {
     const has4D = () => timeNav.has4DVolume();
     const isTimeMode = () =>
-      has4D() && getTimeNavigationService().getMode() === 'time';
+      has4D() && getTimeNavigationService().getMode() === "time";
 
     const unregisterFns = [
       service.register({
-        id: 'time.prev',
-        key: 'ArrowLeft',
+        id: "time.prev",
+        key: "ArrowLeft",
         category: CATEGORY,
-        description: 'Previous timepoint',
+        description: "Previous timepoint",
         priority: 20,
         when: isTimeMode,
         handler: () => {
@@ -66,10 +72,10 @@ export function useKeyboardShortcuts() {
         },
       }),
       service.register({
-        id: 'time.next',
-        key: 'ArrowRight',
+        id: "time.next",
+        key: "ArrowRight",
         category: CATEGORY,
-        description: 'Next timepoint',
+        description: "Next timepoint",
         priority: 20,
         when: isTimeMode,
         handler: () => {
@@ -77,11 +83,11 @@ export function useKeyboardShortcuts() {
         },
       }),
       service.register({
-        id: 'time.prev10',
-        key: 'ArrowLeft',
+        id: "time.prev10",
+        key: "ArrowLeft",
         modifiers: { shift: true },
         category: CATEGORY,
-        description: 'Jump 10 timepoints backward',
+        description: "Jump 10 timepoints backward",
         priority: 30,
         when: isTimeMode,
         handler: () => {
@@ -89,11 +95,11 @@ export function useKeyboardShortcuts() {
         },
       }),
       service.register({
-        id: 'time.next10',
-        key: 'ArrowRight',
+        id: "time.next10",
+        key: "ArrowRight",
         modifiers: { shift: true },
         category: CATEGORY,
-        description: 'Jump 10 timepoints forward',
+        description: "Jump 10 timepoints forward",
         priority: 30,
         when: isTimeMode,
         handler: () => {
@@ -101,10 +107,10 @@ export function useKeyboardShortcuts() {
         },
       }),
       service.register({
-        id: 'slice.prev',
-        key: 'ArrowLeft',
+        id: "slice.prev",
+        key: "ArrowLeft",
         category: SLICE_SHORTCUT_CATEGORY,
-        description: 'Previous slice in active view',
+        description: "Previous slice in active view",
         priority: 10,
         when: () => !isTimeMode(),
         handler: () => {
@@ -112,10 +118,10 @@ export function useKeyboardShortcuts() {
         },
       }),
       service.register({
-        id: 'slice.next',
-        key: 'ArrowRight',
+        id: "slice.next",
+        key: "ArrowRight",
         category: SLICE_SHORTCUT_CATEGORY,
-        description: 'Next slice in active view',
+        description: "Next slice in active view",
         priority: 10,
         when: () => !isTimeMode(),
         handler: () => {
@@ -123,11 +129,11 @@ export function useKeyboardShortcuts() {
         },
       }),
       service.register({
-        id: 'slice.prev10',
-        key: 'ArrowLeft',
+        id: "slice.prev10",
+        key: "ArrowLeft",
         modifiers: { shift: true },
         category: SLICE_SHORTCUT_CATEGORY,
-        description: 'Jump 10 slices backward in active view',
+        description: "Jump 10 slices backward in active view",
         priority: 15,
         when: () => !isTimeMode(),
         handler: () => {
@@ -135,11 +141,11 @@ export function useKeyboardShortcuts() {
         },
       }),
       service.register({
-        id: 'slice.next10',
-        key: 'ArrowRight',
+        id: "slice.next10",
+        key: "ArrowRight",
         modifiers: { shift: true },
         category: SLICE_SHORTCUT_CATEGORY,
-        description: 'Jump 10 slices forward in active view',
+        description: "Jump 10 slices forward in active view",
         priority: 15,
         when: () => !isTimeMode(),
         handler: () => {
@@ -147,26 +153,42 @@ export function useKeyboardShortcuts() {
         },
       }),
       service.register({
-        id: 'time.playPause',
-        key: ' ',
-        category: CATEGORY,
-        description: 'Play/pause time animation',
+        id: "plot.toggleDock",
+        key: "p",
+        category: PLOT_SHORTCUT_CATEGORY,
+        description: "Show/hide the plot dock",
         handler: () => {
-          getEventBus().emit('playback.toggle', {});
+          const settings = useLayoutSettingsStore.getState();
+          const willOpen = !settings.plotDockOpen;
+          settings.togglePlotDock();
+          getEventBus().emit("ui.notification", {
+            type: "info",
+            message: willOpen ? "Plot dock shown" : "Plot dock hidden",
+            durationMs: 1000,
+          });
         },
       }),
       service.register({
-        id: 'time.toggleMode',
-        key: 't',
+        id: "time.playPause",
+        key: " ",
         category: CATEGORY,
-        description: 'Toggle time/slice navigation mode',
+        description: "Play/pause time animation",
+        handler: () => {
+          getEventBus().emit("playback.toggle", {});
+        },
+      }),
+      service.register({
+        id: "time.toggleMode",
+        key: "t",
+        category: CATEGORY,
+        description: "Toggle time/slice navigation mode",
         handler: () => {
           const timeNavSvc = getTimeNavigationService();
           timeNavSvc.toggleMode();
           const mode = timeNavSvc.getMode();
-          getEventBus().emit('ui.notification', {
-            type: 'info',
-            message: `Scroll wheel: ${mode === 'time' ? 'Time navigation' : 'Slice navigation'}`,
+          getEventBus().emit("ui.notification", {
+            type: "info",
+            message: `Scroll wheel: ${mode === "time" ? "Time navigation" : "Slice navigation"}`,
             durationMs: 1000,
           });
         },
@@ -174,9 +196,9 @@ export function useKeyboardShortcuts() {
     ];
 
     return () => {
-      unregisterFns.forEach(fn => fn());
+      unregisterFns.forEach((fn) => fn());
     };
-  // Re-register when timeNav identity changes (i.e. when has4DVolume predicate changes)
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // Re-register when timeNav identity changes (i.e. when has4DVolume predicate changes)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [timeNav]);
 }

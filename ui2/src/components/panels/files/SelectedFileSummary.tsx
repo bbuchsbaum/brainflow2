@@ -1,14 +1,19 @@
-import React, { useEffect, useRef, useState } from 'react';
-import { getEventBus } from '@/events/EventBus';
-import { getTransport } from '@/services/transport';
-import type { DisplayOpenIntent } from '@/types/loadIntent';
-import { useFileBrowserStore } from '@/stores/fileBrowserStore';
-import { inferFileType } from './shared/inferFileType';
-import { FileTypeBadge } from './shared/FileTypeBadge';
+import React, { useEffect, useRef, useState } from "react";
+import "./SelectedFileSummary.css";
+import { getEventBus } from "@/events/EventBus";
+import { getTransport } from "@/services/transport";
+import type { DisplayOpenIntent } from "@/types/loadIntent";
+import { useFileBrowserStore } from "@/stores/fileBrowserStore";
+import { inferFileType } from "./shared/inferFileType";
+import { FileTypeBadge } from "./shared/FileTypeBadge";
 
 interface SelectedFileSummaryProps {
   selectedPath: string | null;
-  selectedNode: { name: string; type: 'file' | 'directory'; size?: number } | null;
+  selectedNode: {
+    name: string;
+    type: "file" | "directory";
+    size?: number;
+  } | null;
 }
 
 interface PeekResult {
@@ -20,11 +25,11 @@ interface PeekResult {
   tr?: number;
 }
 
-const PEEK_COMMAND = 'peek_volume_metadata';
+const PEEK_COMMAND = "peek_volume_metadata";
 
 function formatFileSize(bytes?: number): string {
-  if (!bytes && bytes !== 0) return '';
-  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+  if (!bytes && bytes !== 0) return "";
+  const units = ["B", "KB", "MB", "GB", "TB"];
   let size = bytes;
   let unitIndex = 0;
   while (size >= 1024 && unitIndex < units.length - 1) {
@@ -35,13 +40,16 @@ function formatFileSize(bytes?: number): string {
 }
 
 function formatDims(dims: number[] | undefined): string {
-  if (!dims || dims.length === 0) return '';
-  return dims.join(' × ');
+  if (!dims || dims.length === 0) return "";
+  return dims.join(" × ");
 }
 
 function formatVoxel(voxelSize: number[] | undefined): string {
-  if (!voxelSize || voxelSize.length === 0) return '';
-  return `${voxelSize.slice(0, 3).map((v) => v.toFixed(2)).join(' × ')} mm`;
+  if (!voxelSize || voxelSize.length === 0) return "";
+  return `${voxelSize
+    .slice(0, 3)
+    .map((v) => v.toFixed(2))
+    .join(" × ")} mm`;
 }
 
 export const SelectedFileSummary: React.FC<SelectedFileSummaryProps> = ({
@@ -49,7 +57,9 @@ export const SelectedFileSummary: React.FC<SelectedFileSummaryProps> = ({
   selectedNode,
 }) => {
   const isFourDStored = useFileBrowserStore((state) =>
-    selectedPath && state.fourDPaths ? state.fourDPaths.has(selectedPath) : false
+    selectedPath && state.fourDPaths
+      ? state.fourDPaths.has(selectedPath)
+      : false,
   );
 
   const [peek, setPeek] = useState<PeekResult | null>(null);
@@ -68,15 +78,22 @@ export const SelectedFileSummary: React.FC<SelectedFileSummaryProps> = ({
     setPeek(null);
     setPeekError(null);
 
-    if (!selectedPath || selectedNodeType !== 'file') {
+    if (!selectedPath || selectedNodeType !== "file") {
       setPeekLoading(false);
       return;
     }
 
     const info = inferFileType(selectedPath, false);
-    const isProbeable = ['nii', 'niiGz', 'fourDNii', 'gii', 'surfGii', 'funcGii', 'mgz', 'mgh'].includes(
-      info.kind
-    );
+    const isProbeable = [
+      "nii",
+      "niiGz",
+      "fourDNii",
+      "gii",
+      "surfGii",
+      "funcGii",
+      "mgz",
+      "mgh",
+    ].includes(info.kind);
     if (!isProbeable) {
       setPeekLoading(false);
       return;
@@ -112,7 +129,7 @@ export const SelectedFileSummary: React.FC<SelectedFileSummaryProps> = ({
     };
   }, [selectedPath, selectedNodeType, selectedNodeName]);
 
-  if (!selectedPath || !selectedNode || selectedNode.type !== 'file') {
+  if (!selectedPath || !selectedNode || selectedNode.type !== "file") {
     return null;
   }
 
@@ -120,7 +137,7 @@ export const SelectedFileSummary: React.FC<SelectedFileSummaryProps> = ({
   const typeInfo = inferFileType(selectedPath, false, { isFourD });
 
   function fireOpen(intent: DisplayOpenIntent) {
-    getEventBus().emit('filebrowser.file.open', {
+    getEventBus().emit("filebrowser.file.open", {
       path: selectedPath as string,
       intent,
     });
@@ -131,7 +148,11 @@ export const SelectedFileSummary: React.FC<SelectedFileSummaryProps> = ({
   const sizeStr = formatFileSize(selectedNode.size);
 
   return (
-    <div className="fb-selected-summary" role="region" aria-label="Selected file summary">
+    <div
+      className="fb-selected-summary"
+      role="region"
+      aria-label="Selected file summary"
+    >
       <div className="fb-selected-row">
         <FileTypeBadge info={typeInfo} />
         <span className="fb-selected-name" title={selectedPath}>
@@ -141,7 +162,9 @@ export const SelectedFileSummary: React.FC<SelectedFileSummaryProps> = ({
 
       <div className="fb-selected-meta">
         {peekLoading && (
-          <span className="fb-selected-meta-item fb-selected-meta-pending">Probing…</span>
+          <span className="fb-selected-meta-item fb-selected-meta-pending">
+            Probing…
+          </span>
         )}
         {!peekLoading && peek && dimsStr && (
           <span className="fb-selected-meta-item" title="Dimensions">
@@ -163,12 +186,14 @@ export const SelectedFileSummary: React.FC<SelectedFileSummaryProps> = ({
             {peek.numTimepoints}t
           </span>
         )}
-        {!peekLoading && !peek && sizeStr && (
+        {/* Show size whenever there are no dimensions to display — covers a
+            failed probe and the remote-not-yet-cached stub (empty dims). */}
+        {!peekLoading && !dimsStr && sizeStr && (
           <span className="fb-selected-meta-item" title="File size">
             {sizeStr}
           </span>
         )}
-        {!peekLoading && !peek && !sizeStr && (
+        {!peekLoading && !dimsStr && !sizeStr && (
           <span className="fb-selected-meta-item">{typeInfo.description}</span>
         )}
       </div>
@@ -183,14 +208,14 @@ export const SelectedFileSummary: React.FC<SelectedFileSummaryProps> = ({
         <button
           type="button"
           className="fb-selected-button fb-selected-button--primary"
-          onClick={() => fireOpen('default')}
+          onClick={() => fireOpen("default")}
         >
           Load
         </button>
         <button
           type="button"
           className="fb-selected-button"
-          onClick={() => fireOpen('add-layer')}
+          onClick={() => fireOpen("add-layer")}
         >
           Add Layer
         </button>

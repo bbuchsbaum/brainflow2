@@ -88,7 +88,7 @@ If that flow is reliable, fast, and legible, V1 succeeds.
 As of 2026-03-10, the narrowed V1 workflow is implemented in the app shell and Set Studio workspace:
 
 - Set Studio opens as a first-class workspace in the current GoldenLayout shell.
-- NFTab manifest and regex/glob discovery preview flow into a trust-first ingest audit.
+- NeuroTabs manifest and regex/glob discovery preview flow into a trust-first ingest audit.
 - Deck supports image-first member browsing with search, filtering, and table-driven sorting.
 - The current visible subset can be saved directly as a cohort or used immediately in Compare.
 - Compare materializes and reopens `cohort mean`, `residual`, and `z-score` outputs through the existing file/layer path.

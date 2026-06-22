@@ -5,7 +5,10 @@
 use crate::catalog::AtlasCatalog;
 use crate::types::*;
 use neuroatlas::{
-    atlas::{ASEGAtlas, Atlas, GlasserAtlas, GlasserSurfAtlas, OlsenMTLAtlas, SchaeferAtlas},
+    atlas::{
+        ASEGAtlas, Atlas, AtlasBuilder, GlasserAtlas, GlasserSurfAtlas, OlsenMTLAtlas,
+        SchaeferAtlas, SchaeferBuilder,
+    },
     core::types::Hemisphere,
 };
 use std::fs;
@@ -53,6 +56,11 @@ pub struct AtlasService {
     cache_dir: std::path::PathBuf,
     // Track active subscriptions for proper cleanup
     active_subscriptions: Arc<std::sync::atomic::AtomicUsize>,
+    // Memoized discrete ROI palettes keyed by config+kind+seed so re-selecting a
+    // palette (or reloading the same atlas) is instant instead of recomputing.
+    palette_cache: Arc<
+        std::sync::Mutex<std::collections::HashMap<String, crate::palette::AtlasPaletteResponse>>,
+    >,
 }
 
 impl AtlasService {
@@ -68,6 +76,7 @@ impl AtlasService {
             progress_tx,
             cache_dir,
             active_subscriptions: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+            palette_cache: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
         })
     }
 
@@ -632,7 +641,7 @@ impl AtlasService {
     ) -> Result<AtlasLoadResult, AtlasError> {
         // Validate space/resolution via neuroatlas types
         let _space = config.parse_space()?;
-        let _resolution = config.parse_resolution()?;
+        let resolution = config.parse_resolution()?;
 
         let atlas_label = atlas_type.to_string();
 
@@ -696,11 +705,16 @@ impl AtlasService {
         // Dispatch construction and loading on a blocking thread
         let n_regions = tokio::task::spawn_blocking(move || match atlas_type_clone {
             AtlasType::Schaefer2018 => {
-                let create = if networks == 7 {
-                    SchaeferAtlas::new_7_network(parcels)
-                } else {
-                    SchaeferAtlas::new_17_network(parcels)
-                };
+                // Honor the requested resolution end-to-end: the on-disk path lookup
+                // in api_bridge (`get_neuroatlas_nifti_path`) derives the filename from
+                // `config.resolution`, so the download must use the same resolution.
+                // The `new_*_network` helpers hardcode neuroatlas' MM2 default, which
+                // caused 1mm requests to download a 2mm file and then fail the lookup.
+                let create = SchaeferBuilder::new()
+                    .parcels(parcels)
+                    .networks(networks)
+                    .resolution(resolution)
+                    .build();
                 load_concrete_atlas!(create, progress_tx, atlas_id)
             }
             AtlasType::Glasser2016 => {
@@ -742,6 +756,73 @@ impl AtlasService {
             atlas_metadata: metadata,
             volume_handle,
         })
+    }
+
+    /// Compute the discrete ROI palette (LUT + legend) for an atlas configuration.
+    ///
+    /// Reconstructs and loads the concrete atlas (NIfTI is disk-cached, so this is
+    /// file IO) so the slice-aware `neuroatlas::colors` engine can read per-ROI
+    /// centroids. `kind == None` prefers native label colors when present, else the
+    /// engine's default recipe (Schaefer -> NetworkHarmony, others -> MaximinView).
+    pub async fn compute_atlas_palette(
+        &self,
+        config: &AtlasConfig,
+        kind: Option<crate::palette::AtlasPaletteKind>,
+        seed: Option<u64>,
+    ) -> Result<crate::palette::AtlasPaletteResponse, AtlasError> {
+        let atlas_type = config.parse_atlas_type()?;
+        let resolution = config.parse_resolution()?;
+        let networks = config.networks.unwrap_or(7);
+        let parcels = config.parcels.unwrap_or(400);
+        let atlas_id = config.atlas_id.clone();
+
+        // Memoize per config+kind+seed: re-selecting a palette or reloading the same
+        // atlas returns instantly instead of rerunning the engine. Lock is held only
+        // for the brief get/insert, never across the blocking computation.
+        let cache_key = format!(
+            "{}|{}|{}|{}|{}|{:?}|{:?}",
+            atlas_id, config.space, config.resolution, parcels, networks, kind, seed
+        );
+        if let Ok(cache) = self.palette_cache.lock() {
+            if let Some(cached) = cache.get(&cache_key) {
+                return Ok(cached.clone());
+            }
+        }
+
+        let response = tokio::task::spawn_blocking(move || -> Result<_, AtlasError> {
+            macro_rules! palette_for {
+                ($create:expr) => {{
+                    let mut atlas = $create.map_err(|e| {
+                        AtlasError::LoadFailed(format!("Failed to create atlas: {}", e))
+                    })?;
+                    futures::executor::block_on(atlas.load()).map_err(|e| {
+                        AtlasError::LoadFailed(format!("Failed to load atlas data: {}", e))
+                    })?;
+                    crate::palette::compute_palette(&atlas, &atlas_id, kind, seed)
+                }};
+            }
+
+            match atlas_type {
+                AtlasType::Schaefer2018 => {
+                    let create = SchaeferBuilder::new()
+                        .parcels(parcels)
+                        .networks(networks)
+                        .resolution(resolution)
+                        .build();
+                    palette_for!(create)
+                }
+                AtlasType::Glasser2016 => palette_for!(GlasserAtlas::new()),
+                AtlasType::FreeSurferAseg => palette_for!(ASEGAtlas::new()),
+                AtlasType::OlsenMtl => palette_for!(OlsenMTLAtlas::new()),
+            }
+        })
+        .await
+        .map_err(|e| AtlasError::LoadFailed(format!("Atlas palette task failed: {}", e)))??;
+
+        if let Ok(mut cache) = self.palette_cache.lock() {
+            cache.insert(cache_key, response.clone());
+        }
+        Ok(response)
     }
 
     /// Load a surface atlas (Glasser or Schaefer) and return per-vertex labels

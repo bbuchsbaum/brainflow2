@@ -1,0 +1,24 @@
+spec_version: "0.1.0"
+dataset_id: missing_support_ref
+storage_profile: "table-package"
+observation_table:
+  path: observations.csv
+  format: csv
+row_id: row_id
+observation_axes: [subject]
+observation_columns:
+  row_id: { dtype: string }
+  subject: { dtype: string }
+  statmap_path: { dtype: string }
+features:
+  statmap:
+    logical:
+      kind: volume
+      axes: [x, y, z]
+      dtype: float32
+    encodings:
+      - type: ref
+        binding:
+          backend: nifti
+          locator:
+            column: statmap_path

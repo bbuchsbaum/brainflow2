@@ -1,0 +1,33 @@
+spec_version: "0.1.0"
+dataset_id: missing_resource_registry
+storage_profile: "table-package"
+observation_table:
+  path: observations.csv
+  format: csv
+row_id: row_id
+observation_axes: [subject]
+observation_columns:
+  row_id: { dtype: string }
+  subject: { dtype: string }
+  stat_res: { dtype: string }
+primary_feature: statmap
+features:
+  statmap:
+    logical:
+      kind: volume
+      axes: [x, y, z]
+      dtype: float32
+      support_ref: mni
+      shape: [2, 2, 1]
+      alignment: same_grid
+    encodings:
+      - type: ref
+        binding:
+          resource_id:
+            column: stat_res
+supports:
+  mni:
+    support_type: volume
+    support_id: mni-demo
+    space: MNI152NLin2009cAsym
+    grid_id: mni-grid

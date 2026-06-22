@@ -1,0 +1,104 @@
+/* SelectedFileSummary — preview card under the file tree. */
+.fb-selected-summary {
+  display: flex;
+  flex-direction: column;
+  gap: var(--bf-space-1);
+  padding: var(--bf-space-2) var(--bf-space-3);
+  background: color-mix(in srgb, var(--bf-bg-panel) 60%, transparent);
+  border-top: 1px solid var(--bf-border-subtle);
+  flex-shrink: 0;
+}
+
+.fb-selected-row {
+  display: flex;
+  align-items: center;
+  gap: var(--bf-space-1);
+  min-width: 0;
+}
+
+.fb-selected-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--app-role-body-size);
+  font-weight: 500;
+  color: var(--bf-text-primary);
+}
+
+.fb-selected-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--bf-space-1);
+  font-family: var(--bf-font-mono);
+  font-size: var(--app-text-xs);
+  color: var(--bf-text-muted);
+}
+
+.fb-selected-meta-item {
+  white-space: nowrap;
+}
+
+.fb-selected-meta-pending {
+  font-style: italic;
+  opacity: 0.7;
+}
+
+.fb-selected-fallback {
+  margin: 0;
+  font-size: var(--app-role-label-size);
+  color: var(--bf-text-muted);
+  font-style: italic;
+}
+
+.fb-selected-actions {
+  display: flex;
+  gap: var(--bf-space-1);
+}
+
+.fb-selected-button {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: var(--app-control-height-sm);
+  padding: 0 var(--bf-space-3);
+  border: 1px solid var(--bf-border-subtle);
+  background: var(--bf-bg-shell);
+  color: var(--bf-text-primary);
+  font-size: var(--app-role-label-size);
+  font-weight: 500;
+  border-radius: var(--bf-radius-xs);
+  cursor: pointer;
+  transition: background-color var(--bf-motion-fast) ease,
+    border-color var(--bf-motion-fast) ease,
+    color var(--bf-motion-fast) ease;
+}
+
+.fb-selected-button:hover:not(:disabled) {
+  background: var(--bf-bg-hover);
+  border-color: var(--bf-border-strong);
+}
+
+.fb-selected-button:focus-visible {
+  outline: var(--app-focus-ring-width) solid var(--bf-border-focus);
+  outline-offset: var(--app-focus-ring-offset);
+}
+
+.fb-selected-button--primary {
+  background: var(--bf-accent);
+  color: #ffffff;
+  border-color: color-mix(in srgb, var(--bf-accent) 70%, #000 30%);
+}
+
+.fb-selected-button--primary:hover:not(:disabled) {
+  background: var(--bf-accent-hover);
+  color: #fff;
+}
+
+@media (max-width: 320px) {
+  .fb-selected-meta-item:nth-child(n + 4) {
+    display: none;
+  }
+}

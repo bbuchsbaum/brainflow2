@@ -1,0 +1,168 @@
+/* RemoteMountDialog — SSH connect form/host-key/auth steps. */
+.remote-mount-subtitle {
+  margin: var(--bf-space-1) 0 0;
+  font-size: var(--app-role-body-size);
+  color: var(--bf-text-secondary);
+}
+
+.remote-mount-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: var(--bf-space-3);
+}
+
+.remote-mount-form-grid {
+  display: grid;
+  gap: var(--bf-space-2);
+}
+
+.remote-mount-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--bf-space-2);
+}
+
+.remote-mount-field {
+  display: grid;
+  gap: var(--bf-space-1);
+}
+
+.remote-mount-field > span {
+  font-size: var(--app-role-label-size);
+  color: var(--bf-text-secondary);
+}
+
+.remote-mount-field > input,
+.remote-mount-field > select {
+  border: 1px solid var(--bf-border-subtle);
+  background: var(--bf-bg-panel);
+  color: var(--bf-text-primary);
+  min-height: var(--bf-panel-header-h);
+  padding: 0 var(--bf-space-2);
+  border-radius: var(--bf-radius-xs);
+  transition: border-color var(--bf-motion-fast) ease,
+    box-shadow var(--bf-motion-fast) ease;
+}
+
+.remote-mount-field > input:focus,
+.remote-mount-field > select:focus {
+  outline: none;
+  border-color: var(--bf-accent);
+  box-shadow: 0 0 0 1px var(--bf-accent);
+}
+
+.remote-mount-profile-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: var(--bf-space-1);
+}
+
+.remote-mount-profile-row > button {
+  border: 1px solid var(--bf-border-subtle);
+  background: var(--bf-bg-panel);
+  color: var(--bf-text-primary);
+  min-height: var(--bf-panel-header-h);
+  padding: 0 var(--bf-space-2);
+  border-radius: var(--bf-radius-xs);
+}
+
+.remote-mount-checkbox {
+  display: flex;
+  align-items: center;
+  gap: var(--bf-space-1);
+  font-size: var(--app-role-label-size);
+  color: var(--bf-text-secondary);
+}
+
+.remote-mount-checkbox > input {
+  width: 14px;
+  height: 14px;
+}
+
+.remote-mount-step {
+  display: grid;
+  gap: var(--bf-space-1);
+  border: 1px solid var(--bf-border);
+  background: var(--bf-bg-panel);
+  padding: var(--bf-space-2);
+}
+
+.remote-mount-step-title {
+  margin: 0;
+  font-size: var(--app-role-body-size);
+  font-weight: 600;
+  color: var(--bf-text-primary);
+}
+
+.remote-mount-step-text {
+  margin: 0;
+  font-size: var(--app-role-label-size);
+  color: var(--bf-text-secondary);
+}
+
+.remote-mount-error {
+  margin-top: var(--bf-space-2);
+  border: 1px solid color-mix(in srgb, var(--bf-danger) 40%, transparent);
+  background: color-mix(in srgb, var(--bf-danger) 10%, transparent);
+  color: var(--bf-danger);
+  padding: var(--bf-space-1) var(--bf-space-2);
+  font-size: var(--app-role-label-size);
+}
+
+.remote-mount-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--bf-space-2);
+  border-top: 1px solid var(--bf-border);
+  padding: var(--bf-space-2) var(--bf-space-3);
+  background: var(--bf-bg-panel);
+}
+
+.remote-mount-footer > button {
+  border: 1px solid var(--bf-border-subtle);
+  background: var(--bf-bg-shell);
+  color: var(--bf-text-primary);
+  min-height: var(--bf-panel-header-h);
+  padding: 0 var(--bf-space-3);
+  font-size: var(--app-role-label-size);
+  border-radius: var(--bf-radius-xs);
+  transition: background-color var(--bf-motion-fast) ease,
+    border-color var(--bf-motion-fast) ease,
+    color var(--bf-motion-fast) ease;
+}
+
+.remote-mount-footer > button.primary {
+  background: var(--bf-accent);
+  border-color: color-mix(in srgb, var(--bf-accent) 65%, #000 35%);
+  color: #ffffff;
+}
+
+.remote-mount-footer > button:hover:not(:disabled) {
+  background: var(--bf-bg-hover);
+  border-color: var(--bf-border-strong);
+}
+
+.remote-mount-footer > button.primary:hover:not(:disabled) {
+  background: var(--bf-accent-hover);
+  color: #fff;
+}
+
+.remote-mount-footer > button:focus-visible {
+  outline: var(--app-focus-ring-width) solid var(--bf-border-focus);
+  outline-offset: var(--app-focus-ring-offset);
+}
+
+.remote-mount-footer > button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+@media (max-width: 480px) {
+  .remote-mount-row {
+    grid-template-columns: 1fr;
+  }
+  .remote-mount-footer {
+    flex-wrap: wrap;
+  }
+}

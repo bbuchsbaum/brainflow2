@@ -56,7 +56,7 @@ neurosurf-rs = { path = "/Users/bbuchsbaum/code/rust/neurosurf-rs", features = [
 gifti = { path = "/Users/bbuchsbaum/code/rust/gifti-rs" }
 
 # --- BIDS support ---
-bids-rust = { path = "/Users/bbuchsbaum/code/rust/bids-rust" }
+bids-rs = { git = "ssh://git@github.com/bbuchsbaum/bids-rs.git", branch = "main" }
 
 [profile.release]
 lto = true
@@ -86,4 +86,27 @@ opt-level = 2
 [profile.dev.package.volmath]
 opt-level = 2
 
-# [patch.crates-io] section removed 
+# Atlas ROI palette generation is pure CPU number-crunching (slice-conflict graph
+# + greedy color assignment over hundreds of ROIs). Unoptimized it takes ~8s; at
+# opt-level 3 it drops to ~1s, so optimize it (and its centroid pass) even in dev.
+[profile.dev.package.neuroatlas]
+opt-level = 3
+
+[profile.dev.package.atlases]
+opt-level = 3
+
+[profile.dev.package.ndarray]
+opt-level = 3
+
+# Mirror the hot-crate optimization into the test profile so palette smoke tests
+# (and any atlas-heavy tests) run at realistic speed.
+[profile.test.package.neuroatlas]
+opt-level = 3
+
+[profile.test.package.atlases]
+opt-level = 3
+
+[profile.test.package.ndarray]
+opt-level = 3
+
+# [patch.crates-io] section removed

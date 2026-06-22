@@ -1,0 +1,9 @@
+row_id,subject,group,condition,age,roi_1,roi_2,roi_3,roi_4,roi_5
+r01,sub-01,control,faces,25.3,0.31,0.44,0.29,0.18,0.22
+r02,sub-01,control,houses,25.3,0.12,0.18,0.15,0.09,0.11
+r03,sub-02,control,faces,31.7,0.28,0.39,0.33,0.21,0.25
+r04,sub-02,control,houses,31.7,0.09,0.14,0.11,0.07,0.08
+r05,sub-03,patient,faces,28.1,0.45,0.52,0.41,0.33,0.38
+r06,sub-03,patient,houses,28.1,0.22,0.28,0.19,0.14,0.17
+r07,sub-04,patient,faces,35.9,0.38,0.48,0.36,0.27,0.31
+r08,sub-04,patient,houses,35.9,0.15,0.21,0.14,0.10,0.12

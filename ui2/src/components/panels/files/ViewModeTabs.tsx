@@ -1,5 +1,6 @@
 import React from 'react';
 import type { FilesViewMode } from '@/stores/fileBrowserStore';
+import './ViewModeTabs.css';
 
 interface ViewModeTabsProps {
   value: FilesViewMode;

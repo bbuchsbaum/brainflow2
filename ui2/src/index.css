@@ -1,13 +1,13 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap');
-@import './styles/theme.css';
-@import './styles/shadcn.css';
-@import './styles/modern-ui.css';
-@import './styles/slider.css';
-@import './components/ui/StatusBar.css';
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap");
+@import "./styles/theme.css";
+@import "./styles/shadcn.css";
+@import "./styles/modern-ui.css";
+@import "./styles/slider.css";
+@import "./components/ui/StatusBar.css";
 
 /* Import GoldenLayout styles HERE so our overrides come AFTER */
-@import 'golden-layout/dist/css/goldenlayout-base.css';
-@import 'golden-layout/dist/css/themes/goldenlayout-dark-theme.css';
+@import "golden-layout/dist/css/goldenlayout-base.css";
+@import "golden-layout/dist/css/themes/goldenlayout-dark-theme.css";
 
 @tailwind base;
 @tailwind components;
@@ -21,20 +21,27 @@
     @apply bg-background text-foreground font-sans antialiased;
     background-color: hsl(var(--background));
   }
-  
+
   /* Bauhaus typography */
-  h1, h2, h3, h4, h5, h6 {
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6 {
     @apply font-medium tracking-tight;
   }
-  
+
   /* Blueprint label */
   .label-text {
     @apply text-[10px] uppercase tracking-widest text-muted-foreground font-semibold;
   }
 
   /* Blueprint header style */
-  h3, h4, .panel-header {
-    font-family: 'Inter', sans-serif;
+  h3,
+  h4,
+  .panel-header {
+    font-family: "Inter", sans-serif;
     font-size: 11px !important;
     text-transform: uppercase;
     letter-spacing: 0.15em;
@@ -46,7 +53,9 @@
   }
 
   /* Mechanical body text spacing */
-  p, span, div {
+  p,
+  span,
+  div {
     letter-spacing: 0.01em;
   }
 }
@@ -109,7 +118,8 @@
   box-sizing: border-box;
 }
 
-html, body {
+html,
+body {
   height: 100%;
   margin: 0;
   padding: 0;
@@ -123,7 +133,8 @@ body {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   /* Albersdown-inspired top accent stripe — signature Bauhaus mark */
-  border-top: var(--top-accent-height, 2px) solid var(--top-accent, hsl(180, 75%, 35%));
+  border-top: var(--top-accent-height, 2px) solid
+    var(--top-accent, hsl(180, 75%, 35%));
 }
 
 #root {
@@ -169,7 +180,7 @@ button {
   height: 30px !important;
   display: flex;
   align-items: center;
-  font-family: 'Inter', sans-serif;
+  font-family: "Inter", sans-serif;
   font-size: 11px;
   font-weight: 700;
   text-transform: uppercase;
@@ -192,7 +203,7 @@ button {
 }
 
 .lm_tab.lm_active::after {
-  content: '';
+  content: "";
   position: absolute;
   bottom: -2px;
   left: 0;
@@ -210,7 +221,9 @@ button {
   align-items: center;
   top: 50% !important;
   transform: translateY(-50%);
-  z-index: 10;
+  /* Above the splitter (z-index 40) so the panel's own maximise/close buttons
+   * stay clickable even though they sit right next to a divider. */
+  z-index: 41;
 }
 
 .lm_header .lm_controls > * {
@@ -257,17 +270,86 @@ button {
   }
 }
 
-/* GoldenLayout sets the size via inline styles - we only override background/cursor */
+/* GoldenLayout sets the size via inline styles - we override background/cursor
+ * and paint a discoverable grab affordance via pseudo-elements. */
 .lm_splitter {
   /* Match main body background to create the "gap" illusion */
   background: hsl(var(--background)) !important;
   opacity: 1 !important;
+  position: relative;
+  /* Sit above panel header chrome (controls z-index 10, active-tab underline
+   * z-index 20) so the divider wins the hover hit-test along its FULL height —
+   * otherwise the left splitter is shadowed by the adjacent Files-panel header
+   * controls while the right splitter (far from its panel's controls) works.
+   * Stays below portaled popovers / modals (z-index 50+). */
+  z-index: 40 !important;
 }
 
-/* When dragging/hovering, show the Orange Accent */
-.lm_splitter:hover,
-.lm_splitter.lm_dragging {
-  background: hsl(var(--accent)) !important;
+/* Resize cursors so hovering anywhere on the divider signals draggability */
+.lm_splitter.lm_horizontal,
+.lm_splitter.lm_horizontal .lm_drag_handle {
+  cursor: ew-resize;
+}
+.lm_splitter.lm_vertical,
+.lm_splitter.lm_vertical .lm_drag_handle {
+  cursor: ns-resize;
+}
+
+/* Always-visible hairline so the panel boundary can be found at rest */
+.lm_splitter::before {
+  content: "";
+  position: absolute;
+  background: hsl(var(--border));
+  transition: background-color 120ms ease;
+  pointer-events: none;
+}
+.lm_splitter.lm_horizontal::before {
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 1px;
+  transform: translateX(-50%);
+}
+.lm_splitter.lm_vertical::before {
+  left: 0;
+  right: 0;
+  top: 50%;
+  height: 1px;
+  transform: translateY(-50%);
+}
+
+/* Centered grip "grabber" that fades in on hover / while dragging */
+.lm_splitter::after {
+  content: "";
+  position: absolute;
+  border-radius: 999px;
+  background: hsl(var(--accent));
+  opacity: 0;
+  transition: opacity 120ms ease;
+  pointer-events: none;
+}
+.lm_splitter.lm_horizontal::after {
+  top: 50%;
+  left: 50%;
+  width: 4px;
+  height: 28px;
+  transform: translate(-50%, -50%);
+}
+.lm_splitter.lm_vertical::after {
+  left: 50%;
+  top: 50%;
+  height: 4px;
+  width: 28px;
+  transform: translate(-50%, -50%);
+}
+
+.lm_splitter:hover::before,
+.lm_splitter.lm_dragging::before {
+  background: hsl(var(--accent));
+}
+.lm_splitter:hover::after,
+.lm_splitter.lm_dragging::after {
+  opacity: 1;
 }
 
 /* GoldenLayout controls - refined hairline icons */

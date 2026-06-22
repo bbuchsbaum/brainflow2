@@ -19,8 +19,11 @@ export class SetStudioService {
     return workspaceId;
   }
 
-  async openRegexDiscoveryInStudio(): Promise<string> {
+  async openRegexDiscoveryInStudio(options: { discoveryRoot?: string | null } = {}): Promise<string> {
     const workspaceId = await this.openStudioWorkspace();
+    if (options.discoveryRoot) {
+      useSetStudioStore.getState().setDiscoveryRoot(options.discoveryRoot);
+    }
     await getSetIngestionService().openImportPreview('regex');
     return workspaceId;
   }

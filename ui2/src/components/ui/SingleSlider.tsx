@@ -1,5 +1,5 @@
-import React, { useState, useRef, useCallback, useEffect } from 'react';
-import { debounce } from '@/utils/debounce';
+import React, { useState, useRef, useCallback, useEffect } from "react";
+import { debounce } from "@/utils/debounce";
 
 interface SingleSliderProps {
   min: number;
@@ -13,7 +13,7 @@ interface SingleSliderProps {
   /**
    * Layout mode: stacked (label above) or strip (label left, value right)
    */
-  layout?: 'stacked' | 'strip';
+  layout?: "stacked" | "strip";
   /**
    * Custom formatter for display value (overrides showPercentage/toFixed)
    */
@@ -44,20 +44,20 @@ export const SingleSlider: React.FC<SingleSliderProps> = ({
   label,
   onChange,
   showPercentage = false,
-  className = '',
+  className = "",
   disabled = false,
-  layout = 'stacked',
+  layout = "stacked",
   formatValue,
   labelWidth,
   valueWidth,
   compact = false,
-  highContrast = false
+  highContrast = false,
 }) => {
   const [localValue, setLocalValue] = useState(value);
   const [isDragging, setIsDragging] = useState(false);
   const [showTooltip, setShowTooltip] = useState(false);
   const trackRef = useRef<HTMLDivElement>(null);
-  
+
   // Store the latest onChange in a ref to avoid recreating debounced function
   const onChangeRef = useRef(onChange);
   useEffect(() => {
@@ -68,7 +68,7 @@ export const SingleSlider: React.FC<SingleSliderProps> = ({
   const debouncedOnChange = useRef(
     debounce((newValue: number) => {
       onChangeRef.current(newValue);
-    }, 120)
+    }, 120),
   ).current;
 
   // Convert value to position percentage
@@ -84,14 +84,20 @@ export const SingleSlider: React.FC<SingleSliderProps> = ({
   };
 
   // Handle thumb drag
-  const handleThumbDrag = useCallback((e: MouseEvent) => {
-    if (!trackRef.current) return;
+  const handleThumbDrag = useCallback(
+    (e: MouseEvent) => {
+      if (!trackRef.current) return;
 
-    const rect = trackRef.current.getBoundingClientRect();
-    const percent = Math.max(0, Math.min(100, ((e.clientX - rect.left) / rect.width) * 100));
-    const newValue = percentToValue(percent);
-    setLocalValue(newValue);
-  }, [min, max]);
+      const rect = trackRef.current.getBoundingClientRect();
+      const percent = Math.max(
+        0,
+        Math.min(100, ((e.clientX - rect.left) / rect.width) * 100),
+      );
+      const newValue = percentToValue(percent);
+      setLocalValue(newValue);
+    },
+    [min, max],
+  );
 
   // Mouse event handlers
   const handleMouseDown = (e: React.MouseEvent) => {
@@ -109,12 +115,12 @@ export const SingleSlider: React.FC<SingleSliderProps> = ({
     const handleMouseUp = () => {
       setIsDragging(false);
       setShowTooltip(false);
-      document.removeEventListener('mousemove', handleMouseMove);
-      document.removeEventListener('mouseup', handleMouseUp);
+      document.removeEventListener("mousemove", handleMouseMove);
+      document.removeEventListener("mouseup", handleMouseUp);
     };
 
-    document.addEventListener('mousemove', handleMouseMove);
-    document.addEventListener('mouseup', handleMouseUp);
+    document.addEventListener("mousemove", handleMouseMove);
+    document.addEventListener("mouseup", handleMouseUp);
   };
 
   // Update local value when prop changes
@@ -136,17 +142,17 @@ export const SingleSlider: React.FC<SingleSliderProps> = ({
 
   // Color tokens - highContrast uses direct foreground instead of muted CSS vars
   const labelColor = highContrast
-    ? 'hsl(var(--foreground) / 0.92)'
-    : 'hsl(var(--foreground) / 0.7)';
+    ? "hsl(var(--foreground) / 0.92)"
+    : "hsl(var(--foreground) / 0.7)";
   const valueColor = highContrast
-    ? 'hsl(var(--foreground) / 0.85)'
-    : 'hsl(var(--foreground) / 0.65)';
-  const trackBg = 'hsl(var(--border) / 0.72)';
-  const accentColor = 'hsl(var(--primary))';
+    ? "hsl(var(--foreground) / 0.85)"
+    : "hsl(var(--foreground) / 0.65)";
+  const trackBg = "hsl(var(--border) / 0.72)";
+  const accentColor = "hsl(var(--primary))";
 
-  if (layout === 'strip') {
-    const resolvedLabelWidth = labelWidth ?? '6rem';
-    const resolvedValueWidth = valueWidth ?? '3.5rem';
+  if (layout === "strip") {
+    const resolvedLabelWidth = labelWidth ?? "6rem";
+    const resolvedValueWidth = valueWidth ?? "3.5rem";
     return (
       <div
         className={`single-slider-strip flex items-center gap-3 py-1.5 border-b border-border/40 last:border-b-0 ${className}`}
@@ -157,11 +163,13 @@ export const SingleSlider: React.FC<SingleSliderProps> = ({
         >
           {label}
         </label>
-        <div className={`flex-1 relative h-4 flex items-center ${disabled ? 'opacity-50 pointer-events-none' : ''}`}>
+        <div
+          className={`flex-1 relative h-4 flex items-center ${disabled ? "opacity-50 pointer-events-none" : ""}`}
+        >
           <div
             ref={trackRef}
             className="relative w-full h-[2px]"
-            style={{ backgroundColor: trackBg, overflow: 'visible' }}
+            style={{ backgroundColor: trackBg, overflow: "visible" }}
           >
             <div
               className="absolute h-full"
@@ -173,18 +181,21 @@ export const SingleSlider: React.FC<SingleSliderProps> = ({
               onMouseDown={handleMouseDown}
             >
               <div
-                className="w-[6px] h-[12px] transition-all absolute top-[-5px]"
+                className="w-[10px] h-[10px] transition-all"
                 style={{
                   backgroundColor: accentColor,
-                  borderRadius: '1px',
-                  boxShadow: '0 1px 2px rgba(0, 0, 0, 0.15)',
-                  transform: isDragging ? 'scaleY(1.1)' : 'scaleY(1)'
+                  borderRadius: "50%",
+                  boxShadow: "0 0 0 1px hsl(220 56% 4% / 0.7)",
+                  transform: isDragging ? "scale(1.15)" : "scale(1)",
                 }}
               />
               {showTooltip && (
                 <div
                   className="absolute -top-6 left-1/2 -translate-x-1/2 px-1.5 py-0.5 text-[9px] font-mono text-white shadow-lg pointer-events-none whitespace-nowrap"
-                  style={{ backgroundColor: 'rgba(0, 0, 0, 0.85)', borderRadius: '1px' }}
+                  style={{
+                    backgroundColor: "rgba(0, 0, 0, 0.85)",
+                    borderRadius: "1px",
+                  }}
                 >
                   {displayValue}
                 </div>
@@ -207,10 +218,13 @@ export const SingleSlider: React.FC<SingleSliderProps> = ({
     return (
       <div className={`single-slider-compact ${className}`}>
         {/* Compact: Label left, value right, track below - minimal height */}
-        <div className="flex justify-between items-baseline" style={{ marginBottom: '4px' }}>
+        <div
+          className="flex justify-between items-baseline"
+          style={{ marginBottom: "4px" }}
+        >
           <label
             className="text-[9px] uppercase tracking-widest font-semibold truncate"
-            style={{ color: labelColor, maxWidth: '70%' }}
+            style={{ color: labelColor, maxWidth: "70%" }}
           >
             {label}
           </label>
@@ -218,16 +232,20 @@ export const SingleSlider: React.FC<SingleSliderProps> = ({
             className="text-[9px] font-mono tabular-nums"
             style={{ color: valueColor }}
           >
-            {showPercentage ? `${Math.round(localValue * 100)}%` : localValue.toFixed(1)}
+            {showPercentage
+              ? `${Math.round(localValue * 100)}%`
+              : localValue.toFixed(1)}
           </span>
         </div>
 
         {/* Compact track - 4px tall container, 2px track */}
-        <div className={`relative h-4 flex items-center ${disabled ? 'opacity-50 pointer-events-none' : ''}`}>
+        <div
+          className={`relative h-4 flex items-center ${disabled ? "opacity-50 pointer-events-none" : ""}`}
+        >
           <div
             ref={trackRef}
             className="relative w-full h-[2px]"
-            style={{ backgroundColor: trackBg, overflow: 'visible' }}
+            style={{ backgroundColor: trackBg, overflow: "visible" }}
           >
             {/* Filled portion */}
             <div
@@ -242,18 +260,21 @@ export const SingleSlider: React.FC<SingleSliderProps> = ({
               onMouseDown={handleMouseDown}
             >
               <div
-                className="w-[6px] h-[12px] transition-all absolute top-[-5px]"
+                className="w-[10px] h-[10px] transition-all"
                 style={{
                   backgroundColor: accentColor,
-                  borderRadius: '1px',
-                  boxShadow: '0 1px 2px rgba(0, 0, 0, 0.15)',
-                  transform: isDragging ? 'scaleY(1.1)' : 'scaleY(1)'
+                  borderRadius: "50%",
+                  boxShadow: "0 0 0 1px hsl(220 56% 4% / 0.7)",
+                  transform: isDragging ? "scale(1.15)" : "scale(1)",
                 }}
               />
               {showTooltip && (
                 <div
                   className="absolute -top-6 left-1/2 -translate-x-1/2 px-1.5 py-0.5 text-[9px] font-mono text-white shadow-lg pointer-events-none whitespace-nowrap"
-                  style={{ backgroundColor: 'rgba(0, 0, 0, 0.85)', borderRadius: '1px' }}
+                  style={{
+                    backgroundColor: "rgba(0, 0, 0, 0.85)",
+                    borderRadius: "1px",
+                  }}
                 >
                   {displayValue}
                 </div>
@@ -267,9 +288,15 @@ export const SingleSlider: React.FC<SingleSliderProps> = ({
 
   // Standard mode
   return (
-    <div className={`single-slider ${className}`} style={{ marginBottom: className?.includes('mb-0') ? '0' : '8px' }}>
+    <div
+      className={`single-slider ${className}`}
+      style={{ marginBottom: className?.includes("mb-0") ? "0" : "8px" }}
+    >
       {/* Label and value display - Instrument Control style */}
-      <div className="flex justify-between items-baseline" style={{ marginBottom: '6px' }}>
+      <div
+        className="flex justify-between items-baseline"
+        style={{ marginBottom: "6px" }}
+      >
         <label
           className="text-[10px] uppercase tracking-widest font-semibold"
           style={{ color: labelColor }}
@@ -280,16 +307,20 @@ export const SingleSlider: React.FC<SingleSliderProps> = ({
           className="text-[10px] font-mono tabular-nums"
           style={{ color: valueColor }}
         >
-          {showPercentage ? `${Math.round(localValue * 100)}%` : localValue.toFixed(1)}
+          {showPercentage
+            ? `${Math.round(localValue * 100)}%`
+            : localValue.toFixed(1)}
         </span>
       </div>
 
       {/* Slider track - thin 2px track */}
-      <div className={`relative h-5 flex items-center ${disabled ? 'opacity-50 pointer-events-none' : ''}`}>
+      <div
+        className={`relative h-5 flex items-center ${disabled ? "opacity-50 pointer-events-none" : ""}`}
+      >
         <div
           ref={trackRef}
           className="relative w-full h-[2px]"
-          style={{ backgroundColor: trackBg, overflow: 'visible' }}
+          style={{ backgroundColor: trackBg, overflow: "visible" }}
         >
           {/* Filled portion - no border-radius */}
           <div
@@ -297,26 +328,29 @@ export const SingleSlider: React.FC<SingleSliderProps> = ({
             style={{ backgroundColor: accentColor, width: `${percent}%` }}
           />
 
-          {/* Thumb - rectangular Albers style */}
+          {/* Thumb - circular knob */}
           <div
             className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 cursor-pointer"
             style={{ left: `${percent}%` }}
             onMouseDown={handleMouseDown}
           >
             <div
-              className="w-[8px] h-[16px] transition-all absolute top-[-7px]"
+              className="w-[12px] h-[12px] transition-all"
               style={{
                 backgroundColor: accentColor,
-                borderRadius: '1px',
-                boxShadow: '0 1px 2px rgba(0, 0, 0, 0.15)',
-                transform: isDragging ? 'scaleY(1.1)' : 'scaleY(1)'
+                borderRadius: "50%",
+                boxShadow: "0 0 0 1px hsl(220 56% 4% / 0.7)",
+                transform: isDragging ? "scale(1.15)" : "scale(1)",
               }}
             />
             {/* Tooltip */}
             {showTooltip && (
               <div
                 className="absolute -top-8 left-1/2 -translate-x-1/2 px-2 py-1 text-[10px] font-mono text-white shadow-lg pointer-events-none whitespace-nowrap"
-                style={{ backgroundColor: 'rgba(0, 0, 0, 0.85)', borderRadius: '1px' }}
+                style={{
+                  backgroundColor: "rgba(0, 0, 0, 0.85)",
+                  borderRadius: "1px",
+                }}
               >
                 {displayValue}
               </div>

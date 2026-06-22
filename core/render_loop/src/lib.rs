@@ -1520,6 +1520,29 @@ impl RenderLoopService {
             + std::ops::Div<Output = T>
             + std::ops::Mul<Output = T>,
     {
+        self.upload_volume_3d_labelaware(source_volume, false)
+    }
+
+    /// Upload a 3D volume, optionally guaranteeing an integer-preserving texture
+    /// format. When `preserve_integer_labels` is true, label/atlas volumes use
+    /// `R16Float` (exact for label ids <= 2048) instead of `R8Unorm`, which would
+    /// normalize 8-bit data to [0,1] and collapse discrete label ids under nearest
+    /// sampling. Scalar volumes keep the default format selection.
+    pub fn upload_volume_3d_labelaware<T>(
+        &mut self,
+        source_volume: &DenseVolume3<T>,
+        preserve_integer_labels: bool,
+    ) -> Result<(u32, Matrix4<f32>), RenderLoopError>
+    where
+        T: VoxelData
+            + num_traits::NumCast
+            + serde::Serialize
+            + DataRange<T>
+            + num_traits::Zero
+            + std::ops::Sub<Output = T>
+            + std::ops::Div<Output = T>
+            + std::ops::Mul<Output = T>,
+    {
         // Preflight device limit validation. This avoids fatal create_texture panics.
         let vol_dims = source_volume.space.dims();
         let (width, height, depth) = (vol_dims[0] as u32, vol_dims[1] as u32, vol_dims[2] as u32);
@@ -1539,11 +1562,14 @@ impl RenderLoopService {
         // Use multi-texture manager for world-space rendering
         if self.world_space_enabled {
             if let Some(ref mut multi_texture_manager) = self.multi_texture_manager {
-                // Determine texture format based on data type
-                // Use R16Float for all types to ensure filtering support
+                // Determine texture format based on data type.
+                // Non-U8 types already use R16Float (exact integers up to 2048, with
+                // filtering support). U8 normally uses R8Unorm (normalized to [0,1]),
+                // but for label/atlas volumes that collapses discrete ids under
+                // nearest sampling, so force R16Float to keep ids exact.
                 let format = match source_volume.voxel_type() {
-                    NumericType::U8 => wgpu::TextureFormat::R8Unorm,
-                    _ => wgpu::TextureFormat::R16Float, // Use R16Float for everything else to support filtering
+                    NumericType::U8 if !preserve_integer_labels => wgpu::TextureFormat::R8Unorm,
+                    _ => wgpu::TextureFormat::R16Float,
                 };
 
                 // Upload to multi-texture manager
@@ -3065,7 +3091,10 @@ impl RenderLoopService {
             blend_mode: crate::render_state::BlendMode::Normal,
             colormap_id,
             intensity_range: (0.0, 1.0), // Will be updated later
-            threshold_range: (-f32::INFINITY, f32::INFINITY),
+            // Range mode suppresses values inside the threshold interval.
+            // Keep new layers visible by default; (0, 0) is the established
+            // no-threshold sentinel used by ViewState-backed rendering.
+            threshold_range: (0.0, 0.0),
             threshold_mode: crate::render_state::ThresholdMode::Range,
             is_mask: false,
             has_alpha_mask: false,
@@ -3180,7 +3209,10 @@ impl RenderLoopService {
             blend_mode: BlendMode::Normal,
             colormap_id: 0,
             intensity_range,
-            threshold_range: intensity_range, // Use same range for thresholding initially
+            // Range mode suppresses values inside the threshold interval.
+            // Using the full intensity range here hides the loaded anatomy, so
+            // new scalar layers must start with thresholding disabled.
+            threshold_range: (0.0, 0.0),
             threshold_mode: ThresholdMode::Range,
             texture_coords,
             is_mask: false,

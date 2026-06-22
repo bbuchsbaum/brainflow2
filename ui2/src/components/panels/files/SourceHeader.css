@@ -1,0 +1,97 @@
+/* SourceHeader — current root chrome shown at top of mounted explorer. */
+.fb-source-header {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--bf-space-2);
+  padding: var(--bf-space-2) var(--bf-space-3);
+  background: var(--bf-bg-panel);
+  border-bottom: 1px solid var(--bf-border-subtle);
+  min-width: 0;
+}
+
+.fb-source-icon {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  color: var(--bf-text-muted);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-top: 2px;
+}
+
+.fb-source-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.fb-source-line {
+  display: flex;
+  align-items: center;
+  gap: var(--bf-space-1);
+  min-width: 0;
+}
+
+.fb-source-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--app-role-body-size);
+  font-weight: 500;
+  color: var(--bf-text-primary);
+}
+
+.fb-source-kind {
+  flex-shrink: 0;
+  font-family: var(--bf-font-mono);
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  padding: 1px 5px;
+  border-radius: 3px;
+  text-transform: uppercase;
+  border: 1px solid var(--bf-border-subtle);
+  background: color-mix(in srgb, var(--bf-bg-panel) 78%, transparent);
+  color: var(--bf-text-secondary);
+  line-height: 1.2;
+}
+
+.fb-source-kind--remote {
+  border-color: color-mix(in srgb, var(--bf-accent) 50%, transparent);
+  color: var(--bf-accent);
+  background: color-mix(in srgb, var(--bf-accent) 10%, transparent);
+}
+
+.fb-source-breadcrumb {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px;
+  font-family: var(--bf-font-mono);
+  font-size: var(--app-text-xs);
+  color: var(--bf-text-muted);
+  min-width: 0;
+}
+
+.fb-source-remote-path,
+.fb-source-crumb {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.fb-source-sep {
+  color: var(--bf-text-muted);
+  opacity: 0.6;
+}
+
+@media (max-width: 320px) {
+  .fb-source-breadcrumb {
+    display: none;
+  }
+}

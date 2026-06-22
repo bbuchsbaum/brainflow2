@@ -1,17 +1,23 @@
-import React, { useEffect, useRef, useState } from 'react';
-import { useLayerStore } from '@/stores/layerStore';
-import { useViewStateStore } from '@/stores/viewStateStore';
-import { useSurfaceStore } from '@/stores/surfaceStore';
-import { ColormapPicker } from '@/components/ui/ColormapPicker';
-import type { SceneItem } from '@/types/sceneItem';
-import { InspectorSection, FieldRow } from '../InspectorSection';
-import { sampleLayerAtWorld } from '@/services/SamplingService';
+import React, { useEffect, useRef, useState } from "react";
+import { useLayerStore } from "@/stores/layerStore";
+import { useViewStateStore } from "@/stores/viewStateStore";
+import { useSurfaceStore } from "@/stores/surfaceStore";
+import { ColormapPicker } from "@/components/ui/ColormapPicker";
+import type { SceneItem } from "@/types/sceneItem";
+import { InspectorSection, FieldRow } from "../InspectorSection";
+import { sampleLayerAtWorld } from "@/services/SamplingService";
+import { AtlasPaletteService } from "@/services/AtlasPaletteService";
+import {
+  ATLAS_PALETTE_OPTIONS,
+  type AtlasPaletteKind,
+} from "@/types/atlasPalette";
+import { getEventBus } from "@/events/EventBus";
 
 interface RenderSectionProps {
   item: SceneItem;
 }
 
-const BLEND_MODES = ['alpha', 'additive', 'max', 'min'] as const;
+const BLEND_MODES = ["alpha", "additive", "max", "min"] as const;
 
 /**
  * Render section. Per item kind:
@@ -26,13 +32,13 @@ export function RenderSection({ item }: RenderSectionProps) {
     <InspectorSection label="Render" icon={<RenderIcon />} defaultOpen>
       {(() => {
         switch (item.kind) {
-          case 'volume-base':
+          case "volume-base":
             return <VolumeRenderRows item={item} kind="base" />;
-          case 'volume-overlay':
-          case 'volume-overlay-atlas':
+          case "volume-overlay":
+          case "volume-overlay-atlas":
             return <VolumeRenderRows item={item} kind="overlay" />;
-          case 'surface-geometry':
-          case 'surface-overlay':
+          case "surface-geometry":
+          case "surface-overlay":
             return <SurfaceRenderRows item={item} />;
           default:
             return null;
@@ -49,21 +55,24 @@ function VolumeRenderRows({
   kind,
 }: {
   item: SceneItem;
-  kind: 'base' | 'overlay';
+  kind: "base" | "overlay";
 }) {
-  const layerId = item.ref.type === 'volume' ? item.ref.layerId : null;
+  const layerId = item.ref.type === "volume" ? item.ref.layerId : null;
   const updateLayer = useLayerStore((s) => s.updateLayer);
   const setViewState = useViewStateStore((s) => s.setViewState);
   const layer = useLayerStore((s) =>
-    layerId ? s.layers.find((l) => l.id === layerId) ?? null : null
+    layerId ? (s.layers.find((l) => l.id === layerId) ?? null) : null,
   );
   const metadata = useLayerStore((s) =>
-    layerId ? s.layerMetadata.get(layerId) ?? null : null
+    layerId ? (s.layerMetadata.get(layerId) ?? null) : null,
   );
   const viewLayer = useViewStateStore((s) =>
-    layerId ? s.viewState.layers.find((l) => l.id === layerId) ?? null : null
+    layerId ? (s.viewState.layers.find((l) => l.id === layerId) ?? null) : null,
   );
-  const crosshairWorld = useViewStateStore((s) => s.viewState.crosshair.world_mm);
+  const crosshairWorld = useViewStateStore(
+    (s) => s.viewState.crosshair.world_mm,
+  );
+  const [paletteApplying, setPaletteApplying] = useState(false);
 
   if (!layer || !layerId || !viewLayer) return null;
 
@@ -73,14 +82,15 @@ function VolumeRenderRows({
   const intensity = viewLayer.intensity;
   const threshold = viewLayer.threshold;
   const opacity = viewLayer.opacity ?? 1;
-  const colormap = viewLayer.colormap ?? '';
-  const blendMode = viewLayer.blendMode ?? 'alpha';
-  const layerMode = viewLayer.layerMode ?? 'scalar';
+  const colormap = viewLayer.colormap ?? "";
+  const blendMode = viewLayer.blendMode ?? "alpha";
+  const layerMode = viewLayer.layerMode ?? "scalar";
+  const interpolation = viewLayer.interpolation ?? "linear";
   const outline = viewLayer.outline ?? DEFAULT_OUTLINE;
 
   const setLayerField = <K extends keyof typeof viewLayer>(
     field: K,
-    value: (typeof viewLayer)[K]
+    value: (typeof viewLayer)[K],
   ) => {
     setViewState((draft) => {
       const target = draft.layers.find((l) => l.id === layerId);
@@ -93,8 +103,25 @@ function VolumeRenderRows({
     <>
       <FieldRow label="Visible">
         <Toggle
-          checked={layer.visible}
-          onChange={(v) => updateLayer(layerId, { visible: v })}
+          checked={viewLayer.visible}
+          onChange={(v) => {
+            // Visibility is owned by viewState — the renderer reads from
+            // `viewStateStore.viewState.layers`. `layerStore.updateLayer`
+            // alone writes only to the layer registry and the renderer
+            // never sees the change. Mirror the pattern in
+            // `LayerApiImpl.setViewLayerVisibility`: flip `visible` and
+            // collapse opacity to 0 on hide so the optimized renderer's
+            // `visible && opacity > 0` gate honors the toggle. The
+            // `updateLayer` call keeps the layer registry in sync for any
+            // surface that still reads from there.
+            setViewState((draft) => {
+              const target = draft.layers.find((l) => l.id === layerId);
+              if (!target) return;
+              target.visible = v;
+              target.opacity = v ? (opacity > 0 ? opacity : 1.0) : 0.0;
+            });
+            updateLayer(layerId, { visible: v });
+          }}
         />
       </FieldRow>
 
@@ -104,7 +131,7 @@ function VolumeRenderRows({
           min={0}
           max={1}
           step={0.01}
-          onChange={(v) => setLayerField('opacity', v)}
+          onChange={(v) => setLayerField("opacity", v)}
         />
         <Pct value={opacity} />
       </FieldRow>
@@ -115,33 +142,83 @@ function VolumeRenderRows({
         high={intensity[1]}
         dataMin={dataMin}
         dataMax={dataMax}
-        onChange={(low, high) => setLayerField('intensity', [low, high])}
+        onChange={(low, high) => setLayerField("intensity", [low, high])}
       />
 
-      {kind === 'overlay' ? (
+      {kind === "overlay" ? (
         <RangeBlock
           label="Threshold"
           low={threshold[0]}
           high={threshold[1]}
           dataMin={dataMin}
           dataMax={dataMax}
-          onChange={(low, high) => setLayerField('threshold', [low, high])}
+          onChange={(low, high) => setLayerField("threshold", [low, high])}
         />
       ) : null}
 
-      <ColormapBlock
-        value={colormap}
-        onChange={(next) => setLayerField('colormap', next)}
-      />
+      {/* Label atlases are colored by a discrete per-label palette generated by the
+          neuroatlas color engine, so the continuous colormap picker does not apply.
+          Expose the palette algorithm instead; changing it re-computes + re-registers
+          the categorical colormap on the backend (takes a few seconds). */}
+      {layerMode === "label" ? (
+        <FieldRow label="Palette">
+          <div className="flex items-center gap-2">
+            <select
+              value={viewLayer.atlasPaletteKind ?? ""}
+              disabled={!viewLayer.atlasConfig || paletteApplying}
+              onChange={(e) => {
+                const kind = e.target.value as AtlasPaletteKind;
+                const config = viewLayer.atlasConfig;
+                if (!config) return;
+                setPaletteApplying(true);
+                AtlasPaletteService.applyToVolumeLayer(layerId, config, {
+                  kind,
+                })
+                  .catch((err) => {
+                    getEventBus().emit("ui.notification", {
+                      type: "warning",
+                      message: `Failed to apply '${kind}' palette. ${
+                        err instanceof Error ? err.message : String(err)
+                      }`,
+                    });
+                  })
+                  .finally(() => setPaletteApplying(false));
+              }}
+              className="bf-select text-[11px] capitalize"
+            >
+              {viewLayer.atlasPaletteKind ? null : (
+                <option value="" disabled>
+                  Discrete (atlas)
+                </option>
+              )}
+              {ATLAS_PALETTE_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
+            {paletteApplying ? (
+              <span className="text-[10px] text-muted-foreground">
+                applying…
+              </span>
+            ) : null}
+          </div>
+        </FieldRow>
+      ) : (
+        <ColormapBlock
+          value={colormap}
+          onChange={(next) => setLayerField("colormap", next)}
+        />
+      )}
 
-      {kind === 'overlay' ? (
+      {kind === "overlay" ? (
         <FieldRow label="Blend mode">
           <select
             value={blendMode}
             onChange={(e) =>
-              setLayerField('blendMode', e.target.value as typeof blendMode)
+              setLayerField("blendMode", e.target.value as typeof blendMode)
             }
-            className="rounded-md border border-border bg-background px-2 py-0.5 text-[11px] capitalize text-foreground"
+            className="bf-select text-[11px] capitalize"
           >
             {BLEND_MODES.map((mode) => (
               <option key={mode} value={mode}>
@@ -152,22 +229,45 @@ function VolumeRenderRows({
         </FieldRow>
       ) : null}
 
-      {layerMode === 'label' ? (
+      {/* Texture sampling. Hidden for label/mask layers — categorical data must
+          stay nearest (interpolating label ids is meaningless), which the
+          backend enforces anyway. Linear smooths lower-res overlays shown over
+          a higher-res underlay. (Cubic is not yet implemented in the shader.) */}
+      {layerMode === "scalar" ? (
+        <FieldRow label="Interpolation">
+          <select
+            value={interpolation}
+            onChange={(e) =>
+              setLayerField(
+                "interpolation",
+                e.target.value as typeof interpolation,
+              )
+            }
+            className="bf-select text-[11px] capitalize"
+          >
+            <option value="linear">Linear</option>
+            <option value="nearest">Nearest</option>
+          </select>
+        </FieldRow>
+      ) : null}
+
+      {layerMode === "label" ? (
         <LabelOutlineBlock
           outline={outline}
           layerId={layerId}
           crosshairWorld={crosshairWorld}
-          onChange={(next) => setLayerField('outline', next)}
+          onChange={(next) => setLayerField("outline", next)}
         />
       ) : null}
 
-      {layer.volumeType === 'TimeSeries4D' && layer.timeSeriesInfo ? (
+      {layer.volumeType === "TimeSeries4D" && layer.timeSeriesInfo ? (
         <FieldRow label="Time frame">
           <span
             className="font-mono text-[12px] tabular-nums text-foreground"
-            style={{ fontVariantNumeric: 'tabular-nums' }}
+            style={{ fontVariantNumeric: "tabular-nums" }}
           >
-            {layer.currentTimepoint ?? 0} / {layer.timeSeriesInfo.num_timepoints}
+            {layer.currentTimepoint ?? 0} /{" "}
+            {layer.timeSeriesInfo.num_timepoints}
           </span>
         </FieldRow>
       ) : null}
@@ -186,12 +286,15 @@ function rgbaToHex(rgba: [number, number, number, number]): string {
   const toHex = (value: number) =>
     Math.round(Math.max(0, Math.min(1, value)) * 255)
       .toString(16)
-      .padStart(2, '0');
+      .padStart(2, "0");
   return `#${toHex(rgba[0])}${toHex(rgba[1])}${toHex(rgba[2])}`;
 }
 
-function hexToRgbaTuple(hex: string, alpha: number): [number, number, number, number] {
-  const clean = hex.replace('#', '');
+function hexToRgbaTuple(
+  hex: string,
+  alpha: number,
+): [number, number, number, number] {
+  const clean = hex.replace("#", "");
   return [
     Number.parseInt(clean.slice(0, 2), 16) / 255,
     Number.parseInt(clean.slice(2, 4), 16) / 255,
@@ -225,7 +328,10 @@ function LabelOutlineBlock({
     if (sampling) return;
     setSampling(true);
     try {
-      const result = await sampleLayerAtWorld({ layerId, world: crosshairWorld });
+      const result = await sampleLayerAtWorld({
+        layerId,
+        world: crosshairWorld,
+      });
       if (result.value !== null) {
         update({
           selectedLabelId: Math.max(0, Math.round(result.value)),
@@ -240,7 +346,10 @@ function LabelOutlineBlock({
   return (
     <>
       <FieldRow label="Outline">
-        <Toggle checked={outline.enabled} onChange={(enabled) => update({ enabled })} />
+        <Toggle
+          checked={outline.enabled}
+          onChange={(enabled) => update({ enabled })}
+        />
       </FieldRow>
 
       <FieldRow label="Label ID">
@@ -251,10 +360,15 @@ function LabelOutlineBlock({
             step={1}
             value={outline.selectedLabelId}
             onChange={(e) =>
-              update({ selectedLabelId: Math.max(0, Math.round(Number(e.target.value) || 0)) })
+              update({
+                selectedLabelId: Math.max(
+                  0,
+                  Math.round(Number(e.target.value) || 0),
+                ),
+              })
             }
             className="w-16 rounded-sm bg-background px-1 text-right font-mono text-[11px] tabular-nums text-foreground outline-none ring-1 ring-border focus:ring-sky-500"
-            style={{ fontVariantNumeric: 'tabular-nums' }}
+            style={{ fontVariantNumeric: "tabular-nums" }}
           />
           <button
             type="button"
@@ -262,7 +376,7 @@ function LabelOutlineBlock({
             disabled={sampling}
             className="rounded-sm border border-border px-2 py-0.5 text-[11px] text-foreground transition-colors hover:bg-accent/40 disabled:cursor-not-allowed disabled:opacity-50"
           >
-            {sampling ? 'Sampling' : 'Crosshair'}
+            {sampling ? "Sampling" : "Crosshair"}
           </button>
         </div>
       </FieldRow>
@@ -284,7 +398,9 @@ function LabelOutlineBlock({
         <input
           type="color"
           value={rgbaToHex(outline.color)}
-          onChange={(e) => update({ color: hexToRgbaTuple(e.target.value, outline.color[3]) })}
+          onChange={(e) =>
+            update({ color: hexToRgbaTuple(e.target.value, outline.color[3]) })
+          }
           className="h-5 w-8 cursor-pointer rounded-sm border border-border bg-transparent p-0"
           aria-label="outline color"
         />
@@ -299,7 +415,7 @@ function SurfaceRenderRows({ item }: { item: SceneItem }) {
   const surfaces = useSurfaceStore((s) => s.surfaces);
   const setSurfaceVisibility = useSurfaceStore((s) => s.setSurfaceVisibility);
 
-  if (item.ref.type === 'surface-geometry') {
+  if (item.ref.type === "surface-geometry") {
     const surface = surfaces.get(item.ref.surfaceId);
     if (!surface) return null;
     return (
@@ -312,7 +428,7 @@ function SurfaceRenderRows({ item }: { item: SceneItem }) {
     );
   }
 
-  if (item.ref.type === 'surface-overlay') {
+  if (item.ref.type === "surface-overlay") {
     const surface = surfaces.get(item.ref.surfaceId);
     const layer = surface?.layers.get(item.ref.surfaceLayerId);
     if (!surface || !layer) return null;
@@ -320,13 +436,13 @@ function SurfaceRenderRows({ item }: { item: SceneItem }) {
       <>
         <FieldRow label="Visible">
           <span className="text-[12px] text-muted-foreground">
-            {layer.visible === false ? 'hidden' : 'visible'}
+            {layer.visible === false ? "hidden" : "visible"}
           </span>
         </FieldRow>
         <FieldRow label="Opacity">
           <span
             className="font-mono text-[12px] tabular-nums text-foreground"
-            style={{ fontVariantNumeric: 'tabular-nums' }}
+            style={{ fontVariantNumeric: "tabular-nums" }}
           >
             {Math.round((layer.opacity ?? 1) * 100)}%
           </span>
@@ -357,13 +473,13 @@ function Toggle({
       aria-checked={checked}
       onClick={() => onChange(!checked)}
       className={`relative inline-flex h-4 w-7 items-center rounded-full transition-colors ${
-        checked ? 'bg-sky-500' : 'bg-border'
+        checked ? "bg-sky-500" : "bg-border"
       }`}
     >
       <span
         aria-hidden
         className={`inline-block h-3 w-3 transform rounded-full bg-background transition-transform ${
-          checked ? 'translate-x-3.5' : 'translate-x-0.5'
+          checked ? "translate-x-3.5" : "translate-x-0.5"
         }`}
       />
     </button>
@@ -400,7 +516,7 @@ function Pct({ value }: { value: number }) {
   return (
     <span
       className="font-mono text-[11px] tabular-nums text-muted-foreground"
-      style={{ fontVariantNumeric: 'tabular-nums' }}
+      style={{ fontVariantNumeric: "tabular-nums" }}
     >
       {Math.round(value * 100)}%
     </span>
@@ -529,17 +645,17 @@ function EditableNumber({
         onChange={(e) => setDraft(e.target.value)}
         onBlur={commit}
         onKeyDown={(e) => {
-          if (e.key === 'Enter') {
+          if (e.key === "Enter") {
             e.preventDefault();
             commit();
-          } else if (e.key === 'Escape') {
+          } else if (e.key === "Escape") {
             e.preventDefault();
             cancel();
           }
         }}
         aria-label="value"
         className="w-14 rounded-sm bg-background px-1 text-right font-mono text-[11px] tabular-nums text-foreground outline-none ring-1 ring-sky-500"
-        style={{ fontVariantNumeric: 'tabular-nums' }}
+        style={{ fontVariantNumeric: "tabular-nums" }}
       />
     );
   }
@@ -550,7 +666,7 @@ function EditableNumber({
       onClick={() => setEditing(true)}
       title={`${value} — click to edit`}
       className="w-14 rounded-sm px-1 text-right font-mono text-[11px] tabular-nums text-foreground transition-colors hover:bg-accent/40 hover:underline focus:outline-none focus-visible:ring-1 focus-visible:ring-sky-500"
-      style={{ fontVariantNumeric: 'tabular-nums' }}
+      style={{ fontVariantNumeric: "tabular-nums" }}
     >
       {formatChip(value)}
     </button>
@@ -580,8 +696,12 @@ function DualRangeTrack({
   onHigh: (n: number) => void;
 }) {
   const span = dataMax - dataMin;
-  const lowPct = span > 0 ? Math.max(0, Math.min(100, ((low - dataMin) / span) * 100)) : 0;
-  const highPct = span > 0 ? Math.max(0, Math.min(100, ((high - dataMin) / span) * 100)) : 100;
+  const lowPct =
+    span > 0 ? Math.max(0, Math.min(100, ((low - dataMin) / span) * 100)) : 0;
+  const highPct =
+    span > 0
+      ? Math.max(0, Math.min(100, ((high - dataMin) / span) * 100))
+      : 100;
 
   // Circle thumb styling lives in a real CSS rule (`bf-thumb-circle` in
   // theme.css) rather than Tailwind arbitrary variants, because the thumb
@@ -590,7 +710,7 @@ function DualRangeTrack({
   // arbitrary variants on a `<input type=range>`. Both inputs sit absolutely
   // positioned over the same track; the thumb pseudo gets pointer-events:
   // auto so each handle stays grabbable even when they overlap.
-  const thumbClass = 'bf-thumb-circle absolute inset-0 h-3 w-full';
+  const thumbClass = "bf-thumb-circle absolute inset-0 h-3 w-full";
 
   return (
     <div className="mt-2 px-1">
@@ -599,13 +719,16 @@ function DualRangeTrack({
         <div
           aria-hidden
           className="absolute left-0 right-0 top-1/2 h-[3px] -translate-y-1/2 rounded-full"
-          style={{ backgroundColor: 'hsl(var(--border) / 0.7)' }}
+          style={{ backgroundColor: "hsl(var(--border) / 0.7)" }}
         />
         {/* Active band between thumbs */}
         <div
           aria-hidden
           className="absolute top-1/2 h-[3px] -translate-y-1/2 rounded-full bg-sky-500/60"
-          style={{ left: `${lowPct}%`, width: `${Math.max(0, highPct - lowPct)}%` }}
+          style={{
+            left: `${lowPct}%`,
+            width: `${Math.max(0, highPct - lowPct)}%`,
+          }}
         />
         {/* Low handle */}
         <input
@@ -658,13 +781,13 @@ function ColormapBlock({
 // ── format helpers ──────────────────────────────────────────────────────────
 
 function formatChip(value: number): string {
-  if (!Number.isFinite(value)) return '—';
+  if (!Number.isFinite(value)) return "—";
   const abs = Math.abs(value);
-  if (abs === 0) return '0';
+  if (abs === 0) return "0";
   if (abs >= 10000 || (abs > 0 && abs < 0.01)) return value.toExponential(1);
   // Strip trailing zeros from fixed-2 (e.g. 100.00 → 100, 3.13 → 3.13).
   const fixed = value.toFixed(2);
-  return fixed.replace(/\.?0+$/, '');
+  return fixed.replace(/\.?0+$/, "");
 }
 
 function RenderIcon() {

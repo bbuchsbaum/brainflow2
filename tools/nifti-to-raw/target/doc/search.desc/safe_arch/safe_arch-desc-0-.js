@@ -1,1 +1,0 @@
-searchState.loadedDescShard("safe_arch", 0, "A crate that safely exposes arch intrinsics via <code>#[cfg()]</code>.\nAn explanation of the crate’s naming conventions.\nTurns a round operator token to the correct constant value.")

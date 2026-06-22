@@ -1,0 +1,17 @@
+{
+  "test_name": "oblique_sinusoid_linear",
+  "passed": false,
+  "slice_dimensions": [160, 160],
+  "layer_count": 1,
+  "cpu_duration_ms": 36.420,
+  "gpu_duration_ms": 2.296,
+  "speedup": 15.859380,
+  "max_abs_diff": 7,
+  "max_rel_diff": 0.500000,
+  "failed_pixels": 2,
+  "total_pixels": 25600,
+  "mean_abs_diff": 1.733965,
+  "std_abs_diff": 1.798098,
+  "p95_abs_diff": 5,
+  "exact_matches": 4045
+}

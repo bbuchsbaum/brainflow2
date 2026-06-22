@@ -8,43 +8,43 @@ import type { ThresholdConfig } from "./ThresholdConfig";
 /**
  * Configuration for a single layer.
  */
-export type LayerConfig = {
+export type LayerConfig = { 
 /**
  * Reference to the volume data.
  */
-volume_id: string,
+volume_id: string, 
 /**
  * Layer opacity [0.0 - 1.0].
  */
-opacity: number,
+opacity: number, 
 /**
  * Colormap index.
  */
-colormap_id: number,
+colormap_id: number, 
 /**
  * How to blend with layers below.
  */
-blend_mode: BlendMode,
+blend_mode: BlendMode, 
 /**
  * Intensity window (min, max).
  */
-intensity_window: [number, number],
+intensity_window: [number, number], 
 /**
  * Optional threshold range.
  */
-threshold: ThresholdConfig | null,
+threshold: ThresholdConfig | null, 
 /**
  * Layer visibility.
  */
-visible: boolean,
+visible: boolean, 
 /**
  * Interpolation mode for sampling.
  */
-interpolation: InterpolationMode,
+interpolation: InterpolationMode, 
 /**
  * Rendering mode for shader-side layer semantics.
  */
-layer_mode: LayerMode,
+layer_mode: LayerMode, 
 /**
  * Optional intensity-modulated alpha ("transparent thresholding").
  * `None` (or `mode == Off`) renders identically to a flat-opacity layer.

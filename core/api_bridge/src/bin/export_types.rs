@@ -45,5 +45,9 @@ fn main() {
         eprintln!("Failed to export ReleaseResult: {}", e);
     }
 
+    if let Err(e) = VolumeProjectionData::export_all() {
+        eprintln!("Failed to export VolumeProjectionData: {}", e);
+    }
+
     println!("TypeScript type export completed for api_bridge");
 }

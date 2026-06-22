@@ -5,35 +5,35 @@ import type { LayerConfig } from "./LayerConfig";
 /**
  * Complete state for rendering a view.
  */
-export type ViewState = {
+export type ViewState = { 
 /**
  * Version for forward compatibility and validation.
  */
-layout_version: number,
+layout_version: number, 
 /**
  * Camera state in world coordinates.
  */
-camera: CameraState,
+camera: CameraState, 
 /**
  * Crosshair position in world space.
  */
-crosshair_world: [number, number, number],
+crosshair_world: [number, number, number], 
 /**
  * Stack of layers to render.
  */
-layers: Array<LayerConfig>,
+layers: Array<LayerConfig>, 
 /**
  * Viewport dimensions.
  */
-viewport_size: [number, number],
+viewport_size: [number, number], 
 /**
  * Show/hide crosshair hint for UI layer.
  */
-show_crosshair: boolean,
+show_crosshair: boolean, 
 /**
  * RGBA color for the crosshair [r, g, b, a] in 0.0-1.0 range.
  */
-crosshair_color: [number, number, number, number],
+crosshair_color: [number, number, number, number], 
 /**
  * Current timepoint for 4D volumes (0-indexed).
  */

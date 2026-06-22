@@ -1,6 +1,18 @@
-/* File Browser Panel Styles - Tailwind Blue-Tinted Theme */
+/* FileBrowserPanel — panel shell + tree container.
+ * Per-component chrome lives in:
+ *   - files/FileTreeRow.css       (.file-tree-item* and tree-row badges)
+ *   - files/FilterBar.css         (.fb-controls, search, sort, inline error)
+ *   - files/SourceHeader.css      (.fb-source-*)
+ *   - files/SelectedFileSummary.css
+ *   - files/FilesFooterStatus.css
+ *   - files/ViewModeTabs.css      (.fb-view-mode-*)
+ *   - files/FlatList.css          (.fb-flat-* — Images/Loaded views)
+ *   - files/BidsView.css          (.fb-bids-*)
+ *   - files/FilesStartPanel.css   (.files-start-* launch state)
+ *   - files/shared/FileTypeBadge.css
+ *   - RemoteMountDialog.css
+ */
 
-/* Panel container */
 .file-browser-panel {
   height: 100%;
   width: 100%;
@@ -13,217 +25,6 @@
   position: relative;
 }
 
-/* Inline controls strip */
-.fb-controls {
-  background-color: var(--bf-bg-panel);
-  border-bottom: 1px solid var(--bf-border);
-  padding: var(--bf-space-2);
-}
-
-.fb-path {
-  flex: 1;
-  min-width: 0;
-  margin-right: var(--bf-space-2);
-}
-
-.fb-path-value {
-  font-family: var(--bf-font-mono);
-  font-size: var(--app-text-xs);
-  color: var(--bf-text-secondary);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  display: block;
-}
-
-.fb-actions {
-  display: flex;
-  gap: var(--bf-space-1);
-}
-
-.fb-action-btn {
-  background: transparent;
-  border: none;
-  color: var(--bf-text-secondary);
-  padding: 0;
-  border-radius: var(--bf-radius-xs);
-  cursor: pointer;
-  font-size: 14px;
-  transition: all var(--bf-motion-fast) ease;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: var(--bf-panel-header-h);
-  min-height: var(--bf-panel-header-h);
-  width: var(--bf-panel-header-h);
-  height: var(--bf-panel-header-h);
-}
-
-.fb-action-btn:hover:not(:disabled) {
-  background-color: var(--bf-bg-hover);
-  color: var(--bf-text-primary);
-}
-
-.fb-action-btn:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
-}
-
-.fb-action-btn:focus-visible,
-.fb-search-clear:focus-visible {
-  outline: var(--app-focus-ring-width) solid var(--bf-border-focus);
-  outline-offset: var(--app-focus-ring-offset);
-}
-
-.fb-controls-bottom {
-  display: flex;
-  gap: var(--bf-space-2);
-  align-items: center;
-  /* Now the main controls container since we removed top controls */
-}
-
-.fb-search {
-  flex: 1;
-  position: relative;
-}
-
-.fb-search-icon {
-  position: absolute;
-  left: 8px;
-  top: 50%;
-  transform: translateY(-50%);
-  color: var(--bf-text-muted);
-  pointer-events: none;
-}
-
-.fb-search-input {
-  background-color: var(--bf-bg-shell);
-  color: var(--bf-text-primary);
-  border: 1px solid var(--bf-border-subtle);
-  padding: 0 30px 0 28px;
-  height: var(--app-control-height-sm);
-  font-size: var(--app-role-body-size);
-  font-weight: var(--app-role-body-weight);
-  border-radius: var(--bf-radius-xs);
-  width: 100%;
-  transition: all var(--bf-motion-fast) ease;
-}
-
-.fb-search-input:hover {
-  border-color: var(--bf-border-strong);
-}
-
-.fb-search-input:focus {
-  outline: none;
-  border-color: var(--bf-accent);
-  box-shadow: 0 0 0 1px var(--bf-accent);
-}
-
-.fb-search-input:focus-visible {
-  outline: var(--app-focus-ring-width) solid var(--bf-border-focus);
-  outline-offset: var(--app-focus-ring-offset);
-}
-
-.fb-search-input::placeholder {
-  color: var(--bf-text-muted);
-}
-
-.fb-search-clear {
-  position: absolute;
-  right: 6px;
-  top: 50%;
-  transform: translateY(-50%);
-  background: transparent;
-  border: none;
-  color: var(--bf-text-muted);
-  cursor: pointer;
-  padding: 0;
-  border-radius: var(--bf-radius-xs);
-  transition: all var(--bf-motion-fast) ease;
-  min-width: var(--app-control-height-sm);
-  min-height: var(--app-control-height-sm);
-}
-
-.fb-search-clear:hover {
-  color: var(--bf-text-secondary);
-}
-
-.fb-sort {
-  display: flex;
-  align-items: center;
-  gap: var(--bf-space-1);
-}
-
-.fb-sort-select {
-  background-color: var(--bf-bg-shell);
-  color: var(--bf-text-primary);
-  border: 1px solid var(--bf-border-subtle);
-  padding: 0 24px 0 8px;
-  height: var(--app-control-height-sm);
-  font-size: var(--app-role-body-size);
-  font-weight: var(--app-role-body-weight);
-  border-radius: var(--bf-radius-xs);
-  cursor: pointer;
-  appearance: none;
-  background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e");
-  background-repeat: no-repeat;
-  background-position: right 4px center;
-  background-size: 12px;
-  transition: all var(--bf-motion-fast) ease;
-}
-
-.fb-sort-select:hover {
-  border-color: var(--bf-border-strong);
-}
-
-.fb-sort-select:focus {
-  outline: none;
-  border-color: var(--bf-accent);
-  box-shadow: 0 0 0 1px var(--bf-accent);
-}
-
-.fb-sort-select:focus-visible {
-  outline: var(--app-focus-ring-width) solid var(--bf-border-focus);
-  outline-offset: var(--app-focus-ring-offset);
-}
-
-.fb-sort-order {
-  background: transparent;
-  border: none;
-  color: var(--bf-text-secondary);
-  cursor: pointer;
-  padding: 0;
-  font-size: 12px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: var(--bf-panel-header-h);
-  height: var(--bf-panel-header-h);
-  border-radius: var(--bf-radius-xs);
-  transition: all var(--bf-motion-fast) ease;
-}
-
-.fb-sort-order:hover {
-  background-color: var(--bf-bg-hover);
-  color: var(--bf-text-primary);
-}
-
-.fb-sort-order:focus-visible,
-.retry-button:focus-visible {
-  outline: var(--app-focus-ring-width) solid var(--bf-border-focus);
-  outline-offset: var(--app-focus-ring-offset);
-}
-
-.fb-inline-error {
-  border-bottom: 1px solid color-mix(in srgb, var(--bf-danger) 24%, transparent);
-  background: color-mix(in srgb, var(--bf-danger) 10%, transparent);
-  color: var(--bf-danger);
-  font-size: var(--app-role-label-size);
-  padding: var(--bf-space-1) var(--bf-space-2);
-}
-
-
-/* Tree container */
 .file-browser-panel .tree-container {
   flex: 1;
   min-height: 0;
@@ -235,7 +36,6 @@
   flex-direction: column;
 }
 
-/* React Arborist Tree Styles */
 .file-browser-panel .react-arborist {
   position: relative;
   overflow: auto;
@@ -246,217 +46,19 @@
   font-size: var(--app-text-base);
 }
 
-/* Tree row/node container */
 .file-browser-panel .react-arborist > div {
   background-color: transparent;
 }
 
-/* Fix for react-arborist internal styles */
-.file-browser-panel .react-arborist [role="tree"] {
+.file-browser-panel .react-arborist [role='tree'] {
   outline: none;
 }
 
-.file-browser-panel .react-arborist [role="treeitem"] {
+.file-browser-panel .react-arborist [role='treeitem'] {
   outline: none;
 }
 
-/* Individual tree item */
-.file-tree-item {
-  user-select: none;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  width: 100%;
-  height: 100%;
-  padding: var(--bf-space-1) var(--bf-space-3);
-  font-size: var(--app-text-base);
-  color: var(--bf-text-primary);
-  transition: background-color var(--bf-motion-fast) ease;
-  position: relative;
-  white-space: nowrap;
-}
-
-.file-tree-item[draggable="true"] {
-  cursor: grab;
-}
-
-.file-tree-item[draggable="true"]:active {
-  cursor: grabbing;
-}
-
-.file-tree-item:hover {
-  background-color: var(--bf-bg-hover);
-}
-
-.file-tree-item.selected {
-  background-color: var(--bf-accent-active);
-  color: hsl(var(--primary-foreground)); /* Theme primary foreground */
-}
-
-.file-tree-item.selected:hover {
-  background-color: var(--bf-accent-soft);
-}
-
-.file-tree-item:active {
-  background-color: var(--bf-bg-active);
-}
-
-.file-tree-item.font-medium {
-  font-weight: 500;
-  color: var(--bf-text-primary);
-}
-
-/* Expand/collapse button */
-.file-tree-item .expand-button {
-  padding: 0;
-  background: none;
-  border: none;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--bf-text-muted);
-  transition: all var(--bf-motion-fast) ease;
-  width: 16px;
-  height: 16px;
-  flex-shrink: 0;
-  margin-right: var(--bf-space-1);
-}
-
-.file-tree-item .expand-button:hover {
-  color: var(--bf-text-secondary);
-}
-
-.file-tree-item .expand-button svg {
-  width: 12px;
-  height: 12px;
-  transition: transform var(--bf-motion-fast) ease;
-}
-
-.file-tree-item .expand-button svg.rotate-90 {
-  transform: rotate(90deg);
-}
-
-/* Spacer for files (no expand button) */
-.file-tree-item .expand-spacer {
-  width: 16px;
-  height: 16px;
-  flex-shrink: 0;
-  margin-right: var(--bf-space-1);
-}
-
-/* File icons */
-.file-tree-item .file-icon {
-  font-size: 16px;
-  line-height: 1;
-  margin-right: var(--bf-space-2);
-  flex-shrink: 0;
-}
-
-/* File name */
-.file-tree-item .file-name {
-  flex: 1;
-  display: flex;
-  align-items: center;
-  gap: var(--bf-space-1);
-  overflow: hidden;
-  min-width: 0;
-}
-
-.file-tree-item .file-name-text {
-  display: inline-flex;
-  align-items: center;
-  gap: 1px;
-  flex: 1 1 auto;
-  min-width: 0;
-  overflow: hidden;
-  white-space: nowrap;
-}
-
-.file-tree-item .file-name-head {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.file-tree-item .file-name-tail {
-  flex-shrink: 0;
-  color: var(--bf-text-secondary);
-  font-family: var(--bf-font-mono);
-}
-
-.file-tree-item.selected .file-name-tail {
-  color: hsl(var(--primary));
-}
-
-.file-tree-item .remote-origin-badge {
-  font-size: var(--app-text-xs);
-  font-family: var(--bf-font-mono);
-  color: var(--bf-text-secondary);
-  background: color-mix(in srgb, var(--bf-bg-panel) 78%, transparent);
-  border: 1px solid var(--bf-border-subtle);
-  border-radius: 999px;
-  padding: 1px 6px;
-  max-width: 36%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.file-tree-item.selected .remote-origin-badge {
-  border-color: hsl(var(--primary));
-  color: hsl(var(--primary));
-}
-
-.file-tree-item .remote-root-badge {
-  font-size: var(--app-text-xs);
-  font-family: var(--bf-font-mono);
-  color: color-mix(in srgb, var(--bf-text-secondary) 88%, var(--bf-accent) 12%);
-  background: color-mix(in srgb, var(--bf-bg-panel) 72%, var(--bf-accent) 8%);
-  border: 1px solid color-mix(in srgb, var(--bf-border-subtle) 80%, var(--bf-accent) 20%);
-  border-radius: 999px;
-  padding: 1px 6px;
-  max-width: 52%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.file-tree-item.selected .remote-root-badge {
-  border-color: hsl(var(--primary));
-  color: hsl(var(--primary));
-}
-
-/* File metadata */
-.file-tree-item .file-meta {
-  display: flex;
-  align-items: center;
-  gap: var(--bf-space-1);
-  margin-left: var(--bf-space-1);
-  flex-shrink: 0;
-}
-
-.file-tree-item .file-size {
-  font-size: var(--app-text-xs);
-  color: var(--bf-text-muted);
-  white-space: nowrap;
-}
-
-.file-tree-item.selected .file-size {
-  color: hsl(var(--primary)); /* Theme primary color */
-}
-
-/* Highlight for search */
-.file-tree-item mark {
-  background-color: var(--bf-warning);
-  color: hsl(var(--foreground)); /* Theme foreground */
-  padding: 0 2px;
-  border-radius: 2px;
-  font-weight: 500;
-}
-
-/* Empty states */
+/* Empty / loading / error state cards. */
 .file-browser-panel .empty-state {
   flex: 1;
   display: flex;
@@ -534,7 +136,9 @@
   font-weight: 500;
   border-radius: var(--bf-radius-xs);
   cursor: pointer;
-  transition: background-color var(--bf-motion-fast) ease, color var(--bf-motion-fast) ease, border-color var(--bf-motion-fast) ease;
+  transition: background-color var(--bf-motion-fast) ease,
+    color var(--bf-motion-fast) ease,
+    border-color var(--bf-motion-fast) ease;
 }
 
 .file-browser-panel .empty-state-button.primary {
@@ -583,7 +187,6 @@
   color: var(--bf-danger);
 }
 
-/* Loading state */
 .file-browser-panel .loading-state {
   display: flex;
   align-items: center;
@@ -615,7 +218,6 @@
   color: var(--bf-text-muted);
 }
 
-/* Error state */
 .file-browser-panel .error-state {
   display: flex;
   flex-direction: column;
@@ -661,161 +263,9 @@
   border-color: var(--bf-border);
 }
 
-/* Remote mount modal */
-.remote-mount-subtitle {
-  margin: var(--bf-space-1) 0 0;
-  font-size: var(--app-role-body-size);
-  color: var(--bf-text-secondary);
-}
-
-.remote-mount-body {
-  flex: 1;
-  min-height: 0;
-  overflow: auto;
-  padding: var(--bf-space-3);
-}
-
-.remote-mount-form-grid {
-  display: grid;
-  gap: var(--bf-space-2);
-}
-
-.remote-mount-row {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: var(--bf-space-2);
-}
-
-.remote-mount-field {
-  display: grid;
-  gap: var(--bf-space-1);
-}
-
-.remote-mount-field > span {
-  font-size: var(--app-role-label-size);
-  color: var(--bf-text-secondary);
-}
-
-.remote-mount-field > input,
-.remote-mount-field > select {
-  border: 1px solid var(--bf-border-subtle);
-  background: var(--bf-bg-panel);
-  color: var(--bf-text-primary);
-  min-height: var(--bf-panel-header-h);
-  padding: 0 var(--bf-space-2);
-  border-radius: var(--bf-radius-xs);
-  transition: border-color var(--bf-motion-fast) ease, box-shadow var(--bf-motion-fast) ease;
-}
-
-.remote-mount-field > input:focus,
-.remote-mount-field > select:focus {
-  outline: none;
-  border-color: var(--bf-accent);
-  box-shadow: 0 0 0 1px var(--bf-accent);
-}
-
-.remote-mount-profile-row {
-  display: grid;
-  grid-template-columns: 1fr auto;
-  gap: var(--bf-space-1);
-}
-
-.remote-mount-profile-row > button {
-  border: 1px solid var(--bf-border-subtle);
-  background: var(--bf-bg-panel);
-  color: var(--bf-text-primary);
-  min-height: var(--bf-panel-header-h);
-  padding: 0 var(--bf-space-2);
-  border-radius: var(--bf-radius-xs);
-}
-
-.remote-mount-checkbox {
-  display: flex;
-  align-items: center;
-  gap: var(--bf-space-1);
-  font-size: var(--app-role-label-size);
-  color: var(--bf-text-secondary);
-}
-
-.remote-mount-checkbox > input {
-  width: 14px;
-  height: 14px;
-}
-
-.remote-mount-step {
-  display: grid;
-  gap: var(--bf-space-1);
-  border: 1px solid var(--bf-border);
-  background: var(--bf-bg-panel);
-  padding: var(--bf-space-2);
-}
-
-.remote-mount-step-title {
-  margin: 0;
-  font-size: var(--app-role-body-size);
-  font-weight: 600;
-  color: var(--bf-text-primary);
-}
-
-.remote-mount-step-text {
-  margin: 0;
-  font-size: var(--app-role-label-size);
-  color: var(--bf-text-secondary);
-}
-
-.remote-mount-error {
-  margin-top: var(--bf-space-2);
-  border: 1px solid color-mix(in srgb, var(--bf-danger) 40%, transparent);
-  background: color-mix(in srgb, var(--bf-danger) 10%, transparent);
-  color: var(--bf-danger);
-  padding: var(--bf-space-1) var(--bf-space-2);
-  font-size: var(--app-role-label-size);
-}
-
-.remote-mount-footer {
-  display: flex;
-  justify-content: flex-end;
-  gap: var(--bf-space-2);
-  border-top: 1px solid var(--bf-border);
-  padding: var(--bf-space-2) var(--bf-space-3);
-  background: var(--bf-bg-panel);
-}
-
-.remote-mount-footer > button {
-  border: 1px solid var(--bf-border-subtle);
-  background: var(--bf-bg-shell);
-  color: var(--bf-text-primary);
-  min-height: var(--bf-panel-header-h);
-  padding: 0 var(--bf-space-3);
-  font-size: var(--app-role-label-size);
-  border-radius: var(--bf-radius-xs);
-  transition: background-color var(--bf-motion-fast) ease, border-color var(--bf-motion-fast) ease, color var(--bf-motion-fast) ease;
-}
-
-.remote-mount-footer > button.primary {
-  background: var(--bf-accent);
-  border-color: color-mix(in srgb, var(--bf-accent) 65%, #000 35%);
-  color: #ffffff;
-}
-
-.remote-mount-footer > button:hover:not(:disabled) {
-  background: var(--bf-bg-hover);
-  border-color: var(--bf-border-strong);
-}
-
-.remote-mount-footer > button.primary:hover:not(:disabled) {
-  background: var(--bf-accent-hover);
-  color: #fff;
-}
-
-.remote-mount-footer > button:focus-visible {
+.file-browser-panel .retry-button:focus-visible {
   outline: var(--app-focus-ring-width) solid var(--bf-border-focus);
   outline-offset: var(--app-focus-ring-offset);
-}
-
-.remote-mount-footer > button:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
 }
 
 /* Scrollbar styling */
@@ -856,56 +306,29 @@
   gap: 0.5rem;
 }
 
-/* Responsive behavior */
 @media (max-width: 480px) {
   .file-browser-panel .file-meta {
     display: none;
   }
-
-  .file-browser-panel .path-bar {
-    font-size: 11px;
-  }
-
-  .remote-mount-row {
-    grid-template-columns: 1fr;
-  }
-
-  .remote-mount-footer {
-    flex-wrap: wrap;
-  }
-
   .file-browser-panel .empty-state {
     padding: var(--bf-space-3);
     padding-top: var(--bf-space-4);
   }
-
   .file-browser-panel .empty-state-card {
     max-width: 100%;
     padding: var(--bf-space-4) var(--bf-space-3);
   }
-
   .file-browser-panel .empty-state-secondary-actions {
     grid-template-columns: 1fr;
   }
 }
 
-/* P4 — narrow rail (320 px target, 280 px stress) responsive trims. */
 @media (max-width: 320px) {
   .file-browser-panel .file-size {
     display: none;
   }
-  .fb-search-input {
-    padding-right: 24px;
-  }
 }
 
-@media (max-width: 620px) {
-  .file-tree-item .file-size {
-    display: none;
-  }
-}
-
-/* High DPI support */
 @media (-webkit-min-device-pixel-ratio: 2), (min-resolution: 192dpi) {
   .file-browser-panel {
     -webkit-font-smoothing: antialiased;

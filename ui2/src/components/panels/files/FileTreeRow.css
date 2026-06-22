@@ -1,0 +1,199 @@
+/* FileTreeRow — chrome rendered for each react-arborist row. */
+.file-tree-item {
+  user-select: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  width: 100%;
+  height: 100%;
+  padding: var(--bf-space-1) var(--bf-space-3);
+  font-size: var(--app-text-base);
+  color: var(--bf-text-primary);
+  transition: background-color var(--bf-motion-fast) ease;
+  position: relative;
+  white-space: nowrap;
+}
+
+.file-tree-item[draggable='true'] {
+  cursor: grab;
+}
+
+.file-tree-item[draggable='true']:active {
+  cursor: grabbing;
+}
+
+.file-tree-item:hover {
+  background-color: var(--bf-bg-hover);
+}
+
+.file-tree-item.selected {
+  background-color: var(--bf-accent-active);
+  color: hsl(var(--primary-foreground));
+}
+
+.file-tree-item.selected:hover {
+  background-color: var(--bf-accent-soft);
+}
+
+.file-tree-item:active {
+  background-color: var(--bf-bg-active);
+}
+
+.file-tree-item.font-medium {
+  font-weight: 500;
+  color: var(--bf-text-primary);
+}
+
+.file-tree-item .expand-button {
+  padding: 0;
+  background: none;
+  border: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--bf-text-muted);
+  transition: all var(--bf-motion-fast) ease;
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  margin-right: var(--bf-space-1);
+}
+
+.file-tree-item .expand-button:hover {
+  color: var(--bf-text-secondary);
+}
+
+.file-tree-item .expand-button svg {
+  width: 12px;
+  height: 12px;
+  transition: transform var(--bf-motion-fast) ease;
+}
+
+.file-tree-item .expand-button svg.rotate-90 {
+  transform: rotate(90deg);
+}
+
+.file-tree-item .expand-spacer {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  margin-right: var(--bf-space-1);
+}
+
+.file-tree-item .file-icon {
+  font-size: 16px;
+  line-height: 1;
+  margin-right: var(--bf-space-2);
+  flex-shrink: 0;
+}
+
+.file-tree-item .file-name {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: var(--bf-space-1);
+  overflow: hidden;
+  min-width: 0;
+}
+
+.file-tree-item .file-name-text {
+  display: inline-flex;
+  align-items: center;
+  gap: 1px;
+  flex: 1 1 auto;
+  min-width: 0;
+  /* No `overflow: hidden` here — that previously clipped the start of the
+     name when the head was already a complete string, hiding the extension
+     and the readable beginning at the same time. Children manage their own
+     overflow + ellipsis. */
+  white-space: nowrap;
+}
+
+.file-tree-item .file-name-head {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.file-tree-item .file-name-tail {
+  flex-shrink: 0;
+  color: var(--bf-text-secondary);
+  font-family: var(--bf-font-mono);
+}
+
+.file-tree-item.selected .file-name-tail {
+  color: hsl(var(--primary));
+}
+
+.file-tree-item .remote-origin-badge {
+  font-size: var(--app-text-xs);
+  font-family: var(--bf-font-mono);
+  color: var(--bf-text-secondary);
+  background: color-mix(in srgb, var(--bf-bg-panel) 78%, transparent);
+  border: 1px solid var(--bf-border-subtle);
+  border-radius: 999px;
+  padding: 1px 6px;
+  max-width: 36%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.file-tree-item.selected .remote-origin-badge {
+  border-color: hsl(var(--primary));
+  color: hsl(var(--primary));
+}
+
+.file-tree-item .remote-root-badge {
+  font-size: var(--app-text-xs);
+  font-family: var(--bf-font-mono);
+  color: color-mix(in srgb, var(--bf-text-secondary) 88%, var(--bf-accent) 12%);
+  background: color-mix(in srgb, var(--bf-bg-panel) 72%, var(--bf-accent) 8%);
+  border: 1px solid color-mix(in srgb, var(--bf-border-subtle) 80%, var(--bf-accent) 20%);
+  border-radius: 999px;
+  padding: 1px 6px;
+  max-width: 52%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.file-tree-item.selected .remote-root-badge {
+  border-color: hsl(var(--primary));
+  color: hsl(var(--primary));
+}
+
+.file-tree-item .file-meta {
+  display: flex;
+  align-items: center;
+  gap: var(--bf-space-1);
+  margin-left: var(--bf-space-1);
+  flex-shrink: 0;
+}
+
+.file-tree-item .file-size {
+  font-size: var(--app-text-xs);
+  color: var(--bf-text-muted);
+  white-space: nowrap;
+}
+
+.file-tree-item.selected .file-size {
+  color: hsl(var(--primary));
+}
+
+.file-tree-item mark {
+  background-color: var(--bf-warning);
+  color: hsl(var(--foreground));
+  padding: 0 2px;
+  border-radius: 2px;
+  font-weight: 500;
+}
+
+@media (max-width: 620px) {
+  .file-tree-item .file-size {
+    display: none;
+  }
+}

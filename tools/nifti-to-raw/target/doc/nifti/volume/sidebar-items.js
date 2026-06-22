@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"mod":["element","inmem","ndarray","shape","streamed"],"struct":["SliceView"],"trait":["FromSource","FromSourceOptions","NiftiVolume","RandomAccessNiftiVolume","Sliceable"]};

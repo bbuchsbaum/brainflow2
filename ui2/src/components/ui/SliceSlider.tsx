@@ -117,7 +117,8 @@ export function SliceSlider({
   
   return (
     <div
-      className="relative h-full bg-secondary border-t border-border flex items-center px-3"
+      className="relative h-full bg-secondary px-3"
+      style={{ boxShadow: 'inset 0 1px 0 0 hsl(var(--border))' }}
       onMouseEnter={() => setShowValue(true)}
       onMouseLeave={() => setShowValue(false)}
     >
@@ -126,27 +127,44 @@ export function SliceSlider({
         <div
           className="absolute bottom-full mb-2 text-primary text-xs font-medium pointer-events-none whitespace-nowrap"
           style={{
-            left: `${percentage}%`,
+            left: `calc(${percentage}% + 12px)`,
             transform: 'translateX(-50%)'
           }}
         >
           {axisLabel}: {displayValue}mm
         </div>
       )}
-      <input
-        type="range"
-        min={min}
-        max={max}
-        step={step}
-        value={value}
-        disabled={disabled}
-        onChange={handleChange}
-        onPointerDown={handlePointerDown}
-        onPointerUp={handlePointerUp}
-        onPointerMove={handlePointerMove}
-        onPointerCancel={handlePointerCancel}
-        className="w-full h-4 cursor-pointer disabled:cursor-not-allowed disabled:opacity-50 slider-custom"
-      />
+      {/* Track + thumb. Use explicit absolute geometry (matching the
+          Inspector's Intensity/Threshold pattern) so the knob's vertical
+          position is independent of native <input type=range> layout
+          quirks across browsers and pane sizes. */}
+      <div className="absolute inset-y-0 left-3 right-3 flex items-center">
+        <div className="relative w-full h-3">
+          {/* Visible track */}
+          <div
+            aria-hidden
+            className="absolute left-0 right-0 top-1/2 h-[3px] -translate-y-1/2 rounded-full"
+            style={{ backgroundColor: 'hsl(var(--border) / 0.8)' }}
+          />
+          {/* Native input — track painted transparent, only the circular
+              thumb is visible. `bf-thumb-circle` is the canonical 10 px
+              sky-circle thumb used elsewhere in the app. */}
+          <input
+            type="range"
+            min={min}
+            max={max}
+            step={step}
+            value={value}
+            disabled={disabled}
+            onChange={handleChange}
+            onPointerDown={handlePointerDown}
+            onPointerUp={handlePointerUp}
+            onPointerMove={handlePointerMove}
+            onPointerCancel={handlePointerCancel}
+            className="bf-thumb-circle absolute inset-0 w-full h-3 cursor-pointer disabled:cursor-not-allowed disabled:opacity-50"
+          />
+        </div>
+      </div>
     </div>
   );
 }

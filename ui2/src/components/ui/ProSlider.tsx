@@ -1,5 +1,5 @@
-import React, { useState, useRef, useCallback, useEffect } from 'react';
-import { useDragSourceStore } from '@/stores/dragSourceStore';
+import React, { useState, useRef, useCallback, useEffect } from "react";
+import { useDragSourceStore } from "@/stores/dragSourceStore";
 
 interface ProSliderProps {
   min: number;
@@ -22,7 +22,7 @@ interface ProSliderProps {
   /**
    * Layout mode: stacked (label above) or strip (label left)
    */
-  layout?: 'stacked' | 'strip';
+  layout?: "stacked" | "strip";
   /**
    * Optional widths for strip layout
    */
@@ -38,65 +38,69 @@ export const ProSlider: React.FC<ProSliderProps> = ({
   onChange,
   precision = 0,
   showTooltip = true,
-  className = '',
+  className = "",
   disabled = false,
   compact = false,
   highContrast = false,
-  layout = 'stacked',
+  layout = "stacked",
   labelWidth,
   valueWidth,
 }) => {
   // Ensure we always have a valid [number, number] tuple
-  const safeValue: [number, number] = Array.isArray(value) && value.length >= 2
-    ? [value[0], value[1]]
-    : [min, max];
+  const safeValue: [number, number] =
+    Array.isArray(value) && value.length >= 2
+      ? [value[0], value[1]]
+      : [min, max];
 
   const [localValue, setLocalValue] = useState(safeValue);
   const [isDragging, setIsDragging] = useState(false);
-  const [activeThumb, setActiveThumb] = useState<'left' | 'right' | null>(null);
+  const [activeThumb, setActiveThumb] = useState<"left" | "right" | null>(null);
   const trackRef = useRef<HTMLDivElement>(null);
   const leftThumbRef = useRef<HTMLDivElement>(null);
   const rightThumbRef = useRef<HTMLDivElement>(null);
-  
+
   // Track last update time for throttling
   const lastUpdateRef = useRef(0);
   const THROTTLE_MS = 50; // Update at most every 50ms
-  
+
   // Track pending value for throttled updates
   const pendingValueRef = useRef<[number, number] | null>(null);
   const throttleTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  
+
   // Call onChange with throttling
-  const handleValueChange = useCallback((newValue: [number, number]) => {
-    setLocalValue(newValue);
-    localValueRef.current = newValue; // Keep ref in sync immediately
-    pendingValueRef.current = newValue;
-    
-    // Clear existing timeout
-    if (throttleTimeoutRef.current) {
-      clearTimeout(throttleTimeoutRef.current);
-    }
-    
-    const now = Date.now();
-    const timeSinceLastUpdate = now - lastUpdateRef.current;
-    
-    if (timeSinceLastUpdate >= THROTTLE_MS) {
-      // Send immediately if enough time has passed
-      onChange(newValue);
-      lastUpdateRef.current = now;
-      pendingValueRef.current = null;
-    } else {
-      // Schedule update for later
-      const delay = THROTTLE_MS - timeSinceLastUpdate;
-      throttleTimeoutRef.current = setTimeout(() => {
-        if (pendingValueRef.current) {
-          onChange(pendingValueRef.current);
-          lastUpdateRef.current = Date.now();
-          pendingValueRef.current = null;
-        }
-      }, delay);
-    }
-  }, [onChange]);
+  const handleValueChange = useCallback(
+    (newValue: [number, number]) => {
+      setLocalValue(newValue);
+      localValueRef.current = newValue; // Keep ref in sync immediately
+      pendingValueRef.current = newValue;
+
+      // Clear existing timeout
+      if (throttleTimeoutRef.current) {
+        clearTimeout(throttleTimeoutRef.current);
+      }
+
+      const now = Date.now();
+      const timeSinceLastUpdate = now - lastUpdateRef.current;
+
+      if (timeSinceLastUpdate >= THROTTLE_MS) {
+        // Send immediately if enough time has passed
+        onChange(newValue);
+        lastUpdateRef.current = now;
+        pendingValueRef.current = null;
+      } else {
+        // Schedule update for later
+        const delay = THROTTLE_MS - timeSinceLastUpdate;
+        throttleTimeoutRef.current = setTimeout(() => {
+          if (pendingValueRef.current) {
+            onChange(pendingValueRef.current);
+            lastUpdateRef.current = Date.now();
+            pendingValueRef.current = null;
+          }
+        }, delay);
+      }
+    },
+    [onChange],
+  );
 
   // Format value for display
   const formatValue = (val: number): string => {
@@ -114,38 +118,47 @@ export const ProSlider: React.FC<ProSliderProps> = ({
   };
 
   // Convert position to value
-  const percentToValue = useCallback((percent: number): number => {
-    return min + (percent / 100) * (max - min);
-  }, [min, max]);
+  const percentToValue = useCallback(
+    (percent: number): number => {
+      return min + (percent / 100) * (max - min);
+    },
+    [min, max],
+  );
 
   // Use refs to avoid stale closures
   const isDraggingRef = useRef(false);
-  const activeThumbRef = useRef<'left' | 'right' | null>(null);
+  const activeThumbRef = useRef<"left" | "right" | null>(null);
   const localValueRef = useRef(localValue);
-  
+
   // Note: localValueRef is kept in sync in handleValueChange and prop sync effect
-  
+
   // Handle thumb drag
-  const handleThumbDrag = useCallback((e: MouseEvent) => {
-    if (!trackRef.current || !activeThumbRef.current) return;
+  const handleThumbDrag = useCallback(
+    (e: MouseEvent) => {
+      if (!trackRef.current || !activeThumbRef.current) return;
 
-    const rect = trackRef.current.getBoundingClientRect();
-    const percent = Math.max(0, Math.min(100, ((e.clientX - rect.left) / rect.width) * 100));
-    const newValue = percentToValue(percent);
+      const rect = trackRef.current.getBoundingClientRect();
+      const percent = Math.max(
+        0,
+        Math.min(100, ((e.clientX - rect.left) / rect.width) * 100),
+      );
+      const newValue = percentToValue(percent);
 
-    const [currentLeft, currentRight] = localValueRef.current;
-    let updatedValue: [number, number];
-    
-    if (activeThumbRef.current === 'left') {
-      // Ensure left thumb doesn't go past right thumb
-      updatedValue = [Math.min(newValue, currentRight), currentRight];
-    } else {
-      // Ensure right thumb doesn't go past left thumb
-      updatedValue = [currentLeft, Math.max(newValue, currentLeft)];
-    }
-    
-    handleValueChange(updatedValue);
-  }, [min, max, percentToValue, handleValueChange]);
+      const [currentLeft, currentRight] = localValueRef.current;
+      let updatedValue: [number, number];
+
+      if (activeThumbRef.current === "left") {
+        // Ensure left thumb doesn't go past right thumb
+        updatedValue = [Math.min(newValue, currentRight), currentRight];
+      } else {
+        // Ensure right thumb doesn't go past left thumb
+        updatedValue = [currentLeft, Math.max(newValue, currentLeft)];
+      }
+
+      handleValueChange(updatedValue);
+    },
+    [min, max, percentToValue, handleValueChange],
+  );
 
   // Create stable event handlers
   useEffect(() => {
@@ -161,16 +174,16 @@ export const ProSlider: React.FC<ProSliderProps> = ({
         activeThumbRef.current = null;
         setIsDragging(false);
         setActiveThumb(null);
-        
+
         // Clear drag source
         useDragSourceStore.getState().setDraggingSource(null);
-        
+
         // Clear any pending throttled update
         if (throttleTimeoutRef.current) {
           clearTimeout(throttleTimeoutRef.current);
           throttleTimeoutRef.current = null;
         }
-        
+
         // Send final value immediately
         onChange(localValueRef.current);
         lastUpdateRef.current = 0;
@@ -178,35 +191,37 @@ export const ProSlider: React.FC<ProSliderProps> = ({
       }
     };
 
-    document.addEventListener('mousemove', handleMouseMove);
-    document.addEventListener('mouseup', handleMouseUp);
+    document.addEventListener("mousemove", handleMouseMove);
+    document.addEventListener("mouseup", handleMouseUp);
 
     return () => {
-      document.removeEventListener('mousemove', handleMouseMove);
-      document.removeEventListener('mouseup', handleMouseUp);
+      document.removeEventListener("mousemove", handleMouseMove);
+      document.removeEventListener("mouseup", handleMouseUp);
     };
   }, [handleThumbDrag, onChange]);
 
   // Mouse event handlers
-  const handleMouseDown = (thumb: 'left' | 'right') => (e: React.MouseEvent) => {
-    e.preventDefault();
-    if (disabled) return;
-    isDraggingRef.current = true;
-    activeThumbRef.current = thumb;
-    setIsDragging(true);
-    setActiveThumb(thumb);
-    
-    // Notify drag source store
-    useDragSourceStore.getState().setDraggingSource('slider');
-  };
+  const handleMouseDown =
+    (thumb: "left" | "right") => (e: React.MouseEvent) => {
+      e.preventDefault();
+      if (disabled) return;
+      isDraggingRef.current = true;
+      activeThumbRef.current = thumb;
+      setIsDragging(true);
+      setActiveThumb(thumb);
+
+      // Notify drag source store
+      useDragSourceStore.getState().setDraggingSource("slider");
+    };
 
   // Sync local state from props when not dragging, but avoid churn on equal values
   useEffect(() => {
     if (!isDragging) {
       // Ensure we always have a valid [number, number] tuple when syncing from props
-      const safeNewValue: [number, number] = Array.isArray(value) && value.length >= 2
-        ? [value[0], value[1]]
-        : [min, max];
+      const safeNewValue: [number, number] =
+        Array.isArray(value) && value.length >= 2
+          ? [value[0], value[1]]
+          : [min, max];
       const [lv0, lv1] = localValueRef.current;
       if (lv0 !== safeNewValue[0] || lv1 !== safeNewValue[1]) {
         setLocalValue(safeNewValue);
@@ -214,7 +229,7 @@ export const ProSlider: React.FC<ProSliderProps> = ({
       }
     }
   }, [value, isDragging, min, max]);
-  
+
   // Cleanup on unmount
   useEffect(() => {
     return () => {
@@ -227,23 +242,26 @@ export const ProSlider: React.FC<ProSliderProps> = ({
   const leftPercent = valueToPercent(localValue[0]);
   const rightPercent = valueToPercent(localValue[1]);
 
-  const labelColor = highContrast ? 'hsl(var(--foreground) / 0.92)' : 'hsl(var(--foreground) / 0.72)';
-  const valueColor = highContrast ? 'hsl(var(--foreground) / 0.82)' : 'hsl(var(--foreground) / 0.65)';
-  const trackColor = 'hsl(var(--border) / 0.7)';
-  const accentColor = 'hsl(var(--primary))';
-  const thumbWidth = compact ? 6 : 8;
-  const thumbHeight = compact ? 12 : 16;
-  const thumbOffset = compact ? -5 : -7;
-  const valueFontClass = compact ? 'text-[9px]' : 'text-[11px]';
-  const labelFontClass = compact ? 'text-[9px]' : 'text-[10px]';
-  const containerMargin = compact ? '6px' : '12px';
-  const valueMargin = compact ? '4px' : '8px';
-  const trackHeightClass = compact ? 'h-4' : 'h-6';
-  const tooltipFontClass = compact ? 'text-[9px]' : 'text-[10px]';
-  const stripLabelWidth = labelWidth ?? '6rem';
-  const stripValueWidth = valueWidth ?? '4.5rem';
+  const labelColor = highContrast
+    ? "hsl(var(--foreground) / 0.92)"
+    : "hsl(var(--foreground) / 0.72)";
+  const valueColor = highContrast
+    ? "hsl(var(--foreground) / 0.82)"
+    : "hsl(var(--foreground) / 0.65)";
+  const trackColor = "hsl(var(--border) / 0.7)";
+  const accentColor = "hsl(var(--primary))";
+  const thumbWidth = compact ? 10 : 12;
+  const thumbHeight = compact ? 10 : 12;
+  const valueFontClass = compact ? "text-[9px]" : "text-[11px]";
+  const labelFontClass = compact ? "text-[9px]" : "text-[10px]";
+  const containerMargin = compact ? "6px" : "12px";
+  const valueMargin = compact ? "4px" : "8px";
+  const trackHeightClass = compact ? "h-4" : "h-6";
+  const tooltipFontClass = compact ? "text-[9px]" : "text-[10px]";
+  const stripLabelWidth = labelWidth ?? "6rem";
+  const stripValueWidth = valueWidth ?? "4.5rem";
 
-  if (layout === 'strip') {
+  if (layout === "strip") {
     const combinedValue = `${formatValue(localValue[0])}–${formatValue(localValue[1])}`;
     return (
       <div
@@ -257,18 +275,20 @@ export const ProSlider: React.FC<ProSliderProps> = ({
           {label}
         </label>
 
-        <div className={`flex-1 relative h-4 flex items-center ${disabled ? 'opacity-50 pointer-events-none' : ''}`}>
+        <div
+          className={`flex-1 relative h-4 flex items-center ${disabled ? "opacity-50 pointer-events-none" : ""}`}
+        >
           <div
             ref={trackRef}
             className="relative w-full h-[2px]"
-            style={{ backgroundColor: trackColor, overflow: 'visible' }}
+            style={{ backgroundColor: trackColor, overflow: "visible" }}
           >
             <div
               className="absolute h-full"
               style={{
                 backgroundColor: accentColor,
                 left: `${leftPercent}%`,
-                width: `${rightPercent - leftPercent}%`
+                width: `${rightPercent - leftPercent}%`,
               }}
             />
 
@@ -276,24 +296,29 @@ export const ProSlider: React.FC<ProSliderProps> = ({
               ref={leftThumbRef}
               className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 cursor-pointer"
               style={{ left: `${leftPercent}%` }}
-              onMouseDown={handleMouseDown('left')}
+              onMouseDown={handleMouseDown("left")}
             >
               <div
-                className="transition-all absolute"
+                className="transition-all"
                 style={{
                   backgroundColor: accentColor,
-                  borderRadius: '1px',
-                  boxShadow: '0 1px 2px rgba(0, 0, 0, 0.15)',
-                  transform: isDragging && activeThumb === 'left' ? 'scaleY(1.1)' : 'scaleY(1)',
+                  borderRadius: "50%",
+                  boxShadow: "0 0 0 1px hsl(220 56% 4% / 0.7)",
+                  transform:
+                    isDragging && activeThumb === "left"
+                      ? "scale(1.15)"
+                      : "scale(1)",
                   width: `${thumbWidth}px`,
                   height: `${thumbHeight}px`,
-                  top: `${thumbOffset}px`
                 }}
               />
-              {showTooltip && isDragging && activeThumb === 'left' && (
+              {showTooltip && isDragging && activeThumb === "left" && (
                 <div
                   className={`absolute -top-8 left-1/2 -translate-x-1/2 px-2 py-1 ${tooltipFontClass} font-mono text-white shadow-lg pointer-events-none whitespace-nowrap`}
-                  style={{ backgroundColor: 'rgba(0, 0, 0, 0.85)', borderRadius: '1px' }}
+                  style={{
+                    backgroundColor: "rgba(0, 0, 0, 0.85)",
+                    borderRadius: "1px",
+                  }}
                 >
                   {formatValue(localValue[0])}
                 </div>
@@ -304,24 +329,29 @@ export const ProSlider: React.FC<ProSliderProps> = ({
               ref={rightThumbRef}
               className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 cursor-pointer"
               style={{ left: `${rightPercent}%` }}
-              onMouseDown={handleMouseDown('right')}
+              onMouseDown={handleMouseDown("right")}
             >
               <div
-                className="transition-all absolute"
+                className="transition-all"
                 style={{
                   backgroundColor: accentColor,
-                  borderRadius: '1px',
-                  boxShadow: '0 1px 2px rgba(0, 0, 0, 0.15)',
-                  transform: isDragging && activeThumb === 'right' ? 'scaleY(1.1)' : 'scaleY(1)',
+                  borderRadius: "50%",
+                  boxShadow: "0 0 0 1px hsl(220 56% 4% / 0.7)",
+                  transform:
+                    isDragging && activeThumb === "right"
+                      ? "scale(1.15)"
+                      : "scale(1)",
                   width: `${thumbWidth}px`,
                   height: `${thumbHeight}px`,
-                  top: `${thumbOffset}px`
                 }}
               />
-              {showTooltip && isDragging && activeThumb === 'right' && (
+              {showTooltip && isDragging && activeThumb === "right" && (
                 <div
                   className={`absolute -top-8 left-1/2 -translate-x-1/2 px-2 py-1 ${tooltipFontClass} font-mono text-white shadow-lg pointer-events-none whitespace-nowrap`}
-                  style={{ backgroundColor: 'rgba(0, 0, 0, 0.85)', borderRadius: '1px' }}
+                  style={{
+                    backgroundColor: "rgba(0, 0, 0, 0.85)",
+                    borderRadius: "1px",
+                  }}
                 >
                   {formatValue(localValue[1])}
                 </div>
@@ -340,13 +370,15 @@ export const ProSlider: React.FC<ProSliderProps> = ({
     );
   }
 
-
   return (
-    <div className={`pro-slider ${className}`} style={{ marginBottom: containerMargin }}>
+    <div
+      className={`pro-slider ${className}`}
+      style={{ marginBottom: containerMargin }}
+    >
       {/* Label - Instrument Control style */}
       <label
         className={`block ${labelFontClass} uppercase tracking-widest font-semibold`}
-        style={{ color: labelColor, marginBottom: compact ? '4px' : '6px' }}
+        style={{ color: labelColor, marginBottom: compact ? "4px" : "6px" }}
       >
         {label}
       </label>
@@ -361,11 +393,13 @@ export const ProSlider: React.FC<ProSliderProps> = ({
       </div>
 
       {/* Slider track - thin 2px track */}
-      <div className={`relative ${trackHeightClass} flex items-center ${disabled ? 'opacity-50 pointer-events-none' : ''}`}>
+      <div
+        className={`relative ${trackHeightClass} flex items-center ${disabled ? "opacity-50 pointer-events-none" : ""}`}
+      >
         <div
           ref={trackRef}
           className="relative w-full h-[2px]"
-          style={{ backgroundColor: trackColor, overflow: 'visible' }}
+          style={{ backgroundColor: trackColor, overflow: "visible" }}
         >
           {/* Selected range - no border-radius */}
           <div
@@ -373,64 +407,74 @@ export const ProSlider: React.FC<ProSliderProps> = ({
             style={{
               backgroundColor: accentColor,
               left: `${leftPercent}%`,
-              width: `${rightPercent - leftPercent}%`
+              width: `${rightPercent - leftPercent}%`,
             }}
           />
 
-          {/* Left thumb - rectangular Albers style */}
+          {/* Left thumb - circular knob */}
           <div
             ref={leftThumbRef}
             className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 cursor-pointer"
             style={{ left: `${leftPercent}%` }}
-            onMouseDown={handleMouseDown('left')}
+            onMouseDown={handleMouseDown("left")}
           >
             <div
               className="transition-all absolute"
               style={{
                 backgroundColor: accentColor,
-                borderRadius: '1px',
-                boxShadow: '0 1px 2px rgba(0, 0, 0, 0.15)',
-                transform: isDragging && activeThumb === 'left' ? 'scaleY(1.1)' : 'scaleY(1)',
+                borderRadius: "50%",
+                boxShadow: "0 0 0 1px hsl(220 56% 4% / 0.7)",
+                transform:
+                  isDragging && activeThumb === "left"
+                    ? "scale(1.15)"
+                    : "scale(1)",
                 width: `${thumbWidth}px`,
                 height: `${thumbHeight}px`,
-                top: `${thumbOffset}px`
               }}
             />
             {/* Tooltip */}
-            {showTooltip && isDragging && activeThumb === 'left' && (
+            {showTooltip && isDragging && activeThumb === "left" && (
               <div
                 className={`absolute -top-8 left-1/2 -translate-x-1/2 px-2 py-1 ${tooltipFontClass} font-mono text-white shadow-lg pointer-events-none whitespace-nowrap`}
-                style={{ backgroundColor: 'rgba(0, 0, 0, 0.85)', borderRadius: '1px' }}
+                style={{
+                  backgroundColor: "rgba(0, 0, 0, 0.85)",
+                  borderRadius: "1px",
+                }}
               >
                 {formatValue(localValue[0])}
               </div>
             )}
           </div>
 
-          {/* Right thumb - rectangular Albers style */}
+          {/* Right thumb - circular knob */}
           <div
             ref={rightThumbRef}
             className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 cursor-pointer"
             style={{ left: `${rightPercent}%` }}
-            onMouseDown={handleMouseDown('right')}
+            onMouseDown={handleMouseDown("right")}
           >
             <div
               className="transition-all absolute"
               style={{
                 backgroundColor: accentColor,
-                borderRadius: '1px',
-                boxShadow: '0 1px 2px rgba(0, 0, 0, 0.15)',
-                transform: isDragging && activeThumb === 'right' ? 'scaleY(1.1)' : 'scaleY(1)',
+                borderRadius: "50%",
+                boxShadow: "0 0 0 1px hsl(220 56% 4% / 0.7)",
+                transform:
+                  isDragging && activeThumb === "right"
+                    ? "scale(1.15)"
+                    : "scale(1)",
                 width: `${thumbWidth}px`,
                 height: `${thumbHeight}px`,
-                top: `${thumbOffset}px`
               }}
             />
             {/* Tooltip */}
-            {showTooltip && isDragging && activeThumb === 'right' && (
+            {showTooltip && isDragging && activeThumb === "right" && (
               <div
                 className={`absolute -top-8 left-1/2 -translate-x-1/2 px-2 py-1 ${tooltipFontClass} font-mono text-white shadow-lg pointer-events-none whitespace-nowrap`}
-                style={{ backgroundColor: 'rgba(0, 0, 0, 0.85)', borderRadius: '1px' }}
+                style={{
+                  backgroundColor: "rgba(0, 0, 0, 0.85)",
+                  borderRadius: "1px",
+                }}
               >
                 {formatValue(localValue[1])}
               </div>

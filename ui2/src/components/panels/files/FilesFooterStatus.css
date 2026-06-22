@@ -1,0 +1,30 @@
+/* FilesFooterStatus — terse status row at the bottom of the panel. */
+.fb-footer-status {
+  display: flex;
+  align-items: center;
+  gap: var(--bf-space-1);
+  flex-wrap: wrap;
+  padding: 4px var(--bf-space-3);
+  border-top: 1px solid var(--bf-border-subtle);
+  background: var(--bf-bg-panel);
+  font-size: var(--app-text-xs);
+  color: var(--bf-text-muted);
+  flex-shrink: 0;
+}
+
+.fb-footer-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+}
+
+.fb-footer-sep {
+  opacity: 0.5;
+}
+
+@media (max-width: 320px) {
+  .fb-footer-item--secondary {
+    display: none;
+  }
+}

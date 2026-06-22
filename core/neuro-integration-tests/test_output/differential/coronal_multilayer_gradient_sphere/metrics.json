@@ -1,0 +1,17 @@
+{
+  "test_name": "coronal_multilayer_gradient_sphere",
+  "passed": false,
+  "slice_dimensions": [192, 192],
+  "layer_count": 2,
+  "cpu_duration_ms": 100.898,
+  "gpu_duration_ms": 2.328,
+  "speedup": 43.345523,
+  "max_abs_diff": 96,
+  "max_rel_diff": 0.466667,
+  "failed_pixels": 19205,
+  "total_pixels": 36864,
+  "mean_abs_diff": 22.478598,
+  "std_abs_diff": 29.747240,
+  "p95_abs_diff": 78,
+  "exact_matches": 14061
+}

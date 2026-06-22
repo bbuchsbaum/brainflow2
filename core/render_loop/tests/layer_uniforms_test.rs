@@ -1,7 +1,7 @@
 // Test layer uniform buffer management
 
 use pollster::FutureExt;
-use render_loop::RenderLoopService;
+use render_loop::{RenderLoopService, ThresholdMode};
 
 #[test]
 #[ignore = "Test uses internal implementation details not available with world-space rendering"]
@@ -61,6 +61,17 @@ fn test_volume_metadata_tracking() {
         .add_render_layer(5, 0.8, (0.0, 0.0, 1.0, 1.0))
         .expect("Failed to add layer");
     assert_eq!(layer_idx, 0);
+    let layer = service
+        .layer_state_manager
+        .get_layer(layer_idx)
+        .expect("newly-added layer should be active");
+    assert_eq!(layer.intensity_range, (0.0, 1.0));
+    assert_eq!(layer.threshold_mode, ThresholdMode::Range);
+    assert_eq!(
+        layer.threshold_range,
+        (0.0, 0.0),
+        "new layers must not suppress the whole intensity window by default"
+    );
 
     // The uniform buffer should have been updated with default metadata
     // We can't easily verify the specific metadata without a proper upload_slice call

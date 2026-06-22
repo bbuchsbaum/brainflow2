@@ -3,35 +3,35 @@
 /**
  * Summary of a discovered template from TemplateFlow
  */
-export type DiscoveredTemplate = { 
+export type DiscoveredTemplate = {
 /**
  * Template name/ID (e.g., "MNI152NLin2009cAsym")
  */
-id: string, 
+id: string,
 /**
  * Human-readable display name
  */
-display_name: string, 
+display_name: string,
 /**
  * Template family (e.g., "MNI", "FreeSurfer", "OASIS")
  */
-family: string | null, 
+family: string | null,
 /**
  * Whether template has atlas overlays
  */
-has_atlases: boolean, 
+has_atlases: boolean,
 /**
  * Whether template has surface files
  */
-has_surfaces: boolean, 
+has_surfaces: boolean,
 /**
  * Whether template is symmetric
  */
-is_symmetric: boolean, 
+is_symmetric: boolean,
 /**
  * Available resolutions (e.g., ["1mm", "2mm"])
  */
-resolutions: Array<string>, 
+resolutions: Array<string>,
 /**
  * Available modalities (e.g., ["T1w", "T2w"])
  */

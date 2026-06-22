@@ -1,0 +1,104 @@
+/* Flat list shared by Images / Loaded views. */
+.fb-flat-list {
+  list-style: none;
+  margin: 0;
+  padding: 4px 0;
+  overflow-y: auto;
+  flex: 1;
+  min-height: 0;
+}
+
+.fb-flat-row {
+  display: flex;
+  align-items: center;
+  gap: var(--bf-space-1);
+  width: 100%;
+  padding: 4px var(--bf-space-3);
+  background: transparent;
+  border: none;
+  border-left: 2px solid transparent;
+  text-align: left;
+  cursor: pointer;
+  font-size: var(--app-role-body-size);
+  color: var(--bf-text-primary);
+  transition: background-color var(--bf-motion-fast) ease;
+  min-width: 0;
+}
+
+.fb-flat-row[draggable='true'] {
+  cursor: grab;
+}
+
+.fb-flat-row[draggable='true']:active {
+  cursor: grabbing;
+}
+
+.fb-flat-row:hover {
+  background: var(--bf-bg-hover);
+}
+
+.fb-flat-row.is-selected {
+  background: var(--bf-accent-active);
+  border-left-color: var(--bf-accent);
+  color: hsl(var(--primary-foreground));
+}
+
+.fb-flat-row:focus-visible {
+  outline: var(--app-focus-ring-width) solid var(--bf-border-focus);
+  outline-offset: -2px;
+}
+
+.fb-flat-row-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fb-flat-row-dir,
+.fb-flat-row-meta {
+  flex-shrink: 0;
+  font-family: var(--bf-font-mono);
+  font-size: var(--app-text-xs);
+  color: var(--bf-text-muted);
+  max-width: 40%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fb-flat-empty {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--bf-space-1);
+  padding: var(--bf-space-6) var(--bf-space-3);
+  text-align: center;
+  color: var(--bf-text-muted);
+}
+
+.fb-flat-empty-kicker {
+  margin: 0;
+  text-transform: uppercase;
+  letter-spacing: var(--app-role-section-tracking);
+  font-size: var(--app-role-section-size);
+  font-weight: var(--app-role-section-weight);
+  color: var(--bf-text-secondary);
+}
+
+.fb-flat-empty-message {
+  margin: 0;
+  max-width: 32ch;
+  font-size: var(--app-role-body-size);
+  line-height: 1.45;
+}
+
+@media (max-width: 320px) {
+  .fb-flat-row-dir,
+  .fb-flat-row-meta {
+    display: none;
+  }
+}

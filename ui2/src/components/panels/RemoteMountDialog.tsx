@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import './RemoteMountDialog.css';
 import type { RemoteAuthChallenge, RemoteHostKeyChallenge } from '@brainflow/api';
 import { Button } from '@/components/ui/shadcn/button';
 import { Modal } from '@/components/ui/Modal';

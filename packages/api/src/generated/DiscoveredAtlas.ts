@@ -3,15 +3,15 @@
 /**
  * Summary of a discovered atlas from TemplateFlow
  */
-export type DiscoveredAtlas = { 
+export type DiscoveredAtlas = {
 /**
  * Atlas name/ID
  */
-id: string, 
+id: string,
 /**
  * Human-readable display name
  */
-display_name: string, 
+display_name: string,
 /**
  * Which templates this atlas is available for
  */

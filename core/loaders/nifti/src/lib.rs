@@ -301,6 +301,18 @@ pub fn load_nifti_auto_dimension(path: &Path) -> Result<VolumeSendable, NiftiErr
     }
 }
 
+/// Read the NIfTI sform/qform transform codes from a file header.
+///
+/// Returns `(sform_code, qform_code)`. These standard codes are:
+/// 0 = unknown, 1 = scanner anatomical, 2 = aligned anatomical,
+/// 3 = Talairach, 4 = MNI152. The in-memory volume representation does not
+/// retain them, so callers that need the coordinate-space provenance re-read
+/// the header here (cheap — header only, no voxel data).
+pub fn read_xform_codes(path: &Path) -> Result<(i16, i16), NiftiError> {
+    let header_info = neuroim::io::read_header(path)?;
+    Ok((header_info.sform_code, header_info.qform_code))
+}
+
 // Try loading 4D volume with different data types
 pub fn load_nifti_4d_auto(path: &Path) -> Result<VolumeSendable, NiftiError> {
     // Try loading as f32 first (most common for fMRI)
@@ -488,6 +500,20 @@ mod tests {
     // Helper to get the full path to a specific unit test file
     fn get_unit_test_file(filename: &str) -> PathBuf {
         get_test_data_dir().join(filename)
+    }
+
+    #[test]
+    fn read_xform_codes_reads_mni_template_codes() {
+        let test_file = get_unit_test_file("tpl-MNI152NLin2009cAsym_res-01_desc-brain_T1w.nii");
+        if !test_file.exists() {
+            eprintln!("Test file not found: {:?}, skipping test", test_file);
+            return;
+        }
+        let (sform, qform) = read_xform_codes(&test_file).expect("read xform codes");
+        // The bundled MNI152 template is tagged (sform=1, qform=1) -- a concrete
+        // reminder that NIfTI xform codes alone do NOT identify MNI space, so the
+        // coordinate-space heuristic must also consult the filename.
+        assert_eq!((sform, qform), (1, 1));
     }
 
     #[test]

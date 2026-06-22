@@ -4,35 +4,35 @@ import type { FrameReadbackMode } from "./FrameReadbackMode";
 /**
  * Timing breakdown for a single frame request.
  */
-export type FrameDiagnostics = {
+export type FrameDiagnostics = { 
 /**
  * CPU-side setup and state preparation before GPU submission.
  */
-prepare_ms: number,
+prepare_ms: number, 
 /**
  * Render pass encoding plus queue submission time.
  */
-render_ms: number,
+render_ms: number, 
 /**
  * Texture copy, map, and CPU unpack time.
  */
-readback_ms: number,
+readback_ms: number, 
 /**
  * Total request_frame wall-clock time.
  */
-total_ms: number,
+total_ms: number, 
 /**
  * Number of visible layers prepared for the frame.
  */
-visible_layers: number,
+visible_layers: number, 
 /**
  * Number of layer slots uploaded to the GPU for this frame.
  */
-updated_layer_slots: number,
+updated_layer_slots: number, 
 /**
  * Whether the request reused the previously uploaded layer state package.
  */
-reused_layer_state: boolean,
+reused_layer_state: boolean, 
 /**
  * Whether the frame bytes were read back synchronously or skipped.
  */

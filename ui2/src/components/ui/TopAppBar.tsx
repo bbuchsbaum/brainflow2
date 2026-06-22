@@ -15,12 +15,10 @@
  * the Tauri title bar, not here.
  */
 
-import React from 'react';
+import React from "react";
 
-import { DisplayModeSelector } from '@/components/ui/DisplayModeSelector';
-import { LayoutLibrarySelector } from '@/components/ui/LayoutLibrarySelector';
-import { WorkspacePresetSelector } from '@/components/ui/WorkspacePresetSelector';
-import { MultiViewBatchToggle } from '@/components/ui/MultiViewBatchToggle';
+import { DisplayModeSelector } from "@/components/ui/DisplayModeSelector";
+import { WorkspaceMenu } from "@/components/ui/WorkspaceMenu";
 
 const TOP_BAR_HEIGHT = 40;
 
@@ -40,41 +38,42 @@ export const TopAppBar: React.FC<TopAppBarProps> = ({
   return (
     <header
       data-testid="top-app-bar"
-      className={className ? `bf-top-app-bar ${className}` : 'bf-top-app-bar'}
+      className={className ? `bf-top-app-bar ${className}` : "bf-top-app-bar"}
       style={{
         height: `${TOP_BAR_HEIGHT}px`,
         minHeight: `${TOP_BAR_HEIGHT}px`,
-        display: 'grid',
-        gridTemplateColumns: 'auto 1fr auto',
-        alignItems: 'center',
-        gap: '16px',
-        padding: '0 12px',
-        borderBottom: '1px solid var(--bf-border-subtle)',
-        background: 'var(--bf-bg-shell)',
-        color: 'var(--bf-text-primary)',
-        flex: '0 0 auto',
+        display: "grid",
+        gridTemplateColumns: "auto 1fr auto",
+        alignItems: "center",
+        gap: "16px",
+        padding: "0 12px",
+        borderBottom: "1px solid var(--bf-border-subtle)",
+        background: "var(--bf-bg-shell)",
+        color: "var(--bf-text-primary)",
+        flex: "0 0 auto",
       }}
     >
       <div
         data-testid="top-app-bar-brand"
-        style={{ display: 'flex', alignItems: 'center', gap: '10px' }}
+        style={{ display: "flex", alignItems: "center", gap: "10px" }}
       >
         <span
           aria-hidden
           style={{
-            width: '20px',
-            height: '20px',
-            borderRadius: 'var(--bf-radius-sm)',
-            background: 'linear-gradient(135deg, var(--bf-accent), var(--bf-brand))',
-            boxShadow: 'var(--bf-shadow-inset)',
+            width: "20px",
+            height: "20px",
+            borderRadius: "var(--bf-radius-sm)",
+            background:
+              "linear-gradient(135deg, var(--bf-accent), var(--bf-brand))",
+            boxShadow: "var(--bf-shadow-inset)",
           }}
         />
         <span
           style={{
-            fontSize: '14px',
+            fontSize: "14px",
             fontWeight: 700,
-            letterSpacing: '-0.01em',
-            color: 'var(--bf-text-primary)',
+            letterSpacing: "-0.01em",
+            color: "var(--bf-text-primary)",
           }}
         >
           BrainFlow
@@ -84,10 +83,10 @@ export const TopAppBar: React.FC<TopAppBarProps> = ({
       <div
         data-testid="top-app-bar-center"
         style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: '12px',
-          justifyContent: 'center',
+          display: "flex",
+          alignItems: "center",
+          gap: "12px",
+          justifyContent: "center",
           minWidth: 0,
         }}
       >
@@ -97,11 +96,9 @@ export const TopAppBar: React.FC<TopAppBarProps> = ({
 
       <div
         data-testid="top-app-bar-utility"
-        style={{ display: 'flex', alignItems: 'center', gap: '8px' }}
+        style={{ display: "flex", alignItems: "center", gap: "8px" }}
       >
-        <LayoutLibrarySelector />
-        <WorkspacePresetSelector />
-        <MultiViewBatchToggle />
+        <WorkspaceMenu />
         {utility}
       </div>
     </header>

@@ -1,2 +1,7 @@
 [alias]
 xtask = "run --package xtask --"
+
+[net]
+# Use the system git CLI so private-repo dependencies (e.g. bids-rs) authenticate
+# via the local SSH agent / ~/.ssh/config instead of libgit2.
+git-fetch-with-cli = true

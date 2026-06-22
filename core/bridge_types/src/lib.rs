@@ -646,6 +646,12 @@ pub struct NiftiHeaderInfo {
     pub sform_code: u8,
     /// NIfTI qform code (0 = unknown)
     pub qform_code: u8,
+    /// Best-effort coordinate-space tag: "MNI", "talairach", "aligned",
+    /// "scanner", or "unknown". Derived from the sform/qform codes plus a
+    /// filename hint; heuristic, since codes alone are unreliable (many MNI
+    /// files ship with code 1). Not authoritative — auto-mount features should
+    /// treat a non-"MNI" result as "ask the user".
+    pub coordinate_space: String,
     /// Orientation string derived from the affine (e.g. "RAS", "LPI")
     pub orientation_string: String,
     /// Spatial units string (e.g. "mm", "m", "micron")
@@ -994,9 +1000,100 @@ pub struct StudioIngestAuditSummary {
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[ts(export)]
 #[serde(rename_all = "camelCase")]
+pub struct StudioDiscoveryRolePattern {
+    pub role: String,
+    pub patterns: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
+#[serde(rename_all = "camelCase")]
+pub struct StudioDiscoveryDesignValue {
+    pub column: String,
+    pub value: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
+#[serde(rename_all = "camelCase")]
+pub struct StudioDiscoveryRoleBinding {
+    pub role: String,
+    pub source_path: String,
+    pub relative_path: String,
+    pub confidence: f32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
+#[serde(rename_all = "camelCase")]
+pub struct StudioDiscoveryMemberGroup {
+    pub member_id: String,
+    pub design_values: Vec<StudioDiscoveryDesignValue>,
+    pub bindings: Vec<StudioDiscoveryRoleBinding>,
+    pub missing_roles: Vec<String>,
+    pub duplicate_roles: Vec<String>,
+    pub confidence: f32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
+#[serde(rename_all = "camelCase")]
+pub struct StudioDiscoveryPreviewSummary {
+    pub root: String,
+    pub file_pattern: String,
+    pub include_patterns: Vec<String>,
+    pub exclude_patterns: Vec<String>,
+    pub role_patterns: Vec<StudioDiscoveryRolePattern>,
+    pub max_depth: Option<usize>,
+    pub max_files: usize,
+    pub dry_run: bool,
+    pub sample_headers: bool,
+    pub capture_names: Vec<String>,
+    pub inferred_design_columns: Vec<String>,
+    pub observed_roles: Vec<String>,
+    pub required_roles: Vec<String>,
+    pub matched_files: usize,
+    pub unmatched_files: usize,
+    pub duplicate_keys: usize,
+    pub truncated: bool,
+    pub groups: Vec<StudioDiscoveryMemberGroup>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq, Eq)]
+#[ts(export)]
+#[serde(rename_all = "snake_case")]
+pub enum StudioFieldBindingAvailability {
+    Available,
+    Missing,
+    Invalid,
+    Unavailable,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
+#[serde(rename_all = "camelCase")]
+pub struct StudioFieldBindingSummary {
+    pub role: String,
+    pub feature_id: Option<String>,
+    pub source_locator: Option<String>,
+    pub source_path: Option<String>,
+    pub relative_path: Option<String>,
+    pub selector: Option<String>,
+    pub support_kind: StudioSupportKind,
+    pub support_label: Option<String>,
+    pub availability: StudioFieldBindingAvailability,
+    pub is_primary: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
+#[serde(rename_all = "camelCase")]
 pub struct StudioMemberSummary {
     pub id: String,
     pub source_path: Option<String>,
+    #[serde(default)]
+    #[ts(optional = nullable)]
+    pub bindings: Option<Vec<StudioFieldBindingSummary>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
@@ -1058,6 +1155,9 @@ pub struct StudioImportCandidate {
     pub cohorts: Vec<StudioCohortSummary>,
     pub expressions: Vec<StudioFieldExpressionSummary>,
     pub materialization: Option<StudioMaterializationStatus>,
+    #[serde(default)]
+    #[ts(optional = nullable)]
+    pub discovery: Option<StudioDiscoveryPreviewSummary>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
@@ -1074,6 +1174,63 @@ pub struct StudioImportPreviewRequest {
     pub table_file_path_column: Option<String>,
     pub table_subject_id_column: Option<String>,
     pub table_excluded_columns: Option<Vec<String>>,
+    #[serde(default)]
+    #[ts(optional = nullable)]
+    pub discovery_max_depth: Option<usize>,
+    #[serde(default)]
+    #[ts(optional = nullable)]
+    pub discovery_max_files: Option<usize>,
+    #[serde(default)]
+    #[ts(optional = nullable)]
+    pub discovery_include_patterns: Option<Vec<String>>,
+    #[serde(default)]
+    #[ts(optional = nullable)]
+    pub discovery_exclude_patterns: Option<Vec<String>>,
+    #[serde(default)]
+    #[ts(optional = nullable)]
+    pub discovery_required_roles: Option<Vec<String>>,
+    #[serde(default)]
+    #[ts(optional = nullable)]
+    pub discovery_role_patterns: Option<Vec<StudioDiscoveryRolePattern>>,
+    #[serde(default)]
+    #[ts(optional = nullable)]
+    pub discovery_dry_run: Option<bool>,
+    #[serde(default)]
+    #[ts(optional = nullable)]
+    pub discovery_sample_headers: Option<bool>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
+#[serde(rename_all = "camelCase")]
+pub struct StudioGeneratedNeuroTabsFile {
+    pub relative_path: String,
+    pub contents: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
+#[serde(rename_all = "camelCase")]
+pub struct StudioDiscoveryPromotionRequest {
+    pub candidate: StudioImportCandidate,
+    #[serde(default)]
+    #[ts(optional = nullable)]
+    pub output_dir: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
+#[serde(rename_all = "camelCase")]
+pub struct StudioDiscoveryPromotionResult {
+    pub dataset_id: String,
+    #[serde(default)]
+    #[ts(optional = nullable)]
+    pub manifest_path: Option<String>,
+    pub files: Vec<StudioGeneratedNeuroTabsFile>,
+    #[serde(default)]
+    #[ts(optional = nullable)]
+    pub preview: Option<StudioImportCandidate>,
+    pub message: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
@@ -1103,6 +1260,50 @@ pub struct StudioComparePaneBinding {
     pub provenance_path: Option<String>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq, Eq)]
+#[ts(export)]
+#[serde(rename_all = "snake_case")]
+pub enum StudioReducerKind {
+    Mean,
+    Sd,
+    LeaveOneOutMean,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
+#[serde(rename_all = "camelCase")]
+pub struct StudioReducerSpec {
+    pub id: String,
+    pub label: String,
+    pub kind: StudioReducerKind,
+    pub role: String,
+    #[serde(default)]
+    #[ts(optional = nullable)]
+    pub cohort_id: Option<String>,
+    #[serde(default)]
+    #[ts(optional = nullable)]
+    pub excluded_member_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
+#[serde(rename_all = "camelCase")]
+pub struct StudioRoleBindingInput {
+    pub member_id: String,
+    pub role: String,
+    #[serde(default)]
+    #[ts(optional = nullable)]
+    pub feature_id: Option<String>,
+    #[serde(default)]
+    #[ts(optional = nullable)]
+    pub source_path: Option<String>,
+    pub support_kind: StudioSupportKind,
+    #[serde(default)]
+    #[ts(optional = nullable)]
+    pub support_label: Option<String>,
+    pub availability: StudioFieldBindingAvailability,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[ts(export)]
 #[serde(rename_all = "camelCase")]
@@ -1118,6 +1319,15 @@ pub struct StudioCompareMaterializeRequest {
     pub compare_cohort_member_count: Option<usize>,
     pub active_expression_label: Option<String>,
     pub active_expression_recipe: Option<String>,
+    #[serde(default)]
+    #[ts(optional = nullable)]
+    pub reducer_specs: Option<Vec<StudioReducerSpec>>,
+    #[serde(default)]
+    #[ts(optional = nullable)]
+    pub active_member_role_bindings: Option<Vec<StudioRoleBindingInput>>,
+    #[serde(default)]
+    #[ts(optional = nullable)]
+    pub cohort_member_role_bindings: Option<Vec<StudioRoleBindingInput>>,
 }
 
 /// Kinds of inputs an analysis can accept.

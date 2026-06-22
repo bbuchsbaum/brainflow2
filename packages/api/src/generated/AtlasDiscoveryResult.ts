@@ -4,11 +4,11 @@ import type { DiscoveredAtlas } from "./DiscoveredAtlas";
 /**
  * Result of atlas discovery operation
  */
-export type AtlasDiscoveryResult = { 
+export type AtlasDiscoveryResult = {
 /**
  * All discovered atlases
  */
-atlases: Array<DiscoveredAtlas>, 
+atlases: Array<DiscoveredAtlas>,
 /**
  * Whether this came from cache
  */

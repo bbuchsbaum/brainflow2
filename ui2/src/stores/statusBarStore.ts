@@ -3,9 +3,9 @@
  * Manages status bar updates outside of React Context to avoid render loops
  */
 
-import { create } from 'zustand';
-import { subscribeWithSelector } from 'zustand/middleware';
-import type { ReactNode } from 'react';
+import { create } from "zustand";
+import { subscribeWithSelector } from "zustand/middleware";
+import type { ReactNode } from "react";
 
 interface StatusBarState {
   values: Record<string, string | ReactNode>;
@@ -18,36 +18,41 @@ interface StatusBarState {
 export const useStatusBarStore = create<StatusBarState>()(
   subscribeWithSelector((set) => ({
     values: {
-      coordSys: 'LPI',
-      crosshair: '(0.0, 0.0, 0.0)',
-      mouse: '--',
-      layer: 'None',
-      atlas: 'Atlas --/--',
-      fps: '--',
-      gpu: 'Ready'
+      coordSys: "LPI",
+      crosshair: "(0.0, 0.0, 0.0)",
+      mouse: "--",
+      layer: "None",
+      region: "--",
+      atlas: "Atlas --/--",
+      fps: "--",
+      gpu: "Ready",
     },
-    setValue: (id, value) => set((state) => ({
-      values: { ...state.values, [id]: value }
-    })),
-    setBatch: (entries) => set((state) => ({
-      values: { ...state.values, ...Object.fromEntries(entries) }
-    })),
-    removeValue: (id) => set((state) => {
-      const { [id]: _, ...rest } = state.values;
-      return { values: rest };
-    }),
-    clear: () => set({ 
-      values: {
-        coordSys: 'LPI',
-        crosshair: '(0.0, 0.0, 0.0)',
-        mouse: '--',
-        layer: 'None',
-        atlas: 'Atlas --/--',
-        fps: '--',
-        gpu: 'Ready'
-      }
-    })
-  }))
+    setValue: (id, value) =>
+      set((state) => ({
+        values: { ...state.values, [id]: value },
+      })),
+    setBatch: (entries) =>
+      set((state) => ({
+        values: { ...state.values, ...Object.fromEntries(entries) },
+      })),
+    removeValue: (id) =>
+      set((state) => {
+        const { [id]: _, ...rest } = state.values;
+        return { values: rest };
+      }),
+    clear: () =>
+      set({
+        values: {
+          coordSys: "LPI",
+          crosshair: "(0.0, 0.0, 0.0)",
+          mouse: "--",
+          layer: "None",
+          atlas: "Atlas --/--",
+          fps: "--",
+          gpu: "Ready",
+        },
+      }),
+  })),
 );
 
 // Selector hooks for individual slots

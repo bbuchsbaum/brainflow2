@@ -1,4 +1,5 @@
 import React from 'react';
+import './FilterBar.css';
 import { VscChevronUp, VscChevronDown } from 'react-icons/vsc';
 import type { FileBrowserState } from '@/types/filesystem';
 

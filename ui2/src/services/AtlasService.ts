@@ -2,14 +2,15 @@
  * Atlas Service - TypeScript wrapper for atlas Tauri commands
  */
 
-import { invoke } from '@tauri-apps/api/core';
-import { safeListen, safeUnlisten, type Unlisten } from '@/utils/eventUtils';
-import { getVolumeLoadingService } from './VolumeLoadingService';
-import { AtlasPaletteService } from './AtlasPaletteService';
-import type { VolumeHandle } from './apiService';
-import { formatTauriError } from '@/utils/formatTauriError';
-import { useLoadingQueueStore } from '@/stores/loadingQueueStore';
-import type { Layer } from '@/types/layers';
+import { invoke } from "@tauri-apps/api/core";
+import { safeListen, safeUnlisten, type Unlisten } from "@/utils/eventUtils";
+import { getVolumeLoadingService } from "./VolumeLoadingService";
+import { AtlasPaletteService } from "./AtlasPaletteService";
+import type { VolumeHandle } from "./apiService";
+import { formatTauriError } from "@/utils/formatTauriError";
+import { getEventBus } from "@/events/EventBus";
+import { useLoadingQueueStore } from "@/stores/loadingQueueStore";
+import type { Layer } from "@/types/layers";
 import type {
   AtlasCatalogEntry,
   AtlasConfig,
@@ -20,8 +21,11 @@ import type {
   ParcellationReference,
   SurfaceAtlasLoadResult,
   SurfaceLabelParcellationImportResult,
-} from '../types/atlas';
-import type { AtlasPaletteKind, AtlasPaletteResponse } from '@/types/atlasPalette';
+} from "../types/atlas";
+import type {
+  AtlasPaletteKind,
+  AtlasPaletteResponse,
+} from "@/types/atlasPalette";
 
 export type ProgressCallback = (progress: AtlasLoadProgress) => void;
 
@@ -31,8 +35,10 @@ export class AtlasService {
     Promise<{ result: AtlasLoadResult; layer: Layer | null }>
   >();
 
-  private static normalizePaletteResolution(resolution: string | undefined): string {
-    return resolution === '1mm' || resolution === '2mm' ? resolution : '1mm';
+  private static normalizePaletteResolution(
+    resolution: string | undefined,
+  ): string {
+    return resolution === "1mm" || resolution === "2mm" ? resolution : "1mm";
   }
 
   private static normalizePaletteConfig(config: AtlasConfig): AtlasConfig {
@@ -48,19 +54,19 @@ export class AtlasService {
 
   private static getAtlasLoadQueuePath(config: AtlasConfig): string {
     return [
-      'atlas',
+      "atlas",
       config.atlas_id,
-      config.space || 'unknown-space',
-      config.resolution || 'unknown-resolution',
-      config.parcels ?? 'no-parcels',
-      config.networks ?? 'no-networks',
-    ].join('|');
+      config.space || "unknown-space",
+      config.resolution || "unknown-resolution",
+      config.parcels ?? "no-parcels",
+      config.networks ?? "no-networks",
+    ].join("|");
   }
 
   private static getAtlasLoadDisplayName(config: AtlasConfig): string {
     const detailParts = [config.parcels, config.networks].filter(Boolean);
     return detailParts.length > 0
-      ? `${config.atlas_id} (${detailParts.join(', ')})`
+      ? `${config.atlas_id} (${detailParts.join(", ")})`
       : config.atlas_id;
   }
   /**
@@ -68,19 +74,21 @@ export class AtlasService {
    */
   static async getCatalog(signal?: AbortSignal): Promise<AtlasCatalogEntry[]> {
     try {
-      const result = await invoke<AtlasCatalogEntry[]>('plugin:api-bridge|get_atlas_catalog');
-      
+      const result = await invoke<AtlasCatalogEntry[]>(
+        "plugin:api-bridge|get_atlas_catalog",
+      );
+
       // Check if the operation was aborted
       if (signal?.aborted) {
-        throw new Error('Operation aborted');
+        throw new Error("Operation aborted");
       }
-      
+
       return result;
     } catch (error) {
       if (signal?.aborted) {
-        throw new Error('Operation aborted');
+        throw new Error("Operation aborted");
       }
-      console.error('Failed to get atlas catalog:', error);
+      console.error("Failed to get atlas catalog:", error);
       throw new Error(`Failed to get atlas catalog: ${error}`);
     }
   }
@@ -88,21 +96,27 @@ export class AtlasService {
   /**
    * Get filtered atlas entries
    */
-  static async getFilteredAtlases(filter: AtlasFilter, signal?: AbortSignal): Promise<AtlasCatalogEntry[]> {
+  static async getFilteredAtlases(
+    filter: AtlasFilter,
+    signal?: AbortSignal,
+  ): Promise<AtlasCatalogEntry[]> {
     try {
-      const result = await invoke<AtlasCatalogEntry[]>('plugin:api-bridge|get_filtered_atlases', { filter });
-      
+      const result = await invoke<AtlasCatalogEntry[]>(
+        "plugin:api-bridge|get_filtered_atlases",
+        { filter },
+      );
+
       // Check if the operation was aborted
       if (signal?.aborted) {
-        throw new Error('Operation aborted');
+        throw new Error("Operation aborted");
       }
-      
+
       return result;
     } catch (error) {
       if (signal?.aborted) {
-        throw new Error('Operation aborted');
+        throw new Error("Operation aborted");
       }
-      console.error('Failed to get filtered atlases:', error);
+      console.error("Failed to get filtered atlases:", error);
       throw new Error(`Failed to get filtered atlases: ${error}`);
     }
   }
@@ -110,21 +124,27 @@ export class AtlasService {
   /**
    * Get a specific atlas entry by ID
    */
-  static async getAtlasEntry(atlasId: string, signal?: AbortSignal): Promise<AtlasCatalogEntry | null> {
+  static async getAtlasEntry(
+    atlasId: string,
+    signal?: AbortSignal,
+  ): Promise<AtlasCatalogEntry | null> {
     try {
-      const result = await invoke<AtlasCatalogEntry | null>('plugin:api-bridge|get_atlas_entry', { atlasId });
-      
+      const result = await invoke<AtlasCatalogEntry | null>(
+        "plugin:api-bridge|get_atlas_entry",
+        { atlasId },
+      );
+
       // Check if the operation was aborted
       if (signal?.aborted) {
-        throw new Error('Operation aborted');
+        throw new Error("Operation aborted");
       }
-      
+
       return result;
     } catch (error) {
       if (signal?.aborted) {
-        throw new Error('Operation aborted');
+        throw new Error("Operation aborted");
       }
-      console.error('Failed to get atlas entry:', error);
+      console.error("Failed to get atlas entry:", error);
       throw new Error(`Failed to get atlas entry: ${error}`);
     }
   }
@@ -132,21 +152,27 @@ export class AtlasService {
   /**
    * Toggle favorite status for an atlas
    */
-  static async toggleFavorite(atlasId: string, signal?: AbortSignal): Promise<boolean> {
+  static async toggleFavorite(
+    atlasId: string,
+    signal?: AbortSignal,
+  ): Promise<boolean> {
     try {
-      const result = await invoke<boolean>('plugin:api-bridge|toggle_atlas_favorite', { atlasId });
-      
+      const result = await invoke<boolean>(
+        "plugin:api-bridge|toggle_atlas_favorite",
+        { atlasId },
+      );
+
       // Check if the operation was aborted
       if (signal?.aborted) {
-        throw new Error('Operation aborted');
+        throw new Error("Operation aborted");
       }
-      
+
       return result;
     } catch (error) {
       if (signal?.aborted) {
-        throw new Error('Operation aborted');
+        throw new Error("Operation aborted");
       }
-      console.error('Failed to toggle atlas favorite:', error);
+      console.error("Failed to toggle atlas favorite:", error);
       throw new Error(`Failed to toggle atlas favorite: ${error}`);
     }
   }
@@ -154,21 +180,25 @@ export class AtlasService {
   /**
    * Get recently used atlases
    */
-  static async getRecentAtlases(signal?: AbortSignal): Promise<AtlasCatalogEntry[]> {
+  static async getRecentAtlases(
+    signal?: AbortSignal,
+  ): Promise<AtlasCatalogEntry[]> {
     try {
-      const result = await invoke<AtlasCatalogEntry[]>('plugin:api-bridge|get_recent_atlases');
-      
+      const result = await invoke<AtlasCatalogEntry[]>(
+        "plugin:api-bridge|get_recent_atlases",
+      );
+
       // Check if the operation was aborted
       if (signal?.aborted) {
-        throw new Error('Operation aborted');
+        throw new Error("Operation aborted");
       }
-      
+
       return result;
     } catch (error) {
       if (signal?.aborted) {
-        throw new Error('Operation aborted');
+        throw new Error("Operation aborted");
       }
-      console.error('Failed to get recent atlases:', error);
+      console.error("Failed to get recent atlases:", error);
       throw new Error(`Failed to get recent atlases: ${error}`);
     }
   }
@@ -176,21 +206,25 @@ export class AtlasService {
   /**
    * Get favorite atlases
    */
-  static async getFavoriteAtlases(signal?: AbortSignal): Promise<AtlasCatalogEntry[]> {
+  static async getFavoriteAtlases(
+    signal?: AbortSignal,
+  ): Promise<AtlasCatalogEntry[]> {
     try {
-      const result = await invoke<AtlasCatalogEntry[]>('plugin:api-bridge|get_favorite_atlases');
-      
+      const result = await invoke<AtlasCatalogEntry[]>(
+        "plugin:api-bridge|get_favorite_atlases",
+      );
+
       // Check if the operation was aborted
       if (signal?.aborted) {
-        throw new Error('Operation aborted');
+        throw new Error("Operation aborted");
       }
-      
+
       return result;
     } catch (error) {
       if (signal?.aborted) {
-        throw new Error('Operation aborted');
+        throw new Error("Operation aborted");
       }
-      console.error('Failed to get favorite atlases:', error);
+      console.error("Failed to get favorite atlases:", error);
       throw new Error(`Failed to get favorite atlases: ${error}`);
     }
   }
@@ -198,21 +232,27 @@ export class AtlasService {
   /**
    * Validate an atlas configuration
    */
-  static async validateConfig(config: AtlasConfig, signal?: AbortSignal): Promise<boolean> {
+  static async validateConfig(
+    config: AtlasConfig,
+    signal?: AbortSignal,
+  ): Promise<boolean> {
     try {
-      const result = await invoke<boolean>('plugin:api-bridge|validate_atlas_config', { config });
-      
+      const result = await invoke<boolean>(
+        "plugin:api-bridge|validate_atlas_config",
+        { config },
+      );
+
       // Check if the operation was aborted
       if (signal?.aborted) {
-        throw new Error('Operation aborted');
+        throw new Error("Operation aborted");
       }
-      
+
       return result;
     } catch (error) {
       if (signal?.aborted) {
-        throw new Error('Operation aborted');
+        throw new Error("Operation aborted");
       }
-      console.error('Failed to validate atlas config:', error);
+      console.error("Failed to validate atlas config:", error);
       throw new Error(`Failed to validate atlas config: ${error}`);
     }
   }
@@ -220,91 +260,109 @@ export class AtlasService {
   static async getAtlasPalette(
     config: AtlasConfig,
     options?: { kind?: AtlasPaletteKind; seed?: number },
-    signal?: AbortSignal
+    signal?: AbortSignal,
   ): Promise<AtlasPaletteResponse> {
     const normalizedConfig = AtlasService.normalizePaletteConfig(config);
     try {
-      const result = await invoke<AtlasPaletteResponse>('plugin:api-bridge|get_atlas_palette', {
-        config: normalizedConfig,
-        kind: options?.kind,
-        seed: options?.seed,
-      });
+      const result = await invoke<AtlasPaletteResponse>(
+        "plugin:api-bridge|get_atlas_palette",
+        {
+          config: normalizedConfig,
+          kind: options?.kind,
+          seed: options?.seed,
+        },
+      );
 
       if (signal?.aborted) {
-        throw new Error('Operation aborted');
+        throw new Error("Operation aborted");
       }
 
       return result;
     } catch (error) {
       if (signal?.aborted) {
-        throw new Error('Operation aborted');
+        throw new Error("Operation aborted");
       }
-      console.error('Failed to get atlas palette:', error);
-      throw new Error(`Failed to get atlas palette: ${formatTauriError(error)}`);
+      console.error("Failed to get atlas palette:", error);
+      throw new Error(
+        `Failed to get atlas palette: ${formatTauriError(error)}`,
+      );
     }
   }
 
   static async importParcelDataJson(
     parcelDataJson: string,
     sourceName?: string,
-    signal?: AbortSignal
+    signal?: AbortSignal,
   ): Promise<ParcellationReference> {
     try {
-      const result = await invoke<ParcellationReference>('plugin:api-bridge|import_parcel_data_json', {
-        parcel_data_json: parcelDataJson,
-        source_name: sourceName,
-      });
+      const result = await invoke<ParcellationReference>(
+        "plugin:api-bridge|import_parcel_data_json",
+        {
+          parcel_data_json: parcelDataJson,
+          source_name: sourceName,
+        },
+      );
 
       if (signal?.aborted) {
-        throw new Error('Operation aborted');
+        throw new Error("Operation aborted");
       }
 
       return result;
     } catch (error) {
       if (signal?.aborted) {
-        throw new Error('Operation aborted');
+        throw new Error("Operation aborted");
       }
-      throw new Error(`Failed to import parcel data: ${formatTauriError(error)}`);
+      throw new Error(
+        `Failed to import parcel data: ${formatTauriError(error)}`,
+      );
     }
   }
 
-  static async listParcellationReferences(signal?: AbortSignal): Promise<ParcellationReference[]> {
+  static async listParcellationReferences(
+    signal?: AbortSignal,
+  ): Promise<ParcellationReference[]> {
     try {
-      const result = await invoke<ParcellationReference[]>('plugin:api-bridge|list_parcellation_references');
+      const result = await invoke<ParcellationReference[]>(
+        "plugin:api-bridge|list_parcellation_references",
+      );
 
       if (signal?.aborted) {
-        throw new Error('Operation aborted');
+        throw new Error("Operation aborted");
       }
 
       return result;
     } catch (error) {
       if (signal?.aborted) {
-        throw new Error('Operation aborted');
+        throw new Error("Operation aborted");
       }
-      throw new Error(`Failed to list parcellation references: ${formatTauriError(error)}`);
+      throw new Error(
+        `Failed to list parcellation references: ${formatTauriError(error)}`,
+      );
     }
   }
 
   static async previewParcelBindingCoverage(
     referenceId: string,
-    signal?: AbortSignal
+    signal?: AbortSignal,
   ): Promise<ParcelBindingCoveragePreview> {
     try {
       const result = await invoke<ParcelBindingCoveragePreview>(
-        'plugin:api-bridge|preview_parcel_binding_coverage',
-        { reference_id: referenceId }
+        "plugin:api-bridge|preview_parcel_binding_coverage",
+        { reference_id: referenceId },
       );
 
       if (signal?.aborted) {
-        throw new Error('Operation aborted');
+        throw new Error("Operation aborted");
       }
 
       return result;
     } catch (error) {
       if (signal?.aborted) {
-        throw new Error('Operation aborted');
+        throw new Error("Operation aborted");
       }
-      throw new Error(`Failed to preview parcel binding coverage: ${formatTauriError(error)}`);
+      throw new Error(
+        `Failed to preview parcel binding coverage: ${formatTauriError(error)}`,
+      );
     }
   }
 
@@ -317,11 +375,11 @@ export class AtlasService {
       atlasSpaceHint?: string;
       hemisphereHint?: string;
     },
-    signal?: AbortSignal
+    signal?: AbortSignal,
   ): Promise<SurfaceLabelParcellationImportResult> {
     try {
       const result = await invoke<SurfaceLabelParcellationImportResult>(
-        'plugin:api-bridge|import_surface_label_parcellation',
+        "plugin:api-bridge|import_surface_label_parcellation",
         {
           data_handle: args.dataHandle,
           source_name: args.sourceName,
@@ -329,60 +387,67 @@ export class AtlasService {
           atlas_name_hint: args.atlasNameHint,
           atlas_space_hint: args.atlasSpaceHint,
           hemisphere_hint: args.hemisphereHint,
-        }
+        },
       );
 
       if (signal?.aborted) {
-        throw new Error('Operation aborted');
+        throw new Error("Operation aborted");
       }
 
       return result;
     } catch (error) {
       if (signal?.aborted) {
-        throw new Error('Operation aborted');
+        throw new Error("Operation aborted");
       }
-      throw new Error(`Failed to import surface label parcellation: ${formatTauriError(error)}`);
+      throw new Error(
+        `Failed to import surface label parcellation: ${formatTauriError(error)}`,
+      );
     }
   }
 
   static async getParcellationReferencePalette(
     referenceId: string,
     options?: { kind?: AtlasPaletteKind; seed?: number },
-    signal?: AbortSignal
+    signal?: AbortSignal,
   ): Promise<AtlasPaletteResponse> {
     try {
       const result = await invoke<AtlasPaletteResponse>(
-        'plugin:api-bridge|get_parcellation_reference_palette',
+        "plugin:api-bridge|get_parcellation_reference_palette",
         {
           reference_id: referenceId,
           kind: options?.kind,
           seed: options?.seed,
-        }
+        },
       );
 
       if (signal?.aborted) {
-        throw new Error('Operation aborted');
+        throw new Error("Operation aborted");
       }
 
       return result;
     } catch (error) {
       if (signal?.aborted) {
-        throw new Error('Operation aborted');
+        throw new Error("Operation aborted");
       }
-      throw new Error(`Failed to get parcellation reference palette: ${formatTauriError(error)}`);
+      throw new Error(
+        `Failed to get parcellation reference palette: ${formatTauriError(error)}`,
+      );
     }
   }
 
   /**
    * Load an atlas with the given configuration
    */
-  static async loadAtlas(config: AtlasConfig, signal?: AbortSignal): Promise<AtlasLoadResult> {
+  static async loadAtlas(
+    config: AtlasConfig,
+    signal?: AbortSignal,
+  ): Promise<AtlasLoadResult> {
     const queuePath = AtlasService.getAtlasLoadQueuePath(config);
     const queueStore = useLoadingQueueStore.getState();
     const shouldTrackInQueue = !queueStore.isLoading(queuePath);
     const queueId = shouldTrackInQueue
       ? queueStore.enqueue({
-          type: 'atlas',
+          type: "atlas",
           path: queuePath,
           displayName: AtlasService.getAtlasLoadDisplayName(config),
         })
@@ -394,15 +459,18 @@ export class AtlasService {
     }
 
     try {
-      const result = await invoke<AtlasLoadResult>('plugin:api-bridge|load_atlas', { config });
+      const result = await invoke<AtlasLoadResult>(
+        "plugin:api-bridge|load_atlas",
+        { config },
+      );
 
       if (queueId) {
         queueStore.updateProgress(queueId, 70);
       }
-      
+
       // Check if the operation was aborted
       if (signal?.aborted) {
-        throw new Error('Operation aborted');
+        throw new Error("Operation aborted");
       }
 
       if (queueId) {
@@ -410,51 +478,51 @@ export class AtlasService {
           volumeId: result?.volume_handle_info?.id,
         });
       }
-      
+
       return result;
     } catch (error) {
       if (queueId) {
         queueStore.markError(
           queueId,
-          error instanceof Error ? error : new Error(formatTauriError(error))
+          error instanceof Error ? error : new Error(formatTauriError(error)),
         );
       }
 
       if (signal?.aborted) {
-        throw new Error('Operation aborted');
+        throw new Error("Operation aborted");
       }
 
       // Enhanced error logging and reporting
-      console.error('Atlas loading failed:', {
+      console.error("Atlas loading failed:", {
         atlasId: config.atlas_id,
         space: config.space,
         resolution: config.resolution,
         networks: config.networks,
         parcels: config.parcels,
-        error
+        error,
       });
-      
+
       // Provide more helpful error messages based on error type
-      let errorMessage = 'Failed to load atlas';
+      let errorMessage = "Failed to load atlas";
       const err =
-        typeof error === 'object' && error !== null
+        typeof error === "object" && error !== null
           ? (error as Record<string, unknown>)
           : null;
-      const nestedError = err?.['error'];
+      const nestedError = err?.["error"];
       const nestedCode =
-        typeof nestedError === 'object' && nestedError !== null
-          ? (nestedError as Record<string, unknown>)['code']
+        typeof nestedError === "object" && nestedError !== null
+          ? (nestedError as Record<string, unknown>)["code"]
           : undefined;
       const code: number | undefined =
-        typeof err?.['code'] === 'number'
-          ? (err['code'] as number)
-          : typeof nestedCode === 'number'
-          ? (nestedCode as number)
-          : undefined;
+        typeof err?.["code"] === "number"
+          ? (err["code"] as number)
+          : typeof nestedCode === "number"
+            ? (nestedCode as number)
+            : undefined;
       const details: string =
-        (typeof err?.['details'] === 'string' && (err['details'] as string)) ||
-        (typeof err?.['message'] === 'string' && (err['message'] as string)) ||
-        (typeof err?.['error'] === 'string' && (err['error'] as string)) ||
+        (typeof err?.["details"] === "string" && (err["details"] as string)) ||
+        (typeof err?.["message"] === "string" && (err["message"] as string)) ||
+        (typeof err?.["error"] === "string" && (err["error"] as string)) ||
         (() => {
           try {
             return JSON.stringify(err);
@@ -463,26 +531,26 @@ export class AtlasService {
           }
         })();
 
-      if (typeof code === 'number' && code >= 6008 && code <= 6013) {
+      if (typeof code === "number" && code >= 6008 && code <= 6013) {
         // Internal atlas/bridge errors from backend
-        if (details.includes('404') || details.includes('Not Found')) {
+        if (details.includes("404") || details.includes("Not Found")) {
           errorMessage = `Atlas data unavailable: The required atlas files could not be downloaded. This may be due to server issues or changed URLs in the atlas data repository. Details: ${details}`;
-        } else if (details.includes('HTTP error downloading')) {
+        } else if (details.includes("HTTP error downloading")) {
           errorMessage = `Network error: Unable to download atlas data. Please check your internet connection and try again. Details: ${details}`;
-        } else if (details.includes('NIfTI file not found')) {
+        } else if (details.includes("NIfTI file not found")) {
           errorMessage = `Atlas volume not found in local cache. Try reloading the atlas or clearing atlas cache. Details: ${details}`;
-        } else if (details.includes('Failed to load atlas data')) {
+        } else if (details.includes("Failed to load atlas data")) {
           errorMessage = `Atlas loading error: The atlas library failed to process the atlas data. This may be due to corrupted data or server issues. Details: ${details}`;
         } else {
           errorMessage = `Internal atlas error (code ${code}): ${details}`;
         }
-      } else if (typeof err === 'object' && err !== null) {
+      } else if (typeof err === "object" && err !== null) {
         const asString = err.toString();
-        if (asString.includes('UnsupportedSpace')) {
+        if (asString.includes("UnsupportedSpace")) {
           errorMessage = `Unsupported coordinate space: The requested space '${config.space}' is not available for atlas '${config.atlas_id}'`;
-        } else if (asString.includes('UnsupportedResolution')) {
+        } else if (asString.includes("UnsupportedResolution")) {
           errorMessage = `Unsupported resolution: The requested resolution '${config.resolution}' is not available for atlas '${config.atlas_id}'`;
-        } else if (asString.includes('ValidationFailed')) {
+        } else if (asString.includes("ValidationFailed")) {
           errorMessage = `Configuration validation failed: Please check your atlas configuration parameters`;
         } else {
           errorMessage = `Atlas loading failed: ${details}`;
@@ -490,7 +558,7 @@ export class AtlasService {
       } else {
         errorMessage = `Atlas loading failed: ${String(error)}`;
       }
-      
+
       throw new Error(errorMessage);
     }
   }
@@ -500,25 +568,25 @@ export class AtlasService {
    */
   static async loadSurfaceAtlas(
     config: AtlasConfig,
-    signal?: AbortSignal
+    signal?: AbortSignal,
   ): Promise<SurfaceAtlasLoadResult> {
     const normalizedConfig = AtlasService.normalizePaletteConfig(config);
     try {
       const result = await invoke<SurfaceAtlasLoadResult>(
-        'plugin:api-bridge|load_surface_atlas',
-        { config: normalizedConfig }
+        "plugin:api-bridge|load_surface_atlas",
+        { config: normalizedConfig },
       );
 
       if (signal?.aborted) {
-        throw new Error('Operation aborted');
+        throw new Error("Operation aborted");
       }
 
       return result;
     } catch (error) {
       if (signal?.aborted) {
-        throw new Error('Operation aborted');
+        throw new Error("Operation aborted");
       }
-      console.error('Failed to load surface atlas:', {
+      console.error("Failed to load surface atlas:", {
         atlasId: normalizedConfig.atlas_id,
         space: normalizedConfig.space,
         resolution: normalizedConfig.resolution,
@@ -527,7 +595,9 @@ export class AtlasService {
         parcels: normalizedConfig.parcels,
         error,
       });
-      throw new Error(`Failed to load surface atlas: ${formatTauriError(error)}`);
+      throw new Error(
+        `Failed to load surface atlas: ${formatTauriError(error)}`,
+      );
     }
   }
 
@@ -540,27 +610,34 @@ export class AtlasService {
    */
   static async loadAtlasAndCreateLayer(
     config: AtlasConfig,
-    signal?: AbortSignal
+    signal?: AbortSignal,
   ): Promise<{ result: AtlasLoadResult; layer: Layer | null }> {
     const keyParts = [
       config.atlas_id,
       config.space,
       config.resolution,
-      config.parcels ?? 'none',
-      config.networks ?? 'none',
+      config.parcels ?? "none",
+      config.networks ?? "none",
     ];
-    const key = keyParts.join('|');
+    const key = keyParts.join("|");
 
     const existing = AtlasService.inFlightRequests.get(key);
     if (existing) {
-      console.log('[AtlasService] Reusing in-flight atlas request for key:', key);
+      console.log(
+        "[AtlasService] Reusing in-flight atlas request for key:",
+        key,
+      );
       return existing;
     }
 
     const promise = (async () => {
       const result = await AtlasService.loadAtlas(config, signal);
 
-      if (!result.success || !result.volume_handle_info || !result.atlas_metadata) {
+      if (
+        !result.success ||
+        !result.volume_handle_info ||
+        !result.atlas_metadata
+      ) {
         return { result, layer: null };
       }
 
@@ -574,7 +651,8 @@ export class AtlasService {
         current_timepoint: volumeInfo.current_timepoint ?? 0,
         num_timepoints: volumeInfo.num_timepoints ?? undefined,
         time_series_info:
-          volumeInfo.time_series_info && typeof volumeInfo.time_series_info === 'object'
+          volumeInfo.time_series_info &&
+          typeof volumeInfo.time_series_info === "object"
             ? (volumeInfo.time_series_info as {
                 num_timepoints: number;
                 tr: number | null;
@@ -589,19 +667,34 @@ export class AtlasService {
       const layer = await volumeLoadingService.loadVolume({
         volumeHandle,
         displayName: result.atlas_metadata.name,
-        source: 'atlas',
+        source: "atlas",
         sourcePath: `atlas:${result.atlas_metadata.id}`,
-        layerType: 'label',
+        layerType: "label",
         visible: true,
         atlasMetadata: result.atlas_metadata,
       });
 
       // Prefer categorical atlas palettes for label atlases (volumes) by default.
-      // This keeps volume and surface atlas behaviors consistent.
+      // This keeps volume and surface atlas behaviors consistent. Non-fatal: the
+      // layer still loads, but surface the reason so a failed palette is visible
+      // instead of silently falling back to a continuous colormap.
       try {
         await AtlasPaletteService.applyToVolumeLayer(layer.id, config);
+        console.log(
+          "[AtlasService] Applied categorical atlas palette for layer",
+          layer.id,
+        );
       } catch (error) {
-        console.warn('[AtlasService] Failed to apply atlas categorical palette (non-fatal):', error);
+        console.warn(
+          "[AtlasService] Failed to apply atlas categorical palette (non-fatal):",
+          error,
+        );
+        getEventBus().emit("ui.notification", {
+          type: "warning",
+          message: `Atlas palette unavailable; using continuous colormap. ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        });
       }
 
       return { result, layer };
@@ -620,20 +713,25 @@ export class AtlasService {
    * Start monitoring atlas loading progress
    * Returns a cleanup function to stop monitoring
    */
-  static async startProgressMonitoring(callback: ProgressCallback): Promise<Unlisten> {
+  static async startProgressMonitoring(
+    callback: ProgressCallback,
+  ): Promise<Unlisten> {
     try {
       // Start the backend progress monitoring
-      await invoke('plugin:api-bridge|start_atlas_progress_monitoring');
-      
+      await invoke("plugin:api-bridge|start_atlas_progress_monitoring");
+
       // Listen for progress events
-      const unlisten = await safeListen<AtlasLoadProgress>('atlas-progress', (event) => {
-        callback(event.payload);
-      });
-      
+      const unlisten = await safeListen<AtlasLoadProgress>(
+        "atlas-progress",
+        (event) => {
+          callback(event.payload);
+        },
+      );
+
       // Return cleanup function
       return () => safeUnlisten(unlisten);
     } catch (error) {
-      console.error('Failed to start atlas progress monitoring:', error);
+      console.error("Failed to start atlas progress monitoring:", error);
       throw new Error(`Failed to start progress monitoring: ${error}`);
     }
   }
@@ -644,7 +742,9 @@ export class AtlasService {
    */
   static onLoadProgress(callback: ProgressCallback): () => void {
     void callback;
-    console.warn('AtlasService.onLoadProgress is deprecated. Use startProgressMonitoring instead.');
+    console.warn(
+      "AtlasService.onLoadProgress is deprecated. Use startProgressMonitoring instead.",
+    );
     // Return a no-op for backward compatibility
     return () => {};
   }
@@ -654,9 +754,9 @@ export class AtlasService {
    */
   static async getSubscriptionCount(): Promise<number> {
     try {
-      return await invoke('plugin:api-bridge|get_atlas_subscription_count');
+      return await invoke("plugin:api-bridge|get_atlas_subscription_count");
     } catch (error) {
-      console.error('Failed to get subscription count:', error);
+      console.error("Failed to get subscription count:", error);
       throw new Error(`Failed to get subscription count: ${error}`);
     }
   }

@@ -1,0 +1,17 @@
+{
+  "test_name": "axial_multilayer_overlay",
+  "passed": false,
+  "slice_dimensions": [192, 192],
+  "layer_count": 2,
+  "cpu_duration_ms": 96.359,
+  "gpu_duration_ms": 2.137,
+  "speedup": 45.082714,
+  "max_abs_diff": 255,
+  "max_rel_diff": 1.000000,
+  "failed_pixels": 13798,
+  "total_pixels": 36864,
+  "mean_abs_diff": 60.134418,
+  "std_abs_diff": 105.893021,
+  "p95_abs_diff": 255,
+  "exact_matches": 22698
+}

@@ -1,11 +1,11 @@
-import React from 'react';
-import { VscFolderOpened, VscRemote, VscFile } from 'react-icons/vsc';
+import React from "react";
+import { VscFolderOpened, VscRemote, VscFile } from "react-icons/vsc";
 import {
   RecentLocationsList,
   PinnedLocationsList,
-} from './RecentLocationsList';
-import { DropTargetFooter } from './DropTargetFooter';
-import './files-panel.css';
+} from "./RecentLocationsList";
+import { DropTargetFooter } from "./DropTargetFooter";
+import "./FilesStartPanel.css";
 
 interface FilesStartPanelProps {
   shortcutLabel: string;
@@ -28,8 +28,8 @@ export const FilesStartPanel: React.FC<FilesStartPanelProps> = ({
     <div className="files-start-panel" role="region" aria-label="Files start">
       <p className="files-start-kicker">No directory mounted</p>
       <p className="files-start-message">
-        Mount a directory or open a single file to start browsing
-        neuroimaging data.
+        Mount a directory or open a single file to start browsing neuroimaging
+        data.
       </p>
 
       <ul className="files-start-commands">
@@ -40,9 +40,14 @@ export const FilesStartPanel: React.FC<FilesStartPanelProps> = ({
             onClick={onMountLocal}
             disabled={pending}
           >
-            <VscFolderOpened className="files-start-command-icon" aria-hidden="true" />
+            <VscFolderOpened
+              className="files-start-command-icon"
+              aria-hidden="true"
+            />
             <span className="files-start-command-label">Mount Directory</span>
-            <span className="files-start-command-shortcut">{shortcutLabel}</span>
+            <span className="files-start-command-shortcut">
+              {shortcutLabel}
+            </span>
           </button>
         </li>
         <li>
@@ -52,8 +57,13 @@ export const FilesStartPanel: React.FC<FilesStartPanelProps> = ({
             onClick={onMountRemote}
             disabled={pending}
           >
-            <VscRemote className="files-start-command-icon" aria-hidden="true" />
-            <span className="files-start-command-label">Mount Remote (SSH)…</span>
+            <VscRemote
+              className="files-start-command-icon"
+              aria-hidden="true"
+            />
+            <span className="files-start-command-label">
+              Mount Remote (SSH)…
+            </span>
           </button>
         </li>
         <li>
@@ -77,7 +87,7 @@ export const FilesStartPanel: React.FC<FilesStartPanelProps> = ({
 
       <PinnedLocationsList
         onActivate={(item) => {
-          if (item.mountSource.kind === 'remote') {
+          if (item.mountSource.kind === "remote") {
             onMountRemote();
           } else {
             onMountLocal();
@@ -90,7 +100,7 @@ export const FilesStartPanel: React.FC<FilesStartPanelProps> = ({
         onMountRemote={() => onMountRemote()}
       />
 
-      <DropTargetFooter shortcutLabel={shortcutLabel} />
+      <DropTargetFooter />
     </div>
   );
 };

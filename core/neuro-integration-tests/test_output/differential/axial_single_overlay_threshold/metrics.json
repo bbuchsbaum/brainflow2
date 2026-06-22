@@ -1,0 +1,17 @@
+{
+  "test_name": "axial_single_overlay_threshold",
+  "passed": false,
+  "slice_dimensions": [192, 192],
+  "layer_count": 1,
+  "cpu_duration_ms": 50.760,
+  "gpu_duration_ms": 24.195,
+  "speedup": 2.097913,
+  "max_abs_diff": 118,
+  "max_rel_diff": 1.000000,
+  "failed_pixels": 5097,
+  "total_pixels": 36864,
+  "mean_abs_diff": 6.873725,
+  "std_abs_diff": 18.767944,
+  "p95_abs_diff": 42,
+  "exact_matches": 31767
+}

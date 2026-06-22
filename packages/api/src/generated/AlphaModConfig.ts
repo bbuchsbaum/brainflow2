@@ -9,11 +9,11 @@ import type { AlphaModMode } from "./AlphaModMode";
  * top of the visible intensity window. Weak supra-threshold voxels fade into
  * the background; strong voxels are opaque.
  */
-export type AlphaModConfig = { mode: AlphaModMode,
+export type AlphaModConfig = { mode: AlphaModMode, 
 /**
  * Gamma exponent for the ramp (used when `mode == Gamma`).
  */
-gamma: number,
+gamma: number, 
 /**
  * Center for the two-sided magnitude (0.0 for signed/diverging maps).
  */

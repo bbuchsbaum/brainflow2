@@ -1,0 +1,25 @@
+spec_version: "0.1.0"
+dataset_id: invalid_extension_key
+storage_profile: "table-package"
+observation_table:
+  path: observations.csv
+  format: csv
+row_id: row_id
+observation_axes: [subject]
+observation_columns:
+  row_id: { dtype: string }
+  subject: { dtype: string }
+  roi_1: { dtype: float32 }
+features:
+  roi_beta:
+    logical:
+      kind: vector
+      axes: [roi]
+      dtype: float32
+      shape: [1]
+    encodings:
+      - type: columns
+        binding:
+          columns: [roi_1]
+extensions:
+  bad-key: true

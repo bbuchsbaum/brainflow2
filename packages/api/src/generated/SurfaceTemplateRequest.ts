@@ -6,15 +6,15 @@ import type { SurfaceSpace } from "./SurfaceSpace";
 /**
  * Request to load a surface template
  */
-export type SurfaceTemplateRequest = { 
+export type SurfaceTemplateRequest = {
 /**
  * Surface space/template
  */
-space: SurfaceSpace, 
+space: SurfaceSpace,
 /**
  * Surface geometry type
  */
-geometry_type: SurfaceGeometryType, 
+geometry_type: SurfaceGeometryType,
 /**
  * Hemisphere
  */

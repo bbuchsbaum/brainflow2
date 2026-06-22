@@ -6,8 +6,18 @@ import { useFileBrowserStore } from '@/stores/fileBrowserStore';
 import { setTransport } from '@/services/transport';
 import type { FileTreeNode, MountSource } from '@/types/filesystem';
 
+const { openRegexDiscoveryInStudioMock } = vi.hoisted(() => ({
+  openRegexDiscoveryInStudioMock: vi.fn(),
+}));
+
 vi.mock('react-arborist', () => ({
   Tree: () => <div data-testid="mock-tree" />,
+}));
+
+vi.mock('@/services/studio/SetStudioService', () => ({
+  getSetStudioService: () => ({
+    openRegexDiscoveryInStudio: openRegexDiscoveryInStudioMock,
+  }),
 }));
 
 interface BackendTransportLike {
@@ -50,6 +60,8 @@ function resetStore(entries: FileTreeNode[], selectedPath: string | null) {
 
 describe('FileBrowserPanel unmount overflow action', () => {
   beforeEach(() => {
+    openRegexDiscoveryInStudioMock.mockReset();
+    openRegexDiscoveryInStudioMock.mockResolvedValue('studio');
     vi.stubGlobal(
       'ResizeObserver',
       class {
@@ -149,5 +161,29 @@ describe('FileBrowserPanel unmount overflow action', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Files actions' }));
     const unmountButton = screen.getByRole('menuitem', { name: 'Unmount Selected' });
     expect(unmountButton).toBeDisabled();
+  });
+
+  it('opens Set Studio discovery from the selected folder', () => {
+    const invokeMock = vi.fn().mockResolvedValue({ success: true });
+    setTransport({ invoke: invokeMock } as BackendTransportLike);
+
+    const localRoot = '/tmp/local-data';
+    resetStore(
+      [
+        makeRootNode(localRoot, {
+          kind: 'local',
+        }),
+      ],
+      localRoot
+    );
+
+    render(<FileBrowserPanel />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Files actions' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Create Set from Folder' }));
+
+    expect(openRegexDiscoveryInStudioMock).toHaveBeenCalledWith({
+      discoveryRoot: localRoot,
+    });
   });
 });

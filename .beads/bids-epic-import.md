@@ -21,7 +21,7 @@ A research-grade BIDS dataset explorer workspace integrated into Brainflow2. Whe
 
 ---
 
-# Add bids-rust workspace dependency
+# Add bids-rs workspace dependency
 
 - type: task
 - priority: 1
@@ -29,12 +29,12 @@ A research-grade BIDS dataset explorer workspace integrated into Brainflow2. Whe
 
 ## Description
 
-Add the local bids-rust crate (at ~/code/rust/bids-rust) as a workspace dependency so api_bridge can use BidsProject, SearchBuilder, EventData, ComplianceChecker, etc.
+Add the bids-rs crate (private git repo: github.com/bbuchsbaum/bids-rs) as a workspace dependency so api_bridge can use BidsProject, SearchBuilder, EventData, ComplianceChecker, etc.
 
 ## Acceptance Criteria
 
-- [ ] `Cargo.toml` root workspace lists `bids-rust = { path = "../rust/bids-rust" }`
-- [ ] `core/api_bridge/Cargo.toml` depends on `bids-rust.workspace = true`
+- [ ] `Cargo.toml` root workspace lists `bids-rs = { git = "ssh://git@github.com/bbuchsbaum/bids-rs.git", branch = "main" }`
+- [ ] `core/api_bridge/Cargo.toml` depends on `bids-rs.workspace = true`
 - [ ] `cargo check --workspace` passes
 - [ ] No version conflicts with existing nalgebra, serde, walkdir deps
 
@@ -59,7 +59,7 @@ Types needed: BidsDatasetSummary, BidsCoverageMatrix, BidsCoverageColumn, BidsCo
 - [ ] `core/bridge_types/src/bin/export_types.rs` has `export_all()` for each new type
 - [ ] `cargo xtask ts-bindings` generates valid TypeScript interfaces into `@brainflow/api`
 - [ ] No UI-specific state (selection, filters) in bridge types — those stay in the store
-- [ ] Subject IDs use bare format (no `sub-` prefix), matching bids-rust convention
+- [ ] Subject IDs use bare format (no `sub-` prefix), matching bids-rs convention
 
 ---
 
@@ -72,7 +72,7 @@ Types needed: BidsDatasetSummary, BidsCoverageMatrix, BidsCoverageColumn, BidsCo
 
 ## Description
 
-The primary backend command that scans a BIDS directory and returns a complete BidsDatasetSummary. Must call `materialize_remote_file_if_needed()` for every file read to support remote-mounted datasets. Uses bids-rust BidsProject::new(), summary(), search_files(), read_all_events(), ComplianceChecker.
+The primary backend command that scans a BIDS directory and returns a complete BidsDatasetSummary. Must call `materialize_remote_file_if_needed()` for every file read to support remote-mounted datasets. Uses bids-rs BidsProject::new(), summary(), search_files(), read_all_events(), ComplianceChecker.
 
 Register in all 4 places: lib.rs function, build.rs COMMANDS, main.rs generate_handler!, transport.ts apiBridgeCommands.
 

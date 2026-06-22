@@ -1,0 +1,9 @@
+row_id,subject,group,condition,run,stat_res,stat_sel,roi_1,roi_2,roi_3
+r001,sub-01,control,faces,1,group4d,"{""index"":{""t"":0}}",0.31,0.44,0.29
+r002,sub-01,control,houses,1,group4d,"{""index"":{""t"":1}}",0.12,0.18,0.15
+r003,sub-02,control,faces,1,group4d,"{""index"":{""t"":2}}",0.28,0.39,0.33
+r004,sub-02,control,houses,1,group4d,"{""index"":{""t"":3}}",0.09,0.14,0.11
+r005,sub-03,patient,faces,1,group4d,"{""index"":{""t"":4}}",0.45,0.52,0.41
+r006,sub-03,patient,houses,1,group4d,"{""index"":{""t"":5}}",0.22,0.28,0.19
+r007,sub-04,patient,faces,1,group4d,"{""index"":{""t"":6}}",0.38,0.48,0.36
+r008,sub-04,patient,houses,1,group4d,"{""index"":{""t"":7}}",0.15,0.21,0.14

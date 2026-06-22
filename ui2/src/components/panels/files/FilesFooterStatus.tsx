@@ -1,6 +1,7 @@
 import React from 'react';
 import { VscFolder, VscRemote, VscPin, VscHistory } from 'react-icons/vsc';
 import type { FileTreeNode } from '@/types/filesystem';
+import './FilesFooterStatus.css';
 
 interface FilesFooterStatusProps {
   rootNode: FileTreeNode | null;

@@ -1,0 +1,267 @@
+/* FilesStartPanel — empty-state launch chrome.
+ * Tokens still target --app-* until P4 (--bf-* migration). */
+
+.files-start-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--bf-space-3);
+  padding: var(--bf-space-4) var(--bf-space-3);
+  overflow-y: auto;
+  height: 100%;
+  color: var(--bf-text-primary);
+}
+
+.files-start-kicker {
+  margin: 0;
+  text-transform: uppercase;
+  letter-spacing: var(--app-role-section-tracking);
+  font-size: var(--app-role-section-size);
+  font-weight: var(--app-role-section-weight);
+  color: var(--bf-text-secondary);
+}
+
+.files-start-message {
+  margin: 0;
+  font-size: var(--app-role-body-size);
+  color: var(--bf-text-muted);
+  line-height: 1.4;
+}
+
+.files-start-commands {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--bf-space-1);
+}
+
+.files-start-command {
+  display: flex;
+  align-items: center;
+  gap: var(--bf-space-2);
+  width: 100%;
+  min-height: var(--bf-panel-header-h);
+  padding: 0 var(--bf-space-3);
+  background: transparent;
+  border: 1px solid var(--bf-border-subtle);
+  border-radius: var(--bf-radius-xs);
+  color: var(--bf-text-secondary);
+  font-size: var(--app-role-body-size);
+  font-weight: 500;
+  cursor: pointer;
+  transition:
+    background-color var(--bf-motion-fast) ease,
+    border-color var(--bf-motion-fast) ease,
+    color var(--bf-motion-fast) ease;
+}
+
+.files-start-command:hover:not(:disabled) {
+  background: var(--bf-bg-hover);
+  border-color: var(--bf-border-strong);
+  color: var(--bf-text-primary);
+}
+
+.files-start-command:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+
+.files-start-command:focus-visible {
+  outline: var(--app-focus-ring-width) solid var(--bf-border-focus);
+  outline-offset: var(--app-focus-ring-offset);
+}
+
+.files-start-command--primary {
+  background: var(--bf-accent);
+  color: #ffffff;
+  border-color: color-mix(in srgb, var(--bf-accent) 70%, #000 30%);
+}
+
+.files-start-command--primary:hover:not(:disabled) {
+  background: var(--bf-accent-hover);
+  color: #fff;
+}
+
+.files-start-command-icon {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+}
+
+.files-start-command-label {
+  flex: 1;
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.files-start-command-shortcut {
+  font-family: var(--bf-font-mono);
+  font-size: var(--app-text-xs);
+  color: color-mix(in srgb, currentColor 80%, transparent);
+}
+
+.files-start-error {
+  margin: 0;
+  padding: var(--bf-space-1) var(--bf-space-2);
+  border: 1px solid color-mix(in srgb, var(--bf-danger) 32%, transparent);
+  background: color-mix(in srgb, var(--bf-danger) 10%, transparent);
+  color: var(--bf-danger);
+  font-size: var(--app-role-label-size);
+  border-radius: var(--bf-radius-xs);
+}
+
+.files-start-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--bf-space-1);
+}
+
+.files-start-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--bf-space-2);
+}
+
+.files-start-section-title {
+  text-transform: uppercase;
+  letter-spacing: var(--app-role-section-tracking);
+  font-size: var(--app-role-section-size);
+  font-weight: var(--app-role-section-weight);
+  color: var(--bf-text-secondary);
+}
+
+.files-start-section-link {
+  background: none;
+  border: none;
+  color: var(--bf-text-muted);
+  font-size: var(--app-role-label-size);
+  cursor: pointer;
+  padding: 0;
+}
+
+.files-start-section-link:hover {
+  color: var(--bf-text-secondary);
+}
+
+.files-start-empty {
+  margin: 0;
+  font-size: var(--app-role-label-size);
+  color: var(--bf-text-muted);
+  font-style: italic;
+}
+
+.files-start-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.files-start-row {
+  display: flex;
+  align-items: stretch;
+  gap: 2px;
+}
+
+.files-start-row-main {
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+  gap: var(--bf-space-2);
+  padding: 4px var(--bf-space-2);
+  border: 1px solid transparent;
+  background: transparent;
+  border-radius: var(--bf-radius-xs);
+  color: var(--bf-text-primary);
+  font-size: var(--app-role-body-size);
+  text-align: left;
+  cursor: pointer;
+  min-width: 0;
+}
+
+.files-start-row-main:hover {
+  background: var(--bf-bg-hover);
+}
+
+.files-start-row-icon {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  color: var(--bf-text-muted);
+}
+
+.files-start-row-label {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.files-start-row-meta {
+  font-family: var(--bf-font-mono);
+  font-size: var(--app-text-xs);
+  color: var(--bf-text-muted);
+  flex-shrink: 0;
+}
+
+.files-start-row-action {
+  flex: 0 0 auto;
+  width: var(--app-control-height-sm);
+  height: var(--app-control-height-sm);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--bf-text-muted);
+  border-radius: var(--bf-radius-xs);
+  cursor: pointer;
+  transition:
+    color var(--bf-motion-fast) ease,
+    background-color var(--bf-motion-fast) ease;
+}
+
+.files-start-row-action:hover:not(:disabled) {
+  background: var(--bf-bg-hover);
+  color: var(--bf-text-secondary);
+}
+
+.files-start-row-action:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.files-start-drop {
+  margin-top: auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--bf-space-2);
+  padding: var(--bf-space-2) var(--bf-space-3);
+  border: 1px dashed var(--bf-border-subtle);
+  border-radius: var(--bf-radius-md);
+  color: var(--bf-text-muted);
+}
+
+.files-start-drop-icon {
+  width: 16px;
+  height: 16px;
+  color: var(--bf-text-muted);
+  flex-shrink: 0;
+}
+
+.files-start-drop-title {
+  margin: 0;
+  font-size: var(--app-role-label-size);
+  color: var(--bf-text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}

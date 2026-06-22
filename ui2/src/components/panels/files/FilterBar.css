@@ -1,0 +1,162 @@
+/* FilterBar — search input + sort controls strip. */
+.fb-controls {
+  background-color: var(--bf-bg-panel);
+  border-bottom: 1px solid var(--bf-border);
+  padding: var(--bf-space-2);
+}
+
+.fb-controls-bottom {
+  display: flex;
+  gap: var(--bf-space-2);
+  align-items: center;
+}
+
+.fb-search {
+  flex: 1;
+  position: relative;
+}
+
+.fb-search-icon {
+  position: absolute;
+  left: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--bf-text-muted);
+  pointer-events: none;
+}
+
+.fb-search-input {
+  background-color: var(--bf-bg-shell);
+  color: var(--bf-text-primary);
+  border: 1px solid var(--bf-border-subtle);
+  padding: 0 30px 0 28px;
+  height: var(--app-control-height-sm);
+  font-size: var(--app-role-body-size);
+  font-weight: var(--app-role-body-weight);
+  border-radius: var(--bf-radius-xs);
+  width: 100%;
+  transition: all var(--bf-motion-fast) ease;
+}
+
+.fb-search-input:hover {
+  border-color: var(--bf-border-strong);
+}
+
+.fb-search-input:focus {
+  outline: none;
+  border-color: var(--bf-accent);
+  box-shadow: 0 0 0 1px var(--bf-accent);
+}
+
+.fb-search-input:focus-visible {
+  outline: var(--app-focus-ring-width) solid var(--bf-border-focus);
+  outline-offset: var(--app-focus-ring-offset);
+}
+
+.fb-search-input::placeholder {
+  color: var(--bf-text-muted);
+}
+
+.fb-search-clear {
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: transparent;
+  border: none;
+  color: var(--bf-text-muted);
+  cursor: pointer;
+  padding: 0;
+  border-radius: var(--bf-radius-xs);
+  transition: all var(--bf-motion-fast) ease;
+  min-width: var(--app-control-height-sm);
+  min-height: var(--app-control-height-sm);
+}
+
+.fb-search-clear:hover {
+  color: var(--bf-text-secondary);
+}
+
+.fb-search-clear:focus-visible {
+  outline: var(--app-focus-ring-width) solid var(--bf-border-focus);
+  outline-offset: var(--app-focus-ring-offset);
+}
+
+.fb-sort {
+  display: flex;
+  align-items: center;
+  gap: var(--bf-space-1);
+}
+
+.fb-sort-select {
+  background-color: var(--bf-bg-shell);
+  color: var(--bf-text-primary);
+  border: 1px solid var(--bf-border-subtle);
+  padding: 0 24px 0 8px;
+  height: var(--app-control-height-sm);
+  font-size: var(--app-role-body-size);
+  font-weight: var(--app-role-body-weight);
+  border-radius: var(--bf-radius-xs);
+  cursor: pointer;
+  appearance: none;
+  background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e");
+  background-repeat: no-repeat;
+  background-position: right 4px center;
+  background-size: 12px;
+  transition: all var(--bf-motion-fast) ease;
+}
+
+.fb-sort-select:hover {
+  border-color: var(--bf-border-strong);
+}
+
+.fb-sort-select:focus {
+  outline: none;
+  border-color: var(--bf-accent);
+  box-shadow: 0 0 0 1px var(--bf-accent);
+}
+
+.fb-sort-select:focus-visible {
+  outline: var(--app-focus-ring-width) solid var(--bf-border-focus);
+  outline-offset: var(--app-focus-ring-offset);
+}
+
+.fb-sort-order {
+  background: transparent;
+  border: none;
+  color: var(--bf-text-secondary);
+  cursor: pointer;
+  padding: 0;
+  font-size: 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--bf-panel-header-h);
+  height: var(--bf-panel-header-h);
+  border-radius: var(--bf-radius-xs);
+  transition: all var(--bf-motion-fast) ease;
+}
+
+.fb-sort-order:hover {
+  background-color: var(--bf-bg-hover);
+  color: var(--bf-text-primary);
+}
+
+.fb-sort-order:focus-visible {
+  outline: var(--app-focus-ring-width) solid var(--bf-border-focus);
+  outline-offset: var(--app-focus-ring-offset);
+}
+
+.fb-inline-error {
+  border-bottom: 1px solid color-mix(in srgb, var(--bf-danger) 24%, transparent);
+  background: color-mix(in srgb, var(--bf-danger) 10%, transparent);
+  color: var(--bf-danger);
+  font-size: var(--app-role-label-size);
+  padding: var(--bf-space-1) var(--bf-space-2);
+}
+
+@media (max-width: 320px) {
+  .fb-search-input {
+    padding-right: 24px;
+  }
+}

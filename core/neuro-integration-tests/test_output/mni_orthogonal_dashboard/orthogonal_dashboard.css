@@ -253,11 +253,11 @@ footer p {
     .orthogonal-grid {
         grid-template-columns: 1fr;
     }
-    
+
     .grid-header:first-child {
         display: none;
     }
-    
+
     .grid-label {
         grid-column: 1 / -1;
         margin-top: 20px;

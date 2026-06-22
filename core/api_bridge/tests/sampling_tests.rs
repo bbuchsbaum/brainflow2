@@ -323,3 +323,75 @@ async fn get_volume_for_projection_handles_i16_volume() {
     assert_eq!(result.data_range.min, -100.0);
     assert_eq!(result.data_range.max, 127.0);
 }
+
+#[tokio::test]
+async fn get_volume_for_projection_affine_roundtrips_voxel_to_world() {
+    // Validates the exact contract the frontend GPU path relies on: the returned
+    // column-major voxel->world affine, when inverted (world->voxel, as the
+    // shader does), recovers the voxel index whose flat position in `volume_data`
+    // holds the expected value. value(x,y,z) = x + 10*y + 100*z; 2mm spacing +
+    // (10,20,30)mm offset.
+    let dims = [3usize, 3, 3];
+    let mut data = Vec::new();
+    for z in 0..dims[2] {
+        for y in 0..dims[1] {
+            for x in 0..dims[0] {
+                data.push(x as f32 + 10.0 * y as f32 + 100.0 * z as f32);
+            }
+        }
+    }
+
+    #[rustfmt::skip]
+    let affine = Matrix4::<f32>::new(
+        2.0, 0.0, 0.0, 10.0,
+        0.0, 2.0, 0.0, 20.0,
+        0.0, 0.0, 2.0, 30.0,
+        0.0, 0.0, 0.0, 1.0,
+    );
+    let space = NeuroSpaceImpl::from_affine_matrix4(dims.to_vec(), affine).expect("neuro space");
+    let volume = DenseVolume3::<f32>::from_data(space, data.clone());
+
+    let bridge_state = BridgeState::default().expect("bridge state");
+    let volume_id = "roundtrip_volume".to_string();
+    let affine3 = Affine3::from_matrix_unchecked(affine);
+    let metadata = VolumeMetadataInfo {
+        name: volume_id.clone(),
+        path: "<memory>".to_string(),
+        dtype: "f32".to_string(),
+        volume_type: VolumeType::Volume3D,
+        time_series_info: None,
+    };
+    bridge_state.volume_registry.lock().await.insert(
+        volume_id.clone(),
+        VolumeSendable::VolF32(volume, affine3),
+        metadata,
+    );
+
+    let result = get_volume_for_projection_for_testing(&volume_id, None, &bridge_state)
+        .await
+        .expect("projection");
+
+    // Reconstruct the affine exactly as the frontend receives it (column-major).
+    let vox_to_world = Matrix4::<f32>::from_column_slice(&result.affine_matrix);
+    let world_to_vox = vox_to_world.try_inverse().expect("affine invertible");
+    let nx = result.dims[0];
+    let ny = result.dims[1];
+
+    for &(i, j, k) in &[(0usize, 0usize, 0usize), (1, 2, 1), (2, 2, 2)] {
+        // voxel -> world lands at the expected mm placement
+        let world = vox_to_world * nalgebra::Vector4::new(i as f32, j as f32, k as f32, 1.0);
+        assert!((world.x - (2.0 * i as f32 + 10.0)).abs() < 1e-4);
+        assert!((world.y - (2.0 * j as f32 + 20.0)).abs() < 1e-4);
+        assert!((world.z - (2.0 * k as f32 + 30.0)).abs() < 1e-4);
+
+        // world -> voxel (shader path) recovers the index and the right value
+        let vox = world_to_vox * world;
+        let ri = vox.x.round() as usize;
+        let rj = vox.y.round() as usize;
+        let rk = vox.z.round() as usize;
+        assert_eq!((ri, rj, rk), (i, j, k));
+        let flat = ri + nx * (rj + ny * rk);
+        let expected = i as f32 + 10.0 * j as f32 + 100.0 * k as f32;
+        assert_eq!(result.volume_data[flat], expected);
+    }
+}

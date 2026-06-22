@@ -111,9 +111,18 @@ pub(crate) fn frontend_layer_to_backend_layer(layer: &LayerState) -> Option<Laye
         return None;
     }
 
-    let colormap_id = match colormap_by_name(&layer.colormap) {
-        Some(id) => id.id() as u32,
-        None => 0,
+    // Prefer an explicit, backend-registered colormap slot (e.g. a categorical atlas
+    // palette) when the frontend supplies one. Validate it is within the GPU LUT
+    // array bounds so an arbitrary id can never index out of range; otherwise fall
+    // back to resolving the colormap by name.
+    let max_colormap_layers = colormap::BuiltinColormap::COUNT as u32
+        + render_loop::texture_manager::CUSTOM_COLORMAP_SLOTS;
+    let colormap_id = match layer.colormap_id {
+        Some(id) if id < max_colormap_layers => id,
+        _ => match colormap_by_name(&layer.colormap) {
+            Some(id) => id.id() as u32,
+            None => 0,
+        },
     };
 
     let blend_mode = match layer.blend_mode.as_str() {
@@ -200,14 +209,16 @@ pub(crate) fn slice_features_from_frontend_layers(layers: &[LayerState]) -> Slic
         }
 
         if let Some(outline) = &layer.outline {
-            if outline.enabled
-                && outline.selected_label_id > 0
-                && layer.layer_mode == LayerMode::Label
-            {
+            // Outline is active whenever enabled on a label layer. With a specific
+            // label selected we outline that parcel (mode 0); otherwise we outline
+            // every parcel boundary (mode 1) so the toggle alone is meaningful.
+            if outline.enabled && layer.layer_mode == LayerMode::Label {
+                let outline_mode = if outline.selected_label_id > 0 { 0 } else { 1 };
                 return SliceFeatureUbo {
                     outline_enabled: 1,
                     outline_layer_index: visible_layer_index,
                     selected_label_id: outline.selected_label_id,
+                    outline_mode,
                     outline_color: outline.color,
                     outline_thickness_px: outline.thickness_px.max(1.0),
                     ..SliceFeatureUbo::default()

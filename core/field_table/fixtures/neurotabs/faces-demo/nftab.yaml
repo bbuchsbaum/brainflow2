@@ -1,0 +1,93 @@
+spec_version: "0.1.0"
+dataset_id: "faces-demo"
+storage_profile: "table-package"
+
+observation_table:
+  path: "observations.csv"
+  format: "csv"
+
+row_id: "row_id"
+observation_axes: ["subject", "condition", "run"]
+
+observation_columns:
+  row_id:
+    dtype: string
+    nullable: false
+    semantic_role: row_id
+  subject:
+    dtype: string
+    nullable: false
+    semantic_role: subject
+  group:
+    dtype: string
+    nullable: false
+    semantic_role: group
+  condition:
+    dtype: string
+    nullable: false
+    semantic_role: condition
+  run:
+    dtype: int32
+    nullable: false
+    semantic_role: run
+  stat_res:
+    dtype: string
+    nullable: true
+  stat_sel:
+    dtype: json
+    nullable: true
+  roi_1:
+    dtype: float32
+    nullable: true
+  roi_2:
+    dtype: float32
+    nullable: true
+  roi_3:
+    dtype: float32
+    nullable: true
+
+features:
+  statmap:
+    description: "3D statistical map"
+    logical:
+      kind: volume
+      axes: ["x", "y", "z"]
+      dtype: float32
+      support_ref: "mni_2mm_demo"
+      shape: [2, 2, 1]
+      space: "MNI152NLin2009cAsym"
+      alignment: same_grid
+    encodings:
+      - type: ref
+        binding:
+          resource_id:
+            column: "stat_res"
+          selector:
+            column: "stat_sel"
+
+  roi_beta:
+    description: "ROI feature vector (3 regions)"
+    logical:
+      kind: vector
+      axes: ["roi"]
+      dtype: float32
+      shape: [3]
+      axis_domains:
+        roi:
+          id: "desikan3-demo"
+          labels: "roi_labels.tsv"
+    encodings:
+      - type: columns
+        binding:
+          columns: ["roi_1", "roi_2", "roi_3"]
+
+resources:
+  path: "resources.csv"
+  format: "csv"
+
+supports:
+  mni_2mm_demo:
+    support_type: volume
+    support_id: "mni152-2mm-grid-91x109x91-demo"
+    space: "MNI152NLin2009cAsym"
+    grid_id: "mni152-2mm-demo-grid"

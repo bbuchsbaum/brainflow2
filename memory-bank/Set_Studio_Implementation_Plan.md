@@ -341,7 +341,7 @@ Recommended services:
 
 - `SetIngestionService`
   - import from regex/glob wizard
-  - import from NFTab manifest
+  - import from NeuroTabs manifest
   - validation preview
   - set registration
 
@@ -409,7 +409,7 @@ Modules:
 - `cache/`
 
 Responsibilities:
-- import and validate NFTab-like manifests
+- import and validate NeuroTabs manifests compatible with the upstream NFTab table-package contract
 - register sets, members, and support descriptors
 - compile cohort queries
 - evaluate field expressions

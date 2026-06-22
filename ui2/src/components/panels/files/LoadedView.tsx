@@ -1,14 +1,42 @@
 import React from 'react';
-import { useLayerStore } from '@/stores/layerStore';
+import './FlatList.css';
+import { useLayerStore, type LayerInfo } from '@/stores/layerStore';
 import { useFileBrowserStore } from '@/stores/fileBrowserStore';
+import { useInspectorSelectionStore } from '@/stores/inspectorSelectionStore';
+import { LAYER_DRAG_MIME, serializeLayerDragData } from '@/utils/layerDrag';
+import type { SceneItem } from '@/types/sceneItem';
 import { inferFileType } from './shared/inferFileType';
 import { FileTypeBadge } from './shared/FileTypeBadge';
+
+function buildVolumeSceneItem(
+  layer: LayerInfo,
+  layers: ReadonlyArray<LayerInfo>
+): SceneItem {
+  const isAtlas = layer.source === 'atlas';
+  let kind: SceneItem['kind'];
+  if (isAtlas) {
+    kind = 'volume-overlay-atlas';
+  } else {
+    const firstNonAtlas = layers.find((l) => l.source !== 'atlas');
+    kind = firstNonAtlas?.id === layer.id ? 'volume-base' : 'volume-overlay';
+  }
+  return {
+    id: layer.id,
+    kind,
+    group: 'volume',
+    name: layer.name,
+    subtitle: '',
+    visible: layer.visible,
+    opacity: 1,
+    ref: { type: 'volume', layerId: layer.id },
+  };
+}
 
 export const LoadedView: React.FC = () => {
   const layers = useLayerStore((state) => state.layers);
   const selectedLayerId = useLayerStore((state) => state.selectedLayerId);
-  const selectLayer = useLayerStore((state) => state.selectLayer);
   const selectFile = useFileBrowserStore((state) => state.selectFile);
+  const setActive = useInspectorSelectionStore((state) => state.setActive);
 
   if (layers.length === 0) {
     return (
@@ -19,6 +47,16 @@ export const LoadedView: React.FC = () => {
         </p>
       </div>
     );
+  }
+
+  function handleDragStart(event: React.DragEvent, layer: LayerInfo) {
+    if (!event.dataTransfer) return;
+    event.stopPropagation();
+
+    const payload = serializeLayerDragData({ layerId: layer.id });
+    event.dataTransfer.setData(LAYER_DRAG_MIME, payload);
+    event.dataTransfer.setData('application/json', payload);
+    event.dataTransfer.effectAllowed = 'copy';
   }
 
   return (
@@ -39,8 +77,10 @@ export const LoadedView: React.FC = () => {
               type="button"
               className={`fb-flat-row${isSelected ? ' is-selected' : ''}`}
               title={sourcePath || layer.name}
+              draggable
+              onDragStart={(event) => handleDragStart(event, layer)}
               onClick={() => {
-                selectLayer(layer.id);
+                setActive(buildVolumeSceneItem(layer, layers));
                 if (sourcePath) selectFile(sourcePath);
               }}
             >

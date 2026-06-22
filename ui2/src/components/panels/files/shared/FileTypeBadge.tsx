@@ -1,5 +1,6 @@
 import React from 'react';
 import type { FileTypeInfo } from './inferFileType';
+import './FileTypeBadge.css';
 
 interface FileTypeBadgeProps {
   info: FileTypeInfo;

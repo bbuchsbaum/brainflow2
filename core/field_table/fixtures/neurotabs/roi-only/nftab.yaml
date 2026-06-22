@@ -1,0 +1,61 @@
+spec_version: "0.1.0"
+dataset_id: "roi-only"
+storage_profile: "table-package"
+
+observation_table:
+  path: "observations.csv"
+  format: "csv"
+
+row_id: "row_id"
+observation_axes: ["subject", "condition"]
+
+observation_columns:
+  row_id:
+    dtype: string
+    nullable: false
+    semantic_role: row_id
+  subject:
+    dtype: string
+    nullable: false
+    semantic_role: subject
+  group:
+    dtype: string
+    nullable: false
+    semantic_role: group
+  condition:
+    dtype: string
+    nullable: false
+    semantic_role: condition
+  age:
+    dtype: float64
+    nullable: false
+    semantic_role: covariate
+    unit: years
+  roi_1:
+    dtype: float32
+    nullable: false
+  roi_2:
+    dtype: float32
+    nullable: false
+  roi_3:
+    dtype: float32
+    nullable: false
+  roi_4:
+    dtype: float32
+    nullable: false
+  roi_5:
+    dtype: float32
+    nullable: false
+
+features:
+  roi_beta:
+    description: "5-region ROI betas"
+    logical:
+      kind: vector
+      axes: [roi]
+      dtype: float32
+      shape: [5]
+    encodings:
+      - type: columns
+        binding:
+          columns: ["roi_1", "roi_2", "roi_3", "roi_4", "roi_5"]

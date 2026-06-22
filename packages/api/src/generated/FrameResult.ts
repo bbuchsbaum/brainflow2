@@ -4,31 +4,31 @@ import type { FrameDiagnostics } from "./FrameDiagnostics";
 /**
  * Result of a frame render request.
  */
-export type FrameResult = {
+export type FrameResult = { 
 /**
  * Rendered image as base64-encoded PNG or raw RGBA.
  */
-image_data: Array<number>,
+image_data: Array<number>, 
 /**
  * Actual dimensions of rendered image.
  */
-dimensions: [number, number],
+dimensions: [number, number], 
 /**
  * Time taken to render in milliseconds.
  */
-render_time_ms: number,
+render_time_ms: number, 
 /**
  * Any warnings or non-fatal errors.
  */
-warnings: Array<string>,
+warnings: Array<string>, 
 /**
  * Layers that were actually rendered.
  */
-rendered_layers: Array<string>,
+rendered_layers: Array<string>, 
 /**
  * Whether CPU fallback was used.
  */
-used_cpu_fallback: boolean,
+used_cpu_fallback: boolean, 
 /**
  * Stage timings for the live render path.
  */

@@ -11,4 +11,3 @@ commands.allow = ["get_atlas_palette"]
 identifier = "deny-get-atlas-palette"
 description = "Denies the get_atlas_palette command without any pre-configured scope."
 commands.deny = ["get_atlas_palette"]
-

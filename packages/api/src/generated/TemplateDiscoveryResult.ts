@@ -5,15 +5,15 @@ import type { TemplateDiscoveryStats } from "./TemplateDiscoveryStats";
 /**
  * Result of template discovery operation
  */
-export type TemplateDiscoveryResult = { 
+export type TemplateDiscoveryResult = {
 /**
  * All discovered templates
  */
-templates: Array<DiscoveredTemplate>, 
+templates: Array<DiscoveredTemplate>,
 /**
  * Statistics about the discovery
  */
-stats: TemplateDiscoveryStats, 
+stats: TemplateDiscoveryStats,
 /**
  * Whether this came from cache
  */

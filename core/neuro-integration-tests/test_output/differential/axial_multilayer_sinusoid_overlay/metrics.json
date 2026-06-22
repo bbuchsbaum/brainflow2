@@ -1,0 +1,17 @@
+{
+  "test_name": "axial_multilayer_sinusoid_overlay",
+  "passed": false,
+  "slice_dimensions": [192, 192],
+  "layer_count": 2,
+  "cpu_duration_ms": 93.430,
+  "gpu_duration_ms": 368.261,
+  "speedup": 0.253706,
+  "max_abs_diff": 124,
+  "max_rel_diff": 1.000000,
+  "failed_pixels": 4347,
+  "total_pixels": 36864,
+  "mean_abs_diff": 3.456706,
+  "std_abs_diff": 15.922170,
+  "p95_abs_diff": 6,
+  "exact_matches": 28960
+}

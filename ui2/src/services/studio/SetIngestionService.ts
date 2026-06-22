@@ -2,6 +2,20 @@ import type { BackendTransport } from '@/services/transport';
 import { getTransport } from '@/services/transport';
 import { useSetStudioStore } from '@/stores/setStudioStore';
 import type { StudioImportCandidate, StudioImportMode } from '@/types/studio';
+import type {
+  StudioImportCandidate as BackendStudioImportCandidate,
+  StudioDiscoveryPromotionResult,
+  StudioImportPreviewRequest,
+} from '@brainflow/api';
+
+function parsePositiveInteger(value: string): number | null {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return null;
+  }
+  const parsed = Number.parseInt(trimmed, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+}
 
 export class SetIngestionService {
   private transport: BackendTransport;
@@ -17,7 +31,7 @@ export class SetIngestionService {
     const requestId = ++this.requestVersion;
 
     try {
-      const candidates = await this.transport.invoke<StudioImportCandidate[]>(
+      const candidates = await this.transport.invoke<BackendStudioImportCandidate[]>(
         'preview_set_studio_imports',
         this.buildPreviewRequest(mode)
       );
@@ -27,9 +41,10 @@ export class SetIngestionService {
       }
 
       if (Array.isArray(candidates) && candidates.length > 0) {
+        const studioCandidates = candidates as StudioImportCandidate[];
         useSetStudioStore
           .getState()
-          .setImportPreviewResult(mode, candidates, 'backend', null);
+          .setImportPreviewResult(mode, studioCandidates, 'backend', null);
         return;
       }
 
@@ -46,6 +61,25 @@ export class SetIngestionService {
 
   async validateTablePreview(): Promise<void> {
     await this.openImportPreview('table');
+  }
+
+  async exportDiscoveryNeuroTabs(
+    candidate: StudioImportCandidate
+  ): Promise<StudioDiscoveryPromotionResult> {
+    const outputDir = discoveryExportDirectory(candidate);
+    if (!outputDir) {
+      throw new Error('NeuroTabs export is available only for local discovery roots.');
+    }
+
+    return this.transport.invoke<StudioDiscoveryPromotionResult>(
+      'promote_discovery_to_neurotabs',
+      {
+        request: {
+          candidate: candidate as BackendStudioImportCandidate,
+          outputDir,
+        },
+      }
+    );
   }
 
   /**
@@ -81,7 +115,7 @@ export class SetIngestionService {
     store.setImportPreviewResult(mode, fallbackCandidates, 'fallback', message);
   }
 
-  private buildPreviewRequest(mode: StudioImportMode) {
+  private buildPreviewRequest(mode: StudioImportMode): { request: StudioImportPreviewRequest } {
     const dialog = useSetStudioStore.getState().importDialog;
     const wizard = dialog.tsvWizard;
     return {
@@ -90,6 +124,19 @@ export class SetIngestionService {
         manifestPath: mode === 'manifest' ? dialog.manifestPath : null,
         discoveryRoot: mode === 'regex' ? dialog.discoveryRoot : null,
         filePattern: mode === 'regex' ? dialog.filePattern : null,
+        discoveryMaxDepth:
+          mode === 'regex' ? parsePositiveInteger(dialog.discoveryMaxDepth) : null,
+        discoveryMaxFiles:
+          mode === 'regex' ? parsePositiveInteger(dialog.discoveryMaxFiles) : null,
+        discoveryIncludePatterns: null,
+        discoveryExcludePatterns: null,
+        discoveryRequiredRoles:
+          mode === 'regex' ? dialog.discoveryRequiredRoles : null,
+        discoveryRolePatterns:
+          mode === 'regex' ? dialog.discoveryRolePatterns : null,
+        discoveryDryRun: mode === 'regex' ? true : null,
+        discoverySampleHeaders:
+          mode === 'regex' ? dialog.discoverySampleHeaders : null,
         tableSourceLabel:
           mode === 'table' ? dialog.tsvWizard.tsvPath || 'pasted table' : null,
         tableHeaders: mode === 'table' ? wizard.headers : null,
@@ -101,6 +148,14 @@ export class SetIngestionService {
       },
     };
   }
+}
+
+export function discoveryExportDirectory(candidate: StudioImportCandidate): string | null {
+  const root = candidate.discovery?.root?.trim();
+  if (!root || root.includes('://')) {
+    return null;
+  }
+  return root;
 }
 
 let instance: SetIngestionService | null = null;

@@ -6,6 +6,7 @@
  */
 
 pub mod catalog;
+pub mod palette;
 pub mod service;
 pub mod types;
 
@@ -13,6 +14,9 @@ pub mod types;
 pub mod test_atlas_loading;
 
 pub use catalog::AtlasCatalog;
+pub use palette::{
+    AtlasPaletteKind, AtlasPaletteLegendEntry, AtlasPaletteLut, AtlasPaletteResponse,
+};
 pub use service::AtlasService;
 pub use types::*;
 

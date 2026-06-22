@@ -1,0 +1,17 @@
+{
+  "test_name": "axial_sphere_center",
+  "passed": false,
+  "slice_dimensions": [192, 192],
+  "layer_count": 1,
+  "cpu_duration_ms": 50.765,
+  "gpu_duration_ms": 29.060,
+  "speedup": 1.746876,
+  "max_abs_diff": 10,
+  "max_rel_diff": 1.000000,
+  "failed_pixels": 3223,
+  "total_pixels": 36864,
+  "mean_abs_diff": 0.410482,
+  "std_abs_diff": 1.527117,
+  "p95_abs_diff": 4,
+  "exact_matches": 32876
+}

@@ -3,15 +3,15 @@
  */
 
 export interface FileSystemEntry {
-  id: string;           // Unique identifier 
-  name: string;         // Display name
-  path: string;         // Full file path
-  type: 'file' | 'directory';
-  size?: number;        // File size in bytes
-  modified?: Date;      // Last modified date
-  extension?: string;   // File extension
-  isHidden?: boolean;   // Hidden file/directory
-  isSymlink?: boolean;  // Symbolic link
+  id: string; // Unique identifier
+  name: string; // Display name
+  path: string; // Full file path
+  type: "file" | "directory";
+  size?: number; // File size in bytes
+  modified?: Date; // Last modified date
+  extension?: string; // File extension
+  isHidden?: boolean; // Hidden file/directory
+  isSymlink?: boolean; // Symbolic link
   permissions?: FilePermissions;
   mountSource?: MountSource;
 }
@@ -23,7 +23,7 @@ export interface FilePermissions {
 }
 
 export interface MountSource {
-  kind: 'local' | 'remote';
+  kind: "local" | "remote";
   label?: string;
   mountId?: string;
   host?: string;
@@ -37,89 +37,96 @@ export interface FileTreeNode extends FileSystemEntry {
   expanded?: boolean;
   loading?: boolean;
   depth: number;
-  parent?: string;      // Parent node ID
+  parent?: string; // Parent node ID
 }
 
 export interface FileTypeInfo {
-  icon: string;         // Icon class or emoji
-  color: string;        // Color for the file type
-  description: string;  // Human-readable description
+  icon: string; // Icon class or emoji
+  color: string; // Color for the file type
+  description: string; // Human-readable description
   extensions: string[]; // File extensions
 }
 
 // Common neuroimaging file types
 export const NEUROIMAGING_FILE_TYPES: Record<string, FileTypeInfo> = {
   nifti: {
-    icon: '🧠',
-    color: '#3b82f6',
-    description: 'NIfTI Volume',
-    extensions: ['.nii', '.nii.gz']
+    icon: "🧠",
+    color: "#3b82f6",
+    description: "NIfTI Volume",
+    extensions: [".nii", ".nii.gz"],
   },
   gifti: {
-    icon: '🌐',
-    color: '#10b981',
-    description: 'GIfTI Surface',
-    extensions: ['.gii', '.surf.gii', '.func.gii']
+    icon: "🌐",
+    color: "#10b981",
+    description: "GIfTI Surface",
+    extensions: [".gii", ".surf.gii", ".func.gii"],
   },
   analyze: {
-    icon: '📊',
-    color: '#f59e0b',
-    description: 'Analyze 7.5',
-    extensions: ['.img', '.hdr']
+    icon: "📊",
+    color: "#f59e0b",
+    description: "Analyze 7.5",
+    extensions: [".img", ".hdr"],
   },
   dicom: {
-    icon: '🏥',
-    color: '#ef4444',
-    description: 'DICOM Image',
-    extensions: ['.dcm', '.dicom']
+    icon: "🏥",
+    color: "#ef4444",
+    description: "DICOM Image",
+    extensions: [".dcm", ".dicom"],
   },
   freesurfer: {
-    icon: '🎭',
-    color: '#8b5cf6',
-    description: 'FreeSurfer',
-    extensions: ['.mgz', '.mgh']
+    icon: "🎭",
+    color: "#8b5cf6",
+    description: "FreeSurfer",
+    extensions: [".mgz", ".mgh"],
   },
   json: {
-    icon: '📄',
-    color: '#6b7280',
-    description: 'JSON Data',
-    extensions: ['.json']
+    icon: "📄",
+    color: "#6b7280",
+    description: "JSON Data",
+    extensions: [".json"],
   },
   tsv: {
-    icon: '📊',
-    color: '#6b7280',
-    description: 'TSV Data',
-    extensions: ['.tsv', '.csv']
-  }
+    icon: "📊",
+    color: "#6b7280",
+    description: "TSV Data",
+    extensions: [".tsv", ".csv"],
+  },
 };
 
 export interface FileBrowserState {
   // Current directory
   currentPath: string;
   rootPath: string;
-  
+
   // File tree data
   entries: FileTreeNode[];
   expandedPaths: Set<string>;
+  /**
+   * Directory paths whose children are currently being fetched (e.g. a remote
+   * SFTP listing in flight on expand). Drives a per-row spinner so slow remote
+   * expansions give immediate feedback. Distinct from the panel-wide `loading`
+   * flag, which only covers the initial root load.
+   */
+  loadingPaths: Set<string>;
   selectedPath: string | null;
-  
+
   // UI state
   loading: boolean;
   error: string | null;
-  
+
   // Search
   searchQuery: string;
   searchResults: FileTreeNode[];
-  
+
   // View options
   showHidden: boolean;
-  sortBy: 'name' | 'modified' | 'size' | 'type';
-  sortOrder: 'asc' | 'desc';
+  sortBy: "name" | "modified" | "size" | "type";
+  sortOrder: "asc" | "desc";
 }
 
 export interface DragFileData {
   path: string;
   name: string;
-  type: FileSystemEntry['type'];
+  type: FileSystemEntry["type"];
   extension?: string;
 }

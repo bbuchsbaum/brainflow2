@@ -8,64 +8,65 @@ input[type="range"] {
   cursor: pointer;
 }
 
-/* Specific styles for our custom slider to ensure it's interactive */
-input[type="range"].slider-custom {
-  -webkit-appearance: none !important;
-  appearance: none !important;
-  background: transparent;
-  cursor: pointer;
-  position: relative;
-  z-index: 1;
-}
-
-/* Track styles */
-input[type="range"]::-webkit-slider-track {
-  background: hsl(var(--muted)); /* concrete beam */
-  height: 4px;
-  border-radius: 0;
+/* Track styles (default for plain <input type="range">).
+ * NOTE: the correct WebKit/Blink pseudo-element is
+ * `::-webkit-slider-runnable-track` — `::-webkit-slider-track` is ignored,
+ * which previously left the runnable track at full input height and threw
+ * thumb centering off (the thumb's `margin-top` is computed against this
+ * track's height/position). */
+input[type="range"]::-webkit-slider-runnable-track {
+  background: hsl(var(--muted));
+  height: 3px;
+  border-radius: 999px;
 }
 
 input[type="range"]::-moz-range-track {
-  background: hsl(var(--muted)); /* concrete beam */
-  height: 4px;
-  border-radius: 0;
+  background: hsl(var(--muted));
+  height: 3px;
+  border-radius: 999px;
 }
 
-/* Thumb styles */
+/*
+ * Circular thumb is the canonical Brainflow knob (matches
+ * `.bf-thumb-circle` in theme.css). Applied as the default for
+ * any unscoped <input type="range"> so simple inline sliders
+ * (e.g. Inspector "Opacity" / "Thickness") render consistently
+ * with the dual-range Intensity/Threshold thumbs.
+ */
 input[type="range"]::-webkit-slider-thumb {
   -webkit-appearance: none;
   appearance: none;
-  background: hsl(var(--card));
-  border: 2px solid hsl(var(--primary));
+  background: hsl(199 89% 48%); /* sky-500 */
+  border: 0;
   width: 12px;
-  height: 20px;
-  border-radius: 1px;
-  margin-top: -8px; /* Center thumb on track */
+  height: 12px;
+  border-radius: 50%;
+  margin-top: -4.5px; /* center 12px thumb on 3px track */
   cursor: pointer;
-  box-shadow: none;
-  transition: background-color 0.15s ease, border-color 0.15s ease;
+  box-shadow: 0 0 0 1px hsl(220 56% 4% / 0.7);
+  transition: background-color 0.15s ease;
 }
 
 input[type="range"]::-moz-range-thumb {
-  border: 2px solid hsl(var(--primary));
-  background: hsl(var(--card));
+  background: hsl(199 89% 48%);
+  border: 0;
   width: 12px;
-  height: 20px;
-  border-radius: 1px;
+  height: 12px;
+  border-radius: 50%;
   cursor: pointer;
-  box-shadow: none;
-  transition: background-color 0.15s ease, border-color 0.15s ease;
+  box-shadow: 0 0 0 1px hsl(220 56% 4% / 0.7);
+  transition: background-color 0.15s ease;
 }
 
 /* Hover states */
-input[type="range"]:hover::-webkit-slider-thumb {
-  background: hsl(var(--primary));
-  border-color: hsl(var(--primary));
+input[type="range"]:hover::-webkit-slider-thumb,
+input[type="range"]:focus-visible::-webkit-slider-thumb {
+  background: hsl(199 89% 60%);
 }
 
-input[type="range"]:hover::-moz-range-thumb {
-  background: hsl(var(--primary));
-  border-color: hsl(var(--primary));
+input[type="range"]:hover::-moz-range-thumb,
+input[type="range"]:focus-visible::-moz-range-thumb {
+  background: hsl(199 89% 60%);
 }
 
 /* Disabled states */
@@ -79,7 +80,7 @@ input[type="range"]:disabled::-moz-range-thumb {
   cursor: not-allowed;
 }
 
-input[type="range"]:disabled::-webkit-slider-track {
+input[type="range"]:disabled::-webkit-slider-runnable-track {
   background: hsl(var(--muted));
 }
 
@@ -87,31 +88,29 @@ input[type="range"]:disabled::-moz-range-track {
   background: hsl(var(--muted));
 }
 
-/* Precision slider styling (Desert Modern) */
+/* Precision slider styling (Radix-based Slider primitive) */
 .slider-track {
   background-color: hsl(var(--muted));
-  height: 4px;
-  border-radius: 0;
+  height: 3px;
+  border-radius: 999px;
 }
 
 .slider-range {
   background-color: hsl(var(--primary));
   height: 100%;
-  border-radius: 0;
+  border-radius: 999px;
 }
 
 .slider-thumb {
-  background-color: hsl(var(--card));
-  border: 2px solid hsl(var(--primary));
+  background-color: hsl(199 89% 48%);
+  border: 0;
   width: 12px;
-  height: 20px;
-  border-radius: 1px;
-  box-shadow: none;
-  margin-top: -8px;
-  transition: background-color 0.15s ease, border-color 0.15s ease;
+  height: 12px;
+  border-radius: 50%;
+  box-shadow: 0 0 0 1px hsl(220 56% 4% / 0.7);
+  transition: background-color 0.15s ease;
 }
 
 .slider-thumb:hover {
-  background-color: hsl(var(--primary));
-  border-color: hsl(var(--primary));
+  background-color: hsl(199 89% 60%);
 }

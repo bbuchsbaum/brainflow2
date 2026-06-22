@@ -227,7 +227,8 @@ pub struct SliceFeatureUbo {
     pub outline_enabled: u32,
     pub outline_layer_index: u32,
     pub selected_label_id: u32,
-    pub _pad0: u32,
+    /// 0 = outline the single `selected_label_id`; 1 = outline all parcel boundaries.
+    pub outline_mode: u32,
     pub outline_color: [f32; 4],
     pub outline_thickness_px: f32,
     pub _pad1: [f32; 3],
@@ -239,7 +240,7 @@ impl Default for SliceFeatureUbo {
             outline_enabled: 0,
             outline_layer_index: 0,
             selected_label_id: 0,
-            _pad0: 0,
+            outline_mode: 0,
             outline_color: [1.0, 1.0, 0.0, 1.0],
             outline_thickness_px: 1.0,
             _pad1: [0.0; 3],

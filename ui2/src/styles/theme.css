@@ -82,8 +82,8 @@
     --bf-crosshair: #58d957;
 
     /* Files-panel file-type icon colors */
-    --bf-icon-volume: #2f80ff;     /* NIfTI / volumetric data — matches --bf-axial */
-    --bf-icon-surface: #10b981;    /* GIfTI surface / functional meshes */
+    --bf-icon-volume: #2f80ff; /* NIfTI / volumetric data — matches --bf-axial */
+    --bf-icon-surface: #10b981; /* GIfTI surface / functional meshes */
     --bf-icon-freesurfer: #8b5cf6; /* MGZ / MGH FreeSurfer volumes */
 
     /* Plot colors */
@@ -120,9 +120,11 @@
     --bf-panel-header-h: 34px;
 
     /* Fonts (Design.md §4.1) */
-    --bf-font-sans: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+    --bf-font-sans:
+      Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
       "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-    --bf-font-mono: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+    --bf-font-mono:
+      "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
 
     /* Motion (Design.md §18.3) */
     --bf-motion-fast: 100ms;
@@ -133,13 +135,13 @@
      * Remapped to mockup7 values so any Tailwind consumer flips along
      * with the rest of the app.
      * ──────────────────────────────────────────────────────────────── */
-    --background: 211 38% 4%;          /* #05080c */
-    --foreground: 217 37% 93%;         /* #e6edf7 */
-    --card: 213 35% 9%;                /* #0b1521 */
+    --background: 211 38% 4%; /* #05080c */
+    --foreground: 217 37% 93%; /* #e6edf7 */
+    --card: 213 35% 9%; /* #0b1521 */
     --card-foreground: 217 37% 93%;
     --popover: 213 35% 9%;
     --popover-foreground: 217 37% 93%;
-    --primary: 217 100% 59%;           /* #2f80ff */
+    --primary: 217 100% 59%; /* #2f80ff */
     --primary-foreground: 0 0% 100%;
     --secondary: 213 30% 12%;
     --secondary-foreground: 217 37% 93%;
@@ -327,6 +329,8 @@ input[type="range"].bf-thumb-circle {
   appearance: none;
   background: transparent;
   pointer-events: none;
+  margin: 0;
+  padding: 0;
 }
 input[type="range"].bf-thumb-circle::-webkit-slider-thumb {
   -webkit-appearance: none;
@@ -336,7 +340,16 @@ input[type="range"].bf-thumb-circle::-webkit-slider-thumb {
   border-radius: 50%;
   background: hsl(199 89% 48%); /* sky-500 */
   border: 0;
-  margin-top: 0;
+  /*
+   * WebKit/Blink vertically centre an explicit-height runnable track within
+   * the input's content box, then align the thumb's TOP with that track's
+   * top. With a 3px runnable track (matching the visible sibling track) the
+   * thumb needs margin-top = (3 - 10) / 2 = -3.5px to sit dead-centre on the
+   * track's midpoint. (The previous rule targeted `::-webkit-slider-track`,
+   * which is NOT a real pseudo-element, so the track defaulted to full input
+   * height and -5px lifted the knob ~6px above the visible track.)
+   */
+  margin-top: -3.5px;
   box-shadow: 0 0 0 1px hsl(220 56% 4% / 0.7);
   cursor: pointer;
   pointer-events: auto;
@@ -347,9 +360,9 @@ input[type="range"].bf-thumb-circle:focus-visible::-webkit-slider-thumb {
   background: hsl(199 89% 60%);
   border: 0;
 }
-input[type="range"].bf-thumb-circle::-webkit-slider-track {
+input[type="range"].bf-thumb-circle::-webkit-slider-runnable-track {
   background: transparent;
-  height: 0;
+  height: 3px;
   border: 0;
 }
 input[type="range"].bf-thumb-circle::-moz-range-thumb {
@@ -367,6 +380,42 @@ input[type="range"].bf-thumb-circle:hover::-moz-range-thumb {
 }
 input[type="range"].bf-thumb-circle::-moz-range-track {
   background: transparent;
-  height: 0;
+  height: 3px;
   border: 0;
+}
+
+/*
+ * .bf-select — canonical flat dark dropdown (Design.md §14.2). Replaces the
+ * glossy native macOS <select> pill with the app's control look. Font size is
+ * intentionally left to the call site (e.g. `text-[11px]`) so it can match the
+ * surrounding row density. Pair with the class on a native <select>.
+ */
+select.bf-select {
+  -webkit-appearance: none;
+  appearance: none;
+  height: var(--bf-control-sm-h);
+  padding: 0 24px 0 9px;
+  border: 1px solid var(--bf-border-subtle);
+  border-radius: var(--bf-radius-sm);
+  background-color: var(--bf-bg-input);
+  color: var(--bf-text-primary);
+  line-height: 1;
+  cursor: pointer;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 8px center;
+  background-size: 10px 10px;
+}
+select.bf-select:hover {
+  border-color: rgba(148, 163, 184, 0.32);
+}
+select.bf-select:focus,
+select.bf-select:focus-visible {
+  outline: none;
+  border-color: var(--bf-border-focus);
+  box-shadow: 0 0 0 2px rgba(47, 128, 255, 0.2);
+}
+select.bf-select option {
+  background: var(--bf-bg-input);
+  color: var(--bf-text-primary);
 }

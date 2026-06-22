@@ -1,0 +1,65 @@
+/* FileTypeBadge — short uppercase chip shown next to file rows. */
+.file-type-badge {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  margin-right: var(--bf-space-1);
+  padding: 0 5px;
+  height: 16px;
+  border-radius: 3px;
+  border: 1px solid var(--bf-border-subtle);
+  background: color-mix(in srgb, var(--bf-bg-panel) 78%, transparent);
+  color: var(--bf-text-secondary);
+  font-family: var(--bf-font-mono);
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  line-height: 1;
+}
+
+.file-type-badge--nii,
+.file-type-badge--niiGz {
+  border-color: color-mix(in srgb, var(--bf-icon-volume) 40%, transparent);
+  color: var(--bf-icon-volume);
+  background: color-mix(in srgb, var(--bf-icon-volume) 12%, transparent);
+}
+
+.file-type-badge--fourDNii {
+  border-color: color-mix(in srgb, var(--bf-icon-volume) 60%, transparent);
+  color: #fff;
+  background: var(--bf-icon-volume);
+}
+
+.file-type-badge--gii,
+.file-type-badge--surfGii,
+.file-type-badge--funcGii {
+  border-color: color-mix(in srgb, var(--bf-icon-surface) 40%, transparent);
+  color: var(--bf-icon-surface);
+  background: color-mix(in srgb, var(--bf-icon-surface) 12%, transparent);
+}
+
+.file-type-badge--mgz,
+.file-type-badge--mgh {
+  border-color: color-mix(in srgb, var(--bf-icon-freesurfer) 40%, transparent);
+  color: var(--bf-icon-freesurfer);
+  background: color-mix(in srgb, var(--bf-icon-freesurfer) 12%, transparent);
+}
+
+.file-type-badge--dicom {
+  border-color: color-mix(in srgb, var(--bf-danger) 40%, transparent);
+  color: var(--bf-danger);
+  background: color-mix(in srgb, var(--bf-danger) 10%, transparent);
+}
+
+.file-type-badge--analyze {
+  border-color: color-mix(in srgb, var(--bf-warning) 40%, transparent);
+  color: var(--bf-warning);
+  background: color-mix(in srgb, var(--bf-warning) 12%, transparent);
+}
+
+.file-tree-item.selected .file-type-badge {
+  border-color: hsl(var(--primary));
+  color: hsl(var(--primary-foreground));
+  background: color-mix(in srgb, hsl(var(--primary)) 30%, transparent);
+}

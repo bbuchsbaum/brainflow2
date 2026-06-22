@@ -82,7 +82,7 @@ struct SliceFeatureUbo {
     outline_enabled: u32,
     outline_layer_index: u32,
     selected_label_id: u32,
-    _pad0: u32,
+    outline_mode: u32,
     outline_color: vec4<f32>,
     outline_thickness_px: f32,
     _pad1_x: f32,
@@ -257,25 +257,33 @@ fn sampleSelectedLabelOutline(layer: LayerData, world_mm: vec3<f32>) -> vec4<f32
         return vec4<f32>(0.0);
     }
 
-    let selected_label = slice_features.selected_label_id;
-    if (selected_label == 0u) {
-        return vec4<f32>(0.0);
-    }
-
     let center_label = sampleLayerLabelId(layer, world_mm);
-    if (center_label != selected_label) {
-        return vec4<f32>(0.0);
+
+    // outline_mode: 0 = single selected label, 1 = all parcel boundaries.
+    if (slice_features.outline_mode == 1u) {
+        // All-boundaries: outline any non-background voxel adjacent to a different
+        // label (draws every parcel border at once).
+        if (center_label == 0u) {
+            return vec4<f32>(0.0);
+        }
+    } else {
+        // Single label: only outline the selected parcel.
+        let selected_label = slice_features.selected_label_id;
+        if (selected_label == 0u || center_label != selected_label) {
+            return vec4<f32>(0.0);
+        }
     }
 
     let thickness_px = max(slice_features.outline_thickness_px, 1.0);
     let du = frame.u_mm.xyz / max(f32(frame.target_dim.x), 1.0) * thickness_px;
     let dv = frame.v_mm.xyz / max(f32(frame.target_dim.y), 1.0) * thickness_px;
 
+    // Boundary where any 4-neighbor has a different label than the center.
     let neighbor_differs =
-        sampleLayerLabelId(layer, world_mm + du) != selected_label ||
-        sampleLayerLabelId(layer, world_mm - du) != selected_label ||
-        sampleLayerLabelId(layer, world_mm + dv) != selected_label ||
-        sampleLayerLabelId(layer, world_mm - dv) != selected_label;
+        sampleLayerLabelId(layer, world_mm + du) != center_label ||
+        sampleLayerLabelId(layer, world_mm - du) != center_label ||
+        sampleLayerLabelId(layer, world_mm + dv) != center_label ||
+        sampleLayerLabelId(layer, world_mm - dv) != center_label;
 
     if (neighbor_differs) {
         return slice_features.outline_color;
@@ -442,10 +450,23 @@ fn sampleLayer(layer: LayerData, world_mm: vec3<f32>) -> vec4<f32> {
     // DEBUG: Uncomment to verify this shader is being used
     // return vec4<f32>(0.0, 1.0, 0.0, 1.0); // Should show green screen
     
-    // Apply colormap
+    // Discrete label palette: index the LUT by integer label id (texel k = color of
+    // label k) via an exact textureLoad rather than the continuous intensity_norm
+    // path. The LUT alpha channel encodes per-label visibility; background (id 0) is
+    // transparent. Out-of-range ids return 0 from textureLoad -> transparent.
+    if (layer.layer_mode == LAYER_MODE_LABEL) {
+        let label_id = i32(raw_value);
+        if (label_id <= 0) {
+            return vec4<f32>(0.0);
+        }
+        let lut_texel = textureLoad(colormapLutTexture, vec2<i32>(label_id, 0), i32(layer.colormap_id), 0);
+        return vec4<f32>(lut_texel.rgb, alpha * lut_texel.a);
+    }
+
+    // Apply colormap (continuous: window-normalized sample into the gradient).
     let lut_coord = vec2<f32>(intensity_norm, 0.5);
     let rgb_color = textureSample(colormapLutTexture, samplerLinear, lut_coord, i32(layer.colormap_id)).rgb;
-    
+
     return vec4<f32>(rgb_color, alpha);
 }
 

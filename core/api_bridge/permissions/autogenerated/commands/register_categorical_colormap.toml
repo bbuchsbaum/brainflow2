@@ -11,4 +11,3 @@ commands.allow = ["register_categorical_colormap"]
 identifier = "deny-register-categorical-colormap"
 description = "Denies the register_categorical_colormap command without any pre-configured scope."
 commands.deny = ["register_categorical_colormap"]
-

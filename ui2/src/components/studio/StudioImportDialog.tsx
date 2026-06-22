@@ -1,9 +1,14 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
 import { getSetIngestionService } from '@/services/studio/SetIngestionService';
 import { useSetStudioStore } from '@/stores/setStudioStore';
-import type { StudioImportCandidate, StudioImportMode } from '@/types/studio';
+import type {
+  StudioDiscoveryMemberGroup,
+  StudioDiscoveryRolePattern,
+  StudioImportCandidate,
+  StudioImportMode,
+} from '@/types/studio';
 import { TsvImportWizard } from './TsvImportWizard';
 
 const IMPORT_TABS: Array<{ mode: StudioImportMode; label: string; description: string }> = [
@@ -11,6 +16,8 @@ const IMPORT_TABS: Array<{ mode: StudioImportMode; label: string; description: s
   { mode: 'manifest', label: 'NeuroTabs Manifest', description: 'Pre-built manifest file' },
   { mode: 'regex', label: 'Discover Files', description: 'Find files by pattern' },
 ];
+
+const COMMON_DISCOVERY_ROLES = new Set(['beta', 'tstat', 'se', 'pvalue', 'statmap']);
 
 export function StudioImportDialog() {
   const isOpen = useSetStudioStore((state) => state.importDialog.isOpen);
@@ -23,6 +30,12 @@ export function StudioImportDialog() {
   const manifestPath = useSetStudioStore((state) => state.importDialog.manifestPath);
   const discoveryRoot = useSetStudioStore((state) => state.importDialog.discoveryRoot);
   const filePattern = useSetStudioStore((state) => state.importDialog.filePattern);
+  const discoveryMaxDepth = useSetStudioStore((state) => state.importDialog.discoveryMaxDepth);
+  const discoveryMaxFiles = useSetStudioStore((state) => state.importDialog.discoveryMaxFiles);
+  const discoverySampleHeaders = useSetStudioStore((state) => state.importDialog.discoverySampleHeaders);
+  const discoveryRequiredRoles = useSetStudioStore((state) => state.importDialog.discoveryRequiredRoles);
+  const discoveryRolePatterns = useSetStudioStore((state) => state.importDialog.discoveryRolePatterns);
+  const discoveryCustomRole = useSetStudioStore((state) => state.importDialog.discoveryCustomRole);
   const importCandidates = useSetStudioStore((state) => state.importCandidates);
   const closeImportDialog = useSetStudioStore((state) => state.closeImportDialog);
   const openImportDialog = useSetStudioStore((state) => state.openImportDialog);
@@ -32,6 +45,14 @@ export function StudioImportDialog() {
   const setManifestPath = useSetStudioStore((state) => state.setManifestPath);
   const setDiscoveryRoot = useSetStudioStore((state) => state.setDiscoveryRoot);
   const setFilePattern = useSetStudioStore((state) => state.setFilePattern);
+  const setDiscoveryMaxDepth = useSetStudioStore((state) => state.setDiscoveryMaxDepth);
+  const setDiscoveryMaxFiles = useSetStudioStore((state) => state.setDiscoveryMaxFiles);
+  const setDiscoverySampleHeaders = useSetStudioStore((state) => state.setDiscoverySampleHeaders);
+  const setDiscoveryRolePattern = useSetStudioStore((state) => state.setDiscoveryRolePattern);
+  const setDiscoveryRoleRequired = useSetStudioStore((state) => state.setDiscoveryRoleRequired);
+  const setDiscoveryCustomRole = useSetStudioStore((state) => state.setDiscoveryCustomRole);
+  const addDiscoveryRole = useSetStudioStore((state) => state.addDiscoveryRole);
+  const removeDiscoveryRole = useSetStudioStore((state) => state.removeDiscoveryRole);
 
   const candidates = useMemo(
     () => Object.values(importCandidates).filter((candidate) => candidate.mode === mode),
@@ -40,6 +61,7 @@ export function StudioImportDialog() {
   const selectedCandidate =
     (selectedCandidateId ? importCandidates[selectedCandidateId] ?? null : null) ?? candidates[0] ?? null;
   const readiness = selectedCandidate ? deriveStudioReadiness(selectedCandidate) : null;
+  const liveCaptureNames = useMemo(() => extractCaptureNames(filePattern), [filePattern]);
   const importLabel =
     readiness?.state === 'ready'
       ? 'Import For Compare'
@@ -196,8 +218,71 @@ export function StudioImportDialog() {
                             placeholder=".*_statmap\\.nii(\\.gz)?$"
                           />
                         </div>
+                        <div>
+                          <label className="mb-1 block text-xs text-muted-foreground">
+                            Max Depth
+                          </label>
+                          <input
+                            className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+                            value={discoveryMaxDepth}
+                            onChange={(event) => setDiscoveryMaxDepth(event.target.value)}
+                            inputMode="numeric"
+                            placeholder="4"
+                          />
+                        </div>
+                        <div>
+                          <label className="mb-1 block text-xs text-muted-foreground">
+                            Max Files
+                          </label>
+                          <input
+                            className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+                            value={discoveryMaxFiles}
+                            onChange={(event) => setDiscoveryMaxFiles(event.target.value)}
+                            inputMode="numeric"
+                            placeholder="500"
+                          />
+                        </div>
                       </div>
                     )}
+                    {mode === 'regex' ? (
+                      <div className="mt-4 space-y-4">
+                        <div>
+                          <div className="text-xs font-medium text-muted-foreground">Capture Preview</div>
+                          <div className="mt-2 flex flex-wrap gap-2">
+                            {liveCaptureNames.length > 0 ? (
+                              liveCaptureNames.map((name) => (
+                                <span
+                                  key={name}
+                                  className="rounded-full border border-border bg-background px-2.5 py-1 text-xs text-muted-foreground"
+                                >
+                                  {name}
+                                </span>
+                              ))
+                            ) : (
+                              <span className="text-xs text-muted-foreground">No named captures</span>
+                            )}
+                          </div>
+                        </div>
+                        <label className="flex items-center gap-2 text-sm text-foreground">
+                          <input
+                            type="checkbox"
+                            checked={discoverySampleHeaders}
+                            onChange={(event) => setDiscoverySampleHeaders(event.target.checked)}
+                          />
+                          Sample headers
+                        </label>
+                        <DiscoveryRoleMappingControls
+                          rolePatterns={discoveryRolePatterns}
+                          requiredRoles={discoveryRequiredRoles}
+                          customRole={discoveryCustomRole}
+                          onPatternChange={setDiscoveryRolePattern}
+                          onRequiredChange={setDiscoveryRoleRequired}
+                          onCustomRoleChange={setDiscoveryCustomRole}
+                          onAddCustomRole={addDiscoveryRole}
+                          onRemoveRole={removeDiscoveryRole}
+                        />
+                      </div>
+                    ) : null}
                   </div>
                 </>
               ) : tsvWizardStep === 'preview' ? (
@@ -320,6 +405,13 @@ function ImportCandidatePreview({
         />
       </div>
 
+      {candidate.mode === 'regex' && candidate.discovery ? (
+        <>
+          <DiscoveryPreviewDetails candidate={candidate} />
+          <DiscoveryNeuroTabsExportPanel candidate={candidate} />
+        </>
+      ) : null}
+
       {set.ingestAudit.join.issueDetails.length > 0 ? (
         <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-4">
           <div className="text-sm font-medium text-foreground">Import issues</div>
@@ -401,6 +493,313 @@ function ImportCandidatePreview({
       ) : null}
     </div>
   );
+}
+
+function DiscoveryNeuroTabsExportPanel({ candidate }: { candidate: StudioImportCandidate }) {
+  const [status, setStatus] = useState<{
+    state: 'idle' | 'saving' | 'saved' | 'error';
+    message: string | null;
+  }>({ state: 'idle', message: null });
+  const limitation = discoveryExportLimitation(candidate);
+  const disabled = Boolean(limitation) || status.state === 'saving';
+
+  const handleExport = async () => {
+    setStatus({ state: 'saving', message: null });
+    try {
+      const result = await getSetIngestionService().exportDiscoveryNeuroTabs(candidate);
+      setStatus({
+        state: 'saved',
+        message: result.manifestPath ?? result.message,
+      });
+    } catch (error) {
+      setStatus({
+        state: 'error',
+        message: error instanceof Error ? error.message : 'NeuroTabs export failed.',
+      });
+    }
+  };
+
+  return (
+    <div className="rounded-lg border border-border bg-card p-4">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <div className="text-sm font-medium text-foreground">NeuroTabs Export</div>
+          <div className="mt-1 text-xs text-muted-foreground">
+            {limitation ?? 'Save a manifest package beside the discovered files.'}
+          </div>
+        </div>
+        <Button
+          variant="secondary"
+          size="sm"
+          onClick={() => {
+            void handleExport();
+          }}
+          disabled={disabled}
+        >
+          {status.state === 'saving' ? 'Saving...' : 'Save NeuroTabs Manifest'}
+        </Button>
+      </div>
+      {status.message ? (
+        <div
+          className={`mt-3 rounded-md border px-3 py-2 text-sm ${
+            status.state === 'error'
+              ? 'border-rose-500/30 bg-rose-500/10 text-foreground'
+              : 'border-emerald-500/30 bg-emerald-500/10 text-foreground'
+          }`}
+        >
+          {status.message}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function DiscoveryRoleMappingControls({
+  rolePatterns,
+  requiredRoles,
+  customRole,
+  onPatternChange,
+  onRequiredChange,
+  onCustomRoleChange,
+  onAddCustomRole,
+  onRemoveRole,
+}: {
+  rolePatterns: StudioDiscoveryRolePattern[];
+  requiredRoles: string[];
+  customRole: string;
+  onPatternChange: (role: string, patterns: string[]) => void;
+  onRequiredChange: (role: string, required: boolean) => void;
+  onCustomRoleChange: (role: string) => void;
+  onAddCustomRole: (role: string) => void;
+  onRemoveRole: (role: string) => void;
+}) {
+  const requiredSet = useMemo(() => new Set(requiredRoles), [requiredRoles]);
+  return (
+    <div>
+      <div className="text-xs font-medium text-muted-foreground">Role Mapping</div>
+      <div className="mt-2 overflow-hidden rounded-md border border-border">
+        <div className="grid grid-cols-[84px_minmax(0,1fr)_72px] gap-2 border-b border-border bg-background px-3 py-2 text-[11px] text-muted-foreground">
+          <span>Role</span>
+          <span>Patterns</span>
+          <span>Required</span>
+        </div>
+        {rolePatterns.map((entry) => {
+          const isCommon = COMMON_DISCOVERY_ROLES.has(entry.role);
+          return (
+            <div
+              key={entry.role}
+              className="grid grid-cols-[84px_minmax(0,1fr)_72px] items-center gap-2 border-t border-border px-3 py-2 first:border-t-0"
+            >
+              <div className="text-sm font-medium text-foreground">{entry.role}</div>
+              <div className="flex min-w-0 gap-2">
+                <input
+                  className="min-w-0 flex-1 rounded-md border border-border bg-background px-2 py-1.5 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+                  value={entry.patterns.join(', ')}
+                  onChange={(event) => onPatternChange(entry.role, splitPatternText(event.target.value))}
+                />
+                {!isCommon ? (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => onRemoveRole(entry.role)}
+                  >
+                    Remove
+                  </Button>
+                ) : null}
+              </div>
+              <label className="flex justify-center">
+                <input
+                  type="checkbox"
+                  checked={requiredSet.has(entry.role)}
+                  onChange={(event) => onRequiredChange(entry.role, event.target.checked)}
+                  aria-label={`${entry.role} required`}
+                />
+              </label>
+            </div>
+          );
+        })}
+      </div>
+      <div className="mt-3 flex gap-2">
+        <input
+          className="min-w-0 flex-1 rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+          value={customRole}
+          onChange={(event) => onCustomRoleChange(event.target.value)}
+          placeholder="custom_role"
+        />
+        <Button
+          variant="secondary"
+          size="sm"
+          onClick={() => onAddCustomRole(customRole)}
+          disabled={!customRole.trim()}
+        >
+          Add Role
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+function DiscoveryPreviewDetails({ candidate }: { candidate: StudioImportCandidate }) {
+  const discovery = candidate.discovery;
+  if (!discovery) {
+    return null;
+  }
+  const roles = discoveryMatrixRoles(discovery.requiredRoles, discovery.observedRoles, discovery.groups);
+  const shownGroups = discovery.groups.slice(0, 8);
+
+  return (
+    <div className="rounded-lg border border-border bg-card p-4">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <div className="text-sm font-medium text-foreground">Discovery Matrix</div>
+          <div className="mt-1 text-xs text-muted-foreground">
+            {discovery.matchedFiles} matched / {discovery.unmatchedFiles} unmatched / {discovery.duplicateKeys} duplicates
+          </div>
+        </div>
+        {discovery.truncated ? (
+          <span className="rounded-full border border-amber-500/30 bg-amber-500/10 px-2.5 py-1 text-xs text-foreground">
+            Truncated
+          </span>
+        ) : null}
+      </div>
+
+      <div className="mt-3 flex flex-wrap gap-2">
+        {discovery.captureNames.map((name) => (
+          <span
+            key={name}
+            className="rounded-full border border-border bg-background px-2.5 py-1 text-xs text-muted-foreground"
+          >
+            {name}
+          </span>
+        ))}
+      </div>
+
+      {roles.length > 0 && shownGroups.length > 0 ? (
+        <div className="mt-4 overflow-x-auto rounded-md border border-border">
+          <table className="w-full min-w-[520px] border-collapse text-left text-sm">
+            <thead className="bg-background text-[11px] text-muted-foreground">
+              <tr>
+                <th className="border-b border-border px-3 py-2 font-medium">Member</th>
+                {roles.map((role) => (
+                  <th key={role} className="border-b border-border px-3 py-2 font-medium">
+                    {role}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {shownGroups.map((group) => (
+                <tr key={group.memberId} className="border-t border-border first:border-t-0">
+                  <td className="px-3 py-2 font-medium text-foreground">{group.memberId}</td>
+                  {roles.map((role) => (
+                    <td key={`${group.memberId}-${role}`} className="px-3 py-2">
+                      <DiscoveryRoleCell group={group} role={role} />
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : null}
+
+      {discovery.groups.length > shownGroups.length ? (
+        <div className="mt-2 text-xs text-muted-foreground">
+          Showing {shownGroups.length} of {discovery.groups.length} member groups
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function DiscoveryRoleCell({
+  group,
+  role,
+}: {
+  group: StudioDiscoveryMemberGroup;
+  role: string;
+}) {
+  const matching = group.bindings.filter((binding) => binding.role === role);
+  const duplicate = group.duplicateRoles.includes(role);
+  const missing = group.missingRoles.includes(role) || matching.length === 0;
+  const label = duplicate ? 'Dup' : missing ? 'Missing' : 'OK';
+  const className = duplicate
+    ? 'border-amber-500/30 bg-amber-500/10 text-foreground'
+    : missing
+      ? 'border-rose-500/30 bg-rose-500/10 text-foreground'
+      : 'border-emerald-500/30 bg-emerald-500/10 text-foreground';
+  const title = matching.map((binding) => binding.relativePath).join('\n');
+
+  return (
+    <span
+      className={`inline-flex min-w-[64px] justify-center rounded-full border px-2 py-1 text-xs ${className}`}
+      title={title || undefined}
+    >
+      {label}
+    </span>
+  );
+}
+
+function discoveryMatrixRoles(
+  requiredRoles: string[],
+  observedRoles: string[],
+  groups: StudioDiscoveryMemberGroup[]
+): string[] {
+  const roleSet = new Set<string>();
+  requiredRoles.forEach((role) => roleSet.add(role));
+  observedRoles.forEach((role) => roleSet.add(role));
+  groups.forEach((group) => {
+    group.bindings.forEach((binding) => roleSet.add(binding.role));
+  });
+  return Array.from(roleSet).sort();
+}
+
+function discoveryExportLimitation(candidate: StudioImportCandidate): string | null {
+  const discovery = candidate.discovery;
+  if (!discovery) {
+    return 'No discovery summary is available for NeuroTabs export.';
+  }
+  if (!discovery.root.trim() || discovery.root.includes('://')) {
+    return 'Remote discovery roots must be materialized locally before NeuroTabs export.';
+  }
+  if (discovery.truncated) {
+    return 'Increase the max-files limit and refresh before exporting.';
+  }
+  if (discovery.unmatchedFiles > 0) {
+    return 'Resolve unmatched neuroimaging files before exporting.';
+  }
+  if (discovery.duplicateKeys > 0) {
+    return 'Resolve duplicate role bindings before exporting.';
+  }
+  const dirtyGroup = discovery.groups.find(
+    (group) => group.missingRoles.length > 0 || group.duplicateRoles.length > 0
+  );
+  if (dirtyGroup) {
+    return `Resolve missing or duplicate roles for ${dirtyGroup.memberId} before exporting.`;
+  }
+  return null;
+}
+
+function splitPatternText(value: string): string[] {
+  return value
+    .split(/[,\n]/)
+    .map((pattern) => pattern.trim())
+    .filter(Boolean);
+}
+
+function extractCaptureNames(pattern: string): string[] {
+  const names: string[] = [];
+  const seen = new Set<string>();
+  const capturePattern = /\(\?(?:P<|<)([A-Za-z_][A-Za-z0-9_]*)>/g;
+  let match: RegExpExecArray | null;
+  while ((match = capturePattern.exec(pattern)) !== null) {
+    const name = match[1];
+    if (!seen.has(name)) {
+      seen.add(name);
+      names.push(name);
+    }
+  }
+  return names;
 }
 
 function deriveStudioReadiness(candidate: StudioImportCandidate) {

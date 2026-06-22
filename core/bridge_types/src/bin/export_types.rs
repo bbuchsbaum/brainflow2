@@ -56,6 +56,10 @@ fn main() {
         eprintln!("Failed to export PeekVolumeMetadata: {}", e);
     }
 
+    if let Err(e) = NiftiHeaderInfo::export_all() {
+        eprintln!("Failed to export NiftiHeaderInfo: {}", e);
+    }
+
     if let Err(e) = RemoteMountInfo::export_all() {
         eprintln!("Warning: {e}");
     }
@@ -94,6 +98,124 @@ fn main() {
         eprintln!("Warning: {e}");
     }
     if let Err(e) = BidsValidationIssue::export_all() {
+        eprintln!("Warning: {e}");
+    }
+
+    if let Err(e) = StudioImportMode::export_all() {
+        eprintln!("Warning: {e}");
+    }
+    if let Err(e) = StudioSupportKind::export_all() {
+        eprintln!("Warning: {e}");
+    }
+    if let Err(e) = StudioAlignmentClass::export_all() {
+        eprintln!("Warning: {e}");
+    }
+    if let Err(e) = StudioExpressionKind::export_all() {
+        eprintln!("Warning: {e}");
+    }
+    if let Err(e) = StudioComparePaneStatus::export_all() {
+        eprintln!("Warning: {e}");
+    }
+    if let Err(e) = StudioCompareBindingKind::export_all() {
+        eprintln!("Warning: {e}");
+    }
+    if let Err(e) = StudioCompareCacheStatus::export_all() {
+        eprintln!("Warning: {e}");
+    }
+    if let Err(e) = StudioAuditSeverity::export_all() {
+        eprintln!("Warning: {e}");
+    }
+    if let Err(e) = StudioFeatureSummary::export_all() {
+        eprintln!("Warning: {e}");
+    }
+    if let Err(e) = StudioCohortOriginKind::export_all() {
+        eprintln!("Warning: {e}");
+    }
+    if let Err(e) = StudioCohortSummary::export_all() {
+        eprintln!("Warning: {e}");
+    }
+    if let Err(e) = StudioFieldExpressionSummary::export_all() {
+        eprintln!("Warning: {e}");
+    }
+    if let Err(e) = StudioJoinIssueDetail::export_all() {
+        eprintln!("Warning: {e}");
+    }
+    if let Err(e) = StudioJoinAuditSummary::export_all() {
+        eprintln!("Warning: {e}");
+    }
+    if let Err(e) = StudioSupportAuditSummary::export_all() {
+        eprintln!("Warning: {e}");
+    }
+    if let Err(e) = StudioIngestAuditSummary::export_all() {
+        eprintln!("Warning: {e}");
+    }
+    if let Err(e) = StudioDiscoveryRolePattern::export_all() {
+        eprintln!("Warning: {e}");
+    }
+    if let Err(e) = StudioDiscoveryDesignValue::export_all() {
+        eprintln!("Warning: {e}");
+    }
+    if let Err(e) = StudioDiscoveryRoleBinding::export_all() {
+        eprintln!("Warning: {e}");
+    }
+    if let Err(e) = StudioDiscoveryMemberGroup::export_all() {
+        eprintln!("Warning: {e}");
+    }
+    if let Err(e) = StudioDiscoveryPreviewSummary::export_all() {
+        eprintln!("Warning: {e}");
+    }
+    if let Err(e) = StudioFieldBindingAvailability::export_all() {
+        eprintln!("Warning: {e}");
+    }
+    if let Err(e) = StudioFieldBindingSummary::export_all() {
+        eprintln!("Warning: {e}");
+    }
+    if let Err(e) = StudioMemberSummary::export_all() {
+        eprintln!("Warning: {e}");
+    }
+    if let Err(e) = StudioDesignRowPreview::export_all() {
+        eprintln!("Warning: {e}");
+    }
+    if let Err(e) = StudioDesignTablePreview::export_all() {
+        eprintln!("Warning: {e}");
+    }
+    if let Err(e) = SpatialFieldSetSummary::export_all() {
+        eprintln!("Warning: {e}");
+    }
+    if let Err(e) = StudioMaterializationStatus::export_all() {
+        eprintln!("Warning: {e}");
+    }
+    if let Err(e) = StudioImportCandidate::export_all() {
+        eprintln!("Warning: {e}");
+    }
+    if let Err(e) = StudioImportPreviewRequest::export_all() {
+        eprintln!("Warning: {e}");
+    }
+    if let Err(e) = StudioGeneratedNeuroTabsFile::export_all() {
+        eprintln!("Warning: {e}");
+    }
+    if let Err(e) = StudioDiscoveryPromotionRequest::export_all() {
+        eprintln!("Warning: {e}");
+    }
+    if let Err(e) = StudioDiscoveryPromotionResult::export_all() {
+        eprintln!("Warning: {e}");
+    }
+    if let Err(e) = StudioComparePaneSpec::export_all() {
+        eprintln!("Warning: {e}");
+    }
+    if let Err(e) = StudioComparePaneBinding::export_all() {
+        eprintln!("Warning: {e}");
+    }
+    if let Err(e) = StudioReducerKind::export_all() {
+        eprintln!("Warning: {e}");
+    }
+    if let Err(e) = StudioReducerSpec::export_all() {
+        eprintln!("Warning: {e}");
+    }
+    if let Err(e) = StudioRoleBindingInput::export_all() {
+        eprintln!("Warning: {e}");
+    }
+    if let Err(e) = StudioCompareMaterializeRequest::export_all() {
         eprintln!("Warning: {e}");
     }
 

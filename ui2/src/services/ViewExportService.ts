@@ -5,31 +5,53 @@
  * register custom exporters keyed by componentType and an optional id.
  */
 
-import { getTransport } from './transport';
-import { getEventBus } from '@/events/EventBus';
-import { useActivePanelStore } from '@/stores/activePanelStore';
-import { useActiveRenderContextStore } from '@/stores/activeRenderContextStore';
-import { useSurfaceStore } from '@/stores/surfaceStore';
-import { useViewStateStore } from '@/stores/viewStateStore';
-import { useMouseCoordinateStore } from '@/stores/mouseCoordinateStore';
-import type { ViewState } from '@/types/viewState';
-import type { ViewType } from '@/types/coordinates';
-import { buildRequestedViewPayload } from '@/utils/viewGeometry';
+import { getTransport } from "./transport";
+import { getEventBus } from "@/events/EventBus";
+import { useActivePanelStore } from "@/stores/activePanelStore";
+import { useActiveRenderContextStore } from "@/stores/activeRenderContextStore";
+import { useSurfaceStore } from "@/stores/surfaceStore";
+import { useViewStateStore } from "@/stores/viewStateStore";
+import { useWorkspaceStore } from "@/stores/workspaceStore";
+import { useMouseCoordinateStore } from "@/stores/mouseCoordinateStore";
+import type { ViewState } from "@/types/viewState";
+import type { ViewType } from "@/types/coordinates";
+import { buildRequestedViewPayload } from "@/utils/viewGeometry";
 import {
   buildSurfaceViewExporterKey,
   parseSurfaceViewContextId,
   resolveBoundSurfaceHandle,
-} from '@/utils/surfaceViewContext';
+} from "@/utils/surfaceViewContext";
 
-export type ExportFormat = 'png' | 'jpg';
+export type ExportFormat = "png" | "jpg";
 
 export interface ExportOptions {
   format?: ExportFormat;
   transparentBackground?: boolean;
 }
 
-type NormalizedExportOptions = Required<Pick<ExportOptions, 'format' | 'transparentBackground'>>;
+type NormalizedExportOptions = Required<
+  Pick<ExportOptions, "format" | "transparentBackground">
+>;
 type ExporterFn = (options: NormalizedExportOptions) => Promise<Uint8Array>;
+
+/**
+ * The active workspace's *live* type. GoldenLayout `componentState.workspaceType`
+ * is seeded at tab creation and is NOT updated when the mode pill mutates the
+ * workspace type in place, so exporter selection and file naming must resolve the
+ * type from the workspace store by id. Falls back to the (possibly stale)
+ * componentState type when no workspaceId / store entry is available.
+ */
+function resolveLiveWorkspaceType(
+  componentState: Record<string, unknown> | null,
+): string | undefined {
+  const wsId = componentState?.workspaceId;
+  if (typeof wsId === "string") {
+    const live = useWorkspaceStore.getState().getWorkspace(wsId)?.type;
+    if (typeof live === "string") return live;
+  }
+  const wsType = componentState?.workspaceType;
+  return typeof wsType === "string" ? wsType : undefined;
+}
 
 export class ViewExportService {
   private exporters = new Map<string, ExporterFn>();
@@ -43,60 +65,84 @@ export class ViewExportService {
     componentType: string;
     componentState: Record<string, unknown> | null;
   }> {
-    const format: ExportFormat = options.format ?? 'png';
+    const format: ExportFormat = options.format ?? "png";
     const transparentBackground =
-      format === 'png' ? (options.transparentBackground ?? false) : false;
-    const normalized: NormalizedExportOptions = { format, transparentBackground };
+      format === "png" ? (options.transparentBackground ?? false) : false;
+    const normalized: NormalizedExportOptions = {
+      format,
+      transparentBackground,
+    };
 
     // Prefer the last interacted renderable (slice/mosaic/surface) over layout focus.
     const activeRenderableRaw = useActiveRenderContextStore.getState().activeId;
     const activeRenderable =
-      typeof activeRenderableRaw === 'string' ? activeRenderableRaw.toLowerCase() : null;
+      typeof activeRenderableRaw === "string"
+        ? activeRenderableRaw.toLowerCase()
+        : null;
 
     if (activeRenderable) {
-      if (activeRenderable === 'axial' || activeRenderable === 'sagittal' || activeRenderable === 'coronal') {
-        const bytes = await this.renderSliceToBytes(activeRenderable as ViewType, normalized);
-        const suggestedName = this.suggestFileNameForActiveId(activeRenderable, format);
-        const mime = format === 'jpg' ? 'image/jpeg' : 'image/png';
+      if (
+        activeRenderable === "axial" ||
+        activeRenderable === "sagittal" ||
+        activeRenderable === "coronal"
+      ) {
+        const bytes = await this.renderSliceToBytes(
+          activeRenderable as ViewType,
+          normalized,
+        );
+        const suggestedName = this.suggestFileNameForActiveId(
+          activeRenderable,
+          format,
+        );
+        const mime = format === "jpg" ? "image/jpeg" : "image/png";
         return {
           bytes,
           mime,
           suggestedName,
-          componentType: 'slice',
-          componentState: { viewType: activeRenderable }
+          componentType: "slice",
+          componentState: { viewType: activeRenderable },
         };
       }
 
       const customExporter = this.exporters.get(activeRenderable);
       if (customExporter) {
         const bytes = await customExporter(normalized);
-        const suggestedName = this.suggestFileNameForActiveId(activeRenderable, format);
-        const mime = format === 'jpg' ? 'image/jpeg' : 'image/png';
-        const prefix = activeRenderable.split(':')[0] || activeRenderable;
+        const suggestedName = this.suggestFileNameForActiveId(
+          activeRenderable,
+          format,
+        );
+        const mime = format === "jpg" ? "image/jpeg" : "image/png";
+        const prefix = activeRenderable.split(":")[0] || activeRenderable;
         return {
           bytes,
           mime,
           suggestedName,
           componentType: prefix,
-          componentState: null
+          componentState: null,
         };
       }
     }
 
     const { componentType, componentState } = useActivePanelStore.getState();
     if (!componentType) {
-      throw new Error('No active view to capture');
+      throw new Error("No active view to capture");
     }
 
     const exporterKey = this.makeExporterKey(componentType, componentState);
-    const customExporter = exporterKey ? this.exporters.get(exporterKey) : undefined;
+    const customExporter = exporterKey
+      ? this.exporters.get(exporterKey)
+      : undefined;
 
     const bytes = customExporter
       ? await customExporter(normalized)
       : await this.exportBuiltIn(componentType, componentState, normalized);
 
-    const suggestedName = this.suggestFileName(componentType, componentState, format);
-    const mime = format === 'jpg' ? 'image/jpeg' : 'image/png';
+    const suggestedName = this.suggestFileName(
+      componentType,
+      componentState,
+      format,
+    );
+    const mime = format === "jpg" ? "image/jpeg" : "image/png";
 
     return { bytes, mime, suggestedName, componentType, componentState };
   }
@@ -112,37 +158,43 @@ export class ViewExportService {
   async exportActiveView(options: ExportOptions = {}): Promise<void> {
     try {
       const { bytes, suggestedName } = await this.captureActiveView(options);
-      const savedPath = await this.transport.invoke<string | null>('save_image_bytes', {
-        bytes: Array.from(bytes),
-        suggestedName
-      });
+      const savedPath = await this.transport.invoke<string | null>(
+        "save_image_bytes",
+        {
+          bytes: Array.from(bytes),
+          suggestedName,
+        },
+      );
 
       if (savedPath) {
-        this.notify('info', `Saved image to ${savedPath}`);
+        this.notify("info", `Saved image to ${savedPath}`);
       }
     } catch (err) {
-      console.error('[ViewExportService] Export failed:', err);
-      this.notify('error', (err as Error).message || 'Export failed');
+      console.error("[ViewExportService] Export failed:", err);
+      this.notify("error", (err as Error).message || "Export failed");
     }
   }
 
   private async exportBuiltIn(
     componentType: string,
     componentState: Record<string, unknown> | null,
-    options: NormalizedExportOptions
+    options: NormalizedExportOptions,
   ): Promise<Uint8Array> {
     const typeLower = componentType.toLowerCase();
 
-    if (typeLower === 'workspace') {
-      const wsType = componentState?.workspaceType;
-      const wsTypeLower = typeof wsType === 'string' ? wsType.toLowerCase() : null;
+    if (typeLower === "workspace") {
+      const wsType = resolveLiveWorkspaceType(componentState);
+      const wsTypeLower =
+        typeof wsType === "string" ? wsType.toLowerCase() : null;
 
-      if (wsTypeLower === 'mosaic') {
-        throw new Error(`No exporter registered for workspace type '${wsTypeLower}'`);
+      if (wsTypeLower === "mosaic") {
+        throw new Error(
+          `No exporter registered for workspace type '${wsTypeLower}'`,
+        );
       }
 
-      if (wsTypeLower?.startsWith('orthogonal') || wsTypeLower === 'flexible') {
-        const viewType = this.resolveSliceViewType('orthogonalview');
+      if (wsTypeLower?.startsWith("orthogonal") || wsTypeLower === "flexible") {
+        const viewType = this.resolveSliceViewType("orthogonalview");
         return this.renderSliceToBytes(viewType, options);
       }
     }
@@ -157,37 +209,43 @@ export class ViewExportService {
 
   private isSliceComponent(typeLower: string): boolean {
     return (
-      typeLower === 'axialview' ||
-      typeLower === 'sagittalview' ||
-      typeLower === 'coronalview' ||
-      typeLower === 'sliceview' ||
-      typeLower === 'orthogonalview'
+      typeLower === "axialview" ||
+      typeLower === "sagittalview" ||
+      typeLower === "coronalview" ||
+      typeLower === "sliceview" ||
+      typeLower === "orthogonalview"
     );
   }
 
   private resolveSliceViewType(typeLower: string): ViewType {
-    if (typeLower === 'axialview') return 'axial';
-    if (typeLower === 'sagittalview') return 'sagittal';
-    if (typeLower === 'coronalview') return 'coronal';
+    if (typeLower === "axialview") return "axial";
+    if (typeLower === "sagittalview") return "sagittal";
+    if (typeLower === "coronalview") return "coronal";
 
     // For OrthogonalView / generic SliceView, fall back to the last mouse-active slice.
     const mouseActive = useMouseCoordinateStore.getState().activeView;
-    return mouseActive ?? 'axial';
+    return mouseActive ?? "axial";
   }
 
   private async renderSliceToBytes(
     viewType: ViewType,
-    options: NormalizedExportOptions
+    options: NormalizedExportOptions,
   ): Promise<Uint8Array> {
     const viewState = useViewStateStore.getState().viewState;
     const viewPlane = viewState.views[viewType];
     const width = viewPlane?.dim_px?.[0] ?? 512;
     const height = viewPlane?.dim_px?.[1] ?? 512;
 
-    const payload = this.buildDeclarativeViewState(viewState, viewType, width, height, options.transparentBackground);
-    const result = await this.transport.invoke<any>('render_view', {
+    const payload = this.buildDeclarativeViewState(
+      viewState,
+      viewType,
+      width,
+      height,
+      options.transparentBackground,
+    );
+    const result = await this.transport.invoke<any>("render_view", {
       stateJson: JSON.stringify(payload),
-      format: options.format
+      format: options.format,
     });
 
     if (result instanceof Uint8Array && result.length > 0) {
@@ -200,7 +258,7 @@ export class ViewExportService {
       return new Uint8Array(result);
     }
 
-    throw new Error('render_view returned empty data');
+    throw new Error("render_view returned empty data");
   }
 
   private buildDeclarativeViewState(
@@ -208,35 +266,42 @@ export class ViewExportService {
     viewType: ViewType,
     width: number,
     height: number,
-    transparentBackground: boolean
+    transparentBackground: boolean,
   ): any {
-    const visibleLayers = viewState.layers.filter(l => l.visible && l.opacity > 0);
+    const visibleLayers = viewState.layers.filter(
+      (l) => l.visible && l.opacity > 0,
+    );
     if (visibleLayers.length === 0) {
-      throw new Error('No visible layers to export');
+      throw new Error("No visible layers to export");
     }
 
     const view = viewState.views[viewType];
     const payload: any = {
       views: viewState.views,
       crosshair: viewState.crosshair,
-      layers: visibleLayers.map(layer => ({
+      layers: visibleLayers.map((layer) => ({
         id: layer.id,
         volumeId: layer.volumeId,
         colormap: layer.colormap,
-        blendMode: layer.blendMode || 'alpha',
+        blendMode: layer.blendMode || "alpha",
         opacity: layer.opacity,
         intensity: layer.intensity,
         threshold: layer.threshold,
-        interpolation: layer.interpolation || 'linear',
-        layerMode: layer.layerMode ?? 'scalar',
+        interpolation: layer.interpolation || "linear",
+        layerMode: layer.layerMode ?? "scalar",
         outline: layer.outline,
-        visible: true
+        visible: true,
       })),
-      timepoint: viewState.timepoint
+      timepoint: viewState.timepoint,
     };
 
     if (view) {
-      payload.requestedView = buildRequestedViewPayload(viewType, view, width, height);
+      payload.requestedView = buildRequestedViewPayload(
+        viewType,
+        view,
+        width,
+        height,
+      );
     }
 
     if (transparentBackground) {
@@ -248,34 +313,36 @@ export class ViewExportService {
 
   private makeExporterKey(
     componentType: string,
-    componentState: Record<string, unknown> | null
+    componentState: Record<string, unknown> | null,
   ): string | null {
     const typeLower = componentType.toLowerCase();
 
-    if (typeLower === 'workspace') {
-      const wsType = componentState?.workspaceType;
+    if (typeLower === "workspace") {
+      const wsType = resolveLiveWorkspaceType(componentState);
       const wsId = componentState?.workspaceId;
-      if (typeof wsType === 'string') {
+      if (typeof wsType === "string") {
         const wsTypeLower = wsType.toLowerCase();
-        if (wsTypeLower === 'mosaic') {
-          return typeof wsId === 'string' ? `mosaic:${wsId}`.toLowerCase() : 'mosaic';
+        if (wsTypeLower === "mosaic") {
+          return typeof wsId === "string"
+            ? `mosaic:${wsId}`.toLowerCase()
+            : "mosaic";
         }
       }
     }
 
-    if (typeLower === 'surfaceview') {
+    if (typeLower === "surfaceview") {
       const surfaceViewHandles = useSurfaceStore.getState().surfaceViewHandles;
       const exporterKey = buildSurfaceViewExporterKey(
         componentType,
         componentState,
-        surfaceViewHandles
+        surfaceViewHandles,
       );
       if (exporterKey) {
         return exporterKey;
       }
 
       const handle = componentState?.surfaceHandle;
-      if (typeof handle === 'string') {
+      if (typeof handle === "string") {
         return `surfaceview:${handle}`.toLowerCase();
       }
     }
@@ -286,35 +353,39 @@ export class ViewExportService {
   private suggestFileName(
     componentType: string,
     componentState: Record<string, unknown> | null,
-    format: ExportFormat
+    format: ExportFormat,
   ): string {
-    const ts = new Date().toISOString().replace(/[:.]/g, '-');
+    const ts = new Date().toISOString().replace(/[:.]/g, "-");
     const typeLower = componentType.toLowerCase();
 
-    if (typeLower === 'workspace') {
-      const wsType = componentState?.workspaceType;
+    if (typeLower === "workspace") {
+      const wsType = resolveLiveWorkspaceType(componentState);
       const wsId = componentState?.workspaceId;
-      if (typeof wsType === 'string') {
-        const safeType = wsType.toLowerCase().replace(/[^a-z0-9_-]/g, '');
-        if (typeof wsId === 'string') {
+      if (typeof wsType === "string") {
+        const safeType = wsType.toLowerCase().replace(/[^a-z0-9_-]/g, "");
+        if (typeof wsId === "string") {
           return `${safeType}-${wsId}-${ts}.${format}`;
         }
         return `${safeType}-${ts}.${format}`;
       }
     }
 
-    if (typeLower === 'surfaceview') {
+    if (typeLower === "surfaceview") {
       const surfaceViewHandles = useSurfaceStore.getState().surfaceViewHandles;
       const surfaceViewId =
-        typeof componentState?.surfaceViewId === 'string' ? componentState.surfaceViewId : null;
+        typeof componentState?.surfaceViewId === "string"
+          ? componentState.surfaceViewId
+          : null;
       const fallbackSurfaceHandle =
-        typeof componentState?.surfaceHandle === 'string' ? componentState.surfaceHandle : null;
+        typeof componentState?.surfaceHandle === "string"
+          ? componentState.surfaceHandle
+          : null;
       const handle = resolveBoundSurfaceHandle(
         surfaceViewId,
         surfaceViewHandles,
-        fallbackSurfaceHandle
+        fallbackSurfaceHandle,
       );
-      if (typeof handle === 'string') {
+      if (typeof handle === "string") {
         return `surface-${handle}-${ts}.${format}`;
       }
     }
@@ -322,32 +393,43 @@ export class ViewExportService {
     return `view-${typeLower}-${ts}.${format}`;
   }
 
-  private suggestFileNameForActiveId(activeId: string, format: ExportFormat): string {
-    const ts = new Date().toISOString().replace(/[:.]/g, '-');
+  private suggestFileNameForActiveId(
+    activeId: string,
+    format: ExportFormat,
+  ): string {
+    const ts = new Date().toISOString().replace(/[:.]/g, "-");
     const idLower = activeId.toLowerCase();
-    const sanitize = (s: string) => s.toLowerCase().replace(/[^a-z0-9_-]/g, '');
+    const sanitize = (s: string) => s.toLowerCase().replace(/[^a-z0-9_-]/g, "");
 
-    if (idLower === 'axial' || idLower === 'sagittal' || idLower === 'coronal') {
+    if (
+      idLower === "axial" ||
+      idLower === "sagittal" ||
+      idLower === "coronal"
+    ) {
       return `slice-${idLower}-${ts}.${format}`;
     }
 
-    if (idLower.startsWith('mosaic:')) {
-      const wsId = sanitize(idLower.slice('mosaic:'.length));
+    if (idLower.startsWith("mosaic:")) {
+      const wsId = sanitize(idLower.slice("mosaic:".length));
       return wsId ? `mosaic-${wsId}-${ts}.${format}` : `mosaic-${ts}.${format}`;
     }
 
-    if (idLower.startsWith('surfaceview:')) {
+    if (idLower.startsWith("surfaceview:")) {
       const parsed = parseSurfaceViewContextId(idLower);
-      const handle = sanitize(parsed?.surfaceHandle ?? idLower.slice('surfaceview:'.length));
-      return handle ? `surface-${handle}-${ts}.${format}` : `surface-${ts}.${format}`;
+      const handle = sanitize(
+        parsed?.surfaceHandle ?? idLower.slice("surfaceview:".length),
+      );
+      return handle
+        ? `surface-${handle}-${ts}.${format}`
+        : `surface-${ts}.${format}`;
     }
 
-    const safeId = sanitize(idLower.replace(/:/g, '-'));
+    const safeId = sanitize(idLower.replace(/:/g, "-"));
     return safeId ? `view-${safeId}-${ts}.${format}` : `view-${ts}.${format}`;
   }
 
-  private notify(type: 'info' | 'warning' | 'error', message: string) {
-    this.eventBus.emit('ui.notification', { type, message });
+  private notify(type: "info" | "warning" | "error", message: string) {
+    this.eventBus.emit("ui.notification", { type, message });
   }
 }
 

@@ -1,6 +1,10 @@
-import React, { useMemo, useState } from 'react';
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/shadcn/popover';
-import { cn } from '@/utils/cn';
+import React, { useMemo, useState } from "react";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/shadcn/popover";
+import { cn } from "@/utils/cn";
 
 export type DropdownMenuItem =
   | {
@@ -13,6 +17,8 @@ export type DropdownMenuItem =
       icon?: React.ReactNode;
       disabled?: boolean;
       danger?: boolean;
+      /** Render as a non-interactive section header instead of a menu item. */
+      header?: boolean;
       separator?: false;
       onClick?: () => void;
     };
@@ -20,28 +26,31 @@ export type DropdownMenuItem =
 interface DropdownMenuProps {
   trigger: React.ReactNode;
   items: DropdownMenuItem[];
-  position?: 'bottom-left' | 'bottom-right' | 'top-left' | 'top-right';
+  position?: "bottom-left" | "bottom-right" | "top-left" | "top-right";
   className?: string;
   onItemClick?: (item: DropdownMenuItem) => void;
 }
 
 type PopoverPlacement = {
-  align: 'start' | 'end';
-  side: 'top' | 'bottom';
+  align: "start" | "end";
+  side: "top" | "bottom";
 };
 
-const POSITION_TO_POPOVER: Record<NonNullable<DropdownMenuProps['position']>, PopoverPlacement> = {
-  'bottom-left': { side: 'bottom', align: 'start' },
-  'bottom-right': { side: 'bottom', align: 'end' },
-  'top-left': { side: 'top', align: 'start' },
-  'top-right': { side: 'top', align: 'end' },
+const POSITION_TO_POPOVER: Record<
+  NonNullable<DropdownMenuProps["position"]>,
+  PopoverPlacement
+> = {
+  "bottom-left": { side: "bottom", align: "start" },
+  "bottom-right": { side: "bottom", align: "end" },
+  "top-left": { side: "top", align: "start" },
+  "top-right": { side: "top", align: "end" },
 };
 
 function renderTrigger(trigger: React.ReactNode, isOpen: boolean) {
   if (React.isValidElement(trigger)) {
     return React.cloneElement(trigger as React.ReactElement<any>, {
-      'aria-haspopup': 'menu',
-      'aria-expanded': isOpen,
+      "aria-haspopup": "menu",
+      "aria-expanded": isOpen,
     });
   }
 
@@ -60,8 +69,8 @@ function renderTrigger(trigger: React.ReactNode, isOpen: boolean) {
 export const DropdownMenu: React.FC<DropdownMenuProps> = ({
   trigger,
   items,
-  position = 'bottom-left',
-  className = '',
+  position = "bottom-left",
+  className = "",
   onItemClick,
 }) => {
   const [isOpen, setIsOpen] = useState(false);
@@ -76,11 +85,23 @@ export const DropdownMenu: React.FC<DropdownMenuProps> = ({
           );
         }
 
+        if (item.header) {
+          return (
+            <div
+              key={item.id}
+              role="presentation"
+              className="select-none px-3 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground/80"
+            >
+              {item.label}
+            </div>
+          );
+        }
+
         const toneClass = item.disabled
-          ? 'text-muted-foreground/50 cursor-not-allowed'
+          ? "text-muted-foreground/50 cursor-not-allowed"
           : item.danger
-            ? 'text-destructive hover:bg-destructive/10'
-            : 'text-popover-foreground hover:bg-accent';
+            ? "text-destructive hover:bg-destructive/10"
+            : "text-popover-foreground hover:bg-accent";
 
         return (
           <button
@@ -88,8 +109,8 @@ export const DropdownMenu: React.FC<DropdownMenuProps> = ({
             type="button"
             role="menuitem"
             className={cn(
-              'flex w-full items-center gap-2 rounded-sm px-3 py-1.5 text-left text-sm transition-colors outline-none',
-              toneClass
+              "flex w-full items-center gap-2 rounded-sm px-3 py-1.5 text-left text-sm transition-colors outline-none",
+              toneClass,
             )}
             disabled={item.disabled}
             onClick={() => {
@@ -111,19 +132,17 @@ export const DropdownMenu: React.FC<DropdownMenuProps> = ({
           </button>
         );
       }),
-    [items, onItemClick]
+    [items, onItemClick],
   );
 
   return (
     <Popover open={isOpen} onOpenChange={setIsOpen}>
-      <PopoverTrigger asChild>
-        {renderTrigger(trigger, isOpen)}
-      </PopoverTrigger>
+      <PopoverTrigger asChild>{renderTrigger(trigger, isOpen)}</PopoverTrigger>
       <PopoverContent
         side={placement.side}
         align={placement.align}
         sideOffset={6}
-        className={cn('z-50 min-w-48 p-1', className)}
+        className={cn("z-50 min-w-48 p-1", className)}
         role="menu"
         aria-orientation="vertical"
       >

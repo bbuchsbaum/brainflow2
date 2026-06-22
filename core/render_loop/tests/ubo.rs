@@ -339,26 +339,10 @@ fn alpha_mod_numeric_curve_handles_absolute_and_gamma_modes() {
         ..Default::default()
     };
 
-    assert_abs_diff_eq!(
-        alpha_mod_factor(&absolute_layer, 0.1),
-        0.1,
-        epsilon = 1e-6
-    );
-    assert_abs_diff_eq!(
-        alpha_mod_factor(&absolute_layer, -0.1),
-        0.1,
-        epsilon = 1e-6
-    );
-    assert_abs_diff_eq!(
-        alpha_mod_factor(&absolute_layer, 0.5),
-        0.0,
-        epsilon = 1e-6
-    );
-    assert_abs_diff_eq!(
-        alpha_mod_factor(&absolute_layer, 0.75),
-        0.5,
-        epsilon = 1e-6
-    );
+    assert_abs_diff_eq!(alpha_mod_factor(&absolute_layer, 0.1), 0.1, epsilon = 1e-6);
+    assert_abs_diff_eq!(alpha_mod_factor(&absolute_layer, -0.1), 0.1, epsilon = 1e-6);
+    assert_abs_diff_eq!(alpha_mod_factor(&absolute_layer, 0.5), 0.0, epsilon = 1e-6);
+    assert_abs_diff_eq!(alpha_mod_factor(&absolute_layer, 0.75), 0.5, epsilon = 1e-6);
     assert_abs_diff_eq!(
         alpha_mod_factor(&absolute_layer, -0.75),
         0.5,
@@ -371,11 +355,7 @@ fn alpha_mod_numeric_curve_handles_absolute_and_gamma_modes() {
         ..absolute_layer
     };
 
-    assert_abs_diff_eq!(
-        alpha_mod_factor(&gamma_layer, 0.75),
-        0.25,
-        epsilon = 1e-6
-    );
+    assert_abs_diff_eq!(alpha_mod_factor(&gamma_layer, 0.75), 0.25, epsilon = 1e-6);
 }
 
 #[test]

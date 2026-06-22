@@ -619,6 +619,12 @@ fn main() {
                                         .accelerator("CmdOrCtrl+4")
                                         .build(app)?,
                                 )
+                                .item(
+                                    &MenuItemBuilder::new("Integrated View")
+                                        .id("workspace_integrated")
+                                        .accelerator("CmdOrCtrl+6")
+                                        .build(app)?,
+                                )
                                 .separator()
                                 .item(
                                     &MenuItemBuilder::new("Set Studio")
@@ -729,6 +735,7 @@ fn main() {
                             "workspace_orthogonal_flexible" => "orthogonal-flexible",
                             "workspace_mosaic" => "mosaic",
                             "workspace_comparison" => "comparison",
+                            "workspace_integrated" => "integrated",
                             "workspace_set_studio" => "set-studio",
                             _ => return,
                         };

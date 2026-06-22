@@ -1,0 +1,20 @@
+import type { StudioAlignmentClass } from "./StudioAlignmentClass";
+import type { StudioDesignTablePreview } from "./StudioDesignTablePreview";
+import type { StudioIngestAuditSummary } from "./StudioIngestAuditSummary";
+import type { StudioMemberSummary } from "./StudioMemberSummary";
+import type { StudioSupportKind } from "./StudioSupportKind";
+export type SpatialFieldSetSummary = {
+    id: string;
+    name: string;
+    memberCount: number;
+    primaryFeatureId: string | null;
+    supportKind: StudioSupportKind;
+    supportLabel: string;
+    alignmentClass: StudioAlignmentClass;
+    designColumns: Array<string>;
+    designTablePreview: StudioDesignTablePreview | null;
+    memberSummaries: Array<StudioMemberSummary>;
+    memberIds: Array<string>;
+    savedCohortIds: Array<string>;
+    ingestAudit: StudioIngestAuditSummary;
+};

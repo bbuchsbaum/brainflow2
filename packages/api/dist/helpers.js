@@ -13,7 +13,7 @@ function getInvoker() {
 // Set per-layer slice border
 export async function setLayerBorder(layerId, enabled, thicknessPx = 1) {
     const invoke = getInvoker();
-    await invoke('plugin:api-bridge|set_layer_border', {
+    await invoke('set_layer_border', {
         layerId,
         enabled,
         thicknessPx,
@@ -22,7 +22,7 @@ export async function setLayerBorder(layerId, enabled, thicknessPx = 1) {
 // Sample layer value at a world-space coordinate
 export async function sampleLayerValueAtWorld(layerId, worldCoords) {
     const invoke = getInvoker();
-    const value = await invoke('plugin:api-bridge|sample_layer_value_at_world', {
+    const value = await invoke('sample_layer_value_at_world', {
         layerId,
         worldCoords,
     });

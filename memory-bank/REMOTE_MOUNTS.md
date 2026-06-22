@@ -43,6 +43,7 @@ Shared bridge types exported to `@brainflow/api`:
 7. `RemoteMountService` mounts that local path into the file browser with remote origin metadata.
 8. When a remote file is opened, `materialize_remote_file_if_needed()` stages it into the local cache, verifies freshness from remote stat metadata, and then calls the normal local load/render path.
 9. If an SFTP list/stat/download operation hits a retryable transport error, `remotely` retries once, `api_bridge` emits `remote-mount-recovery`, and the frontend shows a warning notification describing the recovered mount.
+   - Transport hardening underneath this: all ops on a mount multiplex over a single SFTP channel per SSH session (no more per-call channel opens that exhausted the session into "Channel send error"), and a dropped SSH session is transparently re-established before the next op — but only for non-interactive auth (key file / agent / stored password), with a short cooldown so a down host doesn't trigger a reconnect storm. Keyboard-interactive sessions are never silently reconnected.
 
 ## Credential Storage Policy
 

@@ -234,7 +234,7 @@ dependencies = [
  "async-trait",
  "atlases",
  "base64 0.22.1",
- "bids-rust",
+ "bids-rs",
  "brainflow-loaders",
  "bridge_types",
  "colormap",
@@ -715,8 +715,9 @@ dependencies = [
 ]
 
 [[package]]
-name = "bids-rust"
+name = "bids-rs"
 version = "0.1.0"
+source = "git+ssh://git@github.com/bbuchsbaum/bids-rs.git?branch=main#3095be8728a3f049c0f63deb17d06affba2db339"
 dependencies = [
  "anyhow",
  "chrono",

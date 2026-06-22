@@ -17,10 +17,10 @@ parcels: number | null,
  */
 template_params: { [key in string]?: string } | null, 
 /**
- * Data type: "volume" (default) or "surface"
+ * Data type hint: "volume" or "surface"
  */
 data_type: string | null, 
 /**
- * Surface type for surface atlases: "pial", "white", "inflated"
+ * Surface type for surface atlases: "pial", "white", "inflated", etc.
  */
 surf_type: string | null, };

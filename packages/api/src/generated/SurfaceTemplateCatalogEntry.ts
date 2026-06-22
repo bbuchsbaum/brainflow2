@@ -6,27 +6,27 @@ import type { SurfaceSpace } from "./SurfaceSpace";
 /**
  * Entry for a surface template in the catalog
  */
-export type SurfaceTemplateCatalogEntry = { 
+export type SurfaceTemplateCatalogEntry = {
 /**
  * Unique ID (e.g., "fsaverage_white_L")
  */
-id: string, 
+id: string,
 /**
  * Display name
  */
-display_name: string, 
+display_name: string,
 /**
  * Surface space
  */
-space: SurfaceSpace, 
+space: SurfaceSpace,
 /**
  * Geometry type
  */
-geometry_type: SurfaceGeometryType, 
+geometry_type: SurfaceGeometryType,
 /**
  * Hemisphere
  */
-hemisphere: SurfaceHemisphere, 
+hemisphere: SurfaceHemisphere,
 /**
  * Vertex count
  */

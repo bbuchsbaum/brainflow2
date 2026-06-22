@@ -34,6 +34,12 @@ Default permissions for api-bridge plugin
 - `allow-update-layer-intensity`
 - `allow-update-layer-threshold`
 - `allow-sample-world-coordinate`
+- `allow-sample-layer-value-at-world`
+- `allow-get-volume-for-projection`
+- `allow-project-volume-to-surface`
+- `allow-create-surface-sampler`
+- `allow-apply-sampler`
+- `allow-release-sampler`
 - `allow-query-slice-axis-meta`
 - `allow-batch-render-slices`
 - `allow-get-atlas-catalog`
@@ -44,6 +50,8 @@ Default permissions for api-bridge plugin
 - `allow-get-favorite-atlases`
 - `allow-validate-atlas-config`
 - `allow-load-atlas`
+- `allow-get-atlas-palette`
+- `allow-register-categorical-colormap`
 - `allow-get-atlas-stats`
 - `allow-start-atlas-progress-monitoring`
 - `allow-get-atlas-subscription-count`
@@ -70,12 +78,16 @@ Default permissions for api-bridge plugin
 - `allow-get-surface-overlay-data`
 - `allow-set-layer-mask`
 - `allow-preview-set-studio-imports`
+- `allow-promote-discovery-to-neurotabs`
 - `allow-materialize-set-studio-compare-panes`
 - `allow-check-bids-directory`
 - `allow-scan-bids-dataset`
 - `allow-get-bids-events`
 - `allow-sample-voxel-timeseries`
+- `allow-sample-stack`
 - `allow-compute-temporal-metric`
+- `allow-compute-region-stats`
+- `allow-sample-set-at-world`
 
 ## Permission Table
 
@@ -316,6 +328,32 @@ Enables the compute_layer_histogram command without any pre-configured scope.
 <td>
 
 Denies the compute_layer_histogram command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:allow-compute-region-stats`
+
+</td>
+<td>
+
+Enables the compute_region_stats command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:deny-compute-region-stats`
+
+</td>
+<td>
+
+Denies the compute_region_stats command without any pre-configured scope.
 
 </td>
 </tr>
@@ -1831,6 +1869,32 @@ Denies the project_volume_to_surface command without any pre-configured scope.
 <tr>
 <td>
 
+`api-bridge:allow-promote-discovery-to-neurotabs`
+
+</td>
+<td>
+
+Enables the promote_discovery_to_neurotabs command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:deny-promote-discovery-to-neurotabs`
+
+</td>
+<td>
+
+Denies the promote_discovery_to_neurotabs command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
 `api-bridge:allow-query-slice-axis-meta`
 
 </td>
@@ -2318,6 +2382,58 @@ Enables the sample_layer_value_at_world command without any pre-configured scope
 <td>
 
 Denies the sample_layer_value_at_world command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:allow-sample-set-at-world`
+
+</td>
+<td>
+
+Enables the sample_set_at_world command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:deny-sample-set-at-world`
+
+</td>
+<td>
+
+Denies the sample_set_at_world command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:allow-sample-stack`
+
+</td>
+<td>
+
+Enables the sample_stack command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:deny-sample-stack`
+
+</td>
+<td>
+
+Denies the sample_stack command without any pre-configured scope.
 
 </td>
 </tr>

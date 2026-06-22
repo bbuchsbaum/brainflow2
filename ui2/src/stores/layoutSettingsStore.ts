@@ -6,6 +6,12 @@
  *     `BottomWorkbenchDock` last reported via `onSizesChange`.
  *   - `bottomDockLogCollapsed` — last log-collapse affordance state.
  *   - `bottomDockPlotMaximized` — last plot-maximize affordance state.
+ *   - `plotDockOpen` — whether the shared center-workspace plot dock
+ *     (`PlotDock`, mounted via `CenterWithPlotDock` in the standard imaging
+ *     workspaces) is expanded. Defaults closed so slice images keep full
+ *     height until the user opts in ("activatable").
+ *   - `plotDockHeight` — last dragged height (px) of that dock pane, restored
+ *     on the next open.
  *   - `goldenLayoutState` — serialized GoldenLayout root config from
  *     `goldenLayout.saveLayout()`. Restored on subsequent mounts so column
  *     widths, side-panel tab order/active-tab, and the side-panel structure
@@ -24,13 +30,13 @@
  * shared singletons (`useLogStore`, `usePlotModeStore`, `useLayerStore`).
  */
 
-import { create } from 'zustand';
-import { persist, createJSONStorage } from 'zustand/middleware';
+import { create } from "zustand";
+import { persist, createJSONStorage } from "zustand/middleware";
 
-import type { DockSizes } from '@/components/layout/bottomWorkbenchDock.constants';
-import type { WorkspaceType } from '@/types/workspace';
+import type { DockSizes } from "@/components/layout/bottomWorkbenchDock.constants";
+import type { WorkspaceType } from "@/types/workspace";
 
-const LAYOUT_SETTINGS_PERSIST_NAME = 'brainflow2-layout-settings';
+const LAYOUT_SETTINGS_PERSIST_NAME = "brainflow2-layout-settings";
 const LAYOUT_SETTINGS_PERSIST_VERSION = 1;
 
 /**
@@ -44,12 +50,17 @@ export interface LayoutSettingsStore {
   bottomDockSizes: DockSizes | null;
   bottomDockLogCollapsed: boolean;
   bottomDockPlotMaximized: boolean;
+  plotDockOpen: boolean;
+  plotDockHeight: number | null;
   goldenLayoutState: GoldenLayoutSavedState | null;
   integratedDefaultDisplayMode: WorkspaceType | null;
 
   setBottomDockSizes: (sizes: DockSizes) => void;
   setBottomDockLogCollapsed: (collapsed: boolean) => void;
   setBottomDockPlotMaximized: (maximized: boolean) => void;
+  setPlotDockOpen: (open: boolean) => void;
+  togglePlotDock: () => void;
+  setPlotDockHeight: (height: number) => void;
   setGoldenLayoutState: (state: GoldenLayoutSavedState | null) => void;
   setIntegratedDefaultDisplayMode: (mode: WorkspaceType | null) => void;
 
@@ -67,6 +78,8 @@ const INITIAL_STATE = {
   bottomDockSizes: null,
   bottomDockLogCollapsed: false,
   bottomDockPlotMaximized: false,
+  plotDockOpen: false,
+  plotDockHeight: null,
   goldenLayoutState: null,
   integratedDefaultDisplayMode: null,
 } as const;
@@ -104,6 +117,22 @@ const createLayoutSettingsStore = () =>
               : { bottomDockPlotMaximized: maximized },
           );
         },
+        setPlotDockOpen: (open) => {
+          set((state) =>
+            state.plotDockOpen === open ? state : { plotDockOpen: open },
+          );
+        },
+        togglePlotDock: () => {
+          set((state) => ({ plotDockOpen: !state.plotDockOpen }));
+        },
+        setPlotDockHeight: (height) => {
+          set((state) => {
+            const next = Math.round(height);
+            return state.plotDockHeight === next
+              ? state
+              : { plotDockHeight: next };
+          });
+        },
         setGoldenLayoutState: (next) => {
           set({ goldenLayoutState: next });
         },
@@ -126,6 +155,8 @@ const createLayoutSettingsStore = () =>
           bottomDockSizes: state.bottomDockSizes,
           bottomDockLogCollapsed: state.bottomDockLogCollapsed,
           bottomDockPlotMaximized: state.bottomDockPlotMaximized,
+          plotDockOpen: state.plotDockOpen,
+          plotDockHeight: state.plotDockHeight,
           goldenLayoutState: state.goldenLayoutState,
           integratedDefaultDisplayMode: state.integratedDefaultDisplayMode,
         }),
@@ -133,12 +164,14 @@ const createLayoutSettingsStore = () =>
     ),
   );
 
-export const useLayoutSettingsStore: ReturnType<typeof createLayoutSettingsStore> = (() => {
-  if (typeof window !== 'undefined' && window.__layoutSettingsStore) {
+export const useLayoutSettingsStore: ReturnType<
+  typeof createLayoutSettingsStore
+> = (() => {
+  if (typeof window !== "undefined" && window.__layoutSettingsStore) {
     return window.__layoutSettingsStore;
   }
   const store = createLayoutSettingsStore();
-  if (typeof window !== 'undefined') {
+  if (typeof window !== "undefined") {
     window.__layoutSettingsStore = store;
   }
   return store;

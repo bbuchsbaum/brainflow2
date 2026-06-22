@@ -1,0 +1,176 @@
+/* BIDS view — detection card and subject/task tree. */
+.fb-bids-view {
+  display: flex;
+  flex-direction: column;
+  gap: var(--bf-space-2);
+  padding: var(--bf-space-3);
+  overflow-y: auto;
+  flex: 1;
+  min-height: 0;
+}
+
+.fb-bids-status {
+  margin: 0;
+  font-size: var(--app-role-body-size);
+  color: var(--bf-text-secondary);
+}
+
+.fb-bids-status--pending {
+  font-style: italic;
+  color: var(--bf-text-muted);
+}
+
+.fb-bids-status--ok {
+  color: var(--bf-text-primary);
+  font-weight: 500;
+}
+
+.fb-bids-status--error {
+  color: var(--bf-danger);
+}
+
+.fb-bids-yes {
+  display: flex;
+  flex-direction: column;
+  gap: var(--bf-space-2);
+}
+
+.fb-bids-hint {
+  margin: 0;
+  font-size: var(--app-role-label-size);
+  color: var(--bf-text-muted);
+}
+
+.fb-bids-cta {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  height: var(--app-control-height-sm);
+  padding: 0 var(--bf-space-3);
+  border: 1px solid color-mix(in srgb, var(--bf-accent) 70%, #000 30%);
+  background: var(--bf-accent);
+  color: #ffffff;
+  font-size: var(--app-role-label-size);
+  font-weight: 500;
+  border-radius: var(--bf-radius-xs);
+  cursor: pointer;
+  transition: background-color var(--bf-motion-fast) ease;
+}
+
+.fb-bids-cta:hover {
+  background: var(--bf-accent-hover);
+  color: #fff;
+}
+
+.fb-bids-cta-secondary {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  height: var(--app-control-height-sm);
+  padding: 0 var(--bf-space-3);
+  border: 1px solid var(--bf-border-strong);
+  background: var(--bf-bg-1);
+  color: var(--bf-text-primary);
+  font-size: var(--app-role-label-size);
+  font-weight: 500;
+  border-radius: var(--bf-radius-xs);
+  cursor: pointer;
+  transition: background-color var(--bf-motion-fast) ease;
+}
+
+.fb-bids-cta-secondary:hover {
+  background: var(--bf-bg-2);
+}
+
+.fb-bids-actions {
+  display: flex;
+  gap: var(--bf-space-2);
+  flex-wrap: wrap;
+}
+
+.fb-bids-tree-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--bf-space-2);
+  padding-bottom: var(--bf-space-2);
+  border-bottom: 1px solid var(--bf-border-subtle);
+}
+
+.fb-bids-tree-label {
+  font-size: var(--app-role-label-size);
+  color: var(--bf-text-muted);
+}
+
+.fb-bids-tree {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.fb-bids-tree-children {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.fb-bids-tree-row {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: var(--bf-space-2);
+  padding: var(--bf-space-1) var(--bf-space-2);
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--bf-text-primary);
+  font-size: var(--app-role-body-size);
+  text-align: left;
+  cursor: pointer;
+  border-radius: var(--bf-radius-xs);
+}
+
+.fb-bids-tree-row:hover {
+  background: var(--bf-bg-2);
+}
+
+.fb-bids-tree-row.is-selected {
+  background: var(--bf-bg-2);
+  border-color: var(--bf-border-strong);
+}
+
+.fb-bids-tree-row--task {
+  padding-left: calc(var(--bf-space-2) + 16px);
+  color: var(--bf-text-secondary);
+}
+
+.fb-bids-tree-chevron {
+  display: inline-flex;
+  width: 16px;
+  height: 16px;
+  align-items: center;
+  justify-content: center;
+  color: var(--bf-text-muted);
+}
+
+.fb-bids-tree-chevron-spacer {
+  display: inline-block;
+  width: 16px;
+  height: 16px;
+}
+
+.fb-bids-tree-name {
+  flex: 1;
+  font-family: var(--bf-font-mono);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.fb-bids-tree-meta {
+  font-size: var(--app-text-xs);
+  color: var(--bf-text-muted);
+}

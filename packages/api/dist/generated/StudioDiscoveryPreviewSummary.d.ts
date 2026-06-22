@@ -1,0 +1,22 @@
+import type { StudioDiscoveryMemberGroup } from "./StudioDiscoveryMemberGroup";
+import type { StudioDiscoveryRolePattern } from "./StudioDiscoveryRolePattern";
+export type StudioDiscoveryPreviewSummary = {
+    root: string;
+    filePattern: string;
+    includePatterns: Array<string>;
+    excludePatterns: Array<string>;
+    rolePatterns: Array<StudioDiscoveryRolePattern>;
+    maxDepth: number | null;
+    maxFiles: number;
+    dryRun: boolean;
+    sampleHeaders: boolean;
+    captureNames: Array<string>;
+    inferredDesignColumns: Array<string>;
+    observedRoles: Array<string>;
+    requiredRoles: Array<string>;
+    matchedFiles: number;
+    unmatchedFiles: number;
+    duplicateKeys: number;
+    truncated: boolean;
+    groups: Array<StudioDiscoveryMemberGroup>;
+};

@@ -3,12 +3,17 @@
  * Uses a singleton pattern to avoid hook dependency issues
  */
 
-import { throttle, debounce } from 'lodash';
-import { getEventBus } from '@/events/EventBus';
-import { useViewStateStore } from '@/stores/viewStateStore';
-import { useStatusBarStore } from '@/stores/statusBarStore';
-import { useMouseCoordinateStore } from '@/stores/mouseCoordinateStore';
-import type { AtlasStats } from '@/types/atlas';
+import { throttle, debounce } from "lodash";
+import { getEventBus } from "@/events/EventBus";
+import { useViewStateStore } from "@/stores/viewStateStore";
+import { useStatusBarStore } from "@/stores/statusBarStore";
+import { useMouseCoordinateStore } from "@/stores/mouseCoordinateStore";
+import { useLayerStore } from "@/stores/layerStore";
+import {
+  resolveAtlasRegionAtWorld,
+  formatRegionLabel,
+} from "@/services/atlasRegionLookup";
+import type { AtlasStats } from "@/types/atlas";
 
 /**
  * Format coordinates for display
@@ -17,25 +22,28 @@ const formatCoord = (coord: [number, number, number]): string => {
   return `(${coord[0].toFixed(1)}, ${coord[1].toFixed(1)}, ${coord[2].toFixed(1)})`;
 };
 
-type AtlasSeverity = 'warning' | 'critical' | 'recovered' | undefined;
+type AtlasSeverity = "warning" | "critical" | "recovered" | undefined;
 
-const formatAtlasSummary = (stats: AtlasStats, severity: AtlasSeverity = undefined): string => {
+const formatAtlasSummary = (
+  stats: AtlasStats,
+  severity: AtlasSeverity = undefined,
+): string => {
   const base = stats.is3D
-    ? `3D atlas ${stats.usedLayers > 0 ? 'occupied' : 'idle'}`
+    ? `3D atlas ${stats.usedLayers > 0 ? "occupied" : "idle"}`
     : `Atlas ${stats.usedLayers}/${stats.totalLayers}`;
   const free = stats.is3D ? null : `${stats.freeLayers} free`;
   const events = stats.fullEvents > 0 ? `full x${stats.fullEvents}` : null;
 
   let status: string | null = null;
-  if (severity === 'critical') {
-    status = 'CRITICAL';
-  } else if (severity === 'warning') {
-    status = 'Warning';
-  } else if (severity === 'recovered') {
-    status = 'Recovered';
+  if (severity === "critical") {
+    status = "CRITICAL";
+  } else if (severity === "warning") {
+    status = "Warning";
+  } else if (severity === "recovered") {
+    status = "Recovered";
   }
 
-  return [base, free, events, status].filter(Boolean).join(' · ');
+  return [base, free, events, status].filter(Boolean).join(" · ");
 };
 
 export class StatusBarService {
@@ -43,34 +51,64 @@ export class StatusBarService {
   private unsubscribers: (() => void)[] = [];
   private isInitialized = false;
   private initializationId: symbol | null = null;
-  
+
   // Throttled update methods
   private updateMousePosition: any;
   private updateFPS: any;
   private updateCrosshair: any;
+  private updateRegion: any;
 
   private constructor() {
     // Get the store methods
     const { setValue } = useStatusBarStore.getState();
-    
+
     // Initialize throttled/debounced methods
     this.updateMousePosition = throttle((worldMm: [number, number, number]) => {
       if (this.isInitialized) {
-        setValue('mouse', formatCoord(worldMm));
+        setValue("mouse", formatCoord(worldMm));
       }
     }, 50); // Update at most every 50ms
-    
+
     this.updateFPS = throttle((fps: number) => {
       if (this.isInitialized) {
-        setValue('fps', `${fps.toFixed(1)} fps`);
+        setValue("fps", `${fps.toFixed(1)} fps`);
       }
     }, 250); // Update FPS every 250ms
-    
+
     this.updateCrosshair = debounce((worldMm: [number, number, number]) => {
       if (this.isInitialized) {
-        setValue('crosshair', formatCoord(worldMm));
+        setValue("crosshair", formatCoord(worldMm));
       }
     }, 10); // Debounce crosshair updates by 10ms
+
+    // Atlas region under the crosshair. Sampling hits the backend, so debounce
+    // more aggressively than the plain crosshair coordinate readout.
+    this.updateRegion = debounce((worldMm: [number, number, number]) => {
+      void this.refreshRegion(worldMm);
+    }, 80);
+  }
+
+  /**
+   * Resolve and display the atlas region under a world coordinate in the
+   * 'region' status slot. No-ops to '--' when there is no atlas layer, the
+   * point is background, or the label is unmapped.
+   */
+  private async refreshRegion(worldMm: [number, number, number]) {
+    if (!this.isInitialized) {
+      return;
+    }
+    const { setValue } = useStatusBarStore.getState();
+    try {
+      const hit = await resolveAtlasRegionAtWorld(worldMm);
+      if (this.isInitialized) {
+        setValue("region", hit ? formatRegionLabel(hit.entry) : "--");
+      }
+    } catch (error) {
+      console.warn("[StatusBarService] Atlas region lookup failed:", error);
+      if (this.isInitialized) {
+        setValue("region", "--");
+      }
+    }
   }
 
   static getInstance(): StatusBarService {
@@ -85,116 +123,152 @@ export class StatusBarService {
    */
   initialize() {
     if (this.isInitialized) {
-      console.log('[StatusBarService] Already initialized, skipping');
+      console.log("[StatusBarService] Already initialized, skipping");
       return;
     }
 
     // Create a unique ID for this initialization
-    const currentInitId = this.initializationId = Symbol('init');
+    const currentInitId = (this.initializationId = Symbol("init"));
     this.isInitialized = true;
 
-    console.log('[StatusBarService] Initializing service');
-    
+    console.log("[StatusBarService] Initializing service");
+
     // Set up subscriptions with initialization check
     this.setupSubscriptions(currentInitId);
   }
-  
+
   private setupSubscriptions(initId: symbol) {
     // Helper to check if this is still the current initialization
     const isCurrentInit = () => this.initializationId === initId;
     const { setValue } = useStatusBarStore.getState();
 
     // Subscribe with a full-state listener to avoid selector identity pitfalls.
-    const unsubscribeViewState = useViewStateStore.subscribe((state, prevState) => {
-      if (!isCurrentInit()) {
-        return;
-      }
-
-      const worldMm = state.viewState.crosshair.world_mm;
-      const prevWorldMm = prevState?.viewState.crosshair.world_mm;
-      const crosshairChanged = !prevWorldMm ||
-        prevWorldMm[0] !== worldMm[0] ||
-        prevWorldMm[1] !== worldMm[1] ||
-        prevWorldMm[2] !== worldMm[2];
-      if (crosshairChanged) {
-        this.updateCrosshair(worldMm);
-      }
-
-      const layers = state.viewState.layers;
-      const prevLayers = prevState?.viewState.layers;
-      if (layers !== prevLayers) {
-        const activeLayer = layers.find(l => l.visible);
-        if (activeLayer) {
-          setValue('layer', activeLayer.name || activeLayer.id);
-        } else {
-          setValue('layer', 'None');
+    const unsubscribeViewState = useViewStateStore.subscribe(
+      (state, prevState) => {
+        if (!isCurrentInit()) {
+          return;
         }
-      }
-    });
+
+        const worldMm = state.viewState.crosshair.world_mm;
+        const prevWorldMm = prevState?.viewState.crosshair.world_mm;
+        const crosshairChanged =
+          !prevWorldMm ||
+          prevWorldMm[0] !== worldMm[0] ||
+          prevWorldMm[1] !== worldMm[1] ||
+          prevWorldMm[2] !== worldMm[2];
+        if (crosshairChanged) {
+          this.updateCrosshair(worldMm);
+          this.updateRegion(worldMm);
+        }
+
+        const layers = state.viewState.layers;
+        const prevLayers = prevState?.viewState.layers;
+        if (layers !== prevLayers) {
+          const activeLayer = layers.find((l) => l.visible);
+          if (activeLayer) {
+            setValue("layer", activeLayer.name || activeLayer.id);
+          } else {
+            setValue("layer", "None");
+          }
+        }
+      },
+    );
     this.unsubscribers.push(unsubscribeViewState);
 
     // Set initial crosshair value immediately
     const initialCrosshair = useViewStateStore.getState().viewState.crosshair;
     if (isCurrentInit()) {
-      setValue('crosshair', formatCoord(initialCrosshair.world_mm));
+      setValue("crosshair", formatCoord(initialCrosshair.world_mm));
     }
     const initialLayers = useViewStateStore.getState().viewState.layers;
     if (isCurrentInit()) {
-      const activeLayer = initialLayers.find(l => l.visible);
+      const activeLayer = initialLayers.find((l) => l.visible);
       if (activeLayer) {
-        setValue('layer', activeLayer.name || activeLayer.id);
+        setValue("layer", activeLayer.name || activeLayer.id);
       } else {
-        setValue('layer', 'None');
+        setValue("layer", "None");
       }
+    }
+
+    // Refresh the region readout when the layer set changes (an atlas is loaded,
+    // removed, or its palette legend is populated) so the slot reflects the
+    // parcel under the current crosshair without waiting for the next move.
+    const unsubscribeLayers = useLayerStore.subscribe(
+      (state) => state.layers,
+      () => {
+        if (isCurrentInit()) {
+          const worldMm =
+            useViewStateStore.getState().viewState.crosshair.world_mm;
+          this.updateRegion(worldMm);
+        }
+      },
+    );
+    this.unsubscribers.push(unsubscribeLayers);
+
+    // Seed the region slot from the current crosshair.
+    if (isCurrentInit()) {
+      this.updateRegion(initialCrosshair.world_mm);
     }
 
     // Subscribe to mouse coordinate changes from Zustand store
     const unsubscribeMouseCoord = useMouseCoordinateStore.subscribe(
-      state => state.worldCoordinates,
-      worldCoordinates => {
+      (state) => state.worldCoordinates,
+      (worldCoordinates) => {
         if (isCurrentInit()) {
           if (worldCoordinates) {
             this.updateMousePosition(worldCoordinates);
           } else {
-            setValue('mouse', '--');
+            setValue("mouse", "--");
           }
         }
-      }
+      },
     );
     this.unsubscribers.push(unsubscribeMouseCoord);
-    
+
     // Note: We still need EventBus for legacy events, but mouse coordinates now use Zustand
     const eventBus = getEventBus();
     let atlasSeverity: AtlasSeverity = undefined;
 
-    const updateAtlasSlot = (stats: AtlasStats, severity: AtlasSeverity = atlasSeverity) => {
+    const updateAtlasSlot = (
+      stats: AtlasStats,
+      severity: AtlasSeverity = atlasSeverity,
+    ) => {
       atlasSeverity = severity;
-      setValue('atlas', formatAtlasSummary(stats, severity));
+      setValue("atlas", formatAtlasSummary(stats, severity));
     };
 
-    const unsubscribeAtlasMetrics = eventBus.on('atlas.metrics', ({ stats }) => {
-      if (isCurrentInit()) {
-        updateAtlasSlot(stats);
-      }
-    });
+    const unsubscribeAtlasMetrics = eventBus.on(
+      "atlas.metrics",
+      ({ stats }) => {
+        if (isCurrentInit()) {
+          updateAtlasSlot(stats);
+        }
+      },
+    );
     this.unsubscribers.push(unsubscribeAtlasMetrics);
 
-    const unsubscribeAtlasPressure = eventBus.on('atlas.pressure', ({ stats, level }) => {
-      if (isCurrentInit()) {
-        updateAtlasSlot(stats, level);
-      }
-    });
+    const unsubscribeAtlasPressure = eventBus.on(
+      "atlas.pressure",
+      ({ stats, level }) => {
+        if (isCurrentInit()) {
+          updateAtlasSlot(stats, level);
+        }
+      },
+    );
     this.unsubscribers.push(unsubscribeAtlasPressure);
 
-    const unsubscribeAtlasEviction = eventBus.on('atlas.eviction', ({ stats }) => {
-      if (isCurrentInit() && stats) {
-        updateAtlasSlot(stats, 'warning');
-      }
-    });
+    const unsubscribeAtlasEviction = eventBus.on(
+      "atlas.eviction",
+      ({ stats }) => {
+        if (isCurrentInit() && stats) {
+          updateAtlasSlot(stats, "warning");
+        }
+      },
+    );
     this.unsubscribers.push(unsubscribeAtlasEviction);
 
     // Subscribe to FPS updates with throttling
-    const unsubscribeFps = eventBus.on('render.fps', (data: any) => {
+    const unsubscribeFps = eventBus.on("render.fps", (data: any) => {
       if (data.fps !== undefined && isCurrentInit()) {
         this.updateFPS(data.fps);
       }
@@ -202,14 +276,18 @@ export class StatusBarService {
     this.unsubscribers.push(unsubscribeFps);
 
     // Subscribe to GPU status
-    const unsubscribeGpu = eventBus.on('gpu.status', (data: any) => {
+    const unsubscribeGpu = eventBus.on("gpu.status", (data: any) => {
       if (data.status && isCurrentInit()) {
-        setValue('gpu', data.status);
+        setValue("gpu", data.status);
       }
     });
     this.unsubscribers.push(unsubscribeGpu);
 
-    console.log('[StatusBarService] Initialized with', this.unsubscribers.length, 'subscriptions');
+    console.log(
+      "[StatusBarService] Initialized with",
+      this.unsubscribers.length,
+      "subscriptions",
+    );
   }
 
   /**
@@ -220,18 +298,19 @@ export class StatusBarService {
     this.updateMousePosition?.cancel?.();
     this.updateFPS?.cancel?.();
     this.updateCrosshair?.cancel?.();
-    
-    this.unsubscribers.forEach(unsubscribe => {
+    this.updateRegion?.cancel?.();
+
+    this.unsubscribers.forEach((unsubscribe) => {
       try {
         unsubscribe();
       } catch (error) {
-        console.error('[StatusBarService] Error during cleanup:', error);
+        console.error("[StatusBarService] Error during cleanup:", error);
       }
     });
     this.unsubscribers = [];
     this.isInitialized = false;
     this.initializationId = null;
-    console.log('[StatusBarService] Cleaned up');
+    console.log("[StatusBarService] Cleaned up");
   }
 
   /**

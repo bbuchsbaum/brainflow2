@@ -16,6 +16,7 @@ import type {
   StudioSavedRecipeSummary,
   StudioSelection,
   StudioDesignFilter,
+  StudioDiscoveryRolePattern,
   TsvColumnMapping,
   TsvWizardState,
   TsvWizardStep,
@@ -75,6 +76,14 @@ interface SetStudioStoreState {
   setManifestPath: (path: string) => void;
   setDiscoveryRoot: (root: string) => void;
   setFilePattern: (pattern: string) => void;
+  setDiscoveryMaxDepth: (value: string) => void;
+  setDiscoveryMaxFiles: (value: string) => void;
+  setDiscoverySampleHeaders: (enabled: boolean) => void;
+  setDiscoveryRolePattern: (role: string, patterns: string[]) => void;
+  setDiscoveryRoleRequired: (role: string, required: boolean) => void;
+  setDiscoveryCustomRole: (role: string) => void;
+  addDiscoveryRole: (role: string) => void;
+  removeDiscoveryRole: (role: string) => void;
   setTsvPath: (path: string) => void;
   parseTsvContent: (content: string) => void;
   setTsvColumnMapping: (mapping: Partial<TsvColumnMapping>) => void;
@@ -445,6 +454,40 @@ const DEFAULT_TSV_WIZARD: TsvWizardState = {
   parseError: null,
 };
 
+const DEFAULT_DISCOVERY_FILE_PATTERN = String.raw`(?P<subject>[^/]+)/maps/(?P<role>beta|tstat|se|pvalue|statmap)\.nii(\.gz)?$`;
+
+const DEFAULT_DISCOVERY_ROLE_PATTERNS: StudioDiscoveryRolePattern[] = [
+  { role: 'beta', patterns: ['beta', 'cope', 'effect'] },
+  { role: 'tstat', patterns: ['tstat', 't', 'tmap'] },
+  { role: 'se', patterns: ['se', 'stderr', 'standard_error'] },
+  { role: 'pvalue', patterns: ['pvalue', 'pval', 'p'] },
+  { role: 'statmap', patterns: ['statmap', 'zstat', 'zmap'] },
+];
+
+const DEFAULT_DISCOVERY_REQUIRED_ROLES = ['tstat'];
+
+function sameStringList(a: string[], b: string[]): boolean {
+  return a.length === b.length && a.every((value, index) => value === b[index]);
+}
+
+function normalizeRole(value: string): string {
+  return value.trim().toLowerCase().replace(/[^a-z0-9_-]+/g, '_').replace(/^_+|_+$/g, '');
+}
+
+function normalizePatterns(patterns: string[]): string[] {
+  const seen = new Set<string>();
+  const normalized: string[] = [];
+  for (const rawPattern of patterns) {
+    const pattern = rawPattern.trim();
+    if (!pattern || seen.has(pattern)) {
+      continue;
+    }
+    seen.add(pattern);
+    normalized.push(pattern);
+  }
+  return normalized;
+}
+
 /** Auto-detect well-known column names for file path and subject ID. */
 function autoDetectTsvColumns(headers: string[]): TsvColumnMapping {
   const normalizedHeaders = headers.map((header) => normalizeImportHeader(header));
@@ -739,7 +782,13 @@ export const useSetStudioStore = create<SetStudioStoreState>((set, get) => ({
     source: null,
     manifestPath: '/data/studyA/studyA.neurotabs.yaml',
     discoveryRoot: '.',
-    filePattern: String.raw`.*_statmap\.nii(\.gz)?$`,
+    filePattern: DEFAULT_DISCOVERY_FILE_PATTERN,
+    discoveryMaxDepth: '4',
+    discoveryMaxFiles: '500',
+    discoverySampleHeaders: true,
+    discoveryRequiredRoles: DEFAULT_DISCOVERY_REQUIRED_ROLES,
+    discoveryRolePatterns: DEFAULT_DISCOVERY_ROLE_PATTERNS,
+    discoveryCustomRole: '',
     tsvWizard: DEFAULT_TSV_WIZARD,
   },
   selection: DEFAULT_SELECTION,
@@ -987,6 +1036,12 @@ export const useSetStudioStore = create<SetStudioStoreState>((set, get) => ({
         manifestPath: importDialog.manifestPath,
         discoveryRoot: importDialog.discoveryRoot,
         filePattern: importDialog.filePattern,
+        discoveryMaxDepth: importDialog.discoveryMaxDepth,
+        discoveryMaxFiles: importDialog.discoveryMaxFiles,
+        discoverySampleHeaders: importDialog.discoverySampleHeaders,
+        discoveryRequiredRoles: importDialog.discoveryRequiredRoles,
+        discoveryRolePatterns: importDialog.discoveryRolePatterns,
+        discoveryCustomRole: importDialog.discoveryCustomRole,
         tsvWizard: importDialog.tsvWizard,
       },
     });
@@ -1023,6 +1078,12 @@ export const useSetStudioStore = create<SetStudioStoreState>((set, get) => ({
         manifestPath: importDialog.manifestPath,
         discoveryRoot: importDialog.discoveryRoot,
         filePattern: importDialog.filePattern,
+        discoveryMaxDepth: importDialog.discoveryMaxDepth,
+        discoveryMaxFiles: importDialog.discoveryMaxFiles,
+        discoverySampleHeaders: importDialog.discoverySampleHeaders,
+        discoveryRequiredRoles: importDialog.discoveryRequiredRoles,
+        discoveryRolePatterns: importDialog.discoveryRolePatterns,
+        discoveryCustomRole: importDialog.discoveryCustomRole,
       },
     });
   },
@@ -1048,6 +1109,12 @@ export const useSetStudioStore = create<SetStudioStoreState>((set, get) => ({
         manifestPath: importDialog.manifestPath,
         discoveryRoot: importDialog.discoveryRoot,
         filePattern: importDialog.filePattern,
+        discoveryMaxDepth: importDialog.discoveryMaxDepth,
+        discoveryMaxFiles: importDialog.discoveryMaxFiles,
+        discoverySampleHeaders: importDialog.discoverySampleHeaders,
+        discoveryRequiredRoles: importDialog.discoveryRequiredRoles,
+        discoveryRolePatterns: importDialog.discoveryRolePatterns,
+        discoveryCustomRole: importDialog.discoveryCustomRole,
       },
     });
   },
@@ -1089,6 +1156,12 @@ export const useSetStudioStore = create<SetStudioStoreState>((set, get) => ({
         manifestPath: importDialog.manifestPath,
         discoveryRoot: importDialog.discoveryRoot,
         filePattern: importDialog.filePattern,
+        discoveryMaxDepth: importDialog.discoveryMaxDepth,
+        discoveryMaxFiles: importDialog.discoveryMaxFiles,
+        discoverySampleHeaders: importDialog.discoverySampleHeaders,
+        discoveryRequiredRoles: importDialog.discoveryRequiredRoles,
+        discoveryRolePatterns: importDialog.discoveryRolePatterns,
+        discoveryCustomRole: importDialog.discoveryCustomRole,
       },
     });
   },
@@ -1154,7 +1227,7 @@ export const useSetStudioStore = create<SetStudioStoreState>((set, get) => ({
         compareCohortId: candidate.set.savedCohortIds[0] ?? null,
         activeExpressionId: preferredExpressionId,
       },
-      materialization: candidate.materialization,
+      materialization: candidate.materialization ?? undefined,
     });
 
     set({
@@ -1203,6 +1276,167 @@ export const useSetStudioStore = create<SetStudioStoreState>((set, get) => ({
       importDialog: {
         ...importDialog,
         filePattern: pattern,
+      },
+    });
+  },
+
+  setDiscoveryMaxDepth: (value) => {
+    const { importDialog } = get();
+    if (importDialog.discoveryMaxDepth === value) {
+      return;
+    }
+
+    set({
+      importDialog: {
+        ...importDialog,
+        discoveryMaxDepth: value,
+      },
+    });
+  },
+
+  setDiscoveryMaxFiles: (value) => {
+    const { importDialog } = get();
+    if (importDialog.discoveryMaxFiles === value) {
+      return;
+    }
+
+    set({
+      importDialog: {
+        ...importDialog,
+        discoveryMaxFiles: value,
+      },
+    });
+  },
+
+  setDiscoverySampleHeaders: (enabled) => {
+    const { importDialog } = get();
+    if (importDialog.discoverySampleHeaders === enabled) {
+      return;
+    }
+
+    set({
+      importDialog: {
+        ...importDialog,
+        discoverySampleHeaders: enabled,
+      },
+    });
+  },
+
+  setDiscoveryRolePattern: (role, patterns) => {
+    const normalizedRole = normalizeRole(role);
+    if (!normalizedRole) {
+      return;
+    }
+    const normalizedPatterns = normalizePatterns(patterns);
+    const { importDialog } = get();
+    const existing = importDialog.discoveryRolePatterns.find(
+      (entry) => entry.role === normalizedRole
+    );
+    if (existing && sameStringList(existing.patterns, normalizedPatterns)) {
+      return;
+    }
+    const nextPatterns = existing
+      ? importDialog.discoveryRolePatterns.map((entry) =>
+          entry.role === normalizedRole ? { ...entry, patterns: normalizedPatterns } : entry
+        )
+      : [...importDialog.discoveryRolePatterns, { role: normalizedRole, patterns: normalizedPatterns }];
+
+    set({
+      importDialog: {
+        ...importDialog,
+        discoveryRolePatterns: nextPatterns,
+      },
+    });
+  },
+
+  setDiscoveryRoleRequired: (role, required) => {
+    const normalizedRole = normalizeRole(role);
+    if (!normalizedRole) {
+      return;
+    }
+    const { importDialog } = get();
+    const requiredSet = new Set(importDialog.discoveryRequiredRoles);
+    const wasRequired = requiredSet.has(normalizedRole);
+    if (wasRequired === required) {
+      return;
+    }
+    if (required) {
+      requiredSet.add(normalizedRole);
+    } else {
+      requiredSet.delete(normalizedRole);
+    }
+    const discoveryRequiredRoles = Array.from(requiredSet);
+
+    set({
+      importDialog: {
+        ...importDialog,
+        discoveryRequiredRoles,
+      },
+    });
+  },
+
+  setDiscoveryCustomRole: (role) => {
+    const { importDialog } = get();
+    if (importDialog.discoveryCustomRole === role) {
+      return;
+    }
+
+    set({
+      importDialog: {
+        ...importDialog,
+        discoveryCustomRole: role,
+      },
+    });
+  },
+
+  addDiscoveryRole: (role) => {
+    const normalizedRole = normalizeRole(role);
+    if (!normalizedRole) {
+      return;
+    }
+    const { importDialog } = get();
+    if (importDialog.discoveryRolePatterns.some((entry) => entry.role === normalizedRole)) {
+      set({
+        importDialog: {
+          ...importDialog,
+          discoveryCustomRole: '',
+        },
+      });
+      return;
+    }
+
+    set({
+      importDialog: {
+        ...importDialog,
+        discoveryRolePatterns: [
+          ...importDialog.discoveryRolePatterns,
+          { role: normalizedRole, patterns: [normalizedRole] },
+        ],
+        discoveryRequiredRoles: [...importDialog.discoveryRequiredRoles, normalizedRole],
+        discoveryCustomRole: '',
+      },
+    });
+  },
+
+  removeDiscoveryRole: (role) => {
+    const normalizedRole = normalizeRole(role);
+    if (!normalizedRole) {
+      return;
+    }
+    const { importDialog } = get();
+    if (!importDialog.discoveryRolePatterns.some((entry) => entry.role === normalizedRole)) {
+      return;
+    }
+
+    set({
+      importDialog: {
+        ...importDialog,
+        discoveryRolePatterns: importDialog.discoveryRolePatterns.filter(
+          (entry) => entry.role !== normalizedRole
+        ),
+        discoveryRequiredRoles: importDialog.discoveryRequiredRoles.filter(
+          (entry) => entry !== normalizedRole
+        ),
       },
     });
   },

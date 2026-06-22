@@ -42,20 +42,16 @@ pub struct TextureManager {
 impl TextureManager {
     /// Create a new texture manager
     pub fn new(device: &Device) -> Self {
-        // Check if device supports float32-filterable
-        let supports_float32_filterable = device
-            .features()
-            .contains(wgpu::Features::FLOAT32_FILTERABLE);
-
-        // Create appropriate sampler based on feature support
-        let filter_mode = if supports_float32_filterable {
-            wgpu::FilterMode::Linear
-        } else {
-            println!(
-                "WARNING: Using nearest neighbor sampling for volume textures because FLOAT32_FILTERABLE is not supported"
-            );
-            wgpu::FilterMode::Nearest
-        };
+        // Volume textures in the active world-space path are R16Float
+        // (MultiTextureManager), which is linearly filterable on EVERY device.
+        // FLOAT32_FILTERABLE is only required to linearly filter *R32Float*
+        // textures, which the active path does not use. The previous blanket
+        // downgrade to Nearest whenever that feature was absent (common on
+        // Apple Silicon / Metal) forced every volume to render blocky even
+        // though R16Float never needed the feature — a long-standing
+        // interpolation bug. Always use Linear; R16Float filtering is
+        // universally supported.
+        let filter_mode = wgpu::FilterMode::Linear;
 
         // Create linear sampler for volume data
         let linear_sampler = device.create_sampler(&wgpu::SamplerDescriptor {

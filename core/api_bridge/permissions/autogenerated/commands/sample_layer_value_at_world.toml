@@ -11,4 +11,3 @@ commands.allow = ["sample_layer_value_at_world"]
 identifier = "deny-sample-layer-value-at-world"
 description = "Denies the sample_layer_value_at_world command without any pre-configured scope."
 commands.deny = ["sample_layer_value_at_world"]
-

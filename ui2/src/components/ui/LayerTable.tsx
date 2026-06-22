@@ -1,11 +1,17 @@
-import React, { useRef, useEffect, useState, useCallback } from 'react';
-import type { Layer } from '@/types/layers';
-import { VscEye, VscEyeClosed } from 'react-icons/vsc';
-import { GripVertical, Info, MoreHorizontal, Trash2 } from 'lucide-react';
-import { LayerTypeIcon } from './LayerTypeIcon';
-import { cn } from '@/utils/cn';
-import { Tooltip } from './Tooltip';
-import { DropdownMenu } from './DropdownMenu';
+import React, { useRef, useEffect, useState, useCallback } from "react";
+import type { Layer } from "@/types/layers";
+import { VscEye, VscEyeClosed } from "react-icons/vsc";
+import {
+  Brain,
+  GripVertical,
+  Info,
+  MoreHorizontal,
+  Trash2,
+} from "lucide-react";
+import { LayerTypeIcon } from "./LayerTypeIcon";
+import { cn } from "@/utils/cn";
+import { Tooltip } from "./Tooltip";
+import { DropdownMenu } from "./DropdownMenu";
 import {
   DndContext,
   PointerSensor,
@@ -13,15 +19,15 @@ import {
   useSensor,
   useSensors,
   closestCenter,
-} from '@dnd-kit/core';
-import type { DragEndEvent } from '@dnd-kit/core';
+} from "@dnd-kit/core";
+import type { DragEndEvent } from "@dnd-kit/core";
 import {
   SortableContext,
   verticalListSortingStrategy,
   useSortable,
   arrayMove,
   sortableKeyboardCoordinates,
-} from '@dnd-kit/sortable';
+} from "@dnd-kit/sortable";
 
 interface LayerTableProps {
   layers: Layer[];
@@ -32,6 +38,10 @@ interface LayerTableProps {
   onReorder?: (newLayers: Layer[]) => void;
   onOpacityChange?: (layerId: string, opacity: number) => void;
   onRemove?: (layerId: string) => void;
+  /** Project this volume layer onto a loaded surface (Integrated workspace). */
+  onViewOnSurface?: (layerId: string) => void;
+  /** Whether a surface is loaded; gates the "View on surface" action. */
+  canViewOnSurface?: boolean;
   // Function to get visibility state from opacity (single source of truth)
   getLayerVisibility?: (layerId: string) => boolean;
   getLayerOpacity?: (layerId: string) => number;
@@ -39,7 +49,7 @@ interface LayerTableProps {
 
 type LayerWithMeta = Layer & {
   source?: string;
-  layerType?: 'volume' | 'surface' | 'vol2surf';
+  layerType?: "volume" | "surface" | "vol2surf";
   opacity?: number;
   loading?: boolean;
   error?: string;
@@ -48,7 +58,7 @@ type LayerWithMeta = Layer & {
 function toLabelCase(value: string): string {
   if (!value) return value;
   return value
-    .replace(/[_-]+/g, ' ')
+    .replace(/[_-]+/g, " ")
     .replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
@@ -56,7 +66,7 @@ function getLayerKindLabel(layer: LayerWithMeta): string {
   if (layer.layerType) {
     return toLabelCase(layer.layerType);
   }
-  return toLabelCase(layer.type ?? 'layer');
+  return toLabelCase(layer.type ?? "layer");
 }
 
 function getSourceLabel(layer: LayerWithMeta): string | null {
@@ -65,20 +75,25 @@ function getSourceLabel(layer: LayerWithMeta): string | null {
 }
 
 // Component to handle layer name with tooltip on truncation
-const LayerNameWithTooltip: React.FC<{ name: string; isSelected: boolean }> = ({ name, isSelected }) => {
+const LayerNameWithTooltip: React.FC<{ name: string; isSelected: boolean }> = ({
+  name,
+  isSelected,
+}) => {
   const [isTruncated, setIsTruncated] = useState(false);
   const textRef = useRef<HTMLSpanElement>(null);
 
   useEffect(() => {
     const checkTruncation = () => {
       if (textRef.current) {
-        setIsTruncated(textRef.current.scrollWidth > textRef.current.clientWidth);
+        setIsTruncated(
+          textRef.current.scrollWidth > textRef.current.clientWidth,
+        );
       }
     };
 
     checkTruncation();
-    window.addEventListener('resize', checkTruncation);
-    return () => window.removeEventListener('resize', checkTruncation);
+    window.addEventListener("resize", checkTruncation);
+    return () => window.removeEventListener("resize", checkTruncation);
   }, [name]);
 
   const content = (
@@ -86,7 +101,7 @@ const LayerNameWithTooltip: React.FC<{ name: string; isSelected: boolean }> = ({
       ref={textRef}
       className={cn(
         "min-w-0 flex-1 truncate text-[13px] font-medium",
-        isSelected ? "text-accent" : "text-foreground"
+        isSelected ? "text-accent" : "text-foreground",
       )}
     >
       {name}
@@ -115,6 +130,8 @@ interface SortableLayerRowProps {
   onOpacityChange: (opacity: number) => void;
   onShowMetadata?: () => void;
   onRemove?: () => void;
+  onViewOnSurface?: () => void;
+  canViewOnSurface?: boolean;
 }
 
 const SortableLayerRow: React.FC<SortableLayerRowProps> = ({
@@ -127,6 +144,8 @@ const SortableLayerRow: React.FC<SortableLayerRowProps> = ({
   onOpacityChange,
   onShowMetadata,
   onRemove,
+  onViewOnSurface,
+  canViewOnSurface,
 }) => {
   const {
     attributes,
@@ -144,7 +163,7 @@ const SortableLayerRow: React.FC<SortableLayerRowProps> = ({
       : undefined,
     transition,
     opacity: isDragging ? 0.5 : 1,
-    position: 'relative',
+    position: "relative",
     zIndex: isDragging ? 10 : undefined,
   };
   const layerKindLabel = getLayerKindLabel(layer);
@@ -162,7 +181,7 @@ const SortableLayerRow: React.FC<SortableLayerRowProps> = ({
         isSelected
           ? "border-l-accent bg-muted/40"
           : "border-l-transparent hover:border-l-border",
-        !isVisible && "opacity-70"
+        !isVisible && "opacity-70",
       )}
       onClick={onSelect}
     >
@@ -220,13 +239,16 @@ const SortableLayerRow: React.FC<SortableLayerRowProps> = ({
               Error
             </span>
           )}
-          <div className="flex shrink-0 items-center ml-auto" onClick={(e) => e.stopPropagation()}>
+          <div
+            className="flex shrink-0 items-center ml-auto"
+            onClick={(e) => e.stopPropagation()}
+          >
             {onRemove && (
               <button
                 className={cn(
                   "icon-btn",
                   "rounded-md transition-colors",
-                  "hover:bg-destructive/20 active:bg-destructive/30"
+                  "hover:bg-destructive/20 active:bg-destructive/30",
                 )}
                 onClick={(e) => {
                   e.stopPropagation();
@@ -250,14 +272,21 @@ const SortableLayerRow: React.FC<SortableLayerRowProps> = ({
               }
               items={[
                 {
-                  id: 'metadata',
-                  label: 'View metadata',
+                  id: "metadata",
+                  label: "View metadata",
                   icon: <Info className="h-3.5 w-3.5" />,
                   onClick: onShowMetadata,
                 },
                 {
-                  id: 'remove',
-                  label: 'Remove layer',
+                  id: "view-on-surface",
+                  label: "View on surface",
+                  icon: <Brain className="h-3.5 w-3.5" />,
+                  disabled: !onViewOnSurface || !canViewOnSurface,
+                  onClick: onViewOnSurface,
+                },
+                {
+                  id: "remove",
+                  label: "Remove layer",
                   icon: <Trash2 className="h-3.5 w-3.5" />,
                   danger: true,
                   disabled: !onRemove,
@@ -275,7 +304,9 @@ const SortableLayerRow: React.FC<SortableLayerRowProps> = ({
           {sourceLabel && (
             <span className="truncate">Source: {sourceLabel}</span>
           )}
-          <span className="ml-auto shrink-0 tabular-nums">{Math.round(opacity * 100)}%</span>
+          <span className="ml-auto shrink-0 tabular-nums">
+            {Math.round(opacity * 100)}%
+          </span>
         </div>
       </div>
     </div>
@@ -291,6 +322,8 @@ export const LayerTable: React.FC<LayerTableProps> = ({
   onReorder,
   onOpacityChange,
   onRemove,
+  onViewOnSurface,
+  canViewOnSurface,
   getLayerVisibility,
   getLayerOpacity,
 }) => {
@@ -302,64 +335,72 @@ export const LayerTable: React.FC<LayerTableProps> = ({
     }),
     useSensor(KeyboardSensor, {
       coordinateGetter: sortableKeyboardCoordinates,
-    })
+    }),
   );
 
-  const handleDragEnd = useCallback((event: DragEndEvent) => {
-    const { active, over } = event;
-    if (!over || active.id === over.id) return;
+  const handleDragEnd = useCallback(
+    (event: DragEndEvent) => {
+      const { active, over } = event;
+      if (!over || active.id === over.id) return;
 
-    const oldIndex = layers.findIndex(l => l.id === active.id);
-    const newIndex = layers.findIndex(l => l.id === over.id);
-    if (oldIndex === -1 || newIndex === -1) return;
+      const oldIndex = layers.findIndex((l) => l.id === active.id);
+      const newIndex = layers.findIndex((l) => l.id === over.id);
+      if (oldIndex === -1 || newIndex === -1) return;
 
-    const reordered = arrayMove(layers, oldIndex, newIndex);
-    onReorder?.(reordered);
-  }, [layers, onReorder]);
+      const reordered = arrayMove(layers, oldIndex, newIndex);
+      onReorder?.(reordered);
+    },
+    [layers, onReorder],
+  );
 
-  const handleListKeyDown = useCallback((event: React.KeyboardEvent<HTMLDivElement>) => {
-    const target = event.target as HTMLElement;
-    if (target.tagName === 'INPUT') return;
+  const handleListKeyDown = useCallback(
+    (event: React.KeyboardEvent<HTMLDivElement>) => {
+      const target = event.target as HTMLElement;
+      if (target.tagName === "INPUT") return;
 
-    const currentIndex = layers.findIndex((layer) => layer.id === selectedLayerId);
-    let newIndex = currentIndex;
+      const currentIndex = layers.findIndex(
+        (layer) => layer.id === selectedLayerId,
+      );
+      let newIndex = currentIndex;
 
-    switch (event.key) {
-      case 'ArrowRight':
-      case 'ArrowLeft':
-        // Prevent horizontal scrolling of parent containers while layer list is focused.
-        event.preventDefault();
-        return;
-      case 'ArrowDown':
-        event.preventDefault();
-        newIndex = Math.min(currentIndex + 1, layers.length - 1);
-        break;
-      case 'ArrowUp':
-        event.preventDefault();
-        newIndex = Math.max(currentIndex - 1, 0);
-        break;
-      case 'Enter':
-      case ' ':
-        event.preventDefault();
-        if (currentIndex >= 0) {
-          onToggleVisibility(layers[currentIndex].id);
-        }
-        break;
-      default:
-        return;
-    }
+      switch (event.key) {
+        case "ArrowRight":
+        case "ArrowLeft":
+          // Prevent horizontal scrolling of parent containers while layer list is focused.
+          event.preventDefault();
+          return;
+        case "ArrowDown":
+          event.preventDefault();
+          newIndex = Math.min(currentIndex + 1, layers.length - 1);
+          break;
+        case "ArrowUp":
+          event.preventDefault();
+          newIndex = Math.max(currentIndex - 1, 0);
+          break;
+        case "Enter":
+        case " ":
+          event.preventDefault();
+          if (currentIndex >= 0) {
+            onToggleVisibility(layers[currentIndex].id);
+          }
+          break;
+        default:
+          return;
+      }
 
-    if (newIndex !== currentIndex && newIndex >= 0) {
-      onSelect(layers[newIndex].id);
-    }
-  }, [layers, selectedLayerId, onSelect, onToggleVisibility]);
+      if (newIndex !== currentIndex && newIndex >= 0) {
+        onSelect(layers[newIndex].id);
+      }
+    },
+    [layers, selectedLayerId, onSelect, onToggleVisibility],
+  );
 
   if (layers.length === 0) {
     // VolumeLayerPanel renders a dedicated empty-state component.
     return null;
   }
 
-  const layerIds = layers.map(l => l.id);
+  const layerIds = layers.map((l) => l.id);
 
   return (
     <div className="w-full">
@@ -368,13 +409,18 @@ export const LayerTable: React.FC<LayerTableProps> = ({
         collisionDetection={closestCenter}
         onDragEnd={handleDragEnd}
       >
-        <SortableContext items={layerIds} strategy={verticalListSortingStrategy}>
+        <SortableContext
+          items={layerIds}
+          strategy={verticalListSortingStrategy}
+        >
           <div
             ref={containerRef}
             className="space-y-1"
             role="listbox"
             aria-label="Layer list"
-            aria-activedescendant={selectedLayerId ? `layer-option-${selectedLayerId}` : undefined}
+            aria-activedescendant={
+              selectedLayerId ? `layer-option-${selectedLayerId}` : undefined
+            }
             onKeyDown={handleListKeyDown}
           >
             {layers.map((layer) => {
@@ -385,7 +431,7 @@ export const LayerTable: React.FC<LayerTableProps> = ({
                 : layer.visible;
               const opacity = getLayerOpacity
                 ? getLayerOpacity(layer.id)
-                : layerWithMeta.opacity ?? 1.0;
+                : (layerWithMeta.opacity ?? 1.0);
 
               return (
                 <SortableLayerRow
@@ -396,9 +442,19 @@ export const LayerTable: React.FC<LayerTableProps> = ({
                   opacity={opacity}
                   onSelect={() => onSelect(layer.id)}
                   onToggleVisibility={() => onToggleVisibility(layer.id)}
-                  onOpacityChange={(newOpacity) => onOpacityChange?.(layer.id, newOpacity)}
-                  onShowMetadata={onShowMetadata ? () => onShowMetadata(layer.id) : undefined}
+                  onOpacityChange={(newOpacity) =>
+                    onOpacityChange?.(layer.id, newOpacity)
+                  }
+                  onShowMetadata={
+                    onShowMetadata ? () => onShowMetadata(layer.id) : undefined
+                  }
                   onRemove={onRemove ? () => onRemove(layer.id) : undefined}
+                  onViewOnSurface={
+                    onViewOnSurface
+                      ? () => onViewOnSurface(layer.id)
+                      : undefined
+                  }
+                  canViewOnSurface={canViewOnSurface}
                 />
               );
             })}

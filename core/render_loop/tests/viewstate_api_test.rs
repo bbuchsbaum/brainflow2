@@ -57,6 +57,53 @@ fn test_viewstate_api_basic() {
     });
 }
 
+/// Regression: threshold=None must not suppress the full intensity window.
+#[test]
+fn test_set_viewstate_without_threshold_keeps_layer_visible() {
+    pollster::block_on(async {
+        let volume = create_test_pattern_volume();
+
+        let mut service = RenderLoopService::new()
+            .await
+            .expect("Failed to create render service");
+        service.load_shaders().expect("Failed to load shaders");
+
+        service
+            .register_volume_with_upload(
+                "test-volume".to_string(),
+                &volume,
+                wgpu::TextureFormat::R8Unorm,
+            )
+            .expect("Failed to register volume");
+
+        let state = ViewState::from_basic_params(
+            "test-volume".to_string(),
+            [32.0, 32.0, 12.0],
+            SliceOrientation::Axial,
+            64.0,
+            [256, 256],
+            (0.0, 1.0),
+        );
+        assert!(state.layers[0].threshold.is_none());
+
+        service
+            .set_view_state(&state)
+            .expect("Failed to prepare view state");
+
+        let layer = service
+            .layer_state_manager
+            .get_layer(0)
+            .expect("view state should create one active layer");
+        assert_eq!(layer.intensity_range, (0.0, 1.0));
+        assert_eq!(layer.threshold_mode, ThresholdMode::Range);
+        assert_eq!(
+            layer.threshold_range,
+            (0.0, 0.0),
+            "threshold=None should not hide the loaded intensity window"
+        );
+    });
+}
+
 /// Test multi-resolution layer support
 #[test]
 fn test_viewstate_multi_resolution() {

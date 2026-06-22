@@ -1,13 +1,17 @@
 import type {
   SpatialFieldSetSummary,
   StudioCohortSummary,
-  StudioCompareMaterializeRequest,
   StudioComparePaneSpec,
   StudioFieldExpressionSummary,
   StudioMemberSummary,
+  StudioRoleBindingInput,
 } from '@/types/studio';
 import type { BackendTransport } from '@/services/transport';
 import { getTransport } from '@/services/transport';
+import type {
+  StudioCompareMaterializeRequest,
+  StudioComparePaneSpec as BackendStudioComparePaneSpec,
+} from '@brainflow/api';
 
 const demoTemplateSource = (templateId: string) => `template:${templateId}`;
 
@@ -21,6 +25,109 @@ const DEMO_MATERIALIZED_AT_MS = 0;
 
 function isDemoSourceSet(activeSet: SpatialFieldSetSummary | null): boolean {
   return activeSet?.sourceKind === 'demo';
+}
+
+function materializedAtMsToNumber(value: bigint | number | null): number | null {
+  if (typeof value === 'bigint') {
+    return Number(value);
+  }
+  return value;
+}
+
+function toUiComparePaneSpec(pane: BackendStudioComparePaneSpec): StudioComparePaneSpec {
+  return {
+    ...pane,
+    id: pane.id as StudioComparePaneSpec['id'],
+    binding: pane.binding
+      ? {
+          ...pane.binding,
+          materializedAtMs: materializedAtMsToNumber(pane.binding.materializedAtMs),
+        }
+      : null,
+  };
+}
+
+type MemberBinding = NonNullable<StudioMemberSummary['bindings']>[number];
+
+function selectedRoleForSet(
+  activeSet: SpatialFieldSetSummary | null,
+  activeMember: StudioMemberSummary | null
+): string {
+  return (
+    activeSet?.primaryFeatureId ??
+    activeMember?.bindings?.find((binding) => binding.isPrimary)?.role ??
+    activeMember?.bindings?.[0]?.role ??
+    'statmap'
+  );
+}
+
+function bindingMatchesRole(binding: MemberBinding, role: string): boolean {
+  return binding.role === role || binding.featureId === role;
+}
+
+function sourcePathForRole(member: StudioMemberSummary | null, role: string): string | null {
+  if (!member) {
+    return null;
+  }
+  const binding = member.bindings?.find((entry) => bindingMatchesRole(entry, role));
+  return binding?.sourcePath?.trim() || member.sourcePath?.trim() || null;
+}
+
+function roleBindingInputsForMember(
+  member: StudioMemberSummary,
+  selectedRole: string,
+  activeSet: SpatialFieldSetSummary | null
+): StudioRoleBindingInput[] {
+  const bindings = member.bindings ?? [];
+  const inputs = bindings.map((binding) => ({
+    memberId: member.id,
+    role: binding.role,
+    featureId: binding.featureId ?? null,
+    sourcePath: binding.sourcePath ?? null,
+    supportKind: binding.supportKind,
+    supportLabel: binding.supportLabel ?? null,
+    availability: binding.availability,
+  }));
+  if (!bindings.some((binding) => bindingMatchesRole(binding, selectedRole))) {
+    inputs.push({
+      memberId: member.id,
+      role: selectedRole,
+      featureId: selectedRole,
+      sourcePath: null,
+      supportKind: activeSet?.supportKind ?? 'unknown',
+      supportLabel: activeSet?.supportLabel ?? null,
+      availability: 'unavailable',
+    });
+  }
+  return inputs;
+}
+
+function defaultReducerSpecs(
+  selectedRole: string,
+  activeMember: StudioMemberSummary | null,
+  compareCohort: StudioCohortSummary | null
+): StudioCompareMaterializeRequest['reducerSpecs'] {
+  if (!compareCohort) {
+    return null;
+  }
+  return [
+    {
+      id: `sd-${selectedRole}`,
+      label: `${selectedRole} SD`,
+      kind: 'sd',
+      role: selectedRole,
+      cohortId: compareCohort.id,
+      excludedMemberId: null,
+    },
+    {
+      id: `loo-mean-${selectedRole}`,
+      label: `${selectedRole} leave-one-out mean`,
+      kind: 'leave_one_out_mean',
+      role: selectedRole,
+      cohortId: compareCohort.id,
+      excludedMemberId: activeMember?.id ?? null,
+    },
+  ];
 }
 
 export function buildStudioComparePaneSpecs(args: {
@@ -198,10 +305,11 @@ export class StudioCompareService {
   }): Promise<StudioComparePaneSpec[]> {
     const request = this.buildRequest(args);
     try {
-      return await this.transport.invoke<StudioComparePaneSpec[]>(
+      const panes = await this.transport.invoke<BackendStudioComparePaneSpec[]>(
         'materialize_set_studio_compare_panes',
         { request }
       );
+      return panes.map(toUiComparePaneSpec);
     } catch (error) {
       console.warn('[StudioCompareService] Falling back to local compare-pane builder:', error);
       return buildStudioComparePaneSpecs(args, { syntheticFallback: true });
@@ -222,25 +330,40 @@ export class StudioCompareService {
       activeExpression,
       forceRematerialize = false,
     } = args;
+    const selectedRole = selectedRoleForSet(activeSet, activeMember);
+    const activeMemberSourcePath = sourcePathForRole(activeMember, selectedRole);
+    const cohortMembers =
+      compareCohort && activeSet
+        ? compareCohort.memberIds
+            .map((memberId) =>
+              activeSet.memberSummaries.find((member) => member.id === memberId) ?? null
+            )
+            .filter((member): member is StudioMemberSummary => Boolean(member))
+        : [];
+    const cohortMemberSourcePaths = cohortMembers
+      .map((member) => sourcePathForRole(member, selectedRole)?.trim() ?? '')
+      .filter((path): path is string => path.length > 0);
+    const activeMemberRoleBindings = activeMember
+      ? roleBindingInputsForMember(activeMember, selectedRole, activeSet)
+      : [];
+    const cohortMemberRoleBindings = cohortMembers.flatMap((member) =>
+      roleBindingInputsForMember(member, selectedRole, activeSet)
+    );
     return {
       supportLabel: activeSet?.supportLabel ?? 'Unknown support',
       compareReady: activeSet?.ingestAudit.support.readyForCompare ?? false,
       forceRematerialize,
       activeMemberId: activeMember?.id ?? null,
-      activeMemberSourcePath: activeMember?.sourcePath ?? null,
-      cohortMemberSourcePaths:
-        compareCohort && activeSet
-          ? compareCohort.memberIds
-              .map((memberId) =>
-                activeSet.memberSummaries.find((member) => member.id === memberId)?.sourcePath?.trim() ?? ''
-              )
-              .filter((path): path is string => path.length > 0)
-          : [],
+      activeMemberSourcePath,
+      cohortMemberSourcePaths,
       compareCohortId: compareCohort?.id ?? null,
       compareCohortLabel: compareCohort?.label ?? null,
       compareCohortMemberCount: compareCohort?.memberCount ?? null,
       activeExpressionLabel: activeExpression?.label ?? null,
       activeExpressionRecipe: activeExpression?.recipe ?? null,
+      reducerSpecs: defaultReducerSpecs(selectedRole, activeMember, compareCohort),
+      activeMemberRoleBindings,
+      cohortMemberRoleBindings,
     };
   }
 }

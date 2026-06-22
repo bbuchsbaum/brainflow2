@@ -3,21 +3,26 @@
  * Manages workspace-level view configurations and tab management
  */
 
-import { create } from 'zustand';
-import { persist } from 'zustand/middleware';
-import { immer } from 'zustand/middleware/immer';
-import { enableMapSet } from 'immer';
-import type { LayoutConfig } from 'golden-layout';
+import { create } from "zustand";
+import { persist } from "zustand/middleware";
+import { immer } from "zustand/middleware/immer";
+import { enableMapSet } from "immer";
+import type { LayoutConfig } from "golden-layout";
 
 // Enable Map and Set support in Immer
 enableMapSet();
-import type { 
-  Workspace, 
-  WorkspaceType, 
-  WorkspaceConfig, 
-  PanelState
-} from '@/types/workspace';
-import { getWorkspacePresetById, type WorkspacePresetId } from '@/types/workspacePresets';
+import type {
+  Workspace,
+  WorkspaceType,
+  WorkspaceConfig,
+  PanelState,
+} from "@/types/workspace";
+import {
+  getWorkspacePresetById,
+  type WorkspacePresetId,
+} from "@/types/workspacePresets";
+import { DISPLAY_MODES, type DisplayMode } from "@/types/displayModes";
+import { resolveActiveDisplayMode } from "@/components/ui/displayModeSelector.helpers";
 
 interface CreateWorkspaceOptions {
   title?: string;
@@ -28,43 +33,56 @@ interface WorkspaceStore {
   // State
   workspaces: Map<string, Workspace>;
   activeWorkspaceId: string | null;
-  
+
   // Core workspace operations
   createWorkspace: (
     type: WorkspaceType,
     config?: WorkspaceConfig,
-    options?: CreateWorkspaceOptions
+    options?: CreateWorkspaceOptions,
   ) => Promise<string>;
   applyWorkspacePreset: (presetId: WorkspacePresetId) => Promise<string>;
   getWorkspaceByPreset: (presetId: WorkspacePresetId) => Workspace | null;
   activateWorkspace: (id: string) => void;
+  /**
+   * Reconfigure the *active* workspace's display mode in place (pills set the
+   * mode of the current view tab; tabs remain the view substrate). No-ops when
+   * there is no active workspace, the mode is unmapped, or the active workspace
+   * already resolves to that mode (so an `orthogonal-flexible` workspace stays
+   * flexible when "Orthogonal" is re-clicked). Does NOT change which tab is
+   * active.
+   */
+  setActiveWorkspaceMode: (mode: DisplayMode) => void;
   closeWorkspace: (id: string) => void;
   updateWorkspaceLayout: (id: string, layoutConfig: LayoutConfig) => void;
-  
+
   // Panel management
-  updatePanelState: (workspaceId: string, panelId: string, state: Partial<PanelState>) => void;
+  updatePanelState: (
+    workspaceId: string,
+    panelId: string,
+    state: Partial<PanelState>,
+  ) => void;
   recoverPanel: (workspaceId: string, panelId: string) => void;
-  
+
   // State queries
   getActiveWorkspace: () => Workspace | null;
   getWorkspace: (id: string) => Workspace | null;
   getRecoverablePanels: (workspaceId: string) => PanelState[];
   canRecoverPanel: (panelId: string) => boolean;
-  
+
   // Utility
   generateWorkspaceTitle: (type: WorkspaceType) => string;
 }
 
 // Counter for generating unique titles
 const workspaceCounter: Record<WorkspaceType, number> = {
-  'orthogonal-locked': 0,
-  'orthogonal-flexible': 0,
-  'mosaic': 0,
-  'comparison': 0,
-  'integrated': 0,
-  'set-studio': 0,
-  'bids-explorer': 0,
-  'analysis-workbench': 0,
+  "orthogonal-locked": 0,
+  "orthogonal-flexible": 0,
+  mosaic: 0,
+  comparison: 0,
+  integrated: 0,
+  "set-studio": 0,
+  "bids-explorer": 0,
+  "analysis-workbench": 0,
 };
 
 /**
@@ -93,7 +111,7 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
     immer((set, get) => ({
       workspaces: new Map(),
       activeWorkspaceId: null,
-      
+
       createWorkspace: async (type, config, options) => {
         if (options?.presetId) {
           const presetWorkspace = get().getWorkspaceByPreset(options.presetId);
@@ -104,65 +122,70 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
         }
 
         // Check if this is a singleton workspace
-        const { WORKSPACE_METADATA } = await import('@/types/workspace');
+        const { WORKSPACE_METADATA } = await import("@/types/workspace");
         const metadata = WORKSPACE_METADATA[type];
-        
+
         if (metadata?.singleton) {
           // Check if instance already exists
-          const existing = Array.from(get().workspaces.values()).find(w => w.type === type);
+          const existing = Array.from(get().workspaces.values()).find(
+            (w) => w.type === type,
+          );
           if (existing) {
             // Just activate the existing instance
             get().activateWorkspace(existing.id);
             return existing.id;
           }
         }
-        
+
         const timestamp = Date.now();
         const id = `${type}-${timestamp}`;
         const title = options?.title ?? get().generateWorkspaceTitle(type);
-        
+
         // Import ViewRegistry dynamically to avoid circular dependencies
-        const { ViewRegistry } = await import('@/services/ViewRegistry');
-        
+        const { ViewRegistry } = await import("@/services/ViewRegistry");
+
         // Create layout config using ViewRegistry
         let layoutConfig: LayoutConfig;
         try {
           layoutConfig = ViewRegistry.createLayout(type, config);
         } catch (error) {
-          console.error(`[WorkspaceStore] Failed to create layout for ${type}:`, error);
+          console.error(
+            `[WorkspaceStore] Failed to create layout for ${type}:`,
+            error,
+          );
           // Fallback to a simple layout
           layoutConfig = {
             root: {
-              type: 'component',
-              componentType: 'EmptyView',
+              type: "component",
+              componentType: "EmptyView",
               title,
-              componentState: {}
-            }
+              componentState: {},
+            },
           };
         }
-        
+
         // Create panel states Map
         const panelStates = new Map();
-        
+
         // Initialize panel states for the orthogonal panels workspace
-        if (type === 'orthogonal-flexible') {
-          panelStates.set('axial', {
-            id: 'axial',
-            type: 'FlexibleSlicePanel',
-            isVisible: true
+        if (type === "orthogonal-flexible") {
+          panelStates.set("axial", {
+            id: "axial",
+            type: "FlexibleSlicePanel",
+            isVisible: true,
           });
-          panelStates.set('sagittal', {
-            id: 'sagittal',
-            type: 'FlexibleSlicePanel',
-            isVisible: true
+          panelStates.set("sagittal", {
+            id: "sagittal",
+            type: "FlexibleSlicePanel",
+            isVisible: true,
           });
-          panelStates.set('coronal', {
-            id: 'coronal',
-            type: 'FlexibleSlicePanel',
-            isVisible: true
+          panelStates.set("coronal", {
+            id: "coronal",
+            type: "FlexibleSlicePanel",
+            isVisible: true,
           });
         }
-        
+
         const workspace: Workspace = {
           id,
           type,
@@ -171,9 +194,9 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
           timestamp,
           isActive: false,
           layoutConfig,
-          panelStates
+          panelStates,
         };
-        
+
         const currentState = get();
         const nextWorkspaces = new Map(currentState.workspaces);
 
@@ -190,32 +213,38 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
           workspaces: nextWorkspaces,
           activeWorkspaceId: id,
         });
-        
+
         console.log(`[WorkspaceStore] Created workspace: ${id} (${title})`);
         return id;
       },
 
       applyWorkspacePreset: async (presetId) => {
         const preset = getWorkspacePresetById(presetId);
-        return get().createWorkspace(preset.workspaceType, preset.workspaceConfig, {
-          title: preset.label,
-          presetId,
-        });
+        return get().createWorkspace(
+          preset.workspaceType,
+          preset.workspaceConfig,
+          {
+            title: preset.label,
+            presetId,
+          },
+        );
       },
 
       getWorkspaceByPreset: (presetId) => {
         return (
           Array.from(get().workspaces.values()).find(
-            workspace => workspace.presetId === presetId
+            (workspace) => workspace.presetId === presetId,
           ) ?? null
         );
       },
-      
+
       activateWorkspace: (id) => {
         const currentState = get();
         const workspace = currentState.workspaces.get(id);
         if (!workspace) {
-          console.warn(`[WorkspaceStore] Cannot activate non-existent workspace: ${id}`);
+          console.warn(
+            `[WorkspaceStore] Cannot activate non-existent workspace: ${id}`,
+          );
           return;
         }
 
@@ -235,7 +264,41 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
 
         console.log(`[WorkspaceStore] Activated workspace: ${id}`);
       },
-      
+
+      setActiveWorkspaceMode: (mode) => {
+        const nextType = DISPLAY_MODES[mode]?.defaultWorkspaceType;
+        if (!nextType) return; // unmapped display mode (e.g. surface)
+
+        const currentState = get();
+        const id = currentState.activeWorkspaceId;
+        if (!id) return;
+
+        const workspace = currentState.workspaces.get(id);
+        if (!workspace) return;
+
+        // Already in this display mode → no-op. Resolve via display mode (not
+        // exact type) so re-clicking "Orthogonal" keeps an orthogonal-flexible
+        // workspace flexible instead of snapping it to orthogonal-locked.
+        if (resolveActiveDisplayMode(workspace.type) === mode) return;
+
+        // Reconfiguring a view's mode in place dissociates it from any preset it
+        // was launched from: a "Read" workspace turned into Mosaic is no longer
+        // the Read preset. Clearing presetId keeps the Workspace menu a launcher
+        // (re-picking Read opens a fresh orthogonal view rather than reactivating
+        // this now-Mosaic tab via getWorkspaceByPreset, which matches on presetId).
+        const nextWorkspaces = new Map(currentState.workspaces);
+        nextWorkspaces.set(id, {
+          ...workspace,
+          type: nextType,
+          presetId: null,
+        });
+        set({ workspaces: nextWorkspaces });
+
+        console.log(
+          `[WorkspaceStore] Set active workspace ${id} mode → ${mode} (${nextType})`,
+        );
+      },
+
       closeWorkspace: (id) => {
         const currentState = get();
         if (!currentState.workspaces.has(id)) return;
@@ -262,7 +325,7 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
 
         console.log(`[WorkspaceStore] Closed workspace: ${id}`);
       },
-      
+
       updateWorkspaceLayout: (id, layoutConfig) => {
         const currentState = get();
         const workspace = currentState.workspaces.get(id);
@@ -275,7 +338,7 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
         set({ workspaces: nextWorkspaces });
         console.log(`[WorkspaceStore] Updated layout for workspace: ${id}`);
       },
-      
+
       updatePanelState: (workspaceId, panelId, updates) => {
         const currentState = get();
         const workspace = currentState.workspaces.get(workspaceId);
@@ -288,9 +351,9 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
         } else {
           nextPanelStates.set(panelId, {
             id: panelId,
-            type: 'unknown',
+            type: "unknown",
             isVisible: true,
-            ...updates
+            ...updates,
           });
         }
 
@@ -301,70 +364,80 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
         });
         set({ workspaces: nextWorkspaces });
 
-        console.log(`[WorkspaceStore] Updated panel state: ${panelId} in workspace ${workspaceId}`);
+        console.log(
+          `[WorkspaceStore] Updated panel state: ${panelId} in workspace ${workspaceId}`,
+        );
       },
-      
+
       recoverPanel: (workspaceId, panelId) => {
         const workspace = get().workspaces.get(workspaceId);
         if (!workspace) return;
-        
+
         const panelState = workspace.panelStates.get(panelId);
         if (!panelState || panelState.isVisible) return;
-        
+
         // Mark panel as visible
         get().updatePanelState(workspaceId, panelId, { isVisible: true });
-        
+
         // Note: Actual Golden Layout manipulation will be handled by the component
         console.log(`[WorkspaceStore] Marked panel for recovery: ${panelId}`);
       },
-      
+
       getActiveWorkspace: () => {
         const state = get();
-        return state.activeWorkspaceId 
-          ? state.workspaces.get(state.activeWorkspaceId) || null 
+        return state.activeWorkspaceId
+          ? state.workspaces.get(state.activeWorkspaceId) || null
           : null;
       },
-      
+
       getWorkspace: (id) => {
         return get().workspaces.get(id) || null;
       },
-      
+
       getRecoverablePanels: (workspaceId) => {
         const workspace = get().workspaces.get(workspaceId);
         if (!workspace) return [];
-        
-        return Array.from(workspace.panelStates.values())
-          .filter(panel => !panel.isVisible);
+
+        return Array.from(workspace.panelStates.values()).filter(
+          (panel) => !panel.isVisible,
+        );
       },
-      
+
       canRecoverPanel: (panelId) => {
         const activeWorkspace = get().getActiveWorkspace();
         if (!activeWorkspace) return false;
-        
+
         const panelState = activeWorkspace.panelStates.get(panelId);
         return panelState ? !panelState.isVisible : false;
       },
-      
+
       generateWorkspaceTitle: (type) => {
         workspaceCounter[type] = (workspaceCounter[type] || 0) + 1;
-        
+
+        // The pill-reachable view types (orthogonal / mosaic / comparison /
+        // integrated) share a neutral "View" base name: the top-bar mode pills
+        // now own "what mode", so a tab titled "Mosaic View" under a MOSAIC
+        // pill is exactly the duplication we're removing. A neutral tab answers
+        // "which view" instead. Non-pill workspaces reached via the Workspace
+        // menu keep their descriptive names — they are distinct destinations,
+        // not modes.
         const baseNames: Record<WorkspaceType, string> = {
-          'orthogonal-locked': 'Orthogonal View',
-          'orthogonal-flexible': 'Orthogonal Panels',
-          'mosaic': 'Mosaic View',
-          'comparison': 'Comparison View',
-          'integrated': 'Integrated Workspace',
-          'set-studio': 'Set Studio',
-          'bids-explorer': 'BIDS Explorer',
-          'analysis-workbench': 'Analysis Workbench',
+          "orthogonal-locked": "View",
+          "orthogonal-flexible": "View",
+          mosaic: "View",
+          comparison: "View",
+          integrated: "View",
+          "set-studio": "Set Studio",
+          "bids-explorer": "BIDS Explorer",
+          "analysis-workbench": "Analysis Workbench",
         };
-        
+
         const count = workspaceCounter[type];
         return count === 1 ? baseNames[type] : `${baseNames[type]} ${count}`;
-      }
+      },
     })),
     {
-      name: 'brainflow2-workspace',
+      name: "brainflow2-workspace",
       version: WORKSPACE_PERSIST_VERSION,
       /**
        * Versioned migrate guard (AC#4). Earlier sessions ran with no version
@@ -382,7 +455,10 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
             activeWorkspaceId: null,
           };
         }
-        return persistedState as { workspaces: Map<string, Workspace>; activeWorkspaceId: string | null };
+        return persistedState as {
+          workspaces: Map<string, Workspace>;
+          activeWorkspaceId: string | null;
+        };
       },
       // Custom serialization for Map
       storage: {
@@ -400,14 +476,14 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
             // untouched. Returning null is the documented signal for "use
             // initial state" — same effect the legacy startup wipe gave,
             // but only on stale shapes rather than every reload.
-            if (typeof data?.version !== 'number') return null;
+            if (typeof data?.version !== "number") return null;
 
             // Validate and restore workspaces Map
             if (data.state && data.state.workspaces) {
               // Ensure workspaces is an array before converting to Map
               if (Array.isArray(data.state.workspaces)) {
                 data.state.workspaces = new Map(data.state.workspaces);
-                
+
                 // Restore Map for each workspace's panelStates
                 data.state.workspaces.forEach((workspace: Workspace) => {
                   if (Array.isArray(workspace.panelStates)) {
@@ -418,14 +494,19 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
                 });
               } else {
                 // If workspaces is not in expected format, reset to empty Map
-                console.warn('[WorkspaceStore] Invalid workspaces format in storage, resetting');
+                console.warn(
+                  "[WorkspaceStore] Invalid workspaces format in storage, resetting",
+                );
                 data.state.workspaces = new Map();
               }
             }
-            
+
             return data;
           } catch (error) {
-            console.error('[WorkspaceStore] Failed to load from storage:', error);
+            console.error(
+              "[WorkspaceStore] Failed to load from storage:",
+              error,
+            );
             // Return null to use default state
             return null;
           }
@@ -439,18 +520,18 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
             } & Record<string, unknown>;
             const serializableData: Record<string, unknown> = { ...data };
             if (data.state.workspaces instanceof Map) {
-              const serializedWorkspaces = Array.from(data.state.workspaces.entries()).map(
-                ([id, workspace]) => [
-                  id,
-                  {
-                    ...workspace,
-                    panelStates:
-                      workspace.panelStates instanceof Map
-                        ? Array.from(workspace.panelStates.entries())
-                        : [],
-                  },
-                ]
-              );
+              const serializedWorkspaces = Array.from(
+                data.state.workspaces.entries(),
+              ).map(([id, workspace]) => [
+                id,
+                {
+                  ...workspace,
+                  panelStates:
+                    workspace.panelStates instanceof Map
+                      ? Array.from(workspace.panelStates.entries())
+                      : [],
+                },
+              ]);
               serializableData.state = {
                 ...data.state,
                 workspaces: serializedWorkspaces,
@@ -458,11 +539,11 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
             }
             localStorage.setItem(name, JSON.stringify(serializableData));
           } catch (error) {
-            console.error('[WorkspaceStore] Failed to save to storage:', error);
+            console.error("[WorkspaceStore] Failed to save to storage:", error);
           }
         },
-        removeItem: (name) => localStorage.removeItem(name)
-      }
-    }
-  )
+        removeItem: (name) => localStorage.removeItem(name),
+      },
+    },
+  ),
 );

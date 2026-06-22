@@ -1,0 +1,22 @@
+import type { StudioDiscoveryRolePattern } from "./StudioDiscoveryRolePattern";
+import type { StudioImportMode } from "./StudioImportMode";
+export type StudioImportPreviewRequest = {
+    mode: StudioImportMode;
+    manifestPath: string | null;
+    discoveryRoot: string | null;
+    filePattern: string | null;
+    tableSourceLabel: string | null;
+    tableHeaders: Array<string> | null;
+    tableRows: Array<Array<string>> | null;
+    tableFilePathColumn: string | null;
+    tableSubjectIdColumn: string | null;
+    tableExcludedColumns: Array<string> | null;
+    discoveryMaxDepth?: number | null;
+    discoveryMaxFiles?: number | null;
+    discoveryIncludePatterns?: Array<string> | null;
+    discoveryExcludePatterns?: Array<string> | null;
+    discoveryRequiredRoles?: Array<string> | null;
+    discoveryRolePatterns?: Array<StudioDiscoveryRolePattern> | null;
+    discoveryDryRun?: boolean | null;
+    discoverySampleHeaders?: boolean | null;
+};
