@@ -6,11 +6,12 @@
  *     `BottomWorkbenchDock` last reported via `onSizesChange`.
  *   - `bottomDockLogCollapsed` — last log-collapse affordance state.
  *   - `bottomDockPlotMaximized` — last plot-maximize affordance state.
- *   - `plotDockOpen` — whether the shared center-workspace plot dock
- *     (`PlotDock`, mounted via `CenterWithPlotDock` in the standard imaging
- *     workspaces) is expanded. Defaults closed so slice images keep full
- *     height until the user opts in ("activatable").
- *   - `plotDockHeight` — last dragged height (px) of that dock pane, restored
+ *   - `bottomDockOpen` — whether the shared center-workspace bottom dock
+ *     (`BottomWorkbenchDock` — Activity | Plot | Log — mounted via
+ *     `CenterWithBottomDock` for every imaging mode) is shown. Defaults open
+ *     so the analysis panels are available in all modes, not just Integrated;
+ *     the `p` key / dock close button hides it.
+ *   - `bottomDockHeight` — last dragged height (px) of that dock pane, restored
  *     on the next open.
  *   - `goldenLayoutState` — serialized GoldenLayout root config from
  *     `goldenLayout.saveLayout()`. Restored on subsequent mounts so column
@@ -33,11 +34,45 @@
 import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
 
-import type { DockSizes } from "@/components/layout/bottomWorkbenchDock.constants";
+import type {
+  DockSizes,
+  DockTabId,
+} from "@/components/layout/bottomWorkbenchDock.constants";
 import type { WorkspaceType } from "@/types/workspace";
 
 const LAYOUT_SETTINGS_PERSIST_NAME = "brainflow2-layout-settings";
-const LAYOUT_SETTINGS_PERSIST_VERSION = 1;
+// v2: the plot-only dock (`plotDock*`) became the shell-wide Activity|Plot|Log
+// dock (`bottomDock*`), open by default in all imaging modes.
+const LAYOUT_SETTINGS_PERSIST_VERSION = 2;
+
+/**
+ * Migrate persisted layout settings to the current version. v1 stored
+ * `plotDockOpen` / `plotDockHeight` for the opt-in plot dock. v2 renames these
+ * to `bottomDockOpen` / `bottomDockHeight`: the saved height is carried over,
+ * but the open flag intentionally resets to the new default (open everywhere),
+ * since the dock's meaning changed from "opt-in plot pane" to "shell dock".
+ */
+export function migrateLayoutSettings(
+  persisted: unknown,
+  version: number,
+): Record<string, unknown> {
+  const state = (
+    persisted && typeof persisted === "object"
+      ? { ...(persisted as Record<string, unknown>) }
+      : {}
+  ) as Record<string, unknown>;
+  if (version < 2) {
+    if (
+      state.bottomDockHeight == null &&
+      typeof state.plotDockHeight === "number"
+    ) {
+      state.bottomDockHeight = state.plotDockHeight;
+    }
+    delete state.plotDockOpen;
+    delete state.plotDockHeight;
+  }
+  return state;
+}
 
 /**
  * Loose type for the GoldenLayout state — we treat it as opaque JSON so we
@@ -46,21 +81,47 @@ const LAYOUT_SETTINGS_PERSIST_VERSION = 1;
  */
 export type GoldenLayoutSavedState = Record<string, unknown>;
 
+/**
+ * Arrangement of the three orthogonal slices (axial/sagittal/coronal) in the
+ * flexible orthogonal workspace:
+ *   - `grid`   — axial on top spanning full width, sagittal | coronal below.
+ *   - `row`    — a horizontal row of three.
+ *   - `column` — a vertical column of three.
+ */
+export type OrthoArrangement = "grid" | "row" | "column";
+
+/**
+ * Orientation of the Integrated workspace's volume/surface split:
+ *   - `horizontal` — volumes | surface side-by-side.
+ *   - `vertical`   — volumes on top, surface below.
+ */
+export type IntegratedSplit = "horizontal" | "vertical";
+
 export interface LayoutSettingsStore {
   bottomDockSizes: DockSizes | null;
   bottomDockLogCollapsed: boolean;
   bottomDockPlotMaximized: boolean;
-  plotDockOpen: boolean;
-  plotDockHeight: number | null;
+  /** Active tab of the tabbed bottom dock (`Activity | Plot | Log`). */
+  bottomDockActiveTab: DockTabId | null;
+  /** Whether the shell bottom dock is shown (default open in all imaging modes). */
+  bottomDockOpen: boolean;
+  bottomDockHeight: number | null;
+  /** Arrangement of the three orthogonal slices (flexible ortho + integrated). */
+  orthoArrangement: OrthoArrangement;
+  /** Orientation of the Integrated volume/surface split. */
+  integratedSplit: IntegratedSplit;
   goldenLayoutState: GoldenLayoutSavedState | null;
   integratedDefaultDisplayMode: WorkspaceType | null;
 
   setBottomDockSizes: (sizes: DockSizes) => void;
   setBottomDockLogCollapsed: (collapsed: boolean) => void;
   setBottomDockPlotMaximized: (maximized: boolean) => void;
-  setPlotDockOpen: (open: boolean) => void;
-  togglePlotDock: () => void;
-  setPlotDockHeight: (height: number) => void;
+  setBottomDockActiveTab: (tab: DockTabId) => void;
+  setBottomDockOpen: (open: boolean) => void;
+  toggleBottomDock: () => void;
+  setBottomDockHeight: (height: number) => void;
+  setOrthoArrangement: (arrangement: OrthoArrangement) => void;
+  setIntegratedSplit: (split: IntegratedSplit) => void;
   setGoldenLayoutState: (state: GoldenLayoutSavedState | null) => void;
   setIntegratedDefaultDisplayMode: (mode: WorkspaceType | null) => void;
 
@@ -78,8 +139,11 @@ const INITIAL_STATE = {
   bottomDockSizes: null,
   bottomDockLogCollapsed: false,
   bottomDockPlotMaximized: false,
-  plotDockOpen: false,
-  plotDockHeight: null,
+  bottomDockActiveTab: null,
+  bottomDockOpen: true,
+  bottomDockHeight: null,
+  orthoArrangement: "grid",
+  integratedSplit: "horizontal",
   goldenLayoutState: null,
   integratedDefaultDisplayMode: null,
 } as const;
@@ -117,21 +181,42 @@ const createLayoutSettingsStore = () =>
               : { bottomDockPlotMaximized: maximized },
           );
         },
-        setPlotDockOpen: (open) => {
+        setBottomDockActiveTab: (tab) => {
           set((state) =>
-            state.plotDockOpen === open ? state : { plotDockOpen: open },
+            state.bottomDockActiveTab === tab
+              ? state
+              : { bottomDockActiveTab: tab },
           );
         },
-        togglePlotDock: () => {
-          set((state) => ({ plotDockOpen: !state.plotDockOpen }));
+        setBottomDockOpen: (open) => {
+          set((state) =>
+            state.bottomDockOpen === open ? state : { bottomDockOpen: open },
+          );
         },
-        setPlotDockHeight: (height) => {
+        toggleBottomDock: () => {
+          set((state) => ({ bottomDockOpen: !state.bottomDockOpen }));
+        },
+        setBottomDockHeight: (height) => {
           set((state) => {
             const next = Math.round(height);
-            return state.plotDockHeight === next
+            return state.bottomDockHeight === next
               ? state
-              : { plotDockHeight: next };
+              : { bottomDockHeight: next };
           });
+        },
+        setOrthoArrangement: (arrangement) => {
+          set((state) =>
+            state.orthoArrangement === arrangement
+              ? state
+              : { orthoArrangement: arrangement },
+          );
+        },
+        setIntegratedSplit: (split) => {
+          set((state) =>
+            state.integratedSplit === split
+              ? state
+              : { integratedSplit: split },
+          );
         },
         setGoldenLayoutState: (next) => {
           set({ goldenLayoutState: next });
@@ -150,13 +235,18 @@ const createLayoutSettingsStore = () =>
       {
         name: LAYOUT_SETTINGS_PERSIST_NAME,
         version: LAYOUT_SETTINGS_PERSIST_VERSION,
+        migrate: (persisted, version) =>
+          migrateLayoutSettings(persisted, version) as LayoutSettingsStore,
         storage: createJSONStorage(() => localStorage),
         partialize: (state) => ({
           bottomDockSizes: state.bottomDockSizes,
           bottomDockLogCollapsed: state.bottomDockLogCollapsed,
           bottomDockPlotMaximized: state.bottomDockPlotMaximized,
-          plotDockOpen: state.plotDockOpen,
-          plotDockHeight: state.plotDockHeight,
+          bottomDockActiveTab: state.bottomDockActiveTab,
+          bottomDockOpen: state.bottomDockOpen,
+          bottomDockHeight: state.bottomDockHeight,
+          orthoArrangement: state.orthoArrangement,
+          integratedSplit: state.integratedSplit,
           goldenLayoutState: state.goldenLayoutState,
           integratedDefaultDisplayMode: state.integratedDefaultDisplayMode,
         }),

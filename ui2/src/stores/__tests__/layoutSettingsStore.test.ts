@@ -10,7 +10,10 @@
 
 import { describe, expect, it, beforeEach } from "vitest";
 
-import { useLayoutSettingsStore } from "../layoutSettingsStore";
+import {
+  migrateLayoutSettings,
+  useLayoutSettingsStore,
+} from "../layoutSettingsStore";
 
 const STORAGE_KEY = "brainflow2-layout-settings";
 
@@ -25,41 +28,97 @@ describe("layoutSettingsStore", () => {
     useLayoutSettingsStore.getState().resetLayoutSettings();
   });
 
-  it("starts with all defaults nulled / falsey", () => {
+  it("starts with the bottom dock open and other defaults nulled / falsey", () => {
     const state = useLayoutSettingsStore.getState();
     expect(state.bottomDockSizes).toBeNull();
     expect(state.bottomDockLogCollapsed).toBe(false);
     expect(state.bottomDockPlotMaximized).toBe(false);
-    expect(state.plotDockOpen).toBe(false);
-    expect(state.plotDockHeight).toBeNull();
+    // The dock is shell-level and shown by default in all imaging modes.
+    expect(state.bottomDockOpen).toBe(true);
+    expect(state.bottomDockHeight).toBeNull();
+    expect(state.orthoArrangement).toBe("grid");
+    expect(state.integratedSplit).toBe("horizontal");
     expect(state.goldenLayoutState).toBeNull();
     expect(state.integratedDefaultDisplayMode).toBeNull();
   });
 
-  it("opens, toggles, and round-trips the plot dock open flag", () => {
-    useLayoutSettingsStore.getState().setPlotDockOpen(true);
-    expect(useLayoutSettingsStore.getState().plotDockOpen).toBe(true);
-    expect(readPersistedState()?.state).toMatchObject({ plotDockOpen: true });
+  it("sets and round-trips the ortho arrangement and integrated split", () => {
+    useLayoutSettingsStore.getState().setOrthoArrangement("row");
+    useLayoutSettingsStore.getState().setIntegratedSplit("vertical");
 
-    useLayoutSettingsStore.getState().togglePlotDock();
-    expect(useLayoutSettingsStore.getState().plotDockOpen).toBe(false);
-
-    useLayoutSettingsStore.getState().togglePlotDock();
-    expect(useLayoutSettingsStore.getState().plotDockOpen).toBe(true);
+    expect(useLayoutSettingsStore.getState().orthoArrangement).toBe("row");
+    expect(useLayoutSettingsStore.getState().integratedSplit).toBe("vertical");
+    expect(readPersistedState()?.state).toMatchObject({
+      orthoArrangement: "row",
+      integratedSplit: "vertical",
+    });
   });
 
-  it("no-ops setPlotDockOpen when the value is unchanged", () => {
-    const setter = useLayoutSettingsStore.getState().setPlotDockOpen;
-    setter(true);
+  it("no-ops the arrangement setters when unchanged (referentially stable)", () => {
+    useLayoutSettingsStore.getState().setOrthoArrangement("column");
     const before = useLayoutSettingsStore.getState();
-    setter(true);
+    useLayoutSettingsStore.getState().setOrthoArrangement("column");
     expect(useLayoutSettingsStore.getState()).toBe(before);
   });
 
-  it("rounds and round-trips the plot dock height", () => {
-    useLayoutSettingsStore.getState().setPlotDockHeight(247.6);
-    expect(useLayoutSettingsStore.getState().plotDockHeight).toBe(248);
-    expect(readPersistedState()?.state).toMatchObject({ plotDockHeight: 248 });
+  describe("v1 → v2 migration (plotDock* → bottomDock*)", () => {
+    it("carries over the saved height and drops the old open flag", () => {
+      const migrated = migrateLayoutSettings(
+        {
+          plotDockOpen: false,
+          plotDockHeight: 264,
+          bottomDockActiveTab: "log",
+        },
+        1,
+      );
+      // Saved height is preserved under the new key…
+      expect(migrated.bottomDockHeight).toBe(264);
+      // …the open flag is intentionally dropped (resets to the new default: open)…
+      expect(migrated.plotDockOpen).toBeUndefined();
+      expect(migrated.bottomDockOpen).toBeUndefined();
+      expect(migrated.plotDockHeight).toBeUndefined();
+      // …unrelated keys pass through.
+      expect(migrated.bottomDockActiveTab).toBe("log");
+    });
+
+    it("leaves already-v2 state untouched", () => {
+      const migrated = migrateLayoutSettings(
+        { bottomDockOpen: false, bottomDockHeight: 200 },
+        2,
+      );
+      expect(migrated.bottomDockOpen).toBe(false);
+      expect(migrated.bottomDockHeight).toBe(200);
+    });
+  });
+
+  it("closes, toggles, and round-trips the bottom dock open flag", () => {
+    useLayoutSettingsStore.getState().setBottomDockOpen(false);
+    expect(useLayoutSettingsStore.getState().bottomDockOpen).toBe(false);
+    expect(readPersistedState()?.state).toMatchObject({
+      bottomDockOpen: false,
+    });
+
+    useLayoutSettingsStore.getState().toggleBottomDock();
+    expect(useLayoutSettingsStore.getState().bottomDockOpen).toBe(true);
+
+    useLayoutSettingsStore.getState().toggleBottomDock();
+    expect(useLayoutSettingsStore.getState().bottomDockOpen).toBe(false);
+  });
+
+  it("no-ops setBottomDockOpen when the value is unchanged", () => {
+    const setter = useLayoutSettingsStore.getState().setBottomDockOpen;
+    setter(false);
+    const before = useLayoutSettingsStore.getState();
+    setter(false);
+    expect(useLayoutSettingsStore.getState()).toBe(before);
+  });
+
+  it("rounds and round-trips the bottom dock height", () => {
+    useLayoutSettingsStore.getState().setBottomDockHeight(247.6);
+    expect(useLayoutSettingsStore.getState().bottomDockHeight).toBe(248);
+    expect(readPersistedState()?.state).toMatchObject({
+      bottomDockHeight: 248,
+    });
   });
 
   it("round-trips bottom dock sizes through localStorage", () => {
