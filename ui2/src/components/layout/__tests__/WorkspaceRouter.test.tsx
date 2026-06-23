@@ -89,11 +89,11 @@ vi.mock("@/components/views/IntegratedVolumeSurfaceWorkspace", () => ({
     <div data-testid="route-integrated">integrated</div>
   ),
 }));
-// Transparent stub: the plot-dock wrapper just renders the routed view here,
+// Transparent stub: the bottom-dock wrapper just renders the routed view here,
 // keeping this test focused on routing (the dock has its own tests).
-vi.mock("@/components/layout/CenterWithPlotDock", () => ({
-  CenterWithPlotDock: ({ children }: { children: React.ReactNode }) => (
-    <div data-testid="center-with-plot-dock">{children}</div>
+vi.mock("@/components/layout/CenterWithBottomDock", () => ({
+  CenterWithBottomDock: ({ children }: { children: React.ReactNode }) => (
+    <div data-testid="center-with-bottom-dock">{children}</div>
   ),
 }));
 
@@ -212,18 +212,24 @@ describe("WorkspaceRouter", () => {
     expect(
       screen.queryByTestId("integrated-workspace-flag-disabled"),
     ).toBeNull();
+    // Integrated is now wrapped in the shared bottom dock like every other
+    // imaging mode (it no longer owns its own dock).
+    expect(screen.getByTestId("center-with-bottom-dock")).toBeInTheDocument();
   });
 
-  // All imaging workspaces are wrapped in the shared bottom PlotDock
-  // (CenterWithPlotDock), which gives the view pane a definite-height box via
-  // absolute insets so each view's sizing (orthogonal / mosaic / comparison)
-  // reflows cleanly when the dock resizes. See docs/plans/plot-integration-plan.md.
-  it("wraps the imaging views in the plot dock", () => {
+  // Every imaging workspace — including Integrated — is wrapped in the shared
+  // bottom dock (CenterWithBottomDock), which gives the view pane a
+  // definite-height box via absolute insets so each view's sizing
+  // (orthogonal / mosaic / comparison / integrated) reflows cleanly when the
+  // dock resizes.
+  it("wraps the imaging views in the bottom dock", () => {
+    featureFlagStoreState.integratedWorkspaceV1 = true;
     const cases: Array<{ type: WorkspaceType; testid: string }> = [
       { type: "orthogonal-locked", testid: "route-orthogonal-locked" },
       { type: "orthogonal-flexible", testid: "route-orthogonal-flexible" },
       { type: "mosaic", testid: "route-mosaic" },
       { type: "comparison", testid: "route-comparison" },
+      { type: "integrated", testid: "route-integrated" },
     ];
 
     for (const { type, testid } of cases) {
@@ -232,12 +238,12 @@ describe("WorkspaceRouter", () => {
         <WorkspaceRouter workspaceId={`w-wrap-${type}`} workspaceType={type} />,
       );
       expect(screen.getByTestId(testid)).toBeInTheDocument();
-      expect(screen.getByTestId("center-with-plot-dock")).toBeInTheDocument();
+      expect(screen.getByTestId("center-with-bottom-dock")).toBeInTheDocument();
       unmount();
     }
   });
 
-  it("does NOT wrap non-imaging workspaces in the plot dock", () => {
+  it("does NOT wrap non-imaging workspaces in the bottom dock", () => {
     const cases: Array<{ type: WorkspaceType; testid: string }> = [
       { type: "set-studio", testid: "route-set-studio" },
       { type: "bids-explorer", testid: "route-bids-explorer" },
@@ -249,7 +255,7 @@ describe("WorkspaceRouter", () => {
         <WorkspaceRouter workspaceId={`w-bare-${type}`} workspaceType={type} />,
       );
       expect(screen.getByTestId(testid)).toBeInTheDocument();
-      expect(screen.queryByTestId("center-with-plot-dock")).toBeNull();
+      expect(screen.queryByTestId("center-with-bottom-dock")).toBeNull();
       unmount();
     }
   });

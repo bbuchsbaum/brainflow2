@@ -1,69 +1,13 @@
-import React from 'react';
-import { describe, expect, it, vi } from 'vitest';
-import { act, fireEvent, render, screen } from '@testing-library/react';
+import React from "react";
+import { describe, expect, it, vi } from "vitest";
+import { fireEvent, render, screen } from "@testing-library/react";
 
-const { onChangeRef, defaultSizesRef, paneCallsRef } = vi.hoisted(() => ({
-  onChangeRef: { current: null as null | ((sizes: number[]) => void) },
-  defaultSizesRef: { current: null as null | number[] },
-  paneCallsRef: { current: [] as Array<{ minSize?: number; snap?: boolean }> },
-}));
+import { BottomWorkbenchDock } from "../BottomWorkbenchDock";
+import { DOCK_TABS } from "../bottomWorkbenchDock.constants";
 
-vi.mock('allotment', () => {
-  type AllotmentMockProps = {
-    children: React.ReactNode;
-    defaultSizes?: number[];
-    onChange?: (sizes: number[]) => void;
-  };
-  const Allotment = React.forwardRef<unknown, AllotmentMockProps>(
-    ({ children, defaultSizes, onChange }, ref) => {
-      defaultSizesRef.current = defaultSizes ?? null;
-      onChangeRef.current = onChange ?? null;
-      React.useImperativeHandle(ref, () => ({ resize: vi.fn(), reset: vi.fn() }));
-      return (
-        <div
-          data-testid="allotment-mock"
-          data-default-sizes={JSON.stringify(defaultSizes ?? [])}
-        >
-          {children}
-        </div>
-      );
-    },
-  );
-  Allotment.displayName = 'AllotmentMock';
-
-  type PaneMockProps = {
-    children: React.ReactNode;
-    minSize?: number;
-    snap?: boolean;
-  };
-  const Pane = ({ children, minSize, snap }: PaneMockProps) => {
-    paneCallsRef.current.push({ minSize, snap });
-    return (
-      <div
-        data-testid="allotment-pane"
-        data-minsize={minSize}
-        data-snap={snap ? 'true' : 'false'}
-      >
-        {children}
-      </div>
-    );
-  };
-
-  const AllotmentWithPane = Allotment as typeof Allotment & { Pane: typeof Pane };
-  AllotmentWithPane.Pane = Pane;
-  return { Allotment: AllotmentWithPane, default: AllotmentWithPane };
-});
-
-import { BottomWorkbenchDock } from '../BottomWorkbenchDock';
-import {
-  DEFAULT_DOCK_SIZES,
-  DOCK_COLLAPSED_LOG_WIDTH,
-} from '../bottomWorkbenchDock.constants';
-
-function renderDock(overrides: Partial<React.ComponentProps<typeof BottomWorkbenchDock>> = {}) {
-  paneCallsRef.current = [];
-  defaultSizesRef.current = null;
-  onChangeRef.current = null;
+function renderDock(
+  overrides: Partial<React.ComponentProps<typeof BottomWorkbenchDock>> = {},
+) {
   return render(
     <BottomWorkbenchDock
       plot={<div data-testid="plot-content">plot-content</div>}
@@ -74,127 +18,118 @@ function renderDock(overrides: Partial<React.ComponentProps<typeof BottomWorkben
   );
 }
 
-describe('BottomWorkbenchDock', () => {
-  it('renders three panes with the default 50/30/20 allocation', () => {
+describe("BottomWorkbenchDock", () => {
+  it("renders a single tablist with Activity | Plot | Log in spec order", () => {
     renderDock();
 
-    const panes = screen.getAllByTestId('allotment-pane');
-    expect(panes).toHaveLength(3);
+    const tablist = screen.getByTestId("bottom-dock-tablist");
+    expect(tablist).toHaveAttribute("role", "tablist");
 
-    expect(defaultSizesRef.current).toEqual([...DEFAULT_DOCK_SIZES]);
-    expect(DEFAULT_DOCK_SIZES).toEqual([50, 30, 20]);
-
-    expect(screen.getByTestId('plot-content')).toBeInTheDocument();
-    expect(screen.getByTestId('activity-content')).toBeInTheDocument();
-    expect(screen.getByTestId('log-content')).toBeInTheDocument();
+    const tabs = screen.getAllByRole("tab");
+    expect(tabs.map((t) => t.textContent)).toEqual(["Activity", "Plot", "Log"]);
+    // Sanity: matches the shared constant order.
+    expect(DOCK_TABS.map((t) => t.label)).toEqual(["Activity", "Plot", "Log"]);
   });
 
-  it('forwards a custom defaultSizes tuple to Allotment', () => {
-    renderDock({ defaultSizes: [60, 25, 15] });
-    expect(defaultSizesRef.current).toEqual([60, 25, 15]);
-  });
-
-  it('configures Plot/Activity panes for full-range resize (minSize 0 + snap)', () => {
+  it("defaults to the Plot tab and shows only the active panel full-width", () => {
     renderDock();
-    const [plotPaneCfg, activityPaneCfg, logPaneCfg] = paneCallsRef.current;
 
-    // Plot pane must be drag-resizable from 0% to 100%.
-    expect(plotPaneCfg.minSize).toBe(0);
-    expect(plotPaneCfg.snap).toBe(true);
-
-    // Activity pane mirrors Plot's freedom.
-    expect(activityPaneCfg.minSize).toBe(0);
-    expect(activityPaneCfg.snap).toBe(true);
-
-    // Log pane retains a thin affordance — never drag-disappears entirely.
-    expect(logPaneCfg.minSize).toBe(DOCK_COLLAPSED_LOG_WIDTH);
-  });
-
-  it('exposes splitter sizes to a persistence callback when the user drags', () => {
-    const onSizesChange = vi.fn();
-    renderDock({ onSizesChange });
-
-    expect(onChangeRef.current).toBeTypeOf('function');
-    act(() => {
-      onChangeRef.current?.([400, 300, 100]);
-    });
-
-    expect(onSizesChange).toHaveBeenCalledTimes(1);
-    expect(onSizesChange).toHaveBeenCalledWith([400, 300, 100]);
-  });
-
-  it('toggles plot maximization on click and notifies', () => {
-    const onPlotMaximizedChange = vi.fn();
-    renderDock({ onPlotMaximizedChange });
-
-    const btn = screen.getByTestId('dock-plot-maximize');
-    fireEvent.click(btn);
-    expect(onPlotMaximizedChange).toHaveBeenLastCalledWith(true);
-    expect(screen.getByTestId('bottom-workbench-dock').getAttribute('data-plot-maximized')).toBe(
-      'true',
+    expect(screen.getByTestId("bottom-workbench-dock")).toHaveAttribute(
+      "data-active-tab",
+      "plot",
+    );
+    expect(screen.getByTestId("bottom-dock-tab-plot")).toHaveAttribute(
+      "aria-selected",
+      "true",
     );
 
-    fireEvent.click(btn);
-    expect(onPlotMaximizedChange).toHaveBeenLastCalledWith(false);
-    expect(screen.getByTestId('bottom-workbench-dock').getAttribute('data-plot-maximized')).toBe(
-      'false',
+    // Only the active tab's content is mounted — the dock is one panel at a time.
+    expect(screen.getByTestId("plot-content")).toBeInTheDocument();
+    expect(screen.queryByTestId("activity-content")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("log-content")).not.toBeInTheDocument();
+  });
+
+  it("switches the active panel and notifies on tab click", () => {
+    const onActiveTabChange = vi.fn();
+    renderDock({ onActiveTabChange });
+
+    fireEvent.click(screen.getByTestId("bottom-dock-tab-log"));
+
+    expect(onActiveTabChange).toHaveBeenCalledTimes(1);
+    expect(onActiveTabChange).toHaveBeenCalledWith("log");
+    expect(screen.getByTestId("bottom-workbench-dock")).toHaveAttribute(
+      "data-active-tab",
+      "log",
+    );
+    expect(screen.getByTestId("log-content")).toBeInTheDocument();
+    expect(screen.queryByTestId("plot-content")).not.toBeInTheDocument();
+    expect(screen.getByTestId("bottom-dock-tab-log")).toHaveAttribute(
+      "aria-selected",
+      "true",
     );
   });
 
-  it('collapses the Log pane to the 24px header-only affordance and restores it', () => {
-    const onLogCollapsedChange = vi.fn();
-    renderDock({ onLogCollapsedChange });
+  it("does not re-notify when the already-active tab is clicked", () => {
+    const onActiveTabChange = vi.fn();
+    renderDock({ onActiveTabChange });
 
-    const logPane = screen.getByTestId('dock-log-pane');
-    expect(logPane.getAttribute('data-collapsed')).toBe('false');
-    expect(screen.getByTestId('log-content')).toBeInTheDocument();
-
-    fireEvent.click(screen.getByTestId('dock-log-collapse'));
-    expect(onLogCollapsedChange).toHaveBeenLastCalledWith(true);
-    expect(screen.getByTestId('dock-log-pane').getAttribute('data-collapsed')).toBe('true');
-    // Body content must be hidden so total pane size can shrink to ≤24px.
-    expect(screen.queryByTestId('log-content')).not.toBeInTheDocument();
-
-    fireEvent.click(screen.getByTestId('dock-log-collapse'));
-    expect(onLogCollapsedChange).toHaveBeenLastCalledWith(false);
-    expect(screen.getByTestId('dock-log-pane').getAttribute('data-collapsed')).toBe('false');
-    expect(screen.getByTestId('log-content')).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId("bottom-dock-tab-plot")); // already active
+    expect(onActiveTabChange).not.toHaveBeenCalled();
   });
 
-  it('does not render an Activity|Plot|Log tab strip', () => {
-    const { container } = renderDock();
-    expect(container.querySelector('[role="tablist"]')).toBeNull();
-    expect(container.querySelectorAll('[role="tab"]').length).toBe(0);
-    // GoldenLayout would create .lm_tabs / .lm_tab — this dock must not.
-    expect(container.querySelector('.lm_tabs')).toBeNull();
-    expect(container.querySelectorAll('.lm_tab').length).toBe(0);
+  it("honors a persisted defaultActiveTab", () => {
+    renderDock({ defaultActiveTab: "activity" });
+
+    expect(screen.getByTestId("bottom-workbench-dock")).toHaveAttribute(
+      "data-active-tab",
+      "activity",
+    );
+    expect(screen.getByTestId("activity-content")).toBeInTheDocument();
+    expect(screen.queryByTestId("plot-content")).not.toBeInTheDocument();
   });
 
-  it('plot maximize and log collapse are mutually exclusive states', () => {
-    const onPlot = vi.fn();
-    const onLog = vi.fn();
-    renderDock({ onPlotMaximizedChange: onPlot, onLogCollapsedChange: onLog });
+  it("renders a hide button only when onClose is provided, and fires it", () => {
+    const { unmount } = renderDock();
+    expect(screen.queryByTestId("bottom-dock-close")).toBeNull();
+    unmount();
 
-    fireEvent.click(screen.getByTestId('dock-log-collapse'));
-    expect(screen.getByTestId('bottom-workbench-dock').getAttribute('data-log-collapsed')).toBe(
-      'true',
-    );
-
-    fireEvent.click(screen.getByTestId('dock-plot-maximize'));
-    expect(screen.getByTestId('bottom-workbench-dock').getAttribute('data-plot-maximized')).toBe(
-      'true',
-    );
-    // Maximizing plot should release the log collapse.
-    expect(screen.getByTestId('bottom-workbench-dock').getAttribute('data-log-collapsed')).toBe(
-      'false',
-    );
-    expect(onLog).toHaveBeenLastCalledWith(false);
+    const onClose = vi.fn();
+    renderDock({ onClose });
+    fireEvent.click(screen.getByTestId("bottom-dock-close"));
+    expect(onClose).toHaveBeenCalledTimes(1);
   });
 
-  it('honors defaultPlotMaximized and defaultLogCollapsed initial state', () => {
-    renderDock({ defaultPlotMaximized: true, defaultLogCollapsed: false });
-    expect(screen.getByTestId('bottom-workbench-dock').getAttribute('data-plot-maximized')).toBe(
-      'true',
+  it("reflects an externally controlled activeTab (even after mount)", () => {
+    // Controlled mode: the visible tab follows the `activeTab` prop, so an
+    // external store change (e.g. inspector "Open in dock") switches the tab
+    // while the dock is already mounted.
+    const onActiveTabChange = vi.fn();
+    const { rerender } = render(
+      <BottomWorkbenchDock
+        plot={<div data-testid="plot-content">plot</div>}
+        activity={<div data-testid="activity-content">activity</div>}
+        log={<div data-testid="log-content">log</div>}
+        activeTab="log"
+        onActiveTabChange={onActiveTabChange}
+      />,
     );
+    expect(screen.getByTestId("log-content")).toBeInTheDocument();
+
+    // External change to the controlled prop switches the visible panel.
+    rerender(
+      <BottomWorkbenchDock
+        plot={<div data-testid="plot-content">plot</div>}
+        activity={<div data-testid="activity-content">activity</div>}
+        log={<div data-testid="log-content">log</div>}
+        activeTab="plot"
+        onActiveTabChange={onActiveTabChange}
+      />,
+    );
+    expect(screen.getByTestId("plot-content")).toBeInTheDocument();
+    expect(screen.queryByTestId("log-content")).not.toBeInTheDocument();
+
+    // Clicking a tab in controlled mode notifies the parent (which owns state).
+    fireEvent.click(screen.getByTestId("bottom-dock-tab-activity"));
+    expect(onActiveTabChange).toHaveBeenLastCalledWith("activity");
   });
 });

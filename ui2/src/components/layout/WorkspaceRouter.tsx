@@ -25,7 +25,7 @@ import { ComparisonWorkspace } from "@/components/views/ComparisonWorkspace";
 import { BidsExplorerWorkspace } from "@/components/bids/BidsExplorerWorkspace";
 import { AnalysisWorkbenchWorkspace } from "@/components/analysis/AnalysisWorkbenchWorkspace";
 import { IntegratedVolumeSurfaceWorkspace } from "@/components/views/IntegratedVolumeSurfaceWorkspace";
-import { CenterWithPlotDock } from "@/components/layout/CenterWithPlotDock";
+import { CenterWithBottomDock } from "@/components/layout/CenterWithBottomDock";
 
 export interface WorkspaceRouterProps {
   workspaceId: string;
@@ -61,37 +61,36 @@ export const WorkspaceRouter: React.FC<WorkspaceRouterProps> = ({
   const routeType: WorkspaceType = workspace.type ?? workspaceType;
 
   switch (routeType) {
-    // The imaging workspaces share the collapsible bottom PlotDock, scoped to
-    // the center column via CenterWithPlotDock (which gives the view pane a
-    // definite pixel height via absolute insets, so each view's height:100% +
-    // ResizeObserver sizing — orthogonal, mosaic, comparison — resolves and
-    // reflows cleanly when the dock opens/resizes). The dock's pane-resize also
-    // fed the viewStateStore resize fallback, which left-anchored slices; fixed
-    // there (fallback now uses the volume-bbox dim_px). The integrated
-    // workspace composes its own full BottomWorkbenchDock and is excluded.
+    // Every imaging workspace shares the collapsible bottom dock
+    // (Activity | Plot | Log), scoped to the center column via
+    // CenterWithBottomDock. The wrapper gives the view pane a definite pixel
+    // height via absolute insets, so each view's height:100% + ResizeObserver
+    // sizing — orthogonal, mosaic, comparison, integrated — resolves and
+    // reflows cleanly when the dock opens/resizes. The dock is shell-level, not
+    // Integrated-specific (Design.md §1.5/§1.6/§20).
     case "orthogonal-locked":
       return (
-        <CenterWithPlotDock>
+        <CenterWithBottomDock>
           <OrthogonalViewContainer />
-        </CenterWithPlotDock>
+        </CenterWithBottomDock>
       );
     case "orthogonal-flexible":
       return (
-        <CenterWithPlotDock>
+        <CenterWithBottomDock>
           <OrthogonalPanelsWorkspace />
-        </CenterWithPlotDock>
+        </CenterWithBottomDock>
       );
     case "mosaic":
       return (
-        <CenterWithPlotDock>
+        <CenterWithBottomDock>
           <MosaicViewPromise workspaceId={workspaceId} />
-        </CenterWithPlotDock>
+        </CenterWithBottomDock>
       );
     case "comparison":
       return (
-        <CenterWithPlotDock>
+        <CenterWithBottomDock>
           <ComparisonWorkspace workspaceId={workspaceId} />
-        </CenterWithPlotDock>
+        </CenterWithBottomDock>
       );
     case "integrated":
       if (!integratedWorkspaceEnabled) {
@@ -110,7 +109,11 @@ export const WorkspaceRouter: React.FC<WorkspaceRouterProps> = ({
           </div>
         );
       }
-      return <IntegratedVolumeSurfaceWorkspace />;
+      return (
+        <CenterWithBottomDock>
+          <IntegratedVolumeSurfaceWorkspace />
+        </CenterWithBottomDock>
+      );
     case "set-studio":
       return <SetStudioWorkspace />;
     case "bids-explorer":

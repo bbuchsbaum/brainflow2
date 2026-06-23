@@ -1,10 +1,9 @@
 /**
  * DataSection "Open in dock" affordance.
  *
- * Clicking the link reveals the shared plot dock
- * (`layoutSettingsStore.plotDockOpen`) and targets the inspected layer
- * (`layerStore.selectLayer`) so the dock plots it. Mode resolution is left to
- * the dock's auto policy, so this asserts only the open + selection effects.
+ * Clicking the link reveals the shared bottom dock
+ * (`layoutSettingsStore.bottomDockOpen`), switches it to the Plot tab, and
+ * targets the inspected layer (`layerStore.selectLayer`) so the dock plots it.
  */
 
 import { describe, expect, it, beforeEach } from "vitest";
@@ -36,13 +35,15 @@ describe("DataSection · Open in dock", () => {
     useLayerStore.getState().selectLayer(null);
   });
 
-  it("opens the plot dock and selects the inspected layer on click", () => {
-    expect(useLayoutSettingsStore.getState().plotDockOpen).toBe(false);
+  it("opens the bottom dock on the Plot tab and selects the inspected layer on click", () => {
+    // Start from a closed dock so the open effect is observable.
+    useLayoutSettingsStore.getState().setBottomDockOpen(false);
 
     render(<DataSection item={volumeItem("layer-42")} />);
     fireEvent.click(screen.getByTestId("open-in-dock"));
 
-    expect(useLayoutSettingsStore.getState().plotDockOpen).toBe(true);
+    expect(useLayoutSettingsStore.getState().bottomDockOpen).toBe(true);
+    expect(useLayoutSettingsStore.getState().bottomDockActiveTab).toBe("plot");
     expect(useLayerStore.getState().selectedLayerId).toBe("layer-42");
   });
 

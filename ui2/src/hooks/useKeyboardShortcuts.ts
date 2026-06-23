@@ -156,14 +156,14 @@ export function useKeyboardShortcuts() {
         id: "plot.toggleDock",
         key: "p",
         category: PLOT_SHORTCUT_CATEGORY,
-        description: "Show/hide the plot dock",
+        description: "Show/hide the bottom dock",
         handler: () => {
           const settings = useLayoutSettingsStore.getState();
-          const willOpen = !settings.plotDockOpen;
-          settings.togglePlotDock();
+          const willOpen = !settings.bottomDockOpen;
+          settings.toggleBottomDock();
           getEventBus().emit("ui.notification", {
             type: "info",
-            message: willOpen ? "Plot dock shown" : "Plot dock hidden",
+            message: willOpen ? "Bottom dock shown" : "Bottom dock hidden",
             durationMs: 1000,
           });
         },

@@ -17,16 +17,20 @@ interface DataSectionProps {
  * auto policy.
  */
 function useOpenLayerInDock() {
-  const setPlotDockOpen = useLayoutSettingsStore((s) => s.setPlotDockOpen);
+  const setBottomDockOpen = useLayoutSettingsStore((s) => s.setBottomDockOpen);
+  const setBottomDockActiveTab = useLayoutSettingsStore(
+    (s) => s.setBottomDockActiveTab,
+  );
   const selectLayer = useLayerStore((s) => s.selectLayer);
   return React.useCallback(
     (item: SceneItem) => {
       if (item.ref.type === "volume") {
         selectLayer(item.ref.layerId);
       }
-      setPlotDockOpen(true);
+      setBottomDockActiveTab("plot");
+      setBottomDockOpen(true);
     },
-    [setPlotDockOpen, selectLayer],
+    [setBottomDockOpen, setBottomDockActiveTab, selectLayer],
   );
 }
 
