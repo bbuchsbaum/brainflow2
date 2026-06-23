@@ -236,7 +236,10 @@ const createLayoutSettingsStore = () =>
         name: LAYOUT_SETTINGS_PERSIST_NAME,
         version: LAYOUT_SETTINGS_PERSIST_VERSION,
         migrate: (persisted, version) =>
-          migrateLayoutSettings(persisted, version) as LayoutSettingsStore,
+          migrateLayoutSettings(
+            persisted,
+            version,
+          ) as unknown as LayoutSettingsStore,
         storage: createJSONStorage(() => localStorage),
         partialize: (state) => ({
           bottomDockSizes: state.bottomDockSizes,
