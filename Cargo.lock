@@ -2965,8 +2965,6 @@ dependencies = [
  "flate2",
  "indexmap 2.9.0",
  "log",
- "memmap2",
- "ndarray 0.16.1",
  "quick-xml 0.31.0",
  "serde",
  "serde_json",

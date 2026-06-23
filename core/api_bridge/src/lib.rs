@@ -11147,23 +11147,23 @@ async fn load_surface_template(
         }
     };
 
-    // Use the global surface template manager to load the surface
-    let manager = neuroatlas::surface::templates::global_surface_manager();
-
-    let surface = manager
-        .get_surface(density, hemisphere, surface_type)
-        .await
-        .map_err(|e| BridgeError::Internal {
-            code: 7033,
-            // Template surfaces are downloaded from TemplateFlow on first use and
-            // cached locally (~/.cache/templateflow); they are not bundled. Make
-            // the failure actionable rather than a bare backend error (vol2surf M7).
-            details: format!(
-                "Failed to load surface template: {e}. Template surfaces are downloaded \
+    // Load the surface via the global manager. `get_surface_template` locks the
+    // manager for the (cached) download, so concurrent left/right loads
+    // serialize safely instead of aliasing the shared cache.
+    let surface =
+        neuroatlas::surface::templates::get_surface_template(density, hemisphere, surface_type)
+            .await
+            .map_err(|e| BridgeError::Internal {
+                code: 7033,
+                // Template surfaces are downloaded from TemplateFlow on first use and
+                // cached locally (~/.cache/templateflow); they are not bundled. Make
+                // the failure actionable rather than a bare backend error (vol2surf M7).
+                details: format!(
+                    "Failed to load surface template: {e}. Template surfaces are downloaded \
                  from TemplateFlow on first use (network required) and cached locally; \
                  if this is the first load, check your internet connection."
-            ),
-        })?;
+                ),
+            })?;
 
     let vertex_count = surface.vertex_count();
     let face_count = surface.face_count();
