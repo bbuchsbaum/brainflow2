@@ -14,10 +14,8 @@
  * continue to work behind it (pointer-events on the inner card only).
  */
 
-import React, { useCallback } from "react";
-import { Brain, Link, Link2Off, Plus } from "lucide-react";
-
-import { getSurfaceLoadingService } from "@/services/SurfaceLoadingService";
+import React from "react";
+import { Brain, Link, Link2Off } from "lucide-react";
 
 import { useSurfaceAssociationState } from "./surfaceAssociation.helpers";
 
@@ -49,62 +47,15 @@ const CARD_BASE_STYLE: React.CSSProperties = {
   maxWidth: "320px",
 };
 
-const CTA_BUTTON_STYLE: React.CSSProperties = {
-  appearance: "none",
-  display: "inline-flex",
-  alignItems: "center",
-  gap: "4px",
-  padding: "0 6px",
-  height: "20px",
-  background: "rgba(47, 128, 255, 0.18)",
-  border: "1px solid rgba(47, 128, 255, 0.55)",
-  borderRadius: "2px",
-  color: "var(--app-text-primary)",
-  cursor: "pointer",
-  fontSize: "var(--app-role-section-size)",
-  letterSpacing: "var(--app-role-section-tracking)",
-  textTransform: "uppercase",
-};
-
 export const SurfaceAssociationBadge: React.FC = () => {
   const association = useSurfaceAssociationState();
 
-  const handleLoadSurface = useCallback(() => {
-    void getSurfaceLoadingService()
-      .requestSurfaceFileSelection()
-      .catch((error) => {
-        console.error(
-          "[SurfaceAssociationBadge] Failed to open surface picker:",
-          error,
-        );
-      });
-  }, []);
-
+  // No surface loaded: defer to the SurfaceViewPanel empty-state, which owns the
+  // single "Load surface" invitation. Rendering a second load CTA here would
+  // duplicate a control in the same region (Design.md §22: no duplicate control
+  // surfaces). The badge speaks only to the association of a *loaded* surface.
   if (association.kind === "missing") {
-    return (
-      <div style={ABS_OVERLAY_STYLE}>
-        <div
-          data-testid="surface-association-badge"
-          data-state="missing"
-          style={{
-            ...CARD_BASE_STYLE,
-            color: "var(--app-text-muted)",
-          }}
-        >
-          <Brain width={12} height={12} aria-hidden="true" />
-          <span>No surface</span>
-          <button
-            type="button"
-            data-testid="surface-association-load"
-            onClick={handleLoadSurface}
-            style={CTA_BUTTON_STYLE}
-          >
-            <Plus width={11} height={11} aria-hidden="true" />
-            Load surface
-          </button>
-        </div>
-      </div>
-    );
+    return null;
   }
 
   if (association.kind === "loaded-unlinked") {

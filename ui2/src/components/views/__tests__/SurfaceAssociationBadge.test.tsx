@@ -110,12 +110,13 @@ describe("SurfaceAssociationBadge", () => {
     resetStores();
   });
 
-  it("renders the missing state with a Load surface CTA when no surface is loaded", () => {
+  it("renders nothing when no surface is loaded (SurfaceViewPanel owns the load CTA)", () => {
     render(<SurfaceAssociationBadge />);
 
-    const badge = screen.getByTestId("surface-association-badge");
-    expect(badge.getAttribute("data-state")).toBe("missing");
-    expect(screen.getByTestId("surface-association-load")).toBeInTheDocument();
+    // The badge defers its missing-state to the SurfaceViewPanel empty-state to
+    // avoid a duplicate "Load surface" control in the same region (Design.md §22).
+    expect(screen.queryByTestId("surface-association-badge")).toBeNull();
+    expect(screen.queryByTestId("surface-association-load")).toBeNull();
   });
 
   it('renders the loaded-unlinked state with reason="no-source-id" when the surface has no source volume', () => {
@@ -190,14 +191,11 @@ describe("SurfaceAssociationBadge", () => {
     );
   });
 
-  it("reactively transitions missing → loaded-unlinked → loaded-linked", () => {
+  it("reactively transitions absent → loaded-unlinked → loaded-linked", () => {
     render(<SurfaceAssociationBadge />);
 
-    expect(
-      screen
-        .getByTestId("surface-association-badge")
-        .getAttribute("data-state"),
-    ).toBe("missing");
+    // No surface → badge is absent (panel empty-state owns the invitation).
+    expect(screen.queryByTestId("surface-association-badge")).toBeNull();
 
     seedSurfaces([{ id: "surf-1", name: "lh.pial" }], "surf-1");
 
