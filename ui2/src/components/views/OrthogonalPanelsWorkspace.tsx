@@ -1,107 +1,75 @@
 /**
- * OrthogonalPanelsWorkspace Component
- * Displays three linked anatomical views (axial, sagittal, coronal) in resizable panes.
+ * OrthogonalPanelsWorkspace
+ *
+ * Three linked anatomical views (axial, sagittal, coronal) laid out with CSS
+ * grid — the same primitive the non-integrated OrthogonalViewContainer uses,
+ * which sizes/centers each slice reliably. The arrangement (grid / row / column,
+ * from `layoutSettingsStore.orthoArrangement`) is toggled from the corner
+ * `ArrangementMenu`.
+ *
+ * All three arrangements share a FLAT three-child structure (only the grid
+ * template and axial's span differ), so switching arrangements just changes
+ * CSS — React preserves the three FlexibleSlicePanel instances, each panel's
+ * ResizeObserver fires on its cell-size change, and the backend re-fits the
+ * slice centered to the new cell (`updateDimensionsAndPreserveScale`). That
+ * avoids the Allotment pane-collapse (which painted `row` black) and the stale
+ * pane sizes that clipped slices when switching arrangements.
  */
 
-import { useCallback, useRef, useState, useEffect } from 'react';
-import { Allotment } from 'allotment';
-import 'allotment/dist/style.css';
-import { FlexibleSlicePanel } from './FlexibleSlicePanel';
-import { useLayoutDragStore } from '@/stores/layoutDragStore';
-import { useLayoutStateStore } from '@/stores/layoutStateStore';
-import { useViewStateStore } from '@/stores/viewStateStore';
-import './OrthogonalPanelsWorkspace.css';
+import { type ReactNode } from "react";
+import { FlexibleSlicePanel } from "./FlexibleSlicePanel";
+import { ArrangementMenu } from "@/components/ui/ArrangementMenu";
+import { useLayoutSettingsStore } from "@/stores/layoutSettingsStore";
+import "./OrthogonalPanelsWorkspace.css";
 
-export function OrthogonalPanelsWorkspace() {
-  const splitSizes = useLayoutStateStore(state => state.layoutState.splitSizes);
-  const updateSplitSizes = useLayoutStateStore(state => state.updateSplitSizes);
+interface OrthogonalPanelsWorkspaceProps {
+  /** Render the corner arrangement menu. Default true. The Integrated
+   *  workspace renders its own (with the split toggle) and passes false. */
+  showArrangementMenu?: boolean;
+}
 
-  const [verticalSizes, setVerticalSizes] = useState<number[]>(splitSizes.vertical);
-  const [horizontalSizes, setHorizontalSizes] = useState<number[]>(splitSizes.horizontal);
+export function OrthogonalPanelsWorkspace({
+  showArrangementMenu = true,
+}: OrthogonalPanelsWorkspaceProps = {}) {
+  const arrangement = useLayoutSettingsStore((s) => s.orthoArrangement);
 
-  const containerRef = useRef<HTMLDivElement>(null);
-  const setDragging = useLayoutDragStore(state => state.setDragging);
-  const dragTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  let containerClass: string;
+  let axialClass = "w-full h-full";
+  if (arrangement === "row") {
+    containerClass = "grid grid-cols-3 gap-1 h-full w-full";
+  } else if (arrangement === "column") {
+    containerClass = "grid grid-rows-3 gap-1 h-full w-full";
+  } else {
+    // grid: axial spans the top row full-width, sagittal | coronal below.
+    containerClass = "grid grid-cols-2 grid-rows-2 gap-1 h-full w-full";
+    axialClass = "col-span-2 w-full h-full";
+  }
 
-  const handleDragDetection = useCallback(() => {
-    if (dragTimeoutRef.current) {
-      clearTimeout(dragTimeoutRef.current);
-    }
-
-    const currentDragging = useLayoutDragStore.getState().isDragging;
-    if (!currentDragging) {
-      console.log('[OrthogonalPanelsWorkspace] Drag detected - starting');
-      setDragging(true);
-    }
-
-    dragTimeoutRef.current = setTimeout(() => {
-      console.log('[OrthogonalPanelsWorkspace] Drag ended - no changes for 200ms');
-      setDragging(false);
-    }, 200);
-  }, [setDragging]);
-
-  const handleVerticalChange = useCallback((sizes: number[]) => {
-    setVerticalSizes(sizes);
-    updateSplitSizes('vertical', sizes);
-    handleDragDetection();
-  }, [handleDragDetection, updateSplitSizes]);
-
-  const handleHorizontalChange = useCallback((sizes: number[]) => {
-    setHorizontalSizes(sizes);
-    updateSplitSizes('horizontal', sizes);
-    handleDragDetection();
-  }, [handleDragDetection, updateSplitSizes]);
-
-  useEffect(() => {
-    return () => {
-      if (dragTimeoutRef.current) {
-        clearTimeout(dragTimeoutRef.current);
-      }
-    };
-  }, []);
-
-  useEffect(() => {
-    const hasLayers = useViewStateStore.getState().viewState.layers.length > 0;
-    if (hasLayers) {
-      console.log('[OrthogonalPanelsWorkspace] Component mounted with layers. Relying on scheduled coalesced render.');
-    }
-  }, []);
+  const tree: ReactNode = (
+    <div className={containerClass}>
+      <div className={axialClass}>
+        <FlexibleSlicePanel viewId="axial" title="Axial" />
+      </div>
+      <div className="w-full h-full">
+        <FlexibleSlicePanel viewId="sagittal" title="Sagittal" />
+      </div>
+      <div className="w-full h-full">
+        <FlexibleSlicePanel viewId="coronal" title="Coronal" />
+      </div>
+    </div>
+  );
 
   return (
-    <div ref={containerRef} className="h-full w-full bg-black split-view-container">
-      <Allotment
-        vertical
-        defaultSizes={verticalSizes}
-        onChange={handleVerticalChange}
-      >
-        <Allotment.Pane minSize={200}>
-          <FlexibleSlicePanel
-            viewId="axial"
-            title="Axial"
-          />
-        </Allotment.Pane>
-
-        <Allotment.Pane minSize={200}>
-          <Allotment
-            defaultSizes={horizontalSizes}
-            onChange={handleHorizontalChange}
-          >
-            <Allotment.Pane minSize={200}>
-              <FlexibleSlicePanel
-                viewId="sagittal"
-                title="Sagittal"
-              />
-            </Allotment.Pane>
-
-            <Allotment.Pane minSize={200}>
-              <FlexibleSlicePanel
-                viewId="coronal"
-                title="Coronal"
-              />
-            </Allotment.Pane>
-          </Allotment>
-        </Allotment.Pane>
-      </Allotment>
+    <div
+      className="bg-black split-view-container"
+      style={{ position: "relative", height: "100%", width: "100%" }}
+    >
+      <div style={{ position: "absolute", inset: 0 }}>{tree}</div>
+      {showArrangementMenu && (
+        <div style={{ position: "absolute", top: 6, right: 6, zIndex: 10 }}>
+          <ArrangementMenu />
+        </div>
+      )}
     </div>
   );
 }
