@@ -10,7 +10,7 @@ import { useLayerStore } from '@/stores/layerStore';
 import { useViewStateStore } from '@/stores/viewStateStore';
 import type { ViewLayer } from '@/types/viewState';
 import { VolumeHandleStore } from './VolumeHandleStore';
-import type { LayerInfo } from '@/stores/layerStore';
+import type { LayerInfo, VolumeMetadata } from '@/stores/layerStore';
 import { histogramService } from './HistogramService';
 import {
   computeAdaptiveIntensityRange,
@@ -36,11 +36,11 @@ export class LayerApiImpl implements LayerApi {
   private apiService = getApiService();
 
   private buildLayerMetadata(
-    existingMetadata: Record<string, unknown>,
+    existingMetadata: Partial<VolumeMetadata>,
     gpuInfo: any,
     renderProps: LayerRender | undefined,
     gpuResident: boolean
-  ) {
+  ): VolumeMetadata {
     return {
       ...existingMetadata,
       dataRange: gpuInfo.data_range ?? existingMetadata.dataRange,
@@ -54,7 +54,7 @@ export class LayerApiImpl implements LayerApi {
       dataType: gpuInfo.tex_format,
       renderProps: renderProps ?? existingMetadata.renderProps,
       gpuResident,
-      evicted: gpuResident ? false : Boolean((existingMetadata as any).evicted),
+      evicted: gpuResident ? false : Boolean(existingMetadata.evicted),
     };
   }
 

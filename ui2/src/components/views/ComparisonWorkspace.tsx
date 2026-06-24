@@ -22,6 +22,7 @@ import { getFileLoadingService } from '@/services/FileLoadingService';
 import { findNewLayerId } from '@/utils/layerLoadResult';
 import { useWorkspaceStore } from '@/stores/workspaceStore';
 import { useViewportDropTarget } from './viewport/useViewportDropTarget';
+import type { ComparisonPanelConfig } from '@/types/comparison';
 
 interface ComparisonWorkspaceProps {
   workspaceId?: string;

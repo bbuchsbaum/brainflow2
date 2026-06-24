@@ -97,7 +97,6 @@ function MetricGroup({ label, children }: MetricGroupProps) {
         style={{
           fontSize: '13px',
           fontWeight: 500,
-          tabularNums: 'normal',
           fontVariantNumeric: 'tabular-nums',
           whiteSpace: 'nowrap',
           display: 'flex',

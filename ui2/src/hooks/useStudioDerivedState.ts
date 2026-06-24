@@ -102,7 +102,7 @@ export function computeStudioDerivedSnapshot(input: StudioDerivedSnapshotInput) 
     activeDesignFilters.length === 0 || !activeSet?.designTablePreview
       ? searchFilteredMemberIds
       : searchFilteredMemberIds.filter((memberId) => {
-          const row = activeSet.designTablePreview.rows.find((candidate) => candidate.id === memberId);
+          const row = activeSet.designTablePreview?.rows.find((candidate) => candidate.id === memberId);
           if (!row) {
             return false;
           }

@@ -22,7 +22,7 @@ export function useStudioStatusBridge() {
     }
     const activeSet = state.sets[setId];
     const member = activeSet?.memberSummaries.find((entry) => entry.id === memberId);
-    return member?.label ?? memberId;
+    return member?.id ?? memberId;
   });
   const studioFeatureLabel = useSetStudioStore((state) => {
     const featureId = state.selection.activeFeatureId;

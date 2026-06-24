@@ -13,6 +13,7 @@ import type {
   RenderStartEvent
 } from '@/types/renderEvents';
 import type { AtlasStats } from '@/types/atlas';
+import type { DisplayOpenIntentEvent } from '@/types/loadIntent';
 
 // Define all events in the system
 export interface EventMap {
@@ -67,6 +68,7 @@ export interface EventMap {
   'file.error': { path: string; error: Error };
   'filebrowser.file.selected': { path: string };
   'filebrowser.file.doubleclick': { path: string };
+  'filebrowser.file.open': DisplayOpenIntentEvent;
   'filebrowser.directory.loaded': { path: string };
 
   // General UI events

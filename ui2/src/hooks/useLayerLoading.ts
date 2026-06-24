@@ -28,7 +28,7 @@ export function useLayerLoading(layerId: string): boolean {
         // However, we can make some educated guesses:
         
         // 1. For file loads, the path might contain the layer ID
-        if (loadItem.type === 'file' && loadItem.path.includes(layerId)) {
+        if (loadItem.type === 'volume-load' && loadItem.path.includes(layerId)) {
           return true;
         }
         

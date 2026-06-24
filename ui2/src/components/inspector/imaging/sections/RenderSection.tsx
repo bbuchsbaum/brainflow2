@@ -95,7 +95,7 @@ function VolumeRenderRows({
     setViewState((draft) => {
       const target = draft.layers.find((l) => l.id === layerId);
       if (!target) return;
-      (target as Record<string, unknown>)[field as string] = value as unknown;
+      (target as unknown as Record<string, unknown>)[field as string] = value as unknown;
     });
   };
 

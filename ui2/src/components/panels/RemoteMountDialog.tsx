@@ -136,8 +136,8 @@ function rememberSecretLabel(authMethod: RemoteAuthMethod): string | null {
 
 function sortProfilesByMostRecent(profiles: RemoteMountProfile[]): RemoteMountProfile[] {
   return [...profiles].sort((a, b) => {
-    const aUpdated = a.updated_at_ms ?? 0;
-    const bUpdated = b.updated_at_ms ?? 0;
+    const aUpdated = Number(a.updated_at_ms ?? 0);
+    const bUpdated = Number(b.updated_at_ms ?? 0);
     if (aUpdated !== bUpdated) {
       return bUpdated - aUpdated;
     }

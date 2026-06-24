@@ -73,7 +73,11 @@ export const useDisplayOptionsStore = create<DisplayOptionsState>()(
         },
         removeItem: (name) => localStorage.removeItem(name),
       },
-      partialize: (state) => ({ options: state.options }),
+      // Only `options` is persisted; the custom storage above serializes the
+      // Map and methods are restored from the initializer on rehydrate. The
+      // cast satisfies zustand v5's PersistOptions, which types partialize as
+      // returning the full state shape.
+      partialize: (state) => ({ options: state.options }) as DisplayOptionsState,
     }
   )
 );
