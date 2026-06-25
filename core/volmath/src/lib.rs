@@ -10,6 +10,7 @@ pub use neuroim::*;
 // Import key dependencies for reuse in downstream crates
 use serde::{Deserialize, Serialize};
 use std::any::TypeId;
+use std::borrow::Cow;
 use ts_rs::TS;
 
 // === COMPATIBILITY LAYER ===
@@ -711,6 +712,28 @@ impl<T: neuroim::Numeric + Serialize + PartialEq> CompatibleVolume<T> {
         neuroim::NeuroVol::values(&self.inner)
     }
 
+    /// Voxels in the same order as [`values`](Self::values) (column-major /
+    /// x-fastest), but WITHOUT rebuilding the Vec when the backing array is
+    /// already laid out that way.
+    ///
+    /// `values()` always reorders via `data[[i, j, k]]` indexing (an ~O(n) copy).
+    /// Volumes built through [`from_data`](Self::from_data) — which is every
+    /// volume that reaches the GPU upload — are stored Fortran-contiguous, so
+    /// their memory order IS column-major and we can return a zero-copy borrow.
+    /// For any other layout (e.g. a C-contiguous array) we fall back to the
+    /// reordering `values()` so the result is always identical.
+    pub fn values_contiguous(&self) -> Cow<'_, [T]> {
+        let arr = self.inner.data();
+        // An array is Fortran-contiguous iff its full transpose is C-contiguous;
+        // in that case its memory order equals `values()`'s column-major order.
+        if arr.t().is_standard_layout() {
+            if let Some(slice) = arr.as_slice_memory_order() {
+                return Cow::Borrowed(slice);
+            }
+        }
+        Cow::Owned(self.values())
+    }
+
     // Additional methods expected by render_loop
     pub fn get_slice_as_f16_bytes(
         &self,
@@ -790,6 +813,35 @@ mod tests {
         .expect("Failed to create NeuroSpace");
 
         assert_eq!(space.dim, vec![10, 10, 10]);
+    }
+
+    #[test]
+    fn values_contiguous_matches_values_noncubic() {
+        // Non-cubic dims so any axis transposition would reorder the bytes and
+        // fail the equality check (a cubic volume would hide it).
+        let dims = vec![2usize, 3, 4];
+        let n = dims[0] * dims[1] * dims[2];
+        let data: Vec<f32> = (0..n).map(|i| i as f32 * 0.5 - 1.0).collect();
+        let space = NeuroSpace::new(dims, Some(vec![1.0, 1.0, 1.0]), None, None, None)
+            .expect("Failed to create NeuroSpace");
+        let vol = DenseVolume3::from_data(space, data);
+
+        let owned = vol.values();
+        let contiguous = vol.values_contiguous();
+        assert_eq!(
+            contiguous.as_ref(),
+            owned.as_slice(),
+            "values_contiguous must match values() order exactly"
+        );
+
+        // from_data volumes are Fortran-contiguous, so the accessor borrows the
+        // backing buffer instead of rebuilding it -- the win this optimization is
+        // about. If this ever flips to Owned, the GPU upload silently pays the
+        // ~O(n) rebuild again.
+        assert!(
+            matches!(contiguous, Cow::Borrowed(_)),
+            "values_contiguous must borrow (no rebuild) for from_data volumes"
+        );
     }
 }
 

@@ -880,7 +880,7 @@ where
     let range = max_val - min_val;
 
     let data: Vec<u8> = volume
-        .values()
+        .values_contiguous()
         .iter()
         .map(|&val| {
             let normalized = if range > T::zero() {
@@ -908,7 +908,9 @@ where
     // into a pre-sized buffer. Avoids the intermediate Vec<f16> allocation and
     // the per-element flat_map of the old two-step version. Byte-for-byte
     // identical output (see test convert_to_r16float_matches_reference).
-    let values = volume.values();
+    // values_contiguous() borrows the backing buffer (no rebuild) for the
+    // Fortran-laid-out volumes that reach the GPU.
+    let values = volume.values_contiguous();
     let mut bytes = Vec::with_capacity(values.len() * 2);
     for &val in values.iter() {
         let f32_val = num_traits::cast::<T, f32>(val).unwrap_or(0.0);
@@ -922,7 +924,7 @@ where
     T: VoxelData + num_traits::NumCast + DataRange<T> + Serialize,
 {
     // Single pass into a pre-sized buffer (see convert_to_r16float).
-    let values = volume.values();
+    let values = volume.values_contiguous();
     let mut bytes = Vec::with_capacity(values.len() * 4);
     for &val in values.iter() {
         let f32_val = num_traits::cast::<T, f32>(val).unwrap_or(0.0);
