@@ -13,6 +13,7 @@ import type { LayerInfo } from '@/stores/layerStore';
 import { VolumeHandleStore } from './VolumeHandleStore';
 import { useViewStateStore } from '@/stores/viewStateStore';
 import { CoordinateTransform } from '@/utils/coordinates';
+import type { ViewPlane } from '@/types/coordinates';
 import type { VolumeBounds } from '@brainflow/api';
 
 const DEBUG_VOLUME_LOADING =
@@ -41,11 +42,11 @@ export class VolumeLoadingService {
   private eventBus: EventBus | null = null;
   private apiService: ApiService | null = null;
   private layerService: LayerService | null = null;
-  
+
   private constructor() {
     // Lazy initialization to avoid circular dependencies
   }
-  
+
   private ensureInitialized() {
     if (!this.eventBus) {
       this.eventBus = getEventBus();
@@ -57,14 +58,14 @@ export class VolumeLoadingService {
       this.layerService = getLayerService();
     }
   }
-  
+
   public static getInstance(): VolumeLoadingService {
     if (!VolumeLoadingService.instance) {
       VolumeLoadingService.instance = new VolumeLoadingService();
     }
     return VolumeLoadingService.instance;
   }
-  
+
   /**
    * Unified method to load a volume and create a layer
    * Used by FileLoadingService, TemplateService, and any future loading mechanisms
@@ -72,9 +73,12 @@ export class VolumeLoadingService {
   async loadVolume(config: VolumeLoadConfig): Promise<Layer> {
     // Ensure services are initialized
     this.ensureInitialized();
-    
+
     const startTime = performance.now();
-    volumeDebugLog(`[VolumeLoadingService] Starting loadVolume with config:`, JSON.stringify(config));
+    volumeDebugLog(
+      `[VolumeLoadingService] Starting loadVolume with config:`,
+      JSON.stringify(config),
+    );
     const {
       volumeHandle,
       displayName,
@@ -84,15 +88,18 @@ export class VolumeLoadingService {
       visible = true,
       atlasMetadata,
     } = config;
-    
-    volumeDebugLog(`[VolumeLoadingService ${startTime.toFixed(0)}ms] Loading volume from ${source}:`, {
-      id: volumeHandle.id,
-      name: displayName,
-      path: sourcePath,
-      dims: volumeHandle.dims,
-      type: volumeHandle.volume_type
-    });
-    
+
+    volumeDebugLog(
+      `[VolumeLoadingService ${startTime.toFixed(0)}ms] Loading volume from ${source}:`,
+      {
+        id: volumeHandle.id,
+        name: displayName,
+        path: sourcePath,
+        dims: volumeHandle.dims,
+        type: volumeHandle.volume_type,
+      },
+    );
+
     try {
       // 0. Dedup: if an atlas layer with the same metadata already exists, reuse it
       if (source === 'atlas' && atlasMetadata) {
@@ -101,7 +108,7 @@ export class VolumeLoadingService {
           (l: any) =>
             l.source === 'atlas' &&
             l.sourcePath === sourcePath &&
-            l.atlasMetadata?.id === atlasMetadata.id
+            l.atlasMetadata?.id === atlasMetadata.id,
         );
         if (duplicate) {
           volumeDebugLog(`[VolumeLoadingService] Reusing existing atlas layer: ${duplicate.id}`);
@@ -110,7 +117,9 @@ export class VolumeLoadingService {
       }
 
       // 1. Store volume handle for future reference
-      volumeDebugLog(`[VolumeLoadingService ${performance.now() - startTime}ms] Storing volume handle`);
+      volumeDebugLog(
+        `[VolumeLoadingService ${performance.now() - startTime}ms] Storing volume handle`,
+      );
       VolumeHandleStore.setVolumeHandle(volumeHandle.id, volumeHandle);
 
       // 2. Kick off the two independent backend round trips concurrently.
@@ -123,19 +132,24 @@ export class VolumeLoadingService {
       const initialViewsPromise = this.prefetchInitialViews(volumeHandle);
 
       // 3. Get volume bounds from backend - CRITICAL for histogram
-      volumeDebugLog(`[VolumeLoadingService ${performance.now() - startTime}ms] Getting volume bounds from backend`);
+      volumeDebugLog(
+        `[VolumeLoadingService ${performance.now() - startTime}ms] Getting volume bounds from backend`,
+      );
       const volumeBounds = await this.getVolumeBounds(volumeHandle);
-      
+
       if (!volumeBounds) {
         throw new Error('Failed to get volume bounds - this is required for proper visualization');
       }
-      
-      volumeDebugLog(`[VolumeLoadingService ${performance.now() - startTime}ms] Volume bounds received:`, {
-        min: volumeBounds.min,
-        max: volumeBounds.max,
-        center: volumeBounds.center
-      });
-      
+
+      volumeDebugLog(
+        `[VolumeLoadingService ${performance.now() - startTime}ms] Volume bounds received:`,
+        {
+          min: volumeBounds.min,
+          max: volumeBounds.max,
+          center: volumeBounds.center,
+        },
+      );
+
       // 3. Create layer object
       const currentLayerCount = useLayerStore.getState().layers.length;
       const layer: LayerInfo = {
@@ -148,99 +162,118 @@ export class VolumeLoadingService {
         atlasMetadata,
         // Add 4D time series metadata
         volumeType: volumeHandle.volume_type === 'TimeSeries4D' ? 'TimeSeries4D' : 'Volume3D',
-        timeSeriesInfo: volumeHandle.time_series_info ? {
-          num_timepoints: volumeHandle.time_series_info.num_timepoints,
-          tr: volumeHandle.time_series_info.tr,
-          temporal_unit: volumeHandle.time_series_info.temporal_unit,
-          acquisition_time: volumeHandle.time_series_info.acquisition_time
-        } : undefined,
-        currentTimepoint: volumeHandle.current_timepoint || 0
+        timeSeriesInfo: volumeHandle.time_series_info
+          ? {
+              num_timepoints: volumeHandle.time_series_info.num_timepoints,
+              tr: volumeHandle.time_series_info.tr,
+              temporal_unit: volumeHandle.time_series_info.temporal_unit,
+              acquisition_time: volumeHandle.time_series_info.acquisition_time,
+            }
+          : undefined,
+        currentTimepoint: volumeHandle.current_timepoint || 0,
       };
 
       if (source === 'file' && sourcePath) {
-        useFileBrowserStore.getState().markFourD(
-          sourcePath,
-          volumeHandle.volume_type === 'TimeSeries4D'
-        );
+        useFileBrowserStore
+          .getState()
+          .markFourD(sourcePath, volumeHandle.volume_type === 'TimeSeries4D');
       }
 
-      volumeDebugLog(`[VolumeLoadingService ${performance.now() - startTime}ms] Created layer object:`, layer);
-      
+      volumeDebugLog(
+        `[VolumeLoadingService ${performance.now() - startTime}ms] Created layer object:`,
+        layer,
+      );
+
       // 4. Set layer metadata BEFORE adding layer - CRITICAL TIMING
-      volumeDebugLog(`[VolumeLoadingService ${performance.now() - startTime}ms] Setting layer metadata with worldBounds`);
+      volumeDebugLog(
+        `[VolumeLoadingService ${performance.now() - startTime}ms] Setting layer metadata with worldBounds`,
+      );
       volumeDebugLog(`[VolumeLoadingService] DIAGNOSTIC - volumeHandle:`, {
         id: volumeHandle.id,
         name: volumeHandle.name,
         path: volumeHandle.path,
         dims: volumeHandle.dims,
         dtype: volumeHandle.dtype,
-        volume_type: volumeHandle.volume_type
+        volume_type: volumeHandle.volume_type,
       });
       volumeDebugLog(`[VolumeLoadingService] DIAGNOSTIC - layer:`, {
         id: layer.id,
         volumeId: layer.volumeId,
         source: source,
-        sourcePath: sourcePath
+        sourcePath: sourcePath,
       });
-      
+
       useLayerStore.getState().setLayerMetadata(layer.id, {
         worldBounds: {
           min: volumeBounds.min,
-          max: volumeBounds.max
+          max: volumeBounds.max,
         },
         source: source,
         sourcePath: sourcePath,
-        loadedAt: new Date().toISOString()
+        loadedAt: new Date().toISOString(),
       });
-      
+
       // 5. Emit volume loaded event
-      this.eventBus!.emit('volume.loaded', { 
-        volumeId: volumeHandle.id, 
-        metadata: volumeHandle 
+      this.eventBus!.emit('volume.loaded', {
+        volumeId: volumeHandle.id,
+        metadata: volumeHandle,
       });
-      
+
       // 6. Initialize views for the volume (reusing the prefetched views)
-      volumeDebugLog(`[VolumeLoadingService ${performance.now() - startTime}ms] Initializing views`);
+      volumeDebugLog(
+        `[VolumeLoadingService ${performance.now() - startTime}ms] Initializing views`,
+      );
       await this.initializeViews(volumeHandle, volumeBounds, initialViewsPromise);
-      
-      // 7. Add layer through layer service  
-      volumeDebugLog(`[VolumeLoadingService ${performance.now() - startTime}ms] Adding layer through LayerService`);
-      
+
+      // 7. Add layer through layer service
+      volumeDebugLog(
+        `[VolumeLoadingService ${performance.now() - startTime}ms] Adding layer through LayerService`,
+      );
+
       // Set loading state for UI feedback (backward compatibility with LayerItem)
       useLayerStore.getState().setLayerLoading(layer.id, true);
-      
+
       let addedLayer: Layer | undefined;
       try {
         addedLayer = await this.layerService!.addLayer(layer);
-        
+
         // 8. Readiness/mapping is handled in LayerApiImpl request path.
         // Avoid forced flush here to keep initial load/render scheduling smooth.
-        volumeDebugLog(`[VolumeLoadingService ${performance.now() - startTime}ms] Backend readiness handshake completed`);
-        
+        volumeDebugLog(
+          `[VolumeLoadingService ${performance.now() - startTime}ms] Backend readiness handshake completed`,
+        );
+
         // 9. Verify layer was added and selected
         const state = useLayerStore.getState();
-        volumeDebugLog(`[VolumeLoadingService ${performance.now() - startTime}ms] Post-addition state:`, {
-          totalLayers: state.layers.length,
-          selectedLayerId: state.selectedLayerId,
-          layerMetadata: state.layerMetadata.has(addedLayer.id)
-          // NOTE: layerRender has been moved to ViewState
-        });
-        
+        volumeDebugLog(
+          `[VolumeLoadingService ${performance.now() - startTime}ms] Post-addition state:`,
+          {
+            totalLayers: state.layers.length,
+            selectedLayerId: state.selectedLayerId,
+            layerMetadata: state.layerMetadata.has(addedLayer.id),
+            // NOTE: layerRender has been moved to ViewState
+          },
+        );
+
         // 10. Emit completion event
         this.eventBus!.emit('volume.load.complete', {
           volumeId: volumeHandle.id,
           layerId: addedLayer.id,
           source: source,
-          duration: performance.now() - startTime
+          duration: performance.now() - startTime,
         });
-        
-        volumeDebugLog(`[VolumeLoadingService ${performance.now() - startTime}ms] Volume loading complete`);
-        
+
+        volumeDebugLog(
+          `[VolumeLoadingService ${performance.now() - startTime}ms] Volume loading complete`,
+        );
+
         return addedLayer;
-        
       } catch (layerError) {
         // Handle layer addition or GPU allocation errors
-        console.error(`[VolumeLoadingService] Failed to add layer or allocate GPU resources for ${displayName}:`, layerError);
+        console.error(
+          `[VolumeLoadingService] Failed to add layer or allocate GPU resources for ${displayName}:`,
+          layerError,
+        );
         throw layerError;
       } finally {
         // Clear loading state regardless of success or failure
@@ -249,12 +282,11 @@ export class VolumeLoadingService {
         useLayerStore.getState().setLayerLoading(layerIdToClean, false);
         volumeDebugLog(`[VolumeLoadingService] Cleared loading state for layer: ${layerIdToClean}`);
       }
-      
     } catch (error) {
       console.error(`[VolumeLoadingService] Failed to load volume:`, error);
-      
+
       // NOTE: Loading state cleanup is now handled by the inner finally block
-      
+
       // Clean up any partial state
       try {
         VolumeHandleStore.clearVolumeHandle(volumeHandle.id);
@@ -262,18 +294,18 @@ export class VolumeLoadingService {
       } catch (cleanupError) {
         console.error('[VolumeLoadingService] Cleanup error:', cleanupError);
       }
-      
+
       // Emit error event
       this.eventBus!.emit('volume.load.error', {
         volumeId: volumeHandle.id,
         source: source,
-        error: error as Error
+        error: error as Error,
       });
-      
+
       throw error;
     }
   }
-  
+
   /**
    * Get volume bounds from backend with error handling
    */
@@ -283,13 +315,13 @@ export class VolumeLoadingService {
       return bounds;
     } catch (error) {
       console.error('[VolumeLoadingService] Failed to get volume bounds:', error);
-      
+
       // Fallback: Try to estimate bounds from volume dimensions
       // This is less accurate but better than failing completely
       if (volumeHandle.dims && volumeHandle.dims.length >= 3) {
         const [dimX, dimY, dimZ] = volumeHandle.dims;
         console.warn('[VolumeLoadingService] Using fallback bounds estimation');
-        
+
         return {
           min: [0, 0, 0] as [number, number, number],
           max: [dimX, dimY, dimZ] as [number, number, number],
@@ -297,11 +329,11 @@ export class VolumeLoadingService {
           dims: [dimX, dimY, dimZ] as [number, number, number],
         };
       }
-      
+
       return null;
     }
   }
-  
+
   /**
    * Computes the target pixel size from the current view store and starts the
    * backend get_initial_views request, so it can run concurrently with the
@@ -309,7 +341,9 @@ export class VolumeLoadingService {
    * promise is always safe to leave un-awaited until initializeViews consumes
    * it; on failure initializeViews falls back to a direct fetch.
    */
-  private prefetchInitialViews(volumeHandle: VolumeHandle): Promise<any> {
+  private prefetchInitialViews(
+    volumeHandle: VolumeHandle,
+  ): Promise<Record<string, ViewPlane> | null> {
     try {
       const maxPx = this.computeInitialViewsMaxPx();
       return this.apiService!.getInitialViews(volumeHandle.id, maxPx).catch((error) => {
@@ -343,7 +377,7 @@ export class VolumeLoadingService {
   private async initializeViews(
     volumeHandle: VolumeHandle,
     bounds: VolumeBounds,
-    initialViewsPromise?: Promise<any>,
+    initialViewsPromise?: Promise<Record<string, ViewPlane> | null>,
   ): Promise<void> {
     try {
       // Set crosshair to volume center
@@ -361,7 +395,9 @@ export class VolumeLoadingService {
       // Reuse the concurrently-prefetched views when available; otherwise (or if
       // the prefetch failed) fall back to a direct fetch so behaviour matches the
       // previous sequential implementation.
-      let newViews = initialViewsPromise ? await initialViewsPromise : null;
+      let newViews: Record<string, ViewPlane> | null = initialViewsPromise
+        ? await initialViewsPromise
+        : null;
       if (!newViews) {
         const maxPx = this.computeInitialViewsMaxPx();
         newViews = await this.apiService!.getInitialViews(volumeHandle.id, maxPx);
@@ -378,13 +414,13 @@ export class VolumeLoadingService {
       // Continue without failing - views can be adjusted manually
     }
   }
-  
+
   /**
    * Infer layer type from name and source
    */
   private inferLayerType(name: string, source: string): Layer['type'] {
     const lower = name.toLowerCase();
-    
+
     if (source === 'template') {
       // Template-specific inference
       if (lower.includes('mask') || lower.includes('brain')) {

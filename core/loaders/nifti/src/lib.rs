@@ -2,8 +2,6 @@ use bridge_types::{BridgeError, BridgeResult, Loaded, Loader, VolumeSendable};
 use log::{error, info};
 use nalgebra::Affine3;
 use serde::Serialize;
-use std::fs::File;
-use std::io::Read;
 use std::path::Path;
 use thiserror::Error;
 use volmath::DenseVolume3;
@@ -317,25 +315,6 @@ pub fn read_xform_codes(path: &Path) -> Result<(i16, i16), NiftiError> {
 
 // Try loading 4D volume with different data types
 pub fn load_nifti_4d_auto(path: &Path) -> Result<VolumeSendable, NiftiError> {
-    // Fast path: dispatch on the header datatype to avoid redundant full-file
-    // reads (see `load_nifti_volume_auto` for rationale). Falls through to the
-    // legacy sequential probing on any failure.
-    // Only dispatch types the legacy probing below already exercises (f32, i16,
-    // f64, u16), so this adds no new monomorphizations. Anything else falls
-    // through to the unchanged sequential path.
-    if let Some(datatype) = peek_nifti_datatype(path) {
-        let direct = match datatype {
-            16 => Some(load_nifti_4d_neuroim::<f32>(path)), // DT_FLOAT32
-            4 => Some(load_nifti_4d_neuroim::<i16>(path)),  // DT_INT16
-            64 => Some(load_nifti_4d_neuroim::<f64>(path)), // DT_FLOAT64
-            512 => Some(load_nifti_4d_neuroim::<u16>(path)), // DT_UINT16
-            _ => None,
-        };
-        if let Some(Ok(result)) = direct {
-            return Ok(result);
-        }
-    }
-
     // Try loading as f32 first (most common for fMRI)
     if let Ok(result) = load_nifti_4d_neuroim::<f32>(path) {
         return Ok(result);
@@ -361,110 +340,9 @@ pub fn load_nifti_4d_auto(path: &Path) -> Result<VolumeSendable, NiftiError> {
     ))
 }
 
-/// Reads just the NIfTI header (transparently decompressing gzip) and returns
-/// the `datatype` field code, or `None` if it cannot be determined.
-///
-/// This lets callers dispatch directly to the correct typed loader instead of
-/// trial-and-error probing every supported type, which would otherwise read and
-/// decompress the entire file once per failed attempt. Parsing is done against
-/// the frozen NIfTI-1/NIfTI-2 header layout so it depends only on `std` +
-/// `flate2` (no neuroim internals), and any failure simply returns `None` so the
-/// caller can fall back to the legacy sequential probing.
-fn peek_nifti_datatype(path: &Path) -> Option<i16> {
-    // Sniff the first two bytes to detect gzip (.nii.gz) vs raw (.nii).
-    let mut sniff = [0u8; 2];
-    File::open(path).ok()?.read_exact(&mut sniff).ok()?;
-
-    // A NIfTI-2 header is 540 bytes; read a little more than enough for either.
-    let mut header = vec![0u8; 544];
-    let filled = if sniff == [0x1f, 0x8b] {
-        let file = File::open(path).ok()?;
-        read_up_to(&mut flate2::read::GzDecoder::new(file), &mut header)
-    } else {
-        let mut file = File::open(path).ok()?;
-        read_up_to(&mut file, &mut header)
-    };
-    header.truncate(filled);
-    parse_nifti_datatype(&header)
-}
-
-/// Fills `buf` by reading repeatedly until it is full or EOF/error is hit.
-/// Returns the number of bytes actually read.
-fn read_up_to<R: Read>(reader: &mut R, buf: &mut [u8]) -> usize {
-    let mut filled = 0;
-    while filled < buf.len() {
-        match reader.read(&mut buf[filled..]) {
-            Ok(0) => break,
-            Ok(n) => filled += n,
-            Err(_) => break,
-        }
-    }
-    filled
-}
-
-/// Extracts the `datatype` code from raw NIfTI-1/NIfTI-2 header bytes, handling
-/// both little- and big-endian files via the `sizeof_hdr` sentinel.
-fn parse_nifti_datatype(h: &[u8]) -> Option<i16> {
-    if h.len() < 4 {
-        return None;
-    }
-    let sizeof_hdr_le = i32::from_le_bytes([h[0], h[1], h[2], h[3]]);
-    let sizeof_hdr_be = i32::from_be_bytes([h[0], h[1], h[2], h[3]]);
-
-    // NIfTI-1: sizeof_hdr == 348, datatype is an i16 at byte offset 70.
-    if sizeof_hdr_le == 348 || sizeof_hdr_be == 348 {
-        if h.len() < 72 {
-            return None;
-        }
-        let bytes = [h[70], h[71]];
-        return Some(if sizeof_hdr_le == 348 {
-            i16::from_le_bytes(bytes)
-        } else {
-            i16::from_be_bytes(bytes)
-        });
-    }
-
-    // NIfTI-2: sizeof_hdr == 540, datatype is an i16 at byte offset 12.
-    if sizeof_hdr_le == 540 || sizeof_hdr_be == 540 {
-        if h.len() < 14 {
-            return None;
-        }
-        let bytes = [h[12], h[13]];
-        return Some(if sizeof_hdr_le == 540 {
-            i16::from_le_bytes(bytes)
-        } else {
-            i16::from_be_bytes(bytes)
-        });
-    }
-
-    None
-}
-
 // Simplified load function that tries different types (3D only)
 pub fn load_nifti_volume_auto(path: &Path) -> Result<(VolumeSendable, Affine3<f32>), NiftiError> {
-    // Fast path: read the datatype directly from the header and load exactly
-    // that type. neuroim's typed reader requires T to match the on-disk type
-    // (mismatches return Err, which is why the legacy code below probes
-    // sequentially) so a single header peek lets us skip up to three full-file
-    // reads/decompressions. If the peek or direct load fails for any reason we
-    // fall through to the legacy probing so behaviour is never worse than before.
-    // Only dispatch types the legacy probing below already exercises, so this
-    // adds no new monomorphizations. Any other datatype yields `None` and falls
-    // through to the unchanged sequential path.
-    if let Some(datatype) = peek_nifti_datatype(path) {
-        let direct = match datatype {
-            16 => Some(load_nifti_volume_neuroim::<f32>(path)), // DT_FLOAT32
-            4 => Some(load_nifti_volume_neuroim::<i16>(path)),  // DT_INT16
-            2 => Some(load_nifti_volume_neuroim::<u8>(path)),   // DT_UINT8
-            64 => Some(load_nifti_volume_neuroim::<f64>(path)), // DT_FLOAT64
-            _ => None,
-        };
-        if let Some(Ok(result)) = direct {
-            return Ok(result);
-        }
-    }
-
-    // Legacy fallback: try loading as f32 first (most common)
+    // Try loading as f32 first (most common)
     if let Ok(result) = load_nifti_volume_neuroim::<f32>(path) {
         return Ok(result);
     }
@@ -690,6 +568,37 @@ mod tests {
                     || details.contains("cannot find the path specified")
             ),
             e => panic!("Expected IoError, got {:?}", e),
+        }
+    }
+
+    // Regression guard for a reverted "header-first datatype dispatch"
+    // optimization (PR #2). neuroim's typed reader always decodes to f32 and
+    // then converts, so reading a scaled int16 file as i16 truncates the scaled
+    // physical values (raw 123 * scl_slope 0.1 = 12.3 -> 12). The f32 reader
+    // always succeeds, so `load_nifti_volume_auto` (which tries f32 first) must
+    // keep returning VolF32 and preserve 12.3 rather than dispatching to i16.
+    // Fixture: 2x2x2 int16, scl_slope=0.1, raw=[123,200,327,500,999,1000,5,50].
+    #[test]
+    fn auto_load_keeps_scaled_int16_as_f32() {
+        let test_file = get_unit_test_file("scaled_i16.nii");
+        if !test_file.exists() {
+            eprintln!("Test file not found: {:?}, skipping test", test_file);
+            return;
+        }
+
+        let (vol, _affine) = load_nifti_volume_auto(&test_file).expect("auto load scaled i16");
+        match &vol {
+            VolumeSendable::VolF32(v, _) => {
+                let vals = v.values();
+                assert_relative_eq!(vals[0], 12.3, epsilon = 1e-3);
+                assert_relative_eq!(vals[4], 99.9, epsilon = 1e-3);
+                assert_relative_eq!(vals[6], 0.5, epsilon = 1e-3);
+            }
+            VolumeSendable::VolI16(v, _) => panic!(
+                "scaled int16 was truncated to VolI16 {:?}; expected VolF32 ~[12.3, ..]",
+                v.values()
+            ),
+            _ => panic!("unexpected VolumeSendable variant from auto load"),
         }
     }
 }
