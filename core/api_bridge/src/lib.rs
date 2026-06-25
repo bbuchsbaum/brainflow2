@@ -994,8 +994,11 @@ fn world_to_voxel_coord(
 /// Stores volume data with timepoint tracking for 4D volumes
 #[derive(Debug)]
 pub struct VolumeEntry {
-    /// The actual volume data (3D or 4D)
-    pub data: VolumeSendable,
+    /// The actual volume data (3D or 4D).
+    /// Stored behind an `Arc` so consumers (histogram, stats, GPU upload) can
+    /// cheaply share the volume and drop the registry lock before doing heavy
+    /// work, instead of deep-copying ~tens of MB per access.
+    pub data: Arc<VolumeSendable>,
     /// Current timepoint for 4D volumes (None for 3D)
     pub current_timepoint: Option<usize>,
     /// Metadata about the volume
@@ -1091,7 +1094,7 @@ impl VolumeRegistry {
         self.volumes.insert(
             id,
             VolumeEntry {
-                data,
+                data: Arc::new(data),
                 current_timepoint,
                 metadata,
             },
@@ -1100,7 +1103,15 @@ impl VolumeRegistry {
 
     /// Get a volume by ID (returns the current timepoint for 4D)
     pub fn get(&self, id: &str) -> Option<&VolumeSendable> {
-        self.volumes.get(id).map(|entry| &entry.data)
+        self.volumes.get(id).map(|entry| entry.data.as_ref())
+    }
+
+    /// Get a shared (`Arc`) handle to a volume by ID. Cloning the returned
+    /// handle is cheap, so callers can take it, drop the registry lock, and do
+    /// heavy work (histogram, stats, conversion) without holding the lock or
+    /// deep-copying the volume.
+    pub fn get_arc(&self, id: &str) -> Option<Arc<VolumeSendable>> {
+        self.volumes.get(id).map(|entry| Arc::clone(&entry.data))
     }
 
     /// Get a volume entry with all metadata
@@ -6171,11 +6182,13 @@ async fn compute_layer_histogram(
         }
     };
 
-    // Get the volume from the registry
+    // Take a cheap Arc handle to the volume and release the registry lock before
+    // the full-volume scan below. (Previously this deep-cloned the whole volume,
+    // ~tens of MB, just to scan it.)
     let volume = {
         let registry = state.volume_registry.lock().await;
-        match registry.get(&volume_handle) {
-            Some(vol) => vol.clone(),
+        match registry.get_arc(&volume_handle) {
+            Some(vol) => vol,
             None => {
                 return Err(BridgeError::VolumeNotFound {
                     code: 4045,
@@ -6188,7 +6201,7 @@ async fn compute_layer_histogram(
     // Compute histogram - extract data based on volume type
     let mut values: Vec<f32> = Vec::new();
 
-    match &volume {
+    match volume.as_ref() {
         VolumeSendable::VolF32(vol, _) => {
             for &val in vol.data().iter() {
                 if !val.is_nan() && (!exclude_zeros || val != 0.0) {
@@ -12279,7 +12292,7 @@ async fn compute_temporal_metric(
             details: format!("Unknown metric '{}'. Supported: variance, mean", metric),
         });
     }
-    match &entry.data {
+    match entry.data.as_ref() {
         VolumeSendable::Vec4DF32(vec) => {
             let d = vec.data.dim();
             let flat: Vec<f32> = vec.data.iter().copied().collect();
