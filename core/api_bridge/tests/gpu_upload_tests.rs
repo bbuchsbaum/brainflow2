@@ -284,3 +284,66 @@ async fn test_release_layer_cleans_render_state() {
         assert!(metrics.releases >= 1);
     }
 }
+
+// The GPU upload now runs on a blocking thread that acquires the render-service
+// lock itself (see request_layer_gpu_resources off-reactor path). Fire several
+// uploads concurrently: their blocking tasks contend on that lock, so a wrong
+// lock ordering would hang here. Reaching the assertions proves no deadlock and
+// that concurrent loads each get a distinct atlas layer.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn concurrent_layer_uploads_do_not_deadlock() {
+    use mock_helpers::*;
+
+    let state = setup_test_state().await;
+    let render_service = RenderLoopService::new().await.expect("render loop");
+    {
+        let mut guard = state.render_loop_service.lock().await;
+        *guard = Some(Arc::new(Mutex::new(render_service)));
+    }
+
+    let volume_id = "concurrent_volume".to_string();
+    {
+        let (vol, meta) = create_test_volume([32, 32, 32]);
+        let mut registry = state.volume_registry.lock().await;
+        registry.insert(volume_id.clone(), vol, meta);
+    }
+
+    let mk = |layer: &str| {
+        LayerSpec::Volume(VolumeLayerSpec {
+            id: layer.to_string(),
+            source_resource_id: volume_id.clone(),
+            colormap: "gray".to_string(),
+            slice_axis: Some(SliceAxis::Axial),
+            slice_index: Some(SliceIndex::Middle),
+        })
+    };
+
+    let (a, b, c, d) = tokio::join!(
+        request_layer_gpu_resources_for_testing(mk("c0"), None, &state),
+        request_layer_gpu_resources_for_testing(mk("c1"), None, &state),
+        request_layer_gpu_resources_for_testing(mk("c2"), None, &state),
+        request_layer_gpu_resources_for_testing(mk("c3"), None, &state),
+    );
+
+    let infos = [
+        a.expect("c0"),
+        b.expect("c1"),
+        c.expect("c2"),
+        d.expect("c3"),
+    ];
+
+    // Each concurrent upload must get a distinct atlas layer.
+    let mut indices: Vec<u32> = infos.iter().map(|i| i.atlas_layer_index).collect();
+    indices.sort_unstable();
+    indices.dedup();
+    assert_eq!(
+        indices.len(),
+        4,
+        "concurrent uploads must each get a distinct atlas layer"
+    );
+
+    let map = state.layer_to_atlas_map.lock().await;
+    for id in ["c0", "c1", "c2", "c3"] {
+        assert!(map.contains_key(id), "layer {id} should be registered");
+    }
+}

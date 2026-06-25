@@ -3978,24 +3978,24 @@ pub async fn request_layer_gpu_resources_for_testing(
                 source_volume_id
             );
 
-            // --- 1. Get RenderLoopService (only if not metadata_only) ---
-            // We need to keep the service guard alive if we're going to use it
-            let service_guard = if !metadata_only_flag {
-                Some(state.render_loop_service.lock().await)
-            } else {
-                None
-            };
-
-            let mut render_loop_service = if let Some(ref guard) = service_guard {
-                let service_arc = guard.as_ref()
+            // --- 1. Get the RenderLoopService handle (only if not metadata_only) ---
+            // Clone the inner Arc<Mutex<RenderLoopService>> and release the outer lock
+            // immediately. The heavy upload below runs on a blocking thread and locks
+            // this itself, so we must NOT hold a guard across it (that would deadlock
+            // the blocking task's blocking_lock).
+            let service_arc = if !metadata_only_flag {
+                let guard = state.render_loop_service.lock().await;
+                let arc = guard
+                    .as_ref()
                     .ok_or_else(|| {
                         error!("RenderLoopService is not available.");
                         BridgeError::ServiceNotInitialized {
                             code: 5002,
                             details: "GPU rendering service is not initialized. Please ensure the application has started correctly.".to_string()
                         }
-                    })?;
-                Some(service_arc.lock().await)
+                    })?
+                    .clone();
+                Some(arc)
             } else {
                 None
             };
@@ -4030,8 +4030,8 @@ pub async fn request_layer_gpu_resources_for_testing(
                 });
             }
 
-            let volume_data = volume_registry_guard
-                .get(&source_volume_id)
+            let volume_arc = volume_registry_guard
+                .get_arc(&source_volume_id)
                 .ok_or_else(|| {
                     error!("Volume not found in registry: {}", source_volume_id);
                     BridgeError::VolumeNotFound {
@@ -4051,6 +4051,19 @@ pub async fn request_layer_gpu_resources_for_testing(
                 .map(|e| e.metadata.path.starts_with("atlas:"))
                 .unwrap_or(false);
 
+            // Capture the current 4D timepoint before releasing the registry lock so
+            // neither the off-reactor upload nor the post-upload bookkeeping needs the
+            // registry. `timepoint` is the unwrapped index used during upload;
+            // `timepoint_opt` preserves the None-vs-Some distinction the layer map wants.
+            let timepoint_opt = volume_registry_guard.get_timepoint(&source_volume_id);
+            let timepoint = timepoint_opt.unwrap_or(0);
+
+            // Release the registry lock now. Everything downstream reads the volume
+            // through this Arc clone, so the lock is no longer needed -- and it must
+            // not be held across the heavy upload.
+            drop(volume_registry_guard);
+            let volume_data: &VolumeSendable = volume_arc.as_ref();
+
             // --- 3. Extract slice parameters from layer spec ---
             let slice_axis = vol_spec.slice_axis.unwrap_or_default();
             let slice_index_spec = vol_spec.slice_index.clone().unwrap_or_default();
@@ -4068,197 +4081,226 @@ pub async fn request_layer_gpu_resources_for_testing(
                 info!("Metadata-only mode: skipping GPU upload");
                 (u32::MAX, nalgebra::Matrix4::<f32>::identity()) // Dummy values
             } else {
-                debug!("About to upload volume to GPU");
-                let render_service = render_loop_service
-                    .as_mut()
-                    .expect("RenderLoopService should be available when not in metadata_only mode");
-                match volume_data {
-                    VolumeSendable::VolF32(vol, _) => {
-                        debug!("Uploading F32 volume with {} voxels", vol.data().len());
-                        render_service
-                            .upload_volume_3d_labelaware(vol, is_label_atlas)
-                            .map_err(|e| gpu_allocation_error(&ui_layer_id, &e.to_string()))?
-                    }
-                    VolumeSendable::VolI16(vol, _) => render_service
-                        .upload_volume_3d_labelaware(vol, is_label_atlas)
-                        .map_err(|e| gpu_allocation_error(&ui_layer_id, &e.to_string()))?,
-                    VolumeSendable::VolU8(vol, _) => render_service
-                        .upload_volume_3d_labelaware(vol, is_label_atlas)
-                        .map_err(|e| gpu_allocation_error(&ui_layer_id, &e.to_string()))?,
-                    VolumeSendable::VolI8(vol, _) => render_service
-                        .upload_volume_3d_labelaware(vol, is_label_atlas)
-                        .map_err(|e| gpu_allocation_error(&ui_layer_id, &e.to_string()))?,
-                    VolumeSendable::VolU16(vol, _) => render_service
-                        .upload_volume_3d_labelaware(vol, is_label_atlas)
-                        .map_err(|e| gpu_allocation_error(&ui_layer_id, &e.to_string()))?,
-                    VolumeSendable::VolI32(vol, _) => render_service
-                        .upload_volume_3d_labelaware(vol, is_label_atlas)
-                        .map_err(|e| gpu_allocation_error(&ui_layer_id, &e.to_string()))?,
-                    VolumeSendable::VolU32(vol, _) => render_service
-                        .upload_volume_3d_labelaware(vol, is_label_atlas)
-                        .map_err(|e| gpu_allocation_error(&ui_layer_id, &e.to_string()))?,
-                    VolumeSendable::VolF64(vol, _) => render_service
-                        .upload_volume_3d_labelaware(vol, is_label_atlas)
-                        .map_err(|e| gpu_allocation_error(&ui_layer_id, &e.to_string()))?,
-                    // 4D volumes - extract current timepoint
-                    VolumeSendable::Vec4DF32(_vec) => {
-                        // Get the current timepoint from the registry
-                        let timepoint = volume_registry_guard
-                            .get_timepoint(&source_volume_id)
-                            .unwrap_or(0);
-                        info!("Extracting timepoint {} from 4D F32 volume", timepoint);
-
-                        // Extract 3D volume at the specified timepoint
-                        let extracted = extract_3d_volume_at_timepoint(volume_data, timepoint)?;
-
-                        // Upload the extracted 3D volume
-                        match extracted {
-                            VolumeSendable::VolF32(vol, _) => render_service
-                                .upload_volume_3d(&vol)
-                                .map_err(|e| gpu_allocation_error(&ui_layer_id, &e.to_string()))?,
-                            _ => {
-                                return Err(BridgeError::Internal {
-                                    code: 5014,
-                                    details: "Unexpected volume type after 4D extraction"
-                                        .to_string(),
-                                });
+                debug!("About to upload volume to GPU (off the async reactor)");
+                // Run the heavy convert + GPU write on a blocking thread so the async
+                // reactor stays responsive, holding ONLY the render-service lock (the
+                // registry lock was already dropped). The volume is an Arc clone.
+                let upload_service = service_arc
+                    .clone()
+                    .expect("service arc present when not in metadata_only mode");
+                let upload_volume = volume_arc.clone();
+                let upload_ui_layer_id = ui_layer_id.clone();
+                tokio::task::spawn_blocking(
+                    move || -> BridgeResult<(u32, nalgebra::Matrix4<f32>)> {
+                        let mut render_service_guard = upload_service.blocking_lock();
+                        let render_service = &mut *render_service_guard;
+                        let volume_data: &VolumeSendable = upload_volume.as_ref();
+                        let ui_layer_id = upload_ui_layer_id;
+                        let upload_result = match volume_data {
+                            VolumeSendable::VolF32(vol, _) => {
+                                debug!("Uploading F32 volume with {} voxels", vol.data().len());
+                                render_service
+                                    .upload_volume_3d_labelaware(vol, is_label_atlas)
+                                    .map_err(|e| {
+                                        gpu_allocation_error(&ui_layer_id, &e.to_string())
+                                    })?
                             }
-                        }
-                    }
-                    VolumeSendable::Vec4DI16(_vec) => {
-                        let timepoint = volume_registry_guard
-                            .get_timepoint(&source_volume_id)
-                            .unwrap_or(0);
-                        info!("Extracting timepoint {} from 4D I16 volume", timepoint);
-                        let extracted = extract_3d_volume_at_timepoint(volume_data, timepoint)?;
-                        match extracted {
                             VolumeSendable::VolI16(vol, _) => render_service
-                                .upload_volume_3d(&vol)
+                                .upload_volume_3d_labelaware(vol, is_label_atlas)
                                 .map_err(|e| gpu_allocation_error(&ui_layer_id, &e.to_string()))?,
-                            _ => {
-                                return Err(BridgeError::Internal {
-                                    code: 5014,
-                                    details: "Unexpected volume type after 4D extraction"
-                                        .to_string(),
-                                });
-                            }
-                        }
-                    }
-                    VolumeSendable::Vec4DU8(_vec) => {
-                        let timepoint = volume_registry_guard
-                            .get_timepoint(&source_volume_id)
-                            .unwrap_or(0);
-                        info!("Extracting timepoint {} from 4D U8 volume", timepoint);
-                        let extracted = extract_3d_volume_at_timepoint(volume_data, timepoint)?;
-                        match extracted {
                             VolumeSendable::VolU8(vol, _) => render_service
-                                .upload_volume_3d(&vol)
+                                .upload_volume_3d_labelaware(vol, is_label_atlas)
                                 .map_err(|e| gpu_allocation_error(&ui_layer_id, &e.to_string()))?,
-                            _ => {
-                                return Err(BridgeError::Internal {
-                                    code: 5014,
-                                    details: "Unexpected volume type after 4D extraction"
-                                        .to_string(),
-                                });
-                            }
-                        }
-                    }
-                    VolumeSendable::Vec4DI8(_vec) => {
-                        let timepoint = volume_registry_guard
-                            .get_timepoint(&source_volume_id)
-                            .unwrap_or(0);
-                        info!("Extracting timepoint {} from 4D I8 volume", timepoint);
-                        let extracted = extract_3d_volume_at_timepoint(volume_data, timepoint)?;
-                        match extracted {
                             VolumeSendable::VolI8(vol, _) => render_service
-                                .upload_volume_3d(&vol)
+                                .upload_volume_3d_labelaware(vol, is_label_atlas)
                                 .map_err(|e| gpu_allocation_error(&ui_layer_id, &e.to_string()))?,
-                            _ => {
-                                return Err(BridgeError::Internal {
-                                    code: 5014,
-                                    details: "Unexpected volume type after 4D extraction"
-                                        .to_string(),
-                                });
-                            }
-                        }
-                    }
-                    VolumeSendable::Vec4DU16(_vec) => {
-                        let timepoint = volume_registry_guard
-                            .get_timepoint(&source_volume_id)
-                            .unwrap_or(0);
-                        info!("Extracting timepoint {} from 4D U16 volume", timepoint);
-                        let extracted = extract_3d_volume_at_timepoint(volume_data, timepoint)?;
-                        match extracted {
                             VolumeSendable::VolU16(vol, _) => render_service
-                                .upload_volume_3d(&vol)
+                                .upload_volume_3d_labelaware(vol, is_label_atlas)
                                 .map_err(|e| gpu_allocation_error(&ui_layer_id, &e.to_string()))?,
-                            _ => {
-                                return Err(BridgeError::Internal {
-                                    code: 5014,
-                                    details: "Unexpected volume type after 4D extraction"
-                                        .to_string(),
-                                });
-                            }
-                        }
-                    }
-                    VolumeSendable::Vec4DI32(_vec) => {
-                        let timepoint = volume_registry_guard
-                            .get_timepoint(&source_volume_id)
-                            .unwrap_or(0);
-                        info!("Extracting timepoint {} from 4D I32 volume", timepoint);
-                        let extracted = extract_3d_volume_at_timepoint(volume_data, timepoint)?;
-                        match extracted {
                             VolumeSendable::VolI32(vol, _) => render_service
-                                .upload_volume_3d(&vol)
+                                .upload_volume_3d_labelaware(vol, is_label_atlas)
                                 .map_err(|e| gpu_allocation_error(&ui_layer_id, &e.to_string()))?,
-                            _ => {
-                                return Err(BridgeError::Internal {
-                                    code: 5014,
-                                    details: "Unexpected volume type after 4D extraction"
-                                        .to_string(),
-                                });
-                            }
-                        }
-                    }
-                    VolumeSendable::Vec4DU32(_vec) => {
-                        let timepoint = volume_registry_guard
-                            .get_timepoint(&source_volume_id)
-                            .unwrap_or(0);
-                        info!("Extracting timepoint {} from 4D U32 volume", timepoint);
-                        let extracted = extract_3d_volume_at_timepoint(volume_data, timepoint)?;
-                        match extracted {
                             VolumeSendable::VolU32(vol, _) => render_service
-                                .upload_volume_3d(&vol)
+                                .upload_volume_3d_labelaware(vol, is_label_atlas)
                                 .map_err(|e| gpu_allocation_error(&ui_layer_id, &e.to_string()))?,
-                            _ => {
-                                return Err(BridgeError::Internal {
-                                    code: 5014,
-                                    details: "Unexpected volume type after 4D extraction"
-                                        .to_string(),
-                                });
-                            }
-                        }
-                    }
-                    VolumeSendable::Vec4DF64(_vec) => {
-                        let timepoint = volume_registry_guard
-                            .get_timepoint(&source_volume_id)
-                            .unwrap_or(0);
-                        info!("Extracting timepoint {} from 4D F64 volume", timepoint);
-                        let extracted = extract_3d_volume_at_timepoint(volume_data, timepoint)?;
-                        match extracted {
                             VolumeSendable::VolF64(vol, _) => render_service
-                                .upload_volume_3d(&vol)
+                                .upload_volume_3d_labelaware(vol, is_label_atlas)
                                 .map_err(|e| gpu_allocation_error(&ui_layer_id, &e.to_string()))?,
-                            _ => {
-                                return Err(BridgeError::Internal {
-                                    code: 5014,
-                                    details: "Unexpected volume type after 4D extraction"
-                                        .to_string(),
-                                });
+                            // 4D volumes - extract current timepoint
+                            VolumeSendable::Vec4DF32(_vec) => {
+                                // Get the current timepoint from the registry
+                                info!("Extracting timepoint {} from 4D F32 volume", timepoint);
+
+                                // Extract 3D volume at the specified timepoint
+                                let extracted =
+                                    extract_3d_volume_at_timepoint(volume_data, timepoint)?;
+
+                                // Upload the extracted 3D volume
+                                match extracted {
+                                    VolumeSendable::VolF32(vol, _) => {
+                                        render_service.upload_volume_3d(&vol).map_err(|e| {
+                                            gpu_allocation_error(&ui_layer_id, &e.to_string())
+                                        })?
+                                    }
+                                    _ => {
+                                        return Err(BridgeError::Internal {
+                                            code: 5014,
+                                            details: "Unexpected volume type after 4D extraction"
+                                                .to_string(),
+                                        });
+                                    }
+                                }
                             }
-                        }
-                    }
-                }
+                            VolumeSendable::Vec4DI16(_vec) => {
+                                info!("Extracting timepoint {} from 4D I16 volume", timepoint);
+                                let extracted =
+                                    extract_3d_volume_at_timepoint(volume_data, timepoint)?;
+                                match extracted {
+                                    VolumeSendable::VolI16(vol, _) => {
+                                        render_service.upload_volume_3d(&vol).map_err(|e| {
+                                            gpu_allocation_error(&ui_layer_id, &e.to_string())
+                                        })?
+                                    }
+                                    _ => {
+                                        return Err(BridgeError::Internal {
+                                            code: 5014,
+                                            details: "Unexpected volume type after 4D extraction"
+                                                .to_string(),
+                                        });
+                                    }
+                                }
+                            }
+                            VolumeSendable::Vec4DU8(_vec) => {
+                                info!("Extracting timepoint {} from 4D U8 volume", timepoint);
+                                let extracted =
+                                    extract_3d_volume_at_timepoint(volume_data, timepoint)?;
+                                match extracted {
+                                    VolumeSendable::VolU8(vol, _) => {
+                                        render_service.upload_volume_3d(&vol).map_err(|e| {
+                                            gpu_allocation_error(&ui_layer_id, &e.to_string())
+                                        })?
+                                    }
+                                    _ => {
+                                        return Err(BridgeError::Internal {
+                                            code: 5014,
+                                            details: "Unexpected volume type after 4D extraction"
+                                                .to_string(),
+                                        });
+                                    }
+                                }
+                            }
+                            VolumeSendable::Vec4DI8(_vec) => {
+                                info!("Extracting timepoint {} from 4D I8 volume", timepoint);
+                                let extracted =
+                                    extract_3d_volume_at_timepoint(volume_data, timepoint)?;
+                                match extracted {
+                                    VolumeSendable::VolI8(vol, _) => {
+                                        render_service.upload_volume_3d(&vol).map_err(|e| {
+                                            gpu_allocation_error(&ui_layer_id, &e.to_string())
+                                        })?
+                                    }
+                                    _ => {
+                                        return Err(BridgeError::Internal {
+                                            code: 5014,
+                                            details: "Unexpected volume type after 4D extraction"
+                                                .to_string(),
+                                        });
+                                    }
+                                }
+                            }
+                            VolumeSendable::Vec4DU16(_vec) => {
+                                info!("Extracting timepoint {} from 4D U16 volume", timepoint);
+                                let extracted =
+                                    extract_3d_volume_at_timepoint(volume_data, timepoint)?;
+                                match extracted {
+                                    VolumeSendable::VolU16(vol, _) => {
+                                        render_service.upload_volume_3d(&vol).map_err(|e| {
+                                            gpu_allocation_error(&ui_layer_id, &e.to_string())
+                                        })?
+                                    }
+                                    _ => {
+                                        return Err(BridgeError::Internal {
+                                            code: 5014,
+                                            details: "Unexpected volume type after 4D extraction"
+                                                .to_string(),
+                                        });
+                                    }
+                                }
+                            }
+                            VolumeSendable::Vec4DI32(_vec) => {
+                                info!("Extracting timepoint {} from 4D I32 volume", timepoint);
+                                let extracted =
+                                    extract_3d_volume_at_timepoint(volume_data, timepoint)?;
+                                match extracted {
+                                    VolumeSendable::VolI32(vol, _) => {
+                                        render_service.upload_volume_3d(&vol).map_err(|e| {
+                                            gpu_allocation_error(&ui_layer_id, &e.to_string())
+                                        })?
+                                    }
+                                    _ => {
+                                        return Err(BridgeError::Internal {
+                                            code: 5014,
+                                            details: "Unexpected volume type after 4D extraction"
+                                                .to_string(),
+                                        });
+                                    }
+                                }
+                            }
+                            VolumeSendable::Vec4DU32(_vec) => {
+                                info!("Extracting timepoint {} from 4D U32 volume", timepoint);
+                                let extracted =
+                                    extract_3d_volume_at_timepoint(volume_data, timepoint)?;
+                                match extracted {
+                                    VolumeSendable::VolU32(vol, _) => {
+                                        render_service.upload_volume_3d(&vol).map_err(|e| {
+                                            gpu_allocation_error(&ui_layer_id, &e.to_string())
+                                        })?
+                                    }
+                                    _ => {
+                                        return Err(BridgeError::Internal {
+                                            code: 5014,
+                                            details: "Unexpected volume type after 4D extraction"
+                                                .to_string(),
+                                        });
+                                    }
+                                }
+                            }
+                            VolumeSendable::Vec4DF64(_vec) => {
+                                info!("Extracting timepoint {} from 4D F64 volume", timepoint);
+                                let extracted =
+                                    extract_3d_volume_at_timepoint(volume_data, timepoint)?;
+                                match extracted {
+                                    VolumeSendable::VolF64(vol, _) => {
+                                        render_service.upload_volume_3d(&vol).map_err(|e| {
+                                            gpu_allocation_error(&ui_layer_id, &e.to_string())
+                                        })?
+                                    }
+                                    _ => {
+                                        return Err(BridgeError::Internal {
+                                            code: 5014,
+                                            details: "Unexpected volume type after 4D extraction"
+                                                .to_string(),
+                                        });
+                                    }
+                                }
+                            }
+                        };
+                        Ok(upload_result)
+                    },
+                )
+                .await
+                .map_err(|e| BridgeError::Internal {
+                    code: 5099,
+                    details: format!("GPU upload task panicked: {e}"),
+                })??
+            };
+
+            // Re-acquire the render-service lock for the light post-upload bookkeeping
+            // below (data range, declarative registration, layer add). It was released
+            // when the blocking upload task finished.
+            let mut render_loop_service = match service_arc.as_ref() {
+                Some(arc) => Some(arc.lock().await),
+                None => None,
             };
 
             // For 3D textures, texture coordinates are always the full texture
@@ -4767,7 +4809,7 @@ pub async fn request_layer_gpu_resources_for_testing(
 
                 {
                     let uploaded_timepoint = if volume_sendable_uses_timepoint(volume_data) {
-                        volume_registry_guard.get_timepoint(&source_volume_id)
+                        timepoint_opt
                     } else {
                         None
                     };
