@@ -2632,12 +2632,21 @@ async fn load_file(path: String, state: State<'_, BridgeState>) -> BridgeResult<
         });
     }
 
-    // Load the volume data
+    // Load the volume data.
+    // [perf] This decode (gzip inflate + full f32 materialization) currently runs
+    // directly on the async runtime, blocking it for the duration. The split vs
+    // total load_file time below shows how much of the load is this CPU work.
+    let decode_start = Instant::now();
     let (volume_sendable, _affine) =
         nifti_loader::load_nifti_volume_auto(&file_path).map_err(|e| BridgeError::Loader {
             code: 1003,
             details: format!("Failed to load file {}: {}", path, e),
         })?;
+    info!(
+        "[perf] load_file decode (on async runtime): {} ms ({})",
+        decode_start.elapsed().as_millis(),
+        path
+    );
 
     // Derive dimensions/type metadata directly from the already-loaded volume.
     // This avoids a second full parse/decode pass through NiftiLoader::load.

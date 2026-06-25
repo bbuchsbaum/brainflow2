@@ -609,4 +609,82 @@ mod tests {
             _ => panic!("unexpected VolumeSendable variant from auto load"),
         }
     }
+
+    // Headless perf baseline (gated by env + #[ignore]). Measures the two
+    // dominant backend load costs without a GUI: gzip+f32 decode, and the
+    // histogram clone+scan that currently sits on the first-pixel path.
+    //   BF_PERF_NII=/abs/mni.nii BF_PERF_NII_GZ=/abs/mni.nii.gz \
+    //     cargo test -p nifti-loader perf_baseline_load -- --nocapture --ignored
+    #[test]
+    #[ignore]
+    fn perf_baseline_load() {
+        use std::time::Instant;
+
+        fn time_decode(label: &str, path: &Path, iters: u32) {
+            let _ = load_nifti_volume_auto(path); // warm page cache
+            let mut best = f64::MAX;
+            let mut last = None;
+            for _ in 0..iters {
+                let t = Instant::now();
+                let (vol, _) = load_nifti_volume_auto(path).expect("decode");
+                best = best.min(t.elapsed().as_secs_f64() * 1e3);
+                last = Some(vol);
+            }
+            if let Some(VolumeSendable::VolF32(v, _)) = last.as_ref() {
+                let dims = v.space().dim.clone();
+                let n: usize = dims.iter().product();
+                println!("[perf] decode {label}: best {best:.1} ms  dims={dims:?}  voxels={n}");
+            } else {
+                println!("[perf] decode {label}: best {best:.1} ms");
+            }
+        }
+
+        let nii = std::env::var("BF_PERF_NII").ok();
+        let gz = std::env::var("BF_PERF_NII_GZ").ok();
+        if nii.is_none() && gz.is_none() {
+            eprintln!("set BF_PERF_NII and/or BF_PERF_NII_GZ; skipping");
+            return;
+        }
+        if let Some(p) = &nii {
+            time_decode("uncompressed .nii", Path::new(p), 5);
+        }
+        if let Some(p) = &gz {
+            time_decode("gzip .nii.gz", Path::new(p), 5);
+        }
+
+        // Histogram cost: mirrors compute_layer_histogram -- a full deep clone
+        // followed by a per-voxel min/max + 256-bin scan (excluding zeros).
+        let probe = gz.as_ref().or(nii.as_ref()).unwrap();
+        let (vol, _) = load_nifti_volume_auto(Path::new(probe)).expect("decode for histogram");
+        if let VolumeSendable::VolF32(v, _) = &vol {
+            let t = Instant::now();
+            let cloned = v.clone();
+            let clone_ms = t.elapsed().as_secs_f64() * 1e3;
+
+            let t = Instant::now();
+            let vals = cloned.values();
+            let values_ms = t.elapsed().as_secs_f64() * 1e3;
+
+            let t = Instant::now();
+            let (mut lo, mut hi) = (f32::MAX, f32::MIN);
+            for &x in &vals {
+                if x != 0.0 {
+                    lo = lo.min(x);
+                    hi = hi.max(x);
+                }
+            }
+            let mut bins = [0u32; 256];
+            let span = (hi - lo).max(f32::EPSILON);
+            for &x in &vals {
+                if x != 0.0 {
+                    let b = (((x - lo) / span) * 255.0) as usize;
+                    bins[b.min(255)] += 1;
+                }
+            }
+            let scan_ms = t.elapsed().as_secs_f64() * 1e3;
+            println!(
+                "[perf] histogram: clone {clone_ms:.1} ms + values() {values_ms:.1} ms + scan {scan_ms:.1} ms (nonzero range {lo}..{hi})"
+            );
+        }
+    }
 }
