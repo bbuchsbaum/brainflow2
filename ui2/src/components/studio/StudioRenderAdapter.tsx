@@ -2,7 +2,7 @@ import React from 'react';
 import { Button } from '@/components/ui/Button';
 import type { StudioSupportKind } from '@/types/studio';
 import { OrthogonalViewContainer } from '@/components/views/OrthogonalViewContainer';
-import { SurfaceViewPanel } from '@/components/views/SurfaceViewPanel';
+import { SurfaceViewPanel } from '@/components/views/SurfaceViewPanelLazy';
 
 interface StudioRenderAdapterProps {
   supportKind: StudioSupportKind | null | undefined;

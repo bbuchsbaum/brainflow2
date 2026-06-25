@@ -3,33 +3,30 @@
  * Main panel for 3D brain surface visualization using neurosurface library
  */
 
-import React, { useEffect, useMemo, useRef, useState } from "react";
-import { useSurfaceStore } from "@/stores/surfaceStore";
-import { SurfaceViewCanvas } from "./SurfaceViewCanvas";
-import { Loader2, AlertCircle, X } from "lucide-react";
-import type { LoadedSurface } from "@/stores/surfaceStore";
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { useSurfaceStore } from '@/stores/surfaceStore';
+import { SurfaceViewCanvas } from './SurfaceViewCanvas';
+import { Loader2, AlertCircle, X } from 'lucide-react';
+import type { LoadedSurface } from '@/stores/surfaceStore';
 import {
   resolveTemplateflowSurfaceIdentity,
   type TemplateflowSurfaceIdentity,
-} from "@/utils/surfaceIdentity";
-import { getSurfaceLoadingService } from "@/services/SurfaceLoadingService";
-import { useResolvedSurfaceViewState } from "@/hooks/useSurfaceSelectionContext";
+} from '@/utils/surfaceIdentity';
+import { getSurfaceLoadingService } from '@/services/SurfaceLoadingService';
+import { useResolvedSurfaceViewState } from '@/hooks/useSurfaceSelectionContext';
 
-interface SurfaceViewPanelProps {
+export interface SurfaceViewPanelProps {
   surfaceHandle?: string;
   path?: string;
   surfaceViewId?: string;
 }
 
-function parseTemplateIdentity(
-  surface: LoadedSurface,
-): TemplateflowSurfaceIdentity | null {
+function parseTemplateIdentity(surface: LoadedSurface): TemplateflowSurfaceIdentity | null {
   return resolveTemplateflowSurfaceIdentity({
     path: surface.metadata?.path,
     geometryHemisphere: surface.geometry.hemisphere,
     metadataHemisphere: surface.metadata?.hemisphere,
-    surfaceType:
-      surface.geometry.surfaceType || surface.metadata?.surfaceType || "",
+    surfaceType: surface.geometry.surfaceType || surface.metadata?.surfaceType || '',
   });
 }
 
@@ -37,10 +34,10 @@ function hemisphereSortRank(surface: LoadedSurface): number {
   const hemisphere = (
     surface.geometry.hemisphere ||
     surface.metadata?.hemisphere ||
-    ""
+    ''
   ).toLowerCase();
-  if (hemisphere === "left") return 0;
-  if (hemisphere === "right") return 1;
+  if (hemisphere === 'left') return 0;
+  if (hemisphere === 'right') return 1;
   return 2;
 }
 
@@ -54,9 +51,7 @@ function chooseHemisphereCandidate(
   }
 
   if (preferredHandle) {
-    const byHandle = candidates.find(
-      (surface) => surface.handle === preferredHandle,
-    );
+    const byHandle = candidates.find((surface) => surface.handle === preferredHandle);
     if (byHandle) {
       return byHandle;
     }
@@ -67,7 +62,7 @@ function chooseHemisphereCandidate(
       const candidateType = (
         surface.geometry.surfaceType ||
         surface.metadata?.surfaceType ||
-        ""
+        ''
       ).toLowerCase();
       return candidateType === preferredSurfaceType;
     });
@@ -113,25 +108,24 @@ export function collectRenderSurfaces(
       ): entry is {
         surface: LoadedSurface;
         identity: TemplateflowSurfaceIdentity;
-      } =>
-        !!entry.identity && entry.identity.basePath === anchorIdentity.basePath,
+      } => !!entry.identity && entry.identity.basePath === anchorIdentity.basePath,
     );
   if (templateVisible.length === 0) {
     return anchorSurface.visible === false ? [] : [anchorSurface];
   }
 
   const leftCandidates = templateVisible
-    .filter((entry) => entry.identity.hemisphere === "left")
+    .filter((entry) => entry.identity.hemisphere === 'left')
     .map((entry) => entry.surface);
   const rightCandidates = templateVisible
-    .filter((entry) => entry.identity.hemisphere === "right")
+    .filter((entry) => entry.identity.hemisphere === 'right')
     .map((entry) => entry.surface);
 
   const preferredType = anchorIdentity.surfaceType;
   const preferredLeftHandle =
-    anchorIdentity.hemisphere === "left" ? anchorSurface.handle : undefined;
+    anchorIdentity.hemisphere === 'left' ? anchorSurface.handle : undefined;
   const preferredRightHandle =
-    anchorIdentity.hemisphere === "right" ? anchorSurface.handle : undefined;
+    anchorIdentity.hemisphere === 'right' ? anchorSurface.handle : undefined;
 
   const selectedLeft = chooseHemisphereCandidate(
     leftCandidates,
@@ -161,9 +155,7 @@ export const SurfaceViewPanel: React.FC<SurfaceViewPanelProps> = ({
   surfaceViewId,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
-  const resolvedSurfaceViewId = useRef(
-    surfaceViewId ?? surfaceHandle ?? "surface-view",
-  ).current;
+  const resolvedSurfaceViewId = useRef(surfaceViewId ?? surfaceHandle ?? 'surface-view').current;
   const [dimensions, setDimensions] = useState({ width: 800, height: 600 });
   const surfaces = useSurfaceStore((state) => state.surfaces);
   const {
@@ -175,38 +167,23 @@ export const SurfaceViewPanel: React.FC<SurfaceViewPanelProps> = ({
   const isLoading = useSurfaceStore((state) => state.isLoading);
   const loadError = useSurfaceStore((state) => state.loadError);
   const clearError = useSurfaceStore((state) => state.clearError);
-  const registerSurfaceView = useSurfaceStore(
-    (state) => state.registerSurfaceView,
-  );
-  const unregisterSurfaceView = useSurfaceStore(
-    (state) => state.unregisterSurfaceView,
-  );
-  const activateSurfaceView = useSurfaceStore(
-    (state) => state.activateSurfaceView,
-  );
-  const setSurfaceSelectionForView = useSurfaceStore(
-    (state) => state.setSurfaceSelectionForView,
-  );
+  const registerSurfaceView = useSurfaceStore((state) => state.registerSurfaceView);
+  const unregisterSurfaceView = useSurfaceStore((state) => state.unregisterSurfaceView);
+  const activateSurfaceView = useSurfaceStore((state) => state.activateSurfaceView);
+  const setSurfaceSelectionForView = useSurfaceStore((state) => state.setSurfaceSelectionForView);
 
   useEffect(() => {
     if (!surfaceHandle) {
       return;
     }
 
-    if (
-      !useSurfaceStore.getState().surfaceViewHandles.has(resolvedSurfaceViewId)
-    ) {
+    if (!useSurfaceStore.getState().surfaceViewHandles.has(resolvedSurfaceViewId)) {
       registerSurfaceView(resolvedSurfaceViewId, surfaceHandle);
     }
     return () => {
       unregisterSurfaceView(resolvedSurfaceViewId);
     };
-  }, [
-    registerSurfaceView,
-    resolvedSurfaceViewId,
-    surfaceHandle,
-    unregisterSurfaceView,
-  ]);
+  }, [registerSurfaceView, resolvedSurfaceViewId, surfaceHandle, unregisterSurfaceView]);
 
   // Handle initial load
   useEffect(() => {
@@ -220,37 +197,23 @@ export const SurfaceViewPanel: React.FC<SurfaceViewPanelProps> = ({
             validateMesh: true,
           });
           if (handle) {
-            setSurfaceSelectionForView(
-              resolvedSurfaceViewId,
-              handle,
-              "geometry",
-            );
+            setSurfaceSelectionForView(resolvedSurfaceViewId, handle, 'geometry');
           }
         } catch (error) {
-          console.error("Failed to load surface from path:", error);
+          console.error('Failed to load surface from path:', error);
         }
       } else if (surfaceHandle) {
         // Set active if already loaded
         if (surfaces.has(surfaceHandle)) {
-          setSurfaceSelectionForView(
-            resolvedSurfaceViewId,
-            surfaceHandle,
-            "geometry",
-          );
+          setSurfaceSelectionForView(resolvedSurfaceViewId, surfaceHandle, 'geometry');
         } else {
-          console.warn("Surface handle not found in store:", surfaceHandle);
+          console.warn('Surface handle not found in store:', surfaceHandle);
         }
       }
     };
 
     loadInitialSurface();
-  }, [
-    path,
-    resolvedSurfaceViewId,
-    setSurfaceSelectionForView,
-    surfaceHandle,
-    surfaces,
-  ]);
+  }, [path, resolvedSurfaceViewId, setSurfaceSelectionForView, surfaceHandle, surfaces]);
 
   // Handle container resize
   useEffect(() => {
@@ -326,11 +289,7 @@ export const SurfaceViewPanel: React.FC<SurfaceViewPanelProps> = ({
         return selected;
       }
     }
-    return (
-      Array.from(surfaces.values()).find(
-        (surface) => surface.visible !== false,
-      ) ?? null
-    );
+    return Array.from(surfaces.values()).find((surface) => surface.visible !== false) ?? null;
   }, [surfaces, anchorSurfaceId]);
   const renderSurfaces = useMemo(
     () => collectRenderSurfaces(surfaces, anchorSurfaceId),
@@ -344,9 +303,7 @@ export const SurfaceViewPanel: React.FC<SurfaceViewPanelProps> = ({
         <div className="absolute inset-0 flex items-center justify-center bg-background/80 z-10">
           <div className="flex flex-col items-center gap-2">
             <Loader2 className="h-8 w-8 animate-spin text-primary" />
-            <span className="text-sm text-muted-foreground">
-              Loading surface...
-            </span>
+            <span className="text-sm text-muted-foreground">Loading surface...</span>
           </div>
         </div>
       )}
@@ -372,9 +329,7 @@ export const SurfaceViewPanel: React.FC<SurfaceViewPanelProps> = ({
 
       {/* Surface viewer - Always render if surface exists to maintain state */}
       {activeSurface && (
-        <div
-          className={`absolute inset-0 ${isLoading ? "opacity-50" : "opacity-100"}`}
-        >
+        <div className={`absolute inset-0 ${isLoading ? 'opacity-50' : 'opacity-100'}`}>
           <SurfaceViewCanvas
             surface={activeSurface}
             renderSurfaces={renderSurfaces}
@@ -386,11 +341,7 @@ export const SurfaceViewPanel: React.FC<SurfaceViewPanelProps> = ({
                 !selectedItemType ||
                 selectedSurfaceId !== activeSurface.handle
               ) {
-                setSurfaceSelectionForView(
-                  resolvedSurfaceViewId,
-                  activeSurface.handle,
-                  "geometry",
-                );
+                setSurfaceSelectionForView(resolvedSurfaceViewId, activeSurface.handle, 'geometry');
                 return;
               }
               activateSurfaceView(resolvedSurfaceViewId);
@@ -409,7 +360,7 @@ export const SurfaceViewPanel: React.FC<SurfaceViewPanelProps> = ({
       {!activeSurface && !isLoading && (
         <div
           data-testid="surface-view-empty-state"
-          data-error={loadError ? "true" : "false"}
+          data-error={loadError ? 'true' : 'false'}
           className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-muted/10 px-4 text-center select-none"
         >
           {/* Quiet surface-mesh glyph */}
@@ -434,11 +385,10 @@ export const SurfaceViewPanel: React.FC<SurfaceViewPanelProps> = ({
 
           <div className="space-y-1">
             <p className="text-[13px] text-foreground/80">
-              {loadError ? "Couldn’t load surface" : "No surface loaded"}
+              {loadError ? 'Couldn’t load surface' : 'No surface loaded'}
             </p>
             <p className="mx-auto max-w-[260px] text-[11px] text-muted-foreground/70">
-              {loadError ??
-                "Load a cortical surface to view it alongside the volume."}
+              {loadError ?? 'Load a cortical surface to view it alongside the volume.'}
             </p>
           </div>
 
@@ -452,10 +402,7 @@ export const SurfaceViewPanel: React.FC<SurfaceViewPanelProps> = ({
               void getSurfaceLoadingService()
                 .requestSurfaceFileSelection()
                 .catch((error) =>
-                  console.error(
-                    "[SurfaceViewPanel] Failed to open surface picker:",
-                    error,
-                  ),
+                  console.error('[SurfaceViewPanel] Failed to open surface picker:', error),
                 );
             }}
             className="inline-flex items-center gap-1.5 rounded-md border border-border bg-background px-3 py-1.5 text-[11px] text-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
@@ -471,9 +418,9 @@ export const SurfaceViewPanel: React.FC<SurfaceViewPanelProps> = ({
         <div
           className="absolute top-3 left-3 p-2 border"
           style={{
-            backgroundColor: "hsl(var(--background) / 0.9)",
-            borderColor: "hsl(var(--border))",
-            borderRadius: "1px",
+            backgroundColor: 'hsl(var(--background) / 0.9)',
+            borderColor: 'hsl(var(--border))',
+            borderRadius: '1px',
           }}
         >
           <div className="space-y-1">

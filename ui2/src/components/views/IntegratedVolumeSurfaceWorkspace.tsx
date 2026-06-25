@@ -19,18 +19,18 @@
  * Allotment.Pane is also elided so the row contributes zero vertical space).
  */
 
-import React from "react";
-import { Allotment } from "allotment";
-import "allotment/dist/style.css";
+import React from 'react';
+import { Allotment } from 'allotment';
+import 'allotment/dist/style.css';
 
-import { ArrangementMenu } from "@/components/ui/ArrangementMenu";
-import { useLayoutSettingsStore } from "@/stores/layoutSettingsStore";
+import { ArrangementMenu } from '@/components/ui/ArrangementMenu';
+import { useLayoutSettingsStore } from '@/stores/layoutSettingsStore';
 
-import { OrthogonalPanelsWorkspace } from "./OrthogonalPanelsWorkspace";
-import { SurfaceViewPanel } from "./SurfaceViewPanel";
-import { SurfaceAssociationBadge } from "./SurfaceAssociationBadge";
-import { PinnedTimeRow } from "./PinnedTimeRow";
-import { useActiveLayerIsFourD } from "./pinnedTimeRow.helpers";
+import { OrthogonalPanelsWorkspace } from './OrthogonalPanelsWorkspace';
+import { SurfaceViewPanel } from './SurfaceViewPanelLazy';
+import { SurfaceAssociationBadge } from './SurfaceAssociationBadge';
+import { PinnedTimeRow } from './PinnedTimeRow';
+import { useActiveLayerIsFourD } from './pinnedTimeRow.helpers';
 
 const PINNED_ROW_PREFERRED_PX = 96;
 const PINNED_ROW_MIN_PX = 64;
@@ -42,17 +42,17 @@ export const IntegratedVolumeSurfaceWorkspace: React.FC = () => {
   return (
     <div
       data-testid="integrated-volume-surface-workspace"
-      data-pinned-time-row={isFourD ? "true" : "false"}
+      data-pinned-time-row={isFourD ? 'true' : 'false'}
       data-split={split}
       className="bf-integrated-workspace"
       style={{
-        position: "absolute",
+        position: 'absolute',
         inset: 0,
-        background: "var(--app-bg-primary)",
-        color: "var(--app-text-primary)",
+        background: 'var(--app-bg-primary)',
+        color: 'var(--app-text-primary)',
       }}
     >
-      <div style={{ position: "absolute", inset: 0 }}>
+      <div style={{ position: 'absolute', inset: 0 }}>
         <Allotment vertical proportionalLayout>
           {isFourD ? (
             <Allotment.Pane
@@ -66,11 +66,11 @@ export const IntegratedVolumeSurfaceWorkspace: React.FC = () => {
           ) : null}
 
           <Allotment.Pane key="primary-views" minSize={200}>
-            <Allotment vertical={split === "vertical"} proportionalLayout>
+            <Allotment vertical={split === 'vertical'} proportionalLayout>
               <Allotment.Pane minSize={240}>
                 <div
                   data-testid="integrated-workspace-orthogonal-region"
-                  style={{ height: "100%", width: "100%" }}
+                  style={{ height: '100%', width: '100%' }}
                 >
                   <OrthogonalPanelsWorkspace showArrangementMenu={false} />
                 </div>
@@ -79,9 +79,9 @@ export const IntegratedVolumeSurfaceWorkspace: React.FC = () => {
                 <div
                   data-testid="integrated-workspace-surface-region"
                   style={{
-                    position: "relative",
-                    height: "100%",
-                    width: "100%",
+                    position: 'relative',
+                    height: '100%',
+                    width: '100%',
                   }}
                 >
                   <SurfaceViewPanel />
@@ -93,7 +93,7 @@ export const IntegratedVolumeSurfaceWorkspace: React.FC = () => {
         </Allotment>
       </div>
 
-      <div style={{ position: "absolute", top: 6, right: 6, zIndex: 10 }}>
+      <div style={{ position: 'absolute', top: 6, right: 6, zIndex: 10 }}>
         <ArrangementMenu showSplit />
       </div>
     </div>
