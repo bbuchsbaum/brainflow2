@@ -29,7 +29,7 @@ use std::path::{Path, PathBuf};
 use nalgebra::Matrix4;
 use render_loop::view_state::{LayerConfig, SliceOrientation, ViewId, ViewState};
 use render_loop::{BlendMode, RenderLoopService, SliceFeatureUbo};
-use volmath::{DenseVolume3, NeuroSpaceExt};
+use volmath::{DataRange, DenseVolume3, NeuroSpaceExt, VoxelData};
 
 const VOLUME_ID: &str = "golden-volume";
 const VIEWPORT: [u32; 2] = [128, 128];
@@ -134,10 +134,24 @@ fn golden_view_state() -> ViewState {
 /// `format` is the GPU texture format the volume is uploaded as. `R16Float` is
 /// what the real app upload path (`upload_volume_3d_labelaware`) selects by
 /// default for non-U8 volumes; `R32Float` is the exact/reference path.
-async fn render_volume(
-    volume: &DenseVolume3<f32>,
+///
+/// Generic over the voxel dtype so the same flow can render `f32` and native
+/// integer volumes (the bound mirrors `register_volume_with_upload`).
+async fn render_volume<T>(
+    volume: &DenseVolume3<T>,
     format: wgpu::TextureFormat,
-) -> Option<(Vec<u8>, [u32; 2])> {
+    view: ViewState,
+) -> Option<(Vec<u8>, [u32; 2])>
+where
+    T: VoxelData
+        + num_traits::NumCast
+        + serde::Serialize
+        + DataRange<T>
+        + num_traits::Zero
+        + std::ops::Sub<Output = T>
+        + std::ops::Div<Output = T>
+        + std::ops::Mul<Output = T>,
+{
     let mut service = match RenderLoopService::new().await {
         Ok(service) => service,
         Err(err) => {
@@ -162,7 +176,7 @@ async fn render_volume(
     service.update_slice_feature_ubo(SliceFeatureUbo::default());
 
     let result = service
-        .request_frame(ViewId::new("render-golden"), golden_view_state())
+        .request_frame(ViewId::new("render-golden"), view)
         .await
         .expect("failed to render frame");
 
@@ -238,7 +252,7 @@ fn write_golden(image: &[u8], dims: [u32; 2], stem: &str) {
 /// (app-default, f16-tolerant) cases.
 async fn run_golden_compare(format: wgpu::TextureFormat, stem: &str) {
     let volume = make_test_volume(None);
-    let (image, dims) = match render_volume(&volume, format).await {
+    let (image, dims) = match render_volume(&volume, format, golden_view_state()).await {
         Some(out) => out,
         None => return, // GPU unavailable; skip line already printed.
     };
@@ -331,12 +345,12 @@ async fn render_golden_detects_single_voxel_perturbation() {
     // Use the app-default R16Float path so the sensitivity guarantee covers the
     // format the perf work actually renders through.
     let fmt = wgpu::TextureFormat::R16Float;
-    let baseline_img = match render_volume(&baseline, fmt).await {
+    let baseline_img = match render_volume(&baseline, fmt, golden_view_state()).await {
         Some(out) => out.0,
         None => return, // GPU unavailable; skip line already printed.
     };
     // First render succeeded, so the adapter is present; a failure here is real.
-    let perturbed_img = render_volume(&perturbed, fmt)
+    let perturbed_img = render_volume(&perturbed, fmt, golden_view_state())
         .await
         .expect("second render failed after the first succeeded")
         .0;
@@ -364,4 +378,100 @@ async fn render_golden_detects_single_voxel_perturbation() {
         "render_golden sensitivity: 1-voxel perturbation changed {} px (max_diff={})",
         diff.changed_pixels, diff.max_diff
     );
+}
+
+/// Deterministic structured volume with integer values (a horizontal gradient
+/// 0..90 plus a centered box at 90), built as both `f32` and `i16` from the same
+/// values. The values are small integers, exactly representable in both dtypes
+/// and in f16, which is the whole point of the equivalence check below.
+fn make_dtype_equivalence_volumes() -> (DenseVolume3<f32>, DenseVolume3<i16>) {
+    let dims = VOLUME_DIMS;
+    let make_space = || {
+        <volmath::NeuroSpace as NeuroSpaceExt>::from_affine_matrix4(
+            dims.to_vec(),
+            Matrix4::identity(),
+        )
+        .expect("failed to create test neurospace")
+    };
+
+    let mut i16_data = Vec::with_capacity(dims[0] * dims[1] * dims[2]);
+    for z in 0..dims[2] {
+        for y in 0..dims[1] {
+            for x in 0..dims[0] {
+                let grad = (x as i32 * 90 / (dims[0] as i32 - 1)) as i16; // 0..90
+                let v = if (10..22).contains(&x) && (10..22).contains(&y) && (5..11).contains(&z) {
+                    90
+                } else {
+                    grad
+                };
+                i16_data.push(v);
+            }
+        }
+    }
+    let f32_data: Vec<f32> = i16_data.iter().map(|&v| v as f32).collect();
+
+    (
+        DenseVolume3::<f32>::from_data(make_space(), f32_data),
+        DenseVolume3::<i16>::from_data(make_space(), i16_data),
+    )
+}
+
+/// View pinned to the equivalence volume's value range so the rendered frame has
+/// real structure (otherwise the comparison could pass on a trivially flat image).
+fn dtype_equiv_view_state() -> ViewState {
+    let layer = LayerConfig::new(VOLUME_ID.to_string())
+        .with_opacity(1.0)
+        .with_colormap(0)
+        .with_blend_mode(BlendMode::Normal)
+        .with_intensity_window(0.0, 90.0);
+
+    ViewState::from_basic_params(
+        VOLUME_ID.to_string(),
+        [16.0, 16.0, 8.0],
+        SliceOrientation::Axial,
+        32.0,
+        VIEWPORT,
+        (0.0, 90.0),
+    )
+    .with_layers(vec![layer])
+    .with_crosshair(false)
+}
+
+/// Empirical guarantee for the native-dtype perf change: loading a truly-integer
+/// volume as native `i16` (instead of inflating it to `f32`) must NOT change the
+/// render. Both upload as R16Float and cast through the same `f32 -> f16` path, so
+/// for identical integer values the frames must be byte-identical.
+#[tokio::test]
+async fn render_dtype_i16_matches_f32_for_identical_values() {
+    let (vol_f32, vol_i16) = make_dtype_equivalence_volumes();
+    let fmt = wgpu::TextureFormat::R16Float;
+
+    let f32_img = match render_volume(&vol_f32, fmt, dtype_equiv_view_state()).await {
+        Some(out) => out.0,
+        None => return, // GPU unavailable; skip line already printed.
+    };
+    let i16_img = render_volume(&vol_i16, fmt, dtype_equiv_view_state())
+        .await
+        .expect("i16 render failed after f32 render succeeded")
+        .0;
+
+    // Guard against a vacuously-flat frame: the red channel must actually vary,
+    // otherwise a byte-identical match proves nothing.
+    let (r_min, r_max) = f32_img
+        .chunks_exact(4)
+        .fold((255u8, 0u8), |(mn, mx), px| (mn.min(px[0]), mx.max(px[0])));
+    assert!(
+        r_max > r_min,
+        "equivalence volume rendered a uniform frame (red {r_min}..{r_max}); test would be vacuous"
+    );
+
+    let diff = compare_rgba(&f32_img, &i16_img, 0);
+    assert_eq!(
+        diff.max_diff, 0,
+        "native i16 upload diverged from f32 for identical integer values: max_diff={}, \
+         changed={}/{} pixels. The native-dtype loader path must not alter renders.",
+        diff.max_diff, diff.changed_pixels, diff.total_pixels
+    );
+
+    eprintln!("render_golden dtype-equivalence: i16 == f32 frame (byte-identical)");
 }

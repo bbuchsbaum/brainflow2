@@ -36,9 +36,31 @@ where
 {
     info!("Loading NIfTI file using neuroim: {}", path.display());
 
-    // Use neuroim to read the file
+    // Use neuroim to read the file (always decodes to the requested type via f32).
     let volume: DenseNeuroVol<T> = read_vol_as(path, 0)?;
 
+    // Finalize geometry + variant selection (shared with the native-dtype path).
+    finalize_3d_volume(volume)
+}
+
+/// Turn a decoded `DenseNeuroVol<T>` into a `VolumeSendable` + affine.
+///
+/// Shared by the f32-decode path ([`load_nifti_volume_neuroim`]) and the
+/// native-dtype path ([`load_nifti_volume_native`]); the only thing that differs
+/// upstream is how the volume was decoded.
+fn finalize_3d_volume<T>(
+    volume: DenseNeuroVol<T>,
+) -> Result<(VolumeSendable, Affine3<f32>), NiftiError>
+where
+    T: neuroim::Numeric
+        + volmath::Numeric
+        + Clone
+        + Serialize
+        + std::fmt::Debug
+        + Send
+        + Sync
+        + 'static,
+{
     // Get the space (geometry information)
     let space = volume.space();
     let dims = &space.dim;
@@ -103,6 +125,35 @@ where
 
     info!("Successfully loaded NIfTI volume: dims={:?}", dims);
     Ok((volume_sendable, affine))
+}
+
+/// Load a 3D NIfTI volume in its NATIVE on-disk dtype (no f32 round-trip).
+///
+/// Delegates to [`neuroim::io::read_vol_native_as`], which refuses scaled volumes
+/// and type mismatches (returning `Err`), so this is only ever used for
+/// truly-integer files where keeping the native dtype is lossless. Callers fall
+/// back to [`load_nifti_volume_neuroim`] on `Err`.
+pub fn load_nifti_volume_native<T>(
+    path: &Path,
+) -> Result<(VolumeSendable, Affine3<f32>), NiftiError>
+where
+    T: neuroim::Numeric
+        + volmath::Numeric
+        + neuroim::DataElement
+        + Clone
+        + Serialize
+        + std::fmt::Debug
+        + Send
+        + Sync
+        + 'static,
+{
+    info!(
+        "Loading NIfTI file in native dtype ({}): {}",
+        std::any::type_name::<T>(),
+        path.display()
+    );
+    let volume: DenseNeuroVol<T> = neuroim::io::read_vol_native_as(path)?;
+    finalize_3d_volume(volume)
 }
 
 // Helper function to create VolumeSendable - this needs to be a macro or use Any trait
@@ -340,9 +391,70 @@ pub fn load_nifti_4d_auto(path: &Path) -> Result<VolumeSendable, NiftiError> {
     ))
 }
 
+/// Attempt a native-dtype 3D load for truly-integer, unscaled files.
+///
+/// Returns `Some(..)` only on success. Returns `None` whenever the file is not a
+/// safe candidate — float/complex dtype, non-trivial data scaling, non-3D, or any
+/// read failure — so the caller transparently falls back to the f32 path.
+///
+/// Native storage is only ever used when `scl_slope ∈ {0, 1}` and
+/// `scl_inter == 0`, i.e. when the on-disk integers already ARE the physical
+/// values. Scaled integers (whose physical values are fractional) always keep the
+/// f32 path, which is what prevents the scaled-int truncation corruption.
+fn try_load_native_3d(path: &Path) -> Option<(VolumeSendable, Affine3<f32>)> {
+    let header = nifti::NiftiHeader::from_file(path).ok()?;
+
+    // Only unscaled files are safe to keep as native integers.
+    let slope = header.scl_slope;
+    let inter = header.scl_inter;
+    let trivial_scaling = (slope == 0.0 || slope == 1.0) && inter == 0.0;
+    if !trivial_scaling {
+        return None;
+    }
+
+    // 3D only. (4D, including 4D-with-single-timepoint, keeps the f32 path.)
+    if header.dim[0] != 3 {
+        return None;
+    }
+
+    let datatype = header.data_type().ok()?;
+    let result = match datatype {
+        // These all upload as R16Float (same as the f32 path did), so the render
+        // is byte-identical to before -- only the CPU dtype shrinks.
+        nifti::NiftiType::Int16 => load_nifti_volume_native::<i16>(path),
+        nifti::NiftiType::Uint16 => load_nifti_volume_native::<u16>(path),
+        nifti::NiftiType::Int8 => load_nifti_volume_native::<i8>(path),
+        nifti::NiftiType::Int32 => load_nifti_volume_native::<i32>(path),
+        nifti::NiftiType::Uint32 => load_nifti_volume_native::<u32>(path),
+        // Uint8 is deliberately NOT taken natively yet: a VolU8 uploads as
+        // R8Unorm (normalized to [0,1]) whereas the current f32 path uploads as
+        // R16Float (raw values), so going native would change the rendered
+        // output for plain u8 scalar volumes. Keep u8 on the f32 path until the
+        // R8Unorm intensity-window behavior is verified against the golden
+        // harness. (Float / complex / rgb also keep the f32 path.)
+        _ => return None,
+    };
+
+    match result {
+        Ok(loaded) => Some(loaded),
+        Err(e) => {
+            info!("native dtype load failed ({e}); falling back to f32 path");
+            None
+        }
+    }
+}
+
 // Simplified load function that tries different types (3D only)
 pub fn load_nifti_volume_auto(path: &Path) -> Result<(VolumeSendable, Affine3<f32>), NiftiError> {
-    // Try loading as f32 first (most common)
+    // Native fast path: unscaled integer files keep their on-disk dtype (2 bytes/
+    // voxel for int16, 1 for u8) instead of being inflated to f32. Returns None
+    // for scaled/float files and on any native read failure, falling through to
+    // the f32 path below.
+    if let Some(loaded) = try_load_native_3d(path) {
+        return Ok(loaded);
+    }
+
+    // Try loading as f32 first (most common; preserves scaled physical values)
     if let Ok(result) = load_nifti_volume_neuroim::<f32>(path) {
         return Ok(result);
     }
@@ -607,6 +719,94 @@ mod tests {
                 v.values()
             ),
             _ => panic!("unexpected VolumeSendable variant from auto load"),
+        }
+    }
+
+    // The native-dtype fast path: a truly-integer, UNSCALED int16 file
+    // (scl_slope=1, scl_inter=0) should stay int16 in memory (2 bytes/voxel)
+    // rather than being inflated to f32, with values preserved exactly.
+    // Fixture: 2x2x2 int16, scl_slope=1, raw=[10,20,30,40,50,60,70,80].
+    #[test]
+    fn auto_load_unscaled_int16_uses_native_i16() {
+        let test_file = get_unit_test_file("unscaled_i16.nii");
+        if !test_file.exists() {
+            eprintln!("Test file not found: {:?}, skipping test", test_file);
+            return;
+        }
+
+        let (vol, _affine) = load_nifti_volume_auto(&test_file).expect("auto load unscaled i16");
+        match &vol {
+            VolumeSendable::VolI16(v, _) => {
+                let vals = v.values();
+                assert_eq!(vals.len(), 8);
+                // 2 bytes/voxel CPU footprint, measured on the element type.
+                assert_eq!(std::mem::size_of_val(&vals[0]), 2);
+                assert_eq!(vals[0], 10);
+                assert_eq!(vals[3], 40);
+                assert_eq!(vals[7], 80);
+            }
+            VolumeSendable::VolF32(v, _) => panic!(
+                "unscaled int16 was inflated to VolF32 {:?}; expected native VolI16",
+                v.values()
+            ),
+            other => panic!("unexpected VolumeSendable variant: {other:?}"),
+        }
+    }
+
+    // Uint8 is deliberately kept on the f32 path for now: a native VolU8 uploads
+    // as R8Unorm (normalized [0,1]) instead of R16Float (raw), which would change
+    // the rendered output for plain u8 scalar volumes. This test pins that u8
+    // stays VolF32 with correct values until the R8Unorm path is verified.
+    // Fixture: 2x2x2 uint8, scl_slope=1, raw=[1,2,3,4,5,6,7,8].
+    #[test]
+    fn auto_load_unscaled_uint8_stays_f32_for_now() {
+        let test_file = get_unit_test_file("unscaled_u8.nii");
+        if !test_file.exists() {
+            eprintln!("Test file not found: {:?}, skipping test", test_file);
+            return;
+        }
+
+        let (vol, _affine) = load_nifti_volume_auto(&test_file).expect("auto load unscaled u8");
+        match &vol {
+            VolumeSendable::VolF32(v, _) => {
+                let vals = v.values();
+                assert_eq!(vals.len(), 8);
+                assert_relative_eq!(vals[0], 1.0, epsilon = 1e-6);
+                assert_relative_eq!(vals[7], 8.0, epsilon = 1e-6);
+            }
+            VolumeSendable::VolU8(_, _) => panic!(
+                "u8 took the native path (VolU8 -> R8Unorm); it must stay VolF32 until \
+                 the R8Unorm intensity-window behavior is verified against the golden harness"
+            ),
+            other => panic!("unexpected VolumeSendable variant: {other:?}"),
+        }
+    }
+
+    // Guard extends to scaled UNSIGNED ints: a uint16 file with non-trivial
+    // scaling carries fractional physical values and must keep the f32 path, not
+    // be truncated to native uint16. Fixture: 2x2x2 uint16, scl_slope=0.1,
+    // raw=[123,200,327,500,999,1000,5,50] -> physical [12.3,20.0,..].
+    #[test]
+    fn auto_load_keeps_scaled_uint16_as_f32() {
+        let test_file = get_unit_test_file("scaled_u16.nii");
+        if !test_file.exists() {
+            eprintln!("Test file not found: {:?}, skipping test", test_file);
+            return;
+        }
+
+        let (vol, _affine) = load_nifti_volume_auto(&test_file).expect("auto load scaled u16");
+        match &vol {
+            VolumeSendable::VolF32(v, _) => {
+                let vals = v.values();
+                assert_relative_eq!(vals[0], 12.3, epsilon = 1e-3);
+                assert_relative_eq!(vals[4], 99.9, epsilon = 1e-3);
+                assert_relative_eq!(vals[6], 0.5, epsilon = 1e-3);
+            }
+            VolumeSendable::VolU16(v, _) => panic!(
+                "scaled uint16 was truncated to VolU16 {:?}; expected VolF32 ~[12.3, ..]",
+                v.values()
+            ),
+            other => panic!("unexpected VolumeSendable variant: {other:?}"),
         }
     }
 
