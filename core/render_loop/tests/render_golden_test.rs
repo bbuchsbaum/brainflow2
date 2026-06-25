@@ -58,12 +58,12 @@ fn goldens_dir() -> PathBuf {
         .join("goldens")
 }
 
-fn golden_rgba_path() -> PathBuf {
-    goldens_dir().join("render_golden_axial.rgba")
+fn golden_rgba_path(stem: &str) -> PathBuf {
+    goldens_dir().join(format!("{stem}.rgba"))
 }
 
-fn golden_png_path() -> PathBuf {
-    goldens_dir().join("render_golden_axial.png")
+fn golden_png_path(stem: &str) -> PathBuf {
+    goldens_dir().join(format!("{stem}.png"))
 }
 
 /// Deterministic test volume: a smooth tri-linear gradient in [0,1] (so f16
@@ -130,7 +130,14 @@ fn golden_view_state() -> ViewState {
 ///
 /// Returns `None` (with a SKIP line) when no GPU adapter is available so the
 /// suite stays green in headless CI; the flow is GPU-bound by nature.
-async fn render_volume(volume: &DenseVolume3<f32>) -> Option<(Vec<u8>, [u32; 2])> {
+///
+/// `format` is the GPU texture format the volume is uploaded as. `R16Float` is
+/// what the real app upload path (`upload_volume_3d_labelaware`) selects by
+/// default for non-U8 volumes; `R32Float` is the exact/reference path.
+async fn render_volume(
+    volume: &DenseVolume3<f32>,
+    format: wgpu::TextureFormat,
+) -> Option<(Vec<u8>, [u32; 2])> {
     let mut service = match RenderLoopService::new().await {
         Ok(service) => service,
         Err(err) => {
@@ -144,7 +151,7 @@ async fn render_volume(volume: &DenseVolume3<f32>) -> Option<(Vec<u8>, [u32; 2])
         .enable_world_space_rendering()
         .expect("failed to enable world-space rendering");
     service
-        .register_volume_with_upload(VOLUME_ID.to_string(), volume, wgpu::TextureFormat::R32Float)
+        .register_volume_with_upload(VOLUME_ID.to_string(), volume, format)
         .expect("failed to register/upload volume");
     service
         .initialize_colormap()
@@ -208,28 +215,30 @@ fn compare_rgba(a: &[u8], b: &[u8], tol: u8) -> DiffReport {
     }
 }
 
-fn write_golden(image: &[u8], dims: [u32; 2]) {
+fn write_golden(image: &[u8], dims: [u32; 2], stem: &str) {
     fs::create_dir_all(goldens_dir()).expect("failed to create goldens dir");
-    fs::write(golden_rgba_path(), image).expect("failed to write golden .rgba");
+    fs::write(golden_rgba_path(stem), image).expect("failed to write golden .rgba");
     // Companion PNG for human inspection (not used by the comparison).
     if let Some(buf) =
         image::ImageBuffer::<image::Rgba<u8>, _>::from_raw(dims[0], dims[1], image.to_vec())
     {
-        let _ = buf.save(golden_png_path());
+        let _ = buf.save(golden_png_path(stem));
     }
     eprintln!(
         "render_golden: wrote {} ({}x{}, fnv {:016x})",
-        golden_rgba_path().display(),
+        golden_rgba_path(stem).display(),
         dims[0],
         dims[1],
         fnv1a(image)
     );
 }
 
-#[tokio::test]
-async fn render_golden_axial_matches_committed() {
+/// Renders the pinned volume+view at `format` and compares against the committed
+/// golden named `stem`. Shared by the R32Float (exact reference) and R16Float
+/// (app-default, f16-tolerant) cases.
+async fn run_golden_compare(format: wgpu::TextureFormat, stem: &str) {
     let volume = make_test_volume(None);
-    let (image, dims) = match render_volume(&volume).await {
+    let (image, dims) = match render_volume(&volume, format).await {
         Some(out) => out,
         None => return, // GPU unavailable; skip line already printed.
     };
@@ -245,19 +254,19 @@ async fn render_golden_axial_matches_committed() {
     );
 
     let update = std::env::var_os("UPDATE_RENDER_GOLDEN").is_some();
-    let golden_path = golden_rgba_path();
+    let golden_path = golden_rgba_path(stem);
 
     if update {
-        write_golden(&image, dims);
+        write_golden(&image, dims, stem);
         return;
     }
 
     if !golden_path.exists() {
         // First run with no committed baseline: capture it and pass loudly.
         // CI runs against the committed artifact, so this only happens locally.
-        write_golden(&image, dims);
+        write_golden(&image, dims, stem);
         eprintln!(
-            "render_golden: no committed baseline existed; captured one. \
+            "render_golden: no committed baseline for '{stem}'; captured one. \
              Commit tests/goldens/ and re-run to verify."
         );
         return;
@@ -267,7 +276,7 @@ async fn render_golden_axial_matches_committed() {
     let hash = fnv1a(&image);
     let golden_hash = fnv1a(&golden);
 
-    // Exact-match fast path (current R32Float path is bit-stable per machine).
+    // Exact-match fast path (bit-stable per machine for a given format).
     if hash == golden_hash {
         return;
     }
@@ -275,8 +284,8 @@ async fn render_golden_axial_matches_committed() {
     assert_eq!(
         image.len(),
         golden.len(),
-        "golden size mismatch (rendered {} vs golden {} bytes) — regenerate with \
-         UPDATE_RENDER_GOLDEN=1 if the view or volume intentionally changed",
+        "golden '{stem}' size mismatch (rendered {} vs golden {} bytes) — regenerate \
+         with UPDATE_RENDER_GOLDEN=1 if the view or volume intentionally changed",
         image.len(),
         golden.len(),
     );
@@ -284,7 +293,7 @@ async fn render_golden_axial_matches_committed() {
     let diff = compare_rgba(&image, &golden, TOL_PER_CHANNEL);
     assert!(
         diff.max_diff <= GOLDEN_MAX_DIFF && diff.changed_frac() <= GOLDEN_MAX_CHANGED_FRAC,
-        "render differs from golden beyond f16 tolerance: max_diff={} (limit {}), \
+        "render '{stem}' differs from golden beyond f16 tolerance: max_diff={} (limit {}), \
          changed={}/{} pixels = {:.3}% (limit {:.1}%). fnv {:016x} vs golden {:016x}. \
          If this is an intended visual change, regenerate with UPDATE_RENDER_GOLDEN=1.",
         diff.max_diff,
@@ -298,6 +307,20 @@ async fn render_golden_axial_matches_committed() {
     );
 }
 
+/// Exact/reference path: R32Float upload, bit-stable, exact-hash match.
+#[tokio::test]
+async fn render_golden_axial_matches_committed() {
+    run_golden_compare(wgpu::TextureFormat::R32Float, "render_golden_axial").await;
+}
+
+/// App-default path: R16Float upload (what `upload_volume_3d_labelaware` selects
+/// for non-U8 volumes). This is the format the native-dtype perf work renders
+/// through, so the f16 tolerance is sized for exactly this case.
+#[tokio::test]
+async fn render_golden_axial_r16f_matches_committed() {
+    run_golden_compare(wgpu::TextureFormat::R16Float, "render_golden_axial_r16f").await;
+}
+
 #[tokio::test]
 async fn render_golden_detects_single_voxel_perturbation() {
     // Baseline value at PERTURB_VOXEL is the box intensity (0.90); flip it to 0.0
@@ -305,12 +328,15 @@ async fn render_golden_detects_single_voxel_perturbation() {
     let baseline = make_test_volume(None);
     let perturbed = make_test_volume(Some((PERTURB_VOXEL, 0.0)));
 
-    let baseline_img = match render_volume(&baseline).await {
+    // Use the app-default R16Float path so the sensitivity guarantee covers the
+    // format the perf work actually renders through.
+    let fmt = wgpu::TextureFormat::R16Float;
+    let baseline_img = match render_volume(&baseline, fmt).await {
         Some(out) => out.0,
         None => return, // GPU unavailable; skip line already printed.
     };
     // First render succeeded, so the adapter is present; a failure here is real.
-    let perturbed_img = render_volume(&perturbed)
+    let perturbed_img = render_volume(&perturbed, fmt)
         .await
         .expect("second render failed after the first succeeded")
         .0;
