@@ -96,7 +96,7 @@ fn slice_feature_ubo_layout_and_defaults() {
     assert_eq!(offset_of!(SliceFeatureUbo, outline_enabled), 0);
     assert_eq!(offset_of!(SliceFeatureUbo, outline_layer_index), 4);
     assert_eq!(offset_of!(SliceFeatureUbo, selected_label_id), 8);
-    assert_eq!(offset_of!(SliceFeatureUbo, _pad0), 12);
+    assert_eq!(offset_of!(SliceFeatureUbo, outline_mode), 12);
     assert_eq!(offset_of!(SliceFeatureUbo, outline_color), 16);
     assert_eq!(offset_of!(SliceFeatureUbo, outline_thickness_px), 32);
     assert_eq!(offset_of!(SliceFeatureUbo, _pad1), 36);
@@ -183,7 +183,7 @@ fn active_masked_wgsl_matches_layer_ubo_field_order() {
         "outline_enabled",
         "outline_layer_index",
         "selected_label_id",
-        "_pad0",
+        "outline_mode",
         "outline_color",
         "outline_thickness_px",
         "_pad1_x",

@@ -183,7 +183,9 @@ async fn selected_label_outline_renders_without_black_frame() {
             outline_enabled: 1,
             outline_layer_index: 1,
             selected_label_id: 2,
-            _pad0: 0,
+            // Field was renamed from a pad to a real `outline_mode`
+            // (0 = outline the single selected_label_id).
+            outline_mode: 0,
             outline_color: [0.0, 1.0, 0.0, 1.0],
             outline_thickness_px: 2.0,
             _pad1: [0.0; 3],
