@@ -44,6 +44,7 @@
   - E2E: `pnpm --filter ui test:e2e` (runs Playwright in `e2e/`).
   - Remote mount slice of the matrix: `cargo test -p api-bridge remote_mount_`, `pnpm --filter temp-ui exec vitest run src/services/__tests__/RemoteMountService.test.ts src/components/panels/__tests__/RemoteMountDialog.test.tsx src/components/panels/__tests__/FileBrowserPanel.remoteOrigin.test.tsx src/components/panels/__tests__/FileBrowserPanel.unmount.test.tsx`, then `cargo xtask ts-bindings`.
   - GPU/regression scripts: `tools/test-render-pipeline.sh`, `tools/test-bridge.js`, `scripts/run-differential-tests.sh`.
+  - Render-golden harness (gate for rendering-data-affecting perf work): `cargo test -p render_loop --test render_golden_test`. Renders a fixed view of a deterministic volume and compares against the committed baseline in `core/render_loop/tests/goldens/` (exact FNV fast path, f16-tolerant fallback) plus a 1-voxel sensitivity check. Regenerate after an intended visual change with `UPDATE_RENDER_GOLDEN=1 cargo test -p render_loop --test render_golden_test`. GPU-bound: soft-skips with a `SKIP` line when no WGPU adapter is present.
   - Benches (Criterion):
     - Upload (runtime): `CRITERION_DEBUG=1 cargo bench -p render_loop_benches --bench upload`
     - Upload (typed): `CRITERION_DEBUG=1 cargo bench -p render_loop_benches --bench upload --features render_loop/typed-shaders`
