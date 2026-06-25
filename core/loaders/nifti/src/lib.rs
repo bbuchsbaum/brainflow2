@@ -7,7 +7,7 @@ use thiserror::Error;
 use volmath::DenseVolume3;
 
 // Use neuroim for NIfTI I/O
-use neuroim::io::{read_vec_as, read_vol_as};
+use neuroim::io::{read_vec_as, read_vol_as, read_vol_as_column_major};
 use neuroim::{DenseNeuroVec, DenseNeuroVol, NeuroVecTrait, NeuroVol};
 
 // --- Error Type ---
@@ -36,8 +36,13 @@ where
 {
     info!("Loading NIfTI file using neuroim: {}", path.display());
 
-    // Use neuroim to read the file (always decodes to the requested type via f32).
-    let volume: DenseNeuroVol<T> = read_vol_as(path, 0)?;
+    // Read keeping the native x-fastest (Fortran) layout to skip the C-order
+    // reorder (~10ms) plus the downstream values() reorder (~29ms). Falls back to
+    // the C-order read for anything the 3D fast path rejects (e.g. 4D files).
+    let volume: DenseNeuroVol<T> = match read_vol_as_column_major(path) {
+        Ok(volume) => volume,
+        Err(_) => read_vol_as(path, 0)?,
+    };
 
     // Finalize geometry + variant selection (shared with the native-dtype path).
     finalize_3d_volume(volume)
@@ -634,6 +639,28 @@ mod tests {
         assert!(NiftiLoader::can_load(Path::new("test.nii.gz")));
         assert!(!NiftiLoader::can_load(Path::new("test.txt")));
         assert!(!NiftiLoader::can_load(Path::new("test.gz")));
+    }
+
+    // The column-major (Fortran) read must produce byte-identical VALUES to the
+    // C-order read -- it is purely a memory-layout optimization. `values()` is
+    // layout-agnostic, so equal values() proves the rendered output is unchanged.
+    #[test]
+    fn column_major_read_values_match_cstandard() {
+        use neuroim::NeuroVol;
+        let test_file = get_unit_test_file("toy_t1w.nii.gz");
+        if !test_file.exists() {
+            eprintln!("Test file not found: {:?}, skipping test", test_file);
+            return;
+        }
+        let col_major =
+            neuroim::io::read_vol_as_column_major::<f32>(&test_file).expect("column-major read");
+        let cstd = neuroim::io::read_vol_as::<f32>(&test_file, 0).expect("c-order read");
+        assert_eq!(col_major.space().dim, cstd.space().dim, "dims must match");
+        assert_eq!(
+            col_major.values(),
+            cstd.values(),
+            "column-major read must yield identical voxel values to the C-order read"
+        );
     }
 
     // Test loading a real file

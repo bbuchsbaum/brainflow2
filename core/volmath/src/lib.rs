@@ -843,6 +843,73 @@ mod tests {
             "values_contiguous must borrow (no rebuild) for from_data volumes"
         );
     }
+
+    // Measures the cost of the two layout reorders the NIfTI load path pays per
+    // load, on a representative MNI152 1mm f32 volume:
+    //   #1 neuroim read_vol_as: into_ndarray(.f) -> as_standard_layout (Fortran->C)
+    //   #2 brainflow finalize:  values() column-major gather (C -> x-fastest Vec)
+    // Run: cargo test -p volmath --release perf_reorder_cost -- --nocapture --ignored
+    #[test]
+    #[ignore]
+    fn perf_reorder_cost() {
+        use ndarray::{Array3, ShapeBuilder};
+        use std::time::Instant;
+
+        let (nx, ny, nz) = (193usize, 229, 193);
+        let n = nx * ny * nz;
+        let data: Vec<f32> = (0..n).map(|i| i as f32).collect();
+        let iters = 12;
+
+        // Fortran-ordered array, as the nifti crate's into_ndarray::<f32>() produces.
+        let fortran: Array3<f32> = Array3::from_shape_vec((nx, ny, nz).f(), data.clone()).unwrap();
+
+        // Reorder #1: Fortran -> C (neuroim's as_standard_layout().into_owned()).
+        let mut best1 = f64::MAX;
+        let mut c_order = fortran.as_standard_layout().into_owned();
+        for _ in 0..iters {
+            let t = Instant::now();
+            c_order = fortran.as_standard_layout().into_owned();
+            best1 = best1.min(t.elapsed().as_secs_f64() * 1e3);
+        }
+
+        // Reorder #2: C -> x-fastest Vec (NeuroVol::values() column-major gather).
+        let mut best2 = f64::MAX;
+        for _ in 0..iters {
+            let t = Instant::now();
+            let mut v = Vec::with_capacity(n);
+            for k in 0..nz {
+                for j in 0..ny {
+                    for i in 0..nx {
+                        v.push(c_order[[i, j, k]]);
+                    }
+                }
+            }
+            best2 = best2.min(t.elapsed().as_secs_f64() * 1e3);
+            std::hint::black_box(&v);
+        }
+
+        // Baseline: a plain contiguous clone (what a no-reorder path costs).
+        let mut best0 = f64::MAX;
+        for _ in 0..iters {
+            let t = Instant::now();
+            let v = data.clone();
+            best0 = best0.min(t.elapsed().as_secs_f64() * 1e3);
+            std::hint::black_box(&v);
+        }
+
+        println!(
+            "[perf] dims={nx}x{ny}x{nz} voxels={n} ({} MB f32)",
+            n * 4 / 1_048_576
+        );
+        println!("[perf] reorder#1 Fortran->C (as_standard_layout): {best1:.2} ms");
+        println!("[perf] reorder#2 C->x-fastest (values gather):     {best2:.2} ms");
+        println!("[perf] baseline contiguous clone:                  {best0:.2} ms");
+        println!(
+            "[perf] reorders combined: {:.2} ms (decode base ~60 ms uncompressed)",
+            best1 + best2
+        );
+        std::hint::black_box(c_order);
+    }
 }
 
 // WASM tests remain for compatibility
