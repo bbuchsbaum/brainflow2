@@ -2633,17 +2633,24 @@ async fn load_file(path: String, state: State<'_, BridgeState>) -> BridgeResult<
     }
 
     // Load the volume data.
-    // [perf] This decode (gzip inflate + full f32 materialization) currently runs
-    // directly on the async runtime, blocking it for the duration. The split vs
-    // total load_file time below shows how much of the load is this CPU work.
+    // [perf] The decode (gzip inflate + full f32 materialization) is CPU-bound
+    // and ~100ms+ on a real volume. Run it on a blocking thread so it does not
+    // stall the async runtime (and every other in-flight command) for that span.
     let decode_start = Instant::now();
+    let decode_path = file_path.clone();
     let (volume_sendable, _affine) =
-        nifti_loader::load_nifti_volume_auto(&file_path).map_err(|e| BridgeError::Loader {
-            code: 1003,
-            details: format!("Failed to load file {}: {}", path, e),
-        })?;
+        tokio::task::spawn_blocking(move || nifti_loader::load_nifti_volume_auto(&decode_path))
+            .await
+            .map_err(|e| BridgeError::Internal {
+                code: 1004,
+                details: format!("Volume decode task failed for {}: {}", path, e),
+            })?
+            .map_err(|e| BridgeError::Loader {
+                code: 1003,
+                details: format!("Failed to load file {}: {}", path, e),
+            })?;
     info!(
-        "[perf] load_file decode (on async runtime): {} ms ({})",
+        "[perf] load_file decode (spawn_blocking, off async runtime): {} ms ({})",
         decode_start.elapsed().as_millis(),
         path
     );
