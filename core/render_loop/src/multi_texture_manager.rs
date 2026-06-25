@@ -904,19 +904,16 @@ fn convert_to_r16float<T>(volume: &DenseVolume3<T>) -> Result<Vec<u8>, RenderLoo
 where
     T: VoxelData + num_traits::NumCast + DataRange<T> + Serialize,
 {
-    // Convert to f16 (half precision float)
-    let data: Vec<half::f16> = volume
-        .values()
-        .iter()
-        .map(|&val| {
-            let f32_val = num_traits::cast::<T, f32>(val).unwrap_or(0.0);
-            half::f16::from_f32(f32_val)
-        })
-        .collect();
-
-    // Convert to bytes
-    let bytes: Vec<u8> = data.iter().flat_map(|&val| val.to_ne_bytes()).collect();
-
+    // Single pass: cast each voxel f32 -> f16 and append its 2 bytes directly,
+    // into a pre-sized buffer. Avoids the intermediate Vec<f16> allocation and
+    // the per-element flat_map of the old two-step version. Byte-for-byte
+    // identical output (see test convert_to_r16float_matches_reference).
+    let values = volume.values();
+    let mut bytes = Vec::with_capacity(values.len() * 2);
+    for &val in values.iter() {
+        let f32_val = num_traits::cast::<T, f32>(val).unwrap_or(0.0);
+        bytes.extend_from_slice(&half::f16::from_f32(f32_val).to_ne_bytes());
+    }
     Ok(bytes)
 }
 
@@ -924,15 +921,13 @@ fn convert_to_r32float<T>(volume: &DenseVolume3<T>) -> Result<Vec<u8>, RenderLoo
 where
     T: VoxelData + num_traits::NumCast + DataRange<T> + Serialize,
 {
-    let data: Vec<f32> = volume
-        .values()
-        .iter()
-        .map(|&val| num_traits::cast::<T, f32>(val).unwrap_or(0.0))
-        .collect();
-
-    // Convert to bytes
-    let bytes: Vec<u8> = data.iter().flat_map(|&val| val.to_ne_bytes()).collect();
-
+    // Single pass into a pre-sized buffer (see convert_to_r16float).
+    let values = volume.values();
+    let mut bytes = Vec::with_capacity(values.len() * 4);
+    for &val in values.iter() {
+        let f32_val = num_traits::cast::<T, f32>(val).unwrap_or(0.0);
+        bytes.extend_from_slice(&f32_val.to_ne_bytes());
+    }
     Ok(bytes)
 }
 
@@ -971,5 +966,33 @@ mod tests {
             assert_eq!(info.dimensions, [64, 64, 25]);
             assert_eq!(info.format, wgpu::TextureFormat::R8Unorm);
         });
+    }
+
+    #[test]
+    fn convert_to_r16float_matches_reference() {
+        use volmath::space::{NeuroSpace3, NeuroSpaceImpl};
+
+        let dims = [2usize, 3, 4];
+        let n = dims[0] * dims[1] * dims[2];
+        // Distinct values including fractions and a negative, to exercise the
+        // f32 -> f16 rounding and the byte layout.
+        let data: Vec<f32> = (0..n).map(|i| (i as f32) * 0.5 - 3.0).collect();
+        let voxel_to_world = nalgebra::Matrix4::<f32>::identity();
+        let space_impl =
+            NeuroSpaceImpl::from_affine_matrix4(dims.to_vec(), voxel_to_world).unwrap();
+        let space = NeuroSpace3::new(space_impl);
+        let vol = DenseVolume3::from_data(space.0, data);
+
+        // Reference = the original two-step algorithm this commit collapses.
+        let reference: Vec<u8> = vol
+            .values()
+            .iter()
+            .map(|&v| half::f16::from_f32(v))
+            .flat_map(|h| h.to_ne_bytes())
+            .collect();
+
+        let actual = convert_to_r16float(&vol).expect("convert");
+        assert_eq!(actual, reference, "single-pass output must match reference");
+        assert_eq!(actual.len(), n * 2);
     }
 }
