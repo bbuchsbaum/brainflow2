@@ -12,6 +12,7 @@ import {
   getSurfaceViewSettingsForId,
   useSurfaceStore,
 } from '@/stores/surfaceStore';
+import { useViewStateStore } from '@/stores/viewStateStore';
 import { getEventBus } from '@/events/EventBus';
 import { getViewExportService } from '@/services/ViewExportService';
 import { useActiveRenderable } from '@/hooks/useActiveRenderable';
@@ -45,7 +46,7 @@ const SurfaceViewCanvasInner: React.FC<SurfaceViewCanvasProps> = ({
   const [renderSignal, setRenderSignal] = useState(0);
   const surfaceContextId = useMemo(
     () => buildSurfaceViewContextId(surfaceContextHandle ?? surface.handle, surfaceViewId),
-    [surfaceContextHandle, surface.handle, surfaceViewId]
+    [surfaceContextHandle, surface.handle, surfaceViewId],
   );
   const markRenderableActive = useActiveRenderable(surfaceContextId);
   const handleContextMenu = useViewContextMenu(surfaceContextId);
@@ -58,16 +59,42 @@ const SurfaceViewCanvasInner: React.FC<SurfaceViewCanvasProps> = ({
   const viewpoint = useSurfaceStore((state) => state.viewpoint);
   const showControls = useSurfaceStore((state) => state.showControls);
   const lightingSettings = useSurfaceStore(
-    (state) => getSurfaceViewSettingsForId(state.surfaceViewSettings, surfaceViewId).lightingSettings
+    (state) =>
+      getSurfaceViewSettingsForId(state.surfaceViewSettings, surfaceViewId).lightingSettings,
   );
   const displaySettings = useSurfaceStore(
-    (state) => getSurfaceViewSettingsForId(state.surfaceViewSettings, surfaceViewId).displaySettings
+    (state) =>
+      getSurfaceViewSettingsForId(state.surfaceViewSettings, surfaceViewId).displaySettings,
   );
   const materialSettings = useSurfaceStore(
-    (state) => getSurfaceViewSettingsForId(state.surfaceViewSettings, surfaceViewId).materialSettings
+    (state) =>
+      getSurfaceViewSettingsForId(state.surfaceViewSettings, surfaceViewId).materialSettings,
   );
   const projectionSettings = useSurfaceStore(
-    (state) => getSurfaceViewSettingsForId(state.surfaceViewSettings, surfaceViewId).projectionSettings
+    (state) =>
+      getSurfaceViewSettingsForId(state.surfaceViewSettings, surfaceViewId).projectionSettings,
+  );
+
+  // Linked cursor: mirror the volume crosshair onto the surface. world_mm is a
+  // stable tuple reference held in the store, so this selector is render-safe.
+  const crosshairWorld = useViewStateStore((state) => state.viewState.crosshair.world_mm);
+  const crosshairVisible = useViewStateStore((state) => state.viewState.crosshair.visible);
+  // crosshair.world_mm sign convention vs the surface vertex frame:
+  //   world_mm: +X = Left, +Y = Anterior, +Z = Superior  (effectively LAS).
+  //   surface (FreeSurfer/templateflow GIfTI): RAS, so +X = Right.
+  // (The app's "LPI" status-bar label describes voxel/axis ordering, not the
+  // world_mm sign convention.) The two frames differ ONLY on the L/R axis, so we
+  // negate X and pass Y/Z through. Verified empirically on all three axes and
+  // against the fsaverage pial-L file (left-hemisphere X is negative there).
+  // NOTE: this assumes a RAS surface (true for templates / most GIfTI). A surface
+  // already in the volume's LAS frame would be mirrored to the wrong hemisphere;
+  // long-term this flip should be derived from per-surface orientation metadata.
+  const markerWorldPosition = useMemo<[number, number, number] | null>(
+    () =>
+      crosshairVisible === false
+        ? null
+        : [-crosshairWorld[0], crosshairWorld[1], crosshairWorld[2]],
+    [crosshairVisible, crosshairWorld],
   );
 
   const surfacesToRender = useMemo(() => {
@@ -82,8 +109,12 @@ const SurfaceViewCanvasInner: React.FC<SurfaceViewCanvasProps> = ({
   }, [renderSurfaces, surface]);
 
   const renderHandlesKey = useMemo(
-    () => surfacesToRender.map((item) => item.handle).sort().join('|'),
-    [surfacesToRender]
+    () =>
+      surfacesToRender
+        .map((item) => item.handle)
+        .sort()
+        .join('|'),
+    [surfacesToRender],
   );
 
   const handleExporterChange = useCallback(
@@ -95,7 +126,7 @@ const SurfaceViewCanvasInner: React.FC<SurfaceViewCanvasProps> = ({
         exportService.unregisterExporter(surfaceContextId);
       }
     },
-    [surfaceContextId]
+    [surfaceContextId],
   );
 
   useEffect(() => {
@@ -131,6 +162,9 @@ const SurfaceViewCanvasInner: React.FC<SurfaceViewCanvasProps> = ({
       displaySettings={displaySettings ?? DEFAULT_SURFACE_VIEW_SETTINGS.displaySettings}
       materialSettings={materialSettings ?? DEFAULT_SURFACE_VIEW_SETTINGS.materialSettings}
       projectionSettings={projectionSettings ?? DEFAULT_SURFACE_VIEW_SETTINGS.projectionSettings}
+      markerWorldPosition={markerWorldPosition}
+      markerSnapToSurface
+      markerMaxSnapDistanceMm={20}
       renderSignal={renderSignal}
       onActivate={markActive}
       onContextMenu={handleContextMenu}

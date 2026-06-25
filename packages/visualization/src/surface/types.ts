@@ -140,6 +140,27 @@ export interface NeuroSurfaceCanvasProps {
   materialSettings?: SurfaceMaterialSettings;
   projectionSettings?: SurfaceProjectionSettings;
   renderSignal?: unknown;
+  /**
+   * World-space [x, y, z] in mm (same coordinate frame as the surface vertices)
+   * to mark with a cursor sphere — e.g. the linked volume crosshair. Pass
+   * `null`/`undefined` to hide the marker.
+   */
+  markerWorldPosition?: [number, number, number] | null;
+  /**
+   * When true (default), the marker snaps to the nearest surface vertex so it
+   * sits on the cortex rather than floating at the raw world point.
+   */
+  markerSnapToSurface?: boolean;
+  /**
+   * Hide the marker when the nearest surface vertex is farther than this many
+   * mm from the world point (so a crosshair deep in the brain / off the loaded
+   * hemisphere doesn't snap to a misleading spot). No limit when undefined.
+   */
+  markerMaxSnapDistanceMm?: number;
+  /** Marker sphere color (hex). Defaults to a bright green. */
+  markerColor?: string;
+  /** Marker sphere radius in world mm. Defaults to 2.5. */
+  markerRadiusMm?: number;
   className?: string;
   style?: React.CSSProperties;
   onActivate?: () => void;
@@ -149,8 +170,59 @@ export interface NeuroSurfaceCanvasProps {
 }
 
 export type NeurosurfaceLayerConfig =
-  | { type: 'base'; id: string; color?: number; opacity?: number; visible?: boolean; order?: number }
-  | { type: 'data'; id: string; data: Float32Array | number[]; indices?: Uint32Array | number[]; colorMap?: unknown; range?: [number, number]; threshold?: [number, number]; opacity?: number; blendMode?: string; visible?: boolean; order?: number }
-  | { type: 'rgba'; id: string; data: Float32Array | number[]; opacity?: number; blendMode?: string; visible?: boolean; order?: number }
-  | { type: 'label'; id: string; labels: Uint32Array | Int32Array | number[]; labelDefs: Array<{ id: number; color: number; name?: string }>; defaultColor?: number; opacity?: number; visible?: boolean; order?: number }
-  | { type: 'outline'; id: string; roiLabels: Uint32Array | Int32Array | number[]; color?: number; opacity?: number; width?: number; halo?: boolean; haloColor?: number; haloWidth?: number; offset?: number; roiSubset?: number[] | null; visible?: boolean; blendMode?: string; order?: number };
+  | {
+      type: 'base';
+      id: string;
+      color?: number;
+      opacity?: number;
+      visible?: boolean;
+      order?: number;
+    }
+  | {
+      type: 'data';
+      id: string;
+      data: Float32Array | number[];
+      indices?: Uint32Array | number[];
+      colorMap?: unknown;
+      range?: [number, number];
+      threshold?: [number, number];
+      opacity?: number;
+      blendMode?: string;
+      visible?: boolean;
+      order?: number;
+    }
+  | {
+      type: 'rgba';
+      id: string;
+      data: Float32Array | number[];
+      opacity?: number;
+      blendMode?: string;
+      visible?: boolean;
+      order?: number;
+    }
+  | {
+      type: 'label';
+      id: string;
+      labels: Uint32Array | Int32Array | number[];
+      labelDefs: Array<{ id: number; color: number; name?: string }>;
+      defaultColor?: number;
+      opacity?: number;
+      visible?: boolean;
+      order?: number;
+    }
+  | {
+      type: 'outline';
+      id: string;
+      roiLabels: Uint32Array | Int32Array | number[];
+      color?: number;
+      opacity?: number;
+      width?: number;
+      halo?: boolean;
+      haloColor?: number;
+      haloWidth?: number;
+      offset?: number;
+      roiSubset?: number[] | null;
+      visible?: boolean;
+      blendMode?: string;
+      order?: number;
+    };

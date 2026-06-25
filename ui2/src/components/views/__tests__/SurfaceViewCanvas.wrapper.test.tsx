@@ -28,6 +28,20 @@ vi.mock('../surfaceViewer', async () => {
   };
 });
 
+// Controlled crosshair for the linked-cursor assertions. The component reads
+// `viewState.crosshair.{world_mm,visible}` via useViewStateStore(selector).
+const crosshairMock = vi.hoisted(() => ({
+  value: { world_mm: [0, 0, 0] as [number, number, number], visible: true },
+}));
+
+vi.mock('@/stores/viewStateStore', async (importOriginal) => {
+  const actual = await importOriginal<any>();
+  const hook = (selector: any) => selector({ viewState: { crosshair: crosshairMock.value } });
+  // Preserve getState/setState/etc. for any other consumer in the tree.
+  Object.assign(hook, actual.useViewStateStore);
+  return { ...actual, useViewStateStore: hook };
+});
+
 import { SurfaceViewCanvas } from '../SurfaceViewCanvas';
 
 function makeSurface(handle: string): LoadedSurface {
@@ -56,6 +70,7 @@ describe('SurfaceViewCanvas Brainflow wrapper', () => {
   beforeEach(() => {
     vi.restoreAllMocks();
     neuroSurfaceCanvasState.latestProps = null;
+    crosshairMock.value = { world_mm: [0, 0, 0], visible: true };
     useSurfaceStore.setState({
       surfaces: new Map(),
       activeSurfaceId: null,
@@ -95,14 +110,13 @@ describe('SurfaceViewCanvas Brainflow wrapper', () => {
         surfaceViewId="view-1"
         width={320}
         height={240}
-      />
+      />,
     );
 
     expect(screen.getByTestId('neuro-surface-canvas')).toBeInTheDocument();
-    expect(neuroSurfaceCanvasState.latestProps.surfaces.map((item: LoadedSurface) => item.handle)).toEqual([
-      'lh',
-      'rh',
-    ]);
+    expect(
+      neuroSurfaceCanvasState.latestProps.surfaces.map((item: LoadedSurface) => item.handle),
+    ).toEqual(['lh', 'rh']);
     expect(neuroSurfaceCanvasState.latestProps.viewpoint).toBe('medial');
     expect(neuroSurfaceCanvasState.latestProps.showControls).toBe(true);
     expect(neuroSurfaceCanvasState.latestProps.projectionSettings.useGPUProjection).toBe(true);
@@ -115,18 +129,12 @@ describe('SurfaceViewCanvas Brainflow wrapper', () => {
     const exportService = getViewExportService();
     const registerSpy = vi.spyOn(exportService, 'registerExporter');
     const unregisterSpy = vi.spyOn(exportService, 'unregisterExporter');
-    const exporter = vi.fn(async (_options: Required<Pick<ExportOptions, 'format' | 'transparentBackground'>>) =>
-      new Uint8Array([1, 2, 3])
+    const exporter = vi.fn(
+      async (_options: Required<Pick<ExportOptions, 'format' | 'transparentBackground'>>) =>
+        new Uint8Array([1, 2, 3]),
     );
 
-    render(
-      <SurfaceViewCanvas
-        surface={surface}
-        surfaceViewId="view-1"
-        width={320}
-        height={240}
-      />
-    );
+    render(<SurfaceViewCanvas surface={surface} surfaceViewId="view-1" width={320} height={240} />);
 
     act(() => {
       neuroSurfaceCanvasState.latestProps.onExporterChange(exporter);
@@ -150,7 +158,7 @@ describe('SurfaceViewCanvas Brainflow wrapper', () => {
         onActivateSurface={onActivateSurface}
         width={320}
         height={240}
-      />
+      />,
     );
 
     act(() => {
@@ -159,5 +167,27 @@ describe('SurfaceViewCanvas Brainflow wrapper', () => {
 
     expect(useActiveRenderContextStore.getState().activeId).toBe('surfaceview:lh:view-1');
     expect(onActivateSurface).toHaveBeenCalledTimes(1);
+  });
+
+  it('maps the volume crosshair (LAS) onto the surface frame (RAS) by negating X', () => {
+    crosshairMock.value = { world_mm: [43.2, -55.4, 18], visible: true };
+    const surface = makeSurface('lh');
+
+    render(<SurfaceViewCanvas surface={surface} surfaceViewId="view-1" width={320} height={240} />);
+
+    // Left hemisphere is +X in the app's world_mm (LAS) but -X on the surface (RAS),
+    // so the marker passed to the canvas must negate X and keep Y/Z.
+    expect(neuroSurfaceCanvasState.latestProps.markerWorldPosition).toEqual([-43.2, -55.4, 18]);
+    expect(neuroSurfaceCanvasState.latestProps.markerSnapToSurface).toBe(true);
+    expect(neuroSurfaceCanvasState.latestProps.markerMaxSnapDistanceMm).toBe(20);
+  });
+
+  it('hides the surface marker when the crosshair is not visible', () => {
+    crosshairMock.value = { world_mm: [43.2, -55.4, 18], visible: false };
+    const surface = makeSurface('lh');
+
+    render(<SurfaceViewCanvas surface={surface} surfaceViewId="view-1" width={320} height={240} />);
+
+    expect(neuroSurfaceCanvasState.latestProps.markerWorldPosition).toBeNull();
   });
 });

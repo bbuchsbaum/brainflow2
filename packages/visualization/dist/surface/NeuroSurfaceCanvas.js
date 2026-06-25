@@ -18,6 +18,35 @@ function hasRenderableGeometry(surface) {
         surface.geometry.vertices.length > 0 &&
         surface.geometry.faces.length > 0);
 }
+/**
+ * Find the surface vertex nearest to a world-space point, scanning the flat
+ * vertex arrays of every supplied surface. Returns the vertex position and its
+ * distance (mm), or null when no surface has geometry. O(total vertices) — a
+ * few hundred microseconds even for fsaverage (164k), so it is fine to run on
+ * every crosshair move. Snapping uses the input (un-smoothed) geometry, which
+ * matches the rendered mesh whenever display smoothing is 0 (the default).
+ */
+function findNearestSurfacePoint(surfaces, world) {
+    const [wx, wy, wz] = world;
+    let bestDistSq = Infinity;
+    let best = null;
+    for (const surface of surfaces) {
+        const verts = surface.geometry?.vertices;
+        if (!verts || verts.length < 3)
+            continue;
+        for (let i = 0; i + 2 < verts.length; i += 3) {
+            const dx = verts[i] - wx;
+            const dy = verts[i + 1] - wy;
+            const dz = verts[i + 2] - wz;
+            const distSq = dx * dx + dy * dy + dz * dz;
+            if (distSq < bestDistSq) {
+                bestDistSq = distSq;
+                best = [verts[i], verts[i + 1], verts[i + 2]];
+            }
+        }
+    }
+    return best ? { position: best, distanceMm: Math.sqrt(bestDistSq) } : null;
+}
 function buildLayerInstance(spec) {
     switch (spec.kind) {
         case 'rgba':
@@ -145,7 +174,9 @@ function applySceneRenderSettings(viewer, lightingSettings) {
         }
     });
     let fillLight = viewer.scene.getObjectByName('fillLight');
-    if (!fillLight && lightingSettings.fillLightIntensity && lightingSettings.fillLightIntensity > 0) {
+    if (!fillLight &&
+        lightingSettings.fillLightIntensity &&
+        lightingSettings.fillLightIntensity > 0) {
         fillLight = new THREE.DirectionalLight(0xffffff, lightingSettings.fillLightIntensity);
         fillLight.name = 'fillLight';
         fillLight.userData.role = 'fill';
@@ -184,12 +215,13 @@ function removeRenderedSurface(viewer, handle, rendered) {
         // no-op
     }
 }
-const NeuroSurfaceCanvasInner = ({ surfaces, width, height, viewpoint = 'lateral', showControls = false, lightingSettings = DEFAULT_NEURO_SURFACE_LIGHTING_SETTINGS, displaySettings = DEFAULT_NEURO_SURFACE_DISPLAY_SETTINGS, materialSettings = DEFAULT_NEURO_SURFACE_MATERIAL_SETTINGS, projectionSettings = DEFAULT_NEURO_SURFACE_PROJECTION_SETTINGS, renderSignal, className = 'w-full h-full', style, onActivate, onContextMenu, onExporterChange, onError, }) => {
+const NeuroSurfaceCanvasInner = ({ surfaces, width, height, viewpoint = 'lateral', showControls = false, lightingSettings = DEFAULT_NEURO_SURFACE_LIGHTING_SETTINGS, displaySettings = DEFAULT_NEURO_SURFACE_DISPLAY_SETTINGS, materialSettings = DEFAULT_NEURO_SURFACE_MATERIAL_SETTINGS, projectionSettings = DEFAULT_NEURO_SURFACE_PROJECTION_SETTINGS, renderSignal, markerWorldPosition, markerSnapToSurface = true, markerMaxSnapDistanceMm, markerColor = '#39FF14', markerRadiusMm = 2.5, className = 'w-full h-full', style, onActivate, onContextMenu, onExporterChange, onError, }) => {
     const containerRef = useRef(null);
     const viewerRef = useRef(null);
     const renderedSurfacesRef = useRef(new Map());
     const renderedSurfaceInputsRef = useRef(new Map());
     const originalGeometryRef = useRef(new Map());
+    const markerMeshRef = useRef(null);
     const [isInitialized, setIsInitialized] = useState(false);
     const hasCenteredCamera = useRef(false);
     const lastSmoothingValue = useRef(0);
@@ -203,12 +235,23 @@ const NeuroSurfaceCanvasInner = ({ surfaces, width, height, viewpoint = 'lateral
         }
         return Array.from(unique.values());
     }, [surfaces]);
-    const renderHandlesKey = useMemo(() => surfacesToRender.map((item) => item.handle).sort().join('|'), [surfacesToRender]);
+    const renderHandlesKey = useMemo(() => surfacesToRender
+        .map((item) => item.handle)
+        .sort()
+        .join('|'), [surfacesToRender]);
+    // Key that also changes when geometry is swapped under an unchanged handle
+    // (load completing empty -> real vertices, or pial <-> inflated <-> white).
+    // The marker's nearest-vertex search depends on this so it re-snaps on those
+    // swaps even when the crosshair is stationary. Vertex-length + surfaceType is
+    // a cheap proxy that avoids scanning every vertex on each render.
+    const surfaceGeometryKey = useMemo(() => surfacesToRender
+        .map((item) => `${item.handle}:${item.geometry?.vertices?.length ?? 0}:${item.geometry?.surfaceType ?? ''}`)
+        .join('|'), [surfacesToRender]);
     useEffect(() => {
         if (!isInitialized || !viewerRef.current?.renderer?.domElement || !onExporterChange) {
             return;
         }
-        const exporter = async ({ format }) => {
+        const exporter = async ({ format, }) => {
             const viewer = viewerRef.current;
             const canvas = viewer?.renderer?.domElement;
             if (!canvas) {
@@ -369,9 +412,7 @@ const NeuroSurfaceCanvasInner = ({ surfaces, width, height, viewpoint = 'lateral
             for (const item of readySurfaces) {
                 const previousInput = renderedSurfaceInputsRef.current.get(item.handle);
                 const renderedSurface = renderedSurfacesRef.current.get(item.handle);
-                if (!previousInput ||
-                    !renderedSurface ||
-                    isSurfaceGeometryChanged(previousInput, item)) {
+                if (!previousInput || !renderedSurface || isSurfaceGeometryChanged(previousInput, item)) {
                     mountRenderedSurface(item);
                     changed = true;
                     structuralChange = true;
@@ -483,6 +524,117 @@ const NeuroSurfaceCanvasInner = ({ surfaces, width, height, viewpoint = 'lateral
         applySceneRenderSettings(viewerRef.current, lightingSettings);
         viewerRef.current.requestRender();
     }, [lightingSettings]);
+    // Linked cursor: a marker sphere on the surface that tracks a world position
+    // (the volume crosshair), snapped to the nearest visible-surface vertex so it
+    // sits on the cortex. The mesh is created once and then repositioned / toggled
+    // on updates — geometry and material are only rebuilt when radius/color change
+    // — to avoid per-move allocation + shader recompile churn during scrubbing.
+    useEffect(() => {
+        const viewer = viewerRef.current;
+        if (!isInitialized || !viewer || !viewer.scene)
+            return;
+        // Resolve the target position (snapped to the nearest *visible* surface).
+        let position = null;
+        if (markerWorldPosition) {
+            if (markerSnapToSurface) {
+                const snapSurfaces = surfacesToRender.filter((item) => item.visible !== false);
+                const nearest = findNearestSurfacePoint(snapSurfaces, markerWorldPosition);
+                if (nearest &&
+                    (markerMaxSnapDistanceMm == null || nearest.distanceMm <= markerMaxSnapDistanceMm)) {
+                    position = nearest.position;
+                }
+            }
+            else {
+                position = [markerWorldPosition[0], markerWorldPosition[1], markerWorldPosition[2]];
+            }
+        }
+        if (!position) {
+            // No valid target — hide the marker but keep the mesh for reuse.
+            if (markerMeshRef.current && markerMeshRef.current.visible) {
+                markerMeshRef.current.visible = false;
+                viewer.requestRender();
+            }
+            return;
+        }
+        let mesh = markerMeshRef.current;
+        if (!mesh) {
+            const geometry = new THREE.SphereGeometry(markerRadiusMm, 20, 20);
+            const material = new THREE.MeshStandardMaterial({
+                color: markerColor,
+                emissive: markerColor,
+                emissiveIntensity: 0.9,
+                roughness: 0.35,
+                metalness: 0,
+                // Draw the cursor on top of the surface so it stays visible even when
+                // the corresponding point is on the far/medial side of the mesh.
+                depthTest: false,
+                depthWrite: false,
+            });
+            mesh = new THREE.Mesh(geometry, material);
+            mesh.name = 'crosshairMarker';
+            mesh.renderOrder = 999;
+            mesh.userData.radiusMm = markerRadiusMm;
+            viewer.scene.add(mesh);
+            markerMeshRef.current = mesh;
+        }
+        else {
+            // Rebuild geometry only when the radius actually changes; recolor in place.
+            if (mesh.userData.radiusMm !== markerRadiusMm) {
+                mesh.geometry.dispose();
+                mesh.geometry = new THREE.SphereGeometry(markerRadiusMm, 20, 20);
+                mesh.userData.radiusMm = markerRadiusMm;
+            }
+            const material = mesh.material;
+            material.color?.set?.(markerColor);
+            material.emissive?.set?.(markerColor);
+        }
+        mesh.position.set(position[0], position[1], position[2]);
+        mesh.visible = true;
+        viewer.requestRender();
+        // markerWorldPosition is an array; depend on its components so a fresh array
+        // with identical values doesn't churn. surfaceGeometryKey re-runs the snap
+        // when geometry is swapped under an unchanged handle.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [
+        isInitialized,
+        markerWorldPosition?.[0],
+        markerWorldPosition?.[1],
+        markerWorldPosition?.[2],
+        markerSnapToSurface,
+        markerMaxSnapDistanceMm,
+        markerColor,
+        markerRadiusMm,
+        surfaceGeometryKey,
+    ]);
+    // Dispose the reusable marker mesh on unmount only (it is kept alive across
+    // updates above). Guarded because the viewer-dispose effect may run first.
+    useEffect(() => {
+        return () => {
+            const mesh = markerMeshRef.current;
+            markerMeshRef.current = null;
+            if (!mesh)
+                return;
+            try {
+                viewerRef.current?.scene?.remove(mesh);
+            }
+            catch {
+                // viewer may already be disposed during teardown
+            }
+            try {
+                mesh.geometry?.dispose?.();
+                const material = mesh.material;
+                if (Array.isArray(material)) {
+                    material.forEach((m) => m?.dispose?.());
+                }
+                else {
+                    material?.dispose?.();
+                }
+            }
+            catch {
+                // no-op
+            }
+        };
+    }, []);
     return (_jsx("div", { ref: containerRef, className: className, onPointerDown: onActivate, onMouseEnter: onActivate, onContextMenu: onContextMenu, style: {
             width: '100%',
             height: '100%',
