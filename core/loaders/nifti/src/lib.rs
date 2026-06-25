@@ -562,13 +562,21 @@ mod tests {
         let path = Path::new("nonexistent_file.nii");
         let result = NiftiLoader::load(path);
         assert!(result.is_err());
-        match result.err().unwrap() {
-            BridgeError::Io { code: _, details } => assert!(
-                details.contains("No such file or directory")
-                    || details.contains("cannot find the path specified")
+        // neuroim surfaces a missing file as its own error type, so the bridge
+        // maps it to BridgeError::Loader (not Io). Either variant is acceptable;
+        // what matters is that the details clearly name a missing file.
+        let details = match result.err().unwrap() {
+            BridgeError::Io { details, .. } | BridgeError::Loader { details, .. } => details,
+            e => panic!(
+                "Expected an Io or Loader error for a missing file, got {:?}",
+                e
             ),
-            e => panic!("Expected IoError, got {:?}", e),
-        }
+        };
+        assert!(
+            details.contains("No such file or directory")
+                || details.contains("cannot find the path specified"),
+            "error details should name the missing file, got: {details}"
+        );
     }
 
     // Regression guard for a reverted "header-first datatype dispatch"
