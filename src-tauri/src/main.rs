@@ -6,7 +6,6 @@
 // Learn more about Tauri commands at https://tauri.app/v1/guides/features/command
 use api_bridge::{self, BridgeState, SurfaceRegistry};
 use atlases::AtlasService;
-use futures::executor::block_on;
 use render_loop::RenderLoopService;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -838,26 +837,18 @@ fn main() {
                     _ => {}
                 }
             });
-            // --- Initialize RenderLoopService ---
-            println!("Initializing RenderLoopService...");
-            let render_loop_service_result = block_on(RenderLoopService::new());
+            // --- Create and manage BridgeState immediately ---
+            // The wgpu adapter/device handshake (inside RenderLoopService::new)
+            // is expensive and used to block here via block_on, delaying the
+            // window and all UI interactivity until the GPU was ready. Instead
+            // we manage BridgeState right away with an empty render-service slot
+            // and initialize the GPU on a background task (below). Commands that
+            // need the service already handle the not-yet-initialized case
+            // gracefully (returning a recoverable error), and the frontend's
+            // init_render_loop is idempotent, so nothing breaks if a render is
+            // requested before initialization finishes.
 
-            let render_loop_service = match render_loop_service_result {
-                Ok(service) => {
-                    println!("RenderLoopService Initialized.");
-                    Some(Arc::new(TokioMutex::new(service)))
-                }
-                Err(e) => {
-                    eprintln!("FATAL: Failed to initialize RenderLoopService: {}", e);
-                    // Handle error appropriately - maybe show an error dialog via Tauri API?
-                    // For now, we'll keep it as None, but a real app needs better handling.
-                    // Consider panic!("...") if it's truly unrecoverable.
-                    None
-                }
-            };
-
-            // --- Create and manage final BridgeState ---
-            // Create atlas and template services
+            // Create atlas and template services (cheap, kept synchronous).
             let cache_dir = app
                 .path()
                 .app_cache_dir()
@@ -871,17 +862,46 @@ fn main() {
                     .map_err(|e| format!("Failed to initialize template service: {}", e))?,
             ));
 
+            // Shared render-service slot, initially empty. A clone is handed to
+            // the background init task so it can populate the slot once the GPU
+            // device is ready.
+            let render_loop_slot: Arc<TokioMutex<Option<Arc<TokioMutex<RenderLoopService>>>>> =
+                Arc::new(TokioMutex::new(None));
+            let render_loop_slot_for_init = render_loop_slot.clone();
+
             let bridge_state = BridgeState::new(
                 volume_registry.clone(),                           // Volume registry
                 Arc::new(TokioMutex::new(SurfaceRegistry::new())), // Surface registry
-                Arc::new(TokioMutex::new(render_loop_service)),    // Render loop service
+                render_loop_slot,                                  // Render loop service (filled async)
                 layer_to_atlas_map,                                // Layer to atlas map
                 Arc::new(TokioMutex::new(HashMap::new())),         // Layer to volume map
                 atlas_service,                                     // Atlas service
                 template_service,                                  // Template service
             );
             bridge_state.start_layer_watchdog();
-            app.manage(bridge_state); // Manage the fully initialized state
+            app.manage(bridge_state); // Manage immediately so the UI is interactive
+
+            // --- Initialize RenderLoopService off the startup critical path ---
+            tauri::async_runtime::spawn(async move {
+                println!("Initializing RenderLoopService (async, off the startup path)...");
+                // Hold the slot lock across initialization. Any command (or the
+                // frontend's idempotent init_render_loop) that needs the service
+                // will await this lock and then observe the populated slot,
+                // preventing a duplicate GPU initialization.
+                let mut slot = render_loop_slot_for_init.lock().await;
+                if slot.is_some() {
+                    return;
+                }
+                match RenderLoopService::new().await {
+                    Ok(service) => {
+                        *slot = Some(Arc::new(TokioMutex::new(service)));
+                        println!("RenderLoopService Initialized (async).");
+                    }
+                    Err(e) => {
+                        eprintln!("FATAL: Failed to initialize RenderLoopService: {}", e);
+                    }
+                }
+            });
 
             // Initialize logging based on debug/release mode
             if cfg!(debug_assertions) {
