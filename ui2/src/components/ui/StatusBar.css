@@ -8,6 +8,10 @@
   display: flex;
   align-items: center;
   height: 32px;
+  /* Never let the flex column squeeze the bar — it must reserve its full height
+     so the panels above end at its top edge instead of overlapping behind it.
+     flex-shrink: 0 keeps the height-driven basis (incl. the responsive 28px). */
+  flex-shrink: 0;
   width: 100%;
   min-width: 0;
   max-width: 100%;
@@ -140,7 +144,7 @@
 
 /* Responsive: hide less important items on small screens */
 @media (max-width: 1024px) {
-  .status-slot[data-priority="low"] {
+  .status-slot[data-priority='low'] {
     display: none;
   }
 }

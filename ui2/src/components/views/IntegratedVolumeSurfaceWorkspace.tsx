@@ -39,6 +39,12 @@ export const IntegratedVolumeSurfaceWorkspace: React.FC = () => {
   const isFourD = useActiveLayerIsFourD();
   const split = useLayoutSettingsStore((s) => s.integratedSplit);
 
+  // The inner split's minSize constrains the cross-axis it's laid out on: width
+  // when side-by-side, height when stacked. A short center can't fit two 240px
+  // *heights* — Allotment then collapses a pane and paints it black — so use a
+  // smaller floor when stacked. The Allotment sash still lets the user resize.
+  const innerPaneMinSize = split === 'vertical' ? 120 : 240;
+
   return (
     <div
       data-testid="integrated-volume-surface-workspace"
@@ -66,8 +72,12 @@ export const IntegratedVolumeSurfaceWorkspace: React.FC = () => {
           ) : null}
 
           <Allotment.Pane key="primary-views" minSize={200}>
-            <Allotment vertical={split === 'vertical'} proportionalLayout>
-              <Allotment.Pane minSize={240}>
+            {/* key by split: Allotment keeps pane sizes in px, so flipping the
+                direction would otherwise apply the old cross-axis sizes to the
+                new axis (e.g. ~310px widths become heights and overflow a short
+                center → collapsed-to-black panes). Remounting re-lays-out fresh. */}
+            <Allotment key={split} vertical={split === 'vertical'} proportionalLayout>
+              <Allotment.Pane minSize={innerPaneMinSize}>
                 <div
                   data-testid="integrated-workspace-orthogonal-region"
                   style={{ height: '100%', width: '100%' }}
@@ -75,7 +85,7 @@ export const IntegratedVolumeSurfaceWorkspace: React.FC = () => {
                   <OrthogonalPanelsWorkspace showArrangementMenu={false} />
                 </div>
               </Allotment.Pane>
-              <Allotment.Pane minSize={240}>
+              <Allotment.Pane minSize={innerPaneMinSize}>
                 <div
                   data-testid="integrated-workspace-surface-region"
                   style={{

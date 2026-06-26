@@ -5,6 +5,7 @@
 
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { FlexibleSlicePanel } from './FlexibleSlicePanel';
+import { ResizableOrthoGrid } from './ResizableOrthoGrid';
 import { useViewLayoutStore } from '@/stores/viewLayoutStore';
 import { getFileLoadingService } from '@/services/FileLoadingService';
 import { readFileDragData, getActiveDragData, clearActiveDragData } from '@/utils/layerDrag';
@@ -16,13 +17,17 @@ interface OrthogonalViewContainerProps {
   containerHeight?: number;
 }
 
-export function OrthogonalViewContainer({ className = '', containerWidth, containerHeight }: OrthogonalViewContainerProps) {
+export function OrthogonalViewContainer({
+  className = '',
+  containerWidth,
+  containerHeight,
+}: OrthogonalViewContainerProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [isDragging, setIsDragging] = useState(false);
-  
+
   // View layout state
   const { mode, toggleMode, isLocked } = useViewLayoutStore();
-  
+
   // Keyboard shortcut handler
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -32,18 +37,20 @@ export function OrthogonalViewContainer({ className = '', containerWidth, contai
         toggleMode();
       }
     };
-    
+
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [toggleMode]);
-  
+
   // Log Golden Layout dimensions (FlexibleSlicePanel will handle its own sizing)
   useEffect(() => {
     if (containerWidth && containerHeight) {
-      console.log(`[OrthogonalViewContainer] Golden Layout dimensions received: ${containerWidth}x${containerHeight} - FlexibleSlicePanel components will handle individual sizing`);
+      console.log(
+        `[OrthogonalViewContainer] Golden Layout dimensions received: ${containerWidth}x${containerHeight} - FlexibleSlicePanel components will handle individual sizing`,
+      );
     }
   }, [containerWidth, containerHeight]);
-  
+
   // Native event listeners for drag-and-drop.
   // We use native listeners (not React synthetic) because GoldenLayout's
   // isolated React roots can interfere with React event delegation.
@@ -124,9 +131,9 @@ export function OrthogonalViewContainer({ className = '', containerWidth, contai
       el.removeEventListener('drop', onDrop);
     };
   }, []);
-  
+
   return (
-    <div 
+    <div
       ref={containerRef}
       className={`orthogonal-view-container ${className} h-full w-full relative bg-gray-900`}
     >
@@ -138,9 +145,16 @@ export function OrthogonalViewContainer({ className = '', containerWidth, contai
                    rounded border border-gray-700/50
                    transition-all duration-150"
         onClick={toggleMode}
-        title={isLocked() ? "Unlock views for flexible layout (⌘L)" : "Lock views together (⌘L)"}
+        title={isLocked() ? 'Unlock views for flexible layout (⌘L)' : 'Lock views together (⌘L)'}
       >
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+        <svg
+          width="16"
+          height="16"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+        >
           {isLocked() ? (
             // Lock icon
             <>
@@ -156,39 +170,25 @@ export function OrthogonalViewContainer({ className = '', containerWidth, contai
           )}
         </svg>
       </button>
-      
-      {/* Layout: Axial on top, Sagittal and Coronal on bottom */}
-      <div className="grid grid-rows-2 h-full gap-1 p-1">
-        {/* Top row: Axial view */}
-        <div className="w-full h-full overflow-visible">
-          <FlexibleSlicePanel
-            viewId="axial"
-            title="Axial"
-          />
-        </div>
-        
-        {/* Bottom row: Sagittal and Coronal views */}
-        <div className="grid grid-cols-2 gap-1 h-full">
-          <div className="w-full h-full">
-            <FlexibleSlicePanel
-              viewId="sagittal"
-              title="Sagittal"
-            />
-          </div>
-          <div className="w-full h-full">
-            <FlexibleSlicePanel
-              viewId="coronal"
-              title="Coronal"
-            />
-          </div>
-        </div>
+
+      {/* Layout: Axial on top, Sagittal | Coronal below — with draggable
+          resize gutters (ResizableOrthoGrid). */}
+      <div className="h-full w-full p-1">
+        <ResizableOrthoGrid
+          arrangement="grid"
+          axial={<FlexibleSlicePanel viewId="axial" title="Axial" />}
+          sagittal={<FlexibleSlicePanel viewId="sagittal" title="Sagittal" />}
+          coronal={<FlexibleSlicePanel viewId="coronal" title="Coronal" />}
+        />
       </div>
-      
+
       {/* Container-level drag overlay */}
       {isDragging && (
         <div className="absolute inset-0 bg-blue-500 bg-opacity-10 pointer-events-none flex items-center justify-center z-50">
           <div className="bg-white rounded-lg px-6 py-4 shadow-2xl">
-            <div className="text-blue-600 font-semibold text-lg">Drop neuroimaging files to load</div>
+            <div className="text-blue-600 font-semibold text-lg">
+              Drop neuroimaging files to load
+            </div>
             <div className="text-gray-500 text-sm mt-1">Supported: .nii, .nii.gz, .gii</div>
           </div>
         </div>

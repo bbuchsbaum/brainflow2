@@ -8,28 +8,11 @@
 }
 
 /*
- * Target only the actual sash elements, not the internal sashContainer overlay,
- * to avoid covering the entire orthogonal workspace during resize.
+ * Resize gutters between the orthogonal panes (see ResizableOrthoGrid). The
+ * gutter draws a thin line in a wider, grabbable strip; brighten it on hover so
+ * the splitter reads as interactive. (Background is set inline per-axis, so we
+ * use `filter` here to layer the hover affordance on top of it.)
  */
-.split-view-container [class*="sash-module_sash"] {
-  background-color: var(--app-splitter) !important;
-  opacity: 1 !important;
-}
-
-.split-view-container [class*="sash-module_sash"]:hover {
-  background-color: var(--app-splitter-hover) !important;
-}
-
-.split-view-container [class*="sash-module_sash"][class*="vertical"] {
-  width: 2px !important;
-  cursor: col-resize !important;
-}
-
-.split-view-container [class*="sash-module_sash"][class*="horizontal"] {
-  height: 2px !important;
-  cursor: row-resize !important;
-}
-
-.split-view-container .split-view-divider {
-  background-color: var(--app-splitter) !important;
+.split-view-container .ortho-gutter:hover {
+  filter: brightness(1.8);
 }

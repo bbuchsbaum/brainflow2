@@ -20,7 +20,10 @@ import { useSurfaceTemplateMenuListener } from '@/hooks/useSurfaceTemplateMenuLi
 import { coalesceUtils } from '@/stores/middleware/coalesceUpdatesMiddleware';
 import { ProgressDebug } from '@/components/ui/ProgressDebug';
 import { MetadataStatusBridge } from '@/components/MetadataStatusBridge';
-import { initializeCrosshairMenuService, destroyCrosshairMenuService } from '@/services/CrosshairMenuService';
+import {
+  initializeCrosshairMenuService,
+  destroyCrosshairMenuService,
+} from '@/services/CrosshairMenuService';
 import { CrosshairSettingsDialog } from '@/components/dialogs/CrosshairSettingsDialog';
 import { GoToCoordinateDialog } from '@/components/dialogs/GoToCoordinateDialog';
 import { ImageHeaderDialog } from '@/components/dialogs/ImageHeaderDialog';
@@ -31,7 +34,10 @@ import { useActiveRenderContextStore } from '@/stores/activeRenderContextStore';
 import { useRenderStateStore } from '@/stores/renderStateStore';
 import { getEventBus } from '@/events/EventBus';
 import { PerformanceDashboard } from '@/components/debug/PerformanceDashboard';
-import { migrateLayerRenderToViewState, isMigrationComplete } from '@/utils/migrateLayerRenderToViewState';
+import {
+  migrateLayerRenderToViewState,
+  isMigrationComplete,
+} from '@/utils/migrateLayerRenderToViewState';
 import { storeLog } from '@/utils/debugLog';
 import { KeyboardShortcutsDialog } from '@/components/dialogs/KeyboardShortcutsDialog';
 import { getKeyboardShortcutService } from '@/services/KeyboardShortcutService';
@@ -41,7 +47,10 @@ import { useAppModeStore } from '@/stores/appModeStore';
 import { getSetStudioService } from '@/services/studio/SetStudioService';
 import { getAnalysisWorkbenchService } from '@/services/analysis/AnalysisWorkbenchService';
 import { TopAppBar } from '@/components/ui/TopAppBar';
-import { CommandPaletteDialog, type CommandPaletteCommand } from '@/components/dialogs/CommandPaletteDialog';
+import {
+  CommandPaletteDialog,
+  type CommandPaletteCommand,
+} from '@/components/dialogs/CommandPaletteDialog';
 import { ContextMenu } from '@/components/ui/ContextMenu';
 import { getLayoutService, type SidebarPanelType } from '@/services/layoutService';
 import { getTransport } from '@/services/transport';
@@ -54,9 +63,7 @@ function ErrorFallback({ error, resetErrorBoundary }: any) {
     <div className="h-screen bg-bf-bg-app flex items-center justify-center">
       <div className="bg-red-900 border border-red-700 rounded-lg p-6 max-w-md">
         <h2 className="text-red-400 text-lg font-semibold mb-2">Something went wrong</h2>
-        <pre className="text-red-300 text-sm mb-4 whitespace-pre-wrap">
-          {error.message}
-        </pre>
+        <pre className="text-red-300 text-sm mb-4 whitespace-pre-wrap">{error.message}</pre>
         <div className="flex gap-2">
           <button
             onClick={resetErrorBoundary}
@@ -84,7 +91,7 @@ function ErrorFallback({ error, resetErrorBoundary }: any) {
 // Component that uses the status context
 function AppContent() {
   storeLog('AppContent', 'AppContent component rendering');
-  
+
   // All hooks must be called before any conditional returns
   const renderTimes = useRef<number[]>([]);
   const renderLoopGuard = useRef<{
@@ -107,16 +114,16 @@ function AppContent() {
   const [showGoToCoordinate, setShowGoToCoordinate] = useState(false);
   const [showImageHeader, setShowImageHeader] = useState(false);
   const [imageHeaderVolumeId, setImageHeaderVolumeId] = useState<string | null>(null);
-  const selectedLayerId = useLayerStore(s => s.selectedLayerId);
-  const layers = useLayerStore(s => s.layers);
-  const applyWorkspacePreset = useWorkspaceStore(s => s.applyWorkspacePreset);
+  const selectedLayerId = useLayerStore((s) => s.selectedLayerId);
+  const layers = useLayerStore((s) => s.layers);
+  const applyWorkspacePreset = useWorkspaceStore((s) => s.applyWorkspacePreset);
   const activeWorkspaceType = useWorkspaceStore((state) => {
     const workspaceId = state.activeWorkspaceId;
-    return workspaceId ? state.workspaces.get(workspaceId)?.type ?? null : null;
+    return workspaceId ? (state.workspaces.get(workspaceId)?.type ?? null) : null;
   });
   const appMode = useAppModeStore((state) => state.mode);
-  const savedLayouts = useLayoutLibraryStore(s => s.layouts);
-  const loadSavedLayout = useLayoutLibraryStore(s => s.loadLayout);
+  const savedLayouts = useLayoutLibraryStore((s) => s.layouts);
+  const loadSavedLayout = useLayoutLibraryStore((s) => s.loadLayout);
 
   useStudioAppModeSync(activeWorkspaceType);
   useStudioCoordination();
@@ -129,12 +136,12 @@ function AppContent() {
 
   // Initialize services first - this is the root of all initialization
   useServicesInit();
-  
+
   // Enable coalescing after services are initialized
   useEffect(() => {
     storeLog('AppContent', 'Enabling coalescing middleware');
     coalesceUtils.setEnabled(true);
-    
+
     // Perform one-time migration of layerRender data to ViewState
     if (!isMigrationComplete()) {
       storeLog('AppContent', 'Performing layerRender to ViewState migration...');
@@ -146,28 +153,28 @@ function AppContent() {
       storeLog('AppContent', 'Migration already complete, skipping...');
     }
   }, []);
-  
+
   // Then initialize other hooks that depend on services
   // Re-enable these one by one to test
   // Connect to backend sync - DISABLED: duplicate of useServicesInit callback
   // useBackendSync();
-  
+
   // Listen for mount directory events
   useMountListener();
-  
+
   // Listen for workspace menu events
   useWorkspaceMenuListener();
-  
+
   // Listen for panel menu events
   usePanelMenuListener();
 
   // Listen for atlas and surface template menu events
   useAtlasMenuListener();
   useSurfaceTemplateMenuListener();
-  
+
   // Initialize status bar service using Zustand store
   useStatusBarInit();
-  
+
   // Initialize keyboard shortcuts
   useKeyboardShortcuts();
 
@@ -331,7 +338,7 @@ function AppContent() {
       modifiers: { shift: true },
       category: 'General',
       description: 'Show keyboard shortcuts',
-      handler: () => setShowKeyboardShortcuts(prev => !prev),
+      handler: () => setShowKeyboardShortcuts((prev) => !prev),
     });
     return unregister;
   }, []);
@@ -376,7 +383,7 @@ function AppContent() {
       category: 'Info',
       description: 'Show image header info',
       handler: () => {
-        const layer = layers.find(l => l.id === selectedLayerId);
+        const layer = layers.find((l) => l.id === selectedLayerId);
         if (layer?.volumeId) {
           setImageHeaderVolumeId(layer.volumeId);
           setShowImageHeader(true);
@@ -394,42 +401,46 @@ function AppContent() {
     // Keys 1-9: toggle visibility of nth layer
     for (let n = 1; n <= 9; n++) {
       const layerIndex = n - 1;
-      unregisterFns.push(service.register({
-        id: `layers.toggle${n}`,
-        key: String(n),
-        category: 'Layers',
-        description: `Toggle layer ${n} visibility`,
-        handler: () => {
-          const viewLayers = useViewStateStore.getState().viewState.layers;
-          if (layerIndex >= viewLayers.length) return;
-          const targetId = viewLayers[layerIndex].id;
-          useViewStateStore.getState().setViewState((state) => {
-            const layer = state.layers.find(l => l.id === targetId);
-            if (layer) {
-              layer.visible = !layer.visible;
-            }
-          });
-        },
-      }));
+      unregisterFns.push(
+        service.register({
+          id: `layers.toggle${n}`,
+          key: String(n),
+          category: 'Layers',
+          description: `Toggle layer ${n} visibility`,
+          handler: () => {
+            const viewLayers = useViewStateStore.getState().viewState.layers;
+            if (layerIndex >= viewLayers.length) return;
+            const targetId = viewLayers[layerIndex].id;
+            useViewStateStore.getState().setViewState((state) => {
+              const layer = state.layers.find((l) => l.id === targetId);
+              if (layer) {
+                layer.visible = !layer.visible;
+              }
+            });
+          },
+        }),
+      );
     }
 
     // Key 0: show all layers
-    unregisterFns.push(service.register({
-      id: 'layers.showAll',
-      key: '0',
-      category: 'Layers',
-      description: 'Show all layers',
-      handler: () => {
-        useViewStateStore.getState().setViewState((state) => {
-          state.layers.forEach(layer => {
-            layer.visible = true;
+    unregisterFns.push(
+      service.register({
+        id: 'layers.showAll',
+        key: '0',
+        category: 'Layers',
+        description: 'Show all layers',
+        handler: () => {
+          useViewStateStore.getState().setViewState((state) => {
+            state.layers.forEach((layer) => {
+              layer.visible = true;
+            });
           });
-        });
-      },
-    }));
+        },
+      }),
+    );
 
     return () => {
-      unregisterFns.forEach(fn => fn());
+      unregisterFns.forEach((fn) => fn());
     };
   }, []);
 
@@ -445,12 +456,18 @@ function AppContent() {
       handler: async () => {
         const activeId = useActiveRenderContextStore.getState().activeId;
         if (!activeId) {
-          getEventBus().emit('ui.notification', { type: 'warning', message: 'No active view to copy' });
+          getEventBus().emit('ui.notification', {
+            type: 'warning',
+            message: 'No active view to copy',
+          });
           return;
         }
         const bitmap = useRenderStateStore.getState().getState(activeId).lastImage;
         if (!bitmap) {
-          getEventBus().emit('ui.notification', { type: 'warning', message: 'No rendered image available' });
+          getEventBus().emit('ui.notification', {
+            type: 'warning',
+            message: 'No rendered image available',
+          });
           return;
         }
         try {
@@ -460,7 +477,10 @@ function AppContent() {
           ctx.drawImage(bitmap, 0, 0);
           const blob = await canvas.convertToBlob({ type: 'image/png' });
           await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
-          getEventBus().emit('ui.notification', { type: 'success', message: 'View copied to clipboard' });
+          getEventBus().emit('ui.notification', {
+            type: 'success',
+            message: 'View copied to clipboard',
+          });
         } catch (err) {
           console.error('[App] copyViewToClipboard failed:', err);
           getEventBus().emit('ui.notification', {
@@ -477,7 +497,7 @@ function AppContent() {
   useEffect(() => {
     storeLog('AppContent', 'Initializing crosshair menu service');
     initializeCrosshairMenuService();
-    
+
     return () => {
       storeLog('AppContent', 'Destroying crosshair menu service');
       destroyCrosshairMenuService();
@@ -496,26 +516,27 @@ function AppContent() {
       window.removeEventListener('open-crosshair-settings', handleOpenSettings);
     };
   }, []);
-  
+
   // Global render logging (after hooks)
   if (typeof window !== 'undefined' && (window as any).__logRender) {
     (window as any).__logRender('AppContent');
   }
-  
+
   // Time-based render loop detection (after all hooks)
   const now = performance.now();
   renderTimes.current.push(now);
-  
+
   // Keep only renders from the last 1 second
-  renderTimes.current = renderTimes.current.filter(time => now - time < 1000);
-  
+  renderTimes.current = renderTimes.current.filter((time) => now - time < 1000);
+
   // Detect render loop: compare render rate and cadence to avoid false positives
   const rendersPerSecond = renderTimes.current.length;
   const guard = renderLoopGuard.current;
   const windowId = Math.floor(now / 1000);
-  const intervals = renderTimes.current.length > 1
-    ? renderTimes.current.slice(1).map((time, idx) => time - renderTimes.current[idx])
-    : [];
+  const intervals =
+    renderTimes.current.length > 1
+      ? renderTimes.current.slice(1).map((time, idx) => time - renderTimes.current[idx])
+      : [];
   const avgIntervalMs = intervals.length
     ? intervals.reduce((sum, value) => sum + value, 0) / intervals.length
     : Number.POSITIVE_INFINITY;
@@ -565,35 +586,33 @@ function AppContent() {
       );
     }
   }
-  
+
   // Progress service is initialized in useServicesInit
-  
+
   // Note: Threshold logic has been fixed in the shader - no workaround needed
-  
+
   storeLog('AppContent', 'AppContent initialization complete');
-  
+
   return (
     <div className="h-screen w-full flex flex-col overflow-hidden">
       <TopAppBar />
       <MetadataStatusBridge />
       <ProgressDebug />
       <GlobalProgressBar />
-      <div className={`relative flex-1 overflow-hidden ${appMode === 'studio' ? 'animate-[studioFocusIn_160ms_ease-out]' : ''}`}>
+      <div
+        className={`relative flex-1 min-h-0 overflow-hidden ${appMode === 'studio' ? 'animate-[studioFocusIn_160ms_ease-out]' : ''}`}
+      >
         <GoldenLayoutRoot />
       </div>
-      <StatusBar
-        onCrosshairClick={() => setShowGoToCoordinate(true)}
-      />
+      <StatusBar onCrosshairClick={() => setShowGoToCoordinate(true)} />
       <NotificationToast />
       <ContextMenu />
       <TooltipOverlay />
       <ConfirmationDialogHost />
-      
+
       {/* Crosshair Settings Dialog */}
       {showCrosshairSettings && (
-        <CrosshairSettingsDialog
-          onClose={() => setShowCrosshairSettings(false)}
-        />
+        <CrosshairSettingsDialog onClose={() => setShowCrosshairSettings(false)} />
       )}
 
       {/* Go To Coordinate Dialog */}
@@ -604,9 +623,7 @@ function AppContent() {
 
       {/* Keyboard Shortcuts Help Dialog */}
       {showKeyboardShortcuts && (
-        <KeyboardShortcutsDialog
-          onClose={() => setShowKeyboardShortcuts(false)}
-        />
+        <KeyboardShortcutsDialog onClose={() => setShowKeyboardShortcuts(false)} />
       )}
 
       <CommandPaletteDialog
@@ -635,12 +652,12 @@ const initialStatusSlots = [
   { id: 'mouse', label: 'Mouse:', value: '--', width: '30ch' },
   { id: 'layer', label: 'Layer:', value: 'None', width: '30ch' },
   { id: 'fps', label: 'FPS:', value: '--', width: '12ch' },
-  { id: 'gpu', label: 'GPU:', value: 'Ready', width: '15ch' }
+  { id: 'gpu', label: 'GPU:', value: 'Ready', width: '15ch' },
 ];
 
 function App() {
   storeLog('App', 'App component rendering');
-  
+
   return (
     <ErrorBoundary FallbackComponent={ErrorFallback}>
       <StatusProvider initial={initialStatusSlots}>
