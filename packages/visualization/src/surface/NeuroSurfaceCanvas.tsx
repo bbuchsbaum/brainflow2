@@ -338,6 +338,7 @@ const NeuroSurfaceCanvasInner: React.FC<NeuroSurfaceCanvasProps> = ({
   onContextMenu,
   onExporterChange,
   onError,
+  onSurfacePick,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const viewerRef = useRef<NeuroSurfaceViewerInstance | null>(null);
@@ -853,6 +854,65 @@ const NeuroSurfaceCanvasInner: React.FC<NeuroSurfaceCanvasProps> = ({
       }
     };
   }, []);
+
+  // Reverse linked cursor: a left-click (not a drag/rotate) on a rendered
+  // surface raycasts to the picked point and reports it in the surface vertex
+  // frame, so a consumer can drive the volume crosshair from a surface click.
+  useEffect(() => {
+    const viewer = viewerRef.current;
+    const canvas: HTMLCanvasElement | undefined = viewer?.renderer?.domElement;
+    if (!isInitialized || !viewer || !canvas || !onSurfacePick) return;
+
+    const DRAG_THRESHOLD_PX = 5;
+    const raycaster = new THREE.Raycaster();
+    let downX = 0;
+    let downY = 0;
+    let downButton = -1;
+
+    const onDown = (e: MouseEvent) => {
+      downX = e.clientX;
+      downY = e.clientY;
+      downButton = e.button;
+    };
+
+    const onUp = (e: MouseEvent) => {
+      // Only a left click that did not drag (the trackball uses drags to rotate).
+      if (downButton !== 0 || e.button !== 0) return;
+      if (
+        Math.abs(e.clientX - downX) > DRAG_THRESHOLD_PX ||
+        Math.abs(e.clientY - downY) > DRAG_THRESHOLD_PX
+      ) {
+        return;
+      }
+
+      const meshes: any[] = [];
+      for (const surface of renderedSurfacesRef.current.values()) {
+        const mesh = (surface as any)?.mesh;
+        if (mesh) meshes.push(mesh);
+      }
+      if (meshes.length === 0) return;
+
+      const rect = canvas.getBoundingClientRect();
+      if (rect.width === 0 || rect.height === 0) return;
+      const ndc = new THREE.Vector2(
+        ((e.clientX - rect.left) / rect.width) * 2 - 1,
+        -((e.clientY - rect.top) / rect.height) * 2 + 1,
+      );
+      raycaster.setFromCamera(ndc, viewer.camera);
+      const hits = raycaster.intersectObjects(meshes, true);
+      if (hits.length > 0) {
+        const p = hits[0].point;
+        onSurfacePick([p.x, p.y, p.z]);
+      }
+    };
+
+    canvas.addEventListener('mousedown', onDown);
+    canvas.addEventListener('mouseup', onUp);
+    return () => {
+      canvas.removeEventListener('mousedown', onDown);
+      canvas.removeEventListener('mouseup', onUp);
+    };
+  }, [isInitialized, onSurfacePick]);
 
   return (
     <div

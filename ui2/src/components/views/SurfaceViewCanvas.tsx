@@ -97,6 +97,19 @@ const SurfaceViewCanvasInner: React.FC<SurfaceViewCanvasProps> = ({
     [crosshairVisible, crosshairWorld],
   );
 
+  // Reverse linked cursor: a click on the surface drives the volume crosshair.
+  // The picked point is in the surface (RAS) frame; negating X brings it back to
+  // the volume world_mm (LAS) frame — the same flip, which is its own inverse.
+  const handleSurfacePick = useCallback(
+    (surfacePoint: [number, number, number]) => {
+      markActive();
+      useViewStateStore
+        .getState()
+        .setCrosshair([-surfacePoint[0], surfacePoint[1], surfacePoint[2]], true);
+    },
+    [markActive],
+  );
+
   const surfacesToRender = useMemo(() => {
     const candidateSurfaces = renderSurfaces ?? [surface];
     const unique = new Map<string, LoadedSurface>();
@@ -169,6 +182,7 @@ const SurfaceViewCanvasInner: React.FC<SurfaceViewCanvasProps> = ({
       onActivate={markActive}
       onContextMenu={handleContextMenu}
       onExporterChange={handleExporterChange}
+      onSurfacePick={handleSurfacePick}
     />
   );
 };

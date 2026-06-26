@@ -215,7 +215,7 @@ function removeRenderedSurface(viewer, handle, rendered) {
         // no-op
     }
 }
-const NeuroSurfaceCanvasInner = ({ surfaces, width, height, viewpoint = 'lateral', showControls = false, lightingSettings = DEFAULT_NEURO_SURFACE_LIGHTING_SETTINGS, displaySettings = DEFAULT_NEURO_SURFACE_DISPLAY_SETTINGS, materialSettings = DEFAULT_NEURO_SURFACE_MATERIAL_SETTINGS, projectionSettings = DEFAULT_NEURO_SURFACE_PROJECTION_SETTINGS, renderSignal, markerWorldPosition, markerSnapToSurface = true, markerMaxSnapDistanceMm, markerColor = '#39FF14', markerRadiusMm = 2.5, className = 'w-full h-full', style, onActivate, onContextMenu, onExporterChange, onError, }) => {
+const NeuroSurfaceCanvasInner = ({ surfaces, width, height, viewpoint = 'lateral', showControls = false, lightingSettings = DEFAULT_NEURO_SURFACE_LIGHTING_SETTINGS, displaySettings = DEFAULT_NEURO_SURFACE_DISPLAY_SETTINGS, materialSettings = DEFAULT_NEURO_SURFACE_MATERIAL_SETTINGS, projectionSettings = DEFAULT_NEURO_SURFACE_PROJECTION_SETTINGS, renderSignal, markerWorldPosition, markerSnapToSurface = true, markerMaxSnapDistanceMm, markerColor = '#39FF14', markerRadiusMm = 2.5, className = 'w-full h-full', style, onActivate, onContextMenu, onExporterChange, onError, onSurfacePick, }) => {
     const containerRef = useRef(null);
     const viewerRef = useRef(null);
     const renderedSurfacesRef = useRef(new Map());
@@ -635,6 +635,58 @@ const NeuroSurfaceCanvasInner = ({ surfaces, width, height, viewpoint = 'lateral
             }
         };
     }, []);
+    // Reverse linked cursor: a left-click (not a drag/rotate) on a rendered
+    // surface raycasts to the picked point and reports it in the surface vertex
+    // frame, so a consumer can drive the volume crosshair from a surface click.
+    useEffect(() => {
+        const viewer = viewerRef.current;
+        const canvas = viewer?.renderer?.domElement;
+        if (!isInitialized || !viewer || !canvas || !onSurfacePick)
+            return;
+        const DRAG_THRESHOLD_PX = 5;
+        const raycaster = new THREE.Raycaster();
+        let downX = 0;
+        let downY = 0;
+        let downButton = -1;
+        const onDown = (e) => {
+            downX = e.clientX;
+            downY = e.clientY;
+            downButton = e.button;
+        };
+        const onUp = (e) => {
+            // Only a left click that did not drag (the trackball uses drags to rotate).
+            if (downButton !== 0 || e.button !== 0)
+                return;
+            if (Math.abs(e.clientX - downX) > DRAG_THRESHOLD_PX ||
+                Math.abs(e.clientY - downY) > DRAG_THRESHOLD_PX) {
+                return;
+            }
+            const meshes = [];
+            for (const surface of renderedSurfacesRef.current.values()) {
+                const mesh = surface?.mesh;
+                if (mesh)
+                    meshes.push(mesh);
+            }
+            if (meshes.length === 0)
+                return;
+            const rect = canvas.getBoundingClientRect();
+            if (rect.width === 0 || rect.height === 0)
+                return;
+            const ndc = new THREE.Vector2(((e.clientX - rect.left) / rect.width) * 2 - 1, -((e.clientY - rect.top) / rect.height) * 2 + 1);
+            raycaster.setFromCamera(ndc, viewer.camera);
+            const hits = raycaster.intersectObjects(meshes, true);
+            if (hits.length > 0) {
+                const p = hits[0].point;
+                onSurfacePick([p.x, p.y, p.z]);
+            }
+        };
+        canvas.addEventListener('mousedown', onDown);
+        canvas.addEventListener('mouseup', onUp);
+        return () => {
+            canvas.removeEventListener('mousedown', onDown);
+            canvas.removeEventListener('mouseup', onUp);
+        };
+    }, [isInitialized, onSurfacePick]);
     return (_jsx("div", { ref: containerRef, className: className, onPointerDown: onActivate, onMouseEnter: onActivate, onContextMenu: onContextMenu, style: {
             width: '100%',
             height: '100%',

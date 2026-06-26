@@ -167,6 +167,12 @@ export interface NeuroSurfaceCanvasProps {
   onContextMenu?: React.MouseEventHandler<HTMLDivElement>;
   onExporterChange?: (exporter: SurfaceCanvasExporter | null) => void;
   onError?: (error: unknown) => void;
+  /**
+   * Fired when the user clicks (not drags) a point on a rendered surface, with
+   * the picked location in the surface's own vertex frame (world [x, y, z]).
+   * Used to drive a reverse linked cursor (surface click → volume crosshair).
+   */
+  onSurfacePick?: (world: [number, number, number]) => void;
 }
 
 export type NeurosurfaceLayerConfig =
