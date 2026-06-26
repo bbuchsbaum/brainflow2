@@ -22,24 +22,21 @@
  * the resolver always returns a value.
  */
 
-import React from "react";
+import React from 'react';
 
-import { useLayerStore } from "@/stores/layerStore";
-import { useViewStateStore } from "@/stores/viewStateStore";
-import { PlotHost } from "@/components/plots/PlotHost";
-import { histogramPlot } from "@/components/plots/histogramPlot.mode";
-import { crosshairTimeSeriesPlot } from "@/components/plots/crosshairTimeSeriesPlot.mode";
-import { regionStatsPlot } from "@/components/plots/regionStatsPlot.mode";
-import { cohortPlot } from "@/components/plots/cohortPlot.mode";
-import { useAtlasLayerId } from "@/components/plots/regionStatsPlot.helpers";
-import { useActiveCohort } from "@/components/plots/cohortPlot.helpers";
-import { usePlotModeSelection } from "@/components/plots/plotMode.helpers";
-import type {
-  PlotMode,
-  PlotModeContext,
-} from "@/components/plots/plotHost.types";
+import { useLayerStore } from '@/stores/layerStore';
+import { useViewStateStore } from '@/stores/viewStateStore';
+import { PlotHost } from '@/components/plots/PlotHost';
+import { histogramPlot } from '@/components/plots/histogramPlot.mode';
+import { crosshairTimeSeriesPlot } from '@/components/plots/crosshairTimeSeriesPlot.mode';
+import { regionStatsPlot } from '@/components/plots/regionStatsPlot.mode';
+import { cohortPlot } from '@/components/plots/cohortPlot.mode';
+import { useAtlasLayerId } from '@/components/plots/regionStatsPlot.helpers';
+import { useActiveCohort } from '@/components/plots/cohortPlot.helpers';
+import { usePlotModeSelection } from '@/components/plots/plotMode.helpers';
+import type { PlotMode, PlotModeContext } from '@/components/plots/plotHost.types';
 
-import { PanelErrorBoundary } from "../common/PanelErrorBoundary";
+import { PanelErrorBoundary } from '../common/PanelErrorBoundary';
 
 const DEFAULT_PLOT_MODES: PlotMode[] = [
   histogramPlot,
@@ -56,7 +53,7 @@ export interface PlotPanelProps {
 }
 
 const PlotPanelContent: React.FC<PlotPanelProps> = ({
-  defaultMode = "histogram",
+  defaultMode = 'histogram',
   modes = DEFAULT_PLOT_MODES,
 }) => {
   const selectedLayerId = useLayerStore((state) => state.selectedLayerId);
@@ -69,9 +66,7 @@ const PlotPanelContent: React.FC<PlotPanelProps> = ({
   // Select the existing world_mm tuple by reference so PlotHost's ctx memo
   // is stable across unrelated viewState updates.
   const crosshairMm = useViewStateStore((state) =>
-    state.viewState.crosshair?.visible
-      ? state.viewState.crosshair.world_mm
-      : undefined,
+    state.viewState.crosshair?.visible ? state.viewState.crosshair.world_mm : undefined,
   );
 
   // Reactive availability signals so the Region/Cohort tabs enable as soon as
@@ -96,11 +91,22 @@ const PlotPanelContent: React.FC<PlotPanelProps> = ({
     [selectedLayerId, selectedLayerName, crosshairMm, atlasLayerId, hasCohort],
   );
 
-  const { modeId, onModeChange } = usePlotModeSelection({ modes, layerCtx });
+  // Context-sensitive tabs: only surface modes the active data/view actually
+  // affords (e.g. a 3D volume offers no Time Series, an unparcellated volume no
+  // Regions). Each mode's supports() reads the affordance signals in layerCtx.
+  const availableModes = React.useMemo(
+    () => modes.filter((m) => m.supports(layerCtx).supported),
+    [modes, layerCtx],
+  );
+
+  const { modeId, onModeChange } = usePlotModeSelection({
+    modes: availableModes,
+    layerCtx,
+  });
 
   return (
     <PlotHost
-      modes={modes}
+      modes={availableModes}
       modeId={modeId ?? undefined}
       defaultModeId={defaultMode}
       onModeChange={onModeChange}

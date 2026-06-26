@@ -11,50 +11,55 @@
  * request, so the owning body re-samples (its effect depends on the radius).
  */
 
-import { useMemo } from "react";
+import { useMemo } from 'react';
 
-import { resolveSpec } from "@/plotting";
-import type {
-  Encoding,
-  Mark,
-  ReduceOp,
-  SampleFrame,
-  Transform,
-} from "@/plotting";
-import { usePlotSpecStore } from "@/stores/plotSpecStore";
+import { resolveSpec } from '@/plotting';
+import type { Encoding, Mark, ReduceOp, SampleFrame, Transform } from '@/plotting';
+import { usePlotSpecStore } from '@/stores/plotSpecStore';
 
-import { SUPPORTED_MARKS } from "./encoder/registry";
+import { SUPPORTED_MARKS } from './encoder/registry';
 
 /** Sphere radii (mm) offered for spatial sampling. 0 == single voxel. */
 const RADIUS_PRESETS_MM = [0, 2, 4, 6, 8, 10] as const;
-const REDUCERS: ReduceOp[] = ["mean", "median", "min", "max", "sum"];
+const REDUCERS: ReduceOp[] = ['mean', 'median', 'min', 'max', 'sum'];
 const MARK_LABELS: Record<Mark, string> = {
-  line: "Line",
-  area: "Area",
-  point: "Points",
-  bar: "Bars",
-  hist: "Histogram",
-  box: "Box",
-  violin: "Violin",
-  heatmap: "Heatmap",
+  line: 'Line',
+  area: 'Area',
+  point: 'Points',
+  bar: 'Bars',
+  hist: 'Histogram',
+  box: 'Box',
+  violin: 'Violin',
+  heatmap: 'Heatmap',
 };
 
 const labelStyle: React.CSSProperties = {
-  display: "inline-flex",
-  alignItems: "center",
+  display: 'inline-flex',
+  alignItems: 'center',
   gap: 4,
   fontSize: 11,
-  color: "var(--app-text-muted)",
-  whiteSpace: "nowrap",
+  color: 'var(--app-text-muted)',
+  whiteSpace: 'nowrap',
 };
 const selectStyle: React.CSSProperties = {
+  // Flatten the native macOS select chrome (the glossy "3D bubble" + steppers)
+  // to match the app's flat dark controls, and draw our own chevron.
+  appearance: 'none',
+  WebkitAppearance: 'none',
+  MozAppearance: 'none',
   fontSize: 11,
-  padding: "1px 3px",
-  borderRadius: 4,
-  border: "1px solid var(--app-border, #2a2a2a)",
-  background: "var(--app-input-bg, transparent)",
-  color: "var(--app-text, inherit)",
-  maxWidth: 110,
+  height: 20,
+  padding: '0 18px 0 6px',
+  borderRadius: 'var(--app-radius-sm, 4px)',
+  border: '1px solid var(--app-border, #2a2a2a)',
+  backgroundColor: 'var(--app-input-bg, rgba(255, 255, 255, 0.04))',
+  backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='6'%3E%3Cpath d='M1 1l3 3 3-3' fill='none' stroke='%238a93a3' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E")`,
+  backgroundRepeat: 'no-repeat',
+  backgroundPosition: 'right 6px center',
+  color: 'var(--app-text-primary, var(--app-text, inherit))',
+  cursor: 'pointer',
+  outline: 'none',
+  maxWidth: 130,
 };
 
 function LabeledSelect({
@@ -101,30 +106,23 @@ export function PlotEncodingPanel({
   showReduce = false,
 }: PlotEncodingPanelProps) {
   const override = usePlotSpecStore((s) => s.specByMode[modeId]);
-  const sphereRadiusMm = usePlotSpecStore(
-    (s) => s.sphereRadiusMmByMode[modeId] ?? 0,
-  );
-  const reduce = usePlotSpecStore((s) => s.reduceByMode[modeId] ?? "mean");
+  const sphereRadiusMm = usePlotSpecStore((s) => s.sphereRadiusMmByMode[modeId] ?? 0);
+  const reduce = usePlotSpecStore((s) => s.reduceByMode[modeId] ?? 'mean');
   const setMark = usePlotSpecStore((s) => s.setMark);
   const setEncodingChannel = usePlotSpecStore((s) => s.setEncodingChannel);
   const setSphereRadiusMm = usePlotSpecStore((s) => s.setSphereRadiusMm);
   const setReduce = usePlotSpecStore((s) => s.setReduce);
   const setNormalize = usePlotSpecStore((s) => s.setNormalize);
 
-  const resolved = useMemo(
-    () => resolveSpec(frame, override),
-    [frame, override],
-  );
+  const resolved = useMemo(() => resolveSpec(frame, override), [frame, override]);
   const { numericCols, categoricalCols, quantCols } = useMemo(() => {
     const numeric: string[] = [];
     const categorical: string[] = [];
     const quant: string[] = [];
     for (const c of frame.columns) {
-      if (c.role === "quantitative" || c.role === "temporal")
-        numeric.push(c.name);
-      if (c.role === "quantitative") quant.push(c.name);
-      if (c.role === "nominal" || c.role === "ordinal")
-        categorical.push(c.name);
+      if (c.role === 'quantitative' || c.role === 'temporal') numeric.push(c.name);
+      if (c.role === 'quantitative') quant.push(c.name);
+      if (c.role === 'nominal' || c.role === 'ordinal') categorical.push(c.name);
     }
     return {
       numericCols: numeric,
@@ -138,9 +136,9 @@ export function PlotEncodingPanel({
   // nothing). `bar` accepts any column on x (its band scale stringifies
   // categories); `hist` keeps x quantitative.
   const xOptions =
-    resolved.mark === "bar"
+    resolved.mark === 'bar'
       ? frame.columns.map((c) => c.name)
-      : resolved.mark === "hist"
+      : resolved.mark === 'hist'
         ? quantCols
         : numericCols;
 
@@ -148,14 +146,12 @@ export function PlotEncodingPanel({
   // (e.g. z-score / %Δ a voxel time-series).
   const yField = resolved.encoding.y;
   const continuousMark =
-    resolved.mark === "line" ||
-    resolved.mark === "area" ||
-    resolved.mark === "point";
+    resolved.mark === 'line' || resolved.mark === 'area' || resolved.mark === 'point';
   const normalizeMethod =
     resolved.transforms.find(
-      (t): t is Extract<Transform, { kind: "normalize" }> =>
-        t.kind === "normalize" && t.field === yField,
-    )?.method ?? "";
+      (t): t is Extract<Transform, { kind: 'normalize' }> =>
+        t.kind === 'normalize' && t.field === yField,
+    )?.method ?? '';
   const showNormalize = Boolean(yField) && continuousMark;
 
   const channelSelect = (
@@ -167,8 +163,8 @@ export function PlotEncodingPanel({
     <LabeledSelect
       label={label}
       ariaLabel={`${label} channel`}
-      value={resolved.encoding[channel] ?? ""}
-      onChange={(v) => setEncodingChannel(modeId, channel, v === "" ? null : v)}
+      value={resolved.encoding[channel] ?? ''}
+      onChange={(v) => setEncodingChannel(modeId, channel, v === '' ? null : v)}
     >
       {allowNone && <option value="">—</option>}
       {options.map((name) => (
@@ -183,12 +179,12 @@ export function PlotEncodingPanel({
     <div
       data-testid="plot-encoding-panel"
       style={{
-        display: "flex",
-        flexWrap: "wrap",
-        alignItems: "center",
+        display: 'flex',
+        flexWrap: 'wrap',
+        alignItems: 'center',
         gap: 10,
-        padding: "4px 8px",
-        borderBottom: "1px solid var(--app-border, #2a2a2a)",
+        padding: '4px 8px',
+        borderBottom: '1px solid var(--app-border, #2a2a2a)',
       }}
     >
       <LabeledSelect
@@ -204,10 +200,9 @@ export function PlotEncodingPanel({
         ))}
       </LabeledSelect>
 
-      {channelSelect("x", "X", xOptions, false)}
-      {channelSelect("y", "Y", numericCols, resolved.mark === "hist")}
-      {categoricalCols.length > 0 &&
-        channelSelect("color", "Color", categoricalCols, true)}
+      {channelSelect('x', 'X', xOptions, false)}
+      {channelSelect('y', 'Y', numericCols, resolved.mark === 'hist')}
+      {categoricalCols.length > 0 && channelSelect('color', 'Color', categoricalCols, true)}
 
       {showNormalize && yField && (
         <LabeledSelect
@@ -215,11 +210,7 @@ export function PlotEncodingPanel({
           ariaLabel="Normalize"
           value={normalizeMethod}
           onChange={(v) =>
-            setNormalize(
-              modeId,
-              yField,
-              v === "" ? null : (v as "zscore" | "percentChange"),
-            )
+            setNormalize(modeId, yField, v === '' ? null : (v as 'zscore' | 'percentChange'))
           }
         >
           <option value="">None</option>
@@ -237,7 +228,7 @@ export function PlotEncodingPanel({
         >
           {RADIUS_PRESETS_MM.map((mm) => (
             <option key={mm} value={mm}>
-              {mm === 0 ? "Voxel" : `${mm} mm`}
+              {mm === 0 ? 'Voxel' : `${mm} mm`}
             </option>
           ))}
         </LabeledSelect>

@@ -12,12 +12,13 @@
  * the other layout preferences.
  */
 
-import { useCallback, useState, type ReactNode } from "react";
+import { useCallback, useState, type CSSProperties, type ReactNode } from 'react';
 import {
   DEFAULT_DOCK_TAB,
+  DOCK_TAB_BAR_HEIGHT,
   DOCK_TABS,
   type DockTabId,
-} from "./bottomWorkbenchDock.constants";
+} from './bottomWorkbenchDock.constants';
 
 export interface BottomWorkbenchDockProps {
   /** Plot slot content. */
@@ -36,12 +37,33 @@ export interface BottomWorkbenchDockProps {
   onActiveTabChange?: (tab: DockTabId) => void;
   /** When provided, renders a right-aligned hide button in the tab bar. */
   onClose?: () => void;
+  /** When true, the dock is collapsed to just its tab bar (body hidden). */
+  minimized?: boolean;
+  /** When provided, renders a minimize button in the tab bar (expanded state). */
+  onMinimize?: () => void;
+  /** When provided, renders a restore button in the tab bar (minimized state). */
+  onRestore?: () => void;
   /** Optional className appended to the dock root. */
   className?: string;
 }
 
-/** Tab-bar height (px) — Design.md §11.2 (`grid-template-rows: 34px 1fr`). */
-const TAB_BAR_HEIGHT = 34;
+const TAB_BAR_HEIGHT = DOCK_TAB_BAR_HEIGHT;
+
+/** Shared style for the tab-bar trailing controls (minimize / restore / close). */
+const iconButtonStyle: CSSProperties = {
+  appearance: 'none',
+  background: 'transparent',
+  border: 'none',
+  padding: '0 4px',
+  cursor: 'pointer',
+  color: 'var(--app-text-muted)',
+  fontSize: '12px',
+  lineHeight: 1,
+  height: '20px',
+  display: 'inline-flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+};
 
 export function BottomWorkbenchDock({
   plot,
@@ -51,6 +73,9 @@ export function BottomWorkbenchDock({
   defaultActiveTab = DEFAULT_DOCK_TAB,
   onActiveTabChange,
   onClose,
+  minimized = false,
+  onMinimize,
+  onRestore,
   className,
 }: BottomWorkbenchDockProps) {
   // Controlled/uncontrolled hybrid: when `activeTab` is provided the dock
@@ -62,28 +87,30 @@ export function BottomWorkbenchDock({
 
   const handleSelect = useCallback(
     (tab: DockTabId) => {
+      // Clicking any tab while minimized re-expands the dock.
+      if (minimized) onRestore?.();
       if (tab === activeTab) return;
       if (!isControlled) setLocalTab(tab);
       onActiveTabChange?.(tab);
     },
-    [activeTab, isControlled, onActiveTabChange],
+    [activeTab, isControlled, onActiveTabChange, minimized, onRestore],
   );
 
   const slots: Record<DockTabId, ReactNode> = { activity, plot, log };
 
   return (
     <div
-      className={className ? `bf-bottom-dock ${className}` : "bf-bottom-dock"}
+      className={className ? `bf-bottom-dock ${className}` : 'bf-bottom-dock'}
       data-testid="bottom-workbench-dock"
       data-active-tab={activeTab}
       style={{
-        height: "100%",
-        width: "100%",
+        height: '100%',
+        width: '100%',
         minHeight: 0,
-        display: "grid",
-        gridTemplateRows: `${TAB_BAR_HEIGHT}px 1fr`,
-        background: "var(--app-bg-primary)",
-        color: "var(--app-text-primary)",
+        display: 'grid',
+        gridTemplateRows: minimized ? `${TAB_BAR_HEIGHT}px` : `${TAB_BAR_HEIGHT}px 1fr`,
+        background: 'var(--app-bg-primary)',
+        color: 'var(--app-text-primary)',
       }}
     >
       <div
@@ -92,12 +119,12 @@ export function BottomWorkbenchDock({
         data-testid="bottom-dock-tablist"
         className="bf-bottom-dock-tabbar"
         style={{
-          display: "flex",
-          alignItems: "center",
-          gap: "2px",
-          padding: "0 8px",
-          borderBottom: "1px solid var(--app-border-subtle)",
-          background: "var(--app-surface-panel-raised)",
+          display: 'flex',
+          alignItems: 'center',
+          gap: '2px',
+          padding: '0 8px',
+          borderBottom: '1px solid var(--app-border-subtle)',
+          background: 'var(--app-surface-panel-raised)',
         }}
       >
         {DOCK_TABS.map(({ id, label }) => {
@@ -111,26 +138,22 @@ export function BottomWorkbenchDock({
               aria-selected={active}
               aria-controls={`bottom-dock-panel-${id}`}
               data-testid={`bottom-dock-tab-${id}`}
-              data-active={active ? "true" : "false"}
+              data-active={active ? 'true' : 'false'}
               onClick={() => handleSelect(id)}
               className="bf-role-section"
               style={{
-                appearance: "none",
-                padding: "2px 10px",
-                height: "22px",
-                border: "1px solid",
-                borderColor: active
-                  ? "var(--app-border-active)"
-                  : "transparent",
-                background: active ? "var(--app-bg-active)" : "transparent",
-                color: active
-                  ? "var(--app-text-primary)"
-                  : "var(--app-text-muted)",
-                cursor: "pointer",
-                borderRadius: "var(--app-radius-sm)",
-                fontSize: "var(--app-role-section-size)",
-                letterSpacing: "var(--app-role-section-tracking)",
-                textTransform: "uppercase",
+                appearance: 'none',
+                padding: '2px 10px',
+                height: '22px',
+                border: '1px solid',
+                borderColor: active ? 'var(--app-border-active)' : 'transparent',
+                background: active ? 'var(--app-bg-active)' : 'transparent',
+                color: active ? 'var(--app-text-primary)' : 'var(--app-text-muted)',
+                cursor: 'pointer',
+                borderRadius: 'var(--app-radius-sm)',
+                fontSize: 'var(--app-role-section-size)',
+                letterSpacing: 'var(--app-role-section-tracking)',
+                textTransform: 'uppercase',
               }}
             >
               {label}
@@ -138,48 +161,72 @@ export function BottomWorkbenchDock({
           );
         })}
 
-        {onClose ? (
-          <button
-            type="button"
-            aria-label="Hide bottom dock"
-            title="Hide bottom dock"
-            data-testid="bottom-dock-close"
-            onClick={onClose}
+        {(onMinimize || onRestore || onClose) && (
+          <div
             style={{
-              appearance: "none",
-              marginLeft: "auto",
-              background: "transparent",
-              border: "none",
-              padding: "0 4px",
-              cursor: "pointer",
-              color: "var(--app-text-muted)",
-              fontSize: "12px",
-              lineHeight: 1,
-              height: "20px",
-              display: "inline-flex",
-              alignItems: "center",
-              justifyContent: "center",
+              marginLeft: 'auto',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '2px',
             }}
           >
-            ✕
-          </button>
-        ) : null}
+            {minimized
+              ? onRestore && (
+                  <button
+                    type="button"
+                    aria-label="Restore bottom dock"
+                    title="Restore bottom dock"
+                    data-testid="bottom-dock-restore"
+                    onClick={onRestore}
+                    style={iconButtonStyle}
+                  >
+                    ▴
+                  </button>
+                )
+              : onMinimize && (
+                  <button
+                    type="button"
+                    aria-label="Minimize bottom dock"
+                    title="Minimize bottom dock"
+                    data-testid="bottom-dock-minimize"
+                    onClick={onMinimize}
+                    style={iconButtonStyle}
+                  >
+                    ▾
+                  </button>
+                )}
+            {onClose ? (
+              <button
+                type="button"
+                aria-label="Hide bottom dock"
+                title="Hide bottom dock"
+                data-testid="bottom-dock-close"
+                onClick={onClose}
+                style={iconButtonStyle}
+              >
+                ✕
+              </button>
+            ) : null}
+          </div>
+        )}
       </div>
 
-      <div
-        role="tabpanel"
-        id={`bottom-dock-panel-${activeTab}`}
-        aria-labelledby={`bottom-dock-tab-${activeTab}`}
-        data-testid="bottom-dock-panel"
-        style={{
-          position: "relative",
-          minHeight: 0,
-          minWidth: 0,
-          overflow: "hidden",
-        }}
-      >
-        {slots[activeTab]}
-      </div>
+      {!minimized && (
+        <div
+          role="tabpanel"
+          id={`bottom-dock-panel-${activeTab}`}
+          aria-labelledby={`bottom-dock-tab-${activeTab}`}
+          data-testid="bottom-dock-panel"
+          style={{
+            position: 'relative',
+            minHeight: 0,
+            minWidth: 0,
+            overflow: 'hidden',
+          }}
+        >
+          {slots[activeTab]}
+        </div>
+      )}
     </div>
   );
 }

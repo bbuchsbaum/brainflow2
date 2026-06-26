@@ -295,6 +295,20 @@ describe('PlotPanel ↔ plotModeStore handshake (6c)', () => {
   });
 
   it('writes back to the store when the user clicks a tab in the host', () => {
+    // Tabs are now context-sensitive: seed a 4D layer so the Time Series tab is
+    // actually afforded (a 3D volume offers no time series), then click it.
+    seedVolumeLayer({
+      id: 'bold-4d',
+      name: 'BOLD',
+      type: 'functional',
+      timeSeriesInfo: {
+        num_timepoints: 200,
+        tr: 2,
+        temporal_unit: 's',
+        acquisition_time: null,
+      },
+    });
+
     render(<PlotPanel defaultMode="histogram" />);
 
     const tab = screen.getByTestId('plot-host-mode-crosshair-time-series');

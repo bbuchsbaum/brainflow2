@@ -31,16 +31,13 @@
  * shared singletons (`useLogStore`, `usePlotModeStore`, `useLayerStore`).
  */
 
-import { create } from "zustand";
-import { persist, createJSONStorage } from "zustand/middleware";
+import { create } from 'zustand';
+import { persist, createJSONStorage } from 'zustand/middleware';
 
-import type {
-  DockSizes,
-  DockTabId,
-} from "@/components/layout/bottomWorkbenchDock.constants";
-import type { WorkspaceType } from "@/types/workspace";
+import type { DockSizes, DockTabId } from '@/components/layout/bottomWorkbenchDock.constants';
+import type { WorkspaceType } from '@/types/workspace';
 
-const LAYOUT_SETTINGS_PERSIST_NAME = "brainflow2-layout-settings";
+const LAYOUT_SETTINGS_PERSIST_NAME = 'brainflow2-layout-settings';
 // v2: the plot-only dock (`plotDock*`) became the shell-wide Activity|Plot|Log
 // dock (`bottomDock*`), open by default in all imaging modes.
 const LAYOUT_SETTINGS_PERSIST_VERSION = 2;
@@ -57,15 +54,10 @@ export function migrateLayoutSettings(
   version: number,
 ): Record<string, unknown> {
   const state = (
-    persisted && typeof persisted === "object"
-      ? { ...(persisted as Record<string, unknown>) }
-      : {}
+    persisted && typeof persisted === 'object' ? { ...(persisted as Record<string, unknown>) } : {}
   ) as Record<string, unknown>;
   if (version < 2) {
-    if (
-      state.bottomDockHeight == null &&
-      typeof state.plotDockHeight === "number"
-    ) {
+    if (state.bottomDockHeight == null && typeof state.plotDockHeight === 'number') {
       state.bottomDockHeight = state.plotDockHeight;
     }
     delete state.plotDockOpen;
@@ -88,14 +80,14 @@ export type GoldenLayoutSavedState = Record<string, unknown>;
  *   - `row`    — a horizontal row of three.
  *   - `column` — a vertical column of three.
  */
-export type OrthoArrangement = "grid" | "row" | "column";
+export type OrthoArrangement = 'grid' | 'row' | 'column';
 
 /**
  * Orientation of the Integrated workspace's volume/surface split:
  *   - `horizontal` — volumes | surface side-by-side.
  *   - `vertical`   — volumes on top, surface below.
  */
-export type IntegratedSplit = "horizontal" | "vertical";
+export type IntegratedSplit = 'horizontal' | 'vertical';
 
 export interface LayoutSettingsStore {
   bottomDockSizes: DockSizes | null;
@@ -105,6 +97,8 @@ export interface LayoutSettingsStore {
   bottomDockActiveTab: DockTabId | null;
   /** Whether the shell bottom dock is shown (default open in all imaging modes). */
   bottomDockOpen: boolean;
+  /** Whether the (open) bottom dock is collapsed to just its tab bar. */
+  bottomDockMinimized: boolean;
   bottomDockHeight: number | null;
   /** Arrangement of the three orthogonal slices (flexible ortho + integrated). */
   orthoArrangement: OrthoArrangement;
@@ -118,6 +112,7 @@ export interface LayoutSettingsStore {
   setBottomDockPlotMaximized: (maximized: boolean) => void;
   setBottomDockActiveTab: (tab: DockTabId) => void;
   setBottomDockOpen: (open: boolean) => void;
+  setBottomDockMinimized: (minimized: boolean) => void;
   toggleBottomDock: () => void;
   setBottomDockHeight: (height: number) => void;
   setOrthoArrangement: (arrangement: OrthoArrangement) => void;
@@ -141,9 +136,10 @@ const INITIAL_STATE = {
   bottomDockPlotMaximized: false,
   bottomDockActiveTab: null,
   bottomDockOpen: true,
+  bottomDockMinimized: false,
   bottomDockHeight: null,
-  orthoArrangement: "grid",
-  integratedSplit: "horizontal",
+  orthoArrangement: 'grid',
+  integratedSplit: 'horizontal',
   goldenLayoutState: null,
   integratedDefaultDisplayMode: null,
 } as const;
@@ -156,12 +152,7 @@ const createLayoutSettingsStore = () =>
         setBottomDockSizes: (sizes) => {
           set((state) => {
             const prev = state.bottomDockSizes;
-            if (
-              prev &&
-              prev[0] === sizes[0] &&
-              prev[1] === sizes[1] &&
-              prev[2] === sizes[2]
-            ) {
+            if (prev && prev[0] === sizes[0] && prev[1] === sizes[1] && prev[2] === sizes[2]) {
               return state;
             }
             return { bottomDockSizes: sizes };
@@ -183,14 +174,15 @@ const createLayoutSettingsStore = () =>
         },
         setBottomDockActiveTab: (tab) => {
           set((state) =>
-            state.bottomDockActiveTab === tab
-              ? state
-              : { bottomDockActiveTab: tab },
+            state.bottomDockActiveTab === tab ? state : { bottomDockActiveTab: tab },
           );
         },
         setBottomDockOpen: (open) => {
+          set((state) => (state.bottomDockOpen === open ? state : { bottomDockOpen: open }));
+        },
+        setBottomDockMinimized: (minimized) => {
           set((state) =>
-            state.bottomDockOpen === open ? state : { bottomDockOpen: open },
+            state.bottomDockMinimized === minimized ? state : { bottomDockMinimized: minimized },
           );
         },
         toggleBottomDock: () => {
@@ -199,24 +191,16 @@ const createLayoutSettingsStore = () =>
         setBottomDockHeight: (height) => {
           set((state) => {
             const next = Math.round(height);
-            return state.bottomDockHeight === next
-              ? state
-              : { bottomDockHeight: next };
+            return state.bottomDockHeight === next ? state : { bottomDockHeight: next };
           });
         },
         setOrthoArrangement: (arrangement) => {
           set((state) =>
-            state.orthoArrangement === arrangement
-              ? state
-              : { orthoArrangement: arrangement },
+            state.orthoArrangement === arrangement ? state : { orthoArrangement: arrangement },
           );
         },
         setIntegratedSplit: (split) => {
-          set((state) =>
-            state.integratedSplit === split
-              ? state
-              : { integratedSplit: split },
-          );
+          set((state) => (state.integratedSplit === split ? state : { integratedSplit: split }));
         },
         setGoldenLayoutState: (next) => {
           set({ goldenLayoutState: next });
@@ -236,10 +220,7 @@ const createLayoutSettingsStore = () =>
         name: LAYOUT_SETTINGS_PERSIST_NAME,
         version: LAYOUT_SETTINGS_PERSIST_VERSION,
         migrate: (persisted, version) =>
-          migrateLayoutSettings(
-            persisted,
-            version,
-          ) as unknown as LayoutSettingsStore,
+          migrateLayoutSettings(persisted, version) as unknown as LayoutSettingsStore,
         storage: createJSONStorage(() => localStorage),
         partialize: (state) => ({
           bottomDockSizes: state.bottomDockSizes,
@@ -247,6 +228,7 @@ const createLayoutSettingsStore = () =>
           bottomDockPlotMaximized: state.bottomDockPlotMaximized,
           bottomDockActiveTab: state.bottomDockActiveTab,
           bottomDockOpen: state.bottomDockOpen,
+          bottomDockMinimized: state.bottomDockMinimized,
           bottomDockHeight: state.bottomDockHeight,
           orthoArrangement: state.orthoArrangement,
           integratedSplit: state.integratedSplit,
@@ -257,14 +239,12 @@ const createLayoutSettingsStore = () =>
     ),
   );
 
-export const useLayoutSettingsStore: ReturnType<
-  typeof createLayoutSettingsStore
-> = (() => {
-  if (typeof window !== "undefined" && window.__layoutSettingsStore) {
+export const useLayoutSettingsStore: ReturnType<typeof createLayoutSettingsStore> = (() => {
+  if (typeof window !== 'undefined' && window.__layoutSettingsStore) {
     return window.__layoutSettingsStore;
   }
   const store = createLayoutSettingsStore();
-  if (typeof window !== "undefined") {
+  if (typeof window !== 'undefined') {
     window.__layoutSettingsStore = store;
   }
   return store;

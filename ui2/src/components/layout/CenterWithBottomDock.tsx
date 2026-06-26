@@ -23,20 +23,21 @@
  * (GPU-backed) view.
  */
 
-import React from "react";
+import React from 'react';
 
-import { BottomWorkbenchDock } from "@/components/layout/BottomWorkbenchDock";
+import { BottomWorkbenchDock } from '@/components/layout/BottomWorkbenchDock';
 import {
   DEFAULT_DOCK_TAB,
   DOCK_HEIGHT_MAX,
   DOCK_HEIGHT_MIN,
   DOCK_HEIGHT_PREFERRED,
-} from "@/components/layout/bottomWorkbenchDock.constants";
-import { ActivityPanel } from "@/components/panels/ActivityPanel";
-import { LogPanel } from "@/components/panels/LogPanel";
-import { PlotPanel } from "@/components/panels/PlotPanel";
-import { useDefaultPlotModeForActiveLayer } from "@/components/plots/plotMode.helpers";
-import { useLayoutSettingsStore } from "@/stores/layoutSettingsStore";
+  DOCK_TAB_BAR_HEIGHT,
+} from '@/components/layout/bottomWorkbenchDock.constants';
+import { ActivityPanel } from '@/components/panels/ActivityPanel';
+import { LogPanel } from '@/components/panels/LogPanel';
+import { PlotPanel } from '@/components/panels/PlotPanel';
+import { useDefaultPlotModeForActiveLayer } from '@/components/plots/plotMode.helpers';
+import { useLayoutSettingsStore } from '@/stores/layoutSettingsStore';
 
 const DOCK_MAX_FRACTION = 0.7; // dock never exceeds 70% of the column
 const RESIZER_PX = 6;
@@ -45,15 +46,13 @@ export interface CenterWithBottomDockProps {
   children: React.ReactNode;
 }
 
-export const CenterWithBottomDock: React.FC<CenterWithBottomDockProps> = ({
-  children,
-}) => {
+export const CenterWithBottomDock: React.FC<CenterWithBottomDockProps> = ({ children }) => {
   const open = useLayoutSettingsStore((s) => s.bottomDockOpen);
   const storedHeight = useLayoutSettingsStore((s) => s.bottomDockHeight);
-  const setBottomDockHeight = useLayoutSettingsStore(
-    (s) => s.setBottomDockHeight,
-  );
+  const setBottomDockHeight = useLayoutSettingsStore((s) => s.setBottomDockHeight);
   const setBottomDockOpen = useLayoutSettingsStore((s) => s.setBottomDockOpen);
+  const minimized = useLayoutSettingsStore((s) => s.bottomDockMinimized);
+  const setBottomDockMinimized = useLayoutSettingsStore((s) => s.setBottomDockMinimized);
   const activeTab = useLayoutSettingsStore((s) => s.bottomDockActiveTab);
   const setActiveTab = useLayoutSettingsStore((s) => s.setBottomDockActiveTab);
   const defaultPlotMode = useDefaultPlotModeForActiveLayer();
@@ -68,11 +67,9 @@ export const CenterWithBottomDock: React.FC<CenterWithBottomDockProps> = ({
 
   React.useEffect(() => {
     const el = rootRef.current;
-    if (!el || typeof ResizeObserver === "undefined") return;
+    if (!el || typeof ResizeObserver === 'undefined') return;
     const update = () =>
-      setRootHeight((prev) =>
-        prev === el.clientHeight ? prev : el.clientHeight,
-      );
+      setRootHeight((prev) => (prev === el.clientHeight ? prev : el.clientHeight));
     update();
     const ro = new ResizeObserver(update);
     ro.observe(el);
@@ -81,18 +78,16 @@ export const CenterWithBottomDock: React.FC<CenterWithBottomDockProps> = ({
 
   const maxDockHeight =
     rootHeight > 0
-      ? Math.min(
-          DOCK_HEIGHT_MAX,
-          Math.max(DOCK_HEIGHT_MIN, rootHeight * DOCK_MAX_FRACTION),
-        )
+      ? Math.min(DOCK_HEIGHT_MAX, Math.max(DOCK_HEIGHT_MIN, rootHeight * DOCK_MAX_FRACTION))
       : DOCK_HEIGHT_MAX;
-  const dockHeight = Math.min(
-    dragHeight ?? storedHeight ?? DOCK_HEIGHT_PREFERRED,
-    maxDockHeight,
-  );
+  const dockHeight = Math.min(dragHeight ?? storedHeight ?? DOCK_HEIGHT_PREFERRED, maxDockHeight);
 
-  // Reserve space for the dock (+ its resizer) below the view pane when open.
-  const bottomReserve = open ? dockHeight + RESIZER_PX : 0;
+  // When minimized, the dock collapses to just its tab bar and is not resizable.
+  const effectiveDockHeight = minimized ? DOCK_TAB_BAR_HEIGHT : dockHeight;
+  const showResizer = open && !minimized;
+
+  // Reserve space for the dock (+ its resizer when resizable) below the view pane.
+  const bottomReserve = open ? effectiveDockHeight + (showResizer ? RESIZER_PX : 0) : 0;
 
   const handleResizeStart = React.useCallback(
     (e: React.PointerEvent<HTMLDivElement>) => {
@@ -109,19 +104,17 @@ export const CenterWithBottomDock: React.FC<CenterWithBottomDockProps> = ({
       const onMove = (ev: PointerEvent) => {
         // Dock occupies the bottom; its top edge follows the pointer.
         const fromBottom = rootRect.bottom - ev.clientY - RESIZER_PX / 2;
-        latest = Math.round(
-          Math.max(DOCK_HEIGHT_MIN, Math.min(maxPx, fromBottom)),
-        );
+        latest = Math.round(Math.max(DOCK_HEIGHT_MIN, Math.min(maxPx, fromBottom)));
         setDragHeight(latest);
       };
       const onUp = () => {
-        window.removeEventListener("pointermove", onMove);
-        window.removeEventListener("pointerup", onUp);
+        window.removeEventListener('pointermove', onMove);
+        window.removeEventListener('pointerup', onUp);
         setBottomDockHeight(latest);
         setDragHeight(null);
       };
-      window.addEventListener("pointermove", onMove);
-      window.addEventListener("pointerup", onUp);
+      window.addEventListener('pointermove', onMove);
+      window.addEventListener('pointerup', onUp);
     },
     [dockHeight, setBottomDockHeight],
   );
@@ -130,12 +123,12 @@ export const CenterWithBottomDock: React.FC<CenterWithBottomDockProps> = ({
     <div
       ref={rootRef}
       data-testid="center-with-bottom-dock"
-      style={{ position: "absolute", inset: 0, overflow: "hidden" }}
+      style={{ position: 'absolute', inset: 0, overflow: 'hidden' }}
     >
       {/* View pane — definite height via absolute insets (bottom = reserve). */}
       <div
         style={{
-          position: "absolute",
+          position: 'absolute',
           top: 0,
           left: 0,
           right: 0,
@@ -147,30 +140,32 @@ export const CenterWithBottomDock: React.FC<CenterWithBottomDockProps> = ({
 
       {open && (
         <>
+          {showResizer && (
+            <div
+              role="separator"
+              aria-orientation="horizontal"
+              aria-label="Resize bottom dock"
+              data-testid="bottom-dock-resizer"
+              onPointerDown={handleResizeStart}
+              style={{
+                position: 'absolute',
+                left: 0,
+                right: 0,
+                bottom: effectiveDockHeight,
+                height: `${RESIZER_PX}px`,
+                cursor: 'ns-resize',
+                background: 'var(--app-border-subtle)',
+                zIndex: 2,
+              }}
+            />
+          )}
           <div
-            role="separator"
-            aria-orientation="horizontal"
-            aria-label="Resize bottom dock"
-            data-testid="bottom-dock-resizer"
-            onPointerDown={handleResizeStart}
             style={{
-              position: "absolute",
-              left: 0,
-              right: 0,
-              bottom: dockHeight,
-              height: `${RESIZER_PX}px`,
-              cursor: "ns-resize",
-              background: "var(--app-border-subtle)",
-              zIndex: 2,
-            }}
-          />
-          <div
-            style={{
-              position: "absolute",
+              position: 'absolute',
               left: 0,
               right: 0,
               bottom: 0,
-              height: `${dockHeight}px`,
+              height: `${effectiveDockHeight}px`,
             }}
           >
             <BottomWorkbenchDock
@@ -180,6 +175,9 @@ export const CenterWithBottomDock: React.FC<CenterWithBottomDockProps> = ({
               activeTab={activeTab ?? DEFAULT_DOCK_TAB}
               onActiveTabChange={setActiveTab}
               onClose={() => setBottomDockOpen(false)}
+              minimized={minimized}
+              onMinimize={() => setBottomDockMinimized(true)}
+              onRestore={() => setBottomDockMinimized(false)}
             />
           </div>
         </>
