@@ -362,7 +362,7 @@ export function GoldenLayoutRoot() {
     goldenLayout.registerComponent('surfaceView', (container: ComponentContainer, state: any) => {
       console.log('[GoldenLayoutRoot] SurfaceView component created, state:', state);
 
-      const { surfaceHandle, path, surfaceViewId } = state || {};
+      const { surfaceHandle, path, surfaceViewId, groupKey } = state || {};
 
       if (!surfaceHandle) {
         console.error('[GoldenLayoutRoot] Invalid surface configuration:', state);
@@ -386,6 +386,7 @@ export function GoldenLayoutRoot() {
               surfaceHandle={surfaceHandle}
               path={path}
               surfaceViewId={surfaceViewId}
+              groupKey={groupKey}
             />
           </PanelErrorBoundary>
         </React.StrictMode>,

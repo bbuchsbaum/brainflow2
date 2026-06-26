@@ -6,7 +6,7 @@ function createSurface(
   handle: string,
   path: string,
   hemisphere: 'left' | 'right' | 'both',
-  surfaceType: 'pial' | 'white' | 'inflated' = 'pial'
+  surfaceType: 'pial' | 'white' | 'inflated' = 'pial',
 ): LoadedSurface {
   return {
     handle,
@@ -39,23 +39,13 @@ describe('collectRenderSurfaces', () => {
   });
 
   it('returns template-flow hemisphere pair when available', () => {
-    const left = createSurface(
-      'lh',
-      'templateflow://fsaverage_pial_left',
-      'left',
-      'pial'
-    );
-    const right = createSurface(
-      'rh',
-      'templateflow://fsaverage_pial_right',
-      'right',
-      'pial'
-    );
+    const left = createSurface('lh', 'templateflow://fsaverage_pial_left', 'left', 'pial');
+    const right = createSurface('rh', 'templateflow://fsaverage_pial_right', 'right', 'pial');
     const other = createSurface(
       'inflated-lh',
       'templateflow://fsaverage_inflated_left',
       'left',
-      'inflated'
+      'inflated',
     );
 
     const surfaces = new Map<string, LoadedSurface>([
@@ -69,12 +59,7 @@ describe('collectRenderSurfaces', () => {
   });
 
   it('falls back to active surface when pair is missing', () => {
-    const right = createSurface(
-      'rh',
-      'templateflow://fsaverage_pial_right',
-      'right',
-      'pial'
-    );
+    const right = createSurface('rh', 'templateflow://fsaverage_pial_right', 'right', 'pial');
     const surfaces = new Map<string, LoadedSurface>([['rh', right]]);
 
     const result = collectRenderSurfaces(surfaces, 'rh');
@@ -82,18 +67,8 @@ describe('collectRenderSurfaces', () => {
   });
 
   it('excludes hidden hemisphere from template pair', () => {
-    const left = createSurface(
-      'lh',
-      'templateflow://fsaverage_pial_left',
-      'left',
-      'pial'
-    );
-    const right = createSurface(
-      'rh',
-      'templateflow://fsaverage_pial_right',
-      'right',
-      'pial'
-    );
+    const left = createSurface('lh', 'templateflow://fsaverage_pial_left', 'left', 'pial');
+    const right = createSurface('rh', 'templateflow://fsaverage_pial_right', 'right', 'pial');
     right.visible = false;
 
     const surfaces = new Map<string, LoadedSurface>([
@@ -106,20 +81,10 @@ describe('collectRenderSurfaces', () => {
   });
 
   it('falls back to first visible surface when active is hidden', () => {
-    const left = createSurface(
-      'lh',
-      'templateflow://fsaverage_pial_left',
-      'left',
-      'pial'
-    );
+    const left = createSurface('lh', 'templateflow://fsaverage_pial_left', 'left', 'pial');
     left.visible = false;
 
-    const right = createSurface(
-      'rh',
-      'templateflow://fsaverage_pial_right',
-      'right',
-      'pial'
-    );
+    const right = createSurface('rh', 'templateflow://fsaverage_pial_right', 'right', 'pial');
 
     const surfaces = new Map<string, LoadedSurface>([
       ['lh', left],
@@ -135,13 +100,13 @@ describe('collectRenderSurfaces', () => {
       'lh-inflated',
       'templateflow://fsaverage_inflated_left',
       'left',
-      'inflated'
+      'inflated',
     );
     const rightPial = createSurface(
       'rh-pial',
       'templateflow://fsaverage_inflated_right',
       'right',
-      'pial'
+      'pial',
     );
 
     const surfaces = new Map<string, LoadedSurface>([
@@ -154,23 +119,18 @@ describe('collectRenderSurfaces', () => {
   });
 
   it('prefers active-hemisphere surface when duplicates exist', () => {
-    const leftPial = createSurface(
-      'lh-pial',
-      'templateflow://fsaverage_pial_left',
-      'left',
-      'pial'
-    );
+    const leftPial = createSurface('lh-pial', 'templateflow://fsaverage_pial_left', 'left', 'pial');
     const leftInflated = createSurface(
       'lh-inflated',
       'templateflow://fsaverage_pial_left',
       'left',
-      'inflated'
+      'inflated',
     );
     const rightPial = createSurface(
       'rh-pial',
       'templateflow://fsaverage_pial_right',
       'right',
-      'pial'
+      'pial',
     );
 
     const surfaces = new Map<string, LoadedSurface>([
@@ -184,18 +144,8 @@ describe('collectRenderSurfaces', () => {
   });
 
   it('pairs hemispheres when template path uses capitalized tokens', () => {
-    const left = createSurface(
-      'lh',
-      'templateflow://fsaverage_pial_Left',
-      'left',
-      'pial'
-    );
-    const right = createSurface(
-      'rh',
-      'templateflow://fsaverage_pial_Right',
-      'right',
-      'pial'
-    );
+    const left = createSurface('lh', 'templateflow://fsaverage_pial_Left', 'left', 'pial');
+    const right = createSurface('rh', 'templateflow://fsaverage_pial_Right', 'right', 'pial');
 
     const surfaces = new Map<string, LoadedSurface>([
       ['lh', left],
@@ -204,5 +154,49 @@ describe('collectRenderSurfaces', () => {
 
     const result = collectRenderSurfaces(surfaces, 'lh');
     expect(result.map((item) => item.handle)).toEqual(['lh', 'rh']);
+  });
+
+  describe('group-scoped (standalone tab)', () => {
+    function mixedGroups(): Map<string, LoadedSurface> {
+      return new Map<string, LoadedSurface>([
+        ['pial-lh', createSurface('pial-lh', 'templateflow://fsaverage_pial_left', 'left', 'pial')],
+        [
+          'pial-rh',
+          createSurface('pial-rh', 'templateflow://fsaverage_pial_right', 'right', 'pial'),
+        ],
+        [
+          'white-lh',
+          createSurface('white-lh', 'templateflow://fsaverage_white_left', 'left', 'white'),
+        ],
+        [
+          'white-rh',
+          createSurface('white-rh', 'templateflow://fsaverage_white_right', 'right', 'white'),
+        ],
+      ]);
+    }
+
+    it('renders only the pinned group, ignoring other loaded groups', () => {
+      const result = collectRenderSurfaces(
+        mixedGroups(),
+        'pial-lh',
+        'templateflow://fsaverage_pial',
+      );
+      expect(result.map((item) => item.handle)).toEqual(['pial-lh', 'pial-rh']);
+    });
+
+    it('stays pinned to its group even when the active anchor is in another group', () => {
+      // Globally-active surface is white, but this tab is pinned to pial.
+      const result = collectRenderSurfaces(
+        mixedGroups(),
+        'white-lh',
+        'templateflow://fsaverage_pial',
+      );
+      expect(result.map((item) => item.handle)).toEqual(['pial-lh', 'pial-rh']);
+    });
+
+    it('without a group key keeps global anchor pairing (Integrated pane)', () => {
+      const result = collectRenderSurfaces(mixedGroups(), 'white-lh');
+      expect(result.map((item) => item.handle)).toEqual(['white-lh', 'white-rh']);
+    });
   });
 });

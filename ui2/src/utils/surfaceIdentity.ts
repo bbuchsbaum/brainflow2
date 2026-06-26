@@ -64,3 +64,26 @@ export function resolveTemplateflowSurfaceIdentity(args: {
     surfaceType,
   };
 }
+
+export interface SurfaceGroupKeyInput {
+  path?: string | null;
+  geometryHemisphere?: string | null;
+  metadataHemisphere?: string | null;
+  surfaceType?: string | null;
+}
+
+/**
+ * Group key for a surface "scene" — surfaces that share a key render together and
+ * occupy a single surface view tab. For templateflow surfaces this is the identity
+ * `basePath` (`templateflow://<space>_<surfaceType>`), so Left and Right of the same
+ * template collapse to one scene while different geometries (white vs pial) stay
+ * distinct. Returns `null` for ungroupable surfaces (e.g. local `.gii` files), which
+ * keeps them one-tab-per-handle.
+ *
+ * Accepts either the full identity arg shape or a bare path string for convenience
+ * (e.g. a stored GoldenLayout `componentState.path`).
+ */
+export function surfaceGroupKey(input: string | SurfaceGroupKeyInput): string | null {
+  const args = typeof input === 'string' ? { path: input } : input;
+  return resolveTemplateflowSurfaceIdentity(args)?.basePath ?? null;
+}

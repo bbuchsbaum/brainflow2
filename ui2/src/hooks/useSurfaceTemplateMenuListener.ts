@@ -10,9 +10,9 @@ import { getSurfaceLoadingService } from '@/services/SurfaceLoadingService';
 import { getEventBus } from '@/events/EventBus';
 
 interface SurfaceTemplateMenuPayload {
-  space: string;        // 'fsaverage', 'fsaverage5', 'fsaverage6'
+  space: string; // 'fsaverage', 'fsaverage5', 'fsaverage6'
   geometry_type: string; // 'white', 'pial', 'inflated', 'sphere'
-  hemisphere: string;   // 'left', 'right'
+  hemisphere: string; // 'left', 'right', 'both'
 }
 
 interface SurfaceTemplateMenuEvent {
@@ -39,16 +39,25 @@ export function useSurfaceTemplateMenuListener() {
         surfaceTemplateUnlisten = await safeListen<SurfaceTemplateMenuEvent>(
           'surface-template-menu-action',
           async (event) => {
-            console.log('[useSurfaceTemplateMenuListener] Surface template menu action received:', event.payload);
+            console.log(
+              '[useSurfaceTemplateMenuListener] Surface template menu action received:',
+              event.payload,
+            );
 
             if (event.payload.action !== 'load-surface-template') {
-              console.warn('[useSurfaceTemplateMenuListener] Unknown action:', event.payload.action);
+              console.warn(
+                '[useSurfaceTemplateMenuListener] Unknown action:',
+                event.payload.action,
+              );
               return;
             }
 
             const payload = event.payload.payload;
             if (!payload?.space || !payload?.geometry_type || !payload?.hemisphere) {
-              console.warn('[useSurfaceTemplateMenuListener] Missing required fields in payload:', payload);
+              console.warn(
+                '[useSurfaceTemplateMenuListener] Missing required fields in payload:',
+                payload,
+              );
               return;
             }
 
@@ -56,6 +65,40 @@ export function useSurfaceTemplateMenuListener() {
 
             try {
               const surfaceLoadingService = getSurfaceLoadingService();
+
+              // Bilateral (default geometry click): load both hemispheres into
+              // one scene. Module B placement reuse keeps them in a single tab.
+              if (payload.hemisphere === 'both') {
+                const displayName = `${payload.space} ${payload.geometry_type} (both hemispheres)`;
+                eventBus.emit('ui.notification', {
+                  type: 'info',
+                  message: `Loading surface template: ${displayName}...`,
+                });
+
+                const { left, right } = await surfaceLoadingService.loadSurfaceTemplateBilateral({
+                  space: payload.space,
+                  geometry_type: payload.geometry_type,
+                });
+                const loaded = [left, right].filter(Boolean).length;
+
+                if (loaded === 2) {
+                  eventBus.emit('ui.notification', {
+                    type: 'success',
+                    message: `Loaded surface template: ${displayName}`,
+                  });
+                } else if (loaded === 1) {
+                  eventBus.emit('ui.notification', {
+                    type: 'warning',
+                    message: `Loaded one hemisphere of ${displayName}; the other failed.`,
+                  });
+                } else {
+                  eventBus.emit('ui.notification', {
+                    type: 'error',
+                    message: `Failed to load surface template: ${displayName}`,
+                  });
+                }
+                return;
+              }
 
               // Construct the template request
               const request = {
@@ -88,7 +131,10 @@ export function useSurfaceTemplateMenuListener() {
                 });
               }
             } catch (error) {
-              console.error('[useSurfaceTemplateMenuListener] Failed to load surface template:', error);
+              console.error(
+                '[useSurfaceTemplateMenuListener] Failed to load surface template:',
+                error,
+              );
               eventBus.emit('ui.notification', {
                 type: 'error',
                 message:
@@ -97,10 +143,12 @@ export function useSurfaceTemplateMenuListener() {
                     : 'Failed to load surface template.',
               });
             }
-          }
+          },
         );
 
-        console.log('[useSurfaceTemplateMenuListener] Surface template menu listener setup complete');
+        console.log(
+          '[useSurfaceTemplateMenuListener] Surface template menu listener setup complete',
+        );
       } catch (error) {
         console.error('[useSurfaceTemplateMenuListener] Failed to setup listener:', error);
       }

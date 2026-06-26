@@ -3,6 +3,7 @@ import {
   normalizeLateralHemisphere,
   normalizeSurfaceHemisphere,
   resolveTemplateflowSurfaceIdentity,
+  surfaceGroupKey,
 } from '../surfaceIdentity';
 
 describe('surfaceIdentity', () => {
@@ -54,7 +55,37 @@ describe('surfaceIdentity', () => {
       resolveTemplateflowSurfaceIdentity({
         path: '/tmp/lh.pial.gii',
         metadataHemisphere: 'left',
-      })
+      }),
     ).toBeNull();
+  });
+});
+
+describe('surfaceGroupKey', () => {
+  it('collapses left and right of the same template to one key', () => {
+    const left = surfaceGroupKey('templateflow://fsaverage_pial_left');
+    const right = surfaceGroupKey('templateflow://fsaverage_pial_right');
+    expect(left).toBe('templateflow://fsaverage_pial');
+    expect(right).toBe(left);
+  });
+
+  it('keeps different geometries in distinct keys', () => {
+    expect(surfaceGroupKey('templateflow://fsaverage_white_left')).not.toBe(
+      surfaceGroupKey('templateflow://fsaverage_pial_left'),
+    );
+  });
+
+  it('accepts the full identity arg shape with hemisphere fallback', () => {
+    expect(
+      surfaceGroupKey({
+        path: 'templateflow://fsaverage_inflated_hemiL',
+        metadataHemisphere: 'right',
+        surfaceType: 'inflated',
+      }),
+    ).toBe('templateflow://fsaverage_inflated');
+  });
+
+  it('returns null for ungroupable (local) surfaces', () => {
+    expect(surfaceGroupKey('/tmp/lh.pial.gii')).toBeNull();
+    expect(surfaceGroupKey({ path: null })).toBeNull();
   });
 });

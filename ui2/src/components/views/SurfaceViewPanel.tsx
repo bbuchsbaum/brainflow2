@@ -4,7 +4,7 @@
  */
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { useSurfaceStore } from '@/stores/surfaceStore';
+import { DEFAULT_SURFACE_VIEW_ID, useSurfaceStore } from '@/stores/surfaceStore';
 import { SurfaceViewCanvas } from './SurfaceViewCanvas';
 import { Loader2, AlertCircle, X } from 'lucide-react';
 import type { LoadedSurface } from '@/stores/surfaceStore';
@@ -19,6 +19,19 @@ export interface SurfaceViewPanelProps {
   surfaceHandle?: string;
   path?: string;
   surfaceViewId?: string;
+  /**
+   * Scene group this panel is pinned to. When set, the panel composes only
+   * surfaces in this group (Left/Right of one template). Omitted for the
+   * Integrated workspace pane, which pairs globally off the active anchor.
+   */
+  groupKey?: string;
+  /**
+   * Top inset (CSS length) for the surface metadata overlay card. Defaults to
+   * `0.75rem`. The Integrated workspace overlays a `SurfaceAssociationBadge` at
+   * the top-left, so it passes a larger value to stack the card below the badge
+   * instead of letting them overlap.
+   */
+  infoOverlayTop?: string;
 }
 
 function parseTemplateIdentity(surface: LoadedSurface): TemplateflowSurfaceIdentity | null {
@@ -74,16 +87,39 @@ function chooseHemisphereCandidate(
   return candidates[0];
 }
 
+function surfaceGroupKeyOf(surface: LoadedSurface): string | null {
+  return parseTemplateIdentity(surface)?.basePath ?? null;
+}
+
 export function collectRenderSurfaces(
   surfaces: Map<string, LoadedSurface>,
   activeSurfaceId: string | null,
+  groupKey?: string | null,
 ): LoadedSurface[] {
   if (surfaces.size === 0) {
     return [];
   }
 
-  const activeSurface = activeSurfaceId ? surfaces.get(activeSurfaceId) : null;
-  const visibleSurfaces = Array.from(surfaces.values()).filter(
+  // When the host panel is pinned to a scene group (a standalone surface tab),
+  // only surfaces in that group are eligible — this keeps the tab from
+  // re-anchoring onto an unrelated surface that happens to be globally active.
+  // Panels without a group key (e.g. the Integrated workspace pane) keep the
+  // global anchor-pairing behavior.
+  const scoped =
+    groupKey != null
+      ? new Map(
+          Array.from(surfaces.entries()).filter(
+            ([, surface]) => surfaceGroupKeyOf(surface) === groupKey,
+          ),
+        )
+      : surfaces;
+
+  if (scoped.size === 0) {
+    return [];
+  }
+
+  const activeSurface = activeSurfaceId ? scoped.get(activeSurfaceId) : null;
+  const visibleSurfaces = Array.from(scoped.values()).filter(
     (surface) => surface.visible !== false,
   );
   const anchorSurface =
@@ -153,9 +189,13 @@ export const SurfaceViewPanel: React.FC<SurfaceViewPanelProps> = ({
   surfaceHandle,
   path,
   surfaceViewId,
+  groupKey,
+  infoOverlayTop = '0.75rem',
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
-  const resolvedSurfaceViewId = useRef(surfaceViewId ?? surfaceHandle ?? 'surface-view').current;
+  const resolvedSurfaceViewId = useRef(
+    surfaceViewId ?? surfaceHandle ?? DEFAULT_SURFACE_VIEW_ID,
+  ).current;
   const [dimensions, setDimensions] = useState({ width: 800, height: 600 });
   const surfaces = useSurfaceStore((state) => state.surfaces);
   const {
@@ -292,8 +332,8 @@ export const SurfaceViewPanel: React.FC<SurfaceViewPanelProps> = ({
     return Array.from(surfaces.values()).find((surface) => surface.visible !== false) ?? null;
   }, [surfaces, anchorSurfaceId]);
   const renderSurfaces = useMemo(
-    () => collectRenderSurfaces(surfaces, anchorSurfaceId),
-    [surfaces, anchorSurfaceId],
+    () => collectRenderSurfaces(surfaces, anchorSurfaceId, groupKey),
+    [surfaces, anchorSurfaceId, groupKey],
   );
 
   return (
@@ -416,8 +456,9 @@ export const SurfaceViewPanel: React.FC<SurfaceViewPanelProps> = ({
       {/* Surface info overlay - Technical readout style */}
       {activeSurface && activeSurface.metadata && (
         <div
-          className="absolute top-3 left-3 p-2 border"
+          className="absolute left-3 p-2 border"
           style={{
+            top: infoOverlayTop,
             backgroundColor: 'hsl(var(--background) / 0.9)',
             borderColor: 'hsl(var(--border))',
             borderRadius: '1px',

@@ -11,6 +11,13 @@ import type { AtlasConfig } from '@/types/atlas';
 import type { AtlasPaletteKind } from '@/types/atlasPalette';
 import { resolveExplicitSurfaceViewId } from '@/utils/surfaceViewContext';
 
+/**
+ * Fallback surface-view id used by panes that render a surface without an
+ * explicit per-tab id (notably the Integrated workspace's inline surface pane).
+ * Shared so settings writers and the canvas read/write the same key.
+ */
+export const DEFAULT_SURFACE_VIEW_ID = 'surface-view';
+
 // Surface data types matching backend
 export interface SurfaceGeometryData {
   vertices: Float32Array;
@@ -27,8 +34,8 @@ export interface SurfaceDataLayer {
   indices?: Uint32Array; // Optional vertex indices for sparse data
   visible?: boolean;
   colormap: string;
-  range: [number, number];      // Current intensity window (display range)
-  dataRange: [number, number];  // True data extent (min/max of actual values)
+  range: [number, number]; // Current intensity window (display range)
+  dataRange: [number, number]; // True data extent (min/max of actual values)
   threshold?: [number, number];
   opacity: number;
   // Categorical/atlas overlays (precolored per-vertex RGBA)
@@ -48,10 +55,10 @@ export interface SurfaceDataLayer {
   std?: number;
   // GPU Projection fields (optional - when present, layer can use GPU path)
   // These are set when a volume is projected to a surface for GPU rendering
-  volumeData?: ArrayBuffer;               // Raw volume data for GPU texture
-  volumeDims?: [number, number, number];  // Volume dimensions [nx, ny, nz]
-  affineMatrix?: Float32Array;            // Column-major 4x4 voxel-to-world affine
-  volumeId?: string;                      // Reference to source volume
+  volumeData?: ArrayBuffer; // Raw volume data for GPU texture
+  volumeDims?: [number, number, number]; // Volume dimensions [nx, ny, nz]
+  affineMatrix?: Float32Array; // Column-major 4x4 voxel-to-world affine
+  volumeId?: string; // Reference to source volume
 }
 
 export interface LoadedSurface {
@@ -153,7 +160,11 @@ export function createDefaultSurfaceViewSettings(): SurfaceViewSettings {
   return {
     lightingSettings: {
       ...DEFAULT_SURFACE_LIGHTING_SETTINGS,
-      lightPosition: [...DEFAULT_SURFACE_LIGHTING_SETTINGS.lightPosition] as [number, number, number],
+      lightPosition: [...DEFAULT_SURFACE_LIGHTING_SETTINGS.lightPosition] as [
+        number,
+        number,
+        number,
+      ],
     },
     displaySettings: { ...DEFAULT_SURFACE_DISPLAY_SETTINGS },
     materialSettings: { ...DEFAULT_SURFACE_MATERIAL_SETTINGS },
@@ -163,13 +174,13 @@ export function createDefaultSurfaceViewSettings(): SurfaceViewSettings {
 
 export function getSurfaceViewSettingsForId(
   surfaceViewSettings: Map<string, SurfaceViewSettings>,
-  surfaceViewId: string
+  surfaceViewId: string,
 ): SurfaceViewSettings {
   return surfaceViewSettings.get(surfaceViewId) ?? DEFAULT_SURFACE_VIEW_SETTINGS;
 }
 
 export function createDefaultSurfaceViewSelection(
-  surfaceHandle: string | null | undefined
+  surfaceHandle: string | null | undefined,
 ): SurfaceViewSelection {
   if (!surfaceHandle) {
     return {
@@ -189,7 +200,7 @@ export function createDefaultSurfaceViewSelection(
 export function getSurfaceViewSelectionForId(
   surfaceViewSelections: Map<string, SurfaceViewSelection>,
   surfaceViewHandles: Map<string, string>,
-  surfaceViewId: string
+  surfaceViewId: string,
 ): SurfaceViewSelection {
   return (
     surfaceViewSelections.get(surfaceViewId) ??
@@ -208,7 +219,7 @@ function selectionsEqual(a: SurfaceViewSelection, b: SurfaceViewSelection): bool
 function normalizeSurfaceSelection(
   surfaceId: string | null | undefined,
   itemType: SurfaceSelectionItemType,
-  layerId: string | null | undefined
+  layerId: string | null | undefined,
 ): SurfaceViewSelection {
   if (!surfaceId) {
     return createDefaultSurfaceViewSelection(null);
@@ -230,7 +241,7 @@ function normalizeSurfaceSelection(
 }
 
 function resolveExplicitSurfaceViewSelectionTarget(
-  surfaceViewHandles: Map<string, string>
+  surfaceViewHandles: Map<string, string>,
 ): string | null {
   return resolveExplicitSurfaceViewId({
     surfaceViewHandles,
@@ -244,32 +255,37 @@ interface SurfaceState {
   // Surface storage
   surfaces: Map<string, LoadedSurface>;
   activeSurfaceId: string | null;
-  
+
   // Compatibility selection state mirrored from the explicit active surface view
   // when one exists, otherwise used as a legacy fallback.
   selectedItemType: SurfaceSelectionItemType;
   selectedLayerId: string | null;
-  
+
   // Loading state
   isLoading: boolean;
   loadError: string | null;
-  
+
   // View settings
   viewpoint: string;
   showControls: boolean;
-  
+
   // Per-view rendering settings
   surfaceViewSettings: Map<string, SurfaceViewSettings>;
   surfaceViewHandles: Map<string, string>;
   surfaceViewSelections: Map<string, SurfaceViewSelection>;
-  
+
   // Actions
   setLoadingState: (isLoading: boolean, loadError?: string | null) => void;
   addSurface: (surface: LoadedSurface, activate?: boolean) => void;
   setSurfaceGeometry: (surfaceId: string, geometry: SurfaceGeometryData) => void;
   addDataLayer: (surfaceId: string, layer: SurfaceDataLayer) => void;
   removeDataLayer: (surfaceId: string, layerId: string) => void;
-  updateLayerProperty: (surfaceId: string, layerId: string, property: string, value: unknown) => void;
+  updateLayerProperty: (
+    surfaceId: string,
+    layerId: string,
+    property: string,
+    value: unknown,
+  ) => void;
   setActiveSurface: (surfaceId: string | null) => void;
   setSurfaceVisibility: (surfaceId: string, visible: boolean) => void;
   removeSurface: (surfaceId: string) => void;
@@ -281,18 +297,33 @@ interface SurfaceState {
     surfaceViewId: string,
     surfaceId: string | null,
     itemType: SurfaceSelectionItemType,
-    layerId?: string | null
+    layerId?: string | null,
   ) => void;
   setCompatibilitySelection: (
     surfaceId: string | null,
     itemType: SurfaceSelectionItemType,
-    layerId?: string | null
+    layerId?: string | null,
   ) => void;
-  updateSurfaceViewLightingSettings: (surfaceViewId: string, settings: Partial<SurfaceLightingSettings>) => void;
-  updateSurfaceViewDisplaySettings: (surfaceViewId: string, settings: Partial<SurfaceDisplaySettings>) => void;
-  updateSurfaceViewMaterialSettings: (surfaceViewId: string, settings: Partial<SurfaceMaterialSettings>) => void;
-  updateSurfaceViewProjectionSettings: (surfaceViewId: string, settings: Partial<SurfaceProjectionSettings>) => void;
-  updateSurfaceProjectionSettingsForSurface: (surfaceHandle: string, settings: Partial<SurfaceProjectionSettings>) => void;
+  updateSurfaceViewLightingSettings: (
+    surfaceViewId: string,
+    settings: Partial<SurfaceLightingSettings>,
+  ) => void;
+  updateSurfaceViewDisplaySettings: (
+    surfaceViewId: string,
+    settings: Partial<SurfaceDisplaySettings>,
+  ) => void;
+  updateSurfaceViewMaterialSettings: (
+    surfaceViewId: string,
+    settings: Partial<SurfaceMaterialSettings>,
+  ) => void;
+  updateSurfaceViewProjectionSettings: (
+    surfaceViewId: string,
+    settings: Partial<SurfaceProjectionSettings>,
+  ) => void;
+  updateSurfaceProjectionSettingsForSurface: (
+    surfaceHandle: string,
+    settings: Partial<SurfaceProjectionSettings>,
+  ) => void;
   setSelectedItem: (itemType: SurfaceSelectionItemType, layerId?: string | null) => void;
   clearError: () => void;
 }
@@ -351,7 +382,7 @@ export const useSurfaceStore = create<SurfaceState>()(
           return { surfaces };
         });
       },
-      
+
       // Add data layer to surface
       addDataLayer: (surfaceId: string, layer: SurfaceDataLayer) => {
         set((state) => {
@@ -372,7 +403,7 @@ export const useSurfaceStore = create<SurfaceState>()(
           return { surfaces: updatedSurfaces };
         });
       },
-      
+
       // Remove data layer
       removeDataLayer: (surfaceId: string, layerId: string) => {
         set((state) => {
@@ -403,7 +434,7 @@ export const useSurfaceStore = create<SurfaceState>()(
               }
               surfaceViewSelections.set(
                 surfaceViewId,
-                normalizeSurfaceSelection(surfaceId, 'geometry', null)
+                normalizeSurfaceSelection(surfaceId, 'geometry', null),
               );
             }
           }
@@ -429,10 +460,15 @@ export const useSurfaceStore = create<SurfaceState>()(
           };
         });
       },
-      
+
       // Update layer property
       // IMPORTANT: Create new Map and new layer object to trigger React re-renders
-      updateLayerProperty: (surfaceId: string, layerId: string, property: string, value: unknown) => {
+      updateLayerProperty: (
+        surfaceId: string,
+        layerId: string,
+        property: string,
+        value: unknown,
+      ) => {
         set((state) => {
           const surface = state.surfaces.get(surfaceId);
           if (!surface) return state;
@@ -460,11 +496,15 @@ export const useSurfaceStore = create<SurfaceState>()(
           return { surfaces: newSurfaces };
         });
       },
-      
+
       // Set active surface
       setActiveSurface: (surfaceId: string | null) => {
         set((state) => {
-          const nextSelection = normalizeSurfaceSelection(surfaceId, surfaceId ? 'geometry' : null, null);
+          const nextSelection = normalizeSurfaceSelection(
+            surfaceId,
+            surfaceId ? 'geometry' : null,
+            null,
+          );
           const activeViewId = resolveExplicitSurfaceViewSelectionTarget(state.surfaceViewHandles);
           let surfaceViewSelections = state.surfaceViewSelections;
 
@@ -472,7 +512,7 @@ export const useSurfaceStore = create<SurfaceState>()(
             const currentSelection = getSurfaceViewSelectionForId(
               state.surfaceViewSelections,
               state.surfaceViewHandles,
-              activeViewId
+              activeViewId,
             );
             if (!selectionsEqual(currentSelection, nextSelection)) {
               surfaceViewSelections = new Map(state.surfaceViewSelections);
@@ -521,7 +561,8 @@ export const useSurfaceStore = create<SurfaceState>()(
 
           let surfaceViewSelections = state.surfaceViewSelections;
           if (!visible) {
-            const fallbackVisible = Array.from(surfaces.values()).find((s) => s.visible !== false)?.handle ?? null;
+            const fallbackVisible =
+              Array.from(surfaces.values()).find((s) => s.visible !== false)?.handle ?? null;
             for (const [surfaceViewId, selection] of state.surfaceViewSelections.entries()) {
               if (selection.activeSurfaceId !== surfaceId) {
                 continue;
@@ -531,14 +572,20 @@ export const useSurfaceStore = create<SurfaceState>()(
               }
               surfaceViewSelections.set(
                 surfaceViewId,
-                normalizeSurfaceSelection(fallbackVisible, fallbackVisible ? 'geometry' : null, null)
+                normalizeSurfaceSelection(
+                  fallbackVisible,
+                  fallbackVisible ? 'geometry' : null,
+                  null,
+                ),
               );
             }
           }
 
           const nextSelectedItemType =
             !visible && state.activeSurfaceId === surfaceId
-              ? (nextActiveSurfaceId ? 'geometry' : null)
+              ? nextActiveSurfaceId
+                ? 'geometry'
+                : null
               : state.selectedItemType;
           const nextSelectedLayerId =
             !visible && state.activeSurfaceId === surfaceId ? null : state.selectedLayerId;
@@ -552,18 +599,20 @@ export const useSurfaceStore = create<SurfaceState>()(
           };
         });
       },
-      
+
       // Remove surface
       removeSurface: (surfaceId: string) => {
         set((state) => {
           const surfaces = new Map(state.surfaces);
           surfaces.delete(surfaceId);
           const firstVisibleSurfaceId =
-            Array.from(surfaces.values()).find((surface) => surface.visible !== false)?.handle ?? null;
+            Array.from(surfaces.values()).find((surface) => surface.visible !== false)?.handle ??
+            null;
           const firstSurfaceId = surfaces.size > 0 ? surfaces.keys().next().value : null;
-          const activeSurfaceId = state.activeSurfaceId === surfaceId 
-            ? (firstVisibleSurfaceId ?? firstSurfaceId)
-            : state.activeSurfaceId;
+          const activeSurfaceId =
+            state.activeSurfaceId === surfaceId
+              ? (firstVisibleSurfaceId ?? firstSurfaceId)
+              : state.activeSurfaceId;
           let surfaceViewSelections = state.surfaceViewSelections;
           for (const [surfaceViewId, selection] of state.surfaceViewSelections.entries()) {
             if (selection.activeSurfaceId !== surfaceId) {
@@ -574,19 +623,24 @@ export const useSurfaceStore = create<SurfaceState>()(
             }
             surfaceViewSelections.set(
               surfaceViewId,
-              normalizeSurfaceSelection(activeSurfaceId, activeSurfaceId ? 'geometry' : null, null)
+              normalizeSurfaceSelection(activeSurfaceId, activeSurfaceId ? 'geometry' : null, null),
             );
           }
           return {
             surfaces,
             activeSurfaceId,
-            selectedItemType: state.activeSurfaceId === surfaceId ? (activeSurfaceId ? 'geometry' : null) : state.selectedItemType,
+            selectedItemType:
+              state.activeSurfaceId === surfaceId
+                ? activeSurfaceId
+                  ? 'geometry'
+                  : null
+                : state.selectedItemType,
             selectedLayerId: state.activeSurfaceId === surfaceId ? null : state.selectedLayerId,
             surfaceViewSelections,
           };
         });
       },
-      
+
       // Set viewpoint
       setViewpoint: (viewpoint: string) => {
         set({ viewpoint });
@@ -596,7 +650,10 @@ export const useSurfaceStore = create<SurfaceState>()(
         set((state) => {
           const surfaceViewSettings = state.surfaceViewSettings.has(surfaceViewId)
             ? state.surfaceViewSettings
-            : new Map(state.surfaceViewSettings).set(surfaceViewId, createDefaultSurfaceViewSettings());
+            : new Map(state.surfaceViewSettings).set(
+                surfaceViewId,
+                createDefaultSurfaceViewSettings(),
+              );
           const surfaceViewHandles =
             state.surfaceViewHandles.get(surfaceViewId) === surfaceHandle
               ? state.surfaceViewHandles
@@ -605,7 +662,7 @@ export const useSurfaceStore = create<SurfaceState>()(
             ? state.surfaceViewSelections
             : new Map(state.surfaceViewSelections).set(
                 surfaceViewId,
-                createDefaultSurfaceViewSelection(surfaceHandle)
+                createDefaultSurfaceViewSelection(surfaceHandle),
               );
           return {
             surfaceViewSettings,
@@ -647,7 +704,7 @@ export const useSurfaceStore = create<SurfaceState>()(
           const nextSelection = getSurfaceViewSelectionForId(
             state.surfaceViewSelections,
             state.surfaceViewHandles,
-            surfaceViewId
+            surfaceViewId,
           );
           if (
             state.activeSurfaceId === nextSelection.activeSurfaceId &&
@@ -670,7 +727,7 @@ export const useSurfaceStore = create<SurfaceState>()(
           const currentSelection = getSurfaceViewSelectionForId(
             state.surfaceViewSelections,
             state.surfaceViewHandles,
-            surfaceViewId
+            surfaceViewId,
           );
           const surfaceViewSelections = selectionsEqual(currentSelection, nextSelection)
             ? state.surfaceViewSelections
@@ -715,7 +772,8 @@ export const useSurfaceStore = create<SurfaceState>()(
 
       updateSurfaceViewLightingSettings: (surfaceViewId, settings) => {
         set((state) => {
-          const current = state.surfaceViewSettings.get(surfaceViewId) ?? createDefaultSurfaceViewSettings();
+          const current =
+            state.surfaceViewSettings.get(surfaceViewId) ?? createDefaultSurfaceViewSettings();
           const surfaceViewSettings = new Map(state.surfaceViewSettings);
           surfaceViewSettings.set(surfaceViewId, {
             ...current,
@@ -723,7 +781,7 @@ export const useSurfaceStore = create<SurfaceState>()(
               ...current.lightingSettings,
               ...settings,
               lightPosition: settings.lightPosition
-                ? [...settings.lightPosition] as [number, number, number]
+                ? ([...settings.lightPosition] as [number, number, number])
                 : current.lightingSettings.lightPosition,
             },
           });
@@ -733,7 +791,8 @@ export const useSurfaceStore = create<SurfaceState>()(
 
       updateSurfaceViewDisplaySettings: (surfaceViewId, settings) => {
         set((state) => {
-          const current = state.surfaceViewSettings.get(surfaceViewId) ?? createDefaultSurfaceViewSettings();
+          const current =
+            state.surfaceViewSettings.get(surfaceViewId) ?? createDefaultSurfaceViewSettings();
           const surfaceViewSettings = new Map(state.surfaceViewSettings);
           surfaceViewSettings.set(surfaceViewId, {
             ...current,
@@ -748,7 +807,8 @@ export const useSurfaceStore = create<SurfaceState>()(
 
       updateSurfaceViewMaterialSettings: (surfaceViewId, settings) => {
         set((state) => {
-          const current = state.surfaceViewSettings.get(surfaceViewId) ?? createDefaultSurfaceViewSettings();
+          const current =
+            state.surfaceViewSettings.get(surfaceViewId) ?? createDefaultSurfaceViewSettings();
           const surfaceViewSettings = new Map(state.surfaceViewSettings);
           surfaceViewSettings.set(surfaceViewId, {
             ...current,
@@ -763,7 +823,8 @@ export const useSurfaceStore = create<SurfaceState>()(
 
       updateSurfaceViewProjectionSettings: (surfaceViewId, settings) => {
         set((state) => {
-          const current = state.surfaceViewSettings.get(surfaceViewId) ?? createDefaultSurfaceViewSettings();
+          const current =
+            state.surfaceViewSettings.get(surfaceViewId) ?? createDefaultSurfaceViewSettings();
           const surfaceViewSettings = new Map(state.surfaceViewSettings);
           surfaceViewSettings.set(surfaceViewId, {
             ...current,
@@ -785,7 +846,8 @@ export const useSurfaceStore = create<SurfaceState>()(
             if (handle !== surfaceHandle) {
               continue;
             }
-            const current = surfaceViewSettings.get(surfaceViewId) ?? createDefaultSurfaceViewSettings();
+            const current =
+              surfaceViewSettings.get(surfaceViewId) ?? createDefaultSurfaceViewSettings();
             surfaceViewSettings.set(surfaceViewId, {
               ...current,
               projectionSettings: {
@@ -803,15 +865,11 @@ export const useSurfaceStore = create<SurfaceState>()(
           return { surfaceViewSettings };
         });
       },
-      
+
       // Set selected item (geometry or data layer)
       setSelectedItem: (itemType, layerId = null) => {
         set((state) => {
-          const nextSelection = normalizeSurfaceSelection(
-            state.activeSurfaceId,
-            itemType,
-            layerId
-          );
+          const nextSelection = normalizeSurfaceSelection(state.activeSurfaceId, itemType, layerId);
           const activeViewId = resolveExplicitSurfaceViewSelectionTarget(state.surfaceViewHandles);
           let surfaceViewSelections = state.surfaceViewSelections;
 
@@ -819,7 +877,7 @@ export const useSurfaceStore = create<SurfaceState>()(
             const currentSelection = getSurfaceViewSelectionForId(
               state.surfaceViewSelections,
               state.surfaceViewHandles,
-              activeViewId
+              activeViewId,
             );
             if (!selectionsEqual(currentSelection, nextSelection)) {
               surfaceViewSelections = new Map(state.surfaceViewSelections);
@@ -842,7 +900,7 @@ export const useSurfaceStore = create<SurfaceState>()(
           };
         });
       },
-      
+
       // Clear error
       clearError: () => {
         set({ loadError: null });
@@ -850,6 +908,6 @@ export const useSurfaceStore = create<SurfaceState>()(
     }),
     {
       name: 'surface-store',
-    }
-  )
+    },
+  ),
 );

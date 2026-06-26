@@ -3,18 +3,18 @@
  * Handles .gii file loading, validation, and coordination with surface store
  */
 
-import { getEventBus, type EventBus } from "@/events/EventBus";
+import { getEventBus, type EventBus } from '@/events/EventBus';
 import {
   useSurfaceStore,
   type LoadedSurface,
   type SurfaceGeometryData,
-} from "@/stores/surfaceStore";
-import { useLoadingQueueStore } from "@/stores/loadingQueueStore";
-import { getLayoutService } from "./layoutService";
-import { formatTauriError } from "@/utils/formatTauriError";
-import { normalizeSurfaceHemisphere } from "@/utils/surfaceIdentity";
-import { getTransport, type BackendTransport } from "./transport";
-import { applySurfaceSelectionInContext } from "@/utils/surfaceCommandContext";
+} from '@/stores/surfaceStore';
+import { useLoadingQueueStore } from '@/stores/loadingQueueStore';
+import { getLayoutService } from './layoutService';
+import { formatTauriError } from '@/utils/formatTauriError';
+import { normalizeSurfaceHemisphere } from '@/utils/surfaceIdentity';
+import { getTransport, type BackendTransport } from './transport';
+import { applySurfaceSelectionInContext } from '@/utils/surfaceCommandContext';
 
 /**
  * Client-side ceiling for a surface backend load. Surfaces emit no incremental
@@ -33,7 +33,7 @@ export interface SurfaceLoadOptions {
 }
 
 interface SurfaceLoadResult {
-  type: "Surface";
+  type: 'Surface';
   handle: string;
   vertex_count?: number;
   face_count?: number;
@@ -68,7 +68,7 @@ export class SurfaceLoadingService {
 
   async requestSurfaceFileSelection(): Promise<void> {
     try {
-      await this.transport.invoke<void>("open_file_dialog");
+      await this.transport.invoke<void>('open_file_dialog');
     } catch (error) {
       throw new Error(formatTauriError(error));
     }
@@ -105,20 +105,15 @@ export class SurfaceLoadingService {
   private activateLoadedSurface(surfaceHandle: string): void {
     // Surface loading creates or opens its own view; it should update the legacy/global
     // selection target without retargeting an unrelated explicit surface view.
-    applySurfaceSelectionInContext(surfaceHandle, "geometry", null, null);
+    applySurfaceSelectionInContext(surfaceHandle, 'geometry', null, null);
   }
 
   /**
    * Load a surface file (.gii format)
    */
   async loadSurfaceFile(options: SurfaceLoadOptions): Promise<string | null> {
-    const {
-      path,
-      displayName,
-      autoActivate = true,
-      validateMesh = true,
-    } = options;
-    const filename = displayName || path.split("/").pop() || path;
+    const { path, displayName, autoActivate = true, validateMesh = true } = options;
+    const filename = displayName || path.split('/').pop() || path;
 
     console.log(`[SurfaceLoadingService] Loading surface file:`, filename);
     useSurfaceStore.getState().setLoadingState(true, null);
@@ -127,8 +122,8 @@ export class SurfaceLoadingService {
     if (useLoadingQueueStore.getState().isLoading(path)) {
       console.warn(`[SurfaceLoadingService] Surface already loading:`, path);
       useSurfaceStore.getState().setLoadingState(false, null);
-      this.eventBus.emit("ui.notification", {
-        type: "info",
+      this.eventBus.emit('ui.notification', {
+        type: 'info',
         message: `Surface is already being loaded: ${filename}`,
       });
       return null;
@@ -136,11 +131,11 @@ export class SurfaceLoadingService {
 
     // Add to loading queue
     const queueId = useLoadingQueueStore.getState().enqueue({
-      type: "surface-load",
+      type: 'surface-load',
       path: path,
       displayName: filename,
       retry: {
-        kind: "surface-load",
+        kind: 'surface-load',
         path,
         displayName: filename,
         autoActivate,
@@ -153,7 +148,7 @@ export class SurfaceLoadingService {
       useLoadingQueueStore.getState().startLoading(queueId);
 
       // Emit loading event
-      this.eventBus.emit("surface.loading", { path, filename });
+      this.eventBus.emit('surface.loading', { path, filename });
 
       // Update progress: starting backend load
       useLoadingQueueStore.getState().updateProgress(queueId, 10);
@@ -189,15 +184,15 @@ export class SurfaceLoadingService {
       useLoadingQueueStore.getState().markComplete(queueId);
 
       // Emit success event
-      this.eventBus.emit("surface.loaded", {
+      this.eventBus.emit('surface.loaded', {
         path,
         filename,
         handle: loadedSurface.handle,
       });
 
       // Show success notification
-      this.eventBus.emit("ui.notification", {
-        type: "success",
+      this.eventBus.emit('ui.notification', {
+        type: 'success',
         message: `Surface loaded: ${filename}`,
       });
 
@@ -208,38 +203,29 @@ export class SurfaceLoadingService {
       // Focus the Surfaces tab to show the newly loaded surface in the list
       layoutService.focusSurfacePanel();
 
-      console.log(
-        `[SurfaceLoadingService] Surface loaded successfully:`,
-        loadedSurface.handle,
-      );
+      console.log(`[SurfaceLoadingService] Surface loaded successfully:`, loadedSurface.handle);
       return loadedSurface.handle;
     } catch (error) {
       console.error(`[SurfaceLoadingService] Failed to load surface:`, error);
       useSurfaceStore
         .getState()
-        .setLoadingState(
-          false,
-          error instanceof Error ? error.message : "Failed to load surface",
-        );
+        .setLoadingState(false, error instanceof Error ? error.message : 'Failed to load surface');
 
       // Mark as failed in queue
       useLoadingQueueStore
         .getState()
-        .markError(
-          queueId,
-          error instanceof Error ? error : new Error("Unknown error"),
-        );
+        .markError(queueId, error instanceof Error ? error : new Error('Unknown error'));
 
       // Emit error event
-      this.eventBus.emit("surface.load.error", {
+      this.eventBus.emit('surface.load.error', {
         path,
         filename,
-        error: error instanceof Error ? error.message : "Unknown error",
+        error: error instanceof Error ? error.message : 'Unknown error',
       });
 
       // Show error notification
-      this.eventBus.emit("ui.notification", {
-        type: "error",
+      this.eventBus.emit('ui.notification', {
+        type: 'error',
         message: `Failed to load surface: ${filename}`,
       });
 
@@ -283,7 +269,7 @@ export class SurfaceLoadingService {
    * Check if a file is a supported surface format
    */
   isSupportedSurfaceFile(path: string): boolean {
-    const supportedExtensions = [".gii", ".gifti"];
+    const supportedExtensions = ['.gii', '.gifti'];
     const lower = path.toLowerCase();
     return supportedExtensions.some((ext) => lower.endsWith(ext));
   }
@@ -332,11 +318,11 @@ export class SurfaceLoadingService {
       return;
     }
     const queueId = queueStore.enqueue({
-      type: "surface-unload",
+      type: 'surface-unload',
       path: queuePath,
       displayName: surfaceName,
       retry: {
-        kind: "surface-unload",
+        kind: 'surface-unload',
         surfaceHandle,
         closeTabs,
         notify,
@@ -346,12 +332,9 @@ export class SurfaceLoadingService {
     try {
       queueStore.startLoading(queueId);
       queueStore.updateProgress(queueId, 10);
-      await this.transport.invoke<{ success: boolean; message: string }>(
-        "unload_surface",
-        {
-          handle: surfaceHandle,
-        },
-      );
+      await this.transport.invoke<{ success: boolean; message: string }>('unload_surface', {
+        handle: surfaceHandle,
+      });
       queueStore.updateProgress(queueId, 75);
 
       useSurfaceStore.getState().removeSurface(surfaceHandle);
@@ -361,8 +344,8 @@ export class SurfaceLoadingService {
       }
 
       if (notify) {
-        this.eventBus.emit("ui.notification", {
-          type: "info",
+        this.eventBus.emit('ui.notification', {
+          type: 'info',
           message: `Removed surface: ${surfaceName}`,
         });
       }
@@ -372,10 +355,10 @@ export class SurfaceLoadingService {
         queueId,
         error instanceof Error ? error : new Error(formatTauriError(error)),
       );
-      console.error("[SurfaceLoadingService] Failed to unload surface:", error);
+      console.error('[SurfaceLoadingService] Failed to unload surface:', error);
       const message = formatTauriError(error);
-      this.eventBus.emit("ui.notification", {
-        type: "error",
+      this.eventBus.emit('ui.notification', {
+        type: 'error',
         message: `Failed to remove surface: ${surfaceName}`,
       });
       throw new Error(message);
@@ -412,21 +395,15 @@ export class SurfaceLoadingService {
         ? `${space} ${geometry_type} (${hemisphere})`
         : `${space} ${geometry_type}->${effectiveGeometryType} (${hemisphere})`;
 
-    console.log(
-      `[SurfaceLoadingService] Loading surface template:`,
-      displayName,
-    );
+    console.log(`[SurfaceLoadingService] Loading surface template:`, displayName);
     useSurfaceStore.getState().setLoadingState(true, null);
 
     // Check if already loading
     if (useLoadingQueueStore.getState().isLoading(templatePath)) {
-      console.warn(
-        `[SurfaceLoadingService] Surface template already loading:`,
-        templatePath,
-      );
+      console.warn(`[SurfaceLoadingService] Surface template already loading:`, templatePath);
       useSurfaceStore.getState().setLoadingState(false, null);
-      this.eventBus.emit("ui.notification", {
-        type: "info",
+      this.eventBus.emit('ui.notification', {
+        type: 'info',
         message: `Surface template is already being loaded: ${displayName}`,
       });
       return null;
@@ -434,7 +411,7 @@ export class SurfaceLoadingService {
 
     // Add to loading queue
     const queueId = useLoadingQueueStore.getState().enqueue({
-      type: "template",
+      type: 'template',
       path: templatePath,
       displayName: displayName,
     });
@@ -444,15 +421,15 @@ export class SurfaceLoadingService {
       useLoadingQueueStore.getState().startLoading(queueId);
 
       // Emit loading event
-      this.eventBus.emit("surface.template.loading", {
+      this.eventBus.emit('surface.template.loading', {
         space,
         geometry_type: effectiveGeometryType,
         hemisphere,
       });
 
       if (effectiveGeometryType !== geometry_type) {
-        this.eventBus.emit("ui.notification", {
-          type: "warning",
+        this.eventBus.emit('ui.notification', {
+          type: 'warning',
           message: `Template '${space}' does not provide '${geometry_type}' surfaces; loading '${effectiveGeometryType}' instead.`,
         });
       }
@@ -464,12 +441,9 @@ export class SurfaceLoadingService {
       // download from TemplateFlow over the network with no progress events, so
       // race it against a client-side timeout to fail fast instead of hanging.
       const result = await this.withTimeout(
-        this.transport.invoke<SurfaceTemplateLoadResult>(
-          "load_surface_template",
-          {
-            request: normalizedRequest,
-          },
-        ),
+        this.transport.invoke<SurfaceTemplateLoadResult>('load_surface_template', {
+          request: normalizedRequest,
+        }),
         `Loading ${displayName}`,
       );
 
@@ -477,10 +451,7 @@ export class SurfaceLoadingService {
       useLoadingQueueStore.getState().updateProgress(queueId, 50);
 
       if (!result.success || !result.surface_handle) {
-        throw new Error(
-          result.error_message ||
-            `Failed to load surface template: ${displayName}`,
-        );
+        throw new Error(result.error_message || `Failed to load surface template: ${displayName}`);
       }
 
       const surface = this.buildTemplateSurface({
@@ -509,7 +480,7 @@ export class SurfaceLoadingService {
       useLoadingQueueStore.getState().markComplete(queueId);
 
       // Emit success event
-      this.eventBus.emit("surface.template.loaded", {
+      this.eventBus.emit('surface.template.loaded', {
         handle: surfaceHandle,
         space,
         geometry_type: result.geometry_type || effectiveGeometryType,
@@ -527,26 +498,19 @@ export class SurfaceLoadingService {
         layoutService.focusSurfacePanel();
       }
 
-      console.log(
-        `[SurfaceLoadingService] Surface template loaded successfully:`,
-        surfaceHandle,
-      );
+      console.log(`[SurfaceLoadingService] Surface template loaded successfully:`, surfaceHandle);
       return surfaceHandle;
     } catch (error) {
-      console.error(
-        `[SurfaceLoadingService] Failed to load surface template:`,
-        error,
-      );
+      console.error(`[SurfaceLoadingService] Failed to load surface template:`, error);
       const errorMessage = formatTauriError(error);
-      const normalizedError =
-        error instanceof Error ? error : new Error(errorMessage);
+      const normalizedError = error instanceof Error ? error : new Error(errorMessage);
       useSurfaceStore.getState().setLoadingState(false, errorMessage);
 
       // Mark as failed in queue
       useLoadingQueueStore.getState().markError(queueId, normalizedError);
 
       // Emit error event
-      this.eventBus.emit("surface.template.error", {
+      this.eventBus.emit('surface.template.error', {
         space,
         geometry_type: effectiveGeometryType,
         hemisphere,
@@ -566,22 +530,43 @@ export class SurfaceLoadingService {
     }
   }
 
-  private async loadSurfaceFromPath(path: string): Promise<LoadedSurface> {
-    const result = await this.transport.invoke<SurfaceLoadResult>(
-      "load_surface",
-      { path },
+  /**
+   * Load both hemispheres of a template as a single scene.
+   *
+   * Fires Left then Right sequentially (each may download from TemplateFlow).
+   * Because both share a scene group key, `layoutService.ensureSurfaceView`
+   * lands the second hemisphere in the first's tab (no duplicate tab). Tolerant
+   * of a single-hemisphere failure — returns whichever handles loaded so the
+   * caller can message partial success. User-facing notifications are left to
+   * the caller (the menu listener), mirroring the single-hemisphere path.
+   */
+  async loadSurfaceTemplateBilateral(request: {
+    space: string;
+    geometry_type: string;
+  }): Promise<{ left: string | null; right: string | null }> {
+    const left = await this.loadSurfaceTemplate(
+      { ...request, hemisphere: 'left' },
+      { focusSurfacePanel: false },
     );
-    if (result.type !== "Surface") {
+    const right = await this.loadSurfaceTemplate({
+      ...request,
+      hemisphere: 'right',
+    });
+    return { left, right };
+  }
+
+  private async loadSurfaceFromPath(path: string): Promise<LoadedSurface> {
+    const result = await this.transport.invoke<SurfaceLoadResult>('load_surface', { path });
+    if (result.type !== 'Surface') {
       throw new Error(`Expected Surface type, got ${result.type}`);
     }
 
-    const hemisphere =
-      normalizeSurfaceHemisphere(result.hemisphere) ?? undefined;
+    const hemisphere = normalizeSurfaceHemisphere(result.hemisphere) ?? undefined;
     const surfaceType = this.toSurfaceType(result.surface_type);
 
     return {
       handle: result.handle,
-      name: path.split("/").pop() || "Unknown",
+      name: path.split('/').pop() || 'Unknown',
       visible: true,
       geometry: {
         vertices: new Float32Array(0),
@@ -600,11 +585,9 @@ export class SurfaceLoadingService {
     };
   }
 
-  private async fetchSurfaceGeometry(
-    handle: string,
-  ): Promise<SurfaceGeometryData> {
+  private async fetchSurfaceGeometry(handle: string): Promise<SurfaceGeometryData> {
     const geometryData = await this.transport.invoke<SurfaceGeometryResult>(
-      "get_surface_geometry",
+      'get_surface_geometry',
       { handle },
     );
     return {
@@ -632,8 +615,7 @@ export class SurfaceLoadingService {
       geometry: {
         vertices: new Float32Array(0),
         faces: new Uint32Array(0),
-        hemisphere:
-          normalizeSurfaceHemisphere(metadata.hemisphere) ?? undefined,
+        hemisphere: normalizeSurfaceHemisphere(metadata.hemisphere) ?? undefined,
         surfaceType,
       },
       layers: new Map(),
@@ -647,15 +629,8 @@ export class SurfaceLoadingService {
     };
   }
 
-  private toSurfaceType(
-    value: string | undefined,
-  ): SurfaceGeometryData["surfaceType"] {
-    if (
-      value === "pial" ||
-      value === "white" ||
-      value === "inflated" ||
-      value === "sphere"
-    ) {
+  private toSurfaceType(value: string | undefined): SurfaceGeometryData['surfaceType'] {
+    if (value === 'pial' || value === 'white' || value === 'inflated' || value === 'sphere') {
       return value;
     }
     return undefined;
@@ -675,10 +650,10 @@ export class SurfaceLoadingService {
 
     // TemplateFlow fsaverage currently ships white/pial/sphere/midthickness,
     // but no inflated geometry files.
-    if (isFsaverageFamily && geometry === "inflated") {
+    if (isFsaverageFamily && geometry === 'inflated') {
       return {
         ...request,
-        geometry_type: "pial",
+        geometry_type: 'pial',
       };
     }
 

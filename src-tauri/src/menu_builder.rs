@@ -725,6 +725,7 @@ impl SurfaceTemplatePreset {
         let hemisphere = match self.hemisphere.as_str() {
             "L" => "left",
             "R" => "right",
+            "both" => "both",
             _ => "left",
         };
 
@@ -740,6 +741,11 @@ impl SurfaceTemplatePreset {
 fn get_fsaverage_presets() -> Vec<SurfaceTemplatePreset> {
     let space = "fsaverage";
     vec![
+        // Bilateral (default geometry click — loads both hemispheres)
+        SurfaceTemplatePreset::new(space, "white", "both", "White Matter"),
+        SurfaceTemplatePreset::new(space, "pial", "both", "Pial"),
+        SurfaceTemplatePreset::new(space, "inflated", "both", "Inflated"),
+        SurfaceTemplatePreset::new(space, "sphere", "both", "Sphere"),
         // Left hemisphere
         SurfaceTemplatePreset::new(space, "white", "L", "White Matter (Left)"),
         SurfaceTemplatePreset::new(space, "pial", "L", "Pial (Left)"),
@@ -757,6 +763,11 @@ fn get_fsaverage_presets() -> Vec<SurfaceTemplatePreset> {
 fn get_fsaverage5_presets() -> Vec<SurfaceTemplatePreset> {
     let space = "fsaverage5";
     vec![
+        // Bilateral (default geometry click — loads both hemispheres)
+        SurfaceTemplatePreset::new(space, "white", "both", "White Matter"),
+        SurfaceTemplatePreset::new(space, "pial", "both", "Pial"),
+        SurfaceTemplatePreset::new(space, "inflated", "both", "Inflated"),
+        SurfaceTemplatePreset::new(space, "sphere", "both", "Sphere"),
         // Left hemisphere
         SurfaceTemplatePreset::new(space, "white", "L", "White Matter (Left)"),
         SurfaceTemplatePreset::new(space, "pial", "L", "Pial (Left)"),
@@ -774,6 +785,11 @@ fn get_fsaverage5_presets() -> Vec<SurfaceTemplatePreset> {
 fn get_fsaverage6_presets() -> Vec<SurfaceTemplatePreset> {
     let space = "fsaverage6";
     vec![
+        // Bilateral (default geometry click — loads both hemispheres)
+        SurfaceTemplatePreset::new(space, "white", "both", "White Matter"),
+        SurfaceTemplatePreset::new(space, "pial", "both", "Pial"),
+        SurfaceTemplatePreset::new(space, "inflated", "both", "Inflated"),
+        SurfaceTemplatePreset::new(space, "sphere", "both", "Sphere"),
         // Left hemisphere
         SurfaceTemplatePreset::new(space, "white", "L", "White Matter (Left)"),
         SurfaceTemplatePreset::new(space, "pial", "L", "Pial (Left)"),
@@ -819,16 +835,19 @@ pub fn build_surface_templates_menu(
             .id(&preset.menu_id)
             .build(app)?;
 
-        if preset.hemisphere == "L" {
-            fsaverage_left = fsaverage_left.item(&menu_item);
-        } else {
-            fsaverage_right = fsaverage_right.item(&menu_item);
+        match preset.hemisphere.as_str() {
+            // Bilateral items are the prominent default at the top level.
+            "both" => fsaverage_menu = fsaverage_menu.item(&menu_item),
+            "L" => fsaverage_left = fsaverage_left.item(&menu_item),
+            _ => fsaverage_right = fsaverage_right.item(&menu_item),
         }
     }
 
-    fsaverage_menu = fsaverage_menu
+    let fsaverage_single = SubmenuBuilder::new(app, "Single Hemisphere")
         .item(&fsaverage_left.build()?)
-        .item(&fsaverage_right.build()?);
+        .item(&fsaverage_right.build()?)
+        .build()?;
+    fsaverage_menu = fsaverage_menu.item(&fsaverage_single);
     surfaces_menu = surfaces_menu.item(&fsaverage_menu.build()?);
 
     // fsaverage5 (10k vertices) submenu
@@ -841,16 +860,18 @@ pub fn build_surface_templates_menu(
             .id(&preset.menu_id)
             .build(app)?;
 
-        if preset.hemisphere == "L" {
-            fsaverage5_left = fsaverage5_left.item(&menu_item);
-        } else {
-            fsaverage5_right = fsaverage5_right.item(&menu_item);
+        match preset.hemisphere.as_str() {
+            "both" => fsaverage5_menu = fsaverage5_menu.item(&menu_item),
+            "L" => fsaverage5_left = fsaverage5_left.item(&menu_item),
+            _ => fsaverage5_right = fsaverage5_right.item(&menu_item),
         }
     }
 
-    fsaverage5_menu = fsaverage5_menu
+    let fsaverage5_single = SubmenuBuilder::new(app, "Single Hemisphere")
         .item(&fsaverage5_left.build()?)
-        .item(&fsaverage5_right.build()?);
+        .item(&fsaverage5_right.build()?)
+        .build()?;
+    fsaverage5_menu = fsaverage5_menu.item(&fsaverage5_single);
     surfaces_menu = surfaces_menu.item(&fsaverage5_menu.build()?);
 
     // fsaverage6 (41k vertices) submenu
@@ -863,16 +884,18 @@ pub fn build_surface_templates_menu(
             .id(&preset.menu_id)
             .build(app)?;
 
-        if preset.hemisphere == "L" {
-            fsaverage6_left = fsaverage6_left.item(&menu_item);
-        } else {
-            fsaverage6_right = fsaverage6_right.item(&menu_item);
+        match preset.hemisphere.as_str() {
+            "both" => fsaverage6_menu = fsaverage6_menu.item(&menu_item),
+            "L" => fsaverage6_left = fsaverage6_left.item(&menu_item),
+            _ => fsaverage6_right = fsaverage6_right.item(&menu_item),
         }
     }
 
-    fsaverage6_menu = fsaverage6_menu
+    let fsaverage6_single = SubmenuBuilder::new(app, "Single Hemisphere")
         .item(&fsaverage6_left.build()?)
-        .item(&fsaverage6_right.build()?);
+        .item(&fsaverage6_right.build()?)
+        .build()?;
+    fsaverage6_menu = fsaverage6_menu.item(&fsaverage6_single);
     surfaces_menu = surfaces_menu.item(&fsaverage6_menu.build()?);
 
     surfaces_menu.build()
@@ -988,15 +1011,15 @@ mod tests {
     #[test]
     fn test_fsaverage_presets_count() {
         let presets = get_fsaverage_presets();
-        // 4 geometry types * 2 hemispheres = 8 presets
-        assert_eq!(presets.len(), 8);
+        // 4 geometry types * 3 hemisphere variants (both, L, R) = 12 presets
+        assert_eq!(presets.len(), 12);
     }
 
     #[test]
     fn test_all_surface_presets_count() {
         let presets = get_all_surface_presets();
-        // 3 spaces * 4 geometry types * 2 hemispheres = 24 presets
-        assert_eq!(presets.len(), 24);
+        // 3 spaces * 4 geometry types * 3 hemisphere variants (both, L, R) = 36 presets
+        assert_eq!(presets.len(), 36);
     }
 
     #[test]
@@ -1005,8 +1028,20 @@ mod tests {
             assert!(preset.menu_id.starts_with("surface_"));
             assert!(!preset.space.is_empty());
             assert!(!preset.geometry_type.is_empty());
-            assert!(preset.hemisphere == "L" || preset.hemisphere == "R");
+            assert!(
+                preset.hemisphere == "L" || preset.hemisphere == "R" || preset.hemisphere == "both"
+            );
         }
+    }
+
+    #[test]
+    fn test_bilateral_surface_preset_payload() {
+        let preset = find_surface_preset_by_menu_id("surface_fsaverage_pial_both")
+            .expect("bilateral preset should exist");
+        let payload = preset.to_payload();
+        assert_eq!(payload["space"], "fsaverage");
+        assert_eq!(payload["geometry_type"], "pial");
+        assert_eq!(payload["hemisphere"], "both");
     }
 
     #[test]
