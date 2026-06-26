@@ -94,7 +94,9 @@ export const IntegratedVolumeSurfaceWorkspace: React.FC = () => {
                     width: '100%',
                   }}
                 >
-                  <SurfaceViewPanel />
+                  {/* Offset the panel's metadata card below the top-left
+                      association badge so the two don't overlap. */}
+                  <SurfaceViewPanel infoOverlayTop="2.75rem" />
                   <SurfaceAssociationBadge />
                 </div>
               </Allotment.Pane>

@@ -599,8 +599,12 @@ function AppContent() {
       <MetadataStatusBridge />
       <ProgressDebug />
       <GlobalProgressBar />
+      {/* pb keeps a hairline gap so the bottom-most GoldenLayout content (bottom
+          dock tab strip, inspector footer) clears the status bar instead of
+          sitting flush against it. The GoldenLayout container is h-full of this
+          box's *content* area, so the padding shrinks it and reserves the gap. */}
       <div
-        className={`relative flex-1 min-h-0 overflow-hidden ${appMode === 'studio' ? 'animate-[studioFocusIn_160ms_ease-out]' : ''}`}
+        className={`relative flex-1 min-h-0 overflow-hidden pb-1 ${appMode === 'studio' ? 'animate-[studioFocusIn_160ms_ease-out]' : ''}`}
       >
         <GoldenLayoutRoot />
       </div>
