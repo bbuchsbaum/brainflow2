@@ -13,7 +13,7 @@ import { AdvancedSection } from './sections/AdvancedSection';
  *   volume-base          → Render · Data · ViewBehavior · Advanced
  *   volume-overlay       → Render · Data · Mapping (when projected) · Advanced
  *   volume-overlay-atlas → Render (categorical) · Data · Advanced
- *   surface-geometry     → Render · Data · Geometry · Advanced
+ *   surface-geometry     → Render · Data · Geometry (settings behind gear)
  *   surface-overlay      → Render · Data · Mapping (when from volume) · Advanced
  *   mapping              → Mapping · Advanced
  */
@@ -46,12 +46,14 @@ export function SectionRouter({ item }: { item: SceneItem }) {
         </>
       );
     case 'surface-geometry':
+      // No Advanced section: the full surface knobs live behind the Geometry
+      // section's "Surface settings…" gear, so an empty Advanced box would
+      // just read as broken.
       return (
         <>
           <RenderSection item={item} />
           <DataSection item={item} />
           <GeometrySection item={item} />
-          <AdvancedSection item={item} />
         </>
       );
     case 'surface-overlay':

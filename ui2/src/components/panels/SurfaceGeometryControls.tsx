@@ -4,19 +4,18 @@
  */
 
 import React from 'react';
-import {
-  DEFAULT_SURFACE_VIEW_SETTINGS,
-  useSurfaceStore,
-} from '@/stores/surfaceStore';
+import { DEFAULT_SURFACE_VIEW_SETTINGS, useSurfaceStore } from '@/stores/surfaceStore';
 import { Switch } from '@/components/ui/shadcn/switch';
 import { CollapsibleSection } from '@/components/ui/CollapsibleSection';
 import { SingleSlider } from '@/components/ui/SingleSlider';
+import { LIGHTING_PRESETS } from '@/utils/surfaceAppearancePresets';
 import { Lightbulb, Eye, Sparkles, Zap } from 'lucide-react';
 
 const labelWidth = '6.2rem';
 const valueWidth = '3.6rem';
 const rowBase = 'flex items-center gap-3 py-1.5 px-2 border-b border-border/40 last:border-b-0';
-const labelClass = 'text-[10px] uppercase tracking-wider font-bold text-right shrink-0 text-foreground/80';
+const labelClass =
+  'text-[10px] uppercase tracking-wider font-bold text-right shrink-0 text-foreground/80';
 const valueClass = 'text-[10px] font-mono text-foreground text-right shrink-0';
 
 const SegmentedControl: React.FC<{
@@ -81,40 +80,41 @@ interface SurfaceGeometryControlsProps {
   surfaceViewId: string;
 }
 
-export const SurfaceGeometryControls: React.FC<SurfaceGeometryControlsProps> = ({ surfaceViewId }) => {
+export const SurfaceGeometryControls: React.FC<SurfaceGeometryControlsProps> = ({
+  surfaceViewId,
+}) => {
   const lightingSettings = useSurfaceStore(
     (state) =>
       state.surfaceViewSettings.get(surfaceViewId)?.lightingSettings ??
-      DEFAULT_SURFACE_VIEW_SETTINGS.lightingSettings
+      DEFAULT_SURFACE_VIEW_SETTINGS.lightingSettings,
   );
   const displaySettings = useSurfaceStore(
     (state) =>
       state.surfaceViewSettings.get(surfaceViewId)?.displaySettings ??
-      DEFAULT_SURFACE_VIEW_SETTINGS.displaySettings
+      DEFAULT_SURFACE_VIEW_SETTINGS.displaySettings,
   );
   const materialSettings = useSurfaceStore(
     (state) =>
       state.surfaceViewSettings.get(surfaceViewId)?.materialSettings ??
-      DEFAULT_SURFACE_VIEW_SETTINGS.materialSettings
+      DEFAULT_SURFACE_VIEW_SETTINGS.materialSettings,
   );
   const projectionSettings = useSurfaceStore(
     (state) =>
       state.surfaceViewSettings.get(surfaceViewId)?.projectionSettings ??
-      DEFAULT_SURFACE_VIEW_SETTINGS.projectionSettings
+      DEFAULT_SURFACE_VIEW_SETTINGS.projectionSettings,
   );
-  const updateLightingSettings = useSurfaceStore((state) => state.updateSurfaceViewLightingSettings);
+  const updateLightingSettings = useSurfaceStore(
+    (state) => state.updateSurfaceViewLightingSettings,
+  );
   const updateDisplaySettings = useSurfaceStore((state) => state.updateSurfaceViewDisplaySettings);
-  const updateMaterialSettings = useSurfaceStore((state) => state.updateSurfaceViewMaterialSettings);
-  const updateProjectionSettings = useSurfaceStore((state) => state.updateSurfaceViewProjectionSettings);
+  const updateMaterialSettings = useSurfaceStore(
+    (state) => state.updateSurfaceViewMaterialSettings,
+  );
+  const updateProjectionSettings = useSurfaceStore(
+    (state) => state.updateSurfaceViewProjectionSettings,
+  );
 
-  const lightPresets = [
-    { name: 'Bright', values: { ambientLightIntensity: 1.2, directionalLightIntensity: 1.5, fillLightIntensity: 0.7 } },
-    { name: 'Soft', values: { ambientLightIntensity: 1.0, directionalLightIntensity: 0.8, fillLightIntensity: 0.6 } },
-    { name: 'Dramatic', values: { ambientLightIntensity: 0.4, directionalLightIntensity: 2.0, fillLightIntensity: 0.1 } },
-    { name: 'Dark', values: { ambientLightIntensity: 0.3, directionalLightIntensity: 0.5, fillLightIntensity: 0.2 } },
-    { name: 'Clinical', values: { ambientLightIntensity: 1.1, directionalLightIntensity: 1.0, fillLightIntensity: 0.8 } },
-    { name: 'Default', values: { ambientLightIntensity: 0.4, directionalLightIntensity: 1.0, fillLightIntensity: 0.5 } },
-  ];
+  const lightPresets = LIGHTING_PRESETS;
 
   const lightPositions = [
     { name: 'Front', position: [0, 0, 100] as [number, number, number] },
@@ -125,7 +125,8 @@ export const SurfaceGeometryControls: React.FC<SurfaceGeometryControlsProps> = (
 
   const activePosition = lightingSettings.lightPosition || lightPositions[3].position;
   const activePositionName =
-    lightPositions.find((p) => p.position.every((v, idx) => v === activePosition[idx]))?.name || 'Default';
+    lightPositions.find((p) => p.position.every((v, idx) => v === activePosition[idx]))?.name ||
+    'Default';
 
   const handlePositionSelect = (name: string) => {
     const preset = lightPositions.find((p) => p.name === name);
@@ -151,7 +152,9 @@ export const SurfaceGeometryControls: React.FC<SurfaceGeometryControlsProps> = (
             min={0}
             max={1}
             value={lightingSettings.ambientLightIntensity}
-            onChange={(value) => updateLightingSettings(surfaceViewId, { ambientLightIntensity: value })}
+            onChange={(value) =>
+              updateLightingSettings(surfaceViewId, { ambientLightIntensity: value })
+            }
             layout="strip"
             compact
             highContrast
@@ -165,7 +168,9 @@ export const SurfaceGeometryControls: React.FC<SurfaceGeometryControlsProps> = (
             min={0}
             max={2}
             value={lightingSettings.directionalLightIntensity}
-            onChange={(value) => updateLightingSettings(surfaceViewId, { directionalLightIntensity: value })}
+            onChange={(value) =>
+              updateLightingSettings(surfaceViewId, { directionalLightIntensity: value })
+            }
             layout="strip"
             compact
             highContrast
@@ -179,7 +184,9 @@ export const SurfaceGeometryControls: React.FC<SurfaceGeometryControlsProps> = (
             min={0}
             max={1}
             value={lightingSettings.fillLightIntensity || 0.5}
-            onChange={(value) => updateLightingSettings(surfaceViewId, { fillLightIntensity: value })}
+            onChange={(value) =>
+              updateLightingSettings(surfaceViewId, { fillLightIntensity: value })
+            }
             layout="strip"
             compact
             highContrast
@@ -295,7 +302,9 @@ export const SurfaceGeometryControls: React.FC<SurfaceGeometryControlsProps> = (
             min={0}
             max={1}
             value={materialSettings.emissiveIntensity}
-            onChange={(value) => updateMaterialSettings(surfaceViewId, { emissiveIntensity: value })}
+            onChange={(value) =>
+              updateMaterialSettings(surfaceViewId, { emissiveIntensity: value })
+            }
             layout="strip"
             compact
             highContrast
@@ -313,13 +322,19 @@ export const SurfaceGeometryControls: React.FC<SurfaceGeometryControlsProps> = (
           <ToggleRow
             label="GPU Mode"
             checked={projectionSettings.useGPUProjection}
-            onChange={(checked) => updateProjectionSettings(surfaceViewId, { useGPUProjection: checked })}
+            onChange={(checked) =>
+              updateProjectionSettings(surfaceViewId, { useGPUProjection: checked })
+            }
           />
           <div className="px-2 py-2 text-[10px] text-muted-foreground">
             {projectionSettings.useGPUProjection ? (
-              <span>GPU mode: Volume data is sampled directly in the shader. Better for 4D time series.</span>
+              <span>
+                GPU mode: Volume data is sampled directly in the shader. Better for 4D time series.
+              </span>
             ) : (
-              <span>CPU mode: Per-vertex values are pre-computed. More reliable on all hardware.</span>
+              <span>
+                CPU mode: Per-vertex values are pre-computed. More reliable on all hardware.
+              </span>
             )}
           </div>
         </div>
