@@ -138,6 +138,15 @@ jobs:
     - name: Install dependencies
       run: pnpm install
 
+    # Gate the SHIPPING app's production build (ui2, package "temp-ui") BEFORE the
+    # Rust steps. cargo test is currently red, and a later step never runs once an
+    # earlier one fails, so placing this after cargo test would shadow the gate.
+    # `tsc -b && vite build` is the strict type-check the dev server skips; without
+    # it a broken ui2 build can land on main (as before commit f286f010).
+    # TODO(audit #6): promote to its own independent required job for a clean status.
+    - name: Build ui2 production bundle (tsc -b + vite build)
+      run: pnpm --filter temp-ui build
+
     - name: Build Rust Project (all crates)
       run: cargo build --all-targets --verbose
 
@@ -146,14 +155,6 @@ jobs:
 
     - name: Run TypeScript Unit Tests
       run: pnpm test:unit
-
-    # Gate the production build of the SHIPPING app (ui2, package "temp-ui").
-    # `tsc -b && vite build` — the strict type-check that the editor's looser
-    # `tsc --noEmit` and the Vite dev server both skip. quality-gates.yml still
-    # targets the retired `ui` package, so without this a broken ui2 build can
-    # land on main (as it did before commit f286f010). See audit bd-...MVFC.
-    - name: Build ui2 production bundle (tsc -b + vite build)
-      run: pnpm --filter temp-ui build
 
     - name: Install Playwright Browsers
       if: matrix.os == 'ubuntu-latest' # Only run E2E on Linux for now
