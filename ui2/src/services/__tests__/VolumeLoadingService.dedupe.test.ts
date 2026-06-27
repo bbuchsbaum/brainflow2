@@ -6,6 +6,10 @@ import { useLayerStore } from '@/stores/layerStore';
 vi.mock('@/events/EventBus', () => ({
   getEventBus: vi.fn(() => ({
     emit: vi.fn(),
+    // fileBrowserStore subscribes at module load; on() returns an unsubscribe fn.
+    on: vi.fn(() => () => {}),
+    once: vi.fn(() => () => {}),
+    off: vi.fn(),
   })),
 }));
 

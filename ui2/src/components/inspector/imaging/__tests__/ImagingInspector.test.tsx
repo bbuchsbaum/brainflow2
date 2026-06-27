@@ -85,7 +85,10 @@ vi.mock("@/stores/viewStateStore", () => ({
     }),
 }));
 
-vi.mock("@/stores/surfaceStore", () => ({
+vi.mock("@/stores/surfaceStore", async (importOriginal) => ({
+  // Keep the real named exports (DEFAULT_SURFACE_MATERIAL_SETTINGS etc. are
+  // imported at module load by surfaceAppearancePresets); only stub the hook.
+  ...(await importOriginal<typeof import("@/stores/surfaceStore")>()),
   useSurfaceStore: (selector: any) =>
     selector({
       surfaces: new Map(),
