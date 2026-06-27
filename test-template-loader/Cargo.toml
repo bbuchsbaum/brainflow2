@@ -7,6 +7,6 @@ edition = "2021"
 
 [dependencies]
 nifti-loader = { path = "../core/loaders/nifti" }
-neuroim = { path = "/Users/bbuchsbaum/code/rust/neuroim-rs" }
+neuroim = { git = "https://github.com/bbuchsbaum/neuroim-rs", rev = "e4495e30d782b856c0deb016520cd40075975dd4" }
 env_logger = "0.11"
 log = "0.4"

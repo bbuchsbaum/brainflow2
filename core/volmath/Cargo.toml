@@ -8,7 +8,7 @@ crate-type = ["rlib", "cdylib"]
 
 [dependencies]
 # Core neuroim dependency
-neuroim = { path = "../../../rust/neuroim-rs" }
+neuroim = { workspace = true }
 
 # Keep existing dependencies for compatibility layer
 ts-rs = { version = "8.0", features = ["serde-compat"] }

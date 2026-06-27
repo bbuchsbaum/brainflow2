@@ -52,11 +52,11 @@ image = { version = "0.25", default-features = false, features = ["png"] } # For
 neuro-types = { path = "../neuro-types" } # For ViewRectMm and geometry types
 atlases = { path = "../atlases" } # Atlas service
 templates = { path = "../templates" } # Template service
-neuroim = { path = "../../../rust/neuroim-rs" }
+neuroim = { workspace = true }
 neuroatlas = { workspace = true }  # For surface template loading
 ndarray = "0.16"  # For vol-to-surf projection (matches neurosurf-rs)
 directories = "5"
-remotely = { path = "/Users/bbuchsbaum/code/rust/remotely" }
+remotely = { git = "https://github.com/bbuchsbaum/remotely", rev = "ea3732a2c12153e2c2c6256f149c67ccc5fc398d" }
 keyring = "2.3"
 bids-rs = { workspace = true }
 

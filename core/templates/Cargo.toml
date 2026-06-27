@@ -16,7 +16,7 @@ chrono = { version = "0.4", features = ["serde"] }
 reqwest = { version = "0.12", features = ["json", "stream"] }
 url = "2.5"
 uuid = { version = "1.0", features = ["v4"] }
-templateflow = { path = "/Users/bbuchsbaum/code/rust/templateflow-rs" }
+templateflow = { git = "https://github.com/bbuchsbaum/templateflow-rs", rev = "1e974c157bdfed134a23a61dba346716d89108e6" }
 
 # Volume loading dependencies
 bridge_types = { path = "../bridge_types" }

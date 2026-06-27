@@ -17,4 +17,4 @@ volmath = { path = "../volmath" }             # For types used in VolumeSendable
 # Add other dependencies like wgpu if strictly required by moved types
 nalgebra = { version = "0.32", features = ["serde-serialize"] } # Add nalgebra
 ts-rs = { workspace = true } # For generating TypeScript types
-neuroim = { path = "/Users/bbuchsbaum/code/rust/neuroim-rs" } # For 4D volume support (DenseNeuroVec)
+neuroim = { workspace = true } # For 4D volume support (DenseNeuroVec)

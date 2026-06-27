@@ -2959,6 +2959,7 @@ dependencies = [
 [[package]]
 name = "gifti"
 version = "0.1.0"
+source = "git+https://github.com/bbuchsbaum/gifti-rs?rev=00520ee8d00f8a223a440fd3c7381d63c4a36e75#00520ee8d00f8a223a440fd3c7381d63c4a36e75"
 dependencies = [
  "base64 0.21.7",
  "byteorder",
@@ -4813,6 +4814,7 @@ dependencies = [
 [[package]]
 name = "neuroatlas"
 version = "0.1.0"
+source = "git+https://github.com/bbuchsbaum/neuroatlas-rs?rev=6384c6beac8808b53c2dd1dad4868bf161d1d280#6384c6beac8808b53c2dd1dad4868bf161d1d280"
 dependencies = [
  "anyhow",
  "approx 0.5.1",
@@ -4852,6 +4854,7 @@ dependencies = [
 [[package]]
 name = "neuroim"
 version = "0.1.0"
+source = "git+https://github.com/bbuchsbaum/neuroim-rs?rev=e4495e30d782b856c0deb016520cd40075975dd4#e4495e30d782b856c0deb016520cd40075975dd4"
 dependencies = [
  "anyhow",
  "byteorder",
@@ -4874,6 +4877,7 @@ dependencies = [
 [[package]]
 name = "neurosurf-rs"
 version = "0.1.0"
+source = "git+https://github.com/bbuchsbaum/neurosurf-rs?rev=01155a5974e390f36949752f87098856f8d35c57#01155a5974e390f36949752f87098856f8d35c57"
 dependencies = [
  "anyhow",
  "argmin",
@@ -6672,6 +6676,7 @@ checksum = "2b15c43186be67a4fd63bee50d0303afffcef381492ebe2c5d87f324e1b8815c"
 [[package]]
 name = "remotely"
 version = "0.1.0"
+source = "git+https://github.com/bbuchsbaum/remotely?rev=ea3732a2c12153e2c2c6256f149c67ccc5fc398d#ea3732a2c12153e2c2c6256f149c67ccc5fc398d"
 dependencies = [
  "async-trait",
  "bytes",
@@ -8524,6 +8529,7 @@ dependencies = [
 [[package]]
 name = "templateflow"
 version = "0.1.0"
+source = "git+https://github.com/bbuchsbaum/templateflow-rs?rev=1e974c157bdfed134a23a61dba346716d89108e6#1e974c157bdfed134a23a61dba346716d89108e6"
 dependencies = [
  "bincode",
  "clap",
