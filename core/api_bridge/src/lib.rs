@@ -2961,6 +2961,83 @@ async fn load_surface(
     }
 }
 
+/// Convert surface geometry to the wire format, exporting vertices in WORLD
+/// space (`surf_to_world` applied via `vertices_world`) so the rendered mesh and
+/// GPU atlas overlay sample the same coordinates `vol_to_surf` projects to.
+/// `get_surface_geometry` is a thin registry lookup over this pure, tested helper.
+fn surface_geometry_data(
+    geometry: &neurosurf_rs::geometry::SurfaceGeometry,
+) -> BridgeResult<bridge_types::SurfaceGeometryData> {
+    // World-space vertices: surf_to_world is applied here (identity -> unchanged).
+    let vertices_array = geometry.vertices_world().map_err(|e| BridgeError::Internal {
+        code: 2002,
+        details: format!("Failed to get world vertices: {}", e),
+    })?;
+    let mut vertices = Vec::with_capacity(vertices_array.nrows() * 3);
+    for row in vertices_array.rows() {
+        vertices.push(row[0] as f32);
+        vertices.push(row[1] as f32);
+        vertices.push(row[2] as f32);
+    }
+
+    let faces_array = geometry.faces().map_err(|e| BridgeError::Internal {
+        code: 2003,
+        details: format!("Failed to get faces: {}", e),
+    })?;
+    let mut faces = Vec::with_capacity(faces_array.nrows() * 3);
+    for row in faces_array.rows() {
+        faces.push(row[0] as u32);
+        faces.push(row[1] as u32);
+        faces.push(row[2] as u32);
+    }
+
+    Ok(bridge_types::SurfaceGeometryData { vertices, faces })
+}
+
+#[cfg(test)]
+mod surface_geometry_data_tests {
+    use super::*;
+    use ndarray::array;
+    use neurosurf_rs::geometry::{Hemisphere, SurfaceGeometry, SurfaceType};
+    use neurosurf_rs::nalgebra::Matrix4;
+
+    fn tri_surface(surf_to_world: Matrix4<f64>) -> SurfaceGeometry {
+        // Vertex 0 at (1,2,3) is the probe point.
+        let vertices = array![[1.0, 2.0, 3.0], [0.0, 0.0, 0.0], [4.0, 5.0, 6.0]];
+        let faces = array![[0usize, 1, 2]];
+        SurfaceGeometry::new_with_surf_to_world(
+            vertices,
+            faces,
+            Hemisphere::Left,
+            SurfaceType::White,
+            surf_to_world,
+        )
+        .expect("valid surface")
+    }
+
+    #[test]
+    fn identity_transform_exports_raw_vertices() {
+        let data = surface_geometry_data(&tri_surface(Matrix4::identity())).unwrap();
+        assert_eq!(&data.vertices[0..3], &[1.0f32, 2.0, 3.0]);
+        assert_eq!(data.faces, vec![0u32, 1, 2]);
+    }
+
+    #[test]
+    fn nonidentity_transform_exports_world_vertices() {
+        // Translate (+10, +20, +30): vertex 0 (1,2,3) -> world (11,22,33).
+        let mut m = Matrix4::identity();
+        m[(0, 3)] = 10.0;
+        m[(1, 3)] = 20.0;
+        m[(2, 3)] = 30.0;
+        let data = surface_geometry_data(&tri_surface(m)).unwrap();
+        assert_eq!(
+            &data.vertices[0..3],
+            &[11.0f32, 22.0, 33.0],
+            "bridge must export world-space vertices (surf_to_world applied)"
+        );
+    }
+}
+
 #[command]
 #[tracing::instrument(skip_all, err, name = "api.get_surface_geometry")]
 async fn get_surface_geometry(
@@ -2978,38 +3055,7 @@ async fn get_surface_geometry(
             details: format!("Surface not found: {}", handle),
         })?;
 
-    // Extract vertices and faces
-    // vertices() returns Result<Array2<f64>> where each row is [x, y, z]
-    let vertices_array = surface_entry
-        .geometry
-        .vertices()
-        .map_err(|e| BridgeError::Internal {
-            code: 2002,
-            details: format!("Failed to get vertices: {}", e),
-        })?;
-    let mut vertices = Vec::with_capacity(vertices_array.nrows() * 3);
-    for row in vertices_array.rows() {
-        vertices.push(row[0] as f32);
-        vertices.push(row[1] as f32);
-        vertices.push(row[2] as f32);
-    }
-
-    // faces() returns Result<Array2<usize>> where each row is [v0, v1, v2]
-    let faces_array = surface_entry
-        .geometry
-        .faces()
-        .map_err(|e| BridgeError::Internal {
-            code: 2003,
-            details: format!("Failed to get faces: {}", e),
-        })?;
-    let mut faces = Vec::with_capacity(faces_array.nrows() * 3);
-    for row in faces_array.rows() {
-        faces.push(row[0] as u32);
-        faces.push(row[1] as u32);
-        faces.push(row[2] as u32);
-    }
-
-    Ok(bridge_types::SurfaceGeometryData { vertices, faces })
+    surface_geometry_data(&surface_entry.geometry)
 }
 
 #[command]
