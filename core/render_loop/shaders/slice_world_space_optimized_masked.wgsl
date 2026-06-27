@@ -251,7 +251,12 @@ fn sampleLayerLabelIdOptimized(layer: LayerData, world_mm: vec3<f32>) -> u32 {
         return 0u;
     }
 
-    let tex_coord = voxel_coord / dim_f;
+    // Half-texel offset: voxel index i is the voxel CENTER, but a WGPU texel's
+    // center is at (i+0.5)/dim. Mapping i -> i/dim lands on the texel boundary,
+    // so linear sampling returns the 50/50 average of voxels i-1 and i (a
+    // half-voxel shift). The CPU reference samples voxel centers; +0.5 aligns
+    // the GPU path. ClampToEdge addressing keeps boundary voxels correct.
+    let tex_coord = (voxel_coord + 0.5) / dim_f;
     let raw_value = sampleVolumeTextureOptimized(layer.texture_index, tex_coord, 0.0, 0u);
     return u32(max(round(raw_value), 0.0));
 }
@@ -350,7 +355,12 @@ fn sampleLayerOptimized(layer: LayerData, world_mm: vec3<f32>, pixel_size: f32) 
     }
     
     // Convert to texture coordinates
-    let tex_coord = voxel_coord / dim_f;
+    // Half-texel offset: voxel index i is the voxel CENTER, but a WGPU texel's
+    // center is at (i+0.5)/dim. Mapping i -> i/dim lands on the texel boundary,
+    // so linear sampling returns the 50/50 average of voxels i-1 and i (a
+    // half-voxel shift). The CPU reference samples voxel centers; +0.5 aligns
+    // the GPU path. ClampToEdge addressing keeps boundary voxels correct.
+    let tex_coord = (voxel_coord + 0.5) / dim_f;
     
     // Calculate LOD based on pixel size
     // Estimate voxel size as 1.0 for now (could be calculated from transform)
