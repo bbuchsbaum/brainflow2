@@ -147,6 +147,14 @@ jobs:
     - name: Run TypeScript Unit Tests
       run: pnpm test:unit
 
+    # Gate the production build of the SHIPPING app (ui2, package "temp-ui").
+    # `tsc -b && vite build` — the strict type-check that the editor's looser
+    # `tsc --noEmit` and the Vite dev server both skip. quality-gates.yml still
+    # targets the retired `ui` package, so without this a broken ui2 build can
+    # land on main (as it did before commit f286f010). See audit bd-...MVFC.
+    - name: Build ui2 production bundle (tsc -b + vite build)
+      run: pnpm --filter temp-ui build
+
     - name: Install Playwright Browsers
       if: matrix.os == 'ubuntu-latest' # Only run E2E on Linux for now
       run: pnpm --filter ui exec playwright install --with-deps
