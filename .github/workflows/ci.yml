@@ -55,7 +55,36 @@ jobs:
     
     - name: Check package (dry-run)
       run: cd packages/api && pnpm publish --dry-run
-      
+
+  ui2-build:
+    # The SHIPPING app (ui2, package "temp-ui"): production build + unit tests.
+    # Independent of build-and-test so a red Rust suite cannot mask a broken ui2
+    # build/typecheck (quality-gates.yml still targets the retired `ui` package,
+    # which is how a broken tsc -b landed before commit f286f010).
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: 20
+
+    - name: Setup pnpm
+      uses: pnpm/action-setup@v3
+      with:
+        version: 8
+
+    - name: Install dependencies
+      run: pnpm install
+
+    - name: Build ui2 production bundle (tsc -b + vite build)
+      run: pnpm --filter temp-ui build
+
+    - name: Run ui2 unit tests
+      run: pnpm --filter temp-ui exec vitest run
+
   ts-bindings:
     runs-on: ubuntu-latest
     
@@ -138,14 +167,8 @@ jobs:
     - name: Install dependencies
       run: pnpm install
 
-    # Gate the SHIPPING app's production build (ui2, package "temp-ui") BEFORE the
-    # Rust steps. cargo test is currently red, and a later step never runs once an
-    # earlier one fails, so placing this after cargo test would shadow the gate.
-    # `tsc -b && vite build` is the strict type-check the dev server skips; without
-    # it a broken ui2 build can land on main (as before commit f286f010).
-    # TODO(audit #6): promote to its own independent required job for a clean status.
-    - name: Build ui2 production bundle (tsc -b + vite build)
-      run: pnpm --filter temp-ui build
+    # ui2 production build + unit tests now run in the dedicated `ui2-build` job
+    # above (independent of the Rust steps below).
 
     - name: Build Rust Project (all crates)
       run: cargo build --all-targets --verbose

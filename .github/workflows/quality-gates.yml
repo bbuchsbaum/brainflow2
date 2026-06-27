@@ -56,15 +56,11 @@ jobs:
           done
           exit $failed
 
-      # TypeScript checks
-      - name: TypeScript Format Check
-        run: pnpm --filter ui format:check
-        
-      - name: TypeScript Lint
-        run: pnpm --filter ui lint
-        
-      - name: TypeScript Type Check
-        run: pnpm --filter ui check
+      # TypeScript checks for the shipping app (ui2 / "temp-ui") run in ci.yml's
+      # dedicated `ui2-build` job (tsc -b + vite build + vitest). The steps that
+      # were here targeted the retired `ui` package (a no-op false-green) and were
+      # removed under audit #6. Re-add ui2 format/lint here only once ui2 has
+      # those package scripts.
 
   # Security Audit
   security:
@@ -150,6 +146,10 @@ jobs:
   # Bundle Size Check
   bundle-size:
     name: Bundle Size Check
+    # Quarantined (audit #6): targets the retired `ui` package (cd ui fails).
+    # The shipping app is covered by ci.yml's ui2-build job; re-enable only
+    # after porting to ui2.
+    if: false
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
@@ -227,6 +227,10 @@ jobs:
   # Architecture Validation
   architecture:
     name: Architecture Validation
+    # Quarantined (audit #6): targets the retired `ui` package (cd ui fails).
+    # The shipping app is covered by ci.yml's ui2-build job; re-enable only
+    # after porting to ui2.
+    if: false
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
@@ -253,6 +257,10 @@ jobs:
   # Documentation
   documentation:
     name: Documentation Check
+    # Quarantined (audit #6): targets the retired `ui` package (cd ui fails).
+    # The shipping app is covered by ci.yml's ui2-build job; re-enable only
+    # after porting to ui2.
+    if: false
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
@@ -269,6 +277,10 @@ jobs:
   # E2E Visual Tests
   visual-tests:
     name: Visual Regression Tests
+    # Quarantined (audit #6): targets the retired `ui` package (cd ui fails).
+    # The shipping app is covered by ci.yml's ui2-build job; re-enable only
+    # after porting to ui2.
+    if: false
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
