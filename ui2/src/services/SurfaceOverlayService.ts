@@ -238,9 +238,14 @@ export class SurfaceOverlayService {
       debugLog('load', 'Backend returned:', result);
 
       // Get the actual overlay data from the backend
-      const overlayData = await transport.invoke<number[]>('get_surface_overlay_data', {
-        handle: result.handle,
-      });
+      const rawOverlayData = await transport.invoke<(number | null)[]>(
+        'get_surface_overlay_data',
+        { handle: result.handle },
+      );
+      // No-coverage vertices come back as null (Rust NaN -> JSON null); map them
+      // back to NaN so the finite-value guards treat them as transparent rather
+      // than as a real stat value of 0.
+      const overlayData = rawOverlayData.map((v) => (v == null ? NaN : v));
 
       debugLog('load', `Got overlay data array, length: ${overlayData.length}`);
       debugLog('load', `First 5 values: ${overlayData.slice(0, 5).map(v => v.toFixed(4)).join(', ')}`);

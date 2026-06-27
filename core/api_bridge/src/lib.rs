@@ -7312,6 +7312,11 @@ fn sampling_mode_to_str(m: neurosurf_rs::analysis::SamplingMode) -> String {
 /// library defaults for any field the caller omits.
 fn parse_vol_to_surf_params(params: &serde_json::Value) -> neurosurf_rs::analysis::VolToSurfParams {
     let mut p = neurosurf_rs::analysis::VolToSurfParams::default();
+    // Default fill to NaN (no-coverage sentinel) rather than the library's 0.0,
+    // which is indistinguishable from a real stat value of 0 and is wrongly
+    // counted as coverage. A NaN fill is excluded by coverage_and_range's
+    // is_finite() check and rendered transparent on the frontend.
+    p.fill = f64::NAN;
     if let Some(s) = params.get("mapping_function").and_then(|v| v.as_str()) {
         p.mapping_function = parse_mapping_function(Some(s));
     }
@@ -7386,6 +7391,26 @@ fn coverage_and_range(
         None
     };
     (valid, range)
+}
+
+#[cfg(test)]
+mod coverage_and_range_tests {
+    use super::*;
+    use neurosurf_rs::analysis::MappingFunction;
+
+    #[test]
+    fn nan_fill_excluded_real_zero_retained() {
+        // No-coverage vertices are NaN; a genuine stat value of 0.0 must still
+        // count toward coverage and the data range.
+        let vals = vec![1.0_f64, f64::NAN, 0.0, 3.0, f64::NAN];
+        for mapping in [MappingFunction::Average, MappingFunction::NearestNeighbor] {
+            let (valid, range) = coverage_and_range(&vals, mapping, f64::NAN);
+            assert_eq!(valid, 3, "NaN fills excluded, real 0.0 retained ({mapping:?})");
+            let r = range.expect("range over finite values");
+            assert_eq!(r.min, 0.0);
+            assert_eq!(r.max, 3.0);
+        }
+    }
 }
 
 /// Clone the white-matter (+ optional pial) surface geometry out of the registry
@@ -7584,7 +7609,7 @@ async fn apply_sampler_impl(
     let vol = get_volume_for_projection_impl(&volume_id, timepoint, bridge_state).await?;
     let volume3d = build_volume3d_from_projection(&vol)?;
     let mapping = parse_mapping_function(mapping_function.as_deref());
-    let fill_v = fill.unwrap_or(0.0) as f64;
+    let fill_v = fill.unwrap_or(f32::NAN) as f64; // NaN = no-coverage sentinel (see parse_vol_to_surf_params)
     let sigma_v = sigma.unwrap_or(8.0) as f64;
 
     let (values, surface_id) = {

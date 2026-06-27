@@ -843,10 +843,13 @@ export class VolumeSurfaceProjectionService {
       throw new Error(`Invalid projection data_handle: ${JSON.stringify(result.data_handle)}`);
     }
 
-    const overlayData = await transport.invoke<number[]>('get_surface_overlay_data', {
-      handle: dataHandleId,
-    });
-
+    const rawOverlayData = await transport.invoke<(number | null)[]>(
+      'get_surface_overlay_data',
+      { handle: dataHandleId },
+    );
+    // No-coverage vertices arrive as null (Rust NaN -> JSON null). Map to NaN;
+    // Float32Array would otherwise coerce null -> 0 (a fake stat value).
+    const overlayData = rawOverlayData.map((v) => (v == null ? NaN : v));
     const values = new Float32Array(overlayData);
     const surface = surfaceStore.surfaces.get(surfaceId);
     const expectedVertices =
