@@ -2,6 +2,7 @@ import type { BackendTransport } from '@/services/transport';
 import { getTransport } from '@/services/transport';
 import { isValidRustViewState } from '@/types/rustViewState';
 import type { RustViewState } from '@/types/rustViewState';
+import { colormapNameToId } from '@/components/ui/colormapOptions';
 
 export class BatchRenderService {
   private transport: BackendTransport;
@@ -61,22 +62,6 @@ export class BatchRenderService {
       if (!requestedView) {
         throw new Error(`ViewState ${idx}: Missing requestedView`);
       }
-
-      const colormapNameToId = (name: string): number => {
-        const colormapMap: Record<string, number> = {
-          'gray': 0,
-          'hot': 1,
-          'cool': 2,
-          'jet': 3,
-          'viridis': 4,
-          'plasma': 5,
-          'inferno': 6,
-          'magma': 7,
-          'turbo': 8,
-          'rainbow': 9,
-        };
-        return colormapMap[name] || 0;
-      };
 
       const transformedLayers = fvs.layers.map((layer: any, layerIdx: number) => {
         if (!layer.volumeId || !layer.intensity || layer.intensity.length !== 2) {

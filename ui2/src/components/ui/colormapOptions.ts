@@ -21,3 +21,36 @@ export const colormaps: ColormapOption[] = [
   { name: 'hsv', label: 'HSV', gradient: 'linear-gradient(to right, #ff0000, #ffff00, #00ff00, #00ffff, #0000ff, #ff00ff, #ff0000)' },
   { name: 'phase', label: 'Phase', gradient: 'linear-gradient(to right, #ff0000, #ffff00, #00ff00, #00ffff, #0000ff, #ff00ff, #ff0000)' },
 ];
+
+// Map a colormap name to its backend BuiltinColormap discriminant.
+// MUST stay in sync with core/colormap COLORMAP_NAMES / BuiltinColormap enum
+// so that name-based and id-based render paths resolve to the same colormap.
+const COLORMAP_NAME_TO_ID: Record<string, number> = {
+  grayscale: 0,
+  grey: 0,
+  gray: 0,
+  viridis: 1,
+  hot: 2,
+  cool: 3,
+  plasma: 4,
+  inferno: 5,
+  magma: 6,
+  turbo: 7,
+  pet: 8,
+  pet_hot_metal: 8,
+  fmri: 9,
+  activation: 9,
+  jet: 10,
+  parula: 11,
+  hsv: 12,
+  phase: 13,
+};
+
+/**
+ * Resolve a colormap name to the backend numeric colormap id. Unknown names
+ * fall back to Grayscale (0). Mirrors the Rust `colormap_by_name` resolver.
+ */
+export function colormapNameToId(name: string | null | undefined): number {
+  if (!name) return 0;
+  return COLORMAP_NAME_TO_ID[name.toLowerCase()] ?? 0;
+}

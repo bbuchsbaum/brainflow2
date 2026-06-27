@@ -11,6 +11,7 @@ import { useViewStateStore } from '@/stores/viewStateStore';
 import type { ViewLayer } from '@/types/viewState';
 import { VolumeHandleStore } from './VolumeHandleStore';
 import type { LayerInfo, VolumeMetadata } from '@/stores/layerStore';
+import { colormapNameToId } from '@/components/ui/colormapOptions';
 import { histogramService } from './HistogramService';
 import {
   computeAdaptiveIntensityRange,
@@ -518,28 +519,8 @@ export class LayerApiImpl implements LayerApi {
     }
 
     if ('colormap' in patch) {
-      // Map colormap names to backend IDs
-      // Note: Some UI colormaps might not have exact backend equivalents
-      const colormapIds: Record<string, number> = {
-        gray: 0,
-        hot: 1,
-        cool: 2,
-        jet: 3, // Using red-yellow slot for jet
-        viridis: 4, // Using blue-lightblue slot for viridis
-        plasma: 5, // Using red slot for plasma
-        inferno: 6, // Using green slot for inferno
-        magma: 7, // Using blue slot for magma
-        winter: 8, // Using yellow slot for winter
-        summer: 9, // Using cyan slot for summer
-        spring: 10, // Using magenta slot for spring
-        autumn: 11, // Using warm slot for autumn
-        'cool-warm': 12,
-        spectral: 13,
-        turbo: 14,
-      };
-
-      // Use snake_case for Rust backend
-      backendPatch.colormap_id = colormapIds[patch.colormap!] || 0;
+      // Resolve to the backend BuiltinColormap id via the shared canonical map.
+      backendPatch.colormap_id = colormapNameToId(patch.colormap);
       layerDebugLog(
         `[LayerApiImpl] Mapping colormap '${patch.colormap}' to ID ${backendPatch.colormap_id}`,
       );
