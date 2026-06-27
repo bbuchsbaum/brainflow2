@@ -188,9 +188,11 @@ pub fn create_test_pattern_volume() -> DenseVolume3<u8> {
 
     // Corners = 128
     data[0] = 128; // (0,0,0)
-    data[0 * (64 * 64) + 0 * 64 + 63] = 128; // (63,0,0)
-    data[0 * (64 * 64) + 63 * 64 + 0] = 128; // (0,63,0)
-    data[0 * (64 * 64) + 63 * 64 + 63] = 128; // (63,63,0)
+    // Flat index = z*(64*64) + y*64 + x, all on the z=0 plane (the 0*.. terms
+    // are written out below as their results to avoid clippy::erasing_op).
+    data[63] = 128; // (63,0,0)
+    data[63 * 64] = 128; // (0,63,0)
+    data[63 * 64 + 63] = 128; // (63,63,0)
 
     // Create plus sign in center slice (z=12)
     let z = 12;

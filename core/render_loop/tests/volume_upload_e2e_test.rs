@@ -224,8 +224,9 @@ async fn test_render_with_pattern() {
     //   1 1 1 1
     //   1 1 1 1
     //   0 1 1 0
-    data[2 * 16 + 0 * 4 + 1] = 1000.0;
-    data[2 * 16 + 0 * 4 + 2] = 1000.0;
+    // Flat index z*16 + y*4 + x, on the y=0 plane (0*4 written out as 0).
+    data[2 * 16 + 1] = 1000.0; // (x=1, y=0, z=2)
+    data[2 * 16 + 2] = 1000.0; // (x=2, y=0, z=2)
     data[2 * 16 + 1 * 4 + 0] = 1000.0;
     data[2 * 16 + 1 * 4 + 1] = 1000.0;
     data[2 * 16 + 1 * 4 + 2] = 1000.0;

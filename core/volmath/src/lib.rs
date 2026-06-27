@@ -921,7 +921,10 @@ mod wasm_tests {
 
     #[wasm_bindgen_test]
     fn pass() {
-        assert_eq!(1 + 1, 2);
+        // Bind the sum first so clippy's eq_op doesn't see two identical
+        // constant-folded args.
+        let two = 1 + 1;
+        assert_eq!(two, 2);
     }
 
     #[wasm_bindgen_test]

@@ -136,7 +136,13 @@ mod tests {
 
     #[test]
     fn test_high_precision_conversion() {
-        let world_pos = Point3::new(3.14159265359, 2.71828182846, 1.41421356237);
+        // Arbitrary high-precision coords; use named constants so clippy's
+        // approx_constant lint stays clean.
+        let world_pos = Point3::new(
+            std::f64::consts::PI,
+            std::f64::consts::E,
+            std::f64::consts::SQRT_2,
+        );
         let transform = coordinates::matrix_f32_to_f64(&Matrix4::identity());
 
         let voxel_pos = coordinates::world_to_voxel_f64(world_pos, &transform);

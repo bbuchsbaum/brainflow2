@@ -74,8 +74,8 @@ mod tests {
             let vol1 = create_marked_volume([256, 256, 256], transform1, &markers);
 
             // Volume 2: Rotated 45 degrees around Z axis
-            let cos45 = 0.7071;
-            let sin45 = 0.7071;
+            let cos45 = std::f32::consts::FRAC_1_SQRT_2;
+            let sin45 = std::f32::consts::FRAC_1_SQRT_2;
             let transform2 = Matrix4::new(
                 cos45, -sin45, 0.0, -64.0, sin45, cos45, 0.0, -64.0, 0.0, 0.0, 2.0,
                 -64.0, // Also different Z scaling
