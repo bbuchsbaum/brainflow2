@@ -419,28 +419,70 @@ export class VolumeLoadingService {
    * Infer layer type from name and source
    */
   private inferLayerType(name: string, source: string): Layer['type'] {
-    const lower = name.toLowerCase();
-
-    if (source === 'template') {
-      // Template-specific inference
-      if (lower.includes('mask') || lower.includes('brain')) {
-        return 'mask';
-      } else if (lower.includes('gray') || lower.includes('white') || lower.includes('csf')) {
-        return 'mask'; // Tissue probability maps
-      } else {
-        return 'anatomical'; // T1w, T2w, etc.
-      }
-    } else {
-      // File-based inference
-      if (lower.includes('mask') || lower.includes('label')) {
-        return 'mask';
-      } else if (lower.includes('bold') || lower.includes('func') || lower.includes('task')) {
-        return 'functional';
-      } else {
-        return 'anatomical';
-      }
-    }
+    return inferLayerTypeFromName(name, source);
   }
+}
+
+// Filename tokens that indicate a discrete parcellation / segmentation / atlas
+// volume (integer region IDs). Such volumes MUST render with nearest-neighbour
+// sampling (label mode); trilinear interpolation averages adjacent region IDs
+// into meaningless intermediate values (e.g. labels 17 and 1024 -> ~520). The
+// list is intentionally name-driven and conservative so continuous int16
+// anatomicals are not misclassified. (Follow-up: a data-driven heuristic —
+// integer dtype + small distinct-value count — would also catch unnamed atlases
+// but needs a backend distinct-value count; see audit-backlog.)
+const SEGMENTATION_NAME_TOKENS = [
+  'seg', // aseg, dseg, *seg*
+  'parc', // aparc, wmparc, parcellation
+  'atlas',
+  'label',
+  'roi',
+  'schaefer',
+  'aal',
+  'desikan',
+  'destrieux',
+  'harvardoxford',
+  'harvard-oxford',
+  'glasser',
+  'brodmann',
+  'yeo',
+  'juelich',
+  'talairach',
+];
+
+export function looksLikeSegmentation(lowerName: string): boolean {
+  return SEGMENTATION_NAME_TOKENS.some((tok) => lowerName.includes(tok));
+}
+
+/**
+ * Infer a layer type from a volume's name and load source. Discrete
+ * segmentation/atlas/parcellation files resolve to 'label' so they render with
+ * nearest sampling instead of being trilinearly averaged into garbage.
+ */
+export function inferLayerTypeFromName(name: string, source: string): Layer['type'] {
+  const lower = name.toLowerCase();
+
+  if (source === 'template') {
+    // Template-specific inference
+    if (lower.includes('mask') || lower.includes('brain')) {
+      return 'mask';
+    } else if (lower.includes('gray') || lower.includes('white') || lower.includes('csf')) {
+      return 'mask'; // Tissue probability maps
+    }
+    return 'anatomical'; // T1w, T2w, etc.
+  }
+
+  // File-based inference
+  if (looksLikeSegmentation(lower)) {
+    return 'label'; // discrete region IDs -> nearest sampling, no averaging
+  }
+  if (lower.includes('mask')) {
+    return 'mask';
+  }
+  if (lower.includes('bold') || lower.includes('func') || lower.includes('task')) {
+    return 'functional';
+  }
+  return 'anatomical';
 }
 
 // Export convenience function
