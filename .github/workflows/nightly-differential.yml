@@ -170,6 +170,7 @@ jobs:
         cargo build --package neuro-integration-tests --release
         
     - name: Profile CPU implementation
+      if: false # performance_comparison bench retired (audit #6)
       run: |
         sudo cargo flamegraph --package neuro-integration-tests \
           --bench performance_comparison \
@@ -178,6 +179,7 @@ jobs:
           --output cpu_profile.svg
 
     - name: Generate performance report
+      if: false # performance_comparison bench retired (audit #6)
       run: |
         cargo bench --package neuro-integration-tests \
           --bench performance_comparison \

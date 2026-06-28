@@ -39,10 +39,8 @@ tempfile = "3.8"
 # name = "slice_extraction_validation"  
 # path = "tests/slice_extraction_validation.rs"
 
-[[bench]]
-name = "performance_comparison"
-harness = false
-
-[[bench]]
-name = "ellipsoid_benchmarks"
-harness = false
+# Benchmarks retired (audit #6): performance_comparison and ellipsoid_benchmarks
+# benchmarked the removed CpuSlicer::composite_rgba / CpuSliceProvider API and the
+# old Test*Generator modules. The live correctness harness is differential_harness
+# + the tests/ suite. Sources kept as benches/*.rs.bak; rebuild against the current
+# CPU rendering API if perf benchmarks are wanted again.

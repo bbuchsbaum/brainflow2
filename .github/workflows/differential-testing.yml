@@ -109,7 +109,7 @@ jobs:
       shell: bash
 
     - name: Run differential benchmarks
-      if: matrix.os == 'ubuntu-latest' # Run benchmarks only on Linux
+      if: false # performance_comparison bench retired (audit #6); rebuild vs current CPU API to re-enable
       run: |
         cargo bench --package neuro-integration-tests --bench performance_comparison -- --save-baseline ci-${{ github.sha }}
 
@@ -163,6 +163,7 @@ jobs:
         git checkout ${{ github.base_ref }}
 
     - name: Run baseline benchmarks
+      if: false # performance_comparison bench retired (audit #6)
       run: |
         cargo bench --package neuro-integration-tests --bench performance_comparison -- --save-baseline baseline
 
