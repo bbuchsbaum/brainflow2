@@ -202,15 +202,10 @@ async fn test_optimized_shader_correctness() {
     }
     save_image(&diff_img, "difference_amplified.png");
 
-    // Assert that differences are minimal (allow for small numerical differences).
-    // The optimized shader's LOD sampling can cause larger differences, so this is a
-    // permissive smoke check (max_diff is u8, so the bound is intentionally loose).
-    #[allow(clippy::absurd_extreme_comparisons)]
-    assert!(
-        max_diff <= 255,
-        "Maximum pixel difference {} exceeds threshold",
-        max_diff
-    );
+    // No max-pixel-diff assert: max_diff is u8, so the previous `max_diff <= 255`
+    // was always true (a no-op), and the optimized shader's LOD sampling legitimately
+    // diverges from the reference. The avg-diff bound below is the meaningful check;
+    // a large max diff is surfaced as the warning further down.
     assert!(
         avg_diff <= 100.0,
         "Average pixel difference {:.2} exceeds threshold",
