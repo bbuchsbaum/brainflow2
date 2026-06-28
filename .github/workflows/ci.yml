@@ -90,6 +90,11 @@ jobs:
     
     steps:
     - uses: actions/checkout@v4
+    - name: Authenticate cargo to private GitHub deps
+      # One classic PAT (secret CARGO_GIT_PAT) authenticates all the private
+      # bbuchsbaum/* git dependencies; .cargo/config.toml's git-fetch-with-cli
+      # makes cargo fetch through it.
+      run: git config --global url."https://${{ secrets.CARGO_GIT_PAT }}@github.com/".insteadOf "https://github.com/"
     
     - name: Setup Rust
       uses: dtolnay/rust-toolchain@stable
@@ -132,6 +137,11 @@ jobs:
 
     steps:
     - uses: actions/checkout@v4
+    - name: Authenticate cargo to private GitHub deps
+      # One classic PAT (secret CARGO_GIT_PAT) authenticates all the private
+      # bbuchsbaum/* git dependencies; .cargo/config.toml's git-fetch-with-cli
+      # makes cargo fetch through it.
+      run: git config --global url."https://${{ secrets.CARGO_GIT_PAT }}@github.com/".insteadOf "https://github.com/"
 
     - name: Setup Rust
       uses: dtolnay/rust-toolchain@stable

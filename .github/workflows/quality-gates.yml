@@ -13,6 +13,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
+      - name: Authenticate cargo to private GitHub deps
+        # One classic PAT (secret CARGO_GIT_PAT) authenticates all the private
+        # bbuchsbaum/* git dependencies; .cargo/config.toml's git-fetch-with-cli
+        # makes cargo fetch through it.
+        run: git config --global url."https://${{ secrets.CARGO_GIT_PAT }}@github.com/".insteadOf "https://github.com/"
       
       - name: Setup Rust
         uses: actions-rs/toolchain@v1
@@ -83,6 +88,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
+      - name: Authenticate cargo to private GitHub deps
+        # One classic PAT (secret CARGO_GIT_PAT) authenticates all the private
+        # bbuchsbaum/* git dependencies; .cargo/config.toml's git-fetch-with-cli
+        # makes cargo fetch through it.
+        run: git config --global url."https://${{ secrets.CARGO_GIT_PAT }}@github.com/".insteadOf "https://github.com/"
       
       - name: Setup Environment
         run: |
@@ -113,6 +123,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
+      - name: Authenticate cargo to private GitHub deps
+        # One classic PAT (secret CARGO_GIT_PAT) authenticates all the private
+        # bbuchsbaum/* git dependencies; .cargo/config.toml's git-fetch-with-cli
+        # makes cargo fetch through it.
+        run: git config --global url."https://${{ secrets.CARGO_GIT_PAT }}@github.com/".insteadOf "https://github.com/"
       
       - name: Setup Rust
         uses: actions-rs/toolchain@v1
@@ -189,6 +204,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
+      - name: Authenticate cargo to private GitHub deps
+        # One classic PAT (secret CARGO_GIT_PAT) authenticates all the private
+        # bbuchsbaum/* git dependencies; .cargo/config.toml's git-fetch-with-cli
+        # makes cargo fetch through it.
+        run: git config --global url."https://${{ secrets.CARGO_GIT_PAT }}@github.com/".insteadOf "https://github.com/"
       
       - name: Setup Rust
         uses: actions-rs/toolchain@v1
