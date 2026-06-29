@@ -1,6 +1,5 @@
 use nalgebra::{Matrix4, Vector3};
 use render_loop::{BlendMode, FrameUbo, LayerInfo, RenderLoopService, ThresholdMode};
-use volmath::traits::Volume;
 use volmath::{DenseVolume3, NeuroSpaceExt};
 
 #[test]
@@ -29,7 +28,7 @@ fn test_threshold_simple() {
             .expect("Failed to create offscreen target");
 
         // Create a simple test volume with values 0-700
-        use volmath::space::{NeuroSpace3, NeuroSpaceImpl};
+        
         let dims = [8, 8, 8];
         let mut data = vec![0.0f32; 512];
 

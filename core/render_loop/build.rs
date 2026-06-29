@@ -27,7 +27,7 @@ fn track_shader_sources(shader_dir: &Path) {
     if let Ok(entries) = fs::read_dir(shader_dir) {
         for entry in entries.flatten() {
             let path = entry.path();
-            if path.extension().map_or(false, |ext| ext == "wgsl") {
+            if path.extension().is_some_and(|ext| ext == "wgsl") {
                 println!("cargo:rerun-if-changed={}", path.display());
             }
         }

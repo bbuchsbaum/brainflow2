@@ -24,7 +24,6 @@ use std::sync::Arc; // Re-add Arc import
 use std::time::SystemTime;
 use thiserror::Error; // Add for error handling
 use volmath::{DataRange, DenseVolume3, NeuroSpaceExt, NumericType, VoxelData}; // Import DataRange directly
-use wgpu;
 use wgpu::util::DeviceExt; // For create_buffer_init helper trait
 
 // --- Modules ---
@@ -1166,12 +1165,10 @@ impl RenderLoopService {
         };
 
         // Now work with the pipeline manager
-        let bind_group_layouts = vec![
-            global_layout,
+        let bind_group_layouts = [global_layout,
             layer_layout,
             texture_layout,
-            slice_feature_layout,
-        ];
+            slice_feature_layout];
 
         let layout = self.pipeline_manager.get_or_create_layout(
             device,
@@ -1289,7 +1286,7 @@ impl RenderLoopService {
         self.queue.write_texture(
             // Destination texture view
             wgpu::ImageCopyTexture {
-                texture: &self.volume_atlas.texture(),
+                texture: self.volume_atlas.texture(),
                 mip_level: 0,
                 origin: wgpu::Origin3d {
                     x: 0,
@@ -1598,7 +1595,7 @@ impl RenderLoopService {
 
                 let metadata = VolumeMetadata {
                     dimensions: (width, height, depth),
-                    world_to_voxel: world_to_voxel.clone(),
+                    world_to_voxel,
                     voxel_to_world,
                     origin: [origin[0], origin[1], origin[2]],
                     spacing: [spacing[0], spacing[1], spacing[2]],
@@ -1697,10 +1694,10 @@ impl RenderLoopService {
         let bytes_per_pixel = 2u32; // f16 = 2 bytes
         let unpadded_bytes_per_row = width * bytes_per_pixel;
         let align = wgpu::COPY_BYTES_PER_ROW_ALIGNMENT; // 256 bytes
-        let padded_bytes_per_row = ((unpadded_bytes_per_row + align - 1) / align) * align;
+        let padded_bytes_per_row = unpadded_bytes_per_row.div_ceil(align) * align;
 
         // Check if unpadded data already meets alignment requirements
-        let needs_padding = unpadded_bytes_per_row % align != 0;
+        let needs_padding = !unpadded_bytes_per_row.is_multiple_of(align);
         let actual_bytes_per_row = if needs_padding {
             padded_bytes_per_row
         } else {
@@ -1765,7 +1762,7 @@ impl RenderLoopService {
         // when copying more than one row/slice
         self.queue.write_texture(
             wgpu::ImageCopyTexture {
-                texture: &self.volume_atlas.texture(),
+                texture: self.volume_atlas.texture(),
                 mip_level: 0,
                 origin: wgpu::Origin3d::ZERO,
                 aspect: wgpu::TextureAspect::All,
@@ -1813,7 +1810,7 @@ impl RenderLoopService {
         // Store volume metadata
         let metadata = VolumeMetadata {
             dimensions: (width, height, depth),
-            world_to_voxel: world_to_voxel.clone(),
+            world_to_voxel,
             voxel_to_world,
             origin: [origin[0], origin[1], origin[2]],
             spacing: [spacing[0], spacing[1], spacing[2]],
@@ -3115,7 +3112,7 @@ impl RenderLoopService {
         // This is needed for update_all_layer_uniforms to get the transform
         let metadata = VolumeMetadata {
             dimensions: volume_dims,
-            world_to_voxel: world_to_voxel.clone(),
+            world_to_voxel,
             voxel_to_world: world_to_voxel
                 .try_inverse()
                 .unwrap_or_else(Matrix4::identity),
@@ -3504,12 +3501,11 @@ impl RenderLoopService {
 
         let world_to_voxel_transforms: Vec<Matrix4<f32>> = layers
             .iter()
-            .enumerate()
-            .map(|(_i, layer)| {
+            .map(|layer| {
                 let transform = self
                     .volume_metadata
                     .get(&layer.atlas_index)
-                    .map(|meta| meta.world_to_voxel.clone())
+                    .map(|meta| meta.world_to_voxel)
                     .unwrap_or_else(Matrix4::identity); // Default if metadata missing
                                                         // println!("  Layer {} (atlas_index {}) world_to_voxel matrix:", i, layer.atlas_index);
                                                         // println!("    {:?}", transform);
@@ -3771,7 +3767,7 @@ impl RenderLoopService {
         let bytes_per_pixel = 4u32; // RGBA8 = 4 bytes
         let unpadded_bytes_per_row = viewport_size[0] * bytes_per_pixel;
         let align = wgpu::COPY_BYTES_PER_ROW_ALIGNMENT; // 256 bytes
-        let padded_bytes_per_row = ((unpadded_bytes_per_row + align - 1) / align) * align;
+        let padded_bytes_per_row = unpadded_bytes_per_row.div_ceil(align) * align;
         let buffer_size = (padded_bytes_per_row * viewport_size[1]) as u64;
 
         let staging_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
@@ -5024,7 +5020,7 @@ impl RenderLoopService {
                 .get_layer_mut(self.active_layer_count() - 1)
             {
                 layer.colormap_id = layer_config.colormap_id;
-                layer.blend_mode = layer_config.blend_mode.clone();
+                layer.blend_mode = layer_config.blend_mode;
                 layer.intensity_range = layer_config.intensity_window;
 
                 // Intensity-modulated alpha (None / Off => flat-opacity layer).
@@ -5038,7 +5034,7 @@ impl RenderLoopService {
 
                 // Set threshold if specified
                 if let Some(threshold_config) = &layer_config.threshold {
-                    layer.threshold_mode = threshold_config.mode.clone();
+                    layer.threshold_mode = threshold_config.mode;
                     layer.threshold_range = threshold_config.range;
                 }
             }
@@ -5083,8 +5079,8 @@ mod tests {
     // CrosshairUbo is already imported at module level
     // Maintain is imported above if needed
     use approx::assert_abs_diff_eq;
-    use bytemuck;
-    use pollster;
+    
+    
 
     #[tokio::test]
     async fn test_wgpu_initialization() {

@@ -189,7 +189,7 @@ impl SliceProvider for CpuSlicer {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    
 
     #[test]
     fn test_cpu_slicer_can_create() {

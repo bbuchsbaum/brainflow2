@@ -124,7 +124,7 @@ impl TextureManager {
 
         // Upload all builtin colormaps (upsampled to COLORMAP_LUT_WIDTH by repetition)
         let scale = COLORMAP_LUT_WIDTH / 256;
-        if scale == 0 || COLORMAP_LUT_WIDTH % 256 != 0 {
+        if scale == 0 || !COLORMAP_LUT_WIDTH.is_multiple_of(256) {
             println!(
                 "WARNING: COLORMAP_LUT_WIDTH={} is not a multiple of 256; builtin colormap upsampling may be uneven",
                 COLORMAP_LUT_WIDTH

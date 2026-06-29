@@ -7,7 +7,6 @@
 
 use crate::service::AtlasService;
 use crate::types::*;
-use std::collections::HashMap;
 use tempfile::TempDir;
 use tokio;
 use tracing::{error, info, warn};

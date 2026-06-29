@@ -1,10 +1,9 @@
 // Test the storage buffer version of the shader
 
-use pollster;
 use render_loop::render_state::BlendMode;
-use render_loop::test_fixtures::{create_test_pattern_volume, TestVolumeSet};
+use render_loop::test_fixtures::create_test_pattern_volume;
 use render_loop::view_state::{LayerConfig, SliceOrientation, ViewId, ViewState};
-use render_loop::{RenderLoopError, RenderLoopService};
+use render_loop::RenderLoopService;
 
 /// Test that storage buffer version can handle many layers
 #[test]
@@ -31,7 +30,7 @@ fn test_storage_buffer_many_layers() {
                     &base_volume,
                     wgpu::TextureFormat::R8Unorm,
                 )
-                .expect(&format!("Failed to register volume {}", i));
+                .unwrap_or_else(|_| panic!("Failed to register volume {}", i));
         }
 
         // Create view state with all 12 layers

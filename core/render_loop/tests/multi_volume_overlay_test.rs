@@ -1,6 +1,4 @@
-use nalgebra::Matrix4;
-use render_loop::render_state::{BlendMode, ThresholdMode};
-use render_loop::{RenderLoopError, RenderLoopService};
+use render_loop::RenderLoopService;
 use volmath::NeuroSpaceExt;
 use volmath::{DenseVolume3, NeuroSpace3};
 

@@ -1,12 +1,10 @@
 // Test to validate that volumes display correctly (no black screen)
 
-use nalgebra::{Matrix4, Point3, Vector3};
-use pollster;
+use nalgebra::{Matrix4, Vector3};
 use render_loop::render_state::{BlendMode, LayerInfo, ThresholdMode};
 use render_loop::test_fixtures::create_test_pattern_volume;
-use render_loop::{FrameUbo, LayerUboStd140, RenderLoopError, RenderLoopService};
+use render_loop::{FrameUbo, RenderLoopService};
 use volmath::{DenseVolume3, NeuroSpaceExt};
-use wgpu::TextureFormat;
 
 /// Core test: Ensure a simple volume renders without black screen
 #[test]
@@ -217,7 +215,7 @@ fn create_binary_mask() -> DenseVolume3<u8> {
         }
     }
 
-    use volmath::space::{NeuroSpace3, NeuroSpaceImpl};
+    use volmath::space::NeuroSpace3;
     let space_impl = <volmath::NeuroSpace as NeuroSpaceExt>::from_affine_matrix4(
         dims.to_vec(),
         Matrix4::identity(),

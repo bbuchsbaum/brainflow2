@@ -231,7 +231,7 @@ fn test_enhanced_metrics_mathematical_relationships() {
     test_cases.push(("identical", vec![100u8; 64], vec![100u8; 64]));
 
     // Slightly different images
-    let mut img1 = vec![100u8; 64];
+    let img1 = vec![100u8; 64];
     let mut img2 = vec![100u8; 64];
     img2[0] = 105; // Small difference
     test_cases.push(("slight_diff", img1, img2));
@@ -242,7 +242,7 @@ fn test_enhanced_metrics_mathematical_relationships() {
     for (name, image1, image2) in test_cases {
         let metrics = harness
             .compute_metrics(&image1, &image2)
-            .expect(&format!("Failed to compute metrics for {}", name));
+            .unwrap_or_else(|_| panic!("Failed to compute metrics for {}", name));
 
         println!(
             "Test case '{}': Max err = {:.1}, Max diff = {}",

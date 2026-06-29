@@ -3,9 +3,9 @@
 //! This module provides functionality to render orthogonal slices (axial, sagittal, coronal)
 //! through 3D volumes at specific world space coordinates, with crosshair overlays.
 
-use crate::image_utils::{ImageDimensions, RgbaImageWithDimensions};
+use crate::image_utils::ImageDimensions;
 use nalgebra::Point3;
-use neuro_types::{Result as NeuroResult, RgbaImage, SliceSpec};
+use neuro_types::{RgbaImage, SliceSpec};
 
 /// Represents orthogonal slices at a specific world coordinate
 #[derive(Debug, Clone)]

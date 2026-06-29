@@ -36,6 +36,12 @@ pub struct ShaderManager {
     shaders: HashMap<String, ShaderModule>,
 }
 
+impl Default for ShaderManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ShaderManager {
     pub fn new() -> Self {
         Self {

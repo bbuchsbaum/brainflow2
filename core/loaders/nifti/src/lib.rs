@@ -126,7 +126,7 @@ where
     }
 
     // Create the appropriate VolumeSendable variant based on type
-    let volume_sendable = create_volume_sendable(dense_volume, affine.clone())?;
+    let volume_sendable = create_volume_sendable(dense_volume, affine)?;
 
     info!("Successfully loaded NIfTI volume: dims={:?}", dims);
     Ok((volume_sendable, affine))
@@ -518,13 +518,13 @@ impl From<NiftiError> for BridgeError {
 
 impl Loader for NiftiLoader {
     fn can_load(path: &Path) -> bool {
-        path.extension().map_or(false, |ext| {
+        path.extension().is_some_and(|ext| {
             let ext_str = ext.to_string_lossy().to_lowercase();
             ext_str == "nii"
                 || (ext_str == "gz"
                     && path
                         .file_stem()
-                        .map_or(false, |stem| stem.to_string_lossy().ends_with(".nii")))
+                        .is_some_and(|stem| stem.to_string_lossy().ends_with(".nii")))
         })
     }
 

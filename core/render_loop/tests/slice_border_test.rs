@@ -1,4 +1,3 @@
-use pollster;
 use render_loop::RenderLoopService;
 
 #[test]
@@ -23,7 +22,7 @@ fn test_slice_border_renders_visible_outline() {
 
         // Add as a render layer
         let layer_index = service
-            .add_layer_3d(atlas_idx, tfm.clone(), (64, 64, 25), 1.0, 0, 1)
+            .add_layer_3d(atlas_idx, tfm, (64, 64, 25), 1.0, 0, 1)
             .expect("add layer");
 
         // Turn on border and render to 128x128
@@ -46,7 +45,7 @@ fn test_slice_border_renders_visible_outline() {
         let mut edge_hits = 0usize;
         for y in 0..512u32 {
             for x in 0..512u32 {
-                if x < 2 || x >= 510 || y < 2 || y >= 510 {
+                if !(2..510).contains(&x) || !(2..510).contains(&y) {
                     let idx = (y as usize * 512 + x as usize) * 4;
                     let r = rgba[idx] as u32;
                     let g = rgba[idx + 1] as u32;
@@ -72,7 +71,7 @@ fn test_slice_border_renders_visible_outline() {
         let mut edge_hits2 = 0usize;
         for y in 0..512u32 {
             for x in 0..512u32 {
-                if x < 2 || x >= 510 || y < 2 || y >= 510 {
+                if !(2..510).contains(&x) || !(2..510).contains(&y) {
                     let idx = (y as usize * 512 + x as usize) * 4;
                     let r = rgba2[idx] as u32;
                     let g = rgba2[idx + 1] as u32;

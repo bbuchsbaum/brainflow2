@@ -152,9 +152,7 @@ pub fn detect_gifti_content_type(path: &Path) -> Result<GiftiContentType, GiftiE
                         "Could not load as surface or data: surface error: {}, gifti error: {}",
                         e, gifti_err
                     );
-                    Err(GiftiError::ContentDetectionFailed(format!(
-                        "Unable to determine GIFTI content type: No coordinate data found in GIFTI file",
-                    )))
+                    Err(GiftiError::ContentDetectionFailed("Unable to determine GIFTI content type: No coordinate data found in GIFTI file".to_string()))
                 }
             }
         }
@@ -188,7 +186,7 @@ pub fn load_gifti_file(path: &Path) -> Result<GiftiContent, GiftiError> {
             // Extract the scalar data from the first data array
             if let Some(first_array) = gifti_data.data_arrays.first() {
                 // Convert data to f64 vector
-                let data: Vec<f64> = first_array.data.iter().map(|&v| v as f64).collect();
+                let data: Vec<f64> = first_array.data.to_vec();
 
                 info!("Loaded surface data: {} values", data.len());
                 Ok(GiftiContent::Data(data))
@@ -361,7 +359,7 @@ impl Loader for GiftiLoader {
             GiftiContentType::Combined { .. } => {
                 // For now, treat combined files as surfaces
                 // In the future, we might want to return both components
-                let surface = read_surface(path).map_err(|e| GiftiError::NeuroSurf(e))?;
+                let surface = read_surface(path).map_err(GiftiError::NeuroSurf)?;
                 let handle = SurfaceHandle(format!("surface_{}", uuid::Uuid::new_v4()));
 
                 Ok(Loaded::Surface {

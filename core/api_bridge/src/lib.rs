@@ -31,9 +31,9 @@ use render_loop::{RenderLoopService, SliceFeatureUbo}; // Remove unused RenderLo
                                                        // use async_trait::async_trait;
 use log::{debug, error, info, warn}; // Added error, warn, and debug
 use serde::{Deserialize, Serialize}; // Need Serialize/Deserialize for new types
-use serde_json; // For JSON parsing
+ // For JSON parsing
 use ts_rs::TS;
-use uuid; // For generating unique IDs // Add TS trait
+ // For generating unique IDs // Add TS trait
           // Use futures::executor::block_on when needed (now removed)
           // use futures;
           // Added imports for plugin creation
@@ -52,13 +52,12 @@ use remotely::{FilesystemProbeOptions, RemoteClient};
 use tokio::runtime::Handle;
 use tokio::sync::Mutex;
 use tokio::time::{interval, MissedTickBehavior};
-use tracing; // Add tracing facade import // For get_initial_views
+ // Add tracing facade import // For get_initial_views
 
 // Imports for fs_list_directory
 // Assuming core_loaders is the crate name for the new module
 use brainflow_loaders as core_loaders;
 // GIFTI support
-use gifti_loader;
 
 // Import error helpers
 mod analysis;
@@ -144,32 +143,26 @@ pub enum LayerSpec {
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, TS)] // Add derives
 #[ts(export)]
+#[derive(Default)]
 pub enum SliceAxis {
     Sagittal = 0, // X axis (YZ plane)
     Coronal = 1,  // Y axis (XZ plane)
+    #[default]
     Axial = 2,    // Z axis (XY plane)
 }
 
-impl Default for SliceAxis {
-    fn default() -> Self {
-        SliceAxis::Axial
-    }
-}
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, TS)] // Add derives
 #[ts(export)]
+#[derive(Default)]
 pub enum SliceIndex {
     Fixed(usize),         // Specific slice index
+    #[default]
     Middle,               // Middle slice (default)
     Relative(f32),        // Relative position (0.0 = first, 1.0 = last)
     WorldCoordinate(f32), // Slice at specific world coordinate
 }
 
-impl Default for SliceIndex {
-    fn default() -> Self {
-        SliceIndex::Middle
-    }
-}
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)] // Add derives
 #[ts(export)]
@@ -445,7 +438,7 @@ fn get_affine_from_volume(volume_data: &VolumeSendable) -> BridgeResult<Affine3<
         | VolumeSendable::VolU16(_, affine)
         | VolumeSendable::VolI32(_, affine)
         | VolumeSendable::VolU32(_, affine)
-        | VolumeSendable::VolF64(_, affine) => Ok(affine.clone()),
+        | VolumeSendable::VolF64(_, affine) => Ok(*affine),
         // 4D volumes - extract affine from NeuroSpace transform
         VolumeSendable::Vec4DF32(vec) => Ok(affine_from_neurospace_trans(&vec.space.trans)),
         VolumeSendable::Vec4DI16(vec) => Ok(affine_from_neurospace_trans(&vec.space.trans)),
@@ -472,24 +465,24 @@ fn get_spatial_dims_from_volume(volume_data: &VolumeSendable) -> Vec<usize> {
         VolumeSendable::VolF64(vol, _) => vol.space().dims().to_vec(),
         // 4D volumes - return first 3 dimensions
         VolumeSendable::Vec4DF32(vec) => {
-            vec.space.dim.iter().take(3).map(|&d| d as usize).collect()
+            vec.space.dim.iter().take(3).copied().collect()
         }
         VolumeSendable::Vec4DI16(vec) => {
-            vec.space.dim.iter().take(3).map(|&d| d as usize).collect()
+            vec.space.dim.iter().take(3).copied().collect()
         }
-        VolumeSendable::Vec4DU8(vec) => vec.space.dim.iter().take(3).map(|&d| d as usize).collect(),
-        VolumeSendable::Vec4DI8(vec) => vec.space.dim.iter().take(3).map(|&d| d as usize).collect(),
+        VolumeSendable::Vec4DU8(vec) => vec.space.dim.iter().take(3).copied().collect(),
+        VolumeSendable::Vec4DI8(vec) => vec.space.dim.iter().take(3).copied().collect(),
         VolumeSendable::Vec4DU16(vec) => {
-            vec.space.dim.iter().take(3).map(|&d| d as usize).collect()
+            vec.space.dim.iter().take(3).copied().collect()
         }
         VolumeSendable::Vec4DI32(vec) => {
-            vec.space.dim.iter().take(3).map(|&d| d as usize).collect()
+            vec.space.dim.iter().take(3).copied().collect()
         }
         VolumeSendable::Vec4DU32(vec) => {
-            vec.space.dim.iter().take(3).map(|&d| d as usize).collect()
+            vec.space.dim.iter().take(3).copied().collect()
         }
         VolumeSendable::Vec4DF64(vec) => {
-            vec.space.dim.iter().take(3).map(|&d| d as usize).collect()
+            vec.space.dim.iter().take(3).copied().collect()
         }
     }
 }
@@ -768,28 +761,28 @@ fn extract_3d_volume_at_timepoint(
     match volume_4d {
         // For 3D volumes, just return as-is (ignore timepoint)
         VolumeSendable::VolF32(vol, affine) => {
-            Ok(VolumeSendable::VolF32(vol.clone(), affine.clone()))
+            Ok(VolumeSendable::VolF32(vol.clone(), *affine))
         }
         VolumeSendable::VolI16(vol, affine) => {
-            Ok(VolumeSendable::VolI16(vol.clone(), affine.clone()))
+            Ok(VolumeSendable::VolI16(vol.clone(), *affine))
         }
         VolumeSendable::VolU8(vol, affine) => {
-            Ok(VolumeSendable::VolU8(vol.clone(), affine.clone()))
+            Ok(VolumeSendable::VolU8(vol.clone(), *affine))
         }
         VolumeSendable::VolI8(vol, affine) => {
-            Ok(VolumeSendable::VolI8(vol.clone(), affine.clone()))
+            Ok(VolumeSendable::VolI8(vol.clone(), *affine))
         }
         VolumeSendable::VolU16(vol, affine) => {
-            Ok(VolumeSendable::VolU16(vol.clone(), affine.clone()))
+            Ok(VolumeSendable::VolU16(vol.clone(), *affine))
         }
         VolumeSendable::VolI32(vol, affine) => {
-            Ok(VolumeSendable::VolI32(vol.clone(), affine.clone()))
+            Ok(VolumeSendable::VolI32(vol.clone(), *affine))
         }
         VolumeSendable::VolU32(vol, affine) => {
-            Ok(VolumeSendable::VolU32(vol.clone(), affine.clone()))
+            Ok(VolumeSendable::VolU32(vol.clone(), *affine))
         }
         VolumeSendable::VolF64(vol, affine) => {
-            Ok(VolumeSendable::VolF64(vol.clone(), affine.clone()))
+            Ok(VolumeSendable::VolF64(vol.clone(), *affine))
         }
 
         // For 4D volumes, extract the requested timepoint
@@ -1076,6 +1069,12 @@ pub struct VolumeRegistry {
     volumes: HashMap<String, VolumeEntry>,
 }
 
+impl Default for VolumeRegistry {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl VolumeRegistry {
     pub fn new() -> Self {
         Self {
@@ -1206,6 +1205,12 @@ pub struct SurfaceMetadataInfo {
 pub struct SurfaceRegistry {
     surfaces: HashMap<String, SurfaceEntry>,
     surface_data: HashMap<String, Vec<f64>>,
+}
+
+impl Default for SurfaceRegistry {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl SurfaceRegistry {
@@ -4761,7 +4766,7 @@ pub async fn request_layer_gpu_resources_for_testing(
                 let layer_idx = render_service
                     .add_layer_3d(
                         atlas_layer_idx,
-                        volume_world_to_voxel.clone(),
+                        volume_world_to_voxel,
                         (vol_dims[0], vol_dims[1], vol_dims[2]),
                         1.0, // Initial opacity
                         colormap_id,
@@ -6671,7 +6676,7 @@ async fn sample_world_coordinate_impl(
     // Get the volume handle
     let registry = state.volume_registry.lock().await;
     let volume_data = registry
-        .get(&handle_id)
+        .get(handle_id)
         .ok_or_else(|| BridgeError::VolumeNotFound {
             code: 4001,
             details: format!("Volume handle {} not found", handle_id),
@@ -6691,7 +6696,7 @@ async fn sample_world_coordinate_impl(
     );
 
     // Get current timepoint for 4D volumes
-    let timepoint = registry.get_timepoint(&handle_id).unwrap_or(0);
+    let timepoint = registry.get_timepoint(handle_id).unwrap_or(0);
 
     // Check bounds and sample
     let value = match volume_data {
@@ -12741,7 +12746,7 @@ pub fn plugin<R: Runtime>() -> TauriPlugin<R> {
         .setup(|app, _| {
             // Initialize the bridge state
             let bridge_state = BridgeState::default()
-                .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+                .map_err(std::io::Error::other)?;
             app.manage(bridge_state);
             Ok(())
         })

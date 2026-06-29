@@ -5,7 +5,7 @@ use neuro_integration_tests::DifferentialTestHarness;
 use neuro_types::{ViewOrientation, ViewRectMm, VolumeMetadata};
 use nifti_loader::load_nifti_volume_auto;
 use render_loop::view_state::{
-    CameraState, InterpolationMode, LayerConfig, SliceOrientation, ViewId, ViewState,
+    CameraState, InterpolationMode, LayerConfig, SliceOrientation, ViewState,
 };
 use render_loop::{BlendMode, RenderLoopService};
 use std::path::Path;

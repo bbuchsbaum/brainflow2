@@ -1,9 +1,8 @@
-use image::{imageops, ImageBuffer, Rgba, RgbaImage};
+use image::{imageops, ImageBuffer, Rgba};
 use nifti_loader::load_nifti_volume_auto;
 use render_loop::RenderLoopService;
 use std::fs;
 use std::path::Path;
-use volmath::{space::GridSpace, Volume};
 
 #[tokio::test]
 async fn test_mni_brain_slices() {
@@ -124,7 +123,7 @@ async fn test_mni_brain_slices() {
 
     // Create output directory
     let output_dir = Path::new("target/test-output/mni_real");
-    fs::create_dir_all(&output_dir).expect("Failed to create output directory");
+    fs::create_dir_all(output_dir).expect("Failed to create output directory");
 
     // Extract axial slices
     println!("\nExtracting axial slices:");

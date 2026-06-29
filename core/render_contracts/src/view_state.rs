@@ -50,18 +50,15 @@ pub enum LayerMode {
 /// Interpolation modes for volume sampling.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, TS)]
 #[serde(rename_all = "lowercase")]
+#[derive(Default)]
 pub enum InterpolationMode {
     Nearest,
+    #[default]
     Linear,
     #[serde(rename = "cubic")]
     Cubic,
 }
 
-impl Default for InterpolationMode {
-    fn default() -> Self {
-        Self::Linear
-    }
-}
 
 /// Unique identifier for a view.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, TS)]
@@ -290,16 +287,13 @@ impl LayerConfig {
 /// How a frame request should handle GPU readback.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "snake_case")]
+#[derive(Default)]
 pub enum FrameReadbackMode {
+    #[default]
     Blocking,
     Skip,
 }
 
-impl Default for FrameReadbackMode {
-    fn default() -> Self {
-        Self::Blocking
-    }
-}
 
 /// Options controlling how request_frame completes after GPU submission.
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, TS)]

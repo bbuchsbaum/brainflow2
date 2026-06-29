@@ -2,7 +2,7 @@ use approx::assert_relative_eq;
 use nalgebra::Vector4;
 use render_loop::RenderLoopService;
 use volmath::space::NeuroSpaceImpl;
-use volmath::{DenseVolume3, NeuroSpace3, NeuroSpaceExt};
+use volmath::{DenseVolume3, NeuroSpaceExt};
 
 /// Helper to create a test volume with known values
 fn create_test_volume() -> (DenseVolume3<f32>, NeuroSpaceImpl) {

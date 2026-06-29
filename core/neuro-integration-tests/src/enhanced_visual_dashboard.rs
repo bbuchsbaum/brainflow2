@@ -3,10 +3,8 @@
 use crate::ellipsoid_visualizer::EllipsoidVisualizer;
 use crate::simple_visual_dashboard::SimpleTestResult;
 use anyhow::Result;
-use nalgebra::{Point3, Rotation3, Vector3};
-use neuro_types::{OrientedEllipsoid, OverlapMetrics};
+use neuro_types::OrientedEllipsoid;
 use std::fs;
-use std::path::Path;
 
 /// Enhanced dashboard with ellipsoid visualizations
 pub struct EnhancedVisualDashboard {

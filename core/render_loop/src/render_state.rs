@@ -163,6 +163,12 @@ impl Default for RenderPassConfig {
     }
 }
 
+impl Default for RenderPassManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl RenderPassManager {
     pub fn new() -> Self {
         let mut pass_configs = HashMap::new();

@@ -218,7 +218,7 @@ mod multi_volume_overlay_tests {
         };
 
         let slice_spec = SliceIndex::WorldCoordinate(world_coord);
-        calculate_slice_index(&slice_spec, &dims, axis, volume).unwrap()
+        calculate_slice_index(&slice_spec, dims, axis, volume).unwrap()
     }
 
     fn world_to_voxel_safe(volume: &VolumeSendable, world_point: [f32; 3]) -> Option<[usize; 3]> {

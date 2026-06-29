@@ -93,9 +93,11 @@ impl LayerVisual {
 
 /// Blend mode for layer compositing
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Default)]
 pub enum BlendMode {
     /// Standard alpha blending (back-to-front)
     /// result = dst + src * (1 - dst.alpha)
+    #[default]
     Normal,
 
     /// Additive blending for overlays
@@ -107,11 +109,6 @@ pub enum BlendMode {
     Multiply,
 }
 
-impl Default for BlendMode {
-    fn default() -> Self {
-        Self::Normal
-    }
-}
 
 #[cfg(test)]
 mod tests {

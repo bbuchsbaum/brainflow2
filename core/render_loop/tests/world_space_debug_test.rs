@@ -1,6 +1,5 @@
 // Debug test for world-space rendering
 
-use pollster;
 use render_loop::test_fixtures::TestVolumeSet;
 use render_loop::{BlendMode, LayerInfo, RenderLoopService, ThresholdMode};
 use volmath::NeuroSpaceExt;
@@ -175,7 +174,7 @@ fn test_world_space_coordinate_mapping() {
 
         // Create volume with identity transform (1mm voxels)
         use nalgebra::Matrix4;
-        use volmath::space::{NeuroSpace3, NeuroSpaceImpl};
+        use volmath::space::NeuroSpace3;
         let space_impl =
             <volmath::NeuroSpace as NeuroSpaceExt>::from_affine_matrix4(dims, Matrix4::identity());
         let space = NeuroSpace3::new(space_impl);

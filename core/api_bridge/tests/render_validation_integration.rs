@@ -64,7 +64,7 @@ mod render_validation_tests {
 
     #[test]
     fn validate_slice_indices() {
-        use api_bridge::{SliceAxis, SliceIndex};
+        use api_bridge::SliceAxis;
 
         // Test volume dimensions
         let dims = [100, 120, 80];

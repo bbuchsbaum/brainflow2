@@ -468,11 +468,11 @@ impl TemplateService {
         let mut file_count = 0;
 
         if self.cache_dir.exists() {
-            let mut entries = fs::read_dir(&self.cache_dir).map_err(|e| {
+            let entries = fs::read_dir(&self.cache_dir).map_err(|e| {
                 TemplateError::IoError(format!("Failed to read cache directory: {}", e))
             })?;
 
-            while let Some(entry) = entries.next() {
+            for entry in entries {
                 let entry = entry.map_err(|e| {
                     TemplateError::IoError(format!("Failed to read directory entry: {}", e))
                 })?;

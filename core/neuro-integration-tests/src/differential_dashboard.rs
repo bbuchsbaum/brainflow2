@@ -6,9 +6,8 @@
 use crate::differential_harness::{DifferentialTestHarness, DifferentialTestResult};
 use anyhow::Result;
 use image::{ImageBuffer, Rgba, RgbaImage as ImageRgbaImage};
-use neuro_types::{OrientedEllipsoid, RgbaImage, SliceSpec};
+use neuro_types::RgbaImage;
 use std::fs;
-use std::path::Path;
 
 /// Differential testing dashboard with CPU vs GPU visualization
 pub struct DifferentialDashboard {
@@ -27,8 +26,8 @@ impl DifferentialDashboard {
     ) -> Result<String> {
         // Create output directory structure
         fs::create_dir_all(&self.output_dir)?;
-        fs::create_dir_all(&format!("{}/images", self.output_dir))?;
-        fs::create_dir_all(&format!("{}/difference_maps", self.output_dir))?;
+        fs::create_dir_all(format!("{}/images", self.output_dir))?;
+        fs::create_dir_all(format!("{}/difference_maps", self.output_dir))?;
 
         // Generate difference maps for each test
         let mut image_paths = Vec::new();
@@ -101,7 +100,7 @@ impl DifferentialDashboard {
                     (256, 216)
                 } else {
                     // Default to square approximation if unsure
-                    let size = ((total_pixels as f64).sqrt() as u32);
+                    let size = (total_pixels as f64).sqrt() as u32;
                     (size, size)
                 }
             }
@@ -117,7 +116,7 @@ impl DifferentialDashboard {
                     // Try to find dimensions that multiply to total_pixels
                     // This is a fallback - ideally dimensions should be passed explicitly
                     for width in 1..=512 {
-                        if total_pixels % width == 0 {
+                        if total_pixels.is_multiple_of(width) {
                             let height = total_pixels / width;
                             if height <= 512 {
                                 return self.save_with_dimensions(
@@ -130,7 +129,7 @@ impl DifferentialDashboard {
                         }
                     }
                     // Last resort: use square approximation
-                    let size = ((total_pixels as f64).sqrt() as u32);
+                    let size = (total_pixels as f64).sqrt() as u32;
                     (size, size)
                 }
             }
@@ -189,14 +188,14 @@ impl DifferentialDashboard {
                     (256, 216)
                 } else {
                     // Default to square approximation if unsure
-                    let size = ((total_pixels as f64).sqrt() as u32);
+                    let size = (total_pixels as f64).sqrt() as u32;
                     (size, size)
                 }
             }
             65536 => (256, 256), // Coronal is square
             _ => {
                 // For other sizes, assume square
-                let size = ((total_pixels as f64).sqrt() as u32);
+                let size = (total_pixels as f64).sqrt() as u32;
                 (size, size)
             }
         };
@@ -219,10 +218,10 @@ impl DifferentialDashboard {
             ];
 
             // Calculate per-channel differences
-            let r_diff = (cpu_pixel[0] as i16 - gpu_pixel[0] as i16).abs() as u8;
-            let g_diff = (cpu_pixel[1] as i16 - gpu_pixel[1] as i16).abs() as u8;
-            let b_diff = (cpu_pixel[2] as i16 - gpu_pixel[2] as i16).abs() as u8;
-            let a_diff = (cpu_pixel[3] as i16 - gpu_pixel[3] as i16).abs() as u8;
+            let r_diff = (cpu_pixel[0] as i16 - gpu_pixel[0] as i16).unsigned_abs() as u8;
+            let g_diff = (cpu_pixel[1] as i16 - gpu_pixel[1] as i16).unsigned_abs() as u8;
+            let b_diff = (cpu_pixel[2] as i16 - gpu_pixel[2] as i16).unsigned_abs() as u8;
+            let a_diff = (cpu_pixel[3] as i16 - gpu_pixel[3] as i16).unsigned_abs() as u8;
 
             // Calculate magnitude of difference
             let magnitude = ((r_diff as f64).powi(2)

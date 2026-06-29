@@ -3,8 +3,6 @@ use pollster::block_on;
 use rand::Rng;
 // Adjust imports based on actual module structure in render_loop
 // Example: assuming TextureAtlas is directly under render_loop
-use render_loop::TextureAtlas;
-use std::num::NonZeroU64;
 use wgpu::util::DeviceExt;
 use wgpu::*;
 

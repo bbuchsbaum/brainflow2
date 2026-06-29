@@ -77,6 +77,12 @@ pub struct PipelineManager {
     default_configs: HashMap<String, PipelineConfig>,
 }
 
+impl Default for PipelineManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl PipelineManager {
     pub fn new() -> Self {
         let mut default_configs = HashMap::new();

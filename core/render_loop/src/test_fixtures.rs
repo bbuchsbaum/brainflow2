@@ -220,7 +220,7 @@ pub fn create_test_pattern_volume() -> DenseVolume3<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use volmath::space::GridSpace;
+    
 
     #[test]
     fn test_volume_creation() {

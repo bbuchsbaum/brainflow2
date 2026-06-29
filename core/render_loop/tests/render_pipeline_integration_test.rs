@@ -4,8 +4,6 @@ use nalgebra::{Matrix4, Vector3};
 use render_loop::{
     BlendMode, FrameTimeTracker, FrameUbo, LayerInfo, RenderLoopService, ThresholdMode,
 };
-use std::collections::HashSet;
-use volmath::traits::Volume;
 use volmath::{DenseVolume3, NeuroSpaceExt};
 
 /// Helper to create FrameUbo
@@ -23,7 +21,7 @@ fn create_frame_ubo(origin: [f32; 4], u: [f32; 4], v: [f32; 4], target_size: [u3
 
 /// Create a small test volume with known pattern
 fn create_test_pattern_volume() -> DenseVolume3<f32> {
-    use volmath::space::{NeuroSpace3, NeuroSpaceImpl};
+    use volmath::space::NeuroSpace3;
 
     // 8x8x8 volume with diagonal gradient
     let dims = [8, 8, 8];
@@ -50,7 +48,7 @@ fn create_test_pattern_volume() -> DenseVolume3<f32> {
 
 /// Create a sphere mask volume
 fn create_sphere_mask_volume() -> DenseVolume3<f32> {
-    use volmath::space::{NeuroSpace3, NeuroSpaceImpl};
+    use volmath::space::NeuroSpace3;
 
     let dims = [8, 8, 8];
     let mut data = vec![0.0f32; dims[0] * dims[1] * dims[2]];
@@ -461,7 +459,7 @@ fn test_render_different_orientations() {
             .expect("Failed to create offscreen target");
 
         // Create asymmetric volume to verify orientations
-        use volmath::space::{NeuroSpace3, NeuroSpaceImpl};
+        use volmath::space::NeuroSpace3;
         let dims = [8, 6, 4];
         let mut data = vec![0.0f32; dims[0] * dims[1] * dims[2]];
 
@@ -976,7 +974,7 @@ fn test_render_world_coordinate_consistency() {
             .expect("Failed to create offscreen target");
 
         // Create volume with single bright voxel
-        use volmath::space::{NeuroSpace3, NeuroSpaceImpl};
+        use volmath::space::NeuroSpace3;
         let dims = [10, 10, 10];
         let mut data = vec![0.0f32; dims[0] * dims[1] * dims[2]];
 

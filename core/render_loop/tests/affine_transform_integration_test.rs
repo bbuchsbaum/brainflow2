@@ -1,5 +1,4 @@
 use nalgebra::Matrix4;
-use render_loop::render_state::{BlendMode, LayerInfo, ThresholdMode};
 use render_loop::RenderLoopService;
 use volmath::dense_vol::DenseVolume3;
 use volmath::space::{NeuroSpace3, NeuroSpaceImpl};
@@ -32,7 +31,7 @@ async fn test_affine_transform_in_layer_ubo() -> Result<(), Box<dyn std::error::
     affine[(1, 3)] = 20.0;
     affine[(2, 3)] = 30.0;
 
-    let space = NeuroSpaceImpl::from_affine_matrix4(dims, affine.clone())
+    let space = NeuroSpaceImpl::from_affine_matrix4(dims, affine)
         .expect("create transformed volume space");
     let neuro_space = NeuroSpace3::new(space);
     let volume = DenseVolume3::<f32>::from_data(neuro_space, data);
@@ -113,7 +112,7 @@ async fn test_volume_space_transforms() -> Result<(), Box<dyn std::error::Error>
     affine[(1, 3)] = 50.0;
     affine[(2, 3)] = 75.0;
 
-    let space = NeuroSpaceImpl::from_affine_matrix4(dims, affine.clone())
+    let space = NeuroSpaceImpl::from_affine_matrix4(dims, affine)
         .expect("create transformed volume space");
 
     // Test that we can retrieve the transforms

@@ -1,11 +1,8 @@
 #[cfg(test)]
 mod tests {
     use nalgebra::Matrix4;
-    use pollster;
-    use render_loop::{
-        render_state::{BlendMode, LayerInfo, ThresholdMode},
-        RenderLoopService,
-    };
+    
+    use render_loop::render_state::{BlendMode, LayerInfo, ThresholdMode};
 
     #[test]
     fn test_absolute_value_thresholding_support() {

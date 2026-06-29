@@ -1,14 +1,11 @@
 use api_bridge::{BridgeState, SurfaceRegistry};
 use atlases::AtlasService;
-use log::{error, info};
-use nifti_loader::NiftiLoader;
-use raw_window_handle::{HasDisplayHandle, HasWindowHandle};
 use render_loop::RenderLoopService;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
-use tauri::{Manager, Runtime, State};
+use tauri::{Manager, State};
 use templates::TemplateService;
 use tokio::sync::Mutex as TokioMutex;
 // --- Add tracing imports ---

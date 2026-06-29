@@ -3,11 +3,9 @@
 //! This module generates PNG images of ellipsoid slices for visual debugging
 
 use anyhow::Result;
-use image::{ImageBuffer, Rgb, RgbImage};
-use nalgebra::{Matrix4, Point3, Rotation3, Vector3};
+use image::{Rgb, RgbImage};
+use nalgebra::Matrix4;
 use neuro_types::{OrientedEllipsoid, VolumeRasterizer};
-use std::fs;
-use std::path::Path;
 
 /// Generates slice images for ellipsoid visualization
 pub struct EllipsoidVisualizer {

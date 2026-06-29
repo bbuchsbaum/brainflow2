@@ -2,7 +2,7 @@
 //! This will be compared against the declarative API implementation
 
 use nifti_loader::load_nifti_volume_auto;
-use render_loop::{BlendMode, RenderLoopService};
+use render_loop::RenderLoopService;
 use std::fs;
 use std::path::Path;
 

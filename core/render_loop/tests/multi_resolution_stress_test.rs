@@ -4,9 +4,9 @@
 mod tests {
     use nalgebra::Matrix4;
     use render_loop::render_state::{BlendMode, LayerInfo, ThresholdMode};
-    use render_loop::{test_fixtures, RenderLoopService};
+    use render_loop::RenderLoopService;
     use volmath::{
-        space::{NeuroSpace3, NeuroSpaceImpl},
+        space::NeuroSpace3,
         DenseVolume3, NeuroSpaceExt,
     };
 
@@ -85,7 +85,7 @@ mod tests {
                 let volume = create_test_volume(*dims, *spacing);
                 let (idx, tfm) = service
                     .upload_volume_smart(&volume, None)
-                    .expect(&format!("Failed to upload volume {}", i));
+                    .unwrap_or_else(|_| panic!("Failed to upload volume {}", i));
                 volume_indices.push(idx);
                 transforms.push(tfm);
                 dimensions.push((dims[0] as u32, dims[1] as u32, dims[2] as u32));

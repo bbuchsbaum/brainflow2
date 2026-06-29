@@ -299,7 +299,7 @@ mod tests {
         );
 
         let actions = error.suggested_actions();
-        assert!(actions.len() > 0);
+        assert!(!actions.is_empty());
         assert!(actions[0].contains("Check"));
     }
 

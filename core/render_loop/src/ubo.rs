@@ -51,6 +51,7 @@ impl Default for CrosshairUbo {
 // ViewPlane uniform buffer object - needs 16-byte minimum size
 #[repr(C)]
 #[derive(Debug, Copy, Clone, Pod, Zeroable)]
+#[derive(Default)]
 pub struct ViewPlaneUbo {
     /// 0=Axial, 1=Coronal, 2=Sagittal
     pub plane_id: u32,
@@ -58,14 +59,6 @@ pub struct ViewPlaneUbo {
     pub _padding: [u32; 3],
 }
 
-impl Default for ViewPlaneUbo {
-    fn default() -> Self {
-        Self {
-            plane_id: 0, // Default to Axial
-            _padding: [0; 3],
-        }
-    }
-}
 
 // Verify this matches the WGSL definition (80 bytes total assumed).
 #[repr(C)]

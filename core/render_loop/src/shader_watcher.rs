@@ -54,7 +54,7 @@ impl ShaderWatcher {
                 if let Ok(entries) = std::fs::read_dir(&shader_dir) {
                     for entry in entries.flatten() {
                         let path = entry.path();
-                        if path.extension().map_or(false, |ext| ext == "wgsl") {
+                        if path.extension().is_some_and(|ext| ext == "wgsl") {
                             if let Ok(metadata) = std::fs::metadata(&path) {
                                 if let Ok(modified) = metadata.modified() {
                                     let should_notify = match last_modified.get(&path) {
@@ -102,14 +102,12 @@ impl ShaderWatcher {
         let entries = std::fs::read_dir(&self.shader_dir)
             .map_err(|e| format!("Failed to read shader directory: {}", e))?;
 
-        for entry in entries {
-            if let Ok(entry) = entry {
-                let path = entry.path();
-                if path.extension().map_or(false, |ext| ext == "wgsl") {
-                    if let Ok(metadata) = std::fs::metadata(&path) {
-                        if let Ok(modified) = metadata.modified() {
-                            self.last_modified.insert(path, modified);
-                        }
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.extension().is_some_and(|ext| ext == "wgsl") {
+                if let Ok(metadata) = std::fs::metadata(&path) {
+                    if let Ok(modified) = metadata.modified() {
+                        self.last_modified.insert(path, modified);
                     }
                 }
             }

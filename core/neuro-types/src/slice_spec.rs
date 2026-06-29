@@ -133,25 +133,24 @@ impl SliceSpec {
 
 /// Interpolation method for sampling voxel values
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Default)]
 pub enum InterpolationMethod {
     /// Nearest neighbor - fastest, blocky
     Nearest,
     /// Trilinear interpolation - smooth, standard
+    #[default]
     Linear,
     /// Cubic interpolation - smoothest, slowest
     Cubic,
 }
 
-impl Default for InterpolationMethod {
-    fn default() -> Self {
-        Self::Linear
-    }
-}
 
 /// How to handle sampling outside the volume bounds
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Default)]
 pub enum BorderMode {
     /// Return transparent (alpha=0) outside bounds
+    #[default]
     Transparent,
     /// Clamp coordinates to volume edge
     Clamp,
@@ -159,11 +158,6 @@ pub enum BorderMode {
     Constant(u8),
 }
 
-impl Default for BorderMode {
-    fn default() -> Self {
-        Self::Transparent
-    }
-}
 
 #[cfg(test)]
 mod tests {

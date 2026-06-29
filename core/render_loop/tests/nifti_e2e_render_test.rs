@@ -128,7 +128,7 @@ async fn test_nifti_render_to_png() {
 
     // Save as PNG
     let output_dir = Path::new("target/test-output");
-    fs::create_dir_all(&output_dir).expect("Failed to create output directory");
+    fs::create_dir_all(output_dir).expect("Failed to create output directory");
 
     let output_path = output_dir.join("nifti_axial_e2e.png");
     save_rgba_as_png(&rgba_data, render_size, render_size, &output_path)
@@ -258,7 +258,7 @@ async fn test_synthetic_volume_render_to_png() {
 
     // Save as PNG
     let output_dir = Path::new("target/test-output");
-    fs::create_dir_all(&output_dir).expect("Failed to create output directory");
+    fs::create_dir_all(output_dir).expect("Failed to create output directory");
 
     let output_path = output_dir.join("synthetic_sphere_axial.png");
     save_rgba_as_png(&rgba_data, render_size, render_size, &output_path)

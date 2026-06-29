@@ -1,6 +1,5 @@
 // Test actual rendering with world-space multi-texture pipeline
 
-use pollster;
 use render_loop::test_fixtures::TestVolumeSet;
 use render_loop::{BlendMode, LayerInfo, RenderLoopService, ThresholdMode};
 

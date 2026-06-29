@@ -2,7 +2,7 @@
 
 use nalgebra::Matrix4;
 use render_loop::test_fixtures::create_test_pattern_volume;
-use volmath::{space::GridSpace, DenseVolume3, NeuroSpaceExt};
+use volmath::{DenseVolume3, NeuroSpaceExt};
 
 /// Test that we can create and validate test volumes
 #[test]
@@ -106,7 +106,7 @@ fn create_simple_anatomical() -> DenseVolume3<u8> {
         }
     }
 
-    use volmath::space::{NeuroSpace3, NeuroSpaceImpl};
+    use volmath::space::NeuroSpace3;
     let space_impl =
         <volmath::NeuroSpace as NeuroSpaceExt>::from_affine_matrix4(dims, Matrix4::identity());
     let space = NeuroSpace3::new(space_impl);

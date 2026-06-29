@@ -119,7 +119,7 @@ impl DifferentialTester {
             )));
         }
 
-        if output1.len() % 4 != 0 {
+        if !output1.len().is_multiple_of(4) {
             return Err(crate::Error::TestError(format!(
                 "Invalid RGBA data length: {}",
                 output1.len()
@@ -148,7 +148,7 @@ impl DifferentialTester {
                 let v1 = pixel1[c];
                 let v2 = pixel2[c];
 
-                let abs_diff = (v1 as i16 - v2 as i16).abs() as u8;
+                let abs_diff = (v1 as i16 - v2 as i16).unsigned_abs() as u8;
                 abs_diffs.push(abs_diff as f32);
                 pixel_max_abs = pixel_max_abs.max(abs_diff);
 

@@ -1,6 +1,6 @@
 use approx::assert_abs_diff_eq;
 use nalgebra::Vector4;
-use volmath::space::{GridSpace, NeuroSpaceImpl};
+use volmath::space::NeuroSpaceImpl;
 use volmath::NeuroSpaceExt;
 
 /// Convert voxel coordinates to normalized texture coordinates (UVW)

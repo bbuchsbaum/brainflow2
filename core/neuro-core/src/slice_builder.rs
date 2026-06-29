@@ -23,22 +23,19 @@ pub struct SliceBuilder {
 
 /// Strategy for determining pixel size
 #[derive(Debug, Clone, Copy)]
+#[derive(Default)]
 pub enum PixelStrategy {
     /// Use the smallest voxel spacing among all volumes (highest quality)
     MinLayerVox,
     /// Use the largest voxel spacing among all volumes (best performance)
     MaxLayerVox,
     /// Optimize for screen display
+    #[default]
     ScreenOptimal,
     /// Explicitly set the pixel size in mm
     Explicit(f32),
 }
 
-impl Default for PixelStrategy {
-    fn default() -> Self {
-        Self::ScreenOptimal
-    }
-}
 
 impl SliceBuilder {
     /// Create a new slice builder with the given center, normal, and up direction

@@ -125,7 +125,7 @@ async fn test_multiple_simultaneous_volumes() {
         let volume = create_test_volume(32 + i * 8, 100.0 + i as f32 * 50.0);
         let (texture_idx, _) = service
             .upload_volume_3d(&volume)
-            .expect(&format!("Failed to upload volume {}", i));
+            .unwrap_or_else(|_| panic!("Failed to upload volume {}", i));
 
         volumes.push((texture_idx, volume));
         println!("Uploaded volume {} with texture_idx {}", i, texture_idx);
@@ -144,7 +144,7 @@ async fn test_multiple_simultaneous_volumes() {
         let opacity = 1.0 / (i + 1) as f32;
         service
             .add_render_layer(*texture_idx, opacity, (0.0, 0.0, 1.0, 1.0))
-            .expect(&format!("Failed to add layer {}", i));
+            .unwrap_or_else(|_| panic!("Failed to add layer {}", i));
     }
 
     // Render composite

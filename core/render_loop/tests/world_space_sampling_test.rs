@@ -1,7 +1,6 @@
 // Test world-space sampling shader implementation
 
 use nalgebra::Point3;
-use pollster;
 use render_loop::multi_texture_manager::MultiTextureManager;
 use render_loop::test_fixtures::TestVolumeSet;
 use render_loop::transform_validator::TransformValidator;
@@ -170,7 +169,7 @@ fn test_world_space_shader_compilation() {
 /// Test layer data structure for world-space rendering
 #[test]
 fn test_layer_data_structure() {
-    use nalgebra::Matrix4;
+    
     use render_loop::layer_storage::LayerStorageManager;
     use render_loop::render_state::{BlendMode, LayerInfo, ThresholdMode};
 

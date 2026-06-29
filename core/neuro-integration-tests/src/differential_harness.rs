@@ -111,6 +111,12 @@ pub struct DifferentialTestHarness {
     pub difference_percentage_threshold: f64,
 }
 
+impl Default for DifferentialTestHarness {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl DifferentialTestHarness {
     /// Create a new differential test harness
     pub fn new() -> Self {
@@ -509,7 +515,7 @@ impl DifferentialTestHarness {
 
             let mut pixel_differs = false;
             for j in 0..4 {
-                let diff = (cpu_pixel[j] as i16 - gpu_pixel[j] as i16).abs() as u8;
+                let diff = (cpu_pixel[j] as i16 - gpu_pixel[j] as i16).unsigned_abs() as u8;
                 max_absolute_difference = max_absolute_difference.max(diff);
 
                 if diff > 1 {
@@ -739,7 +745,7 @@ impl DifferentialTestHarness {
         let failed_tests = total_tests - passed_tests;
 
         let mut report = String::new();
-        report.push_str(&format!("=== Differential Testing Report ===\n"));
+        report.push_str("=== Differential Testing Report ===\n");
         report.push_str(&format!("Total tests: {}\n", total_tests));
         report.push_str(&format!(
             "Passed: {} ({:.1}%)\n",
@@ -751,7 +757,7 @@ impl DifferentialTestHarness {
             failed_tests,
             (failed_tests as f64 / total_tests as f64) * 100.0
         ));
-        report.push_str("\n");
+        report.push('\n');
 
         for result in results {
             let status = if result.passed { "PASS" } else { "FAIL" };
@@ -776,7 +782,7 @@ impl DifferentialTestHarness {
                 result.metrics.max_absolute_error,
                 result.metrics.difference_percentage
             ));
-            report.push_str("\n");
+            report.push('\n');
         }
 
         report

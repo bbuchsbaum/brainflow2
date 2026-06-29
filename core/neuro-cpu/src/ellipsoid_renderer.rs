@@ -3,7 +3,7 @@
 //! Provides a reference implementation that matches the GPU rendering approach
 
 use crate::blending;
-use colormap::{colormap_by_name, BuiltinColormap};
+use colormap::BuiltinColormap;
 use nalgebra::{Matrix4, Point3};
 use neuro_types::{OrientedEllipsoid, Result as NeuroResult, RgbaImage};
 
@@ -11,6 +11,12 @@ use neuro_types::{OrientedEllipsoid, Result as NeuroResult, RgbaImage};
 pub struct CpuEllipsoidRenderer {
     /// Background color (RGBA)
     background: [u8; 4],
+}
+
+impl Default for CpuEllipsoidRenderer {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl CpuEllipsoidRenderer {

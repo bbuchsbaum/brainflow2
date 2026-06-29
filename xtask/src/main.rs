@@ -27,8 +27,8 @@ fn main() -> Result<()> {
 
 /// The root of the repository
 fn project_root() -> PathBuf {
-    let current_dir = std::env::current_dir().expect("Failed to get current directory");
-    current_dir
+    
+    std::env::current_dir().expect("Failed to get current directory")
 }
 
 /// Runs a command and ensures it was successful
@@ -68,7 +68,7 @@ fn generate_ts_bindings() -> Result<()> {
         println!("Building export binary for {}...", crate_name);
         let mut build_cmd = Command::new("cargo");
         build_cmd
-            .current_dir(&project_root())
+            .current_dir(project_root())
             .env("TS_RS_EXPORT_DIR", &output_dir)
             .args(["build", "--package", crate_name, "--bin", "export_types"]);
 
@@ -81,7 +81,7 @@ fn generate_ts_bindings() -> Result<()> {
         println!("Running export binary for {}...", crate_name);
         let mut run_cmd = Command::new("cargo");
         run_cmd
-            .current_dir(&project_root())
+            .current_dir(project_root())
             .env("TS_RS_EXPORT_DIR", &output_dir)
             .args(["run", "--package", crate_name, "--bin", "export_types"]);
 

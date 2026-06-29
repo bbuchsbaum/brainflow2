@@ -3,8 +3,8 @@
 //! These tests demonstrate the differential testing framework comparing
 //! CPU and GPU ellipsoid rendering implementations.
 
-use nalgebra::{Point3, Rotation3, Vector3};
-use neuro_integration_tests::{DifferentialTestHarness, DifferentialTestResult};
+use nalgebra::{Point3, Vector3};
+use neuro_integration_tests::DifferentialTestHarness;
 use neuro_types::{OrientedEllipsoid, SliceSpec};
 
 #[tokio::test]

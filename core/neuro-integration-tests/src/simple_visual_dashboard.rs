@@ -3,10 +3,8 @@
 //! This provides a basic HTML dashboard to visualize ellipsoid test results
 
 use anyhow::Result;
-use nalgebra::{Point3, Rotation3, Vector3};
-use neuro_types::{OrientedEllipsoid, OverlapMetrics};
+use neuro_types::OverlapMetrics;
 use std::fs;
-use std::path::Path;
 
 /// Simple visual dashboard generator
 pub struct SimpleVisualDashboard {

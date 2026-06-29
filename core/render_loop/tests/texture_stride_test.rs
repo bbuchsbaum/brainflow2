@@ -1,6 +1,5 @@
 use nalgebra::Vector4;
 use render_loop::RenderLoopService;
-use volmath::space::{GridSpace, NeuroSpaceImpl};
 use volmath::{DenseVolume3, NeuroSpace3, NeuroSpaceExt};
 use wgpu::COPY_BYTES_PER_ROW_ALIGNMENT;
 
@@ -51,8 +50,7 @@ async fn texture_upload_stride_10x10x10() {
 
     let bytes_per_pixel = 2; // R16Float
     let unpadded_row_pitch = dims[0] * bytes_per_pixel;
-    let padded_row_pitch = ((unpadded_row_pitch + COPY_BYTES_PER_ROW_ALIGNMENT as usize - 1)
-        / COPY_BYTES_PER_ROW_ALIGNMENT as usize)
+    let padded_row_pitch = unpadded_row_pitch.div_ceil(COPY_BYTES_PER_ROW_ALIGNMENT as usize)
         * COPY_BYTES_PER_ROW_ALIGNMENT as usize;
 
     assert_eq!(padded_row_pitch, 256, "Expected 256-byte aligned row pitch");
@@ -132,8 +130,7 @@ async fn texture_upload_various_dimensions() {
         // Verify stride calculations
         let bytes_per_pixel = 2; // R16Float
         let unpadded_row_pitch = dims[0] * bytes_per_pixel;
-        let padded_row_pitch = ((unpadded_row_pitch + COPY_BYTES_PER_ROW_ALIGNMENT as usize - 1)
-            / COPY_BYTES_PER_ROW_ALIGNMENT as usize)
+        let padded_row_pitch = unpadded_row_pitch.div_ceil(COPY_BYTES_PER_ROW_ALIGNMENT as usize)
             * COPY_BYTES_PER_ROW_ALIGNMENT as usize;
 
         // Padded pitch must be at least the unpadded size

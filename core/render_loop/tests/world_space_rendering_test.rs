@@ -1,6 +1,5 @@
 // Test complete world-space rendering workflow
 
-use pollster;
 use render_loop::test_fixtures::TestVolumeSet;
 use render_loop::{BlendMode, LayerInfo, RenderLoopService, ThresholdMode};
 

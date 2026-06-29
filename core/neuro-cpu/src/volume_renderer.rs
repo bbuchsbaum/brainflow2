@@ -171,7 +171,7 @@ impl Default for CpuVolumeRenderer {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nalgebra::Vector3;
+    
     use volmath::{NeuroSpace, NeuroSpaceExt};
 
     #[test]

@@ -74,7 +74,7 @@ fn test_standard_colormaps() {
 #[test]
 fn test_volume_atlas_integration() {
     // Create the render loop service
-    let mut service = RenderLoopService::new()
+    let service = RenderLoopService::new()
         .block_on()
         .expect("Failed to create RenderLoopService");
 

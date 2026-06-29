@@ -3,7 +3,7 @@
 #[cfg(test)]
 mod tests {
     use approx::assert_abs_diff_eq;
-    use nalgebra::{Matrix4, Vector3};
+    use nalgebra::Vector3;
     use render_loop::render_state::{BlendMode, LayerInfo, ThresholdMode};
     use render_loop::{test_fixtures, RenderLoopService};
 

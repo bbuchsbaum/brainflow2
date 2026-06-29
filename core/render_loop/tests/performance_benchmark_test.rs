@@ -3,11 +3,11 @@
 
 use nalgebra::{Matrix4, Vector3};
 use render_loop::{
-    BlendMode, LayerInfo, OptimizedRenderer, PerformanceMonitor, RenderLoopError,
+    BlendMode, LayerInfo, OptimizedRenderer, PerformanceMonitor,
     RenderLoopService, ThresholdMode,
 };
 use std::time::Instant;
-use volmath::{space::GridSpace, traits::Volume, DenseVolume3, NeuroSpaceExt};
+use volmath::{DenseVolume3, NeuroSpaceExt};
 
 /// Performance test results
 #[derive(Debug)]
@@ -36,7 +36,7 @@ impl BenchmarkResults {
 
 /// Create test volumes with varying resolutions
 fn create_benchmark_volumes() -> Vec<DenseVolume3<f32>> {
-    use volmath::space::{NeuroSpace3, NeuroSpaceImpl};
+    use volmath::space::NeuroSpace3;
 
     let mut volumes = Vec::new();
 
@@ -203,7 +203,7 @@ async fn benchmark_shader_performance(
         let start = Instant::now();
 
         // Render frame
-        let mut encoder = service
+        let encoder = service
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
                 label: Some("Benchmark Encoder"),
@@ -236,8 +236,8 @@ async fn benchmark_shader_performance(
 
     // Benchmark optimized shader
     println!("\nBenchmarking optimized shader...");
-    let mut optimized_monitor = PerformanceMonitor::new(100);
-    let mut optimized_times = Vec::new();
+    let optimized_monitor = PerformanceMonitor::new(100);
+    let optimized_times = Vec::new();
 
     optimized_renderer.update_layers(
         &service.device,
@@ -258,7 +258,7 @@ async fn benchmark_shader_performance(
         let start = Instant::now();
 
         // Render frame with optimized renderer
-        let mut encoder = service
+        let encoder = service
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
                 label: Some("Optimized Benchmark Encoder"),
@@ -509,7 +509,7 @@ fn test_memory_bandwidth_optimization() {
 
         // Create volumes with different sampling patterns
         let volumes = {
-            use volmath::space::{NeuroSpace3, NeuroSpaceImpl};
+            use volmath::space::NeuroSpace3;
             let dims = [256, 256, 256];
 
             vec![
@@ -557,9 +557,9 @@ fn test_memory_bandwidth_optimization() {
         let (orig_smooth, opt_smooth) = benchmark_shader_performance(
             &mut service,
             &mut optimized_renderer,
-            &vec![volumes[0].clone()],
+            &[volumes[0].clone()],
             300,
-            &vec![(1.0, BlendMode::Normal, 0)],
+            &[(1.0, BlendMode::Normal, 0)],
         )
         .await;
 
@@ -567,9 +567,9 @@ fn test_memory_bandwidth_optimization() {
         let (orig_check, opt_check) = benchmark_shader_performance(
             &mut service,
             &mut optimized_renderer,
-            &vec![volumes[1].clone()],
+            &[volumes[1].clone()],
             300,
-            &vec![(1.0, BlendMode::Normal, 0)],
+            &[(1.0, BlendMode::Normal, 0)],
         )
         .await;
 

@@ -1,8 +1,5 @@
 use nalgebra::Matrix4;
-use pollster;
-use render_loop::render_state::{BlendMode, LayerInfo, ThresholdMode};
 use render_loop::{FrameUbo, RenderLoopService};
-use volmath::NeuroSpaceExt;
 
 #[test]
 #[ignore = "Test needs rewrite - uses obsolete API methods"]
@@ -34,7 +31,7 @@ fn test_debug_shader_world_coordinate_variation() {
 
     service.update_frame_ubo(frame_ubo.origin_mm, frame_ubo.u_mm, frame_ubo.v_mm);
     // Crosshair position is now handled differently
-    service.update_crosshair_position([0.0, 0.0, 0.0].into(), true);
+    service.update_crosshair_position([0.0, 0.0, 0.0], true);
 
     // Create a simple volume
     use volmath::{space::NeuroSpace3, DenseVolume3, NeuroSpaceExt};
@@ -203,7 +200,7 @@ fn test_debug2_shader_voxel_bounds() {
     // View plane is determined by the orientation of u_mm and v_mm vectors
 
     render_loop.update_frame_ubo(frame_ubo.origin_mm, frame_ubo.u_mm, frame_ubo.v_mm);
-    render_loop.update_crosshair_position([0.0, 0.0, 0.0].into(), true);
+    render_loop.update_crosshair_position([0.0, 0.0, 0.0], true);
 
     // TODO: This test needs complete rewrite - these methods no longer exist:
     // - upload_volume() -> use upload_volume_3d() with DenseVolume3

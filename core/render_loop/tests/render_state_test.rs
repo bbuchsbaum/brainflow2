@@ -118,7 +118,7 @@ fn test_max_layer_limit() {
     for i in 0..8 {
         service
             .add_render_layer(i as u32, 1.0, (0.0, 0.0, 1.0, 1.0))
-            .expect(&format!("Failed to add layer {}", i));
+            .unwrap_or_else(|_| panic!("Failed to add layer {}", i));
     }
 
     assert_eq!(service.active_layer_count(), 8);

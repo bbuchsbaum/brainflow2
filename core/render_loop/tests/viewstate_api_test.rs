@@ -1,6 +1,5 @@
 // Test the ViewState API for declarative rendering
 
-use pollster;
 use render_loop::render_state::{BlendMode, ThresholdMode};
 use render_loop::test_fixtures::{create_test_pattern_volume, TestVolumeSet};
 use render_loop::view_state::{LayerConfig, SliceOrientation, ViewId, ViewState};
@@ -245,7 +244,7 @@ fn test_viewstate_orientations() {
             let result = service
                 .request_frame(view_id, state)
                 .await
-                .expect(&format!("Failed for orientation {:?}", orientation));
+                .unwrap_or_else(|_| panic!("Failed for orientation {:?}", orientation));
 
             assert_eq!(result.dimensions, [256, 256]);
             assert!(result.render_time_ms >= 0.0);

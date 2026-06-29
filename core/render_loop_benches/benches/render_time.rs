@@ -1,9 +1,8 @@
 use criterion::{criterion_group, criterion_main, Criterion};
 use pollster::block_on;
-use render_loop::render_state::BlendMode;
 use render_loop::test_fixtures::create_test_pattern_volume;
 use render_loop::view_state::{
-    FrameReadbackMode, FrameRequestOptions, LayerConfig, SliceOrientation, ViewId, ViewState,
+    FrameReadbackMode, FrameRequestOptions, SliceOrientation, ViewId, ViewState,
 };
 use render_loop::RenderLoopService;
 

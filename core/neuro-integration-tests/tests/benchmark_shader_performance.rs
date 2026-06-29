@@ -1,4 +1,3 @@
-use bridge_types;
 use neuro_types::ViewRectMm;
 use nifti_loader::load_nifti_volume_auto;
 use render_loop::RenderLoopService;
@@ -59,7 +58,7 @@ async fn benchmark_shader_render(
     // Switch to the specified shader
     service
         .set_shader(shader_name)
-        .expect(&format!("Failed to set shader: {}", shader_name));
+        .unwrap_or_else(|_| panic!("Failed to set shader: {}", shader_name));
 
     // Warmup runs
     for _ in 0..warmup_runs {
@@ -348,13 +347,13 @@ async fn benchmark_shader_with_multiple_layers() {
     for i in 0..num_layers {
         let (atlas_idx, _) = service
             .upload_volume_3d(&volume)
-            .expect(&format!("Failed to upload volume {}", i));
+            .unwrap_or_else(|_| panic!("Failed to upload volume {}", i));
         atlas_indices.push(atlas_idx);
 
         // Register for declarative API
         service
             .register_volume_with_range(format!("benchmark_volume_{}", i), atlas_idx, data_range)
-            .expect(&format!("Failed to register volume {}", i));
+            .unwrap_or_else(|_| panic!("Failed to register volume {}", i));
     }
 
     // Create view rect
@@ -680,7 +679,7 @@ async fn profile_shader_scenario(
     // Switch shader
     service
         .set_shader(shader_name)
-        .expect(&format!("Failed to set shader: {}", shader_name));
+        .unwrap_or_else(|_| panic!("Failed to set shader: {}", shader_name));
 
     // Warmup
     for _ in 0..20 {

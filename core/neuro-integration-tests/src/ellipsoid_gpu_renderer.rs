@@ -298,7 +298,7 @@ impl GpuEllipsoidRenderer {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nalgebra::{Point3, Rotation3, Vector3};
+    
 
     #[tokio::test]
     async fn test_gpu_ellipsoid_renderer_creation() {

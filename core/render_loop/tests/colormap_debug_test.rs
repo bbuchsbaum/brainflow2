@@ -2,7 +2,7 @@
 
 use nalgebra::{Matrix4, Vector3};
 use render_loop::{BlendMode, LayerInfo, RenderLoopService, ThresholdMode};
-use volmath::space::{NeuroSpace3, NeuroSpaceImpl};
+use volmath::space::NeuroSpace3;
 use volmath::{DenseVolume3, NeuroSpaceExt};
 
 #[test]

@@ -218,7 +218,7 @@ async fn test_single_roi_overlay() {
     ];
 
     let dashboard_dir = Path::new("test_output/roi_overlay_test");
-    std::fs::create_dir_all(&dashboard_dir).expect("Failed to create dashboard directory");
+    std::fs::create_dir_all(dashboard_dir).expect("Failed to create dashboard directory");
 
     for (orientation, name) in test_orientations {
         println!("\nTesting {} orientation...", name);
@@ -479,7 +479,7 @@ async fn test_multiple_roi_overlay() {
 
     // Save result
     let dashboard_dir = Path::new("test_output/roi_overlay_test");
-    std::fs::create_dir_all(&dashboard_dir).ok();
+    std::fs::create_dir_all(dashboard_dir).ok();
 
     let multi_img =
         image::RgbaImage::from_raw(view_rect.width_px, view_rect.height_px, result.image_data)

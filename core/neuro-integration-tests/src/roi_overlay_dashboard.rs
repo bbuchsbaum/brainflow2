@@ -34,120 +34,119 @@ impl RoiOverlayDashboard {
     }
 
     fn generate_html(&self) -> Result<String, Box<dyn std::error::Error>> {
-        let html = format!(
-            r#"<!DOCTYPE html>
+        let html = r#"<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ROI Overlay Test Dashboard</title>
     <style>
-        body {{
+        body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
             margin: 0;
             padding: 20px;
             background-color: #f5f5f5;
             color: #333;
-        }}
+        }
 
-        .header {{
+        .header {
             background: white;
             padding: 20px 30px;
             border-radius: 8px;
             box-shadow: 0 2px 4px rgba(0,0,0,0.1);
             margin-bottom: 30px;
-        }}
+        }
 
-        h1 {{
+        h1 {
             margin: 0 0 10px 0;
             color: #2c3e50;
-        }}
+        }
 
-        .description {{
+        .description {
             color: #666;
             line-height: 1.6;
-        }}
+        }
 
-        .test-section {{
+        .test-section {
             background: white;
             padding: 25px;
             border-radius: 8px;
             box-shadow: 0 2px 4px rgba(0,0,0,0.1);
             margin-bottom: 20px;
-        }}
+        }
 
-        .test-section h2 {{
+        .test-section h2 {
             color: #2c3e50;
             margin-top: 0;
             border-bottom: 2px solid #e9ecef;
             padding-bottom: 10px;
-        }}
+        }
 
-        .test-section h3 {{
+        .test-section h3 {
             color: #495057;
             margin-top: 20px;
-        }}
+        }
 
-        .image-grid {{
+        .image-grid {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
             gap: 20px;
             margin-top: 20px;
-        }}
+        }
 
-        .image-container {{
+        .image-container {
             text-align: center;
             background: #f8f9fa;
             border-radius: 6px;
             padding: 15px;
             transition: transform 0.2s;
-        }}
+        }
 
-        .image-container:hover {{
+        .image-container:hover {
             transform: translateY(-2px);
             box-shadow: 0 4px 8px rgba(0,0,0,0.1);
-        }}
+        }
 
-        .image-container img {{
+        .image-container img {
             max-width: 100%;
             height: auto;
             border-radius: 4px;
             cursor: pointer;
             background: white;
             border: 1px solid #dee2e6;
-        }}
+        }
 
-        .image-container h4 {{
+        .image-container h4 {
             margin: 10px 0 5px 0;
             color: #495057;
             font-size: 16px;
-        }}
+        }
 
-        .image-container p {{
+        .image-container p {
             margin: 0;
             color: #6c757d;
             font-size: 14px;
-        }}
+        }
 
-        .roi-info {{
+        .roi-info {
             background: #e9ecef;
             padding: 15px;
             border-radius: 6px;
             margin: 15px 0;
-        }}
+        }
 
-        .roi-info h4 {{
+        .roi-info h4 {
             margin-top: 0;
             color: #495057;
-        }}
+        }
 
-        .roi-list {{
+        .roi-list {
             list-style: none;
             padding: 0;
             margin: 10px 0;
-        }}
+        }
 
-        .roi-list li {{
+        .roi-list li {
             padding: 8px 12px;
             background: #f8f9fa;
             margin-bottom: 8px;
@@ -155,23 +154,23 @@ impl RoiOverlayDashboard {
             display: flex;
             align-items: center;
             gap: 10px;
-        }}
+        }
 
-        .colormap-indicator {{
+        .colormap-indicator {
             width: 20px;
             height: 20px;
             border-radius: 3px;
             border: 1px solid #dee2e6;
-        }}
+        }
 
-        .blend-mode-grid {{
+        .blend-mode-grid {
             display: grid;
             grid-template-columns: repeat(3, 1fr);
             gap: 15px;
             margin-top: 15px;
-        }}
+        }
 
-        .modal {{
+        .modal {
             display: none;
             position: fixed;
             z-index: 1000;
@@ -181,9 +180,9 @@ impl RoiOverlayDashboard {
             height: 100%;
             background-color: rgba(0,0,0,0.9);
             cursor: pointer;
-        }}
+        }
 
-        .modal-content {{
+        .modal-content {
             margin: auto;
             display: block;
             max-width: 90%;
@@ -192,16 +191,16 @@ impl RoiOverlayDashboard {
             top: 50%;
             left: 50%;
             transform: translate(-50%, -50%);
-        }}
+        }
 
-        .modal-caption {{
+        .modal-caption {
             text-align: center;
             color: #ccc;
             padding: 10px;
             font-size: 16px;
-        }}
+        }
 
-        .close {{
+        .close {
             position: absolute;
             top: 15px;
             right: 35px;
@@ -209,29 +208,29 @@ impl RoiOverlayDashboard {
             font-size: 40px;
             font-weight: bold;
             cursor: pointer;
-        }}
+        }
 
-        .close:hover {{
+        .close:hover {
             color: #bbb;
-        }}
+        }
 
-        .success-badge {{
+        .success-badge {
             background: #28a745;
             color: white;
             padding: 4px 8px;
             border-radius: 4px;
             font-size: 12px;
             font-weight: bold;
-        }}
+        }
 
-        .info-badge {{
+        .info-badge {
             background: #17a2b8;
             color: white;
             padding: 4px 8px;
             border-radius: 4px;
             font-size: 12px;
             font-weight: bold;
-        }}
+        }
     </style>
 </head>
 <body>
@@ -401,7 +400,7 @@ impl RoiOverlayDashboard {
     </div>
 
     <script>
-        function openModal(img) {{
+        function openModal(img) {
             const modal = document.getElementById('imageModal');
             const modalImg = document.getElementById('modalImage');
             const captionText = document.getElementById('modalCaption');
@@ -409,22 +408,21 @@ impl RoiOverlayDashboard {
             modal.style.display = 'block';
             modalImg.src = img.src;
             captionText.innerHTML = img.alt;
-        }}
+        }
 
-        function closeModal() {{
+        function closeModal() {
             document.getElementById('imageModal').style.display = 'none';
-        }}
+        }
 
         // Close modal on escape key
-        document.addEventListener('keydown', function(event) {{
-            if (event.key === 'Escape') {{
+        document.addEventListener('keydown', function(event) {
+            if (event.key === 'Escape') {
                 closeModal();
-            }}
-        }});
+            }
+        });
     </script>
 </body>
-</html>"#
-        );
+</html>"#.to_string();
 
         Ok(html)
     }

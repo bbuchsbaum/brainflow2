@@ -1,9 +1,7 @@
 //! Test for the optimized shader performance and correctness
 
-use bridge_types;
-use neuro_types::{ViewOrientation, ViewRectMm, VolumeMetadata};
+use neuro_types::ViewRectMm;
 use nifti_loader::load_nifti_volume_auto;
-use render_loop::view_state::{SliceOrientation, ViewId, ViewState};
 use render_loop::RenderLoopService;
 use std::fs;
 use std::path::Path;
@@ -125,7 +123,7 @@ async fn test_optimized_shader_correctness() {
         // Switch shader
         service
             .set_shader(shader_name)
-            .expect(&format!("Failed to set shader: {}", shader_name));
+            .unwrap_or_else(|_| panic!("Failed to set shader: {}", shader_name));
 
         // Render
         service.render_to_buffer().expect("Failed to render")
@@ -148,7 +146,7 @@ async fn test_optimized_shader_correctness() {
     let mut diff_pixels = 0;
 
     for i in 0..standard_result.len() {
-        let diff = (standard_result[i] as i16 - optimized_result[i] as i16).abs() as u8;
+        let diff = (standard_result[i] as i16 - optimized_result[i] as i16).unsigned_abs() as u8;
         if diff > 0 {
             diff_pixels += 1;
             total_diff += diff as u64;
@@ -190,14 +188,14 @@ async fn test_optimized_shader_correctness() {
     // Create difference image (amplified)
     let mut diff_img = vec![0u8; standard_result.len()];
     for i in (0..standard_result.len()).step_by(4) {
-        let diff_r = (standard_result[i] as i16 - optimized_result[i] as i16).abs() as u8;
-        let diff_g = (standard_result[i + 1] as i16 - optimized_result[i + 1] as i16).abs() as u8;
-        let diff_b = (standard_result[i + 2] as i16 - optimized_result[i + 2] as i16).abs() as u8;
+        let diff_r = (standard_result[i] as i16 - optimized_result[i] as i16).unsigned_abs() as u8;
+        let diff_g = (standard_result[i + 1] as i16 - optimized_result[i + 1] as i16).unsigned_abs() as u8;
+        let diff_b = (standard_result[i + 2] as i16 - optimized_result[i + 2] as i16).unsigned_abs() as u8;
 
         // Amplify differences by 10x for visibility
-        diff_img[i] = (diff_r.saturating_mul(10)).min(255);
-        diff_img[i + 1] = (diff_g.saturating_mul(10)).min(255);
-        diff_img[i + 2] = (diff_b.saturating_mul(10)).min(255);
+        diff_img[i] = diff_r.saturating_mul(10);
+        diff_img[i + 1] = diff_g.saturating_mul(10);
+        diff_img[i + 2] = diff_b.saturating_mul(10);
         diff_img[i + 3] = 255; // Full alpha
     }
     save_image(&diff_img, "difference_amplified.png");

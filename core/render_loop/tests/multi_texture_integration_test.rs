@@ -1,6 +1,5 @@
 // Test multi-texture integration with RenderLoopService
 
-use pollster;
 use render_loop::test_fixtures::TestVolumeSet;
 use render_loop::RenderLoopService;
 

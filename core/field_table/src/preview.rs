@@ -1441,7 +1441,6 @@ fn inspect_manifest_preview(manifest_path: &str) -> Result<ManifestPreview, Stri
         .features
         .values()
         .flat_map(FeatureSchema::encoding_column_references)
-        .into_iter()
         .map(ToString::to_string)
         .collect();
     let mut design_columns = Vec::new();

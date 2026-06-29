@@ -26,7 +26,7 @@ async fn test_affine_transform_passed_to_gpu() {
     affine[(1, 1)] = angle.cos();
 
     let space =
-        NeuroSpaceImpl::from_affine_matrix4(dims.to_vec(), affine.clone()).expect("neuro space");
+        NeuroSpaceImpl::from_affine_matrix4(dims.to_vec(), affine).expect("neuro space");
     let volume = DenseVolume3::<f32>::from_data(space.clone(), data);
     let _neuro_space = NeuroSpace3::new(space);
 
@@ -42,7 +42,7 @@ async fn test_affine_transform_passed_to_gpu() {
 
     // Add volume to registry
     let volume_id = "test_volume_1".to_string();
-    let affine3 = nalgebra::Affine3::from_matrix_unchecked(affine.clone());
+    let affine3 = nalgebra::Affine3::from_matrix_unchecked(affine);
     let metadata = VolumeMetadataInfo {
         name: volume_id.clone(),
         path: "<memory>".to_string(),
@@ -94,7 +94,7 @@ async fn test_identity_affine_transform() {
 
     let affine = Matrix4::<f32>::identity();
     let space =
-        NeuroSpaceImpl::from_affine_matrix4(dims.to_vec(), affine.clone()).expect("neuro space");
+        NeuroSpaceImpl::from_affine_matrix4(dims.to_vec(), affine).expect("neuro space");
     let volume = DenseVolume3::<f32>::from_data(space.clone(), data);
     let _neuro_space = NeuroSpace3::new(space);
 

@@ -18,6 +18,12 @@ pub struct SimpleTestResult {
 /// Simple test runner for basic ellipsoid functionality
 pub struct SimpleTestRunner;
 
+impl Default for SimpleTestRunner {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl SimpleTestRunner {
     pub fn new() -> Self {
         Self

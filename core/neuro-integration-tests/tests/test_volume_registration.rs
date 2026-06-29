@@ -3,7 +3,6 @@
 use nifti_loader::load_nifti_volume_auto;
 use render_loop::RenderLoopService;
 use std::path::Path;
-use wgpu;
 
 /// Test the register_volume_with_upload helper method
 #[tokio::test]

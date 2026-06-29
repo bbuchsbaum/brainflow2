@@ -523,16 +523,12 @@ async fn run_sidecar(
     })?;
     let stderr = child.stderr.take();
 
-    let stderr_handle = if let Some(stderr) = stderr {
-        Some(tokio::spawn(async move {
+    let stderr_handle = stderr.map(|stderr| tokio::spawn(async move {
             let mut reader = BufReader::new(stderr);
             let mut buf = String::new();
             let _ = reader.read_to_string(&mut buf).await;
             buf
-        }))
-    } else {
-        None
-    };
+        }));
 
     let mut artifacts: Vec<AnalysisArtifact> = Vec::new();
 

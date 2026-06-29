@@ -1,9 +1,8 @@
 // Tests for multi-resolution volume rendering
 
 use nalgebra::{Matrix4, Vector3};
-use pollster;
 use render_loop::test_fixtures::{create_test_pattern_volume, TestVolumeSet};
-use render_loop::{RenderLoopError, RenderLoopService};
+use render_loop::RenderLoopService;
 use volmath::{DenseVolume3, NeuroSpaceExt};
 
 /// Test that we can render multiple volumes with different resolutions
@@ -130,7 +129,7 @@ fn create_full_fov_volume() -> DenseVolume3<u8> {
         }
     }
 
-    use volmath::space::{NeuroSpace3, NeuroSpaceImpl};
+    use volmath::space::NeuroSpace3;
     let space_impl = <volmath::NeuroSpace as NeuroSpaceExt>::from_affine_matrix4(
         dims.to_vec(),
         Matrix4::identity(),
@@ -154,7 +153,7 @@ fn create_partial_fov_volume() -> DenseVolume3<f32> {
         }
     }
 
-    use volmath::space::{NeuroSpace3, NeuroSpaceImpl};
+    use volmath::space::NeuroSpace3;
     let space_impl = <volmath::NeuroSpace as NeuroSpaceExt>::from_affine_matrix4(
         dims.to_vec(),
         Matrix4::identity(),

@@ -1,6 +1,5 @@
 use approx::assert_relative_eq;
 use render_loop::RenderLoopService;
-use volmath::space::{GridSpace, NeuroSpaceImpl};
 use volmath::{DenseVolume3, NeuroSpace3, NeuroSpaceExt};
 
 #[tokio::test]
@@ -81,7 +80,7 @@ async fn in_bounds_crosshair_yields_gradient() {
 
         // For now, we verify the math works correctly
         let normalized_value = (expected_value - 0.0) / (999.0 - 0.0);
-        assert!(normalized_value >= 0.0 && normalized_value <= 1.0);
+        assert!((0.0..=1.0).contains(&normalized_value));
 
         // Verify texture coordinates
         let uvw = [
