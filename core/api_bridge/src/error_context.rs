@@ -1,3 +1,6 @@
+// Unwired error-presentation layer, kept for future use (audit #6).
+#![allow(dead_code)]
+
 use anyhow::{Context, Result};
 use bridge_types::BridgeError;
 

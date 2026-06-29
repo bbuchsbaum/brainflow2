@@ -58,8 +58,8 @@ impl CpuEllipsoidRenderer {
         }
 
         // Calculate world bounds of the image
-        let half_width_mm = (width as f32 * pixel_spacing_mm) / 2.0;
-        let half_height_mm = (height as f32 * pixel_spacing_mm) / 2.0;
+        let _half_width_mm = (width as f32 * pixel_spacing_mm) / 2.0;
+        let _half_height_mm = (height as f32 * pixel_spacing_mm) / 2.0;
 
         // Get inverse transform for world-to-ellipsoid transformation
         let world_to_ellipsoid_f64 = ellipsoid.world_to_ellipsoid_matrix();
@@ -266,9 +266,9 @@ impl CpuEllipsoidRenderer {
                     let (r_in, g_in, b_in) = (color[0] as f32, color[1] as f32, color[2] as f32);
                     let colormap_data = if r_in > 200.0 && g_in < 100.0 && b_in < 100.0 {
                         BuiltinColormap::Hot.data()
-                    } else if b_in > r_in && b_in > g_in && b_in > 128.0 {
-                        BuiltinColormap::Cool.data()
-                    } else if r_in > 128.0 && b_in > 128.0 && g_in < 100.0 {
+                    } else if (b_in > r_in && b_in > g_in && b_in > 128.0)
+                        || (r_in > 128.0 && b_in > 128.0 && g_in < 100.0)
+                    {
                         BuiltinColormap::Cool.data()
                     } else if g_in > r_in && g_in > b_in && g_in > 128.0 {
                         BuiltinColormap::Viridis.data()

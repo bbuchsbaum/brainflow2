@@ -44,6 +44,8 @@ fn assert_has_visible_content(bytes: &[u8], width: u32, height: u32) {
     );
 }
 
+// Returns fixed-size coordinate vectors for a view; a named alias adds no clarity in this test.
+#[allow(clippy::type_complexity)]
 fn view_vectors(view: &str) -> ([f32; 3], [f32; 3], [f32; 4], [f32; 4], [f32; 4]) {
     match view {
         "sagittal" => (

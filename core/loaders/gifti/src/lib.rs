@@ -83,10 +83,7 @@ pub fn detect_gifti_content_type(path: &Path) -> Result<GiftiContentType, GiftiE
             // Check for data arrays without coordinate data
             let has_coordinates = gifti_data.data_arrays.iter().any(|da| {
                 // Check if this is coordinate data (points/vertices)
-                match &da.attributes.intent {
-                    gifti::Intent::Pointset => true,
-                    _ => false,
-                }
+                matches!(&da.attributes.intent, gifti::Intent::Pointset)
             });
 
             if !has_coordinates {

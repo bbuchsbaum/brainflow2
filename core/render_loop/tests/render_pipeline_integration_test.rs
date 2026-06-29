@@ -76,10 +76,13 @@ fn create_sphere_mask_volume() -> DenseVolume3<f32> {
 }
 
 /// Verify pixel values in rendered output
+// Test helper threading pixel coords + expected RGBA positionally; not all callers use it.
+#[allow(clippy::too_many_arguments)]
+#[allow(dead_code)]
 fn verify_pixel_pattern(
     data: &[u8],
     width: u32,
-    height: u32,
+    _height: u32,
     x: u32,
     y: u32,
     expected_rgba: [u8; 4],
@@ -410,8 +413,7 @@ fn test_render_two_layer_overlay() {
         // Skip this assertion if both are background (nothing rendered)
         if non_background_count == 0 {
             println!("WARNING: Nothing rendered in two-layer test");
-            // For now, don't fail the test
-            assert!(true, "Skipping overlay verification - nothing rendered");
+            // For now, don't fail the test (skipping overlay verification - nothing rendered)
         } else {
             assert!(
                 center_sum > outside_sum,
@@ -543,7 +545,7 @@ fn test_render_different_orientations() {
             // Update offscreen target size for each orientation
             service
                 .create_offscreen_target(width, height)
-                .expect(&format!("Failed to create {} offscreen target", name));
+                .unwrap_or_else(|_| panic!("Failed to create {} offscreen target", name));
 
             let frame_ubo = create_frame_ubo([0.0, 0.0, 0.0, 1.0], u_vec, v_vec, [width, height]);
             service.update_frame_ubo(frame_ubo.origin_mm, frame_ubo.u_mm, frame_ubo.v_mm);
@@ -553,7 +555,7 @@ fn test_render_different_orientations() {
 
             let rendered = service
                 .render_to_buffer()
-                .expect(&format!("Failed to render {} view", name));
+                .unwrap_or_else(|_| panic!("Failed to render {} view", name));
 
             // Basic verification - ensure we got non-black image
             let mut non_black_pixels = 0;
@@ -732,7 +734,7 @@ fn test_render_threshold_modes() {
 
             let rendered = service
                 .render_to_buffer()
-                .expect(&format!("Failed to render {}", name));
+                .unwrap_or_else(|_| panic!("Failed to render {}", name));
 
             // Count pixels that are significantly above background
             // Background is [89, 89, 108, 255] in sRGB space (from clear color 0.1, 0.1, 0.15)
@@ -1057,7 +1059,7 @@ fn test_render_world_coordinate_consistency() {
 
         // Check larger region and find brightest pixel
         let mut max_brightness = 0u8;
-        let mut brightest_pos = (0, 0);
+        let mut brightest_pos: (i32, i32) = (0, 0);
 
         // Search in a larger area
         for y in 0..100 {
@@ -1093,8 +1095,8 @@ fn test_render_world_coordinate_consistency() {
         );
 
         // Check if brightest pixel is reasonably close to expected position
-        let dist = ((brightest_pos.0 as i32 - expected_x as i32).pow(2)
-            + (brightest_pos.1 as i32 - expected_y as i32).pow(2)) as f32;
+        let dist =
+            ((brightest_pos.0 - expected_x).pow(2) + (brightest_pos.1 - expected_y).pow(2)) as f32;
         let dist = dist.sqrt();
 
         assert!(

@@ -16,8 +16,8 @@ fn create_gradient_volume() -> DenseVolume3<f32> {
     // Create linear gradient from 0 to 1 along X axis
     let mut data = Vec::with_capacity(dims[0] * dims[1] * dims[2]);
 
-    for z in 0..dims[2] {
-        for y in 0..dims[1] {
+    for _z in 0..dims[2] {
+        for _y in 0..dims[1] {
             for x in 0..dims[0] {
                 // Create gradient that goes from 0.0 to 1.0 across X
                 let value = x as f32 / (dims[0] - 1) as f32;

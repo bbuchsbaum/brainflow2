@@ -44,7 +44,7 @@ async fn test_nifti_volume_rendering() {
         .expect("Failed to create offscreen target");
 
     // Upload volume to GPU
-    let (layer_idx, world_to_voxel) = service
+    let (layer_idx, _world_to_voxel) = service
         .upload_volume_3d(&volume)
         .expect("Failed to upload volume");
 

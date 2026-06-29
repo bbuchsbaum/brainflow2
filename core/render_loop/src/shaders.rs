@@ -303,6 +303,9 @@ mod tests {
     }
 
     #[test]
+    // Asserts the embedded shader source consts are non-empty; clippy knows these
+    // are compile-time constants, but the check documents the build-time contract.
+    #[allow(clippy::const_is_empty)]
     fn test_shader_sources() {
         // Verify shader sources are included
         assert!(!sources::BASIC.is_empty());

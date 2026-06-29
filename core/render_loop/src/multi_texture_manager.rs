@@ -889,10 +889,9 @@ where
                 T::zero()
             };
 
-            
             num_traits::cast::<T, f32>(normalized * num_traits::cast::<u8, T>(255).unwrap())
-                    .unwrap_or(0.0)
-                    .round() as u8
+                .unwrap_or(0.0)
+                .round() as u8
         })
         .collect();
 

@@ -77,6 +77,8 @@ impl AtlasType {
     }
 
     /// Parse from string (for backward compatibility)
+    // Inherent helper kept for back-compat; intentionally not the std `FromStr` trait.
+    #[allow(clippy::should_implement_trait)]
     pub fn from_str(s: &str) -> Result<Self, AtlasError> {
         match s {
             "schaefer2018" => Ok(AtlasType::Schaefer2018),

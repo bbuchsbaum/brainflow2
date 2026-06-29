@@ -445,11 +445,11 @@ async fn test_multiple_roi_overlay() {
 
     // Add each ROI as a layer with different colors
     let colormaps = [3, 4, 5, 6, 7]; // Different colormaps for each ROI
-    for i in 0..roi_specs.len() {
+    for (i, &colormap_id) in colormaps.iter().enumerate().take(roi_specs.len()) {
         multi_state.layers.push(LayerConfig {
             volume_id: format!("roi_{}", i),
             opacity: 0.6, // 60% opacity for overlapping visibility
-            colormap_id: colormaps[i],
+            colormap_id,
             blend_mode: BlendMode::Normal,
             intensity_window: (0.5, 1.5), // Window that ensures 1.0 maps to bright color
             threshold: None,

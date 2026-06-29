@@ -137,9 +137,9 @@ fn test_atlas_layer_allocation() {
         allocated_layers.push(atlas_idx);
 
         // Verify unique allocation
-        for j in 0..i {
+        for &prev in &allocated_layers[..i] {
             assert_ne!(
-                allocated_layers[j], atlas_idx,
+                prev, atlas_idx,
                 "Atlas layer {} was allocated twice",
                 atlas_idx
             );

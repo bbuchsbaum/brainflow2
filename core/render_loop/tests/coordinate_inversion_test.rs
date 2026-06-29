@@ -20,7 +20,7 @@ fn create_marker_volume() -> DenseVolume3<f32> {
     let mut data = vec![0.0f32; dims[0] * dims[1] * dims[2]];
 
     // Place markers at specific positions
-    let markers = vec![
+    let markers = [
         [10, 10, 10], // Corner marker
         [32, 32, 32], // Center marker
         [50, 50, 50], // Opposite corner marker

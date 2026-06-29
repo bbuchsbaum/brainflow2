@@ -6,10 +6,7 @@ mod tests {
     use nalgebra::{Matrix4, Point3, Vector3};
     use render_loop::render_state::{BlendMode, LayerInfo, ThresholdMode};
     use render_loop::RenderLoopService;
-    use volmath::{
-        space::NeuroSpace3,
-        DenseVolume3, NeuroSpaceExt,
-    };
+    use volmath::{space::NeuroSpace3, DenseVolume3, NeuroSpaceExt};
 
     /// Create a volume with markers at specific world positions
     fn create_marked_volume(
@@ -184,7 +181,7 @@ mod tests {
             let space = NeuroSpace3::new(space_impl);
             let volume = DenseVolume3::from_data(space.0, data);
 
-            let (idx, world_to_voxel) = service.upload_volume_3d(&volume).unwrap();
+            let (_idx, world_to_voxel) = service.upload_volume_3d(&volume).unwrap();
 
             // Test sampling at sub-voxel positions
             let sub_voxel_positions = vec![
@@ -257,7 +254,7 @@ mod tests {
             let space = NeuroSpace3::new(space_impl);
             let volume = DenseVolume3::from_data(space.0, data);
 
-            let (idx, world_to_voxel) = service.upload_volume_3d(&volume).unwrap();
+            let (_idx, world_to_voxel) = service.upload_volume_3d(&volume).unwrap();
 
             // Test positions at and near boundaries
             let boundary_positions = vec![

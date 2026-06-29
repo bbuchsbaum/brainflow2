@@ -96,7 +96,7 @@ async fn test_nifti_render_to_png() {
     };
 
     // Add the layer to the render state
-    service.layer_state_manager.add_layer(layer_info);
+    let _ = service.layer_state_manager.add_layer(layer_info);
 
     // Render to buffer
     println!("Rendering to buffer...");
@@ -249,7 +249,7 @@ async fn test_synthetic_volume_render_to_png() {
         ..LayerInfo::default()
     };
 
-    service.layer_state_manager.add_layer(layer_info);
+    let _ = service.layer_state_manager.add_layer(layer_info);
 
     // Render to buffer
     let rgba_data = service

@@ -1165,10 +1165,12 @@ impl RenderLoopService {
         };
 
         // Now work with the pipeline manager
-        let bind_group_layouts = [global_layout,
+        let bind_group_layouts = [
+            global_layout,
             layer_layout,
             texture_layout,
-            slice_feature_layout];
+            slice_feature_layout,
+        ];
 
         let layout = self.pipeline_manager.get_or_create_layout(
             device,
@@ -1789,23 +1791,20 @@ impl RenderLoopService {
         let origin = source_volume.space.0.origin();
 
         // Get the actual data range from the volume
-        let (data_min, data_max) = source_volume
-            .range()
-            .map(|(min, max)| (min, max))
-            .unwrap_or_else(|| {
-                // If range is not available, use a reasonable default based on the data type
-                // For most medical imaging data, 0-1 is a reasonable default for normalized data
-                // The actual values will be cast to f32 below
-                if let (Some(zero), Some(one)) = (
-                    num_traits::cast::<f32, T>(0.0),
-                    num_traits::cast::<f32, T>(1.0),
-                ) {
-                    (zero, one)
-                } else {
-                    // This should never happen for standard numeric types
-                    panic!("Unable to create default range for type")
-                }
-            });
+        let (data_min, data_max) = source_volume.range().unwrap_or_else(|| {
+            // If range is not available, use a reasonable default based on the data type
+            // For most medical imaging data, 0-1 is a reasonable default for normalized data
+            // The actual values will be cast to f32 below
+            if let (Some(zero), Some(one)) = (
+                num_traits::cast::<f32, T>(0.0),
+                num_traits::cast::<f32, T>(1.0),
+            ) {
+                (zero, one)
+            } else {
+                // This should never happen for standard numeric types
+                panic!("Unable to create default range for type")
+            }
+        });
 
         // Store volume metadata
         let metadata = VolumeMetadata {
@@ -3480,7 +3479,7 @@ impl RenderLoopService {
     }
 
     /// Update layer uniforms directly with provided data
-
+    ///
     /// Update all layer uniforms from current layer state
     fn update_all_layer_uniforms(&mut self) -> Result<(), RenderLoopError> {
         let layers = self.layer_state_manager.layers();
@@ -5079,8 +5078,6 @@ mod tests {
     // CrosshairUbo is already imported at module level
     // Maintain is imported above if needed
     use approx::assert_abs_diff_eq;
-    
-    
 
     #[tokio::test]
     async fn test_wgpu_initialization() {

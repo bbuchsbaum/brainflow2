@@ -1,4 +1,7 @@
 // Test to validate that volumes display correctly (no black screen)
+// References the optional, not-yet-declared `save_test_images` dev feature in several
+// `#[cfg(feature = "save_test_images")]` gates; allow it file-wide.
+#![allow(unexpected_cfgs)]
 
 use nalgebra::{Matrix4, Vector3};
 use render_loop::render_state::{BlendMode, LayerInfo, ThresholdMode};
@@ -297,7 +300,7 @@ fn assert_binary_pattern_visible(image_data: &[u8], width: u32, height: u32) {
     assert!(off_pixels > 1000, "Not enough 'off' pixels in binary mask");
 }
 
-fn assert_crosshair_visible(image_data: &[u8], width: u32, height: u32) {
+fn assert_crosshair_visible(image_data: &[u8], _width: u32, _height: u32) {
     // Look for green pixels (crosshair is typically green)
     let mut green_pixels = 0;
 

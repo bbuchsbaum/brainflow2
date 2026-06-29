@@ -164,6 +164,7 @@ fn create_partial_fov_volume() -> DenseVolume3<f32> {
 }
 
 /// Test helper to verify a rendered image has no black pixels
+#[allow(dead_code)]
 fn assert_no_black_pixels(image_data: &[u8], width: u32, height: u32) {
     for y in 0..height {
         for x in 0..width {
@@ -180,6 +181,7 @@ fn assert_no_black_pixels(image_data: &[u8], width: u32, height: u32) {
 }
 
 /// Test helper to check if center pixel is not black
+#[allow(dead_code)]
 fn assert_center_pixel_not_black(image_data: &[u8], width: u32, height: u32) {
     let cx = width / 2;
     let cy = height / 2;
@@ -199,6 +201,7 @@ fn assert_center_pixel_not_black(image_data: &[u8], width: u32, height: u32) {
 }
 
 /// Test helper to verify two layers are visible
+#[allow(dead_code)]
 fn assert_shows_both_layers(image_data: &[u8], width: u32, height: u32) {
     // TODO: Implement more sophisticated check for layer visibility
     // For now, just check that we have variation in the image

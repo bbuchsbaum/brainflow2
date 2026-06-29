@@ -5,7 +5,7 @@ mod tests {
     #[test]
     fn test_world_space_enabled_by_default() {
         pollster::block_on(async {
-            let service = RenderLoopService::new()
+            let _service = RenderLoopService::new()
                 .await
                 .expect("Failed to create RenderLoopService");
 

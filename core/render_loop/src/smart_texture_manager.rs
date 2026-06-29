@@ -665,10 +665,9 @@ where
                 T::zero()
             };
 
-            
             num_traits::cast::<T, f32>(normalized * num_traits::cast::<u8, T>(255).unwrap())
-                    .unwrap_or(0.0)
-                    .round() as u8
+                .unwrap_or(0.0)
+                .round() as u8
         })
         .collect();
 
@@ -737,8 +736,8 @@ mod tests {
         let space = NeuroSpace3::new(space_impl);
         let mut f32_data = vec![0.0f32; 10 * 10 * 10];
         // Fill with small range values
-        for i in 0..1000 {
-            f32_data[i] = (i as f32) * 0.1;
+        for (i, value) in f32_data.iter_mut().enumerate() {
+            *value = (i as f32) * 0.1;
         }
         let f32_volume = DenseVolume3::from_data(space.0, f32_data);
 

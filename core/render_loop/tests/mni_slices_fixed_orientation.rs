@@ -3,7 +3,6 @@ use nifti_loader::load_nifti_volume_auto;
 use render_loop::RenderLoopService;
 use std::fs;
 use std::path::Path;
-use volmath::NeuroSpaceExt;
 
 #[tokio::test]
 async fn test_mni_brain_slices_fixed_orientation() {

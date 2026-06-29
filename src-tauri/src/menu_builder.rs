@@ -13,6 +13,8 @@ use tauri::{App, Wry};
 // ============================================================================
 
 /// Template preset configuration for menu items
+// Data-driven volume-template menu builder, not yet wired into main.rs (audit #6).
+#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub struct TemplatePreset {
     /// Menu ID (e.g., "template_MNI152NLin2009cAsym_T1w_1mm")
@@ -29,6 +31,7 @@ pub struct TemplatePreset {
     pub category: TemplateCategory,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Clone, PartialEq)]
 pub enum TemplateCategory {
     Anatomical,        // T1w, T2w
@@ -36,6 +39,7 @@ pub enum TemplateCategory {
     BrainMask,         // mask, brain
 }
 
+#[allow(dead_code)]
 impl TemplatePreset {
     pub fn new(
         space: &str,
@@ -67,6 +71,7 @@ impl TemplatePreset {
 }
 
 /// Get MNI152NLin2009cAsym template presets
+#[allow(dead_code)]
 pub fn get_mni152_2009c_presets() -> Vec<TemplatePreset> {
     let space = "MNI152NLin2009cAsym";
     vec![
@@ -151,6 +156,7 @@ pub fn get_mni152_2009c_presets() -> Vec<TemplatePreset> {
 }
 
 /// Get MNIColin27 template presets
+#[allow(dead_code)]
 pub fn get_mnicolin27_presets() -> Vec<TemplatePreset> {
     let space = "MNIColin27";
     vec![
@@ -166,6 +172,7 @@ pub fn get_mnicolin27_presets() -> Vec<TemplatePreset> {
 }
 
 /// Get MNI305 template presets
+#[allow(dead_code)]
 pub fn get_mni305_presets() -> Vec<TemplatePreset> {
     let space = "MNI305";
     vec![
@@ -182,6 +189,7 @@ pub fn get_mni305_presets() -> Vec<TemplatePreset> {
 }
 
 /// Get all template presets
+#[allow(dead_code)]
 pub fn get_all_template_presets() -> Vec<TemplatePreset> {
     let mut all = Vec::new();
     all.extend(get_mni152_2009c_presets());
@@ -191,6 +199,7 @@ pub fn get_all_template_presets() -> Vec<TemplatePreset> {
 }
 
 /// Find a template preset by menu ID
+#[allow(dead_code)]
 pub fn find_template_preset_by_menu_id(menu_id: &str) -> Option<TemplatePreset> {
     get_all_template_presets()
         .into_iter()
@@ -198,6 +207,7 @@ pub fn find_template_preset_by_menu_id(menu_id: &str) -> Option<TemplatePreset> 
 }
 
 /// Build the Templates menu
+#[allow(dead_code)]
 pub fn build_templates_menu(app: &App<Wry>) -> Result<tauri::menu::Submenu<Wry>, tauri::Error> {
     let mut templates_menu = SubmenuBuilder::new(app, "Templates");
 

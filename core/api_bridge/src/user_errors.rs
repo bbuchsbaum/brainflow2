@@ -1,3 +1,6 @@
+// Unwired error-presentation layer, kept for future use (audit #6).
+#![allow(dead_code)]
+
 use bridge_types::BridgeError;
 use std::path::Path;
 

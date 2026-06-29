@@ -39,7 +39,7 @@ async fn test_mni_brain_slices() {
     println!("Loading MNI brain template from: {:?}", mni_path);
 
     // Load the NIfTI file using the existing loader
-    let (volume_sendable, affine) =
+    let (volume_sendable, _affine) =
         load_nifti_volume_auto(&mni_path).expect("Failed to load NIfTI file");
 
     // Extract the DenseVolume3<f32>

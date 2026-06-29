@@ -528,6 +528,8 @@ fn resolve_legacy_role_inputs(
     Ok(paths)
 }
 
+// Returns (per-input values, shared dims, reference path); a named alias adds no clarity here.
+#[allow(clippy::type_complexity)]
 fn load_role_input_values(
     inputs: &[RoleInput],
 ) -> Result<(Vec<Vec<f32>>, Vec<usize>, String), String> {

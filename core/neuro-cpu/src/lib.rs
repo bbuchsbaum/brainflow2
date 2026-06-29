@@ -189,12 +189,10 @@ impl SliceProvider for CpuSlicer {
 
 #[cfg(test)]
 mod tests {
-    
 
     #[test]
     fn test_cpu_slicer_can_create() {
         // Just test that the basic type can be created
         // Detailed tests will be added once the types are fully unified
-        assert!(true);
     }
 }

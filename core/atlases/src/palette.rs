@@ -215,14 +215,18 @@ fn neuroatlas_default_kind(atlas_id: &str) -> AtlasPaletteKind {
 /// a lower contrast floor, and a slightly tighter hue band (which actually *improves*
 /// network hue-separation versus the 28 degree default).
 fn engine_palette_config(kind: PaletteKind, seed: u64) -> PaletteConfig {
-    let mut cfg = PaletteConfig::default();
-    cfg.seed = Some(seed);
+    let mut cfg = PaletteConfig {
+        seed: Some(seed),
+        ..PaletteConfig::default()
+    };
     if kind == PaletteKind::NetworkHarmony {
-        let mut nh = NetworkHarmonyConfig::default();
-        nh.candidate_multiplier = 2.0;
-        nh.min_contrast = 1.4;
-        nh.hue_width = 24.0;
-        nh.seed = seed;
+        let nh = NetworkHarmonyConfig {
+            candidate_multiplier: 2.0,
+            min_contrast: 1.4,
+            hue_width: 24.0,
+            seed,
+            ..NetworkHarmonyConfig::default()
+        };
         cfg.network_harmony = Some(nh);
     }
     cfg

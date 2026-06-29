@@ -386,10 +386,10 @@ async fn benchmark_shader_with_multiple_layers() {
 
             // Clear and add layers
             service.clear_render_layers();
-            for i in 0..layer_count {
+            for (i, &atlas_index) in atlas_indices.iter().enumerate().take(layer_count) {
                 let opacity = if i == 0 { 1.0 } else { 0.5 }; // Base layer opaque, overlays semi-transparent
                 service
-                    .add_render_layer(atlas_indices[i], opacity, (0.0, 0.0, 1.0, 1.0))
+                    .add_render_layer(atlas_index, opacity, (0.0, 0.0, 1.0, 1.0))
                     .unwrap();
                 service.set_layer_colormap(i, (i % 5) as u32).unwrap(); // Vary colormaps
                 let intensity_range = (

@@ -58,7 +58,7 @@ fn test_debug_shader_world_coordinate_variation() {
     let volume = DenseVolume3::from_data(space.0, data);
 
     // Upload volume
-    let (layer_idx, world_to_voxel) = service
+    let (layer_idx, _world_to_voxel) = service
         .upload_volume_3d(&volume)
         .expect("Failed to upload volume");
 

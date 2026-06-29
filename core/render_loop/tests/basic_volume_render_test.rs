@@ -38,7 +38,7 @@ fn test_multi_resolution_volumes() {
     assert_eq!(volumes.detail_patch.space.0.dims(), &[128, 128, 64]);
 
     // Verify transforms align at world origin
-    let (anat_tfm, func_tfm, detail_tfm) = volumes.get_transforms();
+    let (anat_tfm, func_tfm, _detail_tfm) = volumes.get_transforms();
 
     // World origin should map to expected voxel locations
     let world_origin = nalgebra::Point3::new(0.0, 0.0, 0.0);

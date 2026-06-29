@@ -920,6 +920,7 @@ mod wasm_tests {
     wasm_bindgen_test_configure!(run_in_browser);
 
     #[wasm_bindgen_test]
+    #[allow(dead_code)]
     fn pass() {
         // Bind the sum first so clippy's eq_op doesn't see two identical
         // constant-folded args.
@@ -928,8 +929,8 @@ mod wasm_tests {
     }
 
     #[wasm_bindgen_test]
+    #[allow(dead_code)]
     fn setup_panic_hook() {
         console_error_panic_hook::set_once();
-        assert!(true);
     }
 }

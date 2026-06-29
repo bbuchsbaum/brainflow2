@@ -105,8 +105,7 @@ impl LayerUniformManager {
         // Update layer uniform data
         let identity = Matrix4::identity();
         let default_dims = (1, 1, 1);
-        for i in 0..layer_count {
-            let layer = &layers[i];
+        for (i, layer) in layers.iter().enumerate().take(layer_count) {
             let dims = volume_dimensions.get(i).unwrap_or(&default_dims);
             let transform = world_to_voxel_transforms.get(i).unwrap_or(&identity);
 

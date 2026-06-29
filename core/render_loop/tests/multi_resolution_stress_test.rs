@@ -5,10 +5,7 @@ mod tests {
     use nalgebra::Matrix4;
     use render_loop::render_state::{BlendMode, LayerInfo, ThresholdMode};
     use render_loop::RenderLoopService;
-    use volmath::{
-        space::NeuroSpace3,
-        DenseVolume3, NeuroSpaceExt,
-    };
+    use volmath::{space::NeuroSpace3, DenseVolume3, NeuroSpaceExt};
 
     /// Create a volume with specific dimensions and resolution
     fn create_test_volume(dims: [usize; 3], spacing: [f32; 3]) -> DenseVolume3<f32> {
@@ -69,7 +66,7 @@ mod tests {
                 .expect("Failed to enable smart texture management");
 
             // Create volumes at various resolutions
-            let resolutions = vec![
+            let resolutions = [
                 ([128, 128, 128], [2.0, 2.0, 2.0]), // Low res, 8MB
                 ([256, 256, 128], [1.0, 1.0, 2.0]), // Med res, 32MB
                 ([512, 256, 64], [0.5, 1.0, 3.0]),  // Anisotropic, 32MB
@@ -108,11 +105,7 @@ mod tests {
                         colormap_id: i as u32 % 5,
                         intensity_range: (0.0, 1.0),
                         threshold_range: (0.2, 0.8),
-                        threshold_mode: if i > 2 {
-                            ThresholdMode::Range
-                        } else {
-                            ThresholdMode::Range
-                        },
+                        threshold_mode: ThresholdMode::Range,
                         texture_coords: (0.0, 0.0, 1.0, 1.0),
                         is_mask: false,
                         ..LayerInfo::default()

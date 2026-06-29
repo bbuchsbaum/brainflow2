@@ -11,9 +11,9 @@ fn test_texture_manager_initialization() {
         .expect("Failed to create RenderLoopService");
 
     // Verify texture manager is initialized
-    // The texture manager should have samplers ready
-    assert!(service.texture_manager.linear_sampler() as *const _ != std::ptr::null());
-    assert!(service.texture_manager.nearest_sampler() as *const _ != std::ptr::null());
+    // The texture manager should have samplers ready (accessors return live references).
+    let _linear = service.texture_manager.linear_sampler();
+    let _nearest = service.texture_manager.nearest_sampler();
 
     println!("Texture manager initialization test passed!");
 }

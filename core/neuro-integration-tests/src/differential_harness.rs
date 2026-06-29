@@ -646,7 +646,7 @@ impl DifferentialTestHarness {
     /// Compute Structural Similarity Index (SSIM) for image comparison
     fn compute_ssim(&self, cpu_output: &RgbaImage, gpu_output: &RgbaImage) -> f64 {
         let width = (cpu_output.len() / 4) as f64;
-        let height = 1.0; // Treating as 1D for simplicity, could be enhanced for 2D
+        let _height = 1.0; // Treating as 1D for simplicity, could be enhanced for 2D
 
         // Convert RGBA to grayscale for SSIM calculation
         let cpu_gray: Vec<f64> = cpu_output

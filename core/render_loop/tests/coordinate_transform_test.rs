@@ -218,7 +218,7 @@ fn test_transform_matrix_properties() {
 #[test]
 fn test_negative_voxel_handling() {
     let volumes = TestVolumeSet::create_aligned();
-    let (anat_tfm, func_tfm, detail_tfm) = volumes.get_transforms();
+    let (anat_tfm, _func_tfm, _detail_tfm) = volumes.get_transforms();
 
     // Test points outside volume bounds
     let far_point = Point3::new(-200.0, -200.0, -200.0);

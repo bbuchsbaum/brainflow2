@@ -92,8 +92,7 @@ impl LayerVisual {
 }
 
 /// Blend mode for layer compositing
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[derive(Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum BlendMode {
     /// Standard alpha blending (back-to-front)
     /// result = dst + src * (1 - dst.alpha)
@@ -108,7 +107,6 @@ pub enum BlendMode {
     /// result = dst * src
     Multiply,
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -156,8 +154,10 @@ mod tests {
 
     #[test]
     fn test_display_range_override() {
-        let mut visual = LayerVisual::default();
-        visual.intensity_range = (0.0, 100.0);
+        let mut visual = LayerVisual {
+            intensity_range: (0.0, 100.0),
+            ..LayerVisual::default()
+        };
         assert_eq!(visual.get_display_range(), (0.0, 100.0));
 
         visual.display_range = Some((10.0, 90.0));

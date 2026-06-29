@@ -149,8 +149,8 @@ async fn texture_upload_data_integrity() {
     let mut data = vec![0.0f32; 512];
 
     // Fill with sequential values to detect any corruption
-    for i in 0..512 {
-        data[i] = i as f32;
+    for (i, value) in data.iter_mut().enumerate() {
+        *value = i as f32;
     }
 
     let space = <volmath::NeuroSpace as NeuroSpaceExt>::from_dims_spacing_origin(

@@ -3,8 +3,7 @@
 
 use nalgebra::{Matrix4, Vector3};
 use render_loop::{
-    BlendMode, LayerInfo, OptimizedRenderer, PerformanceMonitor,
-    RenderLoopService, ThresholdMode,
+    BlendMode, LayerInfo, OptimizedRenderer, PerformanceMonitor, RenderLoopService, ThresholdMode,
 };
 use std::time::Instant;
 use volmath::{DenseVolume3, NeuroSpaceExt};
@@ -116,6 +115,9 @@ fn create_benchmark_volumes() -> Vec<DenseVolume3<f32>> {
 }
 
 /// Benchmark original vs optimized shader performance
+// Contains a `todo!()` placeholder pending refactor; the tail is intentionally unreachable.
+#[allow(unreachable_code)]
+#[allow(clippy::diverging_sub_expression)]
 async fn benchmark_shader_performance(
     service: &mut RenderLoopService,
     optimized_renderer: &mut OptimizedRenderer,
@@ -130,7 +132,7 @@ async fn benchmark_shader_performance(
     let mut transforms = Vec::new();
     let mut dimensions = Vec::new();
 
-    for (i, vol) in volumes.iter().enumerate() {
+    for vol in volumes.iter() {
         let (handle, transform) = service
             .upload_volume_3d(vol)
             .expect("Failed to upload volume");
@@ -189,7 +191,7 @@ async fn benchmark_shader_performance(
         usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
         view_formats: &[],
     });
-    let target_view = target_texture.create_view(&wgpu::TextureViewDescriptor::default());
+    let _target_view = target_texture.create_view(&wgpu::TextureViewDescriptor::default());
 
     // Benchmark original shader
     println!("\nBenchmarking original shader...");
@@ -237,7 +239,7 @@ async fn benchmark_shader_performance(
     // Benchmark optimized shader
     println!("\nBenchmarking optimized shader...");
     let optimized_monitor = PerformanceMonitor::new(100);
-    let optimized_times = Vec::new();
+    let _optimized_times = Vec::new();
 
     optimized_renderer.update_layers(
         &service.device,
@@ -254,40 +256,40 @@ async fn benchmark_shader_performance(
         .load_optimized_shader(&service.device)
         .expect("Failed to load optimized shader");
 
-    for i in 0..frame_count {
-        let start = Instant::now();
+    for _i in 0..frame_count {
+        let _start = Instant::now();
 
         // Render frame with optimized renderer
-        let encoder = service
+        let _encoder = service
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
                 label: Some("Optimized Benchmark Encoder"),
             });
 
-        let frame_bind_group = optimized_renderer.create_frame_bind_group(&service.device);
+        let _frame_bind_group = optimized_renderer.create_frame_bind_group(&service.device);
         // NOTE: texture_manager.create_bind_group requires layout and view parameters
         // This test needs refactoring to work with current architecture
-        let texture_bind_group = todo!("texture bind group creation needs refactoring");
+        let _texture_bind_group = todo!("texture bind group creation needs refactoring");
 
         // Note: In real implementation, get pipeline from optimized renderer
         // For now, we'll simulate the render
         optimized_renderer.render(
-            &mut encoder,
-            &target_view,
-            &frame_bind_group,
-            &texture_bind_group,
+            &mut _encoder,
+            &_target_view,
+            &_frame_bind_group,
+            &_texture_bind_group,
             todo!("get_current_pipeline no longer exists"), // Placeholder
         );
 
-        service.queue.submit(std::iter::once(encoder.finish()));
+        service.queue.submit(std::iter::once(_encoder.finish()));
         service.device.poll(wgpu::Maintain::Wait);
 
-        let elapsed = start.elapsed().as_secs_f32() * 1000.0;
+        let elapsed = _start.elapsed().as_secs_f32() * 1000.0;
         optimized_monitor.record_frame_time(elapsed);
-        optimized_times.push(elapsed);
+        _optimized_times.push(elapsed);
 
-        if i % 100 == 0 {
-            println!("  Frame {}: {:.2}ms", i, elapsed);
+        if _i % 100 == 0 {
+            println!("  Frame {}: {:.2}ms", _i, elapsed);
         }
     }
 

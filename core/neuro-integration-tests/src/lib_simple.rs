@@ -37,7 +37,7 @@ impl SimpleTestRunner {
         let center = Point3::new(0.0, 0.0, 0.0);
         let radii = Vector3::new(5.0, 3.0, 2.0);
         let rotation = Rotation3::identity();
-        let ellipsoid = OrientedEllipsoid::new(center, radii, rotation, 1.0)?;
+        let _ellipsoid = OrientedEllipsoid::new(center, radii, rotation, 1.0)?;
 
         // For now, just validate the ellipsoid was created correctly
         let metrics = OverlapMetrics {

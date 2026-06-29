@@ -2371,6 +2371,8 @@ fn resolve_string_source(
     }
 }
 
+// Err variant carries rich row-resolution diagnostics by design; boxing would lose ergonomics.
+#[allow(clippy::result_large_err)]
 fn resolve_selector_source(
     headers: &csv::StringRecord,
     record: &csv::StringRecord,
@@ -2443,6 +2445,8 @@ fn resolve_resource_id_source(
     )
 }
 
+// Locator resolution threads manifest context + selectors positionally; struct adds no clarity.
+#[allow(clippy::too_many_arguments)]
 fn resolve_locator_source(
     manifest_file: &Path,
     row_id: &str,
@@ -2801,6 +2805,8 @@ struct DiscoveryGroupedResult {
     matched_files: usize,
 }
 
+// Discovery entry point threading root + many filter/grouping options positionally.
+#[allow(clippy::too_many_arguments)]
 fn discover_grouped_files(
     root: &str,
     regex: &Regex,
@@ -3473,6 +3479,8 @@ fn infer_source_path_index(
         .find_map(|candidate| headers.iter().position(|header| header == candidate))
 }
 
+// Builds human-readable discovery notes from many independent flags; struct adds no clarity.
+#[allow(clippy::too_many_arguments)]
 fn discovery_notes(
     root_exists: bool,
     regex_valid: bool,

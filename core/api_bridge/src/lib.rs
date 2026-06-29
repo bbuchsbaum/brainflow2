@@ -31,12 +31,12 @@ use render_loop::{RenderLoopService, SliceFeatureUbo}; // Remove unused RenderLo
                                                        // use async_trait::async_trait;
 use log::{debug, error, info, warn}; // Added error, warn, and debug
 use serde::{Deserialize, Serialize}; // Need Serialize/Deserialize for new types
- // For JSON parsing
+                                     // For JSON parsing
 use ts_rs::TS;
- // For generating unique IDs // Add TS trait
-          // Use futures::executor::block_on when needed (now removed)
-          // use futures;
-          // Added imports for plugin creation
+// For generating unique IDs // Add TS trait
+// Use futures::executor::block_on when needed (now removed)
+// use futures;
+// Added imports for plugin creation
 use tauri::plugin::{Builder, TauriPlugin};
 use tauri::{generate_handler, Emitter, Manager, Runtime};
 // Re-add tokio::sync::Mutex
@@ -52,7 +52,7 @@ use remotely::{FilesystemProbeOptions, RemoteClient};
 use tokio::runtime::Handle;
 use tokio::sync::Mutex;
 use tokio::time::{interval, MissedTickBehavior};
- // Add tracing facade import // For get_initial_views
+// Add tracing facade import // For get_initial_views
 
 // Imports for fs_list_directory
 // Assuming core_loaders is the crate name for the new module
@@ -148,21 +148,19 @@ pub enum SliceAxis {
     Sagittal = 0, // X axis (YZ plane)
     Coronal = 1,  // Y axis (XZ plane)
     #[default]
-    Axial = 2,    // Z axis (XY plane)
+    Axial = 2, // Z axis (XY plane)
 }
-
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, TS)] // Add derives
 #[ts(export)]
 #[derive(Default)]
 pub enum SliceIndex {
-    Fixed(usize),         // Specific slice index
+    Fixed(usize), // Specific slice index
     #[default]
-    Middle,               // Middle slice (default)
-    Relative(f32),        // Relative position (0.0 = first, 1.0 = last)
+    Middle, // Middle slice (default)
+    Relative(f32), // Relative position (0.0 = first, 1.0 = last)
     WorldCoordinate(f32), // Slice at specific world coordinate
 }
-
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)] // Add derives
 #[ts(export)]
@@ -185,6 +183,7 @@ pub struct ReleaseResult {
 #[derive(Debug, Clone)]
 struct ReleaseOutcome {
     atlas_index: u32,
+    #[allow(dead_code)]
     render_state_entry_removed: bool,
 }
 
@@ -234,6 +233,7 @@ impl LayerLease {
         self.inner.atlas_index
     }
 
+    #[allow(dead_code)]
     fn layer_id(&self) -> &str {
         &self.inner.layer_id
     }
@@ -464,26 +464,14 @@ fn get_spatial_dims_from_volume(volume_data: &VolumeSendable) -> Vec<usize> {
         VolumeSendable::VolU32(vol, _) => vol.space().dims().to_vec(),
         VolumeSendable::VolF64(vol, _) => vol.space().dims().to_vec(),
         // 4D volumes - return first 3 dimensions
-        VolumeSendable::Vec4DF32(vec) => {
-            vec.space.dim.iter().take(3).copied().collect()
-        }
-        VolumeSendable::Vec4DI16(vec) => {
-            vec.space.dim.iter().take(3).copied().collect()
-        }
+        VolumeSendable::Vec4DF32(vec) => vec.space.dim.iter().take(3).copied().collect(),
+        VolumeSendable::Vec4DI16(vec) => vec.space.dim.iter().take(3).copied().collect(),
         VolumeSendable::Vec4DU8(vec) => vec.space.dim.iter().take(3).copied().collect(),
         VolumeSendable::Vec4DI8(vec) => vec.space.dim.iter().take(3).copied().collect(),
-        VolumeSendable::Vec4DU16(vec) => {
-            vec.space.dim.iter().take(3).copied().collect()
-        }
-        VolumeSendable::Vec4DI32(vec) => {
-            vec.space.dim.iter().take(3).copied().collect()
-        }
-        VolumeSendable::Vec4DU32(vec) => {
-            vec.space.dim.iter().take(3).copied().collect()
-        }
-        VolumeSendable::Vec4DF64(vec) => {
-            vec.space.dim.iter().take(3).copied().collect()
-        }
+        VolumeSendable::Vec4DU16(vec) => vec.space.dim.iter().take(3).copied().collect(),
+        VolumeSendable::Vec4DI32(vec) => vec.space.dim.iter().take(3).copied().collect(),
+        VolumeSendable::Vec4DU32(vec) => vec.space.dim.iter().take(3).copied().collect(),
+        VolumeSendable::Vec4DF64(vec) => vec.space.dim.iter().take(3).copied().collect(),
     }
 }
 
@@ -639,6 +627,7 @@ fn compute_data_range_from_volume(volume_data: &VolumeSendable) -> (f32, f32) {
 }
 
 /// Convert world coordinates to grid coordinates
+#[allow(dead_code)]
 fn coord_to_grid_for_volume(
     volume_data: &VolumeSendable,
     coords: &Vec<Vec<f64>>,
@@ -760,30 +749,14 @@ fn extract_3d_volume_at_timepoint(
 ) -> BridgeResult<VolumeSendable> {
     match volume_4d {
         // For 3D volumes, just return as-is (ignore timepoint)
-        VolumeSendable::VolF32(vol, affine) => {
-            Ok(VolumeSendable::VolF32(vol.clone(), *affine))
-        }
-        VolumeSendable::VolI16(vol, affine) => {
-            Ok(VolumeSendable::VolI16(vol.clone(), *affine))
-        }
-        VolumeSendable::VolU8(vol, affine) => {
-            Ok(VolumeSendable::VolU8(vol.clone(), *affine))
-        }
-        VolumeSendable::VolI8(vol, affine) => {
-            Ok(VolumeSendable::VolI8(vol.clone(), *affine))
-        }
-        VolumeSendable::VolU16(vol, affine) => {
-            Ok(VolumeSendable::VolU16(vol.clone(), *affine))
-        }
-        VolumeSendable::VolI32(vol, affine) => {
-            Ok(VolumeSendable::VolI32(vol.clone(), *affine))
-        }
-        VolumeSendable::VolU32(vol, affine) => {
-            Ok(VolumeSendable::VolU32(vol.clone(), *affine))
-        }
-        VolumeSendable::VolF64(vol, affine) => {
-            Ok(VolumeSendable::VolF64(vol.clone(), *affine))
-        }
+        VolumeSendable::VolF32(vol, affine) => Ok(VolumeSendable::VolF32(vol.clone(), *affine)),
+        VolumeSendable::VolI16(vol, affine) => Ok(VolumeSendable::VolI16(vol.clone(), *affine)),
+        VolumeSendable::VolU8(vol, affine) => Ok(VolumeSendable::VolU8(vol.clone(), *affine)),
+        VolumeSendable::VolI8(vol, affine) => Ok(VolumeSendable::VolI8(vol.clone(), *affine)),
+        VolumeSendable::VolU16(vol, affine) => Ok(VolumeSendable::VolU16(vol.clone(), *affine)),
+        VolumeSendable::VolI32(vol, affine) => Ok(VolumeSendable::VolI32(vol.clone(), *affine)),
+        VolumeSendable::VolU32(vol, affine) => Ok(VolumeSendable::VolU32(vol.clone(), *affine)),
+        VolumeSendable::VolF64(vol, affine) => Ok(VolumeSendable::VolF64(vol.clone(), *affine)),
 
         // For 4D volumes, extract the requested timepoint
         VolumeSendable::Vec4DF32(vec) => {
@@ -1370,6 +1343,9 @@ struct RemoteFileCacheMetadata {
 
 // --- Define App State to hold the registry ---
 // This might conflict/need merging with AppState in src-tauri/lib.rs later
+// Several fields hold internal-only types (LayerLease, RemoteMountEntry,
+// PendingRemoteMountContext) that are intentionally not part of the public API.
+#[allow(private_interfaces)]
 pub struct BridgeState {
     // Removed: pub loader_registry: Arc<Mutex<LoaderRegistry>>,
     pub volume_registry: Arc<Mutex<VolumeRegistry>>,
@@ -1438,6 +1414,8 @@ impl BridgeState {
         }
     }
 
+    // Fallible constructor; intentionally not the std `Default` trait (returns Result).
+    #[allow(clippy::should_implement_trait)]
     pub fn default() -> Result<Self, String> {
         // Create cache directory for atlas data
         let cache_dir = std::env::temp_dir().join("brainflow_atlas_cache");
@@ -2890,7 +2868,7 @@ async fn load_surface(
             handle,
             vertex_count,
             face_count,
-            path: loaded_path,
+            path: _loaded_path,
         } => {
             // Load the actual surface geometry
             let geometry = gifti_loader::load_gifti_surface(&file_path)?;
@@ -2949,7 +2927,7 @@ async fn load_surface(
         bridge_types::Loaded::SurfaceData {
             handle,
             data_count,
-            path: loaded_path,
+            path: _loaded_path,
         } => {
             // For surface data, we'll need to implement loading the actual data
             // For now, return a placeholder
@@ -2974,10 +2952,12 @@ fn surface_geometry_data(
     geometry: &neurosurf_rs::geometry::SurfaceGeometry,
 ) -> BridgeResult<bridge_types::SurfaceGeometryData> {
     // World-space vertices: surf_to_world is applied here (identity -> unchanged).
-    let vertices_array = geometry.vertices_world().map_err(|e| BridgeError::Internal {
-        code: 2002,
-        details: format!("Failed to get world vertices: {}", e),
-    })?;
+    let vertices_array = geometry
+        .vertices_world()
+        .map_err(|e| BridgeError::Internal {
+            code: 2002,
+            details: format!("Failed to get world vertices: {}", e),
+        })?;
     let mut vertices = Vec::with_capacity(vertices_array.nrows() * 3);
     for row in vertices_array.rows() {
         vertices.push(row[0] as f32);
@@ -4812,9 +4792,7 @@ pub async fn request_layer_gpu_resources_for_testing(
                     &volume_data,
                     VolumeSendable::VolU8(_, _) | VolumeSendable::Vec4DU8(_)
                 );
-                let (display_min, display_max) = if is_u8 {
-                    (0.0, 1.0)
-                } else if is_binary_like && max_val <= 1.0 {
+                let (display_min, display_max) = if is_u8 || (is_binary_like && max_val <= 1.0) {
                     (0.0, 1.0)
                 } else {
                     (min_val, max_val)
@@ -7362,12 +7340,14 @@ fn sampling_mode_to_str(m: neurosurf_rs::analysis::SamplingMode) -> String {
 /// Translate the frontend `params` object into `VolToSurfParams`, keeping
 /// library defaults for any field the caller omits.
 fn parse_vol_to_surf_params(params: &serde_json::Value) -> neurosurf_rs::analysis::VolToSurfParams {
-    let mut p = neurosurf_rs::analysis::VolToSurfParams::default();
     // Default fill to NaN (no-coverage sentinel) rather than the library's 0.0,
     // which is indistinguishable from a real stat value of 0 and is wrongly
     // counted as coverage. A NaN fill is excluded by coverage_and_range's
     // is_finite() check and rendered transparent on the frontend.
-    p.fill = f64::NAN;
+    let mut p = neurosurf_rs::analysis::VolToSurfParams {
+        fill: f64::NAN,
+        ..neurosurf_rs::analysis::VolToSurfParams::default()
+    };
     if let Some(s) = params.get("mapping_function").and_then(|v| v.as_str()) {
         p.mapping_function = parse_mapping_function(Some(s));
     }
@@ -7456,7 +7436,10 @@ mod coverage_and_range_tests {
         let vals = vec![1.0_f64, f64::NAN, 0.0, 3.0, f64::NAN];
         for mapping in [MappingFunction::Average, MappingFunction::NearestNeighbor] {
             let (valid, range) = coverage_and_range(&vals, mapping, f64::NAN);
-            assert_eq!(valid, 3, "NaN fills excluded, real 0.0 retained ({mapping:?})");
+            assert_eq!(
+                valid, 3,
+                "NaN fills excluded, real 0.0 retained ({mapping:?})"
+            );
             let r = range.expect("range over finite values");
             assert_eq!(r.min, 0.0);
             assert_eq!(r.max, 3.0);
@@ -8628,7 +8611,9 @@ struct RequestedView {
 #[derive(Deserialize, Debug, Clone)]
 struct FrontendViews {
     axial: ViewPlane,
+    #[allow(dead_code)]
     sagittal: ViewPlane,
+    #[allow(dead_code)]
     coronal: ViewPlane,
 }
 
@@ -8921,6 +8906,8 @@ async fn prepare_frontend_layers_for_render(
     })
 }
 
+// Diagnostics entry point threads many per-render inputs; not worth a params struct.
+#[allow(clippy::too_many_arguments)]
 async fn render_frontend_view_with_diagnostics(
     frontend_state: &FrontendViewState,
     bridge_state: &BridgeState,
@@ -12530,6 +12517,8 @@ async fn compute_temporal_metric(
     }
 }
 
+// Numeric kernel taking volume dims + window params positionally; struct adds no clarity.
+#[allow(clippy::too_many_arguments)]
 fn compute_metric_slice_inner(
     data: &[f32],
     nx: usize,
@@ -12745,8 +12734,7 @@ pub fn plugin<R: Runtime>() -> TauriPlugin<R> {
         ])
         .setup(|app, _| {
             // Initialize the bridge state
-            let bridge_state = BridgeState::default()
-                .map_err(std::io::Error::other)?;
+            let bridge_state = BridgeState::default().map_err(std::io::Error::other)?;
             app.manage(bridge_state);
             Ok(())
         })

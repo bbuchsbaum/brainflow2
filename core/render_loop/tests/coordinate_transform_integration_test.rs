@@ -77,8 +77,8 @@ async fn test_upload_volume_with_scaled_transform() {
     // Create volume with non-unit spacing
     let dims = [20, 20, 10];
     let mut data = vec![0.0f32; 4000];
-    for i in 0..4000 {
-        data[i] = i as f32;
+    for (i, value) in data.iter_mut().enumerate() {
+        *value = i as f32;
     }
 
     let space = <volmath::NeuroSpace as NeuroSpaceExt>::from_dims_spacing_origin(

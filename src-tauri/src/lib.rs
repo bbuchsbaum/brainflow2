@@ -25,17 +25,20 @@ pub struct VolumeInfo {
 
 // Global state management
 pub struct AppState {
+    #[allow(dead_code)]
     loaded_volumes: Mutex<HashMap<String, VolumeInfo>>,
 }
 
 // Learn more about Tauri commands at https://tauri.app/v1/guides/features/command
 #[tauri::command]
+#[allow(dead_code)]
 fn greet(name: &str) -> String {
     format!("Hello, {}! You've been greeted from Rust!", name)
 }
 
 /// List all currently loaded volumes
 #[tauri::command]
+#[allow(dead_code)]
 fn list_volumes(state: State<AppState>) -> Result<Vec<VolumeInfo>, String> {
     let volumes = state.loaded_volumes.lock().map_err(|e| e.to_string())?;
     Ok(volumes.values().cloned().collect())
@@ -43,6 +46,7 @@ fn list_volumes(state: State<AppState>) -> Result<Vec<VolumeInfo>, String> {
 
 /// Check if a file can be loaded (placeholder for real implementation)
 #[tauri::command]
+#[allow(dead_code)]
 fn can_load_file(file_path: &str) -> Result<bool, String> {
     let path = PathBuf::from(file_path);
 
@@ -59,6 +63,7 @@ fn can_load_file(file_path: &str) -> Result<bool, String> {
 
 /// Simulate loading a volume (placeholder for real implementation)
 #[tauri::command]
+#[allow(dead_code)]
 fn load_volume(file_path: &str, state: State<AppState>) -> Result<VolumeInfo, String> {
     let path = PathBuf::from(file_path);
 

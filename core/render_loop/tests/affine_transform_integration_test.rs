@@ -31,8 +31,8 @@ async fn test_affine_transform_in_layer_ubo() -> Result<(), Box<dyn std::error::
     affine[(1, 3)] = 20.0;
     affine[(2, 3)] = 30.0;
 
-    let space = NeuroSpaceImpl::from_affine_matrix4(dims, affine)
-        .expect("create transformed volume space");
+    let space =
+        NeuroSpaceImpl::from_affine_matrix4(dims, affine).expect("create transformed volume space");
     let neuro_space = NeuroSpace3::new(space);
     let volume = DenseVolume3::<f32>::from_data(neuro_space, data);
 
@@ -40,7 +40,7 @@ async fn test_affine_transform_in_layer_ubo() -> Result<(), Box<dyn std::error::
     let mut service = RenderLoopService::new().await?;
 
     // Upload volume to 3D texture
-    let (layer_idx, world_to_voxel) = service.upload_volume_3d(&volume)?;
+    let (_layer_idx, world_to_voxel) = service.upload_volume_3d(&volume)?;
 
     // Verify the world_to_voxel transform
     let expected_w2v = affine.try_inverse().unwrap();
@@ -112,8 +112,8 @@ async fn test_volume_space_transforms() -> Result<(), Box<dyn std::error::Error>
     affine[(1, 3)] = 50.0;
     affine[(2, 3)] = 75.0;
 
-    let space = NeuroSpaceImpl::from_affine_matrix4(dims, affine)
-        .expect("create transformed volume space");
+    let space =
+        NeuroSpaceImpl::from_affine_matrix4(dims, affine).expect("create transformed volume space");
 
     // Test that we can retrieve the transforms
     let voxel_to_world = space.voxel_to_world();
