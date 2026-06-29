@@ -1,16 +1,10 @@
 // Unwired error-presentation layer, kept for future use (audit #6).
 #![allow(dead_code)]
 
-use anyhow::{Context, Result};
 use bridge_types::BridgeError;
 
 /// Extension trait to add context to errors
 pub trait ErrorContext<T> {
-    /// Add context to a Result, converting to anyhow::Result
-    fn context_any<C>(self, context: C) -> Result<T>
-    where
-        C: std::fmt::Display + Send + Sync + 'static;
-
     /// Add context and convert to BridgeResult
     fn context_bridge<C>(self, context: C, code: u16) -> bridge_types::BridgeResult<T>
     where
@@ -21,13 +15,6 @@ impl<T, E> ErrorContext<T> for std::result::Result<T, E>
 where
     E: std::error::Error + Send + Sync + 'static,
 {
-    fn context_any<C>(self, context: C) -> Result<T>
-    where
-        C: std::fmt::Display + Send + Sync + 'static,
-    {
-        self.context(context)
-    }
-
     fn context_bridge<C>(self, context: C, code: u16) -> bridge_types::BridgeResult<T>
     where
         C: std::fmt::Display + Send + Sync + 'static,
@@ -60,14 +47,6 @@ impl<T> OptionContext<T> for Option<T> {
             details: context.to_string(),
         })
     }
-}
-
-/// Helper macro for adding file and line context
-#[macro_export]
-macro_rules! context_here {
-    ($msg:expr) => {
-        format!("{} at {}:{}", $msg, file!(), line!())
-    };
 }
 
 /// Helper for volume-specific errors with context

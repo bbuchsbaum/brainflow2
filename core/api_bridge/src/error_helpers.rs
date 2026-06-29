@@ -88,21 +88,6 @@ pub fn permission_error(path: &str) -> BridgeError {
     }
 }
 
-/// Add context to an existing error to make it more user-friendly
-pub fn add_user_context(error: BridgeError, context: &str) -> BridgeError {
-    match error {
-        BridgeError::Internal { code, details } => BridgeError::Internal {
-            code,
-            details: format!("{}: {}", context, details),
-        },
-        BridgeError::Loader { code, details } => BridgeError::Loader {
-            code,
-            details: format!("{}: {}", context, details),
-        },
-        other => other, // Return other errors unchanged
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
