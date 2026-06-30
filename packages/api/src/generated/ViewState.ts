@@ -37,4 +37,4 @@ crosshair_color: [number, number, number, number],
 /**
  * Current timepoint for 4D volumes (0-indexed).
  */
-timepoint: number | null, };
+timepoint?: number, };

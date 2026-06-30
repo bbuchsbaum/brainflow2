@@ -59,7 +59,6 @@ pub enum InterpolationMode {
     Cubic,
 }
 
-
 /// Unique identifier for a view.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, TS)]
 pub struct ViewId(pub String);
@@ -96,7 +95,8 @@ pub struct ViewState {
     pub crosshair_color: [f32; 4],
 
     /// Current timepoint for 4D volumes (0-indexed).
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub timepoint: Option<usize>,
 }
 
@@ -113,13 +113,16 @@ pub struct CameraState {
     pub orientation: SliceOrientation,
 
     /// Optional exact frame parameters for non-square FOVs.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub frame_origin: Option<[f32; 4]>,
 
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub frame_u_vec: Option<[f32; 4]>,
 
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub frame_v_vec: Option<[f32; 4]>,
 }
 
@@ -293,7 +296,6 @@ pub enum FrameReadbackMode {
     Blocking,
     Skip,
 }
-
 
 /// Options controlling how request_frame completes after GPU submission.
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, TS)]

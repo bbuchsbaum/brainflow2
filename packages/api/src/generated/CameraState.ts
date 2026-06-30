@@ -20,4 +20,4 @@ orientation: SliceOrientation,
 /**
  * Optional exact frame parameters for non-square FOVs.
  */
-frame_origin: [number, number, number, number] | null, frame_u_vec: [number, number, number, number] | null, frame_v_vec: [number, number, number, number] | null, };
+frame_origin?: [number, number, number, number], frame_u_vec?: [number, number, number, number], frame_v_vec?: [number, number, number, number], };
