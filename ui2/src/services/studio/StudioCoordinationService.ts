@@ -129,6 +129,7 @@ export class StudioCoordinationService {
   private active = false;
   private lastAutoCompareKey: string | null = null;
   private previousActiveSetId: string | null = null;
+  private activeAbortController: AbortController | null = null;
 
   start() {
     if (this.active) {
@@ -278,6 +279,9 @@ export class StudioCoordinationService {
   }
 
   stop() {
+    this.activeAbortController?.abort();
+    this.activeAbortController = null;
+
     const store = useSetStudioStore.getState();
     const activeJobId = store.activeMaterializationJobId;
     if (activeJobId) {
@@ -302,6 +306,8 @@ export class StudioCoordinationService {
     }
 
     this.requestVersion += 1;
+    this.activeAbortController?.abort();
+    this.activeAbortController = null;
     store.cancelMaterializationJob(activeJobId);
     return true;
   }
@@ -327,6 +333,9 @@ export class StudioCoordinationService {
 
     const store = useSetStudioStore.getState();
     const requestId = ++this.requestVersion;
+    this.activeAbortController?.abort();
+    const abortController = new AbortController();
+    this.activeAbortController = abortController;
     const jobId = `compare:${requestId}:${Date.now()}`;
     store.beginMaterializationJob(
       buildMaterializationJob({
@@ -342,16 +351,24 @@ export class StudioCoordinationService {
     );
 
     try {
-      const specs = await getStudioCompareService().materializeComparePanes({
-        activeSet,
-        activeMember,
-        compareCohort,
-        activeExpression,
-        forceRematerialize,
-      });
+      const specs = await getStudioCompareService().materializeComparePanes(
+        {
+          activeSet,
+          activeMember,
+          compareCohort,
+          activeExpression,
+          forceRematerialize,
+        },
+        {
+          signal: abortController.signal,
+        },
+      );
       const liveStore = useSetStudioStore.getState();
       if (!this.canApplyMaterializationResult(requestId, jobId, liveStore)) {
         return;
+      }
+      if (this.activeAbortController === abortController) {
+        this.activeAbortController = null;
       }
       liveStore.completeMaterializationJob(jobId, specs);
       if (forceRematerialize && notifyLabel) {
@@ -363,6 +380,13 @@ export class StudioCoordinationService {
     } catch (error) {
       const liveStore = useSetStudioStore.getState();
       if (!this.canApplyMaterializationResult(requestId, jobId, liveStore)) {
+        return;
+      }
+      if (this.activeAbortController === abortController) {
+        this.activeAbortController = null;
+      }
+      if (error instanceof Error && error.name === 'AbortError') {
+        liveStore.cancelMaterializationJob(jobId);
         return;
       }
       liveStore.failMaterializationJob(jobId, errorMessage(error));

@@ -80,6 +80,9 @@ Default permissions for api-bridge plugin
 - `allow-preview-set-studio-imports`
 - `allow-promote-discovery-to-neurotabs`
 - `allow-materialize-set-studio-compare-panes`
+- `allow-start-set-studio-compare-materialization`
+- `allow-get-set-studio-materialization-status`
+- `allow-cancel-set-studio-materialization`
 - `allow-check-bids-directory`
 - `allow-scan-bids-dataset`
 - `allow-get-bids-events`
@@ -172,6 +175,32 @@ Enables the batch_render_slices command without any pre-configured scope.
 <td>
 
 Denies the batch_render_slices command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:allow-cancel-set-studio-materialization`
+
+</td>
+<td>
+
+Enables the cancel_set_studio_materialization command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:deny-cancel-set-studio-materialization`
+
+</td>
+<td>
+
+Denies the cancel_set_studio_materialization command without any pre-configured scope.
 
 </td>
 </tr>
@@ -1004,6 +1033,32 @@ Enables the get_render_statistics command without any pre-configured scope.
 <td>
 
 Denies the get_render_statistics command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:allow-get-set-studio-materialization-status`
+
+</td>
+<td>
+
+Enables the get_set_studio_materialization_status command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:deny-get-set-studio-materialization-status`
+
+</td>
+<td>
+
+Denies the get_set_studio_materialization_status command without any pre-configured scope.
 
 </td>
 </tr>
@@ -2642,6 +2697,32 @@ Enables the start_atlas_progress_monitoring command without any pre-configured s
 <td>
 
 Denies the start_atlas_progress_monitoring command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:allow-start-set-studio-compare-materialization`
+
+</td>
+<td>
+
+Enables the start_set_studio_compare_materialization command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:deny-start-set-studio-compare-materialization`
+
+</td>
+<td>
+
+Denies the start_set_studio_compare_materialization command without any pre-configured scope.
 
 </td>
 </tr>

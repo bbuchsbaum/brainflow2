@@ -63,6 +63,7 @@ use brainflow_loaders as core_loaders;
 mod analysis;
 mod error_context;
 mod error_helpers;
+mod materialization;
 mod render_bridge_adapter;
 mod user_errors;
 use error_context::*;
@@ -1374,6 +1375,8 @@ pub struct BridgeState {
     // Analysis registry and running jobs
     pub analysis_registry: Arc<Mutex<analysis::AnalysisRegistry>>,
     pub analysis_jobs: Arc<Mutex<analysis::AnalysisJobManager>>,
+    pub set_studio_materialization_jobs:
+        Arc<Mutex<materialization::StudioMaterializationJobManager>>,
     // Active remote mounts keyed by mount_id.
     pub remote_mounts: Arc<Mutex<HashMap<String, RemoteMountEntry>>>,
     // Pending host-key prompt context keyed by challenge UUID.
@@ -1414,6 +1417,9 @@ impl BridgeState {
             template_service,
             analysis_registry: Arc::new(Mutex::new(analysis::build_default_registry())),
             analysis_jobs: Arc::new(Mutex::new(analysis::AnalysisJobManager::new())),
+            set_studio_materialization_jobs: Arc::new(Mutex::new(
+                materialization::StudioMaterializationJobManager::new(),
+            )),
             remote_mounts: Arc::new(Mutex::new(HashMap::new())),
             pending_remote_host_key: Arc::new(Mutex::new(HashMap::new())),
             pending_remote_auth: Arc::new(Mutex::new(HashMap::new())),
@@ -1447,6 +1453,9 @@ impl BridgeState {
             )),
             analysis_registry: Arc::new(Mutex::new(analysis::build_default_registry())),
             analysis_jobs: Arc::new(Mutex::new(analysis::AnalysisJobManager::new())),
+            set_studio_materialization_jobs: Arc::new(Mutex::new(
+                materialization::StudioMaterializationJobManager::new(),
+            )),
             remote_mounts: Arc::new(Mutex::new(HashMap::new())),
             pending_remote_host_key: Arc::new(Mutex::new(HashMap::new())),
             pending_remote_auth: Arc::new(Mutex::new(HashMap::new())),
@@ -10775,6 +10784,39 @@ async fn materialize_set_studio_compare_panes(
 }
 
 #[command]
+#[tracing::instrument(skip_all, err, name = "api.start_set_studio_compare_materialization")]
+async fn start_set_studio_compare_materialization(
+    request: bridge_types::StudioCompareMaterializeRequest,
+    state: State<'_, BridgeState>,
+) -> BridgeResult<String> {
+    materialization::start_compare_materialization_job(
+        Arc::clone(&state.set_studio_materialization_jobs),
+        request,
+    )
+    .await
+}
+
+#[command]
+#[tracing::instrument(skip_all, err, name = "api.get_set_studio_materialization_status")]
+async fn get_set_studio_materialization_status(
+    job_id: String,
+    state: State<'_, BridgeState>,
+) -> BridgeResult<Option<bridge_types::StudioMaterializationJobStatus>> {
+    let jobs = state.set_studio_materialization_jobs.lock().await;
+    Ok(jobs.get_status(&job_id).await)
+}
+
+#[command]
+#[tracing::instrument(skip_all, err, name = "api.cancel_set_studio_materialization")]
+async fn cancel_set_studio_materialization(
+    job_id: String,
+    state: State<'_, BridgeState>,
+) -> BridgeResult<bool> {
+    let mut jobs = state.set_studio_materialization_jobs.lock().await;
+    Ok(jobs.cancel(&job_id).await)
+}
+
+#[command]
 #[tracing::instrument(skip_all, err, name = "api.check_bids_directory")]
 async fn check_bids_directory(path: String) -> BridgeResult<bool> {
     let dir = std::path::PathBuf::from(&path);
@@ -12723,6 +12765,9 @@ pub fn plugin<R: Runtime>() -> TauriPlugin<R> {
             preview_set_studio_imports,
             promote_discovery_to_neurotabs,
             materialize_set_studio_compare_panes,
+            start_set_studio_compare_materialization,
+            get_set_studio_materialization_status,
+            cancel_set_studio_materialization,
             check_bids_directory,
             scan_bids_dataset,
             get_bids_events,

@@ -1375,6 +1375,31 @@ pub struct StudioCompareMaterializeRequest {
     pub cohort_member_role_bindings: Option<Vec<StudioRoleBindingInput>>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq, Eq)]
+#[ts(export)]
+#[serde(rename_all = "snake_case")]
+pub enum StudioMaterializationJobState {
+    Queued,
+    Running,
+    Completed,
+    Failed,
+    Cancelled,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
+#[serde(rename_all = "camelCase")]
+pub struct StudioMaterializationJobStatus {
+    pub job_id: String,
+    pub state: StudioMaterializationJobState,
+    pub started_at_ms: Option<u64>,
+    pub finished_at_ms: Option<u64>,
+    pub progress: Option<f32>,
+    pub message: Option<String>,
+    pub result: Option<Vec<StudioComparePaneSpec>>,
+    pub error: Option<String>,
+}
+
 /// Kinds of inputs an analysis can accept.
 #[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq, Eq)]
 #[ts(export)]

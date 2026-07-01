@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-cancel-set-studio-materialization"
+description = "Enables the cancel_set_studio_materialization command without any pre-configured scope."
+commands.allow = ["cancel_set_studio_materialization"]
+
+[[permission]]
+identifier = "deny-cancel-set-studio-materialization"
+description = "Denies the cancel_set_studio_materialization command without any pre-configured scope."
+commands.deny = ["cancel_set_studio_materialization"]

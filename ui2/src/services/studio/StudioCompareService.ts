@@ -12,9 +12,11 @@ import { isSetCompareReady } from '@/services/studio/importContract';
 import type {
   StudioCompareMaterializeRequest,
   StudioComparePaneSpec as BackendStudioComparePaneSpec,
+  StudioMaterializationJobStatus,
 } from '@brainflow/api';
 
 const demoTemplateSource = (templateId: string) => `template:${templateId}`;
+const MATERIALIZATION_POLL_INTERVAL_MS = 50;
 
 const DEMO_COMPARE_BINDINGS = {
   'cohort-mean': demoTemplateSource('MNI152NLin2009cAsym_GM_2mm'),
@@ -46,6 +48,34 @@ function toUiComparePaneSpec(pane: BackendStudioComparePaneSpec): StudioCompareP
         }
       : null,
   };
+}
+
+function delay(ms: number, signal?: AbortSignal): Promise<void> {
+  if (signal?.aborted) {
+    return Promise.reject(materializationCancelledError());
+  }
+
+  return new Promise((resolve, reject) => {
+    const timeout = window.setTimeout(resolve, ms);
+    signal?.addEventListener(
+      'abort',
+      () => {
+        window.clearTimeout(timeout);
+        reject(materializationCancelledError());
+      },
+      { once: true }
+    );
+  });
+}
+
+function materializationCancelledError(): Error {
+  const error = new Error('Set Studio materialization cancelled.');
+  error.name = 'AbortError';
+  return error;
+}
+
+function isAbortError(error: unknown): boolean {
+  return error instanceof Error && error.name === 'AbortError';
 }
 
 type MemberBinding = NonNullable<StudioMemberSummary['bindings']>[number];
@@ -303,8 +333,21 @@ export class StudioCompareService {
     compareCohort: StudioCohortSummary | null;
     activeExpression: StudioFieldExpressionSummary | null;
     forceRematerialize?: boolean;
+  },
+  options?: {
+    signal?: AbortSignal;
   }): Promise<StudioComparePaneSpec[]> {
     const request = this.buildRequest(args);
+
+    try {
+      return await this.materializeComparePanesViaJob(request, options?.signal);
+    } catch (jobError) {
+      if (isAbortError(jobError)) {
+        throw jobError;
+      }
+      console.warn('[StudioCompareService] Falling back to direct compare-pane materialization:', jobError);
+    }
+
     try {
       const panes = await this.transport.invoke<BackendStudioComparePaneSpec[]>(
         'materialize_set_studio_compare_panes',
@@ -314,6 +357,74 @@ export class StudioCompareService {
     } catch (error) {
       console.warn('[StudioCompareService] Falling back to local compare-pane builder:', error);
       return buildStudioComparePaneSpecs(args, { syntheticFallback: true });
+    }
+  }
+
+  private async materializeComparePanesViaJob(
+    request: StudioCompareMaterializeRequest,
+    signal?: AbortSignal
+  ): Promise<StudioComparePaneSpec[]> {
+    const jobId = await this.transport.invoke<string>('start_set_studio_compare_materialization', {
+      request,
+    });
+    if (typeof jobId !== 'string' || !jobId.trim()) {
+      throw new Error('Backend did not return a materialization job id.');
+    }
+
+    let cancelIssued = false;
+    const cancelBackendJob = async () => {
+      if (cancelIssued) {
+        return;
+      }
+      cancelIssued = true;
+      try {
+        await this.transport.invoke<boolean>('cancel_set_studio_materialization', { jobId });
+      } catch (error) {
+        console.warn('[StudioCompareService] Failed to cancel materialization job:', error);
+      }
+    };
+    const abortListener = () => {
+      void cancelBackendJob();
+    };
+
+    if (signal?.aborted) {
+      await cancelBackendJob();
+      throw materializationCancelledError();
+    }
+
+    signal?.addEventListener('abort', abortListener, { once: true });
+    try {
+      for (;;) {
+        if (signal?.aborted) {
+          await cancelBackendJob();
+          throw materializationCancelledError();
+        }
+
+        const status = await this.transport.invoke<StudioMaterializationJobStatus | null>(
+          'get_set_studio_materialization_status',
+          { jobId }
+        );
+        if (!status) {
+          throw new Error(`Materialization job ${jobId} was not found.`);
+        }
+
+        if (status.state === 'completed') {
+          if (!status.result) {
+            throw new Error(`Materialization job ${jobId} completed without a result.`);
+          }
+          return status.result.map(toUiComparePaneSpec);
+        }
+        if (status.state === 'failed') {
+          throw new Error(status.error ?? status.message ?? `Materialization job ${jobId} failed.`);
+        }
+        if (status.state === 'cancelled') {
+          throw materializationCancelledError();
+        }
+
+        await delay(MATERIALIZATION_POLL_INTERVAL_MS, signal);
+      }
+    } finally {
+      signal?.removeEventListener('abort', abortListener);
     }
   }
 

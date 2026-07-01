@@ -89,6 +89,27 @@ const activeExpression: StudioFieldExpressionSummary = {
   cohortId: 'cohort-a',
 };
 
+function backendPane(sourcePath: string) {
+  return {
+    id: 'zscore',
+    title: 'Z-score',
+    subtitle: 'Cohort-relative comparison',
+    status: 'live',
+    reason: 'Derived z-score cache is ready.',
+    recipe: activeExpression.recipe,
+    binding: {
+      kind: 'derived_field',
+      ready: true,
+      sourcePath,
+      materializationKey: 'zscore:cohort-a:expr-z',
+      materializedAtMs: BigInt(42),
+      cacheStatus: 'hit',
+      cacheMessage: 'Cache hit.',
+      provenancePath: `${sourcePath}.json`,
+    },
+  };
+}
+
 describe('buildStudioComparePaneSpecs', () => {
   it('seeds ready compare artifacts for demo sets', () => {
     const specs = buildStudioComparePaneSpecs({
@@ -99,7 +120,7 @@ describe('buildStudioComparePaneSpecs', () => {
     });
 
     expect(specs.find((pane) => pane.id === 'current')?.binding?.sourcePath).toBe(
-      'template:MNI152NLin2009cAsym_brain_2mm'
+      'template:MNI152NLin2009cAsym_brain_2mm',
     );
     expect(specs.find((pane) => pane.id === 'cohort-mean')).toMatchObject({
       status: 'live',
@@ -176,10 +197,86 @@ describe('buildStudioComparePaneSpecs', () => {
       },
     });
     expect(specs.find((pane) => pane.id === 'cohort-mean')?.binding?.cacheMessage).toContain(
-      'synthetic demo cohort preview'
+      'synthetic demo cohort preview',
     );
     expect(specs.find((pane) => pane.id === 'residual')?.binding?.cacheStatus).toBe('synthetic');
     expect(specs.find((pane) => pane.id === 'zscore')?.binding?.cacheStatus).toBe('synthetic');
+  });
+
+  it('polls backend materialization jobs and returns completed results', async () => {
+    const invoke = vi.fn(async (cmd: string) => {
+      if (cmd === 'start_set_studio_compare_materialization') {
+        return 'job-1';
+      }
+      if (cmd === 'get_set_studio_materialization_status') {
+        return {
+          jobId: 'job-1',
+          state: 'completed',
+          startedAtMs: BigInt(1),
+          finishedAtMs: BigInt(2),
+          progress: 1,
+          message: 'Completed',
+          result: [backendPane('/cache/zscore.nii.gz')],
+          error: null,
+        };
+      }
+      throw new Error(`unexpected command ${cmd}`);
+    });
+    const service = new StudioCompareService({ invoke });
+
+    const specs = await service.materializeComparePanes({
+      activeSet: importedSet,
+      activeMember,
+      compareCohort,
+      activeExpression,
+    });
+
+    expect(invoke.mock.calls.map((call) => call[0])).toEqual([
+      'start_set_studio_compare_materialization',
+      'get_set_studio_materialization_status',
+    ]);
+    expect(specs).toEqual([
+      expect.objectContaining({
+        id: 'zscore',
+        binding: expect.objectContaining({
+          sourcePath: '/cache/zscore.nii.gz',
+          materializedAtMs: 42,
+          cacheStatus: 'hit',
+        }),
+      }),
+    ]);
+  });
+
+  it('cancels backend materialization jobs when the request signal is aborted', async () => {
+    const invoke = vi.fn(async (cmd: string) => {
+      if (cmd === 'start_set_studio_compare_materialization') {
+        return 'job-1';
+      }
+      if (cmd === 'cancel_set_studio_materialization') {
+        return true;
+      }
+      throw new Error(`unexpected command ${cmd}`);
+    });
+    const service = new StudioCompareService({ invoke });
+    const controller = new AbortController();
+    controller.abort();
+
+    await expect(
+      service.materializeComparePanes(
+        {
+          activeSet: importedSet,
+          activeMember,
+          compareCohort,
+          activeExpression,
+        },
+        { signal: controller.signal },
+      ),
+    ).rejects.toThrow('cancelled');
+
+    expect(invoke.mock.calls.map((call) => call[0])).toEqual([
+      'start_set_studio_compare_materialization',
+      'cancel_set_studio_materialization',
+    ]);
   });
 
   it('builds materialization requests from the active role bindings', async () => {
@@ -243,7 +340,24 @@ describe('buildStudioComparePaneSpecs', () => {
       memberIds: ['sub001', 'sub002'],
       memberCount: 2,
     };
-    const invoke = vi.fn().mockResolvedValue([]);
+    const invoke = vi.fn(async (cmd: string) => {
+      if (cmd === 'start_set_studio_compare_materialization') {
+        return 'job-role';
+      }
+      if (cmd === 'get_set_studio_materialization_status') {
+        return {
+          jobId: 'job-role',
+          state: 'completed',
+          startedAtMs: BigInt(1),
+          finishedAtMs: BigInt(2),
+          progress: 1,
+          message: 'Completed',
+          result: [],
+          error: null,
+        };
+      }
+      throw new Error(`unexpected command ${cmd}`);
+    });
     const service = new StudioCompareService({ invoke });
 
     await service.materializeComparePanes({
@@ -262,8 +376,12 @@ describe('buildStudioComparePaneSpecs', () => {
     expect(request.reducerSpecs).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ kind: 'sd', role: 'tstat' }),
-        expect.objectContaining({ kind: 'leave_one_out_mean', role: 'tstat', excludedMemberId: 'sub001' }),
-      ])
+        expect.objectContaining({
+          kind: 'leave_one_out_mean',
+          role: 'tstat',
+          excludedMemberId: 'sub001',
+        }),
+      ]),
     );
     expect(request.cohortMemberRoleBindings).toEqual(
       expect.arrayContaining([
@@ -279,7 +397,7 @@ describe('buildStudioComparePaneSpecs', () => {
           sourcePath: '/study/sub002/maps/tstat.nii.gz',
           availability: 'available',
         }),
-      ])
+      ]),
     );
   });
 });

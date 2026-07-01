@@ -230,6 +230,12 @@ fn main() {
     if let Err(e) = StudioCompareMaterializeRequest::export_all() {
         eprintln!("Warning: {e}");
     }
+    if let Err(e) = StudioMaterializationJobState::export_all() {
+        eprintln!("Warning: {e}");
+    }
+    if let Err(e) = StudioMaterializationJobStatus::export_all() {
+        eprintln!("Warning: {e}");
+    }
 
     println!("TypeScript type export completed for bridge_types");
 }
