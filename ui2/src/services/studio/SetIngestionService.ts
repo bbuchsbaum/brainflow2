@@ -54,7 +54,7 @@ export class SetIngestionService {
         return;
       }
       const message =
-        error instanceof Error ? error.message : 'Backend preview failed; using local fallback.';
+        error instanceof Error ? error.message : 'Backend preview failed.';
       this.applyFallbackPreview(mode, message);
     }
   }
@@ -96,12 +96,6 @@ export class SetIngestionService {
     return dialogMode === mode;
   }
 
-  private getFallbackCandidates(mode: StudioImportMode): StudioImportCandidate[] {
-    return Object.values(useSetStudioStore.getState().importCandidates).filter(
-      (candidate) => candidate.mode === mode
-    );
-  }
-
   private applyFallbackPreview(mode: StudioImportMode, message: string) {
     const store = useSetStudioStore.getState();
 
@@ -111,8 +105,7 @@ export class SetIngestionService {
       return;
     }
 
-    const fallbackCandidates = this.getFallbackCandidates(mode);
-    store.setImportPreviewResult(mode, fallbackCandidates, 'fallback', message);
+    store.setImportPreviewResult(mode, [], 'fallback', message);
   }
 
   private buildPreviewRequest(mode: StudioImportMode): { request: StudioImportPreviewRequest } {

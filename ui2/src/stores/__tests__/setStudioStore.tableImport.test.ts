@@ -1,10 +1,59 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { useSetStudioStore } from '@/stores/setStudioStore';
+import type { StudioImportCandidate } from '@/types/studio';
 
 describe('SetStudioStore table import wizard', () => {
   beforeEach(() => {
     useSetStudioStore.setState(useSetStudioStore.getInitialState());
   });
+
+  function makeManifestCandidate(overrides: Partial<StudioImportCandidate> = {}): StudioImportCandidate {
+    const candidate: StudioImportCandidate = {
+      id: 'stale-manifest',
+      label: 'Stale manifest preview',
+      description: 'This candidate should be pruned.',
+      mode: 'manifest',
+      sourceHint: '/tmp/stale.neurotabs.yaml',
+      set: {
+        id: 'stale-set',
+        name: 'Stale Set',
+        sourceKind: 'imported',
+        memberCount: 1,
+        primaryFeatureId: 'statmap',
+        supportKind: 'volume',
+        supportLabel: 'MNI152 fixture grid',
+        alignmentClass: 'same-grid',
+        designColumns: [],
+        designTablePreview: null,
+        memberSummaries: [{ id: 'sub001', sourcePath: '/tmp/sub001.nii.gz' }],
+        memberIds: ['sub001'],
+        savedCohortIds: [],
+        ingestAudit: {
+          sourceLabel: 'NeuroTabs manifest',
+          join: {
+            matchedRows: 1,
+            unmatchedRows: 0,
+            duplicateKeys: 0,
+            severity: 'ok',
+            issueDetails: [],
+          },
+          support: {
+            supportLabel: 'MNI152 fixture grid',
+            alignmentClass: 'same-grid',
+            readyForCompare: true,
+            severity: 'ok',
+          },
+          notes: [],
+        },
+      },
+      features: [{ id: 'statmap', label: 'Stat Map', kind: 'volume' }],
+      cohorts: [],
+      expressions: [],
+      materialization: null,
+    };
+
+    return { ...candidate, ...overrides };
+  }
 
   it('parses quoted CSV content and builds a usable preview candidate', () => {
     const store = useSetStudioStore.getState();
@@ -123,6 +172,10 @@ describe('SetStudioStore table import wizard', () => {
 
   it('clears loading state when a preview returns zero candidates', () => {
     const store = useSetStudioStore.getState();
+    const staleCandidate = makeManifestCandidate();
+    store.setImportPreviewResult('manifest', [staleCandidate], 'backend');
+    expect(useSetStudioStore.getState().importCandidates['stale-manifest']).toBeTruthy();
+
     store.beginImportPreview('manifest');
     expect(useSetStudioStore.getState().importDialog.isLoading).toBe(true);
 
@@ -132,5 +185,49 @@ describe('SetStudioStore table import wizard', () => {
     expect(state.importDialog.isLoading).toBe(false);
     expect(state.importDialog.error).toBe('No preview candidates were found.');
     expect(state.importDialog.selectedCandidateId).toBeNull();
+    expect(Object.values(state.importCandidates).some((candidate) => candidate.mode === 'manifest')).toBe(false);
+  });
+
+  it('does not confirm an empty error preview candidate', () => {
+    const store = useSetStudioStore.getState();
+    const blockedBase = makeManifestCandidate();
+    const blockedCandidate = makeManifestCandidate({
+      id: 'blocked-empty-manifest',
+      set: {
+        ...blockedBase.set,
+        memberCount: 0,
+        primaryFeatureId: null,
+        memberSummaries: [],
+        memberIds: [],
+        savedCohortIds: [],
+        ingestAudit: {
+          ...blockedBase.set.ingestAudit,
+          join: {
+            matchedRows: 0,
+            unmatchedRows: 0,
+            duplicateKeys: 0,
+            severity: 'error',
+            issueDetails: [{ message: 'Manifest parse failed.', memberIds: [] }],
+          },
+          support: {
+            ...blockedBase.set.ingestAudit.support,
+            readyForCompare: false,
+            severity: 'error',
+          },
+        },
+      },
+      features: [],
+      cohorts: [],
+      expressions: [],
+    });
+
+    store.openImportDialog('manifest');
+    store.setImportPreviewResult('manifest', [blockedCandidate], 'backend');
+    store.confirmImportCandidate();
+
+    const state = useSetStudioStore.getState();
+    expect(state.importDialog.isOpen).toBe(true);
+    expect(state.selection.activeSetId).toBeNull();
+    expect(Object.keys(state.sets)).toHaveLength(0);
   });
 });

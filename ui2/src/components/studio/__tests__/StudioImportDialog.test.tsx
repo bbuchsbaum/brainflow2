@@ -330,49 +330,39 @@ describe('StudioImportDialog', () => {
     expect(useSetStudioStore.getState().importDialog.mode).toBe('regex');
   });
 
-  it('shows the seed regex candidate with preview data', () => {
+  it('starts regex import without seeded preview data', () => {
     openDialog('regex');
     render(<StudioImportDialog />);
 
-    // Label appears in sidebar and preview header — both should exist
-    expect(screen.getAllByText('Regex discovery preview')).toHaveLength(2);
-
-    // Preview rows from REGEX_IMPORT_SET
-    expect(screen.getByText('sub201')).toBeInTheDocument();
-    expect(screen.getByText('sub202')).toBeInTheDocument();
-
-    // Metadata fields (appear in both pills and table header)
-    expect(screen.getAllByText('subject').length).toBeGreaterThanOrEqual(1);
-    expect(screen.getAllByText('diagnosis').length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByText('No preview candidate available.')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Import Into Studio' })).toBeDisabled();
   });
 
-  it('shows the seed manifest candidate when switching to manifest tab', () => {
+  it('starts manifest import without seeded preview data', () => {
     openDialog('manifest');
     render(<StudioImportDialog />);
 
-    expect(screen.getAllByText('NeuroTabs manifest preview')).toHaveLength(2);
-    expect(screen.getByText('sub101')).toBeInTheDocument();
+    expect(screen.getByText('No preview candidate available.')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Import Into Studio' })).toBeDisabled();
   });
 
   it('renders the footer buttons (Cancel + Import)', () => {
     openDialog('regex');
+    useSetStudioStore.getState().setImportPreviewResult('regex', [makeDiscoveryCandidate()], 'backend');
     render(<StudioImportDialog />);
 
     expect(screen.getByRole('button', { name: 'Cancel' })).toBeInTheDocument();
-    // Regex candidate has warnings, so the label should be "Import For Review"
-    expect(screen.getByRole('button', { name: 'Import For Review' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Import For Compare' })).toBeInTheDocument();
   });
 
   it('renders "Import For Compare" for a clean manifest candidate', () => {
-    openDialog('manifest');
-    render(<StudioImportDialog />);
+    renderManifestCandidate(makeManifestCandidate(), 'backend');
 
     expect(screen.getByRole('button', { name: 'Import For Compare' })).toBeInTheDocument();
   });
 
   it('shows readiness banner for clean manifest candidate', () => {
-    openDialog('manifest');
-    render(<StudioImportDialog />);
+    renderManifestCandidate(makeManifestCandidate(), 'backend');
 
     expect(screen.getByText('Studio Ready')).toBeInTheDocument();
     expect(screen.getByText('Ready for compare-centered reading')).toBeInTheDocument();
@@ -415,11 +405,72 @@ describe('StudioImportDialog', () => {
 
     expect(screen.getByText('Preview source: fallback')).toBeInTheDocument();
     expect(screen.getByText('Audit Attention')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Import Into Studio' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Import For Inspection' })).toBeInTheDocument();
+  });
+
+  it('blocks importing an empty backend error candidate', () => {
+    const blockedBase = makeManifestCandidate({
+      joinSeverity: 'error',
+      supportReady: false,
+      supportSeverity: 'error',
+    });
+    const emptyErrorCandidate: StudioImportCandidate = {
+      ...blockedBase,
+      id: 'candidate-empty-error',
+      description: 'Manifest preview failed; no fallback data was generated.',
+      set: {
+        ...blockedBase.set,
+        memberCount: 0,
+        primaryFeatureId: null,
+        designColumns: [],
+        designTablePreview: null,
+        memberSummaries: [],
+        memberIds: [],
+        savedCohortIds: [],
+        ingestAudit: {
+          ...blockedBase.set.ingestAudit,
+          join: {
+            matchedRows: 0,
+            unmatchedRows: 0,
+            duplicateKeys: 0,
+            severity: 'error',
+            issueDetails: [{ message: 'Manifest parse failed.', memberIds: [] }],
+          },
+        },
+      },
+      features: [],
+      cohorts: [],
+      expressions: [],
+    };
+    renderManifestCandidate(emptyErrorCandidate, 'backend');
+
+    expect(screen.getByText('Fix the preview errors before importing this set.')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Import Blocked' })).toBeDisabled();
   });
 
   it('shows review banner for regex candidate with warnings', () => {
+    const discoveryBase = makeDiscoveryCandidate();
+    const warningCandidate = {
+      ...discoveryBase,
+      set: {
+        ...discoveryBase.set,
+        ingestAudit: {
+          ...discoveryBase.set.ingestAudit,
+          join: {
+            ...discoveryBase.set.ingestAudit.join,
+            unmatchedRows: 1,
+            severity: 'warning' as const,
+          },
+          support: {
+            ...discoveryBase.set.ingestAudit.support,
+            readyForCompare: false,
+            severity: 'warning' as const,
+          },
+        },
+      },
+    };
     openDialog('regex');
+    useSetStudioStore.getState().setImportPreviewResult('regex', [warningCandidate], 'backend');
     render(<StudioImportDialog />);
 
     expect(screen.getByText('Deck First')).toBeInTheDocument();
@@ -428,6 +479,7 @@ describe('StudioImportDialog', () => {
 
   it('shows match summary cards', () => {
     openDialog('regex');
+    useSetStudioStore.getState().setImportPreviewResult('regex', [makeDiscoveryCandidate()], 'backend');
     render(<StudioImportDialog />);
 
     expect(screen.getByText('Match Summary')).toBeInTheDocument();
@@ -436,6 +488,7 @@ describe('StudioImportDialog', () => {
 
   it('shows import notes when present', () => {
     openDialog('regex');
+    useSetStudioStore.getState().setImportPreviewResult('regex', [makeDiscoveryCandidate()], 'backend');
     render(<StudioImportDialog />);
 
     expect(screen.getByText('Import notes')).toBeInTheDocument();
@@ -559,8 +612,7 @@ describe('StudioImportDialog', () => {
   });
 
   it('closes dialog when Import button is clicked', () => {
-    openDialog('manifest');
-    render(<StudioImportDialog />);
+    renderManifestCandidate(makeManifestCandidate(), 'backend');
 
     expect(useSetStudioStore.getState().importDialog.selectedCandidateId).toBeTruthy();
     expect(useSetStudioStore.getState().importDialog.isOpen).toBe(true);

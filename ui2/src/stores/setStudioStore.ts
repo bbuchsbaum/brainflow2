@@ -189,129 +189,10 @@ const DEMO_SET: SpatialFieldSetSummary = {
   },
 };
 
-const MANIFEST_IMPORT_SET: SpatialFieldSetSummary = {
-  id: 'study-manifest-preview',
-  name: 'Faces Task / Manifest Import',
-  sourceKind: 'imported',
-  memberCount: 36,
-  primaryFeatureId: 'tstat',
-  supportKind: 'volume',
-  supportLabel: 'MNI152 2mm template',
-  alignmentClass: 'same-grid',
-  designColumns: ['subject', 'diagnosis', 'sex', 'age_band', 'site'],
-  designTablePreview: {
-    columns: ['subject', 'diagnosis', 'sex', 'age_band'],
-    rows: [
-      { id: 'sub101', cells: ['sub101', 'control', 'F', '20-29'] },
-      { id: 'sub102', cells: ['sub102', 'control', 'M', '30-39'] },
-      { id: 'sub103', cells: ['sub103', 'case', 'F', '20-29'] },
-      { id: 'sub104', cells: ['sub104', 'case', 'M', '30-39'] },
-    ],
-  },
-  memberSummaries: [
-    { id: 'sub101', sourcePath: null },
-    { id: 'sub102', sourcePath: null },
-    { id: 'sub103', sourcePath: null },
-    { id: 'sub104', sourcePath: null },
-    { id: 'sub105', sourcePath: null },
-    { id: 'sub106', sourcePath: null },
-  ],
-  memberIds: ['sub101', 'sub102', 'sub103', 'sub104', 'sub105', 'sub106'],
-  savedCohortIds: ['controls-site-a', 'cases-site-a'],
-  ingestAudit: {
-    sourceLabel: 'NeuroTabs manifest',
-    join: {
-      matchedRows: 36,
-      unmatchedRows: 0,
-      duplicateKeys: 0,
-      severity: 'ok',
-      issueDetails: [],
-    },
-    support: {
-      supportLabel: 'MNI152 2mm template',
-      alignmentClass: 'same-grid',
-      readyForCompare: true,
-      severity: 'ok',
-    },
-    notes: [
-      'All manifest rows resolved to members.',
-      'All members share the canonical support and are compare-safe.',
-    ],
-  },
-};
-
-const REGEX_IMPORT_SET: SpatialFieldSetSummary = {
-  id: 'study-regex-preview',
-  name: 'Discovery Import / Site B',
-  sourceKind: 'imported',
-  memberCount: 28,
-  primaryFeatureId: 'statmap',
-  supportKind: 'volume',
-  supportLabel: 'MNI152 3mm template',
-  alignmentClass: 'same-space',
-  designColumns: ['subject', 'diagnosis', 'session', 'site'],
-  designTablePreview: {
-    columns: ['subject', 'diagnosis', 'session', 'site'],
-    rows: [
-      { id: 'sub201', cells: ['sub201', 'control', 'ses-01', 'site-b'] },
-      { id: 'sub202', cells: ['sub202', 'case', 'ses-01', 'site-b'] },
-      { id: 'sub203', cells: ['sub203', 'control', 'ses-02', 'site-b'] },
-      { id: 'sub204', cells: ['sub204', 'case', 'ses-02', 'site-b'] },
-    ],
-  },
-  memberSummaries: [
-    { id: 'sub201', sourcePath: null },
-    { id: 'sub202', sourcePath: null },
-    { id: 'sub203', sourcePath: null },
-    { id: 'sub204', sourcePath: null },
-    { id: 'sub205', sourcePath: null },
-    { id: 'sub206', sourcePath: null },
-  ],
-  memberIds: ['sub201', 'sub202', 'sub203', 'sub204', 'sub205', 'sub206'],
-  savedCohortIds: ['controls-site-b'],
-  ingestAudit: {
-    sourceLabel: 'Regex discovery',
-    join: {
-      matchedRows: 28,
-      unmatchedRows: 3,
-      duplicateKeys: 1,
-      severity: 'warning',
-      issueDetails: [
-        {
-          message: 'Three discovered files did not resolve to a clean row binding.',
-          memberIds: ['sub201', 'sub203', 'sub205'],
-        },
-        {
-          message: 'One duplicate subject-session key was detected during discovery.',
-          memberIds: ['sub203', 'sub205'],
-        },
-      ],
-    },
-    support: {
-      supportLabel: 'MNI152 3mm template',
-      alignmentClass: 'same-space',
-      readyForCompare: false,
-      severity: 'warning',
-    },
-    notes: [
-      'Three discovered files were not joined to design rows.',
-      'One duplicate subject-session key needs resolution before compare-safe workflows.',
-    ],
-  },
-};
-
 const DEMO_FEATURES: StudioFeatureSummary[] = [
   {
     id: 'statmap',
     label: 'Stat Map',
-    kind: 'volume',
-  },
-];
-
-const MANIFEST_FEATURES: StudioFeatureSummary[] = [
-  {
-    id: 'tstat',
-    label: 'T Statistic',
     kind: 'volume',
   },
 ];
@@ -360,66 +241,6 @@ const DEMO_EXPRESSIONS: StudioFieldExpressionSummary[] = [
     kind: 'comparison',
     recipe: 'zscore(current, cohort:matched-ctl-site-a)',
     cohortId: 'matched-ctl-site-a',
-  },
-];
-
-const MANIFEST_EXPRESSIONS: StudioFieldExpressionSummary[] = [
-  {
-    id: 'manifest-member',
-    label: 'Current member',
-    kind: 'member',
-    recipe: 'member(sub103)',
-    cohortId: null,
-  },
-  {
-    id: 'manifest-compare-zscore',
-    label: 'Z-score vs controls',
-    kind: 'comparison',
-    recipe: 'zscore(current, cohort:controls-site-a)',
-    cohortId: 'controls-site-a',
-  },
-];
-
-const REGEX_EXPRESSIONS: StudioFieldExpressionSummary[] = [
-  {
-    id: 'regex-member',
-    label: 'Current member',
-    kind: 'member',
-    recipe: 'member(sub203)',
-    cohortId: null,
-  },
-];
-
-const MANIFEST_COHORTS: StudioCohortSummary[] = [
-  {
-    id: 'controls-site-a',
-    label: 'Controls / Site A',
-    memberCount: 18,
-    description: 'Manifest-backed control cohort.',
-    memberIds: ['sub101', 'sub102', 'sub105'],
-    originKind: 'imported',
-    originLabel: 'Manifest preview',
-  },
-  {
-    id: 'cases-site-a',
-    label: 'Cases / Site A',
-    memberCount: 18,
-    description: 'Manifest-backed case cohort.',
-    memberIds: ['sub103', 'sub104', 'sub106'],
-    originKind: 'imported',
-    originLabel: 'Manifest preview',
-  },
-];
-
-const REGEX_COHORTS: StudioCohortSummary[] = [
-  {
-    id: 'controls-site-b',
-    label: 'Controls / Site B',
-    memberCount: 14,
-    description: 'Discovery-backed control cohort with unresolved join warnings.',
-    memberIds: ['sub201', 'sub203', 'sub205'],
-    originKind: 'imported',
-    originLabel: 'Regex discovery preview',
   },
 ];
 
@@ -676,44 +497,28 @@ function parseDelimitedRows(
   return { rows, error: null };
 }
 
-const IMPORT_CANDIDATES: StudioImportCandidate[] = [
-  {
-    id: 'candidate-manifest-a',
-    label: 'NeuroTabs manifest preview',
-    description: 'Prepared manifest import with a clean join and compare-safe support.',
-    mode: 'manifest',
-    sourceHint: '/data/studyA/studyA.neurotabs.yaml',
-    set: MANIFEST_IMPORT_SET,
-    features: MANIFEST_FEATURES,
-    cohorts: MANIFEST_COHORTS,
-    expressions: MANIFEST_EXPRESSIONS,
-    materialization: {
-      warm: 2,
-      preview: 1,
-    },
-  },
-  {
-    id: 'candidate-regex-b',
-    label: 'Regex discovery preview',
-    description: 'Discovered files with unresolved join warnings and same-space alignment.',
-    mode: 'regex',
-    sourceHint: 'glob: derivatives/**/*_statmap.nii.gz',
-    set: REGEX_IMPORT_SET,
-    features: DEMO_FEATURES,
-    cohorts: REGEX_COHORTS,
-    expressions: REGEX_EXPRESSIONS,
-    materialization: {
-      warm: 1,
-      preview: 2,
-    },
-  },
-];
+const IMPORT_CANDIDATES: StudioImportCandidate[] = [];
 
 function toRecord<T extends { id: string }>(items: T[]): Record<string, T> {
   return items.reduce<Record<string, T>>((acc, item) => {
     acc[item.id] = item;
     return acc;
   }, {});
+}
+
+function withoutImportCandidatesForMode(
+  candidates: Record<string, StudioImportCandidate>,
+  mode: StudioImportMode
+): Record<string, StudioImportCandidate> {
+  return Object.fromEntries(
+    Object.entries(candidates).filter(([, candidate]) => candidate.mode !== mode)
+  );
+}
+
+function isEmptyErrorImportCandidate(candidate: StudioImportCandidate): boolean {
+  const joinError = candidate.set.ingestAudit.join.severity === 'error';
+  const supportError = candidate.set.ingestAudit.support.severity === 'error';
+  return candidate.set.memberCount === 0 && (joinError || supportError);
 }
 
 function getPreferredExpressionId(
@@ -776,7 +581,7 @@ export const useSetStudioStore = create<SetStudioStoreState>((set, get) => ({
   importDialog: {
     isOpen: false,
     mode: 'table',
-    selectedCandidateId: 'candidate-manifest-a',
+    selectedCandidateId: null,
     isLoading: false,
     error: null,
     source: null,
@@ -1063,15 +868,15 @@ export const useSetStudioStore = create<SetStudioStoreState>((set, get) => ({
 
   beginImportPreview: (mode) => {
     const { importDialog, importCandidates } = get();
-    const candidateForMode =
-      Object.values(importCandidates).find((candidate) => candidate.mode === mode)?.id ?? null;
+    const nextImportCandidates = withoutImportCandidatesForMode(importCandidates, mode);
 
     set({
+      importCandidates: nextImportCandidates,
       importDialog: {
         ...importDialog,
         isOpen: true,
         mode,
-        selectedCandidateId: candidateForMode,
+        selectedCandidateId: null,
         isLoading: true,
         error: null,
         source: null,
@@ -1121,8 +926,9 @@ export const useSetStudioStore = create<SetStudioStoreState>((set, get) => ({
 
   setImportPreviewResult: (mode, candidates, source, error = null) => {
     if (candidates.length === 0) {
-      const { importDialog } = get();
+      const { importDialog, importCandidates } = get();
       set({
+        importCandidates: withoutImportCandidatesForMode(importCandidates, mode),
         importDialog: {
           ...importDialog,
           isOpen: true,
@@ -1195,7 +1001,7 @@ export const useSetStudioStore = create<SetStudioStoreState>((set, get) => ({
     const { importDialog, importCandidates } = get();
     const candidateId = importDialog.selectedCandidateId;
     const candidate = candidateId ? importCandidates[candidateId] ?? null : null;
-    if (!candidate) {
+    if (!candidate || isEmptyErrorImportCandidate(candidate)) {
       return;
     }
 

@@ -1537,6 +1537,86 @@ mod tests {
     }
 
     #[test]
+    fn neurotabs_surface_manifest_imports_for_inspection_only() {
+        let package_dir = make_temp_dir("surface-inspect-only");
+        fs::write(
+            package_dir.join("surface.func.gii"),
+            "placeholder surface data",
+        )
+        .expect("write surface placeholder");
+        fs::write(
+            package_dir.join("observations.csv"),
+            "row_id,subject,surface_path\nrow001,sub001,surface.func.gii\n",
+        )
+        .expect("write observations");
+        let manifest_path = package_dir.join("nftab.yaml");
+        fs::write(
+            &manifest_path,
+            r#"
+spec_version: "0.1.0"
+dataset_id: surface_demo
+storage_profile: table-package
+observation_table:
+  path: observations.csv
+  format: csv
+row_id: row_id
+observation_axes: [subject]
+observation_columns:
+  row_id: { dtype: string }
+  subject: { dtype: string }
+  surface_path: { dtype: string }
+features:
+  surface_stat:
+    logical:
+      kind: surface
+      axes: [vertex]
+      dtype: float32
+      support_ref: fsaverage_left
+      shape: [3]
+      alignment: same_topology
+    encodings:
+      - type: ref
+        binding:
+          backend: gifti
+          locator:
+            column: surface_path
+supports:
+  fsaverage_left:
+    support_type: surface
+    support_id: fsaverage-left-test
+    template: fsaverage
+    mesh_id: fsaverage-lh
+    topology_id: fsaverage-lh
+    hemisphere: left
+"#,
+        )
+        .expect("write manifest");
+
+        let candidate = preview_manifest_candidate(&manifest_path);
+
+        assert_eq!(candidate.set.id, "surface_demo");
+        assert_eq!(candidate.set.member_count, 1);
+        assert_eq!(candidate.set.support_kind, StudioSupportKind::Surface);
+        assert_eq!(
+            candidate.set.alignment_class,
+            StudioAlignmentClass::SameTopology
+        );
+        assert_eq!(
+            candidate.set.ingest_audit.join.severity,
+            StudioAuditSeverity::Ok
+        );
+        assert!(!candidate.set.ingest_audit.support.ready_for_compare);
+        assert!(candidate
+            .set
+            .ingest_audit
+            .notes
+            .iter()
+            .any(|note| note.contains("Surface compare materialization is not implemented")));
+
+        fs::remove_dir_all(package_dir).expect("cleanup fixture dir");
+    }
+
+    #[test]
     fn neurotabs_invalid_fixtures_report_parser_failures() {
         for (relative_path, expected_message) in [
             ("invalid/malformed-yaml/nftab.yaml", "YAML parse error"),
@@ -1556,10 +1636,20 @@ mod tests {
             let candidate = preview_manifest_candidate(&fixture_root().join(relative_path));
             assert_eq!(
                 candidate.set.ingest_audit.join.severity,
-                StudioAuditSeverity::Warning
+                StudioAuditSeverity::Error
             );
+            assert_eq!(candidate.set.member_count, 0);
+            assert!(candidate.features.is_empty());
+            assert!(candidate.cohorts.is_empty());
+            assert!(candidate.expressions.is_empty());
             assert!(!candidate.set.ingest_audit.support.ready_for_compare);
             assert_issue_contains(&candidate, expected_message);
+            assert!(candidate
+                .set
+                .ingest_audit
+                .notes
+                .iter()
+                .any(|note| note.contains("No fallback data was generated")));
         }
     }
 

@@ -109,203 +109,68 @@ fn manifest_candidate(request: &StudioImportPreviewRequest) -> StudioImportCandi
             }),
             discovery: None,
         },
-        Err(message) => manifest_fallback_candidate(&manifest_path, &message),
+        Err(message) => manifest_blocked_candidate(&manifest_path, &message),
     }
 }
 
-fn manifest_fallback_candidate(manifest_path: &str, message: &str) -> StudioImportCandidate {
+fn manifest_blocked_candidate(manifest_path: &str, message: &str) -> StudioImportCandidate {
     let manifest_name = Path::new(manifest_path)
         .file_stem()
         .and_then(|stem| stem.to_str())
         .unwrap_or("Manifest Import");
 
     StudioImportCandidate {
-        id: "candidate-manifest-a".to_string(),
-        label: "NeuroTabs manifest preview".to_string(),
-        description: "Manifest preview fell back to seeded assumptions.".to_string(),
+        id: "candidate-manifest-blocked".to_string(),
+        label: "NeuroTabs manifest blocked".to_string(),
+        description: "Manifest preview failed; no fallback data was generated.".to_string(),
         mode: StudioImportMode::Manifest,
         source_hint: manifest_path.to_string(),
         set: SpatialFieldSetSummary {
-            id: "study-manifest-preview".to_string(),
+            id: "manifest-preview-blocked".to_string(),
             name: format!("{} / Manifest Import", manifest_name),
-            member_count: 36,
-            primary_feature_id: Some("tstat".to_string()),
-            support_kind: StudioSupportKind::Volume,
-            support_label: "MNI152 2mm template".to_string(),
-            alignment_class: StudioAlignmentClass::SameGrid,
-            design_columns: vec![
-                "subject".to_string(),
-                "diagnosis".to_string(),
-                "sex".to_string(),
-                "age_band".to_string(),
-                "site".to_string(),
-            ],
-            design_table_preview: Some(StudioDesignTablePreview {
-                columns: vec![
-                    "subject".to_string(),
-                    "diagnosis".to_string(),
-                    "sex".to_string(),
-                    "age_band".to_string(),
-                ],
-                rows: vec![
-                    StudioDesignRowPreview {
-                        id: "sub101".to_string(),
-                        cells: vec![
-                            "sub101".to_string(),
-                            "control".to_string(),
-                            "F".to_string(),
-                            "20-29".to_string(),
-                        ],
-                    },
-                    StudioDesignRowPreview {
-                        id: "sub102".to_string(),
-                        cells: vec![
-                            "sub102".to_string(),
-                            "control".to_string(),
-                            "M".to_string(),
-                            "30-39".to_string(),
-                        ],
-                    },
-                ],
-            }),
-            member_summaries: vec![
-                StudioMemberSummary {
-                    id: "sub101".to_string(),
-                    source_path: None,
-                    bindings: Some(vec![unavailable_primary_binding(
-                        "tstat",
-                        Some("tstat"),
-                        StudioSupportKind::Volume,
-                        Some("MNI152 2mm template".to_string()),
-                    )]),
-                },
-                StudioMemberSummary {
-                    id: "sub102".to_string(),
-                    source_path: None,
-                    bindings: Some(vec![unavailable_primary_binding(
-                        "tstat",
-                        Some("tstat"),
-                        StudioSupportKind::Volume,
-                        Some("MNI152 2mm template".to_string()),
-                    )]),
-                },
-                StudioMemberSummary {
-                    id: "sub103".to_string(),
-                    source_path: None,
-                    bindings: Some(vec![unavailable_primary_binding(
-                        "tstat",
-                        Some("tstat"),
-                        StudioSupportKind::Volume,
-                        Some("MNI152 2mm template".to_string()),
-                    )]),
-                },
-                StudioMemberSummary {
-                    id: "sub104".to_string(),
-                    source_path: None,
-                    bindings: Some(vec![unavailable_primary_binding(
-                        "tstat",
-                        Some("tstat"),
-                        StudioSupportKind::Volume,
-                        Some("MNI152 2mm template".to_string()),
-                    )]),
-                },
-                StudioMemberSummary {
-                    id: "sub105".to_string(),
-                    source_path: None,
-                    bindings: Some(vec![unavailable_primary_binding(
-                        "tstat",
-                        Some("tstat"),
-                        StudioSupportKind::Volume,
-                        Some("MNI152 2mm template".to_string()),
-                    )]),
-                },
-                StudioMemberSummary {
-                    id: "sub106".to_string(),
-                    source_path: None,
-                    bindings: Some(vec![unavailable_primary_binding(
-                        "tstat",
-                        Some("tstat"),
-                        StudioSupportKind::Volume,
-                        Some("MNI152 2mm template".to_string()),
-                    )]),
-                },
-            ],
-            member_ids: vec![
-                "sub101".to_string(),
-                "sub102".to_string(),
-                "sub103".to_string(),
-                "sub104".to_string(),
-                "sub105".to_string(),
-                "sub106".to_string(),
-            ],
-            saved_cohort_ids: vec!["all-members".to_string()],
+            member_count: 0,
+            primary_feature_id: None,
+            support_kind: StudioSupportKind::Unknown,
+            support_label: "unknown (manifest preview failed)".to_string(),
+            alignment_class: StudioAlignmentClass::Unknown,
+            design_columns: Vec::new(),
+            design_table_preview: None,
+            member_summaries: Vec::new(),
+            member_ids: Vec::new(),
+            saved_cohort_ids: Vec::new(),
             ingest_audit: StudioIngestAuditSummary {
                 source_label: "NeuroTabs manifest".to_string(),
                 join: StudioJoinAuditSummary {
-                    matched_rows: 36,
-                    unmatched_rows: 1,
+                    matched_rows: 0,
+                    unmatched_rows: 0,
                     duplicate_keys: 0,
-                    severity: StudioAuditSeverity::Warning,
+                    severity: StudioAuditSeverity::Error,
                     issue_details: vec![StudioJoinIssueDetail {
                         message: message.to_string(),
                         member_ids: Vec::new(),
                     }],
                 },
                 support: StudioSupportAuditSummary {
-                    support_label: "MNI152 2mm template".to_string(),
-                    alignment_class: StudioAlignmentClass::SameGrid,
+                    support_label: "unknown (manifest preview failed)".to_string(),
+                    alignment_class: StudioAlignmentClass::Unknown,
                     ready_for_compare: false,
-                    severity: StudioAuditSeverity::Warning,
+                    severity: StudioAuditSeverity::Error,
                 },
                 notes: vec![
                     message.to_string(),
-                    "Preview fell back to seeded candidate values so the workflow stays usable."
+                    "No fallback data was generated; fix the manifest and refresh the preview."
                         .to_string(),
                 ],
             },
         },
-        features: vec![StudioFeatureSummary {
-            id: "tstat".to_string(),
-            label: "T Statistic".to_string(),
-            kind: StudioSupportKind::Volume,
-        }],
-        cohorts: vec![StudioCohortSummary {
-            id: "all-members".to_string(),
-            label: "All members".to_string(),
-            member_count: 36,
-            description: "Fallback cohort spanning all manifest rows.".to_string(),
-            member_ids: vec![
-                "sub101".to_string(),
-                "sub102".to_string(),
-                "sub103".to_string(),
-                "sub104".to_string(),
-                "sub105".to_string(),
-                "sub106".to_string(),
-            ],
-            origin_kind: StudioCohortOriginKind::Imported,
-            origin_label: Some("Fallback manifest preview".to_string()),
-        }],
-        expressions: vec![
-            StudioFieldExpressionSummary {
-                id: "manifest-member".to_string(),
-                label: "Current member".to_string(),
-                kind: StudioExpressionKind::Member,
-                recipe: "member(sample)".to_string(),
-                cohort_id: None,
-            },
-            StudioFieldExpressionSummary {
-                id: "manifest-compare-zscore".to_string(),
-                label: "Z-score vs all members".to_string(),
-                kind: StudioExpressionKind::Comparison,
-                recipe: "zscore(current, cohort:all-members)".to_string(),
-                cohort_id: Some("all-members".to_string()),
-            },
-        ],
+        features: Vec::new(),
+        cohorts: Vec::new(),
+        expressions: Vec::new(),
         materialization: Some(StudioMaterializationStatus {
-            warm: 2,
-            preview: 1,
+            warm: 0,
+            preview: 0,
             pending: 0,
-            failed: 0,
+            failed: 1,
         }),
         discovery: None,
     }
@@ -2690,11 +2555,11 @@ fn infer_support_summary(
                             support.template, hemisphere, support.topology_id
                         ),
                         logical_alignment.unwrap_or(StudioAlignmentClass::SameTopology),
-                        true,
-                        vec![format!(
-                            "Primary feature resolves against surface support {}.",
-                            support_ref
-                        )],
+                        false,
+                        vec![
+                            format!("Primary feature resolves against surface support {}.", support_ref),
+                            "Surface compare materialization is not implemented yet; import is inspect-only.".to_string(),
+                        ],
                     );
                 }
                 SupportSchema::Parcel(support) => {

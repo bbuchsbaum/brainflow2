@@ -9,6 +9,74 @@ describe('SetIngestionService', () => {
     useSetStudioStore.setState(useSetStudioStore.getInitialState());
   });
 
+  function makeDiscoveryCandidate(): StudioImportCandidate {
+    return {
+      id: 'candidate-regex-fixture',
+      label: 'Regex discovery preview',
+      description: 'Fixture discovery candidate.',
+      mode: 'regex',
+      sourceHint: 'root=/tmp/study',
+      set: {
+        id: 'fixture-discovery',
+        name: 'Fixture Discovery',
+        sourceKind: 'imported',
+        memberCount: 1,
+        primaryFeatureId: 'tstat',
+        supportKind: 'volume',
+        supportLabel: 'MNI152 fixture grid',
+        alignmentClass: 'same-grid',
+        designColumns: ['subject'],
+        designTablePreview: {
+          columns: ['subject'],
+          rows: [{ id: '1001', cells: ['1001'] }],
+        },
+        memberSummaries: [{ id: '1001', sourcePath: '/tmp/study/1001/maps/tstat.nii.gz' }],
+        memberIds: ['1001'],
+        savedCohortIds: ['all-members'],
+        ingestAudit: {
+          sourceLabel: 'Regex discovery',
+          join: {
+            matchedRows: 1,
+            unmatchedRows: 0,
+            duplicateKeys: 0,
+            severity: 'ok',
+            issueDetails: [],
+          },
+          support: {
+            supportLabel: 'MNI152 fixture grid',
+            alignmentClass: 'same-grid',
+            readyForCompare: true,
+            severity: 'ok',
+          },
+          notes: [],
+        },
+      },
+      features: [{ id: 'tstat', label: 'Tstat', kind: 'volume' }],
+      cohorts: [
+        {
+          id: 'all-members',
+          label: 'All members',
+          memberCount: 1,
+          description: 'All fixture members.',
+          memberIds: ['1001'],
+          originKind: 'imported',
+          originLabel: 'Fixture',
+        },
+      ],
+      expressions: [
+        {
+          id: 'regex-member',
+          label: 'Current member',
+          kind: 'member',
+          recipe: 'member(1001)',
+          cohortId: null,
+        },
+      ],
+      materialization: null,
+      discovery: null,
+    };
+  }
+
   function withDiscoveryRoot(candidate: StudioImportCandidate, root: string): StudioImportCandidate {
     return {
       ...candidate,
@@ -36,8 +104,7 @@ describe('SetIngestionService', () => {
   }
 
   it('sends regex discovery controls to the backend preview command', async () => {
-    const fallbackCandidate = useSetStudioStore.getState().importCandidates['candidate-regex-b'];
-    const invoke = vi.fn().mockResolvedValue([fallbackCandidate]);
+    const invoke = vi.fn().mockResolvedValue([makeDiscoveryCandidate()]);
     const service = new SetIngestionService({ invoke } as BackendTransport);
     const store = useSetStudioStore.getState();
 
@@ -69,11 +136,29 @@ describe('SetIngestionService', () => {
     });
   });
 
+  it('does not reuse seeded or stale candidates when backend preview fails', async () => {
+    const staleCandidate = makeDiscoveryCandidate();
+    useSetStudioStore
+      .getState()
+      .setImportPreviewResult('regex', [staleCandidate], 'backend');
+    expect(useSetStudioStore.getState().importCandidates[staleCandidate.id]).toBeTruthy();
+
+    const invoke = vi.fn().mockRejectedValue(new Error('backend unavailable'));
+    const service = new SetIngestionService({ invoke } as BackendTransport);
+
+    await service.openImportPreview('regex');
+
+    const state = useSetStudioStore.getState();
+    expect(state.importDialog.source).toBe('fallback');
+    expect(state.importDialog.error).toBe('backend unavailable');
+    expect(state.importDialog.selectedCandidateId).toBeNull();
+    expect(
+      Object.values(state.importCandidates).some((candidate) => candidate.mode === 'regex')
+    ).toBe(false);
+  });
+
   it('exports local discovery candidates through the promotion command', async () => {
-    const fallbackCandidate = useSetStudioStore.getState().importCandidates[
-      'candidate-regex-b'
-    ] as StudioImportCandidate;
-    const candidate = withDiscoveryRoot(fallbackCandidate, '/tmp/study');
+    const candidate = withDiscoveryRoot(makeDiscoveryCandidate(), '/tmp/study');
     const invoke = vi.fn().mockResolvedValue({
       datasetId: 'study_regex_preview',
       manifestPath: '/tmp/study/brainflow_nftab.yaml',
@@ -94,10 +179,7 @@ describe('SetIngestionService', () => {
   });
 
   it('rejects remote discovery roots before export', async () => {
-    const fallbackCandidate = useSetStudioStore.getState().importCandidates[
-      'candidate-regex-b'
-    ] as StudioImportCandidate;
-    const candidate = withDiscoveryRoot(fallbackCandidate, 'sftp://example.org/study');
+    const candidate = withDiscoveryRoot(makeDiscoveryCandidate(), 'sftp://example.org/study');
     const invoke = vi.fn();
     const service = new SetIngestionService({ invoke } as unknown as BackendTransport);
 

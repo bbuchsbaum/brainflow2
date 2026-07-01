@@ -61,13 +61,11 @@ export function StudioImportDialog() {
   const selectedCandidate =
     (selectedCandidateId ? importCandidates[selectedCandidateId] ?? null : null) ?? candidates[0] ?? null;
   const readiness = selectedCandidate ? deriveStudioReadiness(selectedCandidate) : null;
+  const importBlocked = selectedCandidate ? isEmptyErrorCandidate(selectedCandidate) : false;
   const liveCaptureNames = useMemo(() => extractCaptureNames(filePattern), [filePattern]);
-  const importLabel =
-    readiness?.state === 'ready'
-      ? 'Import For Compare'
-      : readiness?.state === 'review'
-        ? 'Import For Review'
-        : 'Import Into Studio';
+  const readinessState = readiness?.state ?? null;
+  const importLabel = getImportLabel(readinessState, importBlocked);
+  const importFootnote = getImportFootnote(readinessState, importBlocked);
 
   // For table mode, show the wizard in steps 'load' and 'map',
   // and only show the candidate preview in step 'preview'
@@ -335,19 +333,16 @@ export function StudioImportDialog() {
              </div>
               <div className="shrink-0 border-t border-border px-5 py-3 flex items-center justify-between gap-3">
                 <div className="text-xs text-muted-foreground">
-                  {readiness?.state === 'ready'
-                    ? 'Studio will open this set ready for Compare.'
-                    : readiness?.state === 'review'
-                      ? 'Studio will open this set in Deck so you can review warnings first.'
-                      : readiness?.state === 'blocked'
-                        ? 'Studio will import this set for inspection, not trusted compare reading.'
-                        : 'Studio will import the selected preview candidate.'}
+                  {importFootnote}
                 </div>
                 <div className="flex gap-3">
                   <Button variant="secondary" onClick={closeImportDialog}>
                     Cancel
                   </Button>
-                  <Button onClick={confirmImportCandidate} disabled={!selectedCandidate || isLoading}>
+                  <Button
+                    onClick={confirmImportCandidate}
+                    disabled={!selectedCandidate || isLoading || importBlocked}
+                  >
                     {importLabel}
                   </Button>
                 </div>
@@ -838,6 +833,49 @@ function deriveStudioReadiness(candidate: StudioImportCandidate) {
       'The set is still useful in Deck, but join or support warnings mean compare outputs should be treated as provisional until the audit is clean.',
     className: 'border-amber-500/30 bg-amber-500/10 text-foreground',
   };
+}
+
+function isEmptyErrorCandidate(candidate: StudioImportCandidate): boolean {
+  const joinError = candidate.set.ingestAudit.join.severity === 'error';
+  const supportError = candidate.set.ingestAudit.support.severity === 'error';
+  return candidate.set.memberCount === 0 && (joinError || supportError);
+}
+
+function getImportLabel(
+  readinessState: 'ready' | 'review' | 'blocked' | null,
+  importBlocked: boolean
+): string {
+  if (importBlocked) {
+    return 'Import Blocked';
+  }
+  if (readinessState === 'ready') {
+    return 'Import For Compare';
+  }
+  if (readinessState === 'review') {
+    return 'Import For Review';
+  }
+  if (readinessState === 'blocked') {
+    return 'Import For Inspection';
+  }
+  return 'Import Into Studio';
+}
+
+function getImportFootnote(
+  readinessState: 'ready' | 'review' | 'blocked' | null,
+  importBlocked: boolean
+): string {
+  if (readinessState === 'ready') {
+    return 'Studio will open this set ready for Compare.';
+  }
+  if (readinessState === 'review') {
+    return 'Studio will open this set in Deck so you can review warnings first.';
+  }
+  if (readinessState === 'blocked') {
+    return importBlocked
+      ? 'Fix the preview errors before importing this set.'
+      : 'Studio will import this set for inspection, not trusted compare reading.';
+  }
+  return 'Studio will import the selected preview candidate.';
 }
 
 function PreviewCard({
