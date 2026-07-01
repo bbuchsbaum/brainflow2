@@ -81,6 +81,18 @@ Build a local release bundle:
 cargo tauri build
 ```
 
+Build and install the macOS app into Applications:
+
+```bash
+make mac:install-app
+```
+
+This copies `target/release/bundle/macos/Brainflow.app` to `/Applications/Brainflow.app`. To install somewhere else, pass `APPLICATIONS_DIR`, for example:
+
+```bash
+make mac:install-app APPLICATIONS_DIR="$HOME/Applications"
+```
+
 For the maintainer-oriented local launcher on macOS:
 
 ```bash

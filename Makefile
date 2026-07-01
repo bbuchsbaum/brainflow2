@@ -14,11 +14,14 @@ CARGO ?= cargo
 TARGET_DIR ?= $(if $(CARGO_TARGET_DIR),$(CARGO_TARGET_DIR),target)
 APP_BUNDLE_DIR := $(TARGET_DIR)/release/bundle
 LOCAL_BIN_DIR ?= $(HOME)/bin
+APPLICATIONS_DIR ?= /Applications
 
 .PHONY: help
 help:
 	@echo "Make targets:"
 	@echo "  mac:build          Build universal macOS app (dmg/app)."
+	@echo "  mac:install-app    Build Brainflow.app and copy it to /Applications."
+	@echo "  mac-install-app    Alias for mac:install-app."
 	@echo "  mac:sign           Codesign the .app (requires SIGN_IDENTITY)."
 	@echo "  mac:notarize       Notarize the .dmg (requires APPLE_ID/TEAM_ID/APP_PWD)."
 	@echo "  mac:staple         Staple notarization ticket onto .dmg."
@@ -49,6 +52,22 @@ validate-shaders:
 mac\:build:
 	TAURI_BUNDLE_UNIVERSAL=1 $(PNPM) -r build
 	TAURI_BUNDLE_UNIVERSAL=1 $(CARGO) tauri build
+
+.PHONY: mac\:install-app
+mac\:install-app:
+	@if [ "$$(uname -s)" != "Darwin" ]; then echo "mac:install-app is only supported on macOS."; exit 1; fi
+	$(CARGO) tauri build --bundles app
+	@APP_PATH="$(APP_BUNDLE_DIR)/macos/Brainflow.app"; \
+	DEST_PATH="$(APPLICATIONS_DIR)/Brainflow.app"; \
+	if [ ! -d "$$APP_PATH" ]; then echo "No app bundle found at $$APP_PATH"; exit 1; fi; \
+	mkdir -p "$(APPLICATIONS_DIR)"; \
+	rm -rf "$$DEST_PATH"; \
+	ditto "$$APP_PATH" "$$DEST_PATH"; \
+	echo "Installed $$DEST_PATH"
+
+.PHONY: mac-install-app
+mac-install-app:
+	@$(MAKE) 'mac:install-app'
 
 .PHONY: mac\:sign
 mac\:sign:
