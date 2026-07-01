@@ -12,12 +12,16 @@ import type {
   StudioJoinIssueDetail,
   StudioLensType,
   StudioMaterializationStatus,
+  StudioMaterializationCacheSummary,
+  StudioMaterializationJobSummary,
   StudioSavedRecipeSummary,
   StudioSelection,
   StudioDesignFilter,
 } from '@/types/studio';
 import { createImportSlice, createInitialImportDialogState } from './setStudio/importSlice';
 import type { SetStudioImportSlice } from './setStudio/importSlice';
+import { createMaterializationSlice } from './setStudio/materializationSlice';
+import type { SetStudioMaterializationSlice } from './setStudio/materializationSlice';
 
 interface StudioBootstrapPayload {
   set: SpatialFieldSetSummary;
@@ -28,7 +32,7 @@ interface StudioBootstrapPayload {
   materialization?: Partial<StudioMaterializationStatus>;
 }
 
-interface SetStudioStoreState extends SetStudioImportSlice {
+interface SetStudioStoreState extends SetStudioImportSlice, SetStudioMaterializationSlice {
   sets: Record<string, SpatialFieldSetSummary>;
   features: Record<string, StudioFeatureSummary>;
   cohorts: Record<string, StudioCohortSummary>;
@@ -41,6 +45,10 @@ interface SetStudioStoreState extends SetStudioImportSlice {
   comparePaneSpecs: StudioComparePaneSpec[];
   comparePaneLoading: boolean;
   compareRefreshingPaneIds: string[];
+  activeMaterializationJobId: string | null;
+  materializationJobs: Record<string, StudioMaterializationJobSummary>;
+  materializationJobIds: string[];
+  materializationCache: Record<string, StudioMaterializationCacheSummary>;
   activeIssueMemberIds: string[];
   activeIssueLabel: string | null;
   designSearch: string;
@@ -308,6 +316,10 @@ export const useSetStudioStore = create<SetStudioStoreState>((set, get) => ({
   comparePaneSpecs: [],
   comparePaneLoading: false,
   compareRefreshingPaneIds: [],
+  activeMaterializationJobId: null,
+  materializationJobs: {},
+  materializationJobIds: [],
+  materializationCache: {},
   activeIssueMemberIds: [],
   activeIssueLabel: null,
   designSearch: '',
@@ -371,6 +383,10 @@ export const useSetStudioStore = create<SetStudioStoreState>((set, get) => ({
       comparePaneSpecs: [],
       comparePaneLoading: false,
       compareRefreshingPaneIds: [],
+      activeMaterializationJobId: null,
+      materializationJobs: {},
+      materializationJobIds: [],
+      materializationCache: {},
       activeIssueMemberIds: [],
       activeIssueLabel: null,
       designSearch: '',
@@ -536,6 +552,7 @@ export const useSetStudioStore = create<SetStudioStoreState>((set, get) => ({
   },
 
   ...createImportSlice(set, get),
+  ...createMaterializationSlice(set, get),
 
   setComparePaneSpecs: (specs) => {
     set({

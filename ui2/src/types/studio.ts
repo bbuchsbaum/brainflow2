@@ -103,7 +103,10 @@ export interface StudioSelection {
   activeExpressionId: string | null;
 }
 
-export type StudioImportCandidate = Omit<BackendStudioImportCandidate, 'set' | 'materialization'> & {
+export type StudioImportCandidate = Omit<
+  BackendStudioImportCandidate,
+  'set' | 'materialization'
+> & {
   set: SpatialFieldSetSummary;
   materialization?: Partial<StudioMaterializationStatus> | null;
 };
@@ -156,6 +159,48 @@ export type StudioComparePaneSpec = Omit<BackendStudioComparePaneSpec, 'id' | 'b
   binding: StudioComparePaneBinding | null;
 };
 
+export type StudioMaterializationJobKind = 'compare-panes';
+export type StudioMaterializationJobState =
+  | 'running'
+  | 'completed'
+  | 'failed'
+  | 'cancelled'
+  | 'stale';
+
+export interface StudioMaterializationJobDescriptor {
+  id: string;
+  kind: StudioMaterializationJobKind;
+  label: string;
+  requestKey: string;
+  setId: string | null;
+  memberId: string | null;
+  cohortId: string | null;
+  expressionId: string | null;
+  paneIds: string[];
+  forceRematerialize: boolean;
+}
+
+export interface StudioMaterializationJobSummary extends StudioMaterializationJobDescriptor {
+  status: StudioMaterializationJobState;
+  progress: number;
+  startedAtMs: number;
+  finishedAtMs: number | null;
+  errorMessage: string | null;
+  cacheKeys: string[];
+}
+
+export interface StudioMaterializationCacheSummary {
+  key: string;
+  paneId: StudioComparePaneId;
+  status: StudioCompareCacheStatus;
+  message: string | null;
+  sourcePath: string | null;
+  materializedAtMs: number | null;
+  provenancePath: string | null;
+  jobId: string;
+  updatedAtMs: number;
+}
+
 export interface StudioArtifactSummary {
   id: string;
   kind: StudioArtifactKind;
@@ -197,7 +242,11 @@ export interface StudioSavedRecipeSummary {
   scopeCohortOriginLabel: string | null;
   selectionSnapshot: Pick<
     StudioSelection,
-    'activeLens' | 'activeMemberId' | 'compareCohortId' | 'activeScopeCohortId' | 'activeExpressionId'
+    | 'activeLens'
+    | 'activeMemberId'
+    | 'compareCohortId'
+    | 'activeScopeCohortId'
+    | 'activeExpressionId'
   >;
   provenanceJson: string;
   savedAtMs: number;

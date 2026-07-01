@@ -8,6 +8,7 @@ import type {
   StudioMemberSummary,
   SpatialFieldSetSummary,
   StudioCohortSummary,
+  StudioMaterializationJobDescriptor,
 } from '@/types/studio';
 import { getStudioCompareService } from './StudioCompareService';
 import { getStudioDisplayService } from './StudioDisplayService';
@@ -58,6 +59,69 @@ function buildCompareArtifact(args: {
 }
 
 type StoreState = ReturnType<typeof useSetStudioStore.getState>;
+
+function errorMessage(error: unknown): string {
+  if (error instanceof Error && error.message) {
+    return error.message;
+  }
+  if (typeof error === 'string' && error.trim()) {
+    return error;
+  }
+  return 'Unknown materialization error.';
+}
+
+function compareRequestKey(args: {
+  activeSet: SpatialFieldSetSummary | null;
+  activeMember: StudioMemberSummary | null;
+  compareCohort: StudioCohortSummary | null;
+  activeExpression: StudioFieldExpressionSummary | null;
+  forceRematerialize: boolean;
+}): string {
+  return JSON.stringify({
+    setId: args.activeSet?.id ?? null,
+    setSupport: args.activeSet?.supportLabel ?? null,
+    memberId: args.activeMember?.id ?? null,
+    memberPath: args.activeMember?.sourcePath ?? null,
+    cohortId: args.compareCohort?.id ?? null,
+    cohortMembers: args.compareCohort?.memberIds ?? [],
+    expressionId: args.activeExpression?.id ?? null,
+    recipe: args.activeExpression?.recipe ?? null,
+    forceRematerialize: args.forceRematerialize,
+  });
+}
+
+function buildMaterializationJob(args: {
+  id: string;
+  activeSet: SpatialFieldSetSummary | null;
+  activeMember: StudioMemberSummary | null;
+  compareCohort: StudioCohortSummary | null;
+  activeExpression: StudioFieldExpressionSummary | null;
+  forceRematerialize: boolean;
+  refreshingPaneIds?: string[];
+  notifyLabel?: string | null;
+}): StudioMaterializationJobDescriptor {
+  const paneIds = args.refreshingPaneIds?.length
+    ? args.refreshingPaneIds
+    : ['cohort-mean', 'residual', 'zscore'];
+  const label =
+    args.notifyLabel ??
+    (args.compareCohort
+      ? `Materializing ${args.compareCohort.label}`
+      : 'Materializing compare panes');
+
+  return {
+    id: args.id,
+    kind: 'compare-panes',
+    label,
+    requestKey: compareRequestKey(args),
+    setId: args.activeSet?.id ?? null,
+    memberId: args.activeMember?.id ?? null,
+    cohortId: args.compareCohort?.id ?? null,
+    expressionId: args.activeExpression?.id ?? null,
+    paneIds,
+    forceRematerialize: args.forceRematerialize,
+  };
+}
 
 export class StudioCoordinationService {
   private unsubscribe: (() => void) | null = null;
@@ -136,7 +200,7 @@ export class StudioCoordinationService {
       derived.activeDesignFilters.forEach((filter) => {
         const hasColumn = derived.activeSet?.designTablePreview?.columns.includes(filter.column);
         const hasValue = derived.quickFilterOptions.some(
-          (option) => option.column === filter.column && option.values.includes(filter.value)
+          (option) => option.column === filter.column && option.values.includes(filter.value),
         );
         if (!hasColumn || !hasValue) {
           useSetStudioStore.getState().removeDesignFilter(filter);
@@ -152,7 +216,7 @@ export class StudioCoordinationService {
           activeFeatureLabel: derived.activeFeature?.label ?? null,
           scopeCohort: derived.scopeCohort,
           activeExpressionId: derived.activeExpressionId,
-        })
+        }),
       );
       return;
     }
@@ -208,12 +272,18 @@ export class StudioCoordinationService {
           scopeCohort: derived.scopeCohort,
           activeMemberId: derived.activeMemberId,
           activeExpressionId: derived.activeExpressionId,
-        })
+        }),
       );
     }
   }
 
   stop() {
+    const store = useSetStudioStore.getState();
+    const activeJobId = store.activeMaterializationJobId;
+    if (activeJobId) {
+      store.cancelMaterializationJob(activeJobId);
+    }
+
     this.active = false;
     this.requestVersion += 1;
     this.lastAutoCompareKey = null;
@@ -222,6 +292,18 @@ export class StudioCoordinationService {
       this.unsubscribe();
       this.unsubscribe = null;
     }
+  }
+
+  cancelActiveMaterialization(): boolean {
+    const store = useSetStudioStore.getState();
+    const activeJobId = store.activeMaterializationJobId;
+    if (!activeJobId || !store.isMaterializationJobActive(activeJobId)) {
+      return false;
+    }
+
+    this.requestVersion += 1;
+    store.cancelMaterializationJob(activeJobId);
+    return true;
   }
 
   async refreshComparePanes(args: {
@@ -244,9 +326,20 @@ export class StudioCoordinationService {
     } = args;
 
     const store = useSetStudioStore.getState();
-    store.setComparePaneLoading(true);
-    store.setCompareRefreshingPaneIds(refreshingPaneIds ?? []);
     const requestId = ++this.requestVersion;
+    const jobId = `compare:${requestId}:${Date.now()}`;
+    store.beginMaterializationJob(
+      buildMaterializationJob({
+        id: jobId,
+        activeSet,
+        activeMember,
+        compareCohort,
+        activeExpression,
+        forceRematerialize,
+        refreshingPaneIds,
+        notifyLabel,
+      }),
+    );
 
     try {
       const specs = await getStudioCompareService().materializeComparePanes({
@@ -256,11 +349,11 @@ export class StudioCoordinationService {
         activeExpression,
         forceRematerialize,
       });
-      if (!this.active || requestId !== this.requestVersion) {
+      const liveStore = useSetStudioStore.getState();
+      if (!this.canApplyMaterializationResult(requestId, jobId, liveStore)) {
         return;
       }
-      const liveStore = useSetStudioStore.getState();
-      liveStore.setComparePaneSpecs(specs);
+      liveStore.completeMaterializationJob(jobId, specs);
       if (forceRematerialize && notifyLabel) {
         getEventBus().emit('ui.notification', {
           type: 'success',
@@ -268,6 +361,11 @@ export class StudioCoordinationService {
         });
       }
     } catch (error) {
+      const liveStore = useSetStudioStore.getState();
+      if (!this.canApplyMaterializationResult(requestId, jobId, liveStore)) {
+        return;
+      }
+      liveStore.failMaterializationJob(jobId, errorMessage(error));
       if (forceRematerialize && notifyLabel) {
         getEventBus().emit('ui.notification', {
           type: 'error',
@@ -276,18 +374,27 @@ export class StudioCoordinationService {
       }
       console.warn('[StudioCoordinationService] Failed to refresh compare panes:', error);
     }
+  }
 
-    if (!this.active || requestId !== this.requestVersion) {
-      return;
+  private canApplyMaterializationResult(
+    requestId: number,
+    jobId: string,
+    store: StoreState,
+  ): boolean {
+    if (
+      !this.active ||
+      requestId !== this.requestVersion ||
+      !store.isMaterializationJobActive(jobId)
+    ) {
+      store.markMaterializationJobStale(jobId);
+      return false;
     }
-    const liveStore = useSetStudioStore.getState();
-    liveStore.setComparePaneLoading(false);
-    liveStore.setCompareRefreshingPaneIds([]);
+    return true;
   }
 
   private async ensureMemberDisplayed(
     activeSet: SpatialFieldSetSummary | null,
-    activeMemberId: string | null
+    activeMemberId: string | null,
   ) {
     await getStudioDisplayService().ensureMemberDisplayed(activeSet, activeMemberId);
   }
