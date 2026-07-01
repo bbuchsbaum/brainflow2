@@ -8,6 +8,7 @@ import type {
 } from '@/types/studio';
 import type { BackendTransport } from '@/services/transport';
 import { getTransport } from '@/services/transport';
+import { isSetCompareReady } from '@/services/studio/importContract';
 import type {
   StudioCompareMaterializeRequest,
   StudioComparePaneSpec as BackendStudioComparePaneSpec,
@@ -141,7 +142,7 @@ options?: {
 }): StudioComparePaneSpec[] {
   const { activeSet, activeMember, compareCohort, activeExpression } = args;
   const syntheticFallback = options?.syntheticFallback ?? false;
-  const compareReady = activeSet?.ingestAudit.support.readyForCompare ?? false;
+  const compareReady = isSetCompareReady(activeSet);
   const hasMemberPath = Boolean(activeMember?.sourcePath);
   const cohortSelected = Boolean(compareCohort);
   const useDemoBindings = isDemoSourceSet(activeSet) && compareReady && cohortSelected;
@@ -351,7 +352,7 @@ export class StudioCompareService {
     );
     return {
       supportLabel: activeSet?.supportLabel ?? 'Unknown support',
-      compareReady: activeSet?.ingestAudit.support.readyForCompare ?? false,
+      compareReady: isSetCompareReady(activeSet),
       forceRematerialize,
       activeMemberId: activeMember?.id ?? null,
       activeMemberSourcePath,

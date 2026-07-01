@@ -39,6 +39,12 @@ describe('StudioImportDialog', () => {
     const joinSeverity = audit.joinSeverity ?? 'ok';
     const supportReady = audit.supportReady ?? true;
     const supportSeverity = audit.supportSeverity ?? (supportReady ? 'ok' : 'warning');
+    const readiness =
+      joinSeverity === 'error' || supportSeverity === 'error'
+        ? 'inspect_only'
+        : supportReady && (audit.unmatchedRows ?? 0) === 0 && (audit.duplicateKeys ?? 0) === 0
+          ? 'compare_ready'
+          : 'review_required';
 
     return {
       id: `candidate-${joinSeverity}-${supportSeverity}`,
@@ -46,6 +52,17 @@ describe('StudioImportDialog', () => {
       description: 'Backend NeuroTabs preview candidate.',
       mode: 'manifest',
       sourceHint: '/tmp/study.neurotabs.yaml',
+      contract: {
+        readiness,
+        provenanceKind: 'manifest',
+        provenanceLabel: '/tmp/study.neurotabs.yaml',
+        canImport: true,
+        capabilities:
+          readiness === 'compare_ready'
+            ? ['import', 'deck', 'compare', 'materialize_compare']
+            : ['import', 'deck'],
+        reason: `Fixture contract: ${readiness}.`,
+      },
       set: {
         id: 'fixture-study',
         name: 'Fixture Study',
@@ -120,6 +137,14 @@ describe('StudioImportDialog', () => {
       description: 'Backend folder discovery preview candidate.',
       mode: 'regex',
       sourceHint: 'root=/tmp/study pattern=subject/maps/role',
+      contract: {
+        readiness: 'compare_ready',
+        provenanceKind: 'regex_discovery',
+        provenanceLabel: 'root=/tmp/study pattern=subject/maps/role',
+        canImport: true,
+        capabilities: ['import', 'deck', 'compare', 'materialize_compare', 'export_neurotabs'],
+        reason: 'Fixture discovery is compare-ready.',
+      },
       set: {
         id: 'folder-study',
         name: 'Folder Study',
@@ -418,6 +443,14 @@ describe('StudioImportDialog', () => {
       ...blockedBase,
       id: 'candidate-empty-error',
       description: 'Manifest preview failed; no fallback data was generated.',
+      contract: {
+        readiness: 'blocked',
+        provenanceKind: 'backend_error',
+        provenanceLabel: '/tmp/study.neurotabs.yaml',
+        canImport: false,
+        capabilities: [],
+        reason: 'Fixture manifest parse failed.',
+      },
       set: {
         ...blockedBase.set,
         memberCount: 0,
@@ -452,6 +485,12 @@ describe('StudioImportDialog', () => {
     const discoveryBase = makeDiscoveryCandidate();
     const warningCandidate = {
       ...discoveryBase,
+      contract: {
+        ...discoveryBase.contract,
+        readiness: 'review_required' as const,
+        capabilities: ['import', 'deck'] as StudioImportCandidate['contract']['capabilities'],
+        reason: 'Fixture discovery has warnings.',
+      },
       set: {
         ...discoveryBase.set,
         ingestAudit: {

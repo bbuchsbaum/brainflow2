@@ -1,5 +1,6 @@
 import React from 'react';
 import { getSetStudioService } from '@/services/studio/SetStudioService';
+import { setImportReadiness } from '@/services/studio/importContract';
 import { useSetStudioStore } from '@/stores/setStudioStore';
 
 export function SetPanel() {
@@ -169,11 +170,9 @@ function deriveSetReadiness(activeSet: ReturnType<typeof useSetStudioStore.getSt
     return null;
   }
 
-  const hasJoinProblems =
-    activeSet.ingestAudit.join.unmatchedRows > 0 || activeSet.ingestAudit.join.duplicateKeys > 0;
-  const compareReady = activeSet.ingestAudit.support.readyForCompare && !hasJoinProblems;
+  const readiness = setImportReadiness(activeSet);
 
-  if (compareReady) {
+  if (readiness === 'compare_ready') {
     return {
       eyebrow: 'Compare Ready',
       message: 'Safe to use cohort-relative Compare as the primary workflow.',
@@ -181,13 +180,18 @@ function deriveSetReadiness(activeSet: ReturnType<typeof useSetStudioStore.getSt
     };
   }
 
-  if (
-    activeSet.ingestAudit.join.severity === 'error' ||
-    activeSet.ingestAudit.support.severity === 'error'
-  ) {
+  if (readiness === 'inspect_only') {
     return {
       eyebrow: 'Audit Attention',
       message: 'Import is available for inspection, but compare trust is blocked.',
+      className: 'border-rose-500/30 bg-rose-500/10 text-foreground',
+    };
+  }
+
+  if (readiness === 'blocked') {
+    return {
+      eyebrow: 'Import Blocked',
+      message: activeSet.importContract?.reason ?? 'Fix import errors before using this set.',
       className: 'border-rose-500/30 bg-rose-500/10 text-foreground',
     };
   }

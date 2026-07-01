@@ -997,6 +997,50 @@ pub struct StudioIngestAuditSummary {
     pub notes: Vec<String>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq, Eq)]
+#[ts(export)]
+#[serde(rename_all = "snake_case")]
+pub enum StudioImportReadiness {
+    CompareReady,
+    ReviewRequired,
+    InspectOnly,
+    Blocked,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq, Eq)]
+#[ts(export)]
+#[serde(rename_all = "snake_case")]
+pub enum StudioImportProvenanceKind {
+    Manifest,
+    RegexDiscovery,
+    Table,
+    Demo,
+    BackendError,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq, Eq)]
+#[ts(export)]
+#[serde(rename_all = "snake_case")]
+pub enum StudioImportCapability {
+    Import,
+    Deck,
+    Compare,
+    MaterializeCompare,
+    ExportNeurotabs,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
+#[serde(rename_all = "camelCase")]
+pub struct StudioImportContract {
+    pub readiness: StudioImportReadiness,
+    pub provenance_kind: StudioImportProvenanceKind,
+    pub provenance_label: String,
+    pub can_import: bool,
+    pub capabilities: Vec<StudioImportCapability>,
+    pub reason: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[ts(export)]
 #[serde(rename_all = "camelCase")]
@@ -1150,6 +1194,7 @@ pub struct StudioImportCandidate {
     pub description: String,
     pub mode: StudioImportMode,
     pub source_hint: String,
+    pub contract: StudioImportContract,
     pub set: SpatialFieldSetSummary,
     pub features: Vec<StudioFeatureSummary>,
     pub cohorts: Vec<StudioCohortSummary>,

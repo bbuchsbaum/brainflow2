@@ -1,6 +1,7 @@
 import React, { useMemo } from 'react';
 import type { SpatialFieldSetSummary, StudioFeatureSummary } from '@/types/studio';
 import { Button } from '@/components/ui/Button';
+import { setImportReadiness } from '@/services/studio/importContract';
 import { StudioRenderAdapter } from './StudioRenderAdapter';
 
 interface DeckLensProps {
@@ -44,9 +45,15 @@ export function DeckLens({
     if (!activeSet || !activeMemberId) {
       return 'Import a set to start browsing members.';
     }
-    const supportState = activeSet.ingestAudit.support.readyForCompare
-      ? 'compare-safe'
-      : 'audit warnings present';
+    const readiness = setImportReadiness(activeSet);
+    const supportState =
+      readiness === 'compare_ready'
+        ? 'compare-safe'
+        : readiness === 'inspect_only'
+          ? 'inspect-only'
+          : readiness === 'blocked'
+            ? 'import blocked'
+            : 'review required';
     return `${activeMemberId} · ${activeSet.supportLabel} · ${supportState}`;
   }, [activeMemberId, activeSet]);
 

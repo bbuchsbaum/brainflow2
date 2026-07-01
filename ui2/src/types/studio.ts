@@ -22,8 +22,12 @@ import type {
   StudioFieldBindingAvailability,
   StudioFieldBindingSummary,
   StudioFieldExpressionSummary,
+  StudioImportCapability,
   StudioImportCandidate as BackendStudioImportCandidate,
+  StudioImportContract,
   StudioImportMode,
+  StudioImportProvenanceKind,
+  StudioImportReadiness,
   StudioIngestAuditSummary,
   StudioJoinAuditSummary,
   StudioJoinIssueDetail,
@@ -57,7 +61,11 @@ export type {
   StudioFieldBindingAvailability,
   StudioFieldBindingSummary,
   StudioFieldExpressionSummary,
+  StudioImportCapability,
+  StudioImportContract,
   StudioImportMode,
+  StudioImportProvenanceKind,
+  StudioImportReadiness,
   StudioIngestAuditSummary,
   StudioJoinAuditSummary,
   StudioJoinIssueDetail,
@@ -82,6 +90,7 @@ export interface StudioDesignFilter {
 
 export type SpatialFieldSetSummary = BackendSpatialFieldSetSummary & {
   sourceKind?: StudioSessionSourceKind;
+  importContract?: StudioImportContract | null;
 };
 
 export interface StudioSelection {

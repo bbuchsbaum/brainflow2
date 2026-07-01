@@ -4,7 +4,8 @@ import type { StudioCohortSummary } from "./StudioCohortSummary";
 import type { StudioDiscoveryPreviewSummary } from "./StudioDiscoveryPreviewSummary";
 import type { StudioFeatureSummary } from "./StudioFeatureSummary";
 import type { StudioFieldExpressionSummary } from "./StudioFieldExpressionSummary";
+import type { StudioImportContract } from "./StudioImportContract";
 import type { StudioImportMode } from "./StudioImportMode";
 import type { StudioMaterializationStatus } from "./StudioMaterializationStatus";
 
-export type StudioImportCandidate = { id: string, label: string, description: string, mode: StudioImportMode, sourceHint: string, set: SpatialFieldSetSummary, features: Array<StudioFeatureSummary>, cohorts: Array<StudioCohortSummary>, expressions: Array<StudioFieldExpressionSummary>, materialization: StudioMaterializationStatus | null, discovery?: StudioDiscoveryPreviewSummary | null, };
+export type StudioImportCandidate = { id: string, label: string, description: string, mode: StudioImportMode, sourceHint: string, contract: StudioImportContract, set: SpatialFieldSetSummary, features: Array<StudioFeatureSummary>, cohorts: Array<StudioCohortSummary>, expressions: Array<StudioFieldExpressionSummary>, materialization: StudioMaterializationStatus | null, discovery?: StudioDiscoveryPreviewSummary | null, };

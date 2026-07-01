@@ -11,6 +11,14 @@ const demoSet: SpatialFieldSetSummary = {
   id: 'demo-set',
   name: 'Demo Set',
   sourceKind: 'demo',
+  importContract: {
+    readiness: 'compare_ready',
+    provenanceKind: 'demo',
+    provenanceLabel: 'Demo',
+    canImport: true,
+    capabilities: ['import', 'deck', 'compare', 'materialize_compare'],
+    reason: 'Demo fixture is compare-ready.',
+  },
   memberCount: 3,
   primaryFeatureId: 'statmap',
   supportKind: 'volume',
@@ -48,6 +56,14 @@ const importedSet: SpatialFieldSetSummary = {
   ...demoSet,
   id: 'imported-set',
   sourceKind: 'imported',
+  importContract: {
+    readiness: 'compare_ready',
+    provenanceKind: 'manifest',
+    provenanceLabel: '/study/nftab.yaml',
+    canImport: true,
+    capabilities: ['import', 'deck', 'compare', 'materialize_compare'],
+    reason: 'Imported fixture is compare-ready.',
+  },
 };
 
 const activeMember: StudioMemberSummary = {

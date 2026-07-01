@@ -149,6 +149,18 @@ fn main() {
     if let Err(e) = StudioIngestAuditSummary::export_all() {
         eprintln!("Warning: {e}");
     }
+    if let Err(e) = StudioImportReadiness::export_all() {
+        eprintln!("Warning: {e}");
+    }
+    if let Err(e) = StudioImportProvenanceKind::export_all() {
+        eprintln!("Warning: {e}");
+    }
+    if let Err(e) = StudioImportCapability::export_all() {
+        eprintln!("Warning: {e}");
+    }
+    if let Err(e) = StudioImportContract::export_all() {
+        eprintln!("Warning: {e}");
+    }
     if let Err(e) = StudioDiscoveryRolePattern::export_all() {
         eprintln!("Warning: {e}");
     }

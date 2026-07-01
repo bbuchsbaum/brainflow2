@@ -14,6 +14,14 @@ describe('SetStudioStore table import wizard', () => {
       description: 'This candidate should be pruned.',
       mode: 'manifest',
       sourceHint: '/tmp/stale.neurotabs.yaml',
+      contract: {
+        readiness: 'compare_ready',
+        provenanceKind: 'manifest',
+        provenanceLabel: '/tmp/stale.neurotabs.yaml',
+        canImport: true,
+        capabilities: ['import', 'deck', 'compare', 'materialize_compare'],
+        reason: 'Fixture manifest is compare-ready.',
+      },
       set: {
         id: 'stale-set',
         name: 'Stale Set',
@@ -193,6 +201,14 @@ describe('SetStudioStore table import wizard', () => {
     const blockedBase = makeManifestCandidate();
     const blockedCandidate = makeManifestCandidate({
       id: 'blocked-empty-manifest',
+      contract: {
+        readiness: 'blocked',
+        provenanceKind: 'backend_error',
+        provenanceLabel: '/tmp/stale.neurotabs.yaml',
+        canImport: false,
+        capabilities: [],
+        reason: 'Manifest parse failed.',
+      },
       set: {
         ...blockedBase.set,
         memberCount: 0,

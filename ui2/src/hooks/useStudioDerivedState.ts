@@ -1,4 +1,5 @@
 import { useMemo } from 'react';
+import { setImportReadiness } from '@/services/studio/importContract';
 import { useSetStudioStore } from '@/stores/setStudioStore';
 import type {
   SpatialFieldSetSummary,
@@ -287,11 +288,9 @@ export function deriveWorkspaceReadiness(activeSet: SpatialFieldSetSummary | nul
     return null;
   }
 
-  const hasJoinProblems =
-    activeSet.ingestAudit.join.unmatchedRows > 0 || activeSet.ingestAudit.join.duplicateKeys > 0;
-  const compareReady = activeSet.ingestAudit.support.readyForCompare && !hasJoinProblems;
+  const readiness = setImportReadiness(activeSet);
 
-  if (compareReady) {
+  if (readiness === 'compare_ready') {
     return {
       state: 'ready' as const,
       eyebrow: 'Compare Ready',
@@ -302,16 +301,25 @@ export function deriveWorkspaceReadiness(activeSet: SpatialFieldSetSummary | nul
     };
   }
 
-  if (
-    activeSet.ingestAudit.join.severity === 'error' ||
-    activeSet.ingestAudit.support.severity === 'error'
-  ) {
+  if (readiness === 'inspect_only') {
     return {
       state: 'blocked' as const,
       eyebrow: 'Audit Attention',
       title: 'Inspect this set before relying on Compare',
       message:
         'Blocking ingest or support problems are present. Use Deck and the audit panels to inspect the set first.',
+      className: 'border-rose-500/30 bg-rose-500/10 text-foreground',
+    };
+  }
+
+  if (readiness === 'blocked') {
+    return {
+      state: 'blocked' as const,
+      eyebrow: 'Import Blocked',
+      title: 'Fix import errors before relying on this set',
+      message:
+        activeSet.importContract?.reason ??
+        'The import contract marks this set as blocked.',
       className: 'border-rose-500/30 bg-rose-500/10 text-foreground',
     };
   }

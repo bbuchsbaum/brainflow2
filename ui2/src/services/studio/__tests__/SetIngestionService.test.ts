@@ -16,6 +16,14 @@ describe('SetIngestionService', () => {
       description: 'Fixture discovery candidate.',
       mode: 'regex',
       sourceHint: 'root=/tmp/study',
+      contract: {
+        readiness: 'compare_ready',
+        provenanceKind: 'regex_discovery',
+        provenanceLabel: 'root=/tmp/study',
+        canImport: true,
+        capabilities: ['import', 'deck', 'compare', 'materialize_compare', 'export_neurotabs'],
+        reason: 'Fixture discovery is compare-ready.',
+      },
       set: {
         id: 'fixture-discovery',
         name: 'Fixture Discovery',

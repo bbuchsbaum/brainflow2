@@ -8,10 +8,10 @@ use bridge_types::{
     StudioDiscoveryDesignValue, StudioDiscoveryMemberGroup, StudioDiscoveryPreviewSummary,
     StudioDiscoveryRoleBinding, StudioDiscoveryRolePattern, StudioExpressionKind,
     StudioFeatureSummary, StudioFieldBindingAvailability, StudioFieldBindingSummary,
-    StudioFieldExpressionSummary, StudioImportCandidate, StudioImportMode,
-    StudioImportPreviewRequest, StudioIngestAuditSummary, StudioJoinAuditSummary,
-    StudioJoinIssueDetail, StudioMaterializationStatus, StudioMemberSummary,
-    StudioSupportAuditSummary, StudioSupportKind,
+    StudioFieldExpressionSummary, StudioImportCandidate, StudioImportCapability,
+    StudioImportContract, StudioImportMode, StudioImportPreviewRequest, StudioImportProvenanceKind,
+    StudioImportReadiness, StudioIngestAuditSummary, StudioJoinAuditSummary, StudioJoinIssueDetail,
+    StudioMaterializationStatus, StudioMemberSummary, StudioSupportAuditSummary, StudioSupportKind,
 };
 use csv::ReaderBuilder;
 use nifti::{NiftiObject, ReaderOptions};
@@ -84,6 +84,80 @@ pub fn preview_import_candidates_with_discovery_inventory(
     }
 }
 
+struct ImportContractInput<'a> {
+    provenance_kind: StudioImportProvenanceKind,
+    provenance_label: String,
+    member_count: usize,
+    support_kind: StudioSupportKind,
+    join_severity: &'a StudioAuditSeverity,
+    support_severity: &'a StudioAuditSeverity,
+    unmatched_rows: usize,
+    duplicate_keys: usize,
+    ready_for_compare: bool,
+    extra_capabilities: Vec<StudioImportCapability>,
+}
+
+fn import_contract(input: ImportContractInput<'_>) -> StudioImportContract {
+    let has_join_problems = input.unmatched_rows > 0 || input.duplicate_keys > 0;
+    let has_error = input.join_severity == &StudioAuditSeverity::Error
+        || input.support_severity == &StudioAuditSeverity::Error;
+    let unsupported_compare_support = !input.ready_for_compare
+        && !matches!(input.support_kind, StudioSupportKind::Volume)
+        && input.member_count > 0;
+
+    let readiness = if input.member_count == 0 && has_error {
+        StudioImportReadiness::Blocked
+    } else if input.ready_for_compare && !has_join_problems {
+        StudioImportReadiness::CompareReady
+    } else if unsupported_compare_support || has_error {
+        StudioImportReadiness::InspectOnly
+    } else {
+        StudioImportReadiness::ReviewRequired
+    };
+
+    let can_import = readiness != StudioImportReadiness::Blocked;
+    let mut capabilities = if can_import {
+        vec![StudioImportCapability::Import, StudioImportCapability::Deck]
+    } else {
+        Vec::new()
+    };
+    if readiness == StudioImportReadiness::CompareReady {
+        capabilities.push(StudioImportCapability::Compare);
+        capabilities.push(StudioImportCapability::MaterializeCompare);
+    }
+    if can_import {
+        for capability in input.extra_capabilities {
+            if !capabilities.contains(&capability) {
+                capabilities.push(capability);
+            }
+        }
+    }
+
+    let reason = match readiness {
+        StudioImportReadiness::CompareReady => {
+            "Backend audit marks this preview compare-ready.".to_string()
+        }
+        StudioImportReadiness::ReviewRequired => {
+            "Backend audit found warnings; import for review before compare.".to_string()
+        }
+        StudioImportReadiness::InspectOnly => {
+            "Backend audit blocks trusted compare; import for inspection only.".to_string()
+        }
+        StudioImportReadiness::Blocked => {
+            "Backend audit found blocking errors and no importable members.".to_string()
+        }
+    };
+
+    StudioImportContract {
+        readiness,
+        provenance_kind: input.provenance_kind,
+        provenance_label: input.provenance_label,
+        can_import,
+        capabilities,
+        reason,
+    }
+}
+
 fn manifest_candidate(request: &StudioImportPreviewRequest) -> StudioImportCandidate {
     let manifest_path = request
         .manifest_path
@@ -91,24 +165,39 @@ fn manifest_candidate(request: &StudioImportPreviewRequest) -> StudioImportCandi
         .unwrap_or_else(|| "/data/studyA/studyA.neurotabs.yaml".to_string());
 
     match inspect_manifest_preview(&manifest_path) {
-        Ok(preview) => StudioImportCandidate {
-            id: "candidate-manifest-a".to_string(),
-            label: "NeuroTabs manifest preview".to_string(),
-            description: preview.description,
-            mode: StudioImportMode::Manifest,
-            source_hint: manifest_path,
-            set: preview.set,
-            features: preview.features,
-            cohorts: preview.cohorts,
-            expressions: preview.expressions,
-            materialization: Some(StudioMaterializationStatus {
-                warm: 2,
-                preview: 1,
-                pending: 0,
-                failed: 0,
-            }),
-            discovery: None,
-        },
+        Ok(preview) => {
+            let contract = import_contract(ImportContractInput {
+                provenance_kind: StudioImportProvenanceKind::Manifest,
+                provenance_label: manifest_path.clone(),
+                member_count: preview.set.member_count,
+                support_kind: preview.set.support_kind.clone(),
+                join_severity: &preview.set.ingest_audit.join.severity,
+                support_severity: &preview.set.ingest_audit.support.severity,
+                unmatched_rows: preview.set.ingest_audit.join.unmatched_rows,
+                duplicate_keys: preview.set.ingest_audit.join.duplicate_keys,
+                ready_for_compare: preview.set.ingest_audit.support.ready_for_compare,
+                extra_capabilities: Vec::new(),
+            });
+            StudioImportCandidate {
+                id: "candidate-manifest-a".to_string(),
+                label: "NeuroTabs manifest preview".to_string(),
+                description: preview.description,
+                mode: StudioImportMode::Manifest,
+                source_hint: manifest_path,
+                contract,
+                set: preview.set,
+                features: preview.features,
+                cohorts: preview.cohorts,
+                expressions: preview.expressions,
+                materialization: Some(StudioMaterializationStatus {
+                    warm: 2,
+                    preview: 1,
+                    pending: 0,
+                    failed: 0,
+                }),
+                discovery: None,
+            }
+        }
         Err(message) => manifest_blocked_candidate(&manifest_path, &message),
     }
 }
@@ -125,6 +214,18 @@ fn manifest_blocked_candidate(manifest_path: &str, message: &str) -> StudioImpor
         description: "Manifest preview failed; no fallback data was generated.".to_string(),
         mode: StudioImportMode::Manifest,
         source_hint: manifest_path.to_string(),
+        contract: import_contract(ImportContractInput {
+            provenance_kind: StudioImportProvenanceKind::BackendError,
+            provenance_label: manifest_path.to_string(),
+            member_count: 0,
+            support_kind: StudioSupportKind::Unknown,
+            join_severity: &StudioAuditSeverity::Error,
+            support_severity: &StudioAuditSeverity::Error,
+            unmatched_rows: 0,
+            duplicate_keys: 0,
+            ready_for_compare: false,
+            extra_capabilities: Vec::new(),
+        }),
         set: SpatialFieldSetSummary {
             id: "manifest-preview-blocked".to_string(),
             name: format!("{} / Manifest Import", manifest_name),
@@ -254,6 +355,18 @@ fn regex_candidate(
         description: discovery.description.clone(),
         mode: StudioImportMode::Regex,
         source_hint: discovery.source_hint.clone(),
+        contract: import_contract(ImportContractInput {
+            provenance_kind: StudioImportProvenanceKind::RegexDiscovery,
+            provenance_label: discovery.source_hint.clone(),
+            member_count: regex_member_ids.len(),
+            support_kind: StudioSupportKind::Volume,
+            join_severity: &discovery.join_severity,
+            support_severity: &discovery.support_severity,
+            unmatched_rows: discovery.summary.unmatched_files,
+            duplicate_keys: discovery.summary.duplicate_keys,
+            ready_for_compare: discovery.ready_for_compare,
+            extra_capabilities: vec![StudioImportCapability::ExportNeurotabs],
+        }),
         set: SpatialFieldSetSummary {
             id: "study-regex-preview".to_string(),
             name: discovery.set_name.clone(),
@@ -816,6 +929,18 @@ fn table_candidate(request: &StudioImportPreviewRequest) -> StudioImportCandidat
                     .to_string(),
             mode: StudioImportMode::Table,
             source_hint: source_label.clone(),
+            contract: import_contract(ImportContractInput {
+                provenance_kind: StudioImportProvenanceKind::Table,
+                provenance_label: source_label.clone(),
+                member_count: 0,
+                support_kind: StudioSupportKind::Volume,
+                join_severity: &StudioAuditSeverity::Error,
+                support_severity: &StudioAuditSeverity::Error,
+                unmatched_rows: 0,
+                duplicate_keys: 0,
+                ready_for_compare: false,
+                extra_capabilities: Vec::new(),
+            }),
             set: SpatialFieldSetSummary {
                 id: "table-import-preview".to_string(),
                 name: source_label.clone(),
@@ -1169,6 +1294,18 @@ fn table_candidate(request: &StudioImportPreviewRequest) -> StudioImportCandidat
         },
         mode: StudioImportMode::Table,
         source_hint: source_label.clone(),
+        contract: import_contract(ImportContractInput {
+            provenance_kind: StudioImportProvenanceKind::Table,
+            provenance_label: source_label.clone(),
+            member_count: member_ids.len(),
+            support_kind: StudioSupportKind::Volume,
+            join_severity: &join_severity,
+            support_severity: &support_severity,
+            unmatched_rows,
+            duplicate_keys,
+            ready_for_compare,
+            extra_capabilities: Vec::new(),
+        }),
         set: SpatialFieldSetSummary {
             id: "table-import-preview".to_string(),
             name: Path::new(&source_label)

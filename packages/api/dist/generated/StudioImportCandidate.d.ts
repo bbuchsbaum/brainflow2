@@ -3,6 +3,7 @@ import type { StudioCohortSummary } from "./StudioCohortSummary";
 import type { StudioDiscoveryPreviewSummary } from "./StudioDiscoveryPreviewSummary";
 import type { StudioFeatureSummary } from "./StudioFeatureSummary";
 import type { StudioFieldExpressionSummary } from "./StudioFieldExpressionSummary";
+import type { StudioImportContract } from "./StudioImportContract";
 import type { StudioImportMode } from "./StudioImportMode";
 import type { StudioMaterializationStatus } from "./StudioMaterializationStatus";
 export type StudioImportCandidate = {
@@ -11,6 +12,7 @@ export type StudioImportCandidate = {
     description: string;
     mode: StudioImportMode;
     sourceHint: string;
+    contract: StudioImportContract;
     set: SpatialFieldSetSummary;
     features: Array<StudioFeatureSummary>;
     cohorts: Array<StudioCohortSummary>;

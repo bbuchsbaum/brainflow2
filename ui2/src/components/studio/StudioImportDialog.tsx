@@ -2,6 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
 import { getSetIngestionService } from '@/services/studio/SetIngestionService';
+import { canImportCandidate } from '@/services/studio/importContract';
 import { useSetStudioStore } from '@/stores/setStudioStore';
 import type {
   StudioDiscoveryMemberGroup,
@@ -61,7 +62,7 @@ export function StudioImportDialog() {
   const selectedCandidate =
     (selectedCandidateId ? importCandidates[selectedCandidateId] ?? null : null) ?? candidates[0] ?? null;
   const readiness = selectedCandidate ? deriveStudioReadiness(selectedCandidate) : null;
-  const importBlocked = selectedCandidate ? isEmptyErrorCandidate(selectedCandidate) : false;
+  const importBlocked = selectedCandidate ? !canImportCandidate(selectedCandidate) : false;
   const liveCaptureNames = useMemo(() => extractCaptureNames(filePattern), [filePattern]);
   const readinessState = readiness?.state ?? null;
   const importLabel = getImportLabel(readinessState, importBlocked);
@@ -396,6 +397,15 @@ function ImportCandidatePreview({
             ['Template', set.ingestAudit.support.supportLabel],
             ['Alignment', set.ingestAudit.support.alignmentClass],
             ['Compare Ready', set.ingestAudit.support.readyForCompare ? 'Yes' : 'Not yet'],
+          ]}
+        />
+        <PreviewCard
+          title="Import Contract"
+          accent={candidate.contract.canImport ? 'ok' : 'error'}
+          rows={[
+            ['Status', formatContractReadiness(candidate.contract.readiness)],
+            ['Provenance', formatProvenanceKind(candidate.contract.provenanceKind)],
+            ['Capabilities', formatCapabilities(candidate.contract.capabilities)],
           ]}
         />
       </div>
@@ -798,29 +808,32 @@ function extractCaptureNames(pattern: string): string[] {
 }
 
 function deriveStudioReadiness(candidate: StudioImportCandidate) {
-  const { set } = candidate;
-  const hasJoinProblems =
-    set.ingestAudit.join.unmatchedRows > 0 || set.ingestAudit.join.duplicateKeys > 0;
-  const compareReady = set.ingestAudit.support.readyForCompare;
-
-  if (compareReady && !hasJoinProblems) {
+  if (candidate.contract.readiness === 'compare_ready') {
     return {
       state: 'ready' as const,
       eyebrow: 'Studio Ready',
       title: 'Ready for compare-centered reading',
-      message:
-        'This import can go directly into Deck and Compare without additional alignment or join cleanup.',
+      message: candidate.contract.reason,
       className: 'border-emerald-500/30 bg-emerald-500/10 text-foreground',
     };
   }
 
-  if (set.ingestAudit.join.severity === 'error' || set.ingestAudit.support.severity === 'error') {
+  if (candidate.contract.readiness === 'inspect_only') {
     return {
-      state: 'blocked' as const,
+      state: 'inspect' as const,
       eyebrow: 'Audit Attention',
       title: 'Import for inspection first',
-      message:
-        'The preview surfaced blocking audit errors. Use Studio to inspect and repair the set before relying on compare views.',
+      message: candidate.contract.reason,
+      className: 'border-rose-500/30 bg-rose-500/10 text-foreground',
+    };
+  }
+
+  if (candidate.contract.readiness === 'blocked') {
+    return {
+      state: 'blocked' as const,
+      eyebrow: 'Import Blocked',
+      title: 'Fix preview errors before import',
+      message: candidate.contract.reason,
       className: 'border-rose-500/30 bg-rose-500/10 text-foreground',
     };
   }
@@ -829,20 +842,13 @@ function deriveStudioReadiness(candidate: StudioImportCandidate) {
     state: 'review' as const,
     eyebrow: 'Deck First',
     title: 'Import for review before compare',
-    message:
-      'The set is still useful in Deck, but join or support warnings mean compare outputs should be treated as provisional until the audit is clean.',
+    message: candidate.contract.reason,
     className: 'border-amber-500/30 bg-amber-500/10 text-foreground',
   };
 }
 
-function isEmptyErrorCandidate(candidate: StudioImportCandidate): boolean {
-  const joinError = candidate.set.ingestAudit.join.severity === 'error';
-  const supportError = candidate.set.ingestAudit.support.severity === 'error';
-  return candidate.set.memberCount === 0 && (joinError || supportError);
-}
-
 function getImportLabel(
-  readinessState: 'ready' | 'review' | 'blocked' | null,
+  readinessState: 'ready' | 'review' | 'inspect' | 'blocked' | null,
   importBlocked: boolean
 ): string {
   if (importBlocked) {
@@ -854,14 +860,14 @@ function getImportLabel(
   if (readinessState === 'review') {
     return 'Import For Review';
   }
-  if (readinessState === 'blocked') {
+  if (readinessState === 'inspect') {
     return 'Import For Inspection';
   }
   return 'Import Into Studio';
 }
 
 function getImportFootnote(
-  readinessState: 'ready' | 'review' | 'blocked' | null,
+  readinessState: 'ready' | 'review' | 'inspect' | 'blocked' | null,
   importBlocked: boolean
 ): string {
   if (readinessState === 'ready') {
@@ -870,12 +876,37 @@ function getImportFootnote(
   if (readinessState === 'review') {
     return 'Studio will open this set in Deck so you can review warnings first.';
   }
+  if (readinessState === 'inspect') {
+    return 'Studio will import this set for inspection, not trusted compare reading.';
+  }
   if (readinessState === 'blocked') {
     return importBlocked
       ? 'Fix the preview errors before importing this set.'
       : 'Studio will import this set for inspection, not trusted compare reading.';
   }
   return 'Studio will import the selected preview candidate.';
+}
+
+function formatContractToken(value: string): string {
+  return value
+    .split('_')
+    .map((word) => word[0].toUpperCase() + word.slice(1))
+    .join(' ');
+}
+
+function formatContractReadiness(readiness: StudioImportCandidate['contract']['readiness']): string {
+  return formatContractToken(readiness);
+}
+
+function formatProvenanceKind(kind: StudioImportCandidate['contract']['provenanceKind']): string {
+  return formatContractToken(kind);
+}
+
+function formatCapabilities(capabilities: StudioImportCandidate['contract']['capabilities']): string {
+  if (capabilities.length === 0) {
+    return 'None';
+  }
+  return capabilities.map(formatContractToken).join(', ');
 }
 
 function PreviewCard({

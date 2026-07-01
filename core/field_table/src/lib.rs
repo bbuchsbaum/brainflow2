@@ -20,8 +20,9 @@ mod tests {
         StudioAlignmentClass, StudioAuditSeverity, StudioCompareBindingKind,
         StudioCompareCacheStatus, StudioCompareMaterializeRequest, StudioComparePaneStatus,
         StudioDiscoveryPromotionRequest, StudioFieldBindingAvailability, StudioImportCandidate,
-        StudioImportMode, StudioImportPreviewRequest, StudioMemberSummary, StudioReducerKind,
-        StudioReducerSpec, StudioRoleBindingInput, StudioSupportKind,
+        StudioImportCapability, StudioImportMode, StudioImportPreviewRequest,
+        StudioImportReadiness, StudioMemberSummary, StudioReducerKind, StudioReducerSpec,
+        StudioRoleBindingInput, StudioSupportKind,
     };
     use nifti::{writer::WriterOptions, NiftiHeader};
     use std::fs;
@@ -139,6 +140,11 @@ mod tests {
         assert_eq!(previews.len(), 1);
         assert_eq!(previews[0].mode, StudioImportMode::Regex);
         assert!(previews[0].set.member_count > 0);
+        assert!(previews[0].contract.can_import);
+        assert!(previews[0]
+            .contract
+            .capabilities
+            .contains(&StudioImportCapability::ExportNeurotabs));
     }
 
     #[test]
@@ -377,6 +383,8 @@ mod tests {
         assert!(issue.contains(root));
         assert!(issue.contains("stale-mount"));
         assert!(issue.contains("Reconnect"));
+        assert_eq!(preview.contract.readiness, StudioImportReadiness::Blocked);
+        assert!(!preview.contract.can_import);
     }
 
     #[test]
@@ -907,6 +915,14 @@ mod tests {
         assert_eq!(preview.set.ingest_audit.join.matched_rows, 2);
         assert_eq!(preview.set.ingest_audit.join.unmatched_rows, 0);
         assert!(preview.set.ingest_audit.support.ready_for_compare);
+        assert_eq!(
+            preview.contract.readiness,
+            StudioImportReadiness::CompareReady
+        );
+        assert!(preview
+            .contract
+            .capabilities
+            .contains(&StudioImportCapability::MaterializeCompare));
         assert_eq!(
             preview.set.member_ids,
             vec!["sub001".to_string(), "sub002".to_string()]
@@ -1473,6 +1489,14 @@ mod tests {
         assert_eq!(candidate.set.ingest_audit.join.duplicate_keys, 0);
         assert!(candidate.set.ingest_audit.join.issue_details.is_empty());
         assert!(candidate.set.ingest_audit.support.ready_for_compare);
+        assert_eq!(
+            candidate.contract.readiness,
+            StudioImportReadiness::CompareReady
+        );
+        assert!(candidate
+            .contract
+            .capabilities
+            .contains(&StudioImportCapability::Compare));
         assert_eq!(candidate.cohorts[0].member_count, 8);
         assert_eq!(
             candidate.set.member_summaries[0].source_path.as_deref(),
@@ -1511,7 +1535,7 @@ mod tests {
     }
 
     #[test]
-    fn neurotabs_roi_only_fixture_imports_for_review() {
+    fn neurotabs_roi_only_fixture_imports_for_inspection_only() {
         let candidate = preview_manifest_candidate(&fixture_root().join("roi-only/nftab.yaml"));
 
         assert_eq!(candidate.set.id, "roi-only");
@@ -1529,6 +1553,11 @@ mod tests {
         assert_eq!(candidate.set.ingest_audit.join.matched_rows, 8);
         assert!(candidate.set.ingest_audit.join.issue_details.is_empty());
         assert!(!candidate.set.ingest_audit.support.ready_for_compare);
+        assert_eq!(
+            candidate.contract.readiness,
+            StudioImportReadiness::InspectOnly
+        );
+        assert!(candidate.contract.can_import);
         assert!(candidate
             .set
             .design_columns
@@ -1606,6 +1635,15 @@ supports:
             StudioAuditSeverity::Ok
         );
         assert!(!candidate.set.ingest_audit.support.ready_for_compare);
+        assert_eq!(
+            candidate.contract.readiness,
+            StudioImportReadiness::InspectOnly
+        );
+        assert!(candidate.contract.can_import);
+        assert!(!candidate
+            .contract
+            .capabilities
+            .contains(&StudioImportCapability::Compare));
         assert!(candidate
             .set
             .ingest_audit
@@ -1643,6 +1681,9 @@ supports:
             assert!(candidate.cohorts.is_empty());
             assert!(candidate.expressions.is_empty());
             assert!(!candidate.set.ingest_audit.support.ready_for_compare);
+            assert_eq!(candidate.contract.readiness, StudioImportReadiness::Blocked);
+            assert!(!candidate.contract.can_import);
+            assert!(candidate.contract.capabilities.is_empty());
             assert_issue_contains(&candidate, expected_message);
             assert!(candidate
                 .set

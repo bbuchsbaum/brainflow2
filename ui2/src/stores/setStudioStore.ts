@@ -21,6 +21,10 @@ import type {
   TsvWizardState,
   TsvWizardStep,
 } from '@/types/studio';
+import {
+  canImportCandidate,
+  isCompareReadyContract,
+} from '@/services/studio/importContract';
 
 interface StudioBootstrapPayload {
   set: SpatialFieldSetSummary;
@@ -137,6 +141,14 @@ const DEMO_SET: SpatialFieldSetSummary = {
   id: 'study-a',
   name: 'Study A',
   sourceKind: 'demo',
+  importContract: {
+    readiness: 'compare_ready',
+    provenanceKind: 'demo',
+    provenanceLabel: 'Seeded demo import',
+    canImport: true,
+    capabilities: ['import', 'deck', 'compare', 'materialize_compare'],
+    reason: 'Seeded demo set is bundled as compare-ready sample data.',
+  },
   memberCount: 42,
   primaryFeatureId: 'statmap',
   supportKind: 'volume',
@@ -513,12 +525,6 @@ function withoutImportCandidatesForMode(
   return Object.fromEntries(
     Object.entries(candidates).filter(([, candidate]) => candidate.mode !== mode)
   );
-}
-
-function isEmptyErrorImportCandidate(candidate: StudioImportCandidate): boolean {
-  const joinError = candidate.set.ingestAudit.join.severity === 'error';
-  const supportError = candidate.set.ingestAudit.support.severity === 'error';
-  return candidate.set.memberCount === 0 && (joinError || supportError);
 }
 
 function getPreferredExpressionId(
@@ -1001,14 +1007,11 @@ export const useSetStudioStore = create<SetStudioStoreState>((set, get) => ({
     const { importDialog, importCandidates } = get();
     const candidateId = importDialog.selectedCandidateId;
     const candidate = candidateId ? importCandidates[candidateId] ?? null : null;
-    if (!candidate || isEmptyErrorImportCandidate(candidate)) {
+    if (!candidate || !canImportCandidate(candidate)) {
       return;
     }
 
-    const compareReady =
-      candidate.set.ingestAudit.support.readyForCompare &&
-      candidate.set.ingestAudit.join.unmatchedRows === 0 &&
-      candidate.set.ingestAudit.join.duplicateKeys === 0;
+    const compareReady = isCompareReadyContract(candidate.contract);
     const activeLens = compareReady ? 'compare' : 'deck';
     const preferredExpressionId =
       activeLens === 'compare'
@@ -1023,6 +1026,7 @@ export const useSetStudioStore = create<SetStudioStoreState>((set, get) => ({
       set: {
         ...candidate.set,
         sourceKind: candidate.set.sourceKind ?? 'imported',
+        importContract: candidate.contract,
       },
       features: candidate.features,
       cohorts: candidate.cohorts,
@@ -1434,12 +1438,23 @@ export const useSetStudioStore = create<SetStudioStoreState>((set, get) => ({
         : [];
 
     const candidateId = `candidate-table-${Date.now()}`;
+    const tableCanImport = memberIds.length > 0;
     const candidate: StudioImportCandidate = {
       id: candidateId,
       label: `Table import (${memberIds.length} subjects)`,
       description: `Imported from ${wizard.tsvPath || 'pasted table'} with ${designColumns.length} design columns.`,
       mode: 'table',
       sourceHint: wizard.tsvPath || 'pasted content',
+      contract: {
+        readiness: tableCanImport ? 'review_required' : 'blocked',
+        provenanceKind: 'table',
+        provenanceLabel: wizard.tsvPath || 'pasted content',
+        canImport: tableCanImport,
+        capabilities: tableCanImport ? ['import', 'deck'] : [],
+        reason: tableCanImport
+          ? 'Local table preview is importable for review; backend validation is still required for compare.'
+          : 'Local table preview has no importable members.',
+      },
       set: {
         id: `table-import-${Date.now()}`,
         name: wizard.tsvPath ? wizard.tsvPath.split('/').pop()?.replace(/\.[^.]+$/, '') ?? 'Table Import' : 'Table Import',

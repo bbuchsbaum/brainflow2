@@ -1,6 +1,7 @@
 // Auto-generated TypeScript bindings
 // DO NOT EDIT - Changes will be overwritten
 
+export * from './StudioImportCapability';
 export * from './Loaded';
 export * from './TimeSeriesResult';
 export * from './StudioIngestAuditSummary';
@@ -37,6 +38,7 @@ export * from './GpuUploadError';
 export * from './StudioDesignRowPreview';
 export * from './BidsValidationIssue';
 export * from './StudioReducerKind';
+export * from './StudioImportProvenanceKind';
 export * from './RemoteMountConnectRequest';
 export * from './BidsCoverageCell';
 export * from './StudioReducerSpec';
@@ -76,6 +78,7 @@ export * from './InterpolationMode';
 export * from './BidsDatasetSummary';
 export * from './RemoteMountConnectResult';
 export * from './StudioImportCandidate';
+export * from './StudioImportReadiness';
 export * from './AnalysisInput';
 export * from './RemoteAuthPrompt';
 export * from './RemoteMountProfile';
@@ -121,5 +124,6 @@ export * from './AnalysisJobStatus';
 export * from './SliceAxisMeta';
 export * from './CameraState';
 export * from './RemoteAuthChallenge';
+export * from './StudioImportContract';
 export * from './AnalysisStartRequest';
 export * from './LayerGpuResources';
