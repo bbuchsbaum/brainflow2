@@ -1,4 +1,4 @@
-use super::{inspect_table_volume_support, FeatureBindingPreview};
+use super::{validate_nifti_volume_support, FeatureBindingPreview};
 use crate::neurotabs::{
     FeatureEncoding, FeatureSchema, JsonValueSource, NeuroTabsManifest, StringValueSource,
     TableFormat,
@@ -512,46 +512,6 @@ fn resolve_locator_source(
         }
     }
     resolution
-}
-
-fn validate_nifti_volume_support(
-    row_id: &str,
-    feature: &FeatureSchema,
-    backend: &str,
-    path: &Path,
-) -> Vec<StudioJoinIssueDetail> {
-    if !backend.eq_ignore_ascii_case("nifti") {
-        return vec![StudioJoinIssueDetail {
-            message: format!(
-                "Row {} uses backend {}, but Brainflow compare validation currently expects nifti.",
-                row_id, backend
-            ),
-            member_ids: vec![row_id.to_string()],
-        }];
-    }
-
-    let signature = match inspect_table_volume_support(path) {
-        Ok(signature) => signature,
-        Err(message) => {
-            return vec![StudioJoinIssueDetail {
-                message,
-                member_ids: vec![row_id.to_string()],
-            }];
-        }
-    };
-    let Some(shape) = &feature.logical.shape else {
-        return Vec::new();
-    };
-    if shape.len() >= 3 && signature.dims != [shape[0], shape[1], shape[2]] {
-        return vec![StudioJoinIssueDetail {
-            message: format!(
-                "Row {} volume shape {:?} does not match declared logical shape {:?}.",
-                row_id, signature.dims, shape
-            ),
-            member_ids: vec![row_id.to_string()],
-        }];
-    }
-    Vec::new()
 }
 
 fn resolve_fallback_source(

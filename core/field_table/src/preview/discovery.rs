@@ -1,6 +1,7 @@
 use super::{
     binding_summary, derive_member_id_from_path, import_contract, inspect_table_volume_support,
-    title_case, unavailable_primary_binding, BindingSummaryInput, ImportContractInput,
+    table_support_label, title_case, unavailable_primary_binding, BindingSummaryInput,
+    ImportContractInput,
 };
 use bridge_types::{
     SpatialFieldSetSummary, StudioAlignmentClass, StudioAuditSeverity, StudioCohortOriginKind,
@@ -415,15 +416,7 @@ fn build_discovery_preview(
 
         match local_sample_path.map(inspect_table_volume_support) {
             Some(Ok(signature)) => {
-                support_label = format!(
-                    "{}×{}×{} voxels · {:.2}×{:.2}×{:.2} mm (sampled)",
-                    signature.dims[0],
-                    signature.dims[1],
-                    signature.dims[2],
-                    signature.voxel_sizes[0],
-                    signature.voxel_sizes[1],
-                    signature.voxel_sizes[2]
-                );
+                support_label = format!("{} (sampled)", table_support_label(&signature));
                 alignment_class = StudioAlignmentClass::SameGrid;
             }
             Some(Err(message)) => {

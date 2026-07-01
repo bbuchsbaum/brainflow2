@@ -1,4 +1,4 @@
-use crate::neurotabs::{self, FeatureSchema, NeuroTabsManifest, SupportSchema, TableFormat};
+use crate::neurotabs::{self, FeatureSchema, NeuroTabsManifest, TableFormat};
 use bridge_types::{
     SpatialFieldSetSummary, StudioAlignmentClass, StudioAuditSeverity, StudioCohortOriginKind,
     StudioCohortSummary, StudioDesignRowPreview, StudioDesignTablePreview, StudioExpressionKind,
@@ -9,19 +9,24 @@ use bridge_types::{
     StudioMaterializationStatus, StudioMemberSummary, StudioSupportAuditSummary, StudioSupportKind,
 };
 use csv::ReaderBuilder;
-use nifti::{NiftiObject, ReaderOptions};
 use std::collections::HashSet;
 use std::fs;
 use std::path::Path;
 
 mod discovery;
 mod source;
+mod support;
 mod table;
 use discovery::regex_candidate;
 pub use discovery::{DiscoveryInventory, DiscoveryInventoryFile, DiscoverySampleHeader};
 use source::{
     infer_source_path_index, inspect_resource_registry, resolve_relative_path, resolve_row_source,
     ResourceRegistryPreview,
+};
+use support::{
+    feature_support_kind, infer_support_summary, inspect_table_volume_support,
+    manifest_binding_support_label, table_support_label, validate_nifti_volume_support,
+    TableSupportSignature,
 };
 use table::table_candidate;
 
@@ -257,24 +262,6 @@ fn manifest_blocked_candidate(manifest_path: &str, message: &str) -> StudioImpor
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
-struct TableSupportSignature {
-    dims: [usize; 3],
-    voxel_sizes: [f32; 3],
-}
-
-fn table_support_label(signature: &TableSupportSignature) -> String {
-    format!(
-        "{}×{}×{} voxels · {:.2}×{:.2}×{:.2} mm",
-        signature.dims[0],
-        signature.dims[1],
-        signature.dims[2],
-        signature.voxel_sizes[0],
-        signature.voxel_sizes[1],
-        signature.voxel_sizes[2]
-    )
-}
-
 struct BindingSummaryInput {
     role: String,
     feature_id: Option<String>,
@@ -320,32 +307,6 @@ fn unavailable_primary_binding(
         support_label,
         availability: StudioFieldBindingAvailability::Unavailable,
         is_primary: true,
-    })
-}
-
-fn inspect_table_volume_support(path: &Path) -> Result<TableSupportSignature, String> {
-    let object = ReaderOptions::new()
-        .read_file(path)
-        .map_err(|error| format!("{}: {}", path.display(), error))?;
-    let header = object.header();
-    let ndim = header.dim[0] as usize;
-    if ndim < 3 {
-        return Err(format!("{} is not a 3D volume.", path.display()));
-    }
-    if ndim >= 4 && header.dim[4] > 1 {
-        return Err(format!(
-            "{} is a 4D series; Studio table preview currently expects 3D members.",
-            path.display()
-        ));
-    }
-
-    Ok(TableSupportSignature {
-        dims: [
-            header.dim[1] as usize,
-            header.dim[2] as usize,
-            header.dim[3] as usize,
-        ],
-        voxel_sizes: [header.pixdim[1], header.pixdim[2], header.pixdim[3]],
     })
 }
 
@@ -980,142 +941,6 @@ fn append_limited_issue_details(
 ) {
     let remaining = limit.saturating_sub(target.len());
     target.extend(details.into_iter().take(remaining));
-}
-
-fn infer_support_summary(
-    manifest: &NeuroTabsManifest,
-    primary_feature: &FeatureSchema,
-) -> (
-    StudioSupportKind,
-    String,
-    StudioAlignmentClass,
-    bool,
-    Vec<String>,
-) {
-    let logical_kind = primary_feature.logical.kind.as_str();
-    let logical_alignment = primary_feature
-        .logical
-        .alignment
-        .map(|alignment| map_alignment_class(alignment.as_str()));
-
-    if let Some(support_ref) = primary_feature.logical.support_ref.as_deref() {
-        if let Some(support) = manifest.supports.get(support_ref) {
-            match support {
-                SupportSchema::Volume(support) => {
-                    return (
-                        StudioSupportKind::Volume,
-                        format!("{} ({})", support.space, support.grid_id),
-                        logical_alignment.unwrap_or(StudioAlignmentClass::SameGrid),
-                        true,
-                        vec![format!(
-                            "Primary feature resolves against support {} with exact grid {}.",
-                            support_ref, support.grid_id
-                        )],
-                    );
-                }
-                SupportSchema::Surface(support) => {
-                    let hemisphere = format!("{:?}", support.hemisphere).to_lowercase();
-                    return (
-                        StudioSupportKind::Surface,
-                        format!(
-                            "{} / {} / {}",
-                            support.template, hemisphere, support.topology_id
-                        ),
-                        logical_alignment.unwrap_or(StudioAlignmentClass::SameTopology),
-                        false,
-                        vec![
-                            format!("Primary feature resolves against surface support {}.", support_ref),
-                            "Surface compare materialization is not implemented yet; import is inspect-only.".to_string(),
-                        ],
-                    );
-                }
-                SupportSchema::Parcel(support) => {
-                    return (
-                        StudioSupportKind::Unknown,
-                        format!("{} ({} parcels)", support.space, support.n_parcels),
-                        logical_alignment.unwrap_or(StudioAlignmentClass::Unknown),
-                        false,
-                        vec![format!(
-                            "Primary feature resolves against parcel support {}.",
-                            support_ref
-                        )],
-                    );
-                }
-                SupportSchema::Generic(support) => {
-                    return (
-                        StudioSupportKind::Unknown,
-                        support.support_id.clone(),
-                        logical_alignment.unwrap_or(StudioAlignmentClass::Unknown),
-                        false,
-                        vec![format!(
-                            "Primary feature resolves against generic support {}.",
-                            support_ref
-                        )],
-                    );
-                }
-            }
-        }
-    }
-
-    let support_kind = match logical_kind {
-        "volume" => StudioSupportKind::Volume,
-        "surface" => StudioSupportKind::Surface,
-        _ => StudioSupportKind::Unknown,
-    };
-    let support_label = primary_feature
-        .logical
-        .space
-        .as_deref()
-        .unwrap_or("Unknown support")
-        .to_string();
-    (
-        support_kind,
-        support_label,
-        logical_alignment.unwrap_or(StudioAlignmentClass::Unknown),
-        false,
-        vec!["Primary feature does not reference an exact support descriptor.".to_string()],
-    )
-}
-
-fn feature_support_kind(feature: &FeatureSchema) -> StudioSupportKind {
-    match feature.logical.kind.as_str() {
-        "volume" => StudioSupportKind::Volume,
-        "surface" => StudioSupportKind::Surface,
-        _ => StudioSupportKind::Unknown,
-    }
-}
-
-fn manifest_binding_support_label(
-    manifest: &NeuroTabsManifest,
-    feature: &FeatureSchema,
-) -> Option<String> {
-    let support_ref = feature.logical.support_ref.as_deref()?;
-    let support = manifest.supports.get(support_ref)?;
-    Some(match support {
-        SupportSchema::Volume(support) => format!("{} ({})", support.space, support.grid_id),
-        SupportSchema::Surface(support) => {
-            let hemisphere = format!("{:?}", support.hemisphere).to_lowercase();
-            format!(
-                "{} / {} / {}",
-                support.template, hemisphere, support.topology_id
-            )
-        }
-        SupportSchema::Parcel(support) => {
-            format!("{} ({} parcels)", support.space, support.n_parcels)
-        }
-        SupportSchema::Generic(support) => support.support_id.clone(),
-    })
-}
-
-fn map_alignment_class(value: &str) -> StudioAlignmentClass {
-    match value {
-        "same_grid" | "same-grid" => StudioAlignmentClass::SameGrid,
-        "same_space" | "same-space" => StudioAlignmentClass::SameSpace,
-        "same_topology" | "same-topology" => StudioAlignmentClass::SameTopology,
-        "loose" | "mixed" => StudioAlignmentClass::Mixed,
-        "none" => StudioAlignmentClass::Unknown,
-        _ => StudioAlignmentClass::Unknown,
-    }
 }
 
 fn derive_member_id_from_path(path: &str, fallback_index: usize) -> String {
