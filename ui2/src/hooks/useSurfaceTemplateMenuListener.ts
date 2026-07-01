@@ -1,13 +1,18 @@
 /**
  * useSurfaceTemplateMenuListener - listens for surface template menu actions from Tauri
- * and loads the selected surface template (e.g., fsaverage white matter) into a new
- * SurfaceViewPanel.
+ * and loads the selected surface template (e.g., fsaverage white matter).
  */
 
 import { useEffect } from 'react';
 import { safeListen } from '@/utils/eventUtils';
-import { getSurfaceLoadingService } from '@/services/SurfaceLoadingService';
+import {
+  getSurfaceLoadingService,
+  type SurfaceTemplateLoadOptions,
+} from '@/services/SurfaceLoadingService';
 import { getEventBus } from '@/events/EventBus';
+import { useWorkspaceStore } from '@/stores/workspaceStore';
+import { resolveActiveDisplayMode } from '@/components/ui/displayModeSelector.helpers';
+import type { WorkspaceType } from '@/types/workspace';
 
 interface SurfaceTemplateMenuPayload {
   space: string; // 'fsaverage', 'fsaverage5', 'fsaverage6'
@@ -21,7 +26,24 @@ interface SurfaceTemplateMenuEvent {
 }
 
 let surfaceTemplateListenerInitialized = false;
-let surfaceTemplateUnlisten: (() => void) | null = null;
+
+export function resolveSurfaceTemplateMenuPlacementOptions(
+  activeWorkspaceType: WorkspaceType | null | undefined,
+): SurfaceTemplateLoadOptions | undefined {
+  if (resolveActiveDisplayMode(activeWorkspaceType) !== 'integrated') {
+    return undefined;
+  }
+
+  return {
+    openViewer: false,
+    focusSurfacePanel: false,
+  };
+}
+
+function getSurfaceTemplateMenuPlacementOptions(): SurfaceTemplateLoadOptions | undefined {
+  const activeWorkspaceType = useWorkspaceStore.getState().getActiveWorkspace()?.type;
+  return resolveSurfaceTemplateMenuPlacementOptions(activeWorkspaceType);
+}
 
 export function useSurfaceTemplateMenuListener() {
   useEffect(() => {
@@ -36,7 +58,7 @@ export function useSurfaceTemplateMenuListener() {
 
     const setupListener = async () => {
       try {
-        surfaceTemplateUnlisten = await safeListen<SurfaceTemplateMenuEvent>(
+        await safeListen<SurfaceTemplateMenuEvent>(
           'surface-template-menu-action',
           async (event) => {
             console.log(
@@ -65,9 +87,11 @@ export function useSurfaceTemplateMenuListener() {
 
             try {
               const surfaceLoadingService = getSurfaceLoadingService();
+              const placementOptions = getSurfaceTemplateMenuPlacementOptions();
 
               // Bilateral (default geometry click): load both hemispheres into
-              // one scene. Module B placement reuse keeps them in a single tab.
+              // one scene. Integrated mode consumes the shared surface store in
+              // place, while standalone surface views still reuse one scene tab.
               if (payload.hemisphere === 'both') {
                 const displayName = `${payload.space} ${payload.geometry_type} (both hemispheres)`;
                 eventBus.emit('ui.notification', {
@@ -78,7 +102,7 @@ export function useSurfaceTemplateMenuListener() {
                 const { left, right } = await surfaceLoadingService.loadSurfaceTemplateBilateral({
                   space: payload.space,
                   geometry_type: payload.geometry_type,
-                });
+                }, placementOptions);
                 const loaded = [left, right].filter(Boolean).length;
 
                 if (loaded === 2) {
@@ -117,7 +141,10 @@ export function useSurfaceTemplateMenuListener() {
               });
 
               // Load the surface template
-              const handle = await surfaceLoadingService.loadSurfaceTemplate(request);
+              const handle = await surfaceLoadingService.loadSurfaceTemplate(
+                request,
+                placementOptions,
+              );
 
               if (handle) {
                 eventBus.emit('ui.notification', {

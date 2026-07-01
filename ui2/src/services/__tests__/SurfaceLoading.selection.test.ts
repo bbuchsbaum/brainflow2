@@ -165,6 +165,102 @@ describe('SurfaceLoadingService selection routing', () => {
       'surface-template-1',
       'templateflow://fsaverage_pial_left'
     );
+    expect(mockFocusSurfacePanel).toHaveBeenCalledTimes(1);
+  });
+
+  it('can load template surfaces inline without opening or focusing a standalone surface view', async () => {
+    mockInvoke.mockImplementation(async (command: string) => {
+      if (command === 'load_surface_template') {
+        return {
+          success: true,
+          surface_handle: 'surface-template-inline',
+          vertex_count: 3,
+          face_count: 1,
+          space: 'fsaverage5',
+          geometry_type: 'white',
+          hemisphere: 'left',
+        };
+      }
+      if (command === 'get_surface_geometry') {
+        return {
+          vertices: [0, 0, 0, 1, 0, 0, 0, 1, 0],
+          faces: [0, 1, 2],
+        };
+      }
+      throw new Error(`Unexpected command ${command}`);
+    });
+
+    const service = new SurfaceLoadingService();
+    const handle = await service.loadSurfaceTemplate(
+      {
+        space: 'fsaverage5',
+        geometry_type: 'white',
+        hemisphere: 'left',
+      },
+      {
+        openViewer: false,
+        focusSurfacePanel: false,
+      }
+    );
+
+    expect(handle).toBe('surface-template-inline');
+    expect(mockApplySurfaceSelectionInContext).toHaveBeenCalledWith(
+      'surface-template-inline',
+      'geometry',
+      null,
+      null
+    );
+    expect(mockEnsureSurfaceView).not.toHaveBeenCalled();
+    expect(mockFocusSurfacePanel).not.toHaveBeenCalled();
+  });
+
+  it('forwards inline placement options to both hemispheres of a bilateral template load', async () => {
+    type TemplateInvokeArgs = {
+      request?: {
+        hemisphere?: string;
+      };
+    };
+
+    mockInvoke.mockImplementation(async (command: string, args?: TemplateInvokeArgs) => {
+      if (command === 'load_surface_template') {
+        const hemisphere = args?.request?.hemisphere ?? 'unknown';
+        return {
+          success: true,
+          surface_handle: `surface-template-${hemisphere}`,
+          vertex_count: 3,
+          face_count: 1,
+          space: 'fsaverage5',
+          geometry_type: 'white',
+          hemisphere,
+        };
+      }
+      if (command === 'get_surface_geometry') {
+        return {
+          vertices: [0, 0, 0, 1, 0, 0, 0, 1, 0],
+          faces: [0, 1, 2],
+        };
+      }
+      throw new Error(`Unexpected command ${command}`);
+    });
+
+    const service = new SurfaceLoadingService();
+    const result = await service.loadSurfaceTemplateBilateral(
+      {
+        space: 'fsaverage5',
+        geometry_type: 'white',
+      },
+      {
+        openViewer: false,
+        focusSurfacePanel: false,
+      }
+    );
+
+    expect(result).toEqual({
+      left: 'surface-template-left',
+      right: 'surface-template-right',
+    });
+    expect(mockEnsureSurfaceView).not.toHaveBeenCalled();
+    expect(mockFocusSurfacePanel).not.toHaveBeenCalled();
   });
 
   it('routes surface unload through the lifecycle queue before removing local state', async () => {

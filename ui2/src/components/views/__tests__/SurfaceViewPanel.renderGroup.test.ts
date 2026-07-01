@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { LoadedSurface } from '@/stores/surfaceStore';
-import { collectRenderSurfaces } from '../SurfaceViewPanel';
+import { collectRenderSurfaces } from '../surfaceRenderSurfaces';
 
 function createSurface(
   handle: string,

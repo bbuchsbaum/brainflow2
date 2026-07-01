@@ -1,5 +1,5 @@
 import { jsx as _jsx } from "react/jsx-runtime";
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { NeuroSurfaceViewer, SurfaceGeometry, MultiLayerNeuroSurface, DataLayer, RGBALayer, VolumeProjectionLayer, LaplacianSmoothing, THREE, } from 'neurosurface';
 import { buildRenderableLayerSpecs, isSurfaceGeometryChanged, planSurfaceReconciliation, } from './surfaceReconciler.js';
 import { DEFAULT_NEURO_SURFACE_DISPLAY_SETTINGS, DEFAULT_NEURO_SURFACE_LIGHTING_SETTINGS, DEFAULT_NEURO_SURFACE_MATERIAL_SETTINGS, DEFAULT_NEURO_SURFACE_PROJECTION_SETTINGS, } from './types.js';
@@ -334,13 +334,14 @@ const NeuroSurfaceCanvasInner = ({ surfaces, width, height, viewpoint = 'lateral
         };
         initializeWhenReady();
     }, [isInitialized, onError, showControls, viewpoint, width, height]);
-    useEffect(() => {
-        if (viewerRef.current && width > 0 && height > 0) {
-            const camera = viewerRef.current.camera;
+    useLayoutEffect(() => {
+        const viewer = viewerRef.current;
+        if (viewer && width > 0 && height > 0) {
+            const camera = viewer.camera;
             const prevPosition = camera ? camera.position.clone() : null;
             const prevRotation = camera ? camera.rotation.clone() : null;
             const prevZoom = camera && camera.zoom ? camera.zoom : 1;
-            viewerRef.current.resize(width, height);
+            viewer.resize(width, height);
             if (camera && prevPosition && prevRotation) {
                 camera.position.copy(prevPosition);
                 camera.rotation.copy(prevRotation);
@@ -349,7 +350,8 @@ const NeuroSurfaceCanvasInner = ({ surfaces, width, height, viewpoint = 'lateral
                     camera.updateProjectionMatrix();
                 }
             }
-            viewerRef.current.requestRender();
+            viewer.render();
+            viewer.requestRender();
         }
     }, [width, height]);
     useEffect(() => {
@@ -690,8 +692,8 @@ const NeuroSurfaceCanvasInner = ({ surfaces, width, height, viewpoint = 'lateral
     return (_jsx("div", { ref: containerRef, className: className, onPointerDown: onActivate, onMouseEnter: onActivate, onContextMenu: onContextMenu, style: {
             width: '100%',
             height: '100%',
-            minWidth: `${width}px`,
-            minHeight: `${height}px`,
+            minWidth: 0,
+            minHeight: 0,
             position: 'relative',
             display: 'block',
             overflow: 'hidden',

@@ -57,6 +57,11 @@ interface SurfaceTemplateLoadResult {
   error_message?: string;
 }
 
+export interface SurfaceTemplateLoadOptions {
+  openViewer?: boolean;
+  focusSurfacePanel?: boolean;
+}
+
 export class SurfaceLoadingService {
   private eventBus: EventBus;
   private transport: BackendTransport;
@@ -376,10 +381,7 @@ export class SurfaceLoadingService {
       geometry_type: string;
       hemisphere: string;
     },
-    options?: {
-      openViewer?: boolean;
-      focusSurfacePanel?: boolean;
-    },
+    options?: SurfaceTemplateLoadOptions,
   ): Promise<string | null> {
     const { space, geometry_type, hemisphere } = request;
     const openViewer = options?.openViewer ?? true;
@@ -540,18 +542,24 @@ export class SurfaceLoadingService {
    * caller can message partial success. User-facing notifications are left to
    * the caller (the menu listener), mirroring the single-hemisphere path.
    */
-  async loadSurfaceTemplateBilateral(request: {
-    space: string;
-    geometry_type: string;
-  }): Promise<{ left: string | null; right: string | null }> {
+  async loadSurfaceTemplateBilateral(
+    request: {
+      space: string;
+      geometry_type: string;
+    },
+    options?: SurfaceTemplateLoadOptions,
+  ): Promise<{ left: string | null; right: string | null }> {
     const left = await this.loadSurfaceTemplate(
       { ...request, hemisphere: 'left' },
-      { focusSurfacePanel: false },
+      { ...options, focusSurfacePanel: false },
     );
-    const right = await this.loadSurfaceTemplate({
-      ...request,
-      hemisphere: 'right',
-    });
+    const right = await this.loadSurfaceTemplate(
+      {
+        ...request,
+        hemisphere: 'right',
+      },
+      options,
+    );
     return { left, right };
   }
 

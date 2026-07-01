@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
   NeuroSurfaceViewer,
   SurfaceGeometry,
@@ -507,14 +507,15 @@ const NeuroSurfaceCanvasInner: React.FC<NeuroSurfaceCanvasProps> = ({
     initializeWhenReady();
   }, [isInitialized, onError, showControls, viewpoint, width, height]);
 
-  useEffect(() => {
-    if (viewerRef.current && width > 0 && height > 0) {
-      const camera = viewerRef.current.camera;
+  useLayoutEffect(() => {
+    const viewer = viewerRef.current;
+    if (viewer && width > 0 && height > 0) {
+      const camera = viewer.camera;
       const prevPosition = camera ? camera.position.clone() : null;
       const prevRotation = camera ? camera.rotation.clone() : null;
       const prevZoom = camera && camera.zoom ? camera.zoom : 1;
 
-      viewerRef.current.resize(width, height);
+      viewer.resize(width, height);
 
       if (camera && prevPosition && prevRotation) {
         camera.position.copy(prevPosition);
@@ -525,7 +526,8 @@ const NeuroSurfaceCanvasInner: React.FC<NeuroSurfaceCanvasProps> = ({
         }
       }
 
-      viewerRef.current.requestRender();
+      viewer.render();
+      viewer.requestRender();
     }
   }, [width, height]);
 
@@ -924,8 +926,8 @@ const NeuroSurfaceCanvasInner: React.FC<NeuroSurfaceCanvasProps> = ({
       style={{
         width: '100%',
         height: '100%',
-        minWidth: `${width}px`,
-        minHeight: `${height}px`,
+        minWidth: 0,
+        minHeight: 0,
         position: 'relative',
         display: 'block',
         overflow: 'hidden',

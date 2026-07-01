@@ -7,13 +7,9 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { DEFAULT_SURFACE_VIEW_ID, useSurfaceStore } from '@/stores/surfaceStore';
 import { SurfaceViewCanvas } from './SurfaceViewCanvas';
 import { Loader2, AlertCircle, X } from 'lucide-react';
-import type { LoadedSurface } from '@/stores/surfaceStore';
-import {
-  resolveTemplateflowSurfaceIdentity,
-  type TemplateflowSurfaceIdentity,
-} from '@/utils/surfaceIdentity';
 import { getSurfaceLoadingService } from '@/services/SurfaceLoadingService';
 import { useResolvedSurfaceViewState } from '@/hooks/useSurfaceSelectionContext';
+import { collectRenderSurfaces } from './surfaceRenderSurfaces';
 
 export interface SurfaceViewPanelProps {
   surfaceHandle?: string;
@@ -32,157 +28,6 @@ export interface SurfaceViewPanelProps {
    * instead of letting them overlap.
    */
   infoOverlayTop?: string;
-}
-
-function parseTemplateIdentity(surface: LoadedSurface): TemplateflowSurfaceIdentity | null {
-  return resolveTemplateflowSurfaceIdentity({
-    path: surface.metadata?.path,
-    geometryHemisphere: surface.geometry.hemisphere,
-    metadataHemisphere: surface.metadata?.hemisphere,
-    surfaceType: surface.geometry.surfaceType || surface.metadata?.surfaceType || '',
-  });
-}
-
-function hemisphereSortRank(surface: LoadedSurface): number {
-  const hemisphere = (
-    surface.geometry.hemisphere ||
-    surface.metadata?.hemisphere ||
-    ''
-  ).toLowerCase();
-  if (hemisphere === 'left') return 0;
-  if (hemisphere === 'right') return 1;
-  return 2;
-}
-
-function chooseHemisphereCandidate(
-  candidates: LoadedSurface[],
-  preferredSurfaceType: string,
-  preferredHandle?: string,
-): LoadedSurface | null {
-  if (candidates.length === 0) {
-    return null;
-  }
-
-  if (preferredHandle) {
-    const byHandle = candidates.find((surface) => surface.handle === preferredHandle);
-    if (byHandle) {
-      return byHandle;
-    }
-  }
-
-  if (preferredSurfaceType) {
-    const byType = candidates.find((surface) => {
-      const candidateType = (
-        surface.geometry.surfaceType ||
-        surface.metadata?.surfaceType ||
-        ''
-      ).toLowerCase();
-      return candidateType === preferredSurfaceType;
-    });
-    if (byType) {
-      return byType;
-    }
-  }
-
-  return candidates[0];
-}
-
-function surfaceGroupKeyOf(surface: LoadedSurface): string | null {
-  return parseTemplateIdentity(surface)?.basePath ?? null;
-}
-
-export function collectRenderSurfaces(
-  surfaces: Map<string, LoadedSurface>,
-  activeSurfaceId: string | null,
-  groupKey?: string | null,
-): LoadedSurface[] {
-  if (surfaces.size === 0) {
-    return [];
-  }
-
-  // When the host panel is pinned to a scene group (a standalone surface tab),
-  // only surfaces in that group are eligible — this keeps the tab from
-  // re-anchoring onto an unrelated surface that happens to be globally active.
-  // Panels without a group key (e.g. the Integrated workspace pane) keep the
-  // global anchor-pairing behavior.
-  const scoped =
-    groupKey != null
-      ? new Map(
-          Array.from(surfaces.entries()).filter(
-            ([, surface]) => surfaceGroupKeyOf(surface) === groupKey,
-          ),
-        )
-      : surfaces;
-
-  if (scoped.size === 0) {
-    return [];
-  }
-
-  const activeSurface = activeSurfaceId ? scoped.get(activeSurfaceId) : null;
-  const visibleSurfaces = Array.from(scoped.values()).filter(
-    (surface) => surface.visible !== false,
-  );
-  const anchorSurface =
-    activeSurface && activeSurface.visible !== false
-      ? activeSurface
-      : (visibleSurfaces[0] ?? activeSurface);
-
-  if (!anchorSurface) {
-    return [];
-  }
-
-  const anchorIdentity = parseTemplateIdentity(anchorSurface);
-  if (!anchorIdentity) {
-    return anchorSurface.visible === false ? [] : [anchorSurface];
-  }
-
-  const templateVisible = visibleSurfaces
-    .map((surface) => ({ surface, identity: parseTemplateIdentity(surface) }))
-    .filter(
-      (
-        entry,
-      ): entry is {
-        surface: LoadedSurface;
-        identity: TemplateflowSurfaceIdentity;
-      } => !!entry.identity && entry.identity.basePath === anchorIdentity.basePath,
-    );
-  if (templateVisible.length === 0) {
-    return anchorSurface.visible === false ? [] : [anchorSurface];
-  }
-
-  const leftCandidates = templateVisible
-    .filter((entry) => entry.identity.hemisphere === 'left')
-    .map((entry) => entry.surface);
-  const rightCandidates = templateVisible
-    .filter((entry) => entry.identity.hemisphere === 'right')
-    .map((entry) => entry.surface);
-
-  const preferredType = anchorIdentity.surfaceType;
-  const preferredLeftHandle =
-    anchorIdentity.hemisphere === 'left' ? anchorSurface.handle : undefined;
-  const preferredRightHandle =
-    anchorIdentity.hemisphere === 'right' ? anchorSurface.handle : undefined;
-
-  const selectedLeft = chooseHemisphereCandidate(
-    leftCandidates,
-    preferredType,
-    preferredLeftHandle,
-  );
-  const selectedRight = chooseHemisphereCandidate(
-    rightCandidates,
-    preferredType,
-    preferredRightHandle,
-  );
-  const pairedVisible = [selectedLeft, selectedRight].filter(
-    (surface): surface is LoadedSurface => surface !== null,
-  );
-
-  if (pairedVisible.length === 0) {
-    return anchorSurface.visible === false ? [] : [anchorSurface];
-  }
-
-  pairedVisible.sort((a, b) => hemisphereSortRank(a) - hemisphereSortRank(b));
-  return pairedVisible;
 }
 
 export const SurfaceViewPanel: React.FC<SurfaceViewPanelProps> = ({
@@ -258,6 +103,7 @@ export const SurfaceViewPanel: React.FC<SurfaceViewPanelProps> = ({
   // Handle container resize
   useEffect(() => {
     if (!containerRef.current) return;
+    let resizeFrame: number | null = null;
 
     const updateDimensions = () => {
       if (containerRef.current) {
@@ -277,6 +123,16 @@ export const SurfaceViewPanel: React.FC<SurfaceViewPanelProps> = ({
       }
     };
 
+    const scheduleUpdateDimensions = () => {
+      if (resizeFrame !== null) {
+        return;
+      }
+      resizeFrame = requestAnimationFrame(() => {
+        resizeFrame = null;
+        updateDimensions();
+      });
+    };
+
     // Wait for container to be ready with valid dimensions
     const waitForDimensions = () => {
       const rect = containerRef.current?.getBoundingClientRect();
@@ -293,13 +149,12 @@ export const SurfaceViewPanel: React.FC<SurfaceViewPanelProps> = ({
 
     // Create ResizeObserver with error handling
     const resizeObserver = new ResizeObserver((entries) => {
-      // Use requestAnimationFrame to avoid ResizeObserver loop errors
-      requestAnimationFrame(() => {
-        if (!Array.isArray(entries) || !entries.length) {
-          return;
-        }
-        updateDimensions();
-      });
+      if (!Array.isArray(entries) || !entries.length) {
+        return;
+      }
+      // Use requestAnimationFrame to avoid ResizeObserver loop errors, and
+      // coalesce splitter drag bursts into one dimension update per frame.
+      scheduleUpdateDimensions();
     });
 
     if (containerRef.current) {
@@ -307,6 +162,9 @@ export const SurfaceViewPanel: React.FC<SurfaceViewPanelProps> = ({
     }
 
     return () => {
+      if (resizeFrame !== null) {
+        cancelAnimationFrame(resizeFrame);
+      }
       resizeObserver.disconnect();
     };
   }, []);
