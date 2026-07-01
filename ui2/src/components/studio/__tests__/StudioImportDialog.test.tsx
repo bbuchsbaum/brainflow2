@@ -2,7 +2,7 @@ import { fireEvent, render, screen, waitFor, within } from '@testing-library/rea
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { StudioImportDialog } from '../StudioImportDialog';
 import { useSetStudioStore } from '@/stores/setStudioStore';
-import type { StudioImportCandidate } from '@/types/studio';
+import type { StudioFolderOntologySummary, StudioImportCandidate } from '@/types/studio';
 
 const ingestionServiceMock = vi.hoisted(() => ({
   openImportPreview: vi.fn(),
@@ -127,6 +127,53 @@ describe('StudioImportDialog', () => {
         },
       ],
       materialization: null,
+    };
+  }
+
+  function makeOntologySummary(): StudioFolderOntologySummary {
+    return {
+      root: '/tmp/study',
+      rootExists: true,
+      sourceLabel: null,
+      scannedFiles: 4,
+      neuroimagingFiles: 4,
+      truncated: false,
+      warnings: [],
+      candidates: [
+        {
+          id: 'maps-role-condition',
+          label: 'Subject maps with filename condition factor',
+          description: 'Treat basename modifiers as a condition factor.',
+          strategy: 'path_subject_maps_role_condition',
+          score: 0.92,
+          coverage: 1,
+          completeness: 1,
+          matchedFiles: 4,
+          unmatchedFiles: 0,
+          duplicateKeys: 0,
+          missingRoleBindings: 0,
+          filePattern: String.raw`(?P<subject>[^/]+)/maps/(?P<role>[A-Za-z0-9]+)(?:_(?P<condition>[^/]+))?\.nii(\.gz)?$`,
+          designColumns: ['subject', 'condition'],
+          observedRoles: ['auc'],
+          requiredRoles: [],
+          rolePatterns: [{ role: 'auc', patterns: ['auc'] }],
+          factors: [
+            { name: 'subject', source: 'path_entity', values: ['sub-01', 'sub-02'], confidence: 0.95 },
+            { name: 'condition', source: 'filename_modifier', values: ['face', 'house'], confidence: 0.7 },
+          ],
+          roles: [
+            {
+              role: 'auc',
+              source: 'filename',
+              examples: ['sub-01/maps/auc_face.nii.gz'],
+              confidence: 0.74,
+            },
+          ],
+          groups: [],
+          reasons: ['Found underscore-delimited filename modifiers under maps folders.'],
+          warnings: [],
+        },
+      ],
     };
   }
 
@@ -546,6 +593,22 @@ describe('StudioImportDialog', () => {
     expect(screen.getAllByText('subject').length).toBeGreaterThan(0);
     expect(screen.getAllByText('role').length).toBeGreaterThan(0);
     expect(screen.getByLabelText('tstat required')).toBeChecked();
+  });
+
+  it('applies a folder ontology proposal to regex discovery controls', () => {
+    openDialog('regex');
+    useSetStudioStore.getState().setFolderOntologyPreviewResult(makeOntologySummary());
+    render(<StudioImportDialog />);
+
+    expect(screen.getByText('Folder Ontology')).toBeInTheDocument();
+    expect(screen.getByText('Subject maps with filename condition factor')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Apply' }));
+
+    const dialog = useSetStudioStore.getState().importDialog;
+    expect(dialog.filePattern).toContain('(?P<condition>');
+    expect(dialog.discoveryRolePatterns).toEqual([{ role: 'auc', patterns: ['auc'] }]);
+    expect(ingestionServiceMock.openImportPreview).toHaveBeenCalledWith('regex');
   });
 
   it('updates regex discovery controls in store state', () => {

@@ -77,6 +77,7 @@ Default permissions for api-bridge plugin
 - `allow-load-surface-overlay`
 - `allow-get-surface-overlay-data`
 - `allow-set-layer-mask`
+- `allow-preview-folder-ontology`
 - `allow-preview-set-studio-imports`
 - `allow-promote-discovery-to-neurotabs`
 - `allow-materialize-set-studio-compare-panes`
@@ -1839,6 +1840,32 @@ Enables the peek_volume_metadata command without any pre-configured scope.
 <td>
 
 Denies the peek_volume_metadata command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:allow-preview-folder-ontology`
+
+</td>
+<td>
+
+Enables the preview_folder_ontology command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:deny-preview-folder-ontology`
+
+</td>
+<td>
+
+Denies the preview_folder_ontology command without any pre-configured scope.
 
 </td>
 </tr>

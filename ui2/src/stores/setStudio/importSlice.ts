@@ -9,6 +9,7 @@ import type {
   StudioMaterializationStatus,
   StudioSelection,
   StudioDiscoveryRolePattern,
+  StudioFolderOntologySummary,
   TsvColumnMapping,
   TsvWizardState,
   TsvWizardStep,
@@ -55,6 +56,10 @@ export interface SetStudioImportSlice {
   setDiscoveryCustomRole: (role: string) => void;
   addDiscoveryRole: (role: string) => void;
   removeDiscoveryRole: (role: string) => void;
+  beginFolderOntologyPreview: (root?: string | null) => void;
+  setFolderOntologyPreviewResult: (summary: StudioFolderOntologySummary) => void;
+  setFolderOntologyPreviewError: (message: string) => void;
+  applyFolderOntologyCandidate: (candidateId: string) => void;
   setTsvPath: (path: string) => void;
   parseTsvContent: (content: string) => void;
   setTsvColumnMapping: (mapping: Partial<TsvColumnMapping>) => void;
@@ -323,6 +328,9 @@ export function createInitialImportDialogState(): StudioImportDialogState {
     discoveryRequiredRoles: DEFAULT_DISCOVERY_REQUIRED_ROLES,
     discoveryRolePatterns: DEFAULT_DISCOVERY_ROLE_PATTERNS,
     discoveryCustomRole: '',
+    ontologyPreview: null,
+    isOntologyLoading: false,
+    ontologyError: null,
     tsvWizard: DEFAULT_TSV_WIZARD,
   };
 }
@@ -374,6 +382,9 @@ export function createImportSlice<T extends ImportSliceStore>(
           discoveryRequiredRoles: importDialog.discoveryRequiredRoles,
           discoveryRolePatterns: importDialog.discoveryRolePatterns,
           discoveryCustomRole: importDialog.discoveryCustomRole,
+          ontologyPreview: importDialog.ontologyPreview,
+          isOntologyLoading: importDialog.isOntologyLoading,
+          ontologyError: importDialog.ontologyError,
           tsvWizard: importDialog.tsvWizard,
         },
       });
@@ -593,6 +604,8 @@ export function createImportSlice<T extends ImportSliceStore>(
         importDialog: {
           ...importDialog,
           discoveryRoot: root,
+          ontologyPreview: null,
+          ontologyError: null,
         },
       });
     },
@@ -771,6 +784,76 @@ export function createImportSlice<T extends ImportSliceStore>(
           discoveryRequiredRoles: importDialog.discoveryRequiredRoles.filter(
             (entry) => entry !== normalizedRole,
           ),
+        },
+      });
+    },
+
+    beginFolderOntologyPreview: (root = null) => {
+      const { importDialog } = get();
+      const discoveryRoot = root?.trim() || importDialog.discoveryRoot;
+
+      set({
+        importDialog: {
+          ...importDialog,
+          isOpen: true,
+          mode: 'regex',
+          selectedCandidateId: null,
+          isOntologyLoading: true,
+          ontologyError: null,
+          ontologyPreview: null,
+          discoveryRoot,
+        },
+      });
+    },
+
+    setFolderOntologyPreviewResult: (summary) => {
+      const { importDialog } = get();
+
+      set({
+        importDialog: {
+          ...importDialog,
+          isOpen: true,
+          mode: 'regex',
+          isOntologyLoading: false,
+          ontologyError: null,
+          ontologyPreview: summary,
+          discoveryRoot: summary.root || importDialog.discoveryRoot,
+        },
+      });
+    },
+
+    setFolderOntologyPreviewError: (message) => {
+      const { importDialog } = get();
+
+      set({
+        importDialog: {
+          ...importDialog,
+          isOpen: true,
+          mode: 'regex',
+          isOntologyLoading: false,
+          ontologyError: message,
+          ontologyPreview: null,
+        },
+      });
+    },
+
+    applyFolderOntologyCandidate: (candidateId) => {
+      const { importDialog } = get();
+      const candidate = importDialog.ontologyPreview?.candidates.find(
+        (candidate) => candidate.id === candidateId,
+      );
+      if (!candidate) {
+        return;
+      }
+
+      set({
+        importDialog: {
+          ...importDialog,
+          mode: 'regex',
+          filePattern: candidate.filePattern,
+          discoveryRequiredRoles: candidate.requiredRoles,
+          discoveryRolePatterns: candidate.rolePatterns,
+          error: null,
         },
       });
     },

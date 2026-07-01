@@ -6,8 +6,8 @@ import { useFileBrowserStore } from '@/stores/fileBrowserStore';
 import { setTransport } from '@/services/transport';
 import type { FileTreeNode, MountSource } from '@/types/filesystem';
 
-const { openRegexDiscoveryInStudioMock } = vi.hoisted(() => ({
-  openRegexDiscoveryInStudioMock: vi.fn(),
+const { openFolderOntologyInStudioMock } = vi.hoisted(() => ({
+  openFolderOntologyInStudioMock: vi.fn(),
 }));
 
 vi.mock('react-arborist', () => ({
@@ -16,7 +16,7 @@ vi.mock('react-arborist', () => ({
 
 vi.mock('@/services/studio/SetStudioService', () => ({
   getSetStudioService: () => ({
-    openRegexDiscoveryInStudio: openRegexDiscoveryInStudioMock,
+    openFolderOntologyInStudio: openFolderOntologyInStudioMock,
   }),
 }));
 
@@ -60,8 +60,8 @@ function resetStore(entries: FileTreeNode[], selectedPath: string | null) {
 
 describe('FileBrowserPanel unmount overflow action', () => {
   beforeEach(() => {
-    openRegexDiscoveryInStudioMock.mockReset();
-    openRegexDiscoveryInStudioMock.mockResolvedValue('studio');
+    openFolderOntologyInStudioMock.mockReset();
+    openFolderOntologyInStudioMock.mockResolvedValue('studio');
     vi.stubGlobal(
       'ResizeObserver',
       class {
@@ -163,7 +163,7 @@ describe('FileBrowserPanel unmount overflow action', () => {
     expect(unmountButton).toBeDisabled();
   });
 
-  it('opens Set Studio discovery from the selected folder', () => {
+  it('opens Set Studio folder ontology from the selected folder', () => {
     const invokeMock = vi.fn().mockResolvedValue({ success: true });
     setTransport({ invoke: invokeMock } as BackendTransportLike);
 
@@ -182,7 +182,7 @@ describe('FileBrowserPanel unmount overflow action', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Files actions' }));
     fireEvent.click(screen.getByRole('menuitem', { name: 'Create Set from Folder' }));
 
-    expect(openRegexDiscoveryInStudioMock).toHaveBeenCalledWith({
+    expect(openFolderOntologyInStudioMock).toHaveBeenCalledWith({
       discoveryRoot: localRoot,
     });
   });

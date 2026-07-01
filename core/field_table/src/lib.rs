@@ -5,8 +5,11 @@ mod promote;
 
 pub use materialize::materialize_compare_panes;
 pub use preview::{
+    preview_folder_ontology, preview_folder_ontology_with_discovery_inventory,
     preview_import_candidates, preview_import_candidates_with_discovery_inventory,
     DiscoveryInventory, DiscoveryInventoryFile, DiscoverySampleHeader,
+    StudioFolderOntologyCandidate, StudioFolderOntologyFactor, StudioFolderOntologyPreviewRequest,
+    StudioFolderOntologyRoleGuess, StudioFolderOntologySummary, StudioFolderOntologyWarning,
 };
 pub use promote::{build_discovery_neurotabs_package, promote_discovery_to_neurotabs};
 
@@ -19,10 +22,10 @@ mod tests {
     use bridge_types::{
         StudioAlignmentClass, StudioAuditSeverity, StudioCompareBindingKind,
         StudioCompareCacheStatus, StudioCompareMaterializeRequest, StudioComparePaneStatus,
-        StudioDiscoveryPromotionRequest, StudioFieldBindingAvailability, StudioImportCandidate,
-        StudioImportCapability, StudioImportMode, StudioImportPreviewRequest,
-        StudioImportReadiness, StudioMemberSummary, StudioReducerKind, StudioReducerSpec,
-        StudioRoleBindingInput, StudioSupportKind,
+        StudioDiscoveryPromotionRequest, StudioFieldBindingAvailability,
+        StudioFolderOntologyPreviewRequest, StudioImportCandidate, StudioImportCapability,
+        StudioImportMode, StudioImportPreviewRequest, StudioImportReadiness, StudioMemberSummary,
+        StudioReducerKind, StudioReducerSpec, StudioRoleBindingInput, StudioSupportKind,
     };
     use nifti::{writer::WriterOptions, NiftiHeader};
     use std::fs;
@@ -584,6 +587,166 @@ mod tests {
             StudioFieldBindingAvailability::Available
         );
         assert!(roundtrip.set.ingest_audit.support.ready_for_compare);
+
+        fs::remove_dir_all(temp_dir).expect("cleanup temp dir");
+    }
+
+    #[test]
+    fn promotes_ontology_condition_candidate_through_regex_roundtrip() {
+        let temp_dir = make_temp_dir("ontology-condition-roundtrip");
+        for subject in ["sub-01", "sub-02"] {
+            let maps_dir = temp_dir.join("analysis-a").join(subject).join("maps");
+            fs::create_dir_all(&maps_dir).expect("create subject maps dir");
+            for condition in ["face", "house"] {
+                save_test_nifti(
+                    &maps_dir.join(format!("auc_{}.nii.gz", condition)),
+                    &[1.0, 2.0, 3.0, 4.0],
+                    [2, 2, 1],
+                );
+            }
+        }
+
+        let ontology = preview_folder_ontology(StudioFolderOntologyPreviewRequest {
+            root: temp_dir.to_string_lossy().to_string(),
+            max_depth: Some(4),
+            max_files: Some(20),
+            include_patterns: Vec::new(),
+            exclude_patterns: Vec::new(),
+        });
+        let proposal = ontology
+            .candidates
+            .iter()
+            .find(|candidate| candidate.id == "maps-role-condition")
+            .expect("condition proposal");
+        assert_eq!(proposal.groups.len(), 4);
+        assert_eq!(proposal.duplicate_keys, 0);
+        assert!(proposal
+            .design_columns
+            .iter()
+            .any(|column| column == "condition"));
+
+        let discovered = preview_import_candidates(StudioImportPreviewRequest {
+            mode: StudioImportMode::Regex,
+            manifest_path: None,
+            discovery_root: Some(temp_dir.to_string_lossy().to_string()),
+            file_pattern: Some(proposal.file_pattern.clone()),
+            table_source_label: None,
+            table_headers: None,
+            table_rows: None,
+            table_file_path_column: None,
+            table_subject_id_column: None,
+            table_excluded_columns: None,
+            discovery_max_depth: Some(4),
+            discovery_max_files: Some(20),
+            discovery_include_patterns: None,
+            discovery_exclude_patterns: None,
+            discovery_required_roles: Some(proposal.required_roles.clone()),
+            discovery_role_patterns: Some(proposal.role_patterns.clone()),
+            discovery_dry_run: Some(true),
+            discovery_sample_headers: Some(true),
+        })
+        .into_iter()
+        .next()
+        .expect("discovery candidate");
+
+        let discovery = discovered.discovery.as_ref().expect("discovery summary");
+        assert_eq!(discovery.groups.len(), 4);
+        assert_eq!(discovery.matched_files, 4);
+        assert_eq!(discovery.duplicate_keys, 0);
+        assert!(discovery
+            .inferred_design_columns
+            .iter()
+            .any(|column| column == "condition"));
+        assert!(discovered.set.ingest_audit.support.ready_for_compare);
+
+        let promoted = promote_discovery_to_neurotabs(StudioDiscoveryPromotionRequest {
+            candidate: discovered.clone(),
+            output_dir: Some(temp_dir.to_string_lossy().to_string()),
+        })
+        .expect("promote ontology discovery");
+        let roundtrip = promoted.preview.expect("roundtrip preview");
+        assert_eq!(roundtrip.mode, StudioImportMode::Manifest);
+        assert_eq!(roundtrip.set.member_count, 4);
+        assert_eq!(roundtrip.set.member_ids, discovered.set.member_ids);
+        assert_eq!(roundtrip.set.primary_feature_id.as_deref(), Some("auc"));
+        assert!(roundtrip
+            .set
+            .design_columns
+            .iter()
+            .any(|column| column == "condition"));
+        assert!(roundtrip.set.ingest_audit.support.ready_for_compare);
+
+        fs::remove_dir_all(temp_dir).expect("cleanup temp dir");
+    }
+
+    #[test]
+    fn ontology_regex_handoff_blocks_mixed_volume_support() {
+        let temp_dir = make_temp_dir("ontology-mixed-support");
+        let sub_01_maps = temp_dir.join("sub-01").join("maps");
+        let sub_02_maps = temp_dir.join("sub-02").join("maps");
+        fs::create_dir_all(&sub_01_maps).expect("create sub-01 maps dir");
+        fs::create_dir_all(&sub_02_maps).expect("create sub-02 maps dir");
+        save_test_nifti(&sub_01_maps.join("auc.nii.gz"), &[1.0, 2.0], [2, 1, 1]);
+        save_test_nifti(&sub_02_maps.join("auc.nii.gz"), &[1.0, 2.0, 3.0], [3, 1, 1]);
+
+        let ontology = preview_folder_ontology(StudioFolderOntologyPreviewRequest {
+            root: temp_dir.to_string_lossy().to_string(),
+            max_depth: Some(3),
+            max_files: Some(20),
+            include_patterns: Vec::new(),
+            exclude_patterns: Vec::new(),
+        });
+        let proposal = ontology
+            .candidates
+            .iter()
+            .find(|candidate| candidate.id == "maps-basename-roles")
+            .expect("basename role proposal");
+
+        let discovered = preview_import_candidates(StudioImportPreviewRequest {
+            mode: StudioImportMode::Regex,
+            manifest_path: None,
+            discovery_root: Some(temp_dir.to_string_lossy().to_string()),
+            file_pattern: Some(proposal.file_pattern.clone()),
+            table_source_label: None,
+            table_headers: None,
+            table_rows: None,
+            table_file_path_column: None,
+            table_subject_id_column: None,
+            table_excluded_columns: None,
+            discovery_max_depth: Some(3),
+            discovery_max_files: Some(20),
+            discovery_include_patterns: None,
+            discovery_exclude_patterns: None,
+            discovery_required_roles: Some(proposal.required_roles.clone()),
+            discovery_role_patterns: Some(proposal.role_patterns.clone()),
+            discovery_dry_run: Some(true),
+            discovery_sample_headers: Some(true),
+        })
+        .into_iter()
+        .next()
+        .expect("discovery candidate");
+
+        assert_eq!(discovered.set.member_count, 2);
+        assert_eq!(
+            discovered.set.ingest_audit.support.alignment_class,
+            StudioAlignmentClass::Mixed
+        );
+        assert_eq!(
+            discovered.set.ingest_audit.support.severity,
+            StudioAuditSeverity::Error
+        );
+        assert!(!discovered.set.ingest_audit.support.ready_for_compare);
+        assert_eq!(
+            discovered.contract.readiness,
+            StudioImportReadiness::InspectOnly
+        );
+        assert!(discovered
+            .set
+            .ingest_audit
+            .join
+            .issue_details
+            .iter()
+            .any(|issue| issue.message.contains("different grid")));
 
         fs::remove_dir_all(temp_dir).expect("cleanup temp dir");
     }

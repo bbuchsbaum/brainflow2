@@ -101,6 +101,7 @@ export class TauriTransport implements BackendTransport {
       // Surface template commands
       "load_surface_template",
       "get_surface_template_catalog",
+      "preview_folder_ontology",
       "preview_set_studio_imports",
       "promote_discovery_to_neurotabs",
       "materialize_set_studio_compare_panes",

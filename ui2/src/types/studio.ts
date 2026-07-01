@@ -28,6 +28,8 @@ import type {
   StudioImportMode,
   StudioImportProvenanceKind,
   StudioImportReadiness,
+  StudioFolderOntologyCandidate,
+  StudioFolderOntologySummary,
   StudioIngestAuditSummary,
   StudioJoinAuditSummary,
   StudioJoinIssueDetail,
@@ -56,6 +58,8 @@ export type {
   StudioDiscoveryPromotionResult,
   StudioDiscoveryPreviewSummary,
   StudioDiscoveryRolePattern,
+  StudioFolderOntologyCandidate,
+  StudioFolderOntologySummary,
   StudioExpressionKind,
   StudioFeatureSummary,
   StudioFieldBindingAvailability,
@@ -145,6 +149,9 @@ export interface StudioImportDialogState {
   discoveryRequiredRoles: string[];
   discoveryRolePatterns: StudioDiscoveryRolePattern[];
   discoveryCustomRole: string;
+  ontologyPreview: StudioFolderOntologySummary | null;
+  isOntologyLoading: boolean;
+  ontologyError: string | null;
   tsvWizard: TsvWizardState;
 }
 

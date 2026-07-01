@@ -1,7 +1,7 @@
 use super::{
     binding_summary, derive_member_id_from_path, import_contract, inspect_table_volume_support,
     table_support_label, title_case, unavailable_primary_binding, BindingSummaryInput,
-    ImportContractInput,
+    ImportContractInput, TableSupportSignature,
 };
 use bridge_types::{
     SpatialFieldSetSummary, StudioAlignmentClass, StudioAuditSeverity, StudioCohortOriginKind,
@@ -396,59 +396,53 @@ fn build_discovery_preview(
     let mut alignment_class = StudioAlignmentClass::SameSpace;
     let mut support_severity = StudioAuditSeverity::Ok;
     if sample_headers {
-        let sample_header =
-            discovery_inventory.and_then(|inventory| inventory.sample_header.as_ref());
-        let sample_error =
-            discovery_inventory.and_then(|inventory| inventory.sample_header_error.as_ref());
-        let local_sample_path = sample_header
-            .map(|sample| sample.local_path.as_path())
-            .or_else(|| {
-                if discovery_inventory.is_some() {
-                    None
-                } else {
-                    member_summaries
-                        .iter()
-                        .filter_map(|member| member.source_path.as_deref())
-                        .next()
-                        .map(Path::new)
-                }
-            });
+        if discovery_inventory.is_none() {
+            let support = inspect_local_discovery_support(&grouped.groups);
+            support_label = support.support_label;
+            alignment_class = support.alignment_class;
+            support_severity = support.severity;
+            issue_details.extend(support.issue_details);
+        } else {
+            let sample_header =
+                discovery_inventory.and_then(|inventory| inventory.sample_header.as_ref());
+            let sample_error =
+                discovery_inventory.and_then(|inventory| inventory.sample_header_error.as_ref());
+            let local_sample_path = sample_header.map(|sample| sample.local_path.as_path());
 
-        match local_sample_path.map(inspect_table_volume_support) {
-            Some(Ok(signature)) => {
-                support_label = format!("{} (sampled)", table_support_label(&signature));
-                alignment_class = StudioAlignmentClass::SameGrid;
-            }
-            Some(Err(message)) => {
-                support_label = "sample header could not be read".to_string();
-                support_severity = StudioAuditSeverity::Warning;
-                issue_details.push(StudioJoinIssueDetail {
-                    message,
-                    member_ids: Vec::new(),
-                });
-            }
-            None => {
-                if let Some(message) = sample_error {
+            match local_sample_path.map(inspect_table_volume_support) {
+                Some(Ok(signature)) => {
+                    support_label = format!("{} (sampled)", table_support_label(&signature));
+                    alignment_class = StudioAlignmentClass::SameGrid;
+                }
+                Some(Err(message)) => {
                     support_label = "sample header could not be read".to_string();
                     support_severity = StudioAuditSeverity::Warning;
                     issue_details.push(StudioJoinIssueDetail {
-                        message: message.clone(),
+                        message,
                         member_ids: Vec::new(),
                     });
-                } else if grouped.groups.is_empty() {
-                    support_label = "no sampled source path".to_string();
-                    support_severity = StudioAuditSeverity::Error;
-                } else if discovery_inventory.is_some() {
-                    support_label = "headers not sampled".to_string();
-                    support_severity = StudioAuditSeverity::Warning;
-                    issue_details.push(StudioJoinIssueDetail {
-                        message: "Remote discovery did not stage a sample header for validation."
-                            .to_string(),
-                        member_ids: Vec::new(),
-                    });
-                } else {
-                    support_label = "no sampled source path".to_string();
-                    support_severity = StudioAuditSeverity::Error;
+                }
+                None => {
+                    if let Some(message) = sample_error {
+                        support_label = "sample header could not be read".to_string();
+                        support_severity = StudioAuditSeverity::Warning;
+                        issue_details.push(StudioJoinIssueDetail {
+                            message: message.clone(),
+                            member_ids: Vec::new(),
+                        });
+                    } else if grouped.groups.is_empty() {
+                        support_label = "no sampled source path".to_string();
+                        support_severity = StudioAuditSeverity::Error;
+                    } else {
+                        support_label = "headers not sampled".to_string();
+                        support_severity = StudioAuditSeverity::Warning;
+                        issue_details.push(StudioJoinIssueDetail {
+                            message:
+                                "Remote discovery did not stage a sample header for validation."
+                                    .to_string(),
+                            member_ids: Vec::new(),
+                        });
+                    }
                 }
             }
         }
@@ -589,6 +583,98 @@ fn build_discovery_preview(
         description,
         source_hint,
         set_name,
+    }
+}
+
+struct DiscoverySupportInspection {
+    support_label: String,
+    alignment_class: StudioAlignmentClass,
+    severity: StudioAuditSeverity,
+    issue_details: Vec<StudioJoinIssueDetail>,
+}
+
+fn inspect_local_discovery_support(
+    groups: &[StudioDiscoveryMemberGroup],
+) -> DiscoverySupportInspection {
+    let mut reference: Option<TableSupportSignature> = None;
+    let mut support_label = "no sampled source path".to_string();
+    let mut read_error_members = Vec::new();
+    let mut read_error_messages = Vec::new();
+    let mut mismatch_members = Vec::new();
+
+    for group in groups {
+        for binding in &group.bindings {
+            match inspect_table_volume_support(Path::new(&binding.source_path)) {
+                Ok(signature) => {
+                    if let Some(reference_signature) = reference.as_ref() {
+                        if reference_signature != &signature {
+                            mismatch_members.push(group.member_id.clone());
+                        }
+                    } else {
+                        support_label = format!("{} (sampled)", table_support_label(&signature));
+                        reference = Some(signature);
+                    }
+                }
+                Err(message) => {
+                    read_error_members.push(group.member_id.clone());
+                    read_error_messages.push(message);
+                }
+            }
+        }
+    }
+
+    let mut issue_details = Vec::new();
+    if !read_error_messages.is_empty() {
+        read_error_members.sort();
+        read_error_members.dedup();
+        issue_details.push(StudioJoinIssueDetail {
+            message: format!(
+                "{} matched image header(s) could not be read; first error: {}",
+                read_error_messages.len(),
+                read_error_messages[0]
+            ),
+            member_ids: read_error_members,
+        });
+    }
+    if !mismatch_members.is_empty() {
+        mismatch_members.sort();
+        mismatch_members.dedup();
+        issue_details.push(StudioJoinIssueDetail {
+            message: format!(
+                "{} member group(s) use a different grid than the first sampled image.",
+                mismatch_members.len()
+            ),
+            member_ids: mismatch_members,
+        });
+    }
+
+    if !issue_details.is_empty() {
+        return DiscoverySupportInspection {
+            support_label: if reference.is_some() {
+                "mixed volume grids (sampled)".to_string()
+            } else {
+                "sample headers could not be read".to_string()
+            },
+            alignment_class: StudioAlignmentClass::Mixed,
+            severity: StudioAuditSeverity::Error,
+            issue_details,
+        };
+    }
+
+    if reference.is_none() {
+        return DiscoverySupportInspection {
+            support_label,
+            alignment_class: StudioAlignmentClass::SameSpace,
+            severity: StudioAuditSeverity::Error,
+            issue_details: Vec::new(),
+        };
+    }
+
+    DiscoverySupportInspection {
+        support_label,
+        alignment_class: StudioAlignmentClass::SameGrid,
+        severity: StudioAuditSeverity::Ok,
+        issue_details,
     }
 }
 
@@ -999,7 +1085,14 @@ fn derive_discovery_member_id(
             parts.push(subject.trim().to_string());
         }
     }
-    for key in ["session", "contrast"] {
+    for key in [
+        "session",
+        "contrast",
+        "condition",
+        "analysis",
+        "task",
+        "run",
+    ] {
         if let Some(value) = captures.get(key) {
             if !value.trim().is_empty() {
                 parts.push(value.trim().to_string());

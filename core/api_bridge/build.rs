@@ -75,6 +75,7 @@ const COMMANDS: &[&str] = &[
     "load_surface_template",
     "get_surface_template_catalog",
     // Set Studio commands
+    "preview_folder_ontology",
     "preview_set_studio_imports",
     "promote_discovery_to_neurotabs",
     "materialize_set_studio_compare_panes",

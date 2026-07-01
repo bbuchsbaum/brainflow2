@@ -1103,6 +1103,107 @@ pub struct StudioDiscoveryPreviewSummary {
     pub groups: Vec<StudioDiscoveryMemberGroup>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
+#[serde(rename_all = "camelCase")]
+pub struct StudioFolderOntologyPreviewRequest {
+    pub root: String,
+    #[serde(default)]
+    #[ts(optional = nullable)]
+    pub max_depth: Option<usize>,
+    #[serde(default)]
+    #[ts(optional = nullable)]
+    pub max_files: Option<usize>,
+    #[serde(default)]
+    pub include_patterns: Vec<String>,
+    #[serde(default)]
+    pub exclude_patterns: Vec<String>,
+}
+
+impl StudioFolderOntologyPreviewRequest {
+    pub fn new(root: impl Into<String>) -> Self {
+        Self {
+            root: root.into(),
+            max_depth: None,
+            max_files: None,
+            include_patterns: Vec::new(),
+            exclude_patterns: Vec::new(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
+#[serde(rename_all = "camelCase")]
+pub struct StudioFolderOntologySummary {
+    pub root: String,
+    pub root_exists: bool,
+    #[serde(default)]
+    #[ts(optional = nullable)]
+    pub source_label: Option<String>,
+    pub scanned_files: usize,
+    pub neuroimaging_files: usize,
+    pub truncated: bool,
+    pub candidates: Vec<StudioFolderOntologyCandidate>,
+    pub warnings: Vec<StudioFolderOntologyWarning>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
+#[serde(rename_all = "camelCase")]
+pub struct StudioFolderOntologyCandidate {
+    pub id: String,
+    pub label: String,
+    pub description: String,
+    pub strategy: String,
+    pub score: f32,
+    pub coverage: f32,
+    pub completeness: f32,
+    pub matched_files: usize,
+    pub unmatched_files: usize,
+    pub duplicate_keys: usize,
+    pub missing_role_bindings: usize,
+    pub file_pattern: String,
+    pub design_columns: Vec<String>,
+    pub observed_roles: Vec<String>,
+    pub required_roles: Vec<String>,
+    pub role_patterns: Vec<StudioDiscoveryRolePattern>,
+    pub factors: Vec<StudioFolderOntologyFactor>,
+    pub roles: Vec<StudioFolderOntologyRoleGuess>,
+    pub groups: Vec<StudioDiscoveryMemberGroup>,
+    pub reasons: Vec<String>,
+    pub warnings: Vec<StudioFolderOntologyWarning>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
+#[serde(rename_all = "camelCase")]
+pub struct StudioFolderOntologyFactor {
+    pub name: String,
+    pub source: String,
+    pub values: Vec<String>,
+    pub confidence: f32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
+#[serde(rename_all = "camelCase")]
+pub struct StudioFolderOntologyRoleGuess {
+    pub role: String,
+    pub source: String,
+    pub examples: Vec<String>,
+    pub confidence: f32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
+#[serde(rename_all = "camelCase")]
+pub struct StudioFolderOntologyWarning {
+    pub code: String,
+    pub message: String,
+    pub paths: Vec<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq, Eq)]
 #[ts(export)]
 #[serde(rename_all = "snake_case")]

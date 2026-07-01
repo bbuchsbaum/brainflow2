@@ -76,6 +76,7 @@ permissions = [
     "allow-load-surface-overlay",
     "allow-get-surface-overlay-data",
     "allow-set-layer-mask",
+    "allow-preview-folder-ontology",
     "allow-preview-set-studio-imports",
     "allow-promote-discovery-to-neurotabs",
     "allow-materialize-set-studio-compare-panes",

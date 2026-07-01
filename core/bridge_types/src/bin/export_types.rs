@@ -176,6 +176,24 @@ fn main() {
     if let Err(e) = StudioDiscoveryPreviewSummary::export_all() {
         eprintln!("Warning: {e}");
     }
+    if let Err(e) = StudioFolderOntologyPreviewRequest::export_all() {
+        eprintln!("Warning: {e}");
+    }
+    if let Err(e) = StudioFolderOntologySummary::export_all() {
+        eprintln!("Warning: {e}");
+    }
+    if let Err(e) = StudioFolderOntologyCandidate::export_all() {
+        eprintln!("Warning: {e}");
+    }
+    if let Err(e) = StudioFolderOntologyFactor::export_all() {
+        eprintln!("Warning: {e}");
+    }
+    if let Err(e) = StudioFolderOntologyRoleGuess::export_all() {
+        eprintln!("Warning: {e}");
+    }
+    if let Err(e) = StudioFolderOntologyWarning::export_all() {
+        eprintln!("Warning: {e}");
+    }
     if let Err(e) = StudioFieldBindingAvailability::export_all() {
         eprintln!("Warning: {e}");
     }

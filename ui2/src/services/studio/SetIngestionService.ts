@@ -5,6 +5,8 @@ import type { StudioImportCandidate, StudioImportMode } from '@/types/studio';
 import type {
   StudioImportCandidate as BackendStudioImportCandidate,
   StudioDiscoveryPromotionResult,
+  StudioFolderOntologyPreviewRequest,
+  StudioFolderOntologySummary,
   StudioImportPreviewRequest,
 } from '@brainflow/api';
 
@@ -59,6 +61,33 @@ export class SetIngestionService {
     }
   }
 
+  async openFolderOntologyPreview(root?: string | null): Promise<void> {
+    const store = useSetStudioStore.getState();
+    store.beginFolderOntologyPreview(root);
+    const requestId = ++this.requestVersion;
+    const request = this.buildFolderOntologyRequest();
+
+    try {
+      const summary = await this.transport.invoke<StudioFolderOntologySummary>(
+        'preview_folder_ontology',
+        { request }
+      );
+
+      if (!this.isStillCurrentFolderOntology(requestId, request.root)) {
+        return;
+      }
+
+      useSetStudioStore.getState().setFolderOntologyPreviewResult(summary);
+    } catch (error) {
+      if (!this.isStillCurrentFolderOntology(requestId, request.root)) {
+        return;
+      }
+      const message =
+        error instanceof Error ? error.message : 'Folder ontology preview failed.';
+      useSetStudioStore.getState().setFolderOntologyPreviewError(message);
+    }
+  }
+
   async validateTablePreview(): Promise<void> {
     await this.openImportPreview('table');
   }
@@ -94,6 +123,14 @@ export class SetIngestionService {
     }
     const dialogMode = useSetStudioStore.getState().importDialog.mode;
     return dialogMode === mode;
+  }
+
+  private isStillCurrentFolderOntology(requestId: number, root: string): boolean {
+    if (requestId !== this.requestVersion) {
+      return false;
+    }
+    const dialog = useSetStudioStore.getState().importDialog;
+    return dialog.mode === 'regex' && dialog.discoveryRoot === root;
   }
 
   private applyFallbackPreview(mode: StudioImportMode, message: string) {
@@ -139,6 +176,17 @@ export class SetIngestionService {
         tableExcludedColumns:
           mode === 'table' ? wizard.columnMapping.excludedColumns : null,
       },
+    };
+  }
+
+  private buildFolderOntologyRequest(): StudioFolderOntologyPreviewRequest {
+    const dialog = useSetStudioStore.getState().importDialog;
+    return {
+      root: dialog.discoveryRoot,
+      maxDepth: parsePositiveInteger(dialog.discoveryMaxDepth),
+      maxFiles: parsePositiveInteger(dialog.discoveryMaxFiles),
+      includePatterns: [],
+      excludePatterns: [],
     };
   }
 }

@@ -8,12 +8,18 @@ use std::path::Path;
 
 mod discovery;
 mod manifest;
+mod ontology;
 mod source;
 mod support;
 mod table;
+pub use bridge_types::{
+    StudioFolderOntologyCandidate, StudioFolderOntologyFactor, StudioFolderOntologyPreviewRequest,
+    StudioFolderOntologyRoleGuess, StudioFolderOntologySummary, StudioFolderOntologyWarning,
+};
 use discovery::regex_candidate;
 pub use discovery::{DiscoveryInventory, DiscoveryInventoryFile, DiscoverySampleHeader};
 use manifest::{manifest_candidate, FeatureBindingPreview};
+pub use ontology::{preview_folder_ontology, preview_folder_ontology_with_discovery_inventory};
 use source::{
     infer_source_path_index, inspect_resource_registry, resolve_relative_path, resolve_row_source,
     ResourceRegistryPreview,

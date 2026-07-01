@@ -428,7 +428,7 @@ const FileBrowserPanelContent: React.FC = () => {
               label: "Create Set from Folder",
               onClick: () => {
                 if (!selectedFolderForSet) return;
-                void getSetStudioService().openRegexDiscoveryInStudio({
+                void getSetStudioService().openFolderOntologyInStudio({
                   discoveryRoot: selectedFolderForSet,
                 });
               },

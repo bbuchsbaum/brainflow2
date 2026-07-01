@@ -7,6 +7,8 @@ import { useSetStudioStore } from '@/stores/setStudioStore';
 import type {
   StudioDiscoveryMemberGroup,
   StudioDiscoveryRolePattern,
+  StudioFolderOntologyCandidate,
+  StudioFolderOntologySummary,
   StudioImportCandidate,
   StudioImportMode,
 } from '@/types/studio';
@@ -37,6 +39,9 @@ export function StudioImportDialog() {
   const discoveryRequiredRoles = useSetStudioStore((state) => state.importDialog.discoveryRequiredRoles);
   const discoveryRolePatterns = useSetStudioStore((state) => state.importDialog.discoveryRolePatterns);
   const discoveryCustomRole = useSetStudioStore((state) => state.importDialog.discoveryCustomRole);
+  const ontologyPreview = useSetStudioStore((state) => state.importDialog.ontologyPreview);
+  const isOntologyLoading = useSetStudioStore((state) => state.importDialog.isOntologyLoading);
+  const ontologyError = useSetStudioStore((state) => state.importDialog.ontologyError);
   const importCandidates = useSetStudioStore((state) => state.importCandidates);
   const closeImportDialog = useSetStudioStore((state) => state.closeImportDialog);
   const openImportDialog = useSetStudioStore((state) => state.openImportDialog);
@@ -54,6 +59,7 @@ export function StudioImportDialog() {
   const setDiscoveryCustomRole = useSetStudioStore((state) => state.setDiscoveryCustomRole);
   const addDiscoveryRole = useSetStudioStore((state) => state.addDiscoveryRole);
   const removeDiscoveryRole = useSetStudioStore((state) => state.removeDiscoveryRole);
+  const applyFolderOntologyCandidate = useSetStudioStore((state) => state.applyFolderOntologyCandidate);
 
   const candidates = useMemo(
     () => Object.values(importCandidates).filter((candidate) => candidate.mode === mode),
@@ -245,6 +251,15 @@ export function StudioImportDialog() {
                     )}
                     {mode === 'regex' ? (
                       <div className="mt-4 space-y-4">
+                        <FolderOntologyPreviewPanel
+                          summary={ontologyPreview}
+                          isLoading={isOntologyLoading}
+                          error={ontologyError}
+                          onApply={(candidateId) => {
+                            applyFolderOntologyCandidate(candidateId);
+                            void getSetIngestionService().openImportPreview('regex');
+                          }}
+                        />
                         <div>
                           <div className="text-xs font-medium text-muted-foreground">Capture Preview</div>
                           <div className="mt-2 flex flex-wrap gap-2">
@@ -353,6 +368,108 @@ export function StudioImportDialog() {
         ) : null}
       </div>
     </Modal>
+  );
+}
+
+function FolderOntologyPreviewPanel({
+  summary,
+  isLoading,
+  error,
+  onApply,
+}: {
+  summary: StudioFolderOntologySummary | null;
+  isLoading: boolean;
+  error: string | null;
+  onApply: (candidateId: string) => void;
+}) {
+  if (!summary && !isLoading && !error) {
+    return null;
+  }
+
+  const candidates = summary?.candidates.slice(0, 4) ?? [];
+
+  return (
+    <div className="border-t border-border pt-4">
+      <div className="flex items-center justify-between gap-3">
+        <div className="text-xs font-medium text-muted-foreground">Folder Ontology</div>
+        {summary ? (
+          <div className="text-xs text-muted-foreground">
+            {summary.neuroimagingFiles} images · {summary.candidates.length} proposals
+          </div>
+        ) : null}
+      </div>
+
+      {isLoading ? (
+        <div className="mt-2 text-sm text-muted-foreground">Scanning folder…</div>
+      ) : null}
+
+      {error ? (
+        <div className="mt-2 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-foreground">
+          {error}
+        </div>
+      ) : null}
+
+      {summary?.warnings.length ? (
+        <div className="mt-2 space-y-1">
+          {summary.warnings.slice(0, 2).map((warning) => (
+            <div key={`${warning.code}-${warning.message}`} className="text-xs text-amber-600">
+              {warning.message}
+            </div>
+          ))}
+        </div>
+      ) : null}
+
+      {candidates.length > 0 ? (
+        <div className="mt-3 divide-y divide-border rounded-md border border-border">
+          {candidates.map((candidate) => (
+            <FolderOntologyCandidateRow
+              key={candidate.id}
+              candidate={candidate}
+              onApply={onApply}
+            />
+          ))}
+        </div>
+      ) : summary && !isLoading ? (
+        <div className="mt-2 text-sm text-muted-foreground">No ontology proposals found.</div>
+      ) : null}
+    </div>
+  );
+}
+
+function FolderOntologyCandidateRow({
+  candidate,
+  onApply,
+}: {
+  candidate: StudioFolderOntologyCandidate;
+  onApply: (candidateId: string) => void;
+}) {
+  const roleLabel = candidate.observedRoles.length
+    ? candidate.observedRoles.join(', ')
+    : 'none';
+  const factorLabel = candidate.factors.length
+    ? candidate.factors.map((factor) => factor.name).join(', ')
+    : 'none';
+
+  return (
+    <div className="grid gap-3 px-3 py-3 md:grid-cols-[minmax(0,1fr)_auto] md:items-center">
+      <div className="min-w-0">
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="text-sm font-medium text-foreground">{candidate.label}</div>
+          <span className="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">
+            {formatPercent(candidate.score)}
+          </span>
+        </div>
+        <div className="mt-1 text-xs text-muted-foreground">
+          {candidate.matchedFiles} matched · {candidate.groups.length} groups · {candidate.duplicateKeys} dup · {candidate.missingRoleBindings} missing
+        </div>
+        <div className="mt-1 text-xs text-muted-foreground">
+          roles: {roleLabel} · factors: {factorLabel}
+        </div>
+      </div>
+      <Button variant="secondary" size="sm" onClick={() => onApply(candidate.id)}>
+        Apply
+      </Button>
+    </div>
   );
 }
 
@@ -907,6 +1024,10 @@ function formatCapabilities(capabilities: StudioImportCandidate['contract']['cap
     return 'None';
   }
   return capabilities.map(formatContractToken).join(', ');
+}
+
+function formatPercent(value: number): string {
+  return `${Math.round(Math.max(0, Math.min(1, value)) * 100)}%`;
 }
 
 function PreviewCard({

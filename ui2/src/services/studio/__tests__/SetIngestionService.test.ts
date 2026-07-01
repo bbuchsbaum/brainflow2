@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { SetIngestionService } from '../SetIngestionService';
 import { useSetStudioStore } from '@/stores/setStudioStore';
 import type { BackendTransport } from '@/services/transport';
-import type { StudioImportCandidate } from '@/types/studio';
+import type { StudioFolderOntologySummary, StudioImportCandidate } from '@/types/studio';
 
 describe('SetIngestionService', () => {
   beforeEach(() => {
@@ -111,6 +111,46 @@ describe('SetIngestionService', () => {
     };
   }
 
+  function makeOntologySummary(): StudioFolderOntologySummary {
+    return {
+      root: '/tmp/study',
+      rootExists: true,
+      sourceLabel: null,
+      scannedFiles: 4,
+      neuroimagingFiles: 4,
+      truncated: false,
+      candidates: [
+        {
+          id: 'maps-basename-roles',
+          label: 'Subject maps with basename roles',
+          description: 'Treat basenames as roles.',
+          strategy: 'path_subject_maps_basename_role',
+          score: 0.95,
+          coverage: 1,
+          completeness: 1,
+          matchedFiles: 4,
+          unmatchedFiles: 0,
+          duplicateKeys: 0,
+          missingRoleBindings: 0,
+          filePattern: String.raw`(?P<subject>[^/]+)/maps/(?P<role>[^/]+)\.nii(\.gz)?$`,
+          designColumns: ['subject'],
+          observedRoles: ['auc', 'tstat'],
+          requiredRoles: ['auc', 'tstat'],
+          rolePatterns: [
+            { role: 'auc', patterns: ['auc'] },
+            { role: 'tstat', patterns: ['tstat'] },
+          ],
+          factors: [{ name: 'subject', source: 'path_entity', values: ['sub-01'], confidence: 0.95 }],
+          roles: [],
+          groups: [],
+          reasons: ['Found image files beneath maps folders.'],
+          warnings: [],
+        },
+      ],
+      warnings: [],
+    };
+  }
+
   it('sends regex discovery controls to the backend preview command', async () => {
     const invoke = vi.fn().mockResolvedValue([makeDiscoveryCandidate()]);
     const service = new SetIngestionService({ invoke } as BackendTransport);
@@ -142,6 +182,30 @@ describe('SetIngestionService', () => {
         ]),
       }),
     });
+  });
+
+  it('sends folder ontology controls to the backend preview command', async () => {
+    const summary = makeOntologySummary();
+    const invoke = vi.fn().mockResolvedValue(summary);
+    const service = new SetIngestionService({ invoke } as BackendTransport);
+    const store = useSetStudioStore.getState();
+
+    store.setDiscoveryRoot('/tmp/study');
+    store.setDiscoveryMaxDepth('5');
+    store.setDiscoveryMaxFiles('80');
+
+    await service.openFolderOntologyPreview();
+
+    expect(invoke).toHaveBeenCalledWith('preview_folder_ontology', {
+      request: {
+        root: '/tmp/study',
+        maxDepth: 5,
+        maxFiles: 80,
+        includePatterns: [],
+        excludePatterns: [],
+      },
+    });
+    expect(useSetStudioStore.getState().importDialog.ontologyPreview).toEqual(summary);
   });
 
   it('does not reuse seeded or stale candidates when backend preview fails', async () => {

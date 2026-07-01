@@ -19,7 +19,8 @@ use bridge_types::{
     GpuTextureFormat, LayerPatch, Loader, NiftiHeaderInfo, PeekVolumeMetadata, RemoteAuthChallenge,
     RemoteAuthPrompt, RemoteHostKeyChallenge, RemoteMountConnectRequest, RemoteMountConnectResult,
     RemoteMountInfo, RemoteMountOrigin, RemoteMountProfile, SliceAxisMeta, SliceInfo,
-    StudioDiscoveryPromotionRequest, StudioDiscoveryPromotionResult, StudioImportCandidate,
+    StudioDiscoveryPromotionRequest, StudioDiscoveryPromotionResult,
+    StudioFolderOntologyPreviewRequest, StudioFolderOntologySummary, StudioImportCandidate,
     StudioImportPreviewRequest, TextureCoordinates, TreePayload, VolumeHandleInfo,
     VolumeLayerGpuInfo, VolumeSendable,
 };
@@ -5531,6 +5532,48 @@ async fn remote_discovery_inventory_for_request(
     Ok(Some(inventory))
 }
 
+async fn remote_discovery_inventory_for_folder_ontology_request(
+    state: &BridgeState,
+    request: &StudioFolderOntologyPreviewRequest,
+) -> BridgeResult<Option<field_table::DiscoveryInventory>> {
+    let root_path = PathBuf::from(&request.root);
+    let Some((mount, remote_root)) = resolve_remote_mount_for_local_path(state, &root_path).await
+    else {
+        return Ok(inactive_remote_discovery_inventory(&root_path));
+    };
+
+    let requested_max_files = request.max_files.unwrap_or(500).max(1);
+    let max_inventory_files = requested_max_files.saturating_mul(8).max(500);
+    let (files, inventory_truncated) = list_remote_discovery_inventory_files(
+        &mount,
+        &root_path,
+        &remote_root,
+        request.max_depth,
+        max_inventory_files,
+    )
+    .await?;
+
+    let mut notes = vec![format!(
+        "Remote ontology inventory listed {} neuroimaging file(s) from mount {} without downloading NIfTI payloads.",
+        files.len(),
+        mount.mount_id
+    )];
+    if inventory_truncated {
+        notes.push(format!(
+            "Remote ontology inventory stopped after {} neuroimaging file(s); narrow the root or max file count for a fuller preview.",
+            max_inventory_files
+        ));
+    }
+
+    Ok(Some(field_table::DiscoveryInventory {
+        root_exists: true,
+        source_label: Some(mount.origin_label.clone()),
+        files,
+        notes,
+        ..field_table::DiscoveryInventory::default()
+    }))
+}
+
 #[command]
 #[tracing::instrument(skip_all, err, name = "api.list_remote_mount_profiles")]
 async fn list_remote_mount_profiles() -> BridgeResult<Vec<RemoteMountProfile>> {
@@ -10765,6 +10808,40 @@ async fn preview_set_studio_imports_impl(
 }
 
 #[command]
+#[tracing::instrument(skip_all, err, name = "api.preview_folder_ontology")]
+async fn preview_folder_ontology(
+    request: StudioFolderOntologyPreviewRequest,
+    state: State<'_, BridgeState>,
+) -> BridgeResult<StudioFolderOntologySummary> {
+    preview_folder_ontology_impl(request, Some(state.inner())).await
+}
+
+#[doc(hidden)]
+pub async fn preview_folder_ontology_for_testing(
+    request: StudioFolderOntologyPreviewRequest,
+    state: Option<&BridgeState>,
+) -> BridgeResult<StudioFolderOntologySummary> {
+    preview_folder_ontology_impl(request, state).await
+}
+
+async fn preview_folder_ontology_impl(
+    request: StudioFolderOntologyPreviewRequest,
+    state: Option<&BridgeState>,
+) -> BridgeResult<StudioFolderOntologySummary> {
+    if let Some(state) = state {
+        if let Some(inventory) =
+            remote_discovery_inventory_for_folder_ontology_request(state, &request).await?
+        {
+            return Ok(
+                field_table::preview_folder_ontology_with_discovery_inventory(request, inventory),
+            );
+        }
+    }
+
+    Ok(field_table::preview_folder_ontology(request))
+}
+
+#[command]
 #[tracing::instrument(skip_all, err, name = "api.promote_discovery_to_neurotabs")]
 async fn promote_discovery_to_neurotabs(
     request: StudioDiscoveryPromotionRequest,
@@ -12762,6 +12839,7 @@ pub fn plugin<R: Runtime>() -> TauriPlugin<R> {
             load_template_by_id,
             get_template_cache_stats,
             clear_template_cache,
+            preview_folder_ontology,
             preview_set_studio_imports,
             promote_discovery_to_neurotabs,
             materialize_set_studio_compare_panes,
@@ -12790,10 +12868,11 @@ pub fn plugin<R: Runtime>() -> TauriPlugin<R> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use bridge_types::{Loaded, StudioImportMode};
+    use bridge_types::{Loaded, StudioFolderOntologyPreviewRequest, StudioImportMode};
     use nalgebra::Affine3;
+    use std::fs;
     use std::path::PathBuf;
-    use std::time::Duration;
+    use std::time::{Duration, SystemTime, UNIX_EPOCH};
     use volmath::{DenseNeuroVec, DenseVolume3, NeuroSpace, NeuroSpace3};
 
     fn get_test_data_path() -> PathBuf {
@@ -12811,6 +12890,23 @@ mod tests {
             .join("fixtures")
             .join("neurotabs")
             .join(relative)
+    }
+
+    fn make_temp_dir(label: &str) -> PathBuf {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system time before unix epoch")
+            .as_nanos();
+        let dir = std::env::temp_dir().join(format!("api-bridge-{}-{}", label, unique));
+        fs::create_dir_all(&dir).expect("create temp dir");
+        dir
+    }
+
+    fn touch_placeholder_image(path: PathBuf) {
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).expect("create parent dir");
+        }
+        fs::write(path, []).expect("write placeholder image");
     }
 
     #[tokio::test]
@@ -12896,6 +12992,73 @@ mod tests {
         assert!(message.contains(&root_string));
         assert!(message.contains("stale-mount"));
         assert!(message.contains("Reconnect"));
+    }
+
+    #[tokio::test]
+    async fn folder_ontology_preview_command_infers_maps_roles() {
+        let root = make_temp_dir("folder-ontology");
+        for subject in ["sub-01", "sub-02"] {
+            for role in ["auc", "tstat"] {
+                touch_placeholder_image(
+                    root.join(subject)
+                        .join("maps")
+                        .join(format!("{}.nii.gz", role)),
+                );
+            }
+        }
+
+        let summary = preview_folder_ontology_for_testing(
+            StudioFolderOntologyPreviewRequest {
+                root: root.to_string_lossy().to_string(),
+                max_depth: Some(3),
+                max_files: Some(20),
+                include_patterns: Vec::new(),
+                exclude_patterns: Vec::new(),
+            },
+            None,
+        )
+        .await
+        .expect("ontology preview command");
+
+        assert_eq!(summary.neuroimaging_files, 4);
+        let maps = summary
+            .candidates
+            .iter()
+            .find(|candidate| candidate.id == "maps-basename-roles")
+            .expect("maps basename candidate");
+        assert_eq!(
+            maps.observed_roles,
+            vec!["auc".to_string(), "tstat".to_string()]
+        );
+        assert_eq!(maps.groups.len(), 2);
+        assert!(maps.file_pattern.contains("(?P<subject>"));
+
+        fs::remove_dir_all(root).expect("cleanup");
+    }
+
+    #[tokio::test]
+    async fn folder_ontology_remote_preview_reports_inactive_cache_mount() {
+        let state = BridgeState::default().expect("bridge state");
+        let root = remote_cache_root()
+            .expect("remote cache root")
+            .join("stale-ontology-mount")
+            .join("derivatives");
+        let root_string = root.to_string_lossy().to_string();
+
+        let summary = preview_folder_ontology_for_testing(
+            StudioFolderOntologyPreviewRequest::new(root_string.clone()),
+            Some(&state),
+        )
+        .await
+        .expect("ontology preview command");
+
+        assert!(!summary.root_exists);
+        assert!(summary
+            .warnings
+            .iter()
+            .any(|warning| warning.message.contains(&root_string)
+                && warning.message.contains("stale-ontology-mount")
+                && warning.message.contains("Reconnect")));
     }
 
     #[tokio::test]

@@ -28,6 +28,12 @@ export class SetStudioService {
     return workspaceId;
   }
 
+  async openFolderOntologyInStudio(options: { discoveryRoot?: string | null } = {}): Promise<string> {
+    const workspaceId = await this.openStudioWorkspace();
+    await getSetIngestionService().openFolderOntologyPreview(options.discoveryRoot);
+    return workspaceId;
+  }
+
   async openTableImportInStudio(): Promise<string> {
     const workspaceId = await this.openStudioWorkspace();
     useSetStudioStore.getState().openImportDialog('table');

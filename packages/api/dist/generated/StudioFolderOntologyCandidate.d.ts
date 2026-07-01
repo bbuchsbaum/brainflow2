@@ -1,0 +1,28 @@
+import type { StudioDiscoveryMemberGroup } from "./StudioDiscoveryMemberGroup";
+import type { StudioDiscoveryRolePattern } from "./StudioDiscoveryRolePattern";
+import type { StudioFolderOntologyFactor } from "./StudioFolderOntologyFactor";
+import type { StudioFolderOntologyRoleGuess } from "./StudioFolderOntologyRoleGuess";
+import type { StudioFolderOntologyWarning } from "./StudioFolderOntologyWarning";
+export type StudioFolderOntologyCandidate = {
+    id: string;
+    label: string;
+    description: string;
+    strategy: string;
+    score: number;
+    coverage: number;
+    completeness: number;
+    matchedFiles: number;
+    unmatchedFiles: number;
+    duplicateKeys: number;
+    missingRoleBindings: number;
+    filePattern: string;
+    designColumns: Array<string>;
+    observedRoles: Array<string>;
+    requiredRoles: Array<string>;
+    rolePatterns: Array<StudioDiscoveryRolePattern>;
+    factors: Array<StudioFolderOntologyFactor>;
+    roles: Array<StudioFolderOntologyRoleGuess>;
+    groups: Array<StudioDiscoveryMemberGroup>;
+    reasons: Array<string>;
+    warnings: Array<StudioFolderOntologyWarning>;
+};
