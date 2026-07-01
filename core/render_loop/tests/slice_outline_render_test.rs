@@ -63,7 +63,9 @@ fn label_view_state(orientation: SliceOrientation, include_scalar_underlay: bool
 
     let label_layer = LayerConfig::new("label-volume".to_string())
         .with_opacity(1.0)
-        .with_colormap(0)
+        // Colormap 0 is grayscale; low label IDs are intentionally near black.
+        // Use a categorical-visible palette so the baseline visibility check is meaningful.
+        .with_colormap(1)
         .with_blend_mode(BlendMode::Normal)
         .with_intensity_window(0.0, 2.0)
         .with_interpolation(InterpolationMode::Linear)

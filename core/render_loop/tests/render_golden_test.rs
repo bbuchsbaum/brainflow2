@@ -62,8 +62,21 @@ fn golden_rgba_path(stem: &str) -> PathBuf {
     goldens_dir().join(format!("{stem}.rgba"))
 }
 
-fn golden_png_path(stem: &str) -> PathBuf {
-    goldens_dir().join(format!("{stem}.png"))
+fn golden_mismatch_dir() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("target")
+        .join("test-output")
+        .join("render-golden")
+}
+
+fn write_render_artifacts(dir: &Path, image: &[u8], dims: [u32; 2], stem: &str) {
+    fs::create_dir_all(dir).expect("failed to create render artifact dir");
+    fs::write(dir.join(format!("{stem}.rgba")), image).expect("failed to write render .rgba");
+    if let Some(buf) =
+        image::ImageBuffer::<image::Rgba<u8>, _>::from_raw(dims[0], dims[1], image.to_vec())
+    {
+        let _ = buf.save(dir.join(format!("{stem}.png")));
+    }
 }
 
 /// Deterministic test volume: a smooth tri-linear gradient in [0,1] (so f16
@@ -230,14 +243,7 @@ fn compare_rgba(a: &[u8], b: &[u8], tol: u8) -> DiffReport {
 }
 
 fn write_golden(image: &[u8], dims: [u32; 2], stem: &str) {
-    fs::create_dir_all(goldens_dir()).expect("failed to create goldens dir");
-    fs::write(golden_rgba_path(stem), image).expect("failed to write golden .rgba");
-    // Companion PNG for human inspection (not used by the comparison).
-    if let Some(buf) =
-        image::ImageBuffer::<image::Rgba<u8>, _>::from_raw(dims[0], dims[1], image.to_vec())
-    {
-        let _ = buf.save(golden_png_path(stem));
-    }
+    write_render_artifacts(&goldens_dir(), image, dims, stem);
     eprintln!(
         "render_golden: wrote {} ({}x{}, fnv {:016x})",
         golden_rgba_path(stem).display(),
@@ -305,6 +311,11 @@ async fn run_golden_compare(format: wgpu::TextureFormat, stem: &str) {
     );
 
     let diff = compare_rgba(&image, &golden, TOL_PER_CHANNEL);
+    write_render_artifacts(&golden_mismatch_dir(), &image, dims, stem);
+    eprintln!(
+        "render_golden: wrote mismatch artifact {}",
+        golden_mismatch_dir().join(format!("{stem}.rgba")).display()
+    );
     assert!(
         diff.max_diff <= GOLDEN_MAX_DIFF && diff.changed_frac() <= GOLDEN_MAX_CHANGED_FRAC,
         "render '{stem}' differs from golden beyond f16 tolerance: max_diff={} (limit {}), \

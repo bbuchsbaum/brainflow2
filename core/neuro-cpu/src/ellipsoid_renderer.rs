@@ -341,7 +341,7 @@ mod tests {
         let renderer = CpuEllipsoidRenderer::new();
 
         let ellipsoid = OrientedEllipsoid::new(
-            Point3::new(128.0, 128.0, 0.0),
+            Point3::new(0.0, 0.0, 0.0),
             Vector3::new(50.0, 30.0, 20.0),
             Rotation3::identity(),
             1.0,

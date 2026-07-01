@@ -4827,15 +4827,15 @@ impl RenderLoopService {
             memory_limit_mb,
         ));
 
-        // Create bind group layout for smart texture management
-        if self.texture_bind_group_layout.is_none() {
-            self.texture_bind_group_layout = Some(
-                smart_texture_manager::SmartTextureManager::create_bind_group_layout(
-                    &self.device,
-                    smart_texture_manager::MAX_TEXTURES as u32,
-                ),
-            );
-        }
+        // Smart texture management uses a different group-2 layout than the
+        // default masked multi-texture renderer, so entering smart mode must
+        // replace the layout created during service initialization.
+        self.texture_bind_group_layout = Some(
+            smart_texture_manager::SmartTextureManager::create_bind_group_layout(
+                &self.device,
+                smart_texture_manager::MAX_TEXTURES as u32,
+            ),
+        );
 
         Ok(())
     }

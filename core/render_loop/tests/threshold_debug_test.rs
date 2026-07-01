@@ -57,15 +57,16 @@ fn test_threshold_simple() {
             .create_world_space_bind_groups()
             .expect("Failed to create world-space bind groups");
 
-        // Test with threshold that should filter out half the pixels
+        // Test with a threshold that hides lower values and keeps higher values.
+        // This slice samples roughly 500-900, so 600 yields a visible/hidden mix.
         let layer = LayerInfo {
             atlas_index: handle,
             opacity: 1.0,
             blend_mode: BlendMode::Normal,
             colormap_id: 0,
             intensity_range: (0.0, 2100.0),
-            threshold_range: (1000.0, f32::INFINITY), // Filter out values < 1000
-            threshold_mode: ThresholdMode::Range,
+            threshold_range: (600.0, f32::INFINITY),
+            threshold_mode: ThresholdMode::Above,
             texture_coords: (0.0, 0.0, 1.0, 1.0),
             is_mask: false,
             ..LayerInfo::default()
@@ -101,13 +102,11 @@ fn test_threshold_simple() {
 
         let rendered = service.render_to_buffer().expect("Failed to render");
 
-        // Count background vs visible pixels
-        // Note: The clear color (0.1, 0.1, 0.15, 1.0) in sRGB space is approximately [89, 89, 108, 255]
-        // NOT [26, 26, 38, 255] which would be linear RGB
-        let background = [89u8, 89, 108, 255];
-        let mut background_count = 0;
+        // Count thresholded-out vs visible pixels. In this raw render path,
+        // thresholded pixels resolve to the render-pass clear color.
+        let clear_color = [26u8, 26, 38];
+        let mut thresholded_count = 0;
         let mut visible_count = 0;
-        let mut red_count = 0;
 
         println!("Pixel values (detailed):");
         for y in 0..10 {
@@ -115,15 +114,9 @@ fn test_threshold_simple() {
                 let idx = (y * 10 + x) * 4;
                 let pixel = &rendered[idx..idx + 4];
 
-                if pixel[0] == 255 && pixel[1] == 0 && pixel[2] == 0 {
-                    red_count += 1;
-                    print!("R ");
-                } else if pixel[0] == background[0]
-                    && pixel[1] == background[1]
-                    && pixel[2] == background[2]
-                {
-                    background_count += 1;
-                    print!("B ");
+                if pixel[0..3] == clear_color {
+                    thresholded_count += 1;
+                    print!(". ");
                 } else {
                     visible_count += 1;
                     print!("V ");
@@ -146,15 +139,14 @@ fn test_threshold_simple() {
             );
         }
 
-        println!("\nBackground pixels: {}", background_count);
+        println!("\nThresholded pixels: {}", thresholded_count);
         println!("Visible pixels: {}", visible_count);
-        println!("Red (debug) pixels: {}", red_count);
-        println!("Expected roughly 50% background/visible");
+        println!("Expected a mix of thresholded and visible pixels");
 
-        // We should have some background pixels where values were filtered out
-        assert!(background_count > 0 || red_count > 0,
-                "Expected some background or red pixels from thresholding, but got {} background and {} red",
-                background_count, red_count);
+        assert!(
+            thresholded_count > 0,
+            "Expected some clear-color pixels from thresholding"
+        );
         assert!(visible_count > 0, "Expected some visible pixels");
     });
 }

@@ -20,7 +20,7 @@ fn test_shader_loading_in_service() {
         .is_some());
     assert!(service
         .shader_manager
-        .get_shader("slice_simplified")
+        .get_shader("slice_world_space_optimized")
         .is_some());
 
     println!("Shader loading test passed!");

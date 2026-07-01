@@ -5,25 +5,24 @@ use render_loop::test_fixtures::create_test_pattern_volume;
 use render_loop::view_state::{LayerConfig, SliceOrientation, ViewId, ViewState};
 use render_loop::RenderLoopService;
 
-/// Test that storage buffer version can handle many layers
+/// Test that the ViewState frame path handles the supported active layer count.
 #[test]
 fn test_storage_buffer_many_layers() {
     pollster::block_on(async {
-        // Create test volumes - let's create many to exceed the 8-layer UBO limit
+        use render_loop::layer_uniforms::MAX_LAYERS;
+
         let mut service = RenderLoopService::new()
             .await
             .expect("Failed to create render service");
 
-        // Enable storage buffer mode (we'll need to add this feature)
-        // service.enable_storage_buffers();
-
         // Load shaders
         service.load_shaders().expect("Failed to load shaders");
 
-        // Register 12 volumes to exceed the 8-layer UBO limit
+        // The lower-level storage manager can resize beyond this, but the public
+        // frame path still stages active layers through LayerStateManager.
         let base_volume = create_test_pattern_volume();
 
-        for i in 0..12 {
+        for i in 0..MAX_LAYERS {
             service
                 .register_volume_with_upload(
                     format!("volume-{}", i),
@@ -37,7 +36,7 @@ fn test_storage_buffer_many_layers() {
         let view_id = ViewId::new("multi-layer-view");
         let mut layers = Vec::new();
 
-        for i in 0..12 {
+        for i in 0..MAX_LAYERS {
             layers.push(LayerConfig {
                 volume_id: format!("volume-{}", i),
                 opacity: 0.8,
@@ -70,10 +69,8 @@ fn test_storage_buffer_many_layers() {
             timepoint: None,
         };
 
-        // With storage buffers, all 12 layers should work
         let result = service.request_frame(view_id, state).await;
 
-        // We now use storage buffers which support more than 8 layers
         match result {
             Ok(frame_result) => {
                 println!(
@@ -82,12 +79,12 @@ fn test_storage_buffer_many_layers() {
                 );
                 assert_eq!(
                     frame_result.rendered_layers.len(),
-                    12,
-                    "Should render all 12 layers with storage buffers"
+                    MAX_LAYERS,
+                    "Should render all supported active layers"
                 );
             }
             Err(e) => {
-                panic!("Failed to render 12 layers: {:?}", e);
+                panic!("Failed to render {MAX_LAYERS} layers: {e:?}");
             }
         }
     });

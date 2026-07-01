@@ -55,7 +55,7 @@ async fn test_nifti_render_to_png() {
     println!("Data range: [{}, {}]", data_range.0, data_range.1);
 
     // Upload volume to GPU
-    let (atlas_idx, _transform) = service
+    let (atlas_idx, world_to_voxel) = service
         .upload_volume_3d(&volume)
         .expect("Failed to upload volume to GPU");
 
@@ -88,15 +88,18 @@ async fn test_nifti_render_to_png() {
         blend_mode: BlendMode::Normal,
         colormap_id: 0, // Grayscale
         intensity_range: data_range,
-        threshold_range: (data_range.0, data_range.1),
+        threshold_range: (0.0, 0.0),
         threshold_mode: ThresholdMode::Range,
         texture_coords: (0.0, 0.0, 1.0, 1.0),
         is_mask: false,
         ..LayerInfo::default()
     };
 
-    // Add the layer to the render state
-    let _ = service.layer_state_manager.add_layer(layer_info);
+    service.update_layer_uniforms_direct(
+        &[layer_info],
+        &[(dims[0] as u32, dims[1] as u32, dims[2] as u32)],
+        &[world_to_voxel],
+    );
 
     // Render to buffer
     println!("Rendering to buffer...");
@@ -220,7 +223,7 @@ async fn test_synthetic_volume_render_to_png() {
     println!("Data range: [{}, {}]", data_range.0, data_range.1);
 
     // Upload volume to GPU
-    let (atlas_idx, _transform) = service
+    let (atlas_idx, world_to_voxel) = service
         .upload_volume_3d(&volume)
         .expect("Failed to upload volume to GPU");
 
@@ -242,14 +245,14 @@ async fn test_synthetic_volume_render_to_png() {
         blend_mode: BlendMode::Normal,
         colormap_id: 1, // Hot colormap for better visibility
         intensity_range: (0.0, 1000.0),
-        threshold_range: (-f32::INFINITY, f32::INFINITY),
+        threshold_range: (0.0, 0.0),
         threshold_mode: ThresholdMode::Range,
         texture_coords: (0.0, 0.0, 1.0, 1.0),
         is_mask: false,
         ..LayerInfo::default()
     };
 
-    let _ = service.layer_state_manager.add_layer(layer_info);
+    service.update_layer_uniforms_direct(&[layer_info], &[(64, 64, 64)], &[world_to_voxel]);
 
     // Render to buffer
     let rgba_data = service

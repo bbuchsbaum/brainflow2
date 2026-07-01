@@ -1,6 +1,7 @@
 // Test texture binding and colormap management
 
 use pollster::FutureExt;
+use render_loop::texture_manager::COLORMAP_LUT_WIDTH;
 use render_loop::RenderLoopService;
 
 #[test]
@@ -26,9 +27,9 @@ fn test_colormap_upload() {
         .expect("Failed to create RenderLoopService");
 
     // Create a custom colormap (red to blue gradient)
-    let custom_colormap: Vec<u8> = (0..=255)
+    let custom_colormap: Vec<u8> = (0..COLORMAP_LUT_WIDTH)
         .flat_map(|i| {
-            let t = i as f32 / 255.0;
+            let t = i as f32 / (COLORMAP_LUT_WIDTH - 1) as f32;
             let r = ((1.0 - t) * 255.0) as u8;
             let g = 0;
             let b = (t * 255.0) as u8;

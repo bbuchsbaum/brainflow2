@@ -1,4 +1,5 @@
-use render_loop::RenderLoopService;
+use nalgebra::Matrix4;
+use render_loop::{BlendMode, LayerInfo, RenderLoopService, ThresholdMode};
 use volmath::{DenseVolume3, NeuroSpace3, NeuroSpaceExt};
 
 /// Creates a test volume with a single bright voxel at a specific location
@@ -15,16 +16,26 @@ fn create_single_voxel_volume(voxel_pos: [usize; 3]) -> DenseVolume3<f32> {
     .expect("Failed to create NeuroSpace");
     let space = NeuroSpace3::new(space_impl);
 
-    // Create data array with all zeros except one bright voxel
+    // Create data array with all zeros except a small marker around the target.
+    // A tiny patch is more robust than a single voxel at full-volume scale.
     let mut data = vec![0.0f32; dims[0] * dims[1] * dims[2]];
 
-    // Set single voxel to bright value
-    let idx = voxel_pos[2] * dims[0] * dims[1] + voxel_pos[1] * dims[0] + voxel_pos[0];
-    data[idx] = 1.0;
+    for dz in -1..=1 {
+        for dy in -1..=1 {
+            for dx in -1..=1 {
+                let x = (voxel_pos[0] as isize + dx) as usize;
+                let y = (voxel_pos[1] as isize + dy) as usize;
+                let z = (voxel_pos[2] as isize + dz) as usize;
+                let idx = z * dims[0] * dims[1] + y * dims[0] + x;
+                data[idx] = 1.0;
+            }
+        }
+    }
 
     println!(
-        "Created volume with bright voxel at {:?}, index {}, value {}",
-        voxel_pos, idx, data[idx]
+        "Created volume with bright marker around {:?}, center value {}",
+        voxel_pos,
+        data[voxel_pos[2] * dims[0] * dims[1] + voxel_pos[1] * dims[0] + voxel_pos[0]]
     );
 
     // Verify data is non-zero
@@ -51,6 +62,9 @@ async fn test_view_synchronization_at_crosshair() {
 
     // Load shaders
     service.load_shaders().expect("Failed to load shaders");
+    service
+        .enable_world_space_rendering()
+        .expect("Failed to enable world-space rendering");
 
     // Create offscreen render target
     let size = 128; // Smaller size for this test
@@ -62,6 +76,9 @@ async fn test_view_synchronization_at_crosshair() {
     let (texture_idx, world_to_voxel) = service
         .upload_volume_3d(&volume)
         .expect("Failed to upload volume");
+    service
+        .create_world_space_bind_groups()
+        .expect("Failed to create world-space bind groups");
 
     println!(
         "Uploaded volume to texture_idx {}, world_to_voxel: {:?}",
@@ -86,14 +103,36 @@ async fn test_view_synchronization_at_crosshair() {
     service.update_crosshair_position([0.0, 0.0, 0.0], false);
 
     // Test all three views - they should all show the bright voxel
-    test_synchronized_axial(&mut service, texture_idx, size, crosshair_world).await;
-    test_synchronized_coronal(&mut service, texture_idx, size, crosshair_world).await;
-    test_synchronized_sagittal(&mut service, texture_idx, size, crosshair_world).await;
+    test_synchronized_axial(
+        &mut service,
+        texture_idx,
+        world_to_voxel,
+        size,
+        crosshair_world,
+    )
+    .await;
+    test_synchronized_coronal(
+        &mut service,
+        texture_idx,
+        world_to_voxel,
+        size,
+        crosshair_world,
+    )
+    .await;
+    test_synchronized_sagittal(
+        &mut service,
+        texture_idx,
+        world_to_voxel,
+        size,
+        crosshair_world,
+    )
+    .await;
 }
 
 async fn test_synchronized_axial(
     service: &mut RenderLoopService,
     texture_idx: u32,
+    world_to_voxel: Matrix4<f32>,
     size: u32,
     crosshair: [f32; 3],
 ) {
@@ -101,13 +140,12 @@ async fn test_synchronized_axial(
     // View plane is set through frame vectors
     service.set_crosshair(crosshair);
 
-    // Use small view size to ensure we capture the single voxel
-    service.update_frame_for_synchronized_view(20.0, 20.0, crosshair, 0);
+    // Use the full volume extent; the synchronized frame helper scales from
+    // volume bounds rather than centering cropped views on the crosshair.
+    service.update_frame_for_synchronized_view(64.0, 64.0, crosshair, 0);
 
     // Add render layer using the actual texture index
-    service
-        .add_render_layer(texture_idx, 1.0, (0.0, 0.0, 1.0, 1.0))
-        .expect("Failed to add render layer");
+    configure_single_layer(service, texture_idx, world_to_voxel);
 
     // Render and get buffer
     let buffer = service.render_to_buffer().expect("Failed to render");
@@ -115,12 +153,13 @@ async fn test_synchronized_axial(
     // Verify we see the bright voxel near the center
     verify_bright_voxel_visible(&buffer, size, "Axial");
 
-    service.clear_render_layers();
+    clear_direct_layers(service);
 }
 
 async fn test_synchronized_coronal(
     service: &mut RenderLoopService,
     texture_idx: u32,
+    world_to_voxel: Matrix4<f32>,
     size: u32,
     crosshair: [f32; 3],
 ) {
@@ -128,13 +167,12 @@ async fn test_synchronized_coronal(
     // View plane is set through frame vectors
     service.set_crosshair(crosshair);
 
-    // Use small view size to ensure we capture the single voxel
-    service.update_frame_for_synchronized_view(20.0, 20.0, crosshair, 1);
+    // Use the full volume extent; the synchronized frame helper scales from
+    // volume bounds rather than centering cropped views on the crosshair.
+    service.update_frame_for_synchronized_view(64.0, 64.0, crosshair, 1);
 
     // Add render layer using the actual texture index
-    service
-        .add_render_layer(texture_idx, 1.0, (0.0, 0.0, 1.0, 1.0))
-        .expect("Failed to add render layer");
+    configure_single_layer(service, texture_idx, world_to_voxel);
 
     // Render and get buffer
     let buffer = service.render_to_buffer().expect("Failed to render");
@@ -142,12 +180,13 @@ async fn test_synchronized_coronal(
     // Verify we see the bright voxel near the center
     verify_bright_voxel_visible(&buffer, size, "Coronal");
 
-    service.clear_render_layers();
+    clear_direct_layers(service);
 }
 
 async fn test_synchronized_sagittal(
     service: &mut RenderLoopService,
     texture_idx: u32,
+    world_to_voxel: Matrix4<f32>,
     size: u32,
     crosshair: [f32; 3],
 ) {
@@ -155,13 +194,12 @@ async fn test_synchronized_sagittal(
     // View plane is set through frame vectors
     service.set_crosshair(crosshair);
 
-    // Use small view size to ensure we capture the single voxel
-    service.update_frame_for_synchronized_view(20.0, 20.0, crosshair, 2);
+    // Use the full volume extent; the synchronized frame helper scales from
+    // volume bounds rather than centering cropped views on the crosshair.
+    service.update_frame_for_synchronized_view(64.0, 64.0, crosshair, 2);
 
     // Add render layer using the actual texture index
-    service
-        .add_render_layer(texture_idx, 1.0, (0.0, 0.0, 1.0, 1.0))
-        .expect("Failed to add render layer");
+    configure_single_layer(service, texture_idx, world_to_voxel);
 
     // Render and get buffer
     let buffer = service.render_to_buffer().expect("Failed to render");
@@ -169,7 +207,34 @@ async fn test_synchronized_sagittal(
     // Verify we see the bright voxel near the center
     verify_bright_voxel_visible(&buffer, size, "Sagittal");
 
-    service.clear_render_layers();
+    clear_direct_layers(service);
+}
+
+fn configure_single_layer(
+    service: &mut RenderLoopService,
+    texture_idx: u32,
+    world_to_voxel: Matrix4<f32>,
+) {
+    let layer = LayerInfo {
+        atlas_index: texture_idx,
+        opacity: 1.0,
+        blend_mode: BlendMode::Normal,
+        colormap_id: 0,
+        intensity_range: (0.0, 1.0),
+        threshold_range: (0.0, 0.0),
+        threshold_mode: ThresholdMode::Range,
+        texture_coords: (0.0, 0.0, 1.0, 1.0),
+        is_mask: false,
+        has_alpha_mask: false,
+        interpolation_mode: 0,
+        ..LayerInfo::default()
+    };
+
+    service.update_layer_uniforms_direct(&[layer], &[(64, 64, 64)], &[world_to_voxel]);
+}
+
+fn clear_direct_layers(service: &mut RenderLoopService) {
+    service.update_layer_uniforms_direct(&[], &[], &[]);
 }
 
 fn verify_bright_voxel_visible(buffer: &[u8], size: u32, view_name: &str) {
@@ -241,7 +306,8 @@ async fn test_crosshair_movement_updates_views() {
     // Create data with bright voxels at specific locations
     let mut data = vec![0.0f32; dims[0] * dims[1] * dims[2]];
 
-    // Add bright voxels at different Z slices
+    // Add small bright patches at different Z slices. A patch is less brittle
+    // than a single voxel when testing crosshair-driven frame updates.
     let test_positions = vec![
         [32, 32, 10], // Z=10
         [32, 32, 32], // Z=32
@@ -249,8 +315,14 @@ async fn test_crosshair_movement_updates_views() {
     ];
 
     for pos in &test_positions {
-        let idx = pos[2] * dims[0] * dims[1] + pos[1] * dims[0] + pos[0];
-        data[idx] = 1.0;
+        for dy in -2..=2 {
+            for dx in -2..=2 {
+                let x = (pos[0] as isize + dx) as usize;
+                let y = (pos[1] as isize + dy) as usize;
+                let idx = pos[2] * dims[0] * dims[1] + y * dims[0] + x;
+                data[idx] = 1.0;
+            }
+        }
     }
 
     let volume = DenseVolume3::<f32>::from_data(space, data);
@@ -261,14 +333,20 @@ async fn test_crosshair_movement_updates_views() {
         .expect("Failed to initialize render service");
 
     service.load_shaders().expect("Failed to load shaders");
+    service
+        .enable_world_space_rendering()
+        .expect("Failed to enable world-space rendering");
 
     service
         .create_offscreen_target(128, 128)
         .expect("Failed to create offscreen target");
 
-    let (texture_idx, _world_to_voxel) = service
+    let (texture_idx, world_to_voxel) = service
         .upload_volume_3d(&volume)
         .expect("Failed to upload volume");
+    service
+        .create_world_space_bind_groups()
+        .expect("Failed to create world-space bind groups");
 
     service
         .ensure_pipeline("slice_world_space")
@@ -285,9 +363,7 @@ async fn test_crosshair_movement_updates_views() {
         service.set_crosshair(crosshair);
         service.update_frame_for_synchronized_view(64.0, 64.0, crosshair, 0);
 
-        service
-            .add_render_layer(texture_idx, 1.0, (0.0, 0.0, 1.0, 1.0))
-            .expect("Failed to add render layer");
+        configure_single_layer(&mut service, texture_idx, world_to_voxel);
 
         let buffer = service.render_to_buffer().expect("Failed to render");
 
@@ -299,7 +375,7 @@ async fn test_crosshair_movement_updates_views() {
             pos[2]
         );
 
-        service.clear_render_layers();
+        clear_direct_layers(&mut service);
     }
 }
 

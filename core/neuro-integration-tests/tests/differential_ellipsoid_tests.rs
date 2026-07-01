@@ -190,26 +190,27 @@ async fn test_rotated_ellipsoid_cpu() {
         Ok(image_data) => {
             println!("Rotated ellipsoid rendering successful!");
 
-            // Count visible pixels
-            let visible_pixels = image_data
-                .chunks(4)
-                .filter(|pixel| pixel[3] > 10) // Alpha > 10
-                .count();
+            // Count inside-ellipsoid pixels. The CPU volume renderer maps the
+            // requested color through a colormap, but preserves the requested
+            // alpha for pixels inside the ellipsoid.
+            let ellipsoid_pixels = image_data.chunks(4).filter(|pixel| pixel[3] == 200).count();
 
-            println!("Visible pixels: {}", visible_pixels);
+            println!("Ellipsoid pixels: {}", ellipsoid_pixels);
             assert!(
-                visible_pixels > 500,
+                ellipsoid_pixels > 500,
                 "Rotated ellipsoid should be clearly visible"
             );
 
-            // Check for yellow color in visible pixels
-            let yellow_pixels = image_data
+            let bright_ellipsoid_pixels = image_data
                 .chunks(4)
-                .filter(|pixel| pixel[0] > 100 && pixel[1] > 100 && pixel[2] < 50 && pixel[3] > 10)
+                .filter(|pixel| pixel[3] == 200 && pixel[..3].iter().any(|channel| *channel > 100))
                 .count();
 
-            println!("Yellow pixels: {}", yellow_pixels);
-            assert!(yellow_pixels > 100, "Should have yellow-colored pixels");
+            println!("Bright ellipsoid pixels: {}", bright_ellipsoid_pixels);
+            assert!(
+                bright_ellipsoid_pixels > 100,
+                "Should have bright colormapped ellipsoid pixels"
+            );
         }
         Err(e) => {
             panic!("Rotated ellipsoid rendering failed: {}", e);

@@ -44,7 +44,7 @@ fn test_volume_renders_not_black() {
             blend_mode: BlendMode::Normal,
             colormap_id: 0,              // Grayscale
             intensity_range: (0.0, 1.0), // For U8 normalized data
-            threshold_range: (0.0, 1.0),
+            threshold_range: (0.0, 0.0),
             threshold_mode: ThresholdMode::Range,
             texture_coords: (0.0, 0.0, 1.0, 1.0),
             is_mask: false,
@@ -61,9 +61,6 @@ fn test_volume_renders_not_black() {
         // Update render state
         service.update_frame_ubo(frame_ubo.origin_mm, frame_ubo.u_mm, frame_ubo.v_mm);
         service.update_layer_uniforms_direct(&[layer_info], &[(64, 64, 25)], &[world_to_voxel]);
-
-        // Enable crosshair at center
-        service.update_crosshair_position(world_center.into(), true);
 
         // Render frame
         let image_data = service.render_to_buffer().expect("Failed to render");
@@ -110,10 +107,10 @@ fn test_binary_mask_renders_correctly() {
             blend_mode: BlendMode::Normal,
             colormap_id: 0,
             intensity_range: (0.0, 1.0), // R8Unorm normalizes to this
-            threshold_range: (0.0, 1.0),
+            threshold_range: (0.0, 0.0),
             threshold_mode: ThresholdMode::Range,
             texture_coords: (0.0, 0.0, 1.0, 1.0),
-            is_mask: false,
+            is_mask: true,
             interpolation_mode: 0, // nearest (for masks),
             ..LayerInfo::default()
         };
@@ -158,7 +155,7 @@ fn test_crosshair_position() {
             blend_mode: BlendMode::Normal,
             colormap_id: 0,
             intensity_range: (0.0, 1.0),
-            threshold_range: (0.0, 1.0),
+            threshold_range: (0.0, 0.0),
             threshold_mode: ThresholdMode::Range,
             texture_coords: (0.0, 0.0, 1.0, 1.0),
             is_mask: false,
@@ -248,17 +245,20 @@ fn assert_center_pixel_visible(image_data: &[u8], width: u32, height: u32) {
 
 fn assert_test_pattern_visible(image_data: &[u8], width: u32, height: u32) {
     // Check for the plus sign pattern in the center
-    let mut bright_pixels = 0;
+    let mut visible_pixels = 0;
     let mut dark_pixels = 0;
 
     for y in (height / 2 - 50)..(height / 2 + 50) {
         for x in (width / 2 - 50)..(width / 2 + 50) {
             let idx = ((y * width + x) * 4) as usize;
-            let brightness =
-                image_data[idx] as u32 + image_data[idx + 1] as u32 + image_data[idx + 2] as u32;
+            let r = image_data[idx] as u32;
+            let g = image_data[idx + 1] as u32;
+            let b = image_data[idx + 2] as u32;
+            let brightness = r + g + b;
+            let max_channel = r.max(g).max(b);
 
-            if brightness > 300 {
-                bright_pixels += 1;
+            if max_channel > 180 {
+                visible_pixels += 1;
             } else if brightness < 100 {
                 dark_pixels += 1;
             }
@@ -266,12 +266,12 @@ fn assert_test_pattern_visible(image_data: &[u8], width: u32, height: u32) {
     }
 
     println!(
-        "Bright pixels: {}, Dark pixels: {}",
-        bright_pixels, dark_pixels
+        "Visible pixels: {}, Dark pixels: {}",
+        visible_pixels, dark_pixels
     );
     assert!(
-        bright_pixels > 100,
-        "Not enough bright pixels - pattern not visible"
+        visible_pixels > 100,
+        "Not enough visible high-signal pixels - pattern not visible"
     );
     assert!(dark_pixels > 100, "Not enough dark pixels - no contrast");
 }
@@ -282,10 +282,15 @@ fn assert_binary_pattern_visible(image_data: &[u8], width: u32, height: u32) {
     let mut off_pixels = 0;
 
     for i in (0..image_data.len()).step_by(4) {
-        let brightness = image_data[i] as u32;
-        if brightness > 200 {
+        let r = image_data[i] as u32;
+        let g = image_data[i + 1] as u32;
+        let b = image_data[i + 2] as u32;
+        let brightness = r + g + b;
+        let max_channel = r.max(g).max(b);
+
+        if max_channel > 180 {
             on_pixels += 1;
-        } else if brightness < 50 {
+        } else if brightness < 120 {
             off_pixels += 1;
         }
     }

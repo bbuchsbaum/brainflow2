@@ -375,10 +375,10 @@ async fn benchmark_shader_with_multiple_layers() {
     for layer_count in 1..=num_layers {
         // Benchmark function for multi-layer setup
         let benchmark_multi = |service: &mut RenderLoopService, shader: &str| -> f64 {
-            service.set_shader(shader).unwrap();
             service
                 .create_offscreen_target(view_rect.width_px, view_rect.height_px)
                 .unwrap();
+            service.set_shader(shader).unwrap();
 
             let (origin, u_vec, v_vec) = view_rect.to_gpu_frame_params();
             service.update_frame_ubo(origin, u_vec, v_vec);
