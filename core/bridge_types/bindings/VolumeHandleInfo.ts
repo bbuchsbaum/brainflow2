@@ -5,19 +5,19 @@ import type { VolumeType } from "./VolumeType";
 /**
  * Information about a loaded volume (supports both 3D and 4D)
  */
-export type VolumeHandleInfo = { id: string, name: string, 
+export type VolumeHandleInfo = { id: string, name: string,
 /**
  * Variable dimensions to support both 3D [x,y,z] and 4D [x,y,z,t]
  */
-dims: Array<number>, dtype: string, volume_type: VolumeType, 
+dims: Array<number>, dtype: string, volume_type: VolumeType,
 /**
  * For 4D volumes: number of timepoints
  */
-num_timepoints: number | null, 
+num_timepoints: number | null,
 /**
  * For 4D volumes: current timepoint being displayed
  */
-current_timepoint: number | null, 
+current_timepoint: number | null,
 /**
  * Additional time series metadata (if applicable)
  */

@@ -25,8 +25,7 @@ async fn test_affine_transform_passed_to_gpu() {
     affine[(1, 0)] = angle.sin();
     affine[(1, 1)] = angle.cos();
 
-    let space =
-        NeuroSpaceImpl::from_affine_matrix4(dims.to_vec(), affine).expect("neuro space");
+    let space = NeuroSpaceImpl::from_affine_matrix4(dims.to_vec(), affine).expect("neuro space");
     let volume = DenseVolume3::<f32>::from_data(space.clone(), data);
     let _neuro_space = NeuroSpace3::new(space);
 
@@ -93,8 +92,7 @@ async fn test_identity_affine_transform() {
     let data = vec![2.0f32; 27];
 
     let affine = Matrix4::<f32>::identity();
-    let space =
-        NeuroSpaceImpl::from_affine_matrix4(dims.to_vec(), affine).expect("neuro space");
+    let space = NeuroSpaceImpl::from_affine_matrix4(dims.to_vec(), affine).expect("neuro space");
     let volume = DenseVolume3::<f32>::from_data(space.clone(), data);
     let _neuro_space = NeuroSpace3::new(space);
 

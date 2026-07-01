@@ -369,6 +369,65 @@ pub fn read_xform_codes(path: &Path) -> Result<(i16, i16), NiftiError> {
     Ok((header_info.sform_code, header_info.qform_code))
 }
 
+/// Temporal metadata for a 4D NIfTI time series, parsed from the header.
+///
+/// `tr_seconds` is normalized to **seconds** regardless of the on-disk unit, so
+/// callers can treat it uniformly. `temporal_unit` labels that value
+/// (`"seconds"`) when the header declares a temporal unit; it is `None` when the
+/// `xyzt_units` temporal bits are unset — we then still assume seconds (the
+/// dominant fMRI convention) but leave the label empty to flag the inference.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct TemporalMetadata {
+    pub tr_seconds: Option<f32>,
+    pub temporal_unit: Option<String>,
+}
+
+/// Read 4D temporal metadata (TR + unit) from a NIfTI header.
+///
+/// NIfTI stores the repetition time in `pixdim[4]`, with the time unit encoded
+/// in the temporal bits of `xyzt_units` (`& 0x38`: 8 = sec, 16 = msec,
+/// 24 = usec). This is a header-only read (no voxel data), mirroring
+/// [`read_xform_codes`]. Temporal metadata is non-critical to loading the
+/// volume, so any read/parse failure yields the default (no TR) rather than an
+/// error.
+pub fn read_temporal_metadata(path: &Path) -> TemporalMetadata {
+    match nifti::NiftiHeader::from_file(path) {
+        Ok(header) => temporal_metadata_from_header(&header),
+        Err(_) => TemporalMetadata::default(),
+    }
+}
+
+/// Decode temporal metadata from an already-parsed NIfTI header (split out so it
+/// is unit-testable without a file on disk).
+fn temporal_metadata_from_header(header: &nifti::NiftiHeader) -> TemporalMetadata {
+    const XYZT_TIME_MASK: u8 = 0x38;
+    const NIFTI_UNITS_SEC: u8 = 8;
+    const NIFTI_UNITS_MSEC: u8 = 16;
+    const NIFTI_UNITS_USEC: u8 = 24;
+
+    // pixdim[4] is the repetition time; a non-finite or non-positive value
+    // (including NaN) means "unset".
+    let pixdim_t = header.pixdim[4];
+    let has_tr = pixdim_t.is_finite() && pixdim_t > 0.0;
+    if !has_tr {
+        return TemporalMetadata::default();
+    }
+
+    let (tr_seconds, temporal_unit) = match header.xyzt_units & XYZT_TIME_MASK {
+        NIFTI_UNITS_SEC => (pixdim_t, Some("seconds")),
+        NIFTI_UNITS_MSEC => (pixdim_t / 1_000.0, Some("seconds")),
+        NIFTI_UNITS_USEC => (pixdim_t / 1_000_000.0, Some("seconds")),
+        // Temporal-unit bits unset (or a non-temporal code): assume seconds, but
+        // leave the label empty to signal the value was inferred.
+        _ => (pixdim_t, None),
+    };
+
+    TemporalMetadata {
+        tr_seconds: Some(tr_seconds),
+        temporal_unit: temporal_unit.map(str::to_string),
+    }
+}
+
 // Try loading 4D volume with different data types
 pub fn load_nifti_4d_auto(path: &Path) -> Result<VolumeSendable, NiftiError> {
     // Try loading as f32 first (most common for fMRI)
@@ -631,6 +690,60 @@ mod tests {
         // reminder that NIfTI xform codes alone do NOT identify MNI space, so the
         // coordinate-space heuristic must also consult the filename.
         assert_eq!((sform, qform), (1, 1));
+    }
+
+    // --- Temporal metadata (TR / units) decoding ---
+
+    fn header_with_time(pixdim_t: f32, xyzt_units: u8) -> nifti::NiftiHeader {
+        let mut pixdim = [1.0f32; 8];
+        pixdim[4] = pixdim_t;
+        nifti::NiftiHeader {
+            pixdim,
+            xyzt_units,
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn temporal_metadata_seconds_unit_is_passed_through() {
+        // xyzt_units = mm (2) | sec (8) = 10; the spatial bits must be masked off.
+        let meta = temporal_metadata_from_header(&header_with_time(2.0, 2 | 8));
+        assert_eq!(meta.tr_seconds, Some(2.0));
+        assert_eq!(meta.temporal_unit.as_deref(), Some("seconds"));
+    }
+
+    #[test]
+    fn temporal_metadata_milliseconds_normalizes_to_seconds() {
+        let meta = temporal_metadata_from_header(&header_with_time(2000.0, 16));
+        assert_eq!(meta.tr_seconds, Some(2.0));
+        assert_eq!(meta.temporal_unit.as_deref(), Some("seconds"));
+    }
+
+    #[test]
+    fn temporal_metadata_microseconds_normalizes_to_seconds() {
+        let meta = temporal_metadata_from_header(&header_with_time(2_000_000.0, 24));
+        assert_eq!(meta.tr_seconds, Some(2.0));
+        assert_eq!(meta.temporal_unit.as_deref(), Some("seconds"));
+    }
+
+    #[test]
+    fn temporal_metadata_unset_unit_assumes_seconds_but_leaves_label_empty() {
+        // Many fMRI files populate pixdim[4] but leave the temporal-unit bits 0.
+        let meta = temporal_metadata_from_header(&header_with_time(2.5, 0));
+        assert_eq!(meta.tr_seconds, Some(2.5));
+        assert_eq!(meta.temporal_unit, None);
+    }
+
+    #[test]
+    fn temporal_metadata_nonpositive_tr_is_absent() {
+        assert_eq!(
+            temporal_metadata_from_header(&header_with_time(0.0, 8)),
+            TemporalMetadata::default()
+        );
+        assert_eq!(
+            temporal_metadata_from_header(&header_with_time(-1.0, 8)),
+            TemporalMetadata::default()
+        );
     }
 
     #[test]

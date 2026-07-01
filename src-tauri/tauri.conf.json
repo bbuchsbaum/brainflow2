@@ -6,8 +6,14 @@
   "identifier": "com.brainflow.dev",
 
   "build": {
-    "beforeDevCommand": "cd /Users/bbuchsbaum/code/brainflow2/ui2 && npm run dev",
-    "beforeBuildCommand": "cd /Users/bbuchsbaum/code/brainflow2/ui2 && npm run build",
+    "beforeDevCommand": {
+      "cwd": "../ui2",
+      "script": "pnpm dev"
+    },
+    "beforeBuildCommand": {
+      "cwd": "../ui2",
+      "script": "pnpm build"
+    },
     "frontendDist": "../ui2/dist",
     "devUrl": "http://localhost:5174"
   },

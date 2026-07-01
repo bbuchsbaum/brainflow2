@@ -169,7 +169,6 @@ fn test_world_space_shader_compilation() {
 /// Test layer data structure for world-space rendering
 #[test]
 fn test_layer_data_structure() {
-    
     use render_loop::layer_storage::LayerStorageManager;
     use render_loop::render_state::{BlendMode, LayerInfo, ThresholdMode};
 

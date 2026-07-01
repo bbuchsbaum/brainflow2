@@ -112,8 +112,7 @@ impl SliceSpec {
 }
 
 /// Interpolation method for sampling voxel values
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[derive(Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum InterpolationMethod {
     /// Nearest neighbor - fastest, blocky
     Nearest,
@@ -124,10 +123,8 @@ pub enum InterpolationMethod {
     Cubic,
 }
 
-
 /// How to handle sampling outside the volume bounds
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[derive(Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum BorderMode {
     /// Return transparent (alpha=0) outside bounds
     #[default]
@@ -137,7 +134,6 @@ pub enum BorderMode {
     /// Return a constant value
     Constant(u8),
 }
-
 
 #[cfg(test)]
 mod tests {

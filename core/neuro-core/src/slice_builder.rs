@@ -22,8 +22,7 @@ pub struct SliceBuilder {
 }
 
 /// Strategy for determining pixel size
-#[derive(Debug, Clone, Copy)]
-#[derive(Default)]
+#[derive(Debug, Clone, Copy, Default)]
 pub enum PixelStrategy {
     /// Use the smallest voxel spacing among all volumes (highest quality)
     MinLayerVox,
@@ -35,7 +34,6 @@ pub enum PixelStrategy {
     /// Explicitly set the pixel size in mm
     Explicit(f32),
 }
-
 
 impl SliceBuilder {
     /// Create a new slice builder with the given center, normal, and up direction

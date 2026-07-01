@@ -3,15 +3,15 @@
 /**
  * Metadata about slices along a specific axis
  */
-export type SliceAxisMeta = { 
+export type SliceAxisMeta = {
 /**
  * Total number of slices along this axis
  */
-slice_count: number, 
+slice_count: number,
 /**
  * Spacing between slices in mm
  */
-slice_spacing: number, 
+slice_spacing: number,
 /**
  * Total length of the axis in mm
  */

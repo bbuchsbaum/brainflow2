@@ -25,3 +25,16 @@ claude-instance/
 
 # Archived/scratch files
 cruft/
+
+# Local agent/tool worktree & cache state (per-machine)
+.lattice/
+.playwright-mcp/
+.tf_repro_tmp/
+mcp_agent_mail/
+
+# Python bytecode cache
+__pycache__/
+
+# Ephemeral live-capture screenshots / snapshots
+compare-live.png
+mockup*-live-*

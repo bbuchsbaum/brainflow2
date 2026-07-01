@@ -12,9 +12,9 @@ import { getApiService } from '@/services/apiService';
 export interface TimeInfo {
   currentTimepoint: number;
   totalTimepoints: number;
-  tr: number | null; // Repetition time in seconds
-  currentTime: number; // Current time in seconds
-  totalTime: number; // Total acquisition time in seconds
+  tr: number | null; // Repetition time in seconds; null when the 4D volume lacks pixdim[4]
+  currentTime: number | null; // Current time in seconds; null when tr is unknown
+  totalTime: number | null; // Total acquisition time in seconds; null when tr is unknown
 }
 
 export interface TimeNavigationMode {
@@ -40,16 +40,16 @@ class TimeNavigationService {
     }
 
     const layersArray: LayerInfo[] = Array.isArray(candidateLayers)
-      ? candidateLayers as LayerInfo[]
+      ? (candidateLayers as LayerInfo[])
       : Array.isArray((candidateLayers as any)?.layers)
         ? (candidateLayers as { layers: LayerInfo[] }).layers
         : [];
 
     return layersArray.filter(
-      layer =>
+      (layer) =>
         layer.volumeType === 'TimeSeries4D' &&
         layer.timeSeriesInfo &&
-        layer.timeSeriesInfo.num_timepoints > 0
+        layer.timeSeriesInfo.num_timepoints > 0,
     );
   }
 
@@ -60,21 +60,18 @@ class TimeNavigationService {
 
     const api = getApiService();
     void Promise.allSettled(
-      volumeIds.map(volumeId => api.setVolumeTimepoint(volumeId, timepoint))
-    ).then(results => {
+      volumeIds.map((volumeId) => api.setVolumeTimepoint(volumeId, timepoint)),
+    ).then((results) => {
       const failures = results.filter(
-        (result): result is PromiseRejectedResult => result.status === 'rejected'
+        (result): result is PromiseRejectedResult => result.status === 'rejected',
       );
       if (failures.length > 0) {
         const error = failures[0].reason;
-        console.error(
-          '[TimeNavigationService] Failed to persist timepoint',
-          error
-        );
+        console.error('[TimeNavigationService] Failed to persist timepoint', error);
         this.eventBus.emit('ui.notification', {
           type: 'error',
           message:
-            'Failed to persist timepoint on backend. Rendering will stay current, but some backend-derived data may be out of sync.'
+            'Failed to persist timepoint on backend. Rendering will stay current, but some backend-derived data may be out of sync.',
         });
       }
     });
@@ -102,19 +99,20 @@ class TimeNavigationService {
     }
 
     const viewState = useViewStateStore.getState().viewState;
-    const currentTimepoint =
-      viewState.timepoint ??
-      layer4D.currentTimepoint ??
-      0;
+    const currentTimepoint = viewState.timepoint ?? layer4D.currentTimepoint ?? 0;
     const totalTimepoints = layer4D.timeSeriesInfo.num_timepoints;
-    const tr = layer4D.timeSeriesInfo.tr || 1.0; // Default to 1s if not specified
-    
+    // Preserve a genuinely-missing TR as null; don't fabricate a 1s default
+    // here. Consumers that need a number apply their own fallback, and the
+    // elapsed-time fields stay null so the UI shows frame-only readouts.
+    const rawTr = layer4D.timeSeriesInfo.tr;
+    const tr = rawTr && rawTr > 0 ? rawTr : null;
+
     return {
       currentTimepoint,
       totalTimepoints,
       tr,
-      currentTime: currentTimepoint * tr,
-      totalTime: totalTimepoints * tr
+      currentTime: tr !== null ? currentTimepoint * tr : null,
+      totalTime: tr !== null ? totalTimepoints * tr : null,
     };
   }
 
@@ -134,42 +132,36 @@ class TimeNavigationService {
       return;
     }
 
-    const totalTimepoints =
-      layers[0].timeSeriesInfo?.num_timepoints ?? 0;
+    const totalTimepoints = layers[0].timeSeriesInfo?.num_timepoints ?? 0;
     if (totalTimepoints === 0) {
       return;
     }
 
-    const clampedTimepoint = Math.max(
-      0,
-      Math.min(timepoint, totalTimepoints - 1)
-    );
+    const clampedTimepoint = Math.max(0, Math.min(timepoint, totalTimepoints - 1));
 
-    console.log(
-      `[TimeNavigationService] Setting timepoint to ${clampedTimepoint}`
-    );
+    console.log(`[TimeNavigationService] Setting timepoint to ${clampedTimepoint}`);
 
     // Update view state
-    useViewStateStore.getState().setViewState(state => {
+    useViewStateStore.getState().setViewState((state) => {
       state.timepoint = clampedTimepoint;
     });
 
     // Update layer metadata
-    const layerStoreApi = (useLayerStore as unknown as { getState?: () => { updateLayer?: (id: string, updates: Partial<LayerInfo>) => void } }).getState?.();
+    const layerStoreApi = (
+      useLayerStore as unknown as {
+        getState?: () => { updateLayer?: (id: string, updates: Partial<LayerInfo>) => void };
+      }
+    ).getState?.();
     const updateLayer = layerStoreApi?.updateLayer;
     if (typeof updateLayer === 'function') {
-      layers.forEach(layer => {
+      layers.forEach((layer) => {
         updateLayer(layer.id, { currentTimepoint: clampedTimepoint });
       });
     }
 
     // Persist to backend (fire and forget)
     const volumeIds = Array.from(
-      new Set(
-        layers
-          .map(layer => layer.volumeId)
-          .filter((id): id is string => Boolean(id))
-      )
+      new Set(layers.map((layer) => layer.volumeId).filter((id): id is string => Boolean(id))),
     );
     this.persistTimepoint(volumeIds, clampedTimepoint);
 
@@ -177,13 +169,13 @@ class TimeNavigationService {
     const updatedInfo = this.getTimeInfo();
     this.eventBus.emit('time.changed', {
       timepoint: clampedTimepoint,
-      timeInfo: updatedInfo ?? {
-        currentTimepoint: clampedTimepoint,
-        totalTimepoints,
-        tr: layers[0].timeSeriesInfo?.tr ?? 1.0,
-        currentTime: clampedTimepoint * (layers[0].timeSeriesInfo?.tr ?? 1.0),
-        totalTime: totalTimepoints * (layers[0].timeSeriesInfo?.tr ?? 1.0)
-      }
+      timeInfo:
+        updatedInfo ??
+        this.buildFallbackTimeInfo(
+          clampedTimepoint,
+          totalTimepoints,
+          layers[0].timeSeriesInfo?.tr ?? null,
+        ),
     });
   }
 
@@ -232,7 +224,7 @@ class TimeNavigationService {
   toggleMode(): void {
     this.mode = this.mode === 'time' ? 'slice' : 'time';
     console.log(`[TimeNavigationService] Navigation mode changed to: ${this.mode}`);
-    
+
     // Emit event for UI feedback
     this.eventBus.emit('navigation.modeChanged', { mode: this.mode });
   }
@@ -268,14 +260,37 @@ class TimeNavigationService {
   }
 
   /**
-   * Format status bar display (e.g., "TR 37 | 1:14.8 s")
+   * Format status bar display (e.g., "TR 37 | 1:14.8 s"). When TR is unknown
+   * the elapsed-time segment is omitted rather than fabricated.
    */
   formatStatusDisplay(): string | null {
     const timeInfo = this.getTimeInfo();
     if (!timeInfo) return null;
 
+    if (timeInfo.currentTime === null) {
+      return `TR ${timeInfo.currentTimepoint}`;
+    }
     const timeStr = this.formatTime(timeInfo.currentTime);
     return `TR ${timeInfo.currentTimepoint} | ${timeStr}`;
+  }
+
+  /**
+   * Build a TimeInfo fallback (used when getTimeInfo() can't recompute),
+   * preserving a null TR rather than coercing it to a default.
+   */
+  private buildFallbackTimeInfo(
+    currentTimepoint: number,
+    totalTimepoints: number,
+    rawTr: number | null,
+  ): TimeInfo {
+    const tr = rawTr && rawTr > 0 ? rawTr : null;
+    return {
+      currentTimepoint,
+      totalTimepoints,
+      tr,
+      currentTime: tr !== null ? currentTimepoint * tr : null,
+      totalTime: tr !== null ? totalTimepoints * tr : null,
+    };
   }
 }
 

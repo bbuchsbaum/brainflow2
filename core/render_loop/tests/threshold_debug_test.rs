@@ -28,7 +28,7 @@ fn test_threshold_simple() {
             .expect("Failed to create offscreen target");
 
         // Create a simple test volume with values 0-700
-        
+
         let dims = [8, 8, 8];
         let mut data = vec![0.0f32; 512];
 

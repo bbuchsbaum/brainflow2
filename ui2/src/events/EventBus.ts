@@ -7,11 +7,7 @@ import type { ViewType } from '@/types/coordinates';
 import type { Layer, LayerRender } from '@/types/layers';
 import type { Annotation } from '@/types/annotations';
 import type { CrosshairSettings } from '@/contexts/CrosshairContext';
-import type { 
-  RenderCompleteEvent, 
-  RenderErrorEvent, 
-  RenderStartEvent
-} from '@/types/renderEvents';
+import type { RenderCompleteEvent, RenderErrorEvent, RenderStartEvent } from '@/types/renderEvents';
 import type { AtlasStats } from '@/types/atlas';
 import type { DisplayOpenIntentEvent } from '@/types/loadIntent';
 
@@ -23,7 +19,7 @@ export interface EventMap {
   'crosshair.visibility': { visible: boolean };
   'crosshair.settings.updated': CrosshairSettings;
 
-  // Layer events  
+  // Layer events
   'layer.added': { layer: Layer };
   'layer.removed': { layerId: string };
   'layer.patched': { layerId: string; patch: Partial<LayerRender> };
@@ -48,12 +44,12 @@ export interface EventMap {
   'view.mouse.enter': { viewType: ViewType };
   'view.mouse.leave': { viewType: ViewType };
   'view.plane.updated': { viewType: ViewType; plane: any };
-  
+
   // Render events (using type-safe definitions)
   'render.complete': RenderCompleteEvent;
   'render.error': RenderErrorEvent;
   'render.start': RenderStartEvent;
-  
+
   // Volume events
   'volume.loaded': { volumeId: string; metadata: any };
   'volume.unloaded': { volumeId: string };
@@ -86,7 +82,7 @@ export interface EventMap {
 
   // Atlas events
   'atlas.metrics': { stats: AtlasStats; timestamp: number };
-  'atlas.pressure': { 
+  'atlas.pressure': {
     level: 'warning' | 'critical' | 'recovered';
     stats: AtlasStats;
     timestamp: number;
@@ -107,8 +103,8 @@ export interface EventMap {
       currentTimepoint: number;
       totalTimepoints: number;
       tr: number | null;
-      currentTime: number;
-      totalTime: number;
+      currentTime: number | null;
+      totalTime: number | null;
     };
   };
   'navigation.modeChanged': { mode: 'time' | 'slice' };
@@ -154,36 +150,36 @@ export interface EventMap {
   'projection:start': { volumeId: string; surfaceId: string };
   'projection:complete': { volumeId: string; surfaceId: string; result: unknown };
   'projection:error': { volumeId: string; surfaceId: string; error: unknown };
-  
+
   // Progress events from backend
-  'progress.start': { 
-    taskId: string; 
+  'progress.start': {
+    taskId: string;
     type: 'file-load' | 'computation' | 'export' | 'rendering' | 'generic';
     title: string;
     message?: string;
     cancellable?: boolean;
   };
-  'progress.update': { 
-    taskId: string; 
+  'progress.update': {
+    taskId: string;
     progress: number; // 0-100 or -1 for indeterminate
     message?: string;
   };
-  'progress.complete': { 
+  'progress.complete': {
     taskId: string;
     message?: string;
   };
-  'progress.error': { 
+  'progress.error': {
     taskId: string;
     error: string;
   };
   'progress.cancel': {
     taskId: string;
   };
-  
+
   // Mouse coordinate events
   'mouse.worldCoordinate': { world_mm: [number, number, number]; viewType: ViewType };
   'mouse.leave': { viewType: ViewType };
-  
+
   // Performance events
   'render.fps': { fps: number };
   'gpu.status': { status: string };
@@ -214,7 +210,7 @@ export class EventBus {
     // Call specific handlers
     const handlers = this.handlers.get(event);
     if (handlers) {
-      handlers.forEach(handler => {
+      handlers.forEach((handler) => {
         try {
           handler(data);
         } catch (error) {
@@ -224,7 +220,7 @@ export class EventBus {
     }
 
     // Call wildcard handlers
-    this.wildcardHandlers.forEach(handler => {
+    this.wildcardHandlers.forEach((handler) => {
       try {
         handler(event, data);
       } catch (error) {
@@ -241,7 +237,7 @@ export class EventBus {
     if (!this.handlers.has(event)) {
       this.handlers.set(event, new Set());
     }
-    
+
     const handlers = this.handlers.get(event)!;
     handlers.add(handler);
 
@@ -262,7 +258,7 @@ export class EventBus {
       handler(data);
       unsubscribe();
     };
-    
+
     const unsubscribe = this.on(event, wrappedHandler);
     return unsubscribe;
   }
@@ -351,7 +347,7 @@ let globalEventBus: EventBus | null = null;
 export function getEventBus(): EventBus {
   if (!globalEventBus) {
     globalEventBus = new EventBus();
-    
+
     // Debug logging in development
     if (import.meta.env.DEV) {
       globalEventBus.onAny((event, data) => {
@@ -369,7 +365,7 @@ import { useEffect } from 'react';
 
 export function useEvent<K extends keyof EventMap>(
   event: K,
-  handler: EventHandler<EventMap[K]>
+  handler: EventHandler<EventMap[K]>,
 ): void {
   useEffect(() => {
     const eventBus = getEventBus();
@@ -381,16 +377,13 @@ export function useEvent<K extends keyof EventMap>(
  * Type-safe emit helper
  * Provides compile-time type checking for event names and payloads
  * This is a thin wrapper that adds no runtime overhead
- * 
+ *
  * @example
  * ```typescript
  * // Instead of: eventBus.emit('render.complete', data)
  * // Use: emitTyped('render.complete', { viewType: 'axial', imageBitmap })
  * ```
  */
-export function emitTyped<K extends keyof EventMap>(
-  event: K,
-  data: EventMap[K]
-): void {
+export function emitTyped<K extends keyof EventMap>(event: K, data: EventMap[K]): void {
   getEventBus().emit(event, data);
 }

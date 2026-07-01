@@ -5,19 +5,23 @@ import type { AnalysisInputKind } from "./AnalysisInputKind";
  * Concrete input instance passed to an analysis run.
  * The host may resolve handles to file paths before dispatch.
  */
-export type AnalysisInput = { kind: AnalysisInputKind, 
+export type AnalysisInput = {
+/**
+ * Kind of input.
+ */
+kind: AnalysisInputKind,
 /**
  * Optional registry handle (e.g., volume/surface id).
  */
-handle: string | null, 
+handle: string | null,
 /**
  * Optional resolved on-disk path for sidecar runners.
  */
-path: string | null, 
+path: string | null,
 /**
  * Optional human-friendly name for UI display.
  */
-name: string | null, 
+name: string | null,
 /**
  * Arbitrary extra metadata (space, units, etc).
  */

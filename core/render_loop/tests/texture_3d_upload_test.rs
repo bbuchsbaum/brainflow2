@@ -65,9 +65,8 @@ async fn test_3d_texture_with_rotation() -> Result<(), RenderLoopError> {
     affine[(1, 0)] = angle.sin();
     affine[(1, 1)] = angle.cos();
 
-    let space =
-        <volmath::NeuroSpace as NeuroSpaceExt>::from_affine_matrix4(dims.to_vec(), affine)
-            .expect("Failed to create NeuroSpace");
+    let space = <volmath::NeuroSpace as NeuroSpaceExt>::from_affine_matrix4(dims.to_vec(), affine)
+        .expect("Failed to create NeuroSpace");
     let neuro_space = NeuroSpace3::new(space);
     let volume = DenseVolume3::<f32>::from_data(neuro_space.0, data);
 

@@ -12,9 +12,9 @@ import { getTimeNavigationService } from '@/services/TimeNavigationService';
 export interface TimeInfo {
   currentTimepoint: number;
   totalTimepoints: number;
-  tr: number | null; // Repetition time in seconds
-  currentTime: number; // Current time in seconds
-  totalTime: number; // Total acquisition time in seconds
+  tr: number | null; // Repetition time in seconds; null when the 4D volume lacks pixdim[4]
+  currentTime: number | null; // Current time in seconds; null when tr is unknown
+  totalTime: number | null; // Total acquisition time in seconds; null when tr is unknown
 }
 
 export interface TimeNavigationActions {
@@ -30,31 +30,32 @@ export interface TimeNavigationActions {
 
 export function useTimeNavigation(): TimeNavigationActions {
   // Subscribe to relevant store slices
-  const viewState = useViewStateStore(state => state.viewState);
-  const layers = useLayerStore(state => state.layers);
+  const viewState = useViewStateStore((state) => state.viewState);
+  const layers = useLayerStore((state) => state.layers);
   const timeNavService = useMemo(() => getTimeNavigationService(), []);
 
   // Performance monitoring for development
   const performanceRef = useRef({
     computationTime: 0,
-    lastMeasurement: 0
+    lastMeasurement: 0,
   });
 
   // Cache expensive layer filtering with useMemo to avoid re-computation
   const cached4DLayer = useMemo(() => {
     const start = performance.now();
-    const result = layers.find(layer => 
-      layer.volumeType === 'TimeSeries4D' && 
-      layer.timeSeriesInfo && 
-      layer.timeSeriesInfo.num_timepoints > 1
+    const result = layers.find(
+      (layer) =>
+        layer.volumeType === 'TimeSeries4D' &&
+        layer.timeSeriesInfo &&
+        layer.timeSeriesInfo.num_timepoints > 1,
     );
     const computeTime = performance.now() - start;
-    
+
     // Only log in development and if computation took significant time
     if (process.env.NODE_ENV === 'development' && computeTime > 1) {
       console.debug(`[useTimeNavigation] Layer filtering took ${computeTime.toFixed(2)}ms`);
     }
-    
+
     return result;
   }, [layers]); // Only recalculate when layers actually change
 
@@ -68,9 +69,12 @@ export function useTimeNavigation(): TimeNavigationActions {
     if (!cached4DLayer?.timeSeriesInfo) {
       return null;
     }
+    // Preserve a genuinely-missing TR as null rather than defaulting to 1s;
+    // consumers apply their own fallback and the UI shows frame-only readouts.
+    const rawTr = cached4DLayer.timeSeriesInfo.tr;
     return {
       num_timepoints: cached4DLayer.timeSeriesInfo.num_timepoints,
-      tr: cached4DLayer.timeSeriesInfo.tr ?? 1.0 // Default to 1s if not specified
+      tr: rawTr && rawTr > 0 ? rawTr : null,
     };
   }, [cached4DLayer]);
 
@@ -87,15 +91,18 @@ export function useTimeNavigation(): TimeNavigationActions {
       currentTimepoint,
       totalTimepoints: num_timepoints,
       tr,
-      currentTime: currentTimepoint * tr,
-      totalTime: num_timepoints * tr
+      currentTime: tr !== null ? currentTimepoint * tr : null,
+      totalTime: tr !== null ? num_timepoints * tr : null,
     };
   }, [timeSeriesInfo, viewState.timepoint]); // Separate dependencies for better performance
 
   // Navigate to a specific timepoint
-  const setTimepoint = useCallback((timepoint: number) => {
-    timeNavService.setTimepoint(timepoint);
-  }, [timeNavService]);
+  const setTimepoint = useCallback(
+    (timepoint: number) => {
+      timeNavService.setTimepoint(timepoint);
+    },
+    [timeNavService],
+  );
 
   // Navigate to next timepoint
   const nextTimepoint = useCallback(() => {
@@ -108,9 +115,12 @@ export function useTimeNavigation(): TimeNavigationActions {
   }, [timeNavService]);
 
   // Jump forward/backward by delta timepoints
-  const jumpTimepoints = useCallback((delta: number) => {
-    timeNavService.jumpTimepoints(delta);
-  }, [timeNavService]);
+  const jumpTimepoints = useCallback(
+    (delta: number) => {
+      timeNavService.jumpTimepoints(delta);
+    },
+    [timeNavService],
+  );
 
   // Format time for display
   const formatTime = useCallback((seconds: number): string => {
@@ -127,11 +137,15 @@ export function useTimeNavigation(): TimeNavigationActions {
     return `t = ${timeInfo.currentTimepoint} / ${timeInfo.totalTimepoints}`;
   }, [getTimeInfo]);
 
-  // Format status bar display (e.g., "TR 37 | 1:14.8 s")
+  // Format status bar display (e.g., "TR 37 | 1:14.8 s"). When TR is unknown
+  // the elapsed-time segment is omitted rather than fabricated.
   const formatStatusDisplay = useCallback((): string | null => {
     const timeInfo = getTimeInfo();
     if (!timeInfo) return null;
 
+    if (timeInfo.currentTime === null) {
+      return `TR ${timeInfo.currentTimepoint}`;
+    }
     const timeStr = formatTime(timeInfo.currentTime);
     return `TR ${timeInfo.currentTimepoint} | ${timeStr}`;
   }, [getTimeInfo, formatTime]);
@@ -142,7 +156,7 @@ export function useTimeNavigation(): TimeNavigationActions {
       const start = performance.now();
       performanceRef.current = {
         computationTime: performance.now() - start,
-        lastMeasurement: Date.now()
+        lastMeasurement: Date.now(),
       };
     }
   }, [cached4DLayer, viewState.timepoint]);
@@ -155,6 +169,6 @@ export function useTimeNavigation(): TimeNavigationActions {
     has4DVolume,
     getTimeInfo,
     formatTimepointDisplay,
-    formatStatusDisplay
+    formatStatusDisplay,
   };
 }

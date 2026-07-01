@@ -23,8 +23,7 @@ async fn sample_world_coordinate_returns_expected_values() {
     }
 
     let affine = Matrix4::<f32>::identity();
-    let space =
-        NeuroSpaceImpl::from_affine_matrix4(dims.to_vec(), affine).expect("neuro space");
+    let space = NeuroSpaceImpl::from_affine_matrix4(dims.to_vec(), affine).expect("neuro space");
     let volume = DenseVolume3::<f32>::from_data(space.clone(), data);
     let _neuro_space = NeuroSpace3::new(space);
 
@@ -71,8 +70,7 @@ async fn sample_layer_value_at_world_resolves_layer_mapping() {
     ];
 
     let affine = Matrix4::<f32>::identity();
-    let space =
-        NeuroSpaceImpl::from_affine_matrix4(dims.to_vec(), affine).expect("neuro space");
+    let space = NeuroSpaceImpl::from_affine_matrix4(dims.to_vec(), affine).expect("neuro space");
     let volume = DenseVolume3::<f32>::from_data(space.clone(), data);
     let _neuro_space = NeuroSpace3::new(space);
 
@@ -153,8 +151,7 @@ async fn get_volume_for_projection_returns_correct_data_and_dims() {
     }
 
     let affine = Matrix4::<f32>::identity();
-    let space =
-        NeuroSpaceImpl::from_affine_matrix4(dims.to_vec(), affine).expect("neuro space");
+    let space = NeuroSpaceImpl::from_affine_matrix4(dims.to_vec(), affine).expect("neuro space");
     let volume = DenseVolume3::<f32>::from_data(space.clone(), data.clone());
 
     let bridge_state = BridgeState::default().expect("bridge state");
@@ -226,8 +223,7 @@ async fn get_volume_for_projection_handles_non_identity_affine() {
         0.0, 0.0, 0.0, 1.0,
     );
 
-    let space =
-        NeuroSpaceImpl::from_affine_matrix4(dims.to_vec(), affine).expect("neuro space");
+    let space = NeuroSpaceImpl::from_affine_matrix4(dims.to_vec(), affine).expect("neuro space");
     let volume = DenseVolume3::<f32>::from_data(space.clone(), data);
 
     let bridge_state = BridgeState::default().expect("bridge state");
@@ -289,8 +285,7 @@ async fn get_volume_for_projection_handles_i16_volume() {
     let data: Vec<i16> = vec![-100, 0, 50, 100, -50, 25, 75, 127];
 
     let affine = Matrix4::<f32>::identity();
-    let space =
-        NeuroSpaceImpl::from_affine_matrix4(dims.to_vec(), affine).expect("neuro space");
+    let space = NeuroSpaceImpl::from_affine_matrix4(dims.to_vec(), affine).expect("neuro space");
     let volume = DenseVolume3::<i16>::from_data(space.clone(), data.clone());
 
     let bridge_state = BridgeState::default().expect("bridge state");

@@ -1,476 +1,144 @@
-# SurfViewJS Library Investigation Report
+# Investigation Report: `row` arrangement renders all-black slice panes
 
-## Executive Summary
+**Symptom:** In `OrthogonalPanelsWorkspace.tsx`, the new `orthoArrangement` setting works for `grid` and `column`, but `row` renders three all-black panes (no brains). The only source-level difference between the working `column` and the broken `row` is the `vertical` prop on `<Allotment>`.
 
-After thoroughly investigating the surfviewjs library (published as "neurosurface") at `/Users/bbuchsbaum/code/jscode/surfviewjs`, I have analyzed its structure, capabilities, API, and integration potential with our React/TypeScript brainflow2 application. This library is a sophisticated, modular Three.js-based brain surface visualization tool specifically designed for neuroimaging applications and appears exceptionally well-suited for integration into our surface viewer panel.
+**Verdict:** This is a **layout-initialization bug inside the `allotment@1.20.4` library, triggered by the `row` call-site omitting `defaultSizes`** — combined with the fact that the three panes have a combined `minSize` (3 × 200 = 600 px) that *exceeds the available main-axis size* of the orthogonal region in the Integrated workspace. The horizontal split therefore initializes every pane's main-axis (width) inline style to a degenerate value and never recovers, so each `FlexibleSlicePanel` container ends up width≈0 and the centered canvas paints onto a 0-px-wide box → black. The `column` case "works" only because the vertical region is tall enough to satisfy 3 × 200 px; **`column` has the same latent bug** and will also go black if the region is ever shorter than ~600 px.
 
-## 1. Overall Structure and Purpose
+---
 
-### Core Purpose
-The surfviewjs library (npm package: "neurosurface") is a comprehensive brain surface visualization library built specifically for neuroimaging applications. It provides:
-- High-performance 3D brain surface rendering using Three.js/WebGL
-- Multi-layer surface visualization with advanced compositing
-- Scientific colormap support for fMRI data visualization
-- Interactive controls optimized for neuroimaging workflows
-- React component integration for modern web applications
+## 1. The render chain is NOT the cause (ruled out)
 
-### Architecture Overview
-- **Core Framework**: Built on Three.js with WebGL rendering
-- **Language**: TypeScript with JavaScript support
-- **Build System**: Vite for modern ES modules + UMD builds
-- **Package Structure**: Modular exports with separate React components
-- **Event System**: EventEmitter-based architecture for component communication
+I traced the full data path and it is robust against small/degenerate sizes:
 
-## 2. Main Features and Capabilities
+- `FlexibleSlicePanel.tsx:97-130` measures its container with a `ResizeObserver` and via `getBoundingClientRect()`, then calls `clampDimensions(width, height)` before doing anything.
+- `clampDimensions` → `clampDimension` (`ui2/src/utils/dimensions.ts:18-23`) **forces every dimension to `Math.max(50, …)` and returns `512` for any value `<= 0`.** So the panel can *never* push a 0 (or sub-50) width/height into the store.
+- `viewStateStore.updateDimensionsAndPreserveScale` (`ui2/src/stores/viewStateStore.ts:498-504`) additionally bails on `newWidth <= 0 || newHeight <= 0`. With the clamp upstream, this guard never fires.
+- The canvas itself (`SliceRenderer.tsx:193-199`) is `<canvas width={width} height={height} className="block" />` centered inside `flex items-center justify-center`. It uses **intrinsic attribute sizing (≥50)**, not `w-full/h-full`. So even inside a collapsed container the canvas element is ~50 px and would show a *tiny* image, not a full black pane.
 
-### Surface Types and Rendering
-The library provides multiple surface classes for different use cases:
+**Conclusion:** A fully-black pane is a *container collapse* — the `FlexibleSlicePanel` outer `h-full w-full` box (`FlexibleSlicePanel.tsx:141`) is being given a 0-px main-axis size by the Allotment pane wrapper, so the canvas' centering box collapses and the backend render (still produced at ≥50 px) is invisible. The bug lives in how `allotment` sizes its panes for the `row` configuration.
 
-**Base Surface Types**:
-- `NeuroSurface`: Basic surface with solid colors
-- `ColorMappedNeuroSurface`: Single-layer surfaces with data-driven color mapping
-- `VertexColoredNeuroSurface`: Surfaces with pre-computed per-vertex colors
-- `MultiLayerNeuroSurface`: Advanced surfaces supporting multiple composited layers
+## 2. How `allotment@1.20.4` initializes pane sizes (the mechanism)
 
-**Layer System**:
-- `BaseLayer`: Foundational surface appearance
-- `DataLayer`: Scalar data with colormap visualization
-- `RGBALayer`: Pre-computed RGBA colors per vertex
-- `LayerStack`: Management system for multiple layers with GPU compositing
+Resolved package: `node_modules/.pnpm/allotment@1.20.4_react-dom@19.1.0_react@19.1.0/node_modules/allotment/dist/module.js`. Key facts from the minified source:
 
-### Advanced Visualization Features
-**Scientific Colormaps** (25+ supported):
-- Sequential: viridis, plasma, inferno, magma, hot, cool
-- Diverging: RdBu, bwr, coolwarm, seismic, Spectral
-- Qualitative: jet, hsv, rainbow
-- Monochrome: greys, blues, reds, greens
+**(a) `proportionalLayout` already defaults to `true`** (`module.js:1050`: `this.proportionalLayout = t.proportionalLayout != null ? t.proportionalLayout : !0`). So a missing `proportionalLayout` prop is **not** the differentiator — adding it alone changes nothing.
 
-**Real-time Controls**:
-- Dynamic intensity range adjustment
-- Threshold-based masking
-- Alpha blending and compositing modes
-- Multiple lighting models (Phong, Physical)
+**(b) Mount effect builds a `descriptor` only when `defaultSizes` is present** (`module.js:1503-1516`). With `defaultSizes` (`p`) provided, the `SplitView` is constructed with `descriptor.views` already sized to the `defaultSizes` values and `descriptor.size = sum(defaultSizes)`. **With `defaultSizes` omitted (the `row`/`column` path), no descriptor is created → the `SplitView` starts with zero `viewItems`.** Panes are then added later by the children-diffing effect.
 
-**Post-Processing Effects**:
-- Screen Space Ambient Occlusion (SSAO)
-- Rim lighting shaders
-- Shadow mapping
-- Environment mapping support
+**(c) The children-diffing effect only runs after the "ready" flag `Y` flips true** (`module.js:1556`: `C(() => { if (Y) { … addView(…, ce.Distribute, …) … } }, [R, Y, c, l, v])`).
 
-## 3. Surface Data Handling
-
-### Data Input Formats
-The library handles surface data through optimized TypedArrays:
-- **Vertices**: `Float32Array` of 3D coordinates (x, y, z)
-- **Faces**: `Uint32Array` of triangle indices
-- **Data Values**: `Float32Array` of per-vertex scalar values
-- **Metadata**: Hemisphere designation and surface type information
-
-### File Format Support
-Comprehensive neuroimaging format support:
-- **GIFTI (.gii)**: Full support with ASCII, Base64Binary, and GZipBase64Binary encoding
-- **FreeSurfer**: Binary surface format with curvature data support
-- **PLY**: Polygon file format
-- **Auto-detection**: Intelligent format detection based on file extensions and content
-
-### Robust Data Processing
-- **Error Handling**: Comprehensive validation with informative error messages
-- **Memory Efficiency**: TypedArray-based processing with minimal copying
-- **Range Detection**: Automatic data range calculation with fallback defaults
-- **Index Mapping**: Efficient vertex-to-data mapping with bounds checking
-
-## 4. Three.js Components Integration
-
-### Core Three.js Usage
-The library leverages modern Three.js features:
-
-**Scene Management**:
-- `THREE.Scene` with optimized object management
-- `THREE.PerspectiveCamera` with dynamic controls
-- `THREE.WebGLRenderer` with antialiasing and shadow support
-
-**Geometry and Materials**:
-- `THREE.BufferGeometry` with custom attributes (position, color, curvature)
-- `THREE.MeshPhongMaterial` for basic lighting
-- `THREE.MeshPhysicalMaterial` for advanced PBR rendering
-- Custom shader integration for rim lighting effects
-
-**Controls and Interaction**:
-- `TrackballControls` for traditional camera manipulation
-- Custom `SurfaceControls` for neuroimaging-optimized navigation
-- Predefined viewpoints (lateral, medial, dorsal, ventral, etc.)
-
-**Post-Processing**:
-- `EffectComposer` for multi-pass rendering
-- `RenderPass` for scene rendering
-- `SSAOPass` for ambient occlusion effects
-
-## 5. Main API Entry Points
-
-### Primary Classes
-```typescript
-// Main viewer class
-class NeuroSurfaceViewer extends EventEmitter {
-  constructor(container, width, height, config?, viewpoint?)
-  addSurface(surface, id?): void
-  removeSurface(id): void
-  setViewpoint(viewpoint): void
-  centerCamera(): void
-  resize(width, height): void
-  dispose(): void
-}
-
-// Surface geometry wrapper
-class SurfaceGeometry {
-  constructor(vertices, faces, hemisphere, vertexCurv?)
-  createMesh(): void
-}
-
-// Surface implementations
-class NeuroSurface extends EventEmitter
-class ColorMappedNeuroSurface extends NeuroSurface
-class VertexColoredNeuroSurface extends NeuroSurface  
-class MultiLayerNeuroSurface extends NeuroSurface
-
-// Layer management
-class LayerStack
-class DataLayer, RGBALayer, BaseLayer
-
-// Color mapping
-class ColorMap
-```
-
-### Key Configuration Interfaces
-```typescript
-interface NeuroSurfaceViewerConfig {
-  ambientLightColor?: number;
-  directionalLightColor?: number;
-  directionalLightIntensity?: number;
-  showControls?: boolean;
-  useShaders?: boolean;
-  controlType?: 'trackball' | 'surface';
-}
-
-interface SurfaceConfig {
-  color?: THREE.ColorRepresentation;
-  flatShading?: boolean;
-  alpha?: number;
-  thresh?: [number, number];
-  irange?: [number, number];
+**(d) `Y` flips true ONLY inside the ResizeObserver `onResize`, and only when BOTH width and height are truthy** (`module.js:1648`):
+```js
+onResize: ({ width: e, height: t }) => {
+  e && t && (T.current.layout(b ? t : e), H.current.setSize(b ? t : e), B(!0));
 }
 ```
+Note `b ? t : e`: a **vertical** split lays out using **height** (`t`); a **horizontal** split lays out using **width** (`e`).
 
-### Data Loading Functions
-```typescript
-// Async loading with timeout and error handling
-loadSurface(url: string, format?: SurfaceFormat, hemisphere?: Hemisphere): Promise<SurfaceGeometry>
-loadSurfaceFromFile(file: File, format?: SurfaceFormat, hemisphere?: Hemisphere): Promise<SurfaceGeometry>
+**(e) Per-view DOM sizing (`module.js:1020-1028`):**
+- Horizontal pane (`class de`): `layoutContainer(e)` sets `style.left` and `style.width = this.size + "px"` — it sets **width** inline; height comes from CSS.
+- Vertical pane (`class pe`): sets `style.top` and `style.height = this.size + "px"` — it sets **height** inline; width comes from CSS.
+- CSS (`allotment/dist/style.css:37-43`): `.horizontal > … > .splitViewView { height: 100% }`, `.vertical > … > .splitViewView { width: 100% }`. So the **cross-axis** dimension is pure CSS (always 100%), and the **main-axis** dimension is the inline `this.size` value produced by the layout pass.
 
-// Format parsers
-parseFreeSurferSurface(buffer: ArrayBuffer): ParsedSurfaceData
-parseGIfTISurface(xmlString: string): ParsedSurfaceData  
-parsePLY(data: string | ArrayBuffer): ParsedSurfaceData
-```
+## 3. Why `row` specifically collapses — the `minSize` overflow
 
-## 6. TypeScript Definitions
-
-### Complete Type Coverage
-The library provides comprehensive TypeScript support:
-- **Generated .d.ts files** for all modules
-- **Proper exports mapping** in package.json
-- **Generic type support** for event system and data structures
-- **Interface definitions** for all configuration objects
-
-### Type Safety Features
-- Strict null checks and undefined handling
-- Proper enum definitions for viewpoints and surface types
-- Generic event typing with payload interfaces
-- Import/export type preservation
-
-## 7. Build and Bundling System
-
-### Modern Build Configuration
-**Build Tools**:
-- Vite 5.0 for fast development and optimized production builds
-- TypeScript 5.9.2 for type checking and declaration generation
-- Rollup for library bundling with tree-shaking
-
-**Output Formats**:
-```
-dist/
-├── neurosurface.es.js      # ES modules build
-├── neurosurface.umd.js     # UMD build for legacy support
-├── types/                  # TypeScript declarations
-│   ├── index.d.ts
-│   ├── classes.d.ts
-│   ├── NeuroSurfaceViewer.d.ts
-│   └── react/
-└── *.js.map               # Source maps for debugging
-```
-
-**Package Configuration**:
-- Dual ESM/CommonJS support
-- Proper exports field mapping
-- Optional peer dependencies with graceful fallbacks
-
-## 8. Dependencies Analysis
-
-### Core Dependencies (minimal footprint)
-- **colormap**: `^2.3.2` - Scientific colormap generation library
-
-### Peer Dependencies (user-provided)
-- **three**: `>=0.160.0` - 3D graphics library (required)
-- **react**: `^18.0.0` - React framework (optional, for React components)  
-- **react-dom**: `^18.0.0` - React DOM renderer (optional)
-- **tweakpane**: `^4.0.4` - GUI controls library (optional)
-- **@tweakpane/plugin-essentials**: `^0.2.1` - Tweakpane extensions (optional)
-
-### Development Dependencies
-- Modern TypeScript toolchain
-- Vite build system
-- Testing framework (jsdom)
-- Various @types packages
-
-## 9. Example Usage Patterns
-
-### Vanilla JavaScript Usage
-```javascript
-import { NeuroSurfaceViewer, ColorMappedNeuroSurface, SurfaceGeometry } from 'neurosurface';
-
-// Create viewer
-const viewer = new NeuroSurfaceViewer(
-  document.getElementById('viewer'),
-  800, 600,
-  { showControls: true, ambientLightColor: 0x404040 }
-);
-
-// Load and create surface
-const geometry = new SurfaceGeometry(vertices, faces, 'left');
-const surface = new ColorMappedNeuroSurface(
-  geometry, indices, dataValues, 'jet',
-  { range: [0, 10], threshold: [2, 8] }
-);
-
-viewer.addSurface(surface, 'main-surface');
-```
-
-### React Component Usage
-```jsx
-import React, { useRef, useEffect } from 'react';
-import NeuroSurfaceViewer, { SurfaceHelpers } from 'neurosurface/react';
-
-function SurfaceViewPanel({ surfaceData }) {
-  const viewerRef = useRef();
-
-  useEffect(() => {
-    if (surfaceData) {
-      const surface = SurfaceHelpers.createMultiLayerSurface(
-        surfaceData.geometry,
-        { baseColor: 0xdddddd }
-      );
-      viewerRef.current.addSurface(surface, 'main');
-    }
-  }, [surfaceData]);
-
-  return (
-    <NeuroSurfaceViewer
-      ref={viewerRef}
-      width={800}
-      height={600}
-      config={{ showControls: false }}
-      viewpoint="lateral"
-      onReady={(viewer) => console.log('Viewer ready')}
-    />
-  );
+When the panes are added via `addView(…, ce.Distribute)` (`module.js:1556+`), the `Distribute` path runs `distributeViewSizes()` (`module.js:1114`, `1183-1191`):
+```js
+distributeViewSizes() {
+  … i = Math.floor(t / e.length);            // equal share of current content
+  for (view of e) view.size = clamp(i, view.minimumSize, view.maximumSize);
+  this.relayout(...);
 }
 ```
+and `layout(size)` distributes the container size across views, **clamping each view to `[minimumSize, maximumSize]`** (`module.js:1135-1153`, `resize()` at `1271-1289` uses `g(...)` = clamp).
 
-### Multi-Layer Surface Example
-```javascript
-// Create multi-layer surface
-const surface = new MultiLayerNeuroSurface(geometry, {
-  baseColor: 0xcccccc
-});
+The three row panes are declared `minSize={200}` (`OrthogonalPanelsWorkspace.tsx:112-114`). That is **600 px of minimum width**. In the Integrated workspace the orthogonal region is the *left half* of a horizontal split (`IntegratedVolumeSurfaceWorkspace.tsx:86-94`, default `split = "horizontal"`), so its available width is roughly `(windowWidth − leftRail − inspector) / 2`, frequently **well under 600 px**. When the container's main-axis size is smaller than `Σ minSize`, allotment's clamp/relayout cannot satisfy all three minimums; the distribution math drives the trailing pane(s)' computed `size` toward 0 (and, depending on resolve order during the initial `Distribute`, can drive *all three* toward their floor while the container can't grow them). The result: one or more horizontal panes get an inline `style.width` of `0px` (or a few px). Because horizontal width is the *inline* main-axis value (step 2e), a 0-width pane means the `FlexibleSlicePanel` `h-full w-full` box is 0-wide → the centered canvas box collapses → **black**.
 
-// Add data layers
-surface.addLayer(new DataLayer(
-  'activation',
-  activationData,
-  { colorMap: 'hot', range: [-5, 5], opacity: 0.7 }
-));
+`column` escapes this in practice only because the vertical region is taller than 600 px in the default layout, so `Σ minSize` (600) fits and each pane gets a healthy inline `style.height`. **The bug is identical in `column`; it just isn't being tripped because the height budget happens to be large enough.**
 
-surface.addLayer(new RGBALayer(
-  'overlay',
-  preComputedColors,
-  { blendMode: 'additive', opacity: 0.8 }
-));
+`grid` never trips it because its inner horizontal split has only **2** panes (`minSize 200 × 2 = 400`) **and** supplies `defaultSizes={horizontalSizes}` (`[50,50]`, `OrthogonalPanelsWorkspace.tsx:128`). The descriptor (step 2b) gives both panes explicit non-zero sizes at construction time, before any ResizeObserver pass, so they are never momentarily 0 and the 400 px minimum comfortably fits.
 
-viewer.addSurface(surface);
+## 4. Why the working call-sites differ
+
+- **Grid inner horizontal** (`OrthogonalPanelsWorkspace.tsx:126-133`): passes `defaultSizes={horizontalSizes}` → descriptor with explicit sizes. Works.
+- **`IntegratedVolumeSurfaceWorkspace.tsx:73, 86`**: passes `proportionalLayout` but, more importantly, uses **2-pane** splits whose minSizes fit. (`proportionalLayout` there is redundant — it already defaults to `true`; it is not what makes them work.)
+- **`row` / `column`** (`OrthogonalPanelsWorkspace.tsx:107-115`): omit `defaultSizes` AND pack **3 × minSize 200**. Only the orientation with the larger axis budget survives.
+
+So the file header comment ("Omit defaultSizes (Allotment distributes evenly) so we never feed a 2-element ratio into 3 panes", lines 105-106) is the proximate mistake: omitting `defaultSizes` removes the construction-time descriptor that the grid path relies on, and exposes the empty-`viewItems` → `Distribute` → clamp-to-floor initialization path under a tight width budget.
+
+---
+
+## 5. Concrete fix
+
+Give the `row`/`column` Allotment an explicit, evenly-split `defaultSizes` for THREE panes (not two), so a construction-time descriptor with non-zero sizes exists immediately. Also drop the per-pane `minSize` to a value whose ×3 sum comfortably fits any realistic region (e.g. 120), so the layout can never be forced below the container size.
+
+### Edit `ui2/src/components/views/OrthogonalPanelsWorkspace.tsx`, lines 104-116
+
+Replace:
+```tsx
+  if (arrangement === "row" || arrangement === "column") {
+    // A single split of three even panes. Omit defaultSizes (Allotment
+    // distributes evenly) so we never feed a 2-element ratio into 3 panes.
+    tree = (
+      <Allotment
+        vertical={arrangement === "column"}
+        onChange={handleDragDetection}
+      >
+        <Allotment.Pane minSize={200}>{axial}</Allotment.Pane>
+        <Allotment.Pane minSize={200}>{sagittal}</Allotment.Pane>
+        <Allotment.Pane minSize={200}>{coronal}</Allotment.Pane>
+      </Allotment>
+    );
+  } else {
 ```
 
-## 10. Integration Recommendations for Brainflow2
-
-### Why This Library is Ideal for Brainflow2
-
-**1. Perfect Architectural Alignment**:
-- Built specifically for neuroimaging applications
-- React-ready with comprehensive hooks and components
-- TypeScript-native for full type safety
-- Event-driven architecture compatible with our Zustand stores
-
-**2. Feature Completeness**:
-- Professional scientific visualization capabilities
-- Multi-layer compositing for complex data overlays
-- Comprehensive file format support (GIFTI, FreeSurfer, PLY)
-- Advanced rendering features (SSAO, custom shaders, PBR materials)
-
-**3. Performance Optimization**:
-- GPU-accelerated rendering and compositing
-- Efficient memory management with TypedArrays
-- On-demand rendering system
-- Built-in caching and optimization
-
-### Recommended Integration Strategy
-
-**Phase 1: Basic Integration** (1-2 days)
-```bash
-# Install the library
-npm install neurosurface
-
-# Add peer dependencies we already have
-# three.js is already in our project
-# React 18 is already in our project
+With:
+```tsx
+  if (arrangement === "row" || arrangement === "column") {
+    // A single split of three even panes. Provide an explicit 3-element
+    // defaultSizes so Allotment builds a construction-time descriptor with
+    // non-zero pane sizes (the grid path relies on the same mechanism). Without
+    // it, allotment mounts with zero viewItems and only sizes panes after the
+    // first ResizeObserver pass via a Distribute path that clamps panes to their
+    // minSize floor — and when 3 x minSize exceeds the region's main-axis size
+    // (e.g. the row split inside the half-width Integrated orthogonal region),
+    // panes collapse to ~0 px on the main axis and the slice canvas paints
+    // black. minSize is also lowered so 3 panes always fit.
+    tree = (
+      <Allotment
+        vertical={arrangement === "column"}
+        proportionalLayout
+        defaultSizes={[1, 1, 1]}
+        onChange={handleDragDetection}
+      >
+        <Allotment.Pane minSize={120}>{axial}</Allotment.Pane>
+        <Allotment.Pane minSize={120}>{sagittal}</Allotment.Pane>
+        <Allotment.Pane minSize={120}>{coronal}</Allotment.Pane>
+      </Allotment>
+    );
+  } else {
 ```
 
-**Phase 2: Create Surface View Panel Component** (2-3 days)
-```typescript
-// ui2/src/components/views/SurfaceViewPanel.tsx
-import { useRef, useEffect } from 'react';
-import NeuroSurfaceViewer, { SurfaceHelpers } from 'neurosurface/react';
-import { useSurfaceStore } from '../../stores/surfaceStore';
+### Why this addresses the root cause
 
-export function SurfaceViewPanel({ surfaceHandle }: { surfaceHandle: SurfaceHandle }) {
-  const viewerRef = useRef();
-  const { loadSurfaceData, surfaceData } = useSurfaceStore();
+1. **`defaultSizes={[1, 1, 1]}`** makes `allotment`'s mount effect build a `descriptor` (`module.js:1505-1515`) with three views whose initial sizes are `[1,1,1]`. The absolute values are irrelevant because `proportionalLayout` is on — they are immediately re-proportioned to thirds on the first `layout(size)` from the ResizeObserver (`module.js:1140-1145` + `saveProportions` at `1341`). The panes therefore start with **non-zero main-axis sizes at construction**, bypassing the empty-`viewItems` → `Distribute` → clamp-to-floor path that produced the 0-width state. This is exactly the mechanism the working `grid` inner split uses.
+2. **`minSize={120}`** guarantees `3 × 120 = 360 px <` the realistic main-axis budget of both the standalone and Integrated (half-width) orthogonal regions, so the clamp in `layout()`/`resize()` can never be forced to drive a pane to 0 even on a narrow window. (100 also works; keep ≥ ~96 so slice + slider stay usable.)
+3. It fixes the **latent `column` bug** at the same time: a short vertical region (e.g. Integrated split `vertical` with a short orthogonal half) would otherwise hit the identical collapse.
+4. `proportionalLayout` is added for clarity/robustness but is technically a no-op default (already `true`); the load-bearing changes are `defaultSizes` + lower `minSize`.
 
-  useEffect(() => {
-    if (surfaceHandle) {
-      loadSurfaceData(surfaceHandle).then(data => {
-        if (data && viewerRef.current) {
-          const surface = SurfaceHelpers.createMultiLayerSurface(
-            data.geometry,
-            { baseColor: 0xdddddd }
-          );
-          viewerRef.current.addSurface(surface, surfaceHandle);
-        }
-      });
-    }
-  }, [surfaceHandle]);
+### Note on the existing test
+`ui2/src/components/views/__tests__/OrthogonalPanelsWorkspace.test.tsx:13-36` fully mocks `allotment` and only asserts orientation + pane count, so it neither catches this bug nor breaks under the fix. For regression coverage, extend the mock to surface `defaultSizes` (e.g. `data-default-sizes`) and assert the row/column Allotment receives a 3-element array. A true regression test would need a real jsdom render inside a constrained-width container, which the current mock-based test deliberately avoids.
 
-  return (
-    <div className="h-full w-full">
-      <NeuroSurfaceViewer
-        ref={viewerRef}
-        width={800}
-        height={600}
-        config={{ 
-          showControls: false, // Use our own UI controls
-          ambientLightColor: 0x404040,
-          useShaders: true
-        }}
-        viewpoint="lateral"
-      />
-    </div>
-  );
-}
-```
+---
 
-**Phase 3: Backend Integration** (2-3 days)
-```rust
-// Extend existing Tauri commands to work with neurosurface
-#[tauri::command]
-pub async fn get_surface_data_for_viewer(
-    surface_handle: SurfaceHandle
-) -> Result<SurfaceViewerData, BridgeError> {
-    // Convert our internal surface data to format expected by neurosurface
-    let surface = get_surface_service().get_surface(surface_handle)?;
-    Ok(SurfaceViewerData {
-        vertices: surface.vertices.clone(),
-        faces: surface.faces.clone(),
-        hemisphere: surface.hemisphere.clone(),
-        metadata: surface.metadata.clone(),
-    })
-}
-```
+## Key files & line references
 
-**Phase 4: UI Integration** (1-2 days)
-- Replace Tweakpane controls with our existing UI components
-- Integrate with crosshair system and time series plotting
-- Add surface-specific controls to our settings panels
-
-### Integration Benefits
-
-**1. Immediate Value**:
-- Drop-in replacement for our current basic Three.js surface rendering
-- Professional-grade scientific visualization out of the box
-- Comprehensive file format support
-
-**2. Advanced Capabilities**:
-- Multi-layer data visualization for complex analyses
-- GPU-accelerated rendering for large surfaces
-- Scientific colormap library with 25+ options
-- Advanced lighting and material systems
-
-**3. Development Efficiency**:
-- Well-documented API with TypeScript support
-- Extensive example code and usage patterns
-- Active maintenance and development
-- React integration reduces custom component development
-
-**4. Future Extensibility**:
-- Event system allows easy customization
-- Modular architecture supports feature additions
-- Plugin system for custom analysis tools
-- Performance optimizations already implemented
-
-### Potential Customizations
-
-**1. UI Integration**:
-- Replace built-in Tweakpane with our UI components
-- Integrate surface interactions with crosshair system
-- Connect viewpoint changes to our camera controls
-
-**2. Data Pipeline Integration**:
-- Connect to our existing volume/surface loading system
-- Integrate with time series data for temporal visualization
-- Add brainflow-specific analysis overlays
-
-**3. Performance Optimizations**:
-- Implement progressive loading for large surfaces
-- Add level-of-detail rendering for performance
-- Integrate with our WebGPU rendering pipeline
-
-## Conclusion
-
-The surfviewjs/neurosurface library represents an exceptional solution for brain surface visualization in our brainflow2 application. It provides:
-
-- **Professional neuroimaging capabilities** specifically designed for fMRI/neuroimaging workflows
-- **Seamless React integration** that fits perfectly with our architecture  
-- **Comprehensive TypeScript support** ensuring type safety and excellent developer experience
-- **Advanced rendering features** that would take months to implement from scratch
-- **Proven stability** with extensive test coverage and real-world usage
-
-The library's modular architecture, comprehensive API, and neuroimaging focus make it an ideal choice for replacing our current basic surface visualization. Integration would significantly accelerate development while providing access to advanced features like multi-layer compositing, scientific colormaps, and optimized GPU rendering.
-
-**Recommendation**: Proceed with integration of neurosurface library as the foundation for our surface visualization system. The investment in integration will pay dividends in reduced development time, improved functionality, and professional-grade visualization capabilities.
-
-## Next Steps
-
-1. **Install neurosurface** as a project dependency
-2. **Create SurfaceViewPanel component** using neurosurface React wrapper
-3. **Extend Tauri surface commands** to provide data in neurosurface-compatible format
-4. **Integrate with existing UI controls** and replace built-in Tweakpane
-5. **Test with existing GIFTI files** and validate rendering quality
-6. **Add advanced features** like multi-layer visualization and custom analysis overlays
-
-This integration represents a strategic enhancement that positions brainflow2 as a comprehensive neuroimaging platform with professional-grade surface visualization capabilities.
+- `ui2/src/components/views/OrthogonalPanelsWorkspace.tsx:104-116` — the `row`/`column` Allotment (no `defaultSizes`, `minSize=200`); the fix site.
+- `ui2/src/components/views/OrthogonalPanelsWorkspace.tsx:126-133` — working grid inner horizontal split (`defaultSizes` present, 2 panes).
+- `ui2/src/components/views/FlexibleSlicePanel.tsx:97-130, 141` — ResizeObserver/clamp; outer `h-full w-full` box that collapses when the pane main-axis is 0.
+- `ui2/src/utils/dimensions.ts:18-23` — `clampDimension` forces ≥50 / 512, proving the data path never emits a 0 dimension (rules out the store path).
+- `ui2/src/stores/viewStateStore.ts:498-504` — `<= 0` guard (never fires due to clamp).
+- `ui2/src/components/views/SliceRenderer.tsx:193-199` — canvas uses intrinsic attribute sizing + centering (so collapse → black, not a tiny image filling the pane).
+- `ui2/src/components/views/IntegratedVolumeSurfaceWorkspace.tsx:73, 86-94` — orthogonal region is the half-width pane of a (default) horizontal split → tight width budget that trips the row collapse.
+- `node_modules/.pnpm/allotment@1.20.4_.../allotment/dist/module.js:1050` (proportionalLayout default), `:1503-1516` (descriptor only when `defaultSizes`), `:1556` (children-add effect gated on `Y`), `:1648` (`onResize` flips `Y` and lays out `b ? height : width`), `:1020-1028` (per-orientation inline main-axis sizing), `:1183-1191`/`:1135-1153`/`:1271-1289` (`distributeViewSizes`/`layout`/`resize` clamp to `minSize`).
+- `node_modules/.pnpm/allotment@1.20.4_.../allotment/dist/style.css:37-43` — cross-axis is CSS `100%`, main-axis is the inline `this.size`.

@@ -25,15 +25,15 @@ function clone<T>(value: T): T {
 
 function createInitialViewState(): ViewState {
   return {
-  views: {
-    axial: { origin_mm: [0, 0, 0], u_mm: [1, 0, 0], v_mm: [0, 1, 0], dim_px: [512, 512] },
-    sagittal: { origin_mm: [0, 0, 0], u_mm: [0, 1, 0], v_mm: [0, 0, -1], dim_px: [512, 512] },
-    coronal: { origin_mm: [0, 0, 0], u_mm: [1, 0, 0], v_mm: [0, 0, -1], dim_px: [512, 512] },
-    surface: { origin_mm: [0, 0, 0], u_mm: [1, 0, 0], v_mm: [0, 1, 0], dim_px: [512, 512] },
-  },
-  crosshair: { world_mm: [0, 0, 0], visible: true },
-  layers: [],
-  timepoint: 0,
+    views: {
+      axial: { origin_mm: [0, 0, 0], u_mm: [1, 0, 0], v_mm: [0, 1, 0], dim_px: [512, 512] },
+      sagittal: { origin_mm: [0, 0, 0], u_mm: [0, 1, 0], v_mm: [0, 0, -1], dim_px: [512, 512] },
+      coronal: { origin_mm: [0, 0, 0], u_mm: [1, 0, 0], v_mm: [0, 0, -1], dim_px: [512, 512] },
+      surface: { origin_mm: [0, 0, 0], u_mm: [1, 0, 0], v_mm: [0, 1, 0], dim_px: [512, 512] },
+    },
+    crosshair: { world_mm: [0, 0, 0], visible: true },
+    layers: [],
+    timepoint: 0,
   };
 }
 
@@ -43,7 +43,7 @@ const storeMocks = vi.hoisted(() => {
   };
 
   const updateLayer = vi.fn((id: string, updates: Partial<LayerInfo>) => {
-    const index = layerStoreState.layers.findIndex(layer => layer.id === id);
+    const index = layerStoreState.layers.findIndex((layer) => layer.id === id);
     if (index !== -1) {
       layerStoreState.layers[index] = {
         ...layerStoreState.layers[index],
@@ -163,6 +163,22 @@ const install4DLayer = () => {
   storeMocks.layerStoreState.layers = [make4DLayer()];
 };
 
+// A 4D layer whose source genuinely lacks pixdim[4] (no TR).
+const make4DLayerNoTr = (): LayerInfo => {
+  const layer = make4DLayer();
+  return {
+    ...layer,
+    timeSeriesInfo: {
+      ...layer.timeSeriesInfo!,
+      tr: null,
+    },
+  };
+};
+
+const install4DLayerNoTr = () => {
+  storeMocks.layerStoreState.layers = [make4DLayerNoTr()];
+};
+
 describe('Time Navigation Integration', () => {
   beforeEach(() => {
     resetStores();
@@ -256,7 +272,8 @@ describe('Time Navigation Integration', () => {
 
     fireEvent.mouseMove(document, { clientX: 150 });
 
-    const callsDuringDrag = mockApiService.setVolumeTimepoint.mock.calls.slice(callsBeforeInteraction);
+    const callsDuringDrag =
+      mockApiService.setVolumeTimepoint.mock.calls.slice(callsBeforeInteraction);
     expect(callsDuringDrag.length).toBeLessThanOrEqual(2);
 
     await act(async () => {
@@ -265,10 +282,11 @@ describe('Time Navigation Integration', () => {
     });
 
     expect(storeMocks.viewStateStoreState.viewState.timepoint).toBe(7);
-    const trailingCalls = mockApiService.setVolumeTimepoint.mock.calls.slice(callsBeforeInteraction);
+    const trailingCalls =
+      mockApiService.setVolumeTimepoint.mock.calls.slice(callsBeforeInteraction);
     const timepoints = trailingCalls.map(([, timepoint]) => timepoint);
     expect(timepoints).toContain(7);
-    expect(timepoints.filter(tp => tp === 7)).toHaveLength(1);
+    expect(timepoints.filter((tp) => tp === 7)).toHaveLength(1);
   });
 
   it('TimeNavigationService.setTimepoint synchronises backend and metadata', async () => {
@@ -282,5 +300,68 @@ describe('Time Navigation Integration', () => {
 
     expect(storeMocks.layerStoreState.layers[0].currentTimepoint).toBe(4);
     expect(mockApiService.setVolumeTimepoint).toHaveBeenCalledWith('volume-4d', 4);
+  });
+});
+
+describe('Time Navigation with a TR-less 4D volume', () => {
+  beforeEach(() => {
+    resetStores();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('preserves tr:null and leaves elapsed-time fields null (service)', () => {
+    install4DLayerNoTr();
+    const info = getTimeNavigationService().getTimeInfo();
+
+    expect(info).not.toBeNull();
+    expect(info!.tr).toBeNull();
+    expect(info!.currentTime).toBeNull();
+    expect(info!.totalTime).toBeNull();
+    expect(info!.totalTimepoints).toBe(10);
+  });
+
+  it('preserves tr:null via the useTimeNavigation hook', () => {
+    install4DLayerNoTr();
+    const { result } = renderHook(() => useTimeNavigation());
+    const info = result.current.getTimeInfo();
+
+    expect(info).not.toBeNull();
+    expect(info!.tr).toBeNull();
+    expect(info!.currentTime).toBeNull();
+    expect(info!.totalTime).toBeNull();
+  });
+
+  it('omits the elapsed-time segment from the status display when tr is null', () => {
+    install4DLayerNoTr();
+    storeMocks.viewStateStoreState.viewState.timepoint = 3;
+
+    const status = getTimeNavigationService().formatStatusDisplay();
+    expect(status).toBe('TR 3');
+    expect(status).not.toContain('|');
+  });
+
+  it('still defaults to a real number when tr IS present', () => {
+    install4DLayer();
+    storeMocks.viewStateStoreState.viewState.timepoint = 2;
+    const info = getTimeNavigationService().getTimeInfo();
+
+    expect(info!.tr).toBe(2);
+    expect(info!.currentTime).toBe(4);
+    expect(info!.totalTime).toBe(20);
+    expect(getTimeNavigationService().formatStatusDisplay()).toContain('|');
+  });
+
+  it('renders a frame-only readout in TimeSlider when tr is null', () => {
+    install4DLayerNoTr();
+    const { container } = render(createElement(TimeSlider));
+
+    const readout = container.querySelector('[data-testid="time-slider-readout"]') as HTMLElement;
+    expect(readout).toBeTruthy();
+    // No fabricated mm:ss separator; frame index over last frame only.
+    expect(readout.textContent).toBe('0/9');
+    expect(readout.textContent).not.toContain('·');
   });
 });

@@ -38,6 +38,10 @@ beads.right.meta.json
 sync_base.jsonl
 export-state/
 
+# Local backup snapshots and embedded dolt state (per-machine)
+backup/
+embeddeddolt/
+
 # NOTE: Do NOT add negation patterns (e.g., !issues.jsonl) here.
 # They would override fork protection in .git/info/exclude, allowing
 # contributors to accidentally commit upstream issue databases.

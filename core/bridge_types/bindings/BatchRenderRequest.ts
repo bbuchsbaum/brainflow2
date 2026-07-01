@@ -3,15 +3,15 @@
 /**
  * Request for batch rendering multiple slices
  */
-export type BatchRenderRequest = { 
+export type BatchRenderRequest = {
 /**
  * List of view states to render (JSON serialized ViewState array)
  */
-view_states_json: string, 
+view_states_json: string,
 /**
  * Width of each slice in pixels
  */
-width_per_slice: number, 
+width_per_slice: number,
 /**
  * Height of each slice in pixels
  */

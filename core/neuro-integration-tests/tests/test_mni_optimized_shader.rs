@@ -189,8 +189,10 @@ async fn test_optimized_shader_correctness() {
     let mut diff_img = vec![0u8; standard_result.len()];
     for i in (0..standard_result.len()).step_by(4) {
         let diff_r = (standard_result[i] as i16 - optimized_result[i] as i16).unsigned_abs() as u8;
-        let diff_g = (standard_result[i + 1] as i16 - optimized_result[i + 1] as i16).unsigned_abs() as u8;
-        let diff_b = (standard_result[i + 2] as i16 - optimized_result[i + 2] as i16).unsigned_abs() as u8;
+        let diff_g =
+            (standard_result[i + 1] as i16 - optimized_result[i + 1] as i16).unsigned_abs() as u8;
+        let diff_b =
+            (standard_result[i + 2] as i16 - optimized_result[i + 2] as i16).unsigned_abs() as u8;
 
         // Amplify differences by 10x for visibility
         diff_img[i] = diff_r.saturating_mul(10);

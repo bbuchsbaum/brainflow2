@@ -1,6 +1,6 @@
 #[cfg(test)]
 mod shader_compile_tests {
-    
+
     // Assuming a helper exists to get a headless device, like in the crosshair test
     // If not, we need to create one here.
     // use crate::tests::util; // Hypothetical util module

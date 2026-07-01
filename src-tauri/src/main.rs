@@ -872,11 +872,11 @@ fn main() {
             let bridge_state = BridgeState::new(
                 volume_registry.clone(),                           // Volume registry
                 Arc::new(TokioMutex::new(SurfaceRegistry::new())), // Surface registry
-                render_loop_slot,                                  // Render loop service (filled async)
-                layer_to_atlas_map,                                // Layer to atlas map
-                Arc::new(TokioMutex::new(HashMap::new())),         // Layer to volume map
-                atlas_service,                                     // Atlas service
-                template_service,                                  // Template service
+                render_loop_slot,   // Render loop service (filled async)
+                layer_to_atlas_map, // Layer to atlas map
+                Arc::new(TokioMutex::new(HashMap::new())), // Layer to volume map
+                atlas_service,      // Atlas service
+                template_service,   // Template service
             );
             bridge_state.start_layer_watchdog();
             app.manage(bridge_state); // Manage immediately so the UI is interactive

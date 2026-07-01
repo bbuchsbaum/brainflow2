@@ -404,19 +404,27 @@ pub struct AtlasStats {
 fn affine_from_neurospace_trans(trans: &nalgebra::DMatrix<f64>) -> Affine3<f32> {
     use nalgebra::Matrix4;
     if trans.nrows() >= 4 && trans.ncols() >= 4 {
+        // The spatial translation (origin) lives in the LAST column. neuroim
+        // stores an (ndim+1)-square transform: a 3D space is 4x4 with the origin
+        // in column 3, but a 4D space is 5x5 with the spatial origin in column 4
+        // — column 3 there holds the time-axis scaling. Reading a hardcoded
+        // column 3 silently dropped the origin for every 4D volume, so the
+        // crosshair time-series (`sample_stack`) and the extracted-timepoint
+        // render affine sampled/rendered as if the volume sat at world origin.
+        let t = trans.ncols() - 1;
         let m = Matrix4::new(
             trans[(0, 0)] as f32,
             trans[(0, 1)] as f32,
             trans[(0, 2)] as f32,
-            trans[(0, 3)] as f32,
+            trans[(0, t)] as f32,
             trans[(1, 0)] as f32,
             trans[(1, 1)] as f32,
             trans[(1, 2)] as f32,
-            trans[(1, 3)] as f32,
+            trans[(1, t)] as f32,
             trans[(2, 0)] as f32,
             trans[(2, 1)] as f32,
             trans[(2, 2)] as f32,
-            trans[(2, 3)] as f32,
+            trans[(2, t)] as f32,
             0.0,
             0.0,
             0.0,
@@ -2649,6 +2657,22 @@ async fn load_file(path: String, state: State<'_, BridgeState>) -> BridgeResult<
         path
     );
 
+    // 4D files carry a repetition time (TR) in the NIfTI header that the loaded
+    // volume does not retain. Re-read it lazily (header only — cheap) *inside*
+    // this closure so only 4D loads pay for it; the 3D arms never call it. `tr`
+    // is normalized to seconds.
+    let make_time_series_info = |num_timepoints: usize| {
+        let temporal_meta = nifti_loader::read_temporal_metadata(&file_path);
+        bridge_types::TimeSeriesInfo {
+            num_timepoints,
+            tr: temporal_meta.tr_seconds,
+            temporal_unit: temporal_meta.temporal_unit,
+            acquisition_time: temporal_meta
+                .tr_seconds
+                .map(|tr| tr * num_timepoints as f32),
+        }
+    };
+
     // Derive dimensions/type metadata directly from the already-loaded volume.
     // This avoids a second full parse/decode pass through NiftiLoader::load.
     let (dims, dtype, volume_type, time_series_info) = match &volume_sendable {
@@ -2704,89 +2728,65 @@ async fn load_file(path: String, state: State<'_, BridgeState>) -> BridgeResult<
             vec.space().dim.clone(),
             "f32".to_string(),
             bridge_types::VolumeType::TimeSeries4D,
-            Some(bridge_types::TimeSeriesInfo {
-                num_timepoints: vec.space().dim.get(3).copied().unwrap_or(1),
-                tr: None,
-                temporal_unit: None,
-                acquisition_time: None,
-            }),
+            Some(make_time_series_info(
+                vec.space().dim.get(3).copied().unwrap_or(1),
+            )),
         ),
         VolumeSendable::Vec4DI16(vec) => (
             vec.space().dim.clone(),
             "i16".to_string(),
             bridge_types::VolumeType::TimeSeries4D,
-            Some(bridge_types::TimeSeriesInfo {
-                num_timepoints: vec.space().dim.get(3).copied().unwrap_or(1),
-                tr: None,
-                temporal_unit: None,
-                acquisition_time: None,
-            }),
+            Some(make_time_series_info(
+                vec.space().dim.get(3).copied().unwrap_or(1),
+            )),
         ),
         VolumeSendable::Vec4DU8(vec) => (
             vec.space().dim.clone(),
             "u8".to_string(),
             bridge_types::VolumeType::TimeSeries4D,
-            Some(bridge_types::TimeSeriesInfo {
-                num_timepoints: vec.space().dim.get(3).copied().unwrap_or(1),
-                tr: None,
-                temporal_unit: None,
-                acquisition_time: None,
-            }),
+            Some(make_time_series_info(
+                vec.space().dim.get(3).copied().unwrap_or(1),
+            )),
         ),
         VolumeSendable::Vec4DI8(vec) => (
             vec.space().dim.clone(),
             "i8".to_string(),
             bridge_types::VolumeType::TimeSeries4D,
-            Some(bridge_types::TimeSeriesInfo {
-                num_timepoints: vec.space().dim.get(3).copied().unwrap_or(1),
-                tr: None,
-                temporal_unit: None,
-                acquisition_time: None,
-            }),
+            Some(make_time_series_info(
+                vec.space().dim.get(3).copied().unwrap_or(1),
+            )),
         ),
         VolumeSendable::Vec4DU16(vec) => (
             vec.space().dim.clone(),
             "u16".to_string(),
             bridge_types::VolumeType::TimeSeries4D,
-            Some(bridge_types::TimeSeriesInfo {
-                num_timepoints: vec.space().dim.get(3).copied().unwrap_or(1),
-                tr: None,
-                temporal_unit: None,
-                acquisition_time: None,
-            }),
+            Some(make_time_series_info(
+                vec.space().dim.get(3).copied().unwrap_or(1),
+            )),
         ),
         VolumeSendable::Vec4DI32(vec) => (
             vec.space().dim.clone(),
             "i32".to_string(),
             bridge_types::VolumeType::TimeSeries4D,
-            Some(bridge_types::TimeSeriesInfo {
-                num_timepoints: vec.space().dim.get(3).copied().unwrap_or(1),
-                tr: None,
-                temporal_unit: None,
-                acquisition_time: None,
-            }),
+            Some(make_time_series_info(
+                vec.space().dim.get(3).copied().unwrap_or(1),
+            )),
         ),
         VolumeSendable::Vec4DU32(vec) => (
             vec.space().dim.clone(),
             "u32".to_string(),
             bridge_types::VolumeType::TimeSeries4D,
-            Some(bridge_types::TimeSeriesInfo {
-                num_timepoints: vec.space().dim.get(3).copied().unwrap_or(1),
-                tr: None,
-                temporal_unit: None,
-                acquisition_time: None,
-            }),
+            Some(make_time_series_info(
+                vec.space().dim.get(3).copied().unwrap_or(1),
+            )),
         ),
         VolumeSendable::Vec4DF64(vec) => (
             vec.space().dim.clone(),
             "f64".to_string(),
             bridge_types::VolumeType::TimeSeries4D,
-            Some(bridge_types::TimeSeriesInfo {
-                num_timepoints: vec.space().dim.get(3).copied().unwrap_or(1),
-                tr: None,
-                temporal_unit: None,
-                acquisition_time: None,
-            }),
+            Some(make_time_series_info(
+                vec.space().dim.get(3).copied().unwrap_or(1),
+            )),
         ),
     };
 
@@ -13132,12 +13132,44 @@ mod tests {
         VolumeSendable::Vec4DF32(vec4d)
     }
 
+    /// 4D volume with a realistic, non-identity affine: anisotropic spacing per
+    /// axis plus an asymmetric origin (world = origin + spacing .* voxel). Voxel
+    /// (1, 2, 3) carries the distinctive series 1.5/2.5/3.5/4.5, so its world
+    /// position is (-10+2*1, 7+3*2, -4+1.5*3) = (-8, 13, 0.5).
+    fn make_4d_volume_sendable_anisotropic() -> VolumeSendable {
+        let dims = vec![4usize, 5, 6, 4];
+        let spacing = vec![2.0, 3.0, 1.5, 1.0];
+        let origin = vec![-10.0, 7.0, -4.0, 0.0];
+        let space = NeuroSpace::new(dims, Some(spacing), Some(origin), None, None).unwrap();
+        let mut vec4d = DenseNeuroVec::zeros(space).unwrap();
+        vec4d.data[[1, 2, 3, 0]] = 1.5;
+        vec4d.data[[1, 2, 3, 1]] = 2.5;
+        vec4d.data[[1, 2, 3, 2]] = 3.5;
+        vec4d.data[[1, 2, 3, 3]] = 4.5;
+        VolumeSendable::Vec4DF32(vec4d)
+    }
+
     #[test]
     fn coord_to_grid_for_4d_volume_with_time() {
         let sendable = make_4d_volume_sendable();
         let coords = vec![vec![-2.0, -2.0, -2.0, 3.0]];
         let grid = coord_to_grid_for_volume(&sendable, &coords).expect("grid conversion");
         assert_eq!(grid[0], vec![3, 3, 3, 3]);
+    }
+
+    #[test]
+    fn get_affine_from_volume_preserves_4d_origin() {
+        // Direct regression guard for affine_from_neurospace_trans: a 4D
+        // NeuroSpace stores a 5x5 transform with the spatial origin in the LAST
+        // column, so the voxel->world affine must carry that origin. Anisotropic
+        // spacing [2,3,1.5] + origin [-10,7,-4] => voxel (1,2,3) is at world
+        // (-8, 13, 0.5).
+        let sendable = make_4d_volume_sendable_anisotropic();
+        let voxel_to_world = get_affine_from_volume(&sendable).expect("affine");
+        let world = voxel_to_world.transform_point(&nalgebra::Point3::new(1.0, 2.0, 3.0));
+        assert!((world.x - (-8.0)).abs() < 1e-4, "x world {}", world.x);
+        assert!((world.y - 13.0).abs() < 1e-4, "y world {}", world.y);
+        assert!((world.z - 0.5).abs() < 1e-4, "z world {}", world.z);
     }
 
     #[test]
@@ -13241,6 +13273,33 @@ mod tests {
         let values = sample_stack_for_testing("layerA", &[1.0_f32, 2.0, 3.0], 0.0, "mean", &state)
             .await
             .expect("sample_stack point");
+
+        assert_eq!(values, vec![1.5, 2.5, 3.5, 4.5]);
+    }
+
+    #[tokio::test]
+    async fn sample_stack_radius_zero_matches_direct_voxel_read_4d_nonidentity_affine() {
+        // Regression guard for the crosshair->time-series voxel mapping under a
+        // realistic, non-identity affine. sample_stack and the GPU render path
+        // both derive world_to_voxel from get_affine_from_volume on the original
+        // 4D volume, so a point sample at a voxel's world center must return that
+        // voxel's exact series. Anisotropic spacing catches any axis/spacing mixup.
+        let sendable = make_4d_volume_sendable_anisotropic();
+        let state = BridgeState::default().expect("bridge state");
+        register_volume_and_layer(
+            &state,
+            "layerAniso",
+            "vol4d_aniso",
+            sendable,
+            volume_metadata_for("vol4d_aniso", "f32", bridge_types::VolumeType::TimeSeries4D),
+        )
+        .await;
+
+        // Voxel (1, 2, 3) sits at world (-8, 13, 0.5); radius 0 => point sample.
+        let values =
+            sample_stack_for_testing("layerAniso", &[-8.0_f32, 13.0, 0.5], 0.0, "mean", &state)
+                .await
+                .expect("sample_stack point");
 
         assert_eq!(values, vec![1.5, 2.5, 3.5, 4.5]);
     }

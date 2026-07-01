@@ -1,136 +1,259 @@
-# Brainflow 🧠
+# Brainflow
 
-**High-performance, cross-platform desktop application for neuroimaging visualization and analysis.**
+Brainflow is a cross-platform desktop app for neuroimaging visualization and analysis. It is built with Tauri 2, a Rust 2021 backend, WGPU-based rendering, and a React 19/Vite frontend.
 
-Built using **Tauri (Rust backend)** and **React (TypeScript frontend with WebGPU for 2D rendering)**.
+## Development Status
 
-**Current Status:** Phase 1 (WebGPU v2) - Sprint 1 Complete / Starting Sprint 2 (M4 Kickoff)
+Brainflow is in active development. It is useful as a source checkout for contributors and local testing, but it should not be treated as a polished end-user release yet.
 
-## Long‑Term Direction
+- Binary installers are not currently the primary distribution path.
+- Some features are experimental, incomplete, or behind development workflows.
+- The app may require local build tools, GPU/WebGPU-compatible drivers, and occasional generated TypeScript binding refreshes.
+- The UI currently depends on a local `neurosurface`/`surfviewjs` checkout through `file:` dependencies. On a fresh machine, make sure the sibling checkout exists at the path expected by `ui2/package.json` and `packages/visualization/package.json`, or update those dependencies before running `pnpm install`.
 
-- Typed shader bindings (wgsl_to_wgpu) behind a `typed-shaders` feature; keep runtime WGSL as default until parity is proven. CI leg runs feature-flagged checks (`.github/workflows/typed-shader-check.yml`). See memory-bank/SHADER_BINDINGS_PLAN.md:1.
-- Three‑view sync and multi‑view batching: coalesce updates and enable batched rendering when toggled from the UI; keep legacy per‑view pipeline as default.
-- Robust GPU resource lifecycle: RAII `LayerLease`, watchdog reclamation, and atlas pressure monitoring with hysteresis and telemetry.
-- 4D/time series: consistent timepoint APIs and metadata propagation across UI/bridge/render paths.
-- Performance & QA: reproducible benches and render QA checklists; keep typed vs runtime performance deltas recorded before flips.
+## What It Does
 
-## Key Goals (Phase 1)
+- Load and inspect NIfTI volumes and GIfTI surfaces.
+- Render orthogonal slice views through the Rust/WGPU rendering path.
+- Display surfaces and atlas/template-driven resources.
+- Manage layers, atlases, remote mounts, and analysis workbench jobs through the Tauri command bridge.
+- Share Rust/TypeScript request and response types through generated `ts-rs` bindings.
 
-*   Load NIfTI/GIfTI data.
-*   Display interactive Orthogonal Slice Views (WebGPU).
-*   Display 3D Surface Views (Three.js/WebGL).
-*   Basic Layer Management & Atlas Overlays.
-*   Click-to-Timeseries Plotting (Plotly Worker).
-*   Functional on macOS, Windows, Linux.
+## Repository Layout
 
-## Documentation
+- `src-tauri/` - Tauri entry point, app configuration, menus, plugins, and command registration.
+- `core/` - Rust workspace crates for rendering, bridge commands, loaders, filesystem utilities, atlases, templates, math, and shared bridge types.
+- `ui2/` - Current React/Vite UI, including GoldenLayout workspaces, Zustand stores, services, hooks, and panels.
+- `packages/` - Shared TypeScript packages, including `@brainflow/api` and visualization/plugin scaffolding.
+- `plugins/` - Bundled plugin examples and analysis plugin bundles.
+- `docs/` and `memory-bank/` - Architecture notes, implementation plans, runbooks, and subsystem documentation.
+- `e2e/` - Playwright-based end-to-end testing harness.
+- `tools/` - Developer utilities for bridge tests, render checks, colormap generation, and plugin verification.
 
-*   **Project Brief:** `memory-bank/projectbrief.md`
-*   **Architecture:** `memory-bank/ADR-001-architecture.md`
-*   **Phase 1 Plan:** `memory-bank/PLAN-phase1-milestones.md`
-*   **UI Layout Guide:** `memory-bank/GUIDE-ui-layout-phase1.md`
-*   **Repository Structure:** `memory-bank/repository_structure.md`
-*   **Full Bootstrap Guide:** `memory-bank/DEV-bootstrap-guide.md`
+## Prerequisites
 
-## Installation (From Source)
+Use the current Tauri 2 prerequisite guide as the source of truth for platform-specific system dependencies: <https://v2.tauri.app/start/prerequisites/>.
 
-Follow the platform-specific dependency instructions from the [Tauri prerequisites guide](https://tauri.app/v1/guides/getting-started/prerequisites) first.
+All platforms need:
 
-**Core Requirements:**
+- Git.
+- Rust stable from <https://rustup.rs/>.
+- Node.js `20.19+` or `22.12+`; this matches the locked Vite 7 requirement in `pnpm-lock.yaml`.
+- pnpm via Corepack. This repo declares `pnpm@8.15.1`.
+- Tauri CLI: `cargo install tauri-cli --locked`.
 
-1.  **Rust Toolchain (Stable):**
-    *   Install via [rustup.rs](https://rustup.rs/).
-    *   Add WASM target: `rustup target add wasm32-unknown-unknown`
-    *   Ensure `clippy` and `rustfmt` are installed: `rustup component add clippy rustfmt`
-    *   *(Windows)*: Install LLVM/Clang and ensure it's in your PATH.
-
-2.  **Node.js (>= v20) + pnpm:**
-    *   Enable `corepack`: `corepack enable`
-    *   Activate latest `pnpm`: `corepack prepare pnpm@latest --activate`
-
-3.  **Tauri CLI:**
-    *   Install: `cargo install tauri-cli --locked`
-
-**Repository Setup:**
+Recommended common setup after installing Node:
 
 ```bash
-# Clone and enter the repository
-git clone <repository-url>
+corepack enable
+corepack prepare pnpm@8.15.1 --activate
+rustup component add clippy rustfmt
+cargo install tauri-cli --locked
+```
+
+## Install From Source
+
+### macOS
+
+Install the Xcode command line tools:
+
+```bash
+xcode-select --install
+```
+
+Then install Rust, Node.js, pnpm, and the Tauri CLI as described above.
+
+Clone and run:
+
+```bash
+git clone https://github.com/bbuchsbaum/brainflow2.git
 cd brainflow2
-
-# Install Rust dependencies (downloads crates)
-cargo fetch
-
-# Install Node.js dependencies
-pnpm install
-
-# Build the shared API package
-cd packages/api
-pnpm run build
-cd ../.. 
-```
-
-**Run the app in development mode:**
-
-```bash
-cargo tauri dev
-```
-
-## Quick Start / Setup
-
-If your toolchains are already installed, the minimum setup is:
-
-```bash
 pnpm install
 cargo fetch
+pnpm --filter @brainflow/api build
+pnpm --filter @brainflow/visualization build
 cargo tauri dev
 ```
 
-## Development
+Build a local release bundle:
 
 ```bash
-# Run the Tauri application in development mode (with hot-reloading)
-cargo tauri dev
+cargo tauri build
+```
 
-# Run Rust tests
+For the maintainer-oriented local launcher on macOS:
+
+```bash
+make local:deploy
+```
+
+This builds the app bundle and installs a stable `~/bin/brainflow` launcher that points at the repo-local bundle.
+
+### Windows
+
+Install:
+
+- Microsoft C++ Build Tools with the `Desktop development with C++` workload.
+- Microsoft Edge WebView2 Runtime, using the Evergreen Bootstrapper.
+- Rust with the MSVC toolchain selected as the default host triple.
+- Node.js `20.19+` or `22.12+`.
+
+Then run in PowerShell:
+
+```powershell
+corepack enable
+corepack prepare pnpm@8.15.1 --activate
+cargo install tauri-cli --locked
+
+git clone https://github.com/bbuchsbaum/brainflow2.git
+cd brainflow2
+pnpm install
+cargo fetch
+pnpm --filter @brainflow/api build
+pnpm --filter @brainflow/visualization build
+cargo tauri dev
+```
+
+Build a Windows bundle:
+
+```powershell
+cargo tauri build
+```
+
+### Linux
+
+Install Rust, Node.js, pnpm, and the Tauri CLI as described above. You also need WebKitGTK and related desktop build packages.
+
+Debian/Ubuntu:
+
+```bash
+sudo apt update
+sudo apt install -y \
+  libwebkit2gtk-4.1-dev \
+  build-essential \
+  curl \
+  wget \
+  file \
+  libxdo-dev \
+  libssl-dev \
+  libayatana-appindicator3-dev \
+  librsvg2-dev
+```
+
+Fedora:
+
+```bash
+sudo dnf check-update
+sudo dnf install -y \
+  webkit2gtk4.1-devel \
+  openssl-devel \
+  curl \
+  wget \
+  file \
+  libappindicator-gtk3-devel \
+  librsvg2-devel \
+  libxdo-devel
+sudo dnf group install -y "c-development"
+```
+
+Arch:
+
+```bash
+sudo pacman -Syu
+sudo pacman -S --needed \
+  webkit2gtk-4.1 \
+  base-devel \
+  curl \
+  wget \
+  file \
+  openssl \
+  appmenu-gtk-module \
+  libappindicator-gtk3 \
+  librsvg \
+  xdotool
+```
+
+Then clone and run:
+
+```bash
+git clone https://github.com/bbuchsbaum/brainflow2.git
+cd brainflow2
+pnpm install
+cargo fetch
+pnpm --filter @brainflow/api build
+pnpm --filter @brainflow/visualization build
+cargo tauri dev
+```
+
+Build a Linux bundle:
+
+```bash
+cargo tauri build
+```
+
+To build only an AppImage when your Linux environment supports it:
+
+```bash
+make linux:appimage
+```
+
+## Development Commands
+
+```bash
+# Full desktop app with Tauri backend and UI hot reload
+cargo tauri dev
+# equivalent root package script
+pnpm dev
+
+# UI-only development server; many app features still need the Tauri backend
+pnpm --filter temp-ui dev
+
+# Build all TS workspace packages and the desktop app
+pnpm -r build
+cargo tauri build
+
+# Regenerate Rust -> TypeScript bindings
+cargo xtask ts-bindings
+
+# Rust formatting, linting, and tests
+cargo fmt --all
+cargo clippy --workspace --all-targets
 cargo test --workspace
 
-# Run UI unit tests (React app under ui2)
+# UI unit tests
 pnpm --filter temp-ui test
 
-# Run E2E tests (requires UI dev server running; see e2e/README)
+# E2E tests
 pnpm -C e2e test
-
-# Run Texture Upload Benchmark
-cargo bench -p render_loop_benches --bench upload
-
-# Build the application
-cargo tauri build 
 ```
 
-## Local Deploy To `~/bin`
-
-On macOS, the repo now includes a small launcher flow for a local user install:
+Rendering-data-affecting changes should also run the render golden harness when a GPU adapter is available:
 
 ```bash
-# Build the app bundle and install ~/bin/brainflow
-make local:deploy
-# or
-make local-deploy
+cargo test -p render_loop --test render_golden_test
 ```
 
-If you want the launcher in place first and the bundle can be built later:
+Regenerate the committed golden only for an intentional visual change:
 
 ```bash
-make local:install
-# or
-make local-install
+UPDATE_RENDER_GOLDEN=1 cargo test -p render_loop --test render_golden_test
 ```
 
-The launcher resolves to the repo-local app bundle at:
+## Useful Documentation
 
-```text
-target/release/bundle/macos/Brainflow.app
-```
+- `AGENTS.md` - Maintainer-oriented quick reference for architecture, commands, caveats, and testing.
+- `memory-bank/README.md` - Index for project history and planning documents.
+- `memory-bank/ARCHITECTURE.md` - Current high-level architecture notes.
+- `memory-bank/Implementation_Roadmap.md` - Roadmap and milestone context.
+- `memory-bank/REMOTE_MOUNTS.md` - Remote mount architecture and runbook.
+- `memory-bank/SHADER_BINDINGS_PLAN.md` - Shader binding status and typed-shader caveats.
+- `docs/analysis_plugins.md` - Analysis plugin protocol.
+- `ui2/ui_architecture.md` - Frontend architecture notes.
+- `e2e/README.md` - End-to-end test harness details.
 
-So `~/bin/brainflow` stays stable while you rebuild locally. If the bundle is not built yet, the launcher stays installed and will tell you which `cargo tauri build --bundles app` step is still missing.
+## Notes For Contributors
+
+- Prefer `cargo tauri dev` when testing behavior that crosses the Rust/Tauri bridge.
+- Keep generated TypeScript bindings in sync after bridge type changes with `cargo xtask ts-bindings`.
+- Add new Tauri commands in all required surfaces: Rust command function, `core/api_bridge/build.rs`, the Tauri `generate_handler!`, permissions, and `ui2/src/services/transport.ts`.
+- Keep `README.md`, `AGENTS.md`, and the relevant subsystem docs current when changing core architecture, command surfaces, or directory structure.

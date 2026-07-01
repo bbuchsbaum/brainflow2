@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests {
     use nalgebra::Matrix4;
-    
+
     use render_loop::render_state::{BlendMode, LayerInfo, ThresholdMode};
 
     #[test]

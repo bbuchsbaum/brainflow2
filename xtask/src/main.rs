@@ -27,7 +27,6 @@ fn main() -> Result<()> {
 
 /// The root of the repository
 fn project_root() -> PathBuf {
-    
     std::env::current_dir().expect("Failed to get current directory")
 }
 

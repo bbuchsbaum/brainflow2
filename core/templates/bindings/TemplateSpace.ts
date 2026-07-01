@@ -3,4 +3,4 @@
 /**
  * Template coordinate spaces
  */
-export type TemplateSpace = "MNI152NLin2009cAsym" | "MNI152NLin6Asym" | "fsaverage" | "fsaverage5" | "fsaverage6";
+export type TemplateSpace = "MNI152NLin2009cAsym" | "MNI152NLin6Asym" | "MNIColin27" | "MNI305" | "fsaverage" | "fsaverage5" | "fsaverage6";

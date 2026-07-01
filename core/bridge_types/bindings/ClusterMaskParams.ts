@@ -4,11 +4,11 @@ import type { Connectivity } from "./Connectivity";
 /**
  * Parameters used when computing a cluster-derived mask.
  */
-export type ClusterMaskParams = { threshold: number, min_voxels: number, connectivity: Connectivity, 
+export type ClusterMaskParams = { threshold: number, min_voxels: number, connectivity: Connectivity,
 /**
  * Optional local-minimum split threshold to break up large blobs.
  */
-split_local_minima: number | null, 
+split_local_minima: number | null,
 /**
  * Optional timepoint for 4D data; defaults to current.
  */
