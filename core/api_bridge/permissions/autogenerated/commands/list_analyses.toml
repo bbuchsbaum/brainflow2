@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-list-analyses"
+description = "Enables the list_analyses command without any pre-configured scope."
+commands.allow = ["list_analyses"]
+
+[[permission]]
+identifier = "deny-list-analyses"
+description = "Denies the list_analyses command without any pre-configured scope."
+commands.deny = ["list_analyses"]

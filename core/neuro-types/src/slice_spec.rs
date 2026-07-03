@@ -104,13 +104,13 @@ impl SliceSpec {
         }
     }
 
-    /// Get the world coordinate for a pixel position
+    /// Get the world coordinate for a pixel position.
+    ///
+    /// Shares its implementation with [`SliceGeometry::pixel_to_world`](crate::SliceGeometry::pixel_to_world)
+    /// via [`pixel_to_world_raw`](crate::pixel_to_world_raw) so the CPU slicer and
+    /// the view-geometry contract never drift.
     pub fn pixel_to_world(&self, x: u32, y: u32) -> [f32; 3] {
-        [
-            self.origin_mm[0] + self.u_mm[0] * x as f32 + self.v_mm[0] * y as f32,
-            self.origin_mm[1] + self.u_mm[1] * x as f32 + self.v_mm[1] * y as f32,
-            self.origin_mm[2] + self.u_mm[2] * x as f32 + self.v_mm[2] * y as f32,
-        ]
+        crate::pixel_to_world_raw(self.origin_mm, self.u_mm, self.v_mm, x as f32, y as f32)
     }
 
     /// Check if pixels are square (within tolerance)

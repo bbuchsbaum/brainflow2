@@ -4808,7 +4808,9 @@ dependencies = [
  "approx 0.5.1",
  "nalgebra 0.32.6",
  "serde",
+ "serde_json",
  "thiserror 1.0.69",
+ "ts-rs 10.1.0",
 ]
 
 [[package]]
@@ -6731,6 +6733,7 @@ dependencies = [
  "half",
  "image 0.24.9",
  "log",
+ "naga",
  "nalgebra 0.32.6",
  "ndarray 0.15.6",
  "neuro-types",

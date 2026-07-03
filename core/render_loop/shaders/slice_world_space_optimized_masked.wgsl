@@ -33,7 +33,7 @@ struct CrosshairUbo {
 };
 
 // --- Per-Layer Storage Buffer ---
-// This MUST match the Rust LayerUboStd140 struct exactly (total size: 160 bytes).
+// This MUST match the Rust LayerUboStd140 struct exactly (total size: 176 bytes).
 struct LayerData {
     // --- 16-byte aligned types first ---
     world_to_voxel : mat4x4<f32>,      // 64 bytes, offset 0
@@ -74,9 +74,19 @@ struct LayerData {
 };
 
 // --- Layer metadata ---
+// MUST match Rust layer_storage::LayerMetadata (32 bytes: active_count + 7 padding u32).
+// The uniform buffer uploaded from Rust is 32 bytes; declaring a smaller/aliased
+// layout here (e.g. active_count + vec3<u32>) desynchronizes the shader's view of
+// the metadata UBO and can corrupt the active layer count.
 struct LayerMetadata {
     active_count: u32,
-    _padding: vec3<u32>,
+    _padding1: u32,
+    _padding2: u32,
+    _padding3: u32,
+    _padding4: u32,
+    _padding5: u32,
+    _padding6: u32,
+    _padding7: u32,
 };
 
 // --- Optional slice feature uniforms ---

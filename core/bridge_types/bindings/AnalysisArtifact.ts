@@ -4,15 +4,15 @@ import type { AnalysisArtifactKind } from "./AnalysisArtifactKind";
 /**
  * Concrete artifact produced by an analysis job.
  */
-export type AnalysisArtifact = { kind: AnalysisArtifactKind,
+export type AnalysisArtifact = { kind: AnalysisArtifactKind, 
 /**
  * Human-friendly name for display/layer titles.
  */
-name: string | null,
+name: string | null, 
 /**
  * Path to artifact. For sidecars this is relative to the job output dir.
  */
-path: string,
+path: string, 
 /**
  * Optional metadata describing the artifact (space, intent, etc).
  */

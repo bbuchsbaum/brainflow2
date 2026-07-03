@@ -8,9 +8,15 @@ description = "Canonical type definitions for neuroimaging slice extraction and 
 nalgebra = { workspace = true }
 serde = { workspace = true }
 thiserror = "1.0"
+ts-rs = { workspace = true, optional = true }
 
 [dev-dependencies]
 approx = "0.5"
+serde_json = { workspace = true }
 
 [features]
 default = []
+# Enables `#[derive(ts_rs::TS)]` on the shared view-geometry contract types so
+# they can be exported to TypeScript. Opt-in (via `render_contracts`) so the
+# foundational crate stays dependency-light for pure CPU/GPU consumers.
+ts = ["dep:ts-rs"]

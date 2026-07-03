@@ -9,7 +9,9 @@ use crate::view_state::{
 };
 use crate::{RenderLoopError, RenderLoopService};
 use nalgebra::Vector3;
-use neuro_types::{CompositeRequest, LayerSpec, Result as NeuroResult, RgbaImage, SliceProvider};
+use neuro_types::{
+    CompositeRequest, LayerSpec, Result as NeuroResult, RgbaImage, SliceGeometry, SliceProvider,
+};
 
 /// Error conversion from RenderLoop to neuro-types
 impl From<RenderLoopError> for neuro_types::Error {
@@ -58,6 +60,11 @@ impl GpuSliceAdapter {
         // Determine slice orientation from vectors
         let orientation = self.detect_slice_orientation(&slice.u_mm, &slice.v_mm)?;
 
+        // Preserve the EXACT slice frame so the GPU renders the same rectangle
+        // the CPU slicer does (via SliceSpec::pixel_to_world), instead of letting
+        // camera_to_frame_params re-derive a square frame from world_center/fov.
+        let (frame_origin, frame_u_vec, frame_v_vec) = exact_frame_params(slice);
+
         // Convert layers
         let gpu_layers = request
             .layers
@@ -71,9 +78,9 @@ impl GpuSliceAdapter {
                 world_center: [center_x, center_y, center_z],
                 fov_mm,
                 orientation,
-                frame_origin: None,
-                frame_u_vec: None,
-                frame_v_vec: None,
+                frame_origin: Some(frame_origin),
+                frame_u_vec: Some(frame_u_vec),
+                frame_v_vec: Some(frame_v_vec),
             },
             crosshair_world: [center_x, center_y, center_z],
             layers: gpu_layers,
@@ -198,6 +205,9 @@ impl SliceSpecMapper {
             SliceOrientation::Coronal
         };
 
+        // Preserve the EXACT slice frame (see slice_spec_to_view_state).
+        let (frame_origin, frame_u_vec, frame_v_vec) = exact_frame_params(slice);
+
         // Convert layers (simplified - would need proper layer mapping)
         let gpu_layers = request
             .layers
@@ -226,9 +236,9 @@ impl SliceSpecMapper {
                 world_center: [center_x, center_y, center_z],
                 fov_mm,
                 orientation,
-                frame_origin: None,
-                frame_u_vec: None,
-                frame_v_vec: None,
+                frame_origin: Some(frame_origin),
+                frame_u_vec: Some(frame_u_vec),
+                frame_v_vec: Some(frame_v_vec),
             },
             crosshair_world: [center_x, center_y, center_z],
             layers: gpu_layers,
@@ -238,6 +248,19 @@ impl SliceSpecMapper {
             timepoint: None,
         })
     }
+}
+
+/// Exact GPU frame parameters for a slice, routed through the single
+/// [`SliceGeometry::to_gpu_frame_params`] contract: origin (w=1) plus the u/v
+/// vectors scaled by the full pixel extent (w=0).
+fn exact_frame_params(slice: &neuro_types::SliceSpec) -> ([f32; 4], [f32; 4], [f32; 4]) {
+    SliceGeometry {
+        origin_mm: slice.origin_mm,
+        u_mm: slice.u_mm,
+        v_mm: slice.v_mm,
+        dim_px: slice.dim_px,
+    }
+    .to_gpu_frame_params()
 }
 
 #[cfg(test)]

@@ -21,7 +21,7 @@ struct CrosshairUbo {
 };
 
 // --- Per-Layer Storage Buffer ---
-// This MUST match the Rust LayerUboStd140 struct exactly (total size: 160 bytes).
+// This MUST match the Rust LayerUboStd140 struct exactly (total size: 176 bytes).
 // IMPORTANT: std140 layout rules apply - vec3 has 16-byte alignment!
 struct LayerData {
     // --- 16-byte aligned types first ---

@@ -27,5 +27,10 @@ fn main() {
     export::<ViewId>("ViewId");
     export::<ViewState>("ViewState");
 
+    // Shared view-geometry contract (single source of truth for the frontend
+    // slice-frame math). Defined in `neuro-types`, exported here.
+    export::<neuro_types::SliceGeometry>("SliceGeometry");
+    export::<neuro_types::ViewRectMm>("ViewRectMm");
+
     println!("TypeScript render contract export completed");
 }

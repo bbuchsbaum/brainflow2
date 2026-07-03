@@ -117,29 +117,45 @@ The optimized world-space shader (`slice_world_space_optimized.wgsl`) implements
 
 ### Uniform Buffer Objects (UBOs)
 
-#### Frame UBO (Bind Group 0)
+The Rust structs in `src/ubo.rs` / `src/layer_storage.rs` are the single source
+of truth for the wire layout; the WGSL structs in the active masked shaders must
+match them byte-for-byte. `src/shader_contract.rs` names the group/binding indices
+once, and `tests/shader_contract_test.rs` reflects both shaders with `naga` and
+fails if any struct offset/size or binding index drifts from the Rust side
+(`cargo test -p render_loop --test shader_contract_test`). The field lists below
+are illustrative, not exhaustive.
+
+#### Frame UBO (Bind Group 0, binding 0) — 80 bytes
 ```rust
 struct FrameUbo {
-    origin_mm: vec4<f32>,    // World position at NDC (0,0)
-    u_mm: vec4<f32>,         // World vector for NDC X
-    v_mm: vec4<f32>,         // World vector for NDC Y
-    target_dim: vec2<u32>,   // Render target dimensions
+    origin_mm: vec4<f32>,       // World position at NDC (0,0), w = 1
+    u_mm: vec4<f32>,            // World vector for NDC X
+    v_mm: vec4<f32>,            // World vector for NDC Y
+    atlas_dim: vec3<u32>,       // 3D atlas dimensions (+ padding u32)
+    target_dim: vec2<u32>,      // Render target dimensions (+ padding vec2<u32>)
 }
+// Group 0 also carries CrosshairUbo at binding 1.
 ```
 
-#### Layer Data (Storage Buffer - Bind Group 1)
+#### Layer Data (Storage Buffer - Bind Group 1, binding 0) — 176 bytes/layer
 ```rust
+// LayerUboStd140 (std140-packed, 176-byte stride). Selected fields:
 struct LayerData {
-    world_to_voxel: mat4x4<f32>,  // Transform matrix
-    dim: vec3<u32>,               // Volume dimensions
+    world_to_voxel: mat4x4<f32>,  // Transform matrix (offset 0)
+    texture_coords: vec4<f32>,    // offset 64
+    dim: vec3<u32>,               // Volume dimensions (offset 80)
     texture_index: u32,           // Which texture to sample
     colormap_id: u32,             // Colormap LUT index
-    blend_mode: u32,              // Blending mode
+    blend_mode: u32,              // 0=alpha,1=add,2=max,3=min,4=multiply
     threshold_mode: u32,          // Threshold type
     opacity: f32,                 // Layer opacity
     intensity_min/max: f32,       // Intensity window
     thresh_low/high: f32,         // Threshold bounds
+    layer_mode: u32,              // 0=scalar,1=label,2=mask
+    alpha_mod_mode/gamma/center,  // Intensity-modulated alpha
+    // ... see ubo.rs::LayerUboStd140 for the full field list.
 }
+// Group 1 binding 1 = LayerMetadata (active_count + 7 padding u32, 32 bytes).
 ```
 
 ### Performance Optimizations

@@ -3,11 +3,17 @@
  * Abstraction layer for backend communication
  */
 
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from '@tauri-apps/api/core';
+import { apiBridgeCommands } from '@brainflow/api';
 
 export interface BackendTransport {
   invoke<T>(cmd: string, args?: unknown): Promise<T>;
 }
+
+// Commands from the api-bridge plugin need the `plugin:api-bridge|` namespace.
+// The list is generated from `api_bridge::COMMANDS` (single source of truth) by
+// `cargo xtask ts-bindings`; do not hand-edit it here.
+const apiBridgeCommandSet: ReadonlySet<string> = new Set(apiBridgeCommands);
 
 /**
  * Production transport using Tauri's invoke
@@ -25,100 +31,7 @@ export class TauriTransport implements BackendTransport {
   }
 
   private getNamespacedCommand(cmd: string): string {
-    // Commands from the api-bridge plugin need the plugin namespace
-    const apiBridgeCommands = [
-      "render_view", // New unified render method
-      "submit_view", // No-readback submission path
-      "render_views", // Multi-view batched render
-      "load_file",
-      "load_surface",
-      "unload_surface",
-      "load_surface_overlay",
-      "unload_surface_overlay",
-      "get_surface_overlay_data",
-      "get_surface_geometry",
-      "get_volume_bounds",
-      "unload_volume",
-      "get_volume_info",
-      "set_volume_timepoint",
-      "get_volume_timepoint",
-      "get_initial_views",
-      "fs_list_directory",
-      "remote_mount_connect",
-      "remote_mount_respond_host_key",
-      "remote_mount_respond_auth",
-      "remote_mount_unmount",
-      "list_remote_mounts",
-      "list_remote_directory",
-      "list_remote_mount_profiles",
-      "remove_remote_mount_profile",
-      "sample_world_coordinate",
-      "sample_layer_value_at_world",
-      "get_volume_for_projection",
-      "project_volume_to_surface",
-      "create_surface_sampler",
-      "apply_sampler",
-      "release_sampler",
-      "sample_voxel_timeseries",
-      "sample_stack",
-      "sample_set_at_world",
-      "set_layer_border",
-      "init_render_loop",
-      "resize_canvas",
-      "create_offscreen_render_target",
-      "add_render_layer",
-      "remove_render_layer",
-      "clear_render_layers",
-      "patch_layer",
-      "compute_layer_histogram",
-      "compute_region_stats",
-      "request_layer_gpu_resources",
-      "release_layer_gpu_resources",
-      "wait_for_layer_ready",
-      "update_frame_ubo",
-      "update_frame_for_synchronized_view",
-      "update_slice_outline",
-      "recalculate_all_views",
-      "recalculate_view_for_dimensions",
-      "query_slice_axis_meta",
-      "batch_render_slices",
-      // Atlas management commands
-      "get_atlas_catalog",
-      "get_filtered_atlases",
-      "get_atlas_entry",
-      "toggle_atlas_favorite",
-      "get_recent_atlases",
-      "get_favorite_atlases",
-      "validate_atlas_config",
-      "load_atlas",
-      "get_atlas_palette",
-      "register_categorical_colormap",
-      "start_atlas_progress_monitoring",
-      "get_atlas_subscription_count",
-      "get_atlas_stats",
-      "get_nifti_header_info",
-      "peek_volume_metadata",
-      // Surface template commands
-      "load_surface_template",
-      "get_surface_template_catalog",
-      "preview_folder_ontology",
-      "preview_set_studio_imports",
-      "promote_discovery_to_neurotabs",
-      "materialize_set_studio_compare_panes",
-      "start_set_studio_compare_materialization",
-      "get_set_studio_materialization_status",
-      "cancel_set_studio_materialization",
-      "check_bids_directory",
-      "scan_bids_dataset",
-      "get_bids_events",
-      "compute_temporal_metric",
-      "list_analyses",
-      "start_analysis",
-      "cancel_analysis",
-      "get_analysis_job_status",
-    ];
-
-    if (apiBridgeCommands.includes(cmd)) {
+    if (apiBridgeCommandSet.has(cmd)) {
       return `plugin:api-bridge|${cmd}`;
     }
 
@@ -143,9 +56,7 @@ export class MockTransport implements BackendTransport {
     });
 
     // Simulate network delay
-    await new Promise((resolve) =>
-      setTimeout(resolve, 10 + Math.random() * 20),
-    );
+    await new Promise((resolve) => setTimeout(resolve, 10 + Math.random() * 20));
 
     // Return mock response
     const response = this.responses.get(cmd);
@@ -183,9 +94,9 @@ export class MockTransport implements BackendTransport {
 
   private getDefaultResponse(cmd: string, args: any): any {
     switch (cmd) {
-      case "render_view":
+      case 'render_view':
         // Return mock data based on format
-        if (args?.format === "png") {
+        if (args?.format === 'png') {
           // Return mock PNG data
           return new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]); // PNG header
         } else {
@@ -212,19 +123,16 @@ export class MockTransport implements BackendTransport {
           return buffer;
         }
 
-      case "submit_view": {
-        const rawState =
-          typeof args?.stateJson === "string" ? args.stateJson : "{}";
-        let requestedView: { type?: string; width?: number; height?: number } =
-          {};
+      case 'submit_view': {
+        const rawState = typeof args?.stateJson === 'string' ? args.stateJson : '{}';
+        let requestedView: { type?: string; width?: number; height?: number } = {};
         let visibleLayerCount = 0;
         try {
           const parsedState = JSON.parse(rawState);
           requestedView = parsedState?.requestedView || {};
           visibleLayerCount = Array.isArray(parsedState?.layers)
             ? parsedState.layers.filter(
-                (layer: any) =>
-                  layer?.visible !== false && (layer?.opacity ?? 0) > 0,
+                (layer: any) => layer?.visible !== false && (layer?.opacity ?? 0) > 0,
               ).length
             : 0;
         } catch {
@@ -233,8 +141,8 @@ export class MockTransport implements BackendTransport {
         }
 
         return {
-          requested_view: requestedView.type ?? "axial",
-          format: "rgba",
+          requested_view: requestedView.type ?? 'axial',
+          format: 'rgba',
           parse_ms: 0.5,
           service_lock_ms: 0.25,
           target_setup_ms: 0.5,
@@ -244,10 +152,7 @@ export class MockTransport implements BackendTransport {
           total_ms: 3.5,
           visible_layer_count: visibleLayerCount,
           output_bytes: 0,
-          output_dimensions: [
-            requestedView.width ?? 256,
-            requestedView.height ?? 256,
-          ],
+          output_dimensions: [requestedView.width ?? 256, requestedView.height ?? 256],
           warnings: [],
           frame: {
             prepare_ms: 0.5,
@@ -257,14 +162,13 @@ export class MockTransport implements BackendTransport {
             visible_layers: visibleLayerCount,
             updated_layer_slots: visibleLayerCount,
             reused_layer_state: false,
-            readback_mode: "skip",
+            readback_mode: 'skip',
           },
         };
       }
 
-      case "render_views": {
-        const rawState =
-          typeof args?.stateJson === "string" ? args.stateJson : "{}";
+      case 'render_views': {
+        const rawState = typeof args?.stateJson === 'string' ? args.stateJson : '{}';
         let requestedViews: Array<{
           type: string;
           width: number;
@@ -280,8 +184,8 @@ export class MockTransport implements BackendTransport {
           requestedViews.length > 0
             ? requestedViews
             : [
-                { type: "axial", width: 256, height: 256 },
-                { type: "sagittal", width: 256, height: 256 },
+                { type: 'axial', width: 256, height: 256 },
+                { type: 'sagittal', width: 256, height: 256 },
               ];
         const viewCodes: Record<string, number> = {
           axial: 0,
@@ -305,10 +209,7 @@ export class MockTransport implements BackendTransport {
         });
 
         const metadataBytes = 4 + payloads.length * 13;
-        const payloadBytes = payloads.reduce(
-          (sum, entry) => sum + entry.payload.length,
-          0,
-        );
+        const payloadBytes = payloads.reduce((sum, entry) => sum + entry.payload.length, 0);
         const buffer = new Uint8Array(metadataBytes + payloadBytes);
         const dataView = new DataView(buffer.buffer);
         dataView.setUint32(0, payloads.length, true);
@@ -333,7 +234,7 @@ export class MockTransport implements BackendTransport {
         return buffer;
       }
 
-      case "recalculate_view_for_dimensions": {
+      case 'recalculate_view_for_dimensions': {
         const dims = args?.dimensions || [256, 256];
         return {
           origin_mm: [0, 0, 0],
@@ -343,7 +244,7 @@ export class MockTransport implements BackendTransport {
           height_px: dims[1],
         };
       }
-      case "recalculate_all_views": {
+      case 'recalculate_all_views': {
         const dimsByView = args?.dimensionsByView || {};
         const buildView = (key: string) => {
           const dim = dimsByView[key] || [256, 256];
@@ -356,19 +257,19 @@ export class MockTransport implements BackendTransport {
           };
         };
         return {
-          axial: buildView("axial"),
-          sagittal: buildView("sagittal"),
-          coronal: buildView("coronal"),
+          axial: buildView('axial'),
+          sagittal: buildView('sagittal'),
+          coronal: buildView('coronal'),
         };
       }
 
-      case "set_volume_timepoint":
+      case 'set_volume_timepoint':
         return null;
 
-      case "get_volume_timepoint":
+      case 'get_volume_timepoint':
         return 0;
 
-      case "get_atlas_stats": {
+      case 'get_atlas_stats': {
         const now = Date.now();
         return {
           total_layers: 16,
@@ -384,10 +285,10 @@ export class MockTransport implements BackendTransport {
         };
       }
 
-      case "load_file":
+      case 'load_file':
         return {
-          id: "mock-volume-" + Math.random().toString(36).substr(2, 9),
-          name: args?.path?.split("/").pop() || "mock-volume.nii.gz",
+          id: 'mock-volume-' + Math.random().toString(36).substr(2, 9),
+          name: args?.path?.split('/').pop() || 'mock-volume.nii.gz',
           dims: [182, 218, 182],
           voxel_size: [1.0, 1.0, 1.0],
           affine: [
@@ -398,27 +299,27 @@ export class MockTransport implements BackendTransport {
           ],
         };
 
-      case "fs_list_directory":
+      case 'fs_list_directory':
         // Generate some mock files for testing
-        const basePath = args?.path || "/mock";
+        const basePath = args?.path || '/mock';
         const mockFiles = [
           {
             id: `${basePath}/data`,
-            name: "data",
+            name: 'data',
             isDir: true,
             parentIdx: null,
             iconId: 1,
           },
           {
             id: `${basePath}/brain.nii.gz`,
-            name: "brain.nii.gz",
+            name: 'brain.nii.gz',
             isDir: false,
             parentIdx: null,
             iconId: 2,
           },
           {
             id: `${basePath}/mask.nii.gz`,
-            name: "mask.nii.gz",
+            name: 'mask.nii.gz',
             isDir: false,
             parentIdx: null,
             iconId: 2,
@@ -427,34 +328,33 @@ export class MockTransport implements BackendTransport {
 
         return { nodes: mockFiles };
 
-      case "sample_world_coordinate":
+      case 'sample_world_coordinate':
         return {
           value: Math.random() * 1000,
           coordinate: args?.worldCoord || [0, 0, 0],
         };
 
-      case "sample_voxel_timeseries":
+      case 'sample_voxel_timeseries':
         return [0.1, 0.45, 0.8, 0.35, 0.6];
 
-      case "sample_stack":
+      case 'sample_stack':
         return [0.1, 0.45, 0.8, 0.35, 0.6];
 
-      case "compute_region_stats":
+      case 'compute_region_stats':
         return [
           { labelId: 1, value: 0.7, voxelCount: 120 },
           { labelId: 2, value: 0.4, voxelCount: 80 },
           { labelId: 3, value: 0.9, voxelCount: 200 },
         ];
 
-      case "sample_set_at_world":
-        return (
-          (args?.members as { memberId: string }[] | undefined) ?? []
-        ).map((m) => ({ memberId: m.memberId, value: Math.random() }));
+      case 'sample_set_at_world':
+        return ((args?.members as { memberId: string }[] | undefined) ?? []).map((m) => ({
+          memberId: m.memberId,
+          value: Math.random(),
+        }));
 
       default:
-        console.warn(
-          `Mock transport: No response defined for command '${cmd}'`,
-        );
+        console.warn(`Mock transport: No response defined for command '${cmd}'`);
         return null;
     }
   }
@@ -469,7 +369,7 @@ let globalTransport: BackendTransport | null = null;
 export function getTransport(): BackendTransport {
   if (!globalTransport) {
     // Check if we're in a Tauri environment
-    if (typeof window !== "undefined" && (window as any).__TAURI__) {
+    if (typeof window !== 'undefined' && (window as any).__TAURI__) {
       globalTransport = new TauriTransport();
     } else {
       throw new Error(

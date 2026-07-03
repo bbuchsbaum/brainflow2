@@ -108,7 +108,7 @@ impl LayerStorageManager {
             entries: &[
                 // Layer data storage buffer
                 wgpu::BindGroupLayoutEntry {
-                    binding: 0,
+                    binding: crate::shader_contract::layer::LAYER_DATA,
                     visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
                     ty: wgpu::BindingType::Buffer {
                         ty: wgpu::BufferBindingType::Storage { read_only: true },
@@ -119,7 +119,7 @@ impl LayerStorageManager {
                 },
                 // Metadata uniform buffer
                 wgpu::BindGroupLayoutEntry {
-                    binding: 1,
+                    binding: crate::shader_contract::layer::LAYER_METADATA,
                     visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
                     ty: wgpu::BindingType::Buffer {
                         ty: wgpu::BufferBindingType::Uniform,

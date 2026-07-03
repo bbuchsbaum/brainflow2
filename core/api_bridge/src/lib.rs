@@ -39,7 +39,7 @@ use ts_rs::TS;
 // use futures;
 // Added imports for plugin creation
 use tauri::plugin::{Builder, TauriPlugin};
-use tauri::{generate_handler, Emitter, Manager, Runtime};
+use tauri::{Emitter, Manager, Runtime};
 // Re-add tokio::sync::Mutex
 use directories::ProjectDirs;
 use keyring::Entry as KeyringEntry;
@@ -62,12 +62,18 @@ use brainflow_loaders as core_loaders;
 
 // Import error helpers
 mod analysis;
+mod command_registry;
 mod error_context;
 mod error_helpers;
 mod materialization;
 mod render_bridge_adapter;
 mod user_errors;
+use command_registry::bridge_commands;
 use error_context::*;
+
+// Bring the analysis commands into crate-root scope so `command_list.rs` can list
+// them as bare identifiers alongside the commands defined in this file.
+use analysis::{cancel_analysis, get_analysis_job_status, list_analyses, start_analysis};
 use error_helpers::*;
 
 // Import atlas system
@@ -5885,29 +5891,8 @@ async fn update_slice_outline(
     Ok(())
 }
 
-// ViewPlaneUbo has been removed - view plane info is now encoded in frame vectors
-// #[command]
-// #[tracing::instrument(skip_all, err, name = "api.set_view_plane")]
-// async fn set_view_plane(
-//     plane_id: u32,
-//     state: State<'_, BridgeState>
-// ) -> BridgeResult<()> {
-//     info!("Bridge: set_view_plane called with plane_id: {}", plane_id);
-//
-//     // Get render loop service
-//     let service_guard = state.render_loop_service.lock().await;
-//     let service_arc = service_guard.as_ref()
-//         .map_err(|| BridgeError::ServiceNotInitialized {
-//             code: 5006,
-//             details: "GPU rendering service is not initialized. Please initialize the render loop first.".to_string()
-//         })?;
-//     let service = service_arc.lock().await;
-//
-//     // Update the view plane UBO
-//     service.set_view_plane(plane_id);
-//
-//     Ok(())
-// }
+// ViewPlaneUbo has been removed - view plane info is now encoded in frame vectors.
+// The former `set_view_plane` command was retired with it.
 
 #[command]
 #[tracing::instrument(skip_all, err, name = "api.update_frame_for_synchronized_view")]
@@ -12738,6 +12723,12 @@ fn compute_metric_slice_inner(
     })
 }
 
+// --- Command registry ---
+// Expands (at the crate root) to `pub const COMMANDS: &[&str]` and
+// `pub fn invoke_handler`. The command list lives in a single file that is also
+// parsed by `build.rs`; see `command_registry.rs`.
+include!("command_list.rs");
+
 // --- Plugin Creation ---
 pub fn create_plugin<R: Runtime>() -> TauriPlugin<R> {
     plugin()
@@ -12745,116 +12736,7 @@ pub fn create_plugin<R: Runtime>() -> TauriPlugin<R> {
 
 pub fn plugin<R: Runtime>() -> TauriPlugin<R> {
     Builder::<R>::new("api-bridge")
-        .invoke_handler(generate_handler![
-            analysis::list_analyses,
-            analysis::start_analysis,
-            analysis::cancel_analysis,
-            analysis::get_analysis_job_status,
-            load_file,
-            load_surface,
-            unload_surface,
-            load_surface_overlay,
-            get_surface_overlay_data,
-            unload_surface_overlay,
-            get_surface_geometry,
-            get_volume_bounds,
-            unload_volume,
-            // world_to_voxel, // REMOVED - Unused coordinate transformation
-            set_volume_timepoint,
-            get_volume_timepoint,
-            get_volume_info,
-            get_nifti_header_info,
-            peek_volume_metadata,
-            // get_timeseries_matrix, // REMOVED - Returns unimplemented
-            get_initial_views,
-            recalculate_view_for_dimensions,
-            recalculate_all_views,
-            request_layer_gpu_resources,
-            release_layer_gpu_resources,
-            wait_for_layer_ready,
-            get_atlas_stats,
-            fs_list_directory,
-            remote_mount_connect,
-            remote_mount_respond_host_key,
-            remote_mount_respond_auth,
-            remote_mount_unmount,
-            list_remote_mounts,
-            list_remote_directory,
-            list_remote_mount_profiles,
-            remove_remote_mount_profile,
-            init_render_loop,
-            create_offscreen_render_target,
-            resize_canvas,
-            update_frame_ubo,
-            update_frame_for_synchronized_view,
-            set_crosshair,
-            update_slice_outline,
-            // set_view_plane, // Removed - view plane info now encoded in frame vectors
-            clear_render_layers,
-            update_layer_opacity,
-            update_layer_colormap,
-            update_layer_intensity,
-            update_layer_threshold,
-            set_layer_mask,
-            set_layer_border,
-            sample_layer_value_at_world,
-            get_volume_for_projection,
-            project_volume_to_surface,
-            create_surface_sampler,
-            apply_sampler,
-            release_sampler,
-            request_frame,
-            add_render_layer,
-            patch_layer,
-            compute_layer_histogram,
-            sample_world_coordinate,
-            render_view,
-            submit_view,
-            render_views,
-            query_slice_axis_meta,
-            batch_render_slices,
-            // Atlas management commands
-            get_atlas_catalog,
-            get_filtered_atlases,
-            get_atlas_entry,
-            toggle_atlas_favorite,
-            get_recent_atlases,
-            get_favorite_atlases,
-            validate_atlas_config,
-            load_atlas,
-            get_atlas_palette,
-            register_categorical_colormap,
-            load_surface_atlas,
-            start_atlas_progress_monitoring,
-            get_atlas_subscription_count,
-            // Surface template commands
-            load_surface_template,
-            get_surface_template_catalog,
-            // Template management commands
-            get_template_catalog,
-            get_filtered_templates,
-            get_template_entry,
-            validate_template_config,
-            load_template,
-            load_template_by_id,
-            get_template_cache_stats,
-            clear_template_cache,
-            preview_folder_ontology,
-            preview_set_studio_imports,
-            promote_discovery_to_neurotabs,
-            materialize_set_studio_compare_panes,
-            start_set_studio_compare_materialization,
-            get_set_studio_materialization_status,
-            cancel_set_studio_materialization,
-            check_bids_directory,
-            scan_bids_dataset,
-            get_bids_events,
-            sample_voxel_timeseries,
-            sample_stack,
-            compute_temporal_metric,
-            compute_region_stats,
-            sample_set_at_world,
-        ])
+        .invoke_handler(invoke_handler())
         .setup(|app, _| {
             // Initialize the bridge state
             let bridge_state = BridgeState::default().map_err(std::io::Error::other)?;

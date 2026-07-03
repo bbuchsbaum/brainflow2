@@ -22,17 +22,23 @@ export class LayerGpuService {
     this.transport = transport;
   }
 
-  async requestLayerGpuResources(layerId: string, volumeId: string, metadataOnly?: boolean): Promise<any> {
-    console.log(`LayerGpuService: Requesting GPU resources for layer ${layerId}, volume ${volumeId}, metadataOnly: ${metadataOnly}`);
+  async requestLayerGpuResources(
+    layerId: string,
+    volumeId: string,
+    metadataOnly?: boolean,
+  ): Promise<any> {
+    console.log(
+      `LayerGpuService: Requesting GPU resources for layer ${layerId}, volume ${volumeId}, metadataOnly: ${metadataOnly}`,
+    );
     const result = await this.transport.invoke('request_layer_gpu_resources', {
       layerSpec: {
         Volume: {
           id: layerId,
           source_resource_id: volumeId,
-          colormap: 'gray'
-        }
+          colormap: 'gray',
+        },
       },
-      metadataOnly: metadataOnly || false
+      metadataOnly: metadataOnly || false,
     });
     console.log('LayerGpuService: GPU resources response:', result);
     return result;
@@ -45,7 +51,7 @@ export class LayerGpuService {
   async waitForLayerReady(
     layerId: string,
     timeoutMs: number = 5000,
-    pollIntervalMs: number = 25
+    pollIntervalMs: number = 25,
   ): Promise<boolean> {
     return this.transport.invoke<boolean>('wait_for_layer_ready', {
       layerId,
@@ -65,13 +71,6 @@ export class LayerGpuService {
     await this.transport.invoke('add_render_layer', { layerId, volumeId });
   }
 
-  /**
-   * @deprecated Use layer service instead
-   */
-  async removeRenderLayer(layerId: string): Promise<void> {
-    await this.transport.invoke('remove_render_layer', { layerId });
-  }
-
   async getAtlasStats(): Promise<AtlasStats> {
     const raw = await this.transport.invoke<RawAtlasStats>('get_atlas_stats');
     return this.mapAtlasStats(raw);
@@ -88,7 +87,7 @@ export class LayerGpuService {
       fullEvents: raw.full_events,
       is3D: raw.is_3d,
       lastAllocationMs: raw.last_allocation_ms,
-      lastReleaseMs: raw.last_release_ms
+      lastReleaseMs: raw.last_release_ms,
     };
   }
 }

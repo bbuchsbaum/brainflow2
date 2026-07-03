@@ -5,7 +5,7 @@ import type { AnalysisJobState } from "./AnalysisJobState";
 /**
  * Snapshot status for an analysis job.
  */
-export type AnalysisJobStatus = { job_id: string, analysis_id: string, state: AnalysisJobState,
+export type AnalysisJobStatus = { job_id: string, analysis_id: string, state: AnalysisJobState, 
 /**
  * Epoch milliseconds.
  */

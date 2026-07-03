@@ -432,15 +432,18 @@ impl MultiTextureManager {
 
     /// Create bind group layout for multi-texture rendering
     pub fn create_bind_group_layout(device: &Device, max_textures: u32) -> BindGroupLayout {
+        use crate::shader_contract::texture;
         use wgpu::*;
 
+        // Binding indices for group 2 come from the shared shader contract so the
+        // layout, the bind group, and the WGSL declarations cannot drift apart.
+        let bindings = texture::bindings(max_textures);
         let mut entries = Vec::new();
 
-        // Individual texture bindings (0-14)
-        // Use filterable: true for linear sampling support
+        // Volume textures (filterable for linear sampling).
         for i in 0..max_textures {
             entries.push(BindGroupLayoutEntry {
-                binding: i,
+                binding: bindings.volume_base + i,
                 visibility: ShaderStages::FRAGMENT,
                 ty: BindingType::Texture {
                     multisampled: false,
@@ -451,11 +454,10 @@ impl MultiTextureManager {
             });
         }
 
-        let mut next_binding = max_textures;
-
+        // Mask textures (non-filterable).
         for i in 0..max_textures {
             entries.push(BindGroupLayoutEntry {
-                binding: next_binding + i,
+                binding: bindings.mask_base + i,
                 visibility: ShaderStages::FRAGMENT,
                 ty: BindingType::Texture {
                     multisampled: false,
@@ -465,20 +467,18 @@ impl MultiTextureManager {
                 count: None,
             });
         }
-        next_binding += max_textures;
 
         // Linear sampler binding (samplerLinear in shader)
         entries.push(BindGroupLayoutEntry {
-            binding: next_binding,
+            binding: bindings.sampler_linear,
             visibility: ShaderStages::FRAGMENT,
             ty: BindingType::Sampler(SamplerBindingType::Filtering),
             count: None,
         });
-        next_binding += 1;
 
         // Colormap LUT texture (array of 2D LUTs)
         entries.push(BindGroupLayoutEntry {
-            binding: next_binding,
+            binding: bindings.colormap_lut,
             visibility: ShaderStages::FRAGMENT,
             ty: BindingType::Texture {
                 multisampled: false,
@@ -487,11 +487,10 @@ impl MultiTextureManager {
             },
             count: None,
         });
-        next_binding += 1;
 
         // Nearest sampler (samplerNearest in shader)
         entries.push(BindGroupLayoutEntry {
-            binding: next_binding,
+            binding: bindings.sampler_nearest,
             visibility: ShaderStages::FRAGMENT,
             ty: BindingType::Sampler(SamplerBindingType::NonFiltering),
             count: None,
@@ -530,7 +529,10 @@ impl MultiTextureManager {
         // Build bind group entries for individual texture bindings
         let mut entries = Vec::new();
 
-        // Add individual texture bindings (0-14)
+        // Binding indices come from the shared shader contract (group 2).
+        let bindings = crate::shader_contract::texture::bindings(self.max_textures);
+
+        // Volume textures.
         for i in 0..self.max_textures {
             let view = if let Some(entry) = self.textures.get(&i) {
                 debug!(
@@ -544,13 +546,12 @@ impl MultiTextureManager {
             };
 
             entries.push(wgpu::BindGroupEntry {
-                binding: i,
+                binding: bindings.volume_base + i,
                 resource: wgpu::BindingResource::TextureView(view),
             });
         }
 
-        let mut next_binding = self.max_textures;
-
+        // Mask textures.
         let default_mask_view = self
             .default_mask_view
             .as_ref()
@@ -563,29 +564,26 @@ impl MultiTextureManager {
                 .unwrap_or(default_mask_view);
 
             entries.push(wgpu::BindGroupEntry {
-                binding: next_binding + i,
+                binding: bindings.mask_base + i,
                 resource: wgpu::BindingResource::TextureView(view),
             });
         }
-        next_binding += self.max_textures;
 
         // Linear sampler binding (samplerLinear in shader)
         entries.push(wgpu::BindGroupEntry {
-            binding: next_binding,
+            binding: bindings.sampler_linear,
             resource: wgpu::BindingResource::Sampler(linear_sampler),
         });
-        next_binding += 1;
 
         // Colormap texture (2D array view)
         entries.push(wgpu::BindGroupEntry {
-            binding: next_binding,
+            binding: bindings.colormap_lut,
             resource: wgpu::BindingResource::TextureView(colormap_texture),
         });
-        next_binding += 1;
 
         // Nearest sampler (samplerNearest in shader)
         entries.push(wgpu::BindGroupEntry {
-            binding: next_binding,
+            binding: bindings.sampler_nearest,
             resource: wgpu::BindingResource::Sampler(nearest_sampler),
         });
 
@@ -625,7 +623,10 @@ impl MultiTextureManager {
         // Build bind group entries for individual texture bindings
         let mut entries = Vec::new();
 
-        // Add individual texture bindings (0-14)
+        // Binding indices come from the shared shader contract (group 2).
+        let bindings = crate::shader_contract::texture::bindings(self.max_textures);
+
+        // Volume textures.
         for i in 0..self.max_textures {
             let view = if let Some(entry) = self.textures.get(&i) {
                 debug!(
@@ -639,13 +640,12 @@ impl MultiTextureManager {
             };
 
             entries.push(wgpu::BindGroupEntry {
-                binding: i,
+                binding: bindings.volume_base + i,
                 resource: wgpu::BindingResource::TextureView(view),
             });
         }
 
-        let mut next_binding = self.max_textures;
-
+        // Mask textures.
         let default_mask_view = self
             .default_mask_view
             .as_ref()
@@ -658,29 +658,26 @@ impl MultiTextureManager {
                 .unwrap_or(default_mask_view);
 
             entries.push(wgpu::BindGroupEntry {
-                binding: next_binding + i,
+                binding: bindings.mask_base + i,
                 resource: wgpu::BindingResource::TextureView(view),
             });
         }
-        next_binding += self.max_textures;
 
         // Linear sampler binding (samplerLinear in shader)
         entries.push(wgpu::BindGroupEntry {
-            binding: next_binding,
+            binding: bindings.sampler_linear,
             resource: wgpu::BindingResource::Sampler(linear_sampler),
         });
-        next_binding += 1;
 
         // Colormap texture binding
         entries.push(wgpu::BindGroupEntry {
-            binding: next_binding,
+            binding: bindings.colormap_lut,
             resource: wgpu::BindingResource::TextureView(colormap_texture),
         });
-        next_binding += 1;
 
         // Nearest sampler (samplerNearest in shader)
         entries.push(wgpu::BindGroupEntry {
-            binding: next_binding,
+            binding: bindings.sampler_nearest,
             resource: wgpu::BindingResource::Sampler(nearest_sampler),
         });
 

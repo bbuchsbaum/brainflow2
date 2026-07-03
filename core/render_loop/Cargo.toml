@@ -64,6 +64,12 @@ pollster = "0.3"
 rand = "0.8"
 futures-intrusive = "0.5" # For map_async callback channel
 approx = "0.5" # For float comparisons
+# WGSL reflection for the shader-contract structural test (CPU-only, no GPU adapter).
+# Pinned to the version wgpu-core already resolves (the workspace's `=0.20.1`
+# pin is inert: that patch was never published, so nothing binds to it and the
+# transitive naga is 0.20.0). Using `workspace = true` here would fail to
+# resolve and/or introduce a second naga copy.
+naga = { version = "=0.20.0", features = ["wgsl-in"] }
 tempfile = "3" # For temporary test files
 ndarray = "0.15" # For creating test data
 nifti = "0.16" # For saving test NIfTI files

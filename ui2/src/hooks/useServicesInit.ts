@@ -15,6 +15,7 @@ import { initializeViewRegistry } from '@/services/ViewRegistry';
 import { coalesceUtils } from '@/stores/middleware/coalesceUpdatesMiddleware';
 import { getApiService } from '@/services/apiService';
 import { setMultiViewBatchEnabled } from '@/services/RenderCoordinator';
+import { getMosaicRenderService } from '@/services/MosaicRenderService';
 import { getRenderTargetService } from '@/services/renderTarget/RenderTargetService';
 import { getEventBus } from '@/events/EventBus';
 import { bootstrapLogService } from '@/services/LogService';
@@ -86,11 +87,15 @@ export function useServicesInit() {
 
         // Ensure coordinator reflects persisted flag state before any renders
         setMultiViewBatchEnabled(featureFlags.multiViewBatch);
+        getMosaicRenderService().setBatchRenderEnabled(featureFlags.mosaicBatchRender);
 
         if (!featureFlagSubscription) {
           featureFlagSubscription = useFeatureFlagStore.subscribe((state, previousState) => {
             if (state.multiViewBatch !== previousState.multiViewBatch) {
               setMultiViewBatchEnabled(state.multiViewBatch);
+            }
+            if (state.mosaicBatchRender !== previousState.mosaicBatchRender) {
+              getMosaicRenderService().setBatchRenderEnabled(state.mosaicBatchRender);
             }
           });
         }

@@ -363,23 +363,23 @@ footer {
     .container {
         padding: 10px;
     }
-    
+
     header h1 {
         font-size: 2em;
     }
-    
+
     .image-comparison {
         grid-template-columns: 1fr;
     }
-    
+
     .metrics-grid {
         grid-template-columns: 1fr;
     }
-    
+
     .summary-grid {
         grid-template-columns: repeat(2, 1fr);
     }
-    
+
     .test-header {
         flex-direction: column;
         align-items: flex-start;

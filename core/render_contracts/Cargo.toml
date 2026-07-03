@@ -10,7 +10,7 @@ path = "src/bin/export_types.rs"
 [dependencies]
 serde = { workspace = true }
 ts-rs = { workspace = true }
-neuro-types = { path = "../neuro-types" }
+neuro-types = { path = "../neuro-types", features = ["ts"] }
 
 [dev-dependencies]
 serde_json = { workspace = true }

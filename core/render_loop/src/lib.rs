@@ -37,6 +37,7 @@ pub mod optimized_renderer;
 pub mod pipeline;
 pub mod render_state;
 pub mod render_target_pool;
+pub mod shader_contract;
 pub mod shader_watcher;
 pub mod shaders;
 pub mod slice_adapter;

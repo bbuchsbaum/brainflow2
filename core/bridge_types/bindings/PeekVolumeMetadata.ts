@@ -7,35 +7,35 @@
  * loading the volume data into the GPU. Fields are camelCase in the
  * generated TypeScript bindings.
  */
-export type PeekVolumeMetadata = {
+export type PeekVolumeMetadata = { 
 /**
  * Path that was probed.
  */
-path: string,
+path: string, 
 /**
  * Discriminator: "nifti" | "gifti".
  */
-kind: string,
+kind: string, 
 /**
  * Spatial (and optional time) dimensions.
  */
-dims: Array<number>,
+dims: Array<number>, 
 /**
  * Voxel size in mm. Empty for surface meshes.
  */
-voxelSize: Array<number>,
+voxelSize: Array<number>, 
 /**
  * Data type string (e.g. "f32", "i16", "u8") if known.
  */
-dtype: string | null,
+dtype: string | null, 
 /**
  * True when the probe identifies the volume as 4D.
  */
-isFourD: boolean,
+isFourD: boolean, 
 /**
  * Number of time points if applicable.
  */
-numTimepoints: number | null,
+numTimepoints: number | null, 
 /**
  * Repetition time in seconds if applicable.
  */

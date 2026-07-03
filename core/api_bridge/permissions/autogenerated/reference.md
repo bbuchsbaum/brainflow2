@@ -6,26 +6,29 @@ Default permissions for api-bridge plugin
 
 - `allow-load-file`
 - `allow-load-surface`
+- `allow-unload-surface`
+- `allow-unload-surface-overlay`
+- `allow-unload-volume`
 - `allow-get-surface-geometry`
 - `allow-get-volume-bounds`
-- `allow-world-to-voxel`
-- `allow-get-timeseries-matrix`
 - `allow-get-initial-views`
 - `allow-recalculate-view-for-dimensions`
+- `allow-recalculate-all-views`
 - `allow-request-layer-gpu-resources`
 - `allow-wait-for-layer-ready`
 - `allow-release-layer-gpu-resources`
 - `allow-fs-list-directory`
+- `allow-list-remote-mounts`
+- `allow-list-remote-directory`
 - `allow-init-render-loop`
 - `allow-resize-canvas`
 - `allow-update-frame-ubo`
 - `allow-update-frame-for-synchronized-view`
 - `allow-set-crosshair`
 - `allow-update-slice-outline`
-- `allow-set-view-plane`
 - `allow-create-offscreen-render-target`
 - `allow-add-render-layer`
-- `allow-remove-render-layer`
+- `allow-request-frame`
 - `allow-clear-render-layers`
 - `allow-patch-layer`
 - `allow-compute-layer-histogram`
@@ -77,6 +80,11 @@ Default permissions for api-bridge plugin
 - `allow-load-surface-overlay`
 - `allow-get-surface-overlay-data`
 - `allow-set-layer-mask`
+- `allow-set-layer-border`
+- `allow-list-analyses`
+- `allow-start-analysis`
+- `allow-cancel-analysis`
+- `allow-get-analysis-job-status`
 - `allow-preview-folder-ontology`
 - `allow-preview-set-studio-imports`
 - `allow-promote-discovery-to-neurotabs`
@@ -183,6 +191,32 @@ Denies the batch_render_slices command without any pre-configured scope.
 <tr>
 <td>
 
+`api-bridge:allow-cancel-analysis`
+
+</td>
+<td>
+
+Enables the cancel_analysis command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:deny-cancel-analysis`
+
+</td>
+<td>
+
+Denies the cancel_analysis command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
 `api-bridge:allow-cancel-set-studio-materialization`
 
 </td>
@@ -235,32 +269,6 @@ Denies the check_bids_directory command without any pre-configured scope.
 <tr>
 <td>
 
-`api-bridge:allow-clear-alpha-mask`
-
-</td>
-<td>
-
-Enables the clear_alpha_mask command without any pre-configured scope.
-
-</td>
-</tr>
-
-<tr>
-<td>
-
-`api-bridge:deny-clear-alpha-mask`
-
-</td>
-<td>
-
-Denies the clear_alpha_mask command without any pre-configured scope.
-
-</td>
-</tr>
-
-<tr>
-<td>
-
 `api-bridge:allow-clear-render-layers`
 
 </td>
@@ -306,32 +314,6 @@ Enables the clear_template_cache command without any pre-configured scope.
 <td>
 
 Denies the clear_template_cache command without any pre-configured scope.
-
-</td>
-</tr>
-
-<tr>
-<td>
-
-`api-bridge:allow-compute-alpha-mask`
-
-</td>
-<td>
-
-Enables the compute_alpha_mask command without any pre-configured scope.
-
-</td>
-</tr>
-
-<tr>
-<td>
-
-`api-bridge:deny-compute-alpha-mask`
-
-</td>
-<td>
-
-Denies the compute_alpha_mask command without any pre-configured scope.
 
 </td>
 </tr>
@@ -469,110 +451,6 @@ Denies the create_surface_sampler command without any pre-configured scope.
 <tr>
 <td>
 
-`api-bridge:allow-create-volume`
-
-</td>
-<td>
-
-Enables the create_volume command without any pre-configured scope.
-
-</td>
-</tr>
-
-<tr>
-<td>
-
-`api-bridge:deny-create-volume`
-
-</td>
-<td>
-
-Denies the create_volume command without any pre-configured scope.
-
-</td>
-</tr>
-
-<tr>
-<td>
-
-`api-bridge:allow-discover-atlases`
-
-</td>
-<td>
-
-Enables the discover_atlases command without any pre-configured scope.
-
-</td>
-</tr>
-
-<tr>
-<td>
-
-`api-bridge:deny-discover-atlases`
-
-</td>
-<td>
-
-Denies the discover_atlases command without any pre-configured scope.
-
-</td>
-</tr>
-
-<tr>
-<td>
-
-`api-bridge:allow-discover-templates`
-
-</td>
-<td>
-
-Enables the discover_templates command without any pre-configured scope.
-
-</td>
-</tr>
-
-<tr>
-<td>
-
-`api-bridge:deny-discover-templates`
-
-</td>
-<td>
-
-Denies the discover_templates command without any pre-configured scope.
-
-</td>
-</tr>
-
-<tr>
-<td>
-
-`api-bridge:allow-extract-slice`
-
-</td>
-<td>
-
-Enables the extract_slice command without any pre-configured scope.
-
-</td>
-</tr>
-
-<tr>
-<td>
-
-`api-bridge:deny-extract-slice`
-
-</td>
-<td>
-
-Denies the extract_slice command without any pre-configured scope.
-
-</td>
-</tr>
-
-<tr>
-<td>
-
 `api-bridge:allow-fs-list-directory`
 
 </td>
@@ -599,12 +477,12 @@ Denies the fs_list_directory command without any pre-configured scope.
 <tr>
 <td>
 
-`api-bridge:allow-generate-orthogonal-slice-test`
+`api-bridge:allow-get-analysis-job-status`
 
 </td>
 <td>
 
-Enables the generate_orthogonal_slice_test command without any pre-configured scope.
+Enables the get_analysis_job_status command without any pre-configured scope.
 
 </td>
 </tr>
@@ -612,12 +490,12 @@ Enables the generate_orthogonal_slice_test command without any pre-configured sc
 <tr>
 <td>
 
-`api-bridge:deny-generate-orthogonal-slice-test`
+`api-bridge:deny-get-analysis-job-status`
 
 </td>
 <td>
 
-Denies the generate_orthogonal_slice_test command without any pre-configured scope.
+Denies the get_analysis_job_status command without any pre-configured scope.
 
 </td>
 </tr>
@@ -781,32 +659,6 @@ Denies the get_bids_events command without any pre-configured scope.
 <tr>
 <td>
 
-`api-bridge:allow-get-discovery-stats`
-
-</td>
-<td>
-
-Enables the get_discovery_stats command without any pre-configured scope.
-
-</td>
-</tr>
-
-<tr>
-<td>
-
-`api-bridge:deny-get-discovery-stats`
-
-</td>
-<td>
-
-Denies the get_discovery_stats command without any pre-configured scope.
-
-</td>
-</tr>
-
-<tr>
-<td>
-
 `api-bridge:allow-get-favorite-atlases`
 
 </td>
@@ -911,32 +763,6 @@ Denies the get_initial_views command without any pre-configured scope.
 <tr>
 <td>
 
-`api-bridge:allow-get-layer-info`
-
-</td>
-<td>
-
-Enables the get_layer_info command without any pre-configured scope.
-
-</td>
-</tr>
-
-<tr>
-<td>
-
-`api-bridge:deny-get-layer-info`
-
-</td>
-<td>
-
-Denies the get_layer_info command without any pre-configured scope.
-
-</td>
-</tr>
-
-<tr>
-<td>
-
 `api-bridge:allow-get-nifti-header-info`
 
 </td>
@@ -963,32 +789,6 @@ Denies the get_nifti_header_info command without any pre-configured scope.
 <tr>
 <td>
 
-`api-bridge:allow-get-parcellation-reference-palette`
-
-</td>
-<td>
-
-Enables the get_parcellation_reference_palette command without any pre-configured scope.
-
-</td>
-</tr>
-
-<tr>
-<td>
-
-`api-bridge:deny-get-parcellation-reference-palette`
-
-</td>
-<td>
-
-Denies the get_parcellation_reference_palette command without any pre-configured scope.
-
-</td>
-</tr>
-
-<tr>
-<td>
-
 `api-bridge:allow-get-recent-atlases`
 
 </td>
@@ -1008,32 +808,6 @@ Enables the get_recent_atlases command without any pre-configured scope.
 <td>
 
 Denies the get_recent_atlases command without any pre-configured scope.
-
-</td>
-</tr>
-
-<tr>
-<td>
-
-`api-bridge:allow-get-render-statistics`
-
-</td>
-<td>
-
-Enables the get_render_statistics command without any pre-configured scope.
-
-</td>
-</tr>
-
-<tr>
-<td>
-
-`api-bridge:deny-get-render-statistics`
-
-</td>
-<td>
-
-Denies the get_render_statistics command without any pre-configured scope.
 
 </td>
 </tr>
@@ -1223,58 +997,6 @@ Denies the get_template_entry command without any pre-configured scope.
 <tr>
 <td>
 
-`api-bridge:allow-get-time-series`
-
-</td>
-<td>
-
-Enables the get_time_series command without any pre-configured scope.
-
-</td>
-</tr>
-
-<tr>
-<td>
-
-`api-bridge:deny-get-time-series`
-
-</td>
-<td>
-
-Denies the get_time_series command without any pre-configured scope.
-
-</td>
-</tr>
-
-<tr>
-<td>
-
-`api-bridge:allow-get-timeseries-matrix`
-
-</td>
-<td>
-
-Enables the get_timeseries_matrix command without any pre-configured scope.
-
-</td>
-</tr>
-
-<tr>
-<td>
-
-`api-bridge:deny-get-timeseries-matrix`
-
-</td>
-<td>
-
-Denies the get_timeseries_matrix command without any pre-configured scope.
-
-</td>
-</tr>
-
-<tr>
-<td>
-
 `api-bridge:allow-get-volume-bounds`
 
 </td>
@@ -1379,58 +1101,6 @@ Denies the get_volume_timepoint command without any pre-configured scope.
 <tr>
 <td>
 
-`api-bridge:allow-import-parcel-data-json`
-
-</td>
-<td>
-
-Enables the import_parcel_data_json command without any pre-configured scope.
-
-</td>
-</tr>
-
-<tr>
-<td>
-
-`api-bridge:deny-import-parcel-data-json`
-
-</td>
-<td>
-
-Denies the import_parcel_data_json command without any pre-configured scope.
-
-</td>
-</tr>
-
-<tr>
-<td>
-
-`api-bridge:allow-import-surface-label-parcellation`
-
-</td>
-<td>
-
-Enables the import_surface_label_parcellation command without any pre-configured scope.
-
-</td>
-</tr>
-
-<tr>
-<td>
-
-`api-bridge:deny-import-surface-label-parcellation`
-
-</td>
-<td>
-
-Denies the import_surface_label_parcellation command without any pre-configured scope.
-
-</td>
-</tr>
-
-<tr>
-<td>
-
 `api-bridge:allow-init-render-loop`
 
 </td>
@@ -1457,12 +1127,12 @@ Denies the init_render_loop command without any pre-configured scope.
 <tr>
 <td>
 
-`api-bridge:allow-list-parcellation-references`
+`api-bridge:allow-list-analyses`
 
 </td>
 <td>
 
-Enables the list_parcellation_references command without any pre-configured scope.
+Enables the list_analyses command without any pre-configured scope.
 
 </td>
 </tr>
@@ -1470,12 +1140,38 @@ Enables the list_parcellation_references command without any pre-configured scop
 <tr>
 <td>
 
-`api-bridge:deny-list-parcellation-references`
+`api-bridge:deny-list-analyses`
 
 </td>
 <td>
 
-Denies the list_parcellation_references command without any pre-configured scope.
+Denies the list_analyses command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:allow-list-remote-directory`
+
+</td>
+<td>
+
+Enables the list_remote_directory command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:deny-list-remote-directory`
+
+</td>
+<td>
+
+Denies the list_remote_directory command without any pre-configured scope.
 
 </td>
 </tr>
@@ -1509,12 +1205,12 @@ Denies the list_remote_mount_profiles command without any pre-configured scope.
 <tr>
 <td>
 
-`api-bridge:allow-list-volumes`
+`api-bridge:allow-list-remote-mounts`
 
 </td>
 <td>
 
-Enables the list_volumes command without any pre-configured scope.
+Enables the list_remote_mounts command without any pre-configured scope.
 
 </td>
 </tr>
@@ -1522,12 +1218,12 @@ Enables the list_volumes command without any pre-configured scope.
 <tr>
 <td>
 
-`api-bridge:deny-list-volumes`
+`api-bridge:deny-list-remote-mounts`
 
 </td>
 <td>
 
-Denies the list_volumes command without any pre-configured scope.
+Denies the list_remote_mounts command without any pre-configured scope.
 
 </td>
 </tr>
@@ -1580,32 +1276,6 @@ Enables the load_file command without any pre-configured scope.
 <td>
 
 Denies the load_file command without any pre-configured scope.
-
-</td>
-</tr>
-
-<tr>
-<td>
-
-`api-bridge:allow-load-nifti-file`
-
-</td>
-<td>
-
-Enables the load_nifti_file command without any pre-configured scope.
-
-</td>
-</tr>
-
-<tr>
-<td>
-
-`api-bridge:deny-load-nifti-file`
-
-</td>
-<td>
-
-Denies the load_nifti_file command without any pre-configured scope.
 
 </td>
 </tr>
@@ -1873,32 +1543,6 @@ Denies the preview_folder_ontology command without any pre-configured scope.
 <tr>
 <td>
 
-`api-bridge:allow-preview-parcel-binding-coverage`
-
-</td>
-<td>
-
-Enables the preview_parcel_binding_coverage command without any pre-configured scope.
-
-</td>
-</tr>
-
-<tr>
-<td>
-
-`api-bridge:deny-preview-parcel-binding-coverage`
-
-</td>
-<td>
-
-Denies the preview_parcel_binding_coverage command without any pre-configured scope.
-
-</td>
-</tr>
-
-<tr>
-<td>
-
 `api-bridge:allow-preview-set-studio-imports`
 
 </td>
@@ -2003,6 +1647,32 @@ Denies the query_slice_axis_meta command without any pre-configured scope.
 <tr>
 <td>
 
+`api-bridge:allow-recalculate-all-views`
+
+</td>
+<td>
+
+Enables the recalculate_all_views command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:deny-recalculate-all-views`
+
+</td>
+<td>
+
+Denies the recalculate_all_views command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
 `api-bridge:allow-recalculate-view-for-dimensions`
 
 </td>
@@ -2048,32 +1718,6 @@ Enables the register_categorical_colormap command without any pre-configured sco
 <td>
 
 Denies the register_categorical_colormap command without any pre-configured scope.
-
-</td>
-</tr>
-
-<tr>
-<td>
-
-`api-bridge:allow-release-gpu-resources`
-
-</td>
-<td>
-
-Enables the release_gpu_resources command without any pre-configured scope.
-
-</td>
-</tr>
-
-<tr>
-<td>
-
-`api-bridge:deny-release-gpu-resources`
-
-</td>
-<td>
-
-Denies the release_gpu_resources command without any pre-configured scope.
 
 </td>
 </tr>
@@ -2256,58 +1900,6 @@ Enables the remove_remote_mount_profile command without any pre-configured scope
 <td>
 
 Denies the remove_remote_mount_profile command without any pre-configured scope.
-
-</td>
-</tr>
-
-<tr>
-<td>
-
-`api-bridge:allow-remove-render-layer`
-
-</td>
-<td>
-
-Enables the remove_render_layer command without any pre-configured scope.
-
-</td>
-</tr>
-
-<tr>
-<td>
-
-`api-bridge:deny-remove-render-layer`
-
-</td>
-<td>
-
-Denies the remove_render_layer command without any pre-configured scope.
-
-</td>
-</tr>
-
-<tr>
-<td>
-
-`api-bridge:allow-remove-volume`
-
-</td>
-<td>
-
-Enables the remove_volume command without any pre-configured scope.
-
-</td>
-</tr>
-
-<tr>
-<td>
-
-`api-bridge:deny-remove-volume`
-
-</td>
-<td>
-
-Denies the remove_volume command without any pre-configured scope.
 
 </td>
 </tr>
@@ -2627,6 +2219,32 @@ Denies the set_crosshair command without any pre-configured scope.
 <tr>
 <td>
 
+`api-bridge:allow-set-layer-border`
+
+</td>
+<td>
+
+Enables the set_layer_border command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:deny-set-layer-border`
+
+</td>
+<td>
+
+Denies the set_layer_border command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
 `api-bridge:allow-set-layer-mask`
 
 </td>
@@ -2653,32 +2271,6 @@ Denies the set_layer_mask command without any pre-configured scope.
 <tr>
 <td>
 
-`api-bridge:allow-set-view-plane`
-
-</td>
-<td>
-
-Enables the set_view_plane command without any pre-configured scope.
-
-</td>
-</tr>
-
-<tr>
-<td>
-
-`api-bridge:deny-set-view-plane`
-
-</td>
-<td>
-
-Denies the set_view_plane command without any pre-configured scope.
-
-</td>
-</tr>
-
-<tr>
-<td>
-
 `api-bridge:allow-set-volume-timepoint`
 
 </td>
@@ -2698,6 +2290,32 @@ Enables the set_volume_timepoint command without any pre-configured scope.
 <td>
 
 Denies the set_volume_timepoint command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:allow-start-analysis`
+
+</td>
+<td>
+
+Enables the start_analysis command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:deny-start-analysis`
+
+</td>
+<td>
+
+Denies the start_analysis command without any pre-configured scope.
 
 </td>
 </tr>
@@ -3069,58 +2687,6 @@ Denies the update_slice_outline command without any pre-configured scope.
 <tr>
 <td>
 
-`api-bridge:allow-update-volume-layer`
-
-</td>
-<td>
-
-Enables the update_volume_layer command without any pre-configured scope.
-
-</td>
-</tr>
-
-<tr>
-<td>
-
-`api-bridge:deny-update-volume-layer`
-
-</td>
-<td>
-
-Denies the update_volume_layer command without any pre-configured scope.
-
-</td>
-</tr>
-
-<tr>
-<td>
-
-`api-bridge:allow-upload-volume-layer`
-
-</td>
-<td>
-
-Enables the upload_volume_layer command without any pre-configured scope.
-
-</td>
-</tr>
-
-<tr>
-<td>
-
-`api-bridge:deny-upload-volume-layer`
-
-</td>
-<td>
-
-Denies the upload_volume_layer command without any pre-configured scope.
-
-</td>
-</tr>
-
-<tr>
-<td>
-
 `api-bridge:allow-validate-atlas-config`
 
 </td>
@@ -3192,32 +2758,6 @@ Enables the wait_for_layer_ready command without any pre-configured scope.
 <td>
 
 Denies the wait_for_layer_ready command without any pre-configured scope.
-
-</td>
-</tr>
-
-<tr>
-<td>
-
-`api-bridge:allow-world-to-voxel`
-
-</td>
-<td>
-
-Enables the world_to_voxel command without any pre-configured scope.
-
-</td>
-</tr>
-
-<tr>
-<td>
-
-`api-bridge:deny-world-to-voxel`
-
-</td>
-<td>
-
-Denies the world_to_voxel command without any pre-configured scope.
 
 </td>
 </tr>

@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-recalculate-all-views"
+description = "Enables the recalculate_all_views command without any pre-configured scope."
+commands.allow = ["recalculate_all_views"]
+
+[[permission]]
+identifier = "deny-recalculate-all-views"
+description = "Denies the recalculate_all_views command without any pre-configured scope."
+commands.deny = ["recalculate_all_views"]

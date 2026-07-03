@@ -149,15 +149,19 @@ header p {
 }
 
 .slice-image {
-    text-align: center;
+    display: flex;
+    align-items: center;
+    justify-content: center;
     background: #f8f9fa;
     padding: 10px;
     border-radius: 5px;
+    aspect-ratio: 1;
 }
 
 .slice-image img {
+    object-fit: contain;
     max-width: 100%;
-    height: auto;
+    max-height: 100%;
     border: 1px solid #dee2e6;
     border-radius: 3px;
 }
@@ -249,11 +253,11 @@ footer p {
     .orthogonal-grid {
         grid-template-columns: 1fr;
     }
-    
+
     .grid-header:first-child {
         display: none;
     }
-    
+
     .grid-label {
         grid-column: 1 / -1;
         margin-top: 20px;

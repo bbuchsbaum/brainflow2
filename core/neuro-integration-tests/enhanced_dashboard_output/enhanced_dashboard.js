@@ -14,11 +14,11 @@ document.addEventListener('DOMContentLoaded', function() {
                 </div>
             `;
             document.body.appendChild(modal);
-            
+
             modal.querySelector('.close').addEventListener('click', () => {
                 modal.remove();
             });
-            
+
             modal.addEventListener('click', (e) => {
                 if (e.target === modal) {
                     modal.remove();

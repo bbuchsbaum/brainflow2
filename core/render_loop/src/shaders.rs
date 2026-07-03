@@ -385,7 +385,7 @@ pub mod layouts {
             entries: &[
                 // Frame UBO
                 BindGroupLayoutEntry {
-                    binding: 0,
+                    binding: crate::shader_contract::frame::FRAME_UBO,
                     visibility: ShaderStages::VERTEX | ShaderStages::FRAGMENT,
                     ty: BindingType::Buffer {
                         ty: BufferBindingType::Uniform,
@@ -396,7 +396,7 @@ pub mod layouts {
                 },
                 // Crosshair UBO (with show_crosshair flag)
                 BindGroupLayoutEntry {
-                    binding: 1,
+                    binding: crate::shader_contract::frame::CROSSHAIR_UBO,
                     visibility: ShaderStages::FRAGMENT,
                     ty: BindingType::Buffer {
                         ty: BufferBindingType::Uniform,
@@ -448,7 +448,7 @@ pub mod layouts {
             entries: &[
                 // Layer data storage buffer
                 BindGroupLayoutEntry {
-                    binding: 0,
+                    binding: crate::shader_contract::layer::LAYER_DATA,
                     visibility: ShaderStages::VERTEX_FRAGMENT,
                     ty: BindingType::Buffer {
                         ty: BufferBindingType::Storage { read_only: true },
@@ -459,7 +459,7 @@ pub mod layouts {
                 },
                 // Layer metadata uniform buffer
                 BindGroupLayoutEntry {
-                    binding: 1,
+                    binding: crate::shader_contract::layer::LAYER_METADATA,
                     visibility: ShaderStages::VERTEX_FRAGMENT,
                     ty: BindingType::Buffer {
                         ty: BufferBindingType::Uniform,
@@ -477,7 +477,7 @@ pub mod layouts {
         device.create_bind_group_layout(&BindGroupLayoutDescriptor {
             label: Some("Slice Feature Bind Group Layout"),
             entries: &[BindGroupLayoutEntry {
-                binding: 0,
+                binding: crate::shader_contract::feature::SLICE_FEATURES,
                 visibility: ShaderStages::FRAGMENT,
                 ty: BindingType::Buffer {
                     ty: BufferBindingType::Uniform,
@@ -490,6 +490,13 @@ pub mod layouts {
     }
 
     /// Create bind group layout for textures (Group 2)
+    ///
+    /// NOTE: This legacy 4-binding layout (single 2D-array volume + sampler +
+    /// colormap + sampler) does NOT match the active masked slice shaders, whose
+    /// group 2 is the multi-texture layout built by
+    /// [`crate::multi_texture_manager::MultiTextureManager::create_bind_group_layout`]
+    /// and described by [`crate::shader_contract::texture`]. Kept only for the
+    /// legacy/atlas rendering paths.
     pub fn create_texture_layout(device: &Device) -> BindGroupLayout {
         device.create_bind_group_layout(&BindGroupLayoutDescriptor {
             label: Some("Texture Bind Group Layout"),
@@ -535,6 +542,10 @@ pub mod layouts {
     }
 
     /// Create bind group layout for textures (Group 2) - 3D version
+    ///
+    /// NOTE: Like [`create_texture_layout`], this legacy 4-binding layout does
+    /// NOT match the active masked slice shaders' multi-texture group 2 (see
+    /// [`crate::shader_contract::texture`]). Kept only for legacy rendering paths.
     pub fn create_texture_layout_3d(device: &Device) -> BindGroupLayout {
         device.create_bind_group_layout(&BindGroupLayoutDescriptor {
             label: Some("Texture Bind Group Layout (3D)"),

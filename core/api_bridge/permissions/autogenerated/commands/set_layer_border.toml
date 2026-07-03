@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-set-layer-border"
+description = "Enables the set_layer_border command without any pre-configured scope."
+commands.allow = ["set_layer_border"]
+
+[[permission]]
+identifier = "deny-set-layer-border"
+description = "Denies the set_layer_border command without any pre-configured scope."
+commands.deny = ["set_layer_border"]

@@ -2,9 +2,10 @@
  * @brainflow/api v0.1.1 - Core TypeScript Interfaces
  */
 export type * from './generated';
+export { apiBridgeCommands, type ApiBridgeCommand } from './generated/apiBridgeCommands.js';
 export * from './helpers.js';
 export * from './renderClient.js';
-import type { VolumeHandleInfo, VolumeLayerGpuInfo, BridgeError, TimeSeriesResult, LayerSpec, ReleaseResult } from './generated';
+import type { VolumeHandleInfo, VolumeLayerGpuInfo, BridgeError, LayerSpec, ReleaseResult } from './generated';
 import type { RenderOutputFormat, RenderViewDiagnostics } from './renderClient';
 /**
  * Generic Result type for Tauri commands, mirroring Rust's Result.
@@ -18,14 +19,11 @@ export type Result<T, E = string> = {
 };
 export interface CoreApi {
     load_file(path: string): Promise<VolumeHandleInfo>;
-    world_to_voxel(volumeId: string, worldCoord: [number, number, number]): Promise<[number, number, number] | null>;
-    get_timeseries_matrix(volumeId: string, coords: Array<[number, number, number]>): Promise<TimeSeriesResult>;
     request_layer_gpu_resources(layerSpec: LayerSpec): Promise<Result<VolumeLayerGpuInfo, BridgeError>>;
     release_layer_gpu_resources(layerId: string): Promise<ReleaseResult>;
     supports_webgpu(): Promise<boolean>;
     set_crosshair(world_coords: [number, number, number]): Promise<void>;
     update_slice_outline(enabled: boolean, outlineLayerIndex: number, selectedLabelId: number, color: [number, number, number, number], thicknessPx: number): Promise<void>;
-    set_view_plane(plane_id: 0 | 1 | 2): Promise<void>;
     init_render_loop(canvas_id: string): Promise<void>;
     resize_canvas(width: number, height: number): Promise<void>;
     render_view(stateJson: string, format?: RenderOutputFormat): Promise<Uint8Array>;
@@ -54,7 +52,7 @@ export interface DataFrame {
     colDtype: NumericType[];
 }
 export interface DataSample {
-    type: "timeseries" | "dataframe" | string;
+    type: 'timeseries' | 'dataframe' | string;
     data: DataFrame | Float32Array | any;
     metadata?: Record<string, unknown>;
 }

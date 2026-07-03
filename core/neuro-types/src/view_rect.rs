@@ -36,6 +36,7 @@ pub enum Handedness {
 
 /// A complete, orientation-agnostic description of one 2D slice
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct SliceGeometry {
     /// World-space anchor (pixel 0,0)
     pub origin_mm: [f32; 3],
@@ -133,6 +134,120 @@ impl SliceGeometry {
             dim_px,
         }
     }
+
+    /// World coordinate of pixel `(x, y)`: `origin + x*u + y*v`.
+    ///
+    /// This is the canonical pixel-to-world mapping; [`SliceSpec::pixel_to_world`]
+    /// delegates to the same shared implementation ([`pixel_to_world_raw`]) so the
+    /// two never drift.
+    pub fn pixel_to_world(&self, x: u32, y: u32) -> [f32; 3] {
+        pixel_to_world_raw(self.origin_mm, self.u_mm, self.v_mm, x as f32, y as f32)
+    }
+
+    /// Convert to GPU frame parameters (origin + per-frame u/v vectors in
+    /// homogeneous coordinates). The u/v vectors are scaled by the full pixel
+    /// extent (`dim_px`) so they span the whole frame, matching the frame UBO
+    /// contract consumed by the shaders.
+    pub fn to_gpu_frame_params(&self) -> ([f32; 4], [f32; 4], [f32; 4]) {
+        let origin = [self.origin_mm[0], self.origin_mm[1], self.origin_mm[2], 1.0];
+        let w = self.dim_px[0] as f32;
+        let h = self.dim_px[1] as f32;
+        let u_vec = [self.u_mm[0] * w, self.u_mm[1] * w, self.u_mm[2] * w, 0.0];
+        let v_vec = [self.v_mm[0] * h, self.v_mm[1] * h, self.v_mm[2] * h, 0.0];
+        (origin, u_vec, v_vec)
+    }
+
+    /// Refit this slice to a new pixel dimension while preserving the world-space
+    /// field of view. Recomputes an isotropic (square-pixel) per-pixel step and
+    /// re-centers symmetrically around the current view center.
+    ///
+    /// This is the Rust reference for the TypeScript
+    /// `resizeViewPlanePreservingFieldOfView` in
+    /// `ui2/src/utils/sliceGeometry.ts`; the two must stay numerically in step
+    /// (parity is pinned by the fixtures under
+    /// `ui2/src/utils/__tests__/fixtures/`).
+    pub fn refit_to_px(&self, dim_px: [u32; 2]) -> SliceGeometry {
+        let new_w = dim_px[0];
+        let new_h = dim_px[1];
+
+        // Base dimension: the current raster if known, else the requested one
+        // (mirrors the TS `dim_px?.[0] > 0 ? ... : width` guard).
+        let base_width = if self.dim_px[0] > 0 {
+            self.dim_px[0]
+        } else {
+            new_w
+        } as f32;
+        let base_height = if self.dim_px[1] > 0 {
+            self.dim_px[1]
+        } else {
+            new_h
+        } as f32;
+
+        let u_mag = vec3_len(self.u_mm);
+        let v_mag = vec3_len(self.v_mm);
+
+        // Degenerate basis: keep vectors/origin, only restamp the dimensions.
+        if u_mag == 0.0 || v_mag == 0.0 {
+            return SliceGeometry {
+                origin_mm: self.origin_mm,
+                u_mm: self.u_mm,
+                v_mm: self.v_mm,
+                dim_px,
+            };
+        }
+
+        let total_u_mm = u_mag * base_width;
+        let total_v_mm = v_mag * base_height;
+        let pixel_size =
+            (total_u_mm / (new_w.max(1) as f32)).max(total_v_mm / (new_h.max(1) as f32));
+
+        let u_dir = vec3_scale(self.u_mm, 1.0 / u_mag);
+        let v_dir = vec3_scale(self.v_mm, 1.0 / v_mag);
+        let resized_u = vec3_scale(u_dir, pixel_size);
+        let resized_v = vec3_scale(v_dir, pixel_size);
+
+        let original_center = vec3_add(
+            self.origin_mm,
+            vec3_add(
+                vec3_scale(self.u_mm, base_width / 2.0),
+                vec3_scale(self.v_mm, base_height / 2.0),
+            ),
+        );
+        let resized_origin = vec3_sub(
+            original_center,
+            vec3_add(
+                vec3_scale(resized_u, new_w as f32 / 2.0),
+                vec3_scale(resized_v, new_h as f32 / 2.0),
+            ),
+        );
+
+        SliceGeometry {
+            origin_mm: resized_origin,
+            u_mm: resized_u,
+            v_mm: resized_v,
+            dim_px,
+        }
+    }
+}
+
+/// Shared pixel-to-world mapping: `origin + x*u + y*v`.
+///
+/// Fractional pixel coordinates are permitted (the frontend passes sub-pixel
+/// screen positions). Both [`SliceGeometry::pixel_to_world`] and
+/// [`SliceSpec::pixel_to_world`](crate::SliceSpec::pixel_to_world) route through
+/// this so their numerics can never diverge.
+pub fn pixel_to_world_raw(
+    origin_mm: [f32; 3],
+    u_mm: [f32; 3],
+    v_mm: [f32; 3],
+    x: f32,
+    y: f32,
+) -> [f32; 3] {
+    [
+        origin_mm[0] + u_mm[0] * x + v_mm[0] * y,
+        origin_mm[1] + u_mm[1] * x + v_mm[1] * y,
+        origin_mm[2] + u_mm[2] * x + v_mm[2] * y,
+    ]
 }
 
 /// Extract orthonormal unit vectors from voxel_to_world matrix
@@ -198,6 +313,10 @@ fn vec3_scale(v: [f32; 3], s: f32) -> [f32; 3] {
     [v[0] * s, v[1] * s, v[2] * s]
 }
 
+fn vec3_len(v: [f32; 3]) -> f32 {
+    (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).sqrt()
+}
+
 fn negate_vec3(v: [f32; 3]) -> [f32; 3] {
     [-v[0], -v[1], -v[2]]
 }
@@ -244,6 +363,7 @@ fn vec3_distance(a: [f32; 3], b: [f32; 3]) -> f32 {
 ///
 /// This is medical imaging best practice - square pixels preserve anatomical proportions.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct ViewRectMm {
     /// Upper-left pixel center in world coordinates (mm)
     pub origin_mm: [f32; 3],
@@ -376,22 +496,12 @@ impl ViewRectMm {
         ViewRectMm::from(&geom)
     }
 
-    /// Convert to GPU frame parameters (origin + u/v vectors in homogeneous coordinates)
+    /// Convert to GPU frame parameters (origin + u/v vectors in homogeneous coordinates).
+    ///
+    /// Delegates to [`SliceGeometry::to_gpu_frame_params`] so the frame-UBO
+    /// derivation lives in exactly one place.
     pub fn to_gpu_frame_params(&self) -> ([f32; 4], [f32; 4], [f32; 4]) {
-        let origin = [self.origin_mm[0], self.origin_mm[1], self.origin_mm[2], 1.0];
-        let u_vec = [
-            self.u_mm[0] * self.width_px as f32,
-            self.u_mm[1] * self.width_px as f32,
-            self.u_mm[2] * self.width_px as f32,
-            0.0,
-        ];
-        let v_vec = [
-            self.v_mm[0] * self.height_px as f32,
-            self.v_mm[1] * self.height_px as f32,
-            self.v_mm[2] * self.height_px as f32,
-            0.0,
-        ];
-        (origin, u_vec, v_vec)
+        SliceGeometry::from(self).to_gpu_frame_params()
     }
 }
 
@@ -416,6 +526,17 @@ impl From<&SliceGeometry> for ViewRectMm {
             v_mm: geom.v_mm,
             width_px: geom.dim_px[0],
             height_px: geom.dim_px[1],
+        }
+    }
+}
+
+impl From<&ViewRectMm> for SliceGeometry {
+    fn from(rect: &ViewRectMm) -> Self {
+        Self {
+            origin_mm: rect.origin_mm,
+            u_mm: rect.u_mm,
+            v_mm: rect.v_mm,
+            dim_px: [rect.width_px, rect.height_px],
         }
     }
 }
@@ -1004,5 +1125,116 @@ mod tests {
                 );
             }
         }
+    }
+
+    fn sample_geometry() -> SliceGeometry {
+        SliceGeometry {
+            origin_mm: [-50.0, 40.0, 12.0],
+            u_mm: [0.5, 0.0, 0.0],
+            v_mm: [0.0, -0.5, 0.0],
+            dim_px: [200, 160],
+        }
+    }
+
+    #[test]
+    fn pixel_to_world_matches_manual_formula() {
+        let geom = sample_geometry();
+        let w = geom.pixel_to_world(10, 20);
+        // origin + 10*u + 20*v
+        assert!((w[0] - (-50.0 + 10.0 * 0.5)).abs() < 1e-6);
+        assert!((w[1] - (40.0 + 20.0 * -0.5)).abs() < 1e-6);
+        assert!((w[2] - 12.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn slice_spec_and_geometry_pixel_to_world_agree() {
+        let geom = sample_geometry();
+        let spec = crate::SliceSpec::oblique(geom.origin_mm, geom.u_mm, geom.v_mm, geom.dim_px);
+        for &(x, y) in &[(0, 0), (7, 13), (199, 159), (100, 80)] {
+            let g = geom.pixel_to_world(x, y);
+            let s = spec.pixel_to_world(x, y);
+            assert_eq!(g, s, "pixel_to_world diverged at ({x}, {y})");
+        }
+    }
+
+    #[test]
+    fn view_rect_to_gpu_frame_params_delegates_to_geometry() {
+        let geom = sample_geometry();
+        let rect = ViewRectMm::from(&geom);
+        assert_eq!(rect.to_gpu_frame_params(), geom.to_gpu_frame_params());
+
+        // Spot-check the exact frame contract: origin has w=1, u/v span the full extent.
+        let (origin, u_vec, v_vec) = geom.to_gpu_frame_params();
+        assert_eq!(origin, [-50.0, 40.0, 12.0, 1.0]);
+        assert_eq!(u_vec, [0.5 * 200.0, 0.0, 0.0, 0.0]);
+        assert_eq!(v_vec, [0.0, -0.5 * 160.0, 0.0, 0.0]);
+    }
+
+    #[test]
+    fn view_rect_slice_geometry_round_trip() {
+        let geom = sample_geometry();
+        let back = SliceGeometry::from(&ViewRectMm::from(&geom));
+        assert_eq!(back, geom);
+    }
+
+    #[test]
+    fn refit_preserves_field_of_view_center_and_square_pixels() {
+        let geom = sample_geometry();
+        // Current world FoV center (center pixel).
+        let center_before = geom.pixel_to_world(geom.dim_px[0] / 2, geom.dim_px[1] / 2);
+
+        let refit = geom.refit_to_px([320, 480]);
+        assert_eq!(refit.dim_px, [320, 480]);
+
+        // Square pixels: |u| == |v| after refit.
+        let u_len = vec3_len(refit.u_mm);
+        let v_len = vec3_len(refit.v_mm);
+        assert!(
+            (u_len - v_len).abs() < 1e-5,
+            "refit pixels not square: |u|={u_len}, |v|={v_len}"
+        );
+
+        // Field of view preserved: total world span unchanged on each axis.
+        let fov_u_before = vec3_len(geom.u_mm) * geom.dim_px[0] as f32;
+        let fov_u_after = u_len * refit.dim_px[0] as f32;
+        assert!((fov_u_before - fov_u_after).abs() < 1e-3);
+
+        // Center preserved (symmetric re-centering).
+        let center_after = refit.pixel_to_world(refit.dim_px[0] / 2, refit.dim_px[1] / 2);
+        for i in 0..3 {
+            assert!(
+                (center_before[i] - center_after[i]).abs() < 1e-3,
+                "refit moved view center on axis {i}: {} -> {}",
+                center_before[i],
+                center_after[i]
+            );
+        }
+    }
+
+    #[test]
+    fn refit_to_same_dims_is_identity() {
+        let geom = sample_geometry();
+        let refit = geom.refit_to_px(geom.dim_px);
+        assert_eq!(refit.dim_px, geom.dim_px);
+        for i in 0..3 {
+            assert!((refit.origin_mm[i] - geom.origin_mm[i]).abs() < 1e-4);
+            assert!((refit.u_mm[i] - geom.u_mm[i]).abs() < 1e-4);
+            assert!((refit.v_mm[i] - geom.v_mm[i]).abs() < 1e-4);
+        }
+    }
+
+    #[test]
+    fn refit_degenerate_basis_only_restamps_dims() {
+        let geom = SliceGeometry {
+            origin_mm: [1.0, 2.0, 3.0],
+            u_mm: [0.0, 0.0, 0.0],
+            v_mm: [0.0, 0.0, 0.0],
+            dim_px: [10, 10],
+        };
+        let refit = geom.refit_to_px([64, 32]);
+        assert_eq!(refit.dim_px, [64, 32]);
+        assert_eq!(refit.origin_mm, geom.origin_mm);
+        assert_eq!(refit.u_mm, geom.u_mm);
+        assert_eq!(refit.v_mm, geom.v_mm);
     }
 }

@@ -12,7 +12,7 @@
             <h1>🔬 Differential Testing Dashboard</h1>
             <p>CPU vs GPU Rendering Comparison Analysis</p>
         </header>
-        
+
         <div class="summary-section">
             <h2>Test Summary</h2>
 
@@ -34,7 +34,7 @@
                     <div class="metric-label">Avg Dice</div>
                 </div>
                 <div class="summary-card">
-                    <div class="metric-value">0.648</div>
+                    <div class="metric-value">0.263</div>
                     <div class="metric-label">Avg SSIM</div>
                 </div>
                 <div class="summary-card">
@@ -43,7 +43,7 @@
                 </div>
             </div>
         </div>
-        
+
         <div class="tests-section">
             <h2>Differential Test Results</h2>
 
@@ -52,7 +52,7 @@
                     <h3>❌ simple_sphere</h3>
                     <div class="test-status">FAIL</div>
                 </div>
-                
+
                 <div class="comparison-section">
                     <div class="image-comparison">
                         <div class="image-group">
@@ -69,7 +69,7 @@
                         </div>
                     </div>
                 </div>
-                
+
                 <div class="metrics-section">
                     <div class="metrics-grid">
                         <div class="metric-card">
@@ -83,32 +83,32 @@
                                 <span class="metric-value">1.000000</span>
                             </div>
                         </div>
-                        
+
                         <div class="metric-card">
                             <div class="metric-title">Image Quality</div>
                             <div class="metric-row">
                                 <span>SSIM:</span>
-                                <span class="metric-value">0.904966</span>
+                                <span class="metric-value">0.848578</span>
                             </div>
                             <div class="metric-row">
                                 <span>PSNR:</span>
-                                <span class="metric-value">25.26 dB</span>
+                                <span class="metric-value">22.31 dB</span>
                             </div>
                         </div>
-                        
+
                         <div class="metric-card">
                             <div class="metric-title">Pixel Differences</div>
                             <div class="metric-row">
                                 <span>RMSE:</span>
-                                <span class="metric-value">13.917</span>
+                                <span class="metric-value">19.551</span>
                             </div>
                             <div class="metric-row">
                                 <span>Max Error:</span>
-                                <span class="metric-value">51.0</span>
+                                <span class="metric-value">38.0</span>
                             </div>
                             <div class="metric-row">
                                 <span>Diff Pixels:</span>
-                                <span class="metric-value">69.6%</span>
+                                <span class="metric-value">97.2%</span>
                             </div>
                         </div>
                     </div>
@@ -116,7 +116,7 @@
 
                 <div class="failure-section">
                     <h4>Failure Analysis</h4>
-                    <p class="failure-reason">RMSE 13.9 > 10.0; Max pixel difference 51 > 20; Difference percentage 69.6% > 5.0%</p>
+                    <p class="failure-reason">RMSE 19.6 > 10.0; Max pixel difference 38 > 20; Difference percentage 97.2% > 5.0%</p>
                 </div>
             </div>
 
@@ -125,7 +125,7 @@
                     <h3>❌ elongated_ellipsoid</h3>
                     <div class="test-status">FAIL</div>
                 </div>
-                
+
                 <div class="comparison-section">
                     <div class="image-comparison">
                         <div class="image-group">
@@ -142,7 +142,7 @@
                         </div>
                     </div>
                 </div>
-                
+
                 <div class="metrics-section">
                     <div class="metrics-grid">
                         <div class="metric-card">
@@ -156,28 +156,28 @@
                                 <span class="metric-value">1.000000</span>
                             </div>
                         </div>
-                        
+
                         <div class="metric-card">
                             <div class="metric-title">Image Quality</div>
                             <div class="metric-row">
                                 <span>SSIM:</span>
-                                <span class="metric-value">0.662337</span>
+                                <span class="metric-value">0.647601</span>
                             </div>
                             <div class="metric-row">
                                 <span>PSNR:</span>
-                                <span class="metric-value">21.35 dB</span>
+                                <span class="metric-value">17.01 dB</span>
                             </div>
                         </div>
-                        
+
                         <div class="metric-card">
                             <div class="metric-title">Pixel Differences</div>
                             <div class="metric-row">
                                 <span>RMSE:</span>
-                                <span class="metric-value">21.828</span>
+                                <span class="metric-value">35.996</span>
                             </div>
                             <div class="metric-row">
                                 <span>Max Error:</span>
-                                <span class="metric-value">153.0</span>
+                                <span class="metric-value">160.0</span>
                             </div>
                             <div class="metric-row">
                                 <span>Diff Pixels:</span>
@@ -189,7 +189,7 @@
 
                 <div class="failure-section">
                     <h4>Failure Analysis</h4>
-                    <p class="failure-reason">RMSE 21.8 > 10.0; Max pixel difference 153 > 20; Difference percentage 100.0% > 5.0%</p>
+                    <p class="failure-reason">RMSE 36.0 > 10.0; Max pixel difference 160 > 20; Difference percentage 100.0% > 5.0%</p>
                 </div>
             </div>
 
@@ -198,7 +198,7 @@
                     <h3>❌ rotated_ellipsoid</h3>
                     <div class="test-status">FAIL</div>
                 </div>
-                
+
                 <div class="comparison-section">
                     <div class="image-comparison">
                         <div class="image-group">
@@ -215,7 +215,7 @@
                         </div>
                     </div>
                 </div>
-                
+
                 <div class="metrics-section">
                     <div class="metrics-grid">
                         <div class="metric-card">
@@ -229,24 +229,24 @@
                                 <span class="metric-value">1.000000</span>
                             </div>
                         </div>
-                        
+
                         <div class="metric-card">
                             <div class="metric-title">Image Quality</div>
                             <div class="metric-row">
                                 <span>SSIM:</span>
-                                <span class="metric-value">0.766254</span>
+                                <span class="metric-value">0.050882</span>
                             </div>
                             <div class="metric-row">
                                 <span>PSNR:</span>
-                                <span class="metric-value">13.31 dB</span>
+                                <span class="metric-value">6.52 dB</span>
                             </div>
                         </div>
-                        
+
                         <div class="metric-card">
                             <div class="metric-title">Pixel Differences</div>
                             <div class="metric-row">
                                 <span>RMSE:</span>
-                                <span class="metric-value">55.092</span>
+                                <span class="metric-value">120.396</span>
                             </div>
                             <div class="metric-row">
                                 <span>Max Error:</span>
@@ -262,7 +262,7 @@
 
                 <div class="failure-section">
                     <h4>Failure Analysis</h4>
-                    <p class="failure-reason">RMSE 55.1 > 10.0; Max pixel difference 229 > 20; Difference percentage 100.0% > 5.0%</p>
+                    <p class="failure-reason">RMSE 120.4 > 10.0; Max pixel difference 229 > 20; Difference percentage 100.0% > 5.0%</p>
                 </div>
             </div>
 
@@ -271,7 +271,7 @@
                     <h3>❌ small_ellipsoid</h3>
                     <div class="test-status">FAIL</div>
                 </div>
-                
+
                 <div class="comparison-section">
                     <div class="image-comparison">
                         <div class="image-group">
@@ -288,7 +288,7 @@
                         </div>
                     </div>
                 </div>
-                
+
                 <div class="metrics-section">
                     <div class="metrics-grid">
                         <div class="metric-card">
@@ -302,28 +302,28 @@
                                 <span class="metric-value">1.000000</span>
                             </div>
                         </div>
-                        
+
                         <div class="metric-card">
                             <div class="metric-title">Image Quality</div>
                             <div class="metric-row">
                                 <span>SSIM:</span>
-                                <span class="metric-value">0.520536</span>
+                                <span class="metric-value">0.251509</span>
                             </div>
                             <div class="metric-row">
                                 <span>PSNR:</span>
-                                <span class="metric-value">22.61 dB</span>
+                                <span class="metric-value">22.24 dB</span>
                             </div>
                         </div>
-                        
+
                         <div class="metric-card">
                             <div class="metric-title">Pixel Differences</div>
                             <div class="metric-row">
                                 <span>RMSE:</span>
-                                <span class="metric-value">18.882</span>
+                                <span class="metric-value">19.706</span>
                             </div>
                             <div class="metric-row">
                                 <span>Max Error:</span>
-                                <span class="metric-value">172.0</span>
+                                <span class="metric-value">138.0</span>
                             </div>
                             <div class="metric-row">
                                 <span>Diff Pixels:</span>
@@ -335,7 +335,7 @@
 
                 <div class="failure-section">
                     <h4>Failure Analysis</h4>
-                    <p class="failure-reason">RMSE 18.9 > 10.0; Max pixel difference 172 > 20; Difference percentage 100.0% > 5.0%</p>
+                    <p class="failure-reason">RMSE 19.7 > 10.0; Max pixel difference 138 > 20; Difference percentage 100.0% > 5.0%</p>
                 </div>
             </div>
 
@@ -344,7 +344,7 @@
                     <h3>❌ large_ellipsoid</h3>
                     <div class="test-status">FAIL</div>
                 </div>
-                
+
                 <div class="comparison-section">
                     <div class="image-comparison">
                         <div class="image-group">
@@ -361,7 +361,7 @@
                         </div>
                     </div>
                 </div>
-                
+
                 <div class="metrics-section">
                     <div class="metrics-grid">
                         <div class="metric-card">
@@ -375,32 +375,32 @@
                                 <span class="metric-value">1.000000</span>
                             </div>
                         </div>
-                        
+
                         <div class="metric-card">
                             <div class="metric-title">Image Quality</div>
                             <div class="metric-row">
                                 <span>SSIM:</span>
-                                <span class="metric-value">0.930973</span>
+                                <span class="metric-value">-0.235889</span>
                             </div>
                             <div class="metric-row">
                                 <span>PSNR:</span>
-                                <span class="metric-value">18.52 dB</span>
+                                <span class="metric-value">10.57 dB</span>
                             </div>
                         </div>
-                        
+
                         <div class="metric-card">
                             <div class="metric-title">Pixel Differences</div>
                             <div class="metric-row">
                                 <span>RMSE:</span>
-                                <span class="metric-value">30.250</span>
+                                <span class="metric-value">75.486</span>
                             </div>
                             <div class="metric-row">
                                 <span>Max Error:</span>
-                                <span class="metric-value">87.0</span>
+                                <span class="metric-value">229.0</span>
                             </div>
                             <div class="metric-row">
                                 <span>Diff Pixels:</span>
-                                <span class="metric-value">93.7%</span>
+                                <span class="metric-value">93.5%</span>
                             </div>
                         </div>
                     </div>
@@ -408,7 +408,7 @@
 
                 <div class="failure-section">
                     <h4>Failure Analysis</h4>
-                    <p class="failure-reason">RMSE 30.3 > 10.0; Max pixel difference 87 > 20; Difference percentage 93.7% > 5.0%</p>
+                    <p class="failure-reason">RMSE 75.5 > 10.0; Max pixel difference 229 > 20; Difference percentage 93.5% > 5.0%</p>
                 </div>
             </div>
 
@@ -417,7 +417,7 @@
                     <h3>❌ off_center_slice</h3>
                     <div class="test-status">FAIL</div>
                 </div>
-                
+
                 <div class="comparison-section">
                     <div class="image-comparison">
                         <div class="image-group">
@@ -434,7 +434,7 @@
                         </div>
                     </div>
                 </div>
-                
+
                 <div class="metrics-section">
                     <div class="metrics-grid">
                         <div class="metric-card">
@@ -448,32 +448,32 @@
                                 <span class="metric-value">1.000000</span>
                             </div>
                         </div>
-                        
+
                         <div class="metric-card">
                             <div class="metric-title">Image Quality</div>
                             <div class="metric-row">
                                 <span>SSIM:</span>
-                                <span class="metric-value">0.105649</span>
+                                <span class="metric-value">0.013798</span>
                             </div>
                             <div class="metric-row">
                                 <span>PSNR:</span>
-                                <span class="metric-value">16.25 dB</span>
+                                <span class="metric-value">16.34 dB</span>
                             </div>
                         </div>
-                        
+
                         <div class="metric-card">
                             <div class="metric-title">Pixel Differences</div>
                             <div class="metric-row">
                                 <span>RMSE:</span>
-                                <span class="metric-value">39.254</span>
+                                <span class="metric-value">38.847</span>
                             </div>
                             <div class="metric-row">
                                 <span>Max Error:</span>
-                                <span class="metric-value">210.0</span>
+                                <span class="metric-value">217.0</span>
                             </div>
                             <div class="metric-row">
                                 <span>Diff Pixels:</span>
-                                <span class="metric-value">83.5%</span>
+                                <span class="metric-value">99.4%</span>
                             </div>
                         </div>
                     </div>
@@ -481,17 +481,17 @@
 
                 <div class="failure-section">
                     <h4>Failure Analysis</h4>
-                    <p class="failure-reason">RMSE 39.3 > 10.0; Max pixel difference 210 > 20; Difference percentage 83.5% > 5.0%</p>
+                    <p class="failure-reason">RMSE 38.8 > 10.0; Max pixel difference 217 > 20; Difference percentage 99.4% > 5.0%</p>
                 </div>
             </div>
 
         </div>
-        
+
         <footer>
             <p>Generated by Brainflow2 Differential Testing Framework</p>
         </footer>
     </div>
-    
+
     <script src="differential_dashboard.js"></script>
 </body>
 </html>

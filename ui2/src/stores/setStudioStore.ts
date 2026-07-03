@@ -18,8 +18,12 @@ import type {
   StudioSelection,
   StudioDesignFilter,
 } from '@/types/studio';
-import { createImportSlice, createInitialImportDialogState } from './setStudio/importSlice';
-import type { SetStudioImportSlice } from './setStudio/importSlice';
+import {
+  createImportSlice,
+  createInitialImportDialogState,
+  createInitialImportRequestState,
+} from './setStudio/importSlice';
+import type { ImportRequestState, SetStudioImportSlice } from './setStudio/importSlice';
 import { createMaterializationSlice } from './setStudio/materializationSlice';
 import type { SetStudioMaterializationSlice } from './setStudio/materializationSlice';
 
@@ -40,6 +44,7 @@ interface SetStudioStoreState extends SetStudioImportSlice, SetStudioMaterializa
   setExpressionIds: Record<string, string[]>;
   importCandidates: Record<string, StudioImportCandidate>;
   importDialog: StudioImportDialogState;
+  importRequestState: ImportRequestState;
   selection: StudioSelection;
   materialization: StudioMaterializationStatus;
   comparePaneSpecs: StudioComparePaneSpec[];
@@ -311,6 +316,7 @@ export const useSetStudioStore = create<SetStudioStoreState>((set, get) => ({
   setExpressionIds: {},
   importCandidates: {},
   importDialog: createInitialImportDialogState(),
+  importRequestState: createInitialImportRequestState(),
   selection: DEFAULT_SELECTION,
   materialization: DEFAULT_MATERIALIZATION,
   comparePaneSpecs: [],

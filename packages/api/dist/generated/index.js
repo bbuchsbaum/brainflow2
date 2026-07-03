@@ -59,6 +59,7 @@ export * from './ThresholdMode';
 export * from './SurfaceSpace';
 export * from './VolumeGPUProjectionData';
 export * from './DiscoveredTemplate';
+export * from './apiBridgeCommands';
 export * from './StudioImportPreviewRequest';
 export * from './ViewId';
 export * from './ThresholdConfig';
