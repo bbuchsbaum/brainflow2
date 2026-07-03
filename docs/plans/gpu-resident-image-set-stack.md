@@ -175,7 +175,9 @@ layer-release path).
     lifecycle path (`renderStateStore.lastImage` / `useRenderCanvas`), the repo's own UI2 CLAUDE.md warns
     against redesigning that path, and its value is marginal on top of the already-realized backend win.
     Land it with `cargo tauri dev` running for visual verification (Y-flip / color / aspect-scaling parity).
-- [~] **P5 — feature: cross-set trace** (`bd-01KWKXZB`).
+- [x] **P5 — feature: cross-set trace** (`bd-01KWKXZB`). Backend trace + CI engine, frontend data seam, and
+  the visual plot mode (line + CI band, carpet heatmap, ontology-labelled member axis) all landed; only the
+  in-app click-path end-to-end check remains (needs a running app / debug `.app`).
   - [x] **Backend trace + CI engine (landed, verified headless).** `sample_set_trace_at_world` command
     (registered in `command_list.rs`, granted `allow-sample-set-trace-at-world`, TS binding regenerated):
     one ROI-reduced value per cohort member at a world locus **plus a dispersion band** (`{ memberId, value,
@@ -199,11 +201,27 @@ layer-release path).
     vitest cases (trace shape, band forwarding, ontology-label columns, NaN passthrough, plain-path guard).
     Green: `pnpm --filter temp-ui exec vitest run src/services/__tests__/SampleProvider.test.ts` (14),
     clean `tsc`.
-  - [ ] **Visual plot mode (deferred — unverifiable headless).** Render the line + shaded `area` CI band and
-    the carpet/grayplot `heatmap` mark (both already in the `Mark` union), a new plot mode reusing
-    `plotSpecStore`/`plotModeStore`, and an ontology-labelled member axis. Land with `cargo tauri dev`
-    running for visual verification. The data half (frame + band + ontology labels) is done above, so this
-    is @visx rendering + mode wiring only.
+  - [x] **Visual plot mode (landed, verified in a Vite harness).** The trace renders as a line + shaded CI
+    ribbon (visx `Area` `y0`/`y1`, drawn behind the line, with the y-domain widened to include the band
+    bounds) over an **ontology-labelled categorical member axis** — the continuous marks (`line`/`area`/
+    `point`) now place a nominal/ordinal x on a `scalePoint` axis instead of silently dropping it, so
+    `{ x: member, y: value }` actually draws. The band flows as a sidecar `meta.suggested.band =
+    { lower, upper }` resolved onto `ResolvedPlotSpec.band` (kept only when both columns exist). A new
+    `heatmap` (carpet/grayplot) mark shades one contiguous cell per member by value (grayscale ramp,
+    dark→light; a missing member draws a hollow outline). New `setTracePlot` mode (`SetTracePlot.tsx` +
+    `.mode`/`.toolbar`/`.helpers`), registered in `PlotPanel`, samples the `set` locus with a band
+    (default `sem95`, band-kind selector in the toolbar; `bandByMode` added to `plotSpecStore`, persist
+    v3), builds ontology-labelled members from the cohort design table (`buildTraceMembers`), and renders
+    through the shared `EncodedPlotView`. **Verification:** the marks are plain SVG, so geometry is pinned
+    deterministically in jsdom (`traceMarks.test.tsx` — band ribbon presence + domain widening, categorical
+    member ticks, heatmap cell fills/positions/gaps) plus `spec.test.ts` band-resolution cases and
+    `setTracePlot.test.tsx` (label mapping + `supports`); the full render was then eyeballed and
+    screenshotted through the real `PlotEncoder` path against mocked frames in a dev-only Vite harness
+    (`src/devHarness/plotHarness.tsx` + `plot-harness.html`, served by `pnpm dev`; not in the production
+    build, whose only html input is `index.html`) — no `cargo tauri dev` needed. Green: `pnpm --filter ui2
+    test` (1275 passed), `tsc -b`, `eslint`. The remaining truly-app-only piece is the end-to-end click
+    path (click a `set` locus in the running app → `sample_set_trace_at_world` → this panel), which the
+    harness can't exercise; that's a one-pass check on a debug `.app` bundle.
 
 ## Test & verify gates
 

@@ -31,6 +31,7 @@ import { histogramPlot } from '@/components/plots/histogramPlot.mode';
 import { crosshairTimeSeriesPlot } from '@/components/plots/crosshairTimeSeriesPlot.mode';
 import { regionStatsPlot } from '@/components/plots/regionStatsPlot.mode';
 import { cohortPlot } from '@/components/plots/cohortPlot.mode';
+import { setTracePlot } from '@/components/plots/setTracePlot.mode';
 import { useAtlasLayerId } from '@/components/plots/regionStatsPlot.helpers';
 import { useActiveCohort } from '@/components/plots/cohortPlot.helpers';
 import { usePlotModeSelection } from '@/components/plots/plotMode.helpers';
@@ -43,6 +44,7 @@ const DEFAULT_PLOT_MODES: PlotMode[] = [
   crosshairTimeSeriesPlot,
   regionStatsPlot,
   cohortPlot,
+  setTracePlot,
 ];
 
 export interface PlotPanelProps {

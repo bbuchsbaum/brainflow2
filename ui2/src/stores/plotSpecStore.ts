@@ -19,10 +19,10 @@
  * compare-before-write setters.
  */
 
-import { create } from "zustand";
-import { persist, createJSONStorage } from "zustand/middleware";
+import { create } from 'zustand';
+import { persist, createJSONStorage } from 'zustand/middleware';
 
-import type { Encoding, Mark, ReduceOp, Transform } from "@/plotting";
+import type { Encoding, Mark, ReduceOp, TraceBand, Transform } from '@/plotting';
 
 /** A user's partial override of the inferred plot spec for a mode. */
 export interface PlotSpecOverride {
@@ -36,6 +36,8 @@ export interface PlotSpecStore {
   sphereRadiusMmByMode: Record<string, number>;
   /** Voxel reducer for multi-voxel loci, keyed by mode id. Defaults to 'mean'. */
   reduceByMode: Record<string, ReduceOp>;
+  /** Dispersion band kind for trace loci, keyed by mode id. Defaults to 'sem95'. */
+  bandByMode: Record<string, TraceBand>;
   /** Partial visual-spec override keyed by mode id. */
   specByMode: Record<string, PlotSpecOverride>;
 
@@ -43,23 +45,17 @@ export interface PlotSpecStore {
   setSphereRadiusMm: (modeId: string, radiusMm: number) => void;
   /** Set the voxel reducer for a mode; no-ops when unchanged. */
   setReduce: (modeId: string, reduce: ReduceOp) => void;
+  /** Set the dispersion band kind for a mode; no-ops when unchanged. */
+  setBand: (modeId: string, band: TraceBand) => void;
   /** Set the mark for a mode; no-ops when unchanged. */
   setMark: (modeId: string, mark: Mark) => void;
   /** Bind (or, with `null`, clear) an encoding channel for a mode. */
-  setEncodingChannel: (
-    modeId: string,
-    channel: keyof Encoding,
-    columnName: string | null,
-  ) => void;
+  setEncodingChannel: (modeId: string, channel: keyof Encoding, columnName: string | null) => void;
   /**
    * Set (or, with `null`, clear) a `normalize` transform on `field` for a mode.
    * Replaces any existing normalize transform on that field.
    */
-  setNormalize: (
-    modeId: string,
-    field: string,
-    method: "zscore" | "percentChange" | null,
-  ) => void;
+  setNormalize: (modeId: string, field: string, method: 'zscore' | 'percentChange' | null) => void;
   /** Drop a mode's visual override (revert to the inferred default). */
   resetMode: (modeId: string) => void;
   /** Test helper — restores the initial empty state. */
@@ -72,8 +68,8 @@ declare global {
   }
 }
 
-const PLOT_SPEC_PERSIST_VERSION = 2;
-const PLOT_SPEC_PERSIST_NAME = "brainflow2-plot-spec";
+const PLOT_SPEC_PERSIST_VERSION = 3;
+const PLOT_SPEC_PERSIST_NAME = 'brainflow2-plot-spec';
 
 const createPlotSpecStore = () =>
   create<PlotSpecStore>()(
@@ -81,6 +77,7 @@ const createPlotSpecStore = () =>
       (set) => ({
         sphereRadiusMmByMode: {},
         reduceByMode: {},
+        bandByMode: {},
         specByMode: {},
 
         setSphereRadiusMm: (modeId, radiusMm) => {
@@ -105,6 +102,15 @@ const createPlotSpecStore = () =>
           });
         },
 
+        setBand: (modeId, band) => {
+          set((state) => {
+            if (state.bandByMode[modeId] === band) return state;
+            return {
+              bandByMode: { ...state.bandByMode, [modeId]: band },
+            };
+          });
+        },
+
         setMark: (modeId, mark) => {
           set((state) => {
             const prev = state.specByMode[modeId];
@@ -119,7 +125,7 @@ const createPlotSpecStore = () =>
           set((state) => {
             const prev = state.specByMode[modeId];
             // '' is the sentinel resolveSpec reads as "channel cleared".
-            const nextVal = columnName ?? "";
+            const nextVal = columnName ?? '';
             const prevEncoding = prev?.encoding ?? {};
             if (prevEncoding[channel] === nextVal) return state;
             return {
@@ -138,10 +144,10 @@ const createPlotSpecStore = () =>
           set((state) => {
             const prev = state.specByMode[modeId];
             const others = (prev?.transforms ?? []).filter(
-              (t) => !(t.kind === "normalize" && t.field === field),
+              (t) => !(t.kind === 'normalize' && t.field === field),
             );
             const next: Transform[] = method
-              ? [...others, { kind: "normalize", field, method }]
+              ? [...others, { kind: 'normalize', field, method }]
               : others;
             const prevTransforms = prev?.transforms ?? [];
             // No-op when the transform set is unchanged.
@@ -170,7 +176,12 @@ const createPlotSpecStore = () =>
         },
 
         resetPlotSpecStore: () => {
-          set({ sphereRadiusMmByMode: {}, reduceByMode: {}, specByMode: {} });
+          set({
+            sphereRadiusMmByMode: {},
+            reduceByMode: {},
+            bandByMode: {},
+            specByMode: {},
+          });
         },
       }),
       {
@@ -180,19 +191,20 @@ const createPlotSpecStore = () =>
         partialize: (state) => ({
           sphereRadiusMmByMode: state.sphereRadiusMmByMode,
           reduceByMode: state.reduceByMode,
+          bandByMode: state.bandByMode,
           specByMode: state.specByMode,
         }),
-        // v1 persisted only sphereRadiusMmByMode; backfill the new maps.
+        // v1 persisted only sphereRadiusMmByMode; v2 added reduce/spec; v3 added
+        // bandByMode. Backfill whichever maps a persisted snapshot lacks so a
+        // rehydrated state is never missing a keyed map (which the setters index).
         migrate: (persisted, version) => {
           const prev = (persisted ?? {}) as Partial<PlotSpecStore>;
-          if (version < 2) {
-            return {
-              sphereRadiusMmByMode: prev.sphereRadiusMmByMode ?? {},
-              reduceByMode: {},
-              specByMode: {},
-            } as PlotSpecStore;
-          }
-          return prev as PlotSpecStore;
+          return {
+            sphereRadiusMmByMode: prev.sphereRadiusMmByMode ?? {},
+            reduceByMode: version < 2 ? {} : (prev.reduceByMode ?? {}),
+            bandByMode: version < 3 ? {} : (prev.bandByMode ?? {}),
+            specByMode: version < 2 ? {} : (prev.specByMode ?? {}),
+          } as PlotSpecStore;
         },
       },
     ),
@@ -202,11 +214,11 @@ const createPlotSpecStore = () =>
 // root, so the store must be a process-wide singleton (same pattern as
 // `usePlotModeStore` / `useLayerStore`).
 export const usePlotSpecStore: ReturnType<typeof createPlotSpecStore> = (() => {
-  if (typeof window !== "undefined" && window.__plotSpecStore) {
+  if (typeof window !== 'undefined' && window.__plotSpecStore) {
     return window.__plotSpecStore;
   }
   const store = createPlotSpecStore();
-  if (typeof window !== "undefined") {
+  if (typeof window !== 'undefined') {
     window.__plotSpecStore = store;
   }
   return store;

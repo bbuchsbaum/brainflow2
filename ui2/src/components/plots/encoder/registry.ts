@@ -6,17 +6,11 @@
  * component (fast-refresh friendly); adding a mark is a one-line edit here.
  */
 
-import type { Mark } from "@/plotting";
+import type { Mark } from '@/plotting';
 
-import {
-  areaMark,
-  barMark,
-  boxMark,
-  lineMark,
-  pointMark,
-} from "./cartesianMarks";
-import { histMark } from "./histMark";
-import type { MarkRenderer } from "./types";
+import { areaMark, barMark, boxMark, heatmapMark, lineMark, pointMark } from './cartesianMarks';
+import { histMark } from './histMark';
+import type { MarkRenderer } from './types';
 
 export const MARK_RENDERERS: Partial<Record<Mark, MarkRenderer>> = {
   line: lineMark,
@@ -24,15 +18,9 @@ export const MARK_RENDERERS: Partial<Record<Mark, MarkRenderer>> = {
   point: pointMark,
   bar: barMark,
   box: boxMark,
+  heatmap: heatmapMark,
   hist: histMark,
 };
 
 /** Marks the encoder can render today. */
-export const SUPPORTED_MARKS: Mark[] = [
-  "line",
-  "area",
-  "point",
-  "bar",
-  "box",
-  "hist",
-];
+export const SUPPORTED_MARKS: Mark[] = ['line', 'area', 'point', 'bar', 'box', 'heatmap', 'hist'];

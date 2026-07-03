@@ -14,25 +14,25 @@
  * Pure render: no hooks beyond `useMemo`, no effects, no store access.
  */
 
-import { useMemo, type ReactNode } from "react";
-import { scaleBand, scaleLinear } from "@visx/scale";
-import { AreaClosed, Bar, Circle, LinePath } from "@visx/shape";
-import { AxisBottom, AxisLeft } from "@visx/axis";
-import { Group } from "@visx/group";
+import { useMemo, type ReactNode } from 'react';
+import { scaleBand, scaleLinear, scalePoint } from '@visx/scale';
+import { Area, AreaClosed, Bar, Circle, LinePath } from '@visx/shape';
+import { AxisBottom, AxisLeft } from '@visx/axis';
+import { Group } from '@visx/group';
 
-import type { BoxStats, SampleFrame } from "@/plotting";
-import { boxStats, columnValues, linearFit, numericColumn } from "@/plotting";
+import type { BoxStats, SampleFrame } from '@/plotting';
+import { boxStats, columnValues, getColumn, linearFit, numericColumn } from '@/plotting';
 
-import type { MarkRenderer, MarkRenderProps } from "./types";
+import type { MarkRenderer, MarkRenderProps } from './types';
 
 // ---------------------------------------------------------------------------
 // Tokens / layout
 // ---------------------------------------------------------------------------
 
-const lineColor = "var(--app-plot-line)";
-const gridColor = "var(--app-plot-grid)";
-const mutedColor = "var(--app-text-muted)";
-const axisFontFamily = "var(--app-font-mono, monospace)";
+const lineColor = 'var(--app-plot-line)';
+const gridColor = 'var(--app-plot-grid)';
+const mutedColor = 'var(--app-text-muted)';
+const axisFontFamily = 'var(--app-font-mono, monospace)';
 
 const MARGIN = { top: 8, right: 10, bottom: 22, left: 36 } as const;
 
@@ -40,39 +40,62 @@ const MARGIN = { top: 8, right: 10, bottom: 22, left: 36 } as const;
 const MIN_AXIS_WIDTH = 60;
 const MIN_AXIS_HEIGHT = 40;
 
-type MarkKind = "line" | "area" | "point" | "bar" | "box";
-
-/** A finite (x, y) data point in domain space. */
-interface XYPoint {
-  readonly x: number;
-  readonly y: number;
-}
+type MarkKind = 'line' | 'area' | 'point' | 'bar' | 'box' | 'heatmap';
 
 // ---------------------------------------------------------------------------
 // Channel reading helpers
 // ---------------------------------------------------------------------------
 
 /**
- * Build finite numeric (x, y) points for line/area/point marks. If `x` is
- * undefined, the row index is used as x. Pairs with a non-finite x or y are
- * dropped.
+ * A continuous-mark datum: the y value plus (optionally) a CI band and the two
+ * ways to place it on x — a numeric `xNum` (linear axis) or a `cat` label (a
+ * categorical scale, used e.g. for the member axis of a cross-set trace).
  */
-function numericPoints(
+interface SeriesPoint {
+  /** Category label for a band/point x-scale (nominal/ordinal x). */
+  readonly cat: string;
+  /** Numeric x for a linear x-scale (temporal/quantitative x, or row index). */
+  readonly xNum: number;
+  readonly y: number;
+  /** CI band lower/upper; `NaN` when the row carries no band. */
+  readonly lo: number;
+  readonly hi: number;
+}
+
+/**
+ * Build the continuous-mark series aligned to frame rows. In categorical mode
+ * (`catMode`) x is the stringified value of `xName` and rows keep their order;
+ * otherwise x is numeric (`xName`, or the row index when unbound) and rows with
+ * a non-finite x are dropped. Rows with a non-finite y are always dropped. When
+ * a `band` is given, each row also carries its lower/upper (`NaN` if missing).
+ */
+function seriesPoints(
   frame: SampleFrame,
   xName: string | undefined,
   yName: string,
-): XYPoint[] {
+  catMode: boolean,
+  band: { lower: string; upper: string } | undefined,
+): SeriesPoint[] {
   const ys = numericColumn(frame, yName);
-  const xs = xName ? numericColumn(frame, xName) : ys.map((_, i) => i);
-  const points: XYPoint[] = [];
+  const los = band ? numericColumn(frame, band.lower) : [];
+  const his = band ? numericColumn(frame, band.upper) : [];
+  const cats = catMode && xName ? columnValues(frame, xName).map((v) => String(v ?? '')) : [];
+  const xs = !catMode && xName ? numericColumn(frame, xName) : [];
+  const out: SeriesPoint[] = [];
   for (let i = 0; i < ys.length; i += 1) {
-    const x = xs[i];
     const y = ys[i];
-    if (Number.isFinite(x) && Number.isFinite(y)) {
-      points.push({ x, y });
-    }
+    if (!Number.isFinite(y)) continue;
+    const xNum = catMode ? i : xName ? xs[i] : i;
+    if (!catMode && !Number.isFinite(xNum)) continue;
+    out.push({
+      cat: catMode ? cats[i] : String(i),
+      xNum,
+      y,
+      lo: band ? los[i] : Number.NaN,
+      hi: band ? his[i] : Number.NaN,
+    });
   }
-  return points;
+  return out;
 }
 
 /**
@@ -99,15 +122,7 @@ function paddedDomain(values: readonly number[]): [number, number] {
 // Empty state
 // ---------------------------------------------------------------------------
 
-function EmptyMark({
-  kind,
-  width,
-  height,
-}: {
-  kind: MarkKind;
-  width: number;
-  height: number;
-}) {
+function EmptyMark({ kind, width, height }: { kind: MarkKind; width: number; height: number }) {
   const w = Math.max(0, width);
   const h = Math.max(0, height);
   return (
@@ -139,13 +154,14 @@ function EmptyMark({
 
 type LinearScale = ReturnType<typeof scaleLinear<number>>;
 type BandScale = ReturnType<typeof scaleBand<string>>;
+type PointScale = ReturnType<typeof scalePoint<string>>;
 
 interface CartesianMarkProps {
   readonly kind: MarkKind;
   readonly width: number;
   readonly height: number;
   /** Scales for the plot area; provided by the host renderer. */
-  readonly xScale?: LinearScale | BandScale;
+  readonly xScale?: LinearScale | BandScale | PointScale;
   readonly yScale: LinearScale;
   readonly innerWidth: number;
   readonly innerHeight: number;
@@ -174,8 +190,7 @@ function CartesianMark({
   innerHeight,
   children,
 }: CartesianMarkProps) {
-  const showAxes =
-    innerWidth >= MIN_AXIS_WIDTH && innerHeight >= MIN_AXIS_HEIGHT;
+  const showAxes = innerWidth >= MIN_AXIS_WIDTH && innerHeight >= MIN_AXIS_HEIGHT;
   return (
     <svg
       data-testid={`plot-mark-${kind}`}
@@ -217,44 +232,60 @@ function CartesianMark({
 // ---------------------------------------------------------------------------
 
 interface ContinuousMarkProps extends MarkRenderProps {
-  readonly kind: "line" | "area" | "point";
+  readonly kind: 'line' | 'area' | 'point';
 }
 
-function ContinuousMark({
-  kind,
-  frame,
-  spec,
-  width,
-  height,
-}: ContinuousMarkProps) {
+function ContinuousMark({ kind, frame, spec, width, height }: ContinuousMarkProps) {
   const yName = spec.encoding.y;
   const xName = spec.encoding.x;
+  const band = spec.band;
 
-  const points = useMemo<XYPoint[]>(
-    () => (yName ? numericPoints(frame, xName, yName) : []),
-    [frame, xName, yName],
+  // Categorical x (member axis of a cross-set trace, factor level, …): a
+  // nominal/ordinal x column places points on a categorical `scalePoint` axis
+  // rather than a numeric linear one. Temporal/quantitative x stays linear.
+  const catMode = useMemo(() => {
+    const col = xName ? getColumn(frame, xName) : undefined;
+    return !!col && (col.role === 'nominal' || col.role === 'ordinal');
+  }, [frame, xName]);
+
+  const points = useMemo<SeriesPoint[]>(
+    () => (yName ? seriesPoints(frame, xName, yName, catMode, band) : []),
+    [frame, xName, yName, catMode, band],
   );
 
   const innerWidth = Math.max(0, width - MARGIN.left - MARGIN.right);
   const innerHeight = Math.max(0, height - MARGIN.top - MARGIN.bottom);
 
   const scales = useMemo(() => {
-    const xDomain = paddedDomain(points.map((p) => p.x));
-    const yDomain = paddedDomain(points.map((p) => p.y));
-    return {
-      xScale: scaleLinear<number>({
-        domain: xDomain,
+    // The y-domain spans the values AND the band bounds, so a wide CI ribbon is
+    // never clipped by the line's own extent.
+    const yValues: number[] = [];
+    for (const p of points) {
+      yValues.push(p.y);
+      if (Number.isFinite(p.lo)) yValues.push(p.lo);
+      if (Number.isFinite(p.hi)) yValues.push(p.hi);
+    }
+    const yScale = scaleLinear<number>({
+      domain: paddedDomain(yValues),
+      range: [innerHeight, 0],
+    });
+    if (catMode) {
+      const xScale = scalePoint<string>({
+        domain: points.map((p) => p.cat),
         range: [0, innerWidth],
-      }),
-      yScale: scaleLinear<number>({
-        domain: yDomain,
-        range: [innerHeight, 0],
-      }),
-    };
-  }, [points, innerWidth, innerHeight]);
+        padding: 0.5,
+      });
+      return { xScale, yScale, catMode: true as const };
+    }
+    const xScale = scaleLinear<number>({
+      domain: paddedDomain(points.map((p) => p.xNum)),
+      range: [0, innerWidth],
+    });
+    return { xScale, yScale, catMode: false as const };
+  }, [points, innerWidth, innerHeight, catMode]);
 
   // Empty / degenerate: line & area need >=2 finite points; point needs >=1.
-  const minPoints = kind === "point" ? 1 : 2;
+  const minPoints = kind === 'point' ? 1 : 2;
   if (frame.rows.length === 0 || points.length < minPoints) {
     return <EmptyMark kind={kind} width={width} height={height} />;
   }
@@ -272,28 +303,50 @@ function ContinuousMark({
     );
   }
 
-  const { xScale, yScale } = scales;
-  const px = (p: XYPoint) => xScale(p.x) ?? 0;
-  const py = (p: XYPoint) => yScale(p.y) ?? 0;
+  const { yScale } = scales;
+  const py = (v: number) => yScale(v) ?? 0;
+  const px = scales.catMode
+    ? (p: SeriesPoint) => scales.xScale(p.cat) ?? 0
+    : (p: SeriesPoint) => scales.xScale(p.xNum) ?? 0;
+
+  // CI/error ribbon (behind the mark), drawn whenever the spec resolved a band
+  // and at least two rows carry finite bounds.
+  const bandPoints = band
+    ? points.filter((p) => Number.isFinite(p.lo) && Number.isFinite(p.hi))
+    : [];
+  const ribbon =
+    band && bandPoints.length >= 2 ? (
+      <Group data-testid="plot-band">
+        <Area<SeriesPoint>
+          data={bandPoints}
+          x={px}
+          y0={(p) => py(p.lo)}
+          y1={(p) => py(p.hi)}
+          fill={lineColor}
+          fillOpacity={0.15}
+          stroke="none"
+        />
+      </Group>
+    ) : null;
 
   let geometry: ReactNode = null;
-  if (kind === "line") {
+  if (kind === 'line') {
     geometry = (
-      <LinePath<XYPoint>
+      <LinePath<SeriesPoint>
         data={points}
         x={px}
-        y={py}
+        y={(p) => py(p.y)}
         stroke={lineColor}
         strokeWidth={1.5}
         fill="none"
       />
     );
-  } else if (kind === "area") {
+  } else if (kind === 'area') {
     geometry = (
-      <AreaClosed<XYPoint>
+      <AreaClosed<SeriesPoint>
         data={points}
         x={px}
-        y={py}
+        y={(p) => py(p.y)}
         yScale={yScale}
         stroke={lineColor}
         strokeWidth={1.5}
@@ -302,28 +355,31 @@ function ContinuousMark({
       />
     );
   } else {
-    // scatter, plus an optional least-squares fit line when the spec carries
-    // an `lmFit` transform (covariate scatter).
-    const fit = spec.transforms?.some((t) => t.kind === "lmFit")
-      ? linearFit(points)
-      : null;
-    const [xMin, xMax] = xScale.domain() as [number, number];
-    const fitLine: XYPoint[] | null = fit
-      ? [
-          { x: xMin, y: fit.slope * xMin + fit.intercept },
-          { x: xMax, y: fit.slope * xMax + fit.intercept },
-        ]
-      : null;
+    // scatter, plus an optional least-squares fit line when the spec carries an
+    // `lmFit` transform (covariate scatter). The fit is only meaningful on a
+    // numeric x axis.
+    const fit =
+      !scales.catMode && spec.transforms?.some((t) => t.kind === 'lmFit')
+        ? linearFit(points.map((p) => ({ x: p.xNum, y: p.y })))
+        : null;
+    let fitLine: SeriesPoint[] | null = null;
+    if (fit && !scales.catMode) {
+      const [xMin, xMax] = scales.xScale.domain() as [number, number];
+      fitLine = [
+        { cat: '', xNum: xMin, y: fit.slope * xMin + fit.intercept, lo: NaN, hi: NaN },
+        { cat: '', xNum: xMax, y: fit.slope * xMax + fit.intercept, lo: NaN, hi: NaN },
+      ];
+    }
     geometry = (
       <>
         {points.map((p, i) => (
-          <Circle key={i} cx={px(p)} cy={py(p)} r={2} fill={lineColor} />
+          <Circle key={i} cx={px(p)} cy={py(p.y)} r={2} fill={lineColor} />
         ))}
         {fitLine && (
-          <LinePath<XYPoint>
+          <LinePath<SeriesPoint>
             data={fitLine}
             x={px}
-            y={py}
+            y={(p) => py(p.y)}
             stroke={lineColor}
             strokeWidth={1}
             strokeDasharray="4 3"
@@ -339,11 +395,12 @@ function ContinuousMark({
       kind={kind}
       width={width}
       height={height}
-      xScale={xScale}
+      xScale={scales.xScale}
       yScale={yScale}
       innerWidth={innerWidth}
       innerHeight={innerHeight}
     >
+      {ribbon}
       {geometry}
     </CartesianMark>
   );
@@ -362,10 +419,7 @@ function BarMark({ frame, spec, width, height }: MarkRenderProps) {
     return frame.rows.map((_, i) => String(i));
   }, [frame, xName]);
 
-  const ys = useMemo<number[]>(
-    () => (yName ? numericColumn(frame, yName) : []),
-    [frame, yName],
-  );
+  const ys = useMemo<number[]>(() => (yName ? numericColumn(frame, yName) : []), [frame, yName]);
 
   const innerWidth = Math.max(0, width - MARGIN.left - MARGIN.right);
   const innerHeight = Math.max(0, height - MARGIN.top - MARGIN.bottom);
@@ -563,21 +617,155 @@ function BoxMark({ frame, spec, width, height }: MarkRenderProps) {
 }
 
 // ---------------------------------------------------------------------------
+// Heatmap / carpet (grayplot) mark
+// ---------------------------------------------------------------------------
+
+/** Clamp to the unit interval. */
+function clamp01(t: number): number {
+  return t < 0 ? 0 : t > 1 ? 1 : t;
+}
+
+/**
+ * Grayscale ramp for the carpet cells: normalized `t` in [0, 1] -> a gray in a
+ * visible band (dark for low, light for high — the grayplot convention). Kept
+ * as an explicit `rgb(...)` string so cell fills are deterministic and testable.
+ */
+function grayRamp(t: number): string {
+  const g = Math.round(30 + clamp01(t) * (220 - 30));
+  return `rgb(${g}, ${g}, ${g})`;
+}
+
+/**
+ * Heatmap / carpet (grayplot) mark: one contiguous cell per category along x,
+ * shaded by a quantitative value. The value channel is `color` when bound, else
+ * `y` — so the cross-set trace (`{ x: member, y: value }`) renders as a colored
+ * strip of members without any extra rebind. A row with a non-finite value
+ * draws as a hollow outline rather than a filled cell.
+ */
+function HeatmapMark({ frame, spec, width, height }: MarkRenderProps) {
+  const xName = spec.encoding.x;
+  const valueName = spec.encoding.color ?? spec.encoding.y;
+
+  const cells = useMemo<{ cat: string; value: number }[]>(() => {
+    if (!valueName) return [];
+    const cats = xName
+      ? columnValues(frame, xName).map((v, i) => String(v ?? i))
+      : frame.rows.map((_, i) => String(i));
+    const vals = numericColumn(frame, valueName);
+    return cats.map((cat, i) => ({ cat, value: vals[i] }));
+  }, [frame, xName, valueName]);
+
+  const innerWidth = Math.max(0, width - MARGIN.left - MARGIN.right);
+  const innerHeight = Math.max(0, height - MARGIN.top - MARGIN.bottom);
+
+  const { xScale, domain } = useMemo(() => {
+    const finite = cells.map((c) => c.value).filter((v) => Number.isFinite(v));
+    let min = finite.length ? Math.min(...finite) : 0;
+    let max = finite.length ? Math.max(...finite) : 1;
+    if (min === max) {
+      // A flat trace still needs a non-zero span so every cell is mid-ramp.
+      min -= 0.5;
+      max += 0.5;
+    }
+    return {
+      xScale: scaleBand<string>({
+        domain: cells.map((c) => c.cat),
+        range: [0, innerWidth],
+        padding: 0,
+      }),
+      domain: [min, max] as [number, number],
+    };
+  }, [cells, innerWidth]);
+
+  if (frame.rows.length === 0 || !valueName || cells.length === 0) {
+    return <EmptyMark kind="heatmap" width={width} height={height} />;
+  }
+  if (innerWidth <= 0 || innerHeight <= 0) {
+    return (
+      <svg
+        data-testid="plot-mark-heatmap"
+        width={Math.max(0, width)}
+        height={Math.max(0, height)}
+        role="img"
+        aria-label="heatmap plot"
+      />
+    );
+  }
+
+  const bw = xScale.bandwidth();
+  const [dMin, dMax] = domain;
+  const norm = (v: number) => (dMax > dMin ? (v - dMin) / (dMax - dMin) : 0.5);
+  const showAxis = innerWidth >= MIN_AXIS_WIDTH && innerHeight >= MIN_AXIS_HEIGHT;
+
+  return (
+    <svg
+      data-testid="plot-mark-heatmap"
+      width={Math.max(0, width)}
+      height={Math.max(0, height)}
+      role="img"
+      aria-label="heatmap plot"
+    >
+      <Group left={MARGIN.left} top={MARGIN.top}>
+        {cells.map((c, i) => {
+          const left = xScale(c.cat);
+          if (left === undefined) return null;
+          if (!Number.isFinite(c.value)) {
+            return (
+              <rect
+                key={`${c.cat}-${i}`}
+                data-testid="plot-heatmap-cell"
+                data-cat={c.cat}
+                x={left}
+                y={0}
+                width={bw}
+                height={innerHeight}
+                fill="none"
+                stroke={gridColor}
+                strokeDasharray="2 2"
+              />
+            );
+          }
+          return (
+            <Bar
+              key={`${c.cat}-${i}`}
+              data-testid="plot-heatmap-cell"
+              data-cat={c.cat}
+              data-value={c.value}
+              x={left}
+              y={0}
+              width={bw}
+              height={innerHeight}
+              fill={grayRamp(norm(c.value))}
+            />
+          );
+        })}
+        {showAxis && (
+          <AxisBottom
+            top={innerHeight}
+            scale={xScale as never}
+            numTicks={4}
+            stroke={gridColor}
+            tickStroke={gridColor}
+            tickLabelProps={tickLabelProps}
+          />
+        )}
+      </Group>
+    </svg>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Exported renderers
 // ---------------------------------------------------------------------------
 
-export const lineMark: MarkRenderer = (props) => (
-  <ContinuousMark {...props} kind="line" />
-);
+export const lineMark: MarkRenderer = (props) => <ContinuousMark {...props} kind="line" />;
 
-export const areaMark: MarkRenderer = (props) => (
-  <ContinuousMark {...props} kind="area" />
-);
+export const areaMark: MarkRenderer = (props) => <ContinuousMark {...props} kind="area" />;
 
-export const pointMark: MarkRenderer = (props) => (
-  <ContinuousMark {...props} kind="point" />
-);
+export const pointMark: MarkRenderer = (props) => <ContinuousMark {...props} kind="point" />;
 
 export const barMark: MarkRenderer = (props) => <BarMark {...props} />;
 
 export const boxMark: MarkRenderer = (props) => <BoxMark {...props} />;
+
+export const heatmapMark: MarkRenderer = (props) => <HeatmapMark {...props} />;

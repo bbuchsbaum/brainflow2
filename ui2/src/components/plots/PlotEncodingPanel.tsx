@@ -133,14 +133,16 @@ export function PlotEncodingPanel({
 
   // Role-appropriate column choices per channel + mark, so the user can't bind a
   // continuous mark's axis to a non-numeric column (which would silently render
-  // nothing). `bar` accepts any column on x (its band scale stringifies
-  // categories); `hist` keeps x quantitative.
+  // nothing). `bar` and `heatmap` accept any column on x (their band scales
+  // stringify categories); `hist` keeps x quantitative. Continuous marks
+  // (line/area/point) accept numeric OR categorical x — a categorical x lays the
+  // line/points on a point scale (e.g. the cross-set trace's member axis).
   const xOptions =
-    resolved.mark === 'bar'
+    resolved.mark === 'bar' || resolved.mark === 'heatmap'
       ? frame.columns.map((c) => c.name)
       : resolved.mark === 'hist'
         ? quantCols
-        : numericCols;
+        : [...numericCols, ...categoricalCols];
 
   // Normalize control: offered for continuous marks with a quantitative y
   // (e.g. z-score / %Δ a voxel time-series).
