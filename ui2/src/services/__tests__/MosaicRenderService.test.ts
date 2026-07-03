@@ -663,6 +663,30 @@ describe('MosaicRenderService', () => {
       expect(mockBatchRenderSlices.mock.calls[1][0]).toHaveLength(1);
     });
 
+    it('splits batch calls by viewport size before dispatching', async () => {
+      const svc = getMosaicRenderService();
+      svc.setBatchRenderEnabled(true);
+      mockBatchRenderSlices.mockImplementation(
+        async (viewStates: unknown[], width: number, height: number) =>
+          makeBatchBuffer(width, height, viewStates.length),
+      );
+
+      await svc.renderMosaicGrid([
+        { sliceIndex: 0, axis: 'axial', cellId: 'wide-0', width: 128, height: 128 },
+        { sliceIndex: 1, axis: 'axial', cellId: 'small-0', width: 64, height: 64 },
+        { sliceIndex: 2, axis: 'axial', cellId: 'wide-1', width: 128, height: 128 },
+      ]);
+      await flushMicrotasks();
+
+      expect(mockBatchRenderSlices).toHaveBeenCalledTimes(2);
+      expect(mockBatchRenderSlices.mock.calls[0][0]).toHaveLength(2);
+      expect(mockBatchRenderSlices.mock.calls[0][1]).toBe(128);
+      expect(mockBatchRenderSlices.mock.calls[0][2]).toBe(128);
+      expect(mockBatchRenderSlices.mock.calls[1][0]).toHaveLength(1);
+      expect(mockBatchRenderSlices.mock.calls[1][1]).toBe(64);
+      expect(mockBatchRenderSlices.mock.calls[1][2]).toBe(64);
+    });
+
     it('falls back to the per-cell path when the batch call throws', async () => {
       const svc = getMosaicRenderService();
       svc.setBatchRenderEnabled(true);

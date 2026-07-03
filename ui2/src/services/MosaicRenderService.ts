@@ -332,7 +332,7 @@ class MosaicRenderService {
       renderStore.setRendering(request.cellId, true);
     }
 
-    const chunks = this.createBatches(requests, MosaicRenderService.MAX_BATCH_SLICES);
+    const chunks = this.createHomogeneousBatches(requests, MosaicRenderService.MAX_BATCH_SLICES);
 
     for (const chunk of chunks) {
       const viewStates = await Promise.all(
@@ -424,6 +424,31 @@ class MosaicRenderService {
       batches.push(items.slice(i, i + batchSize));
     }
     return batches;
+  }
+
+  /**
+   * Batch backend requires every ViewState in a call to share one viewport size
+   * because the response envelope has a single width/height header.
+   */
+  private createHomogeneousBatches(
+    requests: MosaicRenderRequest[],
+    batchSize: number,
+  ): MosaicRenderRequest[][] {
+    const groups: MosaicRenderRequest[][] = [];
+    const bySize = new Map<string, MosaicRenderRequest[]>();
+
+    for (const request of requests) {
+      const key = `${request.width}x${request.height}`;
+      let group = bySize.get(key);
+      if (!group) {
+        group = [];
+        bySize.set(key, group);
+        groups.push(group);
+      }
+      group.push(request);
+    }
+
+    return groups.flatMap((group) => this.createBatches(group, batchSize));
   }
 
   /**

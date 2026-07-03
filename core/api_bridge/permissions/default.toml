@@ -98,5 +98,6 @@ permissions = [
     "allow-sample-stack",
     "allow-compute-temporal-metric",
     "allow-compute-region-stats",
-    "allow-sample-set-at-world"
+    "allow-sample-set-at-world",
+    "allow-sample-set-trace-at-world"
 ]

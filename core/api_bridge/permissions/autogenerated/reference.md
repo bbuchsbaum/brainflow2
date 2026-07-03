@@ -100,6 +100,7 @@ Default permissions for api-bridge plugin
 - `allow-compute-temporal-metric`
 - `allow-compute-region-stats`
 - `allow-sample-set-at-world`
+- `allow-sample-set-trace-at-world`
 
 ## Permission Table
 
@@ -2082,6 +2083,32 @@ Enables the sample_set_at_world command without any pre-configured scope.
 <td>
 
 Denies the sample_set_at_world command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:allow-sample-set-trace-at-world`
+
+</td>
+<td>
+
+Enables the sample_set_trace_at_world command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:deny-sample-set-trace-at-world`
+
+</td>
+<td>
+
+Denies the sample_set_trace_at_world command without any pre-configured scope.
 
 </td>
 </tr>

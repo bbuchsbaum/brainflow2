@@ -1,7 +1,8 @@
 use std::{convert::TryInto, path::PathBuf, sync::Arc};
 
 use api_bridge::{
-    render_view_for_testing, render_view_with_diagnostics_for_testing, render_views_for_testing,
+    release_layer_gpu_resources_for_testing, render_view_for_testing,
+    render_view_with_diagnostics_for_testing, render_views_for_testing,
     render_views_with_diagnostics_for_testing, submit_view_with_diagnostics_for_testing,
     BridgeState, VolumeMetadataInfo,
 };
@@ -79,6 +80,18 @@ fn make_4d_volume_sendable() -> VolumeSendable {
     let space = NeuroSpace::new(dims, Some(spacing), Some(origin), None, None).unwrap();
     let vec4d = DenseNeuroVec::zeros(space).unwrap();
     VolumeSendable::Vec4DF32(vec4d)
+}
+
+async fn resident_snapshot(
+    bridge_state: &BridgeState,
+    layer_id: &str,
+) -> Option<api_bridge::image_set::ResidentImageSetSnapshot> {
+    bridge_state
+        .resident_image_sets
+        .lock()
+        .await
+        .get(layer_id)
+        .map(|resident| resident.snapshot())
 }
 
 async fn install_render_service_or_skip(bridge_state: &BridgeState) -> bool {
@@ -879,6 +892,369 @@ async fn render_view_reuploads_4d_layer_when_timepoint_changes() {
             .copied(),
         Some(Some(2))
     );
+}
+
+#[tokio::test]
+async fn resident_image_set_keeps_members_resident_across_member_changes() {
+    let bridge_state = BridgeState::default().expect("bridge state");
+
+    if !install_render_service_or_skip(&bridge_state).await {
+        return;
+    }
+
+    let volume_id = "unit-test-volume-4d-resident".to_string();
+    let metadata = VolumeMetadataInfo {
+        name: volume_id.clone(),
+        path: "memory://unit-test-4d-resident".into(),
+        dtype: "f32".into(),
+        volume_type: VolumeType::TimeSeries4D,
+        time_series_info: Some(TimeSeriesInfo {
+            num_timepoints: 4,
+            tr: Some(1.5),
+            temporal_unit: Some("seconds".into()),
+            acquisition_time: Some(6.0),
+        }),
+    };
+    {
+        let mut registry = bridge_state.volume_registry.lock().await;
+        registry.insert(volume_id.clone(), make_4d_volume_sendable(), metadata);
+    }
+
+    let (axial_origin_3d, axial_u_3d, axial_origin, axial_u, axial_v) = view_vectors("axial");
+    let (sagittal_origin_3d, sagittal_u_3d, _, _, _) = view_vectors("sagittal");
+    let (coronal_origin_3d, coronal_u_3d, _, _, _) = view_vectors("coronal");
+    let base_payload = json!({
+        "views": {
+            "axial": { "origin_mm": axial_origin_3d, "u_mm": axial_u_3d, "v_mm": [0.0, 10.0, 0.0] },
+            "sagittal": { "origin_mm": sagittal_origin_3d, "u_mm": sagittal_u_3d, "v_mm": [0.0, 0.0, 10.0] },
+            "coronal": { "origin_mm": coronal_origin_3d, "u_mm": coronal_u_3d, "v_mm": [0.0, 0.0, 10.0] }
+        },
+        "crosshair": {"world_mm": [0.0, 0.0, 0.0], "visible": false},
+        "layers": [{
+            "id": "layer-4d-resident",
+            "volumeId": volume_id,
+            "visible": true,
+            "opacity": 1.0,
+            "colormap": "gray",
+            "intensity": [0.0, 1.0],
+            "threshold": [0.0, 0.0],
+            "blendMode": "alpha",
+            "interpolation": "linear"
+        }],
+        "requestedView": {
+            "type": "axial",
+            "origin_mm": axial_origin,
+            "u_mm": axial_u,
+            "v_mm": axial_v,
+            "width": 64,
+            "height": 64
+        },
+        "timepoint": 0
+    });
+
+    let render_at = |tp: i64| {
+        let mut payload = base_payload.clone();
+        payload["timepoint"] = json!(tp);
+        payload.to_string()
+    };
+
+    // Initial render at member 0: legacy allocation path — the ring is created
+    // lazily on the first member *change*, not the initial upload.
+    render_view_with_diagnostics_for_testing(render_at(0), &bridge_state, Some("rgba"))
+        .await
+        .expect("render member 0");
+    assert!(
+        resident_snapshot(&bridge_state, "layer-4d-resident")
+            .await
+            .is_none(),
+        "no ring before the first member change"
+    );
+
+    // Switch to member 1: ring is created (seeded at member 0), member 1 admitted,
+    // neighbours prefetched. Radius-2 prefetch around 1 admits 2 and 3, so all four
+    // members become resident (they fit the byte budget and the slot cap).
+    render_view_with_diagnostics_for_testing(render_at(1), &bridge_state, Some("rgba"))
+        .await
+        .expect("render member 1");
+    let snap = resident_snapshot(&bridge_state, "layer-4d-resident")
+        .await
+        .expect("ring exists after member change");
+    assert_eq!(snap.member_count, 4);
+    assert_eq!(snap.current_member, 1);
+    assert_eq!(
+        snap.resident_members,
+        vec![0, 1, 2, 3],
+        "prior member stays resident and neighbours are prefetched"
+    );
+
+    // Jump to member 3 (already prefetched): a resident hit — no upload, all members
+    // stay resident.
+    render_view_with_diagnostics_for_testing(render_at(3), &bridge_state, Some("rgba"))
+        .await
+        .expect("render member 3");
+    let snap = resident_snapshot(&bridge_state, "layer-4d-resident")
+        .await
+        .expect("ring still present");
+    assert_eq!(snap.current_member, 3);
+    assert_eq!(snap.resident_members, vec![0, 1, 2, 3]);
+
+    // Step back to member 0: also a resident hit — the core win over the re-upload
+    // path, where stepping back repeated the whole extract + upload.
+    render_view_with_diagnostics_for_testing(render_at(0), &bridge_state, Some("rgba"))
+        .await
+        .expect("render member 0 again");
+    let snap = resident_snapshot(&bridge_state, "layer-4d-resident")
+        .await
+        .expect("ring still present");
+    assert_eq!(snap.current_member, 0);
+    assert_eq!(snap.resident_members, vec![0, 1, 2, 3]);
+
+    // The layer's atlas slot maps to a resident member's slot.
+    let slot = *bridge_state
+        .layer_to_atlas_map
+        .lock()
+        .await
+        .get("layer-4d-resident")
+        .expect("layer mapped to a slot");
+    assert!(
+        bridge_state
+            .resident_image_sets
+            .lock()
+            .await
+            .get("layer-4d-resident")
+            .expect("ring present")
+            .ring
+            .resident_texture_indices()
+            .contains(&slot),
+        "the layer samples a slot the ring keeps resident"
+    );
+}
+
+#[tokio::test]
+async fn resident_image_set_reuses_seed_slot_under_texture_pressure() {
+    let bridge_state = BridgeState::default().expect("bridge state");
+
+    if !install_render_service_or_skip(&bridge_state).await {
+        return;
+    }
+
+    let volume_id = "unit-test-volume-4d-resident-pressure".to_string();
+    let metadata = VolumeMetadataInfo {
+        name: volume_id.clone(),
+        path: "memory://unit-test-4d-resident-pressure".into(),
+        dtype: "f32".into(),
+        volume_type: VolumeType::TimeSeries4D,
+        time_series_info: Some(TimeSeriesInfo {
+            num_timepoints: 4,
+            tr: Some(1.5),
+            temporal_unit: Some("seconds".into()),
+            acquisition_time: Some(6.0),
+        }),
+    };
+    {
+        let mut registry = bridge_state.volume_registry.lock().await;
+        registry.insert(volume_id.clone(), make_4d_volume_sendable(), metadata);
+    }
+
+    let (axial_origin_3d, axial_u_3d, axial_origin, axial_u, axial_v) = view_vectors("axial");
+    let (sagittal_origin_3d, sagittal_u_3d, _, _, _) = view_vectors("sagittal");
+    let (coronal_origin_3d, coronal_u_3d, _, _, _) = view_vectors("coronal");
+    let base_payload = json!({
+        "views": {
+            "axial": { "origin_mm": axial_origin_3d, "u_mm": axial_u_3d, "v_mm": [0.0, 10.0, 0.0] },
+            "sagittal": { "origin_mm": sagittal_origin_3d, "u_mm": sagittal_u_3d, "v_mm": [0.0, 0.0, 10.0] },
+            "coronal": { "origin_mm": coronal_origin_3d, "u_mm": coronal_u_3d, "v_mm": [0.0, 0.0, 10.0] }
+        },
+        "crosshair": {"world_mm": [0.0, 0.0, 0.0], "visible": false},
+        "layers": [{
+            "id": "layer-4d-resident-pressure",
+            "volumeId": volume_id,
+            "visible": true,
+            "opacity": 1.0,
+            "colormap": "gray",
+            "intensity": [0.0, 1.0],
+            "threshold": [0.0, 0.0],
+            "blendMode": "alpha",
+            "interpolation": "linear"
+        }],
+        "requestedView": {
+            "type": "axial",
+            "origin_mm": axial_origin,
+            "u_mm": axial_u,
+            "v_mm": axial_v,
+            "width": 64,
+            "height": 64
+        },
+        "timepoint": 0
+    });
+
+    let render_at = |tp: i64| {
+        let mut payload = base_payload.clone();
+        payload["timepoint"] = json!(tp);
+        payload.to_string()
+    };
+
+    render_view_with_diagnostics_for_testing(render_at(0), &bridge_state, Some("rgba"))
+        .await
+        .expect("render member 0");
+
+    {
+        let service_arc = bridge_state
+            .render_loop_service
+            .lock()
+            .await
+            .as_ref()
+            .expect("render service installed")
+            .clone();
+        let mut service = service_arc.lock().await;
+        let filler = render_loop::test_fixtures::create_test_pattern_volume();
+        while service.free_volume_slot_count() > 0 {
+            service
+                .upload_volume_3d(&filler)
+                .expect("fill remaining texture slot");
+        }
+        assert_eq!(service.free_volume_slot_count(), 0);
+    }
+
+    // With no globally-free texture slots, the resident ring must reuse its seeded
+    // slot in place instead of attempting a fresh upload and failing the render.
+    render_view_with_diagnostics_for_testing(render_at(1), &bridge_state, Some("rgba"))
+        .await
+        .expect("render member 1 under texture pressure");
+
+    let snap = resident_snapshot(&bridge_state, "layer-4d-resident-pressure")
+        .await
+        .expect("ring exists after pressured member change");
+    assert_eq!(snap.current_member, 1);
+    assert_eq!(snap.resident_members, vec![1]);
+
+    let service_arc = bridge_state
+        .render_loop_service
+        .lock()
+        .await
+        .as_ref()
+        .expect("render service installed")
+        .clone();
+    let service = service_arc.lock().await;
+    assert_eq!(service.free_volume_slot_count(), 0);
+}
+
+#[tokio::test]
+async fn release_layer_gpu_resources_reclaims_resident_image_set_ring() {
+    let bridge_state = BridgeState::default().expect("bridge state");
+
+    if !install_render_service_or_skip(&bridge_state).await {
+        return;
+    }
+
+    let volume_id = "unit-test-volume-4d-resident-release".to_string();
+    let metadata = VolumeMetadataInfo {
+        name: volume_id.clone(),
+        path: "memory://unit-test-4d-resident-release".into(),
+        dtype: "f32".into(),
+        volume_type: VolumeType::TimeSeries4D,
+        time_series_info: Some(TimeSeriesInfo {
+            num_timepoints: 4,
+            tr: Some(1.5),
+            temporal_unit: Some("seconds".into()),
+            acquisition_time: Some(6.0),
+        }),
+    };
+    {
+        let mut registry = bridge_state.volume_registry.lock().await;
+        registry.insert(volume_id.clone(), make_4d_volume_sendable(), metadata);
+    }
+
+    let (axial_origin_3d, axial_u_3d, axial_origin, axial_u, axial_v) = view_vectors("axial");
+    let (sagittal_origin_3d, sagittal_u_3d, _, _, _) = view_vectors("sagittal");
+    let (coronal_origin_3d, coronal_u_3d, _, _, _) = view_vectors("coronal");
+    let base_payload = json!({
+        "views": {
+            "axial": { "origin_mm": axial_origin_3d, "u_mm": axial_u_3d, "v_mm": [0.0, 10.0, 0.0] },
+            "sagittal": { "origin_mm": sagittal_origin_3d, "u_mm": sagittal_u_3d, "v_mm": [0.0, 0.0, 10.0] },
+            "coronal": { "origin_mm": coronal_origin_3d, "u_mm": coronal_u_3d, "v_mm": [0.0, 0.0, 10.0] }
+        },
+        "crosshair": {"world_mm": [0.0, 0.0, 0.0], "visible": false},
+        "layers": [{
+            "id": "layer-4d-resident-release",
+            "volumeId": volume_id,
+            "visible": true,
+            "opacity": 1.0,
+            "colormap": "gray",
+            "intensity": [0.0, 1.0],
+            "threshold": [0.0, 0.0],
+            "blendMode": "alpha",
+            "interpolation": "linear"
+        }],
+        "requestedView": {
+            "type": "axial",
+            "origin_mm": axial_origin,
+            "u_mm": axial_u,
+            "v_mm": axial_v,
+            "width": 64,
+            "height": 64
+        },
+        "timepoint": 0
+    });
+
+    let render_at = |tp: i64| {
+        let mut payload = base_payload.clone();
+        payload["timepoint"] = json!(tp);
+        payload.to_string()
+    };
+
+    render_view_with_diagnostics_for_testing(render_at(0), &bridge_state, Some("rgba"))
+        .await
+        .expect("render member 0");
+    render_view_with_diagnostics_for_testing(render_at(1), &bridge_state, Some("rgba"))
+        .await
+        .expect("render member 1");
+
+    let slots_before = {
+        let sets = bridge_state.resident_image_sets.lock().await;
+        sets.get("layer-4d-resident-release")
+            .expect("ring present")
+            .ring
+            .resident_texture_indices()
+    };
+    assert!(
+        slots_before.len() > 1,
+        "test should exercise extra resident slots"
+    );
+
+    let release = release_layer_gpu_resources_for_testing(
+        "layer-4d-resident-release".to_string(),
+        &bridge_state,
+    )
+    .await
+    .expect("release succeeds");
+    assert!(release.success);
+    assert!(
+        resident_snapshot(&bridge_state, "layer-4d-resident-release")
+            .await
+            .is_none(),
+        "resident ring removed from bridge state"
+    );
+    assert!(!bridge_state
+        .layer_to_atlas_map
+        .lock()
+        .await
+        .contains_key("layer-4d-resident-release"));
+
+    let service_arc = bridge_state
+        .render_loop_service
+        .lock()
+        .await
+        .as_ref()
+        .expect("render service installed")
+        .clone();
+    let service = service_arc.lock().await;
+    for slot in slots_before {
+        assert!(
+            service.get_volume_data_range(slot).is_none(),
+            "resident slot {slot} metadata should be reclaimed"
+        );
+    }
 }
 
 #[tokio::test]

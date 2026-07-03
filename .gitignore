@@ -1,5 +1,6 @@
 # Brainflow Project Ignore List
 /target
+**/target/
 /node_modules
 /ui/build/
 /ui/.svelte-kit/

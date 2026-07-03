@@ -420,6 +420,28 @@ impl LayerStateManager {
         }
     }
 
+    /// Repoint the layer that currently references `current_atlas_index` at a
+    /// different resident texture slot (`new_atlas_index`). Used for the
+    /// resident-image-set member swap: the layer keeps every display property and
+    /// its co-registered spatial metadata, only its sampled texture slot changes.
+    /// Returns `false` if no active layer references `current_atlas_index`.
+    pub fn set_layer_atlas_index(
+        &mut self,
+        current_atlas_index: u32,
+        new_atlas_index: u32,
+    ) -> bool {
+        if let Some(layer) = self
+            .active_layers
+            .iter_mut()
+            .find(|layer| layer.atlas_index == current_atlas_index)
+        {
+            layer.atlas_index = new_atlas_index;
+            true
+        } else {
+            false
+        }
+    }
+
     /// Set the layer uniform buffer
     pub fn set_layer_buffer(&mut self, buffer: Buffer) {
         self.layer_buffer = Some(buffer);

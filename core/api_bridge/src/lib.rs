@@ -19,7 +19,7 @@ use bridge_types::{
     GpuTextureFormat, LayerPatch, Loader, NiftiHeaderInfo, PeekVolumeMetadata, RemoteAuthChallenge,
     RemoteAuthPrompt, RemoteHostKeyChallenge, RemoteMountConnectRequest, RemoteMountConnectResult,
     RemoteMountInfo, RemoteMountOrigin, RemoteMountProfile, SliceAxisMeta, SliceInfo,
-    StudioDiscoveryPromotionRequest, StudioDiscoveryPromotionResult,
+    StudioDiscoveryDesignValue, StudioDiscoveryPromotionRequest, StudioDiscoveryPromotionResult,
     StudioFolderOntologyPreviewRequest, StudioFolderOntologySummary, StudioImportCandidate,
     StudioImportPreviewRequest, TextureCoordinates, TreePayload, VolumeHandleInfo,
     VolumeLayerGpuInfo, VolumeSendable,
@@ -65,6 +65,7 @@ mod analysis;
 mod command_registry;
 mod error_context;
 mod error_helpers;
+pub mod image_set;
 mod materialization;
 mod render_bridge_adapter;
 mod user_errors;
@@ -759,7 +760,7 @@ fn coord_to_grid_for_volume(
 }
 
 /// Extract a single 3D volume from a 4D time series at a specific timepoint
-fn extract_3d_volume_at_timepoint(
+pub(crate) fn extract_3d_volume_at_timepoint(
     volume_4d: &VolumeSendable,
     timepoint: usize,
 ) -> BridgeResult<VolumeSendable> {
@@ -1399,6 +1400,11 @@ pub struct BridgeState {
     // Precomputed volume->surface samplers keyed by sampler handle (vol2surf M5).
     // Built once per (surface, template grid); reused across timepoints/volumes.
     pub surface_samplers: Arc<Mutex<HashMap<String, SurfaceSamplerEntry>>>,
+    // Per-layer GPU-resident image-set rings (flagship). Each keeps several
+    // co-registered members (timepoints / subjects / contrasts / conditions)
+    // uploaded at once so a member change is a `texture_index` swap instead of a
+    // CPU extract + full GPU re-upload. Keyed by UI layer id; absent => no ring.
+    pub resident_image_sets: Arc<Mutex<HashMap<String, image_set::ResidentImageSet>>>,
 }
 
 impl BridgeState {
@@ -1432,6 +1438,7 @@ impl BridgeState {
             pending_remote_auth: Arc::new(Mutex::new(HashMap::new())),
             set_sample_cache: Arc::new(Mutex::new(HashMap::new())),
             surface_samplers: Arc::new(Mutex::new(HashMap::new())),
+            resident_image_sets: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
@@ -1468,6 +1475,7 @@ impl BridgeState {
             pending_remote_auth: Arc::new(Mutex::new(HashMap::new())),
             set_sample_cache: Arc::new(Mutex::new(HashMap::new())),
             surface_samplers: Arc::new(Mutex::new(HashMap::new())),
+            resident_image_sets: Arc::new(Mutex::new(HashMap::new())),
         })
     }
 
@@ -4923,7 +4931,27 @@ async fn release_layer_gpu_resources_internal(
         let mut leases = bridge_state.layer_leases.lock().await;
         leases.remove(&layer_id)
     } {
-        match lease.release("manual").await? {
+        let service_guard = bridge_state.render_loop_service.lock().await;
+        let service_arc =
+            service_guard
+                .as_ref()
+                .ok_or_else(|| BridgeError::ServiceNotInitialized {
+                    code: 5008,
+                    details:
+                        "GPU rendering service is not initialized. Cannot release GPU resources."
+                            .to_string(),
+                })?;
+        let mut render_loop_service = service_arc.lock().await;
+
+        // The lease owns the primary layer slot bookkeeping, but resident-image-set
+        // rings own additional multi-texture slots outside the lease. Reclaim them
+        // before the lease removes the layer mapping and returns.
+        release_resident_image_set(&layer_id, bridge_state, &mut render_loop_service).await;
+
+        match lease
+            .release_with_service(&mut render_loop_service, "manual")
+            .await?
+        {
             Some(outcome) => {
                 return Ok(ReleaseResult {
                     success: true,
@@ -4969,6 +4997,10 @@ async fn release_layer_gpu_resources_internal(
                 .to_string(),
         })?;
     let mut render_loop_service = service_arc.lock().await;
+
+    // Reclaim the layer's GPU-resident image-set ring (its extra resident members
+    // hold multi-texture slots not tracked by the lease) before the atlas teardown.
+    release_resident_image_set(&layer_id, bridge_state, &mut render_loop_service).await;
 
     // Release the atlas layer
     let removed_from_render_state = render_loop_service
@@ -8155,6 +8187,186 @@ struct Vec3 {
     z: f32,
 }
 
+/// Resident image-set ring: maximum co-registered members kept uploaded per layer.
+/// Bounded well below the shared texture-slot cap (`MAX_TEXTURES`) so overlay
+/// layers keep slots available.
+const RESIDENT_RING_MAX_SLOTS: usize = 6;
+/// Resident image-set ring: per-layer VRAM byte budget. The effective residency is
+/// `min(max_slots, budget / bytes_per_member)`, always at least the shown member.
+const RESIDENT_RING_BUDGET_BYTES: u64 = 512 * 1024 * 1024;
+/// Resident image-set ring: neighbours prefetched around the shown member.
+const RESIDENT_RING_PREFETCH_RADIUS: usize = 2;
+
+/// Whether the GPU-resident image-set fast path is enabled. On by default; set
+/// `BRAINFLOW_RESIDENT_IMAGE_SET=0` (or `false`/`off`) to force the legacy
+/// extract + re-upload path.
+fn resident_image_set_enabled() -> bool {
+    !matches!(
+        std::env::var("BRAINFLOW_RESIDENT_IMAGE_SET")
+            .ok()
+            .as_deref()
+            .map(str::trim),
+        Some("0") | Some("false") | Some("off")
+    )
+}
+
+/// Drop a layer's resident image-set ring (if any) and free every texture slot it
+/// still holds. Safe to call for layers that never had a ring. Errors from freeing
+/// an already-free slot are swallowed — teardown is best-effort.
+async fn release_resident_image_set(
+    layer_id: &str,
+    bridge_state: &BridgeState,
+    service: &mut RenderLoopService,
+) {
+    let resident = {
+        let mut sets = bridge_state.resident_image_sets.lock().await;
+        sets.remove(layer_id)
+    };
+    if let Some(resident) = resident {
+        for tex_idx in resident.ring.resident_texture_indices() {
+            if let Err(e) = service.release_volume(tex_idx) {
+                debug!(
+                    "Resident image-set teardown: slot {} for layer '{}' already free: {:?}",
+                    tex_idx, layer_id, e
+                );
+            }
+        }
+    }
+}
+
+/// Try to satisfy a member change through the GPU-resident ring instead of the
+/// legacy invalidate + extract + re-upload path.
+///
+/// Returns `Ok(Some(slot))` with the texture slot the layer now samples — a pure
+/// `texture_index` swap on a resident hit, or one in-place upload on a miss. Returns
+/// `Ok(None)` to fall back to the legacy path (feature disabled, not a multi-member
+/// volume, member out of range, missing volume, or the layer could not be
+/// repointed). The ring is created lazily on the first member change, seeded at the
+/// slot the layer currently occupies.
+async fn try_resident_swap(
+    layer_id: &str,
+    volume_id: &str,
+    current_slot: u32,
+    cached_member: Option<usize>,
+    requested_member: usize,
+    bridge_state: &BridgeState,
+    service: &mut RenderLoopService,
+) -> BridgeResult<Option<u32>> {
+    if !resident_image_set_enabled() {
+        return Ok(None);
+    }
+
+    let mut sets = bridge_state.resident_image_sets.lock().await;
+
+    if !sets.contains_key(layer_id) {
+        let (volume_arc, tr_seconds, preserve_labels) = {
+            let registry = bridge_state.volume_registry.lock().await;
+            match registry.get_entry(volume_id) {
+                Some(entry) => (
+                    entry.data.clone(),
+                    entry
+                        .metadata
+                        .time_series_info
+                        .as_ref()
+                        .and_then(|ts| ts.tr),
+                    entry.metadata.path.starts_with("atlas:"),
+                ),
+                None => return Ok(None),
+            }
+        };
+
+        let set = match image_set::Raw4DImageSet::new(volume_arc, tr_seconds) {
+            Some(set) => set,
+            None => return Ok(None), // plain 3-D volume: no member axis
+        };
+
+        let seed_member = cached_member.unwrap_or(0);
+        let resident = image_set::ResidentImageSet::new(
+            Box::new(set),
+            seed_member,
+            current_slot,
+            RESIDENT_RING_MAX_SLOTS,
+            RESIDENT_RING_BUDGET_BYTES,
+            preserve_labels,
+        );
+        sets.insert(layer_id.to_string(), resident);
+    }
+
+    // Phase 1: make the requested member resident (may upload once on a miss).
+    let outcome = {
+        let resident = sets.get_mut(layer_id).expect("resident set inserted above");
+        if requested_member >= resident.member_count() {
+            return Ok(None);
+        }
+        resident.ensure_member(requested_member, service)?
+    };
+
+    // Phase 2: if the imperative render-layer path owns an entry for this slot,
+    // repoint that layer before publishing the new ViewState registry binding.
+    // Some ViewState-only call paths have no imperative layer entry; those still
+    // render from `RenderLoopService::volumes[volume_id].atlas_index` below.
+    if service.has_render_layer_for_atlas(current_slot) {
+        if let Err(e) = service.set_layer_texture_index(current_slot, outcome.texture_index) {
+            warn!(
+                "Resident image-set could not repoint layer '{}' from slot {} to {}; falling back to re-upload: {:?}",
+                layer_id, current_slot, outcome.texture_index, e
+            );
+            if let Some(resident) = sets.remove(layer_id) {
+                for tex_idx in resident.ring.resident_texture_indices() {
+                    let _ = service.release_volume(tex_idx);
+                }
+            }
+            return Ok(None);
+        }
+    }
+
+    // Phase 3: repoint the `volume_id -> slot` binding the ViewState render
+    // resolves (`RenderLoopService::volumes[volume_id].atlas_index`) at the resident
+    // member. This is the actual swap the ViewState renderer reads each frame — a
+    // metadata update with no `write_texture`. On failure, tear the ring down and
+    // fall back so the legacy path can rebuild cleanly.
+    let data_range = service
+        .get_volume_data_range(outcome.texture_index)
+        .unwrap_or((0.0, 1.0));
+    if let Err(e) =
+        service.register_volume_with_range(volume_id.to_string(), outcome.texture_index, data_range)
+    {
+        warn!(
+            "Resident image-set could not repoint volume '{}' to slot {}; falling back to re-upload: {:?}",
+            volume_id, outcome.texture_index, e
+        );
+        if let Some(resident) = sets.remove(layer_id) {
+            for tex_idx in resident.ring.resident_texture_indices() {
+                let _ = service.release_volume(tex_idx);
+            }
+        }
+        return Ok(None);
+    }
+
+    // Phase 4: record the current member and prefetch neighbours into free capacity.
+    {
+        let resident = sets.get_mut(layer_id).expect("resident set present");
+        resident.current_member = requested_member;
+        if let Err(e) =
+            resident.prefetch_around(requested_member, RESIDENT_RING_PREFETCH_RADIUS, service)
+        {
+            debug!("Resident image-set prefetch around {requested_member} failed: {e:?}");
+        }
+    }
+
+    // Keep the bridge's per-layer maps consistent with the swap.
+    {
+        let mut layer_map = bridge_state.layer_to_atlas_map.lock().await;
+        layer_map.insert(layer_id.to_string(), outcome.texture_index);
+    }
+    {
+        let mut timepoint_map = bridge_state.layer_to_timepoint_map.lock().await;
+        timepoint_map.insert(layer_id.to_string(), Some(requested_member));
+    }
+
+    Ok(Some(outcome.texture_index))
+}
+
 // Helper function to allocate GPU resources for a layer on-demand
 async fn allocate_gpu_resources_for_layer(
     layer_id: &str,
@@ -8512,6 +8724,11 @@ async fn invalidate_cached_layer_for_render(
     service: &mut RenderLoopService,
     reason: &'static str,
 ) -> BridgeResult<()> {
+    // Reclaim any GPU-resident image-set ring for this layer first: its extra
+    // resident members occupy multi-texture slots the lease/atlas path does not
+    // track, so they must be freed explicitly or they leak the shared slot budget.
+    release_resident_image_set(layer_id, bridge_state, service).await;
+
     if let Some(lease) = {
         let mut leases = bridge_state.layer_leases.lock().await;
         leases.remove(layer_id)
@@ -8812,40 +9029,68 @@ async fn prepare_frontend_layers_for_render(
                             || cached_timepoint.is_none());
 
                     if requires_reupload {
-                        info!(
-                            "Re-uploading 4D layer '{}' because cached timepoint {:?} does not match requested {:?}",
-                            layer.id, cached_timepoint, requested_render_timepoint
-                        );
-                        invalidate_cached_layer_for_render(
-                            &layer.id,
-                            idx,
-                            bridge_state,
-                            service,
-                            "render_timepoint_changed",
-                        )
-                        .await?;
-
-                        let gpu_alloc_start = std::time::Instant::now();
-                        let gpu_info = allocate_gpu_resources_for_layer(
+                        // Flagship fast path: if the layer's members are held in a
+                        // GPU-resident ring, changing member is a `texture_index`
+                        // swap (and possibly one in-place upload on a miss) instead
+                        // of invalidating + re-extracting + re-uploading to a fresh
+                        // slot. Falls back to the legacy path on any non-4D / disabled
+                        // / not-yet-seeded case.
+                        let requested_member = requested_render_timepoint.unwrap_or(0);
+                        match try_resident_swap(
                             &layer.id,
                             &layer.volume_id,
+                            idx,
+                            cached_timepoint,
+                            requested_member,
                             bridge_state,
                             service,
-                            requested_render_timepoint,
                         )
-                        .await?;
-                        let gpu_alloc_time = gpu_alloc_start.elapsed();
-                        debug!(
-                            "⏱️  GPU resource re-allocation after timepoint change took: {:?}",
-                            gpu_alloc_time
-                        );
+                        .await?
+                        {
+                            Some(swapped_idx) => {
+                                debug!(
+                                    "Resident image-set swap: layer '{}' -> member {} at slot {} (no re-upload)",
+                                    layer.id, requested_member, swapped_idx
+                                );
+                                swapped_idx
+                            }
+                            None => {
+                                info!(
+                                    "Re-uploading 4D layer '{}' because cached timepoint {:?} does not match requested {:?}",
+                                    layer.id, cached_timepoint, requested_render_timepoint
+                                );
+                                invalidate_cached_layer_for_render(
+                                    &layer.id,
+                                    idx,
+                                    bridge_state,
+                                    service,
+                                    "render_timepoint_changed",
+                                )
+                                .await?;
 
-                        let allocated_idx = gpu_info.atlas_layer_index;
-                        info!(
-                            "Layer {} re-allocated GPU resources at atlas index {} for timepoint {:?}",
-                            layer.id, allocated_idx, requested_render_timepoint
-                        );
-                        allocated_idx
+                                let gpu_alloc_start = std::time::Instant::now();
+                                let gpu_info = allocate_gpu_resources_for_layer(
+                                    &layer.id,
+                                    &layer.volume_id,
+                                    bridge_state,
+                                    service,
+                                    requested_render_timepoint,
+                                )
+                                .await?;
+                                let gpu_alloc_time = gpu_alloc_start.elapsed();
+                                debug!(
+                                    "⏱️  GPU resource re-allocation after timepoint change took: {:?}",
+                                    gpu_alloc_time
+                                );
+
+                                let allocated_idx = gpu_info.atlas_layer_index;
+                                info!(
+                                    "Layer {} re-allocated GPU resources at atlas index {} for timepoint {:?}",
+                                    layer.id, allocated_idx, requested_render_timepoint
+                                );
+                                allocated_idx
+                            }
+                        }
                     } else {
                         debug!(
                             "✅ CACHE HIT: Layer {} already has GPU resources at atlas index {}",
@@ -9780,6 +10025,26 @@ async fn query_slice_axis_meta(
     })
 }
 
+fn validate_batch_viewport_sizes(
+    view_states: &[render_loop::view_state::ViewState],
+    width_per_slice: u32,
+    height_per_slice: u32,
+) -> BridgeResult<()> {
+    let expected = [width_per_slice, height_per_slice];
+    for (idx, view_state) in view_states.iter().enumerate() {
+        if view_state.viewport_size != expected {
+            return Err(BridgeError::Input {
+                code: 7003,
+                details: format!(
+                    "Batch slice {idx} viewport_size {:?} does not match request dimensions {:?}",
+                    view_state.viewport_size, expected
+                ),
+            });
+        }
+    }
+    Ok(())
+}
+
 // Batch render multiple slices for MosaicView
 #[command]
 #[tracing::instrument(skip_all, err, name = "api.batch_render_slices")]
@@ -9890,6 +10155,11 @@ async fn batch_render_slices(
             ),
         });
     }
+    validate_batch_viewport_sizes(
+        &view_states,
+        batch_request.width_per_slice,
+        batch_request.height_per_slice,
+    )?;
 
     info!(
         "Batch render: {} slices at {}x{} each",
@@ -9898,17 +10168,20 @@ async fn batch_render_slices(
         batch_request.height_per_slice
     );
 
-    // Verify render service is initialized (but we don't need to lock it here)
-    let service_guard = state.render_loop_service.lock().await;
-    if service_guard.is_none() {
-        return Err(BridgeError::ServiceNotInitialized {
-            code: 5006,
-            details:
-                "GPU rendering service is not initialized. Please initialize the render loop first."
-                    .to_string(),
-        });
-    }
-    drop(service_guard); // Release the lock early
+    // Verify the render service is initialized and take a single Arc handle we hold
+    // for the whole batch (one outer lock, not one re-acquire per slice).
+    let service_arc = {
+        let service_guard = state.render_loop_service.lock().await;
+        service_guard
+            .as_ref()
+            .ok_or_else(|| BridgeError::ServiceNotInitialized {
+                code: 5006,
+                details:
+                    "GPU rendering service is not initialized. Please initialize the render loop first."
+                        .to_string(),
+            })?
+            .clone()
+    };
 
     let render_start = std::time::Instant::now();
 
@@ -9917,6 +10190,7 @@ async fn batch_render_slices(
     let bytes_per_slice =
         (batch_request.width_per_slice * batch_request.height_per_slice * 4) as usize; // RGBA
     let total_buffer_size = 4 + 4 + 4 + (bytes_per_slice * slice_count as usize); // header + data
+    let expected_size = bytes_per_slice;
 
     let mut result_buffer = Vec::with_capacity(total_buffer_size);
 
@@ -9925,79 +10199,110 @@ async fn batch_render_slices(
     result_buffer.extend_from_slice(&batch_request.height_per_slice.to_le_bytes());
     result_buffer.extend_from_slice(&slice_count.to_le_bytes());
 
-    // Render each slice directly using the render_loop service
-    for (idx, view_state) in view_states.iter().enumerate() {
-        info!(
-            "Rendering slice {} of {} with ViewState",
-            idx + 1,
-            view_states.len()
-        );
+    // Env kill-switch: BRAINFLOW_BATCH_READBACK=0 forces the legacy per-slice path
+    // (one submit + one blocking `device.poll(Wait)` per slice). The default path
+    // renders every slice with readback skipped, then collapses the N blocking GPU
+    // syncs into a single batched readback (one encoder, one submit, one poll).
+    let use_batched_readback = std::env::var("BRAINFLOW_BATCH_READBACK")
+        .map(|v| v != "0")
+        .unwrap_or(true);
 
-        // Get render loop service
-        let service_guard = state.render_loop_service.lock().await;
-        let service_arc =
-            service_guard
-                .as_ref()
-                .ok_or_else(|| BridgeError::ServiceNotInitialized {
-                    code: 5006,
-                    details: "GPU rendering service is not initialized".to_string(),
-                })?;
+    if use_batched_readback {
+        // Hold the service lock once across the whole batch.
         let mut service = service_arc.lock().await;
 
-        // Create render target for this slice
-        service
-            .create_offscreen_target(
-                batch_request.width_per_slice,
-                batch_request.height_per_slice,
+        // Phase 1: render every view into its own view target with readback SKIPPED,
+        // so no per-slice GPU stall happens. request_frame_with_options is the exact,
+        // proven per-view path; batching only changes *when* results are read back.
+        // (The former per-slice `create_offscreen_target` was dead weight — the
+        // ViewState path renders into per-view targets via `ensure_view`.)
+        let mut view_ids = Vec::with_capacity(view_states.len());
+        for (idx, view_state) in view_states.iter().enumerate() {
+            let view_id = render_loop::view_state::ViewId::new(format!("batch_slice_{}", idx));
+            service
+                .request_frame_with_options(
+                    view_id.clone(),
+                    view_state.clone(),
+                    render_loop::view_state::FrameRequestOptions {
+                        readback_mode: render_loop::view_state::FrameReadbackMode::Skip,
+                    },
+                )
+                .await
+                .map_err(|e| BridgeError::GpuError {
+                    code: 8011,
+                    details: format!("Failed to render slice {}: {:?}", idx, e),
+                })?;
+            view_ids.push(view_id);
+        }
+
+        // Phase 2: one encoder, one submit, one poll(Wait) for all N slices.
+        let images = service
+            .read_views_to_images(
+                &view_ids,
+                [
+                    batch_request.width_per_slice,
+                    batch_request.height_per_slice,
+                ],
             )
             .map_err(|e| BridgeError::GpuError {
                 code: 5021,
-                details: format!("Failed to create render target: {}", e),
+                details: format!("Failed to read back batch: {}", e),
             })?;
-
-        // Render using the ViewState directly
-        let frame_result = service
-            .request_frame(
-                render_loop::view_state::ViewId::new(format!("batch_slice_{}", idx)),
-                view_state.clone(),
-            )
-            .await
-            .map_err(|e| BridgeError::GpuError {
-                code: 8011,
-                details: format!("Failed to render slice {}: {:?}", idx, e),
-            })?;
-
         drop(service);
-        drop(service_guard);
 
-        // Get the raw RGBA data
-        let rgba_data = frame_result.image_data;
-
-        // Validate the data size
-        let expected_size =
-            (batch_request.width_per_slice * batch_request.height_per_slice * 4) as usize;
-        if rgba_data.len() != expected_size {
-            return Err(BridgeError::Internal {
-                code: 7013,
-                details: format!(
-                    "Invalid render result for slice {}: expected {} bytes, got {}",
-                    idx,
-                    expected_size,
-                    rgba_data.len()
-                ),
-            });
+        for (idx, rgba_data) in images.iter().enumerate() {
+            if rgba_data.len() != expected_size {
+                return Err(BridgeError::Internal {
+                    code: 7013,
+                    details: format!(
+                        "Invalid render result for slice {}: expected {} bytes, got {}",
+                        idx,
+                        expected_size,
+                        rgba_data.len()
+                    ),
+                });
+            }
+            result_buffer.extend_from_slice(rgba_data);
         }
+    } else {
+        // Legacy fallback (kill-switch): render + blocking readback per slice.
+        for (idx, view_state) in view_states.iter().enumerate() {
+            let mut service = service_arc.lock().await;
+            let frame_result = service
+                .request_frame(
+                    render_loop::view_state::ViewId::new(format!("batch_slice_{}", idx)),
+                    view_state.clone(),
+                )
+                .await
+                .map_err(|e| BridgeError::GpuError {
+                    code: 8011,
+                    details: format!("Failed to render slice {}: {:?}", idx, e),
+                })?;
+            drop(service);
 
-        // Append the raw RGBA data directly (no header)
-        result_buffer.extend_from_slice(&rgba_data);
+            let rgba_data = frame_result.image_data;
+            if rgba_data.len() != expected_size {
+                return Err(BridgeError::Internal {
+                    code: 7013,
+                    details: format!(
+                        "Invalid render result for slice {}: expected {} bytes, got {}",
+                        idx,
+                        expected_size,
+                        rgba_data.len()
+                    ),
+                });
+            }
+            result_buffer.extend_from_slice(&rgba_data);
+        }
     }
 
     let render_duration = render_start.elapsed();
 
     info!(
-        "Batch render completed in {:?} ({:.2} ms per slice)",
+        "Batch render completed in {:?} ({:.2} ms per slice, batched_readback={})",
         render_duration,
-        render_duration.as_millis() as f64 / view_states.len() as f64
+        render_duration.as_millis() as f64 / view_states.len() as f64,
+        use_batched_readback
     );
 
     // Return the batch buffer as a binary response
@@ -12237,12 +12542,18 @@ pub async fn compute_region_stats_for_testing(
 /// (or `template:`-prefixed) source path of its volume.
 ///
 /// Serde-only (typed inline on the frontend, like `RegionStat`); the JSON shape
-/// is `{ memberId, sourcePath }`.
+/// is `{ memberId, sourcePath, displayLabel?, designValues? }`.
 #[derive(Debug, Clone, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SetMemberRef {
     pub member_id: String,
     pub source_path: String,
+    /// Optional ontology-aware display label, e.g. `sub-01 faces`.
+    #[serde(default)]
+    pub display_label: Option<String>,
+    /// Optional ontology axes for this member, carried through to trace frames.
+    #[serde(default)]
+    pub design_values: Vec<StudioDiscoveryDesignValue>,
 }
 
 /// One reduced scalar sampled from a cohort member at the requested world locus.
@@ -12256,25 +12567,26 @@ pub struct MemberSample {
     pub value: f32,
 }
 
-/// Reduce a single (already-loaded) member volume to one scalar at `world_mm`.
+/// Gather the finite ROI voxel values of a single (already-loaded) member volume
+/// at `world_mm`, WITHOUT reducing them.
 ///
-/// Pure / disk-free seam shared by the command and its unit tests: transforms
-/// the world point into the member's voxel grid, gathers the sampling locus
-/// (point for `radius_mm <= 0`, sphere otherwise), reads the first stack entry
-/// at each voxel (members are typically 3D stat maps; 4D members use index 0),
-/// drops non-finite samples, and reduces with `reduce` (mean/median/min/max/sum,
-/// mean default). Returns `f32::NAN` when the locus yields no finite samples or
-/// when the requested point is out of bounds.
-fn sample_member_volume(
+/// Pure / disk-free seam: transforms the world point into the member's voxel
+/// grid, gathers the sampling locus (point for `radius_mm <= 0`, sphere
+/// otherwise), reads the first stack entry at each voxel (members are typically
+/// 3D stat maps; 4D members use index 0) and keeps the finite ones. Returns an
+/// empty vector when the affine is unrecoverable, the locus errors (e.g. an
+/// oversized sphere), the point is out of bounds, or no finite samples exist —
+/// callers treat "no values" as a non-finite / skipped member rather than
+/// aborting the whole cohort sample.
+fn gather_member_roi_values(
     volume_data: &VolumeSendable,
     world_mm: &[f32],
     radius_mm: f32,
-    reduce: &str,
-) -> f32 {
+) -> Vec<f32> {
     // Transform the requested world point into (fractional) voxel coordinates.
     let affine = match get_affine_from_volume(volume_data) {
         Ok(affine) => affine,
-        Err(_) => return f32::NAN,
+        Err(_) => return Vec::new(),
     };
     let world_to_voxel = affine.inverse();
     let world_point = nalgebra::Point3::new(world_mm[0], world_mm[1], world_mm[2]);
@@ -12286,12 +12598,10 @@ fn sample_member_volume(
 
     let voxels = match gather_locus_voxels(center_voxel, &dims, spacing, radius_mm) {
         Ok(voxels) => voxels,
-        // An oversized sphere (or other locus error) yields NaN for this member
-        // rather than aborting the whole cohort sample.
-        Err(_) => return f32::NAN,
+        Err(_) => return Vec::new(),
     };
     if voxels.is_empty() {
-        return f32::NAN;
+        return Vec::new();
     }
 
     // Members are 3D stat maps; if a member is 4D we take stack index 0.
@@ -12305,11 +12615,108 @@ fn sample_member_volume(
             }
         }
     }
+    vals
+}
 
+/// Reduce a single (already-loaded) member volume to one scalar at `world_mm`.
+///
+/// Reduces with `reduce` (mean/median/min/max/sum, mean default). Returns
+/// `f32::NAN` when the locus yields no finite samples or when the requested
+/// point is out of bounds. See [`gather_member_roi_values`].
+fn sample_member_volume(
+    volume_data: &VolumeSendable,
+    world_mm: &[f32],
+    radius_mm: f32,
+    reduce: &str,
+) -> f32 {
+    let vals = gather_member_roi_values(volume_data, world_mm, radius_mm);
     if vals.is_empty() {
         return f32::NAN;
     }
     reduce_values(&vals, reduce)
+}
+
+/// Linearly-interpolated sample quantile (`q` in `[0, 1]`) of `vals`, matching
+/// the common "type 7" definition (R's default, NumPy's `linear`). `vals` need
+/// not be sorted; it is copied and sorted here. Returns `NAN` for an empty slice
+/// and the single value for a one-element slice.
+fn quantile_type7(vals: &[f32], q: f32) -> f32 {
+    if vals.is_empty() {
+        return f32::NAN;
+    }
+    if vals.len() == 1 {
+        return vals[0];
+    }
+    let mut sorted = vals.to_vec();
+    sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    let q = q.clamp(0.0, 1.0);
+    let h = (sorted.len() - 1) as f32 * q;
+    let lo = h.floor() as usize;
+    let hi = h.ceil() as usize;
+    let frac = h - lo as f32;
+    sorted[lo] + (sorted[hi] - sorted[lo]) * frac
+}
+
+/// One member's cross-set trace point: the ROI-reduced value plus a lower/upper
+/// spread band summarizing the dispersion of the ROI voxel values, for CI/error
+/// ribbons in the cross-set trace plot.
+///
+/// Serde-only (typed inline on the frontend, like [`MemberSample`]); the JSON
+/// shape is `{ memberId, value, lower, upper, count }`. `value`/`lower`/`upper`
+/// are `f32::NAN` for members that failed to load or sampled out of bounds.
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MemberTrace {
+    pub member_id: String,
+    /// Optional ontology-aware display label for axis ticks.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub display_label: Option<String>,
+    /// Optional ontology axes copied from the request's member metadata.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub design_values: Vec<StudioDiscoveryDesignValue>,
+    /// ROI-reduced center value (mean unless `reduce` overrides it).
+    pub value: f32,
+    /// Lower edge of the spread band (see `band`).
+    pub lower: f32,
+    /// Upper edge of the spread band.
+    pub upper: f32,
+    /// Number of finite ROI voxels the summary was computed from.
+    pub count: u32,
+}
+
+/// Compute a lower/upper spread band around `center` from ROI voxel `vals`.
+///
+/// `band` selects the interval kind (all clamped so `lower <= upper`):
+/// - `"sem95"` (default): `center ± 1.96 * SD / sqrt(n)` — 95% CI of the mean.
+/// - `"sd"`: `center ± SD` (one standard deviation).
+/// - `"ci95"`: the 2.5% / 97.5% sample quantiles.
+/// - `"iqr"`: the 25% / 75% sample quantiles.
+/// - `"none"`: a degenerate band (`lower == upper == center`).
+///
+/// With fewer than two finite values the band collapses to `center`.
+fn roi_spread_band(vals: &[f32], center: f32, band: &str) -> (f32, f32) {
+    let n = vals.len();
+    if n < 2 || !center.is_finite() {
+        return (center, center);
+    }
+    match band {
+        "none" => (center, center),
+        "ci95" => (quantile_type7(vals, 0.025), quantile_type7(vals, 0.975)),
+        "iqr" => (quantile_type7(vals, 0.25), quantile_type7(vals, 0.75)),
+        "sd" | "sem95" => {
+            let mean = vals.iter().sum::<f32>() / n as f32;
+            let var = vals.iter().map(|&v| (v - mean).powi(2)).sum::<f32>() / (n as f32 - 1.0);
+            let sd = var.max(0.0).sqrt();
+            let half = if band == "sd" {
+                sd
+            } else {
+                // sem95: 95% normal-approx CI half-width of the mean.
+                1.96 * sd / (n as f32).sqrt()
+            };
+            (center - half, center + half)
+        }
+        _ => roi_spread_band(vals, center, "sem95"),
+    }
 }
 
 /// Resolve a member `source_path` to an on-disk `PathBuf`. A `template:`-prefixed
@@ -12444,6 +12851,110 @@ pub async fn sample_set_at_world_for_testing(
     bridge_state: &BridgeState,
 ) -> BridgeResult<Vec<MemberSample>> {
     sample_set_at_world_impl(members, world_mm, radius_mm, reduce, bridge_state).await
+}
+
+/// Sample every cohort member at one world locus and return, per member, an
+/// ROI-reduced value plus a dispersion band (for CI/error ribbons in the
+/// cross-set trace plot). This is the trace counterpart of
+/// [`sample_set_at_world_impl`]: same per-member load + locus gather, but it
+/// keeps the ROI voxel distribution to summarize spread instead of collapsing to
+/// a single scalar. A member that fails to load OR samples out-of-bounds yields
+/// a `NaN` trace point with `count = 0` (logged) rather than failing the call.
+async fn sample_set_trace_at_world_impl(
+    members: &[SetMemberRef],
+    world_mm: &[f32],
+    radius_mm: f32,
+    reduce: &str,
+    band: &str,
+    state: &BridgeState,
+) -> BridgeResult<Vec<MemberTrace>> {
+    if world_mm.len() != 3 {
+        return Err(BridgeError::Input {
+            code: 2016,
+            details: "world_mm must be [x, y, z] in mm".to_string(),
+        });
+    }
+
+    let mut traces = Vec::with_capacity(members.len());
+    for member in members {
+        let vals = match load_member_volume_cached(&member.source_path, state).await {
+            Ok(volume) => gather_member_roi_values(&volume, world_mm, radius_mm),
+            Err(err) => {
+                tracing::warn!(
+                    member_id = %member.member_id,
+                    source_path = %member.source_path,
+                    error = %err,
+                    "sample_set_trace_at_world: skipping member that failed to load"
+                );
+                Vec::new()
+            }
+        };
+
+        if vals.is_empty() {
+            tracing::warn!(
+                member_id = %member.member_id,
+                source_path = %member.source_path,
+                "sample_set_trace_at_world: member yielded no finite ROI samples (out of bounds or empty locus)"
+            );
+            traces.push(MemberTrace {
+                member_id: member.member_id.clone(),
+                display_label: member.display_label.clone(),
+                design_values: member.design_values.clone(),
+                value: f32::NAN,
+                lower: f32::NAN,
+                upper: f32::NAN,
+                count: 0,
+            });
+            continue;
+        }
+
+        let value = reduce_values(&vals, reduce);
+        let (lower, upper) = roi_spread_band(&vals, value, band);
+        traces.push(MemberTrace {
+            member_id: member.member_id.clone(),
+            display_label: member.display_label.clone(),
+            design_values: member.design_values.clone(),
+            value,
+            lower,
+            upper,
+            count: vals.len() as u32,
+        });
+    }
+
+    Ok(traces)
+}
+
+#[command]
+#[tracing::instrument(skip_all, err, name = "api.sample_set_trace_at_world")]
+async fn sample_set_trace_at_world(
+    members: Vec<SetMemberRef>,
+    world_mm: Vec<f32>,
+    radius_mm: f32,
+    reduce: String,
+    band: String,
+    state: State<'_, BridgeState>,
+) -> BridgeResult<Vec<MemberTrace>> {
+    sample_set_trace_at_world_impl(
+        &members,
+        &world_mm,
+        radius_mm,
+        &reduce,
+        &band,
+        state.inner(),
+    )
+    .await
+}
+
+#[doc(hidden)]
+pub async fn sample_set_trace_at_world_for_testing(
+    members: &[SetMemberRef],
+    world_mm: &[f32],
+    radius_mm: f32,
+    reduce: &str,
+    band: &str,
+    bridge_state: &BridgeState,
+) -> BridgeResult<Vec<MemberTrace>> {
+    sample_set_trace_at_world_impl(members, world_mm, radius_mm, reduce, band, bridge_state).await
 }
 
 #[command]
@@ -13200,6 +13711,34 @@ mod tests {
         assert_eq!(timepoint_map.len(), 0);
     }
 
+    #[test]
+    fn validate_batch_viewport_sizes_rejects_mixed_dimensions() {
+        let make_view = |viewport_size| {
+            render_loop::view_state::ViewState::from_basic_params(
+                "vol".to_string(),
+                [0.0, 0.0, 0.0],
+                render_loop::view_state::SliceOrientation::Axial,
+                64.0,
+                viewport_size,
+                (0.0, 1.0),
+            )
+        };
+        let views = vec![make_view([128, 128]), make_view([96, 128])];
+
+        let err = validate_batch_viewport_sizes(&views, 128, 128)
+            .expect_err("mixed viewport sizes must be rejected");
+        match err {
+            BridgeError::Input { code, details } => {
+                assert_eq!(code, 7003);
+                assert!(details.contains("Batch slice 1"));
+            }
+            other => panic!("expected Input(7003), got {other:?}"),
+        }
+
+        validate_batch_viewport_sizes(&views[..1], 128, 128)
+            .expect("matching viewport should pass");
+    }
+
     fn make_4d_volume_sendable() -> VolumeSendable {
         let dims = vec![8usize, 8, 8, 4];
         let spacing = vec![2.0, 2.0, 2.0, 1.0];
@@ -13220,6 +13759,78 @@ mod tests {
         vec4d.data[[1, 2, 3, 2]] = 3.5;
         vec4d.data[[1, 2, 3, 3]] = 4.5;
         VolumeSendable::Vec4DF32(vec4d)
+    }
+
+    #[tokio::test]
+    async fn resident_swap_repoints_imperative_render_layer_state() {
+        let state = BridgeState::default().expect("bridge state");
+        let source = make_4d_volume_sendable_with_timeseries();
+        let member0 = extract_3d_volume_at_timepoint(&source, 0).expect("extract t0");
+
+        register_volume_and_layer(
+            &state,
+            "layerSwap",
+            "vol4d_swap",
+            source,
+            volume_metadata_for("vol4d_swap", "f32", bridge_types::VolumeType::TimeSeries4D),
+        )
+        .await;
+
+        let mut service = RenderLoopService::new().await.expect("render-loop service");
+        let (slot0, _) = match member0 {
+            VolumeSendable::VolF32(ref vol, _) => service.upload_volume_3d(vol).expect("upload t0"),
+            other => panic!("expected extracted f32 volume, got {other:?}"),
+        };
+        let range0 = service.get_volume_data_range(slot0).unwrap_or((0.0, 1.0));
+        service
+            .register_volume_with_range("vol4d_swap".to_string(), slot0, range0)
+            .expect("register initial slot");
+        service
+            .add_layer_3d(slot0, nalgebra::Matrix4::identity(), (4, 4, 4), 1.0, 0, 1)
+            .expect("add imperative render layer");
+        {
+            let mut layer_map = state.layer_to_atlas_map.lock().await;
+            layer_map.insert("layerSwap".to_string(), slot0);
+        }
+        {
+            let mut timepoint_map = state.layer_to_timepoint_map.lock().await;
+            timepoint_map.insert("layerSwap".to_string(), Some(0));
+        }
+
+        let slot1 = try_resident_swap(
+            "layerSwap",
+            "vol4d_swap",
+            slot0,
+            Some(0),
+            1,
+            &state,
+            &mut service,
+        )
+        .await
+        .expect("resident swap")
+        .expect("swap should use resident path");
+
+        assert_ne!(slot0, slot1);
+        assert!(
+            !service.has_render_layer_for_atlas(slot0),
+            "old slot must not remain in imperative layer state"
+        );
+        assert!(
+            service.has_render_layer_for_atlas(slot1),
+            "new slot must become the imperative layer atlas index"
+        );
+        assert!(
+            !service
+                .remove_layer_by_atlas(slot0)
+                .expect("remove old slot"),
+            "release by the stale slot should not find a layer"
+        );
+        assert!(
+            service
+                .remove_layer_by_atlas(slot1)
+                .expect("remove new slot"),
+            "release by the swapped slot should remove the layer"
+        );
     }
 
     /// 4D volume with a realistic, non-identity affine: anisotropic spacing per
@@ -14192,6 +14803,15 @@ mod tests {
         cache.insert(PathBuf::from(path), Arc::new(volume));
     }
 
+    fn set_member_ref(member_id: &str, source_path: &str) -> SetMemberRef {
+        SetMemberRef {
+            member_id: member_id.to_string(),
+            source_path: source_path.to_string(),
+            display_label: None,
+            design_values: Vec::new(),
+        }
+    }
+
     #[tokio::test]
     async fn sample_set_at_world_returns_one_value_per_member_in_order() {
         let state = BridgeState::default().expect("bridge state");
@@ -14210,14 +14830,8 @@ mod tests {
         .await;
 
         let members = vec![
-            SetMemberRef {
-                member_id: "m1".to_string(),
-                source_path: "/cohort/sub-01.nii.gz".to_string(),
-            },
-            SetMemberRef {
-                member_id: "m2".to_string(),
-                source_path: "/cohort/sub-02.nii.gz".to_string(),
-            },
+            set_member_ref("m1", "/cohort/sub-01.nii.gz"),
+            set_member_ref("m2", "/cohort/sub-02.nii.gz"),
         ];
 
         let samples =
@@ -14244,14 +14858,8 @@ mod tests {
 
         let members = vec![
             // Not in cache and not a real file on disk => load fails => NaN.
-            SetMemberRef {
-                member_id: "missing".to_string(),
-                source_path: "/cohort/does-not-exist.nii.gz".to_string(),
-            },
-            SetMemberRef {
-                member_id: "good".to_string(),
-                source_path: "/cohort/good.nii.gz".to_string(),
-            },
+            set_member_ref("missing", "/cohort/does-not-exist.nii.gz"),
+            set_member_ref("good", "/cohort/good.nii.gz"),
         ];
 
         let samples =
@@ -14276,6 +14884,191 @@ mod tests {
         let err = sample_set_at_world_for_testing(&[], &[1.0, 2.0], 0.0, "mean", &state)
             .await
             .expect_err("two-element world_mm should be rejected");
+        match err {
+            BridgeError::Input { code, .. } => assert_eq!(code, 2016),
+            other => panic!("expected Input(2016) for bad world_mm, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn quantile_type7_matches_reference() {
+        let vals = [10.0f32, 20.0, 30.0, 40.0, 50.0, 60.0, 70.0];
+        // Type-7 (R default): h = (n-1)*q, linear interpolation.
+        assert!((quantile_type7(&vals, 0.25) - 25.0).abs() < 1e-4);
+        assert!((quantile_type7(&vals, 0.5) - 40.0).abs() < 1e-4);
+        assert!((quantile_type7(&vals, 0.75) - 55.0).abs() < 1e-4);
+        assert!((quantile_type7(&vals, 0.025) - 11.5).abs() < 1e-4);
+        assert!((quantile_type7(&vals, 0.975) - 68.5).abs() < 1e-4);
+        // Degenerate inputs.
+        assert_eq!(quantile_type7(&[42.0], 0.9), 42.0);
+        assert!(quantile_type7(&[], 0.5).is_nan());
+    }
+
+    #[test]
+    fn roi_spread_band_variants() {
+        let vals = [10.0f32, 20.0, 30.0, 40.0, 50.0, 60.0, 70.0];
+        let center = 40.0f32; // mean
+
+        // Degenerate band.
+        assert_eq!(roi_spread_band(&vals, center, "none"), (40.0, 40.0));
+
+        // Quantile bands.
+        let (lo, hi) = roi_spread_band(&vals, center, "ci95");
+        assert!((lo - 11.5).abs() < 1e-3 && (hi - 68.5).abs() < 1e-3);
+        let (lo, hi) = roi_spread_band(&vals, center, "iqr");
+        assert!((lo - 25.0).abs() < 1e-3 && (hi - 55.0).abs() < 1e-3);
+
+        // SD band: sd = sqrt(2800/6) ≈ 21.6025.
+        let (lo, hi) = roi_spread_band(&vals, center, "sd");
+        assert!((lo - (40.0 - 21.6025)).abs() < 1e-2, "sd lower {lo}");
+        assert!((hi - (40.0 + 21.6025)).abs() < 1e-2, "sd upper {hi}");
+
+        // SEM95 (default): half = 1.96 * sd / sqrt(7) ≈ 16.003.
+        let (lo, hi) = roi_spread_band(&vals, center, "sem95");
+        assert!((lo - (40.0 - 16.003)).abs() < 1e-2, "sem lower {lo}");
+        assert!((hi - (40.0 + 16.003)).abs() < 1e-2, "sem upper {hi}");
+        // Unknown band string falls back to sem95.
+        assert_eq!(roi_spread_band(&vals, center, "whatever"), (lo, hi));
+
+        // Fewer than two values collapses to the center.
+        assert_eq!(roi_spread_band(&[5.0], 5.0, "sem95"), (5.0, 5.0));
+    }
+
+    /// Build a 3x3x3 f32 volume whose radius-1 sphere ROI around voxel (1,1,1)
+    /// (center + 6 face neighbours) holds the multiset {10,20,30,40,50,60,70}.
+    fn make_roi_probe_volume() -> VolumeSendable {
+        let idx = |x: usize, y: usize, z: usize| x + y * 3 + z * 9;
+        let mut data = vec![0.0f32; 27];
+        data[idx(1, 1, 1)] = 40.0;
+        data[idx(0, 1, 1)] = 10.0;
+        data[idx(2, 1, 1)] = 20.0;
+        data[idx(1, 0, 1)] = 30.0;
+        data[idx(1, 2, 1)] = 50.0;
+        data[idx(1, 1, 0)] = 60.0;
+        data[idx(1, 1, 2)] = 70.0;
+        make_f32_scalar([3, 3, 3], data)
+    }
+
+    #[tokio::test]
+    async fn sample_set_trace_reports_mean_and_ci_band() {
+        let state = BridgeState::default().expect("bridge state");
+        prime_set_sample_cache(&state, "/cohort/probe.nii.gz", make_roi_probe_volume()).await;
+
+        let members = vec![set_member_ref("m1", "/cohort/probe.nii.gz")];
+
+        // Radius-1 sphere @ unit spacing captures center + 6 face neighbours = 7 voxels.
+        let traces = sample_set_trace_at_world_for_testing(
+            &members,
+            &[1.0, 1.0, 1.0],
+            1.0,
+            "mean",
+            "sem95",
+            &state,
+        )
+        .await
+        .expect("cohort trace");
+
+        assert_eq!(traces.len(), 1);
+        let t = &traces[0];
+        assert_eq!(t.member_id, "m1");
+        assert_eq!(t.count, 7, "radius-1 sphere should gather 7 voxels");
+        assert!((t.value - 40.0).abs() < 1e-4, "mean {}", t.value);
+        // sem95 half-width ≈ 16.003, symmetric about the mean.
+        assert!(
+            (t.lower - (40.0 - 16.003)).abs() < 1e-2,
+            "lower {}",
+            t.lower
+        );
+        assert!(
+            (t.upper - (40.0 + 16.003)).abs() < 1e-2,
+            "upper {}",
+            t.upper
+        );
+        assert!(t.lower < t.value && t.value < t.upper);
+    }
+
+    #[tokio::test]
+    async fn sample_set_trace_carries_member_labels_and_design_values() {
+        let state = BridgeState::default().expect("bridge state");
+        prime_set_sample_cache(&state, "/cohort/probe.nii.gz", make_roi_probe_volume()).await;
+
+        let members = vec![SetMemberRef {
+            member_id: "m1".to_string(),
+            source_path: "/cohort/probe.nii.gz".to_string(),
+            display_label: Some("sub-01 faces".to_string()),
+            design_values: vec![
+                StudioDiscoveryDesignValue {
+                    column: "subject".to_string(),
+                    value: "sub-01".to_string(),
+                },
+                StudioDiscoveryDesignValue {
+                    column: "condition".to_string(),
+                    value: "faces".to_string(),
+                },
+            ],
+        }];
+
+        let traces = sample_set_trace_at_world_for_testing(
+            &members,
+            &[1.0, 1.0, 1.0],
+            0.0,
+            "mean",
+            "none",
+            &state,
+        )
+        .await
+        .expect("cohort trace");
+
+        let t = &traces[0];
+        assert_eq!(t.member_id, "m1");
+        assert_eq!(t.display_label.as_deref(), Some("sub-01 faces"));
+        assert_eq!(t.design_values.len(), 2);
+        assert_eq!(t.design_values[0].column, "subject");
+        assert_eq!(t.design_values[0].value, "sub-01");
+        assert_eq!(t.design_values[1].column, "condition");
+        assert_eq!(t.design_values[1].value, "faces");
+    }
+
+    #[tokio::test]
+    async fn sample_set_trace_bad_member_yields_nan_trace() {
+        let state = BridgeState::default().expect("bridge state");
+        prime_set_sample_cache(&state, "/cohort/good.nii.gz", make_roi_probe_volume()).await;
+
+        let members = vec![
+            set_member_ref("missing", "/cohort/nope.nii.gz"),
+            set_member_ref("good", "/cohort/good.nii.gz"),
+        ];
+
+        let traces = sample_set_trace_at_world_for_testing(
+            &members,
+            &[1.0, 1.0, 1.0],
+            0.0,
+            "mean",
+            "sem95",
+            &state,
+        )
+        .await
+        .expect("trace tolerates a bad member");
+
+        assert_eq!(traces.len(), 2);
+        assert_eq!(traces[0].member_id, "missing");
+        assert!(traces[0].value.is_nan() && traces[0].lower.is_nan() && traces[0].upper.is_nan());
+        assert_eq!(traces[0].count, 0);
+        // Point sample (radius 0) at the center voxel: value == 40, band collapses.
+        assert_eq!(traces[1].member_id, "good");
+        assert!((traces[1].value - 40.0).abs() < 1e-4);
+        assert_eq!(traces[1].count, 1);
+        assert_eq!(traces[1].lower, traces[1].value);
+        assert_eq!(traces[1].upper, traces[1].value);
+    }
+
+    #[tokio::test]
+    async fn sample_set_trace_rejects_bad_world_len() {
+        let state = BridgeState::default().expect("bridge state");
+        let err =
+            sample_set_trace_at_world_for_testing(&[], &[1.0, 2.0], 0.0, "mean", "sem95", &state)
+                .await
+                .expect_err("two-element world_mm should be rejected");
         match err {
             BridgeError::Input { code, .. } => assert_eq!(code, 2016),
             other => panic!("expected Input(2016) for bad world_mm, got {other:?}"),

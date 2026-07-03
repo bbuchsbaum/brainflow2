@@ -818,6 +818,44 @@ impl MultiTextureManager {
         })
     }
 
+    /// Logical GPU byte footprint of one resident volume slot (`0` if empty).
+    ///
+    /// Counts unpadded `dims x bytes-per-voxel`; row/staging padding is an upload
+    /// detail and is intentionally excluded so this reflects a stable VRAM budget
+    /// number rather than a per-upload transient.
+    pub fn slot_bytes(&self, index: u32) -> u64 {
+        self.textures.get(&index).map(entry_bytes).unwrap_or(0)
+    }
+
+    /// Total logical GPU byte footprint of all resident volume textures.
+    ///
+    /// Excludes mask textures, the dummy slot, and the colormap LUT; this is the
+    /// number a resident-set VRAM budget is measured against.
+    pub fn resident_bytes(&self) -> u64 {
+        self.textures.values().map(entry_bytes).sum()
+    }
+
+    /// Number of volume slots currently holding data.
+    pub fn resident_slot_count(&self) -> usize {
+        self.textures.len()
+    }
+
+    /// Number of volume slots that can still be allocated without evicting a
+    /// resident texture (freed slots plus not-yet-grown capacity).
+    pub fn free_slot_count(&self) -> usize {
+        self.free_indices.len() + (self.max_textures.saturating_sub(self.next_index)) as usize
+    }
+
+    /// Maximum number of volume slots this manager supports.
+    pub fn max_textures(&self) -> u32 {
+        self.max_textures
+    }
+
+    /// Indices of all slots currently holding volume data (unordered).
+    pub fn resident_indices(&self) -> Vec<u32> {
+        self.textures.keys().copied().collect()
+    }
+
     /// Release a specific volume texture and free its resources
     pub fn release_volume(&mut self, texture_index: u32) -> Result<(), RenderLoopError> {
         if let Some(_entry) = self.textures.remove(&texture_index) {
@@ -847,6 +885,26 @@ impl MultiTextureManager {
         self.bind_group = None;
         // Keep dummy texture, no need to recreate
     }
+}
+
+/// Bytes-per-voxel for the three texture formats this manager stores.
+///
+/// Returns `0` for any other format; only `R8Unorm`/`R16Float`/`R32Float` are
+/// ever inserted (see [`MultiTextureManager::upload_volume`]), so this only
+/// affects byte accounting, never an actual upload.
+pub fn format_bytes_per_pixel(format: wgpu::TextureFormat) -> u64 {
+    match format {
+        wgpu::TextureFormat::R8Unorm => 1,
+        wgpu::TextureFormat::R16Float => 2,
+        wgpu::TextureFormat::R32Float => 4,
+        _ => 0,
+    }
+}
+
+/// Logical byte footprint of a single resident texture slot.
+fn entry_bytes(entry: &TextureEntry) -> u64 {
+    let [w, h, d] = entry.dimensions;
+    (w as u64) * (h as u64) * (d as u64) * format_bytes_per_pixel(entry.format)
 }
 
 /// Information about a texture
@@ -962,6 +1020,63 @@ mod tests {
             let info = manager.get_texture_info(0).expect("Should have texture 0");
             assert_eq!(info.dimensions, [64, 64, 25]);
             assert_eq!(info.format, wgpu::TextureFormat::R8Unorm);
+        });
+    }
+
+    #[test]
+    fn format_bytes_per_pixel_covers_supported_formats() {
+        assert_eq!(format_bytes_per_pixel(wgpu::TextureFormat::R8Unorm), 1);
+        assert_eq!(format_bytes_per_pixel(wgpu::TextureFormat::R16Float), 2);
+        assert_eq!(format_bytes_per_pixel(wgpu::TextureFormat::R32Float), 4);
+        // Unsupported formats contribute 0 to the budget (never uploaded).
+        assert_eq!(format_bytes_per_pixel(wgpu::TextureFormat::Rgba8Unorm), 0);
+    }
+
+    #[test]
+    fn resident_byte_accounting_tracks_admit_evict() {
+        pollster::block_on(async {
+            let (device, queue) = create_test_device().await;
+            let mut manager = MultiTextureManager::new(&device, &queue, MAX_TEXTURES as u32);
+
+            // Empty manager: nothing resident, all slots free.
+            assert_eq!(manager.resident_bytes(), 0);
+            assert_eq!(manager.resident_slot_count(), 0);
+            assert_eq!(manager.free_slot_count(), MAX_TEXTURES);
+
+            // 64 * 64 * 25 voxels.
+            let volume = create_test_pattern_volume();
+            let voxels: u64 = 64 * 64 * 25;
+
+            // R8Unorm = 1 byte/voxel.
+            let (idx0, _) = manager
+                .upload_volume(&device, &queue, &volume, wgpu::TextureFormat::R8Unorm)
+                .expect("upload 0");
+            assert_eq!(manager.slot_bytes(idx0), voxels);
+            assert_eq!(manager.resident_bytes(), voxels);
+            assert_eq!(manager.resident_slot_count(), 1);
+            assert_eq!(manager.free_slot_count(), MAX_TEXTURES - 1);
+
+            // R16Float = 2 bytes/voxel: the same volume costs twice the VRAM.
+            let (idx1, _) = manager
+                .upload_volume(&device, &queue, &volume, wgpu::TextureFormat::R16Float)
+                .expect("upload 1");
+            assert_eq!(manager.slot_bytes(idx1), voxels * 2);
+            assert_eq!(manager.resident_bytes(), voxels + voxels * 2);
+            assert_eq!(manager.resident_slot_count(), 2);
+
+            // Evicting a slot drops its bytes from the budget and frees the slot
+            // for reuse.
+            manager.release_volume(idx0).expect("release 0");
+            assert_eq!(manager.slot_bytes(idx0), 0);
+            assert_eq!(manager.resident_bytes(), voxels * 2);
+            assert_eq!(manager.resident_slot_count(), 1);
+
+            // Re-admitting reuses the freed index (ring behaviour).
+            let (idx2, _) = manager
+                .upload_volume(&device, &queue, &volume, wgpu::TextureFormat::R8Unorm)
+                .expect("upload 2");
+            assert_eq!(idx2, idx0, "freed index should be reused before growing");
+            assert_eq!(manager.resident_bytes(), voxels + voxels * 2);
         });
     }
 

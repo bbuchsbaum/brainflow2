@@ -104,6 +104,7 @@ export const apiBridgeCommands = [
   "compute_temporal_metric",
   "compute_region_stats",
   "sample_set_at_world",
+  "sample_set_trace_at_world",
 ] as const;
 
 export type ApiBridgeCommand = (typeof apiBridgeCommands)[number];

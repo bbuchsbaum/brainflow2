@@ -28,12 +28,7 @@
  * defaults to a histogram, `temporal × quantitative` to a line, `quantitative
  * ⋈ nominal` to a boxplot, and so on.
  */
-export type ColumnRole =
-  | "quantitative"
-  | "nominal"
-  | "ordinal"
-  | "temporal"
-  | "index";
+export type ColumnRole = 'quantitative' | 'nominal' | 'ordinal' | 'temporal' | 'index';
 
 /** A single column descriptor in a {@link SampleFrame}. */
 export interface FrameColumn {
@@ -83,35 +78,54 @@ export type WorldMm = readonly [number, number, number];
  * regions of an atlas → a region × stat frame).
  */
 export type Locus =
-  | { readonly kind: "point"; readonly worldMm: WorldMm }
+  | { readonly kind: 'point'; readonly worldMm: WorldMm }
   | {
-      readonly kind: "sphere";
+      readonly kind: 'sphere';
       readonly worldMm: WorldMm;
       readonly radiusMm: number;
     }
   | {
-      readonly kind: "roi";
+      readonly kind: 'roi';
       readonly atlasLayerId: string;
       readonly labelId: number;
     }
-  | { readonly kind: "regions"; readonly atlasLayerId: string }
+  | { readonly kind: 'regions'; readonly atlasLayerId: string }
   | {
-      readonly kind: "set";
+      readonly kind: 'set';
       readonly worldMm: WorldMm;
       readonly radiusMm: number;
       readonly members: readonly {
         readonly memberId: string;
         readonly sourcePath: string;
+        /** Optional ontology-aware label for member-axis display. */
+        readonly displayLabel?: string;
+        /** Optional ontology axes, e.g. subject / condition / contrast. */
+        readonly designValues?: readonly {
+          readonly column: string;
+          readonly value: string;
+        }[];
       }[];
     }
-  | { readonly kind: "wholeVolume" };
+  | { readonly kind: 'wholeVolume' };
 
 /**
  * How multiple voxels gathered by a locus collapse into one value per
  * stack-index (e.g. per timepoint for a 4D volume). `'none'` is only valid for
  * single-voxel loci.
  */
-export type ReduceOp = "mean" | "median" | "min" | "max" | "sum" | "none";
+export type ReduceOp = 'mean' | 'median' | 'min' | 'max' | 'sum' | 'none';
+
+/**
+ * Dispersion band around a `set`-locus member's ROI-reduced value, for CI/error
+ * ribbons in the cross-set trace. Mirrors the backend `sample_set_trace_at_world`
+ * `band` argument:
+ *   - `'sem95'` — 95% CI of the mean (`center ± 1.96·SD/√n`).
+ *   - `'sd'`    — one standard deviation.
+ *   - `'ci95'`  — the 2.5% / 97.5% sample quantiles.
+ *   - `'iqr'`   — the 25% / 75% sample quantiles.
+ *   - `'none'`  — a degenerate band collapsed to the center value.
+ */
+export type TraceBand = 'sem95' | 'sd' | 'ci95' | 'iqr' | 'none';
 
 /** A request to sample a dataset at a locus into a {@link SampleFrame}. */
 export interface SampleRequest {
@@ -123,6 +137,13 @@ export interface SampleRequest {
   readonly reduce?: ReduceOp;
   /** Bin count for whole-volume (histogram) sampling. Defaults to 256. */
   readonly binCount?: number;
+  /**
+   * When set, a `set` locus is sampled as a cross-set *trace*: each member
+   * carries a dispersion band (`lower`/`upper`) for CI/error ribbons, via
+   * `sample_set_trace_at_world`. Undefined keeps the plain scalar-per-member
+   * path (`sample_set_at_world`). Ignored for non-`set` loci.
+   */
+  readonly band?: TraceBand;
 }
 
 // ---------------------------------------------------------------------------
@@ -133,15 +154,7 @@ export interface SampleRequest {
  * Visual mark. Step 1 renders `line`/`hist` implicitly via the existing
  * mode renderers; step 2 introduces the generic mark switch.
  */
-export type Mark =
-  | "line"
-  | "point"
-  | "bar"
-  | "box"
-  | "violin"
-  | "hist"
-  | "heatmap"
-  | "area";
+export type Mark = 'line' | 'point' | 'bar' | 'box' | 'violin' | 'hist' | 'heatmap' | 'area';
 
 /** Binds frame columns (by name) to visual channels. */
 export interface Encoding {
@@ -154,19 +167,19 @@ export interface Encoding {
 
 /** A data transform applied to a frame before encoding. */
 export type Transform =
-  | { readonly kind: "bin"; readonly field: string; readonly maxbins?: number }
+  | { readonly kind: 'bin'; readonly field: string; readonly maxbins?: number }
   | {
-      readonly kind: "aggregate";
+      readonly kind: 'aggregate';
       readonly field: string;
       readonly op: ReduceOp;
       readonly groupby?: readonly string[];
     }
   | {
-      readonly kind: "normalize";
+      readonly kind: 'normalize';
       readonly field: string;
-      readonly method: "zscore" | "percentChange";
+      readonly method: 'zscore' | 'percentChange';
     }
-  | { readonly kind: "lmFit"; readonly x: string; readonly y: string };
+  | { readonly kind: 'lmFit'; readonly x: string; readonly y: string };
 
 /**
  * A plot specification: a mark plus an encoding over a {@link SampleFrame},

@@ -2030,6 +2030,35 @@ impl RenderLoopService {
             .map(|metadata| metadata.data_range)
     }
 
+    fn refresh_volume_metadata_after_update<T>(
+        &mut self,
+        texture_index: u32,
+        world_to_voxel: Matrix4<f32>,
+        source_volume: &DenseVolume3<T>,
+    ) where
+        T: VoxelData + num_traits::NumCast + DataRange<T>,
+    {
+        if let Some(meta) = self.volume_metadata.get_mut(&texture_index) {
+            meta.world_to_voxel = world_to_voxel;
+            let vol_dims = source_volume.space.dims();
+            meta.dimensions = (vol_dims[0] as u32, vol_dims[1] as u32, vol_dims[2] as u32);
+            let spacing = source_volume.space.0.spacing();
+            let origin = source_volume.space.0.origin();
+            meta.voxel_to_world = nalgebra::Matrix4::from_row_slice(&[
+                spacing[0], 0.0, 0.0, origin[0], 0.0, spacing[1], 0.0, origin[1], 0.0, 0.0,
+                spacing[2], origin[2], 0.0, 0.0, 0.0, 1.0,
+            ]);
+            let (data_min, data_max) = source_volume.range().unwrap_or((
+                num_traits::cast::<f32, T>(0.0).unwrap_or_else(|| panic!("Failed to cast 0.0")),
+                num_traits::cast::<f32, T>(1.0).unwrap_or_else(|| panic!("Failed to cast 1.0")),
+            ));
+            meta.data_range = (
+                num_traits::cast::<T, f32>(data_min).unwrap_or(0.0),
+                num_traits::cast::<T, f32>(data_max).unwrap_or(1.0),
+            );
+        }
+    }
+
     /// Replace an existing atlas texture with a new 3D volume (world-space rendering only).
     pub fn update_volume_3d_at_index<T>(
         &mut self,
@@ -2068,18 +2097,7 @@ impl RenderLoopService {
             source_volume,
         )?;
 
-        // Update cached metadata if present
-        if let Some(meta) = self.volume_metadata.get_mut(&atlas_index) {
-            meta.world_to_voxel = world_to_voxel;
-            let vol_dims = source_volume.space.dims();
-            meta.dimensions = (vol_dims[0] as u32, vol_dims[1] as u32, vol_dims[2] as u32);
-            let spacing = source_volume.space.0.spacing();
-            let origin = source_volume.space.0.origin();
-            meta.voxel_to_world = nalgebra::Matrix4::from_row_slice(&[
-                spacing[0], 0.0, 0.0, origin[0], 0.0, spacing[1], 0.0, origin[1], 0.0, 0.0,
-                spacing[2], origin[2], 0.0, 0.0, 0.0, 1.0,
-            ]);
-        }
+        self.refresh_volume_metadata_after_update(atlas_index, world_to_voxel, source_volume);
 
         Ok(world_to_voxel)
     }
@@ -2292,6 +2310,19 @@ impl RenderLoopService {
                 code: 1502,
                 details: "Volume release not supported in legacy mode".to_string(),
             })
+        }
+    }
+
+    /// Number of volume texture slots that can be freshly allocated without
+    /// evicting an existing resident texture.
+    pub fn free_volume_slot_count(&self) -> usize {
+        if self.world_space_enabled {
+            self.multi_texture_manager
+                .as_ref()
+                .map(|manager| manager.free_slot_count())
+                .unwrap_or(0)
+        } else {
+            0
         }
     }
 
@@ -3270,6 +3301,14 @@ impl RenderLoopService {
         }
     }
 
+    /// Whether the imperative render-layer state currently references `atlas_index`.
+    pub fn has_render_layer_for_atlas(&self, atlas_index: u32) -> bool {
+        self.layer_state_manager
+            .layers()
+            .iter()
+            .any(|layer| layer.atlas_index == atlas_index)
+    }
+
     /// Clear all render layers
     pub fn clear_render_layers(&mut self) {
         self.layer_state_manager.clear_layers();
@@ -3312,6 +3351,104 @@ impl RenderLoopService {
                 details: format!("Layer {} not found", index),
             })
         }
+    }
+
+    /// Repoint an existing layer at a different, already-resident volume texture
+    /// slot — the resident-image-set "member swap".
+    ///
+    /// This is the fast path that replaces a CPU extract + full GPU re-upload when
+    /// a stack's member (timepoint / subject / contrast / condition) changes. The
+    /// target `new_texture_index` must already hold the desired member's texture
+    /// (kept resident by the ring), so the entire change is a single storage-buffer
+    /// write of the layer's `texture_index` field: **no `write_texture`, no
+    /// bind-group rebuild** (all resident slots stay bound at group 2). Ring members
+    /// are co-registered, so the layer's `dim`/`world_to_voxel`/`texture_coords`
+    /// are unchanged.
+    ///
+    /// Errors if `new_texture_index` is not currently resident, or if no active
+    /// layer references `current_texture_index`.
+    pub fn set_layer_texture_index(
+        &mut self,
+        current_texture_index: u32,
+        new_texture_index: u32,
+    ) -> Result<(), RenderLoopError> {
+        if current_texture_index == new_texture_index {
+            return Ok(());
+        }
+
+        // The target slot must already be resident; swapping to an empty slot
+        // would sample the dummy texture and silently blank the layer.
+        if let Some(ref manager) = self.multi_texture_manager {
+            if manager.get_texture_info(new_texture_index).is_none() {
+                return Err(RenderLoopError::Internal {
+                    code: 8014,
+                    details: format!(
+                        "Cannot swap layer to texture index {}: slot is not resident",
+                        new_texture_index
+                    ),
+                });
+            }
+        }
+
+        if self
+            .layer_state_manager
+            .set_layer_atlas_index(current_texture_index, new_texture_index)
+        {
+            self.update_all_layer_uniforms()?;
+            self.invalidate_prepared_layer_state_cache();
+            Ok(())
+        } else {
+            Err(RenderLoopError::Internal {
+                code: 8015,
+                details: format!(
+                    "No active layer references texture index {} for member swap",
+                    current_texture_index
+                ),
+            })
+        }
+    }
+
+    /// Overwrite an already-resident volume texture slot with a different member's
+    /// data in place (no reallocation). Used by the resident-image-set ring when it
+    /// evicts an LRU member and reuses its slot: the incoming member shares the
+    /// grid/format, so this is a single `write_texture` with no new allocation and
+    /// no bind-group rebuild. Errors if `texture_index` is not resident or the
+    /// dimensions differ.
+    pub fn update_volume_3d_at<T>(
+        &mut self,
+        texture_index: u32,
+        source_volume: &DenseVolume3<T>,
+    ) -> Result<(), RenderLoopError>
+    where
+        T: VoxelData
+            + num_traits::NumCast
+            + serde::Serialize
+            + DataRange<T>
+            + num_traits::Zero
+            + std::ops::Sub<Output = T>
+            + std::ops::Div<Output = T>
+            + std::ops::Mul<Output = T>,
+    {
+        if self.world_space_enabled {
+            if let Some(ref mut multi_texture_manager) = self.multi_texture_manager {
+                let world_to_voxel = multi_texture_manager.update_volume(
+                    &self.device,
+                    &self.queue,
+                    texture_index,
+                    source_volume,
+                )?;
+                self.refresh_volume_metadata_after_update(
+                    texture_index,
+                    world_to_voxel,
+                    source_volume,
+                );
+                return Ok(());
+            }
+        }
+        Err(RenderLoopError::Internal {
+            code: 8016,
+            details: "update_volume_3d_at requires world-space rendering".to_string(),
+        })
     }
 
     /// Update layer intensity window
@@ -3837,6 +3974,117 @@ impl RenderLoopService {
         staging_buffer.unmap();
 
         Ok(image)
+    }
+
+    /// Read back several already-rendered view targets in a single GPU sync.
+    ///
+    /// This is the batch counterpart of [`read_texture_to_image`]: instead of one
+    /// `copy_texture_to_buffer` + `device.poll(Wait)` per view (N blocking stalls),
+    /// it packs all N views into one staging buffer with a single encoder, a single
+    /// `queue.submit`, and a single `poll(Wait)`. Each view must already be rendered
+    /// (e.g. via [`request_frame_with_options`] with [`FrameReadbackMode::Skip`]) and
+    /// share the same `viewport_size`. The i-th returned image is byte-identical to
+    /// what `read_texture_to_image` would have produced for that view's texture.
+    pub fn read_views_to_images(
+        &self,
+        view_ids: &[ViewId],
+        viewport_size: [u32; 2],
+    ) -> Result<Vec<Vec<u8>>, RenderLoopError> {
+        if view_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let bytes_per_pixel = 4u32; // RGBA8 = 4 bytes
+        let unpadded_bytes_per_row = viewport_size[0] * bytes_per_pixel;
+        let align = wgpu::COPY_BYTES_PER_ROW_ALIGNMENT; // 256 bytes
+        let padded_bytes_per_row = unpadded_bytes_per_row.div_ceil(align) * align;
+        // Each view's region is a whole number of padded rows, hence a multiple of
+        // 256 bytes, so per-view buffer offsets satisfy copy_texture_to_buffer alignment.
+        let region_bytes = (padded_bytes_per_row as u64) * (viewport_size[1] as u64);
+        let total_size = region_bytes * (view_ids.len() as u64);
+
+        let staging_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("Batch Readback Staging Buffer"),
+            size: total_size,
+            usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("Batch Readback Copy Encoder"),
+            });
+
+        for (idx, view_id) in view_ids.iter().enumerate() {
+            let view_context =
+                self.views
+                    .get(view_id)
+                    .ok_or_else(|| RenderLoopError::Internal {
+                        code: 8007,
+                        details: format!("View '{}' not found for batch readback", view_id.0),
+                    })?;
+
+            encoder.copy_texture_to_buffer(
+                wgpu::ImageCopyTexture {
+                    texture: &view_context.render_texture,
+                    mip_level: 0,
+                    origin: wgpu::Origin3d::ZERO,
+                    aspect: wgpu::TextureAspect::All,
+                },
+                wgpu::ImageCopyBuffer {
+                    buffer: &staging_buffer,
+                    layout: wgpu::ImageDataLayout {
+                        offset: region_bytes * (idx as u64),
+                        bytes_per_row: Some(padded_bytes_per_row),
+                        rows_per_image: Some(viewport_size[1]),
+                    },
+                },
+                wgpu::Extent3d {
+                    width: viewport_size[0],
+                    height: viewport_size[1],
+                    depth_or_array_layers: 1,
+                },
+            );
+        }
+
+        self.queue.submit(Some(encoder.finish()));
+
+        let slice = staging_buffer.slice(..);
+        let (sender, receiver) = futures_intrusive::channel::shared::oneshot_channel();
+        slice.map_async(wgpu::MapMode::Read, move |result| {
+            let _ = sender.send(result);
+        });
+
+        // Single blocking sync for the whole batch.
+        self.device.poll(wgpu::Maintain::Wait);
+
+        pollster::block_on(receiver.receive())
+            .ok_or_else(|| RenderLoopError::Internal {
+                code: 8008,
+                details: "Failed to receive batch readback result".to_string(),
+            })?
+            .map_err(|_| RenderLoopError::Internal {
+                code: 8009,
+                details: "Failed to map batch readback buffer".to_string(),
+            })?;
+
+        let data = slice.get_mapped_range();
+        let mut images = Vec::with_capacity(view_ids.len());
+        for idx in 0..view_ids.len() {
+            let start = (region_bytes * (idx as u64)) as usize;
+            let end = start + region_bytes as usize;
+            images.push(Self::unpack_gpu_buffer_to_image(
+                &data[start..end],
+                viewport_size[0],
+                viewport_size[1],
+                padded_bytes_per_row,
+            ));
+        }
+        drop(data);
+        staging_buffer.unmap();
+
+        Ok(images)
     }
 
     /// Render to the offscreen target and return the image data
@@ -5160,6 +5408,119 @@ mod tests {
         } else {
             panic!("Buffer map callback never occurred");
         }
+    }
+
+    #[tokio::test]
+    async fn set_layer_texture_index_swaps_without_reupload() {
+        let mut service = RenderLoopService::new()
+            .await
+            .expect("Failed to init service");
+
+        let volume = crate::test_fixtures::create_test_pattern_volume();
+
+        // Two resident members of a co-registered set (same grid, distinct slots).
+        let (idx_a, _) = service.upload_volume_3d(&volume).expect("upload member A");
+        let (idx_b, _) = service.upload_volume_3d(&volume).expect("upload member B");
+        assert_ne!(idx_a, idx_b);
+
+        // A layer initially shows member A.
+        service
+            .add_layer_3d(
+                idx_a,
+                nalgebra::Matrix4::identity(),
+                (64, 64, 25),
+                1.0,
+                0,
+                1,
+            )
+            .expect("add layer");
+        assert_eq!(service.layer_state_manager.layers()[0].atlas_index, idx_a);
+
+        let resident_before = service
+            .multi_texture_manager
+            .as_ref()
+            .unwrap()
+            .resident_slot_count();
+
+        // Swapping to member B repoints the layer with no upload/evict: both slots
+        // stay resident, so the texture bind group is untouched.
+        service
+            .set_layer_texture_index(idx_a, idx_b)
+            .expect("swap to member B");
+        assert!(!service.has_render_layer_for_atlas(idx_a));
+        assert!(service.has_render_layer_for_atlas(idx_b));
+        assert_eq!(service.layer_state_manager.layers()[0].atlas_index, idx_b);
+        assert_eq!(
+            service
+                .multi_texture_manager
+                .as_ref()
+                .unwrap()
+                .resident_slot_count(),
+            resident_before,
+            "member swap must not upload or evict a texture"
+        );
+
+        // Idempotent when already on the target member.
+        service
+            .set_layer_texture_index(idx_b, idx_b)
+            .expect("noop swap");
+        assert_eq!(service.layer_state_manager.layers()[0].atlas_index, idx_b);
+
+        // Guard: cannot swap to a slot that is not resident.
+        let non_resident = idx_a.max(idx_b) + 100;
+        assert!(
+            service
+                .set_layer_texture_index(idx_b, non_resident)
+                .is_err(),
+            "swapping to a non-resident slot must fail"
+        );
+
+        // Guard: no active layer references `idx_a` anymore (it moved to `idx_b`),
+        // even though `idx_a`'s texture is still resident.
+        assert!(
+            service.set_layer_texture_index(idx_a, idx_b).is_err(),
+            "swapping from an unreferenced index must fail"
+        );
+
+        // Release paths remove by the current atlas index after the swap, not by
+        // the originally uploaded member's slot.
+        assert!(
+            service
+                .remove_layer_by_atlas(idx_b)
+                .expect("remove swapped layer"),
+            "swapped layer should be removed by its current texture index"
+        );
+        assert_eq!(service.active_layer_count(), 0);
+    }
+
+    fn test_f32_volume(values: Vec<f32>) -> DenseVolume3<f32> {
+        use volmath::space::{NeuroSpace3, NeuroSpaceImpl};
+
+        assert_eq!(values.len(), 8);
+        let space_impl =
+            NeuroSpaceImpl::from_affine_matrix4(vec![2, 2, 2], nalgebra::Matrix4::identity())
+                .expect("space");
+        let space = NeuroSpace3::new(space_impl);
+        DenseVolume3::from_data(space.0, values)
+    }
+
+    #[tokio::test]
+    async fn update_volume_3d_at_refreshes_data_range_metadata() {
+        let mut service = RenderLoopService::new()
+            .await
+            .expect("Failed to init service");
+
+        let original = test_f32_volume(vec![0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0]);
+        let replacement = test_f32_volume(vec![10.0, 11.0, 12.0, 13.0, 14.0, 15.0, 16.0, 17.0]);
+
+        let (idx, _) = service.upload_volume_3d(&original).expect("upload");
+        assert_eq!(service.get_volume_data_range(idx), Some((0.0, 7.0)));
+
+        service
+            .update_volume_3d_at(idx, &replacement)
+            .expect("in-place update");
+
+        assert_eq!(service.get_volume_data_range(idx), Some((10.0, 17.0)));
     }
 }
 

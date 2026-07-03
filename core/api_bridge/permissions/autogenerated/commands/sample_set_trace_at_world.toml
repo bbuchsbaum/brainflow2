@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-sample-set-trace-at-world"
+description = "Enables the sample_set_trace_at_world command without any pre-configured scope."
+commands.allow = ["sample_set_trace_at_world"]
+
+[[permission]]
+identifier = "deny-sample-set-trace-at-world"
+description = "Denies the sample_set_trace_at_world command without any pre-configured scope."
+commands.deny = ["sample_set_trace_at_world"]
