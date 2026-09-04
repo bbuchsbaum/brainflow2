@@ -9,7 +9,7 @@ Brainflow is in active development. It is useful as a source checkout for contri
 - Binary installers are not currently the primary distribution path.
 - Some features are experimental, incomplete, or behind development workflows.
 - The app may require local build tools, GPU/WebGPU-compatible drivers, and occasional generated TypeScript binding refreshes.
-- The UI currently depends on a local `neurosurface`/`surfviewjs` checkout through `file:` dependencies. On a fresh machine, make sure the sibling checkout exists at the path expected by `ui2/package.json` and `packages/visualization/package.json`, or update those dependencies before running `pnpm install`.
+- The surface renderer is pinned to the published `surfview@2.2.0` package (imported as `neurosurface`); a sibling source checkout is not required.
 
 ## What It Does
 
@@ -38,7 +38,7 @@ All platforms need:
 
 - Git.
 - Rust stable from <https://rustup.rs/>.
-- Node.js `20.19+` or `22.12+`; this matches the locked Vite 7 requirement in `pnpm-lock.yaml`.
+- Node.js `22.12+`; this satisfies the surface renderer and locked Vite 7 requirements in `pnpm-lock.yaml`.
 - pnpm via Corepack. This repo declares `pnpm@8.15.1`.
 - Tauri CLI: `cargo install tauri-cli --locked`.
 
@@ -108,7 +108,7 @@ Install:
 - Microsoft C++ Build Tools with the `Desktop development with C++` workload.
 - Microsoft Edge WebView2 Runtime, using the Evergreen Bootstrapper.
 - Rust with the MSVC toolchain selected as the default host triple.
-- Node.js `20.19+` or `22.12+`.
+- Node.js `22.12+`.
 
 Then run in PowerShell:
 

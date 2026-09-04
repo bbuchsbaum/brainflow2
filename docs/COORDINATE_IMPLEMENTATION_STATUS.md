@@ -1,6 +1,25 @@
 # Coordinate System Implementation Status
 
-## Current Implementation Review
+## Verified update — 2026-09-04
+
+The affine world-frame contract supersedes the older LPI enforcement proposal
+below. No post-affine X reflection belongs in surface picking or cursor display.
+Orthogonal edge labels now derive from the signed view basis. Inflated/spherical
+surface linking requires matching anatomical vertices and identical topology.
+Montage positions span reference-volume voxel-center bounds using its slice
+count; overlays affect framing only.
+
+Validation: 1,292 UI tests passed (3 skipped, 1 todo), 115 bridge unit tests passed,
+and the native fixture launch loaded NIfTI/GIfTI and rendered all three volume
+planes on Metal. Numerical tests include asymmetric surface correspondence in
+both directions. Native visual/click acceptance remains unverified because the
+computer-control service failed to start. See [alpha readiness](alpha-readiness.md).
+
+CPU volume-to-surface projection rejects rotated/sheared affines explicitly;
+full oblique support in that adapter is still outstanding. Frontend GPU projection
+uses the full affine. Linking does not register unrelated subject/template spaces.
+
+## Historical implementation review (superseded; not release evidence)
 
 ### ✅ Implemented Correctly
 

@@ -5,6 +5,7 @@
  * lives in the reusable surfaceViewer/NeuroSurfaceCanvas component.
  */
 
+import { resolveCursorAnatomy } from './surfaceLink';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import type { LoadedSurface } from '@/stores/surfaceStore';
 import {
@@ -79,36 +80,14 @@ const SurfaceViewCanvasInner: React.FC<SurfaceViewCanvasProps> = ({
   // stable tuple reference held in the store, so this selector is render-safe.
   const crosshairWorld = useViewStateStore((state) => state.viewState.crosshair.world_mm);
   const crosshairVisible = useViewStateStore((state) => state.viewState.crosshair.visible);
-  // crosshair.world_mm sign convention vs the surface vertex frame:
-  //   world_mm: +X = Left, +Y = Anterior, +Z = Superior  (effectively LAS).
-  //   surface (FreeSurfer/templateflow GIfTI): RAS, so +X = Right.
-  // (The app's "LPI" status-bar label describes voxel/axis ordering, not the
-  // world_mm sign convention.) The two frames differ ONLY on the L/R axis, so we
-  // negate X and pass Y/Z through. Verified empirically on all three axes and
-  // against the fsaverage pial-L file (left-hemisphere X is negative there).
-  // NOTE: this assumes a RAS surface (true for templates / most GIfTI). A surface
-  // already in the volume's LAS frame would be mirrored to the wrong hemisphere;
-  // long-term this flip should be derived from per-surface orientation metadata.
-  const markerWorldPosition = useMemo<[number, number, number] | null>(
-    () =>
-      crosshairVisible === false
-        ? null
-        : [-crosshairWorld[0], crosshairWorld[1], crosshairWorld[2]],
-    [crosshairVisible, crosshairWorld],
-  );
-
-  // Reverse linked cursor: a click on the surface drives the volume crosshair.
-  // The picked point is in the surface (RAS) frame; negating X brings it back to
-  // the volume world_mm (LAS) frame — the same flip, which is its own inverse.
-  const handleSurfacePick = useCallback(
-    (surfacePoint: [number, number, number]) => {
-      markActive();
-      useViewStateStore
-        .getState()
-        .setCrosshair([-surfacePoint[0], surfacePoint[1], surfacePoint[2]], true);
-    },
-    [markActive],
-  );
+  // SurfaceGeometryData exports vertices_world; both sides use the image/world
+  // affine contract. Do not apply an additional axis reflection here.
+  const markerWorldPosition = crosshairVisible ? crosshairWorld : null;
+  const handleSurfacePick = useCallback((world: [number, number, number]) => {
+    if (!world.every(Number.isFinite)) return;
+    markActive();
+    void useViewStateStore.getState().setCrosshair(world, true);
+  }, [markActive]);
 
   const surfacesToRender = useMemo(() => {
     const candidateSurfaces = renderSurfaces ?? [surface];
@@ -120,6 +99,10 @@ const SurfaceViewCanvasInner: React.FC<SurfaceViewCanvasProps> = ({
     }
     return Array.from(unique.values()) as SurfaceRenderable[];
   }, [renderSurfaces, surface]);
+
+  const loadedSurfaces = useSurfaceStore(state => state.surfaces);
+  const cursorAnatomy = useMemo(() => resolveCursorAnatomy(
+    renderSurfaces ?? [surface], loadedSurfaces.values()), [renderSurfaces, surface, loadedSurfaces]);
 
   const renderHandlesKey = useMemo(
     () =>
@@ -176,6 +159,7 @@ const SurfaceViewCanvasInner: React.FC<SurfaceViewCanvasProps> = ({
       materialSettings={materialSettings ?? DEFAULT_SURFACE_VIEW_SETTINGS.materialSettings}
       projectionSettings={projectionSettings ?? DEFAULT_SURFACE_VIEW_SETTINGS.projectionSettings}
       markerWorldPosition={markerWorldPosition}
+      cursorAnatomy={cursorAnatomy}
       markerSnapToSurface
       markerMaxSnapDistanceMm={20}
       renderSignal={renderSignal}

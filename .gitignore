@@ -5,7 +5,6 @@
 /ui/build/
 /ui/.svelte-kit/
 dist # For plugins/tools builds
-pnpm-lock.yaml
 .DS_Store
 *.log
 *.wasm # Unless explicitly checked in for tests

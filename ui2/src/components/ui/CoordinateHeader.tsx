@@ -30,7 +30,7 @@ export function CoordinateHeader() {
         </div>
       </div>
       <div className="text-xs text-gray-500">
-        LPI Coordinate System
+        RAS Coordinate System
       </div>
     </div>
   );

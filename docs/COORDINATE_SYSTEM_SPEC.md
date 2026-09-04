@@ -2,7 +2,7 @@
 
 ## Overview
 
-BrainFlow2 displays all neuroimaging volumes in **LPI (Left-Posterior-Inferior)** orientation, regardless of their on-disk orientation. This specification defines how we achieve seamless visualization of heterogeneous volumes with different:
+Brainflow preserves the volume affine world frame. NIfTI qform/sform maps voxel centers into **RAS (+Right, +Anterior, +Superior)** coordinates; voxel storage order does not determine screen orientation. This specification defines how we achieve seamless visualization of heterogeneous volumes with different:
 - Disk orientations (RPI, ASI, LPS, etc.)
 - Voxel resolutions (1mm³, 2mm³, etc.)
 - Fields of view
@@ -15,7 +15,7 @@ BrainFlow2 displays all neuroimaging volumes in **LPI (Left-Posterior-Inferior)*
 ### 1. Voxel Indices (i, j, k)
 - **Definition**: Discrete integer coordinates into the 3D data array
 - **Range**: [0, dim-1] for each axis
-- **Order**: Row-major (C-order) storage: `index = i + j*dim_i + k*dim_i*dim_j`
+- **Order**: X-fastest storage: `index = i + j*dim_i + k*dim_i*dim_j`
 - **Usage**: Direct array access, slice extraction
 
 ### 2. Grid Coordinates 
@@ -24,30 +24,25 @@ BrainFlow2 displays all neuroimaging volumes in **LPI (Left-Posterior-Inferior)*
 - **Usage**: Interpolation, sub-voxel precision
 
 ### 3. World Coordinates (x, y, z)
-- **Definition**: Physical positions in millimeters in LPI space
+- **Definition**: Physical positions in millimeters in the affine world frame
 - **Origin**: Typically near the center of the brain
 - **Axes**:
-  - X: Right (-) to Left (+)
-  - Y: Anterior (-) to Posterior (+)  
+  - X: Left (-) to Right (+)
+  - Y: Posterior (-) to Anterior (+)
   - Z: Inferior (-) to Superior (+)
 - **Usage**: Cross-volume alignment, crosshair positioning, measurements
 
 ## Orientation Reference
 
-```
-Common Neuroimaging Orientations:
+Voxel-axis orientation codes describe how the stored array traverses anatomy.
+They do not redefine the NIfTI world axes. View planes define screen-right with
+`u_mm` and screen-down with `v_mm`; edge labels follow their signed directions.
+No extra reflection follows the affine transform. GIfTI surface vertices likewise
+arrive with their `surf_to_world` transform already applied.
 
-LPI (Our Display Standard)          RPI                           ASI
-      +Z (Superior)                      +Z (Superior)                +Y (Superior)
-       |                                  |                             |
-       |                                  |                             |
-       |______ +Y (Posterior)             |______ +Y (Posterior)       |______ +Z (Inferior)
-      /                                  /                            /
-     /                                  /                            /
-   +X (Left)                         -X (Right)                   +X (Anterior)
-
-Other common orientations: RAS, LAS, LPS, RAI, LAI
-```
+See the [NIfTI qform/sform specification](https://nifti.nimh.nih.gov/nifti-1/documentation/nifti1fields/nifti1fields_pages/qsform.html/document_view.html).
+Volumes without a defined anatomical transform do not establish registration
+with an independently loaded surface.
 
 ## Transformation Pipeline
 
@@ -55,7 +50,7 @@ Other common orientations: RAS, LAS, LPS, RAI, LAI
 graph LR
     A[Disk Data<br/>Any Orientation] --> B[Voxel Indices<br/>i,j,k]
     B --> C[Grid Coordinates<br/>fractional]
-    C --> D[World Coordinates<br/>mm in LPI]
+    C --> D[World Coordinates<br/>mm in affine world frame]
     D --> E[GPU Texture<br/>Coordinates]
     
     B -.-> |"array[k][j][i]"| A
@@ -75,7 +70,7 @@ graph LR
 ```
 
 Where the affine matrix encodes:
-- Voxel spacing (diagonal elements)
+- Voxel spacing (norms of the linear columns; diagonal elements only for axis-aligned grids)
 - Axis rotations (off-diagonal elements)
 - Origin translation (last column)
 
@@ -134,7 +129,7 @@ Volume B: LPI orientation, 109×91×109 voxels, 1.5mm resolution
 Volume C: ASI orientation, 64×64×32 voxels, 3mm resolution
 
 All three volumes will:
-- Display in LPI orientation
+- Display using the chosen world-space view basis
 - Align perfectly if co-registered
 - Show correct crosshair position
 - Support synchronized navigation
@@ -148,7 +143,7 @@ All three volumes will:
    - Ensures consistent position across all volumes
 
 2. **Slice Extraction**
-   - Always extract slices in LPI orientation
+   - Extract slices using the requested world-space plane
    - Use world_to_voxel to find correct voxel indices
    - Handle partial volume coverage gracefully
 
@@ -179,7 +174,7 @@ fn test_rpi_to_lpi_transform() {
     let rpi_volume = load_test_volume("rpi_brain.nii.gz");
     
     // Known anatomical landmark in world coordinates
-    let anterior_commissure = [0.0, -24.0, -5.0]; // mm in LPI
+    let anterior_commissure = [0.0, -24.0, -5.0]; // mm in affine world frame
     
     // Convert to voxel indices
     let voxel_idx = rpi_volume.world_to_voxel(anterior_commissure);

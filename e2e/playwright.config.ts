@@ -1,5 +1,9 @@
 import { defineConfig, devices } from '@playwright/test';
-import path from 'path';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+
+const tauriConfig = JSON.parse(readFileSync(resolve(__dirname, '../src-tauri/tauri.conf.json'), 'utf8'));
+const devUrl: string = tauriConfig.build.devUrl;
 
 export default defineConfig({
   testDir: './tests',
@@ -15,7 +19,7 @@ export default defineConfig({
   
   use: {
     // Base URL for the Tauri app
-    baseURL: 'http://localhost:1420',
+    baseURL: devUrl,
     
     // Collect trace when retrying the failed test
     trace: 'on-first-retry',
@@ -47,9 +51,9 @@ export default defineConfig({
   // Run Tauri dev server before tests
   webServer: {
     command: 'cd .. && cargo tauri dev',
-    port: 1420,
+    url: devUrl,
     timeout: 120 * 1000, // 2 minutes to build and start
-    reuseExistingServer: !process.env.CI,
+    reuseExistingServer: false, // Never attach to another session's dev server.
     stdout: 'pipe',
     stderr: 'pipe',
   },

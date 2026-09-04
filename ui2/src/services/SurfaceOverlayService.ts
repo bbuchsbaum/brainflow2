@@ -1,3 +1,4 @@
+import { validateSurfaceOverlayIdentity } from './surfaceOverlayIdentity';
 /**
  * Surface Overlay Service
  * Handles loading and management of surface data overlays (functional, shape, label data)
@@ -227,6 +228,7 @@ export class SurfaceOverlayService {
         throw new Error(`Surface ${targetSurfaceId} not loaded; cannot apply overlay`);
       }
 
+      validateSurfaceOverlayIdentity(filePath, surface);
       debugLog('load', 'Surface found, invoking backend load_surface_overlay');
 
       // Load data via Tauri command

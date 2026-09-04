@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { act, render, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { MosaicViewPromise } from '@/components/views/MosaicViewPromise';
 import { useViewStateStore } from '@/stores/viewStateStore';
@@ -10,7 +10,8 @@ const querySliceAxisMetaMock = vi.fn();
 const getVolumeBoundsMock = vi.fn();
 
 vi.mock('@/services/MosaicRenderService', () => ({
-  getMosaicRenderService: () => ({
+  createMosaicRenderService: () => ({
+    destroy: vi.fn(),
     renderMosaicGrid: renderMosaicGridMock,
     cancelRenders: cancelRendersMock
   })
@@ -24,7 +25,7 @@ vi.mock('@/services/apiService', () => ({
 }));
 
 vi.mock('@/components/ui/MosaicToolbar', () => ({
-  MosaicToolbar: () => <div data-testid="mosaic-toolbar" />
+  MosaicToolbar: ({ totalSlices }: { totalSlices: number }) => <div data-testid="mosaic-toolbar">{totalSlices}</div>
 }));
 
 vi.mock('@/components/views/MosaicCell', () => ({
@@ -100,6 +101,23 @@ describe('MosaicViewPromise render scheduling', () => {
 
   afterEach(() => {
     vi.clearAllMocks();
+  });
+
+  it('ignores metadata from a volume replaced while its request is pending', async () => {
+    let resolveOld!: (value: { sliceCount: number }) => void;
+    const oldMetadata = new Promise<{ sliceCount: number }>(resolve => { resolveOld = resolve; });
+    querySliceAxisMetaMock.mockImplementation((id: string) =>
+      id === 'volume-1' ? oldMetadata : Promise.resolve({ sliceCount: 64 }));
+    render(<MosaicViewPromise workspaceId="test-workspace" />);
+    await waitFor(() => expect(querySliceAxisMetaMock).toHaveBeenCalledWith('volume-1', 'axial'));
+    act(() => {
+      useViewStateStore.getState().setViewState(state => {
+        state.layers[0].volumeId = 'volume-2';
+      });
+    });
+    await waitFor(() => expect(screen.getByTestId('mosaic-toolbar')).toHaveTextContent('64'));
+    await act(async () => { resolveOld({ sliceCount: 300 }); await oldMetadata; });
+    expect(screen.getByTestId('mosaic-toolbar')).toHaveTextContent('64');
   });
 
   it('does not resubmit mosaic backend renders for pure crosshair moves', async () => {

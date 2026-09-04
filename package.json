@@ -7,7 +7,7 @@
   "scripts": {
     "dev": "cargo tauri dev",
     "build": "pnpm -r build && cargo tauri build",
-    "test:unit": "pnpm --filter temp-ui test",
+    "test:unit": "pnpm --filter temp-ui exec vitest run",
     "test:e2e": "pnpm -C e2e test",
     "test": "pnpm test:unit && cargo test",
     "lint": "pnpm -r lint || true && cargo clippy",
@@ -24,7 +24,7 @@
     "@types/node": "^20.0.0"
   },
   "engines": {
-    "node": ">=18.0.0",
+    "node": ">=22.12.0",
     "pnpm": ">=8.0.0"
   },
   "packageManager": "pnpm@8.15.1",

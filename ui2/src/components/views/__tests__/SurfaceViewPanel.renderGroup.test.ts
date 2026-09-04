@@ -38,6 +38,16 @@ describe('collectRenderSurfaces', () => {
     expect(result.map((item) => item.handle)).toEqual(['lh']);
   });
 
+  it('pairs local hemispheres without mixing subjects or geometry types', () => {
+    const surfaces = new Map([
+      ['left', createSurface('left', '/subject-a/lh.pial.gii', 'left')],
+      ['right', createSurface('right', '/subject-a/rh.pial.gii', 'right')],
+      ['other', createSurface('other', '/subject-b/rh.pial.gii', 'right')],
+      ['white', createSurface('white', '/subject-a/rh.white.gii', 'right', 'white')],
+    ]);
+    expect(collectRenderSurfaces(surfaces, 'left').map(s => s.handle)).toEqual(['left', 'right']);
+  });
+
   it('returns template-flow hemisphere pair when available', () => {
     const left = createSurface('lh', 'templateflow://fsaverage_pial_left', 'left', 'pial');
     const right = createSurface('rh', 'templateflow://fsaverage_pial_right', 'right', 'pial');

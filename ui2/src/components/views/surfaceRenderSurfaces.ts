@@ -1,11 +1,11 @@
 import type { LoadedSurface } from '@/stores/surfaceStore';
 import {
-  resolveTemplateflowSurfaceIdentity,
+  resolveSurfaceSceneIdentity,
   type TemplateflowSurfaceIdentity,
 } from '@/utils/surfaceIdentity';
 
 function parseTemplateIdentity(surface: LoadedSurface): TemplateflowSurfaceIdentity | null {
-  return resolveTemplateflowSurfaceIdentity({
+  return resolveSurfaceSceneIdentity({
     path: surface.metadata?.path,
     geometryHemisphere: surface.geometry.hemisphere,
     metadataHemisphere: surface.metadata?.hemisphere,

@@ -1,4 +1,4 @@
-name: Typed Shader Check
+name: Runtime Shader Contract
 
 on:
   pull_request:
@@ -8,20 +8,25 @@ on:
       - develop
 
 jobs:
-  typed-shader:
-    name: render_loop typed-shaders sanity
+  shader-contract:
+    name: Active masked shader contract
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install Rust
-        uses: actions-rs/toolchain@v1
-        with:
-          toolchain: stable
-          profile: minimal
-          override: true
+      - name: Authenticate Cargo dependencies
+        env:
+          CARGO_GIT_PAT: ${{ secrets.CARGO_GIT_PAT }}
+        run: |
+          git config --global url."https://${CARGO_GIT_PAT}@github.com/".insteadOf "https://github.com/"
+          git config --global --add url."https://${CARGO_GIT_PAT}@github.com/".insteadOf "ssh://git@github.com/"
 
-      - name: Run typed shader checks
-        run: ./tools/run-typed-shader-check.sh
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Reflect active shaders against Rust layouts
+        env:
+          CARGO_NET_GIT_FETCH_WITH_CLI: 'true'
+        run: cargo test -p render_loop --test shader_contract_test

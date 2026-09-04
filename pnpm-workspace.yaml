@@ -1,4 +1,5 @@
 packages:
+  - "e2e"
   - "ui"
   - "ui2"
   - "plugins/*"

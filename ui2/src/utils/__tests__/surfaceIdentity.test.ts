@@ -85,7 +85,7 @@ describe('surfaceGroupKey', () => {
   });
 
   it('returns null for ungroupable (local) surfaces', () => {
-    expect(surfaceGroupKey('/tmp/lh.pial.gii')).toBeNull();
+    expect(surfaceGroupKey('/tmp/lh.pial.gii')).toBe('/tmp/hemi-pair.pial.gii');
     expect(surfaceGroupKey({ path: null })).toBeNull();
   });
 });

@@ -77,13 +77,34 @@ export interface SurfaceGroupKeyInput {
  * occupy a single surface view tab. For templateflow surfaces this is the identity
  * `basePath` (`templateflow://<space>_<surfaceType>`), so Left and Right of the same
  * template collapse to one scene while different geometries (white vs pial) stay
- * distinct. Returns `null` for ungroupable surfaces (e.g. local `.gii` files), which
- * keeps them one-tab-per-handle.
+ * distinct. Local lh/rh or BIDS hemi-L/hemi-R pairs share a scene only when the
+ * directory and remaining filename agree. Unidentified surfaces remain separate.
  *
  * Accepts either the full identity arg shape or a bare path string for convenience
  * (e.g. a stored GoldenLayout `componentState.path`).
  */
 export function surfaceGroupKey(input: string | SurfaceGroupKeyInput): string | null {
   const args = typeof input === 'string' ? { path: input } : input;
-  return resolveTemplateflowSurfaceIdentity(args)?.basePath ?? null;
+  return resolveSurfaceSceneIdentity(args)?.basePath ?? null;
+}
+
+/** Pair local hemispheres only when the filenames explicitly identify them.
+ * Directory, subject, space, density and geometry remain part of the key.
+ */
+export function resolveSurfaceSceneIdentity(args: SurfaceGroupKeyInput): TemplateflowSurfaceIdentity | null {
+  const template = resolveTemplateflowSurfaceIdentity(args);
+  if (template) return template;
+  const path = (args.path ?? '').replaceAll('\\', '/');
+  const slash = path.lastIndexOf('/');
+  const directory = path.slice(0, slash + 1);
+  const name = path.slice(slash + 1);
+  const match = name.match(/^(lh|rh)[.](.+)$/i) ?? name.match(/(?:^|_)hemi-([LR])(?=_|[.])/i);
+  if (!match) return null;
+  const hemisphere = normalizeLateralHemisphere(match[1]);
+  const declared = normalizeLateralHemisphere(args.geometryHemisphere ?? args.metadataHemisphere);
+  if (!hemisphere || (declared && declared !== hemisphere)) return null;
+  const pairedName = /^(lh|rh)[.]/i.test(name)
+    ? name.replace(/^(lh|rh)[.]/i, 'hemi-pair.')
+    : name.replace(/(^|_)hemi-[LR](?=_|[.])/i, '$1hemi-pair');
+  return { basePath: directory + pairedName, hemisphere, surfaceType: args.surfaceType ?? '' };
 }

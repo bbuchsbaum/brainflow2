@@ -198,6 +198,19 @@ describe('SurfaceOverlayService', () => {
     });
   });
 
+  it.each([
+    ['/tmp/rh.example.func.gii', '/tmp/lh.pial.gii', 'hemisphere'],
+    ['/tmp/hemi-L_space-fsLR.func.gii', 'templateflow://fsaverage_pial_left', 'space'],
+    ['/tmp/sub-02_hemi-L.func.gii', '/tmp/sub-01_hemi-L_pial.surf.gii', 'subject'],
+  ])('rejects incompatible overlay %s before backend loading', async (overlay, target, field) => {
+    const surface = makeSurface('surface-1');
+    surface.geometry.hemisphere = 'left';
+    surface.metadata.path = target;
+    useSurfaceStore.setState({ surfaces: new Map([[surface.handle, surface]]) });
+    await expect(surfaceOverlayService.loadSurfaceOverlay(overlay, surface.handle)).rejects.toThrow(field);
+    expect(mockInvoke).not.toHaveBeenCalled();
+  });
+
   it('routes overlay removal through the lifecycle queue and removes the layer from state', async () => {
     const surface = makeSurface('surface-1');
     surface.layers.set('layer-1', {

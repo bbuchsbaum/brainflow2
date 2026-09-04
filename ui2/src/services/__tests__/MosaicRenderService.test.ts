@@ -14,12 +14,14 @@ const mockGetVolumeBounds = vi.fn().mockResolvedValue({
   max: [96, 96, 114],
 });
 
+const mockQuerySliceAxisMeta = vi.fn().mockResolvedValue({ sliceCount: 193 });
 const mockBatchRenderSlices = vi.fn();
 
 vi.mock('@/services/apiService', () => ({
   getApiService: () => ({
     applyAndRenderViewState: mockApplyAndRenderViewState,
     getVolumeBounds: mockGetVolumeBounds,
+    querySliceAxisMeta: mockQuerySliceAxisMeta,
     batchRenderSlices: mockBatchRenderSlices,
   }),
 }));
@@ -62,6 +64,7 @@ vi.mock('@/stores/viewStateStore', () => {
   };
   const useViewStateStore = ((selector?: (s: typeof state) => any) =>
     selector ? selector(state) : state) as any;
+  Object.assign(state, { getWorkspaceViewState: () => state.viewState });
   useViewStateStore.getState = () => state;
   useViewStateStore.subscribe = vi.fn(() => vi.fn());
   return { useViewStateStore };
@@ -109,6 +112,7 @@ vi.mock('@/utils/debug', () => ({
 
 import {
   getMosaicRenderService,
+  createMosaicRenderService,
   destroyMosaicRenderService,
   type MosaicRenderRequest,
 } from '../MosaicRenderService';
@@ -159,10 +163,57 @@ describe('MosaicRenderService', () => {
   beforeEach(() => {
     destroyMosaicRenderService();
     vi.clearAllMocks();
+    getMosaicRenderService().setBatchRenderEnabled(false);
   });
 
   afterEach(() => {
     destroyMosaicRenderService();
+  });
+
+  describe('physical sampling and workspace ownership', () => {
+    it.each([false, true])('covers 3 mm data through the final voxel center (batch=%s)', async (batch) => {
+      const svc = getMosaicRenderService();
+      svc.setBatchRenderEnabled(batch);
+      mockGetVolumeBounds.mockResolvedValueOnce({ min: [0, 0, 0], max: [63, 63, 189] });
+      mockQuerySliceAxisMeta.mockResolvedValueOnce({ sliceCount: 64, sliceSpacing: 3 });
+      mockApplyAndRenderViewState.mockResolvedValue(fakeBitmap(1));
+      mockBatchRenderSlices.mockResolvedValue(makeBatchBuffer(128, 128, 3));
+      vi.stubGlobal('createImageBitmap', vi.fn().mockResolvedValue(fakeBitmap(2)));
+      const requests = [0, 1, 63].map(sliceIndex => ({ sliceIndex, axis: 'axial' as const,
+        cellId: `physical-${sliceIndex}`, width: 128, height: 128 }));
+      await svc.renderMosaicGrid(requests);
+      expect(requests.map(r => svc.getSlicePositionForTag(r.cellId))).toEqual([0, 3, 189]);
+      expect(requests.map(r => svc.getViewPlaneForTag(r.cellId)?.origin_mm[2])).toEqual([0, 3, 189]);
+      expect(mockGetVolumeBounds).toHaveBeenCalledTimes(1);
+      expect(mockQuerySliceAxisMeta).toHaveBeenCalledTimes(1);
+    });
+
+    it('keeps both workspace requests and their own volume snapshots', async () => {
+      const { useViewStateStore } = await import('@/stores/viewStateStore');
+      const store = useViewStateStore.getState();
+      const lookup = vi.spyOn(store, 'getWorkspaceViewState').mockImplementation(id => ({
+        ...store.viewState,
+        layers: [{ ...store.viewState.layers[0], volumeId: id! }],
+      }));
+      mockApplyAndRenderViewState.mockResolvedValue(fakeBitmap(1));
+      const a = createMosaicRenderService('volume-a');
+      const b = createMosaicRenderService('volume-b');
+      const request = (cellId: string) => [{ cellId, sliceIndex: 0, axis: 'axial' as const, width: 128, height: 128 }];
+      await Promise.all([a.renderMosaicGrid(request('a')), b.renderMosaicGrid(request('b'))]);
+      expect(mockApplyAndRenderViewState.mock.calls.map(c => c[0].layers[0].volumeId).sort())
+        .toEqual(['volume-a', 'volume-b']);
+      expect(a.getSlicePositionForTag('a')).toBeDefined();
+      expect(b.getSlicePositionForTag('b')).toBeDefined();
+      a.destroy(); b.destroy(); lookup.mockRestore();
+    });
+
+    it('cancels a queued grid before it can submit any rendering', async () => {
+      const svc = getMosaicRenderService();
+      const pending = svc.renderMosaicGrid([{ cellId: 'queued', sliceIndex: 0, axis: 'axial', width: 128, height: 128 }]);
+      svc.cancelRenders(['queued']);
+      await pending;
+      expect(mockApplyAndRenderViewState).not.toHaveBeenCalled();
+    });
   });
 
   // ── Singleton lifecycle ─────────────────────────────────────
@@ -498,6 +549,7 @@ describe('MosaicRenderService', () => {
       const setImageForCell = store.setImage.mock.calls.filter((c) => c[0] === 'same-cell');
       expect(setImageForCell).toHaveLength(1);
       expect(setImageForCell[0][1]).toBe(bmpB);
+      expect(bmpA.close).toHaveBeenCalledOnce();
     });
 
     it('cancelRenders drops an in-flight render and clears its rendering flag', async () => {

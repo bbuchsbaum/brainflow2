@@ -16,8 +16,8 @@ import { useState, useEffect, useRef, useMemo, useCallback, memo } from 'react';
 import { useViewStateStore } from '@/stores/viewStateStore';
 import { MosaicCell } from './MosaicCell';
 import { MosaicCellErrorBoundary } from './MosaicCellErrorBoundary';
-import { getMosaicRenderService } from '@/services/MosaicRenderService';
-import { calculateInitialPage, calculateVolumeCenter } from '@/utils/mosaicUtils';
+import { createMosaicRenderService } from '@/services/MosaicRenderService';
+import { calculateInitialPage } from '@/utils/mosaicUtils';
 import { getApiService } from '@/services/apiService';
 import { MosaicToolbar } from '@/components/ui/MosaicToolbar';
 import { RenderErrorBoundary } from '@/components/ui/RenderErrorBoundary';
@@ -49,14 +49,15 @@ function MosaicViewPromiseRaw({
   const [currentPage, setCurrentPage] = useState(0);
   const [sliceAxis, setSliceAxis] = useState<'axial' | 'sagittal' | 'coronal'>('axial');
   const [gridSize, setGridSize] = useState({ rows: 4, cols: 4 });
-  const [totalSlices, setTotalSlices] = useState(0); // Start with 0, will be set when metadata loads
+  const [sliceMetadata, setSliceMetadata] = useState<{ volumeId: string; axis: string; count: number } | null>(null);
   const [cellSize, setCellSize] = useState({ width: 128, height: 128 }); // Start with minimum size
   const [currentSlice, setCurrentSlice] = useState(0);
   const [hasInitialized, setHasInitialized] = useState(false);
   
   const gridRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
-  const mosaicRenderService = getMosaicRenderService();
+  const mosaicRenderService = useMemo(() => createMosaicRenderService(workspaceId), [workspaceId]);
+  useEffect(() => () => mosaicRenderService.destroy(), [mosaicRenderService]);
   const apiService = getApiService();
   const [isDragging, setIsDragging] = useState(false);
 
@@ -116,41 +117,37 @@ function MosaicViewPromiseRaw({
   
   // Get primary volume for metadata
   const primaryVolumeId = visibleLayers[0]?.volumeId;
+  const totalSlices = sliceMetadata?.volumeId === primaryVolumeId && sliceMetadata?.axis === sliceAxis ? sliceMetadata.count : 0;
   
   // Fetch slice metadata and calculate initial page based on crosshair
   useEffect(() => {
     if (!primaryVolumeId) return;
     
+    let cancelled = false;
     const fetchMetadataAndSetInitialPage = async () => {
       try {
         // Get slice metadata
         const meta = await apiService.querySliceAxisMeta(primaryVolumeId, sliceAxis);
+        if (cancelled) return;
         if (!meta || meta.sliceCount <= 0) {
           console.warn('[MosaicViewPromise] Invalid slice metadata received');
           return;
         }
         
         console.log('[MosaicViewPromise] Setting totalSlices to:', meta.sliceCount);
-        setTotalSlices(meta.sliceCount);
+
         
         // Get volume bounds for coordinate calculations
         const volumeBounds = await apiService.getVolumeBounds(primaryVolumeId);
+        if (cancelled) return;
         if (!volumeBounds) {
           console.warn('[MosaicViewPromise] Could not get volume bounds');
           return;
         }
         
         // Get current crosshair position
-        const viewState = useViewStateStore.getState().viewState;
-        let crosshairPosition = viewState.crosshair.world_mm;
-        
-        // If crosshair is at origin [0,0,0], use volume center
-        if (crosshairPosition[0] === 0 && 
-            crosshairPosition[1] === 0 && 
-            crosshairPosition[2] === 0) {
-          crosshairPosition = calculateVolumeCenter(volumeBounds);
-        }
-        
+        const crosshairPosition = useViewStateStore.getState().getWorkspaceViewState(workspaceId).crosshair.world_mm;
+
         // Calculate initial page based on crosshair position
         const initialPage = calculateInitialPage(
           crosshairPosition,
@@ -165,6 +162,9 @@ function MosaicViewPromiseRaw({
         const maxPage = Math.ceil(meta.sliceCount / (gridSize.rows * gridSize.cols)) - 1;
         const validPage = Math.max(0, Math.min(initialPage, maxPage));
         
+        setSliceMetadata(previous => previous?.volumeId === primaryVolumeId &&
+          previous.axis === sliceAxis && previous.count === meta.sliceCount
+          ? previous : { volumeId: primaryVolumeId, axis: sliceAxis, count: meta.sliceCount });
         setCurrentPage(validPage);
         
       } catch (error) {
@@ -172,8 +172,9 @@ function MosaicViewPromiseRaw({
       }
     };
     
-    fetchMetadataAndSetInitialPage();
-  }, [primaryVolumeId, sliceAxis, gridSize.rows, gridSize.cols, apiService]);
+    void fetchMetadataAndSetInitialPage();
+    return () => { cancelled = true; };
+  }, [primaryVolumeId, sliceAxis, gridSize.rows, gridSize.cols, apiService, workspaceId]);
   
   // Calculate cell dimensions based on container size
   useEffect(() => {
@@ -440,6 +441,8 @@ function MosaicViewPromiseRaw({
           <div key={cellIds[i]} className="mosaic-cell">
             <MosaicCellErrorBoundary cellId={cellIds[i]} sliceIndex={sliceIndex}>
               <MosaicCell
+                    workspaceId={workspaceId}
+                    renderService={mosaicRenderService}
                 width={cellSize.width}
                 height={cellSize.height}
                 tag={cellIds[i]}  // Pass tag for this cell

@@ -67,8 +67,10 @@ mod error_context;
 mod error_helpers;
 pub mod image_set;
 mod materialization;
+mod projection_geometry;
 mod render_bridge_adapter;
 mod user_errors;
+use projection_geometry::build_volume3d_from_projection;
 use command_registry::bridge_commands;
 use error_context::*;
 
@@ -7346,36 +7348,6 @@ pub struct SurfaceSamplerEntry {
     pub volume_dims: [u32; 3],
     pub vertex_count: usize,
     pub sampling_mode: String,
-}
-
-/// Build a neurosurf `Volume3D` from an extracted projection payload.
-///
-/// brainflow's buffer is x-fastest (flat = x + nx*y + nx*ny*z), matching
-/// Volume3D's linear convention, so the `Array3` is built in Fortran order with
-/// shape (nx, ny, nz). Volume3D models an axis-aligned grid (signed diagonal
-/// spacing + translation origin), which reproduces diagonal affines exactly (the
-/// common case); rotated affines are approximated.
-fn build_volume3d_from_projection(
-    vol: &VolumeProjectionData,
-) -> BridgeResult<neurosurf_rs::analysis::Volume3D> {
-    use ndarray::ShapeBuilder;
-    let nx = vol.dims[0] as usize;
-    let ny = vol.dims[1] as usize;
-    let nz = vol.dims[2] as usize;
-    let data_f64: Vec<f64> = vol.volume_data.iter().map(|&v| v as f64).collect();
-    let arr = ndarray::Array3::from_shape_vec((nx, ny, nz).f(), data_f64).map_err(|e| {
-        BridgeError::Internal {
-            code: 5060,
-            details: format!("Failed to build Volume3D array ({nx}x{ny}x{nz}): {e}"),
-        }
-    })?;
-    // affine_matrix is column-major 4x4: m(row, col) = affine_matrix[col * 4 + row].
-    let m = &vol.affine_matrix;
-    let voxel_size = [m[0] as f64, m[5] as f64, m[10] as f64];
-    let origin = [m[12] as f64, m[13] as f64, m[14] as f64];
-    Ok(neurosurf_rs::analysis::Volume3D::from_arrays(
-        arr, voxel_size, origin,
-    ))
 }
 
 fn parse_mapping_function(s: Option<&str>) -> neurosurf_rs::analysis::MappingFunction {

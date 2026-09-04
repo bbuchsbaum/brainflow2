@@ -3,7 +3,7 @@
  * These types ensure type safety for world-space coordinate handling
  */
 
-// World coordinates in millimeters (LPI: Left-Posterior-Inferior)
+// Affine world coordinates in millimeters (NIfTI qform/sform: +Right, +Anterior, +Superior).
 export type WorldCoordinates = [number, number, number];
 
 // Screen/pixel coordinates

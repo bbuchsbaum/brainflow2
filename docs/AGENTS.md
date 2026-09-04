@@ -41,7 +41,7 @@ Comprehensive technical documentation for Brainflow2, covering architecture, des
 **Key Concepts Documented:**
 
 **Coordinate Systems:**
-- World Space: LPI (Left-Posterior-Inferior) neuroimaging standard
+- World Space: preserved volume affine frame; NIfTI qform/sform uses +R, +A, +S
 - Image Space: IJK indices with affine transforms
 - Screen Space: Pixel coordinates with aspect ratio preservation
 - GPU vs CPU conventions: Y-axis direction differences and flip boundaries

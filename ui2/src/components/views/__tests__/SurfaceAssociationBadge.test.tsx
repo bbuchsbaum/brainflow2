@@ -187,8 +187,22 @@ describe("SurfaceAssociationBadge", () => {
     const badge = screen.getByTestId("surface-association-badge");
     expect(badge.getAttribute("data-state")).toBe("template-underlay");
     expect(screen.getByTestId("surface-association-state").textContent).toMatch(
-      /mni underlay/i,
+      /template surface/i,
     );
+  });
+
+  it('explains why an inflated mesh without anatomical correspondence cannot navigate the volume', () => {
+    seedSurfaces([{ id: 'inflated', name: 'Inflated', path: '/sub-01/lh.inflated.gii' }], 'inflated');
+    act(() => useSurfaceStore.setState(state => {
+      const surfaces = new Map(state.surfaces);
+      const surface = surfaces.get('inflated')!;
+      surfaces.set('inflated', { ...surface, geometry: { ...surface.geometry, surfaceType: 'inflated' },
+        metadata: { ...surface.metadata, surfaceType: 'inflated' } });
+      return { surfaces };
+    }));
+    render(<SurfaceAssociationBadge />);
+    expect(screen.getByTestId('surface-association-badge')).toHaveAttribute('data-state', 'cursor-unavailable');
+    expect(screen.getByText(/load matching pial/i)).toBeInTheDocument();
   });
 
   it("reactively transitions absent → loaded-unlinked → loaded-linked", () => {

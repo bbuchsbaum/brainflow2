@@ -138,14 +138,14 @@ export function MetadataDrawer({ layerId, isOpen, onOpenChange, isPinned = false
       title: 'World Bounds',
       fields: [
         {
-          label: 'Min (LPI)',
+          label: 'Min (RAS)',
           value: metadata.worldBounds ? 
             metadata.worldBounds.min.map(v => v.toFixed(1)).join(', ') : null,
           mono: true,
           copyable: true
         },
         {
-          label: 'Max (LPI)', 
+          label: 'Max (RAS)',
           value: metadata.worldBounds ?
             metadata.worldBounds.max.map(v => v.toFixed(1)).join(', ') : null,
           mono: true,

@@ -1,3 +1,4 @@
+import { findLinkedVertex, mapPickedTriangle } from './linkedCursor.js';
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
   NeuroSurfaceViewer,
@@ -67,40 +68,6 @@ function hasRenderableGeometry(surface: SurfaceRenderable): boolean {
       surface.geometry.vertices.length > 0 &&
       surface.geometry.faces.length > 0,
   );
-}
-
-/**
- * Find the surface vertex nearest to a world-space point, scanning the flat
- * vertex arrays of every supplied surface. Returns the vertex position and its
- * distance (mm), or null when no surface has geometry. O(total vertices) — a
- * few hundred microseconds even for fsaverage (164k), so it is fine to run on
- * every crosshair move. Snapping uses the input (un-smoothed) geometry, which
- * matches the rendered mesh whenever display smoothing is 0 (the default).
- */
-function findNearestSurfacePoint(
-  surfaces: readonly SurfaceRenderable[],
-  world: [number, number, number],
-): { position: [number, number, number]; distanceMm: number } | null {
-  const [wx, wy, wz] = world;
-  let bestDistSq = Infinity;
-  let best: [number, number, number] | null = null;
-
-  for (const surface of surfaces) {
-    const verts = surface.geometry?.vertices;
-    if (!verts || verts.length < 3) continue;
-    for (let i = 0; i + 2 < verts.length; i += 3) {
-      const dx = verts[i] - wx;
-      const dy = verts[i + 1] - wy;
-      const dz = verts[i + 2] - wz;
-      const distSq = dx * dx + dy * dy + dz * dz;
-      if (distSq < bestDistSq) {
-        bestDistSq = distSq;
-        best = [verts[i], verts[i + 1], verts[i + 2]];
-      }
-    }
-  }
-
-  return best ? { position: best, distanceMm: Math.sqrt(bestDistSq) } : null;
 }
 
 function buildLayerInstance(
@@ -328,6 +295,7 @@ const NeuroSurfaceCanvasInner: React.FC<NeuroSurfaceCanvasProps> = ({
   projectionSettings = DEFAULT_NEURO_SURFACE_PROJECTION_SETTINGS,
   renderSignal,
   markerWorldPosition,
+  cursorAnatomy,
   markerSnapToSurface = true,
   markerMaxSnapDistanceMm,
   markerColor = '#39FF14',
@@ -366,22 +334,6 @@ const NeuroSurfaceCanvasInner: React.FC<NeuroSurfaceCanvasProps> = ({
       surfacesToRender
         .map((item) => item.handle)
         .sort()
-        .join('|'),
-    [surfacesToRender],
-  );
-
-  // Key that also changes when geometry is swapped under an unchanged handle
-  // (load completing empty -> real vertices, or pial <-> inflated <-> white).
-  // The marker's nearest-vertex search depends on this so it re-snaps on those
-  // swaps even when the crosshair is stationary. Vertex-length + surfaceType is
-  // a cheap proxy that avoids scanning every vertex on each render.
-  const surfaceGeometryKey = useMemo(
-    () =>
-      surfacesToRender
-        .map(
-          (item) =>
-            `${item.handle}:${item.geometry?.vertices?.length ?? 0}:${item.geometry?.surfaceType ?? ''}`,
-        )
         .join('|'),
     [surfacesToRender],
   );
@@ -759,12 +711,21 @@ const NeuroSurfaceCanvasInner: React.FC<NeuroSurfaceCanvasProps> = ({
     if (markerWorldPosition) {
       if (markerSnapToSurface) {
         const snapSurfaces = surfacesToRender.filter((item) => item.visible !== false);
-        const nearest = findNearestSurfacePoint(snapSurfaces, markerWorldPosition);
+        const nearest = findLinkedVertex(snapSurfaces, markerWorldPosition, cursorAnatomy);
         if (
           nearest &&
           (markerMaxSnapDistanceMm == null || nearest.distanceMm <= markerMaxSnapDistanceMm)
         ) {
-          position = nearest.position;
+          const rendered = renderedSurfacesRef.current.get(nearest.handle);
+          const mesh = rendered?.mesh;
+          const attribute = mesh?.geometry?.getAttribute('position');
+          if (mesh && attribute) {
+            const point = new THREE.Vector3().fromBufferAttribute(attribute, nearest.index);
+            mesh.localToWorld(point);
+            position = [point.x, point.y, point.z];
+          } else {
+            position = nearest.position;
+          }
         }
       } else {
         position = [markerWorldPosition[0], markerWorldPosition[1], markerWorldPosition[2]];
@@ -816,8 +777,8 @@ const NeuroSurfaceCanvasInner: React.FC<NeuroSurfaceCanvasProps> = ({
     mesh.visible = true;
     viewer.requestRender();
     // markerWorldPosition is an array; depend on its components so a fresh array
-    // with identical values doesn't churn. surfaceGeometryKey re-runs the snap
-    // when geometry is swapped under an unchanged handle.
+    // with identical values doesn't churn. Immutable geometry and correspondence
+    // inputs re-snap on visibility changes and same-size mesh replacements.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     isInitialized,
@@ -828,7 +789,9 @@ const NeuroSurfaceCanvasInner: React.FC<NeuroSurfaceCanvasProps> = ({
     markerMaxSnapDistanceMm,
     markerColor,
     markerRadiusMm,
-    surfaceGeometryKey,
+    surfacesToRender,
+    cursorAnatomy,
+    displaySettings.smoothing,
   ]);
 
   // Dispose the reusable marker mesh on unmount only (it is kept alive across
@@ -888,9 +851,12 @@ const NeuroSurfaceCanvasInner: React.FC<NeuroSurfaceCanvasProps> = ({
       }
 
       const meshes: any[] = [];
-      for (const surface of renderedSurfacesRef.current.values()) {
-        const mesh = (surface as any)?.mesh;
-        if (mesh) meshes.push(mesh);
+      const handles = new Map<any, string>();
+      for (const [handle, surface] of renderedSurfacesRef.current) {
+        const mesh = surface.mesh;
+        if (!mesh || mesh.visible === false || (cursorAnatomy && !cursorAnatomy.has(handle))) continue;
+        meshes.push(mesh);
+        handles.set(mesh, handle);
       }
       if (meshes.length === 0) return;
 
@@ -901,10 +867,21 @@ const NeuroSurfaceCanvasInner: React.FC<NeuroSurfaceCanvasProps> = ({
         -((e.clientY - rect.top) / rect.height) * 2 + 1,
       );
       raycaster.setFromCamera(ndc, viewer.camera);
-      const hits = raycaster.intersectObjects(meshes, true);
+      const hits = raycaster.intersectObjects(meshes, false);
       if (hits.length > 0) {
-        const p = hits[0].point;
-        onSurfacePick([p.x, p.y, p.z]);
+        const hit = hits[0];
+        const handle = handles.get(hit.object);
+        const reference = cursorAnatomy
+          ? (handle ? cursorAnatomy.get(handle) : undefined)
+          : (handle ? originalGeometryRef.current.get(handle)?.vertices : undefined);
+        if (!reference || !hit.face) return;
+        const mesh = hit.object as THREE.Mesh;
+        const positions = mesh.geometry.getAttribute('position');
+        const local = mesh.worldToLocal(hit.point.clone());
+        const indices: [number, number, number] = [hit.face.a, hit.face.b, hit.face.c];
+        const triangle = indices.map(i => [positions.getX(i), positions.getY(i), positions.getZ(i)] as [number, number, number]) as [[number, number, number], [number, number, number], [number, number, number]];
+        const world = mapPickedTriangle(reference, indices, triangle, [local.x, local.y, local.z]);
+        if (world) onSurfacePick(world);
       }
     };
 
@@ -914,7 +891,7 @@ const NeuroSurfaceCanvasInner: React.FC<NeuroSurfaceCanvasProps> = ({
       canvas.removeEventListener('mousedown', onDown);
       canvas.removeEventListener('mouseup', onUp);
     };
-  }, [isInitialized, onSurfacePick]);
+  }, [isInitialized, onSurfacePick, cursorAnatomy]);
 
   return (
     <div

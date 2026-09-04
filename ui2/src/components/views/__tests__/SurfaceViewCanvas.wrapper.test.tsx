@@ -42,6 +42,7 @@ vi.mock('@/stores/viewStateStore', async (importOriginal) => {
   return { ...actual, useViewStateStore: hook };
 });
 
+import { useViewStateStore } from '@/stores/viewStateStore';
 import { SurfaceViewCanvas } from '../SurfaceViewCanvas';
 
 function makeSurface(handle: string): LoadedSurface {
@@ -169,17 +170,23 @@ describe('SurfaceViewCanvas Brainflow wrapper', () => {
     expect(onActivateSurface).toHaveBeenCalledTimes(1);
   });
 
-  it('maps the volume crosshair (LAS) onto the surface frame (RAS) by negating X', () => {
+  it('preserves affine world coordinates already exported by the backend', () => {
     crosshairMock.value = { world_mm: [43.2, -55.4, 18], visible: true };
     const surface = makeSurface('lh');
 
     render(<SurfaceViewCanvas surface={surface} surfaceViewId="view-1" width={320} height={240} />);
 
-    // Left hemisphere is +X in the app's world_mm (LAS) but -X on the surface (RAS),
-    // so the marker passed to the canvas must negate X and keep Y/Z.
-    expect(neuroSurfaceCanvasState.latestProps.markerWorldPosition).toEqual([-43.2, -55.4, 18]);
+    expect(neuroSurfaceCanvasState.latestProps.markerWorldPosition).toEqual([43.2, -55.4, 18]);
+    expect(neuroSurfaceCanvasState.latestProps.cursorAnatomy.get('lh')).toBe(surface.geometry.vertices);
     expect(neuroSurfaceCanvasState.latestProps.markerSnapToSurface).toBe(true);
     expect(neuroSurfaceCanvasState.latestProps.markerMaxSnapDistanceMm).toBe(20);
+  });
+
+  it('passes a surface pick back to the volume without reflection', () => {
+    const update = vi.spyOn(useViewStateStore.getState(), 'setCrosshair');
+    render(<SurfaceViewCanvas surface={makeSurface('lh')} width={320} height={240} />);
+    act(() => neuroSurfaceCanvasState.latestProps.onSurfacePick([-31, 17, 29]));
+    expect(update).toHaveBeenCalledWith([-31, 17, 29], true);
   });
 
   it('hides the surface marker when the crosshair is not visible', () => {

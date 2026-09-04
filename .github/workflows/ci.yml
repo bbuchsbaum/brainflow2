@@ -6,6 +6,9 @@ on:
   pull_request:
     branches: [ main ]
 
+env:
+  CARGO_NET_GIT_FETCH_WITH_CLI: 'true'
+
 jobs:
   schema-validation:
     runs-on: ubuntu-latest
@@ -16,7 +19,7 @@ jobs:
     - name: Setup Node.js
       uses: actions/setup-node@v4
       with:
-        node-version: 20
+        node-version: 22
     
     - name: Install ajv-cli
       run: npm install -g ajv-cli
@@ -40,7 +43,7 @@ jobs:
     - name: Setup Node.js
       uses: actions/setup-node@v4
       with:
-        node-version: 20
+        node-version: 22
     
     - name: Setup pnpm
       uses: pnpm/action-setup@v3
@@ -48,7 +51,7 @@ jobs:
         version: 8
     
     - name: Install dependencies
-      run: pnpm install
+      run: pnpm install --frozen-lockfile
     
     - name: Build API package
       run: pnpm --filter @brainflow/api build
@@ -69,7 +72,7 @@ jobs:
     - name: Setup Node.js
       uses: actions/setup-node@v4
       with:
-        node-version: 20
+        node-version: 22
 
     - name: Setup pnpm
       uses: pnpm/action-setup@v3
@@ -77,7 +80,12 @@ jobs:
         version: 8
 
     - name: Install dependencies
-      run: pnpm install
+      run: pnpm install --frozen-lockfile
+
+    - name: Build shared UI packages from source
+      run: |
+        pnpm --filter @brainflow/api build
+        pnpm --filter @brainflow/visualization build
 
     - name: Build ui2 production bundle (tsc -b + vite build)
       run: pnpm --filter temp-ui build
@@ -91,10 +99,12 @@ jobs:
     steps:
     - uses: actions/checkout@v4
     - name: Authenticate cargo to private GitHub deps
-      # One classic PAT (secret CARGO_GIT_PAT) authenticates all the private
-      # bbuchsbaum/* git dependencies; .cargo/config.toml's git-fetch-with-cli
-      # makes cargo fetch through it.
-      run: git config --global url."https://${{ secrets.CARGO_GIT_PAT }}@github.com/".insteadOf "https://github.com/"
+      env:
+        CARGO_GIT_PAT: ${{ secrets.CARGO_GIT_PAT }}
+      shell: bash
+      run: |
+        git config --global url."https://${CARGO_GIT_PAT}@github.com/".insteadOf "https://github.com/"
+        git config --global --add url."https://${CARGO_GIT_PAT}@github.com/".insteadOf "ssh://git@github.com/"
     
     - name: Setup Rust
       uses: dtolnay/rust-toolchain@stable
@@ -105,7 +115,7 @@ jobs:
     - name: Setup Node.js
       uses: actions/setup-node@v4
       with:
-        node-version: 20
+        node-version: 22
     
     - name: Setup pnpm
       uses: pnpm/action-setup@v3
@@ -113,7 +123,7 @@ jobs:
         version: 8
         
     - name: Install dependencies
-      run: pnpm install
+      run: pnpm install --frozen-lockfile
         
     - name: Generate TypeScript bindings
       run: pnpm ts-bindings
@@ -138,10 +148,12 @@ jobs:
     steps:
     - uses: actions/checkout@v4
     - name: Authenticate cargo to private GitHub deps
-      # One classic PAT (secret CARGO_GIT_PAT) authenticates all the private
-      # bbuchsbaum/* git dependencies; .cargo/config.toml's git-fetch-with-cli
-      # makes cargo fetch through it.
-      run: git config --global url."https://${{ secrets.CARGO_GIT_PAT }}@github.com/".insteadOf "https://github.com/"
+      env:
+        CARGO_GIT_PAT: ${{ secrets.CARGO_GIT_PAT }}
+      shell: bash
+      run: |
+        git config --global url."https://${CARGO_GIT_PAT}@github.com/".insteadOf "https://github.com/"
+        git config --global --add url."https://${CARGO_GIT_PAT}@github.com/".insteadOf "ssh://git@github.com/"
 
     - name: Setup Rust
       uses: dtolnay/rust-toolchain@stable
@@ -154,7 +166,7 @@ jobs:
     - name: Setup Node.js
       uses: actions/setup-node@v4
       with:
-        node-version: 20
+        node-version: 22
 
     - name: Setup pnpm
       uses: pnpm/action-setup@v3
@@ -175,7 +187,7 @@ jobs:
           ${{ runner.os }}-pnpm-store-
 
     - name: Install dependencies
-      run: pnpm install
+      run: pnpm install --frozen-lockfile
 
     # ui2 production build + unit tests now run in the dedicated `ui2-build` job
     # above (independent of the Rust steps below).
@@ -191,7 +203,7 @@ jobs:
 
     - name: Install Playwright Browsers
       if: matrix.os == 'ubuntu-latest' # Only run E2E on Linux for now
-      run: pnpm --filter ui exec playwright install --with-deps
+      run: pnpm -C e2e exec playwright install --with-deps
       
     - name: Run Playwright E2E Tests
       if: matrix.os == 'ubuntu-latest' # Only run E2E on Linux for now
@@ -201,14 +213,13 @@ jobs:
       if: matrix.os == 'ubuntu-latest'
       run: |
         cd e2e
-        npm ci
-        npx playwright test atlas-menu-system.spec.ts --reporter=html
+        pnpm exec playwright test atlas-menu-system.spec.ts --reporter=html
         
     - name: Run Security Validation E2E Tests
       if: matrix.os == 'ubuntu-latest'
       run: |
         cd e2e
-        npx playwright test security-validation.spec.ts --reporter=html
+        pnpm exec playwright test security-validation.spec.ts --reporter=html
         
     - name: Upload E2E Test Results
       if: failure() && matrix.os == 'ubuntu-latest'

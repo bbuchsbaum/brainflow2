@@ -1,3 +1,4 @@
+import { anatomicalLabels } from '@/utils/anatomicalLabels';
 /**
  * SliceViewCanvas Component
  *
@@ -43,16 +44,6 @@ import {
   computeTemporalHeatmapSliceIndex,
   isTemporalHeatmapEligible,
 } from "./temporalHeatmapState";
-
-// Anatomical orientation labels per view (LPI convention)
-const ORIENTATION_LABELS: Record<
-  string,
-  { top: string; bottom: string; left: string; right: string }
-> = {
-  axial: { top: "A", bottom: "P", left: "R", right: "L" },
-  sagittal: { top: "S", bottom: "I", left: "A", right: "P" },
-  coronal: { top: "S", bottom: "I", left: "R", right: "L" },
-};
 
 const LABEL_OFFSET = 6; // px from edge
 
@@ -582,7 +573,7 @@ function SliceViewCanvasRaw({
       {showMarkers &&
         hasLayers &&
         (() => {
-          const labels = ORIENTATION_LABELS[viewId];
+          const labels = anatomicalLabels(viewPlane);
           if (!labels) return null;
           const pillCls =
             "absolute text-white/70 text-[11px] font-bold leading-none tracking-[0.15em] uppercase select-none pointer-events-none";

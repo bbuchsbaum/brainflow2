@@ -14,6 +14,7 @@ import type { ViewPlane } from '@/types/coordinates';
 import { CoordinateTransform } from '@/utils/coordinates';
 import { getViewPlaneService } from '@/services/ViewPlaneService';
 import { createDebugLogger } from '@/utils/debug';
+import { slicePositionAtIndex } from '@/services/mosaic/sliceGeometry';
 import { decodeBatchRenderBuffer } from '@/services/mosaic/decodeBatchRenderBuffer';
 
 const debug = createDebugLogger('mosaic-render');
@@ -31,7 +32,51 @@ export interface CrosshairInfo {
   isActive: boolean; // true if this slice contains the global crosshair
 }
 
-class MosaicRenderService {
+let batchRenderEnabled = false;
+
+export class MosaicRenderService {
+  private readonly workspaceId?: string;
+
+  constructor(workspaceId?: string) { this.workspaceId = workspaceId; }
+
+  private geometryCache = new WeakMap<ViewState, Map<string, Promise<{ min: number; max: number; count: number; bounds: { min: number[]; max: number[] } }>>>();
+
+  private getViewState(): ViewState {
+    const store = useViewStateStore.getState();
+    return this.workspaceId ? store.getWorkspaceViewState(this.workspaceId) : store.viewState;
+  }
+
+  private getSampling(base: ViewState, axis: MosaicRenderRequest['axis']) {
+    let byAxis = this.geometryCache.get(base);
+    if (!byAxis) {
+      byAxis = new Map();
+      this.geometryCache.set(base, byAxis);
+    }
+    let pending = byAxis.get(axis);
+    if (!pending) {
+      pending = (async () => {
+        const reference = base.layers.find(layer => layer.visible && layer.opacity > 0 && layer.volumeId);
+        if (!reference?.volumeId) throw new Error('No reference volume for montage');
+        const volumeIds = [...new Set(base.layers.filter(layer => layer.visible && layer.opacity > 0 && layer.volumeId).map(layer => layer.volumeId!))];
+        const [allBounds, meta] = await Promise.all([
+          Promise.all(volumeIds.map(id => this.apiService.getVolumeBounds(id))),
+          this.apiService.querySliceAxisMeta(reference.volumeId, axis),
+        ]);
+        const bounds = allBounds[0];
+        const framing = {
+          min: [0, 1, 2].map(d => Math.min(...allBounds.map(b => b.min[d]))),
+          max: [0, 1, 2].map(d => Math.max(...allBounds.map(b => b.max[d]))),
+        };
+        const dimension = axis === 'sagittal' ? 0 : axis === 'coronal' ? 1 : 2;
+        const sampling = { min: bounds.min[dimension], max: bounds.max[dimension], count: meta.sliceCount, bounds: framing };
+        slicePositionAtIndex(sampling, 0); // Validate before caching usable geometry.
+        return sampling;
+      })();
+      byAxis.set(axis, pending);
+      void pending.catch(() => byAxis?.delete(axis));
+    }
+    return pending;
+  }
   private apiService = getApiService();
   private eventBus = getEventBus();
   // Maps a cellId to the request id of the render that currently owns it. A
@@ -51,7 +96,7 @@ class MosaicRenderService {
   private flushPromise: Promise<void> | null = null;
   // When true, dispatch through the packed batch_render_slices path instead of
   // one render per cell. Driven by the `mosaicBatchRender` feature flag.
-  private batchRenderEnabled = false;
+  private get batchRenderEnabled() { return batchRenderEnabled; }
   private static readonly MAX_CONCURRENT_RENDERS = 4;
   // Backend caps a single batch_render_slices call at 25 slices.
   private static readonly MAX_BATCH_SLICES = 25;
@@ -64,7 +109,7 @@ class MosaicRenderService {
    * `mosaicBatchRender` feature flag in useServicesInit).
    */
   setBatchRenderEnabled(enabled: boolean): void {
-    this.batchRenderEnabled = enabled;
+    batchRenderEnabled = enabled;
   }
 
   /**
@@ -85,7 +130,7 @@ class MosaicRenderService {
   /**
    * Render a single mosaic cell
    */
-  async renderMosaicCell(request: MosaicRenderRequest, generation?: number): Promise<void> {
+  async renderMosaicCell(request: MosaicRenderRequest, generation?: number, snapshot = this.getViewState()): Promise<void> {
     const { sliceIndex, axis, cellId, width, height } = request;
 
     debug(`[MosaicRenderService] Starting render for cell:`, {
@@ -106,7 +151,7 @@ class MosaicRenderService {
       renderStore.setRendering(cellId, true);
 
       // Get current view state
-      const currentViewState = useViewStateStore.getState().viewState;
+      const currentViewState = snapshot;
 
       debug(`[MosaicRenderService] Current ViewState structure:`, {
         cellId,
@@ -169,6 +214,7 @@ class MosaicRenderService {
 
       // Re-check ownership after the render await before writing the image.
       if (this.isStale(cellId, requestId, generation)) {
+        imageBitmap?.close();
         return;
       }
 
@@ -268,6 +314,7 @@ class MosaicRenderService {
       `[MosaicRenderService] Starting batched rendering: ${requests.length} requests, max concurrent: ${MosaicRenderService.MAX_CONCURRENT_RENDERS}`,
     );
 
+    const snapshot = this.getViewState();
     const batches = this.createBatches(requests, MosaicRenderService.MAX_CONCURRENT_RENDERS);
     const results = {
       successful: 0,
@@ -285,7 +332,7 @@ class MosaicRenderService {
       // Process batch with controlled concurrency
       const batchPromises = batch.map(async (request) => {
         try {
-          await this.renderMosaicCell(request, generation);
+          await this.renderMosaicCell(request, generation, snapshot);
           results.successful++;
           return { success: true, cellId: request.cellId };
         } catch (error) {
@@ -320,7 +367,7 @@ class MosaicRenderService {
     generation: number,
   ): Promise<void> {
     const renderStore = useRenderStateStore.getState();
-    const baseViewState = useViewStateStore.getState().viewState;
+    const baseViewState = this.getViewState();
 
     // Stamp epochs and mark all cells rendering up front so a stale batch cannot
     // resurrect a cell a newer dispatch already claimed.
@@ -341,6 +388,16 @@ class MosaicRenderService {
 
       if (generation !== this.gridGeneration) {
         return;
+      }
+
+      for (let i = 0; i < chunk.length; i++) {
+        const request = chunk[i];
+        const requestId = cellRequestIds.get(request.cellId)!;
+        if (this.isStale(request.cellId, requestId, generation)) continue;
+        const plane = viewStates[i].views[request.axis];
+        const dimension = request.axis === 'sagittal' ? 0 : request.axis === 'coronal' ? 1 : 2;
+        this.slicePositions.set(request.cellId, plane.origin_mm[dimension]);
+        this.cellViewPlanes.set(request.cellId, plane);
       }
 
       const widthPerSlice = chunk[0].width;
@@ -367,6 +424,7 @@ class MosaicRenderService {
           const bitmap = await createImageBitmap(slices[index].image);
           const requestId = cellRequestIds.get(request.cellId);
           if (requestId === undefined || this.isStale(request.cellId, requestId, generation)) {
+            bitmap.close();
             return;
           }
           renderStore.setImage(request.cellId, bitmap);
@@ -396,9 +454,6 @@ class MosaicRenderService {
       width,
       height,
     );
-    const slicePosition = await this.getSlicePositionForIndex(baseViewState, axis, sliceIndex);
-    this.slicePositions.set(cellId, slicePosition);
-    this.cellViewPlanes.set(cellId, modifiedViewState.views[axis]);
 
     const view = modifiedViewState.views[axis];
     const requestedView = {
@@ -460,6 +515,10 @@ class MosaicRenderService {
    */
   cancelRenders(cellIds: string[]): void {
     const renderStore = useRenderStateStore.getState();
+    const cancelled = new Set(cellIds);
+    if (this.pendingGrid) {
+      this.pendingGrid = this.pendingGrid.filter(request => !cancelled.has(request.cellId));
+    }
     for (const cellId of cellIds) {
       this.activeRenders.delete(cellId);
       this.slicePositions.delete(cellId);
@@ -472,11 +531,14 @@ class MosaicRenderService {
    * Destroy the service, clearing all accumulated state
    */
   destroy(): void {
+    this.cancelRenders([...this.activeRenders.keys()]);
     this.activeRenders.clear();
     this.slicePositions.clear();
     this.cellViewPlanes.clear();
     this.pendingGrid = null;
     this.flushPromise = null;
+    this.gridGeneration++;
+    this.geometryCache = new WeakMap();
   }
 
   /**
@@ -590,73 +652,9 @@ class MosaicRenderService {
       return baseViewState;
     }
 
-    // Calculate combined bounds from all visible layers
-    let combinedBounds = {
-      min: [Infinity, Infinity, Infinity],
-      max: [-Infinity, -Infinity, -Infinity],
-    };
-
-    // Get bounds for each visible layer and combine them
-    for (const layer of visibleLayers) {
-      if (layer.volumeId) {
-        try {
-          const bounds = await this.apiService.getVolumeBounds(layer.volumeId);
-          // Update combined min bounds
-          combinedBounds.min[0] = Math.min(combinedBounds.min[0], bounds.min[0]);
-          combinedBounds.min[1] = Math.min(combinedBounds.min[1], bounds.min[1]);
-          combinedBounds.min[2] = Math.min(combinedBounds.min[2], bounds.min[2]);
-          // Update combined max bounds
-          combinedBounds.max[0] = Math.max(combinedBounds.max[0], bounds.max[0]);
-          combinedBounds.max[1] = Math.max(combinedBounds.max[1], bounds.max[1]);
-          combinedBounds.max[2] = Math.max(combinedBounds.max[2], bounds.max[2]);
-        } catch (error) {
-          console.warn(
-            `[MosaicRenderService] Failed to get bounds for volume ${layer.volumeId}:`,
-            error,
-          );
-        }
-      }
-    }
-
-    // Use default MNI bounds if we couldn't get any bounds
-    if (!isFinite(combinedBounds.min[0])) {
-      combinedBounds = {
-        min: [-96, -132, -78], // Default MNI bounds
-        max: [96, 96, 114],
-      };
-    }
-
-    // Calculate the range for each axis
-    let sliceMin: number, sliceMax: number;
-    switch (axis) {
-      case 'axial':
-        // For axial slices in LPI, we move inferior to superior (Z axis)
-        sliceMin = combinedBounds.min[2]; // Most inferior slice
-        sliceMax = combinedBounds.max[2]; // Most superior slice
-        break;
-      case 'sagittal':
-        // For sagittal slices, we move right to left (X axis)
-        sliceMin = combinedBounds.min[0];
-        sliceMax = combinedBounds.max[0];
-        break;
-      case 'coronal':
-        // For coronal slices, we move posterior to anterior (Y axis)
-        sliceMin = combinedBounds.min[1];
-        sliceMax = combinedBounds.max[1];
-        break;
-    }
-
-    // Calculate total number of slices (assuming 1mm spacing)
-    const sliceRange = sliceMax - sliceMin;
-    const totalSlices = Math.ceil(sliceRange);
-
-    // Map slice index to actual position
-    // sliceIndex 0 should be at sliceMin (most inferior for axial)
-    const slicePosition_mm = sliceMin + sliceIndex * (sliceRange / totalSlices);
-
-    debug(
-      `[MosaicRenderService] Slice ${sliceIndex} position: ${slicePosition_mm}mm (range: ${sliceMin} to ${sliceMax})`,
-    );
+    const sampling = await this.getSampling(baseViewState, axis);
+    const combinedBounds = sampling.bounds;
+    const slicePosition_mm = slicePositionAtIndex(sampling, sliceIndex);
 
     // CRITICAL FIX: Calculate proper ViewPlane for this cell's dimensions
     // This ensures the entire slice fits within the cell, not a zoomed portion
@@ -792,69 +790,7 @@ class MosaicRenderService {
     axis: 'axial' | 'sagittal' | 'coronal',
     sliceIndex: number,
   ): Promise<number> {
-    // Get all visible layers to calculate combined bounds
-    const visibleLayers = baseViewState.layers.filter((l) => l.visible && l.opacity > 0);
-    if (visibleLayers.length === 0) {
-      return 0;
-    }
-
-    // Calculate combined bounds from all visible layers
-    let combinedBounds = {
-      min: [Infinity, Infinity, Infinity],
-      max: [-Infinity, -Infinity, -Infinity],
-    };
-
-    const apiService = getApiService();
-    for (const layer of visibleLayers) {
-      if (layer.volumeId) {
-        try {
-          const bounds = await apiService.getVolumeBounds(layer.volumeId);
-          for (let i = 0; i < 3; i++) {
-            combinedBounds.min[i] = Math.min(combinedBounds.min[i], bounds.min[i]);
-            combinedBounds.max[i] = Math.max(combinedBounds.max[i], bounds.max[i]);
-          }
-        } catch (error) {
-          console.warn(
-            `[MosaicRenderService] Failed to get bounds for volume ${layer.volumeId}:`,
-            error,
-          );
-        }
-      }
-    }
-
-    // Use default MNI bounds if we couldn't get any bounds
-    if (!isFinite(combinedBounds.min[0])) {
-      combinedBounds = {
-        min: [-96, -132, -78],
-        max: [96, 96, 114],
-      };
-    }
-
-    // Calculate the range for each axis
-    let sliceMin: number, sliceMax: number;
-    switch (axis) {
-      case 'axial':
-        sliceMin = combinedBounds.min[2];
-        sliceMax = combinedBounds.max[2];
-        break;
-      case 'sagittal':
-        sliceMin = combinedBounds.min[0];
-        sliceMax = combinedBounds.max[0];
-        break;
-      case 'coronal':
-        sliceMin = combinedBounds.min[1];
-        sliceMax = combinedBounds.max[1];
-        break;
-    }
-
-    // Calculate total number of slices
-    const sliceRange = sliceMax - sliceMin;
-    const totalSlices = Math.ceil(sliceRange);
-
-    // Map slice index to actual position
-    const slicePosition_mm = sliceMin + sliceIndex * (sliceRange / totalSlices);
-
-    return slicePosition_mm;
+    return slicePositionAtIndex(await this.getSampling(baseViewState, axis), sliceIndex);
   }
 }
 
@@ -873,4 +809,9 @@ export function destroyMosaicRenderService(): void {
     instance.destroy();
     instance = null;
   }
+}
+
+/** A workspace owns this service and disposes it with its viewport. */
+export function createMosaicRenderService(workspaceId: string): MosaicRenderService {
+  return new MosaicRenderService(workspaceId);
 }

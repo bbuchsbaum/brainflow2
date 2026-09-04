@@ -18,7 +18,7 @@ interface StatusBarState {
 export const useStatusBarStore = create<StatusBarState>()(
   subscribeWithSelector((set) => ({
     values: {
-      coordSys: "LPI",
+      coordSys: "RAS",
       crosshair: "(0.0, 0.0, 0.0)",
       mouse: "--",
       layer: "None",
@@ -43,7 +43,7 @@ export const useStatusBarStore = create<StatusBarState>()(
     clear: () =>
       set({
         values: {
-          coordSys: "LPI",
+          coordSys: "RAS",
           crosshair: "(0.0, 0.0, 0.0)",
           mouse: "--",
           layer: "None",

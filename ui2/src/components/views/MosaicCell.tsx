@@ -8,7 +8,7 @@
 import { useCallback, useRef, useMemo, type MouseEvent } from 'react';
 import { SliceViewport, type SliceViewportPlacement } from './SliceViewport';
 import { useViewStateStore } from '@/stores/viewStateStore';
-import { getMosaicRenderService } from '@/services/MosaicRenderService';
+import type { MosaicRenderService } from '@/services/MosaicRenderService';
 import { drawCrosshair, getLineDash } from '@/utils/crosshairUtils';
 import { useCrosshairSettingsStore } from '@/stores/crosshairSettingsStore';
 import { CoordinateTransform } from '@/utils/coordinates';
@@ -16,6 +16,8 @@ import type { CrosshairStyle } from '@/utils/crosshairUtils';
 import type { ViewPlane } from '@/types/coordinates';
 
 interface MosaicCellProps {
+  workspaceId: string;
+  renderService: MosaicRenderService;
   width: number;
   height: number;
   tag: string;
@@ -25,6 +27,8 @@ interface MosaicCellProps {
 }
 
 export function MosaicCell({
+  workspaceId,
+  renderService: mosaicRenderService,
   width,
   height,
   tag,
@@ -42,15 +46,6 @@ export function MosaicCell({
     );
   }
   
-  // Extract workspaceId from tag for RenderContext
-  // Tag format: "mosaic-{workspaceId}-{axis}-{sliceIndex}"
-  const workspaceId = useMemo(() => {
-    const parts = tag.split('-');
-    // Remove 'mosaic' prefix and extract workspaceId
-    // If tag is "mosaic-default-axial-0", workspaceId is "default"
-    return parts[1] || 'default';
-  }, [tag]);
-  
   // Create RenderContext using the tag as the ID
   const renderContext = useMemo(() => ({
     id: tag,  // Use the tag directly as ID
@@ -63,7 +58,6 @@ export function MosaicCell({
     }
   }), [tag, width, height, workspaceId, axis, sliceIndex]);
   
-  const mosaicRenderService = getMosaicRenderService();
   const crosshair = useViewStateStore(state => state.viewState.crosshair);
   const axisViewPlane = useViewStateStore(state => state.viewState.views[axis]);
   // Use Zustand store for crosshair settings - works across all React roots

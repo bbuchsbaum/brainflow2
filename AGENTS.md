@@ -88,7 +88,10 @@
 - See `core/api_bridge/ADDING_COMMANDS.md` before changing command surfaces.
 
 ## Rendering & Coordinates
-- World space uses LPI neuroimaging coordinates. GPU/WebGPU internals use Y=0 at bottom; CPU/image buffers use Y=0 at top.
+- Preserve the volume affine world frame (NIfTI qform/sform uses +R, +A, +S). Surface payloads already contain `vertices_world` with the GIfTI transform applied; do not add a frontend X reflection. Axis labels derive from the signed view basis. GPU/WebGPU internals use Y=0 at bottom; CPU/image buffers use Y=0 at top.
+- Linked surface cursors use `surfaceLink.ts` and the visualization canvas's `cursorAnatomy` correspondence: pial/white world vertices directly, inflated/sphere only through a matching anatomical mesh with identical topology. This is coordinate linking, not registration of unrelated spaces.
+- Montage rendering uses one `MosaicRenderService` instance per workspace. Reference-volume voxel-center bounds and slice count determine sampling via `mosaic/sliceGeometry.ts`; overlays can enlarge framing but cannot change reference slice spacing. Keep metadata results and render completions guarded against stale workspace state.
+- The neurosurf CPU projection adapter (`core/api_bridge/src/projection_geometry.rs`) accepts signed diagonal affines and rejects rotation/shear explicitly; full oblique CPU projection remains unsupported. The frontend GPU projection retains the full affine.
 - Keep Y-flips isolated to GPU buffer readback (`render_to_buffer()`); do not add compensating flips to geometry, slice specs, or CPU renderer paths.
 - CPU rendering (`neuro-cpu`) uses image convention internally and should match GPU output after readback.
 - Preserve square pixels for medical imaging. When fitting an extent into a viewport, use a uniform pixel size: `max(extentX / dimX, extentY / dimY)`.

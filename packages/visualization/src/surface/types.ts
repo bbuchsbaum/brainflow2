@@ -145,6 +145,12 @@ export interface NeuroSurfaceCanvasProps {
    * to mark with a cursor sphere — e.g. the linked volume crosshair. Pass
    * `null`/`undefined` to hide the marker.
    */
+  /** Optional anatomical world vertices indexed exactly like each display mesh.
+   * When supplied, meshes absent from this map cannot drive a linked cursor.
+   * Inflated displays use these for picking/snapping and retain their own
+   * vertex positions for drawing the marker.
+   */
+  cursorAnatomy?: ReadonlyMap<string, Float32Array>;
   markerWorldPosition?: [number, number, number] | null;
   /**
    * When true (default), the marker snaps to the nearest surface vertex so it

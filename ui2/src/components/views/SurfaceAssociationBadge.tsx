@@ -14,7 +14,10 @@
  * continue to work behind it (pointer-events on the inner card only).
  */
 
-import React from "react";
+import React, { useMemo } from "react";
+import { useSurfaceStore } from "@/stores/surfaceStore";
+import { collectRenderSurfaces } from "./surfaceRenderSurfaces";
+import { resolveCursorAnatomy } from "./surfaceLink";
 import { Brain, Link, Link2Off } from "lucide-react";
 
 import { useSurfaceAssociationState } from "./surfaceAssociation.helpers";
@@ -49,6 +52,13 @@ const CARD_BASE_STYLE: React.CSSProperties = {
 
 export const SurfaceAssociationBadge: React.FC = () => {
   const association = useSurfaceAssociationState();
+  const surfaces = useSurfaceStore(state => state.surfaces);
+  const activeSurfaceId = useSurfaceStore(state => state.activeSurfaceId);
+  const missingAnatomy = useMemo(() => {
+    const displayed = collectRenderSurfaces(surfaces, activeSurfaceId);
+    const anatomy = resolveCursorAnatomy(displayed, surfaces.values());
+    return displayed.some(surface => !anatomy.has(surface.handle));
+  }, [surfaces, activeSurfaceId]);
 
   // No surface loaded: defer to the SurfaceViewPanel empty-state, which owns the
   // single "Load surface" invitation. Rendering a second load CTA here would
@@ -56,6 +66,19 @@ export const SurfaceAssociationBadge: React.FC = () => {
   // surfaces). The badge speaks only to the association of a *loaded* surface.
   if (association.kind === "missing") {
     return null;
+  }
+
+  if (missingAnatomy) {
+    return (
+      <div style={ABS_OVERLAY_STYLE}>
+        <div data-testid="surface-association-badge" data-state="cursor-unavailable"
+          style={{ ...CARD_BASE_STYLE, color: 'var(--app-warning, #f59e0b)' }}
+          title="Load a matching pial or white surface with the same vertex topology to link this display to volume coordinates.">
+          <Link2Off width={12} height={12} aria-hidden="true" />
+          <span>Load matching pial/white surface to link coordinates</span>
+        </div>
+      </div>
+    );
   }
 
   if (association.kind === "loaded-unlinked") {
@@ -77,7 +100,7 @@ export const SurfaceAssociationBadge: React.FC = () => {
           title={`${association.surfaceName}: ${reasonLabel}`}
         >
           <Link2Off width={12} height={12} aria-hidden="true" />
-          <span data-testid="surface-association-state">Unlinked</span>
+          <span data-testid="surface-association-state">Source unlinked</span>
           <span
             data-testid="surface-association-detail"
             style={{
@@ -105,10 +128,10 @@ export const SurfaceAssociationBadge: React.FC = () => {
             color: "var(--app-accent, #5b9dff)",
             borderColor: "rgba(91, 157, 255, 0.45)",
           }}
-          title={`${association.surfaceName}: MNI template underlay`}
+          title={`${association.surfaceName}: Template surface; coordinate linking requires a volume in the same world space`}
         >
           <Brain width={12} height={12} aria-hidden="true" />
-          <span data-testid="surface-association-state">MNI underlay</span>
+          <span data-testid="surface-association-state">Template surface</span>
           <span
             data-testid="surface-association-detail"
             style={{
@@ -139,7 +162,7 @@ export const SurfaceAssociationBadge: React.FC = () => {
         title={`${association.surfaceName} ↔ ${association.volumeName}`}
       >
         <Link width={12} height={12} aria-hidden="true" />
-        <span data-testid="surface-association-state">Linked</span>
+        <span data-testid="surface-association-state">Source linked</span>
         <span
           data-testid="surface-association-volume"
           style={{
