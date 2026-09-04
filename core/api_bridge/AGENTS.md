@@ -10,6 +10,7 @@ Tauri plugin providing command bridge between TypeScript frontend and Rust backe
 | File | Description |
 |------|-------------|
 | `src/lib.rs` | Main plugin module with all Tauri command implementations (4000+ lines) |
+| `src/render_lifecycle.rs` | Serialized initialization and atomic publication of a fully ready shared renderer |
 | `src/render_bridge_adapter.rs` | Brainflow-to-renderer adapter helpers for frontend view-state conversion and render response packet encoding |
 | `src/error_context.rs` | User-friendly error message generation and context enrichment |
 | `src/error_helpers.rs` | Error conversion utilities and helper functions |
@@ -38,6 +39,7 @@ Run `cargo test -p api-bridge` for unit tests. Integration tests in `tests/pipel
 - Commands use `State<Arc<Mutex<T>>>` for shared state access
 - Error handling: wrap errors with context using `map_err(|e| BridgeError::custom(...))`
 - Volume handles: use `VolumeHandleInfo` for tracking loaded volumes
+- Startup ownership: plugin setup registers the canonical `BridgeState` using the app cache directory (or preserves a caller-provided state) and starts its watchdog. Both frontend init and desktop warmup call `ensure_render_loop`; failed device/shader setup leaves the slot empty for retry.
 - GPU operations: keep Brainflow-specific registry lookup, layer leases, Tauri command contracts, event emission, and error mapping in this crate; pure frontend view-state conversion and raw/PNG packet encoding live in `render_bridge_adapter.rs`; renderer internals stay in `render_loop`
 - File loading: use `LoaderRegistry` pattern for extensible format support
 

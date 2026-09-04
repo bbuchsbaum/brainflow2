@@ -52,6 +52,7 @@
     - Render (typed): `CRITERION_DEBUG=1 cargo bench -p render_loop_benches --bench render_time --features render_loop/typed-shaders`
 
 ## Integration Notes
+- Startup ownership: the `api_bridge` plugin registers the single `BridgeState` and starts its layer watchdog. Desktop setup must use that state, not construct a second one. Background warmup and `init_render_loop` both call `BridgeState::ensure_render_loop`; the shared slot is published only after device and shaders are ready, and failed initialization remains retryable.
 - Backend state: `api_bridge` maintains `VolumeRegistry`, surface registries, and menu-driven template loading. Commands emit events (`volume-loaded`, `mount-directory-event`) consumed by UI hooks (`useMountListener`, etc.).
 - Analysis backend: `core/api_bridge/src/analysis.rs` now plugs into `BridgeState` and exposes `list_analyses`, `start_analysis`, `cancel_analysis`, and `get_analysis_job_status`. Discovery scans bundled plugins under `plugins/analyses/*` plus the user plugin dir, and the first workbench slice currently supports runnable single-volume analyses.
 - Remote mounts: `RemoteMountDialog` and `RemoteMountService` drive `remote_mount_connect` / challenge-response commands, while `api_bridge` keeps the `RemoteMountRegistry`, saved-profile metadata, and staged cache. SSH/session behavior stays in `remotely`; Brainflow owns command translation, keychain-backed credential policy, cache freshness metadata, and the handoff back into the existing local `load_file` path via `materialize_remote_file_if_needed()`.

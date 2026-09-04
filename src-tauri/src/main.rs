@@ -4,16 +4,10 @@
 )]
 
 // Learn more about Tauri commands at https://tauri.app/v1/guides/features/command
-use api_bridge::{self, BridgeState, SurfaceRegistry};
-use atlases::AtlasService;
-use render_loop::RenderLoopService;
-use std::collections::HashMap;
-use std::sync::Arc;
+use api_bridge::{self, BridgeState};
 use tauri::menu::{Menu, MenuItemBuilder, PredefinedMenuItem, SubmenuBuilder};
 use tauri::AppHandle;
 use tauri::{Emitter, Manager, State};
-use templates::TemplateService;
-use tokio::sync::Mutex as TokioMutex;
 
 mod menu_builder;
 mod startup_args;
@@ -297,10 +291,6 @@ fn main() {
         );
     }
     let startup_action_queue = StartupActionQueue::new(parsed_startup_args.actions);
-
-    let volume_registry = Arc::new(TokioMutex::new(api_bridge::VolumeRegistry::new()));
-    // Initialize the new layer map state
-    let layer_to_atlas_map = Arc::new(TokioMutex::new(HashMap::<String, u32>::new()));
 
     // Set up logging plugin (assuming similar setup as lib.rs)
     let log_plugin = tauri_plugin_log::Builder::default()
@@ -837,69 +827,13 @@ fn main() {
                     _ => {}
                 }
             });
-            // --- Create and manage BridgeState immediately ---
-            // The wgpu adapter/device handshake (inside RenderLoopService::new)
-            // is expensive and used to block here via block_on, delaying the
-            // window and all UI interactivity until the GPU was ready. Instead
-            // we manage BridgeState right away with an empty render-service slot
-            // and initialize the GPU on a background task (below). Commands that
-            // need the service already handle the not-yet-initialized case
-            // gracefully (returning a recoverable error), and the frontend's
-            // init_render_loop is idempotent, so nothing breaks if a render is
-            // requested before initialization finishes.
-
-            // Create atlas and template services (cheap, kept synchronous).
-            let cache_dir = app
-                .path()
-                .app_cache_dir()
-                .unwrap_or_else(|_| std::env::temp_dir().join("brainflow"));
-            let atlas_service = Arc::new(TokioMutex::new(
-                AtlasService::new(cache_dir.clone())
-                    .map_err(|e| format!("Failed to initialize atlas service: {}", e))?,
-            ));
-            let template_service = Arc::new(TokioMutex::new(
-                TemplateService::new(cache_dir)
-                    .map_err(|e| format!("Failed to initialize template service: {}", e))?,
-            ));
-
-            // Shared render-service slot, initially empty. A clone is handed to
-            // the background init task so it can populate the slot once the GPU
-            // device is ready.
-            let render_loop_slot: Arc<TokioMutex<Option<Arc<TokioMutex<RenderLoopService>>>>> =
-                Arc::new(TokioMutex::new(None));
-            let render_loop_slot_for_init = render_loop_slot.clone();
-
-            let bridge_state = BridgeState::new(
-                volume_registry.clone(),                           // Volume registry
-                Arc::new(TokioMutex::new(SurfaceRegistry::new())), // Surface registry
-                render_loop_slot,   // Render loop service (filled async)
-                layer_to_atlas_map, // Layer to atlas map
-                Arc::new(TokioMutex::new(HashMap::new())), // Layer to volume map
-                atlas_service,      // Atlas service
-                template_service,   // Template service
-            );
-            bridge_state.start_layer_watchdog();
-            app.manage(bridge_state); // Manage immediately so the UI is interactive
-
-            // --- Initialize RenderLoopService off the startup critical path ---
+            // The bridge plugin has already registered the canonical state.
+            // Warm up its renderer off the UI thread; frontend initialization
+            // uses the same serialized path and observes the same ready slot.
+            let render_app = app.handle().clone();
             tauri::async_runtime::spawn(async move {
-                println!("Initializing RenderLoopService (async, off the startup path)...");
-                // Hold the slot lock across initialization. Any command (or the
-                // frontend's idempotent init_render_loop) that needs the service
-                // will await this lock and then observe the populated slot,
-                // preventing a duplicate GPU initialization.
-                let mut slot = render_loop_slot_for_init.lock().await;
-                if slot.is_some() {
-                    return;
-                }
-                match RenderLoopService::new().await {
-                    Ok(service) => {
-                        *slot = Some(Arc::new(TokioMutex::new(service)));
-                        println!("RenderLoopService Initialized (async).");
-                    }
-                    Err(e) => {
-                        eprintln!("FATAL: Failed to initialize RenderLoopService: {}", e);
-                    }
+                if let Err(error) = render_app.state::<BridgeState>().ensure_render_loop().await {
+                    log::error!("Render-loop warmup failed; frontend may retry: {error}");
                 }
             });
 

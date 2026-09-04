@@ -69,6 +69,7 @@ pub mod image_set;
 mod materialization;
 mod projection_geometry;
 mod render_bridge_adapter;
+mod render_lifecycle;
 mod user_errors;
 use projection_geometry::build_volume3d_from_projection;
 use command_registry::bridge_commands;
@@ -1447,38 +1448,41 @@ impl BridgeState {
     // Fallible constructor; intentionally not the std `Default` trait (returns Result).
     #[allow(clippy::should_implement_trait)]
     pub fn default() -> Result<Self, String> {
-        // Create cache directory for atlas data
-        let cache_dir = std::env::temp_dir().join("brainflow_atlas_cache");
+        Self::with_cache_dir(std::env::temp_dir().join("brainflow_atlas_cache"))
+    }
 
-        Ok(Self {
-            // Removed loader_registry initialization
-            volume_registry: Arc::new(Mutex::new(VolumeRegistry::new())),
-            surface_registry: Arc::new(Mutex::new(SurfaceRegistry::new())),
-            render_loop_service: Arc::new(Mutex::new(None)),
-            layer_to_atlas_map: Arc::new(Mutex::new(HashMap::new())),
-            layer_to_volume_map: Arc::new(Mutex::new(HashMap::new())),
-            layer_to_timepoint_map: Arc::new(Mutex::new(HashMap::new())),
-            layer_leases: Arc::new(Mutex::new(HashMap::new())),
-            atlas_service: Arc::new(Mutex::new(
-                AtlasService::new(cache_dir.clone())
-                    .map_err(|e| format!("Failed to initialize atlas service: {}", e))?,
-            )),
-            template_service: Arc::new(Mutex::new(
-                templates::TemplateService::new(cache_dir)
-                    .map_err(|e| format!("Failed to initialize template service: {}", e))?,
-            )),
-            analysis_registry: Arc::new(Mutex::new(analysis::build_default_registry())),
-            analysis_jobs: Arc::new(Mutex::new(analysis::AnalysisJobManager::new())),
-            set_studio_materialization_jobs: Arc::new(Mutex::new(
-                materialization::StudioMaterializationJobManager::new(),
-            )),
-            remote_mounts: Arc::new(Mutex::new(HashMap::new())),
-            pending_remote_host_key: Arc::new(Mutex::new(HashMap::new())),
-            pending_remote_auth: Arc::new(Mutex::new(HashMap::new())),
-            set_sample_cache: Arc::new(Mutex::new(HashMap::new())),
-            surface_samplers: Arc::new(Mutex::new(HashMap::new())),
-            resident_image_sets: Arc::new(Mutex::new(HashMap::new())),
+    /// Construct the registries once, using the application's cache directory.
+    pub fn with_cache_dir(cache_dir: PathBuf) -> Result<Self, String> {
+        let atlas_service = AtlasService::new(cache_dir.clone())
+            .map_err(|e| format!("Failed to initialize atlas service: {e}"))?;
+        let template_service = templates::TemplateService::new(cache_dir)
+            .map_err(|e| format!("Failed to initialize template service: {e}"))?;
+        Ok(Self::new(
+            Arc::new(Mutex::new(VolumeRegistry::new())),
+            Arc::new(Mutex::new(SurfaceRegistry::new())),
+            Arc::new(Mutex::new(None)),
+            Arc::new(Mutex::new(HashMap::new())),
+            Arc::new(Mutex::new(HashMap::new())),
+            Arc::new(Mutex::new(atlas_service)),
+            Arc::new(Mutex::new(template_service)),
+        ))
+    }
+
+    /// Shared by desktop warmup and the frontend command. A visible slot always
+    /// contains a fully initialized renderer; failures leave it empty for retry.
+    pub async fn ensure_render_loop(&self) -> BridgeResult<()> {
+        render_lifecycle::initialize_once(&self.render_loop_service, || async {
+            let mut service = RenderLoopService::new()
+                .await
+                .context_bridge("initializing render loop service", 5005)?;
+            service
+                .load_shaders()
+                .context_bridge("loading GPU shaders", 5011)?;
+            info!("RenderLoopService initialized and shaders loaded successfully");
+            Ok::<_, BridgeError>(service)
         })
+        .await?;
+        Ok(())
     }
 
     pub fn start_layer_watchdog(&self) {
@@ -5710,39 +5714,7 @@ async fn fs_list_directory(
 async fn init_render_loop(state: State<'_, BridgeState>) -> BridgeResult<()> {
     info!("Bridge: init_render_loop called");
 
-    // Check if already initialized
-    {
-        let service_lock = state.render_loop_service.lock().await;
-        if service_lock.is_some() {
-            info!("RenderLoopService already initialized");
-            return Ok(());
-        }
-    }
-
-    // Initialize the service
-    let mut service = RenderLoopService::new()
-        .await
-        .context_bridge("initializing render loop service", 5005)?;
-
-    // Load shaders
-    service
-        .load_shaders()
-        .context_bridge("loading GPU shaders", 5011)?;
-
-    // We're using offscreen rendering approach:
-    // The render loop is initialized without a window surface
-    // Rendering happens to an offscreen texture that gets read back
-    // and sent to the frontend as image data
-
-    info!("RenderLoopService initialized and shaders loaded successfully");
-
-    // Store in state
-    {
-        let mut service_lock = state.render_loop_service.lock().await;
-        *service_lock = Some(Arc::new(Mutex::new(service)));
-    }
-
-    Ok(())
+    state.ensure_render_loop().await
 }
 
 #[command]
@@ -13221,9 +13193,14 @@ pub fn plugin<R: Runtime>() -> TauriPlugin<R> {
     Builder::<R>::new("api-bridge")
         .invoke_handler(invoke_handler())
         .setup(|app, _| {
-            // Initialize the bridge state
-            let bridge_state = BridgeState::default().map_err(std::io::Error::other)?;
-            app.manage(bridge_state);
+            // Plugin setup runs before desktop setup. It is the sole default
+            // owner; callers may also supply a state through Builder::manage.
+            if app.try_state::<BridgeState>().is_none() {
+                let bridge_state = BridgeState::with_cache_dir(app.path().app_cache_dir()?)
+                    .map_err(std::io::Error::other)?;
+                app.manage(bridge_state);
+            }
+            app.state::<BridgeState>().start_layer_watchdog();
             Ok(())
         })
         .build()

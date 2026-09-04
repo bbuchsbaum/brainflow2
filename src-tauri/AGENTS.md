@@ -10,7 +10,7 @@ The src-tauri directory contains the Tauri v2 application entry point that boots
 | File | Description |
 |------|-------------|
 | `src/lib.rs` | Older alternate bootstrap path kept for library/mobile-style builds; not the active desktop entry point |
-| `src/main.rs` | Active desktop entry point: builds menus, initializes BridgeState/RenderLoopService, registers shell commands, and queues startup CLI actions until the frontend is ready |
+| `src/main.rs` | Active desktop entry point: builds menus, warms the plugin-owned renderer, registers shell commands, and queues startup CLI actions until the frontend is ready |
 | `src/startup_args.rs` | Startup CLI parser and queued action model for `--mount PATH`, remote mounts (`profile:NAME`, `user@host:/path`), and positional file/surface loads |
 | `src/menu_builder.rs` | Application menu construction (File, Edit, View menus) |
 | `tauri.conf.json` | Tauri configuration: window settings, build commands, bundle config, security policies |
@@ -42,7 +42,7 @@ When working with the Tauri application shell:
 
 ### Common Patterns
 - **Service initialization**: Services initialized asynchronously in separate task during `setup()`
-- **Shared state**: Use `Arc<TokioMutex<T>>` for state shared between commands
+- **Shared state**: The api_bridge plugin registers the canonical `BridgeState` before desktop setup. Use its `ensure_render_loop` for asynchronous GPU warmup; do not register another state or construct another renderer in the shell.
 - **State management**: VolumeRegistry, LayerMap, BridgeState managed via Tauri state
 - **Command registration**: All commands come from `api_bridge` plugin - see `core/api_bridge/ADDING_COMMANDS.md`
 - **Startup CLI actions**: Parse launch args in `main.rs`, queue them in `StartupActionQueue`, and flush them only after the frontend registers its mount/open listeners and reports services ready

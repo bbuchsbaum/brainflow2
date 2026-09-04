@@ -2,8 +2,9 @@
 
 Brainflow has a working native loading/rendering path and a substantial automated
 safety net. This hardening pass fixes concrete coordinate and scheduling defects;
-it does not certify an alpha release. Changes are uncommitted on top of
-`1a8ca2e9`, with pre-existing working-tree edits preserved.
+it does not certify an alpha release. The first pass was committed and pushed as
+`1d49e0018a7750cccdf5df846d24c330404ffeab`. The second pass below is uncommitted;
+pre-existing working-tree edits remain preserved.
 
 ## Changes implemented
 
@@ -63,6 +64,31 @@ Local receipts: `/tmp/brainflow-alpha-ui-full.log`,
 receipts, not durable CI artifacts. Validation app and preview server were stopped;
 the final browser lifecycle audit found no automated top-level browsers.
 
+## Second pass: shared renderer ownership
+
+The native startup's duplicate initialization came from two `BridgeState`
+instances: plugin setup registered a default, while desktop setup initialized a
+second state whose registration was ignored. Desktop warmup therefore initialized
+an unused GPU service and its watchdog watched the wrong layer registries.
+
+The plugin now owns the canonical state and watchdog, using the application cache
+directory. Desktop warmup and frontend init both use `ensure_render_loop`.
+`render_lifecycle.rs` holds the slot lock across creation and shader loading;
+only a fully ready renderer is published, and failures leave the slot retryable.
+Default state construction now shares the same constructor as app startup.
+
+Validation: all **117 bridge unit tests passed**, including concurrent creation
+and failure/retry checks. The GPU-dependent test required execution with Metal
+access after a sandbox run failed with `AdapterRequestFailed`. Native fixture
+startup recorded **one GPU initialization, one shader completion, one frontend
+init call, twelve rendered volume frames, and one loaded surface**. Strict
+command/permission checks still align all 103 commands. Receipts are
+`/tmp/brainflow-alpha-pass2-bridge-metal.log` and
+`/tmp/brainflow-alpha-pass2-native.log`.
+
+Desktop control still failed to start, so visual and mouse acceptance remains
+open. The validation app/server were stopped and the browser audit was clean.
+
 ## Remaining alpha gates
 
 1. **Native visual and interaction acceptance.** The computer-control service
@@ -83,8 +109,8 @@ the final browser lifecycle audit found no automated top-level browsers.
 4. **Efficiency and lifecycle.** No interaction-latency, memory-growth or startup
    benchmark was run. The production build still warns about large main and
    surface chunks. Dependency installation reports React 19 peer-range warnings
-   in surfview, visx and Allotment's resize helper. The native startup log also
-   shows two render-loop initializations; review ownership before release.
+   in surfview, visx and Allotment's resize helper. Duplicate GPU initialization
+   is fixed in the second pass; broader memory and latency evidence is pending.
 
 The next acceptance pass should record screenshots and bidirectional landmark
 coordinates, repeated load/unload memory behavior, and frame latency on a fixed
