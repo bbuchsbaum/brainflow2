@@ -134,7 +134,7 @@ export const AtlasConfigModal: React.FC<AtlasConfigModalProps> = ({
       safeSetState(setIsLoading, true);
       safeSetState(setLoadResult, null);
       
-      const result = await AtlasService.loadAtlas(config, currentToken.signal);
+      const { result } = await AtlasService.loadAtlasAndCreateLayer(config, currentToken.signal);
       
       // Check if component is still mounted and operation wasn't cancelled
       if (!currentToken.signal.aborted && isMountedRef.current) {
@@ -171,6 +171,9 @@ export const AtlasConfigModal: React.FC<AtlasConfigModalProps> = ({
     <Modal
       isOpen={isOpen}
       onClose={onClose}
+      closeButtonDisabled={isLoading}
+      closeOnEscape={!isLoading}
+      closeOnOverlayClick={!isLoading}
       title={atlas.name}
       ariaLabel={`${atlas.name} atlas configuration`}
       size="xl"

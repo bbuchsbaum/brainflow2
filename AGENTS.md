@@ -137,3 +137,34 @@ Keep AGENTS.md current when touching core architecture, commands, or directory s
 - **Await and wrap listener teardown.** Tauri event cleanups return `Promise<void>`. Always invoke them through `safeUnlisten` (or equivalent) and `await` the promise inside a `try/catch` block when tearing down listeners. Never call the raw `listen` API directly.
 - **Respect render-phase invariants.** Store writes are forbidden during render. If a change must mirror render-time data (e.g., view registration), schedule it via `requestAnimationFrame`/`setTimeout` so StrictMode does not explode.
 - **Sync sliders & transient UI from canonical state.** Slider components keep local state for responsiveness, but they must snap back to store values when props update, guarded by equality checks to avoid oscillation. Emit final values on drag end to keep stores authoritative.
+
+## Alpha Loading Lifecycle (2026-09-04)
+
+- Volume requests capture `activeWorkspaceKey` before backend I/O (files, templates,
+  atlases). `LayerLoadContext` carries that destination and initial geometry into
+  `LayerApiImpl`; `setViewState(updater, workspaceId)` publishes into that exact
+  workspace. Closed destinations fail with rollback. Background histogram results
+  must still match the original display properties before refining contrast.
+- `LoadScheduler` provides two FIFO admission slots shared by volume and surface
+  file loads. Surface geometry is fetched before store publication. Failed volume
+  loads unload provisional decoded data; failed GPU allocations release their lease.
+- `api_bridge::histogram` scans twice with O(bin_count) scratch space and f64
+  moments on a blocking worker. Reject invalid bin counts/ranges and ignore
+  non-finite values; requested ranges restrict bins, not summary statistics.
+- `api_bridge::surface_loading` retains geometry from its first decode; commands
+  run decoding off async workers. Orthogonal `render_views` uses distinct per-pane
+  targets and `read_views_to_images_sized` for one readback across unequal panes.
+  `RenderViewsDiagnostics.readback_ms` measures the shared readback; per-view frame
+  diagnostics correctly report `Skip` for their submit-only stage.
+- Remote I/O ownership lives in `remote_transfer`: non-Send `remotely` futures run
+  inside owned blocking runtime adapters, and timeouts/cancellation happen inside
+  those adapters. Writers retain operation permits through private staging cleanup.
+  `cancel_remote_file_load(path)` requests cancellation; `remote-file-progress`
+  carries real byte counts to Activity. Unmount cancels writers and drains permits
+  before cache purge. Downloads use a 90s idle deadline and 1h total ceiling.
+- `remote_cache` uses SHA-256 endpoint/root identities across reconnects, validates
+  local length and known remote size/mtime, and evicts inactive mount roots before
+  exceeding a 4 GiB default budget (`BRAINFLOW_REMOTE_CACHE_BYTES` overrides it).
+  Active mounts are pinned; downloads serialize cache admission to avoid exceeding
+  the disk budget. Directory browsing remains independently bounded per mount.
+- Regression evidence and limitations: `docs/loading-hardening-2026-09-04.md`.

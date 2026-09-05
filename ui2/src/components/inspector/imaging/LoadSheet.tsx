@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useRef } from 'react';
 
 interface LoadSheetProps {
   open: boolean;
@@ -24,13 +24,41 @@ export function LoadSheet({
   onLoadAtlas,
   onProjectVolumeToSurface,
 }: LoadSheetProps) {
+  const menuRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const previous = document.activeElement as HTMLElement | null;
+    menuRef.current?.querySelector<HTMLButtonElement>('button')?.focus();
+    const outside = (event: PointerEvent) => {
+      if (!menuRef.current?.parentElement?.contains(event.target as Node)) onClose();
+    };
+    document.addEventListener('pointerdown', outside);
+    return () => {
+      document.removeEventListener('pointerdown', outside);
+      previous?.focus();
+    };
+  }, [open, onClose]);
   if (!open) return null;
   return (
     <div
+      ref={menuRef}
       role="menu"
       aria-label="Load"
       className="absolute right-2 top-12 z-30 min-w-[220px] overflow-hidden rounded-md border border-border bg-card shadow-lg"
-      onMouseLeave={onClose}
+      onKeyDown={(event) => {
+        if (event.key === 'Escape' || event.key === 'Tab') {
+          if (event.key === 'Escape') event.preventDefault();
+          onClose();
+        }
+        if (['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) {
+          event.preventDefault();
+          const items = Array.from(menuRef.current?.querySelectorAll<HTMLButtonElement>('button') ?? []);
+          const current = items.indexOf(document.activeElement as HTMLButtonElement);
+          const next = event.key === 'Home' ? 0 : event.key === 'End' ? items.length - 1
+            : (current + (event.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length;
+          items[next]?.focus();
+        }
+      }}
     >
       <SheetItem
         label="Load volume…"

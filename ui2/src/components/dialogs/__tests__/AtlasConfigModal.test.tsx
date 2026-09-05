@@ -16,7 +16,7 @@ const { mockValidateConfig, mockLoadAtlas } = vi.hoisted(() => ({
 vi.mock('@/services/AtlasService', () => ({
   AtlasService: {
     validateConfig: mockValidateConfig,
-    loadAtlas: mockLoadAtlas,
+    loadAtlasAndCreateLayer: async (...args: unknown[]) => ({ result: await mockLoadAtlas(...args), layer: { id: 'atlas-layer' } }),
   },
 }));
 

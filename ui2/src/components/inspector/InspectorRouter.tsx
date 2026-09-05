@@ -1,4 +1,7 @@
 import React, { useState } from 'react';
+import { getTransport } from '@/services/transport';
+import { getEventBus } from '@/events/EventBus';
+import { AtlasPicker, ProjectionPicker } from './imaging/InspectorLoadDialogs';
 import { useDisplayMode } from '@/hooks/useDisplayMode';
 import { useSceneStack } from '@/hooks/useSceneStack';
 import { useInspectorSelectionStore } from '@/stores/inspectorSelectionStore';
@@ -66,6 +69,12 @@ function ContextToolbar({
   onCloseLoad: () => void;
 }) {
   const annotateActive = topLevelMode === 'annotate';
+  const [dialog, setDialog] = useState<'atlas' | 'projection' | null>(null);
+  const openFile = () => {
+    void getTransport().invoke('open_file_dialog').catch((error: unknown) => {
+      getEventBus().emit('ui.notification', { type: 'error', message: `Unable to open file dialog: ${String(error)}` });
+    });
+  };
 
   return (
     <header className="relative flex items-center justify-end gap-1.5 border-b border-border/60 bg-card/40 px-3 py-2">
@@ -98,21 +107,13 @@ function ContextToolbar({
       <LoadSheet
         open={loadOpen}
         onClose={onCloseLoad}
-        onLoadVolume={() =>
-          console.info('[Inspector] Load volume… (handler stub — wire to FileLoadingService)')
-        }
-        onLoadSurface={() =>
-          console.info('[Inspector] Load surface… (handler stub — wire to SurfaceLoadingService)')
-        }
-        onLoadAtlas={() =>
-          console.info('[Inspector] Load atlas… (handler stub — wire to AtlasService)')
-        }
-        onProjectVolumeToSurface={() =>
-          console.info(
-            '[Inspector] Project volume to surface… (handler stub — wire to UnifiedLayerService.createVol2SurfMapping)'
-          )
-        }
+        onLoadVolume={openFile}
+        onLoadSurface={openFile}
+        onLoadAtlas={() => setDialog('atlas')}
+        onProjectVolumeToSurface={() => setDialog('projection')}
       />
+      {dialog === 'atlas' && <AtlasPicker onClose={() => setDialog(null)} />}
+      {dialog === 'projection' && <ProjectionPicker onClose={() => setDialog(null)} />}
     </header>
   );
 }

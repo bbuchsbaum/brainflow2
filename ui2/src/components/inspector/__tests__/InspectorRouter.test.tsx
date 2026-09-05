@@ -2,6 +2,13 @@ import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/react';
 import type { DisplayMode, DisplayModeInfo } from '@/hooks/useDisplayMode';
 
+const openFile = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
+vi.mock('@/services/transport', () => ({ getTransport: () => ({ invoke: openFile }) }));
+vi.mock('../imaging/InspectorLoadDialogs', () => ({
+  AtlasPicker: () => <div role="dialog">Atlas catalog</div>,
+  ProjectionPicker: () => <div role="dialog">Projection picker</div>,
+}));
+
 let currentDisplayMode: DisplayModeInfo = {
   mode: 'integrated',
   label: 'Integrated',
@@ -102,5 +109,30 @@ describe('InspectorRouter', () => {
     expect(annotateBtn).toHaveAttribute('aria-pressed', 'false');
     fireEvent.click(annotateBtn);
     expect(annotateBtn).toHaveAttribute('aria-pressed', 'true');
+  });
+  it('opens the canonical file dialog from both file actions', () => {
+    render(<InspectorRouter />);
+    for (const name of ['Load volume…', 'Load surface…']) {
+      fireEvent.click(screen.getByRole('button', { name: 'Load' }));
+      fireEvent.click(screen.getByRole('menuitem', { name: new RegExp(name) }));
+    }
+    expect(openFile).toHaveBeenCalledWith('open_file_dialog');
+    expect(openFile).toHaveBeenCalledTimes(2);
+  });
+
+  it('opens atlas selection and supports Escape and arrow-key navigation', () => {
+    render(<InspectorRouter />);
+    const trigger = screen.getByRole('button', { name: 'Load' });
+    trigger.focus();
+    fireEvent.click(trigger);
+    expect(screen.getByRole('menuitem', { name: /Load volume/ })).toHaveFocus();
+    fireEvent.keyDown(document.activeElement!, { key: 'ArrowDown' });
+    expect(screen.getByRole('menuitem', { name: /Load surface/ })).toHaveFocus();
+    fireEvent.keyDown(document.activeElement!, { key: 'Escape' });
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument();
+    expect(trigger).toHaveFocus();
+    fireEvent.click(trigger);
+    fireEvent.click(screen.getByRole('menuitem', { name: /Load atlas/ }));
+    expect(screen.getByRole('dialog')).toHaveTextContent('Atlas catalog');
   });
 });
