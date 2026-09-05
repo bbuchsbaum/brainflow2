@@ -168,3 +168,23 @@ Keep AGENTS.md current when touching core architecture, commands, or directory s
   Active mounts are pinned; downloads serialize cache admission to avoid exceeding
   the disk budget. Directory browsing remains independently bounded per mount.
 - Regression evidence and limitations: `docs/loading-hardening-2026-09-04.md`.
+
+## Parcel table overlays (2026-09-05)
+
+- Known volume atlases retain their canonical dictionary in `VolumeRegistry` at
+  load time (`core/atlases/src/parcel_dictionary.rs`). The atlas Inspector opens
+  `ParcelTableImport`; `ParcelOverlayService` creates an independent layer and
+  serializes column changes. The Inspector then uses `ParcelOverlayInspector`.
+- `preview_parcel_table`, `create_parcel_overlay`, and `select_parcel_column`
+  delegate to `api_bridge::parcel_overlay`. Strict matching uses neuroatlas;
+  blocking workers parse CSV/TSV and build scalar snapshots, with identity/revision
+  checks before publication. Missing values are NaN on CPU and transparent in LUTs.
+- An overlay's normal registry `data` is its current numeric snapshot. Only GPU
+  upload calls `get_render_arc`, which returns the shared label geometry. Render
+  preparation converts values/limits/thresholds to an owned RGBA row; column changes
+  update the LUT, not the GPU geometry. Keep both upload paths on `get_render_arc`.
+  Unload releases the row via `remove_custom_colormap`; slots are cached/reused.
+- Current scope: discrete 3D volume atlases with IDs 1–2047, session-local tables.
+  Direct surface binding and table persistence remain pending. See
+  `docs/plans/roi-table-atlas-overlays.md`; dev UI fixture is
+  `/parcel-overlay-harness.html` (mocked IPC, excluded from the production build).

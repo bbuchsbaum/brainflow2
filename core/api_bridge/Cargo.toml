@@ -59,6 +59,7 @@ directories = "5"
 remotely = { git = "https://github.com/bbuchsbaum/remotely", rev = "ea3732a2c12153e2c2c6256f149c67ccc5fc398d" }
 keyring = "2.3"
 sha2 = "0.10"
+csv = "1.3"
 bids-rs = { workspace = true }
 
 [dev-dependencies]

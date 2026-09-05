@@ -276,6 +276,11 @@ export class LayerApiImpl implements LayerApi {
         layerMode: newLayer.type === 'mask' ? 'mask' : isLabelLike ? 'label' : 'scalar',
       };
 
+      if (earlyMetadata.source === 'parcel-table' && earlyMetadata.renderProps) {
+        renderProps = { ...earlyMetadata.renderProps };
+        rangeOptions = undefined; // Table ranges are per parcel, not per voxel.
+      }
+
       layerDebugLog(
         `[LayerApiImpl ${performance.now() - addLayerStartTime}ms] Created render properties:`,
         JSON.stringify(renderProps),

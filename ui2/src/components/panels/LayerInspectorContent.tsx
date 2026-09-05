@@ -22,6 +22,8 @@
  */
 
 import React from 'react';
+import { ParcelTableImport } from '../atlas/ParcelTableImport';
+import { ParcelOverlayInspector } from '../atlas/ParcelOverlayInspector';
 import {
   Activity,
   BarChart3,
@@ -394,6 +396,7 @@ const AtlasInspectorSection: React.FC<AtlasInspectorSectionProps> = ({ layerId }
   const viewStateLayer = useViewStateStore((s) => s.viewState.layers.find((l) => l.id === layerId));
   const onRenderUpdate = useLayerRenderUpdater(layerId);
   const [isPaletteLoading, setIsPaletteLoading] = React.useState(false);
+  const [importing, setImporting] = React.useState(false);
 
   if (!layer) {
     return null;
@@ -432,6 +435,9 @@ const AtlasInspectorSection: React.FC<AtlasInspectorSectionProps> = ({ layerId }
           <PropertyRow label="Regions" value={`${atlasMetadata.n_regions}`} mono />
         ) : null}
       </PropertyBox>
+
+      {importing ? <ParcelTableImport key={layer.volumeId} sourceVolumeId={layer.volumeId} atlasName={layer.name} onClose={() => setImporting(false)} /> :
+        <button className="w-full rounded border border-border px-3 py-2 text-sm hover:bg-accent" onClick={() => setImporting(true)}>Add parcel values…</button>}
 
       <CollapsibleSection title="Palette" icon={Palette} defaultExpanded>
         <div className="space-y-3" data-testid="atlas-inspector-palette">
@@ -611,6 +617,8 @@ const SurfaceDataInspectorSection: React.FC<SurfaceDataInspectorSectionProps> = 
 // ---------------------------------------------------------------------------
 
 export const LayerInspectorContent: React.FC<LayerInspectorContentProps> = ({ layer }) => {
+  const isParcelOverlay = useLayerStore(s => !!s.layers.find(l => l.id === layer.id)?.parcelOverlay);
+  if (isParcelOverlay) return <ParcelOverlayInspector key={layer.id} layerId={layer.id} />;
   switch (layer.kind) {
     case 'atlas':
       return <AtlasInspectorSection layerId={layer.id} />;

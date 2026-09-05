@@ -288,6 +288,9 @@ pub enum AtlasError {
 pub struct AtlasLoadResult {
     pub atlas_metadata: AtlasMetadata,
     pub volume_handle: String, // Handle for loaded volume
+    #[serde(skip)]
+    #[ts(skip)]
+    pub parcel_dictionary: Option<crate::parcel_dictionary::ParcelDictionary>,
 }
 
 /// Label information for a surface atlas region

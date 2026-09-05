@@ -320,7 +320,7 @@ impl AtlasService {
         });
 
         // Check cache first
-        if let Ok(Some((_cached_data, cached_metadata))) = self.load_from_cache(&config).await {
+        if let Ok(Some((_cached_data, _cached_metadata))) = self.load_from_cache(&config).await {
             self.send_progress(AtlasLoadProgress {
                 atlas_id: config.atlas_id.clone(),
                 stage: LoadingStage::Complete,
@@ -334,13 +334,9 @@ impl AtlasService {
                 let _ = catalog.mark_used(&config.atlas_id);
             }
 
-            // TODO: Convert cached data back to volume handle - this will need integration with the volume system
-            let volume_handle = format!("atlas_{}", config.atlas_id);
-
-            return Ok(AtlasLoadResult {
-                atlas_metadata: cached_metadata,
-                volume_handle,
-            });
+            // Reconstruct the authoritative dictionary too. neuroatlas reuses its
+            // cached payload; metadata alone cannot establish parcel identity.
+            return self.load_atlas_unified(atlas_type, config).await;
         }
 
         // Mark atlas as used
@@ -665,7 +661,7 @@ impl AtlasService {
         let progress_tx = self.progress_tx.clone();
         let atlas_type_clone = atlas_type.clone();
 
-        // Helper: create, load, and return n_regions for a concrete atlas type.
+        // Helper: load a concrete atlas and retain its authoritative parcel dictionary.
         // We use a macro to avoid `dyn Atlas` (which isn't dyn-compatible due to
         // generic methods on the Atlas trait).
         macro_rules! load_concrete_atlas {
@@ -674,7 +670,9 @@ impl AtlasService {
                 let atlas_id = $atlas_id;
                 match $create_expr {
                     Ok(mut atlas) => match futures::executor::block_on(atlas.load()) {
-                        Ok(_) => Ok(atlas.n_regions()),
+                        Ok(_) => Ok(crate::parcel_dictionary::ParcelDictionary::from_atlas(
+                            &atlas,
+                        )),
                         Err(e) => {
                             let msg = format!("Failed to load atlas data: {}", e);
                             error!("{}", msg);
@@ -703,7 +701,7 @@ impl AtlasService {
         }
 
         // Dispatch construction and loading on a blocking thread
-        let n_regions = tokio::task::spawn_blocking(move || match atlas_type_clone {
+        let dictionary = tokio::task::spawn_blocking(move || match atlas_type_clone {
             AtlasType::Schaefer2018 => {
                 // Honor the requested resolution end-to-end: the on-disk path lookup
                 // in api_bridge (`get_neuroatlas_nifti_path`) derives the filename from
@@ -742,7 +740,7 @@ impl AtlasService {
             id: config.atlas_id.clone(),
             name,
             description,
-            n_regions,
+            n_regions: dictionary.labels.len(),
             space: config.space,
             resolution: config.resolution,
             citation: Some(citation),
@@ -755,6 +753,7 @@ impl AtlasService {
         Ok(AtlasLoadResult {
             atlas_metadata: metadata,
             volume_handle,
+            parcel_dictionary: Some(dictionary),
         })
     }
 

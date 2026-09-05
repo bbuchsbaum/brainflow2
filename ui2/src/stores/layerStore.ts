@@ -57,6 +57,7 @@ declare global {
 
 // Extended layer info that includes volume metadata and source metadata
 export interface LayerInfo extends Layer {
+  parcelOverlay?: import("@brainflow/api").ParcelOverlayInfo;
   source?: "file" | "template" | "atlas" | "other";
   sourcePath?: string;
   atlasMetadata?: {

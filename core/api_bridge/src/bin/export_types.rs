@@ -48,6 +48,9 @@ fn main() {
     println!("Exporting TypeScript types from api_bridge...");
 
     export_command_list();
+    ParcelTableRequest::export_all().expect("export parcel request");
+    ParcelTablePreview::export_all().expect("export parcel preview");
+    ParcelOverlayInfo::export_all().expect("export parcel overlay");
 
     // Export all types that implement TS trait
     // Using export_all() to include dependencies

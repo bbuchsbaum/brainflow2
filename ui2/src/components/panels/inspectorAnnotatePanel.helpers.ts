@@ -207,6 +207,17 @@ export function useLayerRenderUpdater(layerId: string | null) {
           didChange = true;
         }
 
+        if (updates.intensity) {
+          const [low, high] = updates.intensity;
+          if (
+            Number.isFinite(low) && Number.isFinite(high) && low < high &&
+            (layer.intensity[0] !== low || layer.intensity[1] !== high)
+          ) {
+            layer.intensity = [low, high];
+            didChange = true;
+          }
+        }
+
         if (updates.threshold) {
           let [low, high] = updates.threshold;
           if (low > high) [low, high] = [high, low];

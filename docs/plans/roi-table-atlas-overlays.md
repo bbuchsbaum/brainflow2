@@ -1,10 +1,70 @@
 # ROI table overlays with validated atlas bindings
 
-Status: design proposal, 2026-09-05. The user authorized hardening the shared
-Rust neuroatlas parcel contract during this review. The Brainflow import UI,
-binding registry, and statistical overlay integration described below are proposed.
+Status: volume-atlas UI implemented locally, 2026-09-05. The shared Rust
+neuroatlas contract is pinned to `f0103ed`. The broader identity, persistence,
+surface-binding and linked-selection design below remains a proposal where
+it goes beyond the implemented slice described here.
 
-## User workflow
+## Implemented volume workflow
+
+Select a known, loaded **volume atlas** in the Layers panel, then choose
+**Add parcel values…** in its Inspector. Load or paste CSV/TSV, choose the key
+column and exact matching convention, inspect coverage, and select a numeric
+column before choosing **Create overlay**. The result is an independent layer
+with a retained table, column selector, continuous colormap, numeric color limits,
+thresholds and opacity. Column changes reset limits and thresholds; signed columns
+start with symmetric limits around zero. Visibility/order/removal use the normal
+layer stack.
+
+- The concrete atlas loader retains its original dictionary and source labels.
+  Matching delegates to neuroatlas's strict keyed resolver; row order is never
+  used as atlas identity. ID, exact label, full source label and hemisphere/network
+  composite keys are available. Unknowns, duplicates and ambiguities block import.
+- Complete coverage is the default. Partial coverage is explicit. Blank, `NA`,
+  and `null` cells are missing and transparent; zero and negative values remain
+  numeric. Mixed/non-finite/out-of-f32-range numeric columns cannot be selected.
+  Keys are not trimmed or case-folded. Files are limited to 5 MiB, 100,000 rows
+  and 256 unique nonempty headers. CSV quoting is parsed by Rust's `csv` crate.
+- The immutable dictionary and exact table bytes have SHA-256 receipts. The
+  dictionary encoding is versioned locally and includes the dictionary name,
+  labels and full labels in canonical atlas order. This is an in-app identity
+  receipt, not a published atlas-release certification or portable interchange
+  standard. A bare CSV still does not prove where its statistics originated.
+- Each overlay owns a distinct volume handle and GPU lease. The atlas geometry
+  remains shared by `Arc`; its GPU representation retains exact label codes.
+  Numeric values, color limits and thresholds produce an RGBA lookup row, with
+  missing values encoded in alpha. Changing columns does not re-upload geometry.
+- CPU readers get an affine-preserving f32 snapshot of the selected column,
+  including NaN for missing/background voxels. This snapshot is rebuilt on column
+  changes so hover, histogram and other scalar consumers never see parcel IDs.
+  Parsing and snapshot construction run on blocking workers; publication rechecks
+  source identity or overlay revision. The overlay survives removal of its source.
+- Custom lookup rows are cached and recycled when overlays unload. Preview replies
+  are tied to all input fields, and failed/abandoned imports release provisional
+  volume handles and frontend metadata.
+
+This first slice requires discrete 3D atlas codes in 1–2047 (zero is background),
+checks the image codes against the retained dictionary, and rejects probabilistic
+atlases. Direct surface-atlas table binding, saved-session table persistence,
+parcel-data JSON/identity sidecars, exportable templates, a standalone table panel
+and linked row/parcel selection are still pending. Tables are retained in the
+running session; importing starts from the atlas Inspector.
+
+UI fixture: `pnpm --filter temp-ui dev`, then `/parcel-overlay-harness.html`.
+It renders the real controls with mocked IPC and is excluded from the production
+bundle. It is visual UI evidence, not an in-app Tauri import-to-hover test.
+
+Local checks for this slice: 138 API-bridge library tests passed with GPU access;
+18 focused UI/import/inspector tests passed; the new pixel-level parcel test
+passed on the GPU, including 80 lookup-slot reuse cycles; four render-golden
+checks and three shader-contract checks passed. The frontend production build
+and strict command/permission check passed. The Playwright fixture rendered
+without page errors and switched columns successfully. Full desktop
+import-to-hover verification remains pending; none of these receipts imply a
+packaged application or hosted CI has been tested.
+
+
+## Broader target workflow
 
 Load a CSV/TSV containing one row per ROI and one or more statistic columns.
 Choose **Map to atlas**, select a loaded atlas, select the ROI key column(s),
@@ -177,9 +237,8 @@ Source review on 2026-09-05 found:
 - `core/field_table/src/preview/table.rs` currently expects file-path and subject
   columns for image-set import. ROI rows need a distinct import mode. The existing
   NeuroTabs `ParcelSupport` shape provides a future adapter, not a working overlay.
-- `core/atlases/src/service.rs` provides palettes and surface label tables. Volume
-  load metadata has counts and space but no retained authoritative dictionary.
-  Capture that dictionary from the actual loaded artifact, independent of palettes.
+- `core/atlases/src/service.rs` now retains a `ParcelDictionary` alongside the
+  loaded volume. It is captured from the concrete atlas, independently of palettes.
 - `ui2/src/services/AtlasService.ts` contains parcellation-reference calls and TS
   types, but their command names are absent from the active Rust command list.
   Do not treat those client methods or old generated files as an implemented backend.

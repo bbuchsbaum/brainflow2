@@ -54,6 +54,9 @@ Default permissions for api-bridge plugin
 - `allow-get-favorite-atlases`
 - `allow-validate-atlas-config`
 - `allow-load-atlas`
+- `allow-preview-parcel-table`
+- `allow-create-parcel-overlay`
+- `allow-select-parcel-column`
 - `allow-get-atlas-palette`
 - `allow-register-categorical-colormap`
 - `allow-get-atlas-stats`
@@ -446,6 +449,32 @@ Enables the create_offscreen_render_target command without any pre-configured sc
 <td>
 
 Denies the create_offscreen_render_target command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:allow-create-parcel-overlay`
+
+</td>
+<td>
+
+Enables the create_parcel_overlay command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:deny-create-parcel-overlay`
+
+</td>
+<td>
+
+Denies the create_parcel_overlay command without any pre-configured scope.
 
 </td>
 </tr>
@@ -1571,6 +1600,32 @@ Denies the preview_folder_ontology command without any pre-configured scope.
 <tr>
 <td>
 
+`api-bridge:allow-preview-parcel-table`
+
+</td>
+<td>
+
+Enables the preview_parcel_table command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:deny-preview-parcel-table`
+
+</td>
+<td>
+
+Denies the preview_parcel_table command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
 `api-bridge:allow-preview-set-studio-imports`
 
 </td>
@@ -2240,6 +2295,32 @@ Enables the scan_bids_dataset command without any pre-configured scope.
 <td>
 
 Denies the scan_bids_dataset command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:allow-select-parcel-column`
+
+</td>
+<td>
+
+Enables the select_parcel_column command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:deny-select-parcel-column`
+
+</td>
+<td>
+
+Denies the select_parcel_column command without any pre-configured scope.
 
 </td>
 </tr>

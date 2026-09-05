@@ -26,3 +26,5 @@ pub use neuroatlas::{
     core::types::{Hemisphere, Network, Resolution, Space},
     templateflow::TemplateFlowAtlas,
 };
+
+pub mod parcel_dictionary;

@@ -508,7 +508,7 @@ pub struct RenderLoopService {
 
     // --- Runtime (custom) colormaps uploaded into the colormap LUT texture ---
     custom_colormaps: HashMap<String, u32>, // key -> colormap_id
-    next_custom_colormap_slot: u32,
+    custom_colormap_rows: HashMap<String, Vec<u8>>,
 }
 
 impl RenderLoopService {
@@ -734,7 +734,7 @@ impl RenderLoopService {
             volumes: HashMap::new(),
             prepared_layer_state_cache: None,
             custom_colormaps: HashMap::new(),
-            next_custom_colormap_slot: 0,
+            custom_colormap_rows: HashMap::new(),
         })
     }
 
@@ -762,28 +762,30 @@ impl RenderLoopService {
         }
 
         if let Some(&existing_id) = self.custom_colormaps.get(&key) {
+            if self
+                .custom_colormap_rows
+                .get(&key)
+                .is_some_and(|row| row == rgba_lut_row)
+            {
+                return Ok(existing_id);
+            }
             self.texture_manager
                 .upload_colormap(&self.queue, existing_id, rgba_lut_row)
                 .map_err(|e| RenderLoopError::Internal {
                     code: 6402,
                     details: format!("Failed to update custom colormap '{}': {}", key, e),
                 })?;
+            self.custom_colormap_rows.insert(key, rgba_lut_row.to_vec());
             return Ok(existing_id);
         }
 
-        if self.next_custom_colormap_slot >= CUSTOM_COLORMAP_SLOTS {
-            return Err(RenderLoopError::Internal {
-                code: 6403,
-                details: format!(
-                    "No free custom colormap slots (max={})",
-                    CUSTOM_COLORMAP_SLOTS
-                ),
-            });
-        }
-
         let base = colormap::BuiltinColormap::COUNT as u32;
-        let id = base + self.next_custom_colormap_slot;
-        self.next_custom_colormap_slot += 1;
+        let id = (base..base + CUSTOM_COLORMAP_SLOTS)
+            .find(|id| !self.custom_colormaps.values().any(|used| used == id))
+            .ok_or_else(|| RenderLoopError::Internal {
+                code: 6403,
+                details: "No free custom colormap slots".to_owned(),
+            })?;
 
         self.texture_manager
             .upload_colormap(&self.queue, id, rgba_lut_row)
@@ -792,8 +794,16 @@ impl RenderLoopService {
                 details: format!("Failed to upload custom colormap '{}': {}", key, e),
             })?;
 
+        self.custom_colormap_rows
+            .insert(key.clone(), rgba_lut_row.to_vec());
         self.custom_colormaps.insert(key, id);
         Ok(id)
+    }
+
+    /// Release an owned lookup row after all layers referring to it are gone.
+    pub fn remove_custom_colormap(&mut self, key: &str) {
+        self.custom_colormaps.remove(key);
+        self.custom_colormap_rows.remove(key);
     }
 
     /// Creates and configures the WGPU surface using a window handle.

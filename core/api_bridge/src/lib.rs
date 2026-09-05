@@ -1,3 +1,7 @@
+pub mod parcel_overlay;
+pub use parcel_overlay::{
+    ParcelColumnInfo, ParcelOverlayInfo, ParcelTablePreview, ParcelTableRequest,
+};
 use tauri::command;
 // Import necessary volmath types directly
 use volmath::DenseVolume3;
@@ -982,7 +986,7 @@ fn world_to_voxel_coord(
 // --- Enhanced Volume Registry for 4D Support ---
 
 /// Stores volume data with timepoint tracking for 4D volumes
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct VolumeEntry {
     /// The actual volume data (3D or 4D).
     /// Stored behind an `Arc` so consumers (histogram, stats, GPU upload) can
@@ -1064,6 +1068,8 @@ Expected one of:\n  - {}\n  - {}",
 #[derive(Debug)]
 pub struct VolumeRegistry {
     volumes: HashMap<String, VolumeEntry>,
+    parcel_dictionaries: HashMap<String, atlases::parcel_dictionary::ParcelDictionary>,
+    parcel_overlays: HashMap<String, parcel_overlay::ParcelOverlay>,
 }
 
 impl Default for VolumeRegistry {
@@ -1076,6 +1082,8 @@ impl VolumeRegistry {
     pub fn new() -> Self {
         Self {
             volumes: HashMap::new(),
+            parcel_dictionaries: HashMap::new(),
+            parcel_overlays: HashMap::new(),
         }
     }
 
@@ -1108,6 +1116,14 @@ impl VolumeRegistry {
     /// deep-copying the volume.
     pub fn get_arc(&self, id: &str) -> Option<Arc<VolumeSendable>> {
         self.volumes.get(id).map(|entry| Arc::clone(&entry.data))
+    }
+
+    /// Render uploads retain exact atlas codes; CPU readers see statistics.
+    fn get_render_arc(&self, id: &str) -> Option<Arc<VolumeSendable>> {
+        self.parcel_overlays
+            .get(id)
+            .map(|overlay| Arc::clone(&overlay.geometry))
+            .or_else(|| self.get_arc(id))
     }
 
     /// Get a volume entry with all metadata
@@ -1159,6 +1175,8 @@ impl VolumeRegistry {
 
     /// Remove a volume from the registry
     pub fn remove(&mut self, id: &str) -> Option<VolumeEntry> {
+        self.parcel_dictionaries.remove(id);
+        self.parcel_overlays.remove(id);
         self.volumes.remove(id)
     }
 
@@ -3299,6 +3317,12 @@ async fn unload_volume(
             details: volume_id.clone(),
         })?;
     drop(volume_registry);
+    if let Some(service) = state.render_loop_service.lock().await.as_ref() {
+        service
+            .lock()
+            .await
+            .remove_custom_colormap(&format!("parcel:{}", volume_id));
+    }
 
     Ok(ReleaseResult {
         success: true,
@@ -4109,7 +4133,7 @@ pub async fn request_layer_gpu_resources_for_testing(
             }
 
             let volume_arc = volume_registry_guard
-                .get_arc(&source_volume_id)
+                .get_render_arc(&source_volume_id)
                 .ok_or_else(|| {
                     error!("Volume not found in registry: {}", source_volume_id);
                     BridgeError::VolumeNotFound {
@@ -8032,16 +8056,13 @@ async fn allocate_gpu_resources_for_layer(
 
     // Get the volume data from registry
     let volume_registry_guard = state.volume_registry.lock().await;
-    let volume_data =
-        volume_registry_guard
-            .get(volume_id)
-            .ok_or_else(|| BridgeError::VolumeNotFound {
-                code: 4042,
-                details: format!(
-                    "Volume '{}' not found. Please load the volume first.",
-                    volume_id
-                ),
-            })?;
+    let volume_arc = volume_registry_guard
+        .get_render_arc(volume_id)
+        .ok_or_else(|| BridgeError::VolumeNotFound {
+            code: 4042,
+            details: volume_id.to_owned(),
+        })?;
+    let volume_data = volume_arc.as_ref();
     let uploaded_timepoint = if volume_sendable_uses_timepoint(volume_data) {
         timepoint
     } else {
@@ -8795,11 +8816,31 @@ async fn prepare_frontend_layers_for_render(
                 );
             }
 
-            let backend_layer = match render_bridge_adapter::frontend_layer_to_backend_layer(layer)
+            let mut backend_layer =
+                match render_bridge_adapter::frontend_layer_to_backend_layer(layer) {
+                    Some(backend_layer) => backend_layer,
+                    None => continue,
+                };
+
+            // Parcel data stays numeric until display preparation. Label geometry
+            // is sampled nearest; missingness and numeric thresholds live in LUT alpha.
+            if let Some(overlay) = bridge_state
+                .volume_registry
+                .lock()
+                .await
+                .parcel_overlays
+                .get(&layer.volume_id)
             {
-                Some(backend_layer) => backend_layer,
-                None => continue,
-            };
+                let hidden = (layer.threshold != [0.0, 0.0]).then_some(layer.threshold);
+                let rgba = overlay.lut(&layer.colormap, layer.intensity, hidden)?;
+                backend_layer.colormap_id = service
+                    .upsert_custom_colormap(format!("parcel:{}", layer.volume_id), &rgba)
+                    .map_err(|e| parcel_overlay::input(e.to_string()))?;
+                backend_layer.layer_mode = render_loop::render_state::LayerMode::Label;
+                backend_layer.interpolation = render_loop::view_state::InterpolationMode::Nearest;
+                backend_layer.threshold = None;
+                backend_layer.alpha_mod = None;
+            }
 
             info!(
                 "Adding layer to backend ViewState: volume_id={}, opacity={}, colormap={}, intensity=[{}, {}], threshold=[{}, {}]",
@@ -10315,6 +10356,11 @@ async fn load_atlas<R: Runtime>(
 
     let mut registry = state.volume_registry.lock().await;
     registry.insert(handle_id.clone(), volume_sendable, metadata);
+    if let Some(dictionary) = internal_result.parcel_dictionary {
+        registry
+            .parcel_dictionaries
+            .insert(handle_id.clone(), dictionary);
+    }
     drop(registry);
 
     // Mirror template path timing guard to avoid allocation races.
@@ -14913,4 +14959,109 @@ mod tests {
             &unknown_mtime
         ));
     }
+}
+
+/// Inspect and validate a table against the dictionary retained by a loaded atlas.
+#[command]
+async fn preview_parcel_table(
+    request: ParcelTableRequest,
+    state: State<'_, BridgeState>,
+) -> BridgeResult<ParcelTablePreview> {
+    let dictionary = state
+        .volume_registry
+        .lock()
+        .await
+        .parcel_dictionaries
+        .get(&request.source_volume_id)
+        .cloned()
+        .ok_or_else(|| parcel_overlay::input("Select an atlas loaded through the atlas catalog"))?;
+    tokio::task::spawn_blocking(move || parcel_overlay::preview_dictionary(&dictionary, &request))
+        .await
+        .map_err(|e| parcel_overlay::input(e.to_string()))?
+}
+
+#[command]
+async fn create_parcel_overlay(
+    request: ParcelTableRequest,
+    column: String,
+    table_name: String,
+    state: State<'_, BridgeState>,
+) -> BridgeResult<ParcelOverlayInfo> {
+    let (dictionary, source) = {
+        let registry = state.volume_registry.lock().await;
+        (
+            registry
+                .parcel_dictionaries
+                .get(&request.source_volume_id)
+                .cloned()
+                .ok_or_else(|| parcel_overlay::input("The source atlas is no longer loaded"))?,
+            registry
+                .get_entry(&request.source_volume_id)
+                .cloned()
+                .ok_or_else(|| parcel_overlay::input("The source atlas is no longer loaded"))?,
+        )
+    };
+    let source_id = request.source_volume_id.clone();
+    let (entry, overlay) = tokio::task::spawn_blocking(move || {
+        parcel_overlay::prepare(&dictionary, &source, &request, &column, table_name)
+    })
+    .await
+    .map_err(|e| parcel_overlay::input(e.to_string()))??;
+    let mut registry = state.volume_registry.lock().await;
+    if !registry
+        .get_arc(&source_id)
+        .is_some_and(|data| Arc::ptr_eq(&data, &overlay.geometry))
+    {
+        return Err(parcel_overlay::input(
+            "The source atlas changed or was removed during import",
+        ));
+    }
+    let info = overlay.info.clone();
+    registry.volumes.insert(info.volume_id.clone(), entry);
+    registry
+        .parcel_overlays
+        .insert(info.volume_id.clone(), overlay);
+    Ok(info)
+}
+
+#[command]
+async fn select_parcel_column(
+    volume_id: String,
+    column: String,
+    state: State<'_, BridgeState>,
+) -> BridgeResult<ParcelOverlayInfo> {
+    let mut overlay = state
+        .volume_registry
+        .lock()
+        .await
+        .parcel_overlays
+        .get(&volume_id)
+        .cloned()
+        .ok_or_else(|| parcel_overlay::input("Parcel overlay is no longer loaded"))?;
+    let revision = overlay.revision;
+    let (overlay, scalar) = tokio::task::spawn_blocking(move || {
+        overlay.select(&column)?;
+        let scalar = Arc::new(overlay.scalar_snapshot()?);
+        Ok::<_, BridgeError>((overlay, scalar))
+    })
+    .await
+    .map_err(|e| parcel_overlay::input(e.to_string()))??;
+    let mut registry = state.volume_registry.lock().await;
+    if registry
+        .parcel_overlays
+        .get(&volume_id)
+        .is_none_or(|current| current.revision != revision)
+    {
+        return Err(parcel_overlay::input(
+            "The overlay changed while selecting a column; please select again",
+        ));
+    }
+    registry
+        .volumes
+        .get_mut(&volume_id)
+        .ok_or_else(|| parcel_overlay::input("Parcel overlay is no longer loaded"))?
+        .data = scalar;
+    let info = overlay.info.clone();
+    registry.parcel_overlays.insert(volume_id, overlay);
+    Ok(info)
 }

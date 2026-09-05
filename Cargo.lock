@@ -238,6 +238,7 @@ dependencies = [
  "brainflow-loaders",
  "bridge_types",
  "colormap",
+ "csv",
  "directories",
  "field_table",
  "flate2",
