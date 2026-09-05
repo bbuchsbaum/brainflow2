@@ -6,6 +6,7 @@ import { surfaceParcelOverlayService } from '@/services/SurfaceParcelOverlayServ
 import { useLayerStore } from '@/stores/layerStore';
 import { useViewStateStore } from '@/stores/viewStateStore';
 import { parcelOverlayService } from '@/services/ParcelOverlayService';
+import { parcelMetricColumns } from '@/services/parcelTablePresentation';
 import { ParcelTableImport, parcelError } from '@/components/atlas/ParcelTableImport';
 import { InspectorSection } from '../InspectorSection';
 
@@ -57,7 +58,7 @@ export function ParcelValuesSection({ item }: { item: SceneItem }) {
           <div className="space-y-2 py-2">
             <button
               type="button"
-              className="bf-button w-full rounded border border-border px-3 py-2 text-[12px] hover:bg-accent/40"
+              className="bf-control-button w-full"
               onClick={() => setImporting(true)}
             >
               Add parcel values…
@@ -90,7 +91,7 @@ export function ParcelValuesSection({ item }: { item: SceneItem }) {
         <div className="space-y-2 py-2">
           <button
             type="button"
-            className="bf-button w-full rounded border border-border px-3 py-2 text-[12px] hover:bg-accent/40"
+            className="bf-control-button w-full"
             onClick={() => setImporting(true)}
           >
             Add parcel values…
@@ -139,7 +140,7 @@ export function ParcelColumnControl({
             }
           }}
         >
-          {preview.columns
+          {parcelMetricColumns(preview.columns, [])
             .filter((c) => !c.error && c.range)
             .map((c) => (
               <option key={c.name} value={c.name}>

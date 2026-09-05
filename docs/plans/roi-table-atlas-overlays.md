@@ -9,9 +9,15 @@ it goes beyond the implemented slice described here.
 
 Select a known, loaded **volume atlas or surface parcellation** in the Inspector's
 Scene section, then choose **Parcel values → Add parcel values…**, above Render.
-This includes a volume atlas used as the base layer. Load or paste CSV/TSV, choose the key
-column and exact matching convention, inspect coverage, and select a numeric
-column before choosing **Create overlay**. The result is an independent layer
+This includes a volume atlas used as the base layer. Load or paste CSV/TSV. A unique
+`roi_id`, `parcel_id`, `label_id`, or `id` header suggests integer-ID matching; the
+backend must validate that mapping before creation is enabled. The first valid
+metric is selected automatically, and recognized identifier columns are excluded
+from display choices. Inspect coverage, select a numeric column, and choose
+**Create overlay**. Other exact matching methods and partial coverage are under
+**Mapping options**, which opens when a mapping needs attention. Replacing a table
+resets its mapping and coverage policy. Header recognition is case-insensitive;
+actual atlas keys remain exact. The result is an independent layer
 with a retained table, column selector, continuous colormap, numeric color limits,
 thresholds and opacity. Column changes reset limits and thresholds; signed columns
 start with symmetric limits around zero. Visibility/order/removal use the normal
@@ -55,6 +61,20 @@ is limited to 64 variants; expiry requires a reload for a new import, while exis
 overlays retain their tables. Saved-session table persistence, parcel-data JSON/identity
 sidecars, exportable templates, a standalone table panel and table-row linking remain pending. Tables are retained in the
 running session; importing starts from the atlas Inspector.
+
+The import controls use compact, flat styling; single-choice native dropdowns,
+checkboxes, buttons and file chooser buttons share the macOS appearance reset
+across Inspector, atlas dialogs, plots and Studio. Native select keyboard handling
+is retained. Incomplete hemisphere/network mappings report the missing column
+before checking dictionary ambiguity; ambiguous short names still block import.
+
+Import polish checks (2026-09-05): 22 focused UI tests and five Rust table-parser
+tests pass, including fresh validation after automatic mapping, late replies,
+incorrect mapping replacement, and retry after creation failure. The Chromium
+fixture exercises volume and surface imports, column changes, error recovery,
+and flat shared controls without page errors. Playwright WebKit crashes at startup
+on this macOS 14.3 host, including outside the sandbox, so this does not certify
+native WebKit appearance.
 
 UI fixture: `pnpm --filter temp-ui dev`, then `/parcel-overlay-harness.html`.
 It renders the actual `InspectorRouter`, Scene stack and sections with mocked IPC and is excluded from the production

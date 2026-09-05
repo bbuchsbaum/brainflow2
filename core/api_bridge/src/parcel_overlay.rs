@@ -302,6 +302,16 @@ fn parse_table(
             "label_hemi_network" => ParcelJoinKey::LabelHemisphereNetwork,
             _ => return Err(input("Unknown parcel key type")),
         };
+        if matches!(
+            key,
+            ParcelJoinKey::LabelHemisphere | ParcelJoinKey::LabelHemisphereNetwork
+        ) && hemi_col.is_none()
+        {
+            return Err(input("Choose a hemisphere column for this matching method"));
+        }
+        if key == ParcelJoinKey::LabelHemisphereNetwork && network_col.is_none() {
+            return Err(input("Choose a network column for this matching method"));
+        }
         let mut used_columns = HashSet::new();
         if [Some(key_col), hemi_col, network_col]
             .into_iter()
@@ -748,6 +758,36 @@ mod tests {
             .preview
             .binding_error
             .is_some()); // partial never excuses unknowns
+    }
+    #[test]
+    fn parcel_table_reports_incomplete_composite_mapping_before_ambiguous_labels() {
+        let mut atlas = dictionary();
+        // Short names can repeat even within a hemisphere, as in Schaefer.
+        atlas.labels[2] = Label::new(9, "Area").with_hemisphere(Hemisphere::Left);
+        let mut req = request("roi,hemi,network,b\nArea,left,Visual,2");
+        req.key_column = Some("roi".into());
+        req.key_kind = "label_hemi".into();
+        req.allow_partial = true;
+        let error = parse_table(&atlas, &req)
+            .unwrap()
+            .preview
+            .binding_error
+            .unwrap();
+        assert!(error.contains("Choose a hemisphere column"), "{error}");
+        req.hemisphere_column = Some("hemi".into());
+        let error = parse_table(&atlas, &req)
+            .unwrap()
+            .preview
+            .binding_error
+            .unwrap();
+        assert!(error.contains("ambiguous atlas key"), "{error}");
+        req.key_kind = "label_hemi_network".into();
+        let error = parse_table(&atlas, &req)
+            .unwrap()
+            .preview
+            .binding_error
+            .unwrap();
+        assert!(error.contains("Choose a network column"), "{error}");
     }
     #[test]
     fn parcel_table_checks_actual_image_codes_and_supports_quoted_fields() {

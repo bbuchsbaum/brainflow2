@@ -67,7 +67,7 @@ describe('active Inspector parcel workflow', () => {
     render(<InspectorRouter />);
     fireEvent.click(screen.getByRole('button', { name: 'Add parcel values…' }));
     expect(screen.getByLabelText('CSV or TSV file')).toBeInTheDocument();
-    expect(screen.getByText(/Target: Schaefer 400/)).toBeInTheDocument();
+    expect(screen.getByText(/^Target:/)).toHaveTextContent('Target: Schaefer 400');
     await waitFor(() =>
       expect(screen.getByRole('combobox', { name: 'Search ROIs by name or ID' })).toBeEnabled(),
     );

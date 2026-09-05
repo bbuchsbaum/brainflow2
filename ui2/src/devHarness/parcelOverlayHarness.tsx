@@ -13,6 +13,8 @@ import { useViewStateStore } from '@/stores/viewStateStore';
 import { useWorkspaceStore } from '@/stores/workspaceStore';
 import { useInspectorSelectionStore } from '@/stores/inspectorSelectionStore';
 import { buildSceneStack } from '@/hooks/useSceneStack';
+import { TemporalMetricSelector } from '@/components/ui/TemporalMetricSelector';
+import { Button } from '@/components/ui/Button';
 import '@/index.css';
 
 const preview: ParcelTablePreview = {
@@ -140,7 +142,9 @@ histogramService.computeHistogram = async (request) => ({
 });
 parcelOverlayService.preview = async (request) => ({
   ...preview,
-  bindingError: request.keyColumn === 'roi_id' ? null : 'Choose the parcel ID column',
+  bindingError: request.keyKind !== 'id'
+    ? 'Invalid Input: Invalid data: ambiguous atlas key LabelHemisphere("OFC_1", Left)'
+    : request.keyColumn === 'roi_id' ? null : 'Choose the parcel ID column',
 });
 parcelOverlayService.create = async (request, column, tableName) => {
   const info: ParcelOverlayInfo = {
@@ -200,6 +204,7 @@ surfaceParcelOverlayService.preview = async (_, request) => parcelOverlayService
 };
 function Harness() {
   const crosshair = useViewStateStore((s) => s.viewState.crosshair.world_mm);
+  const [metric, setMetric] = React.useState<'none' | 'variance' | 'mean'>('none');
   return (
     <main className="flex gap-8 p-6 bg-background text-foreground" style={{ minHeight: '100vh' }}>
       <aside className="w-64 text-sm space-y-3">
@@ -211,6 +216,14 @@ function Harness() {
         <button onClick={selectVolume} className="underline">
           Select volume atlas
         </button>
+        <details>
+          <summary>Other shared controls</summary>
+          <div className="space-y-3 py-3" data-testid="shared-controls">
+            <TemporalMetricSelector value={metric} onChange={setMetric} />
+            <Button variant="secondary" size="sm">Shared button</Button>
+            <input aria-label="Shared file input" type="file" className="w-full text-xs" />
+          </div>
+        </details>
       </aside>
       <div style={{ width: 400, height: 'calc(100vh - 48px)' }} className="border border-border">
         <InspectorRouter />
