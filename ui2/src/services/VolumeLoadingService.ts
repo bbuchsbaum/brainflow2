@@ -12,7 +12,6 @@ import type { Layer } from '@/types/layers';
 import type { LayerInfo } from '@/stores/layerStore';
 import { VolumeHandleStore } from './VolumeHandleStore';
 import { useViewStateStore } from '@/stores/viewStateStore';
-import { CoordinateTransform } from '@/utils/coordinates';
 import type { ViewPlane } from '@/types/coordinates';
 import type { VolumeBounds } from '@brainflow/api';
 
@@ -29,6 +28,7 @@ const volumeDebugLog = (...args: unknown[]) => {
 
 export interface VolumeLoadConfig {
   volumeHandle: VolumeHandle;
+  workspaceId?: string;
   displayName: string;
   source: 'file' | 'template' | 'atlas' | 'other';
   sourcePath: string; // Original path or identifier
@@ -74,6 +74,7 @@ export class VolumeLoadingService {
     // Ensure services are initialized
     this.ensureInitialized();
 
+    const workspaceId = config.workspaceId ?? useViewStateStore.getState().activeWorkspaceKey;
     const startTime = performance.now();
     volumeDebugLog(
       `[VolumeLoadingService] Starting loadVolume with config:`,
@@ -213,17 +214,13 @@ export class VolumeLoadingService {
         loadedAt: new Date().toISOString(),
       });
 
-      // 5. Emit volume loaded event
-      this.eventBus!.emit('volume.loaded', {
-        volumeId: volumeHandle.id,
-        metadata: volumeHandle,
-      });
-
-      // 6. Initialize views for the volume (reusing the prefetched views)
-      volumeDebugLog(
-        `[VolumeLoadingService ${performance.now() - startTime}ms] Initializing views`,
-      );
-      await this.initializeViews(volumeHandle, volumeBounds, initialViewsPromise);
+      const newViews = await initialViewsPromise;
+      if (!newViews || !['axial', 'coronal', 'sagittal'].every((view) => newViews[view])) {
+        throw new Error('Unable to calculate initial volume views');
+      }
+      if (!useViewStateStore.getState().workspaceViewStates.has(workspaceId)) {
+        throw new Error('The workspace that requested this volume has been closed');
+      }
 
       // 7. Add layer through layer service
       volumeDebugLog(
@@ -235,7 +232,17 @@ export class VolumeLoadingService {
 
       let addedLayer: Layer | undefined;
       try {
-        addedLayer = await this.layerService!.addLayer(layer);
+        addedLayer = await this.layerService!.addLayer(layer, {
+          workspaceId,
+          initialGeometry: {
+            views: newViews as import('@/types/viewState').ViewState['views'],
+            crosshair: { world_mm: volumeBounds.center, visible: true },
+          },
+        });
+        this.eventBus!.emit('volume.loaded', {
+          volumeId: volumeHandle.id,
+          metadata: volumeHandle,
+        });
 
         // 8. Readiness/mapping is handled in LayerApiImpl request path.
         // Avoid forced flush here to keep initial load/render scheduling smooth.
@@ -295,6 +302,12 @@ export class VolumeLoadingService {
         console.error('[VolumeLoadingService] Cleanup error:', cleanupError);
       }
 
+      try {
+        await this.apiService!.unloadVolume(volumeHandle.id);
+      } catch (cleanupError) {
+        console.warn('[VolumeLoadingService] Failed to unload provisional volume:', cleanupError);
+      }
+
       // Emit error event
       this.eventBus!.emit('volume.load.error', {
         volumeId: volumeHandle.id,
@@ -309,29 +322,13 @@ export class VolumeLoadingService {
   /**
    * Get volume bounds from backend with error handling
    */
-  private async getVolumeBounds(volumeHandle: VolumeHandle): Promise<VolumeBounds | null> {
-    try {
-      const bounds = await this.apiService!.getVolumeBounds(volumeHandle.id);
-      return bounds;
-    } catch (error) {
-      console.error('[VolumeLoadingService] Failed to get volume bounds:', error);
-
-      // Fallback: Try to estimate bounds from volume dimensions
-      // This is less accurate but better than failing completely
-      if (volumeHandle.dims && volumeHandle.dims.length >= 3) {
-        const [dimX, dimY, dimZ] = volumeHandle.dims;
-        console.warn('[VolumeLoadingService] Using fallback bounds estimation');
-
-        return {
-          min: [0, 0, 0] as [number, number, number],
-          max: [dimX, dimY, dimZ] as [number, number, number],
-          center: [dimX / 2, dimY / 2, dimZ / 2] as [number, number, number],
-          dims: [dimX, dimY, dimZ] as [number, number, number],
-        };
-      }
-
-      return null;
+  private async getVolumeBounds(volumeHandle: VolumeHandle): Promise<VolumeBounds> {
+    const bounds = await this.apiService!.getVolumeBounds(volumeHandle.id);
+    if (![bounds.min, bounds.max, bounds.center].every((v) => v.length === 3 && v.every(Number.isFinite)) ||
+        bounds.min.some((value, axis) => value > bounds.max[axis])) {
+      throw new Error('Volume has invalid world-space bounds');
     }
+    return bounds;
   }
 
   /**
@@ -369,50 +366,6 @@ export class VolumeLoadingService {
     const maxWidth = Math.max(axialDims[0], sagittalDims[0], coronalDims[0]);
     const maxHeight = Math.max(axialDims[1], sagittalDims[1], coronalDims[1]);
     return [maxWidth || 512, maxHeight || 512];
-  }
-
-  /**
-   * Initialize views for the loaded volume
-   */
-  private async initializeViews(
-    volumeHandle: VolumeHandle,
-    bounds: VolumeBounds,
-    initialViewsPromise?: Promise<Record<string, ViewPlane> | null>,
-  ): Promise<void> {
-    try {
-      // Set crosshair to volume center
-      useViewStateStore.getState().setCrosshair(bounds.center, true);
-
-      // Calculate field of view
-      const extentX = bounds.max[0] - bounds.min[0];
-      const extentY = bounds.max[1] - bounds.min[1];
-      const extentZ = bounds.max[2] - bounds.min[2];
-      const maxExtent = Math.max(extentX, extentY, extentZ);
-      const fov = maxExtent;
-
-      volumeDebugLog(`[VolumeLoadingService] Field of view: ${fov.toFixed(1)}mm`);
-
-      // Reuse the concurrently-prefetched views when available; otherwise (or if
-      // the prefetch failed) fall back to a direct fetch so behaviour matches the
-      // previous sequential implementation.
-      let newViews: Record<string, ViewPlane> | null = initialViewsPromise
-        ? await initialViewsPromise
-        : null;
-      if (!newViews) {
-        const maxPx = this.computeInitialViewsMaxPx();
-        newViews = await this.apiService!.getInitialViews(volumeHandle.id, maxPx);
-      }
-
-      // Update each view in the store
-      Object.entries(newViews).forEach(([viewType, plane]) => {
-        useViewStateStore.getState().updateView(viewType as any, plane);
-      });
-
-      volumeDebugLog(`[VolumeLoadingService] Views initialized`);
-    } catch (error) {
-      console.error('[VolumeLoadingService] Failed to initialize views:', error);
-      // Continue without failing - views can be adjusted manually
-    }
   }
 
   /**

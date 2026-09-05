@@ -3,7 +3,7 @@
  * Connects LayerService to Tauri backend commands
  */
 
-import type { LayerApi } from './LayerService';
+import type { LayerApi, LayerLoadContext } from './LayerService';
 import type { Layer, LayerRender } from '@/types/layers';
 import { getApiService } from './apiService';
 import { useLayerStore } from '@/stores/layerStore';
@@ -141,7 +141,7 @@ export class LayerApiImpl implements LayerApi {
     };
   }
 
-  private upsertViewLayer(layer: Layer): void {
+  private upsertViewLayer(layer: Layer, context?: LayerLoadContext): void {
     const nextLayer = this.toViewLayer(layer);
     useViewStateStore.getState().setViewState((state) => {
       const existingIndex = state.layers.findIndex((item) => item.id === nextLayer.id);
@@ -149,14 +149,21 @@ export class LayerApiImpl implements LayerApi {
         state.layers[existingIndex] = nextLayer;
         return;
       }
+      if (state.layers.length === 0 && context?.initialGeometry) {
+        state.views = context.initialGeometry.views;
+        state.crosshair = context.initialGeometry.crosshair;
+      }
       state.layers.push(nextLayer);
-    });
+    }, context?.workspaceId);
   }
 
   private removeViewLayer(id: string): void {
-    useViewStateStore.getState().setViewState((state) => {
-      state.layers = state.layers.filter((layer) => layer.id !== id);
-    });
+    const store = useViewStateStore.getState();
+    for (const workspaceId of store.workspaceViewStates.keys()) {
+      store.setViewState((state) => {
+        state.layers = state.layers.filter((layer) => layer.id !== id);
+      }, workspaceId);
+    }
   }
 
   private setViewLayerVisibility(id: string, visible: boolean): void {
@@ -181,7 +188,9 @@ export class LayerApiImpl implements LayerApi {
     });
   }
 
-  async addLayer(layer: Omit<Layer, 'id'>): Promise<Layer> {
+  async addLayer(layer: Omit<Layer, 'id'>, context?: LayerLoadContext): Promise<Layer> {
+    const workspaceId = useViewStateStore.getState().activeWorkspaceKey;
+    context ??= workspaceId === undefined ? undefined : { workspaceId };
     const addLayerStartTime = performance.now();
     layerDebugLog(
       `[LayerApiImpl ${addLayerStartTime.toFixed(0)}ms] addLayer called with:`,
@@ -272,6 +281,9 @@ export class LayerApiImpl implements LayerApi {
         JSON.stringify(renderProps),
       );
 
+      if (context && !useViewStateStore.getState().workspaceViewStates.has(context.workspaceId)) {
+        throw new Error('The workspace that requested this volume has been closed');
+      }
       const metadata = this.buildLayerMetadata(earlyMetadata, gpuInfo, renderProps, !metadataOnly);
       layerDebugLog(
         `[LayerApiImpl ${performance.now() - addLayerStartTime}ms] Setting layer metadata:`,
@@ -281,6 +293,11 @@ export class LayerApiImpl implements LayerApi {
     } catch (error) {
       const elapsed = performance.now() - addLayerStartTime;
       console.error(`[LayerApiImpl ${elapsed}ms] Failed to allocate GPU resources:`, error);
+      try {
+        await this.apiService.releaseLayerGpuResources(newLayer.id);
+      } catch (cleanupError) {
+        console.warn('[LayerApiImpl] Failed to release provisional GPU resources:', cleanupError);
+      }
       throw error;
     }
 
@@ -301,7 +318,7 @@ export class LayerApiImpl implements LayerApi {
     // Add to layer store first.
     useLayerStore.getState().addLayer(newLayer);
     // Then project explicit view-layer state directly.
-    this.upsertViewLayer(newLayer);
+    this.upsertViewLayer(newLayer, context);
 
     const stateAfter = useLayerStore.getState().layers.length;
     const viewStateAfter = useViewStateStore.getState().viewState.layers.length;
@@ -320,20 +337,22 @@ export class LayerApiImpl implements LayerApi {
       })),
     );
 
-    if (!metadataOnly) {
-      await this.reconcileGpuResidency(newLayer.id);
-    }
-
     // [perf] Refine the intensity window from the histogram in the background so
     // it never blocks the first paint. Fire-and-forget; on failure the layer
     // keeps the synchronous fallback range it was committed with.
     if (!metadataOnly && rangeOptions) {
-      this.refineIntensityFromHistogram(newLayer, rangeOptions).catch((err) =>
+      this.refineIntensityFromHistogram(newLayer, rangeOptions, context?.workspaceId).catch((err) =>
         console.warn(
           `[LayerApiImpl] Background intensity refinement failed for ${newLayer.id}:`,
           err,
         ),
       );
+    }
+
+    if (!metadataOnly) {
+      await this.reconcileGpuResidency(newLayer.id).catch((error) => {
+        console.warn('[LayerApiImpl] Post-load residency reconciliation failed:', error);
+      });
     }
 
     layerDebugLog(
@@ -355,7 +374,16 @@ export class LayerApiImpl implements LayerApi {
   private async refineIntensityFromHistogram(
     layer: Layer,
     rangeOptions: IntensityRangeOptions,
+    workspaceId = useViewStateStore.getState().activeWorkspaceKey,
   ): Promise<void> {
+    const target = () => {
+      const state = useViewStateStore.getState();
+      return workspaceId === undefined ? state.viewState : state.workspaceViewStates.get(workspaceId);
+    };
+    const initial = target()?.layers.find((item) => item.id === layer.id);
+    if (!initial) return;
+    const initialRender = JSON.stringify(initial);
+    // Guard both immutable store edits and external mutation of render arrays.
     let histogram;
     try {
       histogram = await histogramService.computeHistogram({
@@ -373,7 +401,7 @@ export class LayerApiImpl implements LayerApi {
 
     // The layer may have been removed while the histogram was computing.
     const store = useLayerStore.getState();
-    if (!store.getLayer(layer.id)) {
+    if (!store.getLayer(layer.id) || JSON.stringify(target()?.layers.find((item) => item.id === layer.id)) !== initialRender) {
       return;
     }
 
@@ -392,7 +420,7 @@ export class LayerApiImpl implements LayerApi {
     if (meta) {
       store.setLayerMetadata(layer.id, { ...meta, renderProps: refined });
     }
-    this.applyViewLayerRender(layer.id, refined);
+    this.applyViewLayerRender(layer.id, refined, workspaceId);
     layerDebugLog(
       `[LayerApiImpl] Refined intensity from histogram (${rangeResult.method}) for ${layer.id}:`,
       rangeResult.intensity,
@@ -404,7 +432,7 @@ export class LayerApiImpl implements LayerApi {
    * the background histogram refinement; mirrors the in-place mutation pattern of
    * setViewLayerVisibility.
    */
-  private applyViewLayerRender(id: string, render: LayerRender): void {
+  private applyViewLayerRender(id: string, render: LayerRender, workspaceId?: string): void {
     useViewStateStore.getState().setViewState((state) => {
       const layer = state.layers.find((item) => item.id === id);
       if (!layer) {
@@ -421,7 +449,7 @@ export class LayerApiImpl implements LayerApi {
       if (render.layerMode) {
         layer.layerMode = render.layerMode;
       }
-    });
+    }, workspaceId);
   }
 
   async removeLayer(id: string): Promise<void> {

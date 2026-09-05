@@ -18,6 +18,7 @@ const {
   mockFocusSurfacePanel: vi.fn(),
   mockCloseSurfaceViewTabs: vi.fn(),
   mockQueueState: {
+    activeLoads: new Map(),
     isLoading: vi.fn(() => false),
     enqueue: vi.fn(() => 'queue-1'),
     startLoading: vi.fn(),
@@ -287,5 +288,15 @@ describe('SurfaceLoadingService selection routing', () => {
     expect(mockQueueState.markComplete).toHaveBeenCalledWith('queue-1');
     expect(mockSurfaceStoreState.removeSurface).toHaveBeenCalledWith('surface-1');
     expect(mockCloseSurfaceViewTabs).toHaveBeenCalledWith('surface-1');
+  });
+  it('unloads provisional geometry without publishing a broken surface', async () => {
+    mockInvoke.mockImplementation(async (command: string) => {
+      if (command === 'load_surface') return { type: 'Surface', handle: 'broken', vertex_count: 3, face_count: 1 };
+      if (command === 'get_surface_geometry') throw new Error('Geometry unavailable');
+    });
+    expect(await new SurfaceLoadingService().loadSurfaceFile({ path: '/broken.gii' })).toBeNull();
+    expect(mockInvoke).toHaveBeenCalledWith('unload_surface', { handle: 'broken' });
+    expect(mockSurfaceStoreState.addSurface).not.toHaveBeenCalled();
+    expect(mockEnsureSurfaceView).not.toHaveBeenCalled();
   });
 });

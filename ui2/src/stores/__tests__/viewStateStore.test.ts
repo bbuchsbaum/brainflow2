@@ -73,6 +73,20 @@ describe("ViewStateStore", () => {
   });
 
   describe("navigation during async work", () => {
+    it('publishes explicitly scoped updates without changing the active workspace', () => {
+      const initial = useViewStateStore.getState();
+      const other = structuredClone(initial.viewState);
+      useViewStateStore.setState({
+        activeWorkspaceKey: 'B', viewState: other,
+        workspaceViewStates: new Map([['A', initial.viewState], ['B', other]]),
+      });
+      store.setViewState((draft) => { draft.crosshair.world_mm = [11, 22, 33]; }, 'A');
+      expect(useViewStateStore.getState().viewState).toBe(other);
+      expect(useViewStateStore.getState().workspaceViewStates.get('A')?.crosshair.world_mm).toEqual([11, 22, 33]);
+      store.setViewState((draft) => { draft.crosshair.world_mm = [99, 99, 99]; }, 'closed');
+      expect(useViewStateStore.getState().viewState).toBe(other);
+    });
+
     it("rejects nonfinite input and no-ops repeated coordinates", async () => {
       const before = useViewStateStore.getState().viewState;
       await expect(store.setCrosshair([NaN, 0, 0])).rejects.toThrow();

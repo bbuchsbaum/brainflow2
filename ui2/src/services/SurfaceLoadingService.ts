@@ -3,6 +3,7 @@
  * Handles .gii file loading, validation, and coordination with surface store
  */
 
+import { fileLoadScheduler } from './LoadScheduler';
 import { getEventBus, type EventBus } from '@/events/EventBus';
 import {
   useSurfaceStore,
@@ -121,12 +122,10 @@ export class SurfaceLoadingService {
     const filename = displayName || path.split('/').pop() || path;
 
     console.log(`[SurfaceLoadingService] Loading surface file:`, filename);
-    useSurfaceStore.getState().setLoadingState(true, null);
 
     // Check if already loading
     if (useLoadingQueueStore.getState().isLoading(path)) {
       console.warn(`[SurfaceLoadingService] Surface already loading:`, path);
-      useSurfaceStore.getState().setLoadingState(false, null);
       this.eventBus.emit('ui.notification', {
         type: 'info',
         message: `Surface is already being loaded: ${filename}`,
@@ -148,6 +147,10 @@ export class SurfaceLoadingService {
       },
     });
 
+    const release = await fileLoadScheduler.acquire();
+    let provisionalHandle: string | undefined;
+    let published = false;
+    useSurfaceStore.getState().setLoadingState(true, null);
     try {
       // Start loading
       useLoadingQueueStore.getState().startLoading(queueId);
@@ -156,7 +159,7 @@ export class SurfaceLoadingService {
       this.eventBus.emit('surface.loading', { path, filename });
 
       // Update progress: starting backend load
-      useLoadingQueueStore.getState().updateProgress(queueId, 10);
+      useLoadingQueueStore.getState().updateProgress(queueId, undefined, 'Validating surface');
 
       // Validate file format if requested
       if (validateMesh) {
@@ -167,18 +170,19 @@ export class SurfaceLoadingService {
       }
 
       // Update progress: validation complete
-      useLoadingQueueStore.getState().updateProgress(queueId, 30);
+      useLoadingQueueStore.getState().updateProgress(queueId, undefined, 'Reading surface');
 
       const loadedSurface = await this.loadSurfaceFromPath(path);
       const surfaceStore = useSurfaceStore.getState();
-      surfaceStore.addSurface(loadedSurface, false);
+      provisionalHandle = loadedSurface.handle;
 
       const geometry = await this.fetchSurfaceGeometry(loadedSurface.handle);
-      surfaceStore.setSurfaceGeometry(loadedSurface.handle, geometry);
+      surfaceStore.addSurface({ ...loadedSurface, geometry: { ...loadedSurface.geometry, ...geometry } }, false);
+      published = true;
       surfaceStore.setLoadingState(false, null);
 
       // Update progress: surface loaded
-      useLoadingQueueStore.getState().updateProgress(queueId, 80);
+      useLoadingQueueStore.getState().updateProgress(queueId, undefined, 'Preparing surface view');
 
       // Auto-activate if requested
       if (autoActivate) {
@@ -211,6 +215,17 @@ export class SurfaceLoadingService {
       console.log(`[SurfaceLoadingService] Surface loaded successfully:`, loadedSurface.handle);
       return loadedSurface.handle;
     } catch (error) {
+      if (provisionalHandle && !published) {
+        try {
+          await this.transport.invoke('unload_surface', { handle: provisionalHandle });
+        } catch (cleanupError) {
+          console.warn('[SurfaceLoadingService] Failed to release provisional surface:', cleanupError);
+        }
+      }
+      if (/cancelled/i.test(formatTauriError(error))) {
+        useLoadingQueueStore.getState().cancel(queueId);
+        return null;
+      }
       console.error(`[SurfaceLoadingService] Failed to load surface:`, error);
       useSurfaceStore
         .getState()
@@ -239,9 +254,10 @@ export class SurfaceLoadingService {
       // Safety net: never strand the global "Loading surface…" spinner, while
       // preserving any loadError the catch already set.
       const surfaceState = useSurfaceStore.getState();
-      if (surfaceState.isLoading) {
-        surfaceState.setLoadingState(false, surfaceState.loadError);
-      }
+      const stillLoading = Array.from(useLoadingQueueStore.getState().activeLoads.values())
+        .some((item) => item.type === 'surface-load' || item.type === 'template');
+      surfaceState.setLoadingState(stillLoading, surfaceState.loadError);
+      release();
     }
   }
 

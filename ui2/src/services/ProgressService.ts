@@ -433,7 +433,7 @@ export class ProgressService {
         id: taskId,
         type: this.getTaskTypeFromLoadingItem(item),
         title: this.getTaskTitleFromLoadingItem(item),
-        message: queuePhase === 'queued' ? 'Queued' : 'Starting…',
+        message: queuePhase === 'queued' ? 'Queued' : (item.stage ?? 'Starting…'),
         progress: queuePhase === 'queued' ? -1 : (item.progress ?? -1),
         status: 'active',
         retryable: false,
@@ -454,9 +454,9 @@ export class ProgressService {
       message:
         queuePhase === 'queued'
           ? 'Queued'
-          : item.progress !== undefined
+          : item.stage ?? (item.progress !== undefined
             ? `${item.progress}%`
-            : 'Working…',
+            : 'Working…'),
     });
   }
 

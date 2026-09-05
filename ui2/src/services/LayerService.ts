@@ -5,12 +5,18 @@
 
 import { getEventBus } from '@/events/EventBus';
 import type { EventBus } from '@/events/EventBus';
+import type { ViewState } from '@/types/viewState';
 import type { Layer, LayerRender } from '@/types/layers';
 import { useLayerStore } from '@/stores/layerStore';
 import { useViewStateStore } from '@/stores/viewStateStore';
 
+export interface LayerLoadContext {
+  workspaceId: string;
+  initialGeometry?: Pick<ViewState, 'views' | 'crosshair'>;
+}
+
 export interface LayerApi {
-  addLayer(layer: Omit<Layer, 'id'>): Promise<Layer>;
+  addLayer(layer: Omit<Layer, 'id'>, context?: LayerLoadContext): Promise<Layer>;
   removeLayer(id: string): Promise<void>;
   updateLayer(id: string, updates: Partial<Layer>): Promise<Layer>;
   patchLayerRender(id: string, patch: Partial<LayerRender>): Promise<void>;
@@ -52,12 +58,12 @@ export class LayerService {
   /**
    * Add a new layer
    */
-  async addLayer(layer: Omit<Layer, 'id'>): Promise<Layer> {
+  async addLayer(layer: Omit<Layer, 'id'>, context?: LayerLoadContext): Promise<Layer> {
     try {
       const provisionalId = layer.name ?? layer.volumeId;
       this.setLoadingState(provisionalId, true);
 
-      const newLayer = await this.api.addLayer(layer);
+      const newLayer = await (context ? this.api.addLayer(layer, context) : this.api.addLayer(layer));
       
       // Emit lifecycle event for downstream observers (histograms, analytics, etc.).
       this.eventBus.emit('layer.added', { layer: newLayer });

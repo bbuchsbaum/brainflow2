@@ -112,7 +112,7 @@ interface ViewStateStore {
   resizeInFlight: Record<ViewType, Promise<void> | null>;
 
   // Actions
-  setViewState: (updater: (state: ViewState) => ViewState | void) => void;
+  setViewState: (updater: (state: ViewState) => ViewState | void, workspaceId?: string) => void;
   setCrosshair: (
     world_mm: WorldCoordinates,
     updateViews?: boolean,
@@ -221,98 +221,8 @@ const createViewStateStore = () =>
             activeWorkspaceKey: DEFAULT_WORKSPACE_KEY,
             resizeInFlight: getInitialResizeState(),
 
-            setViewState: (updater) => {
-              const timestamp = performance.now();
-              const oldState = get().viewState;
-              storeLog(
-                "viewStateStore",
-                `${timestamp.toFixed(0)}ms setViewState called`,
-              );
-              storeLog(
-                "viewStateStore",
-                `  - Current layers: ${oldState.layers.length}`,
-              );
-              storeLog(
-                "viewStateStore",
-                `  - Layer ids:`,
-                oldState.layers.map((l) => l.id),
-              );
-
-              const stack = new Error().stack;
-              const caller =
-                typeof stack === "string"
-                  ? stack.split("\n")[3]?.trim() || "unknown"
-                  : "unknown";
-              storeLog("viewStateStore", `  - Called from: ${caller}`);
-
-              if (
-                oldState.layers.some(
-                  (layer) =>
-                    layer.intensity &&
-                    layer.intensity[0] > 1969 &&
-                    layer.intensity[0] < 1970,
-                )
-              ) {
-                storeWarn("viewStateStore", "Stack trace for 20-80% update:");
-                storeTrace("viewStateStore", "");
-              }
-
-              const nextState = applyViewStateUpdate((draft) => updater(draft));
-              if (nextState !== oldState) {
-                storeLog(
-                  "viewStateStore",
-                  `${(performance.now() - timestamp).toFixed(2)}ms State updated:`,
-                );
-                storeLog(
-                  "viewStateStore",
-                  `  - New layers: ${nextState.layers.length}`,
-                );
-                storeLog(
-                  "viewStateStore",
-                  `  - Layer ids:`,
-                  nextState.layers.map((l) => l.id),
-                );
-
-                nextState.layers.forEach((layer) => {
-                  if (layer.intensity) {
-                    storeLog(
-                      "viewStateStore",
-                      `  - Layer ${layer.id} intensity: [${layer.intensity[0].toFixed(2)}, ${layer.intensity[1].toFixed(2)}]`,
-                    );
-
-                    if (
-                      layer.intensity[0] > 1969 &&
-                      layer.intensity[0] < 1970 &&
-                      layer.intensity[1] > 7878 &&
-                      layer.intensity[1] < 7879
-                    ) {
-                      storeError(
-                        "viewStateStore",
-                        `WARNING: 20-80% default intensity detected for layer ${layer.id}!`,
-                      );
-                      storeError(
-                        "viewStateStore",
-                        `This update is resetting user's intensity values!`,
-                      );
-                      storeError("viewStateStore", "Update details:", {
-                        layerId: layer.id,
-                        intensity: layer.intensity,
-                        caller,
-                        timestamp,
-                      });
-                      storeTrace(
-                        "viewStateStore",
-                        "Stack trace for problematic intensity update:",
-                      );
-                    }
-                  }
-                });
-              } else {
-                storeLog(
-                  "viewStateStore",
-                  `${(performance.now() - timestamp).toFixed(2)}ms No state update (updater returned void)`,
-                );
-              }
+            setViewState: (updater, workspaceId) => {
+              applyViewStateUpdate(updater, workspaceId ?? getCurrentWorkspaceKey());
             },
 
             setCrosshairVisible: (visible) => {

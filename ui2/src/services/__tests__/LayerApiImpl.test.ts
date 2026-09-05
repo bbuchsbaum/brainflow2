@@ -37,6 +37,7 @@ const {
     getLayerMetadata: vi.fn(() => undefined),
   },
   mockViewStateStoreState: {
+    workspaceViewStates: new Map<string, any>(),
     viewState: {
       layers: [{ id: 'layer-1' }, { id: 'layer-2' }],
     },
@@ -142,6 +143,7 @@ describe('LayerApiImpl', () => {
     mockViewStateStoreState.viewState = {
       layers: [],
     };
+    mockViewStateStoreState.workspaceViewStates = new Map([['test', mockViewStateStoreState.viewState]]);
     mockViewStateStoreState.setViewState.mockImplementation((updater: any) => {
       updater(mockViewStateStoreState.viewState);
     });
@@ -286,4 +288,17 @@ describe('LayerApiImpl', () => {
       'Layer not found: missing-layer'
     );
   });
+  it(' late histogram keeps a user-edited intensity window', async () => {
+    let finish!: (value: unknown) => void;
+    mockHistogramService.computeHistogram.mockReturnValue(new Promise(r => { finish = r; }));
+    const api = new LayerApiImpl();
+    const layer = { id: 'layer-1', name: 'T1', volumeId: 'vol-1', visible: true, type: 'anatomical' };
+    mockViewStateStoreState.viewState = { layers: [{ id: 'layer-1', intensity: [0,100], threshold: [0,0], colormap: 'gray' }] } as any;
+    const pending = (api as any).refineIntensityFromHistogram(layer, { layerType: 'anatomical', dataRange: { min:0, max:100 } });
+    (mockViewStateStoreState.viewState.layers[0] as any).intensity = [31,47];
+    finish({ bins:[{x0:0,x1:50,count:100},{x0:50,x1:100,count:100}], totalCount:200, mean:50 });
+    await pending;
+    expect((mockViewStateStoreState.viewState.layers[0] as any).intensity).toEqual([31,47]);
+  });
+
 });

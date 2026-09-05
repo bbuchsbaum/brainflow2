@@ -7,6 +7,8 @@ import { create } from 'zustand';
 import { immer } from 'zustand/middleware/immer';
 import { subscribeWithSelector } from 'zustand/middleware';
 import { nanoid } from 'nanoid';
+import { enableMapSet } from 'immer';
+enableMapSet();
 import type { DisplayOpenIntent } from '@/types/loadIntent';
 
 export type LoadingItemType =
@@ -60,7 +62,9 @@ export interface LoadingQueueItem {
   path: string; // file path or template/atlas ID
   displayName: string;
   status: LoadingStatus;
-  progress?: number; // 0-100
+  progress?: number; // 0-100 within the current stage
+  stage?: string;
+  remoteTransfer?: boolean;
   startTime?: number;
   endTime?: number;
   error?: Error;
@@ -86,7 +90,8 @@ export interface LoadingQueueState {
   enqueue: (item: Omit<LoadingQueueItem, 'id' | 'status'>) => string;
   dequeue: () => LoadingQueueItem | undefined;
   startLoading: (queueId: string) => void;
-  updateProgress: (queueId: string, progress: number) => void;
+  updateProgress: (queueId: string, progress: number | undefined, stage?: string) => void;
+  updateTransferProgress: (path: string, bytes: number, total?: number) => void;
   markComplete: (queueId: string, result?: { layerId?: string; volumeId?: string }) => void;
   markError: (queueId: string, error: Error) => void;
   cancel: (queueId: string) => void;
@@ -169,15 +174,29 @@ export const useLoadingQueueStore = create<LoadingQueueState>()(
         });
       },
       
-      updateProgress: (queueId, progress) => {
+      updateProgress: (queueId, progress, stage) => {
         set((state) => {
           const item = state.activeLoads.get(queueId);
           if (item) {
-            item.progress = Math.min(100, Math.max(0, progress));
+            item.progress = progress === undefined ? undefined : Math.min(100, Math.max(0, progress));
+            item.stage = stage;
+            item.remoteTransfer = false;
           }
         });
       },
       
+      updateTransferProgress: (path, bytes, total) => {
+        set((state) => {
+          const item = Array.from(state.activeLoads.values()).find((item) => item.path === path);
+          if (!item) return;
+          item.remoteTransfer = total === undefined || bytes < total;
+          item.progress = total && total > 0 ? Math.min(100, bytes / total * 100) : undefined;
+          item.stage = item.remoteTransfer
+            ? `Downloading ${(bytes / 1048576).toFixed(1)}${total ? ` / ${(total / 1048576).toFixed(1)}` : ''} MiB`
+            : 'Download complete · decoding image';
+        });
+      },
+
       markComplete: (queueId, result) => {
         set((state) => {
           const item = state.activeLoads.get(queueId);

@@ -12,8 +12,12 @@
  * - surface overlay load
  */
 
+import { formatTauriError } from '@/utils/formatTauriError';
+import { fileLoadScheduler } from './LoadScheduler';
 import { getEventBus, type EventBus } from '@/events/EventBus';
 import { getApiService, type ApiService } from './apiService';
+import { useViewStateStore } from '@/stores/viewStateStore';
+import { useWorkspaceStore } from '@/stores/workspaceStore';
 import { useLoadingQueueStore } from '@/stores/loadingQueueStore';
 import { getVolumeLoadingService, type VolumeLoadingService } from './VolumeLoadingService';
 import type { Layer } from '@/types/layers';
@@ -116,7 +120,8 @@ export class DisplayLifecycleOrchestrator {
 
   async retryVolumeLoad(
     path: string,
-    intent: DisplayOpenIntent = 'default'
+    intent: DisplayOpenIntent = 'default',
+    workspaceId = useViewStateStore.getState().activeWorkspaceKey
   ): Promise<boolean> {
     const filename = this.extractFilename(path);
     const layer = await this.loadVolumeForIntent(path, filename, performance.now(), intent);
@@ -171,7 +176,7 @@ export class DisplayLifecycleOrchestrator {
     startTime: number,
     intent: DisplayOpenIntent
   ): Promise<Layer | null> {
-    const { useWorkspaceStore } = await import('@/stores/workspaceStore');
+    const requestedWorkspaceId = useViewStateStore.getState().activeWorkspaceKey;
     const workspaceStore = useWorkspaceStore.getState();
     const activeWorkspace = workspaceStore.activeWorkspaceId
       ? workspaceStore.getWorkspace(workspaceStore.activeWorkspaceId)
@@ -180,7 +185,7 @@ export class DisplayLifecycleOrchestrator {
     switch (intent) {
       case 'default':
       case 'add-layer': {
-        const addedLayer = await this.loadVolume(path, filename, startTime, intent);
+        const addedLayer = await this.loadVolume(path, filename, startTime, intent, requestedWorkspaceId);
 
         if (addedLayer && activeWorkspace?.type === 'comparison') {
           const { useComparisonStore } = await import('@/stores/comparisonStore');
@@ -299,7 +304,8 @@ export class DisplayLifecycleOrchestrator {
     path: string,
     filename: string,
     startTime: number,
-    intent: DisplayOpenIntent = 'default'
+    intent: DisplayOpenIntent = 'default',
+    workspaceId = useViewStateStore.getState().activeWorkspaceKey
   ): Promise<Layer | null> {
     if (useLoadingQueueStore.getState().isLoading(path)) {
       this.eventBus.emit('ui.notification', {
@@ -320,16 +326,18 @@ export class DisplayLifecycleOrchestrator {
       },
     });
 
+    const release = await fileLoadScheduler.acquire();
     try {
       useLoadingQueueStore.getState().startLoading(queueId);
       this.eventBus.emit('file.loading', { path });
-      useLoadingQueueStore.getState().updateProgress(queueId, 10);
+      useLoadingQueueStore.getState().updateProgress(queueId, undefined, 'Reading image');
 
       const volumeHandle = await this.apiService.loadFile(path);
-      useLoadingQueueStore.getState().updateProgress(queueId, 50);
+      useLoadingQueueStore.getState().updateProgress(queueId, undefined, 'Preparing display');
 
       const addedLayer = await this.volumeLoadingService.loadVolume({
         volumeHandle,
+        workspaceId,
         displayName: this.smartLayerName(volumeHandle.name || filename),
         source: 'file',
         sourcePath: path,
@@ -355,6 +363,10 @@ export class DisplayLifecycleOrchestrator {
       });
       return addedLayer;
     } catch (error) {
+      if (/cancelled/i.test(formatTauriError(error))) {
+        useLoadingQueueStore.getState().cancel(queueId);
+        return null;
+      }
       useLoadingQueueStore.getState().markError(queueId, error as Error);
       this.eventBus.emit('file.error', { path, error: error as Error });
       this.eventBus.emit('ui.notification', {
@@ -362,6 +374,8 @@ export class DisplayLifecycleOrchestrator {
         message: `Failed to load ${filename}: ${(error as Error).message}`,
       });
       return null;
+    } finally {
+      release();
     }
   }
 

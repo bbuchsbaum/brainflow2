@@ -269,9 +269,9 @@ function convertApiNodesToTreeChildren(
           // NOTE: the backend does not yet return real sizes/dates for remote
           // listings; these are placeholders until the readdir attributes are
           // plumbed through (Phase 2). Do not treat as authoritative.
-          size: !file.isDir ? Math.floor(Math.random() * 10000000) : undefined,
+          size: undefined,
           extension: !file.isDir ? file.name.match(/\.[^.]+$/)?.[0] : undefined,
-          modified: new Date(),
+          modified: undefined,
         }) as FileTreeNode,
     );
 }
@@ -294,6 +294,18 @@ function findNodeByPath(
 // Create store only once and attach to window for cross-root sharing
 const createFileBrowserStore = () => {
   const persisted = loadPersisted();
+  let nextRequest = 0;
+  const requests = new Map<string, number>();
+  const beginRequest = (path: string) => {
+    const id = ++nextRequest;
+    requests.set(path, id);
+    return id;
+  };
+  const invalidate = (root: string) => {
+    for (const path of requests.keys()) {
+      if (path === root || path.startsWith(`${root.replace(/\/$/, '')}/`)) requests.delete(path);
+    }
+  };
 
   return create<FileBrowserStore>()(
     subscribeWithSelector(
@@ -378,10 +390,17 @@ const createFileBrowserStore = () => {
         },
 
         unmountDirectory: (path) => {
+          invalidate(path);
           set((state) => {
             state.entries = state.entries.filter((e) => e.path !== path);
             // Also remove from expanded paths
-            state.expandedPaths.delete(path);
+            for (const entry of state.expandedPaths) {
+              if (entry === path || entry.startsWith(`${path}/`)) state.expandedPaths.delete(entry);
+            }
+            for (const entry of state.loadingPaths) {
+              if (entry === path || entry.startsWith(`${path}/`)) state.loadingPaths.delete(entry);
+            }
+            state.loading = state.loadingPaths.size > 0;
           });
         },
 
@@ -393,12 +412,14 @@ const createFileBrowserStore = () => {
         },
 
         setRootPath: (path) => {
+          requests.clear();
           set((state) => {
             state.rootPath = path;
             state.currentPath = path;
             state.entries = []; // Clear entries, will be loaded by loadDirectory
             state.expandedPaths.clear();
             state.loadingPaths.clear();
+            state.loading = false;
             state.selectedPath = null;
           });
         },
@@ -411,6 +432,7 @@ const createFileBrowserStore = () => {
 
         // Tree operations
         loadDirectory: async (path) => {
+          const request = beginRequest(path);
           set((state) => {
             state.loading = true;
             state.error = null;
@@ -422,6 +444,7 @@ const createFileBrowserStore = () => {
           try {
             const apiService = getApiService();
             const files = await apiService.listDirectory(path, 1);
+            if (requests.get(path) !== request) return;
 
             set((state) => {
               const node = findNodeByPath(state.entries, path);
@@ -436,17 +459,18 @@ const createFileBrowserStore = () => {
                 console.warn("Could not find node to update for path:", path);
               }
 
-              state.loading = false;
               state.loadingPaths.delete(path);
+              state.loading = state.loadingPaths.size > 0;
             });
 
             const eventBus = getEventBus();
             eventBus.emit("filebrowser.directory.loaded", { path });
           } catch (error) {
+            if (requests.get(path) !== request) return;
             console.error("Error loading directory:", error);
             set((state) => {
-              state.loading = false;
               state.loadingPaths.delete(path);
+              state.loading = state.loadingPaths.size > 0;
               state.error =
                 formatTauriError(error) || "Failed to load directory";
             });
@@ -467,10 +491,12 @@ const createFileBrowserStore = () => {
           if (existing && existing.children && existing.children.length > 0) {
             return; // already loaded
           }
+          const request = beginRequest(path);
           prefetchBusy = true;
           void (async () => {
             try {
               const files = await getApiService().listDirectory(path, 1);
+              if (requests.get(path) !== request) return;
               set((state) => {
                 const node = findNodeByPath(state.entries, path);
                 if (node && (!node.children || node.children.length === 0)) {
@@ -516,8 +542,15 @@ const createFileBrowserStore = () => {
         },
 
         collapsePath: (path) => {
+          invalidate(path);
           set((state) => {
             state.expandedPaths.delete(path);
+            const node = findNodeByPath(state.entries, path);
+            if (node) node.expanded = false;
+            for (const entry of state.loadingPaths) {
+              if (entry === path || entry.startsWith(`${path}/`)) state.loadingPaths.delete(entry);
+            }
+            state.loading = state.loadingPaths.size > 0;
           });
         },
 

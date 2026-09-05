@@ -92,4 +92,15 @@ describe("fileBrowserStore.prefetchDirectory", () => {
     store.prefetchDirectory("/root/sub");
     expect(listDirectory).toHaveBeenCalledTimes(1);
   });
+  it(' older listing completion cannot replace a refreshed directory', async () => {
+    let older!: (value: unknown) => void;
+    listDirectory.mockReturnValueOnce(new Promise(r => { older = r; }));
+    listDirectory.mockResolvedValueOnce([{...apiNodes[0], id:'/root/sub/new.nii', name:'new.nii'}]);
+    useFileBrowserStore.setState({entries:[collapsedDir('/root/sub','sub')]});
+    const first=useFileBrowserStore.getState().loadDirectory('/root/sub');
+    await useFileBrowserStore.getState().loadDirectory('/root/sub');
+    older(apiNodes); await first;
+    expect(useFileBrowserStore.getState().entries[0].children?.[0].name).toBe('new.nii');
+  });
+
 });

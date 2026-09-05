@@ -3,6 +3,7 @@
  * Templates are pre-registered volumes that can be loaded from the backend
  */
 
+import { useViewStateStore } from '@/stores/viewStateStore';
 import { invoke } from '@tauri-apps/api/core';
 import type { Unlisten } from '@/utils/eventUtils';
 import { safeListen, safeUnlisten } from '@/utils/eventUtils';
@@ -116,6 +117,7 @@ export class TemplateService {
   }
 
   private async loadTemplate(templateId: string): Promise<void> {
+    const workspaceId = useViewStateStore.getState().activeWorkspaceKey;
     const startTime = performance.now();
     console.log(`[TemplateService ${startTime.toFixed(0)}ms] Loading template: ${templateId}`);
 
@@ -177,6 +179,7 @@ export class TemplateService {
       // Use unified volume loading service
       const addedLayer = await this.volumeLoadingService.loadVolume({
         volumeHandle: volumeHandle,
+        workspaceId,
         displayName: templateResult.template_metadata.name,
         source: 'template',
         sourcePath: templatePath,

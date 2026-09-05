@@ -2,6 +2,7 @@
  * Atlas Service - TypeScript wrapper for atlas Tauri commands
  */
 
+import { useViewStateStore } from '@/stores/viewStateStore';
 import { invoke } from "@tauri-apps/api/core";
 import { safeListen, safeUnlisten, type Unlisten } from "@/utils/eventUtils";
 import { getVolumeLoadingService } from "./VolumeLoadingService";
@@ -468,8 +469,13 @@ export class AtlasService {
         queueStore.updateProgress(queueId, 70);
       }
 
-      // Check if the operation was aborted
+      // A dismissed dialog still owns any decoded backend volume it requested.
       if (signal?.aborted) {
+        const volumeId = result?.volume_handle_info?.id;
+        if (volumeId) {
+          try { await invoke('plugin:api-bridge|unload_volume', { volumeId }); }
+          catch (cleanupError) { console.warn('Failed to unload cancelled atlas:', cleanupError); }
+        }
         throw new Error("Operation aborted");
       }
 
@@ -612,7 +618,9 @@ export class AtlasService {
     config: AtlasConfig,
     signal?: AbortSignal,
   ): Promise<{ result: AtlasLoadResult; layer: Layer | null }> {
+    const workspaceId = useViewStateStore.getState().activeWorkspaceKey;
     const keyParts = [
+      workspaceId,
       config.atlas_id,
       config.space,
       config.resolution,
@@ -666,6 +674,7 @@ export class AtlasService {
       const volumeLoadingService = getVolumeLoadingService();
       const layer = await volumeLoadingService.loadVolume({
         volumeHandle,
+        workspaceId,
         displayName: result.atlas_metadata.name,
         source: "atlas",
         sourcePath: `atlas:${result.atlas_metadata.id}`,
