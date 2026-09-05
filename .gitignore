@@ -38,3 +38,6 @@ __pycache__/
 # Ephemeral live-capture screenshots / snapshots
 compare-live.png
 mockup*-live-*
+
+# Local alpha installers, fixtures and validation receipts
+/dist/alpha/

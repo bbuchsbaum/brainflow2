@@ -127,6 +127,35 @@ Receipts: `/tmp/brainflow-alpha-pass3-ui-final.log`,
 The [alpha acceptance checklist](alpha-acceptance.md) separates automated evidence
 from outstanding manual interaction checks.
 
+## Local packaged alpha
+
+The Apple Silicon macOS `0.1.0-alpha.1` app was built with the normal optimized
+release profile from application source `5511421c555af35fc0d8628a183033746dad1b21`.
+It embeds the verified production frontend; no development server was used in
+packaged smoke tests. The app identifier is `com.brainflow.alpha`, separate from
+the development app. The delivery lives under `dist/alpha/0.1.0-alpha.1/`, with
+known-coordinate fixtures, receipt logs, configuration and hashes.
+
+The bundler's initial linker-only signature failed complete resource verification.
+The local bundle was ad-hoc signed with `codesign --force --deep --sign -
+--identifier com.brainflow.alpha` and passed strict/deep verification. This is
+not a Developer ID-signed or notarized public release.
+
+Packaged startup loaded the 65 × 65 × 49 phantom volume and both pial meshes,
+then rendered six frames across all three volume planes. The signed bundle's
+montage launch loaded all four pial/inflated meshes and rendered 22 frames,
+including 16 montage planes at z = -24, -21, …, 21 mm. Each launch recorded one
+GPU initialization, one shader initialization, one frontend init call, and no
+error or panic lines. Empty phantom slices (including the sagittal x = 0 gap)
+produce expected black-image diagnostics. Both owned app processes were stopped.
+
+These are loading/backend-render receipts, not visual or mouse acceptance.
+The DMG checksum, read-only mount, packaged signature, executable hash, fixtures
+and Applications link passed verification; the volume was detached afterward.
+Its SHA256 is `36ec8b3ecc2282203e9a7dd19dce42a74eabab76d7d9721689666bbd8dfd2ea8`.
+The final browser lifecycle audit reported no automated top-level browsers.
+Consult the delivery's manifest and README for the complete receipts.
+
 ## Remaining alpha gates
 
 1. **Native visual and interaction acceptance.** Desktop control fails during
