@@ -3,6 +3,7 @@ import { TauriTransport, type BackendTransport } from './transport';
 import { getLayerService } from './LayerService';
 import { useLayerStore, type LayerInfo } from '@/stores/layerStore';
 import { useViewStateStore } from '@/stores/viewStateStore';
+import { useInspectorSelectionStore } from '@/stores/inspectorSelectionStore';
 import { getEventBus } from '@/events/EventBus';
 
 export function parcelWindow(range: [number, number]): [number, number] {
@@ -75,7 +76,16 @@ export class ParcelOverlayService {
         ...useLayerStore.getState().getLayerMetadata(info.volumeId),
         dataRange: { min: range[0], max: range[1] },
       });
-      useLayerStore.getState().selectLayer(info.volumeId);
+      useInspectorSelectionStore.getState().setActive({
+        id: info.volumeId,
+        kind: 'volume-overlay',
+        group: 'volume',
+        name: layer.name,
+        subtitle: 'parcel values',
+        visible: true,
+        opacity: 1,
+        ref: { type: 'volume', layerId: info.volumeId },
+      });
     } finally {
       if (!published) {
         useLayerStore.getState().removeLayer(info.volumeId);

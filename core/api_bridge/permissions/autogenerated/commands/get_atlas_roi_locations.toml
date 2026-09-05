@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-get-atlas-roi-locations"
+description = "Enables the get_atlas_roi_locations command without any pre-configured scope."
+commands.allow = ["get_atlas_roi_locations"]
+
+[[permission]]
+identifier = "deny-get-atlas-roi-locations"
+description = "Denies the get_atlas_roi_locations command without any pre-configured scope."
+commands.deny = ["get_atlas_roi_locations"]

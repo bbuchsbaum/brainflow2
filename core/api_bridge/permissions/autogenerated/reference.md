@@ -54,6 +54,9 @@ Default permissions for api-bridge plugin
 - `allow-get-favorite-atlases`
 - `allow-validate-atlas-config`
 - `allow-load-atlas`
+- `allow-get-atlas-roi-locations`
+- `allow-preview-surface-parcel-table`
+- `allow-bind-surface-parcel-table`
 - `allow-preview-parcel-table`
 - `allow-create-parcel-overlay`
 - `allow-select-parcel-column`
@@ -189,6 +192,32 @@ Enables the batch_render_slices command without any pre-configured scope.
 <td>
 
 Denies the batch_render_slices command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:allow-bind-surface-parcel-table`
+
+</td>
+<td>
+
+Enables the bind_surface_parcel_table command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:deny-bind-surface-parcel-table`
+
+</td>
+<td>
+
+Denies the bind_surface_parcel_table command without any pre-configured scope.
 
 </td>
 </tr>
@@ -631,6 +660,32 @@ Enables the get_atlas_palette command without any pre-configured scope.
 <td>
 
 Denies the get_atlas_palette command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:allow-get-atlas-roi-locations`
+
+</td>
+<td>
+
+Enables the get_atlas_roi_locations command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:deny-get-atlas-roi-locations`
+
+</td>
+<td>
+
+Denies the get_atlas_roi_locations command without any pre-configured scope.
 
 </td>
 </tr>
@@ -1645,6 +1700,32 @@ Enables the preview_set_studio_imports command without any pre-configured scope.
 <td>
 
 Denies the preview_set_studio_imports command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:allow-preview-surface-parcel-table`
+
+</td>
+<td>
+
+Enables the preview_surface_parcel_table command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:deny-preview-surface-parcel-table`
+
+</td>
+<td>
+
+Denies the preview_surface_parcel_table command without any pre-configured scope.
 
 </td>
 </tr>

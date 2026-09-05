@@ -48,6 +48,8 @@ fn main() {
     println!("Exporting TypeScript types from api_bridge...");
 
     export_command_list();
+    AtlasRoiLocation::export_all().expect("export atlas ROI locations");
+    SurfaceParcelTable::export_all().expect("export surface parcel table");
     ParcelTableRequest::export_all().expect("export parcel request");
     ParcelTablePreview::export_all().expect("export parcel preview");
     ParcelOverlayInfo::export_all().expect("export parcel overlay");

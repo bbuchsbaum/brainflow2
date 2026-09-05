@@ -49,7 +49,7 @@ log = "=0.4.22"
 env_logger = "=0.11.5"
 
 # --- Atlas and Template dependencies ---
-neuroatlas = { git = "https://github.com/bbuchsbaum/neuroatlas-rs", rev = "f0103ed74c05da4f7a1a42a7f21082208f9e510b", features = ["surface"] }
+neuroatlas = { git = "https://github.com/bbuchsbaum/neuroatlas-rs", rev = "b7ec84ef2e91eb969ec9019d02654e12127e3a31", features = ["surface"] }
 
 # --- Surface and GIFTI support ---
 neurosurf-rs = { git = "https://github.com/bbuchsbaum/neurosurf-rs", rev = "01155a5974e390f36949752f87098856f8d35c57", features = ["gifti-support"] }

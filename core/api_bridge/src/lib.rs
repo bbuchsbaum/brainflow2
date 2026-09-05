@@ -1,6 +1,8 @@
+pub mod atlas_roi;
+pub use atlas_roi::AtlasRoiLocation;
 pub mod parcel_overlay;
 pub use parcel_overlay::{
-    ParcelColumnInfo, ParcelOverlayInfo, ParcelTablePreview, ParcelTableRequest,
+    ParcelColumnInfo, ParcelOverlayInfo, ParcelTablePreview, ParcelTableRequest, SurfaceParcelTable,
 };
 use tauri::command;
 // Import necessary volmath types directly
@@ -1392,6 +1394,11 @@ struct RemoteFileCacheMetadata {
 // PendingRemoteMountContext) that are intentionally not part of the public API.
 #[allow(private_interfaces)]
 pub struct BridgeState {
+    // Small content-addressed dictionary cache, independent of mesh/GPU lifetimes.
+    // Bound to 64 variants; eviction only expires future import previews, never overlays.
+    pub surface_parcel_dictionaries: Arc<
+        Mutex<std::collections::VecDeque<(String, atlases::parcel_dictionary::ParcelDictionary)>>,
+    >,
     // Removed: pub loader_registry: Arc<Mutex<LoaderRegistry>>,
     pub volume_registry: Arc<Mutex<VolumeRegistry>>,
     pub surface_registry: Arc<Mutex<SurfaceRegistry>>,
@@ -1447,6 +1454,7 @@ impl BridgeState {
         template_service: Arc<Mutex<templates::TemplateService>>,
     ) -> Self {
         Self {
+            surface_parcel_dictionaries: Arc::new(Mutex::new(std::collections::VecDeque::new())),
             /* Removed loader_registry field */ volume_registry,
             surface_registry,
             render_loop_service,
@@ -10514,7 +10522,7 @@ async fn load_surface_atlas(
     );
 
     let atlas_service = state.atlas_service.lock().await;
-    let result = atlas_service
+    let mut result = atlas_service
         .load_surface_atlas(config)
         .await
         .map_err(|e| BridgeError::Internal {
@@ -10522,6 +10530,19 @@ async fn load_surface_atlas(
             details: format!("Failed to load surface atlas: {}", e),
         })?;
 
+    drop(atlas_service);
+    let dictionary = result
+        .parcel_dictionary
+        .take()
+        .ok_or_else(|| parcel_overlay::input("Surface atlas has no parcel dictionary"))?;
+    let id = parcel_overlay::dictionary_id(&dictionary)?;
+    let mut dictionaries = state.surface_parcel_dictionaries.lock().await;
+    dictionaries.retain(|(key, _)| key != &id);
+    dictionaries.push_back((id.clone(), dictionary));
+    while dictionaries.len() > 64 {
+        dictionaries.pop_front();
+    }
+    result.parcel_dictionary_id = Some(id);
     Ok(result)
 }
 
@@ -15064,4 +15085,73 @@ async fn select_parcel_column(
     let info = overlay.info.clone();
     registry.parcel_overlays.insert(volume_id, overlay);
     Ok(info)
+}
+
+async fn surface_parcel_dictionary(
+    id: &str,
+    state: &BridgeState,
+) -> BridgeResult<atlases::parcel_dictionary::ParcelDictionary> {
+    let mut cache = state.surface_parcel_dictionaries.lock().await;
+    let index = cache.iter().position(|(key, _)| key == id).ok_or_else(|| {
+        parcel_overlay::input("Surface atlas dictionary expired; reload the atlas")
+    })?;
+    let entry = cache.remove(index).unwrap();
+    let dictionary = entry.1.clone();
+    cache.push_back(entry);
+    Ok(dictionary)
+}
+
+#[command]
+async fn preview_surface_parcel_table(
+    dictionary_id: String,
+    request: ParcelTableRequest,
+    state: State<'_, BridgeState>,
+) -> BridgeResult<ParcelTablePreview> {
+    let dictionary = surface_parcel_dictionary(&dictionary_id, &state).await?;
+    tokio::task::spawn_blocking(move || parcel_overlay::preview_dictionary(&dictionary, &request))
+        .await
+        .map_err(|e| parcel_overlay::input(e.to_string()))?
+}
+
+#[command]
+async fn bind_surface_parcel_table(
+    dictionary_id: String,
+    request: ParcelTableRequest,
+    state: State<'_, BridgeState>,
+) -> BridgeResult<parcel_overlay::SurfaceParcelTable> {
+    let dictionary = surface_parcel_dictionary(&dictionary_id, &state).await?;
+    tokio::task::spawn_blocking(move || parcel_overlay::bind_surface_table(&dictionary, &request))
+        .await
+        .map_err(|e| parcel_overlay::input(e.to_string()))?
+}
+
+#[command]
+async fn get_atlas_roi_locations(
+    volume_id: String,
+    state: State<'_, BridgeState>,
+) -> BridgeResult<Vec<AtlasRoiLocation>> {
+    let (dictionary, volume) = {
+        let registry = state.volume_registry.lock().await;
+        let dictionary = registry
+            .parcel_dictionaries
+            .get(&volume_id)
+            .cloned()
+            .ok_or_else(|| {
+                parcel_overlay::input(
+                    "ROI search requires an atlas loaded through the atlas catalog",
+                )
+            })?;
+        let entry = registry
+            .get_entry(&volume_id)
+            .ok_or_else(|| parcel_overlay::input("The source atlas is no longer loaded"))?;
+        if entry.metadata.volume_type == bridge_types::VolumeType::TimeSeries4D {
+            return Err(parcel_overlay::input(
+                "ROI navigation requires a 3D label atlas",
+            ));
+        }
+        (dictionary, entry.data.clone())
+    };
+    tokio::task::spawn_blocking(move || atlas_roi::locations(&dictionary, &volume))
+        .await
+        .map_err(|e| parcel_overlay::input(e.to_string()))?
 }

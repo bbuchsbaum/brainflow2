@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-preview-surface-parcel-table"
+description = "Enables the preview_surface_parcel_table command without any pre-configured scope."
+commands.allow = ["preview_surface_parcel_table"]
+
+[[permission]]
+identifier = "deny-preview-surface-parcel-table"
+description = "Denies the preview_surface_parcel_table command without any pre-configured scope."
+commands.deny = ["preview_surface_parcel_table"]

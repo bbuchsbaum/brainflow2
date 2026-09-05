@@ -1,3 +1,4 @@
+import { AtlasRoiPicker } from "@/components/atlas/AtlasRoiPicker";
 import React, { useEffect, useRef, useState } from "react";
 import { useLayerStore } from "@/stores/layerStore";
 import { useViewStateStore } from "@/stores/viewStateStore";
@@ -352,31 +353,21 @@ function LabelOutlineBlock({
         />
       </FieldRow>
 
-      <FieldRow label="Label ID">
+      <AtlasRoiPicker
+        key={layerId}
+        layerId={layerId}
+        selectedId={outline.selectedLabelId}
+        onSelect={(id) => update({ selectedLabelId: id, enabled: id !== 0 })}
+      />
+      <FieldRow label="Pick from view">
         <div className="flex items-center gap-2">
-          <input
-            type="number"
-            min={0}
-            step={1}
-            value={outline.selectedLabelId}
-            onChange={(e) =>
-              update({
-                selectedLabelId: Math.max(
-                  0,
-                  Math.round(Number(e.target.value) || 0),
-                ),
-              })
-            }
-            className="w-16 rounded-sm bg-background px-1 text-right font-mono text-[11px] tabular-nums text-foreground outline-none ring-1 ring-border focus:ring-sky-500"
-            style={{ fontVariantNumeric: "tabular-nums" }}
-          />
           <button
             type="button"
             onClick={useCrosshairLabel}
             disabled={sampling}
             className="rounded-sm border border-border px-2 py-0.5 text-[11px] text-foreground transition-colors hover:bg-accent/40 disabled:cursor-not-allowed disabled:opacity-50"
           >
-            {sampling ? "Sampling" : "Crosshair"}
+            {sampling ? 'Sampling…' : 'Use crosshair ROI'}
           </button>
         </div>
       </FieldRow>
@@ -432,6 +423,47 @@ function SurfaceRenderRows({ item }: { item: SceneItem }) {
     const surface = surfaces.get(item.ref.surfaceId);
     const layer = surface?.layers.get(item.ref.surfaceLayerId);
     if (!surface || !layer) return null;
+    const { surfaceId, surfaceLayerId } = item.ref;
+    const update = (key: string, value: unknown) =>
+      useSurfaceStore.getState().updateLayerProperty(surfaceId, surfaceLayerId, key, value);
+    if (layer.parcelOverlay)
+      return (
+        <>
+          <FieldRow label="Visible">
+            <Toggle checked={layer.visible !== false} onChange={(v) => update('visible', v)} />
+          </FieldRow>
+          <FieldRow label="Opacity">
+            <Slider
+              value={layer.opacity}
+              min={0}
+              max={1}
+              step={0.01}
+              onChange={(v) => update('opacity', v)}
+            />
+            <Pct value={layer.opacity} />
+          </FieldRow>
+          <RangeBlock
+            label="Intensity"
+            low={layer.range[0]}
+            high={layer.range[1]}
+            dataMin={Math.min(layer.dataRange[0], layer.range[0])}
+            dataMax={Math.max(layer.dataRange[1], layer.range[1])}
+            onChange={(low, high) => update('range', [low, high])}
+          />
+          <ColormapBlock value={layer.colormap} onChange={(v) => update('colormap', v)} />
+          <RangeBlock
+            label="Threshold"
+            low={layer.threshold?.[0] ?? 0}
+            high={layer.threshold?.[1] ?? 0}
+            dataMin={Math.min(0, layer.dataRange[0])}
+            dataMax={Math.max(0, layer.dataRange[1])}
+            onChange={(low, high) => update('threshold', [low, high])}
+          />
+          <button className="text-[11px] underline" onClick={() => update('threshold', [0, 0])}>
+            Clear threshold
+          </button>
+        </>
+      );
     return (
       <>
         <FieldRow label="Visible">

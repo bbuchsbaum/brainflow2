@@ -149,7 +149,8 @@ export function applySurfaceAtlasOverlay(
   labelInfo: SurfaceAtlasLoadResult['label_info'],
   atlasName: string,
   config: AtlasConfig,
-  parcellationReferenceId?: string
+  parcellationReferenceId?: string,
+  parcelDictionaryId?: string
 ): string | null {
   const surface = useSurfaceStore.getState().surfaces.get(surfaceId);
   const vertexCount = surface
@@ -199,6 +200,7 @@ export function applySurfaceAtlasOverlay(
     labels: labelsArray,
     atlasConfig: config,
     parcellationReferenceId,
+    parcelDictionaryId,
     atlasMaxLabel: maxLabel,
   });
 
@@ -355,7 +357,8 @@ export async function handleSurfaceAtlasPreset(
       result.label_info,
       `${atlasName} (${side})`,
       config,
-      parcellationReferenceId
+      parcellationReferenceId,
+      result.parcel_dictionary_id ?? undefined
     );
     if (appliedLayerId) {
       appliedLayers.push({ side, surfaceId, layerId: appliedLayerId });

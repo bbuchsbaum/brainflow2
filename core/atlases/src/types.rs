@@ -313,6 +313,11 @@ pub struct SurfaceAtlasLabelInfo {
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[ts(export)]
 pub struct SurfaceAtlasLoadResult {
+    /// Opaque dictionary retained by the bridge for strict table joins.
+    pub parcel_dictionary_id: Option<String>,
+    #[serde(skip)]
+    #[ts(skip)]
+    pub parcel_dictionary: Option<crate::parcel_dictionary::ParcelDictionary>,
     /// Atlas metadata
     pub atlas_metadata: AtlasMetadata,
     /// Per-vertex label IDs for the left hemisphere

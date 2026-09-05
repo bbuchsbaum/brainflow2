@@ -7,6 +7,10 @@ import type { SurfaceAtlasLabelInfo } from "./SurfaceAtlasLabelInfo";
  */
 export type SurfaceAtlasLoadResult = { 
 /**
+ * Opaque dictionary retained by the bridge for strict table joins.
+ */
+parcel_dictionary_id: string | null,
+/**
  * Atlas metadata
  */
 atlas_metadata: AtlasMetadata, 

@@ -1,14 +1,15 @@
 # ROI table overlays with validated atlas bindings
 
-Status: volume-atlas UI implemented locally, 2026-09-05. The shared Rust
-neuroatlas contract is pinned to `f0103ed`. The broader identity, persistence,
-surface-binding and linked-selection design below remains a proposal where
+Status: volume and surface atlas UI implemented locally, 2026-09-05. The shared Rust
+neuroatlas contract is pinned to `b7ec84e` (including canonical Schaefer surface IDs). The broader identity, persistence,
+cross-representation identity design below remains a proposal where
 it goes beyond the implemented slice described here.
 
-## Implemented volume workflow
+## Implemented workflow
 
-Select a known, loaded **volume atlas** in the Layers panel, then choose
-**Add parcel values…** in its Inspector. Load or paste CSV/TSV, choose the key
+Select a known, loaded **volume atlas or surface parcellation** in the Inspector's
+Scene section, then choose **Parcel values → Add parcel values…**, above Render.
+This includes a volume atlas used as the base layer. Load or paste CSV/TSV, choose the key
 column and exact matching convention, inspect coverage, and select a numeric
 column before choosing **Create overlay**. The result is an independent layer
 with a retained table, column selector, continuous colormap, numeric color limits,
@@ -45,14 +46,41 @@ layer stack.
 
 This first slice requires discrete 3D atlas codes in 1–2047 (zero is background),
 checks the image codes against the retained dictionary, and rejects probabilistic
-atlases. Direct surface-atlas table binding, saved-session table persistence,
-parcel-data JSON/identity sidecars, exportable templates, a standalone table panel
-and linked row/parcel selection are still pending. Tables are retained in the
+atlases. Surface bindings use the same strict parser and code domain, retain the
+original dictionary supplied by the surface atlas loader, and scatter values by the
+vertex labels already attached to each loaded mesh. Both loaded hemispheres are
+updated together. Unloading a source does not invalidate an existing overlay;
+unloading the overlay or mesh releases its retained arrays. The dictionary cache
+is limited to 64 variants; expiry requires a reload for a new import, while existing
+overlays retain their tables. Saved-session table persistence, parcel-data JSON/identity
+sidecars, exportable templates, a standalone table panel and table-row linking remain pending. Tables are retained in the
 running session; importing starts from the atlas Inspector.
 
 UI fixture: `pnpm --filter temp-ui dev`, then `/parcel-overlay-harness.html`.
-It renders the real controls with mocked IPC and is excluded from the production
+It renders the actual `InspectorRouter`, Scene stack and sections with mocked IPC and is excluded from the production
 bundle. It is visual UI evidence, not an in-app Tauri import-to-hover test.
+
+ROI navigation: Render now provides searchable ROI names, numeric IDs, and previous/next
+buttons. Selecting an ROI enables its outline and moves the crosshair to an actual
+voxel nearest the ROI's centroid in the loaded image's affine world frame. Missing
+ROIs have no destination and are reported as absent. Search may filter names freely;
+**table joins remain exact**. This navigation currently targets volume ROIs.
+
+Follow-up checks: 28 UI tests cover the current Inspector route, CSV/TSV validation,
+surface creation/column changes, and ROI name/ID selection. The actual surface
+`DataLayer` confirms zero is visible and NaN is transparent. Rust checks exercise
+strict surface binding and oblique/disconnected ROI navigation; all 142 API
+library tests pass (one real-asset test is opt-in). That opt-in test also passes:
+Schaefer 400/7 and Glasser 360 dictionaries bind across 163,842 vertices per hemisphere.
+It caught Schaefer's hemisphere-local annotation indices; neuroatlas `b7ec84e`
+now resolves them by exact full source name against the canonical LUT, and rejects
+unknown, duplicate and wrong-hemisphere entries. The LUT parser also keeps RGB/A
+fields out of source/display names. Neuroatlas has 247 passing library tests,
+17 strict binding tests, and a clean library Clippy gate. The Playwright
+fixture loads the example TSV through the active Inspector for volume and surface
+parcellations, switches columns, and verifies name/ID navigation without page errors.
+This is browser UI plus backend evidence; the native Tauri end-to-end path still
+requires an app smoke check after restarting the rebuilt bundle.
 
 Local checks for this slice: 138 API-bridge library tests passed with GPU access;
 18 focused UI/import/inspector tests passed; the new pixel-level parcel test

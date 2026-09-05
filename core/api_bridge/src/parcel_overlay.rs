@@ -162,6 +162,45 @@ impl ParcelOverlay {
     }
 }
 
+pub fn dictionary_id(dictionary: &ParcelDictionary) -> BridgeResult<String> {
+    let dictionary_bytes = serde_json::to_vec(&(
+        1u32,
+        &dictionary.name,
+        &dictionary.labels,
+        &dictionary.full_labels,
+    ))
+    .map_err(|e| input(e.to_string()))?;
+    Ok(format!("{:x}", Sha256::digest(dictionary_bytes)))
+}
+
+/// Compact retained table; values are indexed by canonical parcel code, never row order.
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct SurfaceParcelTable {
+    pub parcel_ids: Vec<u32>,
+    pub preview: ParcelTablePreview,
+    pub columns: BTreeMap<String, Vec<Option<f32>>>,
+}
+
+pub fn bind_surface_table(
+    dictionary: &ParcelDictionary,
+    request: &ParcelTableRequest,
+) -> BridgeResult<SurfaceParcelTable> {
+    let parsed = parse_table(dictionary, request)?;
+    if let Some(error) = &parsed.preview.binding_error {
+        return Err(input(error));
+    }
+    if parsed.columns.is_empty() {
+        return Err(input("Table has no usable numeric columns"));
+    }
+    Ok(SurfaceParcelTable {
+        parcel_ids: dictionary.labels.iter().map(|l| l.id).collect(),
+        preview: parsed.preview,
+        columns: parsed.columns,
+    })
+}
+
 struct ParsedTable {
     preview: ParcelTablePreview,
     columns: BTreeMap<String, Vec<Option<f32>>>,
@@ -208,13 +247,6 @@ fn parse_table(
     if records.is_empty() || records.len() > 100_000 {
         return Err(input("Table must contain 1–100,000 rows"));
     }
-    let dictionary_bytes = serde_json::to_vec(&(
-        1u32,
-        &dictionary.name,
-        &dictionary.labels,
-        &dictionary.full_labels,
-    ))
-    .map_err(|e| input(e.to_string()))?;
     let mut preview = ParcelTablePreview {
         atlas_name: dictionary.name.clone(),
         atlas_parcels: dictionary.labels.len(),
@@ -245,7 +277,7 @@ fn parse_table(
                 )
             })
             .collect(),
-        dictionary_sha256: format!("{:x}", Sha256::digest(dictionary_bytes)),
+        dictionary_sha256: dictionary_id(dictionary)?,
         table_sha256: format!("{:x}", Sha256::digest(req.text.as_bytes())),
     };
     let index = |name: &str| {
@@ -520,6 +552,76 @@ mod tests {
             network_column: None,
             allow_partial: false,
         }
+    }
+    #[test]
+    fn surface_tables_use_the_same_strict_join_and_keep_all_metric_columns() {
+        let table = bind_surface_table(
+            &dictionary(),
+            &request("id,linear,quadratic\n9,0,0\n1,-2,4\n7,NA,49"),
+        )
+        .unwrap();
+        assert_eq!(table.parcel_ids, vec![1, 7, 9]);
+        assert_eq!(table.columns["linear"][1], Some(-2.));
+        assert_eq!(table.columns["linear"][7], None);
+        assert_eq!(table.columns["linear"][9], Some(0.));
+        assert_eq!(table.columns["quadratic"][7], Some(49.));
+        assert!(bind_surface_table(&dictionary(), &request("id,x\n1,4\n7,5")).is_err());
+        assert!(bind_surface_table(&dictionary(), &request("id,x\n1,4\n1,5\n9,0")).is_err());
+        assert!(bind_surface_table(&dictionary(), &request("id,x\n1,4\n7,5\n8,0")).is_err());
+    }
+    #[tokio::test]
+    #[ignore = "loads real fsaverage/annotation assets; run explicitly with atlas cache access"]
+    async fn real_surface_atlas_dictionaries_bind_polynomial_tables() {
+        let cache = std::env::temp_dir().join(format!(
+            "brainflow_parcel_surface_test_{}",
+            uuid::Uuid::new_v4()
+        ));
+        let service = atlases::AtlasService::new(cache.clone()).unwrap();
+        for family in ["schaefer2018", "glasser2016"] {
+            let config: atlases::AtlasConfig = serde_json::from_value(serde_json::json!({
+                "atlas_id": family, "space": "fsaverage", "resolution": "surface",
+                "parcels": 400, "networks": 7, "surf_type": "pial"
+            }))
+            .unwrap();
+            let result = service.load_surface_atlas(config).await.unwrap();
+            let dictionary = result.parcel_dictionary.unwrap();
+            let mut request = if family == "schaefer2018" {
+                let mut request = request(include_str!(
+                    "../../../test-data/unit/schaefer400_7networks_polynomial_metrics.tsv"
+                ));
+                request.delimiter = "\t".into();
+                request.key_column = Some("roi_id".into());
+                request
+            } else {
+                let mut text = String::from("id,linear,quadratic,cubic\n");
+                for label in dictionary.labels.iter().rev() {
+                    let id = label.id as u64;
+                    text.push_str(&format!("{id},{id},{},{}\n", id * id, id * id * id));
+                }
+                request(&text)
+            };
+            request.allow_partial = false;
+            let table = bind_surface_table(&dictionary, &request).unwrap();
+            assert_eq!(
+                table.preview.matched_parcels,
+                if family == "schaefer2018" { 400 } else { 360 }
+            );
+            let ids: HashSet<_> = table.parcel_ids.iter().copied().collect();
+            for codes in [&result.labels_lh, &result.labels_rh] {
+                assert!(!codes.is_empty());
+                for &code in codes.iter().filter(|&&code| code != 0) {
+                    assert!(ids.contains(&code));
+                    assert_eq!(table.columns["linear"][code as usize], Some(code as f32));
+                }
+            }
+            println!(
+                "{family}: {} parcels, {} LH and {} RH vertices validated",
+                ids.len(),
+                result.labels_lh.len(),
+                result.labels_rh.len()
+            );
+        }
+        std::fs::remove_dir_all(cache).unwrap();
     }
     fn registry(voxels: Vec<f32>) -> VolumeRegistry {
         let mut registry = VolumeRegistry::new();

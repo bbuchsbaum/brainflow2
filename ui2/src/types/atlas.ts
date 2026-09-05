@@ -120,6 +120,7 @@ export interface SurfaceAtlasLabelInfo {
 }
 
 export interface SurfaceAtlasLoadResult {
+  parcel_dictionary_id?: string | null;
   atlas_metadata: AtlasMetadata;
   labels_lh: number[]; // per-vertex labels, left hemisphere
   labels_rh: number[]; // per-vertex labels, right hemisphere

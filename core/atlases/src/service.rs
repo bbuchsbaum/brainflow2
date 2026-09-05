@@ -1139,6 +1139,8 @@ impl AtlasService {
         }
 
         Ok(SurfaceAtlasLoadResult {
+            parcel_dictionary_id: None,
+            parcel_dictionary: Some(crate::parcel_dictionary::ParcelDictionary::from_atlas(&atlas_result)),
             atlas_metadata: AtlasMetadata {
                 id: config.atlas_id,
                 name: format!("Glasser 2016 (HCP-MMP1.0) - {} surface", surf_type),
@@ -1257,7 +1259,30 @@ impl AtlasService {
             let _ = catalog.mark_used(&config.atlas_id);
         }
 
+        // Retain the original labels, not display names reconstructed by the UI.
+        let mut dictionary_labels: Vec<_> = lh_atlas
+            .label_info
+            .iter()
+            .chain(rh_atlas.label_info.iter())
+            .filter(|l| l.id != 0)
+            .cloned()
+            .collect();
+        dictionary_labels.sort_by_key(|l| l.id);
+        if dictionary_labels
+            .windows(2)
+            .any(|pair| pair[0].id == pair[1].id)
+        {
+            return Err(AtlasError::LoadFailed(
+                "Surface hemispheres have overlapping parcel IDs".into(),
+            ));
+        }
         Ok(SurfaceAtlasLoadResult {
+            parcel_dictionary_id: None,
+            parcel_dictionary: Some(crate::parcel_dictionary::ParcelDictionary {
+                name: format!("Schaefer 2018 ({parcels} parcels, {networks} networks)"),
+                full_labels: Some(dictionary_labels.iter().map(|label| label.name.clone()).collect()),
+                labels: dictionary_labels,
+            }),
             atlas_metadata: AtlasMetadata {
                 id: config.atlas_id,
                 name: format!(

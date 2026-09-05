@@ -1,5 +1,6 @@
 import React from 'react';
 import type { SceneItem } from '@/types/sceneItem';
+import { ParcelValuesSection } from './sections/ParcelValuesSection';
 import { RenderSection } from './sections/RenderSection';
 import { DataSection } from './sections/DataSection';
 import { GeometrySection } from './sections/GeometrySection';
@@ -22,6 +23,7 @@ export function SectionRouter({ item }: { item: SceneItem }) {
     case 'volume-base':
       return (
         <>
+          <ParcelValuesSection key={item.id} item={item} />
           <RenderSection item={item} />
           <DataSection item={item} />
           <ViewBehaviorSection item={item} />
@@ -31,6 +33,7 @@ export function SectionRouter({ item }: { item: SceneItem }) {
     case 'volume-overlay':
       return (
         <>
+          <ParcelValuesSection key={item.id} item={item} />
           <RenderSection item={item} />
           <DataSection item={item} />
           <MappingSection item={item} />
@@ -40,6 +43,7 @@ export function SectionRouter({ item }: { item: SceneItem }) {
     case 'volume-overlay-atlas':
       return (
         <>
+          <ParcelValuesSection key={item.id} item={item} />
           <RenderSection item={item} />
           <DataSection item={item} />
           <AdvancedSection item={item} />
@@ -51,6 +55,7 @@ export function SectionRouter({ item }: { item: SceneItem }) {
       // just read as broken.
       return (
         <>
+          <ParcelValuesSection key={item.id} item={item} />
           <RenderSection item={item} />
           <DataSection item={item} />
           <GeometrySection item={item} />
@@ -59,6 +64,7 @@ export function SectionRouter({ item }: { item: SceneItem }) {
     case 'surface-overlay':
       return (
         <>
+          <ParcelValuesSection key={item.id} item={item} />
           <RenderSection item={item} />
           <DataSection item={item} />
           <MappingSection item={item} />

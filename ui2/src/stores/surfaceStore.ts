@@ -1,3 +1,4 @@
+import type { SurfaceParcelOverlay } from '@/services/SurfaceParcelOverlayService';
 /**
  * Surface Store
  * Manages surface geometry and data for visualization
@@ -27,6 +28,8 @@ export interface SurfaceGeometryData {
 }
 
 export interface SurfaceDataLayer {
+  parcelDictionaryId?: string;
+  parcelOverlay?: SurfaceParcelOverlay;
   id: string;
   name: string;
   dataHandle?: string;

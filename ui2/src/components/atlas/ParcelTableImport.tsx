@@ -1,5 +1,9 @@
 import React, { useEffect, useRef, useState } from 'react';
 import type { ParcelTablePreview, ParcelTableRequest } from '@brainflow/api';
+import {
+  surfaceParcelOverlayService,
+  type SurfaceParcelTarget,
+} from '@/services/SurfaceParcelOverlayService';
 import { parcelOverlayService } from '@/services/ParcelOverlayService';
 import { Button } from '../ui/Button';
 
@@ -10,11 +14,13 @@ export function parcelError(error: unknown): string {
 }
 
 export function ParcelTableImport({
-  sourceVolumeId,
+  sourceVolumeId = '',
+  surfaceTarget,
   atlasName,
   onClose,
 }: {
-  sourceVolumeId: string;
+  sourceVolumeId?: string;
+  surfaceTarget?: SurfaceParcelTarget;
   atlasName: string;
   onClose: () => void;
 }) {
@@ -54,6 +60,8 @@ export function ParcelTableImport({
   // Fingerprint the complete input, including mapping and coverage policy. A
   // previous validation result is never usable after an input change.
   const requestKey = JSON.stringify(request);
+  const targetKey = JSON.stringify(surfaceTarget ?? null);
+  const bindingKey = `${targetKey}|${requestKey}`;
   const [validatedKey, setValidatedKey] = useState('');
   useEffect(() => {
     let cancelled = false;
@@ -65,12 +73,16 @@ export function ParcelTableImport({
     }
     setLoading(true);
     const timer = setTimeout(() => {
-      parcelOverlayService
-        .preview(JSON.parse(requestKey) as ParcelTableRequest)
+      const currentRequest = JSON.parse(requestKey) as ParcelTableRequest;
+      const currentTarget = JSON.parse(targetKey) as SurfaceParcelTarget | null;
+      const validation = currentTarget
+        ? surfaceParcelOverlayService.preview(currentTarget, currentRequest)
+        : parcelOverlayService.preview(currentRequest);
+      validation
         .then((result) => {
           if (cancelled) return;
           setPreview(result);
-          setValidatedKey(requestKey);
+          setValidatedKey(bindingKey);
         })
         .catch((e) => {
           if (!cancelled) {
@@ -86,11 +98,11 @@ export function ParcelTableImport({
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [requestKey, text]);
+  }, [requestKey, targetKey, bindingKey, text]);
 
   const selected = preview?.columns.find((c) => c.name === column);
   const canCreate =
-    validatedKey === requestKey &&
+    validatedKey === bindingKey &&
     !loading &&
     !creating &&
     !preview?.bindingError &&
@@ -115,6 +127,8 @@ export function ParcelTableImport({
       <p className="text-sm font-medium">Add parcel values</p>
       <p className="text-xs text-muted-foreground">
         Target: {atlasName}. Keys will be checked against this loaded atlas.
+        {surfaceTarget &&
+          ' Values are applied to its loaded surface parcellations, including both hemispheres when present.'}
       </p>
       <fieldset disabled={creating} className="space-y-3 min-w-0">
         <label className="block text-sm">
@@ -216,7 +230,7 @@ export function ParcelTableImport({
                 </ul>
               </details>
             )}
-            {preview && !loading && validatedKey === requestKey && (
+            {preview && !loading && validatedKey === bindingKey && (
               <div role="status" className="text-xs space-y-1">
                 {preview.bindingError ? (
                   <p className="text-destructive">{preview.bindingError}</p>
@@ -276,7 +290,9 @@ export function ParcelTableImport({
             setCreating(true);
             setError('');
             try {
-              await parcelOverlayService.create(request, column, tableName);
+              if (surfaceTarget)
+                await surfaceParcelOverlayService.create(surfaceTarget, request, column, tableName);
+              else await parcelOverlayService.create(request, column, tableName);
               onClose();
             } catch (e) {
               setError(parcelError(e));

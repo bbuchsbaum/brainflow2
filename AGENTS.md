@@ -174,7 +174,10 @@ Keep AGENTS.md current when touching core architecture, commands, or directory s
 - Known volume atlases retain their canonical dictionary in `VolumeRegistry` at
   load time (`core/atlases/src/parcel_dictionary.rs`). The atlas Inspector opens
   `ParcelTableImport`; `ParcelOverlayService` creates an independent layer and
-  serializes column changes. The Inspector then uses `ParcelOverlayInspector`.
+  serializes column changes. The **active** route is `InspectorRouter` →
+  `ImagingInspector` → `SectionRouter` → `ParcelValuesSection`. Do not wire new
+  controls only into the legacy `LayerInspectorContent` / `ParcelOverlayInspector`.
+  Recognize atlas configuration even when the atlas is a `volume-base` scene item.
 - `preview_parcel_table`, `create_parcel_overlay`, and `select_parcel_column`
   delegate to `api_bridge::parcel_overlay`. Strict matching uses neuroatlas;
   blocking workers parse CSV/TSV and build scalar snapshots, with identity/revision
@@ -184,7 +187,25 @@ Keep AGENTS.md current when touching core architecture, commands, or directory s
   preparation converts values/limits/thresholds to an owned RGBA row; column changes
   update the LUT, not the GPU geometry. Keep both upload paths on `get_render_arc`.
   Unload releases the row via `remove_custom_colormap`; slots are cached/reused.
-- Current scope: discrete 3D volume atlases with IDs 1–2047, session-local tables.
-  Direct surface binding and table persistence remain pending. See
+- Schaefer surface annotations have hemisphere-local IDs. Neuroatlas `b7ec84e`
+  maps full annotation names to the canonical volume LUT before Brainflow receives
+  them, rejecting unknown/duplicate/wrong-hemisphere names. Its LUT parser treats
+  RGB/A fields as metadata rather than appending them to parcel names.
+- Surface atlas loads return an opaque `parcel_dictionary_id` from the concrete
+  neuroatlas dictionary. `preview_surface_parcel_table` and `bind_surface_parcel_table`
+  share the strict volume-table parser. The bridge keeps up to 64 content-addressed
+  dictionaries (LRU); expired imports request an atlas reload. Completed surface
+  overlays retain the compact validated table themselves, independent of that cache.
+  `SurfaceParcelOverlayService` scatters by the labels already attached to each
+  mesh, checks dictionary codes and unchanged source geometry before atomic publication,
+  and groups loaded hemispheres for column changes. Missing/background values are
+  NaN; clear surface thresholds with `[0, 0]`, not `undefined` (the renderer treats
+  undefined as no update). Mesh/layer removal owns these arrays; no GPU volume is created.
+- `get_atlas_roi_locations` scans the loaded atlas on a blocking worker and returns
+  a real voxel nearest each parcel's world-space centroid. `AtlasRoiPicker` offers
+  name/ID search and previous/next navigation; `AtlasRoiService` moves the crosshair
+  through the canonical workspace navigation path. Never jump to an unverified centroid.
+- Current scope: discrete atlas IDs 1–2047, volume and native surface bindings,
+  session-local tables. Saved-session persistence remains pending. See
   `docs/plans/roi-table-atlas-overlays.md`; dev UI fixture is
   `/parcel-overlay-harness.html` (mocked IPC, excluded from the production build).
