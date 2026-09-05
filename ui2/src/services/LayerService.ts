@@ -13,6 +13,12 @@ import { useViewStateStore } from '@/stores/viewStateStore';
 export interface LayerLoadContext {
   workspaceId: string;
   initialGeometry?: Pick<ViewState, 'views' | 'crosshair'>;
+  /** Prepare a replacement before publishing it; the old layer stays visible on failure. */
+  replaceLayerId?: string;
+  memberRender?: Record<string, import('@/types/viewState').ViewLayer>;
+  isCurrent?: () => boolean;
+  beforeCommit?: () => void;
+  afterCommit?: (layer: Layer) => void;
 }
 
 export interface LayerApi {
@@ -64,6 +70,9 @@ export class LayerService {
       this.setLoadingState(provisionalId, true);
 
       const newLayer = await (context ? this.api.addLayer(layer, context) : this.api.addLayer(layer));
+      if (context?.replaceLayerId) {
+        this.eventBus.emit('layer.removed', { layerId: context.replaceLayerId });
+      }
       
       // Emit lifecycle event for downstream observers (histograms, analytics, etc.).
       this.eventBus.emit('layer.added', { layer: newLayer });

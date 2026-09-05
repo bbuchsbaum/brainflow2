@@ -8,7 +8,7 @@ import { getEventBus, type EventBus } from '@/events/EventBus';
 import { getApiService, type ApiService, type VolumeHandle } from './apiService';
 import { useLayerStore } from '@/stores/layerStore';
 import { useFileBrowserStore } from '@/stores/fileBrowserStore';
-import { getLayerService, type LayerService } from './LayerService';
+import { getLayerService, type LayerService, type LayerLoadContext } from './LayerService';
 import type { Layer } from '@/types/layers';
 import type { LayerInfo } from '@/stores/layerStore';
 import { VolumeHandleStore } from './VolumeHandleStore';
@@ -36,6 +36,8 @@ export interface VolumeLoadConfig {
   layerType?: Layer['type'];
   visible?: boolean;
   atlasMetadata?: LayerInfo['atlasMetadata'];
+  imageSetId?: string;
+  replacement?: Pick<LayerLoadContext, 'replaceLayerId' | 'memberRender' | 'isCurrent' | 'beforeCommit' | 'afterCommit'>;
 }
 
 export class VolumeLoadingService {
@@ -162,6 +164,9 @@ export class VolumeLoadingService {
         visible: visible,
         order: currentLayerCount,
         atlasMetadata,
+        source,
+        sourcePath,
+        imageSetId: config.imageSetId,
         // Add 4D time series metadata
         volumeType: volumeHandle.volume_type === 'TimeSeries4D' ? 'TimeSeries4D' : 'Volume3D',
         timeSeriesInfo: volumeHandle.time_series_info
@@ -235,6 +240,7 @@ export class VolumeLoadingService {
       try {
         addedLayer = await this.layerService!.addLayer(layer, {
           workspaceId,
+          ...config.replacement,
           initialGeometry: {
             views: newViews as import('@/types/viewState').ViewState['views'],
             crosshair: { world_mm: volumeBounds.center, visible: true },

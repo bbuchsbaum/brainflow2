@@ -6,9 +6,12 @@ import { useFileBrowserStore } from '@/stores/fileBrowserStore';
 import { setTransport } from '@/services/transport';
 import type { FileTreeNode, MountSource } from '@/types/filesystem';
 
-const { openFolderOntologyInStudioMock } = vi.hoisted(() => ({
+const { openFolderOntologyInStudioMock, openImageSetMock } = vi.hoisted(() => ({
   openFolderOntologyInStudioMock: vi.fn(),
+  openImageSetMock: vi.fn(),
 }));
+
+vi.mock('@/services/ImageSetService', () => ({ getImageSetService: () => ({ openFolder: openImageSetMock }) }));
 
 vi.mock('react-arborist', () => ({
   Tree: () => <div data-testid="mock-tree" />,
@@ -61,6 +64,7 @@ function resetStore(entries: FileTreeNode[], selectedPath: string | null) {
 describe('FileBrowserPanel unmount overflow action', () => {
   beforeEach(() => {
     openFolderOntologyInStudioMock.mockReset();
+    openImageSetMock.mockReset();
     openFolderOntologyInStudioMock.mockResolvedValue('studio');
     vi.stubGlobal(
       'ResizeObserver',
@@ -161,6 +165,15 @@ describe('FileBrowserPanel unmount overflow action', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Files actions' }));
     const unmountButton = screen.getByRole('menuitem', { name: 'Unmount Selected' });
     expect(unmountButton).toBeDisabled();
+  });
+
+  it('opens the selected remote folder as an image set', () => {
+    const root = '/cache/mount/one_sample_all';
+    resetStore([makeRootNode(root, { kind: 'local' })], root);
+    render(<FileBrowserPanel />);
+    fireEvent.click(screen.getByRole('button', { name: 'Files actions' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Open folder as image set…' }));
+    expect(openImageSetMock).toHaveBeenCalledWith(root);
   });
 
   it('opens Set Studio folder ontology from the selected folder', () => {

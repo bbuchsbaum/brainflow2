@@ -1,0 +1,21 @@
+import React from 'react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
+import { expect, it, vi } from 'vitest';
+import { FileTreeRow } from '../files/FileTreeRow';
+import { useContextMenuStore } from '@/stores/contextMenuStore';
+import { ContextMenu } from '@/components/ui/ContextMenu';
+const m = vi.hoisted(() => ({ invoke: vi.fn(), open: vi.fn() }));
+vi.mock('@/services/transport', () => ({ getTransport: () => ({ invoke: m.invoke }) }));
+vi.mock('@/services/ImageSetService', () => ({ getImageSetService: () => ({ openFolder: m.open }) }));
+it('offers the folder action before a delayed BIDS check and does not reopen a dismissed menu', async () => {
+  let finish!: (isBids: boolean) => void;
+  m.invoke.mockReturnValueOnce(new Promise<boolean>((resolve) => { finish = resolve; }));
+  const node = { data: { id: '/remote/folder', path: '/remote/folder', name: 'Folder', type: 'directory' }, level: 0, isOpen: false, toggle: vi.fn() };
+  render(<><FileTreeRow node={node as never} style={{}} tree={{} as never} dragHandle={() => {}} /><ContextMenu /></>);
+  fireEvent.contextMenu(screen.getByText('Folder'));
+  fireEvent.click(screen.getByRole('menuitem', { name: 'Open folder as image set…' }));
+  expect(m.open).toHaveBeenCalledWith('/remote/folder');
+  expect(useContextMenuStore.getState().isOpen).toBe(false);
+  await act(async () => finish(true));
+  expect(useContextMenuStore.getState().isOpen).toBe(false);
+});

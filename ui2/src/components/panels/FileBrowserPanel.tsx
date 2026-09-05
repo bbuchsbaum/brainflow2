@@ -14,6 +14,7 @@ import { getEventBus } from "@/events/EventBus";
 import type { DisplayOpenIntent } from "@/types/loadIntent";
 import { getTransport } from "@/services/transport";
 import { getSetStudioService } from "@/services/studio/SetStudioService";
+import { getImageSetService } from "@/services/ImageSetService";
 import {
   mountConnectedRemoteDirectory,
   type ConnectedRemoteMount,
@@ -422,6 +423,14 @@ const FileBrowserPanelContent: React.FC = () => {
                 else pinSelectedRoot();
               },
               disabled: !selectedRootMount,
+            },
+            {
+              id: "open-folder-image-set",
+              label: "Open folder as image set…",
+              onClick: () => {
+                if (selectedFolderForSet) void getImageSetService().openFolder(selectedFolderForSet);
+              },
+              disabled: !selectedFolderForSet,
             },
             {
               id: "create-set-from-folder",

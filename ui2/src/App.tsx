@@ -1,3 +1,4 @@
+import { OpenImageSetDialog } from '@/components/dialogs/OpenImageSetDialog';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { ErrorBoundary } from 'react-error-boundary';
 import { GoldenLayoutRoot } from '@/components/layout/GoldenLayoutRoot';
@@ -613,6 +614,7 @@ function AppContent() {
       <ContextMenu />
       <TooltipOverlay />
       <ConfirmationDialogHost />
+      <OpenImageSetDialog />
 
       {/* Crosshair Settings Dialog */}
       {showCrosshairSettings && (

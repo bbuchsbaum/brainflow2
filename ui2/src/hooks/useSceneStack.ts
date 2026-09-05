@@ -3,6 +3,8 @@ import { useLayerStore, type LayerInfo } from '@/stores/layerStore';
 import { useSurfaceStore, type LoadedSurface, type SurfaceDataLayer } from '@/stores/surfaceStore';
 import { useViewStateStore } from '@/stores/viewStateStore';
 import type { SceneItem, SceneStackGroups } from '@/types/sceneItem';
+import { useImageSetStore } from '@/stores/imageSetStore';
+import type { ImageSelectionSet } from '@/types/imageSet';
 
 /**
  * Unified, derived read view of all scene-stack items used by the right
@@ -17,14 +19,15 @@ import type { SceneItem, SceneStackGroups } from '@/types/sceneItem';
  */
 export function useSceneStack(): SceneStackGroups {
   const volumeLayers = useLayerStore((state) => state.layers);
+  const imageSets = useImageSetStore((state) => state.sets);
   const surfaces = useSurfaceStore((state) => state.surfaces);
   const viewStateLayers = useViewStateStore(
     (state) => state.viewState?.layers ?? null
   );
 
   return useMemo(
-    () => buildSceneStack(volumeLayers, surfaces, viewStateLayers),
-    [volumeLayers, surfaces, viewStateLayers]
+    () => buildSceneStack(volumeLayers, surfaces, viewStateLayers, imageSets),
+    [volumeLayers, surfaces, viewStateLayers, imageSets]
   );
 }
 
@@ -34,7 +37,8 @@ export function useSceneStack(): SceneStackGroups {
 export function buildSceneStack(
   volumeLayers: LayerInfo[],
   surfaces: Map<string, LoadedSurface>,
-  viewStateLayers: ReadonlyArray<{ id: string; render?: { opacity?: number } }> | null
+  viewStateLayers: ReadonlyArray<{ id: string; render?: { opacity?: number } }> | null,
+  imageSets: Record<string, ImageSelectionSet> = {},
 ): SceneStackGroups {
   const opacityById = new Map<string, number>();
   if (viewStateLayers) {
@@ -56,6 +60,7 @@ export function buildSceneStack(
   // (intensity, threshold, colormap), not the atlas-only stripped variant.
   let baseClaimed = false;
   const volumes: SceneItem[] = volumeLayers.map((layer) => {
+    const imageSet = layer.imageSetId ? imageSets[layer.imageSetId] : undefined;
     const isAtlas = layer.source === 'atlas';
     let kind: SceneItem['kind'];
     if (isAtlas) {
@@ -71,7 +76,7 @@ export function buildSceneStack(
       kind,
       group: 'volume',
       name: layer.name,
-      subtitle: buildVolumeSubtitle(
+      subtitle: imageSet ? `image set · ${imageSet.activeIndex + 1}/${imageSet.members.length} · ${imageSet.members[imageSet.activeIndex]?.name ?? ''}` : buildVolumeSubtitle(
         layer,
         kind as 'volume-base' | 'volume-overlay' | 'volume-overlay-atlas'
       ),

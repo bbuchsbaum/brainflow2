@@ -29,6 +29,7 @@ interface ComparisonState {
 }
 
 interface ComparisonActions {
+  replaceLayer: (oldId: string, newId: string) => void;
   /** Initialize comparison workspace with one panel per layer */
   initFromLayers: (workspaceId: string, layerIds: string[], layerLabels?: Map<string, string>) => void;
 
@@ -81,6 +82,15 @@ interface ComparisonActions {
 export const useComparisonStore = create<ComparisonState & ComparisonActions>()(
   subscribeWithSelector(
     immer((set, get) => ({
+      replaceLayer: (oldId, newId) => {
+        set((state) => {
+          for (const panels of state.panels.values()) {
+            for (const panel of panels) {
+              if (panel.visibleLayerIds.delete(oldId)) panel.visibleLayerIds.add(newId);
+            }
+          }
+        });
+      },
       panels: new Map(),
       layouts: new Map(),
       globalViewTypes: new Map(),

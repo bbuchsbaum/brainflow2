@@ -21,6 +21,8 @@ import {
 import { getEventBus } from '@/events/EventBus';
 import { layerEvictionService } from './LayerEvictionService';
 import { useLoadingQueueStore } from '@/stores/loadingQueueStore';
+import { useInspectorSelectionStore } from '@/stores/inspectorSelectionStore';
+import { useComparisonStore } from '@/stores/comparisonStore';
 
 const DEBUG_LAYER_API =
   import.meta.env.DEV &&
@@ -289,6 +291,11 @@ export class LayerApiImpl implements LayerApi {
       if (context && !useViewStateStore.getState().workspaceViewStates.has(context.workspaceId)) {
         throw new Error('The workspace that requested this volume has been closed');
       }
+      if (context?.isCurrent && !context.isCurrent()) throw new Error('Image selection cancelled');
+      if (context?.replaceLayerId && !useLayerStore.getState().getLayer(context.replaceLayerId)) {
+        throw new Error('The image set was removed while loading');
+      }
+      context?.beforeCommit?.();
       const metadata = this.buildLayerMetadata(earlyMetadata, gpuInfo, renderProps, !metadataOnly);
       layerDebugLog(
         `[LayerApiImpl ${performance.now() - addLayerStartTime}ms] Setting layer metadata:`,
@@ -321,9 +328,13 @@ export class LayerApiImpl implements LayerApi {
     layerDebugLog(`  - viewStateStore: ${viewStateBefore} layers`);
 
     // Add to layer store first.
-    useLayerStore.getState().addLayer(newLayer);
-    // Then project explicit view-layer state directly.
-    this.upsertViewLayer(newLayer, context);
+    if (context?.replaceLayerId) {
+      this.publishReplacement(context.replaceLayerId, newLayer, context);
+    } else {
+      useLayerStore.getState().addLayer(newLayer);
+      this.upsertViewLayer(newLayer, context);
+    }
+    context?.afterCommit?.(newLayer);
 
     const stateAfter = useLayerStore.getState().layers.length;
     const viewStateAfter = useViewStateStore.getState().viewState.layers.length;
@@ -345,7 +356,7 @@ export class LayerApiImpl implements LayerApi {
     // [perf] Refine the intensity window from the histogram in the background so
     // it never blocks the first paint. Fire-and-forget; on failure the layer
     // keeps the synchronous fallback range it was committed with.
-    if (!metadataOnly && rangeOptions) {
+    if (!metadataOnly && rangeOptions && !context?.memberRender?.[context.workspaceId]) {
       this.refineIntensityFromHistogram(newLayer, rangeOptions, context?.workspaceId).catch((err) =>
         console.warn(
           `[LayerApiImpl] Background intensity refinement failed for ${newLayer.id}:`,
@@ -360,10 +371,48 @@ export class LayerApiImpl implements LayerApi {
       });
     }
 
+    if (context?.replaceLayerId) {
+      // Rendering already points at the replacement. Retire the old allocation only now.
+      await this.removeLayer(context.replaceLayerId).catch((error) => {
+        console.warn('[LayerApiImpl] Could not retire the previous image-set member:', error);
+      });
+    }
+
     layerDebugLog(
       `[LayerApiImpl ${performance.now() - addLayerStartTime}ms] addLayer completed in ${(performance.now() - addLayerStartTime).toFixed(0)}ms`,
     );
     return newLayer;
+  }
+
+  private publishReplacement(oldId: string, next: Layer, context: LayerLoadContext): void {
+    const previous = useLayerStore.getState().getLayer(oldId)!;
+    next.visible = previous.visible;
+    next.order = previous.order;
+    const defaults = this.toViewLayer(next);
+    const selection = useInspectorSelectionStore.getState();
+    const wasSelected = selection.activeItemId === oldId;
+    useLayerStore.getState().replaceLayer(oldId, next);
+    const views = useViewStateStore.getState();
+    for (const [workspaceId, state] of views.workspaceViewStates) {
+      if (!state.layers.some((layer) => layer.id === oldId)) continue;
+      views.setViewState((draft) => {
+        const index = draft.layers.findIndex((layer) => layer.id === oldId);
+        if (index < 0) return;
+        const old = draft.layers[index];
+        draft.layers[index] = {
+          ...defaults,
+          ...context.memberRender?.[workspaceId],
+          id: next.id,
+          volumeId: next.volumeId,
+          name: next.name,
+          visible: old.visible,
+          opacity: old.opacity,
+          order: old.order,
+        };
+      }, workspaceId);
+    }
+    useComparisonStore.getState().replaceLayer(oldId, next.id);
+    if (wasSelected) useInspectorSelectionStore.setState({ activeItemId: next.id });
   }
 
   /**

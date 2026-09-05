@@ -18,6 +18,7 @@ import { useFileBrowserStore } from "@/stores/fileBrowserStore";
 import { useIsLoading } from "@/stores/loadingQueueStore";
 import { getEventBus } from "@/events/EventBus";
 import { getTransport } from "@/services/transport";
+import { getImageSetService } from "@/services/ImageSetService";
 import { useContextMenuStore } from "@/stores/contextMenuStore";
 import type { ContextMenuItem } from "@/stores/contextMenuStore";
 import { useWorkspaceStore } from "@/stores/workspaceStore";
@@ -253,47 +254,41 @@ export const FileTreeRow: React.FC<FileTreeRowProps> = ({ node, style }) => {
       const clientX = event.clientX;
       const clientY = event.clientY;
 
-      void (async () => {
-        let isBids = false;
-        try {
-          isBids = await getTransport().invoke<boolean>(
-            "check_bids_directory",
-            { path: dirPath },
-          );
-        } catch {
-          // Non-fatal: show menu without BIDS option if check fails
-        }
-
-        const dirItems: ContextMenuItem[] = [
-          {
-            id: "open-dir",
-            label: "Expand",
-            onClick: () => {
-              if (!node.isOpen) {
-                node.toggle();
-                if (!data.children || data.children.length === 0) {
-                  fileBrowserStore.loadDirectory(dirPath);
-                }
+      const dirItems: ContextMenuItem[] = [
+        {
+          id: "open-folder-image-set",
+          label: "Open folder as image set…",
+          onClick: () => void getImageSetService().openFolder(dirPath),
+        },
+        {
+          id: "open-dir",
+          label: "Expand",
+          onClick: () => {
+            if (!node.isOpen) {
+              node.toggle();
+              if (!data.children || data.children.length === 0) {
+                fileBrowserStore.loadDirectory(dirPath);
               }
-            },
+            }
           },
-        ];
-
-        if (isBids) {
-          dirItems.push({
+        },
+      ];
+      contextMenu.open(clientX, clientY, dirItems);
+      // Folder actions are immediate, including on remote mounts. Add the BIDS
+      // action only if this menu is still open when discovery completes.
+      void getTransport().invoke<boolean>("check_bids_directory", { path: dirPath })
+        .then((isBids) => {
+          const current = useContextMenuStore.getState();
+          if (!isBids || !current.isOpen || current.items !== dirItems) return;
+          contextMenu.open(clientX, clientY, [...dirItems, {
             id: "open-bids",
             label: "Open as BIDS Dataset",
             onClick: () => {
-              void useWorkspaceStore
-                .getState()
-                .createWorkspace("bids-explorer");
+              void useWorkspaceStore.getState().createWorkspace("bids-explorer");
               void useBidsStore.getState().scanDataset(dirPath);
             },
-          });
-        }
-
-        contextMenu.open(clientX, clientY, dirItems);
-      })();
+          }]);
+        }).catch(() => { /* The ordinary folder actions remain available. */ });
       return;
     }
 

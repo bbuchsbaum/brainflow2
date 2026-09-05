@@ -57,6 +57,7 @@ declare global {
 
 // Extended layer info that includes volume metadata and source metadata
 export interface LayerInfo extends Layer {
+  imageSetId?: string;
   parcelOverlay?: import("@brainflow/api").ParcelOverlayInfo;
   source?: "file" | "template" | "atlas" | "other";
   sourcePath?: string;
@@ -100,6 +101,7 @@ export interface LayerState {
 
   // Actions
   addLayer: (layer: LayerInfo) => void;
+  replaceLayer: (id: string, layer: LayerInfo) => void;
   removeLayer: (id: string) => void;
   updateLayer: (id: string, updates: Partial<LayerInfo>) => void;
   reorderLayers: (layers: LayerInfo[]) => void;
@@ -185,6 +187,18 @@ const createLayerStore = () =>
             "layerStore",
             "Layer added in store (lifecycle events emitted by LayerService)",
           );
+        },
+
+        replaceLayer: (id, layer) => {
+          if (!get().layers.some((item) => item.id === id)) return;
+          set((state) => {
+            const index = state.layers.findIndex((item) => item.id === id);
+            state.layers[index] = { ...layer, order: state.layers[index].order };
+            state.layerMetadata.delete(id);
+            state.loadingLayers.delete(id);
+            state.errorLayers.delete(id);
+            if (state.selectedLayerId === id) state.selectedLayerId = layer.id;
+          });
         },
 
         removeLayer: (id) => {

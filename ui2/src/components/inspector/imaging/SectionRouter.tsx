@@ -7,6 +7,7 @@ import { GeometrySection } from './sections/GeometrySection';
 import { MappingSection } from './sections/MappingSection';
 import { ViewBehaviorSection } from './sections/ViewBehaviorSection';
 import { AdvancedSection } from './sections/AdvancedSection';
+import { ImageSetSection } from './sections/ImageSetSection';
 
 /**
  * Picks which sections to render for the active scene item.
@@ -23,6 +24,7 @@ export function SectionRouter({ item }: { item: SceneItem }) {
     case 'volume-base':
       return (
         <>
+          <ImageSetSection item={item} />
           <ParcelValuesSection key={item.id} item={item} />
           <RenderSection item={item} />
           <DataSection item={item} />
@@ -33,6 +35,7 @@ export function SectionRouter({ item }: { item: SceneItem }) {
     case 'volume-overlay':
       return (
         <>
+          <ImageSetSection item={item} />
           <ParcelValuesSection key={item.id} item={item} />
           <RenderSection item={item} />
           <DataSection item={item} />

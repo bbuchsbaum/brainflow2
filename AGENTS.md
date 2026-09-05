@@ -209,3 +209,20 @@ Keep AGENTS.md current when touching core architecture, commands, or directory s
   session-local tables. Saved-session persistence remains pending. See
   `docs/plans/roi-table-atlas-overlays.md`; dev UI fixture is
   `/parcel-overlay-harness.html` (mocked IPC, excluded from the production build).
+
+## Folder Image Sets
+
+- Files offers **Open folder as image set…** for direct NIfTI children. The global
+  `OpenImageSetDialog` is mounted once in `App`; `ImageSetService` and
+  `imageSetStore` coordinate discovery, membership, pending selection and
+  per-member display preferences across panel roots.
+- One member occupies one volume layer. `LayerLoadContext.replaceLayerId`
+  prepares the new GPU resource before replacing the old scene/view entries;
+  request guards prevent stale publication. Replacement preserves all referencing
+  workspaces' geometry and layer order, updates Inspector/Compare references,
+  then retires the previous allocation and volume.
+- A collection's `imageSetId` is stable; its active volume/layer ID changes.
+  Members need not share a grid. Remote members use the existing disk cache;
+  this browsing workflow does not preallocate the whole collection or assume the
+  co-registered `ImageSet` GPU ring contract. See `docs/folder-image-sets.md` and
+  the dev-only `/image-set-harness.html` for the workflow and UI check.
