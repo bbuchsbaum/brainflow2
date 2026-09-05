@@ -190,3 +190,20 @@ No external dependencies (static data files), but adheres to standards:
 - `bilateral_frontal_roi.func.gii` - Example functional overlay data
 
 <!-- MANUAL: Any manually added notes below this line are preserved on regeneration -->
+
+### Parcel table overlay example
+
+`unit/schaefer400_7networks_polynomial_metrics.tsv` contains 400 rows for the
+Schaefer 2018 atlas with 400 parcels and 7 networks. `roi_id` is the canonical
+integer label code (1–400); the three synthetic metrics are `linear = i`,
+`quadratic = i²`, and `cubic = i³`, where `i = roi_id`. The TSV stores literal
+numeric values, not spreadsheet formulas. IDs were checked against the cached
+TemplateFlow `tpl-MNI152NLin6Asym_atlas-Schaefer2018_desc-400Parcels7Networks_dseg.tsv`
+dictionary. These are demonstration values, not experimental statistics.
+
+Load the matching volume atlas, choose **Inspector → Add parcel values…**, open
+the TSV, and select **Atlas integer ID** with **Parcel key column = roi_id**.
+Keep complete coverage enabled, select any of the three metrics, and create the
+overlay. The overlay Inspector can then switch between columns. Integer keys
+alone do not identify the atlas variant; select the stated 400-parcel/7-network
+atlas explicitly.
