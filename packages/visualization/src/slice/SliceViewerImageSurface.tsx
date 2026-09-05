@@ -39,12 +39,13 @@ export function SliceViewerImageSurface({
 
   useLayoutEffect(() => {
     const canvas = canvasRef.current;
-    if (!canvas || !image) return;
+    if (!canvas) return;
 
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
     ctx.clearRect(0, 0, width, height);
+    if (!image) return;
     const placement = drawScaledImage(ctx, image, width, height);
     customRender(ctx, placement);
     onImageReceived?.(image);

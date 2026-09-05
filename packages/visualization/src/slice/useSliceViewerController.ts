@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import type { MouseEvent } from 'react';
 import { drawSliceBorder, drawSliceViewerCrosshair } from './drawing.js';
 import { clientPointToWorld, projectWorldToCanvas } from './geometry.js';
@@ -39,79 +39,30 @@ export function useSliceViewerController({
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const placementRef = useRef<SliceViewerPlacement | null>(null);
   const viewPlaneRef = useRef<SliceViewerPlane | null>(viewPlane ?? null);
-  const crosshairRef = useRef(crosshair ?? null);
-  const crosshairStyleRef = useRef(crosshairStyle ?? null);
-  const showSliceBorderRef = useRef(showSliceBorder);
-  const sliceBorderWidthRef = useRef(sliceBorderWidth);
-  const customRenderRef = useRef(customRender);
-  const onPlacementChangeRef = useRef(onPlacementChange);
-
   useEffect(() => {
     viewPlaneRef.current = viewPlane ?? null;
   }, [viewPlane]);
-
-  useEffect(() => {
-    crosshairRef.current = crosshair ?? null;
-  }, [crosshair]);
-
-  useEffect(() => {
-    crosshairStyleRef.current = crosshairStyle ?? null;
-  }, [crosshairStyle]);
-
-  useEffect(() => {
-    showSliceBorderRef.current = showSliceBorder;
-  }, [showSliceBorder]);
-
-  useEffect(() => {
-    sliceBorderWidthRef.current = sliceBorderWidth;
-  }, [sliceBorderWidth]);
-
-  useEffect(() => {
-    customRenderRef.current = customRender;
-  }, [customRender]);
-
-  useEffect(() => {
-    onPlacementChangeRef.current = onPlacementChange;
-  }, [onPlacementChange]);
 
   const handleCanvasReady = useCallback((canvas: HTMLCanvasElement) => {
     canvasRef.current = canvas;
     onCanvasReady?.(canvas);
   }, [onCanvasReady]);
 
-  const handleRender = useMemo<SliceViewerCustomRender>(() => {
-    return (ctx, placement) => {
-      placementRef.current = placement;
-      onPlacementChangeRef.current?.(placement);
-      customRenderRef.current?.(ctx, placement);
-
-      if (showSliceBorderRef.current) {
-        drawSliceBorder(ctx, placement, sliceBorderWidthRef.current);
-      }
-
-      const currentCrosshair = crosshairRef.current;
-      const currentStyle = crosshairStyleRef.current;
-      const currentViewPlane = viewPlaneRef.current;
-      if (!currentCrosshair?.visible || !currentStyle || !currentViewPlane) {
-        return;
-      }
-
-      const canvasPoint = projectWorldToCanvas(
-        currentCrosshair.world_mm,
-        currentViewPlane,
-        placement
-      );
-      if (!canvasPoint) return;
-
-      drawSliceViewerCrosshair({
-        ctx,
-        canvasX: canvasPoint.canvasX,
-        canvasY: canvasPoint.canvasY,
-        bounds: placement,
-        style: currentStyle,
-      });
-    };
-  }, []);
+  // Overlay inputs must invalidate drawing even when the bitmap is unchanged.
+  // Capture this render's props directly; passive refs would lag a layout draw.
+  const handleRender = useCallback<SliceViewerCustomRender>((ctx, placement) => {
+    placementRef.current = placement;
+    onPlacementChange?.(placement);
+    customRender?.(ctx, placement);
+    if (showSliceBorder) drawSliceBorder(ctx, placement, sliceBorderWidth);
+    if (!crosshair?.visible || !crosshairStyle || !viewPlane) return;
+    const point = projectWorldToCanvas(crosshair.world_mm, viewPlane, placement);
+    if (!point) return;
+    drawSliceViewerCrosshair({
+      ctx, canvasX: point.canvasX, canvasY: point.canvasY,
+      bounds: placement, style: crosshairStyle,
+    });
+  }, [crosshair, crosshairStyle, viewPlane, customRender, onPlacementChange, showSliceBorder, sliceBorderWidth]);
 
   const handleMouseDown = useCallback((event: MouseEvent<HTMLDivElement>) => {
     onMouseDown?.(event);

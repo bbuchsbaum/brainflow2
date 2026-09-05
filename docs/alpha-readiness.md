@@ -3,8 +3,8 @@
 Brainflow has a working native loading/rendering path and a substantial automated
 safety net. This hardening pass fixes concrete coordinate and scheduling defects;
 it does not certify an alpha release. The first pass was committed and pushed as
-`1d49e0018a7750cccdf5df846d24c330404ffeab`. The second pass below is uncommitted;
-pre-existing working-tree edits remain preserved.
+`1d49e0018a7750cccdf5df846d24c330404ffeab`. The startup fix was committed as
+`20b68685`; pre-existing working-tree edits remain preserved.
 
 ## Changes implemented
 
@@ -89,30 +89,57 @@ command/permission checks still align all 103 commands. Receipts are
 Desktop control still failed to start, so visual and mouse acceptance remains
 open. The validation app/server were stopped and the browser audit was clean.
 
+## Third pass: navigation and resource cleanup
+
+- Crosshair changes and asynchronous resize responses stay with their originating
+  workspace. Newer requests supersede older ones; returned planes align with the
+  current cursor instead of reverting a more recent navigation. Reset invalidates
+  outstanding requests. Plane alignment is a shared pure geometry helper.
+- Slice stepping uses voxel-center bounds divided by the interval count. Inputs
+  are finite-checked, clamped and ignored when unchanged. Mosaic cells read their
+  own workspace, including crosshairs and click navigation.
+- Crosshair moves and visibility changes redraw the overlay even when its bitmap
+  is unchanged. Removing an image clears the canvas. Failed canvas draws have a
+  bounded retry timer that is cancelled on replacement or teardown.
+- Deferred surface-viewer initialization cancels its animation frame on teardown;
+  a failed fallback viewer is disposed. Backend surface unload also releases
+  projection overlays and cached samplers. Late projection/sampler publication
+  checks that the target surface still exists.
+
+Validation on Apple M3 Max: **1,301 UI tests passed** across 207 files (3 skipped,
+1 todo, 1 skipped file), **118 bridge unit tests passed**, shared visualization
+and UI TypeScript builds passed, and the production frontend built successfully.
+A subsequent request-map/reset cleanup passed all 24 navigation tests and another
+UI typecheck/build. The GPU lifecycle test uploaded and released 200 alternating
+64-cubed/96-cubed volumes; resident texture slots and bytes returned to zero on
+every cycle. Another test completed 25 surface/sampler/projected-overlay teardown
+cycles without retained registry entries.
+
+RSS at GPU cycles 5, 25, 50, 100 and 200 was respectively 61,632, 129,904, 145,552,
+87,200 and 160,096 KiB. Queue work was submitted and drained before measurement.
+These fluctuating observations do not establish a long-session memory plateau;
+driver caches and frontend image lifetimes need a longer native workload.
+
+Receipts: `/tmp/brainflow-alpha-pass3-ui-final.log`,
+`/tmp/brainflow-alpha-pass3-navigation-final.log`,
+`/tmp/brainflow-alpha-pass3-bridge.log`, and
+`/tmp/brainflow-alpha-pass3-resources-drained.log`.
+The [alpha acceptance checklist](alpha-acceptance.md) separates automated evidence
+from outstanding manual interaction checks.
+
 ## Remaining alpha gates
 
-1. **Native visual and interaction acceptance.** The computer-control service
-   failed to start twice. Native loading/render logs do not prove the displayed
-   image, crosshair placement, mouse picking, wheel navigation, resize, or panel
-   teardown. Exercise orthogonal, montage and integrated views with asymmetric
-   landmarks, two simultaneous workspaces, and paired anatomical/inflated meshes.
-2. **End-to-end harness and release build.** Playwright's browser page still
-   does not acquire Tauri IPC merely by opening the dev URL. A real native
-   harness or explicit browser bridge fixture is needed; test discovery is not
-   end-to-end execution. Run the supported platform matrix and packaged app
-   smoke checks before release. Hosted CI and signed installers are unverified.
-3. **Spatial compatibility.** Linking assumes an already shared anatomical
-   world frame; it does not register a subject surface to a template volume.
-   Filename checks reject contradictory evidence but do not establish overlay
-   compatibility when metadata is absent or files are renamed. Full metadata
-   validation and oblique CPU projection remain separate work.
-4. **Efficiency and lifecycle.** No interaction-latency, memory-growth or startup
-   benchmark was run. The production build still warns about large main and
-   surface chunks. Dependency installation reports React 19 peer-range warnings
-   in surfview, visx and Allotment's resize helper. Duplicate GPU initialization
-   is fixed in the second pass; broader memory and latency evidence is pending.
-
-The next acceptance pass should record screenshots and bidirectional landmark
-coordinates, repeated load/unload memory behavior, and frame latency on a fixed
-fixture and machine. Broad bridge/renderer decomposition can then proceed behind
-these checks without obscuring correctness changes.
+1. **Native visual and interaction acceptance.** Desktop control fails during
+   service startup. Logs do not prove displayed images, crosshair placement,
+   picking, wheel navigation, resize, or panel teardown. The acceptance fixture
+   provides explicit landmarks for those checks.
+2. **Native end-to-end and platform matrix.** Playwright test discovery does not
+   execute Tauri IPC. A native harness remains necessary. Hosted CI, Windows,
+   Linux, Intel macOS and signed/notarized distribution are unverified.
+3. **Spatial compatibility.** Linking assumes an already shared anatomical world
+   frame; it does not register surfaces to volumes. Filename checks reject
+   contradictions but cannot establish identity after renaming or without
+   metadata. Full metadata validation and oblique CPU projection remain separate.
+4. **Efficiency.** Resource accounting is tested, but long-session process memory,
+   interaction latency and startup benchmarks remain open. Production chunks are
+   large; React 19 peer-range warnings remain in several visualization packages.

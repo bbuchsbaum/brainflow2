@@ -391,15 +391,17 @@ const NeuroSurfaceCanvasInner: React.FC<NeuroSurfaceCanvasProps> = ({
   useEffect(() => {
     if (!containerRef.current || isInitialized || viewerRef.current) return;
 
+    let pendingFrame: number | null = null;
+    let cancelled = false;
     const initializeWhenReady = () => {
-      if (!containerRef.current) return;
+      if (cancelled || !containerRef.current || viewerRef.current) return;
 
       const rect = containerRef.current.getBoundingClientRect();
       const actualWidth = rect.width || width;
       const actualHeight = rect.height || height;
 
       if (actualWidth <= 0 || actualHeight <= 0) {
-        requestAnimationFrame(initializeWhenReady);
+        pendingFrame = requestAnimationFrame(initializeWhenReady);
         return;
       }
 
@@ -429,6 +431,7 @@ const NeuroSurfaceCanvasInner: React.FC<NeuroSurfaceCanvasProps> = ({
         }
 
         if ((viewer as any).initializationFailed) {
+          viewer.dispose();
           throw new Error('Surface viewer failed to initialize (both plain and SSAO paths)');
         }
 
@@ -457,6 +460,10 @@ const NeuroSurfaceCanvasInner: React.FC<NeuroSurfaceCanvasProps> = ({
     };
 
     initializeWhenReady();
+    return () => {
+      cancelled = true;
+      if (pendingFrame !== null) cancelAnimationFrame(pendingFrame);
+    };
   }, [isInitialized, onError, showControls, viewpoint, width, height]);
 
   useLayoutEffect(() => {

@@ -97,6 +97,23 @@ describe('ReusableSliceViewport', () => {
     expect(ctx.lineTo).toHaveBeenCalledWith(60, 120);
   });
 
+  it('redraws moved or hidden crosshairs without a new image or canvas size', async () => {
+    const ctx = mockContext();
+    const style = { color: '#fff', lineWidth: 2, lineDash: [] };
+    const surface = (props: SliceViewerSurfaceProps) => <TestSurface {...props} ctx={ctx} />;
+    const { rerender } = render(<ReusableSliceViewport width={400} height={200} viewPlane={plane}
+      crosshair={{ visible: true, world_mm: [60, 0, 30] }} crosshairStyle={style} renderSurface={surface} />);
+    await waitFor(() => expect(ctx.moveTo).toHaveBeenCalledWith(60, 20));
+    vi.mocked(ctx.moveTo).mockClear();
+    rerender(<ReusableSliceViewport width={400} height={200} viewPlane={plane}
+      crosshair={{ visible: true, world_mm: [80, 0, 30] }} crosshairStyle={style} renderSurface={surface} />);
+    await waitFor(() => expect(ctx.moveTo).toHaveBeenCalledWith(80, 20));
+    vi.mocked(ctx.moveTo).mockClear();
+    rerender(<ReusableSliceViewport width={400} height={200} viewPlane={plane}
+      crosshair={{ visible: false, world_mm: [80, 0, 30] }} crosshairStyle={style} renderSurface={surface} />);
+    expect(ctx.moveTo).not.toHaveBeenCalled();
+  });
+
   it('maps primary-button clicks inside the placement to world coordinates', async () => {
     const ctx = mockContext();
     const onWorldClick = vi.fn();

@@ -6,7 +6,7 @@
  * Includes comprehensive error handling and recovery.
  */
 
-import { useRef, useCallback, useEffect } from 'react';
+import { useRef, useCallback, useEffect, useLayoutEffect } from 'react';
 import { useRenderState, useRenderStateStore } from '@/stores/renderStateStore';
 import { drawScaledImage } from '@/utils/canvasUtils';
 import type { ImagePlacement } from '@/utils/canvasUtils';
@@ -36,7 +36,7 @@ export function useRenderCanvas(options: UseRenderCanvasOptions = {}) {
   const error = errorObj?.message || null;
   
   // Get store methods for error handling
-  const { setError } = useRenderStateStore();
+  const setError = useRenderStateStore(state => state.setError);
   
   // Refs
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -46,13 +46,24 @@ export function useRenderCanvas(options: UseRenderCanvasOptions = {}) {
   const lastImageRef = useRef<ImageBitmap | null>(null);
   const errorRef = useRef<string | null>(null);
 
-  useEffect(() => { lastImageRef.current = lastImage; }, [lastImage]);
+  const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useLayoutEffect(() => {
+    lastImageRef.current = lastImage;
+    retryCountRef.current = 0;
+    if (retryTimerRef.current !== null) clearTimeout(retryTimerRef.current);
+    retryTimerRef.current = null;
+    return () => {
+      if (retryTimerRef.current !== null) clearTimeout(retryTimerRef.current);
+      retryTimerRef.current = null;
+      lastImageRef.current = null;
+    };
+  }, [lastImage, storeKey]);
   useEffect(() => { errorRef.current = error; }, [error]);
   
   // Redraw function that can be called when canvas resizes
   const redrawCanvas = useCallback(() => {
     const image = lastImageRef.current;
-    if (!canvasRef.current || !image) return;
+    if (!canvasRef.current) return;
     
     const canvas = canvasRef.current;
     const canvasWidth = canvas.width;
@@ -73,17 +84,13 @@ export function useRenderCanvas(options: UseRenderCanvasOptions = {}) {
     }
     
     try {
-      // Clear any previous error on successful draw attempt
-      if (errorRef.current) {
-        setError(storeKey, null);
-      }
-      
-      // Reset retry count on new image
-      retryCountRef.current = 0;
-      
       // Always clear before drawing to avoid stale edge strips during splitter resizes.
       ctx.clearRect(0, 0, canvasWidth, canvasHeight);
-      
+      if (!image) {
+        imagePlacementRef.current = null;
+        return;
+      }
+
       // Validate ImageBitmap before drawing
       if (!image.width || !image.height) {
         throw new Error(`Invalid ImageBitmap dimensions: ${image.width}x${image.height}`);
@@ -92,6 +99,9 @@ export function useRenderCanvas(options: UseRenderCanvasOptions = {}) {
       // Use the shared canvas utility to draw the image with proper scaling
       const placement = drawScaledImage(ctx, image, canvasWidth, canvasHeight);
       
+      retryCountRef.current = 0;
+      if (errorRef.current) setError(storeKey, null);
+
       // Store placement for potential future use
       imagePlacementRef.current = placement;
       
@@ -124,12 +134,13 @@ export function useRenderCanvas(options: UseRenderCanvasOptions = {}) {
       setError(storeKey, new Error(`Render failed: ${errorMessage}`));
       
       // Attempt retry for transient errors
-      if (retryCountRef.current < maxRetries) {
+      if (retryCountRef.current < maxRetries && retryTimerRef.current === null) {
         retryCountRef.current++;
         console.log(`[useRenderCanvas ${storeKey}] Retrying render (attempt ${retryCountRef.current}/${maxRetries})`);
         
         // Retry after a short delay
-        setTimeout(() => {
+        retryTimerRef.current = setTimeout(() => {
+          retryTimerRef.current = null;
           redrawCanvas();
         }, 100 * retryCountRef.current); // Exponential backoff
       }
@@ -140,8 +151,8 @@ export function useRenderCanvas(options: UseRenderCanvasOptions = {}) {
   
   // React to changes in lastImage from the store
   // When RenderStateStore updates with a new image, draw it to the canvas
-  useEffect(() => {
-    if (lastImage && canvasRef.current) {
+  useLayoutEffect(() => {
+    if (canvasRef.current) {
       const contextInfo = context ? `(${context.type})` : tag ? `(tag)` : viewType ? `(view)` : '';
       console.log(`[useRenderCanvas ${storeKey}${contextInfo}] New image from store, drawing to canvas`);
       

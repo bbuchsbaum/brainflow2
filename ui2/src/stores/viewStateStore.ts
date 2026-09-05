@@ -1,3 +1,4 @@
+import { alignPlaneToCrosshair } from "./viewStateGeometry";
 /**
  * ViewState Store
  *
@@ -116,6 +117,7 @@ interface ViewStateStore {
     world_mm: WorldCoordinates,
     updateViews?: boolean,
     immediate?: boolean,
+    workspaceId?: string,
   ) => Promise<void>;
   setCrosshairVisible: (visible: boolean) => void;
   updateView: (viewType: ViewType, plane: ViewPlane) => void;
@@ -155,13 +157,17 @@ const createViewStateStore = () =>
         useTimeout: false,
       })(
         immer<ViewStateStore>((set, get) => {
+          const crosshairRequests = new Map<string, number>();
+          const resizeRequests = new Map<string, { workspaceKey: string; request: number }>();
+          let nextRequest = 0;
           const getCurrentWorkspaceKey = () => get().activeWorkspaceKey;
 
           const applyViewStateUpdate = (
             recipe: (draft: ViewState) => ViewState | void,
+            workspaceKey = getCurrentWorkspaceKey(),
           ): ViewState => {
             const currentState = get();
-            const workspaceKey = getCurrentWorkspaceKey();
+            if (!currentState.workspaceViewStates.has(workspaceKey)) return currentState.viewState;
             const currentViewState =
               currentState.workspaceViewStates.get(workspaceKey) ??
               currentState.viewState;
@@ -194,8 +200,10 @@ const createViewStateStore = () =>
                 workspaceKey,
                 nextRevisions,
               );
-              state.viewState = nextViewState;
-              state.viewStateRevisions = nextRevisions;
+              if (state.activeWorkspaceKey === workspaceKey) {
+                state.viewState = nextViewState;
+                state.viewStateRevisions = nextRevisions;
+              }
             });
 
             return nextViewState;
@@ -317,6 +325,7 @@ const createViewStateStore = () =>
               position,
               updateViews = false,
               immediate = false,
+              workspaceId,
             ) => {
               storeLog("viewStateStore", "setCrosshair called with:", {
                 position,
@@ -327,13 +336,20 @@ const createViewStateStore = () =>
                   : typeof position,
               });
 
-              if (!Array.isArray(position) || position.length !== 3) {
+              if (!Array.isArray(position) || position.length !== 3 || !position.every(Number.isFinite)) {
                 throw new Error(
                   `setCrosshair expects position as [x, y, z] array, got: ${JSON.stringify(position)}`,
                 );
               }
 
               const currentState = get();
+              const workspaceKey = workspaceId && currentState.workspaceViewStates.has(workspaceId)
+                ? workspaceId : currentState.activeWorkspaceKey;
+              const request = ++nextRequest;
+              for (const key of crosshairRequests.keys()) {
+                if (!currentState.workspaceViewStates.has(key)) crosshairRequests.delete(key);
+              }
+              crosshairRequests.set(workspaceKey, request);
               const resizePromises = Object.values(
                 currentState.resizeInFlight,
               ).filter((p) => p !== null);
@@ -358,6 +374,7 @@ const createViewStateStore = () =>
                 }
               }
 
+              if (crosshairRequests.get(workspaceKey) !== request) return;
               applyViewStateUpdate((state) => {
                 try {
                   const [x, y, z] = position;
@@ -366,77 +383,15 @@ const createViewStateStore = () =>
                     `Setting crosshair via normal path to: [${x}, ${y}, ${z}]`,
                   );
 
-                  state.crosshair.world_mm = [x, y, z];
+                  if (!state.crosshair.world_mm.every((value, axis) => value === position[axis])) {
+                    state.crosshair.world_mm = [x, y, z];
+                  }
                   state.crosshair.visible = true;
 
                   if (updateViews) {
                     const views = state.views;
 
-                    const calculateNormal = (
-                      u: [number, number, number],
-                      v: [number, number, number],
-                    ): [number, number, number] => {
-                      return [
-                        u[1] * v[2] - u[2] * v[1],
-                        u[2] * v[0] - u[0] * v[2],
-                        u[0] * v[1] - u[1] * v[0],
-                      ];
-                    };
-
-                    const updateSlicePosition = (
-                      view: ViewPlane,
-                      crosshair: [number, number, number],
-                    ): [number, number, number] => {
-                      const u: [number, number, number] = [
-                        view.u_mm[0],
-                        view.u_mm[1],
-                        view.u_mm[2],
-                      ];
-                      const v: [number, number, number] = [
-                        view.v_mm[0],
-                        view.v_mm[1],
-                        view.v_mm[2],
-                      ];
-                      const normal = calculateNormal(u, v);
-                      const mag = Math.sqrt(
-                        normal[0] ** 2 + normal[1] ** 2 + normal[2] ** 2,
-                      );
-                      const nNorm = [
-                        normal[0] / mag,
-                        normal[1] / mag,
-                        normal[2] / mag,
-                      ];
-
-                      const distance =
-                        crosshair[0] * nNorm[0] +
-                        crosshair[1] * nNorm[1] +
-                        crosshair[2] * nNorm[2];
-                      const originDistance =
-                        view.origin_mm[0] * nNorm[0] +
-                        view.origin_mm[1] * nNorm[1] +
-                        view.origin_mm[2] * nNorm[2];
-                      const offset = distance - originDistance;
-
-                      return [
-                        view.origin_mm[0] + offset * nNorm[0],
-                        view.origin_mm[1] + offset * nNorm[1],
-                        view.origin_mm[2] + offset * nNorm[2],
-                      ];
-                    };
-
-                    views.axial.origin_mm = updateSlicePosition(views.axial, [
-                      x,
-                      y,
-                      z,
-                    ]);
-                    views.sagittal.origin_mm = updateSlicePosition(
-                      views.sagittal,
-                      [x, y, z],
-                    );
-                    views.coronal.origin_mm = updateSlicePosition(
-                      views.coronal,
-                      [x, y, z],
-                    );
+                    for (const view of Object.values(views)) alignPlaneToCrosshair(view, position);
 
                     storeLog(
                       "viewStateStore",
@@ -447,9 +402,9 @@ const createViewStateStore = () =>
                   storeError("viewStateStore", "Error in setCrosshair:", error);
                   throw error;
                 }
-              });
+              }, workspaceKey);
 
-              if (immediate) {
+              if (immediate && get().activeWorkspaceKey === workspaceKey) {
                 storeLog(
                   "viewStateStore",
                   "Immediate update requested - forcing flush",
@@ -504,6 +459,20 @@ const createViewStateStore = () =>
               }
 
               const currentState = get();
+              const workspaceKey = currentState.activeWorkspaceKey;
+              const resizeKey = `${workspaceKey}:${useViewLayoutStore.getState().isLocked() ? 'all' : viewType}`;
+              const request = ++nextRequest;
+              for (const [key, pending] of resizeRequests) {
+                if (!currentState.workspaceViewStates.has(pending.workspaceKey)) resizeRequests.delete(key);
+              }
+              resizeRequests.set(resizeKey, { workspaceKey, request });
+              const applyResizeUpdate = (recipe: (draft: ViewState) => void) => {
+                if (resizeRequests.get(resizeKey)?.request !== request) return;
+                applyViewStateUpdate(state => {
+                  recipe(state);
+                  for (const plane of Object.values(state.views)) alignPlaneToCrosshair(plane, state.crosshair.world_mm);
+                }, workspaceKey);
+              };
               const view = currentState.viewState.views[viewType];
               const [oldWidth, oldHeight] = view.dim_px;
 
@@ -532,7 +501,7 @@ const createViewStateStore = () =>
                   "viewStateStore",
                   "No layers loaded, updating dimensions only",
                 );
-                applyViewStateUpdate((state) => {
+                applyResizeUpdate((state) => {
                   state.views[viewType].dim_px = dimensions;
                 });
                 return;
@@ -547,7 +516,7 @@ const createViewStateStore = () =>
                   "No visible layer with volume ID found, layers:",
                   layers,
                 );
-                applyViewStateUpdate((state) => {
+                applyResizeUpdate((state) => {
                   state.views[viewType].dim_px = dimensions;
                 });
                 return;
@@ -610,7 +579,7 @@ const createViewStateStore = () =>
                     backendViews,
                   );
 
-                  applyViewStateUpdate((state) => {
+                  applyResizeUpdate((state) => {
                     (["axial", "sagittal", "coronal"] as ViewType[]).forEach(
                       (vt) => {
                         const backendView = backendViews[vt];
@@ -647,7 +616,7 @@ const createViewStateStore = () =>
                   },
                 );
 
-                applyViewStateUpdate((state) => {
+                applyResizeUpdate((state) => {
                   storeLog(
                     "viewStateStore",
                     `Updating view state for ${viewType} with backend values`,
@@ -767,7 +736,7 @@ const createViewStateStore = () =>
                     Math.max(1, Math.ceil(heightMm / pixelSize)),
                   ];
 
-                  applyViewStateUpdate((state) => {
+                  applyResizeUpdate((state) => {
                     storeLog(
                       "viewStateStore",
                       `Updating view state for ${viewType} with frontend calculation`,
@@ -785,7 +754,7 @@ const createViewStateStore = () =>
                     "Failed to get volume bounds:",
                     boundsError,
                   );
-                  applyViewStateUpdate((state) => {
+                  applyResizeUpdate((state) => {
                     state.views[viewType].dim_px = dimensions;
                   });
                 }
@@ -793,6 +762,11 @@ const createViewStateStore = () =>
             },
 
             resetToDefaults: () => {
+              const workspaceKey = getCurrentWorkspaceKey();
+              crosshairRequests.delete(workspaceKey);
+              for (const [key, pending] of resizeRequests) {
+                if (pending.workspaceKey === workspaceKey) resizeRequests.delete(key);
+              }
               const defaultState = getInitialViewState();
               if (areViewStatesEqual(get().viewState, defaultState)) {
                 return;

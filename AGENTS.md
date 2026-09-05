@@ -98,6 +98,13 @@
 - Preserve square pixels for medical imaging. When fitting an extent into a viewport, use a uniform pixel size: `max(extentX / dimX, extentY / dimY)`.
 - Backend reference for aspect-ratio preservation: `core/neuro-types/src/view_rect.rs` (`SliceGeometry::full_extent`).
 
+## Alpha Navigation and Teardown Contracts
+- Async cursor and resize operations capture a workspace identity and request order. Apply results only to that workspace; re-align returned slice planes to its current crosshair with `ui2/src/stores/viewStateGeometry.ts`. Reset invalidates outstanding requests.
+- A bitmap can stay unchanged while a crosshair moves or hides. Shared slice overlay callbacks must invalidate canvas drawing when overlay inputs change; clearing an image must clear its canvas.
+- Surface unload owns projected overlays and cached samplers as well as the mesh. Publication after asynchronous projection must recheck surface registration, using registry-before-sampler lock ordering.
+- `cargo test -p render_loop --test alpha_resource_lifecycle_test -- --nocapture` exercises 200 upload/release cycles and requires a GPU. Zero resident texture accounting is asserted; process RSS is observational, not a long-session leak certification.
+- Alpha evidence and manual checks live in `docs/alpha-readiness.md` and `docs/alpha-acceptance.md`.
+
 ## UI Layout Caveats
 - In GoldenLayout panels, React Context is panel-local because each panel has its own React root; use Zustand or services for cross-panel state.
 - In Allotment panes, avoid relying on nested `flex`/`flex-1` layouts for critical content such as bottom slice sliders. Use absolute positioning or explicit dimensions inside the pane.

@@ -1260,10 +1260,11 @@ impl SurfaceRegistry {
     /// Remove all overlay datasets associated with a surface handle.
     pub fn remove_data_for_surface(&mut self, surface_id: &str) -> usize {
         let prefix = format!("overlay_{}_", surface_id);
+        let projection_prefix = format!("vol2surf_{}_", surface_id);
         let keys: Vec<String> = self
             .surface_data
             .keys()
-            .filter(|key| key.starts_with(&prefix))
+            .filter(|key| key.starts_with(&prefix) || key.starts_with(&projection_prefix))
             .cloned()
             .collect();
 
@@ -3079,6 +3080,10 @@ async fn unload_surface(
     handle: String,
     state: State<'_, BridgeState>,
 ) -> BridgeResult<ReleaseResult> {
+    unload_surface_impl(&handle, &state).await
+}
+
+async fn unload_surface_impl(handle: &str, state: &BridgeState) -> BridgeResult<ReleaseResult> {
     info!("Bridge: unload_surface called for handle: {}", handle);
 
     let mut registry = state.surface_registry.lock().await;
@@ -3088,7 +3093,13 @@ async fn unload_surface(
             code: 2013,
             details: format!("Surface not found: {}", handle),
         })?;
-    let removed_overlay_count = registry.remove_data_for_surface(&handle);
+    let removed_overlay_count = registry.remove_data_for_surface(handle);
+    // Keep registry -> sampler lock ordering consistent with sampler publication.
+    state
+        .surface_samplers
+        .lock()
+        .await
+        .retain(|_, entry| entry.surface_id != handle);
     drop(registry);
 
     info!(
@@ -7530,6 +7541,12 @@ async fn project_volume_to_surface_impl(
     );
     {
         let mut reg = bridge_state.surface_registry.lock().await;
+        if reg.get_surface(&surface_id).is_none() {
+            return Err(BridgeError::Input {
+                code: 2013,
+                details: "Surface was unloaded while projecting data".into(),
+            });
+        }
         reg.insert_data(handle.clone(), values);
     }
 
@@ -7600,6 +7617,13 @@ async fn create_surface_sampler_impl(
     let sampling_mode = sampling_mode_to_str(vts.sampling);
     let handle = format!("sampler_{surface_id}_{template_volume_id}");
     {
+        let registry = bridge_state.surface_registry.lock().await;
+        if registry.get_surface(&surface_id).is_none() {
+            return Err(BridgeError::Input {
+                code: 2013,
+                details: "Surface was unloaded while preparing its sampler".into(),
+            });
+        }
         let mut samplers = bridge_state.surface_samplers.lock().await;
         samplers.insert(
             handle.clone(),
@@ -7695,6 +7719,12 @@ async fn apply_sampler_impl(
     );
     {
         let mut reg = bridge_state.surface_registry.lock().await;
+        if reg.get_surface(&surface_id).is_none() {
+            return Err(BridgeError::Input {
+                code: 2013,
+                details: "Surface was unloaded while projecting data".into(),
+            });
+        }
         reg.insert_data(handle.clone(), values);
     }
 
@@ -14215,6 +14245,30 @@ mod tests {
         assert!((vals[0] - 1.0).abs() < 1e-3, "v0={}", vals[0]);
         assert!((vals[1] - 112.0).abs() < 1e-3, "v1={}", vals[1]);
         assert!((vals[2] - 223.0).abs() < 1e-3, "v2={}", vals[2]);
+    }
+
+    #[tokio::test]
+    async fn repeated_surface_unload_reclaims_overlays_and_samplers() {
+        let state = BridgeState::default().expect("state");
+        for _ in 0..25 {
+            register_surface_and_volume_for_projection(&state).await;
+            let info = create_surface_sampler_impl(
+                "proj_surf".into(), None, "proj_vol".into(), None, &state,
+            )
+            .await
+            .unwrap();
+            let overlay = apply_sampler_impl(
+                info.sampler_handle.clone(), "proj_vol".into(), None, None, None, None, &state,
+            )
+            .await
+            .unwrap();
+            assert_eq!(state.surface_samplers.lock().await.len(), 1);
+            unload_surface_impl("proj_surf", &state).await.unwrap();
+            assert!(state.surface_samplers.lock().await.is_empty());
+            let registry = state.surface_registry.lock().await;
+            assert!(registry.get_surface("proj_surf").is_none());
+            assert!(registry.get_data(&overlay.data_handle).is_none());
+        }
     }
 
     #[tokio::test]

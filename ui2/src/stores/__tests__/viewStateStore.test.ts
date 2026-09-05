@@ -72,6 +72,62 @@ describe("ViewStateStore", () => {
     vi.clearAllTimers();
   });
 
+  describe("navigation during async work", () => {
+    it("rejects nonfinite input and no-ops repeated coordinates", async () => {
+      const before = useViewStateStore.getState().viewState;
+      await expect(store.setCrosshair([NaN, 0, 0])).rejects.toThrow();
+      expect(useViewStateStore.getState().viewState).toBe(before);
+      await store.setCrosshair(before.crosshair.world_mm);
+      expect(useViewStateStore.getState().viewState).toBe(before);
+    });
+
+    it("keeps a delayed cursor in its originating workspace after tab switching", async () => {
+      let finish!: () => void;
+      const resize = new Promise<void>(resolve => { finish = resolve; });
+      const initial = useViewStateStore.getState();
+      const originKey = initial.activeWorkspaceKey;
+      const other = structuredClone(initial.viewState);
+      useViewStateStore.setState({ resizeInFlight: { axial: resize, sagittal: null, coronal: null } });
+      const pending = store.setCrosshair([-29, 12, 20], true);
+      useViewStateStore.setState({
+        activeWorkspaceKey: 'other', viewState: other,
+        workspaceViewStates: new Map([[originKey, initial.viewState], ['other', other]]),
+      });
+      finish(); await pending;
+      expect(useViewStateStore.getState().viewState.crosshair.world_mm).toEqual([0, 0, 0]);
+      expect(useViewStateStore.getState().getWorkspaceViewState(originKey).crosshair.world_mm).toEqual([-29, 12, 20]);
+    });
+
+    it("does not let an older waiting cursor overwrite the latest navigation", async () => {
+      let finish!: () => void;
+      const resize = new Promise<void>(resolve => { finish = resolve; });
+      useViewStateStore.setState({ resizeInFlight: { axial: resize, sagittal: null, coronal: null } });
+      const old = store.setCrosshair([1, 2, 3], true);
+      useViewStateStore.setState({ resizeInFlight: { axial: null, sagittal: null, coronal: null } });
+      await store.setCrosshair([-29, 12, 20], true);
+      finish(); await old;
+      expect(useViewStateStore.getState().viewState.crosshair.world_mm).toEqual([-29, 12, 20]);
+    });
+
+    it("keeps the newest resize and current crosshair when responses arrive out of order", async () => {
+      useViewLayoutStore.getState().setMode('flexible');
+      store.setViewState(state => { state.layers = [{ id: 'v', volumeId: 'vol', visible: true, opacity: 1 }] as any; });
+      const base = structuredClone(useViewStateStore.getState().viewState.views.axial);
+      let finishOld!: (value: typeof base) => void;
+      let finishNew!: (value: typeof base) => void;
+      recalcViewForDimensionsMock.mockImplementationOnce(() => new Promise(resolve => { finishOld = resolve; }))
+        .mockImplementationOnce(() => new Promise(resolve => { finishNew = resolve; }));
+      const old = store.updateDimensionsAndPreserveScale('axial', [640, 480]);
+      const latest = store.updateDimensionsAndPreserveScale('axial', [800, 600]);
+      await store.setCrosshair([-29, 12, 20], true);
+      finishNew({ ...base, dim_px: [800, 600] }); await latest;
+      finishOld({ ...base, dim_px: [640, 480] }); await old;
+      const view = useViewStateStore.getState().viewState.views.axial;
+      expect(view.dim_px).toEqual([800, 600]);
+      expect(view.origin_mm[2]).toBe(20);
+    });
+  });
+
   describe("Locked layout fallbacks", () => {
     it("sizes the fallback frame to the volume bbox (centered), not the measured canvas", async () => {
       recalcAllViewsMock.mockRejectedValueOnce(

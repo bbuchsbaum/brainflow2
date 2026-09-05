@@ -58,8 +58,8 @@ export function MosaicCell({
     }
   }), [tag, width, height, workspaceId, axis, sliceIndex]);
   
-  const crosshair = useViewStateStore(state => state.viewState.crosshair);
-  const axisViewPlane = useViewStateStore(state => state.viewState.views[axis]);
+  const crosshair = useViewStateStore(state => state.getWorkspaceViewState(workspaceId).crosshair);
+  const axisViewPlane = useViewStateStore(state => state.getWorkspaceViewState(workspaceId).views[axis]);
   // Use Zustand store for crosshair settings - works across all React roots
   const crosshairSettings = useCrosshairSettingsStore(state => state.getViewSettings(axis));
   
@@ -111,31 +111,11 @@ export function MosaicCell({
       currentViewPlane
     );
     
-    // Debug logging
-    const debug = `Slice ${sliceIndex}: pos=${slicePositionRef.current.toFixed(1)}, crosshair=${crosshair.world_mm.map(v => v.toFixed(1)).join(',')}, visible=${crosshair.visible}, hasCoord=${!!crosshairInfo.screenCoord}, isActive=${crosshairInfo.isActive}`;
-    console.log(`[MosaicCell] ${debug}`);
-    
-    // Log the difference between crosshair and slice position
-    let diff = 0;
-    switch (axis) {
-      case 'axial':
-        diff = Math.abs(crosshair.world_mm[2] - slicePositionRef.current);
-        break;
-      case 'sagittal':
-        diff = Math.abs(crosshair.world_mm[0] - slicePositionRef.current);
-        break;
-      case 'coronal':
-        diff = Math.abs(crosshair.world_mm[1] - slicePositionRef.current);
-        break;
-    }
-    console.log(`[MosaicCell] Distance from crosshair: ${diff.toFixed(1)}mm`);
-    
     // Draw crosshair if visible and we have screen coordinates
     if (crosshairSettings.visible && crosshair.visible && crosshairInfo.screenCoord && 
         (crosshairInfo.isActive || crosshairSettings.showMirror)) {
       const [screenX, screenY] = crosshairInfo.screenCoord;
       
-      console.log(`[MosaicCell] Drawing crosshair at screen: ${screenX.toFixed(1)}, ${screenY.toFixed(1)}, isActive: ${crosshairInfo.isActive}`);
       
       // Transform screen coordinates to canvas coordinates
       const scaleX = placement.width / placement.imageWidth;
@@ -144,7 +124,6 @@ export function MosaicCell({
       const canvasX = placement.x + screenX * scaleX;
       const canvasY = placement.y + screenY * scaleY;
       
-      console.log(`[MosaicCell] Canvas coords: ${canvasX.toFixed(1)}, ${canvasY.toFixed(1)}, bounds: ${placement.x},${placement.y} ${placement.width}x${placement.height}`);
       
       // Choose style based on whether this is the active slice
       const style: CrosshairStyle = crosshairInfo.isActive 

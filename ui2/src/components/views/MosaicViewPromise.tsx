@@ -343,8 +343,8 @@ function MosaicViewPromiseRaw({
   };
 
   const handleCrosshairClick = useCallback((worldCoord: [number, number, number]) => {
-    void setCrosshair(worldCoord, true);
-  }, [setCrosshair]);
+    void setCrosshair(worldCoord, true, false, workspaceId);
+  }, [setCrosshair, workspaceId]);
   
   // Update current slice when page changes (only if out of range)
   useEffect(() => {
