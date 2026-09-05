@@ -32,6 +32,7 @@ export const apiBridgeCommands = [
   "remote_mount_respond_host_key",
   "remote_mount_respond_auth",
   "remote_mount_unmount",
+  "cancel_remote_file_load",
   "list_remote_mounts",
   "list_remote_directory",
   "list_remote_mount_profiles",

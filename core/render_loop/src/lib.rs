@@ -3990,18 +3990,55 @@ impl RenderLoopService {
         view_ids: &[ViewId],
         viewport_size: [u32; 2],
     ) -> Result<Vec<Vec<u8>>, RenderLoopError> {
-        if view_ids.is_empty() {
+        let views: Vec<_> = view_ids
+            .iter()
+            .cloned()
+            .map(|id| (id, viewport_size))
+            .collect();
+        self.read_views_to_images_sized(&views)
+    }
+
+    /// Read differently sized panes with one aligned buffer and one GPU sync.
+    pub fn read_views_to_images_sized(
+        &self,
+        views: &[(ViewId, [u32; 2])],
+    ) -> Result<Vec<Vec<u8>>, RenderLoopError> {
+        if views.is_empty() {
             return Ok(Vec::new());
         }
 
-        let bytes_per_pixel = 4u32; // RGBA8 = 4 bytes
-        let unpadded_bytes_per_row = viewport_size[0] * bytes_per_pixel;
-        let align = wgpu::COPY_BYTES_PER_ROW_ALIGNMENT; // 256 bytes
-        let padded_bytes_per_row = unpadded_bytes_per_row.div_ceil(align) * align;
-        // Each view's region is a whole number of padded rows, hence a multiple of
-        // 256 bytes, so per-view buffer offsets satisfy copy_texture_to_buffer alignment.
-        let region_bytes = (padded_bytes_per_row as u64) * (viewport_size[1] as u64);
-        let total_size = region_bytes * (view_ids.len() as u64);
+        let mut regions = Vec::with_capacity(views.len());
+        let mut total_size = 0u64;
+        for (id, size) in views {
+            let invalid = || RenderLoopError::Internal {
+                code: 8007,
+                details: format!("Invalid readback size for view '{}'", id.0),
+            };
+            let context = self.views.get(id).ok_or_else(invalid)?;
+            let texture_size = context.render_texture.size();
+            if size[0] == 0
+                || size[1] == 0
+                || size[0] > texture_size.width
+                || size[1] > texture_size.height
+            {
+                return Err(invalid());
+            }
+            let stride = size[0]
+                .checked_mul(4)
+                .ok_or_else(invalid)?
+                .div_ceil(wgpu::COPY_BYTES_PER_ROW_ALIGNMENT)
+                .checked_mul(wgpu::COPY_BYTES_PER_ROW_ALIGNMENT)
+                .ok_or_else(invalid)?;
+            let bytes = u64::from(stride) * u64::from(size[1]);
+            regions.push((total_size, bytes, stride));
+            total_size = total_size.checked_add(bytes).ok_or_else(invalid)?;
+        }
+        if total_size > self.device.limits().max_buffer_size {
+            return Err(RenderLoopError::Internal {
+                code: 8007,
+                details: "Batch readback exceeds the device buffer limit".into(),
+            });
+        }
 
         let staging_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("Batch Readback Staging Buffer"),
@@ -4016,7 +4053,8 @@ impl RenderLoopService {
                 label: Some("Batch Readback Copy Encoder"),
             });
 
-        for (idx, view_id) in view_ids.iter().enumerate() {
+        for (idx, (view_id, viewport_size)) in views.iter().enumerate() {
+            let (offset, _, padded_bytes_per_row) = regions[idx];
             let view_context =
                 self.views
                     .get(view_id)
@@ -4035,7 +4073,7 @@ impl RenderLoopService {
                 wgpu::ImageCopyBuffer {
                     buffer: &staging_buffer,
                     layout: wgpu::ImageDataLayout {
-                        offset: region_bytes * (idx as u64),
+                        offset,
                         bytes_per_row: Some(padded_bytes_per_row),
                         rows_per_image: Some(viewport_size[1]),
                     },
@@ -4070,9 +4108,10 @@ impl RenderLoopService {
             })?;
 
         let data = slice.get_mapped_range();
-        let mut images = Vec::with_capacity(view_ids.len());
-        for idx in 0..view_ids.len() {
-            let start = (region_bytes * (idx as u64)) as usize;
+        let mut images = Vec::with_capacity(views.len());
+        for (idx, (_, viewport_size)) in views.iter().enumerate() {
+            let (offset, region_bytes, padded_bytes_per_row) = regions[idx];
+            let start = offset as usize;
             let end = start + region_bytes as usize;
             images.push(Self::unpack_gpu_buffer_to_image(
                 &data[start..end],

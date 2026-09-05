@@ -3,6 +3,7 @@
  */
 
 import { useEffect } from 'react';
+import { useLoadingQueueStore } from '@/stores/loadingQueueStore';
 import { safeListen, safeUnlisten } from '@/utils/eventUtils';
 import { useFileBrowserStore } from '@/stores/fileBrowserStore';
 import { getFileLoadingService } from '@/services/FileLoadingService';
@@ -51,6 +52,7 @@ export function useMountListener() {
     let mountUnlisten: (() => void) | null = null;
     let openFileUnlisten: (() => void) | null = null;
     let remoteMountUnlisten: (() => void) | null = null;
+    let remoteProgressUnlisten: (() => void) | null = null;
     let remoteRecoveryUnlisten: (() => void) | null = null;
     let unsubscribeServicesInitialized: (() => void) | null = null;
     let listenersReady = false;
@@ -170,6 +172,15 @@ export function useMountListener() {
           }
         );
 
+        remoteProgressUnlisten = await safeListen<{ path: string; bytes_downloaded: number; total_bytes?: number }>(
+          'remote-file-progress', (event) => {
+            const { path, bytes_downloaded, total_bytes } = event.payload;
+            useLoadingQueueStore.getState().updateTransferProgress(path, bytes_downloaded, total_bytes);
+          });
+        if (cancelled) {
+          await safeUnlisten(remoteProgressUnlisten);
+          return;
+        }
         listenersReady = true;
         servicesReady = areServicesInitialized();
         await tryFlushStartupActions();
@@ -202,6 +213,7 @@ export function useMountListener() {
           if (remoteMountUnlisten) {
             await safeUnlisten(remoteMountUnlisten);
           }
+          if (remoteProgressUnlisten) await safeUnlisten(remoteProgressUnlisten);
           if (remoteRecoveryUnlisten) {
             await safeUnlisten(remoteRecoveryUnlisten);
           }

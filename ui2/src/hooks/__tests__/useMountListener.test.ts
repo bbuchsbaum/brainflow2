@@ -1,6 +1,7 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useMountListener } from '../useMountListener';
+import { useLoadingQueueStore } from '@/stores/loadingQueueStore';
 import { getEventBus } from '@/events/EventBus';
 
 const {
@@ -24,6 +25,8 @@ const {
       origin_label?: string;
       attempt?: number;
       reason?: string;
+      bytes_downloaded?: number;
+      total_bytes?: number;
     };
   };
   const listenerMap: Record<string, (event: ListenerEvent) => Promise<void> | void> = {};
@@ -31,6 +34,7 @@ const {
   const unlistenB = vi.fn();
   const unlistenC = vi.fn();
   const unlistenD = vi.fn();
+  const unlistenE = vi.fn();
   const mockMountDirectoryFn = vi.fn().mockResolvedValue(undefined);
   const mockLoadFileFn = vi.fn().mockResolvedValue(undefined);
   const mockMountRemoteFromStartupSpecFn = vi.fn().mockResolvedValue(undefined);
@@ -48,6 +52,7 @@ const {
       if (event === 'mount-remote-event') {
         return unlistenC;
       }
+      if (event === 'remote-file-progress') return unlistenE;
       return unlistenD;
     });
   const safeUnlistenFn = vi.fn().mockResolvedValue(undefined);
@@ -61,7 +66,7 @@ const {
     mockSafeListen: safeListenFn,
     mockSafeUnlisten: safeUnlistenFn,
     servicesReadyState: { value: true },
-    unlistenFns: [unlistenA, unlistenB, unlistenC, unlistenD],
+    unlistenFns: [unlistenA, unlistenB, unlistenC, unlistenD, unlistenE],
     storeState: {
       entries: [] as Array<{ path: string; name: string }>,
       rootPath: '',
@@ -134,7 +139,7 @@ describe('useMountListener', () => {
     renderHook(() => useMountListener());
 
     await waitFor(() => {
-      expect(mockSafeListen).toHaveBeenCalledTimes(4);
+      expect(mockSafeListen).toHaveBeenCalledTimes(5);
     });
 
     expect(listeners['mount-directory-event']).toBeTypeOf('function');
@@ -296,13 +301,13 @@ describe('useMountListener', () => {
     const { unmount } = renderHook(() => useMountListener());
 
     await waitFor(() => {
-      expect(mockSafeListen).toHaveBeenCalledTimes(4);
+      expect(mockSafeListen).toHaveBeenCalledTimes(5);
     });
 
     unmount();
 
     await waitFor(() => {
-      expect(mockSafeUnlisten).toHaveBeenCalledTimes(4);
+      expect(mockSafeUnlisten).toHaveBeenCalledTimes(5);
     });
 
     expect(mockSafeUnlisten).toHaveBeenCalledWith(unlistenFns[0]);
@@ -317,7 +322,7 @@ describe('useMountListener', () => {
     renderHook(() => useMountListener());
 
     await waitFor(() => {
-      expect(mockSafeListen).toHaveBeenCalledTimes(4);
+      expect(mockSafeListen).toHaveBeenCalledTimes(5);
     });
 
     expect(mockInvoke).not.toHaveBeenCalled();
@@ -330,5 +335,17 @@ describe('useMountListener', () => {
     await waitFor(() => {
       expect(mockInvoke).toHaveBeenCalledWith('flush_startup_actions');
     });
+  });
+  it('reports actual remote bytes in the active loading stage', async () => {
+    const store = useLoadingQueueStore.getState();
+    const id = store.enqueue({ type: 'volume-load', path: '/cache/progress.nii', displayName: 'Progress' });
+    store.startLoading(id);
+    renderHook(() => useMountListener());
+    await waitFor(() => expect(listeners['remote-file-progress']).toBeTypeOf('function'));
+    await act(async () => {
+      await listeners['remote-file-progress']({ payload: { path: '/cache/progress.nii', bytes_downloaded: 1048576, total_bytes: 2097152 } });
+    });
+    expect(useLoadingQueueStore.getState().activeLoads.get(id)).toMatchObject({ progress: 50, remoteTransfer: true, stage: 'Downloading 1.0 / 2.0 MiB' });
+    store.markComplete(id);
   });
 });

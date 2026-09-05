@@ -127,3 +127,8 @@ export async function mountRemoteFromStartupSpec(spec: StartupRemoteMountSpec): 
 
   throw buildInteractiveStartupError(spec);
 }
+
+/** Request cancellation; the loading owner reports completion after worker cleanup. */
+export async function cancelRemoteFileLoad(path: string): Promise<boolean> {
+  return getTransport().invoke<boolean>('cancel_remote_file_load', { path });
+}

@@ -65,15 +65,19 @@ mod analysis;
 mod command_registry;
 mod error_context;
 mod error_helpers;
+mod histogram;
 pub mod image_set;
 mod materialization;
 mod projection_geometry;
+mod remote_cache;
+mod remote_transfer;
 mod render_bridge_adapter;
 mod render_lifecycle;
+mod surface_loading;
 mod user_errors;
-use projection_geometry::build_volume3d_from_projection;
 use command_registry::bridge_commands;
 use error_context::*;
+use projection_geometry::build_volume3d_from_projection;
 
 // Bring the analysis commands into crate-root scope so `command_list.rs` can list
 // them as bare identifiers alongside the commands defined in this file.
@@ -1348,6 +1352,8 @@ struct RemoteMountEntry {
     /// clones of this entry (it's an `Arc`), so every command touching this
     /// mount contends on the same permits.
     op_semaphore: Arc<tokio::sync::Semaphore>,
+    transfers: Arc<remote_transfer::Control>,
+    progress: Arc<dyn Fn(remote_transfer::Progress) + Send + Sync>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -1736,7 +1742,12 @@ fn remote_cache_metadata_path(
         .to_string_lossy()
         .to_string();
 
-    let mut metadata_dir = remote_cache_metadata_root()?.join(&mount.mount_id);
+    let mut metadata_dir = remote_cache_metadata_root()?.join(remote_cache::identity(
+        &mount.host,
+        mount.port,
+        &mount.user,
+        &mount.remote_root,
+    ));
     if let Some(parent) = relative.parent() {
         metadata_dir = metadata_dir.join(parent);
     }
@@ -1836,13 +1847,13 @@ fn remote_cache_metadata_matches(
     remote_path: &str,
     remote_stat: &remotely::fs::Metadata,
 ) -> bool {
-    metadata.version == 1
-        && metadata.mount_id == mount_id
+    ((metadata.version == 1 && metadata.mount_id == mount_id) || metadata.version == 2)
         && metadata.host == host
         && metadata.port == port
         && metadata.user == user
         && metadata.remote_path == remote_path
         && metadata.remote_size == remote_stat.size
+        && metadata.remote_modified_unix_secs.is_some()
         && metadata.remote_modified_unix_secs == remote_stat_modified_unix_secs(remote_stat)
 }
 
@@ -2225,29 +2236,7 @@ fn icon_for_entry(path: &Path, is_dir: bool) -> u8 {
     }
 }
 
-/// Acquire a per-mount SFTP-operation permit. Held across a single remote op
-/// so concurrent commands can't open more than `REMOTE_MOUNT_MAX_CONCURRENT_OPS`
-/// SFTP channels at once on the same connection. The semaphore is never closed,
-/// so acquisition only fails in impossible states.
-async fn acquire_remote_op_permit(
-    mount: &RemoteMountEntry,
-    remote_path: &str,
-    code: u16,
-) -> BridgeResult<tokio::sync::OwnedSemaphorePermit> {
-    mount
-        .op_semaphore
-        .clone()
-        .acquire_owned()
-        .await
-        .map_err(|_| BridgeError::Io {
-            code,
-            details: format!(
-                "Remote mount operation gate unavailable for '{}'.",
-                remote_path
-            ),
-        })
-}
-
+/// List through an owned worker; the operation permit survives timeout cleanup.
 async fn list_remote_directory_for_local_path(
     state: &BridgeState,
     local_path: &Path,
@@ -2269,25 +2258,7 @@ async fn list_remote_directory_for_local_path(
             })?;
     }
 
-    let entries = {
-        // Gate the channel-opening op behind the per-mount permit; released as
-        // soon as the listing completes (local node-building below is cheap).
-        let _permit = acquire_remote_op_permit(&mount, &remote_path, 8216).await?;
-        tokio::time::timeout(
-            REMOTE_FS_OPERATION_TIMEOUT,
-            mount.client.list_blocking(Path::new(&remote_path)),
-        )
-        .await
-    }
-    .map_err(|_| BridgeError::Io {
-        code: 8216,
-        details: format!(
-            "Timed out after {}s while listing remote directory '{}'.",
-            REMOTE_FS_OPERATION_TIMEOUT.as_secs(),
-            remote_path
-        ),
-    })?
-    .map_err(|e| map_remotely_error(e, 8216))?;
+    let entries = remote_transfer::list_owned(mount.clone(), remote_path.clone()).await?;
 
     let mut nodes = Vec::with_capacity(entries.len());
 
@@ -2344,26 +2315,18 @@ async fn materialize_remote_file_if_needed(state: &BridgeState, path: &Path) -> 
         return Ok(());
     };
 
-    let metadata_path = remote_cache_metadata_path(&mount, path)?;
-    let remote_stat = {
-        let _permit = acquire_remote_op_permit(&mount, &remote_path, 8243).await?;
-        tokio::time::timeout(
-            REMOTE_FS_OPERATION_TIMEOUT,
-            mount.client.stat_blocking(Path::new(&remote_path)),
-        )
-        .await
+    let _cache_admission = remote_cache::ADMISSION.lock().await;
+    if mount.transfers.is_stopped() {
+        return Err(remote_transfer::error("Remote mount has been unmounted"));
     }
-    .map_err(|_| BridgeError::Io {
-        code: 8243,
-        details: format!(
-            "Timed out after {}s while checking remote file '{}'.",
-            REMOTE_FS_OPERATION_TIMEOUT.as_secs(),
-            remote_path
-        ),
-    })?
-    .map_err(|e| map_remotely_error(e, 8243))?;
+    let _ = tokio::fs::write(mount.local_root.join(".last-used"), []).await;
+    let metadata_path = remote_cache_metadata_path(&mount, path)?;
+    let remote_stat = remote_transfer::stat_owned(mount.clone(), remote_path.clone()).await?;
 
-    if path.exists() {
+    if tokio::fs::metadata(path)
+        .await
+        .is_ok_and(|metadata| metadata.len() == remote_stat.size)
+    {
         if let Some(metadata) = load_remote_file_cache_metadata(&metadata_path).await? {
             if remote_cache_metadata_matches(
                 &metadata,
@@ -2388,35 +2351,47 @@ async fn materialize_remote_file_if_needed(state: &BridgeState, path: &Path) -> 
             })?;
     }
 
-    {
-        let _permit = acquire_remote_op_permit(&mount, &remote_path, 8218).await?;
-        tokio::time::timeout(
-            REMOTE_FS_OPERATION_TIMEOUT,
-            mount.client.download_to_path_blocking(
-                Path::new(&remote_path),
-                path,
-                remotely::DownloadOptions {
-                    sync_on_finish: true,
-                    ..Default::default()
-                },
-            ),
-        )
+    let active_roots = state
+        .remote_mounts
+        .lock()
         .await
-    }
-    .map_err(|_| BridgeError::Io {
-        code: 8218,
-        details: format!(
-            "Timed out after {}s while downloading remote file '{}'.",
-            REMOTE_FS_OPERATION_TIMEOUT.as_secs(),
-            remote_path
-        ),
-    })?
-    .map_err(|e| map_remotely_error(e, 8218))?;
+        .values()
+        .map(|entry| entry.local_root.clone())
+        .collect();
+    let cache_root = remote_cache_root()?;
+    let incoming_size = remote_stat.size;
+    tokio::task::spawn_blocking(move || {
+        remote_cache::make_room(
+            &cache_root,
+            &active_roots,
+            incoming_size,
+            remote_cache::budget(),
+        )
+    })
+    .await
+    .map_err(|e| remote_transfer::error(&e.to_string()))??;
+    remote_transfer::download_owned(
+        mount.clone(),
+        remote_path.clone(),
+        path.to_path_buf(),
+        remote_stat.size,
+        Duration::from_secs(90),
+    )
+    .await?;
 
+    let after = remote_transfer::stat_owned(mount.clone(), remote_path.clone()).await?;
+    if after.size != remote_stat.size
+        || remote_stat_modified_unix_secs(&after) != remote_stat_modified_unix_secs(&remote_stat)
+    {
+        let _ = tokio::fs::remove_file(path).await;
+        return Err(remote_transfer::error(
+            "Remote file changed during download; retry loading it",
+        ));
+    }
     save_remote_file_cache_metadata(
         &metadata_path,
         &RemoteFileCacheMetadata {
-            version: 1,
+            version: 2,
             mount_id: mount.mount_id.clone(),
             host: mount.host.clone(),
             port: mount.port,
@@ -2449,7 +2424,24 @@ async fn finalize_remote_mount<R: Runtime>(
             ),
         })?;
 
-    let local_root = cache_root.join(&mount_id);
+    let local_root = cache_root.join(remote_cache::identity(
+        &request.host,
+        request.port,
+        &request.user,
+        &request.remote_path,
+    ));
+    {
+        let mounts = state.remote_mounts.lock().await;
+        if let Some(existing) = mounts.values().find(|mount| mount.local_root == local_root) {
+            let info = remote_mount_info_from_entry(existing);
+            drop(mounts);
+            client
+                .close()
+                .await
+                .map_err(|e| map_remotely_error(e, 8229))?;
+            return Ok(RemoteMountConnectResult::Connected { mount: info });
+        }
+    }
     tokio::fs::create_dir_all(&local_root)
         .await
         .map_err(|e| BridgeError::Io {
@@ -2535,6 +2527,10 @@ async fn finalize_remote_mount<R: Runtime>(
         user: request.user.clone(),
         client: Arc::clone(&client),
         op_semaphore: Arc::new(tokio::sync::Semaphore::new(REMOTE_MOUNT_MAX_CONCURRENT_OPS)),
+        transfers: Arc::new(remote_transfer::Control::default()),
+        progress: Arc::new(move |progress| {
+            let _ = app.emit("remote-file-progress", progress);
+        }),
     };
 
     {
@@ -2892,7 +2888,14 @@ async fn load_surface(
     }
 
     // Load the file using the GIFTI loader
-    let loaded = gifti_loader::GiftiLoader::load(&file_path)?;
+    let decode_path = file_path.clone();
+    let (loaded, geometry) =
+        tokio::task::spawn_blocking(move || surface_loading::decode(&decode_path))
+            .await
+            .map_err(|error| BridgeError::Internal {
+                code: 1006,
+                details: format!("Surface decoder task failed: {error}"),
+            })??;
 
     match loaded {
         bridge_types::Loaded::Surface {
@@ -2902,7 +2905,10 @@ async fn load_surface(
             path: _loaded_path,
         } => {
             // Load the actual surface geometry
-            let geometry = gifti_loader::load_gifti_surface(&file_path)?;
+            let geometry = geometry.ok_or_else(|| BridgeError::Internal {
+                code: 1006,
+                details: "Surface decoder returned metadata without geometry".to_string(),
+            })?;
 
             // Create an identity transform for now
             let transform = Affine3::identity();
@@ -5284,6 +5290,16 @@ async fn remote_mount_unmount(
         });
     };
 
+    mount.transfers.stop();
+    let _cache_admission = remote_cache::ADMISSION.lock().await;
+    // New admissions fail; draining all permits proves every transfer writer
+    // finished its staging cleanup before unmount can purge the cache.
+    let _drain = mount
+        .op_semaphore
+        .clone()
+        .acquire_many_owned(REMOTE_MOUNT_MAX_CONCURRENT_OPS as u32)
+        .await
+        .map_err(|_| remote_transfer::error("Remote mount operation gate closed"))?;
     mount
         .client
         .close()
@@ -5298,9 +5314,14 @@ async fn remote_mount_unmount(
                 e
             );
         }
-        if let Ok(metadata_dir) =
-            remote_cache_metadata_root().map(|root| root.join(&mount.mount_id))
-        {
+        if let Ok(metadata_dir) = remote_cache_metadata_root().map(|root| {
+            root.join(remote_cache::identity(
+                &mount.host,
+                mount.port,
+                &mount.user,
+                &mount.remote_root,
+            ))
+        }) {
             if let Err(e) = tokio::fs::remove_dir_all(&metadata_dir).await {
                 warn!(
                     "Failed to purge remote cache metadata {}: {}",
@@ -5315,6 +5336,19 @@ async fn remote_mount_unmount(
         success: true,
         message: format!("Unmounted remote folder '{}'", mount.display_name),
     })
+}
+
+#[command]
+async fn cancel_remote_file_load(
+    path: String,
+    state: State<'_, BridgeState>,
+) -> BridgeResult<bool> {
+    let Some((mount, _)) =
+        resolve_remote_mount_for_local_path(state.inner(), Path::new(&path)).await
+    else {
+        return Ok(false);
+    };
+    Ok(mount.transfers.cancel(Path::new(&path)))
 }
 
 #[command]
@@ -5406,23 +5440,7 @@ async fn list_remote_discovery_inventory_files(
     let mut truncated = false;
 
     while let Some((remote_dir, relative_dir)) = queue.pop_front() {
-        let entries = {
-            let _permit = acquire_remote_op_permit(mount, &remote_dir, 8247).await?;
-            tokio::time::timeout(
-                REMOTE_FS_OPERATION_TIMEOUT,
-                mount.client.list_blocking(Path::new(&remote_dir)),
-            )
-            .await
-        }
-        .map_err(|_| BridgeError::Io {
-            code: 8247,
-            details: format!(
-                "Timed out after {}s while listing remote discovery directory '{}'.",
-                REMOTE_FS_OPERATION_TIMEOUT.as_secs(),
-                remote_dir
-            ),
-        })?
-        .map_err(|e| map_remotely_error(e, 8247))?;
+        let entries = remote_transfer::list_owned(mount.clone(), remote_dir.clone()).await?;
 
         for entry in entries {
             let child_relative = if relative_dir.as_os_str().is_empty() {
@@ -6323,368 +6341,26 @@ async fn compute_layer_histogram(
         }
     };
 
-    // Compute histogram - extract data based on volume type
-    let mut values: Vec<f32> = Vec::new();
-
-    match volume.as_ref() {
-        VolumeSendable::VolF32(vol, _) => {
-            for &val in vol.data().iter() {
-                if !val.is_nan() && (!exclude_zeros || val != 0.0) {
-                    values.push(val);
-                }
-            }
-        }
-        VolumeSendable::VolF64(vol, _) => {
-            for &val in vol.data().iter() {
-                let val_f32 = val as f32;
-                if !val_f32.is_nan() && (!exclude_zeros || val_f32 != 0.0) {
-                    values.push(val_f32);
-                }
-            }
-        }
-        VolumeSendable::VolI16(vol, _) => {
-            for &val in vol.data().iter() {
-                let val_f32 = val as f32;
-                if !exclude_zeros || val != 0 {
-                    values.push(val_f32);
-                }
-            }
-        }
-        VolumeSendable::VolI32(vol, _) => {
-            for &val in vol.data().iter() {
-                let val_f32 = val as f32;
-                if !exclude_zeros || val != 0 {
-                    values.push(val_f32);
-                }
-            }
-        }
-        VolumeSendable::VolU8(vol, _) => {
-            for &val in vol.data().iter() {
-                let val_f32 = val as f32;
-                if !exclude_zeros || val != 0 {
-                    values.push(val_f32);
-                }
-            }
-        }
-        VolumeSendable::VolU16(vol, _) => {
-            for &val in vol.data().iter() {
-                let val_f32 = val as f32;
-                if !exclude_zeros || val != 0 {
-                    values.push(val_f32);
-                }
-            }
-        }
-        VolumeSendable::VolU32(vol, _) => {
-            for &val in vol.data().iter() {
-                let val_f32 = val as f32;
-                if !exclude_zeros || val != 0 {
-                    values.push(val_f32);
-                }
-            }
-        }
-        VolumeSendable::VolI8(vol, _) => {
-            for &val in vol.data().iter() {
-                let val_f32 = val as f32;
-                if !exclude_zeros || val != 0 {
-                    values.push(val_f32);
-                }
-            }
-        }
-        // 4D volumes - compute histogram from current timepoint
-        VolumeSendable::Vec4DF32(vec) => {
-            // Get the current timepoint from the registry
-            let timepoint = {
-                let registry = state.volume_registry.lock().await;
-                let volume_handle = {
-                    let layer_map = state.layer_to_volume_map.lock().await;
-                    layer_map.get(&layer_id).cloned().unwrap_or_default()
-                };
-                registry.get_timepoint(&volume_handle).unwrap_or(0)
-            };
-
-            info!(
-                "Computing histogram for 4D F32 volume at timepoint {}",
-                timepoint
-            );
-
-            // Extract the 3D volume at current timepoint
-            let vol_3d = vec.volume(timepoint).map_err(|e| BridgeError::Internal {
-                code: 5014,
-                details: format!(
-                    "Failed to extract timepoint {} for histogram: {}",
-                    timepoint, e
-                ),
-            })?;
-
-            // Compute histogram from the 3D volume
-            for &val in vol_3d.data().iter() {
-                if !val.is_nan() && (!exclude_zeros || val != 0.0) {
-                    values.push(val);
-                }
-            }
-        }
-        VolumeSendable::Vec4DI16(vec) => {
-            // Get the current timepoint from the registry
-            let timepoint = {
-                let registry = state.volume_registry.lock().await;
-                let volume_handle = {
-                    let layer_map = state.layer_to_volume_map.lock().await;
-                    layer_map.get(&layer_id).cloned().unwrap_or_default()
-                };
-                registry.get_timepoint(&volume_handle).unwrap_or(0)
-            };
-
-            info!(
-                "Computing histogram for 4D I16 volume at timepoint {}",
-                timepoint
-            );
-
-            // Extract the 3D volume at current timepoint
-            let vol_3d = vec.volume(timepoint).map_err(|e| BridgeError::Internal {
-                code: 5014,
-                details: format!(
-                    "Failed to extract timepoint {} for histogram: {}",
-                    timepoint, e
-                ),
-            })?;
-
-            // Compute histogram from the 3D volume
-            for &val in vol_3d.data().iter() {
-                let val_f32 = val as f32;
-                if !exclude_zeros || val != 0 {
-                    values.push(val_f32);
-                }
-            }
-        }
-        VolumeSendable::Vec4DU8(vec) => {
-            // Get the current timepoint from the registry
-            let timepoint = {
-                let registry = state.volume_registry.lock().await;
-                let volume_handle = {
-                    let layer_map = state.layer_to_volume_map.lock().await;
-                    layer_map.get(&layer_id).cloned().unwrap_or_default()
-                };
-                registry.get_timepoint(&volume_handle).unwrap_or(0)
-            };
-
-            info!(
-                "Computing histogram for 4D U8 volume at timepoint {}",
-                timepoint
-            );
-
-            // Extract the 3D volume at current timepoint
-            let vol_3d = vec.volume(timepoint).map_err(|e| BridgeError::Internal {
-                code: 5014,
-                details: format!(
-                    "Failed to extract timepoint {} for histogram: {}",
-                    timepoint, e
-                ),
-            })?;
-
-            // Compute histogram from the 3D volume
-            for &val in vol_3d.data().iter() {
-                let val_f32 = val as f32;
-                if !exclude_zeros || val != 0 {
-                    values.push(val_f32);
-                }
-            }
-        }
-        VolumeSendable::Vec4DI8(vec) => {
-            let timepoint = {
-                let registry = state.volume_registry.lock().await;
-                let volume_handle = {
-                    let layer_map = state.layer_to_volume_map.lock().await;
-                    layer_map.get(&layer_id).cloned().unwrap_or_default()
-                };
-                registry.get_timepoint(&volume_handle).unwrap_or(0)
-            };
-            let vol_3d = vec.volume(timepoint).map_err(|e| BridgeError::Internal {
-                code: 5014,
-                details: format!(
-                    "Failed to extract timepoint {} for histogram: {}",
-                    timepoint, e
-                ),
-            })?;
-            for &val in vol_3d.data().iter() {
-                let val_f32 = val as f32;
-                if !exclude_zeros || val != 0 {
-                    values.push(val_f32);
-                }
-            }
-        }
-        VolumeSendable::Vec4DU16(vec) => {
-            let timepoint = {
-                let registry = state.volume_registry.lock().await;
-                let volume_handle = {
-                    let layer_map = state.layer_to_volume_map.lock().await;
-                    layer_map.get(&layer_id).cloned().unwrap_or_default()
-                };
-                registry.get_timepoint(&volume_handle).unwrap_or(0)
-            };
-            let vol_3d = vec.volume(timepoint).map_err(|e| BridgeError::Internal {
-                code: 5014,
-                details: format!(
-                    "Failed to extract timepoint {} for histogram: {}",
-                    timepoint, e
-                ),
-            })?;
-            for &val in vol_3d.data().iter() {
-                let val_f32 = val as f32;
-                if !exclude_zeros || val != 0 {
-                    values.push(val_f32);
-                }
-            }
-        }
-        VolumeSendable::Vec4DI32(vec) => {
-            let timepoint = {
-                let registry = state.volume_registry.lock().await;
-                let volume_handle = {
-                    let layer_map = state.layer_to_volume_map.lock().await;
-                    layer_map.get(&layer_id).cloned().unwrap_or_default()
-                };
-                registry.get_timepoint(&volume_handle).unwrap_or(0)
-            };
-            let vol_3d = vec.volume(timepoint).map_err(|e| BridgeError::Internal {
-                code: 5014,
-                details: format!(
-                    "Failed to extract timepoint {} for histogram: {}",
-                    timepoint, e
-                ),
-            })?;
-            for &val in vol_3d.data().iter() {
-                let val_f32 = val as f32;
-                if !exclude_zeros || val != 0 {
-                    values.push(val_f32);
-                }
-            }
-        }
-        VolumeSendable::Vec4DU32(vec) => {
-            let timepoint = {
-                let registry = state.volume_registry.lock().await;
-                let volume_handle = {
-                    let layer_map = state.layer_to_volume_map.lock().await;
-                    layer_map.get(&layer_id).cloned().unwrap_or_default()
-                };
-                registry.get_timepoint(&volume_handle).unwrap_or(0)
-            };
-            let vol_3d = vec.volume(timepoint).map_err(|e| BridgeError::Internal {
-                code: 5014,
-                details: format!(
-                    "Failed to extract timepoint {} for histogram: {}",
-                    timepoint, e
-                ),
-            })?;
-            for &val in vol_3d.data().iter() {
-                let val_f32 = val as f32;
-                if !exclude_zeros || val != 0 {
-                    values.push(val_f32);
-                }
-            }
-        }
-        VolumeSendable::Vec4DF64(vec) => {
-            let timepoint = {
-                let registry = state.volume_registry.lock().await;
-                let volume_handle = {
-                    let layer_map = state.layer_to_volume_map.lock().await;
-                    layer_map.get(&layer_id).cloned().unwrap_or_default()
-                };
-                registry.get_timepoint(&volume_handle).unwrap_or(0)
-            };
-            let vol_3d = vec.volume(timepoint).map_err(|e| BridgeError::Internal {
-                code: 5014,
-                details: format!(
-                    "Failed to extract timepoint {} for histogram: {}",
-                    timepoint, e
-                ),
-            })?;
-            for &val in vol_3d.data().iter() {
-                let val_f32 = val as f32;
-                if !exclude_zeros || val != 0.0 {
-                    values.push(val_f32);
-                }
-            }
-        }
-    }
-
-    if values.is_empty() {
-        return Ok(HistogramResult {
-            bins: vec![],
-            total_count: 0,
-            min_value: 0.0,
-            max_value: 0.0,
-            mean: 0.0,
-            std: 0.0,
-            bin_count: 0,
-        });
-    }
-
-    // Calculate statistics
-    let min_value = values.iter().cloned().fold(f32::INFINITY, f32::min);
-    let max_value = values.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
-    let total_count = values.len() as u64;
-    let mean = values.iter().sum::<f32>() / values.len() as f32;
-
-    info!(
-        "Histogram data stats: total_values={}, min={}, max={}, mean={}",
-        total_count, min_value, max_value, mean
-    );
-
-    // Calculate standard deviation
-    let variance = values.iter().map(|&v| (v - mean).powi(2)).sum::<f32>() / values.len() as f32;
-    let std = variance.sqrt();
-
-    // Determine range for binning
-    let (hist_min, hist_max) = if let Some(r) = range {
-        if r.len() >= 2 {
-            (r[0], r[1])
-        } else {
-            (min_value, max_value)
-        }
-    } else {
-        (min_value, max_value)
-    };
-
-    // Create bins
-    let bin_width = (hist_max - hist_min) / bin_count as f32;
-    let mut bins = vec![0u64; bin_count as usize];
-
-    // Fill bins
-    for &val in values.iter() {
-        if val >= hist_min && val <= hist_max {
-            let bin_idx = ((val - hist_min) / bin_width) as usize;
-            let bin_idx = bin_idx.min(bin_count as usize - 1); // Clamp to last bin
-            bins[bin_idx] += 1;
-        }
-    }
-
-    // Log bin distribution
-    let non_zero_bins = bins.iter().filter(|&&count| count > 0).count();
-    let max_bin_count = bins.iter().max().copied().unwrap_or(0);
-    info!(
-        "Histogram binning: hist_range=[{}, {}], bin_width={}, non_zero_bins={}/{}, max_bin_count={}",
-        hist_min, hist_max, bin_width, non_zero_bins, bin_count, max_bin_count
-    );
-
-    // Convert to result format
-    let histogram_bins: Vec<HistogramBin> = bins
-        .iter()
-        .enumerate()
-        .map(|(i, &count)| HistogramBin {
-            x0: hist_min + (i as f32 * bin_width),
-            x1: hist_min + ((i + 1) as f32 * bin_width),
-            count,
-        })
-        .collect();
-
-    Ok(HistogramResult {
-        bins: histogram_bins,
-        total_count,
-        min_value,
-        max_value,
-        mean,
-        std,
-        bin_count,
+    let timepoint = state
+        .volume_registry
+        .lock()
+        .await
+        .get_timepoint(&volume_handle)
+        .unwrap_or(0);
+    tokio::task::spawn_blocking(move || {
+        histogram::for_volume(
+            &volume,
+            timepoint,
+            bin_count,
+            range.as_deref(),
+            exclude_zeros,
+        )
     })
+    .await
+    .map_err(|error| BridgeError::Internal {
+        code: 5014,
+        details: format!("Histogram task failed: {error}"),
+    })?
 }
 
 async fn sample_world_coordinate_impl(
@@ -8798,6 +8474,7 @@ pub struct RenderViewsDiagnostics {
     pub requested_view_count: usize,
     pub parse_ms: f32,
     pub packet_encode_ms: f32,
+    pub readback_ms: f32,
     pub total_ms: f32,
     pub output_bytes: usize,
     pub per_view: Vec<RenderViewDiagnostics>,
@@ -9173,6 +8850,7 @@ async fn render_frontend_view_with_diagnostics(
     parse_time: std::time::Duration,
     service_lock_time: std::time::Duration,
     prepared_layers: Option<&PreparedFrontendLayers>,
+    render_view_id: &str,
 ) -> BridgeResult<RenderViewTestOutput> {
     let total_start = std::time::Instant::now();
     let target = render_bridge_adapter::select_view_target(frontend_state);
@@ -9327,7 +9005,7 @@ async fn render_frontend_view_with_diagnostics(
     ));
     let frame_result = service
         .request_frame_with_options(
-            render_loop::view_state::ViewId::new("frontend_view"),
+            render_loop::view_state::ViewId::new(render_view_id),
             backend_view_state,
             render_loop::view_state::FrameRequestOptions { readback_mode },
         )
@@ -9545,6 +9223,7 @@ async fn render_view_process_with_diagnostics(
         parse_time,
         service_lock_time,
         None,
+        "frontend_view",
     )
     .await
 }
@@ -9657,46 +9336,58 @@ async fn render_views_process_with_diagnostics(
         Vec::with_capacity(requested_views.len());
     let mut per_view = Vec::with_capacity(requested_views.len());
 
-    for request in requested_views {
+    let mut readback_views = Vec::with_capacity(requested_views.len());
+    let mut view_codes = Vec::with_capacity(requested_views.len());
+    for (index, request) in requested_views.into_iter().enumerate() {
         let view_code = render_bridge_adapter::encode_view_type(&request.view_type)?;
-        let width = request.width;
-        let height = request.height;
-
         let mut state_for_view = base_state.clone();
-        state_for_view.requested_view = Some(request.clone());
-
-        let render_result = render_frontend_view_with_diagnostics(
+        state_for_view.requested_view = Some(request);
+        let view_id = format!("frontend_multi_{index}");
+        let result = render_frontend_view_with_diagnostics(
             &state_for_view,
             bridge_state,
             &mut service,
-            format,
-            render_loop::view_state::FrameReadbackMode::Blocking,
+            RenderFormat::RawRgba,
+            render_loop::view_state::FrameReadbackMode::Skip,
             parse_time,
             service_lock_time,
             Some(&prepared_layers),
+            &view_id,
         )
         .await?;
-        let render_bytes = render_result.data;
-        per_view.push(render_result.diagnostics);
-
-        if format == RenderFormat::RawRgba {
-            let (actual_width, actual_height, payload) =
-                render_bridge_adapter::split_raw_rgba_frame(&render_bytes)?;
-
-            entries.push(render_bridge_adapter::MultiViewPacketEntry {
-                view_code,
-                width: actual_width,
-                height: actual_height,
-                payload,
-            });
+        readback_views.push((
+            render_loop::view_state::ViewId::new(view_id),
+            result.diagnostics.output_dimensions,
+        ));
+        view_codes.push(view_code);
+        per_view.push(result.diagnostics);
+    }
+    let readback_start = std::time::Instant::now();
+    let images = service
+        .read_views_to_images_sized(&readback_views)
+        .map_err(|error| BridgeError::GpuError {
+            code: 5021,
+            details: format!("Failed to read orthogonal views: {error}"),
+        })?;
+    let readback_ms = duration_ms(readback_start.elapsed());
+    drop(service);
+    for (index, rgba) in images.into_iter().enumerate() {
+        let [width, height] = readback_views[index].1;
+        let encode_start = std::time::Instant::now();
+        let payload = if format == RenderFormat::RawRgba {
+            rgba
         } else {
-            entries.push(render_bridge_adapter::MultiViewPacketEntry {
-                view_code,
-                width,
-                height,
-                payload: render_bytes,
-            });
-        }
+            render_bridge_adapter::encode_png_frame(width, height, rgba)?
+        };
+        per_view[index].format = format.label().to_string();
+        per_view[index].encode_ms = duration_ms(encode_start.elapsed());
+        per_view[index].output_bytes = payload.len();
+        entries.push(render_bridge_adapter::MultiViewPacketEntry {
+            view_code: view_codes[index],
+            width,
+            height,
+            payload,
+        });
     }
 
     let packet_start = std::time::Instant::now();
@@ -9713,6 +9404,7 @@ async fn render_views_process_with_diagnostics(
             requested_view_count: per_view.len(),
             parse_ms: duration_ms(parse_time),
             packet_encode_ms,
+            readback_ms,
             total_ms,
             output_bytes,
             per_view,
@@ -14253,12 +13945,22 @@ mod tests {
         for _ in 0..25 {
             register_surface_and_volume_for_projection(&state).await;
             let info = create_surface_sampler_impl(
-                "proj_surf".into(), None, "proj_vol".into(), None, &state,
+                "proj_surf".into(),
+                None,
+                "proj_vol".into(),
+                None,
+                &state,
             )
             .await
             .unwrap();
             let overlay = apply_sampler_impl(
-                info.sampler_handle.clone(), "proj_vol".into(), None, None, None, None, &state,
+                info.sampler_handle.clone(),
+                "proj_vol".into(),
+                None,
+                None,
+                None,
+                None,
+                &state,
             )
             .await
             .unwrap();
@@ -15186,6 +14888,29 @@ mod tests {
             "alice",
             "/data/other.nii.gz",
             &remote_stat,
+        ));
+        let mut persisted = metadata.clone();
+        persisted.version = 2;
+        assert!(remote_cache_metadata_matches(
+            &persisted,
+            "new-session",
+            "login.example.org",
+            22,
+            "alice",
+            "/data/brain.nii.gz",
+            &remote_stat
+        ));
+        let mut unknown_mtime = remote_stat.clone();
+        unknown_mtime.modified = None;
+        persisted.remote_modified_unix_secs = None;
+        assert!(!remote_cache_metadata_matches(
+            &persisted,
+            "new-session",
+            "login.example.org",
+            22,
+            "alice",
+            "/data/brain.nii.gz",
+            &unknown_mtime
         ));
     }
 }

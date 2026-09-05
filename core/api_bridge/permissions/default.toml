@@ -3,6 +3,7 @@
 [default]
 description = "Default permissions for api-bridge plugin"
 permissions = [
+  "allow-cancel-remote-file-load",
     "allow-load-file",
     "allow-load-surface",
     "allow-unload-surface",

@@ -240,6 +240,7 @@ pub(crate) fn encode_raw_rgba_frame(width: u32, height: u32, rgba_data: Vec<u8>)
     raw_buffer
 }
 
+#[cfg(test)]
 pub(crate) fn split_raw_rgba_frame(bytes: &[u8]) -> BridgeResult<(u32, u32, Vec<u8>)> {
     if bytes.len() < 8 {
         return Err(BridgeError::Internal {

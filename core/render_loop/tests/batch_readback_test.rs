@@ -107,6 +107,58 @@ fn batched_readback_matches_sequential_readback() {
 }
 
 #[test]
+fn differently_sized_readback_matches_sequential_including_row_padding() {
+    pollster::block_on(async {
+        let volume = create_test_pattern_volume();
+        let mut service = RenderLoopService::new().await.unwrap();
+        service.load_shaders().unwrap();
+        service
+            .register_volume_with_upload(
+                "test-volume".into(),
+                &volume,
+                wgpu::TextureFormat::R8Unorm,
+            )
+            .unwrap();
+        let mut reference = Vec::new();
+        let mut views = Vec::new();
+        for (index, size) in [[127, 91], [256, 129], [65, 33]].into_iter().enumerate() {
+            let state = ViewState::from_basic_params(
+                "test-volume".into(),
+                [32., 32., 12.],
+                SliceOrientation::Axial,
+                64.,
+                size,
+                (0., 1.),
+            );
+            reference.push(
+                service
+                    .request_frame(ViewId::new(format!("ref-{index}")), state.clone())
+                    .await
+                    .unwrap()
+                    .image_data,
+            );
+            let id = ViewId::new(format!("sized-{index}"));
+            service
+                .request_frame_with_options(
+                    id.clone(),
+                    state,
+                    FrameRequestOptions {
+                        readback_mode: FrameReadbackMode::Skip,
+                    },
+                )
+                .await
+                .unwrap();
+            views.push((id, size));
+        }
+        let images = service.read_views_to_images_sized(&views).unwrap();
+        assert_eq!(images, reference);
+        assert!(service
+            .read_views_to_images_sized(&[(views[0].0.clone(), [128, 91])])
+            .is_err());
+    });
+}
+
+#[test]
 fn read_views_to_images_empty_is_empty() {
     pollster::block_on(async {
         let service = RenderLoopService::new()

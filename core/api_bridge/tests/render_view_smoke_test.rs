@@ -627,7 +627,7 @@ async fn render_views_reports_diagnostics() {
             && diag.service_lock_ms >= 0.0
             && diag.target_setup_ms >= 0.0
             && diag.frame.visible_layers == 1
-            && diag.frame.readback_mode == FrameReadbackMode::Blocking
+            && diag.frame.readback_mode == FrameReadbackMode::Skip
     }));
     assert_eq!(result.diagnostics.per_view[0].frame.updated_layer_slots, 1);
     assert_eq!(result.diagnostics.per_view[1].frame.updated_layer_slots, 0);

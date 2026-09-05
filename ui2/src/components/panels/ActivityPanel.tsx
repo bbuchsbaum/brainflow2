@@ -12,6 +12,8 @@
  * a clear-completed action.
  */
 
+import { cancelRemoteFileLoad } from '@/services/RemoteMountService';
+import { getEventBus } from '@/events/EventBus';
 import React, { useMemo } from 'react';
 import { CheckCircle2, AlertCircle, Loader2, Hourglass, XCircle, Trash2 } from 'lucide-react';
 
@@ -142,6 +144,7 @@ const ActivityRow: React.FC<ActivityRowProps> = ({ item, testid }) => {
         >
           {item.displayName || item.path}
         </div>
+        {item.stage && item.status === 'loading' && <div style={META_STYLE}>{item.stage}</div>}
         {item.error ? (
           <div
             style={{
@@ -171,6 +174,10 @@ const ActivityRow: React.FC<ActivityRowProps> = ({ item, testid }) => {
         ) : null}
       </div>
       <span style={META_STYLE}>
+        {item.remoteTransfer && item.status === 'loading' && <button type="button" aria-label={`Cancel download of ${item.displayName}`}
+          onClick={() => { void cancelRemoteFileLoad(item.path).catch((error: unknown) => {
+            getEventBus().emit('ui.notification', { type: 'error', message: `Unable to cancel download: ${String(error)}` });
+          }); }} className="mr-2 rounded border px-2 py-1">Cancel</button>}
         {item.status === 'loading' && typeof item.progress === 'number'
           ? `${Math.round(item.progress)}%`
           : duration}
