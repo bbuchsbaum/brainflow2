@@ -4820,7 +4820,7 @@ dependencies = [
 [[package]]
 name = "neuroatlas"
 version = "0.1.0"
-source = "git+https://github.com/bbuchsbaum/neuroatlas-rs?rev=6384c6beac8808b53c2dd1dad4868bf161d1d280#6384c6beac8808b53c2dd1dad4868bf161d1d280"
+source = "git+https://github.com/bbuchsbaum/neuroatlas-rs?rev=f0103ed74c05da4f7a1a42a7f21082208f9e510b#f0103ed74c05da4f7a1a42a7f21082208f9e510b"
 dependencies = [
  "anyhow",
  "approx 0.5.1",
