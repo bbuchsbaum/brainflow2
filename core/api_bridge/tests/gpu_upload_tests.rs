@@ -347,3 +347,47 @@ async fn concurrent_layer_uploads_do_not_deadlock() {
         assert!(map.contains_key(id), "layer {id} should be registered");
     }
 }
+
+/// Optional local-file receipt, using the same decoder and GPU command as the app.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "set BRAINFLOW_TEST_NIFTI_PATH to a local 3D float32 NIfTI to test the real upload"]
+async fn local_nifti_decode_and_gpu_upload() {
+    let path = std::env::var("BRAINFLOW_TEST_NIFTI_PATH").expect("NIfTI path");
+    let (volume, _) =
+        nifti_loader::load_nifti_volume_auto(std::path::Path::new(&path)).expect("decode");
+    assert!(matches!(&volume, VolumeSendable::VolF32(..)));
+    let state = mock_helpers::setup_test_state().await;
+    let renderer = RenderLoopService::new().await.expect("GPU renderer");
+    *state.render_loop_service.lock().await = Some(Arc::new(Mutex::new(renderer)));
+    state.volume_registry.lock().await.insert(
+        "nifti".into(),
+        volume,
+        VolumeMetadataInfo {
+            name: "NIfTI upload check".into(),
+            path,
+            dtype: "f32".into(),
+            volume_type: VolumeType::Volume3D,
+            time_series_info: None,
+        },
+    );
+    let result = request_layer_gpu_resources_for_testing(
+        LayerSpec::Volume(VolumeLayerSpec {
+            id: "nifti-layer".into(),
+            source_resource_id: "nifti".into(),
+            colormap: "gray".into(),
+            slice_axis: None,
+            slice_index: None,
+        }),
+        None,
+        &state,
+    )
+    .await;
+    eprintln!("NIfTI GPU allocation result: {result:?}");
+    let info = result.expect("real NIfTI must upload");
+    let range = info.data_range.expect("finite display range");
+    assert!(range.min.is_finite() && range.max.is_finite());
+    assert!(range.min <= range.max);
+    release_layer_gpu_resources_for_testing("nifti-layer".into(), &state)
+        .await
+        .expect("release");
+}

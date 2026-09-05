@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { formatTauriError } from '../formatTauriError';
+import { formatTauriError, toError } from '../formatTauriError';
 
 describe('formatTauriError', () => {
   it('returns raw string errors', () => {
@@ -27,5 +27,16 @@ describe('formatTauriError', () => {
   it('falls back to JSON when no message-like fields exist', () => {
     const payload = { foo: 'bar', n: 1 };
     expect(formatTauriError(payload)).toBe(JSON.stringify(payload));
+  });
+});
+
+describe('toError', () => {
+  it('preserves Error identity and the original structured cause', () => {
+    const original = new Error('failure');
+    expect(toError(original)).toBe(original);
+    const payload = { Internal: { code: 5099, details: 'GPU upload task panicked' } };
+    expect(toError(payload).message).toBe('GPU upload task panicked');
+    expect(toError(payload).cause).toBe(payload);
+    expect(toError(undefined).message).toBe('Unknown error');
   });
 });

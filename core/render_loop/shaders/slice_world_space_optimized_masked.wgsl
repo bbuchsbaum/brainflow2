@@ -396,6 +396,12 @@ fn sampleLayerOptimized(layer: LayerData, world_mm: vec3<f32>, pixel_size: f32) 
                         layer.is_mask == 1u;
     let interpolation_mode = select(layer.interpolation_mode, 0u, force_nearest);
     let raw_sample = sampleVolumeTextureOptimized(layer.texture_index, tex_coord, lod, interpolation_mode);
+    // Missing/nonfinite scalar samples must not paint over lower layers.
+    // Inspect exponent bits: NaN comparisons can be optimized away by GPU drivers.
+    if ((bitcast<u32>(raw_sample) & 0x7f800000u) == 0x7f800000u) {
+        return vec4<f32>(0.0);
+    }
+
     // Label mode treats samples as integer IDs for thresholding and palette lookup.
     let raw_value = select(raw_sample, round(raw_sample), layer.layer_mode == LAYER_MODE_LABEL);
     

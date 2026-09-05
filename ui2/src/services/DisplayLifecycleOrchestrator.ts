@@ -12,7 +12,7 @@
  * - surface overlay load
  */
 
-import { formatTauriError } from '@/utils/formatTauriError';
+import { formatTauriError, toError } from '@/utils/formatTauriError';
 import { fileLoadScheduler } from './LoadScheduler';
 import { getEventBus, type EventBus } from '@/events/EventBus';
 import { getApiService, type ApiService } from './apiService';
@@ -367,11 +367,12 @@ export class DisplayLifecycleOrchestrator {
         useLoadingQueueStore.getState().cancel(queueId);
         return null;
       }
-      useLoadingQueueStore.getState().markError(queueId, error as Error);
-      this.eventBus.emit('file.error', { path, error: error as Error });
+      const failure = toError(error);
+      useLoadingQueueStore.getState().markError(queueId, failure);
+      this.eventBus.emit('file.error', { path, error: failure });
       this.eventBus.emit('ui.notification', {
         type: 'error',
-        message: `Failed to load ${filename}: ${(error as Error).message}`,
+        message: `Failed to load ${filename}: ${failure.message}`,
       });
       return null;
     } finally {
@@ -458,10 +459,11 @@ export class DisplayLifecycleOrchestrator {
       });
       return overlayLayer;
     } catch (error) {
-      queueStore.markError(queueId, error as Error);
+      const failure = toError(error);
+      queueStore.markError(queueId, failure);
       this.eventBus.emit('ui.notification', {
         type: 'error',
-        message: `Failed to load overlay ${filename}: ${(error as Error).message}`,
+        message: `Failed to load overlay ${filename}: ${failure.message}`,
       });
       return null;
     }

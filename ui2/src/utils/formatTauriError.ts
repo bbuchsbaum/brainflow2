@@ -42,3 +42,9 @@ export function formatTauriError(error: unknown): string {
 
   return String(error);
 }
+
+/** Normalize a bridge rejection for APIs and event payloads that require Error. */
+export function toError(error: unknown): Error {
+  if (error instanceof Error) return error;
+  return new Error(error == null ? 'Unknown error' : formatTauriError(error), { cause: error });
+}

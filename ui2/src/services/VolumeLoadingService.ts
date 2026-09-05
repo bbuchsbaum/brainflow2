@@ -3,6 +3,7 @@
  * Ensures consistent behavior whether loading from file browser, templates, or other sources
  */
 
+import { toError } from '@/utils/formatTauriError';
 import { getEventBus, type EventBus } from '@/events/EventBus';
 import { getApiService, type ApiService, type VolumeHandle } from './apiService';
 import { useLayerStore } from '@/stores/layerStore';
@@ -308,14 +309,15 @@ export class VolumeLoadingService {
         console.warn('[VolumeLoadingService] Failed to unload provisional volume:', cleanupError);
       }
 
-      // Emit error event
+      // Preserve structured bridge details in the log, Activity and callers.
+      const failure = toError(error);
       this.eventBus!.emit('volume.load.error', {
         volumeId: volumeHandle.id,
         source: source,
-        error: error as Error,
+        error: failure,
       });
 
-      throw error;
+      throw failure;
     }
   }
 

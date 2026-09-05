@@ -176,6 +176,24 @@ describe('DisplayLifecycleOrchestrator', () => {
     (module.DisplayLifecycleOrchestrator as any).instance = null;
   });
 
+  it.each(['download', 'display'])('preserves a structured backend error from %s in the toast and Activity', async (stage) => {
+    const backendError = { GpuError: { code: 6001, details: 'GPU upload failed: fixture reason' } };
+    mockApiService.loadFile.mockResolvedValue({ id: 'vol-1', name: 'remote.nii.gz', dims: [97, 115, 97], dtype: 'f32' });
+    if (stage === 'download') mockApiService.loadFile.mockRejectedValueOnce(backendError);
+    else mockVolumeLoadingService.loadVolume.mockRejectedValueOnce(backendError);
+    const { DisplayLifecycleOrchestrator } = await import('../DisplayLifecycleOrchestrator');
+    await DisplayLifecycleOrchestrator.getInstance().loadFile({ path: '/cache/remote.nii.gz', ingress: 'programmatic' });
+    const failure = mockQueueState.markError.mock.calls.at(-1)?.[1];
+    expect(failure).toBeInstanceOf(Error);
+    expect(failure.message).toBe('GPU upload failed: fixture reason');
+    expect(failure.cause).toBe(backendError);
+    expect(mockEventBus.emit).toHaveBeenCalledWith('file.error', { path: '/cache/remote.nii.gz', error: failure });
+    expect(mockEventBus.emit).toHaveBeenCalledWith('ui.notification', {
+      type: 'error', message: 'Failed to load remote.nii.gz: GPU upload failed: fixture reason',
+    });
+    expect(mockQueueState.markComplete).not.toHaveBeenCalled();
+  });
+
   it('routes NIfTI loads through volume flow only', async () => {
     mockApiService.loadFile.mockResolvedValue({
       id: 'vol-1',

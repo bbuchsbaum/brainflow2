@@ -97,6 +97,15 @@ describe('Volume loading lifecycle', () => {
     );
     expect(m.api.unloadVolume).toHaveBeenCalledWith('audit-volume');
   });
+  it('retains structured GPU errors in volume failure events while rolling back', async () => {
+    const backendError = { Internal: { code: 5099, details: 'GPU upload task panicked: fixture' } };
+    m.service.addLayer.mockRejectedValueOnce(backendError);
+    await expect(getVolumeLoadingService().loadVolume(config)).rejects.toThrow('GPU upload task panicked: fixture');
+    const failure = m.event.emit.mock.calls.find(([event]) => event === 'volume.load.error')?.[1].error;
+    expect(failure).toBeInstanceOf(Error);
+    expect(failure.cause).toBe(backendError);
+    expect(m.api.unloadVolume).toHaveBeenCalledWith('audit-volume');
+  });
   it('releases a load whose destination closed before geometry arrived', async () => {
     let finish!: (value: unknown) => void;
     m.api.getInitialViews.mockReturnValue(

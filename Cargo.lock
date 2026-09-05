@@ -4821,7 +4821,7 @@ dependencies = [
 [[package]]
 name = "neuroatlas"
 version = "0.1.0"
-source = "git+https://github.com/bbuchsbaum/neuroatlas-rs?rev=b7ec84ef2e91eb969ec9019d02654e12127e3a31#b7ec84ef2e91eb969ec9019d02654e12127e3a31"
+source = "git+https://github.com/bbuchsbaum/neuroatlas-rs?rev=6f0adb62b858b3799982224fe04394c9e28a38ce#6f0adb62b858b3799982224fe04394c9e28a38ce"
 dependencies = [
  "anyhow",
  "approx 0.5.1",
@@ -4861,7 +4861,7 @@ dependencies = [
 [[package]]
 name = "neuroim"
 version = "0.1.0"
-source = "git+https://github.com/bbuchsbaum/neuroim-rs?rev=e4495e30d782b856c0deb016520cd40075975dd4#e4495e30d782b856c0deb016520cd40075975dd4"
+source = "git+https://github.com/bbuchsbaum/neuroim-rs?rev=78d4e61f3e7dc7e759f38d02b85f9da41ee70d8a#78d4e61f3e7dc7e759f38d02b85f9da41ee70d8a"
 dependencies = [
  "anyhow",
  "byteorder",

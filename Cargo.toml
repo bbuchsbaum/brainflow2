@@ -49,12 +49,12 @@ log = "=0.4.22"
 env_logger = "=0.11.5"
 
 # --- Atlas and Template dependencies ---
-neuroatlas = { git = "https://github.com/bbuchsbaum/neuroatlas-rs", rev = "b7ec84ef2e91eb969ec9019d02654e12127e3a31", features = ["surface"] }
+neuroatlas = { git = "https://github.com/bbuchsbaum/neuroatlas-rs", rev = "6f0adb62b858b3799982224fe04394c9e28a38ce", features = ["surface"] }
 
 # --- Surface and GIFTI support ---
 neurosurf-rs = { git = "https://github.com/bbuchsbaum/neurosurf-rs", rev = "01155a5974e390f36949752f87098856f8d35c57", features = ["gifti-support"] }
 gifti = { git = "https://github.com/bbuchsbaum/gifti-rs", rev = "00520ee8d00f8a223a440fd3c7381d63c4a36e75" }
-neuroim = { git = "https://github.com/bbuchsbaum/neuroim-rs", rev = "e4495e30d782b856c0deb016520cd40075975dd4" }
+neuroim = { git = "https://github.com/bbuchsbaum/neuroim-rs", rev = "78d4e61f3e7dc7e759f38d02b85f9da41ee70d8a" }
 
 # --- BIDS support ---
 bids-rs = { git = "ssh://git@github.com/bbuchsbaum/bids-rs.git", branch = "main" }
