@@ -102,3 +102,5 @@ React components organized by feature and function. Contains all UI elements inc
 - `DesignPane` pages complete keyed observation metadata in blocks of eighty rows using the current visible ID order. Page changes preserve focus and membership; changing the dataset or visible order resets paging. The import preview remains a separate compact presentation.
 
 - `studio/PopulationMaskControls.tsx` opens the installed native dialog through the action service and offers change/clear. The common binary mask applies to population images, original focus, cutouts and probe values. Show its name and support semantics; preserve focus, selection and spatial probe when changing it. The `?mask` population harness simulates the chooser and sampling explicitly and does not establish native IPC acceptance.
+
+- `studio/PopulationExportControls.tsx` offers full-volume summary/coverage/provenance export from a current completed Population view. Disable stale/pending/empty selections, expose cancellation and the saved directory, and retain result identity. Source validation failures require an explicit refresh; never retry with unverified source revisions.

@@ -12349,7 +12349,7 @@ pub async fn compute_region_stats_for_testing(
 ///
 /// Serde-only (typed inline on the frontend, like `RegionStat`); the JSON shape
 /// is `{ memberId, sourcePath, displayLabel?, designValues? }`.
-#[derive(Debug, Clone, serde::Deserialize)]
+#[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SetMemberRef {
     pub member_id: String,
@@ -12911,6 +12911,21 @@ async fn evaluate_population_slice(
         .population_slice
         .evaluate(request, state.inner(), cancellation)
         .await
+}
+
+/// Save a full native-grid summary, coverage and frozen calculation provenance.
+#[command]
+async fn export_population_summary(
+    request: population_slice::export::ExportRequest,
+    ticket: Option<SampleTicket>,
+    state: State<'_, BridgeState>,
+) -> BridgeResult<population_slice::export::ExportResult> {
+    let cancellation = ticket
+        .as_ref()
+        .map(|ticket| state.population_sampling.begin(ticket))
+        .transpose()?
+        .unwrap_or_default();
+    population_slice::export::export(request, state.inner(), cancellation).await
 }
 
 /// Release the plane matrix owned by a particular mounted population view.

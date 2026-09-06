@@ -109,6 +109,7 @@ Default permissions for api-bridge plugin
 - `allow-sample-set-at-world`
 - `allow-cancel-population-sample`
 - `allow-evaluate-population-slice`
+- `allow-export-population-summary`
 - `allow-release-population-slice`
 - `allow-sample-set-trace-at-world`
 
@@ -585,6 +586,32 @@ Enables the evaluate_population_slice command without any pre-configured scope.
 <td>
 
 Denies the evaluate_population_slice command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:allow-export-population-summary`
+
+</td>
+<td>
+
+Enables the export_population_summary command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:deny-export-population-summary`
+
+</td>
+<td>
+
+Denies the export_population_summary command without any pre-configured scope.
 
 </td>
 </tr>

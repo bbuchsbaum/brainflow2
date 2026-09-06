@@ -253,6 +253,7 @@ dependencies = [
  "neuroatlas",
  "neuroim",
  "neurosurf-rs",
+ "nifti 0.17.0",
  "nifti-loader",
  "pollster",
  "rand_core 0.6.4",

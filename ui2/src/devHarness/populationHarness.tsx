@@ -3,7 +3,7 @@ import { PopulationUnitControls } from '@/components/studio/PopulationUnitContro
 import { DesignPane } from '@/components/studio/DesignPane';
 import { useStudioDerivedState } from '@/hooks/useStudioDerivedState';
 /* eslint-disable react-refresh/only-export-components -- isolated dev-only visual entry */
-import { StrictMode } from 'react';
+import { StrictMode, useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { PopulationLens } from '@/components/studio/PopulationLens';
 import { PopulationSliceService } from '@/services/studio/PopulationSliceService';
@@ -15,10 +15,27 @@ import '../index.css';
 if (!import.meta.env.DEV) throw new Error('This synthetic harness is development-only.');
 document.documentElement.classList.add('dark');
 const maskMode = new URLSearchParams(location.search).has('mask');
-if (maskMode)
+const exportMode = new URLSearchParams(location.search).has('export');
+const fakeHash = 'a'.repeat(64);
+const fakeMaskHash = 'b'.repeat(64);
+if (maskMode || exportMode)
   setTransport({
-    async invoke<T>(command: string): Promise<T> {
-      if (command === 'plugin:dialog|open') return '/synthetic/left-half-mask.nii' as T;
+    async invoke<T>(command: string, args?: Record<string, unknown>): Promise<T> {
+      if (command === 'plugin:dialog|open')
+        return (
+          (args?.options as { directory?: boolean })?.directory
+            ? '/synthetic/export'
+            : '/synthetic/left-half-mask.nii'
+        ) as T;
+      if (command === 'export_population_summary') {
+        window.dispatchEvent(new CustomEvent('synthetic-export', { detail: args?.request }));
+        return {
+          directory: '/synthetic/export/population-demo',
+          summaryPath: '/synthetic/export/population-demo/summary.nii.gz',
+          coveragePath: '/synthetic/export/population-demo/coverage.nii.gz',
+          provenancePath: '/synthetic/export/population-demo/provenance.json',
+        } as T;
+      }
       throw new Error(`Unexpected synthetic command: ${command}`);
     },
   });
@@ -97,9 +114,9 @@ const controller = new PopulationProbeController(async (request) => ({
     synthetic: true,
     sources: ids.map((memberId) => ({
       memberId,
-      sourceRevision: { sha256: 'synthetic', sourceBytes: 0 },
+      sourceRevision: { sha256: fakeHash, sourceBytes: 0 },
       ...(request.locus.kind === 'set' && request.locus.mask
-        ? { maskRevision: { sha256: 'synthetic-mask', sourceBytes: 0 } }
+        ? { maskRevision: { sha256: fakeMaskHash, sourceBytes: 0 } }
         : {}),
       stackIndex: null,
       validCount:
@@ -154,7 +171,7 @@ const slices = new PopulationSliceService(
         unitCount: values.length,
         sources: request.members.map((member) => ({
           memberId: member.memberId,
-          revision: { sha256: 'synthetic', sourceBytes: 0 },
+          revision: { sha256: fakeHash, sourceBytes: 0 },
         })),
         cutouts: request.cutouts
           ? (() => {
@@ -189,7 +206,7 @@ const slices = new PopulationSliceService(
               };
             })()
           : null,
-        maskRevision: request.mask ? { sha256: 'synthetic-mask', sourceBytes: 0 } : null,
+        maskRevision: request.mask ? { sha256: fakeMaskHash, sourceBytes: 0 } : null,
         sourceCacheHit: true,
         cachedBytes: 0,
         sampling: 'nearest',
@@ -205,6 +222,12 @@ const slices = new PopulationSliceService(
   0,
 );
 function Harness() {
+  const [exported, setExported] = useState<unknown>(null);
+  useEffect(() => {
+    const onExport = (event: Event) => setExported((event as CustomEvent).detail);
+    window.addEventListener('synthetic-export', onExport);
+    return () => window.removeEventListener('synthetic-export', onExport);
+  }, []);
   const focus = useSetStudioStore((state) => state.selection.activeMemberId);
   return (
     <main className="mx-auto h-screen max-w-5xl overflow-y-auto p-5 text-foreground">
@@ -212,7 +235,8 @@ function Harness() {
       <p className="mb-5 text-sm text-muted-foreground">
         80 synthetic observations: forty +3, forty −1. The ellipse images and sampled values are
         synthetic; native sampling is not exercised here.{' '}
-        {maskMode && 'The file chooser is simulated and selects a synthetic left-half mask.'}
+        {(maskMode || exportMode) &&
+          'File choice and export are simulated; no files are written. Digests are synthetic.'}
       </p>
       <div className="mb-3 rounded border border-border bg-card p-4 text-sm">
         Focused observation: <span data-testid="fixture-focus">{focus}</span>
@@ -220,6 +244,14 @@ function Harness() {
       <PopulationUnitControls />
       <PopulationLens service={slices} probeController={controller} />
       <PopulationProbePanel controller={controller} />
+      {exportMode && exported != null && (
+        <pre
+          data-testid="synthetic-export-receipt"
+          className="whitespace-pre-wrap break-all text-xs"
+        >
+          {JSON.stringify(exported, null, 2)}
+        </pre>
+      )}
     </main>
   );
 }

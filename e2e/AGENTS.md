@@ -197,3 +197,7 @@ expect(result).toBeDefined();
 - WebKit and Firefox (optional for cross-browser testing)
 
 <!-- MANUAL: Any manually added notes below this line are preserved on regeneration -->
+
+## Isolated population visual harness
+
+`playwright.population.config.ts` runs only `harness/population-export.spec.ts` against an owned Vite server on port 5321 (`reuseExistingServer: false`). This is an explicit exception to the native-app tests above: the real Population controls/canvases run with labeled synthetic sampling, file choice and export IPC. It checks participant/mask export operands, fixed scales, focus, restored probe values and desktop/narrow layout; screenshots require visual inspection and are not native Tauri acceptance. Run `pnpm --dir e2e exec playwright test --config playwright.population.config.ts`; install this package's pinned Chromium first. `POPULATION_QA_BROWSER` optionally selects an automation executable, and `POPULATION_QA_OUTPUT` redirects artifacts. Perform the root browser-ownership audit before and after, and never use a user's Chrome profile.

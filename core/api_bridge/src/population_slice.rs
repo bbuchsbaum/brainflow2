@@ -1,5 +1,6 @@
 //! Visible-support evaluation for observed population fields. The retained
 //! plane matrix has a byte budget and never enters the volume/GPU registries.
+pub mod export;
 use crate::{
     population_sampling::SampleCancellation,
     set_sample_cache::{QuerySourceGuard, SampleSourceRevision},
@@ -35,7 +36,7 @@ pub enum Orientation {
     Coronal,
     Sagittal,
 }
-#[derive(Clone, Debug, serde::Deserialize)]
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PopulationSliceRequest {
     pub context_key: String,
@@ -54,25 +55,25 @@ pub struct PopulationSliceRequest {
     #[serde(default)]
     pub cutouts: Option<CutoutRequest>,
 }
-#[derive(Clone, Debug, serde::Deserialize)]
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub enum WithinParticipant {
     Single,
     Mean,
 }
-#[derive(Clone, Debug, serde::Deserialize)]
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ParticipantGroup {
     pub participant_id: String,
     pub member_ids: Vec<String>,
 }
-#[derive(Clone, Debug, serde::Deserialize)]
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ParticipantAggregation {
     pub within: WithinParticipant,
     pub groups: Vec<ParticipantGroup>,
 }
-#[derive(Clone, Debug, serde::Deserialize)]
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CutoutRequest {
     pub center_mm: [f32; 3],

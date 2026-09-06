@@ -54,6 +54,7 @@ atlases = { path = "../atlases" } # Atlas service
 templates = { path = "../templates" } # Template service
 neuroim = { workspace = true }
 neuroatlas = { workspace = true }  # For surface template loading
+nifti = { version = "0.17", features = ["ndarray_volumes"] }
 ndarray = "0.16"  # For vol-to-surf projection (matches neurosurf-rs)
 directories = "5"
 remotely = { git = "https://github.com/bbuchsbaum/remotely", rev = "ea3732a2c12153e2c2c6256f149c67ccc5fc398d" }

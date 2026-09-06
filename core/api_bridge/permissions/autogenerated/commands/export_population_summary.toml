@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-export-population-summary"
+description = "Enables the export_population_summary command without any pre-configured scope."
+commands.allow = ["export_population_summary"]
+
+[[permission]]
+identifier = "deny-export-population-summary"
+description = "Denies the export_population_summary command without any pre-configured scope."
+commands.deny = ["export_population_summary"]

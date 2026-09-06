@@ -1,3 +1,4 @@
+import { PopulationExportControls } from './PopulationExportControls';
 import { PopulationMaskControls } from './PopulationMaskControls';
 import { resolvePopulationParticipants } from '@/services/studio/populationParticipants';
 import {
@@ -214,6 +215,7 @@ export function PopulationLens({
       className="flex min-h-0 flex-col gap-2 rounded-lg border border-border bg-card p-3"
     >
       <PopulationMaskControls />
+      <PopulationExportControls display={result} current={current && !snapshot.pending} />
       <p className="text-sm font-medium">
         Population ·{' '}
         {studio.features[studio.selection.activeFeatureId ?? '']?.label ?? 'Selected feature'}
