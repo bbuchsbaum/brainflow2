@@ -1,3 +1,8 @@
+import {
+  orderPopulationFrame,
+  populationArrangementLabel,
+  populationOrderSourceStatus,
+} from '@/services/studio/populationWitnesses';
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { PlotEncoder } from '@/components/plots/encoder/PlotEncoder';
 import { useSetStudioStore } from '@/stores/setStudioStore';
@@ -76,6 +81,20 @@ export function PopulationProbePanel({
     populationProbeActions.setRadius(next);
   };
   const result = snapshot.displayed;
+  const plotFrame = useMemo(
+    () => (result ? orderPopulationFrame(result.frame, snapshot.arrangement) : null),
+    [result, snapshot.arrangement],
+  );
+  const orderSourceStatus =
+    snapshot.arrangement && result
+      ? populationOrderSourceStatus(
+          snapshot.arrangement,
+          (result.frame.meta?.sources ?? []).map((source) => ({
+            memberId: source.memberId,
+            sha256: source.sourceRevision?.sha256 ?? null,
+          })),
+        )
+      : 'unknown';
   const current = result?.query.key === definition.query?.key;
   const { mean, count, unavailable } = summarizePopulationProbe(result?.frame, selected);
   const issue = definition.issue ?? snapshot.error;
@@ -164,10 +183,19 @@ export function PopulationProbePanel({
           'Pin a brain location to inspect every observation.'
         )}
       </div>
+      {snapshot.arrangement && (
+        <p className="mt-1 text-xs text-muted-foreground">
+          {populationArrangementLabel(snapshot.arrangement)} · plot shows every observation
+          {snapshot.arrangement.query.key !== result?.query.key &&
+            ' · order fitted at an earlier probe'}
+          {orderSourceStatus === 'changed' && ' · source revisions changed; order remains fixed'}
+          {orderSourceStatus === 'unknown' && ' · order source revisions unverified'}
+        </p>
+      )}
       <div ref={plotRef} className="min-w-0">
-        {result && expanded && (
+        {result && plotFrame && expanded && (
           <PlotEncoder
-            frame={result.frame}
+            frame={plotFrame}
             spec={pointSpec}
             width={width}
             height={160}

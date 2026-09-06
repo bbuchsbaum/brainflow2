@@ -1,3 +1,4 @@
+import type { PopulationProbeController } from '@/services/studio/PopulationProbeController';
 import React from 'react';
 import type {
   SpatialFieldSetSummary,
@@ -14,6 +15,7 @@ import { DeckLens } from './DeckLens';
 import { PopulationLens } from './PopulationLens';
 
 interface LensCanvasProps {
+  populationProbeController?: PopulationProbeController;
   activeLens: StudioLensType;
   activeSet: SpatialFieldSetSummary | null;
   activeFeature: StudioFeatureSummary | null;
@@ -49,6 +51,7 @@ interface LensCanvasProps {
  * selected lens body so the viewer can take the full center area.
  */
 export function LensCanvas({
+  populationProbeController,
   activeLens,
   activeSet,
   activeFeature,
@@ -80,7 +83,7 @@ export function LensCanvas({
   return (
     <div className="flex h-full min-h-0 flex-col">
       {activeLens === 'population' ? (
-        <PopulationLens />
+        <PopulationLens probeController={populationProbeController} />
       ) : activeLens === 'compare' ? (
         <CompareLens
           activeSet={activeSet}

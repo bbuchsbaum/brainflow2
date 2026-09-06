@@ -1,3 +1,8 @@
+import {
+  arrangePopulationResponses,
+  populationBindingKey,
+  type PopulationArrangement,
+} from './populationWitnesses';
 import { formatTauriError } from '@/utils/formatTauriError';
 import { sampleProvider } from '@/services/SampleProvider';
 import { resolvePopulationContext } from './populationContext';
@@ -17,6 +22,7 @@ export interface PopulationProbeResult {
   readonly frame: SampleFrame;
 }
 export interface PopulationProbeSnapshot {
+  readonly arrangement: PopulationArrangement | null;
   readonly requested: PopulationProbeQuery | null;
   readonly displayed: PopulationProbeResult | null;
   readonly pending: boolean;
@@ -152,6 +158,7 @@ export function populationSupportKey(
  * until a cooperative cancellation boundary is reached. */
 export class PopulationProbeController {
   private snapshot: PopulationProbeSnapshot = {
+    arrangement: null,
     requested: null,
     displayed: null,
     pending: false,
@@ -194,7 +201,13 @@ export class PopulationProbeController {
     this.pending = null;
     if (this.timer !== null) clearTimeout(this.timer);
     this.timer = null;
-    this.publish({ requested: null, displayed: null, pending: false, error: null });
+    this.publish({
+      arrangement: null,
+      requested: null,
+      displayed: null,
+      pending: false,
+      error: null,
+    });
   }
   request(query: PopulationProbeQuery | null, force = false) {
     if (!this.active || (!force && query?.key === this.snapshot.requested?.key)) return;
@@ -205,11 +218,36 @@ export class PopulationProbeController {
       query && this.snapshot.displayed?.query.datasetKey === query.datasetKey
         ? this.snapshot.displayed
         : null;
-    this.publish({ requested: this.pending, displayed: keep, pending: !!query, error: null });
+    const arrangement = this.snapshot.arrangement;
+    this.publish({
+      arrangement:
+        !query ||
+        (arrangement && populationBindingKey(arrangement.query) === populationBindingKey(query))
+          ? arrangement
+          : null,
+      requested: this.pending,
+      displayed: keep,
+      pending: !!query,
+      error: null,
+    });
     if (!query) {
       if (this.timer !== null) clearTimeout(this.timer);
       this.timer = null;
     } else this.schedule();
+  }
+  arrange(mode: PopulationArrangement['mode']) {
+    const { displayed, requested, pending, error } = this.snapshot;
+    if (!displayed || displayed.query.key !== requested?.key || pending || error) return false;
+    this.publish({ ...this.snapshot, arrangement: arrangePopulationResponses(displayed, mode) });
+    return true;
+  }
+  expandWitnesses() {
+    const arrangement = this.snapshot.arrangement;
+    if (arrangement?.mode === 'witnesses')
+      this.publish({ ...this.snapshot, arrangement: { ...arrangement, mode: 'all' } });
+  }
+  clearArrangement() {
+    if (this.snapshot.arrangement) this.publish({ ...this.snapshot, arrangement: null });
   }
   private publish(snapshot: PopulationProbeSnapshot) {
     this.snapshot = snapshot;
@@ -243,7 +281,13 @@ export class PopulationProbeController {
       ) {
         throw new Error('The sampled observations do not match this population query.');
       }
-      this.publish({ requested: query, displayed: { query, frame }, pending: false, error: null });
+      this.publish({
+        arrangement: this.snapshot.arrangement,
+        requested: query,
+        displayed: { query, frame },
+        pending: false,
+        error: null,
+      });
     } catch (error) {
       if (this.active && generation === this.generation)
         this.publish({

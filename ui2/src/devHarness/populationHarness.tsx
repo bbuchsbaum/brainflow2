@@ -46,7 +46,16 @@ const controller = new PopulationProbeController(async (request) => ({
           value: ids.indexOf(member.memberId) < 40 ? 3 : -1,
         }))
       : [],
-  meta: { synthetic: true },
+  meta: {
+    synthetic: true,
+    sources: ids.map((memberId) => ({
+      memberId,
+      sourceRevision: { sha256: 'synthetic', sourceBytes: 0 },
+      stackIndex: null,
+      validCount: 1,
+      error: null,
+    })),
+  },
 }));
 const slices = new PopulationSliceService(
   {
@@ -143,7 +152,7 @@ function Harness() {
       <div className="mb-3 rounded border border-border bg-card p-4 text-sm">
         Focused observation: <span data-testid="fixture-focus">{focus}</span>
       </div>
-      <PopulationLens service={slices} />
+      <PopulationLens service={slices} probeController={controller} />
       <PopulationProbePanel controller={controller} />
     </main>
   );

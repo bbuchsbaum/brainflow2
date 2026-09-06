@@ -1,3 +1,5 @@
+import { PopulationProbeController } from '@/services/studio/PopulationProbeController';
+import { PopulationProbePanel } from '../PopulationProbePanel';
 import { StrictMode } from 'react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
@@ -36,7 +38,7 @@ afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
 });
-function setup() {
+function setup(probeController?: PopulationProbeController) {
   const bitmaps: { close: ReturnType<typeof vi.fn> }[] = [];
   const evaluate = vi.fn(async (request: PopulationSliceRequest) => ({
     plane: {
@@ -89,7 +91,8 @@ function setup() {
   );
   const mounted = render(
     <StrictMode>
-      <PopulationLens service={service} />
+      <PopulationLens service={service} probeController={probeController} />
+      {probeController && <PopulationProbePanel controller={probeController} />}
     </StrictMode>,
   );
   return { evaluate, release, bitmaps, service, ...mounted };
@@ -168,4 +171,58 @@ it('opens synchronized cutouts at a pinned location and focuses without changing
   fireEvent.click(screen.getByRole('button', { name: 'Hide individual cutouts' }));
   expect(screen.queryByRole('button', { name: 'Focus cutout sub006' })).toBeNull();
   expect(useSetStudioStore.getState().population.pinnedProbe).toBe(before.population.pinnedProbe);
+});
+
+it('shares regional response sampling between the full plot and reversible witness gallery', async () => {
+  const sample = vi.fn(async (request) => ({
+    columns: [
+      { name: 'member', role: 'nominal' as const },
+      { name: 'value', role: 'quantitative' as const },
+    ],
+    rows: request.locus.members.map((member: { memberId: string }, i: number) => ({
+      member: member.memberId,
+      value: i === 1 ? null : 6 - i,
+    })),
+  }));
+  const controller = new PopulationProbeController(sample, 0);
+  const { service } = setup(controller);
+  await waitFor(() => expect(service.getSnapshot().displayed).not.toBeNull());
+  const before = useSetStudioStore.getState().population.working;
+  fireEvent.click(screen.getByRole('button', { name: 'Show individual cutouts' }));
+  await waitFor(() =>
+    expect(screen.getByRole('button', { name: 'Order by pinned response' })).toBeEnabled(),
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Order by pinned response' }));
+  await waitFor(() =>
+    expect(
+      screen
+        .getAllByRole('button', { name: /^Focus cutout/ })
+        .map((b) => b.getAttribute('aria-label')),
+    ).toEqual(
+      ['sub006', 'sub005', 'sub004', 'sub003', 'sub001', 'sub002'].map(
+        (id) => `Focus cutout ${id}`,
+      ),
+    ),
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Show 12 response witnesses' }));
+  await waitFor(() =>
+    expect(screen.getAllByRole('button', { name: /^Focus cutout/ })).toHaveLength(5),
+  );
+  expect(screen.getByText(/plot shows every observation/)).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'Focus cutout sub006' }));
+  expect(useSetStudioStore.getState().selection.activeMemberId).toBe('sub006');
+  expect(useSetStudioStore.getState().population.working).toBe(before);
+  fireEvent.click(screen.getByRole('button', { name: 'Show all observations' }));
+  await waitFor(() =>
+    expect(screen.getAllByRole('button', { name: /^Focus cutout/ })).toHaveLength(6),
+  );
+  expect(sample).toHaveBeenCalledTimes(1);
+  fireEvent.click(screen.getByRole('button', { name: 'Use source order' }));
+  await waitFor(() =>
+    expect(screen.getAllByRole('button', { name: /^Focus cutout/ })[0]).toHaveAttribute(
+      'aria-label',
+      'Focus cutout sub001',
+    ),
+  );
+  expect(sample).toHaveBeenCalledTimes(1);
 });

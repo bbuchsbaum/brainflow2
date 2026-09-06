@@ -1,3 +1,8 @@
+import {
+  populationArrangementLabel,
+  populationBindingKey,
+  populationOrderSourceStatus,
+} from '@/services/studio/populationWitnesses';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import {
   ReusableSliceViewport,
@@ -11,7 +16,11 @@ import { useCrosshairSettingsStore } from '@/stores/crosshairSettingsStore';
 import { getLineDash } from '@/utils/crosshairUtils';
 import { PopulationCutoutGrid } from './PopulationCutoutGrid';
 import { populationProbeActions } from '@/services/studio/PopulationProbeActions';
-import { populationSupportKey } from '@/services/studio/PopulationProbeController';
+import {
+  populationSupportKey,
+  buildPopulationProbeQuery,
+  PopulationProbeController,
+} from '@/services/studio/PopulationProbeController';
 import { resolvePopulation } from '@/services/studio/populationContext';
 import {
   buildPopulationSliceQuery,
@@ -33,12 +42,42 @@ const names: Record<PopulationSummary, string> = {
 
 /** Both panes use Brainflow's shared viewport geometry and image surface. The
  * service supplies visible-support bitmaps, so no global GPU layer is registered. */
-export function PopulationLens({ service: supplied }: { service?: PopulationSliceService } = {}) {
+const noProbeSubscription = () => () => {};
+const noProbeSnapshot = () => null;
+export function PopulationLens({
+  service: supplied,
+  probeController,
+}: { service?: PopulationSliceService; probeController?: PopulationProbeController } = {}) {
   const studio = useSetStudioStore();
   const workspaceId = useViewStateStore((state) => state.activeWorkspaceKey);
   const crosshair = useViewStateStore((state) => state.viewState.crosshair);
   const [service] = useState(() => supplied ?? new PopulationSliceService());
   const snapshot = useSyncExternalStore(service.subscribe, service.getSnapshot);
+  const probeSnapshot = useSyncExternalStore(
+    probeController?.subscribe ?? noProbeSubscription,
+    probeController?.getSnapshot ?? noProbeSnapshot,
+  );
+  const probeDefinition = useMemo(
+    () => buildPopulationProbeQuery(studio, workspaceId),
+    [studio, workspaceId],
+  );
+  const arrangement =
+    probeSnapshot?.arrangement &&
+    probeDefinition.query &&
+    populationBindingKey(probeSnapshot.arrangement.query) ===
+      populationBindingKey(probeDefinition.query)
+      ? probeSnapshot.arrangement
+      : null;
+  const canArrange =
+    !!studio.population.pinnedProbe &&
+    !!probeSnapshot?.displayed &&
+    !probeSnapshot.pending &&
+    !probeSnapshot.error &&
+    probeSnapshot.displayed.query.key === probeDefinition.query?.key;
+  const hasFiniteResponse =
+    probeSnapshot?.displayed?.frame.rows.some(
+      (row) => typeof row.value === 'number' && Number.isFinite(row.value),
+    ) ?? false;
   const [orientation, setOrientation] = useState<PopulationOrientation>('axial');
   const [summary, setSummary] = useState<PopulationSummary>('mean');
   const [zoom, setZoom] = useState(1);
@@ -51,7 +90,12 @@ export function PopulationLens({ service: supplied }: { service?: PopulationSlic
     () => new Set(population.workingMemberIds),
     [population.workingMemberIds],
   );
-  const pages = Math.max(1, Math.ceil(population.context.memberIds.length / 80));
+  const galleryIds = arrangement
+    ? arrangement.mode === 'witnesses'
+      ? arrangement.witnessIds
+      : arrangement.orderedIds
+    : population.context.memberIds;
+  const pages = Math.max(1, Math.ceil(galleryIds.length / 80));
   const page = Math.min(cutoutPage, pages - 1);
   const pinned = studio.population.pinnedProbe;
   const currentProbe =
@@ -63,10 +107,10 @@ export function PopulationLens({ service: supplied }: { service?: PopulationSlic
             centerMm: [...currentProbe.worldMm] as [number, number, number],
             widthMm: cutoutWidth,
             dimPx: 40,
-            memberIds: population.context.memberIds.slice(page * 80, (page + 1) * 80),
+            memberIds: galleryIds.slice(page * 80, (page + 1) * 80),
           }
         : null,
-    [showCutouts, currentProbe, cutoutWidth, population.context.memberIds, page],
+    [showCutouts, currentProbe, cutoutWidth, galleryIds, page],
   );
   const settings = useCrosshairSettingsStore((state) => state.settings);
   const style = useMemo(
@@ -131,6 +175,16 @@ export function PopulationLens({ service: supplied }: { service?: PopulationSlic
     return () => observer.disconnect();
   }, []);
   const result = snapshot.displayed;
+  const orderSourceStatus =
+    arrangement && result
+      ? populationOrderSourceStatus(
+          arrangement,
+          result.data.sources.map((source) => ({
+            memberId: source.memberId,
+            sha256: source.revision.sha256,
+          })),
+        )
+      : 'unknown';
   const current = !!result && result.query.key === definition.query?.key;
   const issue = definition.issue ?? snapshot.error;
   const moveSlice = (direction: number) => {
@@ -419,6 +473,50 @@ export function PopulationLens({ service: supplied }: { service?: PopulationSlic
             <button className={control} onClick={() => populationProbeActions.pin(0, false)}>
               Center cutouts on crosshair
             </button>
+            {probeController && (
+              <>
+                <button
+                  className={control}
+                  disabled={!canArrange}
+                  onClick={() => {
+                    if (probeController.arrange('all')) setCutoutPage(0);
+                  }}
+                >
+                  Order by pinned response
+                </button>
+                <button
+                  className={control}
+                  disabled={!canArrange || !hasFiniteResponse}
+                  onClick={() => {
+                    if (probeController.arrange('witnesses')) setCutoutPage(0);
+                  }}
+                >
+                  Show 12 response witnesses
+                </button>
+                {arrangement?.mode === 'witnesses' && (
+                  <button
+                    className={control}
+                    onClick={() => {
+                      probeController.expandWitnesses();
+                      setCutoutPage(0);
+                    }}
+                  >
+                    Show all observations
+                  </button>
+                )}
+                {arrangement && (
+                  <button
+                    className={control}
+                    onClick={() => {
+                      probeController.clearArrangement();
+                      setCutoutPage(0);
+                    }}
+                  >
+                    Use source order
+                  </button>
+                )}
+              </>
+            )}
             {pages > 1 && (
               <>
                 <button
@@ -447,10 +545,29 @@ export function PopulationLens({ service: supplied }: { service?: PopulationSlic
         <div className="min-w-0 border-t border-border pt-2">
           <p className="mb-1 text-xs text-muted-foreground">
             {result.data.cutouts.members.length} of {population.context.memberIds.length}{' '}
-            observations · source order · {result.query.request.cutouts?.widthMm} mm cutouts at (
+            observations ·{' '}
+            {arrangement?.mode === 'witnesses'
+              ? 'actual maps sampled across finite response quantiles'
+              : arrangement
+                ? 'pinned-response order'
+                : 'source order'}{' '}
+            · {result.query.request.cutouts?.widthMm} mm cutouts at (
             {result.query.request.cutouts?.centerMm.map((value) => value.toFixed(1)).join(', ')}) mm
             {!current && ' · previous query'}
           </p>
+          {arrangement && (
+            <p className="mb-1 text-xs text-muted-foreground">
+              {populationArrangementLabel(arrangement)}.{' '}
+              {arrangement.mode === 'witnesses' &&
+                'Witnesses omit unavailable responses; expand to inspect every observation.'}
+              {arrangement.query.key !== probeDefinition.query?.key &&
+                ' Order remains fixed from its earlier probe.'}
+              {orderSourceStatus === 'changed' &&
+                ' Images have newer source revisions; recompute the response order.'}
+              {orderSourceStatus === 'unknown' &&
+                ' Source revision agreement for this order is unverified.'}
+            </p>
+          )}
           <PopulationCutoutGrid
             display={result}
             width={width}

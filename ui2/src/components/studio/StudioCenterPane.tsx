@@ -1,3 +1,4 @@
+import { PopulationProbeController } from '@/services/studio/PopulationProbeController';
 import { useCallback, useState } from 'react';
 import { getStudioDisplayService } from '@/services/studio/StudioDisplayService';
 import { getStudioCoordinationService } from '@/services/studio/StudioCoordinationService';
@@ -61,6 +62,7 @@ function buildCompareArtifact(args: {
 }
 
 export function StudioCenterPane() {
+  const [populationProbeController] = useState(() => new PopulationProbeController());
   const {
     activeSet,
     activeFeature,
@@ -224,6 +226,7 @@ export function StudioCenterPane() {
 
       <div className={activeLens === 'population' ? 'shrink-0' : 'min-h-[480px] flex-1'}>
         <LensCanvas
+          populationProbeController={populationProbeController}
           activeLens={activeLens}
           activeSet={activeSet}
           activeFeature={activeFeature}
@@ -264,7 +267,7 @@ export function StudioCenterPane() {
         />
       ) : null}
 
-      <PopulationProbePanel />
+      <PopulationProbePanel controller={populationProbeController} />
 
       <StudioStrip
         contextIssue={population.context.issue}

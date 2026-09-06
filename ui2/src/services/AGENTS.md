@@ -120,3 +120,5 @@ Business logic and API integration layer for the Brainflow frontend. Contains 41
 - The Studio coordinator must bypass file/GPU member loading and compare-file materialization while the Population lens owns display. Navigation and hover stay in the service layer; pinned probes remain fixed during slice navigation.
 
 - Optional population cutouts share the slice query and source guard. `packPopulationCutouts` assembles one sprite with the focused-map scale; the same `PopulationImages` lease owns all three bitmaps. Reject missing/reordered gallery results and close all completed bitmaps on conversion failure, stale publication or final lease release.
+
+- `PopulationProbeController` also owns an explicit response arrangement fitted from the sampled frame. `populationWitnesses.ts` ranks finite responses, breaks ties by declared source order, keeps unavailable IDs last, and selects distinct actual empirical-rank witnesses. Ordering/expansion does not resample or alter membership. Retain the fit probe/source provenance while a probe changes; clear the fit across source-binding or dataset changes.

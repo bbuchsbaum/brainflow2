@@ -235,3 +235,29 @@ describe('population probe summaries', () => {
     });
   });
 });
+
+it('fits presentation once without sampling, retains it during probe changes, and resets across sources', async () => {
+  const sample = vi.fn().mockResolvedValue(frame(1));
+  const controller = new PopulationProbeController(sample);
+  controller.request(query(1));
+  expect(controller.arrange('witnesses')).toBe(false);
+  await vi.advanceTimersByTimeAsync(40);
+  expect(controller.arrange('witnesses')).toBe(true);
+  const arrangement = controller.getSnapshot().arrangement!;
+  expect(arrangement.witnessIds).toEqual(['S01']);
+  controller.expandWitnesses();
+  expect(controller.getSnapshot().arrangement?.orderedIds).toBe(arrangement.orderedIds);
+  expect(controller.getSnapshot().arrangement?.mode).toBe('all');
+  controller.request(query(2));
+  expect(controller.arrange('all')).toBe(false);
+  await vi.advanceTimersByTimeAsync(40);
+  expect(controller.getSnapshot().arrangement?.query.key).toBe(query(1).key);
+  expect(sample).toHaveBeenCalledTimes(2);
+  controller.clearArrangement();
+  expect(controller.getSnapshot().arrangement).toBeNull();
+  expect(sample).toHaveBeenCalledTimes(2);
+  controller.arrange('all');
+  controller.request(query(1, 'new dataset'));
+  expect(controller.getSnapshot().arrangement).toBeNull();
+  controller.stop();
+});
