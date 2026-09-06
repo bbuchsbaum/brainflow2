@@ -1,3 +1,4 @@
+import { resolvePopulationParticipants } from '@/services/studio/populationParticipants';
 import {
   populationArrangementLabel,
   populationBindingKey,
@@ -83,10 +84,21 @@ export function PopulationLens({
   const [summary, setSummary] = useState<PopulationSummary>('mean');
   const [zoom, setZoom] = useState(1);
   const [withoutFocused, setWithoutFocused] = useState(false);
+  const [previewTarget, setPreviewTarget] = useState<'observation' | 'participant' | null>(null);
   const [showCutouts, setShowCutouts] = useState(false);
   const [cutoutWidth, setCutoutWidth] = useState(32);
   const [cutoutPage, setCutoutPage] = useState(0);
   const population = useMemo(() => resolvePopulation(studio), [studio]);
+  const participants = useMemo(
+    () => resolvePopulationParticipants(studio, population.workingMemberIds),
+    [studio, population.workingMemberIds],
+  );
+  const previewParticipant =
+    !!participants.identity &&
+    (previewTarget ??
+      (studio.population.participants?.reduction !== 'observations'
+        ? 'participant'
+        : 'observation')) === 'participant';
   const selectedIds = useMemo(
     () => new Set(population.workingMemberIds),
     [population.workingMemberIds],
@@ -142,6 +154,7 @@ export function PopulationLens({
         zoom,
         dimPx: [rasterWidth, rasterHeight],
         withoutFocused,
+        withoutParticipant: previewParticipant,
         cutouts: cutouts?.memberIds.length ? cutouts : null,
       }),
     [
@@ -154,6 +167,7 @@ export function PopulationLens({
       rasterWidth,
       rasterHeight,
       withoutFocused,
+      previewParticipant,
       cutouts,
     ],
   );
@@ -276,6 +290,22 @@ export function PopulationLens({
         </button>
       </div>
       <div className="flex flex-wrap items-center gap-2 text-xs">
+        {participants.identity && (
+          <label>
+            Preview exclusion{' '}
+            <select
+              className={control}
+              aria-label="Preview exclusion unit"
+              value={previewParticipant ? 'participant' : 'observation'}
+              onChange={(event) =>
+                setPreviewTarget(event.target.value as 'observation' | 'participant')
+              }
+            >
+              <option value="observation">Focused observation</option>
+              <option value="participant">Focused participant</option>
+            </select>
+          </label>
+        )}
         <button
           className={control}
           disabled={!studio.selection.activeMemberId}
@@ -296,11 +326,15 @@ export function PopulationLens({
             if (event.key === ' ' || event.key === 'Enter') setWithoutFocused(false);
           }}
         >
-          Hold to preview without focused observation
+          Hold to preview without focused {previewParticipant ? 'participant' : 'observation'}
         </button>
         {withoutFocused && (
           <span role="status">
-            Temporary preview without {studio.selection.activeMemberId}; selection retained.
+            Temporary preview without{' '}
+            {previewParticipant
+              ? `participant ${participants.identity?.get(studio.selection.activeMemberId ?? '')}`
+              : `observation ${studio.selection.activeMemberId}`}
+            ; selection retained.
           </span>
         )}
       </div>
@@ -319,7 +353,7 @@ export function PopulationLens({
               <div className="mb-1 flex min-w-0 justify-between gap-2 text-xs">
                 <span className="truncate">
                   {pane === 'summary'
-                    ? `${names[result?.query.request.summary ?? summary]} · ${result?.data.eligibleCount ?? 0} observations`
+                    ? `${names[result?.query.request.summary ?? summary]} · ${result?.data.unitCount ?? 0} ${result?.query.request.aggregation ? 'participants' : 'observations'}`
                     : `Actual observation · ${result?.query.request.focusMemberId ?? 'none'}`}
                 </span>
                 {result && (
@@ -587,8 +621,10 @@ export function PopulationLens({
           <summary className="cursor-pointer">Coverage and source revisions</summary>
           <p className="my-1">
             {result.query.request.members.length} eligible observations; {result.data.eligibleCount}{' '}
-            contributing rows. Missing samples are transparent; measured zero remains valid. This is
-            an observation summary.
+            selected rows; {result.data.unitCount}{' '}
+            {result.query.request.aggregation ? 'participant' : 'observation'} units. Missing
+            samples are transparent; measured zero remains valid. The analysis unit is explicit in
+            the summary label.
           </p>
           <div className="max-h-32 overflow-auto">
             <table className="w-full text-left">
@@ -612,8 +648,8 @@ export function PopulationLens({
       )}
       <p className="text-xs text-muted-foreground">
         Click either image to pin a location. Mean and individual share the blue–white–red effect
-        scale; magnitude, spread, cancellation and coverage use a separate gold scale. Scales stay fixed while
-        browsing.
+        scale; magnitude, spread, cancellation and coverage use a separate gold scale. Scales stay
+        fixed while browsing.
       </p>
     </section>
   );

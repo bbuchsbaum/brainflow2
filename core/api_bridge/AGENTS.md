@@ -69,3 +69,5 @@ Run `cargo test -p api-bridge` for unit tests. Integration tests in `tests/pipel
 - `tokio` - Async runtime and synchronization
 
 <!-- MANUAL: -->
+
+- Population slice requests optionally declare `aggregation: { within, groups }`. Groups partition selected observation IDs exactly once; `single` requires one row and `mean` averages finite rows within each participant in f64 before between-participant moments. `eligibleCount` remains observation rows; `unitCount` and per-pixel `validCounts` use the declared analysis unit. Aggregation does not invalidate cached source sampling, and focused/cutout images remain original observations. Do not apply participant weighting to already averaged group maps or silently fall back on invalid groups.

@@ -91,8 +91,10 @@ React components organized by feature and function. Contains all UI elements inc
 
 - `studio/PopulationLens.tsx` uses `ReusableSliceViewport` and `SliceViewerImageSurface` directly because its service owns visible-support bitmaps instead of a registered GPU volume layer. This preserves the common placement, world-click and crosshair geometry without allocating an independent full viewer per observation.
 - The population center uses intrinsic height inside Studio's scroll area; a fixed 480 px lens box overlaps controls/plots when the paired images stack on narrow windows. Keep both image identities and previous-query labels visible.
-- Mean and focused observation share a stable value scale. Nonnegative descriptive summaries have their own scale. Display original observations and identify observation-level sensitivity explicitly until participant grouping is implemented.
+- Mean and focused observation share a stable value scale. Nonnegative descriptive summaries have their own scale. Display original observations and label the summary/exclusion unit explicitly. Participant mode must keep the focused map and gallery attached to their original observation IDs.
 
 - `studio/PopulationCutoutGrid.tsx` composes observed cutouts from one leased sprite bitmap onto one canvas. Overlay buttons retain observation IDs for keyboard focus and selection. Cutouts stay on the pinned probe while large-view navigation moves; native sampling owns their geometry. The current UI pages 80 context observations in source order.
 
 - `StudioCenterPane` shares one `PopulationProbeController` with the Population lens and the always-mounted values panel. The panel owns start/request/stop; the lens observes its result and requests explicit arrangements. Keep the full plot in response order while witness mode reduces only gallery previews. Avoid creating a second sampler for witness ordering.
+
+- `studio/PopulationUnitControls.tsx` declares participant metadata and observation/single-row/within-person-mean semantics through `PopulationProbeActions`. Dataset-wide repeated rows are valid when the selected subset satisfies single-row mode. Counts distinguish selected observations from participants; incomplete metadata is a visible refusal, never an inferred identity.

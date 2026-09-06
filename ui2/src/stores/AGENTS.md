@@ -97,3 +97,5 @@ Zustand state management stores for cross-component state sharing. Contains 33 s
 - immer - Immutable updates (via zustand middleware)
 
 <!-- MANUAL: Use typed selectors! See SELECTORS_GUIDE.md to avoid the 3-hour debugging session. -->
+
+- `configurePopulationParticipants` validates a dataset-bound explicit identity declaration and supported reduction atomically, clones the definition, and no-ops for unchanged configuration. It leaves membership/focus/reference/probe intact; bootstrap clears the declaration. Persisted recipes and full metadata access remain separate work.

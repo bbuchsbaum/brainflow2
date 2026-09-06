@@ -51,8 +51,11 @@ function setup(probeController?: PopulationProbeController) {
     contextRange: [-2, 4] as [number, number],
     summary: [1, 2],
     focused: [2, 3],
-    validCounts: [request.workingMemberIds.length, request.workingMemberIds.length],
+    validCounts: Array(2).fill(
+      request.aggregation?.groups.length ?? request.workingMemberIds.length,
+    ),
     eligibleCount: request.workingMemberIds.length,
+    unitCount: request.aggregation?.groups.length ?? request.workingMemberIds.length,
     sources: request.members.map((member) => ({
       memberId: member.memberId,
       revision: { sha256: 'hash', sourceBytes: 400 },
@@ -225,4 +228,49 @@ it('shares regional response sampling between the full plot and reversible witne
     ),
   );
   expect(sample).toHaveBeenCalledTimes(1);
+});
+
+it('previews exclusion of all focused participant rows and restores participant summaries', async () => {
+  const state = useSetStudioStore.getState();
+  const set = state.sets[state.selection.activeSetId!];
+  const people = ['A', 'A', 'A', 'B', 'C', 'C'];
+  useSetStudioStore.setState({
+    sets: {
+      ...state.sets,
+      [set.id]: {
+        ...set,
+        designTablePreview: {
+          columns: ['participant'],
+          rows: set.memberIds.map((id, i) => ({ id, cells: [people[i]] })),
+        },
+      },
+    },
+  });
+  useSetStudioStore
+    .getState()
+    .configurePopulationParticipants({
+      setId: set.id,
+      identity: { kind: 'column', column: 'participant' },
+      reduction: 'mean',
+    });
+  const { service } = setup();
+  await screen.findByText('Mean · 3 participants');
+  const before = useSetStudioStore.getState();
+  const button = screen.getByRole('button', {
+    name: 'Hold to preview without focused participant',
+  });
+  fireEvent.keyDown(button, { key: ' ' });
+  await waitFor(() =>
+    expect(service.getSnapshot().displayed?.query.request.workingMemberIds).toEqual([
+      'sub004',
+      'sub005',
+      'sub006',
+    ]),
+  );
+  expect(screen.getByText('Mean · 2 participants')).toBeVisible();
+  expect(useSetStudioStore.getState().population.working).toBe(before.population.working);
+  expect(useSetStudioStore.getState().selection).toBe(before.selection);
+  fireEvent.keyUp(button, { key: ' ' });
+  await screen.findByText('Mean · 3 participants');
+  expect(service.getSnapshot().displayed?.query.request.workingMemberIds).toEqual(set.memberIds);
 });

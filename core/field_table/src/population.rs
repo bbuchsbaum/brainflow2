@@ -15,6 +15,7 @@ use std::fmt;
 #[derive(Debug, Clone, PartialEq)]
 pub enum PopulationError {
     EmptySupport,
+    EmptyGroup,
     InvalidNearZero,
     Shape { expected: usize, actual: usize },
     MaskShape { expected: usize, actual: usize },
@@ -25,6 +26,7 @@ pub enum PopulationError {
 impl fmt::Display for PopulationError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::EmptyGroup => write!(f, "A participant mean requires at least one observation."),
             Self::EmptySupport => {
                 write!(f, "Population support must contain at least one location.")
             }
@@ -231,6 +233,44 @@ impl FieldMoments {
         for (index, (&value, moments)) in values.iter().zip(&mut self.locations).enumerate() {
             if value.is_finite() && validity.is_none_or(|mask| mask[index]) {
                 moments.push(f64::from(value), self.near_zero);
+            }
+        }
+        self.eligible_count = eligible_count;
+        Ok(())
+    }
+
+    /// Push one equally weighted participant, reducing their selected rows at
+    /// each location with finite local denominators. Intermediate means stay
+    /// in f64; rounding them to f32 would erase small between-person spread.
+    /// All input shapes are validated before any accumulator changes.
+    pub fn push_mean(&mut self, fields: &[&[f32]]) -> Result<(), PopulationError> {
+        if fields.is_empty() {
+            return Err(PopulationError::EmptyGroup);
+        }
+        for field in fields {
+            if field.len() != self.locations.len() {
+                return Err(PopulationError::Shape {
+                    expected: self.locations.len(),
+                    actual: field.len(),
+                });
+            }
+        }
+        let eligible_count = self
+            .eligible_count
+            .checked_add(1)
+            .ok_or(PopulationError::CountOverflow)?;
+        for (index, moments) in self.locations.iter_mut().enumerate() {
+            let mut count = 0;
+            let mut mean = 0.;
+            for field in fields {
+                let value = field[index];
+                if value.is_finite() {
+                    count += 1;
+                    mean = updated_mean(mean, f64::from(value), count);
+                }
+            }
+            if count > 0 {
+                moments.push(mean, self.near_zero);
             }
         }
         self.eligible_count = eligible_count;

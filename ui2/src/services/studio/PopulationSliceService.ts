@@ -1,3 +1,8 @@
+import {
+  resolvePopulationParticipants,
+  groupParticipantMembers,
+  type ParticipantAggregation,
+} from './populationParticipants';
 import { getTransport } from '@/services/transport';
 import { formatTauriError } from '@/utils/formatTauriError';
 import { useViewStateStore } from '@/stores/viewStateStore';
@@ -19,6 +24,7 @@ export interface PopulationSliceRequest {
   dimPx: [number, number];
   zoom: number;
   summary: PopulationSummary;
+  aggregation?: ParticipantAggregation | null;
   cutouts?: {
     centerMm: [number, number, number];
     widthMm: number;
@@ -39,6 +45,7 @@ export interface PopulationSliceData {
   focused: (number | null)[];
   validCounts: number[];
   eligibleCount: number;
+  unitCount: number;
   sources: { memberId: string; revision: { sha256: string; sourceBytes: number } }[];
   sourceCacheHit: boolean;
   cachedBytes: number;
@@ -149,20 +156,41 @@ export function buildPopulationSliceQuery(
   options: Pick<
     PopulationSliceRequest,
     'crosshairMm' | 'orientation' | 'dimPx' | 'zoom' | 'summary' | 'cutouts'
-  > & { withoutFocused?: boolean },
+  > & { withoutFocused?: boolean; withoutParticipant?: boolean },
 ) {
   const { source, issue } = buildPopulationSource(state, workspaceId);
   if (!source || !source.members.length)
     return { query: null, issue: issue ?? 'No eligible observations.' };
   const population = resolvePopulation(state);
-  const { withoutFocused, ...viewOptions } = options;
+  const { withoutFocused, withoutParticipant, ...viewOptions } = options;
+  const configured = resolvePopulationParticipants(state, population.workingMemberIds);
+  if (configured.issue && state.population.participants?.reduction !== 'observations')
+    return { query: null, issue: configured.issue };
+  const focused = state.selection.activeMemberId;
+  if (withoutFocused && withoutParticipant && (!focused || !configured.identity?.has(focused)))
+    return {
+      query: null,
+      issue: 'Participant exclusion requires a declared identity for the focused observation.',
+    };
+  const excludedParticipant =
+    withoutFocused && withoutParticipant && focused ? configured.identity?.get(focused) : null;
+  const workingMemberIds = withoutFocused
+    ? population.workingMemberIds.filter((id) =>
+        excludedParticipant ? configured.identity?.get(id) !== excludedParticipant : id !== focused,
+      )
+    : population.workingMemberIds;
+  const aggregation = configured.aggregation
+    ? {
+        ...configured.aggregation,
+        groups: groupParticipantMembers(configured.identity!, workingMemberIds),
+      }
+    : null;
   const request: PopulationSliceRequest = {
     ...viewOptions,
     contextKey: source.datasetKey,
     members: source.members,
-    workingMemberIds: withoutFocused
-      ? population.workingMemberIds.filter((id) => id !== state.selection.activeMemberId)
-      : population.workingMemberIds,
+    workingMemberIds,
+    aggregation,
     focusMemberId: source.members.some(
       (member) => member.memberId === state.selection.activeMemberId,
     )
@@ -189,6 +217,11 @@ function validateData(data: PopulationSliceData, query: PopulationSliceQuery) {
     data.sources.length !== ids.length ||
     data.sources.some((source, i) => source.memberId !== ids[i]) ||
     data.eligibleCount !== query.request.workingMemberIds.length ||
+    data.unitCount !==
+      (query.request.aggregation?.groups.length ?? query.request.workingMemberIds.length) ||
+    data.validCounts.some(
+      (count) => !Number.isInteger(count) || count < 0 || count > data.unitCount,
+    ) ||
     [...data.plane.origin_mm, ...data.plane.u_mm, ...data.plane.v_mm, ...data.centerWorld].some(
       (v) => !Number.isFinite(v),
     )
@@ -376,7 +409,7 @@ export class PopulationSliceService {
       if (summaryLimit === undefined) {
         summaryLimit =
           kind === 'coverage'
-            ? query.request.members.length
+            ? (query.request.aggregation?.groups.length ?? query.request.members.length) || 1
             : data.summary.reduce<number>((max, value) => Math.max(max, value ?? 0), 0) || 1;
         this.summaryLimits.set(kind, summaryLimit);
       }

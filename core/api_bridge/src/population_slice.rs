@@ -48,7 +48,27 @@ pub struct PopulationSliceRequest {
     pub zoom: f32,
     pub summary: SummaryKind,
     #[serde(default)]
+    pub aggregation: Option<ParticipantAggregation>,
+    #[serde(default)]
     pub cutouts: Option<CutoutRequest>,
+}
+#[derive(Clone, Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum WithinParticipant {
+    Single,
+    Mean,
+}
+#[derive(Clone, Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ParticipantGroup {
+    pub participant_id: String,
+    pub member_ids: Vec<String>,
+}
+#[derive(Clone, Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ParticipantAggregation {
+    pub within: WithinParticipant,
+    pub groups: Vec<ParticipantGroup>,
 }
 #[derive(Clone, Debug, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -99,6 +119,7 @@ pub struct PopulationSliceResult {
     pub focused: Vec<f32>,
     pub valid_counts: Vec<u32>,
     pub eligible_count: usize,
+    pub unit_count: usize,
     pub sources: Vec<SliceSource>,
     pub source_cache_hit: bool,
     pub cached_bytes: usize,
@@ -293,6 +314,31 @@ fn validate(request: &PopulationSliceRequest) -> BridgeResult<()> {
         return Err(input(
             "Population focus and working selection must identify unique eligible observations.",
         ));
+    }
+    if let Some(aggregation) = &request.aggregation {
+        let mut participants = HashSet::new();
+        let mut grouped = HashSet::new();
+        for group in &aggregation.groups {
+            if group.participant_id.trim().is_empty()
+                || group.participant_id.trim() != group.participant_id
+                || !participants.insert(&group.participant_id)
+                || group.member_ids.is_empty()
+                || (matches!(aggregation.within, WithinParticipant::Single)
+                    && group.member_ids.len() != 1)
+            {
+                return Err(input("Participant summaries require unique nonempty participant IDs and a supported nonempty within-person group."));
+            }
+            for member in &group.member_ids {
+                if !selected.contains(member) || !grouped.insert(member) {
+                    return Err(input("Participant groups must partition the selected observation IDs exactly once."));
+                }
+            }
+        }
+        if grouped != selected {
+            return Err(input(
+                "Participant groups must cover every selected observation.",
+            ));
+        }
     }
     Ok(())
 }
@@ -577,10 +623,32 @@ fn reduce_plane(
     let mut moments = FieldMoments::new(cached.plan.voxels.len().max(1), 0.0)
         .map_err(|e| input(e.to_string()))?;
     if !cached.plan.voxels.is_empty() {
-        for (row, source) in cached.rows.iter().zip(&cached.sources) {
-            cancellation.check()?;
-            if selected.contains(&source.member_id) {
-                moments.push(row, None).map_err(|e| input(e.to_string()))?;
+        if let Some(aggregation) = &request.aggregation {
+            let indices: HashMap<_, _> = cached
+                .sources
+                .iter()
+                .enumerate()
+                .map(|(index, source)| (&source.member_id, index))
+                .collect();
+            for group in &aggregation.groups {
+                cancellation.check()?;
+                let rows: Vec<&[f32]> = group
+                    .member_ids
+                    .iter()
+                    .map(|id| cached.rows[indices[id]].as_slice())
+                    .collect();
+                match aggregation.within {
+                    WithinParticipant::Single => moments.push(rows[0], None),
+                    WithinParticipant::Mean => moments.push_mean(&rows),
+                }
+                .map_err(|e| input(e.to_string()))?;
+            }
+        } else {
+            for (row, source) in cached.rows.iter().zip(&cached.sources) {
+                cancellation.check()?;
+                if selected.contains(&source.member_id) {
+                    moments.push(row, None).map_err(|e| input(e.to_string()))?;
+                }
             }
         }
     }
@@ -665,6 +733,10 @@ fn reduce_plane(
         focused,
         valid_counts,
         eligible_count: selected.len(),
+        unit_count: request
+            .aggregation
+            .as_ref()
+            .map_or(selected.len(), |aggregation| aggregation.groups.len()),
         sources: cached.sources.clone(),
         source_cache_hit: cache_hit,
         cached_bytes: cached.bytes,
@@ -706,6 +778,7 @@ mod tests {
             dim_px: [3, 3],
             zoom: 1.,
             summary: SummaryKind::Mean,
+            aggregation: None,
             cutouts: None,
         }
     }
@@ -721,6 +794,152 @@ mod tests {
     }
     fn finite(result: &[f32]) -> Vec<f32> {
         result.iter().copied().filter(|v| v.is_finite()).collect()
+    }
+
+    #[tokio::test]
+    async fn population_slice_participants_weight_people_and_reuse_observed_support() {
+        let mut a = vec![0.; 27];
+        a[13] = f32::NAN;
+        let sources = vec![
+            TestSource::new(&[3, 3, 3], &a),
+            TestSource::new(&[3, 3, 3], &a),
+            TestSource::new(&[3, 3, 3], &a),
+            TestSource::new(&[3, 3, 3], &[8.; 27]),
+        ];
+        let state = BridgeState::default().unwrap();
+        let mut req = request(&sources);
+        let rows = evaluate(&state, req.clone()).await;
+        assert_eq!(rows.summary[0], 2.);
+        req.aggregation = Some(ParticipantAggregation {
+            within: WithinParticipant::Mean,
+            groups: vec![
+                ParticipantGroup {
+                    participant_id: "A".into(),
+                    member_ids: req.working_member_ids[..3].to_vec(),
+                },
+                ParticipantGroup {
+                    participant_id: "B".into(),
+                    member_ids: req.working_member_ids[3..].to_vec(),
+                },
+            ],
+        });
+        let grouped = evaluate(&state, req.clone()).await;
+        assert!(grouped.source_cache_hit);
+        assert_eq!(grouped.unit_count, 2);
+        assert_eq!(grouped.eligible_count, 4);
+        // The full-extent raster need not have one pixel per native voxel.
+        // Independently locate the missing source voxel using the declared plane.
+        let missing: Vec<_> = (0..9)
+            .map(|pixel| {
+                (0..3).all(|axis| {
+                    (grouped.plane.origin_mm[axis]
+                        + grouped.plane.u_mm[axis] * (pixel % 3) as f32
+                        + grouped.plane.v_mm[axis] * (pixel / 3) as f32)
+                        .round()
+                        == 1.
+                })
+            })
+            .collect();
+        assert!(missing.iter().any(|v| *v));
+        assert!(missing.iter().any(|v| !*v));
+        assert_eq!(
+            grouped.summary,
+            missing
+                .iter()
+                .map(|m| if *m { 8. } else { 4. })
+                .collect::<Vec<_>>()
+        );
+        assert_eq!(
+            grouped.valid_counts,
+            missing
+                .iter()
+                .map(|m| if *m { 1 } else { 2 })
+                .collect::<Vec<_>>()
+        );
+        assert_eq!(finite(&grouped.focused), finite(&rows.focused));
+        assert!(grouped.focused[4].is_nan());
+        req.summary = SummaryKind::SampleSd;
+        let sd = evaluate(&state, req.clone()).await;
+        assert!((sd.summary[0] - 32f32.sqrt()).abs() < 1e-6);
+        assert!(sd.summary[4].is_nan());
+        req.summary = SummaryKind::Coverage;
+        let coverage = evaluate(&state, req.clone()).await;
+        assert_eq!(
+            coverage.summary,
+            missing
+                .iter()
+                .map(|m| if *m { 1. } else { 2. })
+                .collect::<Vec<_>>()
+        );
+        req.summary = SummaryKind::Mean;
+        req.working_member_ids = vec!["person-3".into()];
+        req.aggregation.as_mut().unwrap().groups.remove(0);
+        let without_a = evaluate(&state, req.clone()).await;
+        assert!(without_a.source_cache_hit);
+        assert_eq!(without_a.summary, vec![8.; 9]);
+        assert_eq!(without_a.unit_count, 1);
+        req.working_member_ids.clear();
+        req.aggregation.as_mut().unwrap().groups.clear();
+        let empty = evaluate(&state, req).await;
+        assert_eq!(empty.unit_count, 0);
+        assert!(empty.summary.iter().all(|v| v.is_nan()));
+    }
+
+    #[test]
+    fn population_slice_participant_groups_must_partition_selected_observations() {
+        let sources = vec![
+            TestSource::new(&[3, 3, 3], &[1.; 27]),
+            TestSource::new(&[3, 3, 3], &[2.; 27]),
+        ];
+        let mut req = request(&sources);
+        let groups = vec![
+            ParticipantGroup {
+                participant_id: "A".into(),
+                member_ids: vec!["person-0".into()],
+            },
+            ParticipantGroup {
+                participant_id: "B".into(),
+                member_ids: vec!["person-1".into()],
+            },
+        ];
+        req.aggregation = Some(ParticipantAggregation {
+            within: WithinParticipant::Single,
+            groups: groups.clone(),
+        });
+        assert!(validate(&req).is_ok());
+        let invalid = vec![
+            vec![groups[0].clone()],
+            vec![groups[0].clone(), groups[0].clone()],
+            vec![ParticipantGroup {
+                participant_id: "A".into(),
+                member_ids: req.working_member_ids.clone(),
+            }],
+            vec![
+                groups[0].clone(),
+                ParticipantGroup {
+                    participant_id: "B".into(),
+                    member_ids: vec!["absent".into()],
+                },
+            ],
+            vec![
+                groups[0].clone(),
+                ParticipantGroup {
+                    participant_id: " B".into(),
+                    member_ids: vec!["person-1".into()],
+                },
+            ],
+            vec![
+                groups[0].clone(),
+                ParticipantGroup {
+                    participant_id: "B".into(),
+                    member_ids: vec![],
+                },
+            ],
+        ];
+        for groups in invalid {
+            req.aggregation.as_mut().unwrap().groups = groups;
+            assert!(validate(&req).is_err());
+        }
     }
 
     #[tokio::test]

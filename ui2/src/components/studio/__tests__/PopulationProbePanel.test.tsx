@@ -1,3 +1,4 @@
+import { PopulationUnitControls } from '../PopulationUnitControls';
 import { StrictMode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
@@ -30,6 +31,7 @@ function setup() {
   const controller = new PopulationProbeController(sample, 0);
   const result = render(
     <StrictMode>
+      <PopulationUnitControls />
       <PopulationProbePanel controller={controller} />
     </StrictMode>,
   );
@@ -119,4 +121,108 @@ it('updates inclusive observed sign shares from cached selected responses withou
   );
   expect(screen.getByText(/Mean absolute response:/)).toHaveTextContent('unavailable');
   expect(sample).toHaveBeenCalledTimes(1);
+});
+
+it('configures participant weighting from metadata without resampling or hiding original rows', async () => {
+  const initial = useSetStudioStore.getState();
+  const set = initial.sets[initial.selection.activeSetId!];
+  const people = ['A', 'A', 'A', 'B', 'C', 'C'];
+  useSetStudioStore.setState({
+    sets: {
+      ...initial.sets,
+      [set.id]: {
+        ...set,
+        designTablePreview: {
+          columns: ['participant'],
+          rows: set.memberIds.map((id, i) => ({ id, cells: [people[i]] })),
+        },
+      },
+    },
+  });
+  const { sample } = setup();
+  fireEvent.click(screen.getByRole('button', { name: 'Pin crosshair' }));
+  await screen.findByRole('button', { name: 'sub001: 1' });
+  fireEvent.click(screen.getByText(/Analysis unit:/));
+  fireEvent.change(screen.getByRole('combobox', { name: 'Participant identity' }), {
+    target: { value: 'column:participant' },
+  });
+  fireEvent.change(screen.getByRole('combobox', { name: 'Population analysis unit' }), {
+    target: { value: 'mean' },
+  });
+  // Person means 2, 4, 5.5: (2 + 4 + 5.5) / 3, versus row mean 3.5.
+  expect(screen.getByText(/Selected mean:/)).toHaveTextContent('3.833');
+  expect(screen.getByText(/Selected mean:/)).toHaveTextContent('3 finite participants');
+  expect(screen.getByText(/Analysis unit:/)).toHaveTextContent('6 observations / 3 participants');
+  for (let i = 1; i <= 6; i++)
+    expect(screen.getByRole('button', { name: `sub00${i}: ${i}` })).toBeVisible();
+  fireEvent.change(screen.getByRole('combobox', { name: 'Population analysis unit' }), {
+    target: { value: 'single' },
+  });
+  expect(
+    screen
+      .getAllByRole('alert')
+      .some((alert) => /one selected observation/.test(alert.textContent ?? '')),
+  ).toBe(true);
+  expect(screen.getByText(/Selected mean:/)).toHaveTextContent('unavailable');
+  act(() => useSetStudioStore.getState().selectPopulationMembers(['sub001', 'sub004', 'sub005']));
+  expect(screen.queryByRole('alert')).toBeNull(); // repeated context rows are allowed outside the selection
+  expect(screen.getByText(/Selected mean:/)).toHaveTextContent('3.333');
+  expect(screen.getByText(/Selected mean:/)).toHaveTextContent('3 finite participants');
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  });
+  expect(sample).toHaveBeenCalledTimes(1);
+});
+
+it('keeps an old probe usable without treating its rows as a complete expanded participant population', async () => {
+  const state = useSetStudioStore.getState();
+  const set = state.sets[state.selection.activeSetId!];
+  const people = ['A', 'A', 'A', 'B', 'C', 'C'];
+  useSetStudioStore.setState({
+    sets: {
+      ...state.sets,
+      [set.id]: {
+        ...set,
+        designTablePreview: {
+          columns: ['participant'],
+          rows: set.memberIds.map((id, i) => ({ id, cells: [people[i]] })),
+        },
+      },
+    },
+    activeDesignFilters: [{ column: 'participant', value: 'A' }],
+  });
+  useSetStudioStore
+    .getState()
+    .configurePopulationParticipants({
+      setId: set.id,
+      identity: { kind: 'column', column: 'participant' },
+      reduction: 'mean',
+    });
+  const { sample } = setup();
+  fireEvent.click(screen.getByRole('button', { name: 'Pin crosshair' }));
+  await screen.findByRole('button', { name: 'sub001: 1' });
+  expect(screen.getByText(/Selected mean:/)).toHaveTextContent('2.000');
+  let finish!: (frame: SampleFrame) => void;
+  sample.mockImplementationOnce(
+    () =>
+      new Promise<SampleFrame>((resolve) => {
+        finish = resolve;
+      }),
+  );
+  act(() => useSetStudioStore.setState({ activeDesignFilters: [] }));
+  await waitFor(() => expect(sample).toHaveBeenCalledTimes(2));
+  expect(screen.getByRole('alert')).toHaveTextContent('Missing sampled observation sub004');
+  expect(screen.getByText(/Selected mean:/)).toHaveTextContent('unavailable');
+  expect(screen.getByRole('button', { name: 'sub001: 1' })).toBeVisible();
+  await act(async () =>
+    finish({
+      columns: [
+        { name: 'member', role: 'nominal' },
+        { name: 'value', role: 'quantitative' },
+      ],
+      rows: set.memberIds.map((member, i) => ({ member, value: i + 1 })),
+    }),
+  );
+  await waitFor(() => expect(screen.queryByRole('alert')).toBeNull());
+  expect(screen.getByText(/Selected mean:/)).toHaveTextContent('3.833');
 });

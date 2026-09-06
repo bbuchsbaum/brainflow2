@@ -1,3 +1,4 @@
+import type { PopulationParticipantDefinition } from '@/types/population';
 import { useSetStudioStore } from '@/stores/setStudioStore';
 import { useViewStateStore } from '@/stores/viewStateStore';
 import { useMouseCoordinateStore } from '@/stores/mouseCoordinateStore';
@@ -7,6 +8,9 @@ import { populationSupportKey } from './PopulationProbeController';
 /** UI commands share the canonical Studio selection/probe state. Sample frames
  * remain owned by the panel's controller, outside the global stores. */
 export const populationProbeActions = {
+  configureParticipants(definition: PopulationParticipantDefinition | null) {
+    return useSetStudioStore.getState().configurePopulationParticipants(definition);
+  },
   focus(id: string) {
     const state = useSetStudioStore.getState();
     if (resolvePopulation(state).context.memberIds.includes(id)) state.setActiveMember(id);

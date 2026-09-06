@@ -1,3 +1,4 @@
+import { PopulationUnitControls } from '@/components/studio/PopulationUnitControls';
 /* eslint-disable react-refresh/only-export-components -- isolated dev-only visual entry */
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
@@ -25,8 +26,11 @@ demo.bootstrapStudio({
     memberSummaries: ids.map((id) => ({ id, sourcePath: `/synthetic/${id}.nii` })),
     savedCohortIds: [],
     designTablePreview: {
-      columns: ['observation', 'group'],
-      rows: ids.map((id, i) => ({ id, cells: [id, i < 40 ? 'A' : 'B'] })),
+      columns: ['observation', 'group', 'participant'],
+      rows: ids.map((id, i) => ({
+        id,
+        cells: [id, i < 40 ? 'A' : 'B', i < 40 ? 'P001' : `P${String(i - 38).padStart(3, '0')}`],
+      })),
     },
   },
   features: Object.values(demo.features),
@@ -68,7 +72,12 @@ const slices = new PopulationSliceService(
           return (x * x) / 400 + (y * y) / 625 <= 1 ? value : null;
         });
       const observed = (id: string) => (ids.indexOf(id) < 40 ? 3 : -1);
-      const values = request.workingMemberIds.map(observed);
+      const values = request.aggregation
+        ? request.aggregation.groups.map(
+            (group) =>
+              group.memberIds.reduce((sum, id) => sum + observed(id), 0) / group.memberIds.length,
+          )
+        : request.workingMemberIds.map(observed);
       const mean = values.length ? values.reduce((a, b) => a + b, 0) / values.length : NaN;
       const summary =
         request.summary === 'coverage'
@@ -94,7 +103,8 @@ const slices = new PopulationSliceService(
         summary: field(summary),
         focused: field(request.focusMemberId ? observed(request.focusMemberId) : NaN),
         validCounts: field(values.length).map((v) => v ?? 0),
-        eligibleCount: values.length,
+        eligibleCount: request.workingMemberIds.length,
+        unitCount: values.length,
         sources: request.members.map((member) => ({
           memberId: member.memberId,
           revision: { sha256: 'synthetic', sourceBytes: 0 },
@@ -156,6 +166,7 @@ function Harness() {
       <div className="mb-3 rounded border border-border bg-card p-4 text-sm">
         Focused observation: <span data-testid="fixture-focus">{focus}</span>
       </div>
+      <PopulationUnitControls />
       <PopulationLens service={slices} probeController={controller} />
       <PopulationProbePanel controller={controller} />
     </main>

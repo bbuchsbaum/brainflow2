@@ -252,3 +252,30 @@ fn spatial_blocks_match_full_support_and_bound_scratch_memory() {
     }
     assert_eq!(actual, expected);
 }
+
+#[test]
+fn participant_means_have_equal_weight_local_counts_and_unrounded_spread() {
+    let mut moments = FieldMoments::new(2, 0.).unwrap();
+    moments
+        .push_mean(&[&[0., f32::NAN], &[0., f32::NAN], &[0., f32::NAN]])
+        .unwrap();
+    moments.push_mean(&[&[8., 8.]]).unwrap();
+    let stats: Vec<_> = moments.summaries().collect();
+    assert_eq!(stats[0].mean, Some(4.)); // equal people, not equal rows (which gives 2)
+    assert_eq!(stats[0].valid_count, 2);
+    assert_eq!(stats[1].mean, Some(8.));
+    assert_eq!(stats[1].valid_count, 1);
+    assert_eq!(stats[1].eligible_count, 2);
+    let mut precise = FieldMoments::new(1, 0.).unwrap();
+    precise
+        .push_mean(&[&[16_777_216.], &[16_777_218.]])
+        .unwrap();
+    precise.push_mean(&[&[16_777_216.]]).unwrap();
+    let s = precise.summaries().next().unwrap();
+    assert_eq!(s.mean, Some(16_777_216.5));
+    assert!((s.sample_sd.unwrap() - 0.5f64.sqrt()).abs() < 1e-12);
+    let before = precise.summaries().next().unwrap();
+    assert!(precise.push_mean(&[]).is_err());
+    assert!(precise.push_mean(&[&[1.], &[1., 2.]]).is_err());
+    assert_eq!(precise.summaries().next().unwrap(), before);
+}

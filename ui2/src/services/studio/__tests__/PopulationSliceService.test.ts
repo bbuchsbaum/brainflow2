@@ -42,6 +42,7 @@ const data = (): PopulationSliceData => ({
   focused: [3, 0],
   validCounts: [2, 0],
   eligibleCount: 2,
+  unitCount: 2,
   sources: ['a', 'b'].map((memberId) => ({
     memberId,
     revision: { sha256: 'hash', sourceBytes: 400 },
@@ -287,4 +288,20 @@ it('uses signed world axes and advances the axial plane toward superior for posi
   expect(useSetStudioStore.getState().population.pinnedProbe).toBe(pinned);
   populationSliceActions.navigate('closed-workspace', [90, 90, 90]);
   expect(useViewStateStore.getState().viewState.crosshair.world_mm).toEqual([2, 3, 5]);
+});
+
+it('refuses coverage counts expressed in rows when the query summarizes participants', async () => {
+  const { service, evaluate, bitmap } = setup();
+  const request = query();
+  request.request.aggregation = {
+    within: 'mean',
+    groups: [{ participantId: 'P', memberIds: ['a', 'b'] }],
+  };
+  evaluate.mockResolvedValue({ ...data(), unitCount: 1, validCounts: [2, 0] });
+  service.request(request);
+  await vi.runAllTimersAsync();
+  expect(service.getSnapshot().error).toMatch(/does not match/);
+  expect(service.getSnapshot().displayed).toBeNull();
+  expect(bitmap).not.toHaveBeenCalled();
+  service.stop();
 });

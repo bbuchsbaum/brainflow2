@@ -1,5 +1,7 @@
+import { participantIdentity } from '@/services/studio/populationParticipants';
 import type {
   PopulationActionResult,
+  PopulationParticipantDefinition,
   PopulationProbe,
   PopulationRelationship,
   PopulationSelectionOrigin,
@@ -15,6 +17,7 @@ import {
 export function initialPopulationState(sessionRevision = 0): PopulationState {
   return {
     sessionRevision,
+    participants: null,
     working: { kind: 'context' },
     referenceMode: 'cohort',
     pinnedProbe: null,
@@ -27,6 +30,9 @@ export function initialPopulationState(sessionRevision = 0): PopulationState {
 
 export interface PopulationSlice {
   population: PopulationState;
+  configurePopulationParticipants: (
+    definition: PopulationParticipantDefinition | null,
+  ) => PopulationActionResult;
   selectPopulationMembers: (
     ids: readonly string[],
     origin?: PopulationSelectionOrigin,
@@ -88,6 +94,29 @@ export function createPopulationSlice(
     return ok;
   };
   return {
+    configurePopulationParticipants(definition) {
+      const state = get();
+      if (definition) {
+        const activeSet = state.selection.activeSetId
+          ? state.sets[state.selection.activeSetId]
+          : null;
+        if (!activeSet || !['observations', 'single', 'mean'].includes(definition.reduction))
+          return fail('Choose a dataset and a supported participant reduction.');
+        try {
+          participantIdentity(activeSet, definition);
+        } catch (error) {
+          return fail(error instanceof Error ? error.message : String(error));
+        }
+      }
+      if (!same(state.population.participants, definition))
+        set({
+          population: {
+            ...state.population,
+            participants: definition ? structuredClone(definition) : null,
+          },
+        });
+      return ok;
+    },
     selectPopulationMembers(ids, origin = 'manual', label = 'Selected observations') {
       const checked = checkedMembers(ids);
       if (!checked.ok) return checked;

@@ -1,3 +1,13 @@
+export interface PopulationParticipantDefinition {
+  readonly setId: string;
+  readonly identity:
+    | { readonly kind: 'observationIds' }
+    | { readonly kind: 'column'; readonly column: string };
+  /** observations retains equal row weighting; single rejects repeated selected
+   * rows; mean gives each participant equal weight after averaging selected rows. */
+  readonly reduction: 'observations' | 'single' | 'mean';
+}
+
 /** Population definitions contain IDs and parameters, never image arrays. */
 export type PopulationSelectionOrigin = 'manual' | 'metadata' | 'map-derived';
 
@@ -30,6 +40,7 @@ export interface PopulationRelationship {
 }
 
 export interface PopulationState {
+  readonly participants: PopulationParticipantDefinition | null;
   /** In-memory import generation; distinct from a file/content revision. */
   readonly sessionRevision: number;
   readonly working: PopulationWorkingSelection;

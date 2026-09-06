@@ -1,3 +1,4 @@
+import { PopulationUnitControls } from './PopulationUnitControls';
 import { PopulationProbeController } from '@/services/studio/PopulationProbeController';
 import { useCallback, useState } from 'react';
 import { getStudioDisplayService } from '@/services/studio/StudioDisplayService';
@@ -223,6 +224,8 @@ export function StudioCenterPane() {
         cohorts={cohortList}
         onSelectCompareCohort={setCompareCohort}
       />
+
+      {activeLens === 'population' && <PopulationUnitControls />}
 
       <div className={activeLens === 'population' ? 'shrink-0' : 'min-h-[480px] flex-1'}>
         <LensCanvas

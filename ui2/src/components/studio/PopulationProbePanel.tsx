@@ -1,4 +1,8 @@
 import {
+  resolvePopulationParticipants,
+  participantProbeFrame,
+} from '@/services/studio/populationParticipants';
+import {
   orderPopulationFrame,
   populationArrangementLabel,
   populationOrderSourceStatus,
@@ -85,10 +89,53 @@ export function PopulationProbePanel({
     populationProbeActions.setRadius(next);
   };
   const result = snapshot.displayed;
-  const plotFrame = useMemo(
-    () => (result ? orderPopulationFrame(result.frame, snapshot.arrangement) : null),
-    [result, snapshot.arrangement],
+  const participants = useMemo(
+    () => resolvePopulationParticipants(studio, population.workingMemberIds),
+    [studio, population.workingMemberIds],
   );
+  const participantMode =
+    !!studio.population.participants && studio.population.participants.reduction !== 'observations';
+  const analysis = useMemo(() => {
+    if (!result || (participantMode && participants.issue))
+      return { frame: undefined, issue: null };
+    try {
+      return {
+        frame: participants.aggregation
+          ? participantProbeFrame(result.frame, participants.aggregation)
+          : result.frame,
+        issue: null,
+      };
+    } catch (error) {
+      // An earlier query may remain visible while the current context is sampled.
+      // Its rows must never be silently reused as a complete new participant set.
+      return { frame: undefined, issue: error instanceof Error ? error.message : String(error) };
+    }
+  }, [result, participantMode, participants]);
+  const analysisFrame = analysis.frame;
+  const analysisSelected = useMemo(
+    () =>
+      participantMode ? new Set(participants.groups.map((group) => group.participantId)) : selected,
+    [participantMode, participants.groups, selected],
+  );
+  const unit = participantMode ? 'participants' : 'observations';
+  const plotFrame = useMemo(() => {
+    if (!result) return null;
+    const frame = orderPopulationFrame(result.frame, snapshot.arrangement);
+    return participants.identity
+      ? {
+          ...frame,
+          columns: [
+            ...frame.columns.filter((column) => column.name !== 'participant'),
+            { name: 'participant', role: 'nominal' as const },
+          ],
+          rows: frame.rows.map((row) => ({
+            ...row,
+            participant: participants.identity!.get(String(row.member)) ?? null,
+          })),
+          meta: { ...frame.meta, participantDefinition: studio.population.participants },
+        }
+      : frame;
+  }, [result, snapshot.arrangement, participants.identity, studio.population.participants]);
   const orderSourceStatus =
     snapshot.arrangement && result
       ? populationOrderSourceStatus(
@@ -101,12 +148,12 @@ export function PopulationProbePanel({
       : 'unknown';
   const current = result?.query.key === definition.query?.key;
   const distribution = useMemo(
-    () => describePopulationProbe(result?.frame, selected, nearZeroLimit),
-    [result, selected, nearZeroLimit],
+    () => describePopulationProbe(analysisFrame, analysisSelected, nearZeroLimit),
+    [analysisFrame, analysisSelected, nearZeroLimit],
   );
   const { mean, count, unavailable } = distribution;
   const share = (n: number) => (count ? `${((100 * n) / count).toFixed(1)}%` : 'unavailable');
-  const issue = definition.issue ?? snapshot.error;
+  const issue = definition.issue ?? participants.issue ?? analysis.issue ?? snapshot.error;
 
   return (
     <section
@@ -224,8 +271,9 @@ export function PopulationProbePanel({
         <>
           <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
             <p>
-              Selected mean: {mean === null ? 'unavailable' : mean.toPrecision(4)} · {count} finite
-              values{unavailable > 0 && ` · ${unavailable} unavailable observations`}
+              Selected mean: {mean === null ? 'unavailable' : mean.toPrecision(4)} · {count} finite{' '}
+              {unit}
+              {unavailable > 0 && ` · ${unavailable} unavailable ${unit}`}
             </p>
             <div className="flex gap-1">
               <button className={control} onClick={populationProbeActions.selectAll}>
@@ -257,7 +305,7 @@ export function PopulationProbePanel({
             aria-label="Observed response distribution"
           >
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <span>Observed sign share · working selection</span>
+              <span>Observed sign share · {unit} in working selection</span>
               <label>
                 Near zero ±{' '}
                 <input
@@ -298,7 +346,7 @@ export function PopulationProbePanel({
               </div>
             )}
             <p className="mt-1 text-muted-foreground">
-              {count} finite / {selected.size} selected observations ·{' '}
+              {count} finite / {analysisSelected.size} selected {unit} ·{' '}
               {distribution.selectedMissing} unavailable. Near-zero endpoints are included.
             </p>
             <p className="mt-1">
@@ -311,6 +359,15 @@ export function PopulationProbePanel({
                 ? 'unavailable'
                 : distribution.cancellation.toPrecision(4)}
             </p>
+            {participantMode && (
+              <p className="mt-1 text-muted-foreground">
+                Summaries use equal participant weights after{' '}
+                {studio.population.participants?.reduction === 'mean'
+                  ? 'averaging selected observation responses within each person'
+                  : 'requiring one selected observation per person'}
+                . Plot points and cutouts remain original observations.
+              </p>
+            )}
             {result.query.probe.radiusMm > 0 && (
               <p className="mt-1 text-muted-foreground">
                 Each response is the {result.query.probe.reduce} within this sphere. These summaries
