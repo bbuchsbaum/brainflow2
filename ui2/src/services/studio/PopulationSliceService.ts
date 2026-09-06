@@ -1,3 +1,4 @@
+import { validatePopulationPartition } from './populationGroups';
 import type { PopulationMemberSource } from '@/types/population';
 import type { PopulationMask } from '@/types/population';
 import {
@@ -16,7 +17,22 @@ import type { ViewPlane } from '@/types/coordinates';
 
 export type PopulationSummary = 'mean' | 'sampleSd' | 'meanAbsolute' | 'cancellation' | 'coverage';
 export type PopulationOrientation = 'axial' | 'coronal' | 'sagittal';
+export interface PopulationGroupRequest {
+  id: string;
+  memberIds: string[];
+  aggregation?: ParticipantAggregation | null;
+}
+export interface PopulationGroupData {
+  id: string;
+  values: (number | null)[];
+  validCounts: number[];
+  eligibleCount: number;
+  unitCount: number;
+}
 export interface PopulationSliceRequest {
+  groups?: PopulationGroupRequest[];
+  reference?: PopulationGroupRequest | null;
+  difference?: boolean;
   focusOnly?: boolean;
   focusWindow?: string[];
   contextKey: string;
@@ -39,6 +55,7 @@ export interface PopulationSliceRequest {
   } | null;
 }
 export interface PopulationSliceQuery {
+  groupLabels?: Record<string, string>;
   /** Masks change support, not the compatible effect scale. */
   scaleKey?: string;
   initialScale?: { effectLimit?: number; summaryLimit?: number; summary: PopulationSummary };
@@ -48,6 +65,8 @@ export interface PopulationSliceQuery {
   request: PopulationSliceRequest;
 }
 export interface PopulationSliceData {
+  groups?: PopulationGroupData[];
+  reference?: PopulationGroupData | null;
   focusWindow?: { memberId: string; values: (number | null)[]; validPixels: number }[];
   plane: ViewPlane;
   centerWorld: [number, number, number];
@@ -75,14 +94,20 @@ export class PopulationImages {
   readonly summary: ImageBitmap;
   readonly focused: ImageBitmap;
   readonly cutouts: ImageBitmap | null;
+  readonly groups: Record<string, ImageBitmap>;
+  readonly reference: ImageBitmap | null;
   private readonly releaseShared?: () => void;
   constructor(
     summary: ImageBitmap,
     focused: ImageBitmap,
     cutouts: ImageBitmap | null = null,
     releaseShared?: () => void,
+    groups: Record<string, ImageBitmap> = {},
+    reference: ImageBitmap | null = null,
   ) {
     this.releaseShared = releaseShared;
+    this.groups = groups;
+    this.reference = reference;
     this.summary = summary;
     this.focused = focused;
     this.cutouts = cutouts;
@@ -100,6 +125,8 @@ export class PopulationImages {
       else {
         this.summary.close();
         this.cutouts?.close();
+        Object.values(this.groups).forEach((image) => image.close());
+        this.reference?.close();
       }
     }
   }
@@ -178,13 +205,24 @@ export function buildPopulationSliceQuery(
   options: Pick<
     PopulationSliceRequest,
     'crosshairMm' | 'orientation' | 'dimPx' | 'zoom' | 'summary' | 'cutouts'
-  > & { withoutFocused?: boolean; withoutParticipant?: boolean },
+  > & {
+    withoutFocused?: boolean;
+    withoutParticipant?: boolean;
+    withoutMembers?: readonly string[];
+    groupPage?: number;
+  },
 ) {
   const { source, issue } = buildPopulationSource(state, workspaceId);
   if (!source || !source.members.length)
     return { query: null, issue: issue ?? 'No eligible observations.' };
   const population = resolvePopulation(state);
-  const { withoutFocused, withoutParticipant, ...viewOptions } = options;
+  const {
+    withoutFocused,
+    withoutParticipant,
+    withoutMembers,
+    groupPage = 0,
+    ...viewOptions
+  } = options;
   const configured = resolvePopulationParticipants(state, population.workingMemberIds);
   if (configured.issue && state.population.participants?.reduction !== 'observations')
     return { query: null, issue: configured.issue };
@@ -196,19 +234,62 @@ export function buildPopulationSliceQuery(
     };
   const excludedParticipant =
     withoutFocused && withoutParticipant && focused ? configured.identity?.get(focused) : null;
-  const workingMemberIds = withoutFocused
-    ? population.workingMemberIds.filter((id) =>
-        excludedParticipant ? configured.identity?.get(id) !== excludedParticipant : id !== focused,
-      )
-    : population.workingMemberIds;
+  if (withoutMembers?.some((id) => !population.context.memberIds.includes(id)))
+    return {
+      query: null,
+      issue: 'Preview exclusion contains observations outside the current context.',
+    };
+  const workingMemberIds = withoutMembers
+    ? population.workingMemberIds.filter((id) => !withoutMembers.includes(id))
+    : withoutFocused
+      ? population.workingMemberIds.filter((id) =>
+          excludedParticipant
+            ? configured.identity?.get(id) !== excludedParticipant
+            : id !== focused,
+        )
+      : population.workingMemberIds;
   const aggregation = configured.aggregation
     ? {
         ...configured.aggregation,
         groups: groupParticipantMembers(configured.identity!, workingMemberIds),
       }
     : null;
+  const mode = state.population.presentation.arrangement;
+  const groupRequest = (id: string, memberIds: readonly string[]): PopulationGroupRequest => {
+    const participants = resolvePopulationParticipants(state, memberIds);
+    if (participants.issue && state.population.participants?.reduction !== 'observations')
+      throw new Error(participants.issue);
+    return { id, memberIds: [...memberIds], aggregation: participants.aggregation };
+  };
+  let groups: PopulationGroupRequest[] = [];
+  let reference: PopulationGroupRequest | null = null;
+  try {
+    if (mode === 'groups' && state.population.partition) {
+      const issue = validatePopulationPartition(
+        state.population.partition,
+        state.selection.activeSetId ?? '',
+        population.context.memberIds,
+      );
+      if (issue) throw new Error(issue);
+      groups = state.population.partition.groups
+        .slice(groupPage * 4, (groupPage + 1) * 4)
+        .map((g) => groupRequest(g.id, g.memberIds));
+    }
+    if (mode === 'comparison' || mode === 'difference') {
+      if (population.referenceIssue) throw new Error(population.referenceIssue);
+      if (!population.referenceMemberIds.length || !workingMemberIds.length)
+        throw new Error('Choose nonempty populations A and B before comparing.');
+      reference = groupRequest('reference', population.referenceMemberIds);
+    }
+  } catch (error) {
+    return { query: null, issue: error instanceof Error ? error.message : String(error) };
+  }
   const request: PopulationSliceRequest = {
     ...viewOptions,
+    ...(groups.length ? { groups, summary: 'mean' as const } : {}),
+    ...(reference
+      ? { reference, difference: mode === 'difference', summary: 'mean' as const }
+      : {}),
     contextKey: source.datasetKey,
     members: source.members,
     ...(source.mask ? { mask: source.mask } : {}),
@@ -220,9 +301,13 @@ export function buildPopulationSliceQuery(
       ? state.selection.activeMemberId
       : null,
   };
+  const groupLabels = groups.length
+    ? Object.fromEntries(state.population.partition!.groups.map((g) => [g.id, g.label]))
+    : undefined;
   return {
     query: {
-      key: JSON.stringify(request),
+      groupLabels,
+      key: JSON.stringify([request, groupLabels]),
       datasetKey: source.datasetKey,
       scaleKey: source.scaleKey,
       initialScale: state.population.restoredView,
@@ -269,6 +354,27 @@ function validateData(data: PopulationSliceData, query: PopulationSliceQuery) {
   ) {
     throw new Error('Population slice result does not match its query or geometry.');
   }
+  const expectedGroups = [
+    ...(query.request.groups ?? []),
+    ...(query.request.reference ? [query.request.reference] : []),
+  ];
+  const actualGroups = [...(data.groups ?? []), ...(data.reference ? [data.reference] : [])];
+  if (
+    actualGroups.length !== expectedGroups.length ||
+    actualGroups.some((g, i) => {
+      const expected = expectedGroups[i];
+      const units = expected.aggregation?.groups.length ?? expected.memberIds.length;
+      return (
+        g.id !== expected.id ||
+        g.values.length !== size ||
+        g.validCounts.length !== size ||
+        g.eligibleCount !== expected.memberIds.length ||
+        g.unitCount !== units ||
+        g.validCounts.some((n) => !Number.isInteger(n) || n < 0 || n > units)
+      );
+    })
+  )
+    throw new Error('Group summaries do not match their declared populations and analysis units.');
   const expected = query.request.cutouts;
   const actual = data.cutouts;
   if (
@@ -516,6 +622,8 @@ export class PopulationSliceService {
               summary: base.data.summary,
               validCounts: base.data.validCounts,
               cutouts: base.data.cutouts,
+              groups: base.data.groups,
+              reference: base.data.reference,
             };
             shared = true;
           } else {
@@ -560,6 +668,8 @@ export class PopulationSliceService {
           focused,
           base.images.cutouts,
           releaseShared,
+          base.images.groups,
+          base.images.reference,
         );
         if (!this.active || version !== this.generation) {
           images.release();
@@ -604,17 +714,34 @@ export class PopulationSliceService {
         throw error;
       }
       let cutouts: ImageBitmap | null = null;
+      const groups: Record<string, ImageBitmap> = Object.create(null);
+      let reference: ImageBitmap | null = null;
       try {
         if (data.cutouts) {
           const packed = packPopulationCutouts(data.cutouts, effectLimit);
           cutouts = await this.dependencies.bitmap(packed.rgba, packed.width, packed.height);
         }
+        for (const group of data.groups ?? [])
+          groups[group.id] = await this.dependencies.bitmap(
+            populationRgba(group.values, effectLimit, true),
+            w,
+            h,
+          );
+        if (data.reference)
+          reference = await this.dependencies.bitmap(
+            populationRgba(data.reference.values, effectLimit, true),
+            w,
+            h,
+          );
       } catch (error) {
         summary.close();
         focused.close();
+        cutouts?.close();
+        Object.values(groups).forEach((image) => image.close());
+        reference?.close();
         throw error;
       }
-      images = new PopulationImages(summary, focused, cutouts);
+      images = new PopulationImages(summary, focused, cutouts, undefined, groups, reference);
       if (!this.active || version !== this.generation) {
         images.release();
         return;

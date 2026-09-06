@@ -40,6 +40,12 @@ pub enum Orientation {
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PopulationSliceRequest {
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub groups: Vec<GroupRequest>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reference: Option<GroupRequest>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub difference: bool,
     /// Transport optimization only; never an exported calculation operand.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub focus_only: bool,
@@ -63,6 +69,26 @@ pub struct PopulationSliceRequest {
 }
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct GroupRequest {
+    pub id: String,
+    pub member_ids: Vec<String>,
+    #[serde(default)]
+    pub aggregation: Option<ParticipantAggregation>,
+}
+#[derive(Debug, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GroupResult {
+    pub id: String,
+    pub values: Vec<f32>,
+    pub valid_counts: Vec<u32>,
+    pub unit_count: usize,
+    pub eligible_count: usize,
+    #[serde(skip)]
+    means: Vec<f64>,
+}
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+#[derive(PartialEq, Eq)]
 pub enum WithinParticipant {
     Single,
     Mean,
@@ -123,6 +149,8 @@ pub struct SliceSource {
 #[derive(Debug, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PopulationSliceResult {
+    pub groups: Vec<GroupResult>,
+    pub reference: Option<GroupResult>,
     pub focus_window: Vec<CutoutMember>,
     pub plane: Plane,
     pub center_world: [f32; 3],
@@ -368,6 +396,72 @@ fn validate(request: &PopulationSliceRequest) -> BridgeResult<()> {
             return Err(input(
                 "Participant groups must cover every selected observation.",
             ));
+        }
+    }
+    if request.groups.len() > 4
+        || request
+            .groups
+            .iter()
+            .map(|g| &g.id)
+            .collect::<HashSet<_>>()
+            .len()
+            != request.groups.len()
+    {
+        return Err(input(
+            "At most four uniquely identified group summaries can be displayed at once.",
+        ));
+    }
+    if request.difference
+        && (!matches!(request.summary, SummaryKind::Mean)
+            || request.reference.is_none()
+            || selected.is_empty())
+    {
+        return Err(input(
+            "A descriptive difference requires A and B and the mean reducer.",
+        ));
+    }
+    for group in request.groups.iter().chain(request.reference.iter()) {
+        if group.id.trim().is_empty() || group.member_ids.is_empty() {
+            return Err(input(
+                "Group summaries require a name and nonempty membership.",
+            ));
+        }
+        if !match (&request.aggregation, &group.aggregation) {
+            (None, None) => true,
+            (Some(a), Some(b)) => a.within == b.within,
+            _ => false,
+        } {
+            return Err(input(
+                "Group summaries must use the declared analysis unit.",
+            ));
+        }
+        let mut child = request.clone();
+        child.groups.clear();
+        child.reference = None;
+        child.difference = false;
+        child.working_member_ids = group.member_ids.clone();
+        child.aggregation = group.aggregation.clone();
+        validate(&child)?;
+    }
+    let mut identities = std::collections::HashMap::new();
+    for aggregation in request.aggregation.iter().chain(
+        request
+            .groups
+            .iter()
+            .chain(request.reference.iter())
+            .filter_map(|g| g.aggregation.as_ref()),
+    ) {
+        for group in &aggregation.groups {
+            for member in &group.member_ids {
+                if identities
+                    .insert(member, &group.participant_id)
+                    .is_some_and(|previous| previous != &group.participant_id)
+                {
+                    return Err(input(
+                        "An observation must identify the same participant in every group.",
+                    ));
+                }
+            }
         }
     }
     Ok(())
@@ -704,23 +798,19 @@ async fn build_plane(
         bytes,
     })
 }
-fn reduce_plane(
+fn collect_moments(
     cached: &CachedPlane,
-    request: &PopulationSliceRequest,
-    cache_hit: bool,
+    members: &[String],
+    aggregation: &Option<ParticipantAggregation>,
     cancellation: &SampleCancellation,
-) -> BridgeResult<PopulationSliceResult> {
-    let selected: HashSet<_> = request.working_member_ids.iter().collect();
-    let focus = request
-        .focus_member_id
-        .as_ref()
-        .and_then(|id| cached.sources.iter().position(|s| &s.member_id == id));
+) -> BridgeResult<FieldMoments> {
+    let selected: HashSet<_> = members.iter().collect();
     // A view fully outside the volume has no native samples; its entire raster
     // is unavailable. One dummy accumulator location keeps that case explicit.
     let mut moments = FieldMoments::new(cached.plan.voxels.len().max(1), 0.0)
         .map_err(|e| input(e.to_string()))?;
-    if !request.focus_only && !cached.plan.voxels.is_empty() {
-        if let Some(aggregation) = &request.aggregation {
+    if !cached.plan.voxels.is_empty() {
+        if let Some(aggregation) = aggregation {
             let indices: HashMap<_, _> = cached
                 .sources
                 .iter()
@@ -749,6 +839,78 @@ fn reduce_plane(
             }
         }
     }
+    Ok(moments)
+}
+fn reduce_group(
+    cached: &CachedPlane,
+    group: &GroupRequest,
+    cancellation: &SampleCancellation,
+) -> BridgeResult<GroupResult> {
+    let moments = collect_moments(cached, &group.member_ids, &group.aggregation, cancellation)?;
+    let summaries: Vec<_> = moments.summaries().collect();
+    let means: Vec<_> = cached
+        .plan
+        .pixels
+        .iter()
+        .map(|slot| slot.and_then(|i| summaries[i].mean).unwrap_or(f64::NAN))
+        .collect();
+    let valid_counts = cached
+        .plan
+        .pixels
+        .iter()
+        .map(|slot| slot.map(|i| summaries[i].valid_count as u32).unwrap_or(0))
+        .collect();
+    Ok(GroupResult {
+        id: group.id.clone(),
+        values: means.iter().map(|&v| v as f32).collect(),
+        means,
+        valid_counts,
+        unit_count: group
+            .aggregation
+            .as_ref()
+            .map_or(group.member_ids.len(), |a| a.groups.len()),
+        eligible_count: group.member_ids.len(),
+    })
+}
+fn reduce_plane(
+    cached: &CachedPlane,
+    request: &PopulationSliceRequest,
+    cache_hit: bool,
+    cancellation: &SampleCancellation,
+) -> BridgeResult<PopulationSliceResult> {
+    let selected: HashSet<_> = request.working_member_ids.iter().collect();
+    let focus = request
+        .focus_member_id
+        .as_ref()
+        .and_then(|id| cached.sources.iter().position(|s| &s.member_id == id));
+    let moments = if request.focus_only {
+        FieldMoments::new(1, 0.0).map_err(|e| input(e.to_string()))?
+    } else {
+        collect_moments(
+            cached,
+            &request.working_member_ids,
+            &request.aggregation,
+            cancellation,
+        )?
+    };
+    let reference = if request.focus_only {
+        None
+    } else {
+        request
+            .reference
+            .as_ref()
+            .map(|g| reduce_group(cached, g, cancellation))
+            .transpose()?
+    };
+    let groups = if request.focus_only {
+        Vec::new()
+    } else {
+        request
+            .groups
+            .iter()
+            .map(|g| reduce_group(cached, g, cancellation))
+            .collect::<BridgeResult<Vec<_>>>()?
+    };
     let summaries: Vec<_> = moments.summaries().collect();
     let mut summary = Vec::with_capacity(cached.plan.pixels.len());
     let mut focused = Vec::with_capacity(summary.capacity());
@@ -768,6 +930,14 @@ fn reduce_plane(
                     SummaryKind::Coverage => Some(s.valid_count as f64),
                 }
             });
+            let value = if request.difference {
+                value.and_then(|a| {
+                    let b = reference.as_ref().unwrap().means[pixel];
+                    b.is_finite().then_some(a - b)
+                })
+            } else {
+                value
+            };
             summary.push(value.map(|v| v as f32).unwrap_or(f32::NAN));
             valid_counts.push(
                 slot.map(|index| summaries[index].valid_count as u32)
@@ -845,6 +1015,8 @@ fn reduce_plane(
         });
     }
     Ok(PopulationSliceResult {
+        groups,
+        reference,
         focus_window,
         cutouts,
         context_range: range,
@@ -891,6 +1063,9 @@ mod tests {
             })
             .collect();
         PopulationSliceRequest {
+            groups: vec![],
+            reference: None,
+            difference: false,
             focus_only: false,
             focus_window: vec![],
             mask: None,
@@ -919,6 +1094,111 @@ mod tests {
     }
     fn finite(result: &[f32]) -> Vec<f32> {
         result.iter().copied().filter(|v| v.is_finite()).collect()
+    }
+
+    #[tokio::test]
+    async fn population_group_difference_preserves_local_counts_and_overlap() {
+        let sources = vec![
+            TestSource::new(&[3, 3, 3], &[2.; 27]),
+            TestSource::new(&[3, 3, 3], &[6.; 27]),
+            TestSource::new(&[3, 3, 3], &[f32::NAN; 27]),
+        ];
+        let state = BridgeState::default().unwrap();
+        let mut q = request(&sources);
+        q.working_member_ids = vec!["person-0".into(), "person-2".into()];
+        q.reference = Some(GroupRequest {
+            id: "B".into(),
+            member_ids: vec!["person-0".into(), "person-1".into()],
+            aggregation: None,
+        });
+        q.groups = vec![q.reference.clone().unwrap()];
+        q.difference = true;
+        let result = evaluate(&state, q.clone()).await;
+        assert_eq!(result.summary, vec![-2.; 9]);
+        assert_eq!(result.valid_counts, vec![1; 9]);
+        assert_eq!(result.reference.as_ref().unwrap().valid_counts, vec![2; 9]);
+        assert_eq!(result.groups[0].values, vec![4.; 9]);
+        q.reference.as_mut().unwrap().member_ids = vec!["person-2".into()];
+        let missing = evaluate(&state, q).await;
+        assert!(missing.summary.iter().all(|v| v.is_nan()));
+        assert!(missing.source_cache_hit);
+        assert_eq!(missing.reference.unwrap().valid_counts, vec![0; 9]);
+    }
+
+    #[tokio::test]
+    async fn population_group_difference_subtracts_before_float32_rounding() {
+        let sources = vec![
+            TestSource::new(&[3, 3, 3], &[16_777_216.; 27]),
+            TestSource::new(&[3, 3, 3], &[16_777_218.; 27]),
+        ];
+        let state = BridgeState::default().unwrap();
+        let mut q = request(&sources);
+        q.reference = Some(GroupRequest {
+            id: "B".into(),
+            member_ids: vec!["person-0".into()],
+            aggregation: None,
+        });
+        q.difference = true;
+        assert_eq!(evaluate(&state, q).await.summary, vec![1.; 9]);
+    }
+
+    #[tokio::test]
+    async fn population_group_participant_policy_is_consistent_across_operands() {
+        let sources = vec![
+            TestSource::new(&[3, 3, 3], &[0.; 27]),
+            TestSource::new(&[3, 3, 3], &[4.; 27]),
+            TestSource::new(&[3, 3, 3], &[8.; 27]),
+        ];
+        let state = BridgeState::default().unwrap();
+        let mut q = request(&sources);
+        q.aggregation = Some(ParticipantAggregation {
+            within: WithinParticipant::Mean,
+            groups: vec![
+                ParticipantGroup {
+                    participant_id: "P".into(),
+                    member_ids: vec!["person-0".into(), "person-1".into()],
+                },
+                ParticipantGroup {
+                    participant_id: "Q".into(),
+                    member_ids: vec!["person-2".into()],
+                },
+            ],
+        });
+        q.reference = Some(GroupRequest {
+            id: "B".into(),
+            member_ids: vec!["person-0".into()],
+            aggregation: Some(ParticipantAggregation {
+                within: WithinParticipant::Mean,
+                groups: vec![ParticipantGroup {
+                    participant_id: "P".into(),
+                    member_ids: vec!["person-0".into()],
+                }],
+            }),
+        });
+        q.difference = true;
+        assert_eq!(evaluate(&state, q.clone()).await.summary, vec![5.; 9]);
+        q.reference
+            .as_mut()
+            .unwrap()
+            .aggregation
+            .as_mut()
+            .unwrap()
+            .groups[0]
+            .participant_id = "other".into();
+        assert!(validate(&q).is_err());
+        q.reference.as_mut().unwrap().aggregation = None;
+        assert!(validate(&q).is_err());
+        q.reference = None;
+        q.difference = false;
+        q.aggregation = None;
+        q.groups = (0..5)
+            .map(|i| GroupRequest {
+                id: i.to_string(),
+                member_ids: vec!["person-0".into()],
+                aggregation: None,
+            })
+            .collect();
+        assert!(validate(&q).is_err());
     }
 
     #[tokio::test]

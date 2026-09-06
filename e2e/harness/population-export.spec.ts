@@ -197,3 +197,106 @@ test('scrubs and plays original observations, unfolds a montage and returns to t
   await page.screenshot({ path: testInfo.outputPath('population-movie-narrow.png') });
   expect(errors).toEqual([]);
 });
+
+test('groups, compares, unfolds contributors and restores exact A/B operands', async ({
+  page,
+}, testInfo) => {
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  await page.goto('/population-harness.html?export&roundtrip');
+  await page.getByText('Select a range of observations', { exact: true }).click();
+  await page.getByRole('button', { name: 'Apply selection', exact: true }).click();
+  await page.getByLabel('Selection name', { exact: true }).fill('One observer');
+  await page.getByRole('button', { name: 'Save selection as set', exact: true }).click();
+  await page.getByLabel('Group by factor', { exact: true }).selectOption('group');
+  await page.getByRole('button', { name: 'Show factor groups', exact: true }).click();
+  const a = page.getByRole('region', { name: 'group: A', exact: true }),
+    b = page.getByRole('region', { name: 'group: B', exact: true });
+  await expect(a.getByRole('button', { name: 'Use as A', exact: true })).toBeEnabled();
+  await a.getByRole('button', { name: 'Use as A', exact: true }).click();
+  await expect(b.getByRole('button', { name: 'Use as B', exact: true })).toBeEnabled();
+  await b.getByRole('button', { name: 'Use as B', exact: true }).click();
+  await expect(page.getByTestId('fixture-focus')).toHaveText('S001');
+  await page.screenshot({ path: testInfo.outputPath('population-factor-groups.png') });
+  await page.getByRole('button', { name: 'Compare A and B', exact: true }).click();
+  await expect(page.getByText(/^A mean ·/)).toBeVisible();
+  await expect(page.getByText(/^B mean ·/)).toBeVisible();
+  await page.getByRole('button', { name: 'Show A − B', exact: true }).click();
+  await expect(page.getByText(/^A − B mean difference/)).toBeVisible();
+  await page.screenshot({ path: testInfo.outputPath('population-difference.png') });
+  await page.getByText('Save calculation', { exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Export summary…', exact: true })).toBeEnabled();
+  await page.getByRole('button', { name: 'Export summary…', exact: true }).click();
+  const receipt = JSON.parse((await page.getByTestId('synthetic-export-receipt').textContent())!);
+  expect(receipt.population.difference).toBe(true);
+  expect(receipt.population.workingMemberIds).toHaveLength(40);
+  expect(receipt.population.reference.memberIds).toHaveLength(40);
+  expect(receipt.population.reference.memberIds[0]).toBe('S041');
+  expect(receipt.context.exploration.partition.groups).toHaveLength(2);
+  await page.getByRole('button', { name: 'Open saved population…', exact: true }).click();
+  await expect(page.getByText(/^A − B mean difference/)).toBeVisible();
+  await page.getByRole('button', { name: 'Expand A and B', exact: true }).click();
+  await page.getByRole('button', { name: 'Groups', exact: true }).click();
+  await expect(b.getByRole('button', { name: 'Show contributors', exact: true })).toBeEnabled();
+  await b.getByRole('button', { name: 'Show contributors', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Focus cutout S041', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Focus cutout S001', exact: true })).toHaveCount(0);
+  await page.getByRole('button', { name: 'Focus cutout S041', exact: true }).click();
+  await expect(page.getByTestId('fixture-focus')).toHaveText('S041');
+  await expect(page.getByRole('region', { name: 'Population inspector' })).toContainText(
+    '40 selected / 80 available',
+  );
+
+  const exclusion = page.getByLabel('Preview exclusion unit', { exact: true });
+  const subset = await exclusion
+    .locator('option')
+    .filter({ hasText: 'Set: One observer' })
+    .getAttribute('value');
+  await exclusion.selectOption(subset!);
+  const preview = page.getByRole('button', {
+    name: 'Hold to preview without One observer (1 observation)',
+    exact: true,
+  });
+  await preview.focus();
+  await page.keyboard.down('Space');
+  await expect(page.getByText('Mean · 39 observations', { exact: true })).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Population inspector' })).toContainText(
+    '40 selected / 80 available',
+  );
+  await page.keyboard.up('Space');
+  await expect(page.getByRole('button', { name: 'Focus cutout S041', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Undo grouping', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Groups', exact: true })).toHaveCount(0);
+  await expect(page.getByTestId('fixture-focus')).toHaveText('S041');
+  await expect(page.getByRole('button', { name: 'Refresh images', exact: true })).toBeEnabled();
+  await page.setViewportSize({ width: 480, height: 1000 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page.screenshot({ path: testInfo.outputPath('population-groups-narrow.png') });
+  expect(errors).toEqual([]);
+});
+
+test('brushes original montage IDs on release while keeping focus independent', async ({
+  page,
+}) => {
+  await page.goto('/population-harness.html?export');
+  await page.getByRole('button', { name: 'Montage', exact: true }).click();
+  const first = page.getByRole('button', { name: 'Focus cutout S001', exact: true });
+  const second = page.getByRole('button', { name: 'Focus cutout S002', exact: true });
+  await expect(first).toBeVisible();
+  await page.getByRole('button', { name: 'Brush montage', exact: true }).click();
+  const one = (await first.boundingBox())!,
+    two = (await second.boundingBox())!;
+  await page.mouse.move(one.x + 2, one.y + 2);
+  await page.mouse.down();
+  await page.mouse.move(two.x + two.width - 2, two.y + two.height - 2, { steps: 4 });
+  await expect(page.getByRole('region', { name: 'Population inspector' })).toContainText(
+    '80 selected / 80 available',
+  );
+  await page.mouse.up();
+  await expect(page.getByRole('region', { name: 'Population inspector' })).toContainText(
+    '2 selected / 80 available',
+  );
+  await expect(page.getByTestId('fixture-focus')).toHaveText('S001');
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('button', { name: 'Brush montage', exact: true })).toBeVisible();
+});

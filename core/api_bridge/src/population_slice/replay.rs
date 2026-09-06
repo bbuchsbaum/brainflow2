@@ -82,6 +82,13 @@ fn hash_file(path: &Path, limit: u64, token: &SampleCancellation) -> BridgeResul
     }
     Ok((format!("{:x}", hash.finalize()), bytes))
 }
+fn artifact_names(query: &PopulationSliceRequest) -> Vec<&'static str> {
+    let mut names = vec!["summary.nii.gz", "coverage.nii.gz"];
+    if query.reference.is_some() {
+        names.extend(["reference.nii.gz", "reference-coverage.nii.gz"]);
+    }
+    names
+}
 fn read_record(path: &Path, token: &SampleCancellation) -> BridgeResult<(Record, String)> {
     token.check()?;
     let file = File::open(path)?;
@@ -98,7 +105,13 @@ fn read_record(path: &Path, token: &SampleCancellation) -> BridgeResult<(Record,
     token.check()?;
     let record: Record = serde_json::from_slice(&bytes)
         .map_err(|e| input(format!("Invalid population calculation record: {e}")))?;
-    if record.schema != "brainflow.population-export.v1" {
+    if record.schema
+        != if record.calculation.reference.is_some() {
+            "brainflow.population-export.v2"
+        } else {
+            "brainflow.population-export.v1"
+        }
+    {
         return Err(input("Unsupported population calculation schema."));
     }
     // The descriptive context is never interpreted as executable selection/weighting.
@@ -136,8 +149,9 @@ fn read_record(path: &Path, token: &SampleCancellation) -> BridgeResult<(Record,
                 && mask.expected_sha256.as_deref() == Some(&revision.sha256) => {}
         _ => return Err(input("Saved mask definition and revision disagree.")),
     }
-    if record.artifacts.len() != 2
-        || ["summary.nii.gz", "coverage.nii.gz"].iter().any(|name| {
+    let names = artifact_names(&record.calculation);
+    if record.artifacts.len() != names.len()
+        || names.iter().any(|name| {
             record.artifacts.get(*name).is_none_or(|a| {
                 !valid_digest(&a.sha256) || a.bytes == 0 || a.bytes > MAX_ARTIFACT_BYTES
             })
@@ -172,6 +186,8 @@ async fn verified_bundle(
         path.clone(),
         parent.join("summary.nii.gz"),
         parent.join("coverage.nii.gz"),
+        parent.join("reference.nii.gz"),
+        parent.join("reference-coverage.nii.gz"),
     ];
     let guard = QuerySourceGuard::capture(bundle_paths, token.clone()).await?;
     let check = token.clone();
@@ -181,7 +197,7 @@ async fn verified_bundle(
             let (record, hash) = read_record(&path, &check)?;
             let parent = path.parent().unwrap();
             let mut artifacts = serde_json::Map::new();
-            for name in ["summary.nii.gz", "coverage.nii.gz"] {
+            for name in artifact_names(&record.calculation) {
                 let expected = &record.artifacts[name];
                 let (digest, bytes) = hash_file(&parent.join(name), MAX_ARTIFACT_BYTES, &check)?;
                 if digest != expected.sha256 || bytes != expected.bytes {

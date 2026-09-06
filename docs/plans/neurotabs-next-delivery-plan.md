@@ -2,7 +2,7 @@
 
 **Planning baseline:** Brainflow `a925842b`, 2026-09-06. This is a delivery plan, not a claim that all proposed interactions exist.
 
-**Delivery update:** the first movie/montage implementation packet is implemented and covered by [local evidence](neurotabs-movie-evidence.md). Native desktop visual acceptance remains open; subsequent deliveries remain planned.
+**Delivery update:** the first movie/montage implementation packet is implemented and covered by [local evidence](neurotabs-movie-evidence.md). The core group/comparison delivery B path is also implemented with [local evidence](neurotabs-groups-evidence.md). Native desktop visual acceptance, sustained latency checks and the remaining engineering extensions are still open; C–F remain planned.
 
 This document sequences the seven remaining areas in the [implementation ledger](neurotabs-implementation-status.md). It preserves the full M0–M5 and linked-plotting scope of the [population exploration plan](neurotabs-population-exploration.md), while replacing that document's original first-work-package instruction with a plan for the current foundation.
 

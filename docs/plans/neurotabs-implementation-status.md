@@ -4,6 +4,8 @@ Objective: implement [the complete population exploration plan](neurotabs-popula
 
 ## Current delivery
 
+Latest increment: [group comparison delivery B](neurotabs-groups-evidence.md) adds exact-ID brushing/ranges, named subsets, paged factor means, explicit A/B and descriptive A−B, contributor montages, temporary subset exclusions and reference/partition restoration. Native and browser evidence and remaining acceptance boundaries are recorded separately there. Earlier increment notes below describe their original scope; reference controls and saved comparison restoration are now implemented.
+
 The first backend increment supplies reusable, equally weighted descriptive reductions in [`field_table::population`](../../core/field_table/src/population.rs). `FieldMoments` accepts finite measurements with optional validity masks and exposes local eligible/valid counts, mean, sample SD, mean absolute magnitude, cancellation and sign counts. Empty selections produce unavailable values. Spatial blocks and disjoint observation-block merges share the kernel. Numerical arrays remain outside frontend state.
 
 Existing [file materialization](../../core/field_table/src/materialize.rs) now uses centered f64 moments and local denominators. Mean-only streaming uses compact mean/count storage; role reductions use blocks of 16,384 locations for numerical scratch. The existing role-loader still retains decoded input arrays, and z-score export still holds full-grid moments. These are not certified memory-bounded live-evaluation paths.

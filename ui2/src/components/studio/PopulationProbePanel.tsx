@@ -1,3 +1,4 @@
+import { PopulationBrush } from './PopulationBrush';
 import {
   resolvePopulationParticipants,
   participantProbeFrame,
@@ -251,21 +252,23 @@ export function PopulationProbePanel({
       )}
       <div ref={plotRef} className="min-w-0">
         {result && plotFrame && expanded && (
-          <PlotEncoder
-            frame={plotFrame}
-            spec={pointSpec}
-            width={width}
-            height={160}
-            context={{
-              datumLink: {
-                idColumn: 'member',
-                focusedId: studio.selection.activeMemberId,
-                selectedIds: selected,
-                onFocus: populationProbeActions.focus,
-                onToggleSelection: populationProbeActions.toggle,
-              },
-            }}
-          />
+          <PopulationBrush horizontal scope={definition.query?.key ?? 'no-probe'}>
+            <PlotEncoder
+              frame={plotFrame}
+              spec={pointSpec}
+              width={width}
+              height={160}
+              context={{
+                datumLink: {
+                  idColumn: 'member',
+                  focusedId: studio.selection.activeMemberId,
+                  selectedIds: selected,
+                  onFocus: populationProbeActions.focus,
+                  onToggleSelection: populationProbeActions.toggle,
+                },
+              }}
+            />
+          </PopulationBrush>
         )}
       </div>
       {result && expanded && (

@@ -1,5 +1,11 @@
-import type { PopulationState, PopulationProbe, PopulationOrder } from '@/types/population';
-import type { SpatialFieldSetSummary } from '@/types/studio';
+import type {
+  PopulationState,
+  PopulationProbe,
+  PopulationOrder,
+  PopulationPartition,
+} from '@/types/population';
+import { validatePopulationPartition } from './populationGroups';
+import type { StudioCohortSummary, SpatialFieldSetSummary } from '@/types/studio';
 import type { PopulationSliceRequest } from './PopulationSliceService';
 import { invokeCancelable } from './PopulationExportService';
 import { getTransport } from '@/services/transport';
@@ -50,7 +56,7 @@ export function preparePopulationRestore(
   const notices = [
     'Original source files remain external. Their saved hashes are checked on every read.',
   ];
-  if (selection.compareCohortId)
+  if (selection.compareCohortId && !object(context.exploration).version && !query.reference)
     notices.push(
       'The saved reference cohort is not included in this bundle. Choose a reference before comparing populations.',
     );
@@ -205,10 +211,147 @@ export function preparePopulationRestore(
         'Saved order could not be verified against the frozen inputs; using source order.',
       );
   }
+  const exploration = object(context.exploration);
+  const cohorts: StudioCohortSummary[] = [];
+  const cohortIds = new Map<string, string>();
+  if (exploration.version === 1 && Array.isArray(exploration.cohorts)) {
+    for (const value of exploration.cohorts) {
+      const c = object(value);
+      if (
+        typeof c.id !== 'string' ||
+        cohortIds.has(c.id) ||
+        !Array.isArray(c.memberIds) ||
+        !c.memberIds.length ||
+        new Set(c.memberIds).size !== c.memberIds.length ||
+        c.memberIds.some((id) => !ids.includes(id))
+      )
+        continue;
+      const cohortId = `${id}:cohort:${cohorts.length}`;
+      cohortIds.set(c.id, cohortId);
+      cohorts.push({
+        id: cohortId,
+        label: label(c.label, 'Saved set'),
+        memberIds: [...c.memberIds],
+        memberCount: c.memberIds.length,
+        description: label(c.description, 'Frozen saved membership'),
+        originKind: 'saved_snapshot',
+        originLabel: label(c.originLabel, 'Saved population'),
+      });
+    }
+  }
+  let compareCohortId =
+    typeof selection.compareCohortId === 'string'
+      ? (cohortIds.get(selection.compareCohortId) ?? null)
+      : null;
+  // Executable B always wins over descriptive cohort metadata.
+  if (query.reference) {
+    compareCohortId = `${id}:reference`;
+    cohorts.push({
+      id: compareCohortId,
+      label: 'Saved reference B',
+      description: 'Frozen executable reference',
+      memberIds: [...query.reference.memberIds],
+      memberCount: query.reference.memberIds.length,
+      originKind: 'saved_snapshot',
+      originLabel: 'Verified calculation',
+    });
+  }
+  set.savedCohortIds = cohorts.map((c) => c.id);
+  const restorePartition = (value: unknown): PopulationPartition | null => {
+    if (!value || typeof value !== 'object') return null;
+    const candidate = { ...value, setId: id } as PopulationPartition;
+    return validatePopulationPartition(candidate, id, ids) ? null : structuredClone(candidate);
+  };
+  const partition = exploration.version === 1 ? restorePartition(exploration.partition) : null;
+  if (exploration.partition && !partition)
+    notices.push('Saved grouping does not partition the restored context; regroup explicitly.');
+  const partitionPast =
+    exploration.version === 1 && Array.isArray(exploration.partitionPast)
+      ? exploration.partitionPast.slice(-20).map(restorePartition)
+      : [];
+  let participantGroups = query.aggregation?.groups;
+  if (query.aggregation && query.reference?.aggregation) {
+    const mapping = new Map(
+      query.aggregation.groups.flatMap((g) =>
+        g.memberIds.map((memberId) => [memberId, g.participantId] as const),
+      ),
+    );
+    query.reference.aggregation.groups.forEach((g) =>
+      g.memberIds.forEach((memberId) => mapping.set(memberId, g.participantId)),
+    );
+    const groups = new Map<string, string[]>();
+    mapping.forEach((person, member) =>
+      groups.set(person, [...(groups.get(person) ?? []), member]),
+    );
+    participantGroups = [...groups].map(([participantId, memberIds]) => ({
+      participantId,
+      memberIds,
+    }));
+  }
+  if (
+    query.aggregation &&
+    exploration.version === 1 &&
+    Array.isArray(exploration.participantGroups)
+  ) {
+    const mapping = new Map<string, string>();
+    let valid = true;
+    const names = new Set<string>();
+    for (const raw of exploration.participantGroups) {
+      const g = object(raw);
+      if (
+        typeof g.participantId !== 'string' ||
+        !g.participantId.trim() ||
+        g.participantId.trim() !== g.participantId ||
+        names.has(g.participantId) ||
+        !Array.isArray(g.memberIds) ||
+        !g.memberIds.length
+      ) {
+        valid = false;
+        break;
+      }
+      names.add(g.participantId);
+      for (const member of g.memberIds) {
+        if (typeof member !== 'string' || !ids.includes(member) || mapping.has(member))
+          valid = false;
+        else mapping.set(member, g.participantId);
+      }
+    }
+    if (
+      valid &&
+      mapping.size === ids.length &&
+      participantGroups?.every((g) =>
+        g.memberIds.every((member) => mapping.get(member) === g.participantId),
+      )
+    )
+      participantGroups = structuredClone(exploration.participantGroups) as NonNullable<
+        typeof participantGroups
+      >;
+  }
+  if (participantGroups?.flatMap((g) => g.memberIds).length === ids.length) {
+    const index = notices.findIndex((n) =>
+      n.startsWith('Participant identities are available for the saved working selection.'),
+    );
+    if (index >= 0) notices.splice(index, 1);
+  }
   const origin = object(selection.working).origin;
   const population: Partial<Omit<PopulationState, 'sessionRevision'>> = {
+    partition,
+    partitionPast,
     presentation: {
-      arrangement: presentation.arrangement === 'montage' ? 'montage' : 'inspect',
+      arrangement: query.reference
+        ? query.difference
+          ? 'difference'
+          : 'comparison'
+        : presentation.arrangement === 'groups' && partition
+          ? 'groups'
+          : presentation.arrangement === 'montage'
+            ? 'montage'
+            : 'inspect',
+      contributorsGroupId:
+        typeof presentation.contributorsGroupId === 'string' &&
+        partition?.groups.some((g) => g.id === presentation.contributorsGroupId)
+          ? presentation.contributorsGroupId
+          : undefined,
       montageScope: presentation.montageScope === 'plane' ? 'plane' : 'probe',
       order: restoredOrder,
     },
@@ -221,12 +364,18 @@ export function preparePopulationRestore(
     participants: query.aggregation
       ? {
           setId: id,
-          identity: { kind: 'saved', groups: structuredClone(query.aggregation.groups) },
+          identity: { kind: 'saved', groups: structuredClone(participantGroups!) },
           reduction: query.aggregation.within,
         }
       : null,
     mask: query.mask ? { ...query.mask, setId: id } : null,
-    referenceMode: selection.referenceMode === 'complement' ? 'complement' : 'cohort',
+    referenceMode:
+      selection.referenceMode === 'complement' &&
+      (!query.reference ||
+        (query.reference.memberIds.length === ids.length - query.workingMemberIds.length &&
+          query.reference.memberIds.every((member) => !query.workingMemberIds.includes(member))))
+        ? 'complement'
+        : 'cohort',
     pinnedProbe,
     restoredView: {
       orientation: query.orientation,
@@ -245,7 +394,7 @@ export function preparePopulationRestore(
         kind: 'volume' as const,
       },
     ],
-    cohorts: [],
+    cohorts,
     expressions: [],
     population,
     selection: {
@@ -253,7 +402,7 @@ export function preparePopulationRestore(
       activeFeatureId: featureId,
       activeLens: 'population' as const,
       activeMemberId: query.focusMemberId,
-      compareCohortId: null,
+      compareCohortId,
       activeScopeCohortId: null,
       activeExpressionId: null,
     },

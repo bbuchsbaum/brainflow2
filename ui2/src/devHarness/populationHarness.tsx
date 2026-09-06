@@ -19,6 +19,7 @@ if (!import.meta.env.DEV) throw new Error('This synthetic harness is development
 document.documentElement.classList.add('dark');
 const maskMode = new URLSearchParams(location.search).has('mask');
 const exportMode = new URLSearchParams(location.search).has('export');
+let savedReceipt: { population: unknown; context: unknown } | null = null;
 const fakeHash = 'a'.repeat(64);
 const fakeMaskHash = 'b'.repeat(64);
 if (maskMode || exportMode)
@@ -32,6 +33,13 @@ if (maskMode || exportMode)
       )
         return '/synthetic/export/population-demo/provenance.json' as T;
       if (command === 'open_population_summary') {
+        if (new URLSearchParams(location.search).has('roundtrip') && savedReceipt)
+          return {
+            recordPath: '/synthetic/export/population-demo/provenance.json',
+            recordSha256: 'c'.repeat(64),
+            calculation: savedReceipt.population,
+            context: savedReceipt.context,
+          } as T;
         if (new URLSearchParams(location.search).has('open-error'))
           throw new Error('Saved source hash changed. Original population preserved.');
         return {
@@ -83,6 +91,7 @@ if (maskMode || exportMode)
             : '/synthetic/left-half-mask.nii'
         ) as T;
       if (command === 'export_population_summary') {
+        savedReceipt = structuredClone(args?.request) as typeof savedReceipt;
         window.dispatchEvent(new CustomEvent('synthetic-export', { detail: args?.request }));
         return {
           directory: '/synthetic/export/population-demo',
@@ -197,6 +206,22 @@ const slices = new PopulationSliceService(
               group.memberIds.reduce((sum, id) => sum + observed(id), 0) / group.memberIds.length,
           )
         : request.workingMemberIds.map(observed);
+      const groupData = (group: NonNullable<typeof request.reference>) => {
+        const units = group.aggregation
+          ? group.aggregation.groups.map(
+              (g) => g.memberIds.reduce((sum, id) => sum + observed(id), 0) / g.memberIds.length,
+            )
+          : group.memberIds.map(observed);
+        return {
+          id: group.id,
+          values: field(units.reduce((a, b) => a + b, 0) / units.length),
+          validCounts: field(units.length).map((v) => v ?? 0),
+          eligibleCount: group.memberIds.length,
+          unitCount: units.length,
+        };
+      };
+      const reference =
+        request.reference && !request.focusOnly ? groupData(request.reference) : null;
       const mean = values.length ? values.reduce((a, b) => a + b, 0) / values.length : NaN;
       const summary =
         request.summary === 'coverage'
@@ -219,7 +244,15 @@ const slices = new PopulationSliceService(
         },
         centerWorld: [0, 0, 0],
         contextRange: [-1, 3],
-        summary: request.focusOnly ? [] : field(summary),
+        summary: request.focusOnly
+          ? []
+          : request.difference && reference
+            ? field(mean).map((v, i) =>
+                v === null || reference.values[i] === null ? null : v - reference.values[i]!,
+              )
+            : field(summary),
+        reference,
+        groups: request.focusOnly ? [] : (request.groups ?? []).map(groupData),
         focusWindow: (request.focusWindow ?? []).map((memberId) => ({
           memberId,
           values: field(observed(memberId)),

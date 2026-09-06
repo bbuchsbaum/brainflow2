@@ -52,6 +52,7 @@ pub(super) async fn export_checked(
     let mut calculation = request.population.clone();
     calculation.focus_only = false;
     calculation.focus_window.clear();
+    calculation.groups.clear();
     let mut population = calculation.clone();
     population.focus_only = false;
     population.focus_window.clear();
@@ -133,14 +134,28 @@ pub(super) async fn export_checked(
         .iter()
         .try_fold(1usize, |n, &d| n.checked_mul(d))
         .ok_or_else(|| input("Export dimensions overflow."))?;
-    // Two f32 outputs; sampling and reduction use a bounded block independently.
-    if count > 128 * 1024 * 1024 / 8 || dims.iter().any(|&d| d > i16::MAX as usize) {
+    // Two or four f32 outputs; sampling and reduction use a bounded block independently.
+    if count
+        > 128 * 1024 * 1024
+            / if population.reference.is_some() {
+                16
+            } else {
+                8
+            }
+        || dims.iter().any(|&d| d > i16::MAX as usize)
+    {
         return Err(input(
             "Export exceeds the 128 MiB output budget or NIfTI-1 dimensions.",
         ));
     }
     let mut summary = Vec::with_capacity(count);
     let mut coverage = Vec::with_capacity(count);
+    let mut reference_values = Vec::new();
+    let mut reference_coverage = Vec::new();
+    if population.reference.is_some() {
+        reference_values.reserve(count);
+        reference_coverage.reserve(count);
+    }
     // Account for rows, voxel indices, pixel slots, moments and returned block arrays.
     let block_size = (32 * 1024 * 1024 / (4 * population.members.len() + 256)).clamp(1, 65536);
     let mut sources = Vec::new();
@@ -225,6 +240,20 @@ pub(super) async fn export_checked(
         .await
         .map_err(|e| input(e.to_string()))??;
         summary.extend(result.summary);
+        if let Some(reference) = result.reference {
+            reference_values.extend(reference.values);
+            for (i, n) in reference.valid_counts.into_iter().enumerate() {
+                let index = start + i;
+                let included = mask.as_ref().is_none_or(|m| {
+                    m.includes(
+                        index % dims[0],
+                        (index / dims[0]) % dims[1],
+                        index / (dims[0] * dims[1]),
+                    )
+                });
+                reference_coverage.push(if included { n as f32 } else { f32::NAN });
+            }
+        }
         // Outside support is unavailable even for the companion coverage map.
         for (i, n) in result.valid_counts.into_iter().enumerate() {
             let index = start + i;
@@ -242,14 +271,15 @@ pub(super) async fn export_checked(
     token.check()?;
     let provenance = serde_json::json!({
         "replay": proof.as_ref().map(|p| serde_json::json!({"recordPath":p.record_path,"recordSha256":p.record_sha256,"verification":"byte-identical summary and coverage"})),
-        "schema": "brainflow.population-export.v1",
+        "schema": if population.reference.is_some() { "brainflow.population-export.v2" } else { "brainflow.population-export.v1" },
         "brainflowVersion": env!("CARGO_PKG_VERSION"),
         "calculation": calculation,
         "context": request.context,
         "sources": sources,
         "maskRevision": mask.as_ref().map(|m| &m.revision),
         "grid": { "dimensions": dims, "voxelToWorld": (0..4).map(|r| (0..4).map(|c| affine[(r,c)]).collect::<Vec<_>>()).collect::<Vec<_>>(), "spatialUnits": "mm" },
-        "semantics": { "kind": "descriptive", "support": "full native grid; finite measurements within common binary mask", "missing": "NaN; measured zero is valid", "coverage": "locally valid analysis units", "withinParticipant": "finite voxelwise mean when declared; equal participant weighting", "sampleSdDof": 1, "sourceRetention": "hash-verified external sources; source images are not embedded" }
+        "semantics": { "operation": if population.difference { "mean(A)-mean(B); local finite means; overlap allowed; not a t-test" } else { "population summary" },
+        "referenceCoverage": if population.reference.is_some() { "reference-coverage.nii.gz counts locally valid B analysis units; coverage.nii.gz counts A units, never an effective contrast sample size" } else { "none" }, "kind": "descriptive", "support": "full native grid; finite measurements within common binary mask", "missing": "NaN; measured zero is valid", "coverage": "locally valid analysis units", "withinParticipant": "finite voxelwise mean when declared; equal participant weighting", "sampleSdDof": 1, "sourceRetention": "hash-verified external sources; source images are not embedded" }
     });
     if let Some(proof) = &proof {
         if provenance["grid"] != proof.grid
@@ -274,7 +304,9 @@ pub(super) async fn export_checked(
         header.srow_y = std::array::from_fn(|c| affine[(1,c)]);
         header.srow_z = std::array::from_fn(|c| affine[(2,c)]);
         let mut artifacts = serde_json::Map::new();
-        for (name, values) in [("summary.nii.gz", summary), ("coverage.nii.gz", coverage)] {
+        let mut outputs = vec![("summary.nii.gz", summary), ("coverage.nii.gz", coverage)];
+        if !reference_values.is_empty() { outputs.push(("reference.nii.gz", reference_values)); outputs.push(("reference-coverage.nii.gz", reference_coverage)); }
+        for (name, values) in outputs {
             check.check()?;
             let array = ndarray::Array3::from_shape_vec((dims[0],dims[1],dims[2]).f(), values).map_err(|e| input(e.to_string()))?;
             let path = staged.path.join(name);
@@ -327,6 +359,9 @@ mod tests {
     use crate::set_sample_cache::TestSource;
     fn query(sources: &[&TestSource]) -> PopulationSliceRequest {
         PopulationSliceRequest {
+            groups: vec![],
+            reference: None,
+            difference: false,
             focus_only: false,
             focus_window: vec![],
             context_key: "export-test".into(),
@@ -602,6 +637,71 @@ mod tests {
         assert_eq!(header.srow_z, rows[2]);
         assert_eq!(&header.pixdim[1..4], &[2., 3., 4.]);
     }
+    #[tokio::test]
+    async fn population_comparison_bundle_replays_both_operands_and_coverage() {
+        let a = TestSource::new(&[3, 3, 3], &[3.; 27]);
+        let b = TestSource::new(&[3, 3, 3], &[-1.; 27]);
+        let state = BridgeState::default().unwrap();
+        let original = Destination::new();
+        let target = Destination::new();
+        let mut q = query(&[&a, &b]);
+        q.working_member_ids = vec!["s0".into()];
+        q.reference = Some(GroupRequest {
+            id: "B".into(),
+            member_ids: vec!["s1".into()],
+            aggregation: None,
+        });
+        q.difference = true;
+        freeze(&mut q, &state).await;
+        let first = export(
+            ExportRequest {
+                population: q,
+                destination_directory: original.0.to_string_lossy().into(),
+                context: serde_json::json!({}),
+            },
+            &state,
+            SampleCancellation::default(),
+        )
+        .await
+        .unwrap();
+        let replayed = super::super::replay::replay(
+            first.provenance_path.clone(),
+            target.0.to_string_lossy().into(),
+            &state,
+            SampleCancellation::default(),
+        )
+        .await
+        .unwrap();
+        let first_dir = Path::new(&first.provenance_path).parent().unwrap();
+        let next_dir = Path::new(&replayed.provenance_path).parent().unwrap();
+        for (name, expected) in [
+            ("summary.nii.gz", 4.),
+            ("coverage.nii.gz", 1.),
+            ("reference.nii.gz", -1.),
+            ("reference-coverage.nii.gz", 1.),
+        ] {
+            assert_eq!(
+                fs::read(first_dir.join(name)).unwrap(),
+                fs::read(next_dir.join(name)).unwrap()
+            );
+            assert_eq!(
+                values(next_dir.join(name).to_str().unwrap(), &state).await,
+                vec![expected; 27]
+            );
+        }
+        fs::write(first_dir.join("reference.nii.gz"), b"changed").unwrap();
+        let refused = Destination::new();
+        assert!(super::super::replay::replay(
+            first.provenance_path.clone(),
+            refused.0.to_string_lossy().into(),
+            &state,
+            SampleCancellation::default()
+        )
+        .await
+        .is_err());
+        assert_eq!(fs::read_dir(&refused.0).unwrap().count(), 0);
+    }
+
     #[tokio::test]
     async fn replay_preserves_participant_masked_maps_and_links_parent_record() {
         let a = TestSource::new(&[3, 3, 3], &[0.; 27]);

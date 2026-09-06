@@ -1,3 +1,4 @@
+import { resolvePopulationParticipants, groupParticipantMembers } from './populationParticipants';
 import { buildPopulationSource } from './PopulationProbeController';
 import { useViewStateStore } from '@/stores/viewStateStore';
 import type { PopulationSliceDisplay } from './PopulationSliceService';
@@ -27,12 +28,17 @@ export function freezePopulationExport(display: PopulationSliceDisplay) {
   const request = structuredClone(display.query.request);
   delete request.focusOnly;
   delete request.focusWindow;
+  delete request.groups;
   const revisions = new Map(
     display.data.sources.map((source) => [source.memberId, source.revision]),
   );
   if (revisions.size !== request.members.length)
     throw new Error('Refresh the population view before export.');
-  const metadata = studioMetadata(set, request.workingMemberIds);
+  const allIds = request.members.map((member) => member.memberId);
+  const fullMetadata = studioMetadata(set, allIds);
+  const metadataIds = fullMetadata.issue ? request.workingMemberIds : allIds;
+  const metadata = fullMetadata.issue ? studioMetadata(set, metadataIds) : fullMetadata;
+  const participants = resolvePopulationParticipants(state, allIds);
   const members = request.members.map((member) => {
     const revision = revisions.get(member.memberId);
     if (!revision || !/^[a-f0-9]{64}$/i.test(revision.sha256))
@@ -54,6 +60,18 @@ export function freezePopulationExport(display: PopulationSliceDisplay) {
           }
         : null,
       presentation: state.population.presentation,
+      exploration: {
+        version: 1,
+        partition: state.population.partition,
+        partitionPast: state.population.partitionPast,
+        cohorts: set.savedCohortIds
+          .map((id) => state.cohorts[id])
+          .filter((c) => c && c.memberIds.every((id) => allIds.includes(id))),
+        participantGroups:
+          !participants.issue && participants.identity
+            ? groupParticipantMembers(participants.identity, allIds)
+            : null,
+      },
       datasetId: set.id,
       datasetName: set.name,
       featureId: feature.id,
@@ -68,7 +86,7 @@ export function freezePopulationExport(display: PopulationSliceDisplay) {
       },
       metadata: metadata.issue
         ? null
-        : Object.fromEntries(request.workingMemberIds.map((id) => [id, metadata.rows.get(id)])),
+        : Object.fromEntries(metadataIds.map((id) => [id, metadata.rows.get(id)])),
       metadataUnavailableReason: metadata.issue,
       displayScale: { effectLimit: display.effectLimit, summaryLimit: display.summaryLimit },
     },

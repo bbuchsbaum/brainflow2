@@ -410,6 +410,7 @@ function ContinuousMark({ kind, frame, spec, width, height, context }: Continuou
               strokeWidth={1.5}
               role="button"
               tabIndex={0}
+              data-datum-id={id}
               aria-label={`${id}: ${p.y}`}
               aria-pressed={selected}
               aria-current={focused ? 'true' : undefined}

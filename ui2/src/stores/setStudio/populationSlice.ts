@@ -1,7 +1,9 @@
+import { validatePopulationPartition } from '@/services/studio/populationGroups';
 import { participantIdentity } from '@/services/studio/populationParticipants';
 import type {
   PopulationActionResult,
   PopulationPresentation,
+  PopulationPartition,
   PopulationMask,
   PopulationParticipantDefinition,
   PopulationProbe,
@@ -19,6 +21,8 @@ import {
 export function initialPopulationState(sessionRevision = 0): PopulationState {
   return {
     sessionRevision,
+    partition: null,
+    partitionPast: [],
     presentation: { arrangement: 'inspect', order: null },
     participants: null,
     mask: null,
@@ -34,6 +38,8 @@ export function initialPopulationState(sessionRevision = 0): PopulationState {
 
 export interface PopulationSlice {
   population: PopulationState;
+  setPopulationPartition: (partition: PopulationPartition | null) => PopulationActionResult;
+  undoPopulationPartition: () => void;
   setPopulationPresentation: (presentation: PopulationPresentation) => PopulationActionResult;
   configurePopulationMask: (
     mask: (PopulationMask & { readonly setId: string }) | null,
@@ -102,9 +108,55 @@ export function createPopulationSlice(
     return ok;
   };
   return {
+    setPopulationPartition(partition) {
+      const state = get();
+      if (partition) {
+        const context = resolvePopulationContext(state);
+        if (context.issue) return fail(context.issue);
+        const issue = validatePopulationPartition(
+          partition,
+          state.selection.activeSetId ?? '',
+          context.memberIds,
+        );
+        if (issue) return fail(issue);
+      }
+      if (same(state.population.partition, partition)) return ok;
+      set({
+        population: {
+          ...state.population,
+          partition: structuredClone(partition),
+          partitionPast: [...state.population.partitionPast, state.population.partition].slice(-20),
+          presentation: {
+            ...state.population.presentation,
+            arrangement: partition ? 'groups' : 'inspect',
+          },
+        },
+      });
+      return ok;
+    },
+    undoPopulationPartition() {
+      const { population } = get();
+      if (!population.partitionPast.length) return;
+      const partition = population.partitionPast.at(-1) ?? null;
+      set({
+        population: {
+          ...population,
+          partition,
+          partitionPast: population.partitionPast.slice(0, -1),
+          presentation: {
+            ...population.presentation,
+            arrangement: partition ? 'groups' : 'inspect',
+          },
+        },
+      });
+    },
     setPopulationPresentation(presentation) {
       const state = get();
-      if (!['inspect', 'montage'].includes(presentation.arrangement))
+      if (
+        !['inspect', 'montage', 'groups', 'comparison', 'difference'].includes(
+          presentation.arrangement,
+        )
+      )
         return fail('Unknown population arrangement.');
       if (presentation.order) {
         const checked = checkedMembers(presentation.order.orderedIds);

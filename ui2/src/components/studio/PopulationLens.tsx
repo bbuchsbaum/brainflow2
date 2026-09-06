@@ -1,3 +1,5 @@
+import { PopulationGroupViews } from './PopulationGroupViews';
+import { PopulationSelectionRange } from './PopulationSelectionRange';
 import { PopulationNavigation } from './PopulationNavigation';
 import { PopulationExportControls } from './PopulationExportControls';
 import { resolvePopulationParticipants } from '@/services/studio/populationParticipants';
@@ -86,10 +88,11 @@ export function PopulationLens({
   const [summary, setSummary] = useState<PopulationSummary>('mean');
   const [zoom, setZoom] = useState(1);
   const [withoutFocused, setWithoutFocused] = useState(false);
-  const [previewTarget, setPreviewTarget] = useState<'observation' | 'participant' | null>(null);
+  const [previewTarget, setPreviewTarget] = useState<string | null>(null);
   const [showCutouts, setShowCutouts] = useState(false);
   const [cutoutWidth, setCutoutWidth] = useState(32);
   const [cutoutPage, setCutoutPage] = useState(0);
+  const [groupPage, setGroupPage] = useState(0);
   useEffect(() => {
     const restored = studio.population.restoredView;
     setOrientation(restored?.orientation ?? 'axial');
@@ -98,6 +101,7 @@ export function PopulationLens({
     setWithoutFocused(false);
     setShowCutouts(false);
     setCutoutPage(0);
+    setGroupPage(0);
   }, [studio.population.sessionRevision, studio.population.restoredView]);
 
   const population = useMemo(() => resolvePopulation(studio), [studio]);
@@ -111,12 +115,31 @@ export function PopulationLens({
       (studio.population.participants?.reduction !== 'observations'
         ? 'participant'
         : 'observation')) === 'participant';
+  const previewSet = useMemo(() => {
+    if (previewTarget?.startsWith('group:'))
+      return studio.population.partition?.groups.find((g) => `group:${g.id}` === previewTarget);
+    if (previewTarget?.startsWith('set:')) return studio.cohorts[previewTarget.slice(4)];
+    return null;
+  }, [previewTarget, studio.population.partition, studio.cohorts]);
+  const previewLabel = previewSet
+    ? `${previewSet.label} (${previewSet.memberIds.length} ${previewSet.memberIds.length === 1 ? 'observation' : 'observations'})`
+    : `focused ${previewParticipant ? 'participant' : 'observation'}`;
   const selectedIds = useMemo(
     () => new Set(population.workingMemberIds),
     [population.workingMemberIds],
   );
   const presentation = studio.population.presentation;
-  const montage = presentation.arrangement === 'montage';
+  const montage = !withoutFocused && presentation.arrangement === 'montage';
+  const grouped = !withoutFocused && presentation.arrangement === 'groups';
+  const comparing =
+    presentation.arrangement === 'comparison' || presentation.arrangement === 'difference';
+  const difference = presentation.arrangement === 'difference';
+  const groupPages = Math.max(1, Math.ceil((studio.population.partition?.groups.length ?? 0) / 4));
+  const currentGroupPage = Math.min(groupPage, groupPages - 1);
+  const contributors =
+    presentation.arrangement === 'montage'
+      ? studio.population.partition?.groups.find((g) => g.id === presentation.contributorsGroupId)
+      : null;
   const savedOrder =
     presentation.order?.featureId === studio.selection.activeFeatureId &&
     presentation.order.orderedIds.length === population.context.memberIds.length &&
@@ -128,7 +151,9 @@ export function PopulationLens({
     [savedOrder, arrangement, population.context.memberIds],
   );
   // Stable IDs prevent focus updates from restarting playback.
-  const orderKey = JSON.stringify(orderedIds);
+  const orderKey = JSON.stringify(
+    contributors ? orderedIds.filter((id) => contributors.memberIds.includes(id)) : orderedIds,
+  );
   const navigationIds = useMemo(() => JSON.parse(orderKey) as string[], [orderKey]);
   const galleryIds = montage
     ? navigationIds
@@ -202,7 +227,9 @@ export function PopulationLens({
         summary,
         zoom,
         dimPx: [rasterWidth, rasterHeight],
-        withoutFocused,
+        withoutFocused: withoutFocused && !previewSet,
+        withoutMembers: withoutFocused && previewSet ? previewSet.memberIds : undefined,
+        groupPage: currentGroupPage,
         withoutParticipant: previewParticipant,
         cutouts: cutouts?.memberIds.length ? cutouts : null,
       }),
@@ -216,6 +243,8 @@ export function PopulationLens({
       rasterWidth,
       rasterHeight,
       withoutFocused,
+      previewSet,
+      currentGroupPage,
       previewParticipant,
       cutouts,
     ],
@@ -313,7 +342,8 @@ export function PopulationLens({
           <select
             className={control}
             aria-label="Summary"
-            value={summary}
+            disabled={comparing || grouped}
+            value={comparing || grouped ? 'mean' : summary}
             onChange={(event) => setSummary(event.target.value as PopulationSummary)}
           >
             {Object.entries(names).map(([id, name]) => (
@@ -387,27 +417,43 @@ export function PopulationLens({
         </button>
       </div>
       <div className="flex flex-wrap items-center gap-2 text-xs">
-        {participants.identity && (
+        {(participants.identity ||
+          studio.population.partition ||
+          studio.sets[studio.selection.activeSetId ?? '']?.savedCohortIds.length) && (
           <label>
             Preview exclusion{' '}
             <select
               className={control}
               aria-label="Preview exclusion unit"
-              value={previewParticipant ? 'participant' : 'observation'}
-              onChange={(event) =>
-                setPreviewTarget(event.target.value as 'observation' | 'participant')
+              value={
+                previewSet ? previewTarget! : previewParticipant ? 'participant' : 'observation'
               }
+              onChange={(event) => setPreviewTarget(event.target.value)}
             >
               <option value="observation">Focused observation</option>
-              <option value="participant">Focused participant</option>
+              {participants.identity && <option value="participant">Focused participant</option>}
+              {studio.population.partition?.groups.map((g) => (
+                <option key={`group:${g.id}`} value={`group:${g.id}`}>
+                  Group: {g.label} (observations)
+                </option>
+              ))}
+              {studio.sets[studio.selection.activeSetId ?? '']?.savedCohortIds.map(
+                (id) =>
+                  studio.cohorts[id] && (
+                    <option key={`set:${id}`} value={`set:${id}`}>
+                      Set: {studio.cohorts[id].label} (observations)
+                    </option>
+                  ),
+              )}
             </select>
           </label>
         )}
         <button
           className={control}
           disabled={
-            !studio.selection.activeMemberId ||
-            (previewParticipant && !participants.identity?.has(studio.selection.activeMemberId))
+            (!previewSet && !studio.selection.activeMemberId) ||
+            (previewParticipant &&
+              !participants.identity?.has(studio.selection.activeMemberId ?? ''))
           }
           title={
             previewParticipant && !participants.identity?.has(studio.selection.activeMemberId ?? '')
@@ -422,6 +468,7 @@ export function PopulationLens({
           onPointerCancel={() => setWithoutFocused(false)}
           onBlur={() => setWithoutFocused(false)}
           onKeyDown={(event) => {
+            if (event.key === 'Escape') setWithoutFocused(false);
             if (event.key === ' ' || event.key === 'Enter') {
               event.preventDefault();
               setWithoutFocused(true);
@@ -431,14 +478,16 @@ export function PopulationLens({
             if (event.key === ' ' || event.key === 'Enter') setWithoutFocused(false);
           }}
         >
-          Hold to preview without focused {previewParticipant ? 'participant' : 'observation'}
+          Hold to preview without {previewLabel}
         </button>
         {withoutFocused && (
           <span role="status">
             Temporary preview without{' '}
-            {previewParticipant
-              ? `participant ${participants.identity?.get(studio.selection.activeMemberId ?? '')}`
-              : `observation ${studio.selection.activeMemberId}`}
+            {previewSet
+              ? previewLabel
+              : previewParticipant
+                ? `participant ${participants.identity?.get(studio.selection.activeMemberId ?? '')}`
+                : `observation ${studio.selection.activeMemberId}`}
             ; selection retained.
           </span>
         )}
@@ -460,20 +509,35 @@ export function PopulationLens({
           (arrangement ? populationArrangementLabel(arrangement) : 'Source order')
         }
       />
+      <PopulationSelectionRange
+        ids={navigationIds}
+        origin={savedOrder || arrangement ? 'map-derived' : contributors ? 'metadata' : 'manual'}
+        scope={`${workspaceId}:${studio.population.sessionRevision}`}
+      />
       <div
         className="flex flex-wrap items-center gap-2 text-xs"
         aria-label="Population arrangement"
       >
-        {(['inspect', 'montage'] as const).map((value) => (
+        {(
+          [
+            'inspect',
+            'montage',
+            ...(studio.population.partition ? (['groups'] as const) : []),
+          ] as const
+        ).map((value) => (
           <button
             key={value}
             className={`${control} ${presentation.arrangement === value ? 'border-primary text-primary bg-muted' : ''}`}
             aria-pressed={presentation.arrangement === value}
             onClick={() =>
-              studio.setPopulationPresentation({ ...presentation, arrangement: value })
+              studio.setPopulationPresentation({
+                ...presentation,
+                arrangement: value,
+                contributorsGroupId: undefined,
+              })
             }
           >
-            {value === 'inspect' ? 'Inspect' : 'Montage'}
+            {value === 'inspect' ? 'Inspect' : value === 'groups' ? 'Groups' : 'Montage'}
           </button>
         ))}
         <button className={control} disabled={!canArrange} onClick={() => fitOrder('all')}>
@@ -491,18 +555,82 @@ export function PopulationLens({
           </button>
         )}
       </div>
-      <div ref={host} className="min-w-0">
+      {comparing && (
         <div
-          className={montage ? 'hidden' : 'grid gap-3'}
-          style={{ gridTemplateColumns: compact ? 'minmax(0, 1fr)' : 'repeat(2, minmax(0, 1fr))' }}
+          className="flex flex-wrap items-center gap-2 text-xs"
+          aria-label="Descriptive comparison"
         >
-          {(['summary', 'focused'] as const).map((pane) => (
+          <span>
+            A: {result?.data.eligibleCount ?? population.workingMemberIds.length} observations · B:{' '}
+            {population.referenceMemberIds.length} · overlap:{' '}
+            {population.referenceMemberIds.filter((id) => selectedIds.has(id)).length} observations.
+            Descriptive means; not a t-test.
+          </span>
+          <button
+            className={control}
+            onClick={() =>
+              studio.setPopulationPresentation({
+                ...presentation,
+                arrangement: difference ? 'comparison' : 'difference',
+              })
+            }
+          >
+            {difference ? 'Expand A and B' : 'Show A − B'}
+          </button>
+        </div>
+      )}
+      {grouped && groupPages > 1 && (
+        <div className="flex gap-2 text-xs">
+          <button
+            className={control}
+            disabled={currentGroupPage === 0}
+            onClick={() => setGroupPage(currentGroupPage - 1)}
+          >
+            Previous groups
+          </button>
+          <span>
+            Groups page {currentGroupPage + 1} / {groupPages}
+          </span>
+          <button
+            className={control}
+            disabled={currentGroupPage + 1 === groupPages}
+            onClick={() => setGroupPage(currentGroupPage + 1)}
+          >
+            Next groups
+          </button>
+        </div>
+      )}
+      <div ref={host} className="min-w-0">
+        {grouped && result && (
+          <PopulationGroupViews
+            display={result}
+            width={width}
+            current={current}
+            crosshairStyle={style}
+            crosshairVisible={settings.visible}
+          />
+        )}
+        <div
+          className={montage || grouped ? 'hidden' : 'grid gap-3'}
+          style={{
+            gridTemplateColumns:
+              compact || difference ? 'minmax(0, 1fr)' : 'repeat(2, minmax(0, 1fr))',
+          }}
+        >
+          {(difference
+            ? (['summary'] as const)
+            : comparing
+              ? (['summary', 'reference'] as const)
+              : (['summary', 'focused'] as const)
+          ).map((pane) => (
             <div key={pane} className="min-w-0">
               <div className="mb-1 flex min-w-0 justify-between gap-2 text-xs">
                 <span className="truncate">
                   {pane === 'summary'
-                    ? `${names[result?.query.request.summary ?? summary]} · ${result?.data.unitCount ?? 0} ${result?.query.request.aggregation ? 'participants' : 'observations'}`
-                    : `Actual observation · ${result?.query.request.focusMemberId ?? 'none'}`}
+                    ? `${result?.query.request.difference ? 'A − B mean difference' : result?.query.request.reference ? 'A mean' : names[result?.query.request.summary ?? summary]} · ${result?.data.unitCount ?? 0} ${result?.query.request.aggregation ? 'participants' : 'observations'}`
+                    : pane === 'reference'
+                      ? `B mean · ${result?.data.reference?.unitCount ?? 0} analysis units`
+                      : `Actual observation · ${result?.query.request.focusMemberId ?? 'none'}`}
                 </span>
                 {result && (
                   <span className="shrink-0 tabular-nums">
@@ -533,7 +661,7 @@ export function PopulationLens({
                 }}
               >
                 <ReusableSliceViewport
-                  width={paneWidth}
+                  width={difference ? width : paneWidth}
                   height={paneHeight}
                   viewPlane={result?.data.plane}
                   crosshair={{ ...crosshair, visible: crosshair.visible && settings.visible }}

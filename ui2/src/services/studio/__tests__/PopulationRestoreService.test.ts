@@ -228,3 +228,48 @@ it('reopens a frozen order and montage, but refuses a fitted order with changed 
   expect(invalid.population.presentation?.order).toBeNull();
   expect(invalid.set.savedPopulation?.notices.join(' ')).toMatch(/order could not be verified/);
 });
+
+it('restores factor membership and authoritative A/B operands for continued exploration', () => {
+  const record = opened();
+  record.calculation.summary = 'mean';
+  record.calculation.aggregation = null;
+  record.calculation.reference = { id: 'B', memberIds: ['b', 'c'] };
+  record.calculation.difference = true;
+  record.context = {
+    ...record.context,
+    metadata: { a: { site: 'A' }, b: { site: 'B' }, c: { site: 'B' } },
+    exploration: {
+      version: 1,
+      cohorts: [{ id: 'old-cohort', label: 'Other set', memberIds: ['a'] }],
+      partition: {
+        setId: 'old',
+        column: 'site',
+        contextIds: ['a', 'b', 'c'],
+        origin: 'metadata',
+        groups: [
+          { id: 'A', label: 'Site A', value: 'A', memberIds: ['a'] },
+          { id: 'B', label: 'Site B', value: 'B', memberIds: ['b', 'c'] },
+        ],
+      },
+      partitionPast: [null],
+    },
+  };
+  const payload = preparePopulationRestore(record, 'workspace', 2);
+  useSetStudioStore.getState().bootstrapStudio(payload);
+  const state = useSetStudioStore.getState();
+  expect(state.population.presentation.arrangement).toBe('difference');
+  expect(state.cohorts[state.selection.compareCohortId!].memberIds).toEqual(['b', 'c']);
+  expect(state.population.partition?.groups[1].memberIds).toEqual(['b', 'c']);
+  expect(state.population.partitionPast).toEqual([null]);
+  expect(studioMetadata(payload.set, ['a', 'b', 'c']).issue).toBeNull();
+  const result = buildPopulationSliceQuery(state, 'workspace', {
+    crosshairMm: [3, 4, 5],
+    orientation: 'coronal',
+    dimPx: [10, 10],
+    zoom: 2,
+    summary: 'mean',
+  }).query!;
+  expect(result.request.reference?.memberIds).toEqual(['b', 'c']);
+  expect(result.request.workingMemberIds).toEqual(['a', 'b']);
+  expect(result.request.difference).toBe(true);
+});

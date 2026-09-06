@@ -1,3 +1,4 @@
+import { PopulationGroupControls } from './PopulationGroupControls';
 import { useSetStudioStore } from '@/stores/setStudioStore';
 import { resolvePopulation } from '@/services/studio/populationContext';
 import { PopulationUnitControls } from './PopulationUnitControls';
@@ -32,6 +33,7 @@ export function PopulationInspector() {
       </div>
       <PopulationUnitControls />
       <PopulationMaskControls />
+      <PopulationGroupControls />
       <div className="border-t border-border pt-3 text-xs">
         <div className="text-muted-foreground">Spatial probe</div>
         <p className="mt-1">

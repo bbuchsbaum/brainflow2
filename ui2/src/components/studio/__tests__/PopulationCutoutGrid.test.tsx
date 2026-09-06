@@ -30,6 +30,7 @@ it('composes one canvas and preserves focus versus selection for actual observat
     validPixels: i === 3 ? 0 : 3,
   }));
   const display = {
+    query: { key: 'fixture' },
     data: { cutouts: { plane, members } },
     images: new PopulationImages(image, image, image),
   } as PopulationSliceDisplay;
@@ -72,8 +73,10 @@ it('composes one canvas and preserves focus versus selection for actual observat
       onToggle={toggle}
     />,
   );
-  expect(screen.getAllByRole('button').map((button) => button.getAttribute('aria-label'))).toEqual(
-    ['A', 'B', 'C', 'D'].map((id) => `Focus cutout ${id}`),
-  );
+  expect(
+    screen
+      .getAllByRole('button', { name: /^Focus cutout/ })
+      .map((button) => button.getAttribute('aria-label')),
+  ).toEqual(['A', 'B', 'C', 'D'].map((id) => `Focus cutout ${id}`));
   expect(container.querySelectorAll('canvas')).toHaveLength(1);
 });

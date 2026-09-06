@@ -392,7 +392,9 @@ export const useSetStudioStore = create<SetStudioStoreState>((set, get) => ({
             ? payload.selection.activeMemberId
             : (payload.set.memberIds[2] ?? payload.set.memberIds[0] ?? null),
         compareCohortId:
-          payload.selection?.compareCohortId ?? payload.set.savedCohortIds[0] ?? null,
+          payload.selection?.compareCohortId === undefined
+            ? payload.set.savedCohortIds[0] ?? null
+            : payload.selection.compareCohortId,
         activeScopeCohortId: payload.selection?.activeScopeCohortId ?? null,
         activeExpressionId:
           payload.selection?.activeExpressionId ?? payload.expressions[0]?.id ?? null,

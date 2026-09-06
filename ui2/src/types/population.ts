@@ -69,12 +69,29 @@ export interface PopulationOrder {
   readonly tieRule: 'source';
 }
 export interface PopulationPresentation {
-  readonly arrangement: 'inspect' | 'montage';
+  readonly arrangement: 'inspect' | 'montage' | 'groups' | 'comparison' | 'difference';
+  readonly gallery?: 'context' | 'working';
+  readonly contributorsGroupId?: string;
   readonly montageScope?: 'plane' | 'probe';
   readonly order: PopulationOrder | null;
 }
 
+export interface PopulationPartition {
+  readonly setId: string;
+  readonly column: string;
+  readonly contextIds: readonly string[];
+  readonly groups: readonly {
+    id: string;
+    label: string;
+    value: string | null;
+    memberIds: readonly string[];
+  }[];
+  readonly origin: 'metadata';
+}
+
 export interface PopulationState {
+  readonly partition: PopulationPartition | null;
+  readonly partitionPast: readonly (PopulationPartition | null)[];
   readonly presentation: PopulationPresentation;
   /** Applied once on restore; subsequent exploration is ordinary live state. */
   readonly restoredView?: {

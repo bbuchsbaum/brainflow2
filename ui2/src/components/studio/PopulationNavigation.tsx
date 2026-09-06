@@ -47,6 +47,9 @@ export function PopulationNavigation({
     <div
       aria-label="Population navigation"
       tabIndex={0}
+      onBlur={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setPlaying(false);
+      }}
       className="rounded border border-border bg-muted/20 p-2 space-y-2"
       onKeyDown={(event) => {
         if (event.target !== event.currentTarget) return;

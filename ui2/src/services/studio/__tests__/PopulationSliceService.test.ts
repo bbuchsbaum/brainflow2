@@ -393,3 +393,37 @@ it('does not combine an old summary with a new source revision on a focus-only m
   expect(service.getSnapshot().displayed!.data.sources[0].revision.sha256).toBe('new');
   service.stop();
 });
+
+it('retains group/reference bitmaps across focus-only results and releases each exactly once', async () => {
+  const { service, evaluate, bitmaps } = setup();
+  const first = query();
+  first.request.reference = { id: 'B', memberIds: ['b'] };
+  first.request.groups = [{ id: 'G', memberIds: ['a'] }];
+  const group = { id: 'G', values: [3, null], validCounts: [1, 0], eligibleCount: 1, unitCount: 1 };
+  evaluate.mockResolvedValue({ ...data(), groups: [group], reference: { ...group, id: 'B' } });
+  service.request(first);
+  await vi.runAllTimersAsync();
+  const initial = service.getSnapshot().displayed!;
+  expect(initial.images.groups.G).toBeDefined();
+  expect(initial.images.reference).toBeDefined();
+  const release = initial.images.retain();
+  const next = structuredClone(first);
+  next.key = 'focus-b';
+  next.request.focusMemberId = 'b';
+  evaluate.mockResolvedValue({
+    ...data(),
+    summary: [],
+    validCounts: [],
+    groups: [],
+    reference: null,
+  });
+  service.request(next);
+  await vi.runAllTimersAsync();
+  expect(service.getSnapshot().error).toBeNull();
+  expect(service.getSnapshot().displayed!.images.groups.G).toBe(initial.images.groups.G);
+  expect(service.getSnapshot().displayed!.images.reference).toBe(initial.images.reference);
+  service.stop();
+  expect(initial.images.reference!.close).not.toHaveBeenCalled();
+  release();
+  expect(bitmaps.every((b) => vi.mocked(b.close).mock.calls.length === 1)).toBe(true);
+});
