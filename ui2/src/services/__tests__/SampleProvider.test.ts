@@ -654,3 +654,16 @@ describe('SampleProvider population cancellation', () => {
     expect(invokeMock).toHaveBeenCalledTimes(1);
   });
 });
+
+it('keeps scalar metadata through sampling without replacing member identity or values', async () => {
+  invokeMock.mockReset();
+  invokeMock.mockResolvedValue([{ memberId: 'late', value: 9, count: 1 }]);
+  const frame = await sampleProvider.sample({ datasetId: 'study', locus: {
+    kind: 'set', worldMm: [0, 0, 0], radiusMm: 0,
+    members: [{ memberId: 'late', sourcePath: '/late.nii', designValues: [
+      { column: 'site', value: 'B' }, { column: 'value', value: 'metadata' }, { column: 'member', value: 'person' },
+    ] }],
+  } });
+  expect(frame.rows).toEqual([{ member: 'late', value: 9, site: 'B', 'design:value': 'metadata', 'design:member': 'person' }]);
+  expect(frame.meta?.sources?.[0].validCount).toBe(1);
+});

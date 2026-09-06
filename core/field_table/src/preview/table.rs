@@ -33,7 +33,16 @@ pub(super) fn table_candidate(request: &StudioImportPreviewRequest) -> StudioImp
     let file_col_idx = headers.iter().position(|header| header == &file_column);
     let subject_col_idx = headers.iter().position(|header| header == &subject_column);
 
-    if headers.is_empty() || rows.is_empty() || file_col_idx.is_none() || subject_col_idx.is_none()
+    let invalid_shape = headers
+        .iter()
+        .any(|header| header.trim().is_empty() || header != header.trim())
+        || headers.iter().collect::<HashSet<_>>().len() != headers.len()
+        || rows.iter().any(|row| row.len() != headers.len());
+    if headers.is_empty()
+        || rows.is_empty()
+        || file_col_idx.is_none()
+        || subject_col_idx.is_none()
+        || invalid_shape
     {
         return StudioImportCandidate {
             id: "candidate-table-preview".to_string(),
@@ -76,9 +85,11 @@ pub(super) fn table_candidate(request: &StudioImportPreviewRequest) -> StudioImp
                         duplicate_keys: 0,
                         severity: StudioAuditSeverity::Error,
                         issue_details: vec![StudioJoinIssueDetail {
-                            message:
-                                "File path and subject ID columns must be mapped before preview."
-                                    .to_string(),
+                            message: if invalid_shape {
+                                "Table metadata requires unique nonempty column names and equal row widths.".to_string()
+                            } else {
+                                "File path and observation ID columns must be mapped before preview.".to_string()
+                            },
                             member_ids: Vec::new(),
                         }],
                     },
@@ -88,7 +99,7 @@ pub(super) fn table_candidate(request: &StudioImportPreviewRequest) -> StudioImp
                         ready_for_compare: false,
                         severity: StudioAuditSeverity::Error,
                     },
-                    notes: vec!["Map the table columns to continue.".to_string()],
+                    notes: vec!["Use unique nonempty column names, equal row widths, and map the file path and observation ID columns to continue.".to_string()],
                 },
             },
             features: vec![StudioFeatureSummary {
@@ -157,6 +168,15 @@ pub(super) fn table_candidate(request: &StudioImportPreviewRequest) -> StudioImp
     let row_details = rows
         .iter()
         .map(|row| TableRowDetail {
+            design_values: headers
+                .iter()
+                .enumerate()
+                .filter(|(index, header)| {
+                    *index == subject_col_idx
+                        || (*index != file_col_idx && !excluded_columns.contains(*header))
+                })
+                .map(|(index, header)| (header.clone(), row[index].clone()))
+                .collect(),
             subject_id: row
                 .get(subject_col_idx)
                 .map(|value| value.trim())
@@ -238,6 +258,7 @@ pub(super) fn table_candidate(request: &StudioImportPreviewRequest) -> StudioImp
 
                 member_summaries.push(StudioMemberSummary {
                     id: detail.subject_id.clone(),
+                    design_values: Some(detail.design_values.clone()),
                     source_path: Some(detail.source_path.clone()),
                     bindings: Some(vec![binding_summary(BindingSummaryInput {
                         role: "statmap".to_string(),
@@ -480,6 +501,7 @@ pub(super) fn table_candidate(request: &StudioImportPreviewRequest) -> StudioImp
 
 #[derive(Clone, Debug)]
 struct TableRowDetail {
+    design_values: std::collections::BTreeMap<String, String>,
     subject_id: String,
     source_path: String,
 }

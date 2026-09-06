@@ -152,3 +152,25 @@ describe('DesignPane', () => {
     });
   });
 });
+
+it('pages complete metadata in canonical visible order without truncating the population', () => {
+  const ids = Array.from({ length: 161 }, (_, i) => `obs-${String(i + 1).padStart(3, '0')}`);
+  const set: SpatialFieldSetSummary = { ...ACTIVE_SET, memberIds: ids, memberCount: ids.length,
+    designColumns: ['observation', 'participant'],
+    memberSummaries: ids.map((id, i) => ({ id, sourcePath: null, designValues: { observation: id, participant: `P${Math.floor(i / 2)}` } })),
+  };
+  const focus = vi.fn();
+  const view = render(<DesignPane activeSet={set} cohorts={[]} onSelectMember={focus} />);
+  expect(screen.getByText('161 visible members')).toBeVisible();
+  expect(screen.getByRole('button', { name: 'obs-001 P0' })).toBeVisible();
+  expect(screen.queryByRole('button', { name: 'obs-081 P40' })).toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: 'Next observations' }));
+  fireEvent.click(screen.getByRole('button', { name: 'obs-081 P40' }));
+  expect(focus).toHaveBeenCalledWith('obs-081');
+  fireEvent.click(screen.getByRole('button', { name: 'Next observations' }));
+  expect(screen.getByRole('button', { name: 'obs-161 P80' })).toBeVisible();
+  view.rerender(<DesignPane activeSet={set} cohorts={[]} visibleMemberIds={['obs-160', 'obs-002']} onSelectMember={focus} />);
+  expect(screen.getByRole('button', { name: 'obs-160 P79' })).toBeVisible();
+  expect(screen.getByRole('button', { name: 'obs-002 P0' })).toBeVisible();
+  expect(screen.queryByRole('button', { name: 'Next observations' })).toBeNull();
+});

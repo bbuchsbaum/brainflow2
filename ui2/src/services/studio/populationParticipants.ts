@@ -1,3 +1,4 @@
+import { studioMetadata } from './studioMetadata';
 import type { SampleFrame } from '@/plotting';
 import type { SpatialFieldSetSummary } from '@/types/studio';
 import type { PopulationParticipantDefinition } from '@/types/population';
@@ -23,22 +24,14 @@ export function participantIdentity(
   if (new Set(ids).size !== ids.length || ids.some((id) => !id.trim() || id !== id.trim()))
     throw new Error('Participant identity requires unique observation IDs.');
   if (definition.identity.kind === 'observationIds') return new Map(ids.map((id) => [id, id]));
-  const table = set.designTablePreview;
+  const metadata = studioMetadata(set);
+  if (metadata.issue) throw new Error(metadata.issue);
   const column = definition.identity.column;
-  if (!table || table.columns.filter((name) => name === column).length !== 1)
+  if (!metadata.columns.includes(column))
     throw new Error('Choose an available, uniquely named participant ID column.');
-  const index = table.columns.indexOf(column),
-    rows = new Map(table.rows.map((row) => [row.id, row]));
-  if (
-    rows.size !== table.rows.length ||
-    ids.some((id) => !rows.has(id) || rows.get(id)!.cells.length !== table.columns.length)
-  )
-    throw new Error(
-      'Participant identity requires complete, uniquely keyed metadata for every observation.',
-    );
   return new Map(
     ids.map((id) => {
-      const participant = rows.get(id)!.cells[index];
+      const participant = metadata.rows.get(id)![column];
       if (
         typeof participant !== 'string' ||
         !participant.trim() ||

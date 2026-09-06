@@ -616,16 +616,28 @@ pub fn design_values_from_table_preview(
 }
 
 /// Per-member ontology design values from a `SpatialFieldSetSummary`, keyed by
-/// member id. Thin wrapper over [`design_values_from_table_preview`]; returns an
-/// empty map when the summary carries no design-table preview.
+/// member id. Complete observation metadata takes precedence over legacy preview
+/// labels; rows beyond the compact import preview retain their design values.
 pub fn design_values_from_summary(
     summary: &bridge_types::SpatialFieldSetSummary,
 ) -> HashMap<String, Vec<(String, String)>> {
-    summary
+    let mut values = summary
         .design_table_preview
         .as_ref()
         .map(design_values_from_table_preview)
-        .unwrap_or_default()
+        .unwrap_or_default();
+    for member in &summary.member_summaries {
+        if let Some(metadata) = &member.design_values {
+            values.insert(
+                member.id.clone(),
+                metadata
+                    .iter()
+                    .map(|(column, value)| (column.clone(), value.clone()))
+                    .collect(),
+            );
+        }
+    }
+    values
 }
 
 /// [`ImageSet`] adapter over a Set-Studio cohort: members are co-registered
@@ -1000,6 +1012,28 @@ mod tests {
     #[test]
     fn set_studio_empty_cohort_is_none() {
         assert!(SetStudioImageSet::new(Vec::new(), false).is_none());
+    }
+
+    #[test]
+    fn complete_metadata_labels_override_preview_and_reach_late_observations() {
+        let summary = serde_json::from_value(serde_json::json!({
+            "id": "set", "name": "metadata", "memberCount": 2,
+            "supportKind": "volume", "supportLabel": "test", "alignmentClass": "same-grid",
+            "designColumns": ["subject"], "savedCohortIds": [], "memberIds": ["early", "late"],
+            "designTablePreview": { "columns": ["subject"], "rows": [{"id": "early", "cells": ["wrong"]}] },
+            "memberSummaries": [
+                {"id": "early", "designValues": {"subject": "person-1"}},
+                {"id": "late", "designValues": {"subject": "person-2"}}
+            ],
+            "ingestAudit": {
+                "sourceLabel": "test", "notes": [],
+                "join": {"matchedRows": 2, "unmatchedRows": 0, "duplicateKeys": 0, "severity": "ok", "issueDetails": []},
+                "support": {"supportLabel": "test", "alignmentClass": "same-grid", "readyForCompare": true, "severity": "ok"}
+            }
+        })).unwrap();
+        let values = design_values_from_summary(&summary);
+        assert_eq!(values["early"], vec![("subject".into(), "person-1".into())]);
+        assert_eq!(values["late"], vec![("subject".into(), "person-2".into())]);
     }
 
     #[test]

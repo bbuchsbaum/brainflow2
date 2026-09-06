@@ -71,3 +71,5 @@ Run `cargo test -p api-bridge` for unit tests. Integration tests in `tests/pipel
 <!-- MANUAL: -->
 
 - Population slice requests optionally declare `aggregation: { within, groups }`. Groups partition selected observation IDs exactly once; `single` requires one row and `mean` averages finite rows within each participant in f64 before between-participant moments. `eligibleCount` remains observation rows; `unitCount` and per-pixel `validCounts` use the declared analysis unit. Aggregation does not invalidate cached source sampling, and focused/cutout images remain original observations. Do not apply participant weighting to already averaged group maps or silently fall back on invalid groups.
+
+- `image_set::design_values_from_summary` labels observations from complete member metadata, including rows beyond the compact preview. Complete records take precedence; legacy preview labels remain a display fallback. Scientific participant/filter validation belongs to the metadata query contract, not this label helper.

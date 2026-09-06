@@ -47,3 +47,5 @@ Run `cargo test -p bridge_types`. Types should be tested indirectly through depe
 - `neuroim` - 4D volume support (DenseNeuroVec)
 
 <!-- MANUAL: -->
+
+- `StudioMemberSummary.design_values` is optional for legacy payloads and contains complete imported string metadata per observation. Compact `design_table_preview` rows are for presentation only. Importers exclude feature payload and locator columns; typed axes, metadata revision and model semantics remain separate contracts.

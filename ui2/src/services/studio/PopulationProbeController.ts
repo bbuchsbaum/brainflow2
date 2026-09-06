@@ -1,3 +1,4 @@
+import { studioMetadata } from './studioMetadata';
 import {
   arrangePopulationResponses,
   populationBindingKey,
@@ -109,10 +110,28 @@ export function buildPopulationProbeQuery(
         'This probe belongs to another dataset or workspace. Pin a location in the current view.',
     };
   const { datasetKey, members } = resolved.source;
+  const metadata = studioMetadata(
+    set,
+    members.map((member) => member.memberId),
+  );
+  const labeledMembers = metadata.issue
+    ? members
+    : members.map((member) => ({
+        ...member,
+        designValues: metadata.columns.map((column) => ({
+          column,
+          value: metadata.rows.get(member.memberId)![column],
+        })),
+      }));
   const request: SampleRequest = {
     datasetId: set.id,
     reduce: probe.reduce,
-    locus: { kind: 'set', members, worldMm: [...probe.worldMm], radiusMm: probe.radiusMm },
+    locus: {
+      kind: 'set',
+      members: labeledMembers,
+      worldMm: [...probe.worldMm],
+      radiusMm: probe.radiusMm,
+    },
   };
   const key = JSON.stringify([datasetKey, probe.supportKey, request]);
   return { query: { key, datasetKey, probe, request }, issue: null };

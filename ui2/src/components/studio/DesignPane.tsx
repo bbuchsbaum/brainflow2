@@ -1,4 +1,5 @@
-import React from 'react';
+import { studioMetadata } from '@/services/studio/studioMetadata';
+import React, { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/Button';
 import { CollapsibleSection } from '@/components/ui/CollapsibleSection';
 import { StudioPane } from './StudioPane';
@@ -69,7 +70,6 @@ export function DesignPane({
   onToggleSortDirection,
   onToggleDesignFilter,
   onRemoveDesignFilter,
-  onClearDesignFilters,
   onClearSubsetNarrowing,
   onSelectMember,
   onUseFilteredSubsetInCompare,
@@ -83,6 +83,9 @@ export function DesignPane({
   onSaveIssueFocusAsCohort,
   onUseIssueFocusInCompare,
 }: DesignPaneProps) {
+  const [page, setPage] = useState(0);
+  const memberKey = JSON.stringify(visibleMemberIds ?? activeSet?.memberIds ?? []);
+  useEffect(() => { setPage(previous => previous === 0 ? previous : 0); }, [activeSet?.id, memberKey]);
   if (!activeSet) {
     return (
       <StudioPane title="Subjects" headerActions={headerActions} showHeader={false}>
@@ -96,10 +99,15 @@ export function DesignPane({
     );
   }
 
-  const previewColumns = activeSet?.designTablePreview?.columns ?? [];
-  const previewRows = (activeSet?.designTablePreview?.rows ?? []).filter((row) =>
-    visibleMemberIds ? visibleMemberIds.includes(row.id) : true
-  );
+  const metadata = studioMetadata(activeSet, []);
+  const previewColumns = metadata.columns;
+  const orderedIds = visibleMemberIds ?? activeSet.memberIds;
+  const previewRows = orderedIds.flatMap(id => {
+    const values = metadata.rows.get(id);
+    return values ? [{ id, cells: previewColumns.map(column => values[column]) }] : [];
+  });
+  const pageCount = Math.max(1, Math.ceil(previewRows.length / 80));
+  const currentPage = Math.min(page, pageCount - 1);
   const visibleColumns = previewColumns.slice(0, 4);
   const showImportSummary =
     activeSet.ingestAudit.join.severity !== 'ok' ||
@@ -117,6 +125,7 @@ export function DesignPane({
       showHeader={false}
     >
       <div className="space-y-3">
+        {metadata.issue && <p role="alert" className="text-xs text-destructive">{metadata.issue}</p>}
         {showImportSummary ? (
           <div className="rounded-lg border border-border bg-background p-3">
             <div className="flex items-center justify-between gap-3">
@@ -334,7 +343,7 @@ export function DesignPane({
             >
               {visibleColumns.map((column) => <span key={column}>{column}</span>)}
             </div>
-            {previewRows.map((row) => (
+            {previewRows.slice(currentPage * 80, (currentPage + 1) * 80).map((row) => (
               <button
                 key={row.id}
                 type="button"
@@ -353,6 +362,13 @@ export function DesignPane({
                 ))}
               </button>
             ))}
+            {pageCount > 1 && (
+              <div className="flex items-center justify-between border-t border-border p-2 text-xs">
+                <Button size="sm" variant="ghost" disabled={currentPage === 0} onClick={() => setPage(currentPage - 1)}>Previous observations</Button>
+                <span>Page {currentPage + 1} / {pageCount}</span>
+                <Button size="sm" variant="ghost" disabled={currentPage + 1 === pageCount} onClick={() => setPage(currentPage + 1)}>Next observations</Button>
+              </div>
+            )}
           </div>
         ) : null}
 

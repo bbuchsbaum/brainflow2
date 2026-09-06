@@ -1235,6 +1235,11 @@ pub struct StudioFieldBindingSummary {
 #[serde(rename_all = "camelCase")]
 pub struct StudioMemberSummary {
     pub id: String,
+    /// Complete imported metadata for this observation, independent of the UI preview.
+    /// None denotes a legacy record without a complete metadata snapshot.
+    #[serde(default)]
+    #[ts(optional = nullable)]
+    pub design_values: Option<std::collections::BTreeMap<String, String>>,
     pub source_path: Option<String>,
     #[serde(default)]
     #[ts(optional = nullable)]

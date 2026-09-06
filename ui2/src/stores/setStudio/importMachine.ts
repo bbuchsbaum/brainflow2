@@ -580,6 +580,11 @@ export function buildTsvCandidate(
     return null;
   }
 
+  if (
+    new Set(headers).size !== headers.length ||
+    headers.some(header => !header.trim() || header !== header.trim()) ||
+    rows.some(row => row.length !== headers.length)
+  ) return null;
   const fileColIdx = headers.indexOf(columnMapping.filePathColumn);
   const subjectColIdx = headers.indexOf(columnMapping.subjectIdColumn);
   if (fileColIdx < 0 || subjectColIdx < 0) {
@@ -618,6 +623,11 @@ export function buildTsvCandidate(
   const memberSummaries = validRows.map((detail) => ({
     id: detail.subjectId,
     sourcePath: detail.sourcePath,
+    designValues: Object.fromEntries(
+      [headers[subjectColIdx], ...designColumns].map((column) => [
+        column, detail.row[headers.indexOf(column)],
+      ])
+    ),
   }));
   const memberIds = memberSummaries.map((m) => m.id);
   const duplicateKeys = duplicateRows.length;

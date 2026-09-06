@@ -98,3 +98,5 @@ React components organized by feature and function. Contains all UI elements inc
 - `StudioCenterPane` shares one `PopulationProbeController` with the Population lens and the always-mounted values panel. The panel owns start/request/stop; the lens observes its result and requests explicit arrangements. Keep the full plot in response order while witness mode reduces only gallery previews. Avoid creating a second sampler for witness ordering.
 
 - `studio/PopulationUnitControls.tsx` declares participant metadata and observation/single-row/within-person-mean semantics through `PopulationProbeActions`. Dataset-wide repeated rows are valid when the selected subset satisfies single-row mode. Counts distinguish selected observations from participants; incomplete metadata is a visible refusal, never an inferred identity.
+
+- `DesignPane` pages complete keyed observation metadata in blocks of eighty rows using the current visible ID order. Page changes preserve focus and membership; changing the dataset or visible order resets paging. The import preview remains a separate compact presentation.

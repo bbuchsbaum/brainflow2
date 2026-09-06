@@ -1,3 +1,4 @@
+import { studioMetadata } from '@/services/studio/studioMetadata';
 import { useMemo } from 'react';
 import { setImportReadiness } from '@/services/studio/importContract';
 import { useSetStudioStore } from '@/stores/setStudioStore';
@@ -100,6 +101,7 @@ export function computeStudioDerivedSnapshot(input: StudioDerivedSnapshotInput) 
     activeDesignFilters,
   });
 
+  const metadata = activeSet ? studioMetadata(activeSet, []) : null;
   const baseVisibleMemberIds = [...population.context.memberIds];
   const issueVisibleMemberIds =
     activeIssueMemberIds.length > 0
@@ -113,50 +115,52 @@ export function computeStudioDerivedSnapshot(input: StudioDerivedSnapshotInput) 
           if (memberId.toLowerCase().includes(normalizedDesignSearch)) {
             return true;
           }
-          const row = activeSet?.designTablePreview?.rows.find((candidate) => candidate.id === memberId);
-          return row?.cells.some((cell) => cell.toLowerCase().includes(normalizedDesignSearch)) ?? false;
+          const row = metadata?.rows.get(memberId);
+          return row
+            ? Object.values(row).some((cell) => cell.toLowerCase().includes(normalizedDesignSearch))
+            : false;
         });
   const filteredMemberIds = searchFilteredMemberIds;
 
   const visibleMemberIds = (() => {
-    if (!sortColumn || !activeSet?.designTablePreview) {
+    if (!sortColumn || !metadata || metadata.issue) {
       return filteredMemberIds;
     }
 
-    const columnIndex = activeSet.designTablePreview.columns.indexOf(sortColumn);
+    const columnIndex = metadata.columns.indexOf(sortColumn);
     if (columnIndex < 0) {
       return filteredMemberIds;
     }
 
-    const rowMap = new Map(activeSet.designTablePreview.rows.map((row) => [row.id, row]));
+    const rowMap = metadata.rows;
     const collator = new Intl.Collator(undefined, {
       numeric: true,
       sensitivity: 'base',
     });
 
     return [...filteredMemberIds].sort((leftId, rightId) => {
-      const leftValue = rowMap.get(leftId)?.cells[columnIndex] ?? leftId;
-      const rightValue = rowMap.get(rightId)?.cells[columnIndex] ?? rightId;
+      const leftValue = rowMap.get(leftId)?.[sortColumn] ?? leftId;
+      const rightValue = rowMap.get(rightId)?.[sortColumn] ?? rightId;
       const order = collator.compare(leftValue, rightValue);
       return sortDirection === 'desc' ? -order : order;
     });
   })();
 
   const quickFilterOptions = (() => {
-    if (!activeSet?.designTablePreview) {
+    if (!metadata || metadata.issue) {
       return [];
     }
 
-    const rows = activeSet.designTablePreview.rows.filter((row) =>
-      searchFilteredMemberIds.includes(row.id)
-    );
-    return activeSet.designTablePreview.columns
+    const rows = searchFilteredMemberIds
+      .map(id => metadata.rows.get(id))
+      .filter(row => row !== undefined);
+    return metadata.columns
       .slice(0, 4)
-      .map((column, columnIndex) => {
+      .map((column) => {
         const values = Array.from(
           new Set(
             rows
-              .map((row) => row.cells[columnIndex])
+              .map((row) => row[column])
               .filter((value): value is string => Boolean(value))
           )
         ).slice(0, 6);

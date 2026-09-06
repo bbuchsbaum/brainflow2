@@ -1,3 +1,4 @@
+import { studioMetadata } from '@/services/studio/studioMetadata';
 import { useEffect, useMemo, useState } from 'react';
 import { useSetStudioStore } from '@/stores/setStudioStore';
 import { populationProbeActions } from '@/services/studio/PopulationProbeActions';
@@ -24,7 +25,7 @@ export function PopulationUnitControls() {
   }, [state.population.sessionRevision, state.selection.activeSetId]);
   const definition = state.population.participants;
   const issue = error ?? selected.issue ?? (participants.identity ? null : participants.issue);
-  const columns = set?.designTablePreview?.columns ?? [];
+  const columns = set ? studioMetadata(set, []).columns : [];
   const mapping = definition?.identity;
   const choice = !mapping
     ? 'none'

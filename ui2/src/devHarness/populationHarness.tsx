@@ -1,4 +1,6 @@
 import { PopulationUnitControls } from '@/components/studio/PopulationUnitControls';
+import { DesignPane } from '@/components/studio/DesignPane';
+import { useStudioDerivedState } from '@/hooks/useStudioDerivedState';
 /* eslint-disable react-refresh/only-export-components -- isolated dev-only visual entry */
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
@@ -11,7 +13,17 @@ import '../index.css';
 
 if (!import.meta.env.DEV) throw new Error('This synthetic harness is development-only.');
 document.documentElement.classList.add('dark');
-const ids = Array.from({ length: 80 }, (_, i) => `S${String(i + 1).padStart(3, '0')}`);
+const metadataMode = new URLSearchParams(location.search).has('metadata');
+const ids = Array.from(
+  { length: metadataMode ? 161 : 80 },
+  (_, i) => `S${String(i + 1).padStart(3, '0')}`,
+);
+const metadataFor = (id: string, i: number) => ({
+  observation: id,
+  group: i < 40 ? 'A' : 'B',
+  participant: i < 40 ? 'P001' : `P${String(i - 38).padStart(3, '0')}`,
+  site: i < 80 ? 'early-site' : 'late-site',
+});
 const state = useSetStudioStore.getState();
 state.loadDemoSession();
 const demo = useSetStudioStore.getState();
@@ -23,13 +35,30 @@ demo.bootstrapStudio({
     name: 'Synthetic opposing observations',
     memberCount: ids.length,
     memberIds: ids,
-    memberSummaries: ids.map((id) => ({ id, sourcePath: `/synthetic/${id}.nii` })),
+    memberSummaries: ids.map((id, i) => ({
+      id,
+      sourcePath: `/synthetic/${id}.nii`,
+      designValues: metadataFor(id, i),
+    })),
     savedCohortIds: [],
+    ingestAudit: {
+      ...original.ingestAudit,
+      sourceLabel: 'Synthetic metadata fixture',
+      join: {
+        matchedRows: ids.length,
+        unmatchedRows: 0,
+        duplicateKeys: 0,
+        severity: 'ok',
+        issueDetails: [],
+      },
+      notes: [],
+    },
+    designColumns: ['observation', 'group', 'participant', 'site'],
     designTablePreview: {
-      columns: ['observation', 'group', 'participant'],
-      rows: ids.map((id, i) => ({
+      columns: ['observation', 'group', 'participant', 'site'],
+      rows: ids.slice(0, 6).map((id, i) => ({
         id,
-        cells: [id, i < 40 ? 'A' : 'B', i < 40 ? 'P001' : `P${String(i - 38).padStart(3, '0')}`],
+        cells: Object.values(metadataFor(id, i)),
       })),
     },
   },
@@ -172,8 +201,41 @@ function Harness() {
     </main>
   );
 }
+function MetadataHarness() {
+  const derived = useStudioDerivedState();
+  const state = useSetStudioStore();
+  return (
+    <main className="mx-auto flex h-screen max-w-5xl flex-col gap-3 p-4 text-foreground">
+      <h1>Complete metadata · synthetic UI harness</h1>
+      <p className="text-sm text-muted-foreground">
+        161 observations; import preview contains six rows. Native import is not exercised here.
+      </p>
+      <div>
+        Focused observation:{' '}
+        <span data-testid="fixture-focus">{state.selection.activeMemberId}</span>
+      </div>
+      <PopulationUnitControls />
+      <DesignPane
+        activeSet={derived.activeSet}
+        activeMemberId={state.selection.activeMemberId}
+        cohorts={[]}
+        visibleMemberIds={derived.visibleMemberIds}
+        designSearch={state.designSearch}
+        sortColumn={state.sortColumn}
+        sortDirection={state.sortDirection}
+        activeDesignFilters={state.activeDesignFilters}
+        quickFilterOptions={derived.quickFilterOptions}
+        onSelectMember={state.setActiveMember}
+        onDesignSearchChange={state.setDesignSearch}
+        onSortColumnChange={state.setSortColumn}
+        onToggleSortDirection={state.toggleSortDirection}
+        onToggleDesignFilter={state.toggleDesignFilter}
+        onRemoveDesignFilter={state.removeDesignFilter}
+        onClearSubsetNarrowing={state.clearSubsetNarrowing}
+      />
+    </main>
+  );
+}
 createRoot(document.getElementById('root')!).render(
-  <StrictMode>
-    <Harness />
-  </StrictMode>,
+  <StrictMode>{metadataMode ? <MetadataHarness /> : <Harness />}</StrictMode>,
 );

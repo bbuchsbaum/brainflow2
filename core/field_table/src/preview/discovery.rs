@@ -321,6 +321,13 @@ fn build_discovery_preview(
         .iter()
         .map(|group| StudioMemberSummary {
             id: group.member_id.clone(),
+            design_values: Some(
+                design_columns
+                    .iter()
+                    .cloned()
+                    .zip(design_row_from_group(group, &design_columns).cells)
+                    .collect(),
+            ),
             source_path: select_primary_source_path(group, &grouped.primary_role),
             bindings: Some(discovery_member_bindings(
                 group,

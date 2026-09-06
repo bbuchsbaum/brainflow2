@@ -1,3 +1,4 @@
+import { studioMetadata } from './studioMetadata';
 import type {
   SpatialFieldSetSummary,
   StudioCohortSummary,
@@ -46,26 +47,14 @@ export function resolvePopulationContext(host: PopulationContextHost): Populatio
     eligible = ids.filter((id) => scoped.has(id));
   }
   if (host.activeDesignFilters.length === 0) return { memberIds: eligible, issue: null };
-  const table = activeSet.designTablePreview;
-  if (!table || host.activeDesignFilters.some((filter) => !table.columns.includes(filter.column))) {
+  const metadata = studioMetadata(activeSet, eligible);
+  if (metadata.issue) return { memberIds: [], issue: metadata.issue };
+  if (host.activeDesignFilters.some((filter) => !metadata.columns.includes(filter.column)))
     return { memberIds: [], issue: 'A population filter refers to unavailable metadata.' };
-  }
-  const rows = new Map(table.rows.map((row) => [row.id, row]));
-  if (
-    new Set(table.columns).size !== table.columns.length ||
-    rows.size !== table.rows.length ||
-    eligible.some((id) => !rows.has(id) || rows.get(id)?.cells.length !== table.columns.length)
-  ) {
-    return {
-      memberIds: [],
-      issue:
-        'Population filtering requires complete, uniquely keyed metadata for the eligible observations.',
-    };
-  }
   return {
     memberIds: eligible.filter((id) =>
       host.activeDesignFilters.every(
-        (filter) => rows.get(id)?.cells[table.columns.indexOf(filter.column)] === filter.value,
+        (filter) => metadata.rows.get(id)?.[filter.column] === filter.value,
       ),
     ),
     issue: null,

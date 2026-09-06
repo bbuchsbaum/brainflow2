@@ -111,7 +111,7 @@ Business logic and API integration layer for the Brainflow frontend. Contains 41
 - `studio/PopulationProbeController.ts` is owned per mounted population panel. It retains one sampled frame and admits one active sampling call plus the latest pending query. Stop/replacement invalidates publication, discards pending work and aborts issued sampling through SampleProvider. Native cooperative cancellation retains worker ownership until the operation reaches a cancellation boundary. Do not make this lifecycle a process-global singleton.
 - Query identity includes workspace/import/set/feature, context sources and the spatial probe. Focus, working selection and presentation changes reuse the frame. Keep large frames and image arrays out of Zustand.
 - `studio/PopulationProbeActions.ts` owns population panel store mutations and the disposable hover subscription; pure query/summary calculations remain in the controller module.
-- Immutable saved-query source freezing, dataset-scoped cache teardown, full participant metadata/provenance, temporal semantics and native hover provenance remain explicit follow-up work in `docs/plans/neurotabs-implementation-status.md`.
+- Immutable saved-query source freezing, dataset-scoped cache teardown, saved participant metadata/provenance, temporal semantics and native hover provenance remain explicit follow-up work in `docs/plans/neurotabs-implementation-status.md`.
 
 ## Live population fields
 
@@ -126,3 +126,5 @@ Business logic and API integration layer for the Brainflow frontend. Contains 41
 - `describePopulationProbe` summarizes already reduced observation responses, with inclusive near-zero endpoints and finite selected denominators. Mean absolute magnitude and cancellation are descriptive companions to sign counts. Changing the sign interval must not trigger spatial resampling or change selection/order.
 
 - `populationParticipants.ts` validates explicit complete keyed participant identity and builds selected groups. `single` refuses repeated selected rows; `mean` averages finite rows within each person before equal participant weighting. Native fields reduce voxelwise; probe summaries reduce the already spatially sampled responses. Preserve this order, local missingness and original observation identity. Configuration changes must not resample a fixed probe. Invalid participant summaries must not silently fall back to row weighting.
+
+- `studioMetadata` is the shared keyed observation-metadata reader. Full `memberSummaries[].designValues` records override compact previews; never repair an incomplete authoritative record from a preview. Participant identity and filters require coverage of all requested observations. `attachObservationMetadata` joins plot metadata without changing row grain and aliases reserved/colliding names; never overwrite `member`, `value`, `count` or band columns. Metadata strings do not establish typed physical axes.

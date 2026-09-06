@@ -226,6 +226,17 @@ mod tests {
             .unwrap_or("")
             .contains("tstat")));
         let first_member = &preview.set.member_summaries[0];
+        assert_eq!(
+            first_member.design_values.as_ref().unwrap()["subject"],
+            "1001"
+        );
+        assert_eq!(
+            preview.set.member_summaries[1]
+                .design_values
+                .as_ref()
+                .unwrap()["subject"],
+            "1002"
+        );
         let mut binding_roles = first_member
             .bindings
             .as_ref()
@@ -1027,6 +1038,58 @@ mod tests {
     }
 
     #[test]
+    fn complete_table_metadata_is_independent_of_preview_limits() {
+        let dir = make_temp_dir("full-metadata");
+        let image = dir.join("map.nii.gz");
+        save_test_nifti(&image, &[1., 2., 3., 4.], [2, 2, 1]);
+        let rows: Vec<_> = (0..160)
+            .map(|i| {
+                vec![
+                    format!("obs-{i}"),
+                    image.to_string_lossy().into_owned(),
+                    format!("person-{}", i / 2),
+                    if i < 80 { "A".into() } else { "B".into() },
+                    "faces".into(),
+                    i.to_string(),
+                    "kept beyond preview".into(),
+                    "excluded".into(),
+                ]
+            })
+            .collect();
+        let request: StudioImportPreviewRequest = serde_json::from_value(serde_json::json!({
+            "mode": "table", "tableHeaders": ["observation", "path", "participant", "site", "condition", "run", "late", "private"],
+            "tableRows": rows, "tableFilePathColumn": "path", "tableSubjectIdColumn": "observation", "tableExcludedColumns": ["private"]
+        })).unwrap();
+        let candidates = preview_import_candidates(request.clone());
+        let set = &candidates[0].set;
+        assert_eq!(set.member_count, 160);
+        assert_eq!(set.design_table_preview.as_ref().unwrap().rows.len(), 5);
+        let last = set.member_summaries.last().unwrap();
+        assert_eq!(last.id, "obs-159");
+        let values = last.design_values.as_ref().unwrap();
+        assert_eq!(values["participant"], "person-79");
+        assert_eq!(values["site"], "B");
+        assert_eq!(values["late"], "kept beyond preview");
+        assert!(!values.contains_key("private"));
+        assert!(!values.contains_key("path"));
+        let serialized = serde_json::to_value(last).unwrap();
+        let roundtrip: bridge_types::StudioMemberSummary =
+            serde_json::from_value(serialized.clone()).unwrap();
+        assert_eq!(roundtrip.design_values, last.design_values);
+        let mut legacy = serialized;
+        legacy.as_object_mut().unwrap().remove("designValues");
+        let legacy: bridge_types::StudioMemberSummary = serde_json::from_value(legacy).unwrap();
+        assert!(legacy.design_values.is_none());
+        let mut ambiguous = request.clone();
+        ambiguous.table_headers.as_mut().unwrap()[6] = "participant".into();
+        assert!(!preview_import_candidates(ambiguous)[0].contract.can_import);
+        let mut ragged = request;
+        ragged.table_rows.as_mut().unwrap()[100].pop();
+        assert!(!preview_import_candidates(ragged)[0].contract.can_import);
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
     fn validates_table_import_preview_from_rows() {
         let temp_dir = make_temp_dir("table-preview");
         let member_a_path = temp_dir.join("sub001.nii.gz");
@@ -1729,6 +1792,86 @@ mod tests {
     }
 
     #[test]
+    fn manifest_metadata_retains_declared_columns_beyond_preview_and_rejects_bad_headers() {
+        let dir = copy_neurotabs_fixture("faces-demo", "manifest-full-metadata");
+        fs::create_dir_all(dir.join("maps")).unwrap();
+        save_test_nifti(
+            &dir.join("maps/group_stats.nii.gz"),
+            &[1., 2., 3., 4.],
+            [2, 2, 1],
+        );
+        let manifest_path = dir.join("nftab.yaml");
+        let manifest = fs::read_to_string(&manifest_path).unwrap().replace(
+            "\nfeatures:",
+            "\n  age:\n    dtype: string\n  site:\n    dtype: string\n  z_late:\n    dtype: string\n\nfeatures:",
+        );
+        fs::write(&manifest_path, manifest).unwrap();
+        let table_path = dir.join("observations.csv");
+        let mut reader = csv::Reader::from_path(&table_path).unwrap();
+        let mut headers = reader.headers().unwrap().clone();
+        for name in ["age", "site", "z_late"] {
+            headers.push_field(name);
+        }
+        let records: Vec<_> = reader.records().map(Result::unwrap).collect();
+        drop(reader);
+        let write_table = |headers: &csv::StringRecord| {
+            let mut writer = csv::Writer::from_path(&table_path).unwrap();
+            writer.write_record(headers).unwrap();
+            for (index, record) in records.iter().enumerate() {
+                let mut row = record.clone();
+                for value in ["40", "B", &format!("late-{index}")] {
+                    row.push_field(value);
+                }
+                writer.write_record(&row).unwrap();
+            }
+            writer.flush().unwrap();
+        };
+        write_table(&headers);
+        let candidate = preview_manifest_candidate(&manifest_path);
+        assert!(candidate.contract.can_import);
+        assert_eq!(
+            candidate
+                .set
+                .design_table_preview
+                .as_ref()
+                .unwrap()
+                .columns
+                .len(),
+            4
+        );
+        assert_eq!(
+            candidate
+                .set
+                .design_table_preview
+                .as_ref()
+                .unwrap()
+                .rows
+                .len(),
+            6
+        );
+        let metadata = candidate.set.member_summaries[7]
+            .design_values
+            .as_ref()
+            .unwrap();
+        assert_eq!(metadata["z_late"], "late-7");
+        assert_eq!(metadata.len(), 8);
+        assert!(!metadata.contains_key("roi_1"));
+        assert!(!metadata.contains_key("stat_sel"));
+        let mut invalid: Vec<_> = headers.iter().map(str::to_owned).collect();
+        *invalid.last_mut().unwrap() = "age".into();
+        write_table(&csv::StringRecord::from(invalid.clone()));
+        let blocked = preview_manifest_candidate(&manifest_path);
+        assert!(!blocked.contract.can_import);
+        assert_issue_contains(&blocked, "unique, nonempty column names");
+        *invalid.last_mut().unwrap() = "undeclared".into();
+        write_table(&csv::StringRecord::from(invalid));
+        let blocked = preview_manifest_candidate(&manifest_path);
+        assert!(!blocked.contract.can_import);
+        assert_issue_contains(&blocked, "metadata column z_late is missing");
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
     fn neurotabs_faces_demo_fixture_is_compare_ready() {
         let package_dir = copy_neurotabs_fixture("faces-demo", "fixture-faces-demo");
         let maps_dir = package_dir.join("maps");
@@ -1743,6 +1886,33 @@ mod tests {
 
         assert_eq!(candidate.set.id, "faces-demo");
         assert_eq!(candidate.set.member_count, 8);
+        assert_eq!(
+            candidate
+                .set
+                .design_table_preview
+                .as_ref()
+                .unwrap()
+                .rows
+                .len(),
+            6
+        );
+        let last_metadata = candidate
+            .set
+            .member_summaries
+            .last()
+            .unwrap()
+            .design_values
+            .as_ref()
+            .unwrap();
+        assert!(last_metadata.contains_key("subject"));
+        assert!(!last_metadata.contains_key("roi_3")); // inline feature data is not metadata
+        assert!(!last_metadata.contains_key("stat_res"));
+        assert!(candidate.set.member_summaries.iter().all(|member| member
+            .design_values
+            .as_ref()
+            .unwrap()
+            .len()
+            == 5));
         assert_eq!(candidate.set.primary_feature_id.as_deref(), Some("statmap"));
         assert_eq!(candidate.features[0].id, "statmap");
         assert_eq!(candidate.set.support_kind, StudioSupportKind::Volume);

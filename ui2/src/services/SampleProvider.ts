@@ -1,3 +1,4 @@
+import { attachObservationMetadata } from '@/plotting/attachObservationMetadata';
 /**
  * SampleProvider — resolves a {@link SampleRequest} (a locus over a dataset)
  * into a tidy {@link SampleFrame}. This is the single seam between "where we
@@ -340,15 +341,11 @@ export class SampleProvider {
       const hasMemberLabels = traces.some(
         (trace) => trace.displayLabel !== undefined || (trace.designValues?.length ?? 0) > 0,
       );
-      const designColumns = Array.from(
-        new Set(traces.flatMap((trace) => (trace.designValues ?? []).map((value) => value.column))),
-      );
 
-      return {
+      const frame: SampleFrame = {
         columns: [
           column('member', 'nominal'),
           ...(hasMemberLabels ? [column('memberLabel', 'nominal')] : []),
-          ...designColumns.map((name) => column(name, 'nominal')),
           column('value', 'quantitative'),
           column('lower', 'quantitative'),
           column('upper', 'quantitative'),
@@ -365,12 +362,6 @@ export class SampleProvider {
           if (hasMemberLabels) {
             row.memberLabel = t.displayLabel ?? t.memberId;
           }
-          const designValueByColumn = new Map(
-            (t.designValues ?? []).map((value) => [value.column, value.value]),
-          );
-          for (const name of designColumns) {
-            row[name] = designValueByColumn.get(name) ?? null;
-          }
           return row;
         }),
         meta: {
@@ -386,7 +377,6 @@ export class SampleProvider {
             validCount: trace.count,
             error: trace.error ?? null,
           })),
-          ...(designColumns.length > 0 ? { designColumns } : {}),
           // A line through member values with a shaded lower..upper band.
           suggested: {
             mark: 'line',
@@ -395,6 +385,7 @@ export class SampleProvider {
           },
         },
       };
+      return attachObservationMetadata(frame, traces);
     }
 
     // Plain scalar-per-member path. The backend marks a failed/out-of-bounds
@@ -421,23 +412,26 @@ export class SampleProvider {
       signal,
     );
 
-    return {
-      columns: [column('member', 'nominal'), column('value', 'quantitative')],
-      rows: samples.map((s) => ({ member: s.memberId, value: s.value })),
-      meta: {
-        datasetId: request.datasetId,
-        locus: 'set',
-        radiusMm: locus.radiusMm,
-        reduce,
-        sources: samples.map((sample) => ({
-          memberId: sample.memberId,
-          sourceRevision: sample.sourceRevision ?? null,
-          stackIndex: memberById.get(sample.memberId)?.stackIndex ?? null,
-          validCount: sample.count ?? null,
-          error: sample.error ?? null,
-        })),
+    return attachObservationMetadata(
+      {
+        columns: [column('member', 'nominal'), column('value', 'quantitative')],
+        rows: samples.map((s) => ({ member: s.memberId, value: s.value })),
+        meta: {
+          datasetId: request.datasetId,
+          locus: 'set',
+          radiusMm: locus.radiusMm,
+          reduce,
+          sources: samples.map((sample) => ({
+            memberId: sample.memberId,
+            sourceRevision: sample.sourceRevision ?? null,
+            stackIndex: memberById.get(sample.memberId)?.stackIndex ?? null,
+            validCount: sample.count ?? null,
+            error: sample.error ?? null,
+          })),
+        },
       },
-    };
+      members,
+    );
   }
 }
 

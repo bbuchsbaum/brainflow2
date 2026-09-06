@@ -222,9 +222,6 @@ fn inspect_manifest_preview(manifest_path: &str) -> Result<ManifestPreview, Stri
         if seen_columns.insert(column.clone()) {
             design_columns.push(column.clone());
         }
-        if design_columns.len() >= 5 {
-            break;
-        }
     }
 
     let observation_table =
@@ -542,6 +539,13 @@ fn inspect_delimited_table(
         .map_err(|error| format!("Failed to read headers from {}: {}", path.display(), error))?
         .clone();
 
+    if headers
+        .iter()
+        .any(|header| header.trim().is_empty() || header != header.trim())
+        || headers.iter().collect::<HashSet<_>>().len() != headers.len()
+    {
+        return Err("Observation metadata requires unique, nonempty column names without surrounding whitespace.".into());
+    }
     let row_id_index = headers
         .iter()
         .position(|header| header == row_id)
@@ -556,6 +560,29 @@ fn inspect_delimited_table(
         .iter()
         .filter_map(|axis| headers.iter().position(|header| header == axis))
         .collect();
+    // Keep the complete declared observation metadata, excluding feature payload
+    // and locator columns. Only the visual import preview is truncated.
+    let mut metadata_columns = vec![row_id.to_string()];
+    metadata_columns.extend(
+        preview_columns
+            .iter()
+            .filter(|column| column.as_str() != row_id)
+            .cloned(),
+    );
+    let metadata_indices: Vec<_> = metadata_columns
+        .iter()
+        .map(|column| {
+            headers
+                .iter()
+                .position(|header| header == column)
+                .ok_or_else(|| {
+                    format!(
+                        "Declared observation metadata column {column} is missing from {}.",
+                        path.display()
+                    )
+                })
+        })
+        .collect::<Result<_, _>>()?;
     let preview_columns: Vec<String> = preview_columns.iter().take(4).cloned().collect();
     let preview_column_indices: Vec<Option<usize>> = preview_columns
         .iter()
@@ -671,6 +698,13 @@ fn inspect_delimited_table(
 
             member_summaries.push(StudioMemberSummary {
                 id: row_id_value.to_string(),
+                design_values: Some(
+                    metadata_columns
+                        .iter()
+                        .zip(&metadata_indices)
+                        .map(|(column, index)| (column.clone(), record[*index].to_string()))
+                        .collect(),
+                ),
                 source_path: row_source.source_path.clone(),
                 bindings: Some(bindings),
             });

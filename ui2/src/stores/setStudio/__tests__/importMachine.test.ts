@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  buildTsvCandidate,
   createInitialImportContext,
   importReducer,
   toDialogState,
@@ -389,6 +390,28 @@ describe('importReducer — staleness', () => {
 });
 
 describe('importReducer — error & fallback', () => {
+  it('retains complete local table metadata and refuses ambiguous headers or ragged rows', () => {
+    const context = createInitialImportContext();
+    context.tsvWizard = {
+      ...context.tsvWizard,
+      headers: ['observation', 'path', 'participant', 'site', 'private'],
+      rows: Array.from({ length: 100 }, (_, i) => [
+        `obs-${i}`, `/synthetic/${i}.nii`, `person-${Math.floor(i / 2)}`, i < 80 ? 'A' : 'B', 'excluded',
+      ]),
+      columnMapping: { filePathColumn: 'path', subjectIdColumn: 'observation', excludedColumns: ['private'] },
+    };
+    const candidate = buildTsvCandidate(context, { now: 1 })!;
+    expect(candidate.set.designTablePreview?.rows).toHaveLength(5);
+    expect(candidate.set.memberSummaries[99].designValues).toEqual({
+      observation: 'obs-99', participant: 'person-49', site: 'B',
+    });
+    context.tsvWizard.headers[4] = 'site';
+    expect(buildTsvCandidate(context, { now: 2 })).toBeNull();
+    context.tsvWizard.headers[4] = 'private';
+    context.tsvWizard.rows[99].pop();
+    expect(buildTsvCandidate(context, { now: 3 })).toBeNull();
+  });
+
   it('PREVIEW_FAILED for a manifest yields an empty fallback with the error message', () => {
     const { context } = run(
       createInitialImportContext(),
