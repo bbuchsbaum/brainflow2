@@ -36,7 +36,7 @@ The [Set Studio PRD](../../memory-bank/Set_Studio_PRD.md) supplies cohorts, expr
 | Selection | `setStudioStore` distinguishes active member, scope cohort, and comparison cohort | Formal state transitions, arbitrary working selections, probe and relationship definitions, reversible history |
 | Shell | `SetStudioWorkspace` has a thin center; mode, design and inspector services/components exist | Population summary, focus and population strip available together |
 | Comparisons | `StudioCompareService` and `core/field_table/src/materialize.rs` create derived files; `StudioDisplayService` loads their paths into views/layers | Live result handles and slice/region evaluation during interaction; reuse file materialization for export |
-| Sampling | `sample_set_at_world`, `sample_set_trace_at_world`, `SampleProvider`, and plotting infrastructure exist | Exact probe definitions, coverage, population distributions and coordinated selection |
+| Sampling and plotting | `sample_set_at_world`, `sample_set_trace_at_world`, `SampleProvider`, and the `SampleFrame` → `PlotSpec` pipeline exist | Exact probe definitions, coverage, population distributions, coordinated selection and grouped plots across sets |
 | Rendering | Shared viewports, batch readback and bounded resident-image-set primitives exist | Shared cutout composition, predictive caching, live derived slices and measured interaction budgets |
 | Image sets | Folder sets display one member at a time; the GPU teardown fix reclaims retired textures | Promotion into audited NeuroTabs datasets and a common member-source interface; folder switching currently still decodes/uploads on demand |
 
@@ -50,7 +50,7 @@ Use the existing Brainflow shell and visual tokens. Keep the main images large a
 
 - **Population view:** working-selection mean by default; compact access to spread, cancellation and coverage.
 - **Focused observation:** an actual individual's map at the same anatomical position, orientation and zoom. An explicit control switches to a residual or other derived representation.
-- **Population strip:** an all-observation value plot plus a labeled sample of actual image previews. It expands into corresponding regional cutouts or a full montage.
+- **Population strip:** an all-observation value plot plus a labeled sample of actual image previews. It expands into corresponding regional cutouts or a full montage. A linked plot can expand in the existing plot area while keeping the brain views available.
 - **Sidebars:** metadata/filtering on the left; compact result identity and expandable provenance on the right. Relationships expand within the center when requested.
 
 On narrow windows, switching or temporarily enlarging a view preserves all state. A large collection of mutually exclusive analytical modes should not become the primary navigation.
@@ -152,6 +152,32 @@ For a complete unweighted mean with \(n>1\):
 
 With missingness use local valid counts and contributions; omitting an observation that is missing at a location leaves that location unchanged. Empty remaining populations yield unavailable values. Model-specific influence requires the appropriate model calculation or refit. Rank unusual observations separately from observations that most influence the current summary.
 
+### Linked plotting across sets
+
+Reserve a full plotting path from the same population lens. The interaction is **hover to preview → pin to keep → group and summarize → inspect contributors**. For example, hover over a location to see each participant's response over time, pin it, color by treatment, facet by condition, and overlay group means and explicitly defined bands on the individual trajectories. Clicking a plotted observation focuses its map in the brain view; a temporal sample also identifies its timepoint. Brushing creates a working selection through the existing selection contract.
+
+Treat this as a grammar of graphics, in the spirit of ggplot2. The user chooses data, axis mappings, visual grouping, facets, layers and statistical summaries. Useful presets include individual time courses with group summaries, condition profiles, distributions by factor, covariate scatterplots and set heatmaps. The focused observation remains identifiable across them. Full plot authoring is a later deliverable; M1's all-person value plot uses the same underlying contracts.
+
+Each plot has an explicit binding to the context, working selection, reference or named sets, and to either the transient hover probe or a pinned probe. Pinning freezes the spatial definition; following a live selection versus retaining a saved membership snapshot is a separate, visible choice. Several pinned plots can compare locations without moving each other's probes. Several sets retain source and membership identity; overlapping membership must not masquerade as additional independent observations.
+
+The plot contract separates three things:
+
+| Part | Required meaning |
+|---|---|
+| Sampling query | Dataset/source revisions, resolved set members, feature and units, spatial probe/support, spatial reduction, and any temporal axis/alignment |
+| Tidy sample frame | Stable observation and participant IDs, source/set membership, feature/probe identity, axis values and units, design factors, sampled value, validity and spatial coverage |
+| Declarative plot recipe | Live/saved binding, filters, x/y/color/group/detail/facet mappings, layered marks, ordered summary operations, band definition and display settings |
+
+The frame declares its row grain: one sampled value per observation, axis sample, feature and probe. Metadata joins preserve that grain, and membership in several sets does not multiply a participant's contribution to a combined summary.
+
+Preserve the distinction between a genuine time course and an ordered collection of maps. Time requires acquisition times or an explicitly identified sampling interval and units; frame indices remain indices when that information is unavailable. Condition, participant, contrast and similarity order are categorical or declared ordered axes. A folder of 3D contrast maps does not acquire a temporal axis simply because it can play as a movie. Connecting categorical observations into a profile is explicit, and trajectories never connect different participants by accident. Time alignment, interpolation and event-relative summaries are declared operations; missing samples remain gaps unless an explicit method supplies them.
+
+Keep the calculation order visible: reduce the spatial probe within each observation/timepoint, apply any stated within-participant reduction or alignment, then summarize across participants within chosen groups. Drawing a line group is separate from defining the statistical aggregation group. Users can layer original trajectories with means, spread or uncertainty, but each band states its estimand, method, analysis unit and contributing count. Existing per-member spatial bands cannot serve as uncertainty about a population mean. Repeated observations, unequal sampling and overlapping sets follow the participant and comparison rules in section 7.
+
+Extend the existing [plot grammar](plot-grammar-sample-frame.md), `SampleProvider`, `SampleFrame`, `PlotSpec` and `plotSpecStore`. Current types already provide column roles, encodings and some transforms; multiple source bindings, layered specifications, grouped temporal sampling and explicit uncertainty contracts need extension and validation. Retain source IDs through transforms so any summary can reveal its contributing observations. Save the sampling query and plot recipe with provenance, and support export of the tidy sampled data and plot.
+
+Coalesce hover requests and cache sampled frames by their full query identity. Recoloring, faceting or regrouping an unchanged frame should not reload volumes or resample the probe. Temporal sampling across members must use bounded backend work, cancellation and revision checks; stale hover completions cannot overwrite a pinned plot. Changes of probe, feature, membership or temporal alignment invalidate the relevant results. Warm plot updates get the same end-to-end latency and memory measurements as the brain views.
+
 ## 6. Similarity movies, groups and decompositions
 
 Provide two initial relationship definitions:
@@ -228,6 +254,7 @@ Missingness is explicit throughout. Group means have location-specific denominat
 | `setStudioStore`, `StudioCoordinationService`, Studio components | IDs, state transitions, view arrangements, history and query definitions |
 | `core/field_table` | NeuroTabs semantics, operation validation, cohort expressions and reusable pure numerical logic |
 | Studio services and `core/api_bridge` | Versioned evaluation requests, job cancellation, source access and result-handle lifetime |
+| `SampleProvider`, plotting types/encoder and `plotSpecStore` | Tidy sampled frames, source/probe bindings, declarative plot recipes and linked focus/selection; extend without a second cohort store |
 | `core/render_loop`, shared viewports and visualization package | Batched presentation, geometry, GPU ownership and predictable slot use |
 | Existing materialization/export services | Complete outputs, manifests and portable frozen recipes |
 
@@ -262,14 +289,17 @@ Each milestone is a complete user path with an exit gate. Do not start with a ge
 
 | Milestone | Deliverable | Exit gate |
 |---|---|---|
-| **M0 — Contracts and baseline** | Resolve six-state mapping, typed input/participant/support contracts, result identity; instrument the current path and create deterministic fixtures | Ambiguous operations rejected with reasons; focus/selection/reference transitions specified; baseline latency and memory receipt recorded |
-| **M1 — Population lens** | Mean + actual focused map + all-person values, pinned probe, synchronized cutout grid, sample SD/cancellation/coverage, regional ordering and preview-without; live slice evaluation | User can distinguish shared, opposing, minority-driven and displaced patterns without losing context; exact numerical and warm-latency gates pass |
+| **M0 — Contracts and baseline** | Resolve six-state mapping, typed input/participant/support contracts, result identity, and plot sampling/binding/axis semantics; instrument the current path and create deterministic fixtures | Ambiguous operations rejected with reasons; focus/selection/reference transitions specified; tidy samples retain IDs, units and validity; baseline latency and memory receipt recorded |
+| **M1 — Population lens** | Mean + actual focused map + all-person values through the shared sample-frame pipeline, pinned probe, synchronized cutout grid, sample SD/cancellation/coverage, regional ordering and preview-without; live slice evaluation | User can distinguish shared, opposing, minority-driven and displaced patterns without losing context; plot-to-focus preserves selection; exact numerical and warm-latency gates pass |
 | **M2 — Fluid sets** | Cached movie/scrub, stable exact similarity order and initial 2D coordinates, montage expansion, requested similarity grouping, factor grouping, reversible collapse and set operations | Movie → montage → groups → summaries → contributors preserves IDs, selection, geometry, scale and undo; sustained playback stays within budgets |
 | **M3 — Typed comparisons** | Group A/B views, A−B effect, one-sample/Welch/paired tests, sibling result switching, provenance and frozen discovery recipes | Results match independent numerical references; invalid pairings/overlap/units fail clearly; exploratory origins survive export; no file-writing step on the warm browsing path |
 | **M4 — Explain relationships** | Regional refits, spatial distance attribution, PCA loadings/scores, actual examples and explicit reconstructions | Pairwise contributions reconstruct the declared distance; observed/reconstructed identity and stable fit behavior remain clear |
 | **M5 — Broaden support and analysis** | Audited parcel and surface datasets, robust summaries, pivot views, validated model adapters and larger datasets | The same interaction/state contracts pass for each supported geometry and model; each addition has scientific and performance evidence |
+| **P — Linked plot authoring (after M1)** | Hover/pinned plots across named sets, individual temporal/condition profiles, flexible grouping/faceting, layered summaries and defined bands, saved recipes and tidy-data export | Grouped summaries match independent references; real time and categorical axes remain distinct; plot/brain links preserve state; missingness, repeated measures, source overlap and stale hover results are handled correctly |
 
 The first product review is M1. The first release spanning the full movie/group/contrast loop is M3. M4 deepens explanation; M5 expands breadth. Advanced modeling and arbitrary cross-space registration do not block the first population experience.
+
+P is a follow-on track whose data and interaction contracts are reserved in M0 and exercised by M1. It can be scheduled after M1 without waiting for M5, and full plot authoring does not gate the movie/group/contrast loop. It consumes the same named sets and grouping definitions as M2; test/model outputs use M3's typed operators when those become available.
 
 Volume data on an audited common support ships first. Define support adapters at M0 for volumes, surface vertices and atlas parcels so later support does not require different selection semantics. Surface support requires hemisphere, topology, coordinates and area-weighting provenance. Parcel support requires atlas version, parcel dictionary and unambiguous IDs/composite keys; never infer correspondence from row order or names alone. Projection/resampling between supports is an explicit derived operation.
 
@@ -286,9 +316,12 @@ Use deterministic datasets with known explanations:
 | Missing coverage | Missing values stay distinct from measured zero; local denominators are visible |
 | Large offsets with tiny variation | Stable SD and t computations; incremental and batch results agree |
 | Repeated measures and unequal groups | Correct participant counts, pairing, weighting and local degrees of freedom |
+| Grouped trajectories with unequal time grids and missing samples | Original paths retain participant identity; declared alignment and participant summaries are correct; gaps and changing counts remain visible |
 | Pure noise with exploratory clustering | Interface retains discovery provenance and does not imply independently established groups |
 
 Add meaningful state, numerical, integration and visual checks. Include rapid selection while loading, closed workspaces, focus during filtering, undo, partial/canceled downloads, changing sources, zero variance, empty selections, invalid keys and support mismatches. Run real GPU allocation/render/release cycles under memory pressure and evaluate end-to-end input-to-pixel latency. Preserve a native app walkthrough separately from mocked browser coverage.
+
+For linked plots, cover hover → pin while requests are in flight, multiple pinned locations, live versus saved set bindings, overlapping membership, and focus/brush round trips. Verify that regrouping cached samples matches a fresh grouped calculation without new spatial sampling, and that bands distinguish spatial dispersion, between-participant spread and uncertainty about a summary.
 
 Human evaluation asks users to identify what produces the same mean in different populations, find influential observations, recover contributors to a comparison, and explain what a displayed t-map tests. Record interpretation errors and false subgroup conclusions alongside task time. A pleasant animation or attractive embedding is insufficient acceptance evidence.
 
@@ -298,4 +331,5 @@ Human evaluation asks users to identify what produces the same mean in different
 
 - [Set Studio PRD](../../memory-bank/Set_Studio_PRD.md), [implementation plan](../../memory-bank/Set_Studio_Implementation_Plan.md), [V1 scope](../../memory-bank/Set_Studio_V1_Scope_Cut.md), [app-mode plan](../../memory-bank/Set_Studio_App_Mode_Plan.md).
 - [NeuroTabs compatibility](../../memory-bank/NeuroTabs_Compatibility.md), [folder image sets](../folder-image-sets.md), [resident image-set design](gpu-resident-image-set-stack.md). The resident design includes historical status; current source and lifecycle tests take precedence.
+- [Plot grammar and sampling plan](plot-grammar-sample-frame.md), [plotting contracts](../../ui2/src/plotting/types.ts), [sample provider](../../ui2/src/services/SampleProvider.ts), [plot encoder](../../ui2/src/components/plots/encoder/PlotEncoder.tsx), [plot specification store](../../ui2/src/stores/plotSpecStore.ts).
 - Source entry points: [store](../../ui2/src/stores/setStudioStore.ts), [coordination](../../ui2/src/services/studio/StudioCoordinationService.ts), [comparison](../../ui2/src/services/studio/StudioCompareService.ts), [display](../../ui2/src/services/studio/StudioDisplayService.ts), [materialization](../../core/field_table/src/materialize.rs), [sampling and bridge](../../core/api_bridge/src/lib.rs), [renderer](../../core/render_loop/src/lib.rs).
