@@ -131,13 +131,13 @@ export interface PopulationContext {
 
 /** User-declared feature meaning; input roles are never inferred from filenames. */
 export interface PopulationInferenceSpec {
-  method: 'oneSample';
+  method: 'oneSample' | 'welch';
   role: 'effect' | 'standardError' | 'variance' | 't' | 'z' | 'label' | 'other';
   units: string;
   nullValue: number;
   independentParticipants: boolean;
   selectionOrigin: PopulationSelectionOrigin;
-  channel: 'effect' | 'standardError' | 't' | 'df' | 'count';
+  channel: 'effect' | 'standardError' | 't' | 'df' | 'count' | 'countA' | 'countB';
 }
 export interface PopulationInference extends PopulationInferenceSpec {
   setId: string;

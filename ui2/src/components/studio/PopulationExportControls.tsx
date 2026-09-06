@@ -92,7 +92,7 @@ export function PopulationExportControls({
       ) : (
         <span className="text-muted-foreground">
           {display?.query.request.inference
-            ? 'All five test channels · frozen source identities · exploratory provenance'
+            ? 'All method result channels · frozen source identities · exploratory provenance'
             : 'Full volume · valid counts · calculation record'}
         </span>
       )}

@@ -1,6 +1,6 @@
 # NeuroTabs one-sample inference: delivery D1
 
-2026-09-06, built on `29289548`. This implements the first complete statistical workflow in [delivery D](neurotabs-next-delivery-plan.md): a one-sample question about declared participant effects. Welch and paired comparisons remain the next increment; D and the full roadmap are not complete.
+2026-09-06, built on `29289548`. This implements the first complete statistical workflow in [delivery D](neurotabs-next-delivery-plan.md): a one-sample question about declared participant effects. This receipt records D1; the subsequent [D2 method framework and Welch comparison](neurotabs-statistical-methods.md) supersede the hardcoded five-channel infrastructure. Paired comparisons remain open; D and the full roadmap are not complete.
 
 ## Using it
 

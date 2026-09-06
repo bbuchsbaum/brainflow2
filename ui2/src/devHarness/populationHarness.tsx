@@ -1,3 +1,4 @@
+import type { PopulationSliceData } from '@/services/studio/PopulationSliceService';
 import { PopulationUnitControls } from '@/components/studio/PopulationUnitControls';
 import { setTransport } from '@/services/transport';
 import { PopulationInspector } from '@/components/studio/PopulationInspector';
@@ -250,7 +251,11 @@ const slices = new PopulationSliceService(
         Array.from({ length: width * height }, (_, i) => {
           const x = ((i % width) * 64) / width - 31.5,
             y = (Math.floor(i / width) * 64) / height - 31.5;
-          return (x * x) / 400 + (y * y) / 625 <= 1 && (!request.mask || x < 0) ? value : null;
+          return Number.isFinite(value) &&
+            (x * x) / 400 + (y * y) / 625 <= 1 &&
+            (!request.mask || x < 0)
+            ? value
+            : null;
         });
       const observed = (id: string) => (ids.indexOf(id) < 40 ? 3 : -1);
       const values = request.aggregation
@@ -297,14 +302,33 @@ const slices = new PopulationSliceService(
                 values.length,
             )
           : NaN;
-      const inference =
+      const bValues = request.reference?.aggregation
+        ? request.reference.aggregation.groups.map(
+            (g) => g.memberIds.reduce((sum, id) => sum + observed(id), 0) / g.memberIds.length,
+          )
+        : (request.reference?.memberIds ?? []).map(observed);
+      const bMean = bValues.reduce((a, b) => a + b, 0) / bValues.length;
+      const bSe2 =
+        bValues.reduce((sum, v) => sum + (v - bMean) ** 2, 0) /
+        (bValues.length - 1) /
+        bValues.length;
+      const testSe = spec?.method === 'welch' ? Math.sqrt(se * se + bSe2) : se;
+      const effect = mean - (spec?.method === 'welch' ? bMean : 0) - (spec?.nullValue ?? 0);
+      const df =
+        spec?.method === 'welch'
+          ? (se * se + bSe2) ** 2 /
+            (se ** 4 / (values.length - 1) + (bSe2 * bSe2) / (bValues.length - 1))
+          : values.length - 1;
+      const inference: PopulationSliceData['inference'] =
         spec && !request.focusOnly
           ? {
-              effect: field(mean - spec.nullValue),
-              standardError: field(se),
-              t: field(se > 0 ? (mean - spec.nullValue) / se : NaN),
-              df: field(values.length > 1 ? values.length - 1 : NaN),
-              count: field(values.length),
+              effect: field(effect),
+              standardError: field(testSe),
+              t: field(testSe > 0 ? effect / testSe : NaN),
+              df: field(df),
+              ...(spec.method === 'welch'
+                ? { countA: field(values.length), countB: field(bValues.length) }
+                : { count: field(values.length) }),
             }
           : undefined;
       return {
@@ -320,7 +344,7 @@ const slices = new PopulationSliceService(
         summary: request.focusOnly
           ? []
           : inference && spec
-            ? inference[spec.channel]
+            ? inference[spec.channel]!
             : request.difference && reference
               ? field(mean).map((v, i) =>
                   v === null || reference.values[i] === null ? null : v - reference.values[i]!,

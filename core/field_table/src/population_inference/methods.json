@@ -1,0 +1,105 @@
+[
+  {
+    "id": "oneSample",
+    "version": 1,
+    "label": "One-sample test",
+    "inputs": "onePopulation",
+    "description": "Test the selected participants’ mean effect against a stated value.",
+    "estimand": "mean(A) − null; SE = SD(A)/sqrt(nA); df = nA − 1",
+    "acceptedRoles": [
+      "effect"
+    ],
+    "minimumParticipants": 2,
+    "defaultChannel": "effect",
+    "channels": [
+      {
+        "id": "effect",
+        "label": "Effect relative to null",
+        "scale": "effect",
+        "artifact": "effect.nii.gz"
+      },
+      {
+        "id": "standardError",
+        "label": "Standard error",
+        "scale": "nonnegative",
+        "artifact": "standard-error.nii.gz"
+      },
+      {
+        "id": "t",
+        "label": "t statistic",
+        "scale": "diverging",
+        "artifact": "t.nii.gz",
+        "initialLimit": 5
+      },
+      {
+        "id": "df",
+        "label": "Degrees of freedom",
+        "scale": "nonnegative",
+        "artifact": "df.nii.gz"
+      },
+      {
+        "id": "count",
+        "label": "Valid participant count",
+        "scale": "nonnegative",
+        "artifact": "count.nii.gz",
+        "countPopulation": "A"
+      }
+    ],
+    "limitations": "Exploratory analysis. Map-derived selections are not independent confirmation. No p-values or multiple-comparison correction. SE and df need two locally valid participants; t also needs positive SE."
+  },
+  {
+    "id": "welch",
+    "version": 1,
+    "label": "Welch unequal-variance test",
+    "inputs": "independentGroups",
+    "description": "Compare mean effects in A and B using independent participants and separate group variances.",
+    "estimand": "mean(A) − mean(B) − null; SE = sqrt(var(A)/nA + var(B)/nB); Welch–Satterthwaite df",
+    "acceptedRoles": [
+      "effect"
+    ],
+    "minimumParticipants": 2,
+    "defaultChannel": "effect",
+    "channels": [
+      {
+        "id": "effect",
+        "label": "Effect relative to null",
+        "scale": "effect",
+        "artifact": "effect.nii.gz"
+      },
+      {
+        "id": "standardError",
+        "label": "Standard error",
+        "scale": "nonnegative",
+        "artifact": "standard-error.nii.gz"
+      },
+      {
+        "id": "t",
+        "label": "t statistic",
+        "scale": "diverging",
+        "artifact": "t.nii.gz",
+        "initialLimit": 5
+      },
+      {
+        "id": "df",
+        "label": "Degrees of freedom",
+        "scale": "nonnegative",
+        "artifact": "df.nii.gz"
+      },
+      {
+        "id": "countA",
+        "label": "Valid participants in A",
+        "scale": "nonnegative",
+        "artifact": "count-a.nii.gz",
+        "countPopulation": "A"
+      },
+      {
+        "id": "countB",
+        "label": "Valid participants in B",
+        "scale": "nonnegative",
+        "artifact": "count-b.nii.gz",
+        "countPopulation": "B"
+      }
+    ],
+    "limitations": "Exploratory analysis. Map-derived selections are not independent confirmation. No p-values or multiple-comparison correction. Each group needs two locally valid participants for SE. Welch t and df need positive combined SE. Counts remain separate for A and B."
+  }
+]

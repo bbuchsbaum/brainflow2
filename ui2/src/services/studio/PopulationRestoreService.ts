@@ -374,15 +374,17 @@ export function preparePopulationRestore(
     partition,
     partitionPast,
     presentation: {
-      arrangement: query.reference
-        ? query.difference
-          ? 'difference'
-          : 'comparison'
-        : presentation.arrangement === 'groups' && partition
-          ? 'groups'
-          : presentation.arrangement === 'montage'
-            ? 'montage'
-            : 'inspect',
+      arrangement: query.inference
+        ? 'inspect'
+        : query.reference
+          ? query.difference
+            ? 'difference'
+            : 'comparison'
+          : presentation.arrangement === 'groups' && partition
+            ? 'groups'
+            : presentation.arrangement === 'montage'
+              ? 'montage'
+              : 'inspect',
       contributorsGroupId:
         typeof presentation.contributorsGroupId === 'string' &&
         partition?.groups.some((g) => g.id === presentation.contributorsGroupId)

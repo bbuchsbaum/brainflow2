@@ -34,6 +34,7 @@ struct Revision {
 #[serde(rename_all = "camelCase")]
 struct Record {
     schema: String,
+    method_contract: Option<serde_json::Value>,
     calculation: PopulationSliceRequest,
     context: serde_json::Value,
     sources: Vec<Source>,
@@ -84,15 +85,7 @@ fn hash_file(path: &Path, limit: u64, token: &SampleCancellation) -> BridgeResul
 }
 fn artifact_names(query: &PopulationSliceRequest) -> Vec<&'static str> {
     let mut names = vec!["summary.nii.gz", "coverage.nii.gz"];
-    if query.inference.is_some() {
-        names.extend([
-            "effect.nii.gz",
-            "standard-error.nii.gz",
-            "t.nii.gz",
-            "df.nii.gz",
-            "count.nii.gz",
-        ]);
-    }
+    names.extend(inference::artifact_names(query));
     if query.reference.is_some() {
         names.extend(["reference.nii.gz", "reference-coverage.nii.gz"]);
     }
@@ -114,16 +107,20 @@ fn read_record(path: &Path, token: &SampleCancellation) -> BridgeResult<(Record,
     token.check()?;
     let record: Record = serde_json::from_slice(&bytes)
         .map_err(|e| input(format!("Invalid population calculation record: {e}")))?;
-    if record.schema
-        != if record.calculation.inference.is_some() {
-            "brainflow.population-export.v3"
-        } else if record.calculation.reference.is_some() {
-            "brainflow.population-export.v2"
-        } else {
-            "brainflow.population-export.v1"
-        }
-    {
+    if record.schema != inference::schema(&record.calculation) {
         return Err(input("Unsupported population calculation schema."));
+    }
+    let expected_contract = record
+        .calculation
+        .inference
+        .as_ref()
+        .map(|s| serde_json::to_value(s.method.descriptor()).expect("serializable catalog"));
+    if (record.method_contract.is_some() || record.schema == "brainflow.population-export.v4")
+        && record.method_contract != expected_contract
+    {
+        return Err(input(
+            "Saved statistical method contract/version is not supported by this build.",
+        ));
     }
     // The descriptive context is never interpreted as executable selection/weighting.
     let mut query = record.calculation.clone();

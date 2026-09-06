@@ -1,3 +1,4 @@
+import { inferenceMethod, inferenceChannel, inferenceActive } from './inferenceCatalog';
 import { inferenceIssue } from './populationInference';
 import type { PopulationInferenceSpec } from '@/types/population';
 import { validatePopulationPartition } from './populationGroups';
@@ -68,7 +69,7 @@ export interface PopulationSliceQuery {
   request: PopulationSliceRequest;
 }
 export interface PopulationSliceData {
-  inference?: Record<PopulationInferenceSpec['channel'], (number | null)[]> | null;
+  inference?: Partial<Record<PopulationInferenceSpec['channel'], (number | null)[]>> | null;
   groups?: PopulationGroupData[];
   reference?: PopulationGroupData | null;
   focusWindow?: { memberId: string; values: (number | null)[]; validPixels: number }[];
@@ -259,6 +260,13 @@ export function buildPopulationSliceQuery(
       }
     : null;
   const mode = state.population.presentation.arrangement;
+  const configuredTest = state.population.inference;
+  const activeTest =
+    configuredTest?.featureId === state.selection.activeFeatureId &&
+    configuredTest?.setId === state.selection.activeSetId &&
+    inferenceActive(configuredTest, mode)
+      ? configuredTest
+      : null;
   const groupRequest = (id: string, memberIds: readonly string[]): PopulationGroupRequest => {
     const participants = resolvePopulationParticipants(state, memberIds);
     if (participants.issue && state.population.participants?.reduction !== 'observations')
@@ -279,7 +287,11 @@ export function buildPopulationSliceQuery(
         .slice(groupPage * 4, (groupPage + 1) * 4)
         .map((g) => groupRequest(g.id, g.memberIds));
     }
-    if (mode === 'comparison' || mode === 'difference') {
+    if (
+      mode === 'comparison' ||
+      mode === 'difference' ||
+      (activeTest && inferenceMethod(activeTest.method).inputs === 'independentGroups')
+    ) {
       if (population.referenceIssue) throw new Error(population.referenceIssue);
       if (!population.referenceMemberIds.length || !workingMemberIds.length)
         throw new Error('Choose nonempty populations A and B before comparing.');
@@ -288,26 +300,19 @@ export function buildPopulationSliceQuery(
   } catch (error) {
     return { query: null, issue: error instanceof Error ? error.message : String(error) };
   }
-  const configuredTest = state.population.inference;
   let inference: PopulationInferenceSpec | undefined;
-  if (
-    configuredTest &&
-    configuredTest.featureId === state.selection.activeFeatureId &&
-    configuredTest.setId === state.selection.activeSetId &&
-    !groups.length &&
-    !reference
-  ) {
+  if (activeTest) {
     inference = {
-      method: configuredTest.method,
-      role: configuredTest.role,
-      units: configuredTest.units,
-      nullValue: configuredTest.nullValue,
-      independentParticipants: configuredTest.independentParticipants,
-      channel: configuredTest.channel,
+      method: activeTest.method,
+      role: activeTest.role,
+      units: activeTest.units,
+      nullValue: activeTest.nullValue,
+      independentParticipants: activeTest.independentParticipants,
+      channel: activeTest.channel,
       selectionOrigin:
         state.population.working.kind === 'members' ? state.population.working.origin : 'manual',
     };
-    const testIssue = inferenceIssue(inference, aggregation);
+    const testIssue = inferenceIssue(inference, aggregation, reference?.aggregation);
     if (testIssue) return { query: null, issue: testIssue };
   }
   const request: PopulationSliceRequest = {
@@ -385,7 +390,10 @@ function validateData(data: PopulationSliceData, query: PopulationSliceQuery) {
   if (
     expectedInference !== !!data.inference ||
     (data.inference &&
-      (['effect', 'standardError', 't', 'df', 'count'] as const).some((channel) => {
+      Object.keys(data.inference).length !==
+        inferenceMethod(query.request.inference!.method).channels.length) ||
+    (data.inference &&
+      inferenceMethod(query.request.inference!.method).channels.some(({ id: channel }) => {
         const values = data.inference![channel];
         return (
           !Array.isArray(values) ||
@@ -399,7 +407,7 @@ function validateData(data: PopulationSliceData, query: PopulationSliceQuery) {
     data.inference &&
     query.request.inference &&
     data.summary.some(
-      (value, i) => !Object.is(value, data.inference![query.request.inference!.channel][i]),
+      (value, i) => !Object.is(value, data.inference![query.request.inference!.channel]![i]),
     )
   )
     throw new Error('Displayed inference channel does not match its result family.');
@@ -570,11 +578,11 @@ export class PopulationSliceService {
       this.effectLimit = null;
       this.summaryLimits.clear();
       if (query?.initialScale) {
-        const { effectLimit, summaryLimit, summary } = query.initialScale;
+        const { effectLimit, summaryLimit } = query.initialScale;
         if (effectLimit && Number.isFinite(effectLimit) && effectLimit > 0)
           this.effectLimit = effectLimit;
         if (summaryLimit && Number.isFinite(summaryLimit) && summaryLimit > 0)
-          this.summaryLimits.set(query.request.inference?.channel ?? summary, summaryLimit);
+          this.summaryLimits.set(populationDisplayKind(query.request), summaryLimit);
       }
     }
     this.publish({
@@ -599,8 +607,7 @@ export class PopulationSliceService {
       : undefined;
     if (
       !kind ||
-      kind === 'mean' ||
-      kind === 'effect' ||
+      populationSharesEffectScale(this.snapshot.requested!.request) ||
       !Number.isFinite(limit) ||
       limit <= 0 ||
       this.summaryLimits.get(kind) === limit
@@ -669,7 +676,7 @@ export class PopulationSliceService {
         this.sameInference(base.query, query) &&
         Date.now() < this.focusExpires
       ) {
-        data = { ...base.data, summary: base.data.inference[query.request.inference.channel] };
+        data = { ...base.data, summary: base.data.inference[query.request.inference.channel]! };
       } else if (cached && base) {
         data = { ...base.data, focused: cached, focusWindow: undefined };
         shared = true;
@@ -763,15 +770,18 @@ export class PopulationSliceService {
         this.effectLimit = Math.max(Math.abs(range[0]), Math.abs(range[1])) || 1;
       const effectLimit = this.effectLimit ?? 1;
       const kind = populationDisplayKind(query.request);
-      let summaryLimit =
-        kind === 'mean' || kind === 'effect' ? effectLimit : this.summaryLimits.get(kind);
+      let summaryLimit = populationSharesEffectScale(query.request)
+        ? effectLimit
+        : this.summaryLimits.get(kind);
       if (summaryLimit === undefined) {
+        const channel = query.request.inference ? inferenceChannel(query.request.inference) : null;
+        const count = channel?.countPopulation === 'B' ? data.reference?.unitCount : data.unitCount;
         summaryLimit =
-          kind === 'coverage' || kind === 'count'
-            ? (query.request.aggregation?.groups.length ?? query.request.members.length) || 1
-            : kind === 't'
-              ? 5
-              : data.summary.reduce<number>((max, value) => Math.max(max, value ?? 0), 0) || 1;
+          channel?.initialLimit ??
+          (channel?.countPopulation || kind === 'coverage'
+            ? count || 1
+            : data.summary.reduce<number>((max, value) => Math.max(max, Math.abs(value ?? 0)), 0) ||
+              1);
         this.summaryLimits.set(kind, summaryLimit);
       }
       const [w, h] = data.plane.dim_px;
@@ -916,8 +926,18 @@ export const populationSliceActions = {
 };
 
 export function populationDisplayKind(request: PopulationSliceRequest) {
-  return request.inference?.channel ?? request.summary;
+  return request.inference
+    ? `${request.inference.method}:${request.inference.channel}`
+    : request.summary;
 }
 export function populationDiverging(request: PopulationSliceRequest) {
-  return ['mean', 'effect', 't'].includes(populationDisplayKind(request));
+  return request.inference
+    ? inferenceChannel(request.inference).scale !== 'nonnegative'
+    : request.summary === 'mean';
+}
+
+export function populationSharesEffectScale(request: PopulationSliceRequest) {
+  return request.inference
+    ? inferenceChannel(request.inference).scale === 'effect'
+    : request.summary === 'mean';
 }

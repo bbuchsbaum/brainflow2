@@ -310,3 +310,55 @@ it('restores the executable null, units, channel and exploratory origin ahead of
   }).query!;
   expect(q.request.inference).toEqual(record.calculation.inference);
 });
+
+it('reopens independent-group inference in Inspect with both participant partitions and channel intact', () => {
+  const record = opened();
+  record.calculation.members.push({
+    ...record.calculation.members[2],
+    memberId: 'd',
+    stackIndex: 3,
+  });
+  const aggregation = (ids: string[]) => ({
+    within: 'single' as const,
+    groups: ids.map((id) => ({ participantId: id, memberIds: [id] })),
+  });
+  record.calculation.summary = 'mean';
+  record.calculation.aggregation = aggregation(['a', 'b']);
+  record.calculation.reference = {
+    id: 'B',
+    memberIds: ['c', 'd'],
+    aggregation: aggregation(['c', 'd']),
+  };
+  record.calculation.inference = {
+    method: 'welch',
+    role: 'effect',
+    units: 'a.u.',
+    nullValue: 1,
+    independentParticipants: true,
+    selectionOrigin: 'map-derived',
+    channel: 'countB',
+  };
+  const payload = preparePopulationRestore(record, 'workspace', 2);
+  useSetStudioStore.getState().bootstrapStudio(payload);
+  const state = useSetStudioStore.getState();
+  expect(state.population.presentation.arrangement).toBe('inspect');
+  expect(state.selection.activeMemberId).toBe('c');
+  expect(state.population.inference).toMatchObject({
+    method: 'welch',
+    channel: 'countB',
+    setId: state.selection.activeSetId,
+  });
+  const built = buildPopulationSliceQuery(state, 'workspace', {
+    crosshairMm: [3, 4, 5],
+    orientation: 'coronal',
+    dimPx: [10, 10],
+    zoom: 2,
+    summary: 'mean',
+  });
+  expect(built.issue).toBeNull();
+  expect(built.query!.request.reference?.aggregation).toEqual(
+    record.calculation.reference.aggregation,
+  );
+  expect(built.query!.request.aggregation).toEqual(record.calculation.aggregation);
+  expect(built.query!.request.inference).toEqual(record.calculation.inference);
+});

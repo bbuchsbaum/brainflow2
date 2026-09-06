@@ -1,8 +1,9 @@
+import { inferenceChannelNames, inferenceChannel } from '@/services/studio/inferenceCatalog';
 import { PopulationInferenceControls } from './PopulationInferenceControls';
-import { inferenceNames, selectInferenceChannel } from '@/services/studio/populationInference';
+import { selectInferenceChannel } from '@/services/studio/populationInference';
 import {
   populationDiverging,
-  populationDisplayKind,
+  populationSharesEffectScale,
 } from '@/services/studio/PopulationSliceService';
 import { PopulationRelationshipPanel } from './PopulationRelationshipPanel';
 import { populationRelationshipService } from '@/services/studio/PopulationRelationshipService';
@@ -149,7 +150,8 @@ export function PopulationLens({
   const activeTest =
     !comparing &&
     !grouped &&
-    studio.population.inference?.featureId === studio.selection.activeFeatureId
+    studio.population.inference?.featureId === studio.selection.activeFeatureId &&
+    studio.population.inference?.setId === studio.selection.activeSetId
       ? studio.population.inference
       : null;
   const groupPages = Math.max(1, Math.ceil((studio.population.partition?.groups.length ?? 0) / 4));
@@ -386,11 +388,13 @@ export function PopulationLens({
                 : setSummary(event.target.value as PopulationSummary)
             }
           >
-            {Object.entries(activeTest ? inferenceNames : names).map(([id, name]) => (
-              <option key={id} value={id}>
-                {name}
-              </option>
-            ))}
+            {Object.entries(activeTest ? inferenceChannelNames(activeTest.method) : names).map(
+              ([id, name]) => (
+                <option key={id} value={id}>
+                  {name}
+                </option>
+              ),
+            )}
           </select>
         </label>
         <label className="text-xs">
@@ -675,7 +679,7 @@ export function PopulationLens({
               <div className="mb-1 flex min-w-0 justify-between gap-2 text-xs">
                 <span className="truncate">
                   {pane === 'summary'
-                    ? `${result?.query.request.difference ? 'A − B mean difference' : result?.query.request.reference ? 'A mean' : result?.query.request.inference ? inferenceNames[result.query.request.inference.channel] : names[result?.query.request.summary ?? summary]} · ${result?.data.unitCount ?? 0} ${result?.query.request.aggregation ? 'participants' : 'observations'}`
+                    ? `${result?.query.request.inference ? inferenceChannel(result.query.request.inference).label : result?.query.request.difference ? 'A − B mean difference' : result?.query.request.reference ? 'A mean' : names[result?.query.request.summary ?? summary]} · ${result?.query.request.inference && result.data.reference ? `A ${result.data.unitCount} / B ${result.data.reference.unitCount}` : (result?.data.unitCount ?? 0)} ${result?.query.request.aggregation ? 'participants' : 'observations'}`
                     : pane === 'reference'
                       ? `B mean · ${result?.data.reference?.unitCount ?? 0} analysis units`
                       : `Actual observation · ${result?.query.request.focusMemberId ?? 'none'}`}
@@ -781,7 +785,7 @@ export function PopulationLens({
             onChange={(event) => service.setEffectLimit(event.target.valueAsNumber)}
           />
         </label>
-        {result && !['mean', 'effect'].includes(populationDisplayKind(result.query.request)) && (
+        {result && !populationSharesEffectScale(result.query.request) && (
           <label>
             Summary maximum{' '}
             <input

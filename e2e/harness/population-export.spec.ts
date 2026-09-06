@@ -466,3 +466,73 @@ test('declares participant effects, switches test channels and reopens a frozen 
   await expect(page.getByText('Mean · 80 participants', { exact: true })).toBeVisible();
   expect(errors).toEqual([]);
 });
+
+test('selects a method, compares independent groups, and reopens every Welch channel', async ({
+  page,
+}, testInfo) => {
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  await page.goto('/population-harness.html?mask&export&roundtrip');
+  await page.getByText(/^Analysis unit:/).click();
+  await page.getByLabel('Participant identity', { exact: true }).selectOption('rows');
+  await page.getByLabel('Population analysis unit', { exact: true }).selectOption('single');
+  await page.getByText('Statistical question', { exact: true }).click();
+  await page.getByLabel('Statistical method', { exact: true }).selectOption('welch');
+  await page.getByLabel('Feature value role', { exact: true }).selectOption('effect');
+  await page.getByLabel('Effect units', { exact: true }).fill('% signal change');
+  await page
+    .getByLabel('I declare comparable effects from independent participants.', { exact: true })
+    .check();
+  await page
+    .getByRole('button', { name: 'Apply Welch unequal-variance test', exact: true })
+    .click();
+  await expect(page.getByRole('alert').filter({ hasText: /population B/ })).toBeVisible();
+  await page.getByLabel('Group by factor', { exact: true }).selectOption('group');
+  await page.getByRole('button', { name: 'Show factor groups', exact: true }).click();
+  await page
+    .getByRole('region', { name: 'group: A', exact: true })
+    .getByRole('button', { name: 'Use as A', exact: true })
+    .click();
+  await page
+    .getByRole('region', { name: 'group: B', exact: true })
+    .getByRole('button', { name: 'Use as B', exact: true })
+    .click();
+  await page
+    .getByRole('button', { name: 'Apply Welch unequal-variance test', exact: true })
+    .click();
+  await expect(
+    page.getByText('Effect relative to null · A 40 / B 40 participants', { exact: true }),
+  ).toBeVisible();
+  await expect(page.getByText('Actual observation · S001', { exact: true })).toBeVisible();
+  const channel = page.getByLabel('Test result channel', { exact: true });
+  await expect(channel.locator('option')).toHaveCount(6);
+  for (const value of ['t', 'df', 'countA', 'countB']) {
+    await channel.selectOption(value);
+    await expect(page.getByLabel('Displayed test channel', { exact: true })).toHaveValue(value);
+  }
+  await page.getByRole('button', { name: 'Next observation', exact: true }).click();
+  await expect(page.getByTestId('fixture-focus')).toHaveText('S002');
+  await page.getByText('Save calculation', { exact: true }).click();
+  await page.getByRole('button', { name: 'Freeze discovery…', exact: true }).click();
+  const receipt = JSON.parse((await page.getByTestId('synthetic-export-receipt').textContent())!);
+  expect(receipt.population.inference).toMatchObject({ method: 'welch', channel: 'countB' });
+  expect(receipt.population.aggregation.groups).toHaveLength(40);
+  expect(receipt.population.reference.aggregation.groups).toHaveLength(40);
+  await page.getByRole('button', { name: 'Open saved population…', exact: true }).click();
+  await expect(page.getByLabel('Statistical method', { exact: true })).toHaveValue('welch');
+  await expect(channel).toHaveValue('countB');
+  await expect(
+    page.getByText('Valid participants in B · A 40 / B 40 participants', { exact: true }),
+  ).toBeVisible();
+  await page
+    .getByLabel('Statistical question', { exact: true })
+    .screenshot({ path: testInfo.outputPath('population-welch-desktop.png') });
+  await page.setViewportSize({ width: 480, height: 1000 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page
+    .getByLabel('Statistical question', { exact: true })
+    .screenshot({ path: testInfo.outputPath('population-welch-narrow.png') });
+  await page.getByRole('button', { name: 'Return to descriptive view', exact: true }).click();
+  await expect(page.getByText('Mean · 40 participants', { exact: true })).toBeVisible();
+  expect(errors).toEqual([]);
+});

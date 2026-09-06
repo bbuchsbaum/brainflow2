@@ -1,9 +1,12 @@
-//! Participant-level one-sample inference from stable, locally finite moments.
+//! Participant-level statistical inference from stable, locally finite moments.
 //! Geometry and the within-person reduction precede this kernel. Declarations
 //! are explicit user assertions, not evidence of independence or valid selection.
 use crate::population::LocationSummary;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
+pub mod catalog;
+mod welch;
+pub use welch::Welch;
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -20,6 +23,7 @@ pub enum FeatureRole {
 #[serde(rename_all = "camelCase")]
 pub enum Method {
     OneSample,
+    Welch,
 }
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "kebab-case")]
@@ -28,7 +32,7 @@ pub enum SelectionOrigin {
     Metadata,
     MapDerived,
 }
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
 #[serde(rename_all = "camelCase")]
 pub enum Channel {
     Effect,
@@ -36,6 +40,8 @@ pub enum Channel {
     T,
     Df,
     Count,
+    CountA,
+    CountB,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -50,7 +56,11 @@ pub struct Specification {
 }
 impl Specification {
     pub fn validate(&self, participants: &[&str]) -> Result<(), &'static str> {
-        if self.role != FeatureRole::Effect {
+        let descriptor = self.method.descriptor();
+        if !descriptor.channels.iter().any(|c| c.id == self.channel) {
+            return Err("The selected channel is not produced by this statistical method.");
+        }
+        if !descriptor.accepted_roles.contains(&self.role) {
             return Err("Testing requires effect estimates, not t/z, uncertainty or label maps.");
         }
         if self.units.trim().is_empty() || self.units.len() > 128 {
@@ -62,7 +72,7 @@ impl Specification {
         if !self.independent_participants {
             return Err("Declare independent participant effects before testing.");
         }
-        if participants.len() < 2
+        if participants.len() < descriptor.minimum_participants
             || participants.iter().any(|id| id.trim().is_empty())
             || participants.iter().collect::<HashSet<_>>().len() != participants.len()
         {
@@ -105,6 +115,45 @@ impl OneSample {
             Channel::T => self.t,
             Channel::Df => self.df,
             Channel::Count => Some(self.count as f64),
+            Channel::CountA | Channel::CountB => None,
+        }
+    }
+}
+
+/// The output payload belongs to its estimator; the renderer requests declared channels.
+#[derive(Debug)]
+pub enum Estimate {
+    OneSample(OneSample),
+    Welch(Welch),
+}
+impl Estimate {
+    pub fn value(&self, channel: &Channel) -> Option<f64> {
+        match self {
+            Self::OneSample(r) => r.value(channel),
+            Self::Welch(r) => r.value(channel),
+        }
+    }
+}
+impl Method {
+    /// New input designs need a typed adapter, not an unvalidated parameter bag.
+    pub fn evaluate(
+        &self,
+        a: &LocationSummary,
+        b: Option<&LocationSummary>,
+        null: f64,
+    ) -> Result<Estimate, &'static str> {
+        match self {
+            Self::OneSample => {
+                if b.is_some() {
+                    return Err("One-sample inference requires one population.");
+                }
+                Ok(Estimate::OneSample(OneSample::from_summary(a, null)))
+            }
+            Self::Welch => Ok(Estimate::Welch(Welch::from_summaries(
+                a,
+                b.ok_or("Welch inference requires population B.")?,
+                null,
+            ))),
         }
     }
 }

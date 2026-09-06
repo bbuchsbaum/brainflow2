@@ -1,41 +1,72 @@
+import {
+  inferenceMethods,
+  inferenceMethod,
+  inferenceChannelNames,
+  inferenceActive,
+} from '@/services/studio/inferenceCatalog';
+import { resolvePopulation } from '@/services/studio/populationContext';
 import { useEffect, useState } from 'react';
 import { useSetStudioStore } from '@/stores/setStudioStore';
 import type { PopulationInferenceSpec } from '@/types/population';
-import {
-  configureInference,
-  inferenceNames,
-  selectInferenceChannel,
-} from '@/services/studio/populationInference';
+import { configureInference, selectInferenceChannel } from '@/services/studio/populationInference';
 const control = 'rounded border border-border bg-background px-2 py-1 text-xs disabled:opacity-40';
 export function PopulationInferenceControls() {
   const state = useSetStudioStore();
   const saved = state.population.inference;
-  const current = saved?.featureId === state.selection.activeFeatureId ? saved : null;
+  const current =
+    saved?.featureId === state.selection.activeFeatureId &&
+    saved?.setId === state.selection.activeSetId
+      ? saved
+      : null;
+  const [method, setMethod] = useState<PopulationInferenceSpec['method']>('oneSample');
   const [role, setRole] = useState<PopulationInferenceSpec['role']>('other');
   const [units, setUnits] = useState('');
   const [nullValue, setNull] = useState(0);
   const [independent, setIndependent] = useState(false);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
+    setMethod(current?.method ?? 'oneSample');
     setRole(current?.role ?? 'other');
     setUnits(current?.units ?? '');
     setNull(current?.nullValue ?? 0);
     setIndependent(current?.independentParticipants ?? false);
     setError(null);
   }, [state.selection.activeFeatureId, state.population.sessionRevision, current]);
-  const paused = ['groups', 'comparison', 'difference'].includes(
-    state.population.presentation.arrangement,
-  );
+  const paused = current && !inferenceActive(current, state.population.presentation.arrangement);
+  const descriptor = inferenceMethod(method);
+  const population = resolvePopulation(state);
   return (
     <details className="rounded border border-border p-3 text-xs" aria-label="Statistical question">
       <summary className="cursor-pointer font-medium">
-        Statistical question{current ? ' · one-sample' : ''}
+        Statistical question{current ? ` · ${inferenceMethod(current.method).label}` : ''}
       </summary>
       <div className="mt-3 space-y-3">
+        <label className="block">
+          Method{' '}
+          <select
+            className={`${control} max-w-full`}
+            aria-label="Statistical method"
+            value={method}
+            onChange={(e) => setMethod(e.target.value as typeof method)}
+          >
+            {inferenceMethods.map((m) => (
+              <option key={m.id} value={m.id}>
+                {m.label}
+              </option>
+            ))}
+          </select>
+        </label>
         <p>
-          Test the selected participants’ mean effect against a stated value. Declare the meaning of
-          every map in this feature; filenames do not establish it.
+          {descriptor.description} Declare the meaning of the feature; filenames do not establish
+          it.
         </p>
+        {descriptor.inputs === 'independentGroups' && (
+          <p className="text-muted-foreground">
+            A: {population.workingMemberIds.length} observations · B:{' '}
+            {population.referenceMemberIds.length} observations. Uses the current selection and
+            reference. Each person must belong to one group only.
+          </p>
+        )}
         <div className="flex flex-wrap gap-2 items-center">
           <label>
             Feature values{' '}
@@ -90,7 +121,7 @@ export function PopulationInferenceControls() {
             onClick={() =>
               setError(
                 configureInference({
-                  method: 'oneSample',
+                  method,
                   role,
                   units,
                   nullValue,
@@ -104,7 +135,7 @@ export function PopulationInferenceControls() {
               )
             }
           >
-            Apply one-sample test
+            {method === 'oneSample' ? 'Apply one-sample test' : `Apply ${descriptor.label}`}
           </button>
           {current && (
             <>
@@ -121,7 +152,7 @@ export function PopulationInferenceControls() {
                     selectInferenceChannel(e.target.value as PopulationInferenceSpec['channel'])
                   }
                 >
-                  {Object.entries(inferenceNames).map(([id, name]) => (
+                  {Object.entries(inferenceChannelNames(current.method)).map(([id, name]) => (
                     <option key={id} value={id}>
                       {name}
                     </option>
@@ -138,15 +169,18 @@ export function PopulationInferenceControls() {
         )}
         {current && (
           <p role="status">
-            {paused ? 'Test paused in this descriptive arrangement. ' : ''}One-sample: mean −{' '}
-            {current.nullValue} {current.units}. Selection changes recalculate the test; focus does
-            not change its operands.
+            {paused ? 'Test paused in this descriptive arrangement. ' : ''}
+            {inferenceMethod(current.method).label}:{' '}
+            {inferenceMethod(current.method).inputs === 'onePopulation'
+              ? 'mean(A)'
+              : 'mean(A) − mean(B)'}{' '}
+            − {current.nullValue} {current.units}. Selection changes recalculate the test; focus
+            does not change its operands.
           </p>
         )}
         <p className="text-muted-foreground">
-          Exploratory analysis. Map-derived selections are not independent confirmation. No p-values
-          or multiple-comparison correction. SE and df require two locally valid participants; t
-          also requires positive SE. Save calculation freezes the inputs and all five channels.
+          {descriptor.limitations} Save calculation records source identities and every declared
+          result channel.
         </p>
       </div>
     </details>

@@ -89,6 +89,8 @@ pub struct GroupResult {
     pub eligible_count: usize,
     #[serde(skip)]
     means: Vec<f64>,
+    #[serde(skip)]
+    summaries: Vec<field_table::population::LocationSummary>,
 }
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -443,6 +445,7 @@ fn validate(request: &PopulationSliceRequest) -> BridgeResult<()> {
             ));
         }
         let mut child = request.clone();
+        child.inference = None;
         child.groups.clear();
         child.reference = None;
         child.difference = false;
@@ -871,6 +874,7 @@ fn reduce_group(
         id: group.id.clone(),
         values: means.iter().map(|&v| v as f32).collect(),
         means,
+        summaries,
         valid_counts,
         unit_count: group
             .aggregation
@@ -923,7 +927,15 @@ fn reduce_plane(
         .inference
         .as_ref()
         .filter(|_| !request.focus_only)
-        .map(|spec| inference::channels(&summaries, &cached.plan.pixels, spec));
+        .map(|spec| {
+            inference::channels(
+                &summaries,
+                reference.as_ref().map(|r| r.summaries.as_slice()),
+                &cached.plan.pixels,
+                spec,
+            )
+        })
+        .transpose()?;
     let mut summary = Vec::with_capacity(cached.plan.pixels.len());
     let mut focused = Vec::with_capacity(summary.capacity());
     let mut valid_counts = Vec::with_capacity(summary.capacity());
