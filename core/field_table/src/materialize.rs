@@ -536,9 +536,19 @@ fn load_role_input_values(
     let mut all_values = Vec::new();
     let mut dims: Option<Vec<usize>> = None;
     let mut reference_source_path = None;
+    let mut reference_affine: Option<Vec<f32>> = None;
     for input in inputs {
-        let (volume, _affine) = nifti_loader::load_nifti_volume_auto(Path::new(&input.path))
+        let (volume, affine) = nifti_loader::load_nifti_volume_auto(Path::new(&input.path))
             .map_err(|error| format!("Failed to load {}: {}", input.path, error))?;
+        let affine = affine.to_homogeneous();
+        validate_grid_affines(
+            reference_affine.as_deref().unwrap_or(affine.as_slice()),
+            affine.as_slice(),
+        )
+        .map_err(|error| format!("{} ({})", error, input.path))?;
+        if reference_affine.is_none() {
+            reference_affine = Some(affine.as_slice().to_vec());
+        }
         let (values, volume_dims) = extract_volume_values(&volume)
             .map_err(|error| format!("{} ({})", error, input.path))?;
         match &dims {
@@ -564,40 +574,80 @@ fn load_role_input_values(
     ))
 }
 
+/// Indexed reductions require matching world frames as well as dimensions.
+/// The absolute tolerance is for header float rounding, never registration.
+fn validate_grid_affines(reference: &[f32], candidate: &[f32]) -> Result<(), String> {
+    for affine in [reference, candidate] {
+        if affine.len() != 16 || affine.iter().any(|value| !value.is_finite()) {
+            return Err("Population input has an invalid world affine.".to_string());
+        }
+        // nalgebra's homogeneous matrices are column-major.
+        let a = |row: usize, col: usize| f64::from(affine[row + 4 * col]);
+        let determinant = a(0, 0) * (a(1, 1) * a(2, 2) - a(1, 2) * a(2, 1))
+            - a(0, 1) * (a(1, 0) * a(2, 2) - a(1, 2) * a(2, 0))
+            + a(0, 2) * (a(1, 0) * a(2, 1) - a(1, 1) * a(2, 0));
+        if determinant == 0.0 {
+            return Err("Population input has a singular world affine.".to_string());
+        }
+    }
+    if reference
+        .iter()
+        .zip(candidate)
+        .any(|(a, b)| (f64::from(*a) - f64::from(*b)).abs() > 1e-5)
+    {
+        return Err(
+            "Population inputs have different world affines; explicit resampling is required."
+                .to_string(),
+        );
+    }
+    Ok(())
+}
+
 fn mean_values(volumes: &[Vec<f32>]) -> Result<Vec<f32>, String> {
-    let first = volumes
-        .first()
-        .ok_or_else(|| "Cannot compute mean with zero input volumes.".to_string())?;
-    let mut mean = vec![0.0; first.len()];
-    for volume in volumes {
-        if volume.len() != mean.len() {
-            return Err("Reducer inputs have mismatched voxel counts.".to_string());
-        }
-        for (target, value) in mean.iter_mut().zip(volume.iter()) {
-            *target += *value;
-        }
-    }
-    for value in &mut mean {
-        *value /= volumes.len() as f32;
-    }
-    Ok(mean)
+    reduce_population_values(volumes, |summary| summary.mean)
 }
 
 fn sd_values(volumes: &[Vec<f32>]) -> Result<Vec<f32>, String> {
-    let mean = mean_values(volumes)?;
-    let mut variance = vec![0.0; mean.len()];
-    for volume in volumes {
-        for ((variance_value, value), mean_value) in
-            variance.iter_mut().zip(volume.iter()).zip(mean.iter())
-        {
-            let centered = value - mean_value;
-            *variance_value += centered * centered;
+    reduce_population_values(volumes, |summary| summary.sample_sd)
+}
+
+fn summary_to_f32(value: Option<f64>) -> Result<f32, String> {
+    match value {
+        None => Ok(f32::NAN),
+        Some(value) if (value as f32).is_finite() => Ok(value as f32),
+        Some(_) => Err("Population summary exceeds the float32 output range.".to_string()),
+    }
+}
+
+/// Bound numerical scratch space independently of the full export grid.
+fn reduce_population_values(
+    volumes: &[Vec<f32>],
+    select: impl Fn(crate::population::LocationSummary) -> Option<f64>,
+) -> Result<Vec<f32>, String> {
+    let first = volumes
+        .first()
+        .ok_or_else(|| "Cannot reduce zero input volumes.".to_string())?;
+    if first.is_empty() {
+        return Err("Population support must contain at least one location.".to_string());
+    }
+    if volumes.iter().any(|volume| volume.len() != first.len()) {
+        return Err("Reducer inputs have mismatched voxel counts.".to_string());
+    }
+    let mut output = Vec::with_capacity(first.len());
+    for start in (0..first.len()).step_by(16_384) {
+        let end = (start + 16_384).min(first.len());
+        let mut moments = crate::population::FieldMoments::new(end - start, 0.0)
+            .map_err(|error| error.to_string())?;
+        for volume in volumes {
+            moments
+                .push(&volume[start..end], None)
+                .map_err(|error| error.to_string())?;
+        }
+        for summary in moments.summaries() {
+            output.push(summary_to_f32(select(summary))?);
         }
     }
-    for value in &mut variance {
-        *value = (*value / volumes.len() as f32).sqrt();
-    }
-    Ok(variance)
+    Ok(output)
 }
 
 fn reducer_materialization_key(
@@ -637,7 +687,7 @@ fn reducer_artifact_kind(kind: &StudioReducerKind) -> &'static str {
 fn reducer_recipe(spec: &StudioReducerSpec) -> String {
     match spec.kind {
         StudioReducerKind::Mean => format!("mean(role={})", spec.role),
-        StudioReducerKind::Sd => format!("sd(role={})", spec.role),
+        StudioReducerKind::Sd => format!("sd(role={}, ddof=1)", spec.role),
         StudioReducerKind::LeaveOneOutMean => format!(
             "leave_one_out_mean(role={}, excluded_member={})",
             spec.role,
@@ -675,6 +725,12 @@ fn build_reducer_provenance(
             "excludedMemberId": spec.excluded_member_id,
         },
         "selectedRole": spec.role,
+        "reductionSemantics": {
+            "accumulation": "float64_centered_moments",
+            "missingValues": "exclude_nonfinite_per_location",
+            "sdDenominator": "valid_count_minus_one",
+            "analysisUnit": "input_observation",
+        },
         "supportLabel": request.support_label,
         "compareCohortId": request.compare_cohort_id,
         "inputMembers": inputs.iter().map(|input| json!({
@@ -744,7 +800,8 @@ fn build_cache_manifest(
     provenance: Value,
 ) -> StudioCacheManifest {
     StudioCacheManifest {
-        version: 1,
+        // v2 invalidates float32/global-denominator reductions from v1.
+        version: 2,
         materialization_key: materialization_key.to_string(),
         artifact_kind: artifact_kind.to_string(),
         recipe,
@@ -772,6 +829,13 @@ fn build_compare_provenance(
         "activeExpressionLabel": request.active_expression_label,
         "activeExpressionRecipe": request.active_expression_recipe,
         "cohortSourceCount": cohort_source_count,
+        "reductionSemantics": {
+            "accumulation": "float64_centered_moments",
+            "missingValues": "exclude_nonfinite_per_location",
+            "analysisUnit": "input_observation",
+            "zscore": "descriptive_population_standardization_ddof_0",
+            "degenerateZscore": "unavailable",
+        },
     })
 }
 
@@ -1069,15 +1133,25 @@ fn materialize_cohort_mean(
         return Ok(record);
     }
 
-    let mut sum_data: Option<Vec<f32>> = None;
+    let mut moments: Option<crate::population::MeanField> = None;
     let mut dims: Option<Vec<usize>> = None;
     let mut reference_source_path: Option<&str> = None;
+    let mut reference_affine: Option<Vec<f32>> = None;
     let mut used_paths = 0usize;
 
     for source_path in &candidate_paths {
         let path = Path::new(source_path);
-        let (volume, _affine) = nifti_loader::load_nifti_volume_auto(path)
+        let (volume, affine) = nifti_loader::load_nifti_volume_auto(path)
             .map_err(|error| format!("Failed to load {}: {}", source_path, error))?;
+        let affine = affine.to_homogeneous();
+        validate_grid_affines(
+            reference_affine.as_deref().unwrap_or(affine.as_slice()),
+            affine.as_slice(),
+        )
+        .map_err(|error| format!("{} ({})", error, source_path))?;
+        if reference_affine.is_none() {
+            reference_affine = Some(affine.as_slice().to_vec());
+        }
         let (values, volume_dims) = extract_volume_values(&volume)
             .map_err(|error| format!("{} ({})", error, source_path))?;
 
@@ -1091,15 +1165,13 @@ fn materialize_cohort_mean(
             None => {
                 dims = Some(volume_dims.clone());
                 reference_source_path = Some(source_path.as_str());
-                sum_data = Some(vec![0.0; values.len()]);
+                moments = Some(crate::population::MeanField::new(values.len()));
             }
             _ => {}
         }
 
-        if let Some(sum) = sum_data.as_mut() {
-            for (target, value) in sum.iter_mut().zip(values.iter()) {
-                *target += *value;
-            }
+        if let Some(moments) = moments.as_mut() {
+            moments.push(&values).map_err(|error| error.to_string())?;
         }
         used_paths += 1;
     }
@@ -1108,11 +1180,13 @@ fn materialize_cohort_mean(
         return Err("No cohort members could be loaded for the cohort mean.".to_string());
     }
 
-    let mut mean_data =
-        sum_data.ok_or_else(|| "Cohort mean accumulation never initialized.".to_string())?;
-    for value in &mut mean_data {
-        *value /= used_paths as f32;
-    }
+    let moments =
+        moments.ok_or_else(|| "Cohort mean accumulation never initialized.".to_string())?;
+    let mean_data = moments
+        .means()
+        .map(summary_to_f32)
+        .collect::<Result<Vec<_>, _>>()?;
+    drop(moments);
 
     let dims = dims.ok_or_else(|| "Missing dimensions for cohort mean.".to_string())?;
     let reference_source_path = reference_source_path
@@ -1186,14 +1260,14 @@ fn materialize_residual(
         return Ok(record);
     }
 
-    let (member_volume, _member_affine) =
+    let (member_volume, member_affine) =
         nifti_loader::load_nifti_volume_auto(Path::new(member_source_path)).map_err(|error| {
             format!(
                 "Failed to load member source {}: {}",
                 member_source_path, error
             )
         })?;
-    let (cohort_mean_volume, _mean_affine) =
+    let (cohort_mean_volume, mean_affine) =
         nifti_loader::load_nifti_volume_auto(Path::new(cohort_mean_path)).map_err(|error| {
             format!(
                 "Failed to load cached cohort mean {}: {}",
@@ -1201,6 +1275,10 @@ fn materialize_residual(
             )
         })?;
 
+    validate_grid_affines(
+        member_affine.to_homogeneous().as_slice(),
+        mean_affine.to_homogeneous().as_slice(),
+    )?;
     let (member_values, member_dims) = extract_volume_values(&member_volume)
         .map_err(|error| format!("{} ({})", error, member_source_path))?;
     let (cohort_values, cohort_dims) = extract_volume_values(&cohort_mean_volume)
@@ -1283,14 +1361,14 @@ fn materialize_zscore(
         return Ok(record);
     }
 
-    let (member_volume, _member_affine) =
+    let (member_volume, member_affine) =
         nifti_loader::load_nifti_volume_auto(Path::new(member_source_path)).map_err(|error| {
             format!(
                 "Failed to load member source {}: {}",
                 member_source_path, error
             )
         })?;
-    let (cohort_mean_volume, _mean_affine) =
+    let (cohort_mean_volume, mean_affine) =
         nifti_loader::load_nifti_volume_auto(Path::new(cohort_mean_path)).map_err(|error| {
             format!(
                 "Failed to load cached cohort mean {}: {}",
@@ -1298,9 +1376,13 @@ fn materialize_zscore(
             )
         })?;
 
+    validate_grid_affines(
+        member_affine.to_homogeneous().as_slice(),
+        mean_affine.to_homogeneous().as_slice(),
+    )?;
     let (member_values, member_dims) = extract_volume_values(&member_volume)
         .map_err(|error| format!("{} ({})", error, member_source_path))?;
-    let (cohort_mean_values, cohort_mean_dims) = extract_volume_values(&cohort_mean_volume)
+    let (_, cohort_mean_dims) = extract_volume_values(&cohort_mean_volume)
         .map_err(|error| format!("{} ({})", error, cohort_mean_path))?;
     if member_dims != cohort_mean_dims {
         return Err(format!(
@@ -1309,13 +1391,19 @@ fn materialize_zscore(
         ));
     }
 
-    let mut variance = vec![0.0f32; member_values.len()];
+    let mut moments = crate::population::FieldMoments::new(member_values.len(), 0.0)
+        .map_err(|error| error.to_string())?;
     let mut cohort_count = 0usize;
     for cohort_path in &cohort_paths {
-        let (cohort_volume, _cohort_affine) =
+        let (cohort_volume, cohort_affine) =
             nifti_loader::load_nifti_volume_auto(Path::new(cohort_path)).map_err(|error| {
                 format!("Failed to load cohort member {}: {}", cohort_path, error)
             })?;
+        validate_grid_affines(
+            member_affine.to_homogeneous().as_slice(),
+            cohort_affine.to_homogeneous().as_slice(),
+        )
+        .map_err(|error| format!("{} ({})", error, cohort_path))?;
         let (cohort_values, cohort_dims) = extract_volume_values(&cohort_volume)
             .map_err(|error| format!("{} ({})", error, cohort_path))?;
         if cohort_dims != member_dims {
@@ -1324,14 +1412,9 @@ fn materialize_zscore(
                 cohort_path, cohort_dims, member_dims
             ));
         }
-        for ((variance_value, cohort_value), mean_value) in variance
-            .iter_mut()
-            .zip(cohort_values.iter())
-            .zip(cohort_mean_values.iter())
-        {
-            let centered = cohort_value - mean_value;
-            *variance_value += centered * centered;
-        }
+        moments
+            .push(&cohort_values, None)
+            .map_err(|error| error.to_string())?;
         cohort_count += 1;
     }
 
@@ -1341,17 +1424,17 @@ fn materialize_zscore(
 
     let zscore_data: Vec<f32> = member_values
         .iter()
-        .zip(cohort_mean_values.iter())
-        .zip(variance.iter())
-        .map(|((member, mean), variance_sum)| {
-            let std = (*variance_sum / cohort_count as f32).sqrt();
-            if std <= 1.0e-6 {
-                0.0
-            } else {
-                (member - mean) / std
-            }
+        .zip(moments.summaries())
+        .map(|(member, summary)| {
+            let value = match (summary.mean, summary.population_sd) {
+                (Some(mean), Some(sd)) if member.is_finite() && sd > 0.0 => {
+                    Some((f64::from(*member) - mean) / sd)
+                }
+                _ => None,
+            };
+            summary_to_f32(value)
         })
-        .collect();
+        .collect::<Result<Vec<_>, _>>()?;
     write_f32_nifti(
         &cache_plan.output_path,
         &member_dims,
@@ -1430,4 +1513,56 @@ fn write_f32_nifti(
         .reference_file(&Path::new(reference_source_path))
         .write_nifti(&array)?;
     Ok(())
+}
+
+#[cfg(test)]
+mod population_reducers {
+    use super::{mean_values, sd_values, validate_grid_affines};
+
+    #[test]
+    fn world_affines_must_be_finite_and_nonsingular() {
+        let identity = [
+            1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0,
+        ];
+        assert!(validate_grid_affines(&identity, &identity).is_ok());
+        let mut flipped = identity;
+        flipped[0] = -1.0;
+        assert!(validate_grid_affines(&flipped, &flipped).is_ok());
+        assert!(validate_grid_affines(&identity, &flipped).is_err());
+        let mut singular = identity;
+        singular[0] = 0.0;
+        assert!(validate_grid_affines(&singular, &singular).is_err());
+        let mut invalid = identity;
+        invalid[12] = f32::NAN;
+        assert!(validate_grid_affines(&invalid, &invalid).is_err());
+    }
+
+    #[test]
+    fn mean_uses_local_coverage_and_preserves_measured_zero() {
+        let values = mean_values(&[
+            vec![1.0, f32::NAN, 0.0, f32::INFINITY],
+            vec![3.0, 5.0, f32::NAN, f32::NAN],
+        ])
+        .unwrap();
+        assert_eq!(&values[..3], &[2.0, 5.0, 0.0]);
+        assert!(values[3].is_nan());
+    }
+
+    #[test]
+    fn spread_is_sample_sd_with_local_degrees_of_freedom() {
+        let values = sd_values(&[vec![1.0, 5.0], vec![3.0, f32::NAN]]).unwrap();
+        assert!((values[0] - 2.0f32.sqrt()).abs() < 1e-6);
+        assert!(values[1].is_nan());
+    }
+
+    #[test]
+    fn finite_inputs_do_not_overflow_float32_accumulation() {
+        let values = mean_values(&[vec![f32::MAX], vec![f32::MAX]]).unwrap();
+        assert_eq!(values, vec![f32::MAX]);
+        let values = sd_values(&[vec![-1e30], vec![1e30]]).unwrap();
+        let expected = 2.0f64.sqrt() * f64::from(1e30f32);
+        assert!((f64::from(values[0]) / expected - 1.0).abs() < 1e-6);
+        // This valid f64 sample SD cannot be represented by the output format.
+        assert!(sd_values(&[vec![-f32::MAX], vec![f32::MAX]]).is_err());
+    }
 }

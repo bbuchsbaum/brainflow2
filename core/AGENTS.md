@@ -80,3 +80,19 @@ Key external dependencies (all pinned for reproducible builds):
 - `tracing` 0.1 - Structured logging
 
 <!-- MANUAL: Any manually added notes below this line are preserved on regeneration -->
+
+## Population reductions
+
+- `field_table::population::FieldMoments` reduces equally weighted observed
+  fields using f64 centered moments, local finite/masked counts, sample SD,
+  mean absolute magnitude, cancellation and sign counts. Spatial blocks and
+  disjoint observation-block merges share this kernel. Identity, participant
+  reduction, feature roles and support compatibility belong to its callers.
+- `field_table::materialize` uses the same mean update and moments for exported
+  reducers. `Sd` means sample SD (`ddof=1`); the existing descriptive z-score
+  retains population standardization (`ddof=0`) and returns unavailable where
+  dispersion is zero. Cache manifest v2 invalidates former reductions.
+- Indexed volume exports check dimensions and finite, nonsingular matching
+  world affines (absolute element tolerance `1e-5`). This checks grids, not
+  anatomical registration. See `docs/plans/neurotabs-implementation-status.md`
+  from the repository root for remaining live-evaluation and UI work.

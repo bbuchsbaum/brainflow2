@@ -1,5 +1,6 @@
 mod materialize;
 pub mod neurotabs;
+pub mod population;
 mod preview;
 mod promote;
 
@@ -43,13 +44,17 @@ mod tests {
     }
 
     fn save_test_nifti(path: &Path, data: &[f32], dims: [u16; 3]) {
+        save_test_nifti_at_origin(path, data, dims, 0.0);
+    }
+
+    fn save_test_nifti_at_origin(path: &Path, data: &[f32], dims: [u16; 3], origin_x: f32) {
         let header = NiftiHeader {
             dim: [3, dims[0], dims[1], dims[2], 1, 1, 1, 1],
             datatype: 16,
             bitpix: 32,
             sform_code: 1,
             qform_code: 0,
-            srow_x: [1.0, 0.0, 0.0, 0.0],
+            srow_x: [1.0, 0.0, 0.0, origin_x],
             srow_y: [0.0, 1.0, 0.0, 0.0],
             srow_z: [0.0, 0.0, 1.0, 0.0],
             ..NiftiHeader::default()
@@ -943,8 +948,8 @@ mod tests {
         }
         assert_eq!(pane_values(&panes, "mean-tstat"), vec![3.0, 5.0]);
         let sd_values = pane_values(&panes, "sd-tstat");
-        assert!((sd_values[0] - 1.6329932).abs() < 1.0e-5);
-        assert!((sd_values[1] - 1.6329932).abs() < 1.0e-5);
+        assert!((sd_values[0] - 2.0).abs() < 1.0e-5);
+        assert!((sd_values[1] - 2.0).abs() < 1.0e-5);
         assert_eq!(pane_values(&panes, "loo-mean-tstat"), vec![4.0, 6.0]);
 
         let reducer_provenance = panes
@@ -1377,6 +1382,108 @@ mod tests {
         fs::remove_dir_all(temp_dir).expect("cleanup temp dir");
     }
 
+    fn population_export_request(root: &Path, paths: &[&Path]) -> StudioCompareMaterializeRequest {
+        StudioCompareMaterializeRequest {
+            support_label: format!("population fixture {}", root.display()),
+            compare_ready: true,
+            force_rematerialize: false,
+            active_member_id: Some("member-1".to_string()),
+            active_member_source_path: Some(paths[0].to_string_lossy().into_owned()),
+            cohort_member_source_paths: paths
+                .iter()
+                .map(|p| p.to_string_lossy().into_owned())
+                .collect(),
+            compare_cohort_id: Some("all".to_string()),
+            compare_cohort_label: Some("All observations".to_string()),
+            compare_cohort_member_count: Some(paths.len()),
+            active_expression_label: Some("Descriptive standardization".to_string()),
+            active_expression_recipe: Some("zscore(current, cohort:all)".to_string()),
+            reducer_specs: Some(vec![StudioReducerSpec {
+                id: "sample-sd".to_string(),
+                label: "Observed sample SD".to_string(),
+                kind: StudioReducerKind::Sd,
+                role: "effect".to_string(),
+                cohort_id: Some("all".to_string()),
+                excluded_member_id: None,
+            }]),
+            active_member_role_bindings: None,
+            cohort_member_role_bindings: None,
+        }
+    }
+
+    #[test]
+    fn population_exports_use_local_counts_and_invalidate_old_calculations() {
+        let root = make_temp_dir("population-export");
+        let a = root.join("a.nii.gz");
+        let b = root.join("b.nii.gz");
+        save_test_nifti(&a, &[0.0, f32::NAN, 4.0, f32::MAX, 0.0], [5, 1, 1]);
+        save_test_nifti(&b, &[2.0, 6.0, f32::NAN, f32::MAX, 0.0], [5, 1, 1]);
+        let request = population_export_request(&root, &[&a, &b]);
+        let panes = materialize_compare_panes(request.clone());
+        assert_eq!(
+            pane_values(&panes, "cohort-mean"),
+            vec![1.0, 6.0, 4.0, f32::MAX, 0.0]
+        );
+        let sd = pane_values(&panes, "sample-sd");
+        assert!((sd[0] - 2.0f32.sqrt()).abs() < 1e-6);
+        assert!(sd[1].is_nan() && sd[2].is_nan());
+        assert_eq!(&sd[3..], &[0.0, 0.0]);
+        let zscore = pane_values(&panes, "zscore");
+        assert_eq!(zscore[0], -1.0);
+        assert!(zscore[1..].iter().all(|value| value.is_nan()));
+
+        let binding = panes
+            .iter()
+            .find(|pane| pane.id == "cohort-mean")
+            .unwrap()
+            .binding
+            .as_ref()
+            .unwrap();
+        let manifest_path = binding.provenance_path.as_ref().unwrap();
+        let mut manifest: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(manifest_path).unwrap()).unwrap();
+        assert_eq!(manifest["version"], 2);
+        assert_eq!(
+            manifest["provenance"]["reductionSemantics"]["analysisUnit"],
+            "input_observation"
+        );
+        // Simulate a cached result produced by the former global-denominator
+        // implementation, keeping source stamps unchanged.
+        manifest["version"] = serde_json::json!(1);
+        fs::write(manifest_path, serde_json::to_string(&manifest).unwrap()).unwrap();
+        save_test_nifti(
+            Path::new(binding.source_path.as_ref().unwrap()),
+            &[99.0; 5],
+            [5, 1, 1],
+        );
+        let refreshed = materialize_compare_panes(request);
+        assert_eq!(
+            pane_values(&refreshed, "cohort-mean"),
+            vec![1.0, 6.0, 4.0, f32::MAX, 0.0]
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn population_exports_reject_equal_dimensions_in_different_world_frames() {
+        let root = make_temp_dir("population-affine");
+        let a = root.join("a.nii.gz");
+        let b = root.join("b.nii.gz");
+        save_test_nifti(&a, &[1.0, 2.0], [2, 1, 1]);
+        save_test_nifti_at_origin(&b, &[3.0, 4.0], [2, 1, 1], 1.0);
+        let panes = materialize_compare_panes(population_export_request(&root, &[&a, &b]));
+        for id in ["cohort-mean", "sample-sd"] {
+            let pane = panes.iter().find(|pane| pane.id == id).unwrap();
+            assert_ne!(pane.status, StudioComparePaneStatus::Live);
+            assert!(
+                pane.reason.contains("different world affines"),
+                "{}",
+                pane.reason
+            );
+        }
+        fs::remove_dir_all(root).unwrap();
+    }
+
     fn reducer_binding(
         member_id: &str,
         role: &str,
@@ -1483,8 +1590,8 @@ mod tests {
         );
         assert_eq!(pane_values(&panes, "mean-tstat"), vec![3.0, 5.0]);
         let sd_values = pane_values(&panes, "sd-tstat");
-        assert!((sd_values[0] - 1.6329932).abs() < 1.0e-5);
-        assert!((sd_values[1] - 1.6329932).abs() < 1.0e-5);
+        assert!((sd_values[0] - 2.0).abs() < 1.0e-5);
+        assert!((sd_values[1] - 2.0).abs() < 1.0e-5);
         assert_eq!(pane_values(&panes, "loo-mean-tstat"), vec![4.0, 6.0]);
         let mean_manifest_path = panes
             .iter()
