@@ -278,10 +278,133 @@ async fn test_release_layer_cleans_render_state() {
         drop(guard);
         let service = service_arc.lock().await;
         assert_eq!(service.layer_state_manager.layer_count(), 0);
-        let metrics = service.atlas_metrics();
-        assert_eq!(metrics.used_layers, 0);
-        assert_eq!(metrics.free_layers, metrics.total_layers);
-        assert!(metrics.releases >= 1);
+        let textures = service.multi_texture_manager.as_ref().unwrap();
+        assert_eq!(textures.resident_slot_count(), 0);
+        assert_eq!(textures.free_slot_count(), textures.max_textures() as usize);
+        assert_eq!(textures.resident_bytes(), 0);
+    }
+}
+
+// Exercise the app's allocate-new / release-old replacement order, keeping a
+// base volume and a second overlay alive throughout. Layer counts and legacy
+// atlas metrics alone cannot detect leaked world-space 3D textures.
+#[tokio::test]
+async fn image_set_switches_reuse_gpu_textures() {
+    use mock_helpers::*;
+    use render_loop::view_state::{LayerConfig, SliceOrientation, ViewId, ViewState};
+
+    let state = setup_test_state().await;
+    let service = Arc::new(Mutex::new(
+        RenderLoopService::new()
+            .await
+            .expect("GPU adapter required"),
+    ));
+    *state.render_loop_service.lock().await = Some(Arc::clone(&service));
+    service.lock().await.load_shaders().unwrap();
+    let mut active_ids = Vec::new();
+    let mut previous_pixel = None;
+
+    for member in 0..63 {
+        let id = format!("member-{member}");
+        let size = if member % 2 == 0 { 16 } else { 24 };
+        let (mut volume, metadata) = create_test_volume([size; 3]);
+        if let VolumeSendable::VolF32(ref mut data, _) = volume {
+            *data = DenseVolume3::from_data(
+                data.space().clone(),
+                vec![if member % 2 == 0 { 0.25 } else { 0.75 }; size * size * size],
+            );
+        }
+        state
+            .volume_registry
+            .lock()
+            .await
+            .insert(id.clone(), volume, metadata);
+        let spec = LayerSpec::Volume(VolumeLayerSpec {
+            id: id.clone(),
+            source_resource_id: id.clone(),
+            colormap: "gray".into(),
+            slice_axis: None,
+            slice_index: None,
+        });
+        request_layer_gpu_resources_for_testing(spec, None, &state)
+            .await
+            .unwrap_or_else(|error| panic!("member {member}: {error:?}"));
+        if active_ids.len() == 3 {
+            let old_id = active_ids.pop().unwrap();
+            let released = release_layer_gpu_resources_for_testing(old_id, &state)
+                .await
+                .unwrap();
+            assert!(released.success);
+        }
+        active_ids.push(id);
+        let mut renderer = service.lock().await;
+        renderer.queue.submit([]);
+        renderer.device.poll(wgpu::Maintain::Wait);
+        assert_eq!(renderer.active_layer_count(), active_ids.len());
+        let textures = renderer.multi_texture_manager.as_ref().unwrap();
+        assert_eq!(
+            textures.resident_slot_count(),
+            active_ids.len(),
+            "member {member}"
+        );
+        assert_eq!(
+            textures.free_slot_count(),
+            textures.max_textures() as usize - active_ids.len()
+        );
+        let view = ViewState::from_basic_params(
+            active_ids.last().unwrap().clone(),
+            [4.; 3],
+            SliceOrientation::Axial,
+            8.,
+            [16, 16],
+            (0., 1.),
+        )
+        .with_crosshair(false)
+        .with_layers(
+            active_ids
+                .iter()
+                .map(|id| LayerConfig::new(id.clone()).with_intensity_window(0., 1.))
+                .collect(),
+        );
+        let frame = renderer
+            .request_frame(ViewId::new("switch"), view)
+            .await
+            .unwrap();
+        let center = &frame.image_data[(8 * 16 + 8) * 4..][..4];
+        assert_eq!(center[3], 255, "member {member} must remain visible");
+        if let Some(previous) = previous_pixel {
+            assert_ne!(
+                center[0], previous,
+                "member {member} rendered stale texture data"
+            );
+        }
+        previous_pixel = Some(center[0]);
+    }
+
+    assert_eq!(
+        service
+            .lock()
+            .await
+            .multi_texture_manager
+            .as_ref()
+            .unwrap()
+            .resident_slot_count(),
+        3
+    );
+    for id in active_ids {
+        assert!(
+            release_layer_gpu_resources_for_testing(id, &state)
+                .await
+                .unwrap()
+                .success
+        );
+    }
+    let renderer = service.lock().await;
+    let textures = renderer.multi_texture_manager.as_ref().unwrap();
+    assert_eq!(textures.resident_slot_count(), 0);
+    assert_eq!(textures.resident_bytes(), 0);
+    for slot in 0..textures.max_textures() {
+        assert!(renderer.get_volume_data_range(slot).is_none());
     }
 }
 

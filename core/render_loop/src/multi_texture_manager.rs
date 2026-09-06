@@ -172,8 +172,9 @@ impl MultiTextureManager {
             + std::ops::Div<Output = T>
             + std::ops::Mul<Output = T>,
     {
-        // Get next available index - prefer reusing freed indices
-        let index = if let Some(freed_index) = self.free_indices.pop() {
+        // Choose a slot without consuming it. Validation/conversion can fail;
+        // only commit the reservation once the texture is ready to publish.
+        let index = if let Some(&freed_index) = self.free_indices.last() {
             freed_index
         } else {
             if self.next_index >= self.max_textures {
@@ -182,9 +183,7 @@ impl MultiTextureManager {
                     details: format!("Maximum texture limit {} reached", self.max_textures),
                 });
             }
-            let idx = self.next_index;
-            self.next_index += 1;
-            idx
+            self.next_index
         };
 
         // Get dimensions from the volume's space
@@ -211,7 +210,7 @@ impl MultiTextureManager {
 
         // Create 3D texture
         let texture = device.create_texture(&wgpu::TextureDescriptor {
-            label: Some(&format!("Volume Texture {}", self.next_index)),
+            label: Some(&format!("Volume Texture {}", index)),
             size,
             mip_level_count: 1,
             sample_count: 1,
@@ -305,6 +304,9 @@ impl MultiTextureManager {
         let world_to_voxel = space.world_to_voxel();
 
         // Store texture entry
+        if self.free_indices.pop().is_none() {
+            self.next_index += 1;
+        }
         self.textures.insert(
             index,
             TextureEntry {
@@ -859,6 +861,8 @@ impl MultiTextureManager {
     /// Release a specific volume texture and free its resources
     pub fn release_volume(&mut self, texture_index: u32) -> Result<(), RenderLoopError> {
         if let Some(_entry) = self.textures.remove(&texture_index) {
+            // A reused slot must not inherit the previous volume's alpha mask.
+            self.mask_textures.remove(&texture_index);
             // The texture will be destroyed when entry is dropped
             // This happens automatically due to wgpu's Drop implementation
 
@@ -880,6 +884,7 @@ impl MultiTextureManager {
     /// Clear all textures
     pub fn clear(&mut self) {
         self.textures.clear();
+        self.mask_textures.clear();
         self.next_index = 0;
         self.free_indices.clear();
         self.bind_group = None;
@@ -1020,6 +1025,70 @@ mod tests {
             let info = manager.get_texture_info(0).expect("Should have texture 0");
             assert_eq!(info.dimensions, [64, 64, 25]);
             assert_eq!(info.format, wgpu::TextureFormat::R8Unorm);
+        });
+    }
+
+    #[test]
+    fn failed_uploads_preserve_free_slots() {
+        pollster::block_on(async {
+            let (device, queue) = create_test_device().await;
+            let mut manager = MultiTextureManager::new(&device, &queue, 2);
+            let volume = create_test_pattern_volume();
+            // Exercise both a fresh index and an index returned to the free list.
+            for reused in [false, true] {
+                if reused {
+                    let (index, _) = manager
+                        .upload_volume(&device, &queue, &volume, wgpu::TextureFormat::R8Unorm)
+                        .unwrap();
+                    manager.release_volume(index).unwrap();
+                }
+                for _ in 0..20 {
+                    assert!(manager
+                        .upload_volume(&device, &queue, &volume, wgpu::TextureFormat::Rgba8Unorm)
+                        .is_err());
+                    assert_eq!(manager.resident_slot_count(), 0);
+                    assert_eq!(manager.free_slot_count(), 2);
+                }
+            }
+            let (index, _) = manager
+                .upload_volume(&device, &queue, &volume, wgpu::TextureFormat::R8Unorm)
+                .unwrap();
+            assert_eq!(index, 0);
+        });
+    }
+
+    #[test]
+    fn released_and_cleared_slots_do_not_retain_masks() {
+        pollster::block_on(async {
+            let (device, queue) = create_test_device().await;
+            let mut manager = MultiTextureManager::new(&device, &queue, 2);
+            let volume = create_test_pattern_volume();
+            let (index, _) = manager
+                .upload_volume(&device, &queue, &volume, wgpu::TextureFormat::R8Unorm)
+                .unwrap();
+            manager
+                .upload_mask_texture(&device, &queue, index, [64, 64, 25], &vec![0; 64 * 64 * 25])
+                .unwrap();
+            assert_eq!(manager.mask_textures.len(), 1);
+            manager.release_volume(index).unwrap();
+            assert!(manager.mask_textures.is_empty());
+            let (reused, _) = manager
+                .upload_volume(&device, &queue, &volume, wgpu::TextureFormat::R8Unorm)
+                .unwrap();
+            assert_eq!(index, reused);
+            assert!(manager.mask_textures.is_empty());
+            manager
+                .upload_mask_texture(
+                    &device,
+                    &queue,
+                    reused,
+                    [64, 64, 25],
+                    &vec![0; 64 * 64 * 25],
+                )
+                .unwrap();
+            manager.clear();
+            assert!(manager.mask_textures.is_empty());
+            assert_eq!(manager.free_slot_count(), 2);
         });
     }
 

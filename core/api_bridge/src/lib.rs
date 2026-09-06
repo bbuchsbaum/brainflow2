@@ -209,7 +209,6 @@ struct ReleaseOutcome {
     render_state_entry_removed: bool,
 }
 
-#[derive(Clone)]
 struct LayerLease {
     inner: Arc<LayerLeaseInner>,
 }
@@ -221,6 +220,7 @@ struct LayerLeaseInner {
     layer_to_atlas_map: Arc<Mutex<HashMap<String, u32>>>,
     layer_to_volume_map: Arc<Mutex<HashMap<String, String>>>,
     layer_to_timepoint_map: Arc<Mutex<HashMap<String, Option<usize>>>>,
+    resident_image_sets: Arc<Mutex<HashMap<String, image_set::ResidentImageSet>>>,
     is_released: AtomicBool,
     created_at: Instant,
 }
@@ -236,6 +236,7 @@ impl LayerLease {
         layer_to_atlas_map: Arc<Mutex<HashMap<String, u32>>>,
         layer_to_volume_map: Arc<Mutex<HashMap<String, String>>>,
         layer_to_timepoint_map: Arc<Mutex<HashMap<String, Option<usize>>>>,
+        resident_image_sets: Arc<Mutex<HashMap<String, image_set::ResidentImageSet>>>,
     ) -> Self {
         Self {
             inner: Arc::new(LayerLeaseInner {
@@ -245,6 +246,7 @@ impl LayerLease {
                 layer_to_atlas_map,
                 layer_to_volume_map,
                 layer_to_timepoint_map,
+                resident_image_sets,
                 is_released: AtomicBool::new(false),
                 created_at: Instant::now(),
             }),
@@ -309,33 +311,33 @@ impl LayerLeaseInner {
         Some(atlas_index)
     }
 
-    fn release_from_service(
+    async fn release_from_service(
         &self,
         render_service: &mut RenderLoopService,
         atlas_index: u32,
         reason: &'static str,
-    ) -> Option<ReleaseOutcome> {
-        let removed_from_render_state = match render_service.remove_layer_by_atlas(atlas_index) {
-            Ok(removed) => removed,
-            Err(err) => {
-                warn!(
-                    "LayerLease({}) failed to remove render state entry for atlas index {}: {:?}",
-                    self.layer_id, atlas_index, err
-                );
-                false
-            }
-        };
-
-        render_service.volume_atlas.free_layer(atlas_index);
+    ) -> BridgeResult<Option<ReleaseOutcome>> {
+        release_resident_image_set_allocations(
+            &self.layer_id,
+            &self.resident_image_sets,
+            render_service,
+        )
+        .await;
+        let removed_from_render_state = render_service
+            .release_layer_resources(atlas_index)
+            .map_err(|err| BridgeError::GpuError {
+                code: 5080,
+                details: format!("Failed to release layer {}: {err}", self.layer_id),
+            })?;
         info!(
             "LayerLease({}) released atlas index {} (reason: {})",
             self.layer_id, atlas_index, reason
         );
 
-        Some(ReleaseOutcome {
+        Ok(Some(ReleaseOutcome {
             atlas_index,
             render_state_entry_removed: removed_from_render_state,
-        })
+        }))
     }
 
     async fn release_with_service(
@@ -347,7 +349,8 @@ impl LayerLeaseInner {
             return Ok(None);
         };
 
-        Ok(self.release_from_service(render_service, atlas_index, reason))
+        self.release_from_service(render_service, atlas_index, reason)
+            .await
     }
 
     async fn release(&self, reason: &'static str) -> BridgeResult<Option<ReleaseOutcome>> {
@@ -369,7 +372,8 @@ impl LayerLeaseInner {
         })?;
 
         let mut render_service = service_arc.lock().await;
-        Ok(self.release_from_service(&mut render_service, atlas_index, reason))
+        self.release_from_service(&mut render_service, atlas_index, reason)
+            .await
     }
 }
 
@@ -1409,8 +1413,9 @@ pub struct BridgeState {
     pub layer_to_volume_map: Arc<Mutex<HashMap<String, String>>>,
     // Map UI layer ID to the timepoint currently uploaded into the atlas slot.
     pub layer_to_timepoint_map: Arc<Mutex<HashMap<String, Option<usize>>>>,
-    // Active leases guarding atlas allocations
-    pub layer_leases: Arc<Mutex<HashMap<String, LayerLease>>>,
+    // Arc owns the lease itself: dropping a watchdog snapshot must not run
+    // LayerLease::drop while the registry still owns the live allocation.
+    pub layer_leases: Arc<Mutex<HashMap<String, Arc<LayerLease>>>>,
     // Atlas service for brain atlas management
     pub atlas_service: Arc<Mutex<AtlasService>>,
     // Template service for brain template management
@@ -1549,7 +1554,7 @@ impl BridgeState {
                     guard.clone()
                 };
 
-                let leases_snapshot: Vec<(String, LayerLease)> = {
+                let leases_snapshot: Vec<(String, Arc<LayerLease>)> = {
                     let guard = leases.lock().await;
                     guard
                         .iter()
@@ -4932,11 +4937,12 @@ pub async fn request_layer_gpu_resources_for_testing(
                     Arc::clone(&state.layer_to_atlas_map),
                     Arc::clone(&state.layer_to_volume_map),
                     Arc::clone(&state.layer_to_timepoint_map),
+                    Arc::clone(&state.resident_image_sets),
                 );
 
                 {
                     let mut lease_map = state.layer_leases.lock().await;
-                    lease_map.insert(ui_layer_id.clone(), lease);
+                    lease_map.insert(ui_layer_id.clone(), Arc::new(lease));
                 }
             }
 
@@ -4998,11 +5004,6 @@ async fn release_layer_gpu_resources_internal(
                 })?;
         let mut render_loop_service = service_arc.lock().await;
 
-        // The lease owns the primary layer slot bookkeeping, but resident-image-set
-        // rings own additional multi-texture slots outside the lease. Reclaim them
-        // before the lease removes the layer mapping and returns.
-        release_resident_image_set(&layer_id, bridge_state, &mut render_loop_service).await;
-
         match lease
             .release_with_service(&mut render_loop_service, "manual")
             .await?
@@ -5059,7 +5060,7 @@ async fn release_layer_gpu_resources_internal(
 
     // Release the atlas layer
     let removed_from_render_state = render_loop_service
-        .remove_layer_by_atlas(atlas_layer_idx)
+        .release_layer_resources(atlas_layer_idx)
         .map_err(|e| BridgeError::GpuError {
             code: 5080,
             details: format!(
@@ -5074,8 +5075,6 @@ async fn release_layer_gpu_resources_internal(
             layer_id, atlas_layer_idx
         );
     }
-
-    render_loop_service.volume_atlas.free_layer(atlas_layer_idx);
 
     // Remove from our tracking map
     {
@@ -7900,8 +7899,17 @@ async fn release_resident_image_set(
     bridge_state: &BridgeState,
     service: &mut RenderLoopService,
 ) {
+    release_resident_image_set_allocations(layer_id, &bridge_state.resident_image_sets, service)
+        .await;
+}
+
+async fn release_resident_image_set_allocations(
+    layer_id: &str,
+    resident_image_sets: &Mutex<HashMap<String, image_set::ResidentImageSet>>,
+    service: &mut RenderLoopService,
+) {
     let resident = {
-        let mut sets = bridge_state.resident_image_sets.lock().await;
+        let mut sets = resident_image_sets.lock().await;
         sets.remove(layer_id)
     };
     if let Some(resident) = resident {
@@ -8431,7 +8439,7 @@ async fn invalidate_cached_layer_for_render(
 
     let removed_from_render_state =
         service
-            .remove_layer_by_atlas(atlas_index)
+            .release_layer_resources(atlas_index)
             .map_err(|e| BridgeError::GpuError {
                 code: 5080,
                 details: format!(
@@ -8447,7 +8455,6 @@ async fn invalidate_cached_layer_for_render(
         );
     }
 
-    service.volume_atlas.free_layer(atlas_index);
     info!(
         "Invalidated cached GPU resources for layer {} (atlas layer {}, reason: {})",
         layer_id, atlas_index, reason
@@ -13497,6 +13504,161 @@ mod tests {
         vec4d.data[[1, 2, 3, 2]] = 3.5;
         vec4d.data[[1, 2, 3, 3]] = 4.5;
         VolumeSendable::Vec4DF32(vec4d)
+    }
+
+    #[tokio::test]
+    async fn layer_lease_ownership_and_teardown_reclaim_resident_textures() {
+        for route in ["manual", "watchdog", "drop", "invalidate", "fallback"] {
+            let state = BridgeState::default().unwrap();
+            state.ensure_render_loop().await.unwrap();
+            state.volume_registry.lock().await.insert(
+                "volume".into(),
+                make_4d_volume_sendable_with_timeseries(),
+                volume_metadata_for("volume", "f32", bridge_types::VolumeType::TimeSeries4D),
+            );
+            let initial = request_layer_gpu_resources_for_testing(
+                LayerSpec::Volume(VolumeLayerSpec {
+                    id: "layer".into(),
+                    source_resource_id: "volume".into(),
+                    colormap: "gray".into(),
+                    slice_axis: None,
+                    slice_index: None,
+                }),
+                None,
+                &state,
+            )
+            .await
+            .unwrap();
+            let service = state
+                .render_loop_service
+                .lock()
+                .await
+                .as_ref()
+                .unwrap()
+                .clone();
+            let slot = {
+                let mut renderer = service.lock().await;
+                try_resident_swap(
+                    "layer",
+                    "volume",
+                    initial.atlas_layer_index,
+                    Some(0),
+                    1,
+                    &state,
+                    &mut renderer,
+                )
+                .await
+                .unwrap()
+                .expect("resident swap")
+            };
+
+            // This is precisely the watchdog's snapshot-and-drop pattern.
+            let snapshot = state
+                .layer_leases
+                .lock()
+                .await
+                .get("layer")
+                .unwrap()
+                .clone();
+            let observed = Arc::downgrade(&snapshot.inner);
+            drop(snapshot);
+            tokio::task::yield_now().await;
+            assert!(!observed
+                .upgrade()
+                .unwrap()
+                .is_released
+                .load(Ordering::SeqCst));
+            assert!(state.layer_to_atlas_map.lock().await.contains_key("layer"));
+            assert!(
+                service
+                    .lock()
+                    .await
+                    .multi_texture_manager
+                    .as_ref()
+                    .unwrap()
+                    .resident_slot_count()
+                    > 1
+            );
+
+            match route {
+                "manual" => {
+                    assert!(
+                        release_layer_gpu_resources_internal("layer".into(), &state)
+                            .await
+                            .unwrap()
+                            .success
+                    );
+                }
+                "watchdog" => {
+                    let lease = state.layer_leases.lock().await.remove("layer").unwrap();
+                    lease.release("watchdog").await.unwrap();
+                }
+                "drop" => {
+                    let lease = state.layer_leases.lock().await.remove("layer").unwrap();
+                    drop(lease);
+                }
+                "invalidate" => {
+                    let mut renderer = service.lock().await;
+                    invalidate_cached_layer_for_render(
+                        "layer",
+                        slot,
+                        &state,
+                        &mut renderer,
+                        "test",
+                    )
+                    .await
+                    .unwrap();
+                }
+                "fallback" => {
+                    // Model pre-lease cache state without scheduling its Drop cleanup.
+                    let lease = state.layer_leases.lock().await.remove("layer").unwrap();
+                    lease.inner.is_released.store(true, Ordering::SeqCst);
+                    assert!(
+                        release_layer_gpu_resources_internal("layer".into(), &state)
+                            .await
+                            .unwrap()
+                            .success
+                    );
+                }
+                _ => unreachable!(),
+            }
+            tokio::time::timeout(Duration::from_secs(5), async {
+                loop {
+                    if service
+                        .lock()
+                        .await
+                        .multi_texture_manager
+                        .as_ref()
+                        .unwrap()
+                        .resident_slot_count()
+                        == 0
+                    {
+                        break;
+                    }
+                    tokio::time::sleep(Duration::from_millis(10)).await;
+                }
+            })
+            .await
+            .unwrap_or_else(|_| panic!("{route} left resident textures"));
+            assert!(state.resident_image_sets.lock().await.is_empty(), "{route}");
+            assert!(state.layer_to_atlas_map.lock().await.is_empty(), "{route}");
+            assert!(state.layer_to_volume_map.lock().await.is_empty(), "{route}");
+            assert!(
+                state.layer_to_timepoint_map.lock().await.is_empty(),
+                "{route}"
+            );
+            let renderer = service.lock().await;
+            assert_eq!(renderer.active_layer_count(), 0, "{route}");
+            assert_eq!(
+                renderer
+                    .multi_texture_manager
+                    .as_ref()
+                    .unwrap()
+                    .resident_bytes(),
+                0,
+                "{route}"
+            );
+        }
     }
 
     #[tokio::test]

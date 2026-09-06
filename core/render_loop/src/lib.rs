@@ -3311,6 +3311,31 @@ impl RenderLoopService {
         }
     }
 
+    /// Retire a layer and its allocation in the active texture backend.
+    /// The bridge's historical `atlas_index` is a multi-texture slot in world
+    /// space mode, not a layer in `volume_atlas`. A resident ring may already
+    /// have freed that slot; repeated teardown under the same service lock is safe.
+    pub fn release_layer_resources(&mut self, atlas_index: u32) -> Result<bool, RenderLoopError> {
+        let removed = self.remove_layer_by_atlas(atlas_index)?;
+        if self.world_space_enabled {
+            let allocated = self
+                .multi_texture_manager
+                .as_ref()
+                .and_then(|manager| manager.get_texture_info(atlas_index))
+                .is_some();
+            if allocated {
+                self.release_volume(atlas_index)?;
+            }
+        } else {
+            self.volume_atlas.free_layer(atlas_index);
+            self.volume_metadata.remove(&atlas_index);
+            self.volumes
+                .retain(|_, entry| entry.atlas_index != atlas_index);
+            self.invalidate_prepared_layer_state_cache();
+        }
+        Ok(removed)
+    }
+
     /// Whether the imperative render-layer state currently references `atlas_index`.
     pub fn has_render_layer_for_atlas(&self, atlas_index: u32) -> bool {
         self.layer_state_manager
