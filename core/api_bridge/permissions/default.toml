@@ -107,5 +107,7 @@ permissions = [
     "allow-compute-region-stats",
     "allow-sample-set-at-world",
     "allow-cancel-population-sample",
+    "allow-evaluate-population-slice",
+    "allow-release-population-slice",
     "allow-sample-set-trace-at-world"
 ]

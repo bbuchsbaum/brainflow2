@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-release-population-slice"
+description = "Enables the release_population_slice command without any pre-configured scope."
+commands.allow = ["release_population_slice"]
+
+[[permission]]
+identifier = "deny-release-population-slice"
+description = "Denies the release_population_slice command without any pre-configured scope."
+commands.deny = ["release_population_slice"]

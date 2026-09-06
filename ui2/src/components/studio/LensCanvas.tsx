@@ -11,6 +11,7 @@ import type {
 } from '@/types/studio';
 import { CompareLens } from './CompareLens';
 import { DeckLens } from './DeckLens';
+import { PopulationLens } from './PopulationLens';
 
 interface LensCanvasProps {
   activeLens: StudioLensType;
@@ -78,7 +79,9 @@ export function LensCanvas({
 }: LensCanvasProps) {
   return (
     <div className="flex h-full min-h-0 flex-col">
-      {activeLens === 'compare' ? (
+      {activeLens === 'population' ? (
+        <PopulationLens />
+      ) : activeLens === 'compare' ? (
         <CompareLens
           activeSet={activeSet}
           activeFeature={activeFeature}

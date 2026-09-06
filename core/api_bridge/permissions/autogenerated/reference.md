@@ -108,6 +108,8 @@ Default permissions for api-bridge plugin
 - `allow-compute-region-stats`
 - `allow-sample-set-at-world`
 - `allow-cancel-population-sample`
+- `allow-evaluate-population-slice`
+- `allow-release-population-slice`
 - `allow-sample-set-trace-at-world`
 
 ## Permission Table
@@ -557,6 +559,32 @@ Enables the create_surface_sampler command without any pre-configured scope.
 <td>
 
 Denies the create_surface_sampler command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:allow-evaluate-population-slice`
+
+</td>
+<td>
+
+Enables the evaluate_population_slice command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:deny-evaluate-population-slice`
+
+</td>
+<td>
+
+Denies the evaluate_population_slice command without any pre-configured scope.
 
 </td>
 </tr>
@@ -1935,6 +1963,32 @@ Enables the release_layer_gpu_resources command without any pre-configured scope
 <td>
 
 Denies the release_layer_gpu_resources command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:allow-release-population-slice`
+
+</td>
+<td>
+
+Enables the release_population_slice command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:deny-release-population-slice`
+
+</td>
+<td>
+
+Denies the release_population_slice command without any pre-configured scope.
 
 </td>
 </tr>

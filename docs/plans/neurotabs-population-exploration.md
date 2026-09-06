@@ -8,6 +8,8 @@
 
 **Scope:** Extend NeuroTabs / Set Studio within Brainflow. This document sets the next development priorities; it does not mark the proposed experience implemented.
 
+**Planning clarification (2026-09-06):** Linked plotting across sets is part of the product architecture from M0. Full plot authoring follows the first population experience; it does not require waiting for the later surface, parcel, or model expansions. See the plotting delivery steps in section 5. Implementation progress and remaining acceptance work are tracked separately in the [implementation status](neurotabs-implementation-status.md).
+
 ## 1. Product definition
 
 Build an instrument for exploring populations of brain maps in which every summary remains connected to its observations. A researcher can inspect an average, see the distribution and actual people behind it, reorganize those people, compare groups, and examine sensitivity while retaining anatomical and population context.
@@ -177,6 +179,18 @@ Keep the calculation order visible: reduce the spatial probe within each observa
 Extend the existing [plot grammar](plot-grammar-sample-frame.md), `SampleProvider`, `SampleFrame`, `PlotSpec` and `plotSpecStore`. Current types already provide column roles, encodings and some transforms; multiple source bindings, layered specifications, grouped temporal sampling and explicit uncertainty contracts need extension and validation. Retain source IDs through transforms so any summary can reveal its contributing observations. Save the sampling query and plot recipe with provenance, and support export of the tidy sampled data and plot.
 
 Coalesce hover requests and cache sampled frames by their full query identity. Recoloring, faceting or regrouping an unchanged frame should not reload volumes or resample the probe. Temporal sampling across members must use bounded backend work, cancellation and revision checks; stale hover completions cannot overwrite a pinned plot. Changes of probe, feature, membership or temporal alignment invalidate the relevant results. Warm plot updates get the same end-to-end latency and memory measurements as the brain views.
+
+Deliver this plotting path in three steps:
+
+| Step | User experience | Contract established |
+|---|---|---|
+| **P0 — reserve in M0** | Define what a sampled row represents before adding chart controls | Observation and participant identity, named-set membership, probe identity, feature units, physical time versus ordered categories, validity, and contributor lineage |
+| **P1 — exercise in M1** | Hover or pin a point/region; see everyone's values; click to focus a map; brush to select observations | One shared sampling and selection path for the brain, plot, and table; cancellation and revision checks; no accidental cohort changes from focus |
+| **P2 — deliver after M1** | Choose named sets; layer individual trajectories with grouped summaries; map color and facets; save several pinned plots and export their data/recipes | Multiple bindings, declared temporal alignment, participant-aware summaries, explicit band meanings, and regrouping from cached samples |
+
+A concrete P2 acceptance story is: **pin an ROI → show participant trajectories over measured time → color by treatment → facet by condition → add group means and a named uncertainty method → click one trajectory to inspect that person's map at that time → select a subgroup → watch its brain summary and plot update together**. The spatial probe stays pinned, focusing a trajectory leaves membership unchanged, and group summaries retain access to the actual contributing samples.
+
+Start plot authoring with a small set of editable presets and a compact mapping panel: data binding, x/y, line identity, color, facets, and summary layers. Preserve an extensible declarative recipe underneath. A free-form plotting language, arbitrary user code execution, and an exhaustive ggplot2 implementation are separate scope decisions; none is necessary to deliver the linked exploratory workflow.
 
 ## 6. Similarity movies, groups and decompositions
 

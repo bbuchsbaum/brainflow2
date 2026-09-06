@@ -530,7 +530,12 @@ export interface StudioBootstrapPayload {
 
 function bootstrapPayloadForCandidate(candidate: StudioImportCandidate): StudioBootstrapPayload {
   const compareReady = isCompareReadyContract(candidate.contract);
-  const activeLens = compareReady ? 'compare' : 'deck';
+  const activeLens =
+    compareReady && candidate.set.supportKind === 'volume'
+      ? 'population'
+      : compareReady
+        ? 'compare'
+        : 'deck';
   const preferredExpressionId =
     activeLens === 'compare'
       ? (candidate.expressions.find((expression) => expression.kind === 'comparison')?.id ??

@@ -5,6 +5,7 @@ import type { PopulationState } from '@/types/population';
 import { resolvePopulation } from '@/services/studio/populationContext';
 import type {
   SpatialFieldSetSummary,
+  StudioLensType,
   StudioCohortSummary,
   StudioDesignFilter,
   StudioFieldExpressionSummary,
@@ -20,7 +21,7 @@ export interface StudioDerivedSnapshotInput {
   populationState: PopulationState;
   activeSetId: string | null;
   activeFeatureId: string | null;
-  activeLens: 'deck' | 'compare' | 'pivot-matrix' | 'atlas';
+  activeLens: StudioLensType;
   activeMemberId: string | null;
   compareCohortId: string | null;
   activeScopeCohortId: string | null;

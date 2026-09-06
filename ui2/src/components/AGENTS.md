@@ -86,3 +86,9 @@ React components organized by feature and function. Contains all UI elements inc
 - `studio/PopulationProbePanel.tsx` uses the existing Studio state and shared `PlotEncoder`. Its service owns sampling, revision guards and mutations. Point focus does not change membership; Shift-click/keyboard selection does not resample the probe.
 - `EncoderContext.datumLink` connects original point-row IDs to focus and selection. Preserve row indices when dropping unavailable measurements; do not infer identity from a filtered point index. Axes must not intercept pointer events.
 - `population-harness.html` and `src/devHarness/populationHarness.tsx` exercise the real panel/encoder with synthetic values and are excluded from production entry points. This harness does not establish native sampling or brain-view acceptance.
+
+## Live population view
+
+- `studio/PopulationLens.tsx` uses `ReusableSliceViewport` and `SliceViewerImageSurface` directly because its service owns visible-support bitmaps instead of a registered GPU volume layer. This preserves the common placement, world-click and crosshair geometry without allocating an independent full viewer per observation.
+- The population center uses intrinsic height inside Studio's scroll area; a fixed 480 px lens box overlaps controls/plots when the paired images stack on narrow windows. Keep both image identities and previous-query labels visible.
+- Mean and focused observation share a stable value scale. Nonnegative descriptive summaries have their own scale. Display original observations and identify observation-level sensitivity explicitly until participant grouping is implemented.

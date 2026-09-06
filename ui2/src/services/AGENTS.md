@@ -112,3 +112,9 @@ Business logic and API integration layer for the Brainflow frontend. Contains 41
 - Query identity includes workspace/import/set/feature, context sources and the spatial probe. Focus, working selection and presentation changes reuse the frame. Keep large frames and image arrays out of Zustand.
 - `studio/PopulationProbeActions.ts` owns population panel store mutations and the disposable hover subscription; pure query/summary calculations remain in the controller module.
 - Immutable saved-query source freezing, dataset-scoped cache teardown, participant/temporal semantics and native hover provenance remain explicit follow-up work in `docs/plans/neurotabs-implementation-status.md`.
+
+## Live population fields
+
+- `studio/PopulationSliceService.ts` is owned by a mounted Population lens, not a global singleton. It owns latest-query coalescing, native cancellation/release, sampled arrays and bitmap leases. React view leases keep old bitmaps alive until committed views release them. Do not put the arrays or images in Zustand.
+- `buildPopulationSource` is shared by probe and field requests; unresolved/ambiguous bindings fail consistently. Query operands distinguish focus from working membership. Preview-without alters only the field request and currently means one observation, not all rows for a participant.
+- The Studio coordinator must bypass file/GPU member loading and compare-file materialization while the Population lens owns display. Navigation and hover stay in the service layer; pinned probes remain fixed during slice navigation.

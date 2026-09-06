@@ -521,8 +521,8 @@ describe('importReducer — confirm', () => {
     const bootstrap = confirmed.effects.find((effect) => effect.type === 'BOOTSTRAP_STUDIO');
     expect(bootstrap).toBeTruthy();
     if (bootstrap?.type === 'BOOTSTRAP_STUDIO') {
-      // Compare-ready candidate lands on the compare lens.
-      expect(bootstrap.payload.selection?.activeLens).toBe('compare');
+      // An audited volume set opens the live population experience.
+      expect(bootstrap.payload.selection?.activeLens).toBe('population');
       expect(bootstrap.payload.set.id).toBe('fixture-set');
       expect(bootstrap.payload.set.importContract).toBe(candidate.contract);
     }

@@ -127,5 +127,7 @@ bridge_commands! {
     compute_region_stats,
     sample_set_at_world,
     cancel_population_sample,
+    evaluate_population_slice,
+    release_population_slice,
     sample_set_trace_at_world,
 }

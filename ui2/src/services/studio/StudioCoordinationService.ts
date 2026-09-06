@@ -190,6 +190,14 @@ export class StudioCoordinationService {
       }
     }
 
+    if (derived.activeLens === 'population') {
+      // The live population service owns visible slices and actual-member samples.
+      // Focus changes here must not create file-backed GPU layers or exports.
+      this.cancelActiveMaterialization();
+      this.lastAutoCompareKey = null;
+      if (state.activeArtifact) useSetStudioStore.getState().setActiveArtifact(null);
+      return;
+    }
     void this.ensureMemberDisplayed(derived.activeSet, derived.activeMemberId);
 
     // Dataset bootstrap owns filter reset atomically. Mounting this service

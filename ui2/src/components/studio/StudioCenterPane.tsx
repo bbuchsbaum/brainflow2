@@ -222,7 +222,7 @@ export function StudioCenterPane() {
         onSelectCompareCohort={setCompareCohort}
       />
 
-      <div className="min-h-[480px] flex-1">
+      <div className={activeLens === 'population' ? 'shrink-0' : 'min-h-[480px] flex-1'}>
         <LensCanvas
           activeLens={activeLens}
           activeSet={activeSet}

@@ -1,8 +1,5 @@
 import React from 'react';
-import type {
-  StudioCohortSummary,
-  StudioLensType,
-} from '@/types/studio';
+import type { StudioCohortSummary, StudioLensType } from '@/types/studio';
 
 interface LensOption {
   id: StudioLensType;
@@ -12,6 +9,7 @@ interface LensOption {
 }
 
 const LENS_OPTIONS: LensOption[] = [
+  { id: 'population', label: 'Population', available: true },
   { id: 'deck', label: 'Deck', available: true },
   { id: 'compare', label: 'Compare', available: true },
   { id: 'pivot-matrix', label: 'Pivot Matrix', available: false, hint: 'Phase 2' },

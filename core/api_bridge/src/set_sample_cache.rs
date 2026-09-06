@@ -48,7 +48,9 @@ impl FileStamp {
 /// Optimistic whole-query consistency check. Capture before any member is
 /// sampled and validate before publication. Snapshot digests still identify the
 /// decoded bytes; file stamps do not prove adversarial immutability.
+#[derive(Clone)]
 pub struct QuerySourceGuard(Vec<SourceObservation>);
+#[derive(Clone)]
 struct SourceObservation {
     path: PathBuf,
     observed: Result<(PathBuf, FileStamp), String>,

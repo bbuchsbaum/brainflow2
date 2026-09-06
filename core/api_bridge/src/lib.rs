@@ -1,5 +1,6 @@
 pub mod atlas_roi;
 mod population_sampling;
+mod population_slice;
 mod set_sample_cache;
 pub use atlas_roi::AtlasRoiLocation;
 use population_sampling::{SampleCancellation, SampleTicket};
@@ -1441,6 +1442,7 @@ pub struct BridgeState {
     // Byte-bounded decoded payloads; source snapshot identity is retained for plots.
     pub set_sample_cache: set_sample_cache::SetSampleCache,
     population_sampling: population_sampling::PopulationSampling,
+    population_slice: population_slice::PopulationSliceEngine,
     // Precomputed volume->surface samplers keyed by sampler handle (vol2surf M5).
     // Built once per (surface, template grid); reused across timepoints/volumes.
     pub surface_samplers: Arc<Mutex<HashMap<String, SurfaceSamplerEntry>>>,
@@ -1483,6 +1485,7 @@ impl BridgeState {
             pending_remote_auth: Arc::new(Mutex::new(HashMap::new())),
             set_sample_cache: set_sample_cache::SetSampleCache::default(),
             population_sampling: population_sampling::PopulationSampling::default(),
+            population_slice: population_slice::PopulationSliceEngine::default(),
             surface_samplers: Arc::new(Mutex::new(HashMap::new())),
             resident_image_sets: Arc::new(Mutex::new(HashMap::new())),
         }
@@ -11867,7 +11870,28 @@ fn read_member_frame_at_voxel(
         VolumeSendable::Vec4DU8(volume) => {
             volume.data.get([x, y, z, frame]).map(|&value| value as f32)
         }
-        _ if frame == 0 => read_stack_at_voxel(volume, x, y, z)?.first().copied(),
+        VolumeSendable::VolF32(vol, _) if frame == 0 => vol.get_at_coords(&[x, y, z]),
+        VolumeSendable::VolF64(vol, _) if frame == 0 => {
+            vol.get_at_coords(&[x, y, z]).map(|value| value as f32)
+        }
+        VolumeSendable::VolI16(vol, _) if frame == 0 => {
+            vol.get_at_coords(&[x, y, z]).map(|value| value as f32)
+        }
+        VolumeSendable::VolI32(vol, _) if frame == 0 => {
+            vol.get_at_coords(&[x, y, z]).map(|value| value as f32)
+        }
+        VolumeSendable::VolU8(vol, _) if frame == 0 => {
+            vol.get_at_coords(&[x, y, z]).map(|value| value as f32)
+        }
+        VolumeSendable::VolU16(vol, _) if frame == 0 => {
+            vol.get_at_coords(&[x, y, z]).map(|value| value as f32)
+        }
+        VolumeSendable::VolI8(vol, _) if frame == 0 => {
+            vol.get_at_coords(&[x, y, z]).map(|value| value as f32)
+        }
+        VolumeSendable::VolU32(vol, _) if frame == 0 => {
+            vol.get_at_coords(&[x, y, z]).map(|value| value as f32)
+        }
         _ => None,
     }
 }
@@ -12818,6 +12842,33 @@ pub async fn sample_set_trace_at_world_for_testing(
         &SampleCancellation::default(),
     )
     .await
+}
+
+/// Evaluate only the native support needed by a visible population plane.
+#[command]
+async fn evaluate_population_slice(
+    request: population_slice::PopulationSliceRequest,
+    ticket: Option<SampleTicket>,
+    state: State<'_, BridgeState>,
+) -> BridgeResult<population_slice::PopulationSliceResult> {
+    let cancellation = ticket
+        .as_ref()
+        .map(|ticket| state.population_sampling.begin(ticket))
+        .transpose()?
+        .unwrap_or_default();
+    state
+        .population_slice
+        .evaluate(request, state.inner(), cancellation)
+        .await
+}
+
+/// Release the plane matrix owned by a particular mounted population view.
+#[command]
+async fn release_population_slice(
+    context_key: String,
+    state: State<'_, BridgeState>,
+) -> BridgeResult<()> {
+    state.population_slice.release(&context_key).await
 }
 
 /// Cancellation is idempotent and may arrive before its matching sample call.

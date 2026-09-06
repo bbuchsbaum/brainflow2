@@ -53,14 +53,8 @@ export function buildPopulationProbeQuery(
   const set = state.selection.activeSetId ? state.sets[state.selection.activeSetId] : null;
   const probe = state.population.pinnedProbe ?? state.population.hoverProbe;
   if (!set || !probe) return { query: null, issue: null };
-  const context = resolvePopulationContext(state);
-  if (context.issue) return { query: null, issue: context.issue };
-  if (set.supportKind !== 'volume' || setImportReadiness(set) !== 'compare_ready') {
-    return {
-      query: null,
-      issue: 'Population probes require volume observations with an audited common support.',
-    };
-  }
+  const resolved = buildPopulationSource(state, workspaceId);
+  if (!resolved.source) return { query: null, issue: resolved.issue };
   const expectedSupport = populationSupportKey(state, workspaceId);
   if (probe.supportKey !== expectedSupport)
     return {
@@ -68,11 +62,36 @@ export function buildPopulationProbeQuery(
       issue:
         'This probe belongs to another dataset or workspace. Pin a location in the current view.',
     };
+  const { datasetKey, members } = resolved.source;
+  const request: SampleRequest = {
+    datasetId: set.id,
+    reduce: probe.reduce,
+    locus: { kind: 'set', members, worldMm: [...probe.worldMm], radiusMm: probe.radiusMm },
+  };
+  const key = JSON.stringify([datasetKey, probe.supportKey, request]);
+  return { query: { key, datasetKey, probe, request }, issue: null };
+}
+
+/** Shared audited source binding for plots and live population fields. */
+export function buildPopulationSource(
+  state: PopulationContextHost & { readonly population: PopulationState },
+  workspaceId: string,
+) {
+  const set = state.selection.activeSetId ? state.sets[state.selection.activeSetId] : null;
+  if (!set) return { source: null, issue: null };
+  const context = resolvePopulationContext(state);
+  if (context.issue) return { source: null, issue: context.issue };
+  if (set.supportKind !== 'volume' || setImportReadiness(set) !== 'compare_ready') {
+    return {
+      source: null,
+      issue: 'Population probes require volume observations with an audited common support.',
+    };
+  }
   const members: { memberId: string; sourcePath: string }[] = [];
   for (const id of context.memberIds) {
     const summaries = set.memberSummaries.filter((candidate) => candidate.id === id);
     if (summaries.length !== 1)
-      return { query: null, issue: `Observation ${id} requires exactly one source record.` };
+      return { source: null, issue: `Observation ${id} requires exactly one source record.` };
     const member = summaries[0];
     const bindings =
       member?.bindings?.filter(
@@ -92,7 +111,7 @@ export function buildPopulationProbeQuery(
       )
     ) {
       return {
-        query: null,
+        source: null,
         issue: `Observation ${id} has an ambiguous, unavailable or frame-selected feature. Resolve its source before probing.`,
       };
     }
@@ -103,7 +122,7 @@ export function buildPopulationProbeQuery(
           ? member?.sourcePath
           : null;
     if (!sourcePath?.trim())
-      return { query: null, issue: `Observation ${id} has no source for the selected feature.` };
+      return { source: null, issue: `Observation ${id} has no source for the selected feature.` };
     members.push({ memberId: id, sourcePath });
   }
   const datasetKey = JSON.stringify([
@@ -112,13 +131,7 @@ export function buildPopulationProbeQuery(
     set.id,
     state.selection.activeFeatureId,
   ]);
-  const request: SampleRequest = {
-    datasetId: set.id,
-    reduce: probe.reduce,
-    locus: { kind: 'set', members, worldMm: [...probe.worldMm], radiusMm: probe.radiusMm },
-  };
-  const key = JSON.stringify([datasetKey, probe.supportKey, request]);
-  return { query: { key, datasetKey, probe, request }, issue: null };
+  return { source: { datasetKey, setId: set.id, members }, issue: null };
 }
 
 export function populationSupportKey(

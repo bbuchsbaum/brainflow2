@@ -184,6 +184,35 @@ describe('StudioCoordinationService materialization jobs', () => {
     service.stop();
   });
 
+  it('keeps population focus changes out of file loading and materialization', () => {
+    useSetStudioStore.getState().setActiveLens('population');
+    mocks.ensureMemberDisplayed.mockClear();
+    mocks.materializeComparePanes.mockClear();
+    const selection = useSetStudioStore.getState().population.working;
+    useSetStudioStore.getState().setActiveMember('sub002');
+    expect(mocks.ensureMemberDisplayed).not.toHaveBeenCalled();
+    expect(mocks.materializeComparePanes).not.toHaveBeenCalled();
+    expect(useSetStudioStore.getState().population.working).toBe(selection);
+    expect(useSetStudioStore.getState().activeArtifact).toBeNull();
+  });
+
+  it('restarts a canceled comparison when returning from the population view', async () => {
+    const first = deferred<StudioComparePaneSpec[]>();
+    const second = deferred<StudioComparePaneSpec[]>();
+    mocks.materializeComparePanes.mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise);
+    useSetStudioStore.getState().setActiveLens('compare');
+    expect(mocks.materializeComparePanes).toHaveBeenCalledTimes(1);
+    const signal = mocks.materializeComparePanes.mock.calls[0][1].signal;
+    useSetStudioStore.getState().setActiveLens('population');
+    expect(signal.aborted).toBe(true);
+    useSetStudioStore.getState().setActiveLens('compare');
+    expect(mocks.materializeComparePanes).toHaveBeenCalledTimes(2);
+    first.resolve([comparePane('/old.nii', 'old')]);
+    second.resolve([comparePane('/fresh.nii', 'fresh')]);
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(useSetStudioStore.getState().comparePaneSpecs[0]?.binding?.sourcePath).toBe('/fresh.nii');
+  });
+
   it('ignores stale compare materialization responses after a newer request starts', async () => {
     const first = deferred<StudioComparePaneSpec[]>();
     const second = deferred<StudioComparePaneSpec[]>();
@@ -251,12 +280,20 @@ describe('StudioCoordinationService population transitions', () => {
     useSetStudioStore.setState(useSetStudioStore.getInitialState(), true);
     mocks.ensureMemberDisplayed.mockReset().mockResolvedValue(undefined);
     bootstrapStore();
-    useSetStudioStore.setState({ sets: { [set.id]: { ...set,
-      designTablePreview: { columns: ['subject', 'group'], rows: [
-        { id: 'sub001', cells: ['sub001', 'A'] },
-        { id: 'sub002', cells: ['sub002', 'B'] },
-      ] },
-    } } });
+    useSetStudioStore.setState({
+      sets: {
+        [set.id]: {
+          ...set,
+          designTablePreview: {
+            columns: ['subject', 'group'],
+            rows: [
+              { id: 'sub001', cells: ['sub001', 'A'] },
+              { id: 'sub002', cells: ['sub002', 'B'] },
+            ],
+          },
+        },
+      },
+    });
     service = new StudioCoordinationService();
   });
   afterEach(() => service.stop());
@@ -275,7 +312,10 @@ describe('StudioCoordinationService population transitions', () => {
     service.start();
     expect(useSetStudioStore.getState().activeDesignFilters).toEqual(filters);
     expect(useSetStudioStore.getState().selection.activeMemberId).toBe('sub002');
-    expect(mocks.ensureMemberDisplayed).toHaveBeenCalledWith(expect.objectContaining({ id: 'set-a' }), 'sub002');
+    expect(mocks.ensureMemberDisplayed).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'set-a' }),
+      'sub002',
+    );
   });
 
   it('keeps metadata filters even when search produces no quick-filter suggestions', () => {

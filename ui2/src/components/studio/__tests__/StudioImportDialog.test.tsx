@@ -654,7 +654,7 @@ describe('StudioImportDialog', () => {
     expect(state.importDialog.isOpen).toBe(false);
     expect(state.sets['folder-study']?.memberSummaries[0]?.bindings?.[0]?.role).toBe('tstat');
     expect(state.selection.activeSetId).toBe('folder-study');
-    expect(state.selection.activeLens).toBe('compare');
+    expect(state.selection.activeLens).toBe('population');
   });
 
   it('exports a clean local discovery candidate as a NeuroTabs manifest', async () => {

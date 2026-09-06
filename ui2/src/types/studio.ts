@@ -82,7 +82,7 @@ export type {
   StudioSupportKind,
 };
 
-export type StudioLensType = 'deck' | 'compare' | 'pivot-matrix' | 'atlas';
+export type StudioLensType = 'population' | 'deck' | 'compare' | 'pivot-matrix' | 'atlas';
 export type StudioImportSource = 'backend' | 'fallback' | null;
 export type StudioSessionSourceKind = 'demo' | 'imported';
 export type StudioArtifactKind = 'member' | 'compare-pane';

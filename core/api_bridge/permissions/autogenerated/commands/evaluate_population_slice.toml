@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-evaluate-population-slice"
+description = "Enables the evaluate_population_slice command without any pre-configured scope."
+commands.allow = ["evaluate_population_slice"]
+
+[[permission]]
+identifier = "deny-evaluate-population-slice"
+description = "Denies the evaluate_population_slice command without any pre-configured scope."
+commands.deny = ["evaluate_population_slice"]
