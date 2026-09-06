@@ -29,25 +29,65 @@ export interface PopulationProbeSnapshot {
   readonly error: string | null;
 }
 
-/** Descriptive mean of the selected observation values at this exact probe. */
+/** Descriptive distribution of finite, selected per-observation probe values.
+ * Spatial reduction has already occurred in the sampler. Sign shares use these
+ * observed responses, with an inclusive near-zero interval in their units. */
+export function describePopulationProbe(
+  frame: SampleFrame | undefined,
+  selected: ReadonlySet<string>,
+  nearZeroLimit = 0,
+) {
+  if (!Number.isFinite(nearZeroLimit) || nearZeroLimit < 0)
+    throw new Error('The near-zero limit must be finite and nonnegative.');
+  let count = 0,
+    mean = 0,
+    meanAbsolute = 0,
+    unavailable = 0,
+    selectedMissing = 0;
+  let positive = 0,
+    negative = 0,
+    nearZero = 0;
+  for (const row of frame?.rows ?? []) {
+    const isSelected = selected.has(String(row.member));
+    if (typeof row.value !== 'number' || !Number.isFinite(row.value)) {
+      unavailable++;
+      if (isSelected) selectedMissing++;
+      continue;
+    }
+    if (!isSelected) continue;
+    const value = row.value;
+    count++;
+    // A difference of opposite finite signs can overflow double precision.
+    // Same-sign differences remain bounded; opposite signs use weighted terms.
+    mean =
+      mean < 0 !== value < 0
+        ? mean * ((count - 1) / count) + value / count
+        : mean + (value - mean) / count;
+    meanAbsolute += (Math.abs(value) - meanAbsolute) / count;
+    if (value > nearZeroLimit) positive++;
+    else if (value < -nearZeroLimit) negative++;
+    else nearZero++;
+  }
+  return {
+    mean: count ? mean : null,
+    meanAbsolute: count ? meanAbsolute : null,
+    cancellation: count ? Math.max(0, meanAbsolute - Math.abs(mean)) : null,
+    count,
+    unavailable,
+    selectedMissing,
+    positive,
+    negative,
+    nearZero,
+  };
+}
+
+/** Compatibility shape for existing callers of the selected mean readout. */
 export function summarizePopulationProbe(
   frame: SampleFrame | undefined,
   selected: ReadonlySet<string>,
 ) {
-  let count = 0;
-  let mean = 0;
-  let unavailable = 0;
-  for (const row of frame?.rows ?? []) {
-    if (typeof row.value !== 'number' || !Number.isFinite(row.value)) {
-      unavailable++;
-      continue;
-    }
-    if (selected.has(String(row.member))) {
-      count++;
-      mean += (row.value - mean) / count;
-    }
-  }
-  return { mean: count ? mean : null, count, unavailable };
+  const { mean, count, unavailable } = describePopulationProbe(frame, selected);
+  return { mean, count, unavailable };
 }
 
 /** Pure query definition. Focus, working selection, reference and presentation

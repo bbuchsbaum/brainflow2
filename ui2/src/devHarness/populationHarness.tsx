@@ -73,11 +73,15 @@ const slices = new PopulationSliceService(
       const summary =
         request.summary === 'coverage'
           ? values.length
-          : request.summary === 'cancellation'
-            ? values.reduce((sum, v) => sum + Math.abs(v), 0) / values.length - Math.abs(mean)
-            : request.summary === 'sampleSd'
-              ? Math.sqrt(values.reduce((sum, v) => sum + (v - mean) ** 2, 0) / (values.length - 1))
-              : mean;
+          : request.summary === 'meanAbsolute'
+            ? values.reduce((sum, v) => sum + Math.abs(v), 0) / values.length
+            : request.summary === 'cancellation'
+              ? values.reduce((sum, v) => sum + Math.abs(v), 0) / values.length - Math.abs(mean)
+              : request.summary === 'sampleSd'
+                ? Math.sqrt(
+                    values.reduce((sum, v) => sum + (v - mean) ** 2, 0) / (values.length - 1),
+                  )
+                : mean;
       return {
         plane: {
           origin_mm: [-31.5, 31.5, request.crosshairMm[2]],

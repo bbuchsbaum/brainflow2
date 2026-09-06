@@ -37,6 +37,7 @@ const names: Record<PopulationSummary, string> = {
   mean: 'Mean',
   sampleSd: 'Observed sample SD',
   cancellation: 'Cancellation',
+  meanAbsolute: 'Mean absolute magnitude',
   coverage: 'Coverage',
 };
 
@@ -611,7 +612,7 @@ export function PopulationLens({
       )}
       <p className="text-xs text-muted-foreground">
         Click either image to pin a location. Mean and individual share the blue–white–red effect
-        scale; spread, cancellation and coverage use a separate gold scale. Scales stay fixed while
+        scale; magnitude, spread, cancellation and coverage use a separate gold scale. Scales stay fixed while
         browsing.
       </p>
     </section>

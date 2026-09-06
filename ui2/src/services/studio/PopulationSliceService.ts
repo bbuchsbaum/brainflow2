@@ -7,7 +7,7 @@ import { buildPopulationSource, populationSupportKey } from './PopulationProbeCo
 import { resolvePopulation } from './populationContext';
 import type { ViewPlane } from '@/types/coordinates';
 
-export type PopulationSummary = 'mean' | 'sampleSd' | 'cancellation' | 'coverage';
+export type PopulationSummary = 'mean' | 'sampleSd' | 'meanAbsolute' | 'cancellation' | 'coverage';
 export type PopulationOrientation = 'axial' | 'coronal' | 'sagittal';
 export interface PopulationSliceRequest {
   contextKey: string;

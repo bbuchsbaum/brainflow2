@@ -24,6 +24,7 @@ const MAX_CUTOUT_DIM: u32 = 64;
 pub enum SummaryKind {
     Mean,
     SampleSd,
+    MeanAbsolute,
     Cancellation,
     Coverage,
 }
@@ -596,6 +597,7 @@ fn reduce_plane(
             match request.summary {
                 SummaryKind::Mean => s.mean,
                 SummaryKind::SampleSd => s.sample_sd,
+                SummaryKind::MeanAbsolute => s.mean_absolute,
                 SummaryKind::Cancellation => s.cancellation,
                 SummaryKind::Coverage => Some(s.valid_count as f64),
             }
@@ -740,6 +742,11 @@ mod tests {
         assert!(cancellation.source_cache_hit);
         assert!(finite(&cancellation.summary).iter().all(|v| *v == 1.));
         assert!(finite(&cancellation.focused).iter().all(|v| *v == -1.));
+        req.summary = SummaryKind::MeanAbsolute;
+        let magnitude = evaluate(&state, req.clone()).await;
+        assert!(magnitude.source_cache_hit);
+        assert!(finite(&magnitude.summary).iter().all(|v| *v == 2.));
+        assert!(finite(&magnitude.focused).iter().all(|v| *v == -1.));
         req.summary = SummaryKind::SampleSd;
         let sd = evaluate(&state, req.clone()).await;
         assert!(finite(&sd.summary)
@@ -756,6 +763,33 @@ mod tests {
         assert!(empty.summary.iter().all(|v| v.is_nan()));
         assert!(empty.valid_counts.iter().all(|&n| n == 0));
         assert!(empty.cached_bytes < MAX_BYTES);
+    }
+
+    #[tokio::test]
+    async fn population_slice_magnitude_keeps_finite_counts_and_empty_is_unavailable() {
+        let sources = vec![
+            TestSource::new(&[3, 3, 3], &[f32::NAN; 27]),
+            TestSource::new(&[3, 3, 3], &[0.; 27]),
+            TestSource::new(&[3, 3, 3], &[-4.; 27]),
+        ];
+        let state = BridgeState::default().unwrap();
+        let mut req = request(&sources);
+        // Pin the public wire spelling as well as the numerical operator.
+        req.summary = serde_json::from_str("\"meanAbsolute\"").unwrap();
+        let magnitude = evaluate(&state, req.clone()).await;
+        assert!(magnitude.summary.iter().all(|&value| value == 2.));
+        assert!(magnitude.valid_counts.iter().all(|&count| count == 2));
+        req.working_member_ids = vec!["person-1".into()];
+        let zero = evaluate(&state, req.clone()).await;
+        assert!(zero.source_cache_hit);
+        assert!(zero.summary.iter().all(|&value| value == 0.));
+        req.working_member_ids = vec!["person-0".into()];
+        let missing = evaluate(&state, req.clone()).await;
+        assert!(missing.summary.iter().all(|value| value.is_nan()));
+        req.working_member_ids.clear();
+        let empty = evaluate(&state, req).await;
+        assert!(empty.summary.iter().all(|value| value.is_nan()));
+        assert!(empty.valid_counts.iter().all(|&count| count == 0));
     }
 
     #[tokio::test]

@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   PopulationProbeController,
   summarizePopulationProbe,
+  describePopulationProbe,
   buildPopulationProbeQuery,
   populationSupportKey,
   type PopulationProbeQuery,
@@ -260,4 +261,78 @@ it('fits presentation once without sampling, retains it during probe changes, an
   controller.request(query(1, 'new dataset'));
   expect(controller.getSnapshot().arrangement).toBeNull();
   controller.stop();
+});
+
+describe('observed sign and magnitude distribution', () => {
+  const describeValues = (values: (number | null)[], epsilon = 0) =>
+    describePopulationProbe(
+      { ...frame(0), rows: values.map((value, i) => ({ member: String(i), value })) },
+      new Set(values.map((_, i) => String(i))),
+      epsilon,
+    );
+  it('distinguishes shared, opposing and minority-driven populations with the same mean', () => {
+    const shared = describeValues(Array(80).fill(1));
+    const opposing = describeValues([...Array(40).fill(3), ...Array(40).fill(-1)]);
+    const minority = describeValues([...Array(8).fill(10), ...Array(72).fill(0)]);
+    for (const result of [shared, opposing, minority]) expect(result.mean).toBeCloseTo(1, 12);
+    expect(shared).toMatchObject({
+      meanAbsolute: 1,
+      cancellation: 0,
+      positive: 80,
+      negative: 0,
+      nearZero: 0,
+    });
+    expect(opposing.meanAbsolute).toBeCloseTo(2, 12);
+    expect(opposing.cancellation).toBeCloseTo(1, 12);
+    expect(opposing).toMatchObject({ positive: 40, negative: 40, nearZero: 0 });
+    expect(minority).toMatchObject({ positive: 8, negative: 0, nearZero: 72, cancellation: 0 });
+  });
+  it('includes interval endpoints, distinguishes missing from zero, and uses finite selected denominators', () => {
+    const result = describeValues([-2, -1, 0, 1, 2, null, NaN], 1);
+    expect(result).toMatchObject({
+      positive: 1,
+      negative: 1,
+      nearZero: 3,
+      count: 5,
+      selectedMissing: 2,
+    });
+    const subset = describePopulationProbe(
+      {
+        ...frame(0),
+        rows: [
+          { member: 'a', value: 0 },
+          { member: 'b', value: null },
+          { member: 'c', value: 2 },
+        ],
+      },
+      new Set(['a', 'b']),
+      0,
+    );
+    expect(subset).toMatchObject({
+      count: 1,
+      selectedMissing: 1,
+      positive: 0,
+      negative: 0,
+      nearZero: 1,
+      mean: 0,
+      meanAbsolute: 0,
+      cancellation: 0,
+    });
+    expect(describeValues([null])).toMatchObject({
+      count: 0,
+      mean: null,
+      meanAbsolute: null,
+      cancellation: null,
+    });
+    expect(describePopulationProbe(frame(3), new Set(), 0)).toMatchObject({ count: 0, mean: null });
+  });
+  it('rejects invalid sign intervals and avoids finite double overflow for opposing values', () => {
+    expect(() => describeValues([1], -1)).toThrow(/near-zero/);
+    expect(() => describeValues([1], NaN)).toThrow(/near-zero/);
+    expect(describeValues([1e308, -1e308])).toMatchObject({
+      mean: 0,
+      meanAbsolute: 1e308,
+      cancellation: 1e308,
+    });
+  });
 });

@@ -12,7 +12,7 @@ import { resolvePopulation } from '@/services/studio/populationContext';
 import {
   buildPopulationProbeQuery,
   PopulationProbeController,
-  summarizePopulationProbe,
+  describePopulationProbe,
 } from '@/services/studio/PopulationProbeController';
 import type { PopulationProbe } from '@/types/population';
 import type { ResolvedPlotSpec } from '@/plotting';
@@ -37,6 +37,10 @@ export function PopulationProbePanel({
   const snapshot = useSyncExternalStore(controller.subscribe, controller.getSnapshot);
   const [previewHover, setPreviewHover] = useState(false);
   const [radius, setRadius] = useState(0);
+  const [nearZeroLimit, setNearZeroLimit] = useState(0);
+  useEffect(() => {
+    setNearZeroLimit((previous) => (previous === 0 ? previous : 0));
+  }, [studio.population.sessionRevision, studio.selection.activeFeatureId]);
   const [expanded, setExpanded] = useState(true);
   const [width, setWidth] = useState(640);
   const plotRef = useRef<HTMLDivElement>(null);
@@ -96,7 +100,12 @@ export function PopulationProbePanel({
         )
       : 'unknown';
   const current = result?.query.key === definition.query?.key;
-  const { mean, count, unavailable } = summarizePopulationProbe(result?.frame, selected);
+  const distribution = useMemo(
+    () => describePopulationProbe(result?.frame, selected, nearZeroLimit),
+    [result, selected, nearZeroLimit],
+  );
+  const { mean, count, unavailable } = distribution;
+  const share = (n: number) => (count ? `${((100 * n) / count).toFixed(1)}%` : 'unavailable');
   const issue = definition.issue ?? snapshot.error;
 
   return (
@@ -242,6 +251,72 @@ export function PopulationProbePanel({
                 Undo selection
               </button>
             </div>
+          </div>
+          <div
+            className="mt-2 rounded border border-border px-2 py-1 text-xs"
+            aria-label="Observed response distribution"
+          >
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <span>Observed sign share · working selection</span>
+              <label>
+                Near zero ±{' '}
+                <input
+                  aria-label="Near-zero response limit"
+                  className="w-20 rounded border border-border bg-background px-1 py-0.5"
+                  type="number"
+                  min={0}
+                  step="any"
+                  value={nearZeroLimit}
+                  onChange={(event) => {
+                    const next = event.target.valueAsNumber;
+                    if (Number.isFinite(next) && next >= 0)
+                      setNearZeroLimit((previous) => (previous === next ? previous : next));
+                  }}
+                />{' '}
+                value units
+              </label>
+            </div>
+            <p className="mt-1" data-testid="population-sign-counts">
+              Negative {distribution.negative} ({share(distribution.negative)}) · Near zero{' '}
+              {distribution.nearZero} ({share(distribution.nearZero)}) · Positive{' '}
+              {distribution.positive} ({share(distribution.positive)})
+            </p>
+            {count > 0 && (
+              <div aria-hidden className="mt-1 flex h-2 overflow-hidden rounded">
+                <span
+                  className="bg-blue-500"
+                  style={{ width: `${(100 * distribution.negative) / count}%` }}
+                />
+                <span
+                  className="bg-gray-500"
+                  style={{ width: `${(100 * distribution.nearZero) / count}%` }}
+                />
+                <span
+                  className="bg-red-500"
+                  style={{ width: `${(100 * distribution.positive) / count}%` }}
+                />
+              </div>
+            )}
+            <p className="mt-1 text-muted-foreground">
+              {count} finite / {selected.size} selected observations ·{' '}
+              {distribution.selectedMissing} unavailable. Near-zero endpoints are included.
+            </p>
+            <p className="mt-1">
+              Mean absolute response:{' '}
+              {distribution.meanAbsolute === null
+                ? 'unavailable'
+                : distribution.meanAbsolute.toPrecision(4)}{' '}
+              · Cancellation across responses:{' '}
+              {distribution.cancellation === null
+                ? 'unavailable'
+                : distribution.cancellation.toPrecision(4)}
+            </p>
+            {result.query.probe.radiusMm > 0 && (
+              <p className="mt-1 text-muted-foreground">
+                Each response is the {result.query.probe.reduce} within this sphere. These summaries
+                combine observation responses; population images summarize each voxel separately.
+              </p>
+            )}
           </div>
           <p className="mt-1 text-xs text-muted-foreground">
             Click a point to focus its image. Shift-click to change selection. Selection changes

@@ -98,3 +98,25 @@ describe('PopulationProbePanel', () => {
     expect(useSetStudioStore.getState().population.pinnedProbe).toBeNull();
   });
 });
+
+it('updates inclusive observed sign shares from cached selected responses without resampling', async () => {
+  const { sample } = setup();
+  fireEvent.click(screen.getByRole('button', { name: 'Pin crosshair' }));
+  await screen.findByRole('button', { name: 'sub001: 1' });
+  expect(screen.getByTestId('population-sign-counts')).toHaveTextContent('Positive 6 (100.0%)');
+  expect(screen.getByText(/Mean absolute response:/)).toHaveTextContent('3.500');
+  fireEvent.change(screen.getByRole('spinbutton', { name: 'Near-zero response limit' }), {
+    target: { value: '3' },
+  });
+  expect(screen.getByTestId('population-sign-counts')).toHaveTextContent('Near zero 3 (50.0%)');
+  expect(screen.getByTestId('population-sign-counts')).toHaveTextContent('Positive 3 (50.0%)');
+  fireEvent.click(screen.getByRole('button', { name: 'sub006: 6' }), { shiftKey: true });
+  expect(screen.getByTestId('population-sign-counts')).toHaveTextContent('Near zero 3 (60.0%)');
+  expect(screen.getByTestId('population-sign-counts')).toHaveTextContent('Positive 2 (40.0%)');
+  fireEvent.click(screen.getByRole('button', { name: 'None', exact: true }));
+  expect(screen.getByTestId('population-sign-counts')).toHaveTextContent(
+    'Positive 0 (unavailable)',
+  );
+  expect(screen.getByText(/Mean absolute response:/)).toHaveTextContent('unavailable');
+  expect(sample).toHaveBeenCalledTimes(1);
+});
