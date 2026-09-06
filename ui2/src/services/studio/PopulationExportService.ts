@@ -25,6 +25,8 @@ export function freezePopulationExport(display: PopulationSliceDisplay) {
     );
   if (!set || !feature) throw new Error('A population dataset and feature are required.');
   const request = structuredClone(display.query.request);
+  delete request.focusOnly;
+  delete request.focusWindow;
   const revisions = new Map(
     display.data.sources.map((source) => [source.memberId, source.revision]),
   );
@@ -51,6 +53,7 @@ export function freezePopulationExport(display: PopulationSliceDisplay) {
             recordSha256: set.savedPopulation.recordSha256,
           }
         : null,
+      presentation: state.population.presentation,
       datasetId: set.id,
       datasetName: set.name,
       featureId: feature.id,

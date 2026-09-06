@@ -49,7 +49,12 @@ pub(super) async fn export_checked(
     token: SampleCancellation,
     proof: Option<super::replay::ReplayProof>,
 ) -> BridgeResult<ExportResult> {
-    let mut population = request.population.clone();
+    let mut calculation = request.population.clone();
+    calculation.focus_only = false;
+    calculation.focus_window.clear();
+    let mut population = calculation.clone();
+    population.focus_only = false;
+    population.focus_window.clear();
     // Camera/focus are provenance only; they never restrict the exported volume.
     population.dim_px = [1, 1];
     population.cutouts = None;
@@ -239,7 +244,7 @@ pub(super) async fn export_checked(
         "replay": proof.as_ref().map(|p| serde_json::json!({"recordPath":p.record_path,"recordSha256":p.record_sha256,"verification":"byte-identical summary and coverage"})),
         "schema": "brainflow.population-export.v1",
         "brainflowVersion": env!("CARGO_PKG_VERSION"),
-        "calculation": request.population,
+        "calculation": calculation,
         "context": request.context,
         "sources": sources,
         "maskRevision": mask.as_ref().map(|m| &m.revision),
@@ -322,6 +327,8 @@ mod tests {
     use crate::set_sample_cache::TestSource;
     fn query(sources: &[&TestSource]) -> PopulationSliceRequest {
         PopulationSliceRequest {
+            focus_only: false,
+            focus_window: vec![],
             context_key: "export-test".into(),
             mask: None,
             members: sources

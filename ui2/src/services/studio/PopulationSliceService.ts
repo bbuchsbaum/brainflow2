@@ -17,6 +17,8 @@ import type { ViewPlane } from '@/types/coordinates';
 export type PopulationSummary = 'mean' | 'sampleSd' | 'meanAbsolute' | 'cancellation' | 'coverage';
 export type PopulationOrientation = 'axial' | 'coronal' | 'sagittal';
 export interface PopulationSliceRequest {
+  focusOnly?: boolean;
+  focusWindow?: string[];
   contextKey: string;
   mask?: PopulationMask | null;
   members: PopulationMemberSource[];
@@ -29,6 +31,7 @@ export interface PopulationSliceRequest {
   summary: PopulationSummary;
   aggregation?: ParticipantAggregation | null;
   cutouts?: {
+    wholePlane?: boolean;
     centerMm: [number, number, number];
     widthMm: number;
     dimPx: number;
@@ -39,11 +42,13 @@ export interface PopulationSliceQuery {
   /** Masks change support, not the compatible effect scale. */
   scaleKey?: string;
   initialScale?: { effectLimit?: number; summaryLimit?: number; summary: PopulationSummary };
+  focusOrder?: readonly string[];
   key: string;
   datasetKey: string;
   request: PopulationSliceRequest;
 }
 export interface PopulationSliceData {
+  focusWindow?: { memberId: string; values: (number | null)[]; validPixels: number }[];
   plane: ViewPlane;
   centerWorld: [number, number, number];
   contextRange: [number, number] | null;
@@ -70,7 +75,14 @@ export class PopulationImages {
   readonly summary: ImageBitmap;
   readonly focused: ImageBitmap;
   readonly cutouts: ImageBitmap | null;
-  constructor(summary: ImageBitmap, focused: ImageBitmap, cutouts: ImageBitmap | null = null) {
+  private readonly releaseShared?: () => void;
+  constructor(
+    summary: ImageBitmap,
+    focused: ImageBitmap,
+    cutouts: ImageBitmap | null = null,
+    releaseShared?: () => void,
+  ) {
+    this.releaseShared = releaseShared;
     this.summary = summary;
     this.focused = focused;
     this.cutouts = cutouts;
@@ -83,9 +95,12 @@ export class PopulationImages {
   release() {
     if (this.references <= 0) return;
     if (--this.references === 0) {
-      this.summary.close();
       this.focused.close();
-      this.cutouts?.close();
+      if (this.releaseShared) this.releaseShared();
+      else {
+        this.summary.close();
+        this.cutouts?.close();
+      }
     }
   }
 }
@@ -317,6 +332,25 @@ export class PopulationSliceService {
   private timer: ReturnType<typeof setTimeout> | null = null;
   private pending: PopulationSliceQuery | null = null;
   private readonly owner = crypto.randomUUID();
+  // A bounded window of exact observed rasters. The one-second freshness lease
+  // forces native source-stamp revalidation during sustained playback.
+  private focusCache = new Map<string, (number | null)[]>();
+  private focusBase: PopulationSliceDisplay | null = null;
+  private releaseBase: (() => void) | null = null;
+  private focusExpires = 0;
+  private clearFocusCache() {
+    this.focusCache.clear();
+    this.releaseBase?.();
+    this.releaseBase = null;
+    this.focusBase = null;
+  }
+  private samePopulation(a: PopulationSliceQuery, b: PopulationSliceQuery) {
+    return (
+      a.datasetKey === b.datasetKey &&
+      JSON.stringify({ ...a.request, focusMemberId: null }) ===
+        JSON.stringify({ ...b.request, focusMemberId: null })
+    );
+  }
   private contexts = new Set<string>();
   private scaleDataset: string | null = null;
   private effectLimit: number | null = null;
@@ -338,6 +372,7 @@ export class PopulationSliceService {
     this.active = true;
   }
   stop() {
+    this.clearFocusCache();
     this.active = false;
     this.generation++;
     this.abort?.abort();
@@ -349,6 +384,8 @@ export class PopulationSliceService {
   }
   request(query: PopulationSliceQuery | null, force = false) {
     if (!this.active || (!force && query?.key === this.snapshot.requested?.key)) return;
+    if (force || !query || (this.focusBase && !this.samePopulation(this.focusBase.query, query)))
+      this.clearFocusCache();
     const copy = query ? structuredClone(query) : null;
     this.generation++;
     this.abort?.abort();
@@ -404,6 +441,7 @@ export class PopulationSliceService {
     if (range) this.setEffectLimit(Math.max(Math.abs(range[0]), Math.abs(range[1])) || 1);
   }
   private releaseContexts() {
+    this.clearFocusCache();
     for (const context of this.contexts) {
       void this.dependencies
         .release(context)
@@ -419,10 +457,15 @@ export class PopulationSliceService {
   }
   private schedule() {
     if (!this.active || this.busy || this.timer !== null || !this.pending) return;
-    this.timer = setTimeout(() => {
-      this.timer = null;
-      void this.run();
-    }, this.delayMs);
+    this.timer = setTimeout(
+      () => {
+        this.timer = null;
+        void this.run();
+      },
+      this.focusBase && this.pending && this.samePopulation(this.focusBase.query, this.pending)
+        ? 0
+        : this.delayMs,
+    );
   }
   private async run() {
     if (!this.active || this.busy || !this.pending) return;
@@ -436,9 +479,100 @@ export class PopulationSliceService {
     this.contexts.add(contextKey);
     let images: PopulationImages | null = null;
     try {
-      const data = await this.dependencies.evaluate({ ...query.request, contextKey }, abort.signal);
-      if (!this.active || version !== this.generation) return;
+      const base = this.focusBase;
+      const focusChanged =
+        base &&
+        this.snapshot.displayed?.query.request.focusMemberId !== query.request.focusMemberId;
+      const reuse = !!focusChanged && this.samePopulation(base.query, query);
+      const cached =
+        reuse && Date.now() < this.focusExpires
+          ? this.focusCache.get(query.request.focusMemberId ?? '')
+          : undefined;
+      let data: PopulationSliceData;
+      let shared = false;
+      if (cached && base) {
+        data = { ...base.data, focused: cached, focusWindow: undefined };
+        shared = true;
+      } else {
+        const ids = query.focusOrder ?? query.request.members.map((m) => m.memberId);
+        const index = Math.max(0, ids.indexOf(query.request.focusMemberId ?? ''));
+        const count = Math.min(
+          8,
+          Math.floor((8 * 1024 * 1024) / (query.request.dimPx[0] * query.request.dimPx[1] * 8)),
+        );
+        const focusWindow = [...ids.slice(Math.max(0, index - 1), Math.max(0, index - 1) + count)];
+        data = await this.dependencies.evaluate(
+          { ...query.request, contextKey, focusOnly: reuse, focusWindow },
+          abort.signal,
+        );
+        if (!this.active || version !== this.generation) return;
+        if (reuse && base && data.summary.length === 0) {
+          if (
+            JSON.stringify([data.sources, data.maskRevision, data.plane]) ===
+            JSON.stringify([base.data.sources, base.data.maskRevision, base.data.plane])
+          ) {
+            data = {
+              ...data,
+              summary: base.data.summary,
+              validCounts: base.data.validCounts,
+              cutouts: base.data.cutouts,
+            };
+            shared = true;
+          } else {
+            data = await this.dependencies.evaluate(
+              { ...query.request, contextKey, focusWindow },
+              abort.signal,
+            );
+            if (!this.active || version !== this.generation) return;
+          }
+        }
+        const window = data.focusWindow ?? [];
+        if (
+          window.length > count ||
+          new Set(window.map((m) => m.memberId)).size !== window.length ||
+          window.some(
+            (m) =>
+              !focusWindow.includes(m.memberId) ||
+              m.values.length !== query.request.dimPx[0] * query.request.dimPx[1],
+          )
+        )
+          throw new Error('Focus window does not match its requested observations.');
+        this.focusCache.clear();
+        for (const member of window) this.focusCache.set(member.memberId, member.values);
+        this.focusExpires = Date.now() + 1000;
+      }
+      data = { ...data, focusWindow: undefined };
       validateData(data, query);
+      if (shared && base) {
+        const releaseShared = base.images.retain();
+        let focused: ImageBitmap;
+        try {
+          focused = await this.dependencies.bitmap(
+            populationRgba(data.focused, base.effectLimit, true),
+            ...data.plane.dim_px,
+          );
+        } catch (error) {
+          releaseShared();
+          throw error;
+        }
+        images = new PopulationImages(
+          base.images.summary,
+          focused,
+          base.images.cutouts,
+          releaseShared,
+        );
+        if (!this.active || version !== this.generation) {
+          images.release();
+          return;
+        }
+        this.publish({
+          requested: query,
+          displayed: { ...base, query, data, images },
+          pending: false,
+          error: null,
+        });
+        return;
+      }
       const range = data.contextRange;
       if (this.effectLimit === null && range)
         this.effectLimit = Math.max(Math.abs(range[0]), Math.abs(range[1])) || 1;
@@ -485,9 +619,12 @@ export class PopulationSliceService {
         images.release();
         return;
       }
+      this.releaseBase?.();
+      this.focusBase = { query, data, images, effectLimit, summaryLimit };
+      this.releaseBase = images.retain();
       this.publish({
         requested: query,
-        displayed: { query, data, images, effectLimit, summaryLimit },
+        displayed: this.focusBase,
         pending: false,
         error: null,
       });

@@ -183,11 +183,11 @@ const controller = new PopulationProbeController(async (request) => ({
 const slices = new PopulationSliceService(
   {
     async evaluate(request) {
-      const dimension = 64;
+      const [width, height] = request.dimPx;
       const field = (value: number) =>
-        Array.from({ length: dimension * dimension }, (_, i) => {
-          const x = (i % dimension) - 31.5,
-            y = Math.floor(i / dimension) - 31.5;
+        Array.from({ length: width * height }, (_, i) => {
+          const x = ((i % width) * 64) / width - 31.5,
+            y = (Math.floor(i / width) * 64) / height - 31.5;
           return (x * x) / 400 + (y * y) / 625 <= 1 && (!request.mask || x < 0) ? value : null;
         });
       const observed = (id: string) => (ids.indexOf(id) < 40 ? 3 : -1);
@@ -213,54 +213,60 @@ const slices = new PopulationSliceService(
       return {
         plane: {
           origin_mm: [-31.5, 31.5, request.crosshairMm[2]],
-          u_mm: [1, 0, 0],
-          v_mm: [0, -1, 0],
-          dim_px: [dimension, dimension],
+          u_mm: [64 / width, 0, 0],
+          v_mm: [0, -64 / height, 0],
+          dim_px: [width, height],
         },
         centerWorld: [0, 0, 0],
         contextRange: [-1, 3],
-        summary: field(summary),
+        summary: request.focusOnly ? [] : field(summary),
+        focusWindow: (request.focusWindow ?? []).map((memberId) => ({
+          memberId,
+          values: field(observed(memberId)),
+          validPixels: field(observed(memberId)).filter((v) => v !== null).length,
+        })),
         focused: field(request.focusMemberId ? observed(request.focusMemberId) : NaN),
-        validCounts: field(values.length).map((v) => v ?? 0),
+        validCounts: request.focusOnly ? [] : field(values.length).map((v) => v ?? 0),
         eligibleCount: request.workingMemberIds.length,
         unitCount: values.length,
         sources: request.members.map((member) => ({
           memberId: member.memberId,
           revision: { sha256: fakeHash, sourceBytes: 0 },
         })),
-        cutouts: request.cutouts
-          ? (() => {
-              const { centerMm, widthMm, dimPx, memberIds } = request.cutouts;
-              const spacing = widthMm / dimPx;
-              const origin: [number, number, number] = [
-                centerMm[0] - (spacing * (dimPx - 1)) / 2,
-                centerMm[1] + (spacing * (dimPx - 1)) / 2,
-                centerMm[2],
-              ];
-              return {
-                plane: {
-                  origin_mm: origin,
-                  u_mm: [spacing, 0, 0] as [number, number, number],
-                  v_mm: [0, -spacing, 0] as [number, number, number],
-                  dim_px: [dimPx, dimPx] as [number, number],
-                },
-                members: memberIds.map((memberId) => {
-                  const samples = Array.from({ length: dimPx ** 2 }, (_, i) => {
-                    const x = origin[0] + (i % dimPx) * spacing,
-                      y = origin[1] - Math.floor(i / dimPx) * spacing;
-                    return (x * x) / 400 + (y * y) / 625 <= 1 && (!request.mask || x < 0)
-                      ? observed(memberId)
-                      : null;
-                  });
-                  return {
-                    memberId,
-                    values: samples,
-                    validPixels: samples.filter((v) => v !== null).length,
-                  };
-                }),
-              };
-            })()
-          : null,
+        cutouts:
+          request.cutouts && !request.focusOnly
+            ? (() => {
+                const { centerMm, widthMm, dimPx, memberIds } = request.cutouts;
+                const spacing = (request.cutouts.wholePlane ? 64 : widthMm) / dimPx;
+                const origin: [number, number, number] = [
+                  centerMm[0] - (spacing * (dimPx - 1)) / 2,
+                  centerMm[1] + (spacing * (dimPx - 1)) / 2,
+                  centerMm[2],
+                ];
+                return {
+                  plane: {
+                    origin_mm: origin,
+                    u_mm: [spacing, 0, 0] as [number, number, number],
+                    v_mm: [0, -spacing, 0] as [number, number, number],
+                    dim_px: [dimPx, dimPx] as [number, number],
+                  },
+                  members: memberIds.map((memberId) => {
+                    const samples = Array.from({ length: dimPx ** 2 }, (_, i) => {
+                      const x = origin[0] + (i % dimPx) * spacing,
+                        y = origin[1] - Math.floor(i / dimPx) * spacing;
+                      return (x * x) / 400 + (y * y) / 625 <= 1 && (!request.mask || x < 0)
+                        ? observed(memberId)
+                        : null;
+                    });
+                    return {
+                      memberId,
+                      values: samples,
+                      validPixels: samples.filter((v) => v !== null).length,
+                    };
+                  }),
+                };
+              })()
+            : null,
         maskRevision: request.mask ? { sha256: fakeMaskHash, sourceBytes: 0 } : null,
         sourceCacheHit: true,
         cachedBytes: 0,

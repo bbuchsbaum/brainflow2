@@ -146,3 +146,54 @@ test('failed saved-source verification leaves the current population intact', as
   await expect(page.getByText(/^Analysis unit:/)).toContainText('observations');
   await expect(page.getByRole('tab', { name: 'Deck', exact: true })).toBeEnabled();
 });
+
+test('scrubs and plays original observations, unfolds a montage and returns to the same person', async ({
+  page,
+}, testInfo) => {
+  const errors: string[] = [];
+  page.on('pageerror', (error) => errors.push(error.message));
+  await page.goto('/population-harness.html?mask&export');
+  await expect(page.getByText('Actual observation · S001', { exact: true })).toBeVisible();
+  const inspector = page.getByRole('region', { name: 'Population inspector' });
+  await page.getByRole('button', { name: 'Pin crosshair', exact: true }).click();
+  await expect(page.getByText(/Selected mean:/)).toContainText('1.000');
+  const limit = await page.getByLabel('Population value scale limit', { exact: true }).inputValue();
+  const summary = await page.locator('canvas').first().screenshot();
+  await page.getByRole('button', { name: 'Next observation', exact: true }).click();
+  await expect(page.getByText('Actual observation · S002', { exact: true })).toBeVisible();
+  expect(summary.equals(await page.locator('canvas').first().screenshot())).toBe(true);
+  await page.getByRole('button', { name: 'Play', exact: true }).click();
+  await expect(page.getByTestId('fixture-focus')).not.toHaveText('S002');
+  await page.getByRole('button', { name: 'Pause', exact: true }).click();
+  const focus = (await page.getByTestId('fixture-focus').textContent())!;
+  await page.getByRole('button', { name: 'Montage', exact: true }).click();
+  await expect(
+    page.getByRole('button', { name: `Focus cutout ${focus}`, exact: true }),
+  ).toHaveAttribute('aria-current', 'true');
+  await expect(inspector).toContainText('80 selected / 80 available');
+  await page.getByRole('button', { name: 'Focus cutout S042', exact: true }).click();
+  await expect(page.getByTestId('fixture-focus')).toHaveText('S042');
+  await expect(page.getByLabel('Population value scale limit', { exact: true })).toHaveValue(limit);
+  await page.getByLabel('Population navigation').scrollIntoViewIfNeeded();
+  await page.screenshot({ path: testInfo.outputPath('population-montage-desktop.png') });
+  await page.getByRole('button', { name: 'Inspect', exact: true }).click();
+  await expect(page.getByText('Actual observation · S042', { exact: true })).toBeVisible();
+  await expect(page.getByText(/Selected mean:/)).toContainText('1.000');
+  await page
+    .getByRole('button', { name: 'Order observations by pinned response', exact: true })
+    .click();
+  await expect(page.getByLabel('Population navigation')).toContainText('Response order at');
+  await page.getByText('Save calculation', { exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Export summary…', exact: true })).toBeEnabled();
+  await page.getByRole('button', { name: 'Export summary…', exact: true }).click();
+  const receipt = JSON.parse((await page.getByTestId('synthetic-export-receipt').textContent())!);
+  expect(receipt.context.presentation.order.orderedIds[0]).toBe('S041');
+  expect(receipt.context.presentation.order.bindings[0].expectedSha256).toBe('a'.repeat(64));
+  expect(receipt.population.focusMemberId).toBe('S042');
+  expect(receipt.population.workingMemberIds).toHaveLength(80);
+  await page.setViewportSize({ width: 480, height: 1000 });
+  await page.getByLabel('Population navigation').scrollIntoViewIfNeeded();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page.screenshot({ path: testInfo.outputPath('population-movie-narrow.png') });
+  expect(errors).toEqual([]);
+});

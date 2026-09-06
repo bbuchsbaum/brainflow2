@@ -1,6 +1,7 @@
 import { participantIdentity } from '@/services/studio/populationParticipants';
 import type {
   PopulationActionResult,
+  PopulationPresentation,
   PopulationMask,
   PopulationParticipantDefinition,
   PopulationProbe,
@@ -18,6 +19,7 @@ import {
 export function initialPopulationState(sessionRevision = 0): PopulationState {
   return {
     sessionRevision,
+    presentation: { arrangement: 'inspect', order: null },
     participants: null,
     mask: null,
     working: { kind: 'context' },
@@ -32,6 +34,7 @@ export function initialPopulationState(sessionRevision = 0): PopulationState {
 
 export interface PopulationSlice {
   population: PopulationState;
+  setPopulationPresentation: (presentation: PopulationPresentation) => PopulationActionResult;
   configurePopulationMask: (
     mask: (PopulationMask & { readonly setId: string }) | null,
   ) => PopulationActionResult;
@@ -99,6 +102,23 @@ export function createPopulationSlice(
     return ok;
   };
   return {
+    setPopulationPresentation(presentation) {
+      const state = get();
+      if (!['inspect', 'montage'].includes(presentation.arrangement))
+        return fail('Unknown population arrangement.');
+      if (presentation.order) {
+        const checked = checkedMembers(presentation.order.orderedIds);
+        if (!checked.ok) return checked;
+        if (
+          presentation.order.featureId !== state.selection.activeFeatureId ||
+          presentation.order.orderedIds.length !== resolvePopulationContext(state).memberIds.length
+        )
+          return fail('Order must identify the complete current feature context.');
+      }
+      if (!same(state.population.presentation, presentation))
+        set({ population: { ...state.population, presentation: structuredClone(presentation) } });
+      return ok;
+    },
     configurePopulationMask(mask) {
       const state = get();
       if (

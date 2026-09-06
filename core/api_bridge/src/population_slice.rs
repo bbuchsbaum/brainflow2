@@ -40,6 +40,11 @@ pub enum Orientation {
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PopulationSliceRequest {
+    /// Transport optimization only; never an exported calculation operand.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub focus_only: bool,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub focus_window: Vec<String>,
     pub context_key: String,
     #[serde(default)]
     pub mask: Option<crate::population_mask::MaskSource>,
@@ -77,6 +82,8 @@ pub struct ParticipantAggregation {
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CutoutRequest {
+    #[serde(default)]
+    pub whole_plane: bool,
     pub center_mm: [f32; 3],
     /// Width and height of the square image edges, in world millimetres.
     pub width_mm: f32,
@@ -116,6 +123,7 @@ pub struct SliceSource {
 #[derive(Debug, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PopulationSliceResult {
+    pub focus_window: Vec<CutoutMember>,
     pub plane: Plane,
     pub center_world: [f32; 3],
     pub context_range: Option<[f32; 2]>,
@@ -211,10 +219,14 @@ impl PopulationSliceEngine {
             &request.orientation,
             request.dim_px,
             request.zoom,
-            request
-                .cutouts
-                .as_ref()
-                .map(|cutouts| (cutouts.center_mm, cutouts.width_mm, cutouts.dim_px)),
+            request.cutouts.as_ref().map(|cutouts| {
+                (
+                    cutouts.center_mm,
+                    cutouts.width_mm,
+                    cutouts.dim_px,
+                    cutouts.whole_plane,
+                )
+            }),
         ))
         .map_err(|error| input(error.to_string()))?;
         let candidate = self
@@ -269,6 +281,17 @@ impl PopulationSliceEngine {
     }
 }
 fn validate(request: &PopulationSliceRequest) -> BridgeResult<()> {
+    let window: HashSet<_> = request.focus_window.iter().collect();
+    if window.len() != request.focus_window.len()
+        || window.len() > 8
+        || window
+            .iter()
+            .any(|id| !request.members.iter().any(|m| &m.member_id == *id))
+    {
+        return Err(input(
+            "Focus window requires at most eight unique context observations.",
+        ));
+    }
     crate::validate_set_sample_request(&request.members, &request.crosshair_mm, 0.0, "mean")?;
     let pixels = (request.dim_px[0] as usize)
         .checked_mul(request.dim_px[1] as usize)
@@ -438,12 +461,27 @@ fn pixel_plan(
         }
     }
     let cutouts = request.cutouts.as_ref().map(|cutouts| {
-        let spacing = cutouts.width_mm / cutouts.dim_px as f32;
         let length = |v: [f32; 3]| v.iter().map(|v| v * v).sum::<f32>().sqrt();
+        let width = if cutouts.whole_plane {
+            (length(geometry.u_mm) * geometry.dim_px[0] as f32)
+                .max(length(geometry.v_mm) * geometry.dim_px[1] as f32)
+        } else {
+            cutouts.width_mm
+        };
+        let center: [f32; 3] = if cutouts.whole_plane {
+            std::array::from_fn(|axis| {
+                geometry.origin_mm[axis]
+                    + geometry.u_mm[axis] * (geometry.dim_px[0] - 1) as f32 / 2.
+                    + geometry.v_mm[axis] * (geometry.dim_px[1] - 1) as f32 / 2.
+            })
+        } else {
+            cutouts.center_mm
+        };
+        let spacing = width / cutouts.dim_px as f32;
         let u_mm = geometry.u_mm.map(|v| v * spacing / length(geometry.u_mm));
         let v_mm = geometry.v_mm.map(|v| v * spacing / length(geometry.v_mm));
         let origin_mm = std::array::from_fn(|axis| {
-            cutouts.center_mm[axis] - (u_mm[axis] + v_mm[axis]) * (cutouts.dim_px - 1) as f32 / 2.0
+            center[axis] - (u_mm[axis] + v_mm[axis]) * (cutouts.dim_px - 1) as f32 / 2.0
         });
         let plane = Plane {
             origin_mm,
@@ -681,7 +719,7 @@ fn reduce_plane(
     // is unavailable. One dummy accumulator location keeps that case explicit.
     let mut moments = FieldMoments::new(cached.plan.voxels.len().max(1), 0.0)
         .map_err(|e| input(e.to_string()))?;
-    if !cached.plan.voxels.is_empty() {
+    if !request.focus_only && !cached.plan.voxels.is_empty() {
         if let Some(aggregation) = &request.aggregation {
             let indices: HashMap<_, _> = cached
                 .sources
@@ -719,28 +757,30 @@ fn reduce_plane(
         if pixel % 4096 == 0 {
             cancellation.check()?;
         }
-        let value = slot.and_then(|index| {
-            let s = &summaries[index];
-            match request.summary {
-                SummaryKind::Mean => s.mean,
-                SummaryKind::SampleSd => s.sample_sd,
-                SummaryKind::MeanAbsolute => s.mean_absolute,
-                SummaryKind::Cancellation => s.cancellation,
-                SummaryKind::Coverage => Some(s.valid_count as f64),
-            }
-        });
-        summary.push(value.map(|v| v as f32).unwrap_or(f32::NAN));
+        if !request.focus_only {
+            let value = slot.and_then(|index| {
+                let s = &summaries[index];
+                match request.summary {
+                    SummaryKind::Mean => s.mean,
+                    SummaryKind::SampleSd => s.sample_sd,
+                    SummaryKind::MeanAbsolute => s.mean_absolute,
+                    SummaryKind::Cancellation => s.cancellation,
+                    SummaryKind::Coverage => Some(s.valid_count as f64),
+                }
+            });
+            summary.push(value.map(|v| v as f32).unwrap_or(f32::NAN));
+            valid_counts.push(
+                slot.map(|index| summaries[index].valid_count as u32)
+                    .unwrap_or(0),
+            );
+        }
         focused.push(
             slot.and_then(|index| focus.map(|focus| cached.rows[focus][index]))
                 .unwrap_or(f32::NAN),
         );
-        valid_counts.push(
-            slot.map(|index| summaries[index].valid_count as u32)
-                .unwrap_or(0),
-        );
     }
     let cutouts = match (&cached.plan.cutouts, &request.cutouts) {
-        (Some(plan), Some(spec)) => {
+        (Some(plan), Some(spec)) if !request.focus_only => {
             let mut members = Vec::with_capacity(spec.member_ids.len());
             for id in &spec.member_ids {
                 cancellation.check()?;
@@ -783,7 +823,29 @@ fn reduce_plane(
         }
     }
     cancellation.check()?;
+    let mut focus_window = Vec::new();
+    for id in &request.focus_window {
+        cancellation.check()?;
+        let row = cached
+            .sources
+            .iter()
+            .position(|s| &s.member_id == id)
+            .unwrap();
+        let values: Vec<_> = cached
+            .plan
+            .pixels
+            .iter()
+            .map(|slot| slot.map(|i| cached.rows[row][i]).unwrap_or(f32::NAN))
+            .collect();
+        let valid_pixels = values.iter().filter(|v| v.is_finite()).count();
+        focus_window.push(CutoutMember {
+            member_id: id.clone(),
+            values,
+            valid_pixels,
+        });
+    }
     Ok(PopulationSliceResult {
+        focus_window,
         cutouts,
         context_range: range,
         plane: cached.plan.plane.clone(),
@@ -829,6 +891,8 @@ mod tests {
             })
             .collect();
         PopulationSliceRequest {
+            focus_only: false,
+            focus_window: vec![],
             mask: None,
             context_key: "workspace:dataset:revision".into(),
             working_member_ids: members.iter().map(|m| m.member_id.clone()).collect(),
@@ -873,6 +937,7 @@ mod tests {
             expected_sha256: None,
         });
         req.cutouts = Some(CutoutRequest {
+            whole_plane: false,
             center_mm: [1.; 3],
             width_mm: 3.,
             dim_px: 3,
@@ -1313,6 +1378,7 @@ mod tests {
         let state = BridgeState::default().unwrap();
         let mut req = request(&sources);
         req.cutouts = Some(CutoutRequest {
+            whole_plane: false,
             center_mm: [1.; 3],
             width_mm: 3.,
             dim_px: 3,
@@ -1436,6 +1502,90 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore = "Generate the fixture with tools/create_population_movie_fixture.py; set BRAINFLOW_POPULATION_FIXTURE"]
+    async fn population_movie_fixture_native_acceptance() {
+        let root = std::path::PathBuf::from(
+            std::env::var("BRAINFLOW_POPULATION_FIXTURE").expect("fixture directory"),
+        );
+        let preview: bridge_types::StudioImportPreviewRequest =
+            serde_json::from_value(serde_json::json!({
+                "mode": "manifest", "manifestPath": root.join("nftab.json")
+            }))
+            .unwrap();
+        let candidates = field_table::preview_import_candidates(preview);
+        let candidate = &candidates[0];
+        assert_eq!(
+            candidate.contract.readiness,
+            bridge_types::StudioImportReadiness::CompareReady,
+            "{}",
+            candidate.contract.reason
+        );
+        assert_eq!(candidate.set.member_count, 80);
+        let expected: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(root.join("expected.json")).unwrap()).unwrap();
+        let mut req: PopulationSliceRequest = serde_json::from_value(serde_json::json!({
+            "contextKey": "audited-movie-fixture", "members": (1..=80).map(|i| {
+                let id = format!("S{i:03}");
+                serde_json::json!({"memberId":id,"sourcePath":root.join(format!("maps/{id}.nii.gz")),"expectedSha256":expected["sourceSha256"][&id]})
+            }).collect::<Vec<_>>(),
+            "workingMemberIds": (1..=20).map(|i| format!("S{i:03}")).collect::<Vec<_>>(),
+            "focusMemberId":"S001","crosshairMm":[1.,1.,1.],"orientation":"axial","dimPx":[128,128],"zoom":1.,"summary":"mean",
+            "cutouts":{"wholePlane":true,"centerMm":[1.,1.,1.],"widthMm":32.,"dimPx":40,"memberIds":(1..=80).map(|i|format!("S{i:03}")).collect::<Vec<_>>()}
+        })).unwrap();
+        let state = BridgeState::default().unwrap();
+        let start = std::time::Instant::now();
+        let full = evaluate(&state, req.clone()).await;
+        let cold = start.elapsed().as_secs_f64() * 1000.;
+        assert!(full
+            .summary
+            .iter()
+            .filter(|v| v.is_finite())
+            .all(|&v| v == 1.));
+        assert!(full.summary.iter().any(|v| v.is_nan()));
+        assert!(full.summary.iter().filter(|v| v.is_finite()).count() > 100);
+        assert_eq!(full.cutouts.as_ref().unwrap().members.len(), 80);
+        let mut times = Vec::new();
+        for i in 1..=80 {
+            req.focus_only = true;
+            req.focus_member_id = Some(format!("S{i:03}"));
+            req.focus_window = vec![format!("S{i:03}")];
+            let start = std::time::Instant::now();
+            let result = evaluate(&state, req.clone()).await;
+            times.push(start.elapsed().as_secs_f64() * 1000.);
+            assert!(result.summary.is_empty() && result.valid_counts.is_empty());
+            assert_eq!(result.sources.len(), 80);
+            assert!(result.focused.iter().filter(|v| v.is_finite()).count() > 100);
+            assert_eq!(result.focus_window[0].member_id, format!("S{i:03}"));
+            if i <= 60 {
+                let value = if i <= 20 {
+                    1.
+                } else if i <= 30 {
+                    3.
+                } else if i <= 40 {
+                    -1.
+                } else if i <= 42 {
+                    10.
+                } else {
+                    0.
+                };
+                assert!(result
+                    .focused
+                    .iter()
+                    .filter(|v| v.is_finite())
+                    .all(|&v| v == value));
+            }
+        }
+        times.sort_by(f64::total_cmp);
+        println!("POPULATION_MOVIE_FIXTURE audited=80 geometry=32x32x32 raster=128x128 cold_ms={cold:.2} focus_p50_ms={:.2} focus_p95_ms={:.2} focus_max_ms={:.2} plane_bytes={}", times[39], times[75], times[79], full.cached_bytes);
+        state
+            .population_slice
+            .release(&req.context_key)
+            .await
+            .unwrap();
+        assert!(state.population_slice.cache.lock().unwrap().is_none());
+    }
+
+    #[tokio::test]
     async fn population_slice_realistic_context_reports_warm_reduction_cost() {
         // 80 x 204,800 float32 measurements = 65,536,000 decoded bytes.
         // This measures native evaluation only; IPC/canvas presentation has a
@@ -1448,6 +1598,7 @@ mod tests {
         req.dim_px = [128, 128];
         req.crosshair_mm = [39.5, 39.5, 15.5];
         req.cutouts = Some(CutoutRequest {
+            whole_plane: false,
             center_mm: [39.5, 39.5, 12.],
             width_mm: 32.,
             dim_px: 40,
@@ -1479,6 +1630,35 @@ mod tests {
                 assert!(member.values.iter().all(|&value| value == index as f32));
             }
         }
+        let mut focus_latencies = Vec::new();
+        req.focus_only = true;
+        req.focus_window = (0..8).map(|i| format!("person-{i}")).collect();
+        for i in 0..20 {
+            req.focus_member_id = Some(format!("person-{i}"));
+            let start = std::time::Instant::now();
+            let focus = evaluate(&state, req.clone()).await;
+            focus_latencies.push(start.elapsed().as_secs_f64() * 1000.);
+            assert!(focus.source_cache_hit);
+            assert!(
+                focus.summary.is_empty()
+                    && focus.valid_counts.is_empty()
+                    && focus.cutouts.is_none()
+            );
+            assert!(focus.focused.iter().all(|&v| v == i as f32));
+            for (index, member) in focus.focus_window.iter().enumerate() {
+                assert_eq!(member.member_id, format!("person-{index}"));
+                assert!(member.values.iter().all(|&v| v == index as f32));
+            }
+        }
+        focus_latencies.sort_by(f64::total_cmp);
+        println!(
+            "POPULATION_FOCUS_NATIVE window=8 p50_ms={:.2} p95_ms={:.2} max_ms={:.2}",
+            focus_latencies[9], focus_latencies[18], focus_latencies[19]
+        );
+        req.focus_window.push("person-8".into());
+        assert!(validate(&req).is_err());
+        req.focus_window = vec!["unknown".into()];
+        assert!(validate(&req).is_err());
         latencies.sort_by(f64::total_cmp);
         println!("POPULATION_SLICE_WITH_CUTOUTS_NATIVE debug 80x204800 gallery=80x40x40 cold_ms={cold_ms:.2} warm_p50_ms={:.2} warm_p95_ms={:.2} warm_max_ms={:.2} retained_plane_bytes={}", latencies[9], latencies[18], latencies[19], result.cached_bytes);
         state
@@ -1502,6 +1682,7 @@ mod tests {
         let mut req = request(&sources);
         let main = evaluate(&state, req.clone()).await;
         req.cutouts = Some(CutoutRequest {
+            whole_plane: false,
             center_mm: [1., 1., 2.],
             width_mm: 3.,
             dim_px: 3,
@@ -1543,6 +1724,7 @@ mod tests {
         let state = BridgeState::default().unwrap();
         let mut req = request(&sources);
         req.cutouts = Some(CutoutRequest {
+            whole_plane: false,
             center_mm: [1., 1., 1.],
             width_mm: 3.,
             dim_px: 3,

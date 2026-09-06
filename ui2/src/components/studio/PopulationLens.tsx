@@ -1,3 +1,4 @@
+import { PopulationNavigation } from './PopulationNavigation';
 import { PopulationExportControls } from './PopulationExportControls';
 import { resolvePopulationParticipants } from '@/services/studio/populationParticipants';
 import {
@@ -114,27 +115,64 @@ export function PopulationLens({
     () => new Set(population.workingMemberIds),
     [population.workingMemberIds],
   );
-  const galleryIds = arrangement
-    ? arrangement.mode === 'witnesses'
-      ? arrangement.witnessIds
-      : arrangement.orderedIds
-    : population.context.memberIds;
+  const presentation = studio.population.presentation;
+  const montage = presentation.arrangement === 'montage';
+  const savedOrder =
+    presentation.order?.featureId === studio.selection.activeFeatureId &&
+    presentation.order.orderedIds.length === population.context.memberIds.length &&
+    presentation.order.orderedIds.every((id) => population.context.memberIds.includes(id))
+      ? presentation.order
+      : null;
+  const orderedIds = useMemo(
+    () => savedOrder?.orderedIds ?? arrangement?.orderedIds ?? population.context.memberIds,
+    [savedOrder, arrangement, population.context.memberIds],
+  );
+  // Stable IDs prevent focus updates from restarting playback.
+  const orderKey = JSON.stringify(orderedIds);
+  const navigationIds = useMemo(() => JSON.parse(orderKey) as string[], [orderKey]);
+  const galleryIds = montage
+    ? navigationIds
+    : arrangement
+      ? arrangement.mode === 'witnesses'
+        ? arrangement.witnessIds
+        : arrangement.orderedIds
+      : population.context.memberIds;
   const pages = Math.max(1, Math.ceil(galleryIds.length / 80));
+  const focusPage = Math.floor(
+    Math.max(0, galleryIds.indexOf(studio.selection.activeMemberId ?? '')) / 80,
+  );
   const page = Math.min(cutoutPage, pages - 1);
+  useEffect(() => {
+    if (montage) setCutoutPage(focusPage);
+  }, [montage, focusPage]);
   const pinned = studio.population.pinnedProbe;
   const currentProbe =
     pinned?.supportKey === populationSupportKey(studio, workspaceId) ? pinned : null;
   const cutouts = useMemo(
     () =>
-      showCutouts && currentProbe
+      montage || (showCutouts && currentProbe)
         ? {
-            centerMm: [...currentProbe.worldMm] as [number, number, number],
+            wholePlane: montage && (!currentProbe || presentation.montageScope === 'plane'),
+            centerMm: [...(currentProbe?.worldMm ?? crosshair.world_mm)] as [
+              number,
+              number,
+              number,
+            ],
             widthMm: cutoutWidth,
             dimPx: 40,
             memberIds: galleryIds.slice(page * 80, (page + 1) * 80),
           }
         : null,
-    [showCutouts, currentProbe, cutoutWidth, galleryIds, page],
+    [
+      montage,
+      presentation.montageScope,
+      showCutouts,
+      currentProbe,
+      crosshair.world_mm,
+      cutoutWidth,
+      galleryIds,
+      page,
+    ],
   );
   const settings = useCrosshairSettingsStore((state) => state.settings);
   const style = useMemo(
@@ -188,8 +226,8 @@ export function PopulationLens({
     return () => service.stop();
   }, [service]);
   useEffect(() => {
-    service.request(definition.query);
-  }, [service, definition.query]);
+    service.request(definition.query ? { ...definition.query, focusOrder: navigationIds } : null);
+  }, [service, definition.query, navigationIds]);
   useLayoutEffect(() => snapshot.displayed?.images.retain(), [snapshot.displayed?.images]);
   useEffect(() => {
     if (!host.current || typeof ResizeObserver === 'undefined') return;
@@ -217,6 +255,40 @@ export function PopulationLens({
   const moveSlice = (direction: number) => {
     if (result && current)
       populationSliceActions.step(workspaceId, result.data.plane, crosshair.world_mm, direction);
+  };
+  const fitOrder = (mode: 'all' | 'witnesses') => {
+    const response = probeSnapshot?.displayed;
+    if (!response || !probeController?.arrange(mode)) return;
+    const fit = probeController.getSnapshot().arrangement;
+    if (!fit || response.query.request.locus.kind !== 'set') return;
+    const revisions = new Map(
+      response.frame.meta?.sources?.map((source) => [
+        source.memberId,
+        source.sourceRevision?.sha256,
+      ]),
+    );
+    studio.setPopulationPresentation({
+      ...presentation,
+      order: {
+        featureId: studio.selection.activeFeatureId!,
+        rule: 'response',
+        tieRule: 'source',
+        orderedIds: fit.orderedIds,
+        unavailableIds: fit.unavailableIds,
+        label: populationArrangementLabel(fit),
+        probe: fit.query.probe,
+        bindings: response.query.request.locus.members.map((member) => ({
+          ...member,
+          expectedSha256: revisions.get(member.memberId) ?? undefined,
+        })),
+        mask: response.query.request.locus.mask
+          ? {
+              ...response.query.request.locus.mask,
+              expectedSha256: response.frame.meta?.sources?.[0]?.maskRevision?.sha256 ?? undefined,
+            }
+          : null,
+      },
+    });
   };
   return (
     <section
@@ -376,9 +448,52 @@ export function PopulationLens({
           {issue}
         </p>
       )}
+      <PopulationNavigation
+        ids={navigationIds}
+        focusedId={studio.selection.activeMemberId}
+        ready={current && !snapshot.pending}
+        failed={!!issue}
+        scope={`${workspaceId}:${studio.population.sessionRevision}:${studio.selection.activeFeatureId}`}
+        onFocus={populationProbeActions.focus}
+        label={
+          savedOrder?.label ??
+          (arrangement ? populationArrangementLabel(arrangement) : 'Source order')
+        }
+      />
+      <div
+        className="flex flex-wrap items-center gap-2 text-xs"
+        aria-label="Population arrangement"
+      >
+        {(['inspect', 'montage'] as const).map((value) => (
+          <button
+            key={value}
+            className={`${control} ${presentation.arrangement === value ? 'border-primary text-primary bg-muted' : ''}`}
+            aria-pressed={presentation.arrangement === value}
+            onClick={() =>
+              studio.setPopulationPresentation({ ...presentation, arrangement: value })
+            }
+          >
+            {value === 'inspect' ? 'Inspect' : 'Montage'}
+          </button>
+        ))}
+        <button className={control} disabled={!canArrange} onClick={() => fitOrder('all')}>
+          Order observations by pinned response
+        </button>
+        {(savedOrder || arrangement) && (
+          <button
+            className={control}
+            onClick={() => {
+              probeController?.clearArrangement();
+              studio.setPopulationPresentation({ ...presentation, order: null });
+            }}
+          >
+            Restore source order
+          </button>
+        )}
+      </div>
       <div ref={host} className="min-w-0">
         <div
-          className="grid gap-3"
+          className={montage ? 'hidden' : 'grid gap-3'}
           style={{ gridTemplateColumns: compact ? 'minmax(0, 1fr)' : 'repeat(2, minmax(0, 1fr))' }}
         >
           {(['summary', 'focused'] as const).map((pane) => (
@@ -513,6 +628,7 @@ export function PopulationLens({
       <div className="flex flex-wrap items-center gap-2 text-xs">
         <button
           className={control}
+          hidden={montage}
           aria-expanded={showCutouts}
           disabled={!population.context.memberIds.length}
           onClick={() => {
@@ -522,12 +638,34 @@ export function PopulationLens({
         >
           {showCutouts ? 'Hide individual cutouts' : 'Show individual cutouts'}
         </button>
-        {showCutouts && (
+        {(showCutouts || montage) && (
           <>
+            {montage && (
+              <label>
+                Preview support{' '}
+                <select
+                  className={control}
+                  aria-label="Montage support"
+                  value={currentProbe && presentation.montageScope !== 'plane' ? 'probe' : 'plane'}
+                  onChange={(e) =>
+                    studio.setPopulationPresentation({
+                      ...presentation,
+                      montageScope: e.target.value as 'plane' | 'probe',
+                    })
+                  }
+                >
+                  <option value="plane">Whole plane</option>
+                  <option value="probe" disabled={!currentProbe}>
+                    Pinned region
+                  </option>
+                </select>
+              </label>
+            )}
             <label>
               Cutout width{' '}
               <select
                 className={control}
+                disabled={montage && (!currentProbe || presentation.montageScope === 'plane')}
                 value={cutoutWidth}
                 onChange={(event) => setCutoutWidth(Number(event.target.value))}
               >
@@ -541,13 +679,14 @@ export function PopulationLens({
             <button className={control} onClick={() => populationProbeActions.pin(0, false)}>
               Center cutouts on crosshair
             </button>
-            {probeController && (
+            {probeController && !montage && (
               <>
                 <button
                   className={control}
                   disabled={!canArrange}
                   onClick={() => {
-                    if (probeController.arrange('all')) setCutoutPage(0);
+                    fitOrder('all');
+                    setCutoutPage(0);
                   }}
                 >
                   Order by pinned response
@@ -556,7 +695,8 @@ export function PopulationLens({
                   className={control}
                   disabled={!canArrange || !hasFiniteResponse}
                   onClick={() => {
-                    if (probeController.arrange('witnesses')) setCutoutPage(0);
+                    fitOrder('witnesses');
+                    setCutoutPage(0);
                   }}
                 >
                   Show 12 response witnesses
@@ -577,6 +717,7 @@ export function PopulationLens({
                     className={control}
                     onClick={() => {
                       probeController.clearArrangement();
+                      studio.setPopulationPresentation({ ...presentation, order: null });
                       setCutoutPage(0);
                     }}
                   >
@@ -609,7 +750,7 @@ export function PopulationLens({
           </>
         )}
       </div>
-      {showCutouts && result?.data.cutouts && (
+      {(showCutouts || montage) && result?.data.cutouts && (
         <div className="min-w-0 border-t border-border pt-2">
           <p className="mb-1 text-xs text-muted-foreground">
             {result.data.cutouts.members.length} of {population.context.memberIds.length}{' '}
@@ -619,8 +760,12 @@ export function PopulationLens({
               : arrangement
                 ? 'pinned-response order'
                 : 'source order'}{' '}
-            · {result.query.request.cutouts?.widthMm} mm cutouts at (
-            {result.query.request.cutouts?.centerMm.map((value) => value.toFixed(1)).join(', ')}) mm
+            ·{' '}
+            {result.query.request.cutouts?.wholePlane
+              ? 'Whole-plane previews'
+              : `${result.query.request.cutouts?.widthMm} mm cutouts`}{' '}
+            at ({result.query.request.cutouts?.centerMm.map((value) => value.toFixed(1)).join(', ')}
+            ) mm
             {!current && ' · previous query'}
           </p>
           {arrangement && (

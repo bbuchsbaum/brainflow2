@@ -44,7 +44,7 @@ The live-slice increment adds [`PopulationSliceEngine`](../../core/api_bridge/sr
 | M0: baseline and fixtures | Analytic 80-observation numerical populations and independent batch oracle added | Importable audited 80-map fixture, spatial displacement/noise/repeated-measure cases, native app latency and memory baseline |
 | M1: reductions | Finite/masked kernel, legacy export integration and live native-plane evaluation with source validation | Incremental selection updates/removals and rebuild policy; complete support adapters; broader view/export acceptance |
 | M1: population lens | Simultaneous live summary/focused views, common geometry and value scales, linked plot, hover/pin, observation/participant preview-without, source identities and controlled teardown; native evaluator and synthetic real-canvas harness verified separately | Native app integration walkthrough and end-to-end budgets; subset sensitivity and native export walkthrough, range/lasso brushing and imported/per-observation mask adapters; cutout/ordering native walkthrough |
-| M2: fluid sets | Existing folder switching and resident-image-set primitives available; working-membership set algebra and bounded undo/redo added | Stable fitted order, cached scrubbing/movie, montage transitions, explicit similarity/factor groups, selection controls and reversible presentation history |
+| M2: fluid sets | Source/frozen-response navigation, bounded cached focus, show-every-observation playback, reversible Inspect/Montage, saved order/presentation; working-membership set algebra and bounded undo/redo | Metadata/similarity orders, explicit similarity/factor groups, group comparison, full reversible presentation history and native desktop acceptance |
 | M3: typed comparisons | Descriptive legacy z-score clearly separated from sample SD | One-sample/Welch/paired estimators, effect/SE/t/df/count outputs, valid pairing and input-role checks, exploratory provenance and frozen recipes |
 | M4: relationship explanations | No new implementation | Context-fixed MDS/PCA, fit quality, regional refits, spatial distance attribution and explicit observed/reconstructed views |
 | M5: breadth | Numerical kernel is independent of geometry | Audited parcel/surface adapters and identity, robust summaries, pivot views, validated model adapters and larger-set evidence |
@@ -227,4 +227,20 @@ Native desktop visual acceptance remains open: attempting to select Brainflow th
 
 ## Next implementation path
 
+The [next delivery plan](neurotabs-next-delivery-plan.md) sequences all seven remaining areas, with delivery A supplying cached scrub/movie and reversible montage; factor grouping and linked selection are the next implementation packet. Native acceptance and persistence accompany each delivery; grouped plotting can begin after the group/selection contracts without waiting for decomposition or surface support.
+
 Verify the native app path from audited import through live mean/focus, pinned values, saved-calculation opening and sensitivity preview, including end-to-end latency and full-shell layout. Add immutable source retention/relocation and explicit saved reference/history restoration. Extend witness rules to largest deviations and maps nearest a stated summary, with explicit spatial distance definitions; add cached scrubbing/movie transitions, similarity/factor groups and typed comparisons. Preserve physical temporal axes and grouped/faceted plot authoring as part of the complete M0–M5 and P scope.
+
+## Delivery A: cached originals and reversible montage
+
+See [movie/montage evidence and the reusable 80-person fixture](neurotabs-movie-evidence.md). This increment adds the focus-only native transport, bounded original-raster window, buffered playback, whole-plane/regional montage, shared order and saved presentation. The complete M0–M5/P issue remains open.
+
+Delivery A checks (2026-09-06):
+
+- Rust workspace: **825 passed, 28 ignored**, 141 result summaries through doc tests; `/private/tmp/neurotabs-movie-workspace.log`. The opt-in audited 80-person fixture passed separately (`neurotabs-movie-fixture-final.log`).
+- Population UI/services/store: **156 passed in 23 suites**; `/private/tmp/neurotabs-movie-ui-final.log`.
+- Playwright: **6 passed**, plus the focused scenario rerun after the final montage-control cleanup. Receipts: `/private/tmp/neurotabs-movie-playwright-final.log` and `neurotabs-movie-playwright-reviewed.log`. Desktop/narrow screenshots in the corresponding output directories were visually inspected. Browser ownership audits were clear before/after; owned browser downloads/extraction were removed.
+- UI TypeScript, focused ESLint, Rust formatting and strict 116-command permission inventory passed. Workspace Clippy completed with existing ts-rs, surface needless-borrow and parcel-test identity-operation warnings; no new warnings in the changed population code.
+- Native desktop inspection was attempted again and returned `Sky Computer Use service startup request failed`. GoldenLayout/native-dialog visual acceptance and end-to-end desktop latency remain unverified. Native command/fixture results and simulated browser results retain their separate evidence boundaries.
+
+Next: delivery B's factor partitions, group-linked brushing and reference comparison, using this shared order/focus/presentation path. Full presentation history, metadata/similarity orders and linked plot authoring remain explicit follow-on work; the complete M0–M5/P tracker stays open.

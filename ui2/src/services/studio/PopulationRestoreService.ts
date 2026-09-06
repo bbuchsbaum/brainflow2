@@ -1,4 +1,4 @@
-import type { PopulationState, PopulationProbe } from '@/types/population';
+import type { PopulationState, PopulationProbe, PopulationOrder } from '@/types/population';
 import type { SpatialFieldSetSummary } from '@/types/studio';
 import type { PopulationSliceRequest } from './PopulationSliceService';
 import { invokeCancelable } from './PopulationExportService';
@@ -144,8 +144,74 @@ export function preparePopulationRestore(
       radiusMm: probe.radiusMm,
       reduce: probe.reduce as PopulationProbe['reduce'],
     };
+  const presentation = object(context.presentation);
+  const order = object(presentation.order);
+  let restoredOrder: PopulationOrder | null = null;
+  if (presentation.order != null) {
+    const ordered = order.orderedIds;
+    const unavailable = order.unavailableIds;
+    const bindings = order.bindings;
+    const fitProbe = object(order.probe);
+    const matching =
+      Array.isArray(bindings) &&
+      bindings.length === ids.length &&
+      bindings.every((binding) => {
+        const source = object(binding);
+        const actual = query.members.find((m) => m.memberId === source.memberId);
+        return (
+          actual &&
+          actual.sourcePath === source.sourcePath &&
+          (actual.stackIndex ?? null) === (source.stackIndex ?? null) &&
+          actual.expectedSha256 === source.expectedSha256
+        );
+      }) &&
+      new Set(bindings.map((binding) => object(binding).memberId)).size === ids.length;
+    const fitMask = object(order.mask);
+    const maskMatches = query.mask
+      ? fitMask.sourcePath === query.mask.sourcePath &&
+        fitMask.expectedSha256 === query.mask.expectedSha256
+      : order.mask === null;
+    if (
+      order.rule === 'response' &&
+      order.tieRule === 'source' &&
+      matching &&
+      maskMatches &&
+      Array.isArray(ordered) &&
+      ordered.length === ids.length &&
+      new Set(ordered).size === ids.length &&
+      ordered.every((id) => ids.includes(id)) &&
+      Array.isArray(unavailable) &&
+      new Set(unavailable).size === unavailable.length &&
+      unavailable.every((id) => ids.includes(id)) &&
+      Array.isArray(fitProbe.worldMm) &&
+      fitProbe.worldMm.length === 3 &&
+      fitProbe.worldMm.every((v) => typeof v === 'number' && Number.isFinite(v)) &&
+      typeof fitProbe.radiusMm === 'number' &&
+      Number.isFinite(fitProbe.radiusMm) &&
+      fitProbe.radiusMm >= 0 &&
+      ['mean', 'median', 'min', 'max', 'sum'].includes(String(fitProbe.reduce))
+    ) {
+      restoredOrder = {
+        ...(order as unknown as PopulationOrder),
+        featureId,
+        label: label(order.label, 'Saved response order'),
+        probe: {
+          ...(fitProbe as unknown as PopulationProbe),
+          supportKey: JSON.stringify([workspaceId, revision, id]),
+        },
+      };
+    } else
+      set.savedPopulation!.notices.push(
+        'Saved order could not be verified against the frozen inputs; using source order.',
+      );
+  }
   const origin = object(selection.working).origin;
   const population: Partial<Omit<PopulationState, 'sessionRevision'>> = {
+    presentation: {
+      arrangement: presentation.arrangement === 'montage' ? 'montage' : 'inspect',
+      montageScope: presentation.montageScope === 'plane' ? 'plane' : 'probe',
+      order: restoredOrder,
+    },
     working: {
       kind: 'members',
       memberIds: [...query.workingMemberIds],

@@ -23,6 +23,8 @@ export function PopulationCutoutGrid({
   onToggle,
   onHover,
 }: Props) {
+  const scroller = useRef<HTMLDivElement>(null);
+  const focusedButton = useRef<HTMLButtonElement>(null);
   const canvas = useRef<HTMLCanvasElement>(null);
   const container = useRef<HTMLDivElement>(null);
   const [measuredWidth, setMeasuredWidth] = useState(width);
@@ -67,6 +69,16 @@ export function PopulationCutoutGrid({
       );
     }
   }, [image, cutouts, availableWidth, height, columns, cellWidth, cellHeight, imageSize]);
+  useLayoutEffect(() => {
+    const scroll = scroller.current,
+      button = focusedButton.current;
+    if (!scroll || !button) return;
+    const top = button.offsetTop,
+      bottom = top + button.offsetHeight;
+    if (top < scroll.scrollTop) scroll.scrollTop = top;
+    else if (bottom > scroll.scrollTop + scroll.clientHeight)
+      scroll.scrollTop = bottom - scroll.clientHeight;
+  }, [focusedId, cutouts, columns]);
   if (!cutouts || !image) return null;
 
   return (
@@ -78,7 +90,7 @@ export function PopulationCutoutGrid({
       <p aria-live="polite" className="mb-1 h-4 text-xs tabular-nums">
         {hover ?? 'Hover a cutout to inspect its observed value.'}
       </p>
-      <div className="max-h-[520px] overflow-y-auto overflow-x-hidden">
+      <div ref={scroller} className="max-h-[520px] overflow-y-auto overflow-x-hidden">
         <div ref={container} className="relative" style={{ height }}>
           <canvas
             ref={canvas}
@@ -98,6 +110,7 @@ export function PopulationCutoutGrid({
             {cutouts.members.map((member, index) => (
               <button
                 key={member.memberId}
+                ref={focusedId === member.memberId ? focusedButton : undefined}
                 type="button"
                 aria-label={`Focus cutout ${member.memberId}`}
                 aria-current={focusedId === member.memberId ? 'true' : undefined}

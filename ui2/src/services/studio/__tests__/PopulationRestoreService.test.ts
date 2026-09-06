@@ -198,3 +198,33 @@ it('discards a completion after another import and forwards cancellation without
   );
   expect(useSetStudioStore.getState()).toBe(latest);
 });
+
+it('reopens a frozen order and montage, but refuses a fitted order with changed frame bindings', () => {
+  const record = opened();
+  const order = {
+    featureId: 'old-feature',
+    rule: 'response',
+    tieRule: 'source',
+    orderedIds: ['c', 'b', 'a'],
+    unavailableIds: ['a'],
+    label: 'Response order at pinned point',
+    probe: { supportKey: 'old', worldMm: [1, 2, 3], radiusMm: 0, reduce: 'mean' },
+    bindings: structuredClone(record.calculation.members),
+    mask: record.calculation.mask,
+  };
+  record.context = {
+    ...(record.context as object),
+    presentation: { arrangement: 'montage', order },
+  };
+  const restored = preparePopulationRestore(record, 'w', 7);
+  expect(restored.population.presentation).toMatchObject({
+    arrangement: 'montage',
+    order: { orderedIds: ['c', 'b', 'a'], featureId: restored.features[0].id },
+  });
+  expect(restored.selection.activeMemberId).toBe('c');
+  expect(restored.population.working).toMatchObject({ memberIds: ['a', 'b'] });
+  order.bindings[0].stackIndex = 99;
+  const invalid = preparePopulationRestore(record, 'w', 8);
+  expect(invalid.population.presentation?.order).toBeNull();
+  expect(invalid.set.savedPopulation?.notices.join(' ')).toMatch(/order could not be verified/);
+});

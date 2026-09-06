@@ -57,7 +57,25 @@ export interface PopulationRelationship {
   readonly distance: 'effect' | 'pattern-shape';
 }
 
+export interface PopulationOrder {
+  readonly featureId: string;
+  readonly rule: 'response';
+  readonly orderedIds: readonly string[];
+  readonly unavailableIds: readonly string[];
+  readonly label: string;
+  readonly probe: PopulationProbe;
+  readonly bindings: readonly PopulationMemberSource[];
+  readonly mask: PopulationMask | null;
+  readonly tieRule: 'source';
+}
+export interface PopulationPresentation {
+  readonly arrangement: 'inspect' | 'montage';
+  readonly montageScope?: 'plane' | 'probe';
+  readonly order: PopulationOrder | null;
+}
+
 export interface PopulationState {
+  readonly presentation: PopulationPresentation;
   /** Applied once on restore; subsequent exploration is ordinary live state. */
   readonly restoredView?: {
     orientation: 'axial' | 'coronal' | 'sagittal';
