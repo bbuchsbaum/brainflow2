@@ -244,3 +244,62 @@ describe('StudioCoordinationService materialization jobs', () => {
     expect(useSetStudioStore.getState().materializationCache['zscore:cancelled']).toBeUndefined();
   });
 });
+
+describe('StudioCoordinationService population transitions', () => {
+  let service: StudioCoordinationService;
+  beforeEach(() => {
+    useSetStudioStore.setState(useSetStudioStore.getInitialState(), true);
+    mocks.ensureMemberDisplayed.mockReset().mockResolvedValue(undefined);
+    bootstrapStore();
+    useSetStudioStore.setState({ sets: { [set.id]: { ...set,
+      designTablePreview: { columns: ['subject', 'group'], rows: [
+        { id: 'sub001', cells: ['sub001', 'A'] },
+        { id: 'sub002', cells: ['sub002', 'B'] },
+      ] },
+    } } });
+    service = new StudioCoordinationService();
+  });
+  afterEach(() => service.stop());
+
+  it('preserves focus when search or issue highlighting hides the focused person', () => {
+    service.start();
+    useSetStudioStore.getState().setDesignSearch('sub002');
+    useSetStudioStore.setState({ activeIssueMemberIds: ['sub002'], activeIssueLabel: 'Review' });
+    expect(useSetStudioStore.getState().selection.activeMemberId).toBe('sub001');
+    expect(useSetStudioStore.getState().designSearch).toBe('sub002');
+  });
+
+  it('preserves filters on startup and displays the newly eligible focus', () => {
+    const filters = [{ column: 'group', value: 'B' }];
+    useSetStudioStore.setState({ activeDesignFilters: filters });
+    service.start();
+    expect(useSetStudioStore.getState().activeDesignFilters).toEqual(filters);
+    expect(useSetStudioStore.getState().selection.activeMemberId).toBe('sub002');
+    expect(mocks.ensureMemberDisplayed).toHaveBeenCalledWith(expect.objectContaining({ id: 'set-a' }), 'sub002');
+  });
+
+  it('keeps metadata filters even when search produces no quick-filter suggestions', () => {
+    service.start();
+    const filters = [{ column: 'group', value: 'A' }];
+    useSetStudioStore.setState({ activeDesignFilters: filters });
+    useSetStudioStore.getState().setDesignSearch('no matches');
+    expect(useSetStudioStore.getState().activeDesignFilters).toEqual(filters);
+    expect(useSetStudioStore.getState().selection.activeMemberId).toBe('sub001');
+  });
+
+  it('clears focus for a valid empty context and restores it when eligibility returns', () => {
+    service.start();
+    useSetStudioStore.setState({ activeDesignFilters: [{ column: 'group', value: 'C' }] });
+    expect(useSetStudioStore.getState().selection.activeMemberId).toBeNull();
+    useSetStudioStore.getState().clearDesignFilters();
+    expect(useSetStudioStore.getState().selection.activeMemberId).toBe('sub001');
+  });
+
+  it('retains invalid filters and focus for explicit repair rather than widening eligibility', () => {
+    const filters = [{ column: 'unavailable', value: 'A' }];
+    useSetStudioStore.setState({ activeDesignFilters: filters });
+    service.start();
+    expect(useSetStudioStore.getState().activeDesignFilters).toEqual(filters);
+    expect(useSetStudioStore.getState().selection.activeMemberId).toBe('sub001');
+  });
+});

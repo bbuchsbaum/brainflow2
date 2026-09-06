@@ -80,6 +80,7 @@ export function StudioCenterPane() {
     activeFilterLabels,
     sortLabel,
     visibleMemberIds,
+    population,
   } = useStudioDerivedState();
 
   const activeDesignFilters = useSetStudioStore((state) => state.activeDesignFilters);
@@ -263,6 +264,7 @@ export function StudioCenterPane() {
       ) : null}
 
       <StudioStrip
+        contextIssue={population.context.issue}
         memberIds={visibleMemberIds}
         activeMemberId={activeMemberId}
         scopeLabel={scopeCohort?.label ?? null}

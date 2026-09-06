@@ -1,6 +1,8 @@
 import { useMemo } from 'react';
 import { setImportReadiness } from '@/services/studio/importContract';
 import { useSetStudioStore } from '@/stores/setStudioStore';
+import type { PopulationState } from '@/types/population';
+import { resolvePopulation } from '@/services/studio/populationContext';
 import type {
   SpatialFieldSetSummary,
   StudioCohortSummary,
@@ -15,6 +17,7 @@ import type {
 } from '@/types/studio';
 
 export interface StudioDerivedSnapshotInput {
+  populationState: PopulationState;
   activeSetId: string | null;
   activeFeatureId: string | null;
   activeLens: 'deck' | 'compare' | 'pivot-matrix' | 'atlas';
@@ -43,6 +46,7 @@ export interface StudioDerivedSnapshotInput {
 
 export function computeStudioDerivedSnapshot(input: StudioDerivedSnapshotInput) {
   const {
+    populationState,
     activeSetId,
     activeFeatureId,
     activeLens,
@@ -79,11 +83,23 @@ export function computeStudioDerivedSnapshot(input: StudioDerivedSnapshotInput) 
   const cohortList =
     activeSet?.savedCohortIds.map((cohortId) => cohorts[cohortId]).filter(Boolean) ?? [];
   const workspaceReadiness = deriveWorkspaceReadiness(activeSet);
+  const population = resolvePopulation({
+    population: populationState,
+    sets,
+    cohorts,
+    selection: {
+      activeSetId,
+      activeFeatureId,
+      activeLens,
+      activeMemberId,
+      compareCohortId,
+      activeScopeCohortId,
+      activeExpressionId,
+    },
+    activeDesignFilters,
+  });
 
-  const baseVisibleMemberIds =
-    scopeCohort?.memberIds.filter((memberId) => activeSet?.memberIds.includes(memberId)) ??
-    activeSet?.memberIds ??
-    [];
+  const baseVisibleMemberIds = [...population.context.memberIds];
   const issueVisibleMemberIds =
     activeIssueMemberIds.length > 0
       ? baseVisibleMemberIds.filter((memberId) => activeIssueMemberIds.includes(memberId))
@@ -99,22 +115,7 @@ export function computeStudioDerivedSnapshot(input: StudioDerivedSnapshotInput) 
           const row = activeSet?.designTablePreview?.rows.find((candidate) => candidate.id === memberId);
           return row?.cells.some((cell) => cell.toLowerCase().includes(normalizedDesignSearch)) ?? false;
         });
-  const filteredMemberIds =
-    activeDesignFilters.length === 0 || !activeSet?.designTablePreview
-      ? searchFilteredMemberIds
-      : searchFilteredMemberIds.filter((memberId) => {
-          const row = activeSet.designTablePreview?.rows.find((candidate) => candidate.id === memberId);
-          if (!row) {
-            return false;
-          }
-          return activeDesignFilters.every((filter) => {
-            const columnIndex = activeSet.designTablePreview?.columns.indexOf(filter.column) ?? -1;
-            if (columnIndex < 0) {
-              return true;
-            }
-            return row.cells[columnIndex] === filter.value;
-          });
-        });
+  const filteredMemberIds = searchFilteredMemberIds;
 
   const visibleMemberIds = (() => {
     if (!sortColumn || !activeSet?.designTablePreview) {
@@ -168,6 +169,7 @@ export function computeStudioDerivedSnapshot(input: StudioDerivedSnapshotInput) 
   const sortLabel = sortColumn ? `${sortColumn} ${sortDirection}` : null;
 
   return {
+    population,
     activeSetId,
     activeSet,
     activeFeature,
@@ -201,6 +203,7 @@ export function computeStudioDerivedSnapshot(input: StudioDerivedSnapshotInput) 
 }
 
 export function useStudioDerivedState() {
+  const populationState = useSetStudioStore((state) => state.population);
   const activeSetId = useSetStudioStore((state) => state.selection.activeSetId);
   const activeFeatureId = useSetStudioStore((state) => state.selection.activeFeatureId);
   const activeLens = useSetStudioStore((state) => state.selection.activeLens);
@@ -229,6 +232,7 @@ export function useStudioDerivedState() {
   return useMemo(
     () =>
       computeStudioDerivedSnapshot({
+        populationState,
         activeSetId,
         activeFeatureId,
         activeLens,
@@ -255,6 +259,7 @@ export function useStudioDerivedState() {
         activeDesignFilters,
       }),
     [
+      populationState,
       activeSetId,
       activeFeatureId,
       activeLens,

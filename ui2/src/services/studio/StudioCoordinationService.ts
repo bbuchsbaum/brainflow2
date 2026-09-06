@@ -128,7 +128,6 @@ export class StudioCoordinationService {
   private requestVersion = 0;
   private active = false;
   private lastAutoCompareKey: string | null = null;
-  private previousActiveSetId: string | null = null;
   private activeAbortController: AbortController | null = null;
 
   start() {
@@ -136,20 +135,21 @@ export class StudioCoordinationService {
       return;
     }
     this.active = true;
-    this.previousActiveSetId = null;
+
+    // Subscribe before reconciliation: it can update focus synchronously.
+    this.unsubscribe = useSetStudioStore.subscribe((state) => {
+      this.processStoreState(state);
+    });
 
     // Process the current state once so an already-populated store
     // (e.g. demo loaded before /set-studio mounts) gets initial
     // member display, deck artifact wiring, and compare materialization.
     this.processStoreState(useSetStudioStore.getState());
-
-    this.unsubscribe = useSetStudioStore.subscribe((state) => {
-      this.processStoreState(state);
-    });
   }
 
   private processStoreState(state: StoreState) {
     const derived = computeStudioDerivedSnapshot({
+      populationState: state.population,
       activeSetId: state.selection.activeSetId,
       activeFeatureId: state.selection.activeFeatureId,
       activeLens: state.selection.activeLens,
@@ -176,38 +176,27 @@ export class StudioCoordinationService {
       activeDesignFilters: state.activeDesignFilters,
     });
 
+    // Search and display ordering must not move the focused observation. Only
+    // a genuine eligibility change can replace focus, including an empty context.
+    const context = derived.population.context;
+    if (
+      !context.issue &&
+      (!derived.activeMemberId || !context.memberIds.includes(derived.activeMemberId))
+    ) {
+      const nextFocus = context.memberIds[0] ?? null;
+      if (nextFocus !== derived.activeMemberId) {
+        useSetStudioStore.getState().setActiveMember(nextFocus);
+        return;
+      }
+    }
+
     void this.ensureMemberDisplayed(derived.activeSet, derived.activeMemberId);
 
-    if (
-      derived.visibleMemberIds.length > 0 &&
-      (!derived.activeMemberId || !derived.visibleMemberIds.includes(derived.activeMemberId))
-    ) {
-      useSetStudioStore.getState().setActiveMember(derived.visibleMemberIds[0]);
-    }
+    // Dataset bootstrap owns filter reset atomically. Mounting this service
+    // must preserve a population definition that already exists in the store.
 
-    if (derived.activeSetId !== this.previousActiveSetId) {
-      this.previousActiveSetId = derived.activeSetId;
-      const store = useSetStudioStore.getState();
-      store.clearActiveIssueFocus();
-      store.setDesignSearch('');
-      store.setSortColumn(null);
-      if (store.sortDirection !== 'asc') {
-        store.toggleSortDirection();
-      }
-      store.clearDesignFilters();
-    }
-
-    if (derived.activeDesignFilters.length > 0 && derived.activeSet?.designTablePreview) {
-      derived.activeDesignFilters.forEach((filter) => {
-        const hasColumn = derived.activeSet?.designTablePreview?.columns.includes(filter.column);
-        const hasValue = derived.quickFilterOptions.some(
-          (option) => option.column === filter.column && option.values.includes(filter.value),
-        );
-        if (!hasColumn || !hasValue) {
-          useSetStudioStore.getState().removeDesignFilter(filter);
-        }
-      });
-    }
+    // Quick-filter suggestions are a small presentation sample, not authority
+    // to remove a user's filter. Missing metadata is reported by the context.
 
     if (derived.activeLens === 'deck') {
       useSetStudioStore.getState().setActiveArtifact(
@@ -291,7 +280,6 @@ export class StudioCoordinationService {
     this.active = false;
     this.requestVersion += 1;
     this.lastAutoCompareKey = null;
-    this.previousActiveSetId = null;
     if (this.unsubscribe) {
       this.unsubscribe();
       this.unsubscribe = null;

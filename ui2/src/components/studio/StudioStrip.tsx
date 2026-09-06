@@ -10,6 +10,7 @@ interface StudioStripProps {
   filterLabels?: string[];
   filters?: StudioDesignFilter[];
   sortLabel?: string | null;
+  contextIssue?: string | null;
   onSelectMember: (memberId: string) => void;
   onClearScope?: () => void;
   onClearSearch?: () => void;
@@ -25,6 +26,7 @@ export function StudioStrip({
   filterLabels,
   filters,
   sortLabel,
+  contextIssue,
   onSelectMember,
   onClearScope,
   onClearSearch,
@@ -96,6 +98,16 @@ export function StudioStrip({
           </div>
         ) : null}
       </div>
+
+      {contextIssue ? (
+        <p role="alert" className="text-xs text-destructive">
+          {contextIssue}
+        </p>
+      ) : activeMemberId && !memberIds.includes(activeMemberId) ? (
+        <p role="status" className="text-xs text-muted-foreground">
+          Focus: <span className="font-mono">{activeMemberId}</span> · hidden by list filters
+        </p>
+      ) : null}
 
       <div className="flex gap-2 overflow-x-auto pb-1">
         {memberIds.map((memberId) => {

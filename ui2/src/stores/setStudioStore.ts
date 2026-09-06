@@ -26,6 +26,11 @@ import {
 import type { ImportRequestState, SetStudioImportSlice } from './setStudio/importSlice';
 import { createMaterializationSlice } from './setStudio/materializationSlice';
 import type { SetStudioMaterializationSlice } from './setStudio/materializationSlice';
+import {
+  createPopulationSlice,
+  initialPopulationState,
+  type PopulationSlice,
+} from './setStudio/populationSlice';
 
 interface StudioBootstrapPayload {
   set: SpatialFieldSetSummary;
@@ -36,7 +41,8 @@ interface StudioBootstrapPayload {
   materialization?: Partial<StudioMaterializationStatus>;
 }
 
-interface SetStudioStoreState extends SetStudioImportSlice, SetStudioMaterializationSlice {
+interface SetStudioStoreState
+  extends SetStudioImportSlice, SetStudioMaterializationSlice, PopulationSlice {
   sets: Record<string, SpatialFieldSetSummary>;
   features: Record<string, StudioFeatureSummary>;
   cohorts: Record<string, StudioCohortSummary>;
@@ -66,7 +72,7 @@ interface SetStudioStoreState extends SetStudioImportSlice, SetStudioMaterializa
   bootstrapStudio: (payload: StudioBootstrapPayload) => void;
   loadDemoSession: () => void;
   setActiveLens: (lens: StudioLensType) => void;
-  setActiveMember: (memberId: string) => void;
+  setActiveMember: (memberId: string | null) => void;
   setCompareCohort: (cohortId: string | null) => void;
   setActiveScopeCohort: (cohortId: string | null) => void;
   drillToCohort: (cohortId: string | null) => void;
@@ -318,6 +324,7 @@ export const useSetStudioStore = create<SetStudioStoreState>((set, get) => ({
   importDialog: createInitialImportDialogState(),
   importRequestState: createInitialImportRequestState(),
   selection: DEFAULT_SELECTION,
+  population: initialPopulationState(),
   materialization: DEFAULT_MATERIALIZATION,
   comparePaneSpecs: [],
   comparePaneLoading: false,
@@ -347,6 +354,7 @@ export const useSetStudioStore = create<SetStudioStoreState>((set, get) => ({
       null;
 
     set({
+      population: initialPopulationState(get().population.sessionRevision + 1),
       sets: {
         ...get().sets,
         [payload.set.id]: payload.set,
@@ -455,7 +463,9 @@ export const useSetStudioStore = create<SetStudioStoreState>((set, get) => ({
   },
 
   setActiveMember: (memberId) => {
-    const { selection } = get();
+    const { selection, sets } = get();
+    const activeSet = selection.activeSetId ? sets[selection.activeSetId] : null;
+    if (memberId !== null && !activeSet?.memberIds.includes(memberId)) return;
     if (selection.activeMemberId === memberId) {
       return;
     }
@@ -469,8 +479,8 @@ export const useSetStudioStore = create<SetStudioStoreState>((set, get) => ({
   },
 
   setCompareCohort: (cohortId) => {
-    const { selection, expressions, setExpressionIds, cohorts } = get();
-    if (selection.compareCohortId === cohortId) {
+    const { selection, expressions, setExpressionIds, cohorts, population } = get();
+    if (selection.compareCohortId === cohortId && population.referenceMode === 'cohort') {
       return;
     }
 
@@ -508,6 +518,7 @@ export const useSetStudioStore = create<SetStudioStoreState>((set, get) => ({
     set({
       expressions: nextExpressions,
       setExpressionIds: nextSetExpressionIds,
+      population: { ...population, referenceMode: 'cohort' },
       selection: {
         ...selection,
         compareCohortId: cohortId,
@@ -559,6 +570,7 @@ export const useSetStudioStore = create<SetStudioStoreState>((set, get) => ({
 
   ...createImportSlice(set, get),
   ...createMaterializationSlice(set, get),
+  ...createPopulationSlice(set, get),
 
   setComparePaneSpecs: (specs) => {
     set({

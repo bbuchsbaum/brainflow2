@@ -80,6 +80,14 @@ Zustand state management stores for cross-component state sharing. Contains 33 s
 
 ## Dependencies
 
+### Studio population state
+- `setStudio/populationSlice.ts` extends the existing `setStudioStore`; do not introduce a separate population store. Context/scope, working selection, focused member, fixed/complement reference, spatial probe and fitted relationship have distinct meanings.
+- `services/studio/populationContext.ts` derives eligibility from scope and explicit metadata filters. List search, issue highlighting and sort order never alter eligibility or move focus. Metadata filtering refuses incomplete or ambiguous keyed rows instead of silently using a preview subset.
+- Explicit empty working membership is distinct from following the full context. Set operations retain map-derived origin; bounded selection undo/redo changes working membership only.
+- Bootstrap atomically resets population definitions and advances `sessionRevision`. This is an import generation, not a source-content revision. Future query/cache identities must include actual source revisions and support contracts.
+- Pinned and hover probes are independent; a pin wins while hovering. Relationship fits retain their original context during selection and probe changes. Numerical arrays and fit coordinates belong in services/backend handles, not this store.
+- These are state foundations. Live selection summaries, complement rendering, plotting adapters, full presentation history and persisted provenance remain separate implementation work.
+
 ### Internal
 - ../types/ - Type definitions
 - @brainflow/api - API types
