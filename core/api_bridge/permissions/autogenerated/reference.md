@@ -110,6 +110,7 @@ Default permissions for api-bridge plugin
 - `allow-cancel-population-sample`
 - `allow-evaluate-population-slice`
 - `allow-export-population-summary`
+- `allow-replay-population-summary`
 - `allow-release-population-slice`
 - `allow-sample-set-trace-at-world`
 
@@ -2224,6 +2225,32 @@ Enables the render_views command without any pre-configured scope.
 <td>
 
 Denies the render_views command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:allow-replay-population-summary`
+
+</td>
+<td>
+
+Enables the replay_population_summary command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:deny-replay-population-summary`
+
+</td>
+<td>
+
+Denies the replay_population_summary command without any pre-configured scope.
 
 </td>
 </tr>

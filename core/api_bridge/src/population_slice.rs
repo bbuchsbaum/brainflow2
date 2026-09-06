@@ -1,6 +1,7 @@
 //! Visible-support evaluation for observed population fields. The retained
 //! plane matrix has a byte budget and never enters the volume/GPU registries.
 pub mod export;
+pub mod replay;
 use crate::{
     population_sampling::SampleCancellation,
     set_sample_cache::{QuerySourceGuard, SampleSourceRevision},

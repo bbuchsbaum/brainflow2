@@ -41,6 +41,14 @@ pub async fn export(
     state: &BridgeState,
     token: SampleCancellation,
 ) -> BridgeResult<ExportResult> {
+    export_checked(request, state, token, None).await
+}
+pub(super) async fn export_checked(
+    request: ExportRequest,
+    state: &BridgeState,
+    token: SampleCancellation,
+    proof: Option<super::replay::ReplayProof>,
+) -> BridgeResult<ExportResult> {
     let mut population = request.population.clone();
     // Camera/focus are provenance only; they never restrict the exported volume.
     population.dim_px = [1, 1];
@@ -228,6 +236,7 @@ pub async fn export(
     guard.clone().validate(token.clone()).await?;
     token.check()?;
     let provenance = serde_json::json!({
+        "replay": proof.as_ref().map(|p| serde_json::json!({"recordPath":p.record_path,"recordSha256":p.record_sha256,"verification":"byte-identical summary and coverage"})),
         "schema": "brainflow.population-export.v1",
         "brainflowVersion": env!("CARGO_PKG_VERSION"),
         "calculation": request.population,
@@ -237,8 +246,17 @@ pub async fn export(
         "grid": { "dimensions": dims, "voxelToWorld": (0..4).map(|r| (0..4).map(|c| affine[(r,c)]).collect::<Vec<_>>()).collect::<Vec<_>>(), "spatialUnits": "mm" },
         "semantics": { "kind": "descriptive", "support": "full native grid; finite measurements within common binary mask", "missing": "NaN; measured zero is valid", "coverage": "locally valid analysis units", "withinParticipant": "finite voxelwise mean when declared; equal participant weighting", "sampleSdDof": 1, "sourceRetention": "hash-verified external sources; source images are not embedded" }
     });
+    if let Some(proof) = &proof {
+        if provenance["grid"] != proof.grid
+            || provenance["sources"] != proof.sources
+            || provenance["maskRevision"] != proof.mask_revision
+        {
+            return Err(input("Recalculated grid or source identities differ from the saved record. No new bundle was published."));
+        }
+    }
     let check = token.clone();
     let destination_copy = destination.clone();
+    let expected_artifacts = proof.as_ref().map(|p| p.artifacts.clone());
     let staged = tokio::task::spawn_blocking(move || -> BridgeResult<StagedBundle> {
         let _permit = permit;
         check.check()?;
@@ -261,6 +279,9 @@ pub async fn export(
             std::io::copy(&mut file, &mut hash)?;
             artifacts.insert(name.into(), serde_json::json!({ "sha256": format!("{:x}", hash.finalize()), "bytes": file.metadata()?.len() }));
         }
+        if expected_artifacts.as_ref().is_some_and(|expected| expected != &artifacts) {
+            return Err(input("Recalculated maps differ from the saved bundle. No new bundle was published."));
+        }
         let mut provenance = provenance;
         provenance["artifacts"] = artifacts.into();
         fs::write(staged.path.join("provenance.json"), serde_json::to_vec_pretty(&provenance).map_err(|e| input(e.to_string()))?)?;
@@ -268,6 +289,9 @@ pub async fn export(
         Ok(staged)
     }).await.map_err(|e| input(e.to_string()))??;
     guard.validate(token.clone()).await?;
+    if let Some(proof) = proof {
+        proof.guard.validate(token.clone()).await?;
+    }
     token.check()?;
     tokio::task::spawn_blocking(move || publish(staged, &destination, &token))
         .await
@@ -570,5 +594,181 @@ mod tests {
         assert_eq!(header.srow_y, rows[1]);
         assert_eq!(header.srow_z, rows[2]);
         assert_eq!(&header.pixdim[1..4], &[2., 3., 4.]);
+    }
+    #[tokio::test]
+    async fn replay_preserves_participant_masked_maps_and_links_parent_record() {
+        let a = TestSource::new(&[3, 3, 3], &[0.; 27]);
+        let b = TestSource::new(&[3, 3, 3], &[4.; 27]);
+        let mask = TestSource::new(
+            &[3, 3, 3],
+            &(0..27)
+                .map(|i| if i == 0 { 0. } else { 1. })
+                .collect::<Vec<_>>(),
+        );
+        let state = BridgeState::default().unwrap();
+        let original = Destination::new();
+        let target = Destination::new();
+        let mut q = query(&[&a, &a, &b]);
+        q.mask = Some(crate::population_mask::MaskSource {
+            source_path: mask.path.to_string_lossy().into(),
+            expected_sha256: None,
+        });
+        q.aggregation = Some(ParticipantAggregation {
+            within: WithinParticipant::Mean,
+            groups: vec![
+                ParticipantGroup {
+                    participant_id: "p0".into(),
+                    member_ids: vec!["s0".into(), "s1".into()],
+                },
+                ParticipantGroup {
+                    participant_id: "p1".into(),
+                    member_ids: vec!["s2".into()],
+                },
+            ],
+        });
+        freeze(&mut q, &state).await;
+        let first = export(
+            ExportRequest {
+                population: q,
+                destination_directory: original.0.to_string_lossy().into(),
+                context: serde_json::json!({"datasetId":"saved"}),
+            },
+            &state,
+            SampleCancellation::default(),
+        )
+        .await
+        .unwrap();
+        let record = fs::read(&first.provenance_path).unwrap();
+        let replayed = super::super::replay::replay(
+            first.provenance_path.clone(),
+            target.0.to_string_lossy().into(),
+            &state,
+            SampleCancellation::default(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            fs::read(first.summary_path).unwrap(),
+            fs::read(&replayed.summary_path).unwrap()
+        );
+        assert_eq!(
+            fs::read(first.coverage_path).unwrap(),
+            fs::read(&replayed.coverage_path).unwrap()
+        );
+        let saved: serde_json::Value =
+            serde_json::from_slice(&fs::read(replayed.provenance_path).unwrap()).unwrap();
+        assert_eq!(
+            saved["replay"]["recordSha256"],
+            format!("{:x}", Sha256::digest(record))
+        );
+        assert_eq!(saved["context"]["datasetId"], "saved");
+        assert_eq!(
+            saved["calculation"]["aggregation"]["groups"]
+                .as_array()
+                .unwrap()
+                .len(),
+            2
+        );
+        let actual = values(&replayed.summary_path, &state).await;
+        assert!(actual[0].is_nan());
+        assert_eq!(actual[1], 2.);
+    }
+    #[tokio::test]
+    async fn replay_refuses_altered_records_artifacts_and_sources_without_partial_output() {
+        let a = TestSource::new(&[3, 3, 3], &[0.; 27]);
+        let b = TestSource::new(&[3, 3, 3], &[4.; 27]);
+        let state = BridgeState::default().unwrap();
+        let original = Destination::new();
+        let target = Destination::new();
+        let mut q = query(&[&a, &b]);
+        freeze(&mut q, &state).await;
+        let first = export(
+            ExportRequest {
+                population: q,
+                destination_directory: original.0.to_string_lossy().into(),
+                context: serde_json::json!({}),
+            },
+            &state,
+            SampleCancellation::default(),
+        )
+        .await
+        .unwrap();
+        let record = fs::read(&first.provenance_path).unwrap();
+        let saved: serde_json::Value = serde_json::from_slice(&record).unwrap();
+        let mut changed = saved.clone();
+        changed["calculation"]["workingMemberIds"] = serde_json::json!(["s0"]);
+        let mut schema = saved.clone();
+        schema["schema"] = "brainflow.population-export.v99".into();
+        let mut grid = saved.clone();
+        grid["grid"]["spatialUnits"] = "meters".into();
+        let mut revision = saved.clone();
+        revision["sources"][0]["revision"]["sourceBytes"] = 1.into();
+        let mut missing = saved.clone();
+        missing["sources"] = serde_json::json!([]);
+        let mut paths = saved.clone();
+        paths["artifacts"]["../../elsewhere"] =
+            serde_json::json!({"sha256":"a".repeat(64),"bytes":100});
+        for altered in [changed, schema, grid, revision, missing, paths] {
+            fs::write(
+                &first.provenance_path,
+                serde_json::to_vec(&altered).unwrap(),
+            )
+            .unwrap();
+            let result = super::super::replay::replay(
+                first.provenance_path.clone(),
+                target.0.to_string_lossy().into(),
+                &state,
+                SampleCancellation::default(),
+            )
+            .await;
+            assert!(result.is_err());
+            assert_eq!(fs::read_dir(&target.0).unwrap().count(), 0);
+        }
+        fs::write(&first.provenance_path, &record).unwrap();
+        let artifact = fs::read(&first.summary_path).unwrap();
+        fs::write(&first.summary_path, b"changed").unwrap();
+        assert!(super::super::replay::replay(
+            first.provenance_path.clone(),
+            target.0.to_string_lossy().into(),
+            &state,
+            SampleCancellation::default()
+        )
+        .await
+        .is_err());
+        fs::write(&first.summary_path, artifact).unwrap();
+        a.write(&[3, 3, 3], &[2.; 27]);
+        assert!(super::super::replay::replay(
+            first.provenance_path.clone(),
+            target.0.to_string_lossy().into(),
+            &state,
+            SampleCancellation::default()
+        )
+        .await
+        .is_err());
+        let canceled = SampleCancellation::default();
+        canceled.cancel();
+        assert!(super::super::replay::replay(
+            first.provenance_path.clone(),
+            target.0.to_string_lossy().into(),
+            &state,
+            canceled
+        )
+        .await
+        .is_err());
+        fs::OpenOptions::new()
+            .write(true)
+            .open(&first.provenance_path)
+            .unwrap()
+            .set_len(4 * 1024 * 1024 + 1)
+            .unwrap();
+        assert!(super::super::replay::replay(
+            first.provenance_path,
+            target.0.to_string_lossy().into(),
+            &state,
+            SampleCancellation::default()
+        )
+        .await
+        .is_err());
+        assert_eq!(fs::read_dir(&target.0).unwrap().count(), 0);
     }
 }

@@ -105,3 +105,44 @@ it('does not export when the chooser is canceled or the view unmounts during it'
   expect(await populationExportService.chooseAndExport(frozen, c.signal)).toBeNull();
   expect(invoke).toHaveBeenCalledTimes(1);
 });
+
+it('replays only the chosen saved record, independent of the active population', async () => {
+  const before = useSetStudioStore.getState().population;
+  invoke
+    .mockResolvedValueOnce('/saved/provenance.json')
+    .mockResolvedValueOnce('/target')
+    .mockResolvedValueOnce({ directory: '/target/replay' });
+  const result = await populationExportService.chooseAndReplay(new AbortController().signal);
+  expect(result?.directory).toBe('/target/replay');
+  expect(invoke).toHaveBeenLastCalledWith('replay_population_summary', {
+    provenancePath: '/saved/provenance.json',
+    destinationDirectory: '/target',
+    ticket: expect.objectContaining({ id: expect.any(String) }),
+  });
+  expect(useSetStudioStore.getState().population).toBe(before);
+});
+it('stops at either canceled replay chooser and refuses work after abort', async () => {
+  invoke.mockResolvedValueOnce(null);
+  expect(await populationExportService.chooseAndReplay(new AbortController().signal)).toBeNull();
+  expect(invoke).toHaveBeenCalledTimes(1);
+  invoke.mockReset().mockResolvedValueOnce('/saved/provenance.json').mockResolvedValueOnce(null);
+  expect(await populationExportService.chooseAndReplay(new AbortController().signal)).toBeNull();
+  expect(invoke).toHaveBeenCalledTimes(2);
+  invoke.mockReset().mockResolvedValueOnce('/saved/provenance.json');
+  const c = new AbortController();
+  c.abort();
+  expect(await populationExportService.chooseAndReplay(c.signal)).toBeNull();
+  expect(invoke).toHaveBeenCalledTimes(1);
+});
+it('propagates replay integrity failures and removes its cancellation listener', async () => {
+  invoke
+    .mockResolvedValueOnce('/saved/provenance.json')
+    .mockResolvedValueOnce('/target')
+    .mockRejectedValueOnce(new Error('Saved summary no longer matches.'));
+  const c = new AbortController();
+  const remove = vi.spyOn(c.signal, 'removeEventListener');
+  await expect(populationExportService.chooseAndReplay(c.signal)).rejects.toThrow(
+    /no longer matches/,
+  );
+  expect(remove).toHaveBeenCalledWith('abort', expect.any(Function));
+});

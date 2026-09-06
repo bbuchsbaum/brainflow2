@@ -21,6 +21,22 @@ const fakeMaskHash = 'b'.repeat(64);
 if (maskMode || exportMode)
   setTransport({
     async invoke<T>(command: string, args?: Record<string, unknown>): Promise<T> {
+      if (
+        command === 'plugin:dialog|open' &&
+        (args?.options as { filters?: { extensions: string[] }[] })?.filters?.some((f) =>
+          f.extensions.includes('json'),
+        )
+      )
+        return '/synthetic/export/population-demo/provenance.json' as T;
+      if (command === 'replay_population_summary') {
+        window.dispatchEvent(new CustomEvent('synthetic-replay', { detail: args }));
+        return {
+          directory: '/synthetic/export/population-replay',
+          summaryPath: '/synthetic/export/population-replay/summary.nii.gz',
+          coveragePath: '/synthetic/export/population-replay/coverage.nii.gz',
+          provenancePath: '/synthetic/export/population-replay/provenance.json',
+        } as T;
+      }
       if (command === 'plugin:dialog|open')
         return (
           (args?.options as { directory?: boolean })?.directory
@@ -223,10 +239,16 @@ const slices = new PopulationSliceService(
 );
 function Harness() {
   const [exported, setExported] = useState<unknown>(null);
+  const [replayed, setReplayed] = useState<unknown>(null);
   useEffect(() => {
     const onExport = (event: Event) => setExported((event as CustomEvent).detail);
+    const onReplay = (event: Event) => setReplayed((event as CustomEvent).detail);
     window.addEventListener('synthetic-export', onExport);
-    return () => window.removeEventListener('synthetic-export', onExport);
+    window.addEventListener('synthetic-replay', onReplay);
+    return () => {
+      window.removeEventListener('synthetic-export', onExport);
+      window.removeEventListener('synthetic-replay', onReplay);
+    };
   }, []);
   const focus = useSetStudioStore((state) => state.selection.activeMemberId);
   return (
@@ -244,6 +266,14 @@ function Harness() {
       <PopulationUnitControls />
       <PopulationLens service={slices} probeController={controller} />
       <PopulationProbePanel controller={controller} />
+      {exportMode && replayed != null && (
+        <pre
+          data-testid="synthetic-replay-receipt"
+          className="whitespace-pre-wrap break-all text-xs"
+        >
+          {JSON.stringify(replayed, null, 2)}
+        </pre>
+      )}
       {exportMode && exported != null && (
         <pre
           data-testid="synthetic-export-receipt"

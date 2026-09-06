@@ -12928,6 +12928,28 @@ async fn export_population_summary(
     population_slice::export::export(request, state.inner(), cancellation).await
 }
 
+/// Validate and recalculate an exported population bundle without changing live state.
+#[command]
+async fn replay_population_summary(
+    provenance_path: String,
+    destination_directory: String,
+    ticket: Option<SampleTicket>,
+    state: State<'_, BridgeState>,
+) -> BridgeResult<population_slice::export::ExportResult> {
+    let cancellation = ticket
+        .as_ref()
+        .map(|ticket| state.population_sampling.begin(ticket))
+        .transpose()?
+        .unwrap_or_default();
+    population_slice::replay::replay(
+        provenance_path,
+        destination_directory,
+        state.inner(),
+        cancellation,
+    )
+    .await
+}
+
 /// Release the plane matrix owned by a particular mounted population view.
 #[command]
 async fn release_population_slice(

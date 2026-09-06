@@ -54,3 +54,30 @@ test('mask changes preserve effect scales and clearing restores the population p
   await expect(page.getByTestId('fixture-focus')).toHaveText('S001');
   await page.screenshot({ path: testInfo.outputPath('population-restored.png') });
 });
+
+test('recalculates a saved bundle without replacing live focus or weighting', async ({
+  page,
+}, testInfo) => {
+  await page.goto('/population-harness.html?mask&export');
+  await expect(page.getByRole('button', { name: 'Export summary…', exact: true })).toBeEnabled();
+  await page.getByRole('button', { name: 'Recalculate saved summary…', exact: true }).click();
+  await expect(
+    page.getByRole('status').filter({ hasText: 'Verified recalculation saved' }),
+  ).toBeVisible();
+  const receipt = JSON.parse((await page.getByTestId('synthetic-replay-receipt').textContent())!);
+  expect(receipt.provenancePath).toBe('/synthetic/export/population-demo/provenance.json');
+  expect(receipt.destinationDirectory).toBe('/synthetic/export');
+  expect(Object.keys(receipt).sort()).toEqual(['destinationDirectory', 'provenancePath', 'ticket']);
+  await expect(page.getByTestId('fixture-focus')).toHaveText('S001');
+  await expect(page.getByText(/^Analysis unit:/)).toContainText('observations');
+  await page
+    .getByRole('button', { name: 'Recalculate saved summary…', exact: true })
+    .scrollIntoViewIfNeeded();
+  await page.screenshot({ path: testInfo.outputPath('population-replay-desktop.png') });
+  await page.setViewportSize({ width: 480, height: 1000 });
+  await expect(
+    page.getByRole('button', { name: 'Recalculate saved summary…', exact: true }),
+  ).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page.screenshot({ path: testInfo.outputPath('population-replay-narrow.png') });
+});

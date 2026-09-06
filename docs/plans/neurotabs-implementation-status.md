@@ -184,6 +184,23 @@ Evidence:
 
 Native desktop import-to-export acceptance, restore/replay, immutable source retention, feature-role/units validation, surface/parcel export and large-set performance remain open. The legacy Compare materializer is unchanged and does not inherit Population settings.
 
+## Verified saved-summary recalculation increment
+
+The Population export row now provides `Recalculate saved summary…`. Choose an exported `provenance.json` and an output parent directory. The command derives all calculation operands from that record, so current live focus, selection, weighting and mask are preserved. File-picker cancellation and native cancellation share the mounted export-control lifecycle; failures are shown without silently substituting current settings or changed sources.
+
+The native replay command accepts the v1 export schema, validates complete recorded source identities and frozen mask/source revisions, and checks both fixed-name saved NIfTI artifacts against their recorded digests and byte counts. It admits one replay at a time, with a 4 MiB record-input limit and 256 MiB limit per artifact. Hash reads check cancellation in bounded chunks. Whole-bundle file stamps remain guarded through recalculation and staging.
+
+Recalculation uses the existing full-grid exporter. Before publication, the new grid, source revisions, mask revision and both artifact digests/sizes must equal the saved record. A numerical or binary serialization difference is a visible refusal; this v1 gate deliberately requires exact artifact bytes, not cross-version tolerance. A successful new bundle links the parent record path and SHA. Context metadata stays descriptive; participant groups, membership and reducer come from the executable calculation.
+
+Evidence:
+
+- `cargo test --workspace` passed 824 tests with 27 ignored and completed doc-test suites (`/private/tmp/neurotabs-replay-workspace.log`).
+- Native tests reproduce participant-weighted masked maps byte for byte and retain the parent-record link. They reject changed selection operands, unknown schema, inconsistent grids or source byte counts, incomplete identities, arbitrary artifact keys, damaged artifacts, changed source images, cancellation and oversized records. Failure checks require an empty output directory, including failures detected after staging. Receipt: `/private/tmp/neurotabs-replay-native.log`.
+- The broad UI regression run passed 164 tests across 21 suites (`/private/tmp/neurotabs-replay-ui-complete.log`). Service/control checks cover independent saved operands, both canceled choosers, aborted work, error propagation, listener cleanup and replay without a current display. TypeScript, scoped ESLint, API build, Rust formatting and the 115-command strict permission inventory passed. Workspace Clippy completed with only existing warnings (`/private/tmp/neurotabs-replay-clippy.log`).
+- Three reusable Playwright workflows passed (`/private/tmp/neurotabs-replay-playwright.log`): masked participant export, probe/scale restoration, and saved-summary recalculation without replacing live focus/weighting. Desktop and 480px replay screenshots were inspected under `/private/tmp/neurotabs-replay-playwright/`. These use explicitly simulated dialogs and IPC; native integrity/equivalence is checked separately. Browser/server cleanup and the final ownership audit were clear.
+
+This increment recalculates an intact exported bundle from unchanged external source images. It does not restore an interactive workspace, relocate or retain source images, provide a portable cross-version replay guarantee, or complete native Tauri/end-to-end acceptance. Those remain open alongside the fluid-set, relationship and grouped-plot work in the full plan.
+
 ## Next implementation path
 
-Verify the native app path from audited import through live mean/focus, pinned values and restored sensitivity preview, including end-to-end latency and full-shell layout. Extend saved calculation records to validated restore/replay and immutable source retention; extend witness rules to largest deviations and maps nearest a stated summary, with explicit spatial distance definitions. Add immutable saved-source retention, decoded-source dataset teardown and physical temporal axes. Preserve the complete M0–M5 and P scope while delivering and verifying these increments.
+Verify the native app path from audited import through live mean/focus, pinned values and restored sensitivity preview, including end-to-end latency and full-shell layout. Extend verified saved-summary recalculation to interactive workspace restoration and immutable source retention; extend witness rules to largest deviations and maps nearest a stated summary, with explicit spatial distance definitions. Add immutable saved-source retention, decoded-source dataset teardown and physical temporal axes. Preserve the complete M0–M5 and P scope while delivering and verifying these increments.

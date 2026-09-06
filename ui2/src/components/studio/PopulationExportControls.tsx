@@ -24,20 +24,26 @@ export function PopulationExportControls({
     },
     [],
   );
-  async function save() {
-    if (!display || !current || active.current) return;
+  async function save(replay = false) {
+    if ((!replay && (!display || !current)) || active.current) return;
     const controller = new AbortController();
     active.current = controller;
     setBusy(true);
     setError(null);
     setMessage(null);
     try {
-      const frozen = freezePopulationExport(display);
-      const result = await populationExportService.chooseAndExport(frozen, controller.signal);
+      const result = replay
+        ? await populationExportService.chooseAndReplay(controller.signal)
+        : await populationExportService.chooseAndExport(
+            freezePopulationExport(display!),
+            controller.signal,
+          );
       if (active.current === controller)
         setMessage(
           result
-            ? `Saved summary, coverage and provenance to ${result.directory}`
+            ? replay
+              ? `Verified recalculation saved to ${result.directory}`
+              : `Saved summary, coverage and provenance to ${result.directory}`
             : 'Export canceled.',
         );
     } catch (error) {
@@ -61,6 +67,15 @@ export function PopulationExportControls({
         onClick={() => void save()}
       >
         {busy ? 'Exporting…' : 'Export summary…'}
+      </button>
+      <button
+        type="button"
+        className="rounded border border-border px-2 py-1 disabled:opacity-40 hover:bg-accent"
+        disabled={busy}
+        onClick={() => void save(true)}
+        title="Verify and recalculate a saved bundle from its original sources"
+      >
+        Recalculate saved summary…
       </button>
       {busy ? (
         <button

@@ -65,6 +65,26 @@ export function freezePopulationExport(display: PopulationSliceDisplay) {
     },
   });
 }
+async function invokeCancelable<T>(
+  command: string,
+  args: Record<string, unknown>,
+  signal: AbortSignal,
+): Promise<T> {
+  signal.throwIfAborted();
+  const ticket = { id: crypto.randomUUID(), expiresAtMs: Date.now() + 120_000 };
+  const cancel = () => {
+    void getTransport()
+      .invoke('cancel_population_sample', { ticket })
+      .catch((error) => console.warn('Population operation cancellation failed:', error));
+  };
+  signal.addEventListener('abort', cancel, { once: true });
+  try {
+    return await getTransport().invoke<T>(command, { ...args, ticket });
+  } finally {
+    signal.removeEventListener('abort', cancel);
+  }
+}
+
 export const populationExportService = {
   async chooseAndExport(
     frozen: ReturnType<typeof freezePopulationExport>,
@@ -78,20 +98,34 @@ export const populationExportService = {
       },
     });
     if (!path || signal.aborted) return null;
-    const ticket = { id: crypto.randomUUID(), expiresAtMs: Date.now() + 120_000 };
-    const cancel = () => {
-      void getTransport()
-        .invoke('cancel_population_sample', { ticket })
-        .catch((error) => console.warn('Export cancellation failed:', error));
-    };
-    signal.addEventListener('abort', cancel, { once: true });
-    try {
-      return await getTransport().invoke<PopulationExportResult>('export_population_summary', {
-        request: { ...frozen, destinationDirectory: path },
-        ticket,
-      });
-    } finally {
-      signal.removeEventListener('abort', cancel);
-    }
+    return invokeCancelable<PopulationExportResult>(
+      'export_population_summary',
+      { request: { ...frozen, destinationDirectory: path } },
+      signal,
+    );
+  },
+  async chooseAndReplay(signal: AbortSignal): Promise<PopulationExportResult | null> {
+    const provenancePath = await getTransport().invoke<string | null>('plugin:dialog|open', {
+      options: {
+        multiple: false,
+        directory: false,
+        title: 'Choose exported provenance.json',
+        filters: [{ name: 'Population calculation record', extensions: ['json'] }],
+      },
+    });
+    if (!provenancePath || signal.aborted) return null;
+    const destinationDirectory = await getTransport().invoke<string | null>('plugin:dialog|open', {
+      options: {
+        multiple: false,
+        directory: true,
+        title: 'Choose a parent folder for the recalculated bundle',
+      },
+    });
+    if (!destinationDirectory || signal.aborted) return null;
+    return invokeCancelable<PopulationExportResult>(
+      'replay_population_summary',
+      { provenancePath, destinationDirectory },
+      signal,
+    );
   },
 };

@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-replay-population-summary"
+description = "Enables the replay_population_summary command without any pre-configured scope."
+commands.allow = ["replay_population_summary"]
+
+[[permission]]
+identifier = "deny-replay-population-summary"
+description = "Denies the replay_population_summary command without any pre-configured scope."
+commands.deny = ["replay_population_summary"]
