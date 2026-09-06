@@ -84,6 +84,15 @@ fn hash_file(path: &Path, limit: u64, token: &SampleCancellation) -> BridgeResul
 }
 fn artifact_names(query: &PopulationSliceRequest) -> Vec<&'static str> {
     let mut names = vec!["summary.nii.gz", "coverage.nii.gz"];
+    if query.inference.is_some() {
+        names.extend([
+            "effect.nii.gz",
+            "standard-error.nii.gz",
+            "t.nii.gz",
+            "df.nii.gz",
+            "count.nii.gz",
+        ]);
+    }
     if query.reference.is_some() {
         names.extend(["reference.nii.gz", "reference-coverage.nii.gz"]);
     }
@@ -106,7 +115,9 @@ fn read_record(path: &Path, token: &SampleCancellation) -> BridgeResult<(Record,
     let record: Record = serde_json::from_slice(&bytes)
         .map_err(|e| input(format!("Invalid population calculation record: {e}")))?;
     if record.schema
-        != if record.calculation.reference.is_some() {
+        != if record.calculation.inference.is_some() {
+            "brainflow.population-export.v3"
+        } else if record.calculation.reference.is_some() {
             "brainflow.population-export.v2"
         } else {
             "brainflow.population-export.v1"

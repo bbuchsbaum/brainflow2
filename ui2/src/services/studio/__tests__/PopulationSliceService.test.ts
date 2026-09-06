@@ -427,3 +427,53 @@ it('retains group/reference bitmaps across focus-only results and releases each 
   release();
   expect(bitmaps.every((b) => vi.mocked(b.close).mock.calls.length === 1)).toBe(true);
 });
+
+it('switches retained test channels without resampling within the freshness lease', async () => {
+  const { service, evaluate } = setup();
+  const q = query();
+  q.request.inference = {
+    method: 'oneSample',
+    role: 'effect',
+    units: 'a.u.',
+    nullValue: 0,
+    independentParticipants: true,
+    selectionOrigin: 'manual',
+    channel: 'effect',
+  };
+  q.request.aggregation = {
+    within: 'single',
+    groups: ['a', 'b'].map((id) => ({ participantId: id, memberIds: [id] })),
+  };
+  const result = data();
+  result.inference = {
+    effect: [1, null],
+    standardError: [0.5, null],
+    t: [2, null],
+    df: [1, null],
+    count: [2, 0],
+  };
+  evaluate.mockResolvedValue(result);
+  service.request(q);
+  await vi.runAllTimersAsync();
+  expect(service.getSnapshot().error).toBeNull();
+  const t = structuredClone(q);
+  t.key = 't-channel';
+  t.request.inference!.channel = 't';
+  service.request(t);
+  await vi.runAllTimersAsync();
+  expect(evaluate).toHaveBeenCalledTimes(1);
+  expect(service.getSnapshot().displayed?.data.summary).toEqual([2, null]);
+  expect(service.getSnapshot().displayed?.summaryLimit).toBe(5);
+  await vi.advanceTimersByTimeAsync(1001);
+  const df = structuredClone(q);
+  df.key = 'df-channel';
+  df.request.inference!.channel = 'df';
+  service.request(df);
+  await vi.runAllTimersAsync();
+  expect(evaluate).toHaveBeenCalledTimes(2);
+  evaluate.mockResolvedValue({ ...result, summary: [99, null] });
+  service.request(q, true);
+  await vi.runAllTimersAsync();
+  expect(service.getSnapshot().error).toMatch(/result family/);
+  service.stop();
+});

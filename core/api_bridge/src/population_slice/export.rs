@@ -137,7 +137,9 @@ pub(super) async fn export_checked(
     // Two or four f32 outputs; sampling and reduction use a bounded block independently.
     if count
         > 128 * 1024 * 1024
-            / if population.reference.is_some() {
+            / if population.inference.is_some() {
+                28
+            } else if population.reference.is_some() {
                 16
             } else {
                 8
@@ -150,6 +152,11 @@ pub(super) async fn export_checked(
     }
     let mut summary = Vec::with_capacity(count);
     let mut coverage = Vec::with_capacity(count);
+    let mut inference_values: Vec<Vec<f32>> = if population.inference.is_some() {
+        (0..5).map(|_| Vec::with_capacity(count)).collect()
+    } else {
+        Vec::new()
+    };
     let mut reference_values = Vec::new();
     let mut reference_coverage = Vec::new();
     if population.reference.is_some() {
@@ -157,7 +164,14 @@ pub(super) async fn export_checked(
         reference_coverage.reserve(count);
     }
     // Account for rows, voxel indices, pixel slots, moments and returned block arrays.
-    let block_size = (32 * 1024 * 1024 / (4 * population.members.len() + 256)).clamp(1, 65536);
+    let block_size = (32 * 1024 * 1024
+        / (4 * population.members.len()
+            + if population.inference.is_some() {
+                512
+            } else {
+                256
+            }))
+    .clamp(1, 65536);
     let mut sources = Vec::new();
     for start in (0..count).step_by(block_size) {
         token.check()?;
@@ -240,6 +254,17 @@ pub(super) async fn export_checked(
         .await
         .map_err(|e| input(e.to_string()))??;
         summary.extend(result.summary);
+        if let Some(channels) = result.inference {
+            for (out, values) in inference_values.iter_mut().zip([
+                channels.effect,
+                channels.standard_error,
+                channels.t,
+                channels.df,
+                channels.count,
+            ]) {
+                out.extend(values.into_iter().map(|v| v.unwrap_or(f32::NAN)));
+            }
+        }
         if let Some(reference) = result.reference {
             reference_values.extend(reference.values);
             for (i, n) in reference.valid_counts.into_iter().enumerate() {
@@ -271,15 +296,15 @@ pub(super) async fn export_checked(
     token.check()?;
     let provenance = serde_json::json!({
         "replay": proof.as_ref().map(|p| serde_json::json!({"recordPath":p.record_path,"recordSha256":p.record_sha256,"verification":"byte-identical summary and coverage"})),
-        "schema": if population.reference.is_some() { "brainflow.population-export.v2" } else { "brainflow.population-export.v1" },
+        "schema": if population.inference.is_some() { "brainflow.population-export.v3" } else if population.reference.is_some() { "brainflow.population-export.v2" } else { "brainflow.population-export.v1" },
         "brainflowVersion": env!("CARGO_PKG_VERSION"),
         "calculation": calculation,
         "context": request.context,
         "sources": sources,
         "maskRevision": mask.as_ref().map(|m| &m.revision),
         "grid": { "dimensions": dims, "voxelToWorld": (0..4).map(|r| (0..4).map(|c| affine[(r,c)]).collect::<Vec<_>>()).collect::<Vec<_>>(), "spatialUnits": "mm" },
-        "semantics": { "operation": if population.difference { "mean(A)-mean(B); local finite means; overlap allowed; not a t-test" } else { "population summary" },
-        "referenceCoverage": if population.reference.is_some() { "reference-coverage.nii.gz counts locally valid B analysis units; coverage.nii.gz counts A units, never an effective contrast sample size" } else { "none" }, "kind": "descriptive", "support": "full native grid; finite measurements within common binary mask", "missing": "NaN; measured zero is valid", "coverage": "locally valid analysis units", "withinParticipant": "finite voxelwise mean when declared; equal participant weighting", "sampleSdDof": 1, "sourceRetention": "hash-verified external sources; source images are not embedded" }
+        "semantics": { "operation": if population.inference.is_some() { "one-sample participant mean relative to declared null" } else if population.difference { "mean(A)-mean(B); local finite means; overlap allowed; not a t-test" } else { "population summary" },
+        "referenceCoverage": if population.reference.is_some() { "reference-coverage.nii.gz counts locally valid B analysis units; coverage.nii.gz counts A units, never an effective contrast sample size" } else { "none" }, "kind": if population.inference.is_some() { "exploratory one-sample inference; no p-values or multiplicity correction" } else { "descriptive" }, "inference": population.inference.as_ref().map(|_| "effect=mean-null; SE=sample SD/sqrt(n); t=effect/SE; df=n-1; local finite participants; t unavailable below two or at zero SE; no automatic exclusions"), "support": "full native grid; finite measurements within common binary mask", "missing": "NaN; measured zero is valid", "coverage": "locally valid analysis units", "withinParticipant": "finite voxelwise mean when declared; equal participant weighting", "sampleSdDof": 1, "sourceRetention": "hash-verified external sources; source images are not embedded" }
     });
     if let Some(proof) = &proof {
         if provenance["grid"] != proof.grid
@@ -305,6 +330,9 @@ pub(super) async fn export_checked(
         header.srow_z = std::array::from_fn(|c| affine[(2,c)]);
         let mut artifacts = serde_json::Map::new();
         let mut outputs = vec![("summary.nii.gz", summary), ("coverage.nii.gz", coverage)];
+        for (name, values) in ["effect.nii.gz", "standard-error.nii.gz", "t.nii.gz", "df.nii.gz", "count.nii.gz"].into_iter().zip(inference_values) {
+            outputs.push((name, values));
+        }
         if !reference_values.is_empty() { outputs.push(("reference.nii.gz", reference_values)); outputs.push(("reference-coverage.nii.gz", reference_coverage)); }
         for (name, values) in outputs {
             check.check()?;
@@ -359,6 +387,7 @@ mod tests {
     use crate::set_sample_cache::TestSource;
     fn query(sources: &[&TestSource]) -> PopulationSliceRequest {
         PopulationSliceRequest {
+            inference: None,
             groups: vec![],
             reference: None,
             difference: false,
@@ -982,5 +1011,159 @@ mod tests {
                 .is_err()
         );
         assert_eq!(fs::read_dir(&dest.0).unwrap().count(), 1);
+    }
+    #[tokio::test]
+    async fn one_sample_channels_match_live_export_and_replay_with_local_missingness() {
+        use field_table::population_inference::{
+            Channel, FeatureRole, Method, SelectionOrigin, Specification,
+        };
+        let mut a = vec![1.; 27];
+        let mut b = vec![3.; 27];
+        let mut c = vec![5.; 27];
+        a[0] = f32::NAN;
+        b[0] = f32::NAN;
+        c[0] = f32::NAN;
+        b[1] = f32::NAN;
+        c[1] = f32::NAN;
+        a[2] = 2.;
+        b[2] = 2.;
+        c[2] = 2.;
+        let a = TestSource::new(&[3, 3, 3], &a);
+        let b = TestSource::new(&[3, 3, 3], &b);
+        let c = TestSource::new(&[3, 3, 3], &c);
+        let state = BridgeState::default().unwrap();
+        let mut q = query(&[&a, &b, &c]);
+        q.aggregation = Some(ParticipantAggregation {
+            within: WithinParticipant::Single,
+            groups: q
+                .members
+                .iter()
+                .map(|m| ParticipantGroup {
+                    participant_id: m.member_id.clone(),
+                    member_ids: vec![m.member_id.clone()],
+                })
+                .collect(),
+        });
+        q.inference = Some(Specification {
+            method: Method::OneSample,
+            role: FeatureRole::Effect,
+            units: "percent signal change".into(),
+            null_value: 1.,
+            independent_participants: true,
+            selection_origin: SelectionOrigin::MapDerived,
+            channel: Channel::T,
+        });
+        let live = freeze(&mut q, &state).await;
+        assert!(live
+            .summary
+            .iter()
+            .any(|v| (*v - 3_f32.sqrt()).abs() < 1e-6));
+        assert_eq!(
+            live.inference
+                .as_ref()
+                .unwrap()
+                .t
+                .iter()
+                .map(|v| v.unwrap_or(f32::NAN).to_bits())
+                .collect::<Vec<_>>(),
+            live.summary.iter().map(|v| v.to_bits()).collect::<Vec<_>>()
+        );
+        let destination = Destination::new();
+        let out = export(
+            ExportRequest {
+                population: q.clone(),
+                destination_directory: destination.0.to_string_lossy().into(),
+                context: serde_json::json!({"discovery":"map-derived"}),
+            },
+            &state,
+            SampleCancellation::default(),
+        )
+        .await
+        .unwrap();
+        let record: serde_json::Value =
+            serde_json::from_slice(&fs::read(&out.provenance_path).unwrap()).unwrap();
+        assert_eq!(record["schema"], "brainflow.population-export.v3");
+        assert_eq!(record["artifacts"].as_object().unwrap().len(), 7);
+        let field = |name: &str| {
+            Path::new(&out.directory)
+                .join(name)
+                .to_string_lossy()
+                .into_owned()
+        };
+        let effect = values(&field("effect.nii.gz"), &state).await;
+        let se = values(&field("standard-error.nii.gz"), &state).await;
+        let t = values(&field("t.nii.gz"), &state).await;
+        let df = values(&field("df.nii.gz"), &state).await;
+        let n = values(&field("count.nii.gz"), &state).await;
+        assert!(effect[0].is_nan());
+        assert_eq!(n[0], 0.);
+        assert_eq!(effect[1], 0.);
+        assert_eq!(n[1], 1.);
+        assert!(df[1].is_nan());
+        assert_eq!(se[2], 0.);
+        assert!(t[2].is_nan());
+        assert_eq!(effect[3], 2.);
+        assert!((se[3] - 2. / 3_f32.sqrt()).abs() < 1e-6);
+        assert!((t[3] - 3_f32.sqrt()).abs() < 1e-6);
+        assert_eq!(df[3], 2.);
+        assert_eq!(n[3], 3.);
+        super::super::replay::replay(
+            out.provenance_path.clone(),
+            destination.0.to_string_lossy().into(),
+            &state,
+            SampleCancellation::default(),
+        )
+        .await
+        .unwrap();
+        let opened = super::super::replay::open(
+            out.provenance_path.clone(),
+            &state,
+            SampleCancellation::default(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            opened.calculation.inference.unwrap().units,
+            "percent signal change"
+        );
+        // A changed sibling is rejected even if summary and coverage were untouched.
+        use std::io::Write;
+        fs::OpenOptions::new()
+            .append(true)
+            .open(field("t.nii.gz"))
+            .unwrap()
+            .write_all(b"changed")
+            .unwrap();
+        assert!(super::super::replay::open(
+            out.provenance_path,
+            &state,
+            SampleCancellation::default()
+        )
+        .await
+        .is_err());
+        let mut invalid = q.clone();
+        invalid.aggregation = None;
+        assert!(validate(&invalid).is_err());
+        invalid = q.clone();
+        invalid.inference.as_mut().unwrap().role = FeatureRole::T;
+        assert!(validate(&invalid).is_err());
+        // Declared repeated rows contribute one participant mean, not two people.
+        let ids: Vec<_> = q.members.iter().map(|m| m.member_id.clone()).collect();
+        q.aggregation = Some(ParticipantAggregation {
+            within: WithinParticipant::Mean,
+            groups: vec![
+                ParticipantGroup {
+                    participant_id: "P1".into(),
+                    member_ids: ids[..2].to_vec(),
+                },
+                ParticipantGroup {
+                    participant_id: "P2".into(),
+                    member_ids: ids[2..].to_vec(),
+                },
+            ],
+        });
+        let reduced = freeze(&mut q, &state).await;
+        assert_eq!(reduced.unit_count, 2);
+        assert!(reduced.summary.iter().any(|v| (*v - 5. / 3.).abs() < 1e-6));
     }
 }

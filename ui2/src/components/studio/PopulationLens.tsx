@@ -1,3 +1,9 @@
+import { PopulationInferenceControls } from './PopulationInferenceControls';
+import { inferenceNames, selectInferenceChannel } from '@/services/studio/populationInference';
+import {
+  populationDiverging,
+  populationDisplayKind,
+} from '@/services/studio/PopulationSliceService';
 import { PopulationRelationshipPanel } from './PopulationRelationshipPanel';
 import { populationRelationshipService } from '@/services/studio/PopulationRelationshipService';
 import { PopulationGroupViews } from './PopulationGroupViews';
@@ -140,6 +146,12 @@ export function PopulationLens({
   const comparing =
     presentation.arrangement === 'comparison' || presentation.arrangement === 'difference';
   const difference = presentation.arrangement === 'difference';
+  const activeTest =
+    !comparing &&
+    !grouped &&
+    studio.population.inference?.featureId === studio.selection.activeFeatureId
+      ? studio.population.inference
+      : null;
   const groupPages = Math.max(1, Math.ceil((studio.population.partition?.groups.length ?? 0) / 4));
   const currentGroupPage = Math.min(groupPage, groupPages - 1);
   const contributors =
@@ -362,15 +374,19 @@ export function PopulationLens({
       </p>
       <div className="flex flex-wrap items-center gap-2">
         <label className="text-xs">
-          Summary{' '}
+          {activeTest ? 'Channel' : 'Summary'}{' '}
           <select
             className={control}
-            aria-label="Summary"
+            aria-label={activeTest ? 'Displayed test channel' : 'Summary'}
             disabled={comparing || grouped}
-            value={comparing || grouped ? 'mean' : summary}
-            onChange={(event) => setSummary(event.target.value as PopulationSummary)}
+            value={activeTest?.channel ?? (comparing || grouped ? 'mean' : summary)}
+            onChange={(event) =>
+              activeTest
+                ? selectInferenceChannel(event.target.value as typeof activeTest.channel)
+                : setSummary(event.target.value as PopulationSummary)
+            }
           >
-            {Object.entries(names).map(([id, name]) => (
+            {Object.entries(activeTest ? inferenceNames : names).map(([id, name]) => (
               <option key={id} value={id}>
                 {name}
               </option>
@@ -521,6 +537,7 @@ export function PopulationLens({
           {issue}
         </p>
       )}
+      <PopulationInferenceControls />
       <PopulationRelationshipPanel />
       <PopulationNavigation
         ids={navigationIds}
@@ -658,17 +675,19 @@ export function PopulationLens({
               <div className="mb-1 flex min-w-0 justify-between gap-2 text-xs">
                 <span className="truncate">
                   {pane === 'summary'
-                    ? `${result?.query.request.difference ? 'A − B mean difference' : result?.query.request.reference ? 'A mean' : names[result?.query.request.summary ?? summary]} · ${result?.data.unitCount ?? 0} ${result?.query.request.aggregation ? 'participants' : 'observations'}`
+                    ? `${result?.query.request.difference ? 'A − B mean difference' : result?.query.request.reference ? 'A mean' : result?.query.request.inference ? inferenceNames[result.query.request.inference.channel] : names[result?.query.request.summary ?? summary]} · ${result?.data.unitCount ?? 0} ${result?.query.request.aggregation ? 'participants' : 'observations'}`
                     : pane === 'reference'
                       ? `B mean · ${result?.data.reference?.unitCount ?? 0} analysis units`
                       : `Actual observation · ${result?.query.request.focusMemberId ?? 'none'}`}
                 </span>
                 {result && (
                   <span className="shrink-0 tabular-nums">
-                    {pane === 'summary' && result.query.request.summary !== 'mean' ? '0' : '−'}
-                    {pane === 'summary' && result.query.request.summary !== 'mean'
+                    {pane === 'summary' && !populationDiverging(result.query.request) ? '0' : '−'}
+                    {pane === 'summary' && !populationDiverging(result.query.request)
                       ? ''
-                      : result.effectLimit.toPrecision(3)}{' '}
+                      : (pane === 'summary' ? result.summaryLimit : result.effectLimit).toPrecision(
+                          3,
+                        )}{' '}
                     to{' '}
                     {(pane === 'summary' ? result.summaryLimit : result.effectLimit).toPrecision(3)}
                   </span>
@@ -762,7 +781,7 @@ export function PopulationLens({
             onChange={(event) => service.setEffectLimit(event.target.valueAsNumber)}
           />
         </label>
-        {result && result.query.request.summary !== 'mean' && (
+        {result && !['mean', 'effect'].includes(populationDisplayKind(result.query.request)) && (
           <label>
             Summary maximum{' '}
             <input

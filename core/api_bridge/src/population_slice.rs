@@ -1,6 +1,7 @@
 //! Visible-support evaluation for observed population fields. The retained
 //! plane matrix has a byte budget and never enters the volume/GPU registries.
 pub mod export;
+pub mod inference;
 pub mod relationship;
 pub mod replay;
 use crate::{
@@ -41,6 +42,8 @@ pub enum Orientation {
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PopulationSliceRequest {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub inference: Option<field_table::population_inference::Specification>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub groups: Vec<GroupRequest>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -150,6 +153,8 @@ pub struct SliceSource {
 #[derive(Debug, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PopulationSliceResult {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub inference: Option<inference::Channels>,
     pub groups: Vec<GroupResult>,
     pub reference: Option<GroupResult>,
     pub focus_window: Vec<CutoutMember>,
@@ -399,6 +404,7 @@ fn validate(request: &PopulationSliceRequest) -> BridgeResult<()> {
             ));
         }
     }
+    inference::validate(request)?;
     if request.groups.len() > 4
         || request
             .groups
@@ -913,6 +919,11 @@ fn reduce_plane(
             .collect::<BridgeResult<Vec<_>>>()?
     };
     let summaries: Vec<_> = moments.summaries().collect();
+    let inference = request
+        .inference
+        .as_ref()
+        .filter(|_| !request.focus_only)
+        .map(|spec| inference::channels(&summaries, &cached.plan.pixels, spec));
     let mut summary = Vec::with_capacity(cached.plan.pixels.len());
     let mut focused = Vec::with_capacity(summary.capacity());
     let mut valid_counts = Vec::with_capacity(summary.capacity());
@@ -931,7 +942,10 @@ fn reduce_plane(
                     SummaryKind::Coverage => Some(s.valid_count as f64),
                 }
             });
-            let value = if request.difference {
+            let value = if let Some(channels) = &inference {
+                channels.selected(&request.inference.as_ref().unwrap().channel)[pixel]
+                    .map(f64::from)
+            } else if request.difference {
                 value.and_then(|a| {
                     let b = reference.as_ref().unwrap().means[pixel];
                     b.is_finite().then_some(a - b)
@@ -1016,6 +1030,7 @@ fn reduce_plane(
         });
     }
     Ok(PopulationSliceResult {
+        inference,
         groups,
         reference,
         focus_window,
@@ -1064,6 +1079,7 @@ mod tests {
             })
             .collect();
         PopulationSliceRequest {
+            inference: None,
             groups: vec![],
             reference: None,
             difference: false,

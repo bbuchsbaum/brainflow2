@@ -403,3 +403,66 @@ test('fits stable spatial relationships, orders the movie, groups and reopens th
     .screenshot({ path: testInfo.outputPath('population-similarity-narrow.png') });
   expect(errors).toEqual([]);
 });
+
+test('declares participant effects, switches test channels and reopens a frozen discovery', async ({
+  page,
+}, testInfo) => {
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  await page.goto('/population-harness.html?export&roundtrip');
+  await page.getByText('Statistical question', { exact: true }).click();
+  await page.getByRole('button', { name: 'Apply one-sample test', exact: true }).click();
+  await expect(page.getByRole('alert').filter({ hasText: /effect estimates/ })).toBeVisible();
+  await page.getByLabel('Feature value role', { exact: true }).selectOption('effect');
+  await page.getByLabel('Effect units', { exact: true }).fill('% signal change');
+  await page
+    .getByLabel('I declare comparable effects from independent participants.', { exact: true })
+    .check();
+  await page.getByRole('button', { name: 'Apply one-sample test', exact: true }).click();
+  await expect(page.getByRole('alert').filter({ hasText: /participant identities/ })).toBeVisible();
+  await page.getByText(/^Analysis unit:/).click();
+  await page.getByLabel('Participant identity', { exact: true }).selectOption('rows');
+  await page.getByLabel('Population analysis unit', { exact: true }).selectOption('single');
+  await page.getByRole('button', { name: 'Apply one-sample test', exact: true }).click();
+  await expect(
+    page.getByText('Effect relative to null · 80 participants', { exact: true }),
+  ).toBeVisible();
+  const channel = page.getByLabel('Test result channel', { exact: true });
+  await channel.selectOption('t');
+  await expect(page.getByText('t statistic · 80 participants', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Next observation', exact: true }).click();
+  await expect(page.getByTestId('fixture-focus')).toHaveText('S002');
+  await channel.selectOption('df');
+  await expect(
+    page.getByText('Degrees of freedom · 80 participants', { exact: true }),
+  ).toBeVisible();
+  await channel.selectOption('standardError');
+  await expect(page.getByText('Standard error · 80 participants', { exact: true })).toBeVisible();
+  await page.getByText('Save calculation', { exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Freeze discovery…', exact: true })).toBeEnabled();
+  await page.getByRole('button', { name: 'Freeze discovery…', exact: true }).click();
+  const receipt = JSON.parse((await page.getByTestId('synthetic-export-receipt').textContent())!);
+  expect(receipt.population.inference).toMatchObject({
+    method: 'oneSample',
+    role: 'effect',
+    units: '% signal change',
+    nullValue: 0,
+    independentParticipants: true,
+    channel: 'standardError',
+  });
+  expect(receipt.population.aggregation.groups).toHaveLength(80);
+  await page.getByRole('button', { name: 'Open saved population…', exact: true }).click();
+  await expect(channel).toHaveValue('standardError');
+  await expect(page.getByText('Standard error · 80 participants', { exact: true })).toBeVisible();
+  await page
+    .getByLabel('Statistical question', { exact: true })
+    .screenshot({ path: testInfo.outputPath('population-inference-desktop.png') });
+  await page.setViewportSize({ width: 480, height: 1000 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page
+    .getByLabel('Statistical question', { exact: true })
+    .screenshot({ path: testInfo.outputPath('population-inference-narrow.png') });
+  await page.getByRole('button', { name: 'Return to descriptive view', exact: true }).click();
+  await expect(page.getByText('Mean · 80 participants', { exact: true })).toBeVisible();
+  expect(errors).toEqual([]);
+});

@@ -369,7 +369,7 @@ export function preparePopulationRestore(
     );
     if (index >= 0) notices.splice(index, 1);
   }
-  const origin = object(selection.working).origin;
+  const origin = query.inference?.selectionOrigin ?? object(selection.working).origin;
   const population: Partial<Omit<PopulationState, 'sessionRevision'>> = {
     partition,
     partitionPast,
@@ -404,6 +404,7 @@ export function preparePopulationRestore(
           reduction: query.aggregation.within,
         }
       : null,
+    inference: query.inference ? { ...query.inference, setId: id, featureId } : null,
     mask: query.mask ? { ...query.mask, setId: id } : null,
     referenceMode:
       selection.referenceMode === 'complement' &&

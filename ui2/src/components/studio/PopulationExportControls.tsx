@@ -43,7 +43,7 @@ export function PopulationExportControls({
           result
             ? replay
               ? `Verified recalculation saved to ${result.directory}`
-              : `Saved summary, coverage and provenance to ${result.directory}`
+              : `Saved ${display?.query.request.inference ? 'test channels, source identities and exploratory provenance' : 'summary, coverage and provenance'} to ${result.directory}`
             : 'Export canceled.',
         );
     } catch (error) {
@@ -66,7 +66,11 @@ export function PopulationExportControls({
         disabled={!current || !display?.query.request.workingMemberIds.length || busy}
         onClick={() => void save()}
       >
-        {busy ? 'Exporting…' : 'Export summary…'}
+        {busy
+          ? 'Exporting…'
+          : display?.query.request.inference
+            ? 'Freeze discovery…'
+            : 'Export summary…'}
       </button>
       <button
         type="button"
@@ -87,7 +91,9 @@ export function PopulationExportControls({
         </button>
       ) : (
         <span className="text-muted-foreground">
-          Full volume · valid counts · calculation record
+          {display?.query.request.inference
+            ? 'All five test channels · frozen source identities · exploratory provenance'
+            : 'Full volume · valid counts · calculation record'}
         </span>
       )}
       {message && (

@@ -1,6 +1,7 @@
 mod materialize;
 pub mod neurotabs;
 pub mod population;
+pub mod population_inference;
 mod preview;
 mod promote;
 

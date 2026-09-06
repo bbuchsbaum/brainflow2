@@ -288,7 +288,27 @@ const slices = new PopulationSliceService(
                     values.reduce((sum, v) => sum + (v - mean) ** 2, 0) / (values.length - 1),
                   )
                 : mean;
+      const spec = request.inference;
+      const se =
+        values.length > 1
+          ? Math.sqrt(
+              values.reduce((sum, v) => sum + (v - mean) ** 2, 0) /
+                (values.length - 1) /
+                values.length,
+            )
+          : NaN;
+      const inference =
+        spec && !request.focusOnly
+          ? {
+              effect: field(mean - spec.nullValue),
+              standardError: field(se),
+              t: field(se > 0 ? (mean - spec.nullValue) / se : NaN),
+              df: field(values.length > 1 ? values.length - 1 : NaN),
+              count: field(values.length),
+            }
+          : undefined;
       return {
+        inference,
         plane: {
           origin_mm: [-31.5, 31.5, request.crosshairMm[2]],
           u_mm: [64 / width, 0, 0],
@@ -299,11 +319,13 @@ const slices = new PopulationSliceService(
         contextRange: [-1, 3],
         summary: request.focusOnly
           ? []
-          : request.difference && reference
-            ? field(mean).map((v, i) =>
-                v === null || reference.values[i] === null ? null : v - reference.values[i]!,
-              )
-            : field(summary),
+          : inference && spec
+            ? inference[spec.channel]
+            : request.difference && reference
+              ? field(mean).map((v, i) =>
+                  v === null || reference.values[i] === null ? null : v - reference.values[i]!,
+                )
+              : field(summary),
         reference,
         groups: request.focusOnly ? [] : (request.groups ?? []).map(groupData),
         focusWindow: (request.focusWindow ?? []).map((memberId) => ({

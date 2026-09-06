@@ -273,3 +273,40 @@ it('restores factor membership and authoritative A/B operands for continued expl
   expect(result.request.workingMemberIds).toEqual(['a', 'b']);
   expect(result.request.difference).toBe(true);
 });
+
+it('restores the executable null, units, channel and exploratory origin ahead of descriptive context', () => {
+  const record = opened();
+  record.calculation.aggregation = {
+    within: 'single',
+    groups: record.calculation.members
+      .map((m) => ({ participantId: m.memberId, memberIds: [m.memberId] }))
+      .filter((g) => record.calculation.workingMemberIds.includes(g.participantId)),
+  };
+  record.calculation.inference = {
+    method: 'oneSample',
+    role: 'effect',
+    units: '% signal change',
+    nullValue: 2,
+    independentParticipants: true,
+    selectionOrigin: 'map-derived',
+    channel: 't',
+  };
+  record.context = { selectionContext: { working: { origin: 'manual' } } };
+  const payload = preparePopulationRestore(record, 'workspace', 2);
+  useSetStudioStore.getState().bootstrapStudio(payload);
+  const state = useSetStudioStore.getState();
+  expect(state.population.inference).toMatchObject({
+    ...record.calculation.inference,
+    featureId: state.selection.activeFeatureId,
+    setId: state.selection.activeSetId,
+  });
+  expect(state.population.working).toMatchObject({ origin: 'map-derived', memberIds: ['a', 'b'] });
+  const q = buildPopulationSliceQuery(state, 'workspace', {
+    crosshairMm: [0, 0, 0],
+    orientation: 'axial',
+    dimPx: [2, 2],
+    zoom: 1,
+    summary: 'mean',
+  }).query!;
+  expect(q.request.inference).toEqual(record.calculation.inference);
+});

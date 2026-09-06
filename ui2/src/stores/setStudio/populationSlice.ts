@@ -2,6 +2,7 @@ import { validatePopulationPartition } from '@/services/studio/populationGroups'
 import { participantIdentity } from '@/services/studio/populationParticipants';
 import type {
   PopulationActionResult,
+  PopulationInference,
   PopulationPresentation,
   PopulationPartition,
   PopulationMask,
@@ -21,6 +22,7 @@ import {
 export function initialPopulationState(sessionRevision = 0): PopulationState {
   return {
     sessionRevision,
+    inference: null,
     partition: null,
     partitionPast: [],
     presentation: { arrangement: 'inspect', order: null },
@@ -38,6 +40,7 @@ export function initialPopulationState(sessionRevision = 0): PopulationState {
 
 export interface PopulationSlice {
   population: PopulationState;
+  configurePopulationInference: (definition: PopulationInference | null) => PopulationActionResult;
   setPopulationPartition: (partition: PopulationPartition | null) => PopulationActionResult;
   undoPopulationPartition: () => void;
   setPopulationPresentation: (presentation: PopulationPresentation) => PopulationActionResult;
@@ -108,6 +111,23 @@ export function createPopulationSlice(
     return ok;
   };
   return {
+    configurePopulationInference(definition) {
+      const state = get();
+      if (
+        definition &&
+        (definition.setId !== state.selection.activeSetId ||
+          definition.featureId !== state.selection.activeFeatureId)
+      )
+        return fail('The feature changed; declare the current feature.');
+      if (same(state.population.inference, definition)) return ok;
+      set({
+        population: {
+          ...state.population,
+          inference: definition ? structuredClone(definition) : null,
+        },
+      });
+      return ok;
+    },
     setPopulationPartition(partition) {
       const state = get();
       if (partition) {

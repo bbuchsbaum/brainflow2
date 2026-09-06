@@ -92,6 +92,7 @@ export interface PopulationPartition {
 }
 
 export interface PopulationState {
+  readonly inference: PopulationInference | null;
   readonly partition: PopulationPartition | null;
   readonly partitionPast: readonly (PopulationPartition | null)[];
   readonly presentation: PopulationPresentation;
@@ -126,4 +127,19 @@ export type PopulationActionResult =
 export interface PopulationContext {
   readonly memberIds: readonly string[];
   readonly issue: string | null;
+}
+
+/** User-declared feature meaning; input roles are never inferred from filenames. */
+export interface PopulationInferenceSpec {
+  method: 'oneSample';
+  role: 'effect' | 'standardError' | 'variance' | 't' | 'z' | 'label' | 'other';
+  units: string;
+  nullValue: number;
+  independentParticipants: boolean;
+  selectionOrigin: PopulationSelectionOrigin;
+  channel: 'effect' | 'standardError' | 't' | 'df' | 'count';
+}
+export interface PopulationInference extends PopulationInferenceSpec {
+  setId: string;
+  featureId: string;
 }
