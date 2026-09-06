@@ -126,5 +126,6 @@ bridge_commands! {
     compute_temporal_metric,
     compute_region_stats,
     sample_set_at_world,
+    cancel_population_sample,
     sample_set_trace_at_world,
 }

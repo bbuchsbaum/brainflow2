@@ -2,6 +2,7 @@
 //! sampling run on a blocking worker, serialized per cache. Entries have bounded
 //! decoded payload bytes, observable file stamps and a digest of the exact private
 //! snapshot decoded. No borrowed volume escapes the sampling closure.
+use crate::population_sampling::SampleCancellation;
 use bridge_types::{BridgeError, BridgeResult, VolumeSendable};
 use sha2::{Digest, Sha256};
 use std::{
@@ -42,6 +43,56 @@ impl FileStamp {
             ),
         })
     }
+}
+
+/// Optimistic whole-query consistency check. Capture before any member is
+/// sampled and validate before publication. Snapshot digests still identify the
+/// decoded bytes; file stamps do not prove adversarial immutability.
+pub struct QuerySourceGuard(Vec<SourceObservation>);
+struct SourceObservation {
+    path: PathBuf,
+    observed: Result<(PathBuf, FileStamp), String>,
+}
+impl QuerySourceGuard {
+    pub async fn capture(
+        paths: Vec<PathBuf>,
+        cancellation: SampleCancellation,
+    ) -> BridgeResult<Self> {
+        tokio::task::spawn_blocking(move || {
+            let mut sources = Vec::with_capacity(paths.len());
+            for path in paths {
+                cancellation.check()?;
+                let observed = observe_source(&path);
+                sources.push(SourceObservation { path, observed });
+            }
+            Ok(Self(sources))
+        })
+        .await
+        .map_err(|error| input(format!("Population source audit failed: {error}")))?
+    }
+    pub async fn validate(self, cancellation: SampleCancellation) -> BridgeResult<()> {
+        tokio::task::spawn_blocking(move || {
+            for SourceObservation { path, observed } in self.0 {
+                cancellation.check()?;
+                if observe_source(&path) != observed {
+                    return Err(input(
+                        "Population sources changed while sampling; refresh the query.",
+                    ));
+                }
+            }
+            cancellation.check()
+        })
+        .await
+        .map_err(|error| input(format!("Population source audit failed: {error}")))?
+    }
+}
+fn observe_source(path: &Path) -> Result<(PathBuf, FileStamp), String> {
+    (|| -> BridgeResult<_> {
+        let canonical = path.canonicalize()?;
+        let stamp = FileStamp::read(canonical.metadata()?)?;
+        Ok((canonical, stamp))
+    })()
+    .map_err(|error| error.to_string())
 }
 
 #[derive(Clone, Debug, serde::Serialize)]
@@ -99,13 +150,26 @@ impl SetSampleCache {
         path: PathBuf,
         sample: impl FnOnce(&VolumeSendable, &SampleSourceRevision) -> BridgeResult<T> + Send + 'static,
     ) -> BridgeResult<T> {
-        let inner = Arc::clone(&self.inner);
-        let permit = Arc::clone(&self.admission)
-            .acquire_owned()
+        self.with_volume_cancelable(path, SampleCancellation::default(), sample)
             .await
-            .map_err(|_| input("Population source admission is closed."))?;
+    }
+
+    pub async fn with_volume_cancelable<T: Send + 'static>(
+        &self,
+        path: PathBuf,
+        cancellation: SampleCancellation,
+        sample: impl FnOnce(&VolumeSendable, &SampleSourceRevision) -> BridgeResult<T> + Send + 'static,
+    ) -> BridgeResult<T> {
+        cancellation.check()?;
+        let inner = Arc::clone(&self.inner);
+        let permit = tokio::select! {
+            _ = cancellation.cancelled() => return Err(crate::population_sampling::cancelled()),
+            permit = Arc::clone(&self.admission).acquire_owned() =>
+                permit.map_err(|_| input("Population source admission is closed."))?,
+        };
         tokio::task::spawn_blocking(move || {
             let _permit = permit; // Cancellation cannot release an in-flight decode's admission.
+            cancellation.check()?;
             let mut cache = inner.lock().map_err(|_| input("Population source cache is unavailable."))?;
             let path = path.canonicalize()?;
             let stamp = FileStamp::read(path.metadata()?)?;
@@ -114,11 +178,12 @@ impl SetSampleCache {
             if let Some(entry) = cache.entries.get_mut(&path) {
                 if entry.stamp == stamp {
                     entry.used = used;
-                    return sample(&entry.volume, &entry.revision);
+                    cancellation.check()?;
+                    return checked_sample(&cancellation, &entry.volume, &entry.revision, sample);
                 }
             }
             cache.remove(&path);
-            let snapshot = Snapshot::copy(&path, &stamp)?;
+            let snapshot = Snapshot::copy(&path, &stamp, &cancellation)?;
             let header = neuroim::io::read_header(&snapshot.path)
                 .map_err(|error| input(format!("Cannot read population source header: {error}")))?;
             // Conservative f64 payload admission before decode. Decoder scratch
@@ -131,8 +196,10 @@ impl SetSampleCache {
             }
             let admission = bound.min(cache.budget);
             cache.make_room(admission);
+            cancellation.check()?;
             let volume = nifti_loader::load_nifti_auto_dimension(&snapshot.path)
                 .map_err(|error| input(format!("Cannot decode population source: {error}")))?;
+            cancellation.check()?;
             let revision = snapshot.revision.clone();
             let bytes = payload_bytes(&volume)?;
             if bytes <= cache.budget {
@@ -140,9 +207,9 @@ impl SetSampleCache {
                 cache.resident_bytes += bytes;
                 cache.entries.insert(path.clone(), Entry { stamp, revision, volume, bytes, used });
                 let entry = &cache.entries[&path];
-                sample(&entry.volume, &entry.revision)
+                checked_sample(&cancellation, &entry.volume, &entry.revision, sample)
             } else {
-                sample(&volume, &revision)
+                checked_sample(&cancellation, &volume, &revision, sample)
             }
         }).await.map_err(|error| input(format!("Population sampling worker failed: {error}")))?
     }
@@ -166,6 +233,18 @@ impl SetSampleCache {
         .map_err(|error| input(format!("Population cache cleanup failed: {error}")))?
     }
 }
+fn checked_sample<T>(
+    cancellation: &SampleCancellation,
+    volume: &VolumeSendable,
+    revision: &SampleSourceRevision,
+    sample: impl FnOnce(&VolumeSendable, &SampleSourceRevision) -> BridgeResult<T>,
+) -> BridgeResult<T> {
+    cancellation.check()?;
+    let result = sample(volume, revision);
+    cancellation.check()?;
+    result
+}
+
 impl CacheState {
     fn remove(&mut self, path: &Path) {
         if let Some(entry) = self.entries.remove(path) {
@@ -226,7 +305,11 @@ impl Drop for Snapshot {
     }
 }
 impl Snapshot {
-    fn copy(path: &Path, expected: &FileStamp) -> BridgeResult<Self> {
+    fn copy(
+        path: &Path,
+        expected: &FileStamp,
+        cancellation: &SampleCancellation,
+    ) -> BridgeResult<Self> {
         let name = path.to_string_lossy();
         let suffix = if name.ends_with(".nii.gz") {
             ".nii.gz"
@@ -267,6 +350,7 @@ impl Snapshot {
         let mut hash = Sha256::new();
         let mut buffer = [0u8; 64 * 1024];
         loop {
+            cancellation.check()?;
             let count = source.read(&mut buffer)?;
             if count == 0 {
                 break;
@@ -421,6 +505,78 @@ mod tests {
             .with_volume(source.path.clone(), |_, _| Ok(()))
             .await
             .is_err());
+    }
+
+    #[tokio::test]
+    async fn query_guard_rejects_changed_deleted_or_newly_available_sources() {
+        let source = TestSource::new(&[1, 1, 1], &[4.0]);
+        let token = SampleCancellation::default();
+        let guard = QuerySourceGuard::capture(vec![source.path.clone()], token.clone())
+            .await
+            .unwrap();
+        guard.validate(token.clone()).await.unwrap();
+        let guard = QuerySourceGuard::capture(vec![source.path.clone()], token.clone())
+            .await
+            .unwrap();
+        std::fs::remove_file(&source.path).unwrap();
+        assert!(guard.validate(token.clone()).await.is_err());
+        let missing = QuerySourceGuard::capture(vec![source.path.clone()], token.clone())
+            .await
+            .unwrap();
+        missing.validate(token.clone()).await.unwrap();
+        let missing = QuerySourceGuard::capture(vec![source.path.clone()], token.clone())
+            .await
+            .unwrap();
+        std::fs::write(&source.path, b"a new source").unwrap();
+        assert!(missing.validate(token.clone()).await.is_err());
+        let changed = QuerySourceGuard::capture(vec![source.path.clone()], token.clone())
+            .await
+            .unwrap();
+        std::fs::write(&source.path, b"different source bytes").unwrap();
+        assert!(changed.validate(token).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn canceled_queued_query_never_enters_source_worker() {
+        let cache = SetSampleCache::new(1024);
+        let held = Arc::clone(&cache.admission).acquire_owned().await.unwrap();
+        let token = SampleCancellation::default();
+        let queued_token = token.clone();
+        let queued_cache = cache.clone();
+        let task = tokio::spawn(async move {
+            queued_cache
+                .with_volume_cancelable(PathBuf::from("/not/read.nii"), queued_token, |_, _| {
+                    panic!("Canceled queued work must not enter its sampling closure")
+                })
+                .await
+        });
+        tokio::task::yield_now().await;
+        token.cancel();
+        let result: BridgeResult<()> =
+            tokio::time::timeout(std::time::Duration::from_secs(1), task)
+                .await
+                .unwrap()
+                .unwrap();
+        assert!(matches!(result, Err(BridgeError::Input { code: 2026, .. })));
+        assert_eq!(cache.admission.available_permits(), 0);
+        drop(held);
+        assert_eq!(cache.admission.available_permits(), 1);
+    }
+
+    #[tokio::test]
+    async fn cancellation_during_sampling_suppresses_result() {
+        let cache = SetSampleCache::new(1024);
+        let source = TestSource::new(&[1, 1, 1], &[4.0]);
+        let token = SampleCancellation::default();
+        let cancel = token.clone();
+        let result = cache
+            .with_volume_cancelable(source.path.clone(), token, move |_, _| {
+                cancel.cancel();
+                Ok(42)
+            })
+            .await;
+        assert!(matches!(result, Err(BridgeError::Input { code: 2026, .. })));
+        assert_eq!(cache.admission.available_permits(), 1);
     }
 
     #[tokio::test]

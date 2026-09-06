@@ -51,8 +51,10 @@ export class SampleProvider {
     return SampleProvider.instance;
   }
 
-  /** Resolve a request to a frame. */
-  async sample(request: SampleRequest): Promise<SampleFrame> {
+  /** Resolve a request to a frame. In-flight signal cancellation is currently
+   * supported for set sampling; other loci only check an already-aborted signal. */
+  async sample(request: SampleRequest, signal?: AbortSignal): Promise<SampleFrame> {
+    signal?.throwIfAborted();
     switch (request.locus.kind) {
       case 'wholeVolume':
         return this.sampleWholeVolume(request);
@@ -63,7 +65,7 @@ export class SampleProvider {
       case 'roi':
         return this.sampleRegions(request, request.locus);
       case 'set':
-        return this.sampleSet(request, request.locus);
+        return this.sampleSet(request, request.locus, signal);
       default: {
         // Exhaustiveness guard — a new Locus variant must be handled above.
         const exhaustive: never = request.locus;
@@ -240,9 +242,38 @@ export class SampleProvider {
    * base `(member nominal, value quantitative)` frame; the caller joins the
    * design table (covariates) onto it via `joinDesignTable`.
    */
+  private async invokeSet<T>(
+    command: 'sample_set_at_world' | 'sample_set_trace_at_world',
+    args: Record<string, unknown>,
+    signal?: AbortSignal,
+  ): Promise<T> {
+    signal?.throwIfAborted();
+    if (!signal) return getTransport().invoke<T>(command, args);
+    const ticket = { id: crypto.randomUUID(), expiresAtMs: Date.now() + 120_000 };
+    let onAbort: () => void = () => {};
+    const aborted = new Promise<never>((_, reject) => {
+      onAbort = () => {
+        // Native admission remembers cancellation even if it arrives first.
+        void Promise.resolve()
+          .then(() => getTransport().invoke('cancel_population_sample', { ticket }))
+          .catch((error) => {
+            console.warn('[SampleProvider] Native population cancellation failed:', error);
+          });
+        reject(signal.reason ?? new DOMException('Population sampling canceled', 'AbortError'));
+      };
+      signal.addEventListener('abort', onAbort, { once: true });
+    });
+    try {
+      return await Promise.race([getTransport().invoke<T>(command, { ...args, ticket }), aborted]);
+    } finally {
+      signal.removeEventListener('abort', onAbort);
+    }
+  }
+
   private async sampleSet(
     request: SampleRequest,
     locus: Extract<Locus, { kind: 'set' }>,
+    signal?: AbortSignal,
   ): Promise<SampleFrame> {
     const reduce = request.reduce ?? 'mean';
     const members = locus.members.map((m) => {
@@ -282,7 +313,7 @@ export class SampleProvider {
     // out-of-bounds member is `f32::NAN`, which serde serializes as JSON null).
     if (request.band !== undefined) {
       const band = request.band;
-      const traces = await getTransport().invoke<
+      const traces = await this.invokeSet<
         {
           memberId: string;
           displayLabel?: string | null;
@@ -294,13 +325,17 @@ export class SampleProvider {
           sourceRevision?: { sha256: string; sourceBytes: number } | null;
           error?: string | null;
         }[]
-      >('sample_set_trace_at_world', {
-        members,
-        worldMm,
-        radiusMm: locus.radiusMm,
-        reduce,
-        band,
-      });
+      >(
+        'sample_set_trace_at_world',
+        {
+          members,
+          worldMm,
+          radiusMm: locus.radiusMm,
+          reduce,
+          band,
+        },
+        signal,
+      );
 
       const hasMemberLabels = traces.some(
         (trace) => trace.displayLabel !== undefined || (trace.designValues?.length ?? 0) > 0,
@@ -367,7 +402,7 @@ export class SampleProvider {
     // type is `number | null` (NOT `number`). Downstream `numericColumn` coerces
     // null -> NaN, which the box mark / joinDesignTable already drop, but the
     // type must be honest.
-    const samples = await getTransport().invoke<
+    const samples = await this.invokeSet<
       {
         memberId: string;
         value: number | null;
@@ -375,12 +410,16 @@ export class SampleProvider {
         sourceRevision?: { sha256: string; sourceBytes: number } | null;
         error?: string | null;
       }[]
-    >('sample_set_at_world', {
-      members,
-      worldMm,
-      radiusMm: locus.radiusMm,
-      reduce,
-    });
+    >(
+      'sample_set_at_world',
+      {
+        members,
+        worldMm,
+        radiusMm: locus.radiusMm,
+        reduce,
+      },
+      signal,
+    );
 
     return {
       columns: [column('member', 'nominal'), column('value', 'quantitative')],

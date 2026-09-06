@@ -107,6 +107,7 @@ Default permissions for api-bridge plugin
 - `allow-compute-temporal-metric`
 - `allow-compute-region-stats`
 - `allow-sample-set-at-world`
+- `allow-cancel-population-sample`
 - `allow-sample-set-trace-at-world`
 
 ## Permission Table
@@ -244,6 +245,32 @@ Enables the cancel_analysis command without any pre-configured scope.
 <td>
 
 Denies the cancel_analysis command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:allow-cancel-population-sample`
+
+</td>
+<td>
+
+Enables the cancel_population_sample command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:deny-cancel-population-sample`
+
+</td>
+<td>
+
+Denies the cancel_population_sample command without any pre-configured scope.
 
 </td>
 </tr>

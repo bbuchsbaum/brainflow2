@@ -106,5 +106,6 @@ permissions = [
     "allow-compute-temporal-metric",
     "allow-compute-region-stats",
     "allow-sample-set-at-world",
+    "allow-cancel-population-sample",
     "allow-sample-set-trace-at-world"
 ]

@@ -1,6 +1,8 @@
 pub mod atlas_roi;
+mod population_sampling;
 mod set_sample_cache;
 pub use atlas_roi::AtlasRoiLocation;
+use population_sampling::{SampleCancellation, SampleTicket};
 pub mod parcel_overlay;
 pub use parcel_overlay::{
     ParcelColumnInfo, ParcelOverlayInfo, ParcelTablePreview, ParcelTableRequest, SurfaceParcelTable,
@@ -1438,6 +1440,7 @@ pub struct BridgeState {
     // for large cohorts).
     // Byte-bounded decoded payloads; source snapshot identity is retained for plots.
     pub set_sample_cache: set_sample_cache::SetSampleCache,
+    population_sampling: population_sampling::PopulationSampling,
     // Precomputed volume->surface samplers keyed by sampler handle (vol2surf M5).
     // Built once per (surface, template grid); reused across timepoints/volumes.
     pub surface_samplers: Arc<Mutex<HashMap<String, SurfaceSamplerEntry>>>,
@@ -1479,6 +1482,7 @@ impl BridgeState {
             pending_remote_host_key: Arc::new(Mutex::new(HashMap::new())),
             pending_remote_auth: Arc::new(Mutex::new(HashMap::new())),
             set_sample_cache: set_sample_cache::SetSampleCache::default(),
+            population_sampling: population_sampling::PopulationSampling::default(),
             surface_samplers: Arc::new(Mutex::new(HashMap::new())),
             resident_image_sets: Arc::new(Mutex::new(HashMap::new())),
         }
@@ -12550,15 +12554,17 @@ async fn resolve_member_source_path(
 /// Resolve and sample a single immutable decoded snapshot on a blocking worker.
 async fn sample_member_source(
     member: &SetMemberRef,
+    path: PathBuf,
     world_mm: &[f32],
     radius_mm: f32,
     state: &BridgeState,
+    cancellation: &SampleCancellation,
 ) -> BridgeResult<(Vec<f32>, set_sample_cache::SampleSourceRevision)> {
-    let path = resolve_member_source_path(&member.source_path, state).await?;
+    cancellation.check()?;
     let world = world_mm.to_vec();
     let stack_index = member.stack_index;
     let expected = member.expected_sha256.clone();
-    state.set_sample_cache.with_volume(path, move |volume, revision| {
+    state.set_sample_cache.with_volume_cancelable(path, cancellation.clone(), move |volume, revision| {
         if expected.as_ref().is_some_and(|hash| hash != &revision.sha256) {
             return Err(BridgeError::Input { code: 2025, details: "Population source revision changed; recompute or restore the frozen source.".into() });
         }
@@ -12610,9 +12616,18 @@ async fn sample_set_at_world_impl(
     radius_mm: f32,
     reduce: &str,
     state: &BridgeState,
+    cancellation: &SampleCancellation,
 ) -> BridgeResult<Vec<MemberSample>> {
-    let traces =
-        sample_set_trace_at_world_impl(members, world_mm, radius_mm, reduce, "none", state).await?;
+    let traces = sample_set_trace_at_world_impl(
+        members,
+        world_mm,
+        radius_mm,
+        reduce,
+        "none",
+        state,
+        cancellation,
+    )
+    .await?;
     Ok(traces
         .into_iter()
         .map(|trace| MemberSample {
@@ -12632,9 +12647,23 @@ async fn sample_set_at_world(
     world_mm: Vec<f32>,
     radius_mm: f32,
     reduce: String,
+    ticket: Option<SampleTicket>,
     state: State<'_, BridgeState>,
 ) -> BridgeResult<Vec<MemberSample>> {
-    sample_set_at_world_impl(&members, &world_mm, radius_mm, &reduce, state.inner()).await
+    let cancellation = ticket
+        .as_ref()
+        .map(|ticket| state.population_sampling.begin(ticket))
+        .transpose()?
+        .unwrap_or_default();
+    sample_set_at_world_impl(
+        &members,
+        &world_mm,
+        radius_mm,
+        &reduce,
+        state.inner(),
+        &cancellation,
+    )
+    .await
 }
 
 #[doc(hidden)]
@@ -12645,7 +12674,15 @@ pub async fn sample_set_at_world_for_testing(
     reduce: &str,
     bridge_state: &BridgeState,
 ) -> BridgeResult<Vec<MemberSample>> {
-    sample_set_at_world_impl(members, world_mm, radius_mm, reduce, bridge_state).await
+    sample_set_at_world_impl(
+        members,
+        world_mm,
+        radius_mm,
+        reduce,
+        bridge_state,
+        &SampleCancellation::default(),
+    )
+    .await
 }
 
 /// Sample every cohort member at one world locus and return, per member, an
@@ -12662,6 +12699,7 @@ async fn sample_set_trace_at_world_impl(
     reduce: &str,
     band: &str,
     state: &BridgeState,
+    cancellation: &SampleCancellation,
 ) -> BridgeResult<Vec<MemberTrace>> {
     validate_set_sample_request(members, world_mm, radius_mm, reduce)?;
     if !matches!(band, "none" | "sd" | "sem95" | "ci95" | "iqr") {
@@ -12670,13 +12708,42 @@ async fn sample_set_trace_at_world_impl(
             details: "Unknown spatial dispersion band.".into(),
         });
     }
-    let mut traces = Vec::with_capacity(members.len());
+    // Resolve sources first so a single query cannot mix observable revisions
+    // changed during its member-by-member reduction. Missing sources still have
+    // per-member status; a changing source invalidates the complete result.
+    let mut paths = Vec::with_capacity(members.len());
     for member in members {
-        let (vals, source_revision, error) =
-            match sample_member_source(member, world_mm, radius_mm, state).await {
-                Ok((vals, revision)) => (vals, Some(revision), None),
-                Err(error) => (Vec::new(), None, Some(error.to_string())),
-            };
+        cancellation.check()?;
+        paths.push(
+            resolve_member_source_path(&member.source_path, state)
+                .await
+                .map_err(|error| error.to_string()),
+        );
+    }
+    let guard = set_sample_cache::QuerySourceGuard::capture(
+        paths
+            .iter()
+            .filter_map(|path| path.as_ref().ok().cloned())
+            .collect(),
+        cancellation.clone(),
+    )
+    .await?;
+    let mut traces = Vec::with_capacity(members.len());
+    for (member, path) in members.iter().zip(paths) {
+        cancellation.check()?;
+        let result = match path {
+            Ok(path) => {
+                sample_member_source(member, path, world_mm, radius_mm, state, cancellation)
+                    .await
+                    .map_err(|error| error.to_string())
+            }
+            Err(error) => Err(error),
+        };
+        let (vals, source_revision, error) = match result {
+            Ok((vals, revision)) => (vals, Some(revision), None),
+            Err(error) => (Vec::new(), None, Some(error)),
+        };
+        cancellation.check()?;
         let error = error.or_else(|| {
             vals.is_empty()
                 .then(|| "No finite measurements at this spatial probe.".to_string())
@@ -12699,6 +12766,8 @@ async fn sample_set_trace_at_world_impl(
             error,
         });
     }
+    guard.validate(cancellation.clone()).await?;
+    cancellation.check()?;
     Ok(traces)
 }
 
@@ -12710,8 +12779,14 @@ async fn sample_set_trace_at_world(
     radius_mm: f32,
     reduce: String,
     band: String,
+    ticket: Option<SampleTicket>,
     state: State<'_, BridgeState>,
 ) -> BridgeResult<Vec<MemberTrace>> {
+    let cancellation = ticket
+        .as_ref()
+        .map(|ticket| state.population_sampling.begin(ticket))
+        .transpose()?
+        .unwrap_or_default();
     sample_set_trace_at_world_impl(
         &members,
         &world_mm,
@@ -12719,6 +12794,7 @@ async fn sample_set_trace_at_world(
         &reduce,
         &band,
         state.inner(),
+        &cancellation,
     )
     .await
 }
@@ -12732,7 +12808,25 @@ pub async fn sample_set_trace_at_world_for_testing(
     band: &str,
     bridge_state: &BridgeState,
 ) -> BridgeResult<Vec<MemberTrace>> {
-    sample_set_trace_at_world_impl(members, world_mm, radius_mm, reduce, band, bridge_state).await
+    sample_set_trace_at_world_impl(
+        members,
+        world_mm,
+        radius_mm,
+        reduce,
+        band,
+        bridge_state,
+        &SampleCancellation::default(),
+    )
+    .await
+}
+
+/// Cancellation is idempotent and may arrive before its matching sample call.
+#[command]
+async fn cancel_population_sample(
+    ticket: SampleTicket,
+    state: State<'_, BridgeState>,
+) -> BridgeResult<()> {
+    state.population_sampling.cancel(&ticket)
 }
 
 #[command]

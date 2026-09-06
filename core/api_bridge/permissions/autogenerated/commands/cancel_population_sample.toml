@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-cancel-population-sample"
+description = "Enables the cancel_population_sample command without any pre-configured scope."
+commands.allow = ["cancel_population_sample"]
+
+[[permission]]
+identifier = "deny-cancel-population-sample"
+description = "Denies the cancel_population_sample command without any pre-configured scope."
+commands.deny = ["cancel_population_sample"]

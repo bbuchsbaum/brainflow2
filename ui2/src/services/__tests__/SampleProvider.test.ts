@@ -601,3 +601,56 @@ describe('population source and frame identity', () => {
     },
   );
 });
+
+describe('SampleProvider population cancellation', () => {
+  beforeEach(() => {
+    invokeMock.mockReset();
+  });
+  const request = {
+    datasetId: 'population',
+    locus: {
+      kind: 'set' as const,
+      members: [{ memberId: 'S01', sourcePath: '/one.nii' }],
+      worldMm: [0, 0, 0] as [number, number, number],
+      radiusMm: 0,
+    },
+  };
+  it.each([undefined, 'sd' as const])(
+    'cancels scalar/trace native work with the same bounded ticket (%s)',
+    async (band) => {
+      let resolve!: (value: unknown[]) => void;
+      invokeMock.mockImplementation((command) =>
+        command === 'cancel_population_sample'
+          ? Promise.resolve()
+          : new Promise<unknown[]>((done) => {
+              resolve = done;
+            }),
+      );
+      const abort = new AbortController();
+      const promise = sampleProvider.sample({ ...request, band }, abort.signal);
+      const rejection = expect(promise).rejects.toMatchObject({ name: 'AbortError' });
+      const ticket = invokeMock.mock.calls[0][1].ticket;
+      expect(ticket.id).toMatch(/^[0-9a-f-]{36}$/);
+      expect(ticket.expiresAtMs - Date.now()).toBeLessThanOrEqual(120_000);
+      abort.abort();
+      await rejection;
+      expect(invokeMock).toHaveBeenLastCalledWith('cancel_population_sample', { ticket });
+      resolve([{ memberId: 'S01', value: 99 }]);
+      await Promise.resolve();
+    },
+  );
+  it('does not invoke already-aborted requests and removes listeners after completion', async () => {
+    const abort = new AbortController();
+    abort.abort();
+    await expect(sampleProvider.sample(request, abort.signal)).rejects.toMatchObject({
+      name: 'AbortError',
+    });
+    expect(invokeMock).not.toHaveBeenCalled();
+    invokeMock.mockResolvedValue([{ memberId: 'S01', value: 4 }]);
+    const completed = new AbortController();
+    const frame = await sampleProvider.sample(request, completed.signal);
+    expect(frame.rows[0].value).toBe(4);
+    completed.abort();
+    expect(invokeMock).toHaveBeenCalledTimes(1);
+  });
+});

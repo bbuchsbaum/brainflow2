@@ -45,6 +45,23 @@ beforeEach(() => vi.useFakeTimers());
 afterEach(() => vi.useRealTimers());
 
 describe('PopulationProbeController ownership', () => {
+  it('retains a readable native source-consistency error', async () => {
+    const sample = vi.fn().mockRejectedValue({
+      Input: {
+        code: 2025,
+        details: 'Population sources changed while sampling; refresh the query.',
+      },
+    });
+    const controller = new PopulationProbeController(sample);
+    controller.request(query(1));
+    await vi.advanceTimersByTimeAsync(40);
+    expect(controller.getSnapshot().error).toBe(
+      'Population sources changed while sampling; refresh the query.',
+    );
+    expect(controller.getSnapshot().displayed).toBeNull();
+    controller.stop();
+  });
+
   it('admits only one call and coalesces pending probes to the latest query', async () => {
     const first = deferred();
     const last = deferred();
@@ -53,6 +70,7 @@ describe('PopulationProbeController ownership', () => {
     controller.request(query(1));
     await vi.advanceTimersByTimeAsync(40);
     controller.request(query(2));
+    expect(sample.mock.calls[0][1].aborted).toBe(true);
     controller.request(query(3));
     await vi.advanceTimersByTimeAsync(100);
     expect(sample).toHaveBeenCalledTimes(1);
@@ -91,6 +109,7 @@ describe('PopulationProbeController ownership', () => {
     controller.request(query(1));
     await vi.advanceTimersByTimeAsync(40);
     controller.stop();
+    expect(sample.mock.calls[0][1].aborted).toBe(true);
     controller.start();
     controller.request(query(2));
     first.reject(new Error('obsolete failure'));

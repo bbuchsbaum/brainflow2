@@ -1,3 +1,4 @@
+import { formatTauriError } from '@/utils/formatTauriError';
 import { sampleProvider } from '@/services/SampleProvider';
 import { resolvePopulationContext } from './populationContext';
 import { setImportReadiness } from './importContract';
@@ -133,8 +134,9 @@ export function populationSupportKey(
 }
 
 /** One active sampling call plus the latest pending query. Obsolete results are
- * discarded independently of transport completion. Stopping cancels pending
- * work; cancellation of an already-issued backend call is a separate contract. */
+ * discarded independently of transport completion. Stopping or replacing the query
+ * aborts native sampling through SampleProvider; native workers keep ownership
+ * until a cooperative cancellation boundary is reached. */
 export class PopulationProbeController {
   private snapshot: PopulationProbeSnapshot = {
     requested: null,
@@ -145,15 +147,18 @@ export class PopulationProbeController {
   private listeners = new Set<() => void>();
   private active = true;
   private busy = false;
+  private activeAbort: AbortController | null = null;
   private pending: PopulationProbeQuery | null = null;
   private generation = 0;
   private timer: ReturnType<typeof setTimeout> | null = null;
 
-  private readonly sample: (request: SampleRequest) => Promise<SampleFrame>;
+  private readonly sample: (request: SampleRequest, signal?: AbortSignal) => Promise<SampleFrame>;
   private readonly delayMs: number;
   constructor(
-    sample: (request: SampleRequest) => Promise<SampleFrame> = (request) =>
-      sampleProvider.sample(request),
+    sample: (request: SampleRequest, signal?: AbortSignal) => Promise<SampleFrame> = (
+      request,
+      signal,
+    ) => sampleProvider.sample(request, signal),
     delayMs = 40,
   ) {
     this.sample = sample;
@@ -172,6 +177,7 @@ export class PopulationProbeController {
   stop() {
     this.active = false;
     this.generation++;
+    this.activeAbort?.abort();
     this.pending = null;
     if (this.timer !== null) clearTimeout(this.timer);
     this.timer = null;
@@ -180,6 +186,7 @@ export class PopulationProbeController {
   request(query: PopulationProbeQuery | null, force = false) {
     if (!this.active || (!force && query?.key === this.snapshot.requested?.key)) return;
     this.generation++;
+    this.activeAbort?.abort();
     this.pending = query ? structuredClone(query) : null;
     const keep =
       query && this.snapshot.displayed?.query.datasetKey === query.datasetKey
@@ -208,8 +215,10 @@ export class PopulationProbeController {
     const generation = this.generation;
     this.pending = null;
     this.busy = true;
+    const abort = new AbortController();
+    this.activeAbort = abort;
     try {
-      const frame = await this.sample(query.request);
+      const frame = await this.sample(query.request, abort.signal);
       if (!this.active || generation !== this.generation) return;
       const members = query.request.locus.kind === 'set' ? query.request.locus.members : [];
       const expected = new Set(members.map((member) => member.memberId));
@@ -227,9 +236,10 @@ export class PopulationProbeController {
         this.publish({
           ...this.snapshot,
           pending: false,
-          error: error instanceof Error ? error.message : String(error),
+          error: formatTauriError(error),
         });
     } finally {
+      if (this.activeAbort === abort) this.activeAbort = null;
       this.busy = false;
       this.schedule();
     }

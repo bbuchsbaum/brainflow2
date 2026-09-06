@@ -108,7 +108,7 @@ Business logic and API integration layer for the Brainflow frontend. Contains 41
 
 ## Population probe lifecycle
 
-- `studio/PopulationProbeController.ts` is owned per mounted population panel. It retains one sampled frame and admits one active sampling call plus the latest pending query. Stop invalidates publication and discards pending work; it does not cancel issued native sampling. Do not make this lifecycle a process-global singleton.
+- `studio/PopulationProbeController.ts` is owned per mounted population panel. It retains one sampled frame and admits one active sampling call plus the latest pending query. Stop/replacement invalidates publication, discards pending work and aborts issued sampling through SampleProvider. Native cooperative cancellation retains worker ownership until the operation reaches a cancellation boundary. Do not make this lifecycle a process-global singleton.
 - Query identity includes workspace/import/set/feature, context sources and the spatial probe. Focus, working selection and presentation changes reuse the frame. Keep large frames and image arrays out of Zustand.
 - `studio/PopulationProbeActions.ts` owns population panel store mutations and the disposable hover subscription; pure query/summary calculations remain in the controller module.
-- Native cancellation, whole-query source freezing, participant/temporal semantics and native hover provenance remain explicit follow-up work in `docs/plans/neurotabs-implementation-status.md`.
+- Immutable saved-query source freezing, dataset-scoped cache teardown, participant/temporal semantics and native hover provenance remain explicit follow-up work in `docs/plans/neurotabs-implementation-status.md`.
