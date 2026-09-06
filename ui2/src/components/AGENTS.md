@@ -80,3 +80,9 @@ React components organized by feature and function. Contains all UI elements inc
 - lucide-react - Icons
 
 <!-- MANUAL: Components follow service-driven architecture. Business logic stays in services/. -->
+
+## Population values and linked plots
+
+- `studio/PopulationProbePanel.tsx` uses the existing Studio state and shared `PlotEncoder`. Its service owns sampling, revision guards and mutations. Point focus does not change membership; Shift-click/keyboard selection does not resample the probe.
+- `EncoderContext.datumLink` connects original point-row IDs to focus and selection. Preserve row indices when dropping unavailable measurements; do not infer identity from a filtered point index. Axes must not intercept pointer events.
+- `population-harness.html` and `src/devHarness/populationHarness.tsx` exercise the real panel/encoder with synthetic values and are excluded from production entry points. This harness does not establish native sampling or brain-view acceptance.

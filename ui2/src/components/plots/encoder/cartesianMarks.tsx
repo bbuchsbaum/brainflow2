@@ -52,6 +52,7 @@ type MarkKind = 'line' | 'area' | 'point' | 'bar' | 'box' | 'heatmap';
  * categorical scale, used e.g. for the member axis of a cross-set trace).
  */
 interface SeriesPoint {
+  readonly rowIndex?: number;
   /** Category label for a band/point x-scale (nominal/ordinal x). */
   readonly cat: string;
   /** Numeric x for a linear x-scale (temporal/quantitative x, or row index). */
@@ -88,6 +89,7 @@ function seriesPoints(
     const xNum = catMode ? i : xName ? xs[i] : i;
     if (!catMode && !Number.isFinite(xNum)) continue;
     out.push({
+      rowIndex: i,
       cat: catMode ? cats[i] : String(i),
       xNum,
       y,
@@ -157,6 +159,7 @@ type BandScale = ReturnType<typeof scaleBand<string>>;
 type PointScale = ReturnType<typeof scalePoint<string>>;
 
 interface CartesianMarkProps {
+  readonly interactive?: boolean;
   readonly kind: MarkKind;
   readonly width: number;
   readonly height: number;
@@ -181,6 +184,7 @@ const tickLabelProps = () => ({
  * inner dimensions and the geometry children.
  */
 function CartesianMark({
+  interactive,
   kind,
   width,
   height,
@@ -196,19 +200,24 @@ function CartesianMark({
       data-testid={`plot-mark-${kind}`}
       width={Math.max(0, width)}
       height={Math.max(0, height)}
-      role="img"
+      role={interactive ? 'group' : 'img'}
       aria-label={`${kind} plot`}
     >
       <Group left={MARGIN.left} top={MARGIN.top}>
         {children}
         {showAxes && (
-          <>
+          <Group pointerEvents="none">
             <AxisLeft
               scale={yScale as never}
               numTicks={4}
               stroke={gridColor}
               tickStroke={gridColor}
-              tickLabelProps={tickLabelProps}
+              tickLabelProps={() => ({
+                ...tickLabelProps(),
+                textAnchor: 'end',
+                dx: '-0.25em',
+                dy: '0.25em',
+              })}
             />
             {xScale && (
               <AxisBottom
@@ -220,7 +229,7 @@ function CartesianMark({
                 tickLabelProps={tickLabelProps}
               />
             )}
-          </>
+          </Group>
         )}
       </Group>
     </svg>
@@ -235,7 +244,7 @@ interface ContinuousMarkProps extends MarkRenderProps {
   readonly kind: 'line' | 'area' | 'point';
 }
 
-function ContinuousMark({ kind, frame, spec, width, height }: ContinuousMarkProps) {
+function ContinuousMark({ kind, frame, spec, width, height, context }: ContinuousMarkProps) {
   const yName = spec.encoding.y;
   const xName = spec.encoding.x;
   const band = spec.band;
@@ -265,13 +274,22 @@ function ContinuousMark({ kind, frame, spec, width, height }: ContinuousMarkProp
       if (Number.isFinite(p.lo)) yValues.push(p.lo);
       if (Number.isFinite(p.hi)) yValues.push(p.hi);
     }
+    const yDomain = paddedDomain(yValues);
+    if (context?.datumLink) {
+      const pad = (yDomain[1] - yDomain[0]) * 0.05;
+      yDomain[0] -= pad;
+      yDomain[1] += pad;
+    }
     const yScale = scaleLinear<number>({
-      domain: paddedDomain(yValues),
+      domain: yDomain,
       range: [innerHeight, 0],
     });
     if (catMode) {
       const xScale = scalePoint<string>({
-        domain: points.map((p) => p.cat),
+        domain:
+          context?.datumLink && xName
+            ? columnValues(frame, xName).map((value) => String(value ?? ''))
+            : points.map((p) => p.cat),
         range: [0, innerWidth],
         padding: 0.5,
       });
@@ -282,7 +300,7 @@ function ContinuousMark({ kind, frame, spec, width, height }: ContinuousMarkProp
       range: [0, innerWidth],
     });
     return { xScale, yScale, catMode: false as const };
-  }, [points, innerWidth, innerHeight, catMode]);
+  }, [points, innerWidth, innerHeight, catMode, context?.datumLink, frame, xName]);
 
   // Empty / degenerate: line & area need >=2 finite points; point needs >=1.
   const minPoints = kind === 'point' ? 1 : 2;
@@ -372,9 +390,44 @@ function ContinuousMark({ kind, frame, spec, width, height }: ContinuousMarkProp
     }
     geometry = (
       <>
-        {points.map((p, i) => (
-          <Circle key={i} cx={px(p)} cy={py(p.y)} r={2} fill={lineColor} />
-        ))}
+        {points.map((p, i) => {
+          const link = context?.datumLink;
+          const id =
+            link && p.rowIndex !== undefined ? frame.rows[p.rowIndex][link.idColumn] : null;
+          if (!link || typeof id !== 'string')
+            return <Circle key={i} cx={px(p)} cy={py(p.y)} r={2} fill={lineColor} />;
+          const focused = id === link.focusedId;
+          const selected = link.selectedIds.has(id);
+          return (
+            <Circle
+              key={id}
+              cx={px(p)}
+              cy={py(p.y)}
+              r={focused ? 5 : 3.5}
+              fill={lineColor}
+              fillOpacity={selected ? 1 : 0.3}
+              stroke={focused ? 'var(--app-text-primary)' : 'none'}
+              strokeWidth={1.5}
+              role="button"
+              tabIndex={0}
+              aria-label={`${id}: ${p.y}`}
+              aria-pressed={selected}
+              aria-current={focused ? 'true' : undefined}
+              onClick={(event) => (event.shiftKey ? link.onToggleSelection(id) : link.onFocus(id))}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter' || event.key === ' ') {
+                  event.preventDefault();
+                  if (event.shiftKey) link.onToggleSelection(id);
+                  else link.onFocus(id);
+                }
+              }}
+            >
+              <title>
+                {id}: {p.y} · Click to focus; Shift-click to select
+              </title>
+            </Circle>
+          );
+        })}
         {fitLine && (
           <LinePath<SeriesPoint>
             data={fitLine}
@@ -392,6 +445,7 @@ function ContinuousMark({ kind, frame, spec, width, height }: ContinuousMarkProp
 
   return (
     <CartesianMark
+      interactive={kind === 'point' && !!context?.datumLink}
       kind={kind}
       width={width}
       height={height}

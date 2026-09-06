@@ -15,6 +15,14 @@ import type { ResolvedPlotSpec, SampleFrame } from "@/plotting";
  * cartesian marks ignore this.
  */
 export interface EncoderContext {
+  /** Link original row identities to focus/selection without changing plot data. */
+  readonly datumLink?: {
+    readonly idColumn: string;
+    readonly focusedId: string | null;
+    readonly selectedIds: ReadonlySet<string>;
+    readonly onFocus: (id: string) => void;
+    readonly onToggleSelection: (id: string) => void;
+  };
   readonly intensityWindow?: [number, number];
   readonly threshold?: [number, number];
   readonly colormap?: string;

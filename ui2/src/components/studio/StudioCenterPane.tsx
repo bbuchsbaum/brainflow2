@@ -13,6 +13,7 @@ import { LensCanvas } from './LensCanvas';
 import { StudioLensSwitcher } from './StudioLensSwitcher';
 import { StudioStrip } from './StudioStrip';
 import { StudioTimeRow } from './StudioTimeRow';
+import { PopulationProbePanel } from './PopulationProbePanel';
 
 function buildCompareArtifact(args: {
   pane: StudioComparePaneSpec | null;
@@ -212,7 +213,7 @@ export function StudioCenterPane() {
   };
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col gap-3">
+    <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto">
       <StudioLensSwitcher
         activeLens={activeLens}
         onSelectLens={setActiveLens}
@@ -221,7 +222,7 @@ export function StudioCenterPane() {
         onSelectCompareCohort={setCompareCohort}
       />
 
-      <div className="min-h-0 flex-1">
+      <div className="min-h-[480px] flex-1">
         <LensCanvas
           activeLens={activeLens}
           activeSet={activeSet}
@@ -262,6 +263,8 @@ export function StudioCenterPane() {
           onFrameChange={handlePaneAFrame}
         />
       ) : null}
+
+      <PopulationProbePanel />
 
       <StudioStrip
         contextIssue={population.context.issue}
