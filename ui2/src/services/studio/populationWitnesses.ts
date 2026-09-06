@@ -16,6 +16,7 @@ export function populationBindingKey(query: PopulationProbeQuery): string {
   return JSON.stringify([
     query.datasetKey,
     query.request.locus.kind === 'set' ? query.request.locus.members : null,
+    query.request.locus.kind === 'set' ? (query.request.locus.mask ?? null) : null,
   ]);
 }
 
@@ -87,7 +88,7 @@ export function populationArrangementLabel(arrangement: PopulationArrangement): 
 /** An order is a fit to sampled sources, not a promise about newer images. */
 export function populationOrderSourceStatus(
   arrangement: PopulationArrangement,
-  sources: readonly { memberId: string; sha256: string | null }[],
+  sources: readonly { memberId: string; sha256: string | null; maskSha256?: string | null }[],
 ): 'same' | 'changed' | 'unknown' {
   const recorded = arrangement.sources?.sources;
   if (
@@ -98,6 +99,15 @@ export function populationOrderSourceStatus(
     recorded.some((source) => !source.sourceRevision?.sha256)
   )
     return 'unknown';
+  const masked =
+    arrangement.query.request.locus.kind === 'set' && !!arrangement.query.request.locus.mask;
+  if (masked) {
+    const masks = new Map(sources.map((source) => [source.memberId, source.maskSha256]));
+    if (recorded.some((source) => !source.maskRevision?.sha256 || !masks.get(source.memberId)))
+      return 'unknown';
+    if (recorded.some((source) => masks.get(source.memberId) !== source.maskRevision!.sha256))
+      return 'changed';
+  }
   const current = new Map(sources.map((source) => [source.memberId, source.sha256]));
   if (arrangement.orderedIds.some((id) => !current.get(id))) return 'unknown';
   return recorded.every((source) => current.get(source.memberId) === source.sourceRevision!.sha256)

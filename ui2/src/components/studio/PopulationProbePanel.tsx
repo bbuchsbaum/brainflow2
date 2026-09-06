@@ -143,6 +143,7 @@ export function PopulationProbePanel({
           (result.frame.meta?.sources ?? []).map((source) => ({
             memberId: source.memberId,
             sha256: source.sourceRevision?.sha256 ?? null,
+            maskSha256: source.maskRevision?.sha256,
           })),
         )
       : 'unknown';

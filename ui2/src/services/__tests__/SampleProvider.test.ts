@@ -658,12 +658,71 @@ describe('SampleProvider population cancellation', () => {
 it('keeps scalar metadata through sampling without replacing member identity or values', async () => {
   invokeMock.mockReset();
   invokeMock.mockResolvedValue([{ memberId: 'late', value: 9, count: 1 }]);
-  const frame = await sampleProvider.sample({ datasetId: 'study', locus: {
-    kind: 'set', worldMm: [0, 0, 0], radiusMm: 0,
-    members: [{ memberId: 'late', sourcePath: '/late.nii', designValues: [
-      { column: 'site', value: 'B' }, { column: 'value', value: 'metadata' }, { column: 'member', value: 'person' },
-    ] }],
-  } });
-  expect(frame.rows).toEqual([{ member: 'late', value: 9, site: 'B', 'design:value': 'metadata', 'design:member': 'person' }]);
+  const frame = await sampleProvider.sample({
+    datasetId: 'study',
+    locus: {
+      kind: 'set',
+      worldMm: [0, 0, 0],
+      radiusMm: 0,
+      members: [
+        {
+          memberId: 'late',
+          sourcePath: '/late.nii',
+          designValues: [
+            { column: 'site', value: 'B' },
+            { column: 'value', value: 'metadata' },
+            { column: 'member', value: 'person' },
+          ],
+        },
+      ],
+    },
+  });
+  expect(frame.rows).toEqual([
+    { member: 'late', value: 9, site: 'B', 'design:value': 'metadata', 'design:member': 'person' },
+  ]);
   expect(frame.meta?.sources?.[0].validCount).toBe(1);
+});
+
+it('sends common masks to scalar and trace sampling and requires returned mask provenance', async () => {
+  const locus = {
+    kind: 'set' as const,
+    worldMm: [1, 2, 3] as const,
+    radiusMm: 2,
+    members: [{ memberId: 'a', sourcePath: '/a.nii' }],
+    mask: { sourcePath: '/mask.nii', expectedSha256: 'mask' },
+  };
+  for (const band of [undefined, 'sd'] as const) {
+    invokeMock.mockReset();
+    invokeMock.mockResolvedValue([
+      {
+        memberId: 'a',
+        value: 0,
+        count: 1,
+        lower: 0,
+        upper: 0,
+        maskRevision: { sha256: 'mask', sourceBytes: 40 },
+      },
+    ]);
+    const frame = await sampleProvider.sample({
+      datasetId: 'set',
+      locus,
+      ...(band ? { band } : {}),
+    });
+    expect(invokeMock).toHaveBeenCalledWith(
+      band ? 'sample_set_trace_at_world' : 'sample_set_at_world',
+      expect.objectContaining({ mask: locus.mask }),
+    );
+    expect(frame.rows[0].value).toBe(0);
+    expect(frame.meta?.sources?.[0].maskRevision?.sha256).toBe('mask');
+    invokeMock.mockResolvedValue([
+      { memberId: 'a', value: 8, count: 1, maskRevision: { sha256: 'wrong', sourceBytes: 40 } },
+    ]);
+    await expect(
+      sampleProvider.sample({ datasetId: 'set', locus, ...(band ? { band } : {}) }),
+    ).rejects.toThrow(/mask revision/);
+    invokeMock.mockResolvedValue([{ memberId: 'a', value: 8, count: 1 }]);
+    await expect(
+      sampleProvider.sample({ datasetId: 'set', locus, ...(band ? { band } : {}) }),
+    ).rejects.toThrow(/mask revision/);
+  }
 });

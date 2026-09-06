@@ -1,3 +1,4 @@
+import type { PopulationMask } from '@/types/population';
 import {
   resolvePopulationParticipants,
   groupParticipantMembers,
@@ -16,6 +17,7 @@ export type PopulationSummary = 'mean' | 'sampleSd' | 'meanAbsolute' | 'cancella
 export type PopulationOrientation = 'axial' | 'coronal' | 'sagittal';
 export interface PopulationSliceRequest {
   contextKey: string;
+  mask?: PopulationMask | null;
   members: { memberId: string; sourcePath: string }[];
   workingMemberIds: string[];
   focusMemberId: string | null;
@@ -33,6 +35,8 @@ export interface PopulationSliceRequest {
   } | null;
 }
 export interface PopulationSliceQuery {
+  /** Masks change support, not the compatible effect scale. */
+  scaleKey?: string;
   key: string;
   datasetKey: string;
   request: PopulationSliceRequest;
@@ -47,6 +51,7 @@ export interface PopulationSliceData {
   eligibleCount: number;
   unitCount: number;
   sources: { memberId: string; revision: { sha256: string; sourceBytes: number } }[];
+  maskRevision?: { sha256: string; sourceBytes: number } | null;
   sourceCacheHit: boolean;
   cachedBytes: number;
   sampling: 'nearest';
@@ -189,6 +194,7 @@ export function buildPopulationSliceQuery(
     ...viewOptions,
     contextKey: source.datasetKey,
     members: source.members,
+    ...(source.mask ? { mask: source.mask } : {}),
     workingMemberIds,
     aggregation,
     focusMemberId: source.members.some(
@@ -198,12 +204,24 @@ export function buildPopulationSliceQuery(
       : null,
   };
   return {
-    query: { key: JSON.stringify(request), datasetKey: source.datasetKey, request },
+    query: {
+      key: JSON.stringify(request),
+      datasetKey: source.datasetKey,
+      scaleKey: source.scaleKey,
+      request,
+    },
     issue: null,
   };
 }
 
 function validateData(data: PopulationSliceData, query: PopulationSliceQuery) {
+  if (
+    query.request.mask &&
+    (!data.maskRevision?.sha256 ||
+      (query.request.mask.expectedSha256 !== undefined &&
+        query.request.mask.expectedSha256 !== data.maskRevision.sha256))
+  )
+    throw new Error('The population result is missing the requested mask revision.');
   const [w, h] = data.plane.dim_px;
   const size = w * h;
   const ids = query.request.members.map((member) => member.memberId);
@@ -327,16 +345,22 @@ export class PopulationSliceService {
     this.generation++;
     this.abort?.abort();
     this.pending = copy;
-    const same = query?.datasetKey === this.scaleDataset;
-    if (!same) {
+    const scaleKey = query?.scaleKey ?? query?.datasetKey;
+    const same = scaleKey === this.scaleDataset;
+    if (!same || query?.datasetKey !== this.snapshot.requested?.datasetKey) {
       this.releaseContexts();
-      this.scaleDataset = query?.datasetKey ?? null;
+    }
+    if (!same) {
+      this.scaleDataset = scaleKey ?? null;
       this.effectLimit = null;
       this.summaryLimits.clear();
     }
     this.publish({
       requested: copy,
-      displayed: same ? this.snapshot.displayed : null,
+      displayed:
+        same && query?.datasetKey === this.snapshot.displayed?.query.datasetKey
+          ? this.snapshot.displayed
+          : null,
       pending: !!copy,
       error: null,
     });

@@ -305,3 +305,41 @@ it('refuses coverage counts expressed in rows when the query summarizes particip
   expect(bitmap).not.toHaveBeenCalled();
   service.stop();
 });
+
+it('refuses an unmasked result for a masked request before creating bitmaps', async () => {
+  const { service, evaluate, bitmap } = setup();
+  const masked = query();
+  masked.request.mask = { sourcePath: '/mask.nii' };
+  service.request(masked);
+  await vi.runAllTimersAsync();
+  expect(service.getSnapshot().error).toMatch(/mask revision/);
+  expect(bitmap).not.toHaveBeenCalled();
+  evaluate.mockResolvedValue({ ...data(), maskRevision: { sha256: 'mask', sourceBytes: 40 } });
+  service.request(masked, true);
+  await vi.runAllTimersAsync();
+  expect(service.getSnapshot().error).toBeNull();
+  expect(service.getSnapshot().displayed?.data.maskRevision?.sha256).toBe('mask');
+  service.stop();
+});
+
+it('preserves the compatible effect scale while replacing masked support', async () => {
+  const { service, evaluate } = setup();
+  const unmasked = query();
+  unmasked.scaleKey = 'feature';
+  service.request(unmasked);
+  await vi.runAllTimersAsync();
+  const limit = service.getSnapshot().displayed!.effectLimit;
+  const masked = query('masked', 'masked-support');
+  masked.scaleKey = 'feature';
+  masked.request.mask = { sourcePath: '/mask.nii' };
+  evaluate.mockResolvedValue({
+    ...data(),
+    contextRange: [-1, 1],
+    maskRevision: { sha256: 'mask', sourceBytes: 40 },
+  });
+  service.request(masked);
+  expect(service.getSnapshot().displayed).toBeNull();
+  await vi.runAllTimersAsync();
+  expect(service.getSnapshot().displayed!.effectLimit).toBe(limit);
+  service.stop();
+});

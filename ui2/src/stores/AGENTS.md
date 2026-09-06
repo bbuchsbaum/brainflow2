@@ -99,3 +99,5 @@ Zustand state management stores for cross-component state sharing. Contains 33 s
 <!-- MANUAL: Use typed selectors! See SELECTORS_GUIDE.md to avoid the 3-hour debugging session. -->
 
 - `configurePopulationParticipants` validates a dataset-bound explicit identity declaration and supported reduction atomically, clones the definition, and no-ops for unchanged configuration. It leaves membership/focus/reference/probe intact; bootstrap clears the declaration. Persisted recipes remain separate work. Full imported string metadata lives with the dataset observation records; use the shared `studioMetadata` validator rather than the compact preview for grouping.
+
+- `population.mask` is a dataset-bound source descriptor with optional expected digest, never a numerical array. `configurePopulationMask` rejects invalid paths/dataset identity, no-ops identical descriptors and clears incompatible relationship state while preserving working/reference/focus/probe state. Import bootstrap clears the mask; pending file selection must also match the import session revision.

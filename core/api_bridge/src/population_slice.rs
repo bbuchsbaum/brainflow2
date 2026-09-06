@@ -39,6 +39,8 @@ pub enum Orientation {
 #[serde(rename_all = "camelCase")]
 pub struct PopulationSliceRequest {
     pub context_key: String,
+    #[serde(default)]
+    pub mask: Option<crate::population_mask::MaskSource>,
     pub members: Vec<SetMemberRef>,
     pub working_member_ids: Vec<String>,
     pub focus_member_id: Option<String>,
@@ -121,6 +123,7 @@ pub struct PopulationSliceResult {
     pub eligible_count: usize,
     pub unit_count: usize,
     pub sources: Vec<SliceSource>,
+    pub mask_revision: Option<SampleSourceRevision>,
     pub source_cache_hit: bool,
     pub cached_bytes: usize,
     pub sampling: &'static str,
@@ -141,6 +144,7 @@ struct CachedPlane {
     plan: Arc<PixelPlan>,
     rows: Vec<Vec<f32>>,
     sources: Vec<SliceSource>,
+    mask_revision: Option<SampleSourceRevision>,
     guard: QuerySourceGuard,
     bytes: usize,
 }
@@ -188,6 +192,7 @@ impl PopulationSliceEngine {
         };
         let key = serde_json::to_string(&(
             &request.context_key,
+            &request.mask,
             request
                 .members
                 .iter()
@@ -496,7 +501,11 @@ fn sample_row(
     member: &SetMemberRef,
     plan: &PixelPlan,
     cancellation: &SampleCancellation,
+    mask: Option<&crate::population_mask::PreparedMask>,
 ) -> BridgeResult<Vec<f32>> {
+    if let Some(mask) = mask {
+        mask.validate_grid(volume)?;
+    }
     let (dimensions, affine) = grid(volume)?;
     if dimensions != plan.dimensions
         || affine
@@ -529,7 +538,11 @@ fn sample_row(
             if i % 4096 == 0 {
                 cancellation.check()?;
             }
-            Ok(crate::read_member_frame_at_voxel(volume, x, y, z, frame).unwrap_or(f32::NAN))
+            Ok(if mask.is_some_and(|mask| !mask.includes(x, y, z)) {
+                f32::NAN
+            } else {
+                crate::read_member_frame_at_voxel(volume, x, y, z, frame).unwrap_or(f32::NAN)
+            })
         })
         .collect()
 }
@@ -544,7 +557,27 @@ async fn build_plane(
         cancellation.check()?;
         paths.push(crate::resolve_member_source_path(&member.source_path, state).await?);
     }
-    let guard = QuerySourceGuard::capture(paths.clone(), cancellation.clone()).await?;
+    let mask_path = match &request.mask {
+        Some(mask) => Some(crate::resolve_member_source_path(&mask.source_path, state).await?),
+        None => None,
+    };
+    let guard = QuerySourceGuard::capture(
+        paths
+            .iter()
+            .cloned()
+            .chain(mask_path.iter().cloned())
+            .collect(),
+        cancellation.clone(),
+    )
+    .await?;
+    let mask = match (&request.mask, mask_path) {
+        (Some(source), Some(path)) => {
+            Some(crate::population_mask::prepare_mask(source, path, state, cancellation).await?)
+        }
+        _ => None,
+    };
+    let mask_revision = mask.as_ref().map(|mask| mask.revision.clone());
+    let first_mask = mask.clone();
     let first = request.members[0].clone();
     let req = request.clone();
     let token = cancellation.clone();
@@ -554,8 +587,30 @@ async fn build_plane(
             paths[0].clone(),
             cancellation.clone(),
             move |volume, revision| {
-                let plan = pixel_plan(volume, &req)?;
-                let row = sample_row(volume, revision, &first, &plan, &token)?;
+                let mut plan = pixel_plan(volume, &req)?;
+                if let Some(mask) = &first_mask {
+                    mask.validate_grid(volume)?;
+                    let exclude = |slot: &mut Option<usize>| {
+                        if slot.is_some_and(|index| {
+                            let [x, y, z] = plan.voxels[index];
+                            !mask.includes(x, y, z)
+                        }) {
+                            *slot = None;
+                        }
+                    };
+                    plan.pixels.iter_mut().for_each(exclude);
+                    if let Some(cutouts) = &mut plan.cutouts {
+                        cutouts.pixels.iter_mut().for_each(exclude);
+                    }
+                }
+                let row = sample_row(
+                    volume,
+                    revision,
+                    &first,
+                    &plan,
+                    &token,
+                    first_mask.as_deref(),
+                )?;
                 Ok((Arc::new(plan), row, revision.clone()))
             },
         )
@@ -568,13 +623,14 @@ async fn build_plane(
     for (member, path) in request.members.iter().zip(paths).skip(1) {
         cancellation.check()?;
         let member = member.clone();
+        let mask = mask.clone();
         let plan = Arc::clone(&plan);
         let token = cancellation.clone();
         let (row, source) = state
             .set_sample_cache
             .with_volume_cancelable(path, cancellation.clone(), move |volume, revision| {
                 Ok((
-                    sample_row(volume, revision, &member, &plan, &token)?,
+                    sample_row(volume, revision, &member, &plan, &token, mask.as_deref())?,
                     SliceSource {
                         member_id: member.member_id.clone(),
                         revision: revision.clone(),
@@ -603,6 +659,7 @@ async fn build_plane(
         plan,
         rows,
         sources,
+        mask_revision,
         guard,
         bytes,
     })
@@ -738,6 +795,7 @@ fn reduce_plane(
             .as_ref()
             .map_or(selected.len(), |aggregation| aggregation.groups.len()),
         sources: cached.sources.clone(),
+        mask_revision: cached.mask_revision.clone(),
         source_cache_hit: cache_hit,
         cached_bytes: cached.bytes,
         sampling: "nearest",
@@ -769,6 +827,7 @@ mod tests {
             })
             .collect();
         PopulationSliceRequest {
+            mask: None,
             context_key: "workspace:dataset:revision".into(),
             working_member_ids: members.iter().map(|m| m.member_id.clone()).collect(),
             focus_member_id: Some(members[0].member_id.clone()),
@@ -794,6 +853,206 @@ mod tests {
     }
     fn finite(result: &[f32]) -> Vec<f32> {
         result.iter().copied().filter(|v| v.is_finite()).collect()
+    }
+
+    #[tokio::test]
+    async fn population_mask_applies_to_fields_cutouts_and_probe_counts() {
+        use crate::population_mask::MaskSource;
+        let sources = vec![
+            TestSource::new(&[3, 3, 3], &[0.; 27]),
+            TestSource::new(&[3, 3, 3], &[4.; 27]),
+        ];
+        let values: Vec<_> = (0..27).map(|i| if i % 3 == 1 { 1. } else { 0. }).collect();
+        let mask = TestSource::new(&[3, 3, 3], &values);
+        let state = BridgeState::default().unwrap();
+        let mut req = request(&sources);
+        req.mask = Some(MaskSource {
+            source_path: mask.path.to_string_lossy().into_owned(),
+            expected_sha256: None,
+        });
+        req.cutouts = Some(CutoutRequest {
+            center_mm: [1.; 3],
+            width_mm: 3.,
+            dim_px: 3,
+            member_ids: req.working_member_ids.clone(),
+        });
+        let result = evaluate(&state, req.clone()).await;
+        let included: Vec<_> = (0..9)
+            .map(|pixel| {
+                (result.plane.origin_mm[0]
+                    + result.plane.u_mm[0] * (pixel % 3) as f32
+                    + result.plane.v_mm[0] * (pixel / 3) as f32)
+                    .round()
+                    == 1.
+            })
+            .collect();
+        let included_count = included.iter().filter(|&&v| v).count();
+        assert!(included_count > 0 && included_count < 9);
+        for (index, &inside) in included.iter().enumerate() {
+            if inside {
+                assert_eq!(result.summary[index], 2.);
+                assert_eq!(result.focused[index], 0.);
+            } else {
+                assert!(result.summary[index].is_nan());
+                assert!(result.focused[index].is_nan());
+            }
+        }
+        assert_eq!(
+            result.valid_counts.iter().filter(|&&n| n == 2).count(),
+            included_count
+        );
+        assert_eq!(result.cutouts.as_ref().unwrap().members[0].valid_pixels, 3);
+        assert_eq!(
+            finite(&result.cutouts.as_ref().unwrap().members[0].values),
+            vec![0.; 3]
+        );
+        let revision = result.mask_revision.unwrap();
+        req.summary = SummaryKind::Coverage;
+        let coverage = evaluate(&state, req.clone()).await;
+        assert!(coverage.source_cache_hit);
+        assert_eq!(finite(&coverage.summary), vec![2.; included_count]); // excluded support is not coverage zero
+        for (world, radius, count) in [([0., 1., 1.], 0., 0), ([1.; 3], 0., 1), ([1.; 3], 3., 9)] {
+            let probe = crate::sample_set_trace_at_world_impl(
+                &req.members,
+                &world,
+                radius,
+                "mean",
+                "sd",
+                &state,
+                &SampleCancellation::default(),
+                req.mask.as_ref(),
+            )
+            .await
+            .unwrap();
+            assert!(probe.iter().all(|row| row.count == count));
+            assert_eq!(
+                probe[0].mask_revision.as_ref().unwrap().sha256,
+                revision.sha256
+            );
+            if count > 0 {
+                assert_eq!(probe[0].value, 0.);
+                assert_eq!(probe[1].value, 4.);
+            } else {
+                assert!(probe.iter().all(|row| row.value.is_nan()));
+            }
+        }
+        mask.write(&[3, 3, 3], &[0.; 27]);
+        let empty = evaluate(&state, req.clone()).await;
+        assert!(empty.summary.iter().all(|value| value.is_nan()));
+        assert!(empty.valid_counts.iter().all(|&count| count == 0));
+        assert!(empty.focused.iter().all(|value| value.is_nan()));
+        let empty_probe = crate::sample_set_at_world_impl(
+            &req.members,
+            &[1.; 3],
+            3.,
+            "mean",
+            &state,
+            &SampleCancellation::default(),
+            req.mask.as_ref(),
+        )
+        .await
+        .unwrap();
+        assert!(empty_probe
+            .iter()
+            .all(|row| row.count == 0 && row.value.is_nan()));
+        // A mask edit invalidates the warm plane and the frozen hash contract.
+        mask.write(&[3, 3, 3], &[1.; 27]);
+        let changed = evaluate(&state, req.clone()).await;
+        assert!(!changed.source_cache_hit);
+        assert_eq!(finite(&changed.summary), vec![2.; 9]);
+        assert_ne!(changed.mask_revision.unwrap().sha256, revision.sha256);
+        req.mask.as_mut().unwrap().expected_sha256 = Some(revision.sha256);
+        assert!(state
+            .population_slice
+            .evaluate(req, &state, SampleCancellation::default())
+            .await
+            .is_err());
+    }
+
+    #[tokio::test]
+    async fn population_mask_rejects_nonbinary_mismatched_and_unavailable_sources() {
+        use crate::population_mask::MaskSource;
+        let sources = vec![TestSource::new(&[3, 3, 3], &[2.; 27])];
+        let mask = TestSource::new(&[3, 3, 3], &[1.; 27]);
+        let state = BridgeState::default().unwrap();
+        let mut req = request(&sources);
+        req.mask = Some(MaskSource {
+            source_path: mask.path.to_string_lossy().into_owned(),
+            expected_sha256: None,
+        });
+        for invalid in [0.5, -1., f32::NAN, f32::INFINITY] {
+            let mut values = vec![1.; 27];
+            values[0] = invalid;
+            mask.write(&[3, 3, 3], &values);
+            assert!(state
+                .population_slice
+                .evaluate(req.clone(), &state, SampleCancellation::default())
+                .await
+                .is_err());
+            assert!(crate::sample_set_trace_at_world_impl(
+                &req.members,
+                &[1.; 3],
+                0.,
+                "mean",
+                "none",
+                &state,
+                &SampleCancellation::default(),
+                req.mask.as_ref()
+            )
+            .await
+            .is_err());
+        }
+        mask.write(&[3, 3, 2], &[1.; 18]);
+        assert!(state
+            .population_slice
+            .evaluate(req.clone(), &state, SampleCancellation::default())
+            .await
+            .is_err());
+        assert!(crate::sample_set_trace_at_world_impl(
+            &req.members,
+            &[1.; 3],
+            0.,
+            "mean",
+            "none",
+            &state,
+            &SampleCancellation::default(),
+            req.mask.as_ref()
+        )
+        .await
+        .is_err());
+        mask.write(&[3, 3, 3], &[1.; 27]);
+        let mut bytes = std::fs::read(&mask.path).unwrap();
+        bytes[292..296].copy_from_slice(&1f32.to_le_bytes()); // same shape, different world translation
+        std::fs::write(&mask.path, bytes).unwrap();
+        assert!(state
+            .population_slice
+            .evaluate(req.clone(), &state, SampleCancellation::default())
+            .await
+            .is_err());
+        assert!(crate::sample_set_trace_at_world_impl(
+            &req.members,
+            &[1.; 3],
+            0.,
+            "mean",
+            "none",
+            &state,
+            &SampleCancellation::default(),
+            req.mask.as_ref()
+        )
+        .await
+        .is_err());
+        mask.write(&[3, 3, 3, 2], &[1.; 54]);
+        assert!(state
+            .population_slice
+            .evaluate(req.clone(), &state, SampleCancellation::default())
+            .await
+            .is_err());
+        req.mask.as_mut().unwrap().source_path = "/missing/population-mask.nii".into();
+        assert!(state
+            .population_slice
+            .evaluate(req, &state, SampleCancellation::default())
+            .await
+            .is_err());
     }
 
     #[tokio::test]

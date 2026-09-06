@@ -1,3 +1,4 @@
+import type { PopulationMask } from '@/types/population';
 import { studioMetadata } from './studioMetadata';
 import {
   arrangePopulationResponses,
@@ -131,6 +132,7 @@ export function buildPopulationProbeQuery(
       members: labeledMembers,
       worldMm: [...probe.worldMm],
       radiusMm: probe.radiusMm,
+      ...(resolved.source.mask ? { mask: resolved.source.mask } : {}),
     },
   };
   const key = JSON.stringify([datasetKey, probe.supportKey, request]);
@@ -152,6 +154,17 @@ export function buildPopulationSource(
       issue: 'Population probes require volume observations with an audited common support.',
     };
   }
+  const configuredMask = state.population.mask;
+  if (configuredMask && configuredMask.setId !== set.id)
+    return { source: null, issue: 'The selected population mask belongs to another dataset.' };
+  const mask: PopulationMask | null = configuredMask
+    ? {
+        sourcePath: configuredMask.sourcePath,
+        ...(configuredMask.expectedSha256 !== undefined
+          ? { expectedSha256: configuredMask.expectedSha256 }
+          : {}),
+      }
+    : null;
   const members: { memberId: string; sourcePath: string }[] = [];
   for (const id of context.memberIds) {
     const summaries = set.memberSummaries.filter((candidate) => candidate.id === id);
@@ -190,13 +203,14 @@ export function buildPopulationSource(
       return { source: null, issue: `Observation ${id} has no source for the selected feature.` };
     members.push({ memberId: id, sourcePath });
   }
-  const datasetKey = JSON.stringify([
+  const scaleKey = JSON.stringify([
     workspaceId,
     state.population.sessionRevision,
     set.id,
     state.selection.activeFeatureId,
   ]);
-  return { source: { datasetKey, setId: set.id, members }, issue: null };
+  const datasetKey = mask ? JSON.stringify([scaleKey, mask]) : scaleKey;
+  return { source: { datasetKey, setId: set.id, members, mask, scaleKey }, issue: null };
 }
 
 export function populationSupportKey(

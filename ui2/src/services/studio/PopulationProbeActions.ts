@@ -1,4 +1,5 @@
-import type { PopulationParticipantDefinition } from '@/types/population';
+import { getTransport } from '@/services/transport';
+import type { PopulationMask, PopulationParticipantDefinition } from '@/types/population';
 import { useSetStudioStore } from '@/stores/setStudioStore';
 import { useViewStateStore } from '@/stores/viewStateStore';
 import { useMouseCoordinateStore } from '@/stores/mouseCoordinateStore';
@@ -8,6 +9,29 @@ import { populationSupportKey } from './PopulationProbeController';
 /** UI commands share the canonical Studio selection/probe state. Sample frames
  * remain owned by the panel's controller, outside the global stores. */
 export const populationProbeActions = {
+  configureMask(mask: PopulationMask | null) {
+    const state = useSetStudioStore.getState();
+    return state.configurePopulationMask(
+      mask ? { ...mask, setId: state.selection.activeSetId ?? '' } : null,
+    );
+  },
+  async chooseMask() {
+    const initial = useSetStudioStore.getState();
+    const setId = initial.selection.activeSetId;
+    const revision = initial.population.sessionRevision;
+    const path = await getTransport().invoke<string | null>('plugin:dialog|open', {
+      options: {
+        multiple: false,
+        directory: false,
+        filters: [{ name: 'Binary NIfTI mask', extensions: ['nii', 'nii.gz'] }],
+      },
+    });
+    if (typeof path !== 'string') return { ok: true } as const;
+    const current = useSetStudioStore.getState();
+    if (current.selection.activeSetId !== setId || current.population.sessionRevision !== revision)
+      return { ok: false, reason: 'The dataset changed while choosing a mask.' } as const;
+    return populationProbeActions.configureMask({ sourcePath: path });
+  },
   configureParticipants(definition: PopulationParticipantDefinition | null) {
     return useSetStudioStore.getState().configurePopulationParticipants(definition);
   },

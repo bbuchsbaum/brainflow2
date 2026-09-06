@@ -1,3 +1,4 @@
+import { PopulationMaskControls } from './PopulationMaskControls';
 import { resolvePopulationParticipants } from '@/services/studio/populationParticipants';
 import {
   populationArrangementLabel,
@@ -197,6 +198,7 @@ export function PopulationLens({
           result.data.sources.map((source) => ({
             memberId: source.memberId,
             sha256: source.revision.sha256,
+            maskSha256: result.data.maskRevision?.sha256,
           })),
         )
       : 'unknown';
@@ -211,6 +213,7 @@ export function PopulationLens({
       aria-label="Population brain views"
       className="flex min-h-0 flex-col gap-2 rounded-lg border border-border bg-card p-3"
     >
+      <PopulationMaskControls />
       <p className="text-sm font-medium">
         Population ·{' '}
         {studio.features[studio.selection.activeFeatureId ?? '']?.label ?? 'Selected feature'}

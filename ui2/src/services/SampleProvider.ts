@@ -323,6 +323,7 @@ export class SampleProvider {
           lower: number | null;
           upper: number | null;
           count: number;
+          maskRevision?: { sha256: string; sourceBytes: number } | null;
           sourceRevision?: { sha256: string; sourceBytes: number } | null;
           error?: string | null;
         }[]
@@ -330,6 +331,7 @@ export class SampleProvider {
         'sample_set_trace_at_world',
         {
           members,
+          ...(locus.mask ? { mask: locus.mask } : {}),
           worldMm,
           radiusMm: locus.radiusMm,
           reduce,
@@ -338,6 +340,16 @@ export class SampleProvider {
         signal,
       );
 
+      if (
+        locus.mask &&
+        traces.some(
+          (trace) =>
+            !trace.maskRevision?.sha256 ||
+            (locus.mask?.expectedSha256 !== undefined &&
+              trace.maskRevision.sha256 !== locus.mask.expectedSha256),
+        )
+      )
+        throw new Error('The sampled trace is missing the requested mask revision.');
       const hasMemberLabels = traces.some(
         (trace) => trace.displayLabel !== undefined || (trace.designValues?.length ?? 0) > 0,
       );
@@ -367,12 +379,14 @@ export class SampleProvider {
         meta: {
           datasetId: request.datasetId,
           locus: 'set',
+          ...(locus.mask ? { mask: locus.mask } : {}),
           radiusMm: locus.radiusMm,
           reduce,
           band,
           sources: traces.map((trace) => ({
             memberId: trace.memberId,
             sourceRevision: trace.sourceRevision ?? null,
+            ...(locus.mask ? { maskRevision: trace.maskRevision ?? null } : {}),
             stackIndex: memberById.get(trace.memberId)?.stackIndex ?? null,
             validCount: trace.count,
             error: trace.error ?? null,
@@ -398,6 +412,7 @@ export class SampleProvider {
         memberId: string;
         value: number | null;
         count?: number;
+        maskRevision?: { sha256: string; sourceBytes: number } | null;
         sourceRevision?: { sha256: string; sourceBytes: number } | null;
         error?: string | null;
       }[]
@@ -405,6 +420,7 @@ export class SampleProvider {
       'sample_set_at_world',
       {
         members,
+        ...(locus.mask ? { mask: locus.mask } : {}),
         worldMm,
         radiusMm: locus.radiusMm,
         reduce,
@@ -412,6 +428,16 @@ export class SampleProvider {
       signal,
     );
 
+    if (
+      locus.mask &&
+      samples.some(
+        (sample) =>
+          !sample.maskRevision?.sha256 ||
+          (locus.mask?.expectedSha256 !== undefined &&
+            sample.maskRevision.sha256 !== locus.mask.expectedSha256),
+      )
+    )
+      throw new Error('The sampled values are missing the requested mask revision.');
     return attachObservationMetadata(
       {
         columns: [column('member', 'nominal'), column('value', 'quantitative')],
@@ -419,11 +445,13 @@ export class SampleProvider {
         meta: {
           datasetId: request.datasetId,
           locus: 'set',
+          ...(locus.mask ? { mask: locus.mask } : {}),
           radiusMm: locus.radiusMm,
           reduce,
           sources: samples.map((sample) => ({
             memberId: sample.memberId,
             sourceRevision: sample.sourceRevision ?? null,
+            ...(locus.mask ? { maskRevision: sample.maskRevision ?? null } : {}),
             stackIndex: memberById.get(sample.memberId)?.stackIndex ?? null,
             validCount: sample.count ?? null,
             error: sample.error ?? null,

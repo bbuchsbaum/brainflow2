@@ -1,3 +1,4 @@
+import { setTransport } from '@/services/transport';
 import { PopulationUnitControls } from '@/components/studio/PopulationUnitControls';
 import { DesignPane } from '@/components/studio/DesignPane';
 import { useStudioDerivedState } from '@/hooks/useStudioDerivedState';
@@ -13,6 +14,14 @@ import '../index.css';
 
 if (!import.meta.env.DEV) throw new Error('This synthetic harness is development-only.');
 document.documentElement.classList.add('dark');
+const maskMode = new URLSearchParams(location.search).has('mask');
+if (maskMode)
+  setTransport({
+    async invoke<T>(command: string): Promise<T> {
+      if (command === 'plugin:dialog|open') return '/synthetic/left-half-mask.nii' as T;
+      throw new Error(`Unexpected synthetic command: ${command}`);
+    },
+  });
 const metadataMode = new URLSearchParams(location.search).has('metadata');
 const ids = Array.from(
   { length: metadataMode ? 161 : 80 },
@@ -76,7 +85,12 @@ const controller = new PopulationProbeController(async (request) => ({
     request.locus.kind === 'set'
       ? request.locus.members.map((member) => ({
           member: member.memberId,
-          value: ids.indexOf(member.memberId) < 40 ? 3 : -1,
+          value:
+            request.locus.kind === 'set' && request.locus.mask && request.locus.worldMm[0] >= 0
+              ? null
+              : ids.indexOf(member.memberId) < 40
+                ? 3
+                : -1,
         }))
       : [],
   meta: {
@@ -84,8 +98,12 @@ const controller = new PopulationProbeController(async (request) => ({
     sources: ids.map((memberId) => ({
       memberId,
       sourceRevision: { sha256: 'synthetic', sourceBytes: 0 },
+      ...(request.locus.kind === 'set' && request.locus.mask
+        ? { maskRevision: { sha256: 'synthetic-mask', sourceBytes: 0 } }
+        : {}),
       stackIndex: null,
-      validCount: 1,
+      validCount:
+        request.locus.kind === 'set' && request.locus.mask && request.locus.worldMm[0] >= 0 ? 0 : 1,
       error: null,
     })),
   },
@@ -98,7 +116,7 @@ const slices = new PopulationSliceService(
         Array.from({ length: dimension * dimension }, (_, i) => {
           const x = (i % dimension) - 31.5,
             y = Math.floor(i / dimension) - 31.5;
-          return (x * x) / 400 + (y * y) / 625 <= 1 ? value : null;
+          return (x * x) / 400 + (y * y) / 625 <= 1 && (!request.mask || x < 0) ? value : null;
         });
       const observed = (id: string) => (ids.indexOf(id) < 40 ? 3 : -1);
       const values = request.aggregation
@@ -158,7 +176,9 @@ const slices = new PopulationSliceService(
                   const samples = Array.from({ length: dimPx ** 2 }, (_, i) => {
                     const x = origin[0] + (i % dimPx) * spacing,
                       y = origin[1] - Math.floor(i / dimPx) * spacing;
-                    return (x * x) / 400 + (y * y) / 625 <= 1 ? observed(memberId) : null;
+                    return (x * x) / 400 + (y * y) / 625 <= 1 && (!request.mask || x < 0)
+                      ? observed(memberId)
+                      : null;
                   });
                   return {
                     memberId,
@@ -169,6 +189,7 @@ const slices = new PopulationSliceService(
               };
             })()
           : null,
+        maskRevision: request.mask ? { sha256: 'synthetic-mask', sourceBytes: 0 } : null,
         sourceCacheHit: true,
         cachedBytes: 0,
         sampling: 'nearest',
@@ -190,7 +211,8 @@ function Harness() {
       <h1 className="mb-2 text-lg font-medium">Population probe interaction harness</h1>
       <p className="mb-5 text-sm text-muted-foreground">
         80 synthetic observations: forty +3, forty −1. The ellipse images and sampled values are
-        synthetic; native sampling is not exercised here.
+        synthetic; native sampling is not exercised here.{' '}
+        {maskMode && 'The file chooser is simulated and selects a synthetic left-half mask.'}
       </p>
       <div className="mb-3 rounded border border-border bg-card p-4 text-sm">
         Focused observation: <span data-testid="fixture-focus">{focus}</span>

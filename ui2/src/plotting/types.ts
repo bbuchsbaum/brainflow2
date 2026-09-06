@@ -1,3 +1,4 @@
+import type { PopulationMask } from '@/types/population';
 /**
  * Grammar-of-graphics-lite plotting primitives.
  *
@@ -53,6 +54,7 @@ export type FrameRow = Readonly<Record<string, CellValue>>;
 
 /** Identity and validity of a sampled observation's source snapshot. */
 export interface SampleSourceIdentity {
+  readonly maskRevision?: { readonly sha256: string; readonly sourceBytes: number } | null;
   readonly memberId: string;
   readonly sourceRevision: { readonly sha256: string; readonly sourceBytes: number } | null;
   readonly stackIndex: number | null;
@@ -103,6 +105,7 @@ export type Locus =
   | { readonly kind: 'regions'; readonly atlasLayerId: string }
   | {
       readonly kind: 'set';
+      readonly mask?: PopulationMask;
       readonly worldMm: WorldMm;
       readonly radiusMm: number;
       readonly members: readonly {

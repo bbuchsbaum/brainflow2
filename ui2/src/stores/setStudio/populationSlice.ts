@@ -1,6 +1,7 @@
 import { participantIdentity } from '@/services/studio/populationParticipants';
 import type {
   PopulationActionResult,
+  PopulationMask,
   PopulationParticipantDefinition,
   PopulationProbe,
   PopulationRelationship,
@@ -18,6 +19,7 @@ export function initialPopulationState(sessionRevision = 0): PopulationState {
   return {
     sessionRevision,
     participants: null,
+    mask: null,
     working: { kind: 'context' },
     referenceMode: 'cohort',
     pinnedProbe: null,
@@ -30,6 +32,9 @@ export function initialPopulationState(sessionRevision = 0): PopulationState {
 
 export interface PopulationSlice {
   population: PopulationState;
+  configurePopulationMask: (
+    mask: (PopulationMask & { readonly setId: string }) | null,
+  ) => PopulationActionResult;
   configurePopulationParticipants: (
     definition: PopulationParticipantDefinition | null,
   ) => PopulationActionResult;
@@ -94,6 +99,21 @@ export function createPopulationSlice(
     return ok;
   };
   return {
+    configurePopulationMask(mask) {
+      const state = get();
+      if (
+        mask &&
+        (mask.setId !== state.selection.activeSetId ||
+          !mask.sourcePath.trim() ||
+          mask.sourcePath !== mask.sourcePath.trim())
+      )
+        return fail('Choose a mask file for the current dataset.');
+      if (!same(state.population.mask, mask))
+        set({
+          population: { ...state.population, mask: mask ? { ...mask } : null, relationship: null },
+        });
+      return ok;
+    },
     configurePopulationParticipants(definition) {
       const state = get();
       if (definition) {

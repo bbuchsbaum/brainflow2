@@ -132,3 +132,47 @@ it('refuses duplicate declared members even when sampled rows contain distinct I
     ),
   ).toThrow(/exactly one/);
 });
+
+it('marks an order changed when its mask changes, even when observations are unchanged', () => {
+  const result = sampled([1, 2]);
+  if (result.query.request.locus.kind !== 'set') throw Error('set required');
+  result.query = {
+    ...result.query,
+    request: {
+      ...result.query.request,
+      locus: { ...result.query.request.locus, mask: { sourcePath: '/mask.nii' } },
+    },
+  };
+  result.frame = {
+    ...result.frame,
+    meta: {
+      sources: ['S0', 'S1'].map((memberId) => ({
+        memberId,
+        sourceRevision: { sha256: 'image', sourceBytes: 100 },
+        maskRevision: { sha256: 'mask', sourceBytes: 50 },
+        stackIndex: null,
+        validCount: 1,
+        error: null,
+      })),
+    },
+  };
+  const order = arrangePopulationResponses(result, 'all');
+  expect(
+    populationOrderSourceStatus(
+      order,
+      ['S0', 'S1'].map((memberId) => ({ memberId, sha256: 'image', maskSha256: 'mask' })),
+    ),
+  ).toBe('same');
+  expect(
+    populationOrderSourceStatus(
+      order,
+      ['S0', 'S1'].map((memberId) => ({ memberId, sha256: 'image', maskSha256: 'changed' })),
+    ),
+  ).toBe('changed');
+  expect(
+    populationOrderSourceStatus(
+      order,
+      ['S0', 'S1'].map((memberId) => ({ memberId, sha256: 'image' })),
+    ),
+  ).toBe('unknown');
+});

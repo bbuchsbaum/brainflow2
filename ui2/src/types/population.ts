@@ -1,3 +1,9 @@
+/** Common binary support; physical grid is validated by native sampling. */
+export interface PopulationMask {
+  readonly sourcePath: string;
+  readonly expectedSha256?: string;
+}
+
 export interface PopulationParticipantDefinition {
   readonly setId: string;
   readonly identity:
@@ -40,6 +46,7 @@ export interface PopulationRelationship {
 }
 
 export interface PopulationState {
+  readonly mask: (PopulationMask & { readonly setId: string }) | null;
   readonly participants: PopulationParticipantDefinition | null;
   /** In-memory import generation; distinct from a file/content revision. */
   readonly sessionRevision: number;

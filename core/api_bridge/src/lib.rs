@@ -1,4 +1,5 @@
 pub mod atlas_roi;
+mod population_mask;
 mod population_sampling;
 mod population_slice;
 mod set_sample_cache;
@@ -12379,6 +12380,7 @@ pub struct MemberSample {
     pub value: f32,
     pub count: u32,
     pub source_revision: Option<set_sample_cache::SampleSourceRevision>,
+    pub mask_revision: Option<set_sample_cache::SampleSourceRevision>,
     pub error: Option<String>,
 }
 
@@ -12397,6 +12399,7 @@ fn gather_member_roi_values(
     world_mm: &[f32],
     radius_mm: f32,
     stack_index: usize,
+    mask: Option<&population_mask::PreparedMask>,
 ) -> Vec<f32> {
     // Transform the requested world point into (fractional) voxel coordinates.
     let affine = match get_affine_from_volume(volume_data) {
@@ -12422,6 +12425,9 @@ fn gather_member_roi_values(
     // The caller validates the explicit frame before gathering spatial values.
     let mut vals: Vec<f32> = Vec::with_capacity(voxels.len());
     for (x, y, z) in voxels {
+        if mask.is_some_and(|mask| !mask.includes(x, y, z)) {
+            continue;
+        }
         if let Some(value) = read_member_frame_at_voxel(volume_data, x, y, z, stack_index) {
             if value.is_finite() {
                 vals.push(value);
@@ -12443,7 +12449,7 @@ fn sample_member_volume(
     radius_mm: f32,
     reduce: &str,
 ) -> f32 {
-    let vals = gather_member_roi_values(volume_data, world_mm, radius_mm, 0);
+    let vals = gather_member_roi_values(volume_data, world_mm, radius_mm, 0, None);
     if vals.is_empty() {
         return f32::NAN;
     }
@@ -12497,6 +12503,7 @@ pub struct MemberTrace {
     /// Number of finite ROI voxels the summary was computed from.
     pub count: u32,
     pub source_revision: Option<set_sample_cache::SampleSourceRevision>,
+    pub mask_revision: Option<set_sample_cache::SampleSourceRevision>,
     pub error: Option<String>,
 }
 
@@ -12583,6 +12590,7 @@ async fn sample_member_source(
     radius_mm: f32,
     state: &BridgeState,
     cancellation: &SampleCancellation,
+    mask: Option<Arc<population_mask::PreparedMask>>,
 ) -> BridgeResult<(Vec<f32>, set_sample_cache::SampleSourceRevision)> {
     cancellation.check()?;
     let world = world_mm.to_vec();
@@ -12592,6 +12600,7 @@ async fn sample_member_source(
         if expected.as_ref().is_some_and(|hash| hash != &revision.sha256) {
             return Err(BridgeError::Input { code: 2025, details: "Population source revision changed; recompute or restore the frozen source.".into() });
         }
+        if let Some(mask) = &mask { mask.validate_grid(volume)?; }
         let frames = stack_length_for_volume(volume);
         if frames > 1 && stack_index.is_none() {
             return Err(BridgeError::Input { code: 2025, details: "A 4D population source requires an explicit stackIndex; frame zero is not assumed.".into() });
@@ -12600,7 +12609,7 @@ async fn sample_member_source(
         if frame >= frames {
             return Err(BridgeError::Input { code: 2025, details: format!("stackIndex {frame} is outside the source's {frames} frames.") });
         }
-        Ok((gather_member_roi_values(volume, &world, radius_mm, frame), revision.clone()))
+        Ok((gather_member_roi_values(volume, &world, radius_mm, frame, mask.as_deref()), revision.clone()))
     }).await
 }
 
@@ -12641,6 +12650,7 @@ async fn sample_set_at_world_impl(
     reduce: &str,
     state: &BridgeState,
     cancellation: &SampleCancellation,
+    mask: Option<&population_mask::MaskSource>,
 ) -> BridgeResult<Vec<MemberSample>> {
     let traces = sample_set_trace_at_world_impl(
         members,
@@ -12650,6 +12660,7 @@ async fn sample_set_at_world_impl(
         "none",
         state,
         cancellation,
+        mask,
     )
     .await?;
     Ok(traces
@@ -12659,6 +12670,7 @@ async fn sample_set_at_world_impl(
             value: trace.value,
             count: trace.count,
             source_revision: trace.source_revision,
+            mask_revision: trace.mask_revision,
             error: trace.error,
         })
         .collect())
@@ -12672,6 +12684,7 @@ async fn sample_set_at_world(
     radius_mm: f32,
     reduce: String,
     ticket: Option<SampleTicket>,
+    mask: Option<population_mask::MaskSource>,
     state: State<'_, BridgeState>,
 ) -> BridgeResult<Vec<MemberSample>> {
     let cancellation = ticket
@@ -12686,6 +12699,7 @@ async fn sample_set_at_world(
         &reduce,
         state.inner(),
         &cancellation,
+        mask.as_ref(),
     )
     .await
 }
@@ -12705,6 +12719,7 @@ pub async fn sample_set_at_world_for_testing(
         reduce,
         bridge_state,
         &SampleCancellation::default(),
+        None,
     )
     .await
 }
@@ -12716,6 +12731,8 @@ pub async fn sample_set_at_world_for_testing(
 /// keeps the ROI voxel distribution to summarize spread instead of collapsing to
 /// a single scalar. A member that fails to load OR samples out-of-bounds yields
 /// a `NaN` trace point with `count = 0` (logged) rather than failing the call.
+/// With explicit common support, source/grid failures reject the masked query.
+#[allow(clippy::too_many_arguments)] // Existing sampling operands plus explicit common support.
 async fn sample_set_trace_at_world_impl(
     members: &[SetMemberRef],
     world_mm: &[f32],
@@ -12724,6 +12741,7 @@ async fn sample_set_trace_at_world_impl(
     band: &str,
     state: &BridgeState,
     cancellation: &SampleCancellation,
+    mask: Option<&population_mask::MaskSource>,
 ) -> BridgeResult<Vec<MemberTrace>> {
     validate_set_sample_request(members, world_mm, radius_mm, reduce)?;
     if !matches!(band, "none" | "sd" | "sem95" | "ci95" | "iqr") {
@@ -12744,25 +12762,53 @@ async fn sample_set_trace_at_world_impl(
                 .map_err(|error| error.to_string()),
         );
     }
+    let mask_path = match mask {
+        Some(mask) => Some(resolve_member_source_path(&mask.source_path, state).await?),
+        None => None,
+    };
     let guard = set_sample_cache::QuerySourceGuard::capture(
         paths
             .iter()
             .filter_map(|path| path.as_ref().ok().cloned())
+            .chain(mask_path.iter().cloned())
             .collect(),
         cancellation.clone(),
     )
     .await?;
+    let mask = match (mask, mask_path) {
+        (Some(source), Some(path)) => {
+            Some(population_mask::prepare_mask(source, path, state, cancellation).await?)
+        }
+        _ => None,
+    };
     let mut traces = Vec::with_capacity(members.len());
     for (member, path) in members.iter().zip(paths) {
         cancellation.check()?;
         let result = match path {
-            Ok(path) => {
-                sample_member_source(member, path, world_mm, radius_mm, state, cancellation)
-                    .await
-                    .map_err(|error| error.to_string())
-            }
+            Ok(path) => sample_member_source(
+                member,
+                path,
+                world_mm,
+                radius_mm,
+                state,
+                cancellation,
+                mask.clone(),
+            )
+            .await
+            .map_err(|error| error.to_string()),
             Err(error) => Err(error),
         };
+        if mask.is_some() {
+            if let Err(error) = &result {
+                return Err(BridgeError::Input {
+                    code: 2025,
+                    details: format!(
+                        "Masked population sampling failed for {}: {error}",
+                        member.member_id
+                    ),
+                });
+            }
+        }
         let (vals, source_revision, error) = match result {
             Ok((vals, revision)) => (vals, Some(revision), None),
             Err(error) => (Vec::new(), None, Some(error)),
@@ -12787,6 +12833,7 @@ async fn sample_set_trace_at_world_impl(
             upper,
             count: vals.len() as u32,
             source_revision,
+            mask_revision: mask.as_ref().map(|mask| mask.revision.clone()),
             error,
         });
     }
@@ -12796,6 +12843,7 @@ async fn sample_set_trace_at_world_impl(
 }
 
 #[command]
+#[allow(clippy::too_many_arguments)] // Preserve existing command operands while adding explicit common support.
 #[tracing::instrument(skip_all, err, name = "api.sample_set_trace_at_world")]
 async fn sample_set_trace_at_world(
     members: Vec<SetMemberRef>,
@@ -12804,6 +12852,7 @@ async fn sample_set_trace_at_world(
     reduce: String,
     band: String,
     ticket: Option<SampleTicket>,
+    mask: Option<population_mask::MaskSource>,
     state: State<'_, BridgeState>,
 ) -> BridgeResult<Vec<MemberTrace>> {
     let cancellation = ticket
@@ -12819,6 +12868,7 @@ async fn sample_set_trace_at_world(
         &band,
         state.inner(),
         &cancellation,
+        mask.as_ref(),
     )
     .await
 }
@@ -12840,6 +12890,7 @@ pub async fn sample_set_trace_at_world_for_testing(
         band,
         bridge_state,
         &SampleCancellation::default(),
+        None,
     )
     .await
 }
