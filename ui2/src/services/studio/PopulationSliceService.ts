@@ -19,6 +19,12 @@ export interface PopulationSliceRequest {
   dimPx: [number, number];
   zoom: number;
   summary: PopulationSummary;
+  cutouts?: {
+    centerMm: [number, number, number];
+    widthMm: number;
+    dimPx: number;
+    memberIds: string[];
+  } | null;
 }
 export interface PopulationSliceQuery {
   key: string;
@@ -37,6 +43,10 @@ export interface PopulationSliceData {
   sourceCacheHit: boolean;
   cachedBytes: number;
   sampling: 'nearest';
+  cutouts?: {
+    plane: ViewPlane;
+    members: { memberId: string; values: (number | null)[]; validPixels: number }[];
+  } | null;
 }
 
 /** The service and committed React views each hold a lease. Replacing a result
@@ -45,9 +55,11 @@ export class PopulationImages {
   private references = 1;
   readonly summary: ImageBitmap;
   readonly focused: ImageBitmap;
-  constructor(summary: ImageBitmap, focused: ImageBitmap) {
+  readonly cutouts: ImageBitmap | null;
+  constructor(summary: ImageBitmap, focused: ImageBitmap, cutouts: ImageBitmap | null = null) {
     this.summary = summary;
     this.focused = focused;
+    this.cutouts = cutouts;
   }
   retain() {
     if (this.references === 0) throw new Error('Population image lease is closed.');
@@ -59,6 +71,7 @@ export class PopulationImages {
     if (--this.references === 0) {
       this.summary.close();
       this.focused.close();
+      this.cutouts?.close();
     }
   }
 }
@@ -135,7 +148,7 @@ export function buildPopulationSliceQuery(
   workspaceId: string,
   options: Pick<
     PopulationSliceRequest,
-    'crosshairMm' | 'orientation' | 'dimPx' | 'zoom' | 'summary'
+    'crosshairMm' | 'orientation' | 'dimPx' | 'zoom' | 'summary' | 'cutouts'
   > & { withoutFocused?: boolean },
 ) {
   const { source, issue } = buildPopulationSource(state, workspaceId);
@@ -182,6 +195,55 @@ function validateData(data: PopulationSliceData, query: PopulationSliceQuery) {
   ) {
     throw new Error('Population slice result does not match its query or geometry.');
   }
+  const expected = query.request.cutouts;
+  const actual = data.cutouts;
+  if (
+    !!expected !== !!actual ||
+    (expected &&
+      actual &&
+      (actual.plane.dim_px.some((dim) => dim !== expected.dimPx) ||
+        expected.dimPx < 1 ||
+        expected.dimPx > 64 ||
+        actual.members.length !== expected.memberIds.length ||
+        actual.members.length < 1 ||
+        actual.members.length > 96 ||
+        actual.members.some(
+          (member, index) =>
+            member.memberId !== expected.memberIds[index] ||
+            member.values.length !== expected.dimPx ** 2 ||
+            !Number.isInteger(member.validPixels) ||
+            member.validPixels < 0 ||
+            member.validPixels > member.values.length,
+        ) ||
+        [...actual.plane.origin_mm, ...actual.plane.u_mm, ...actual.plane.v_mm].some(
+          (value) => !Number.isFinite(value),
+        )))
+  )
+    throw new Error('Population cutouts do not match their requested observations or geometry.');
+}
+
+/** One bounded sprite sheet for all visible cutouts, with the same value
+ * mapping as the focused original. UI layout never resamples source images. */
+export function packPopulationCutouts(
+  cutouts: NonNullable<PopulationSliceData['cutouts']>,
+  limit: number,
+) {
+  const [cellWidth, cellHeight] = cutouts.plane.dim_px;
+  const columns = Math.min(8, cutouts.members.length);
+  const width = columns * cellWidth;
+  const height = Math.ceil(cutouts.members.length / columns) * cellHeight;
+  const rgba = new Uint8ClampedArray(width * height * 4);
+  cutouts.members.forEach((member, index) => {
+    const pixels = populationRgba(member.values, limit, true);
+    const x = (index % columns) * cellWidth,
+      y = Math.floor(index / columns) * cellHeight;
+    for (let row = 0; row < cellHeight; row++)
+      rgba.set(
+        pixels.subarray(row * cellWidth * 4, (row + 1) * cellWidth * 4),
+        ((y + row) * width + x) * 4,
+      );
+  });
+  return { rgba, width, height, columns };
 }
 
 /** Per-mounted-lens owner. One active native request and one latest queued
@@ -335,7 +397,18 @@ export class PopulationSliceService {
         summary.close();
         throw error;
       }
-      images = new PopulationImages(summary, focused);
+      let cutouts: ImageBitmap | null = null;
+      try {
+        if (data.cutouts) {
+          const packed = packPopulationCutouts(data.cutouts, effectLimit);
+          cutouts = await this.dependencies.bitmap(packed.rgba, packed.width, packed.height);
+        }
+      } catch (error) {
+        summary.close();
+        focused.close();
+        throw error;
+      }
+      images = new PopulationImages(summary, focused, cutouts);
       if (!this.active || version !== this.generation) {
         images.release();
         return;

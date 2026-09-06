@@ -9,6 +9,10 @@ import { useSetStudioStore } from '@/stores/setStudioStore';
 import { useViewStateStore } from '@/stores/viewStateStore';
 import { useCrosshairSettingsStore } from '@/stores/crosshairSettingsStore';
 import { getLineDash } from '@/utils/crosshairUtils';
+import { PopulationCutoutGrid } from './PopulationCutoutGrid';
+import { populationProbeActions } from '@/services/studio/PopulationProbeActions';
+import { populationSupportKey } from '@/services/studio/PopulationProbeController';
+import { resolvePopulation } from '@/services/studio/populationContext';
 import {
   buildPopulationSliceQuery,
   populationSliceActions,
@@ -39,6 +43,31 @@ export function PopulationLens({ service: supplied }: { service?: PopulationSlic
   const [summary, setSummary] = useState<PopulationSummary>('mean');
   const [zoom, setZoom] = useState(1);
   const [withoutFocused, setWithoutFocused] = useState(false);
+  const [showCutouts, setShowCutouts] = useState(false);
+  const [cutoutWidth, setCutoutWidth] = useState(32);
+  const [cutoutPage, setCutoutPage] = useState(0);
+  const population = useMemo(() => resolvePopulation(studio), [studio]);
+  const selectedIds = useMemo(
+    () => new Set(population.workingMemberIds),
+    [population.workingMemberIds],
+  );
+  const pages = Math.max(1, Math.ceil(population.context.memberIds.length / 80));
+  const page = Math.min(cutoutPage, pages - 1);
+  const pinned = studio.population.pinnedProbe;
+  const currentProbe =
+    pinned?.supportKey === populationSupportKey(studio, workspaceId) ? pinned : null;
+  const cutouts = useMemo(
+    () =>
+      showCutouts && currentProbe
+        ? {
+            centerMm: [...currentProbe.worldMm] as [number, number, number],
+            widthMm: cutoutWidth,
+            dimPx: 40,
+            memberIds: population.context.memberIds.slice(page * 80, (page + 1) * 80),
+          }
+        : null,
+    [showCutouts, currentProbe, cutoutWidth, population.context.memberIds, page],
+  );
   const settings = useCrosshairSettingsStore((state) => state.settings);
   const style = useMemo(
     () => ({
@@ -68,6 +97,7 @@ export function PopulationLens({ service: supplied }: { service?: PopulationSlic
         zoom,
         dimPx: [rasterWidth, rasterHeight],
         withoutFocused,
+        cutouts: cutouts?.memberIds.length ? cutouts : null,
       }),
     [
       studio,
@@ -79,6 +109,7 @@ export function PopulationLens({ service: supplied }: { service?: PopulationSlic
       rasterWidth,
       rasterHeight,
       withoutFocused,
+      cutouts,
     ],
   );
 
@@ -111,7 +142,10 @@ export function PopulationLens({ service: supplied }: { service?: PopulationSlic
       aria-label="Population brain views"
       className="flex min-h-0 flex-col gap-2 rounded-lg border border-border bg-card p-3"
     >
-      <p className="text-sm font-medium">Population · {studio.features[studio.selection.activeFeatureId ?? '']?.label ?? 'Selected feature'}</p>
+      <p className="text-sm font-medium">
+        Population ·{' '}
+        {studio.features[studio.selection.activeFeatureId ?? '']?.label ?? 'Selected feature'}
+      </p>
       <div className="flex flex-wrap items-center gap-2">
         <label className="text-xs">
           Summary{' '}
@@ -351,9 +385,85 @@ export function PopulationLens({ service: supplied }: { service?: PopulationSlic
           disabled={!result?.data.contextRange}
           onClick={() => service.fitEffectScale()}
         >
-          Fit scale to context slice
+          Fit scale to visible context
         </button>
       </div>
+      <div className="flex flex-wrap items-center gap-2 text-xs">
+        <button
+          className={control}
+          aria-expanded={showCutouts}
+          disabled={!population.context.memberIds.length}
+          onClick={() => {
+            if (!showCutouts && !currentProbe) populationProbeActions.pin(0, false);
+            setShowCutouts((value) => !value);
+          }}
+        >
+          {showCutouts ? 'Hide individual cutouts' : 'Show individual cutouts'}
+        </button>
+        {showCutouts && (
+          <>
+            <label>
+              Cutout width{' '}
+              <select
+                className={control}
+                value={cutoutWidth}
+                onChange={(event) => setCutoutWidth(Number(event.target.value))}
+              >
+                {[16, 24, 32, 48, 64, 96].map((mm) => (
+                  <option key={mm} value={mm}>
+                    {mm} mm
+                  </option>
+                ))}
+              </select>
+            </label>
+            <button className={control} onClick={() => populationProbeActions.pin(0, false)}>
+              Center cutouts on crosshair
+            </button>
+            {pages > 1 && (
+              <>
+                <button
+                  className={control}
+                  disabled={page === 0}
+                  onClick={() => setCutoutPage(Math.max(0, page - 1))}
+                >
+                  Previous observations
+                </button>
+                <span>
+                  {page + 1} / {pages}
+                </span>
+                <button
+                  className={control}
+                  disabled={page + 1 >= pages}
+                  onClick={() => setCutoutPage(page + 1)}
+                >
+                  Next observations
+                </button>
+              </>
+            )}
+          </>
+        )}
+      </div>
+      {showCutouts && result?.data.cutouts && (
+        <div className="min-w-0 border-t border-border pt-2">
+          <p className="mb-1 text-xs text-muted-foreground">
+            {result.data.cutouts.members.length} of {population.context.memberIds.length}{' '}
+            observations · source order · {result.query.request.cutouts?.widthMm} mm cutouts at (
+            {result.query.request.cutouts?.centerMm.map((value) => value.toFixed(1)).join(', ')}) mm
+            {!current && ' · previous query'}
+          </p>
+          <PopulationCutoutGrid
+            display={result}
+            width={width}
+            focusedId={studio.selection.activeMemberId}
+            selectedIds={selectedIds}
+            onFocus={populationProbeActions.focus}
+            onToggle={populationProbeActions.toggle}
+            onHover={(world) =>
+              populationSliceActions.hover(workspaceId, world, result.query.request.orientation)
+            }
+          />
+        </div>
+      )}
       {result && (
         <details className="text-xs text-muted-foreground">
           <summary className="cursor-pointer">Coverage and source revisions</summary>

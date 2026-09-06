@@ -86,6 +86,37 @@ const slices = new PopulationSliceService(
           memberId: member.memberId,
           revision: { sha256: 'synthetic', sourceBytes: 0 },
         })),
+        cutouts: request.cutouts
+          ? (() => {
+              const { centerMm, widthMm, dimPx, memberIds } = request.cutouts;
+              const spacing = widthMm / dimPx;
+              const origin: [number, number, number] = [
+                centerMm[0] - (spacing * (dimPx - 1)) / 2,
+                centerMm[1] + (spacing * (dimPx - 1)) / 2,
+                centerMm[2],
+              ];
+              return {
+                plane: {
+                  origin_mm: origin,
+                  u_mm: [spacing, 0, 0] as [number, number, number],
+                  v_mm: [0, -spacing, 0] as [number, number, number],
+                  dim_px: [dimPx, dimPx] as [number, number],
+                },
+                members: memberIds.map((memberId) => {
+                  const samples = Array.from({ length: dimPx ** 2 }, (_, i) => {
+                    const x = origin[0] + (i % dimPx) * spacing,
+                      y = origin[1] - Math.floor(i / dimPx) * spacing;
+                    return (x * x) / 400 + (y * y) / 625 <= 1 ? observed(memberId) : null;
+                  });
+                  return {
+                    memberId,
+                    values: samples,
+                    validPixels: samples.filter((v) => v !== null).length,
+                  };
+                }),
+              };
+            })()
+          : null,
         sourceCacheHit: true,
         cachedBytes: 0,
         sampling: 'nearest',

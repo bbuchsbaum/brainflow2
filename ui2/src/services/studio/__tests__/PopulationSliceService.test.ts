@@ -182,6 +182,88 @@ it('does not reopen a retired image lease', () => {
   expect(() => images.retain()).toThrow(/closed/);
 });
 
+it('packs observed cutouts into one image without changing member order or missing pixels', async () => {
+  const { packPopulationCutouts } = await import('../PopulationSliceService');
+  const cutouts = {
+    plane: { ...data().plane, dim_px: [2, 2] as [number, number] },
+    members: Array.from({ length: 10 }, (_, i) => ({
+      memberId: `m${i}`,
+      values: [i, null, 0, -i],
+      validPixels: 3,
+    })),
+  };
+  const packed = packPopulationCutouts(cutouts, 10);
+  expect([packed.columns, packed.width, packed.height]).toEqual([8, 16, 4]);
+  const expected = populationRgba(cutouts.members[9].values, 10, true);
+  const pixel = (x: number, y: number) =>
+    packed.rgba.slice((y * packed.width + x) * 4, (y * packed.width + x + 1) * 4);
+  expect(pixel(2, 2)).toEqual(expected.slice(0, 4));
+  expect(pixel(3, 2)).toEqual(new Uint8ClampedArray(4));
+  expect(pixel(2, 3)).toEqual(expected.slice(8, 12));
+});
+
+it('owns the cutout sprite with the view lease and rejects reordered response identities', async () => {
+  const { service, evaluate, bitmaps } = setup();
+  const request = query();
+  request.request.cutouts = { centerMm: [0, 0, 0], widthMm: 2, dimPx: 2, memberIds: ['b', 'a'] };
+  const result = {
+    ...data(),
+    cutouts: {
+      plane: { ...data().plane, dim_px: [2, 2] as [number, number] },
+      members: ['b', 'a'].map((memberId) => ({
+        memberId,
+        values: [1, 0, null, 2],
+        validPixels: 3,
+      })),
+    },
+  };
+  evaluate.mockResolvedValue(result);
+  service.request(request);
+  await vi.runAllTimersAsync();
+  expect(bitmaps).toHaveLength(3);
+  expect(service.getSnapshot().displayed?.images.cutouts).toBe(bitmaps[2]);
+  const releaseView = service.getSnapshot().displayed!.images.retain();
+  service.stop();
+  expect(bitmaps[2].close).not.toHaveBeenCalled();
+  releaseView();
+  expect(bitmaps[2].close).toHaveBeenCalledTimes(1);
+  service.start();
+  evaluate.mockResolvedValue({
+    ...result,
+    cutouts: { ...result.cutouts, members: [...result.cutouts.members].reverse() },
+  });
+  service.request(request);
+  await vi.runAllTimersAsync();
+  expect(service.getSnapshot().error).toMatch(/cutouts do not match/);
+  service.stop();
+});
+
+it('releases both main images if asynchronous cutout conversion fails', async () => {
+  const { service, evaluate, bitmap, bitmaps } = setup();
+  const request = query();
+  request.request.cutouts = { centerMm: [0, 0, 0], widthMm: 2, dimPx: 2, memberIds: ['a'] };
+  evaluate.mockResolvedValue({
+    ...data(),
+    cutouts: {
+      plane: { ...data().plane, dim_px: [2, 2] },
+      members: [{ memberId: 'a', values: [1, 2, 3, 4], validPixels: 4 }],
+    },
+  });
+  let conversions = 0;
+  bitmap.mockImplementation(async () => {
+    if (++conversions === 3) throw new Error('bitmap allocation failed');
+    const image = { width: 2, height: 1, close: vi.fn() } as unknown as ImageBitmap;
+    bitmaps.push(image);
+    return image;
+  });
+  service.request(request);
+  await vi.runAllTimersAsync();
+  expect(service.getSnapshot().error).toMatch(/bitmap allocation failed/);
+  expect(bitmaps).toHaveLength(2);
+  expect(bitmaps.every((image) => vi.mocked(image.close).mock.calls.length === 1)).toBe(true);
+  service.stop();
+});
+
 it('uses signed world axes and advances the axial plane toward superior for positive steps', async () => {
   const { populationAxisLabel, populationSliceActions } = await import('../PopulationSliceService');
   const { useViewStateStore } = await import('@/stores/viewStateStore');
@@ -190,9 +272,17 @@ it('uses signed world axes and advances the axial plane toward superior for posi
   expect(populationAxisLabel([0, -1, 0])).toBe('P');
   const view = useViewStateStore.getState();
   const pinned = useSetStudioStore.getState().population.pinnedProbe;
-  populationSliceActions.step(view.activeWorkspaceKey, {
-    origin_mm: [0, 0, 0], u_mm: [1, 0, 0], v_mm: [0, -1, 0], dim_px: [10, 10],
-  }, [2, 3, 4], 1);
+  populationSliceActions.step(
+    view.activeWorkspaceKey,
+    {
+      origin_mm: [0, 0, 0],
+      u_mm: [1, 0, 0],
+      v_mm: [0, -1, 0],
+      dim_px: [10, 10],
+    },
+    [2, 3, 4],
+    1,
+  );
   expect(useViewStateStore.getState().viewState.crosshair.world_mm).toEqual([2, 3, 5]);
   expect(useSetStudioStore.getState().population.pinnedProbe).toBe(pinned);
   populationSliceActions.navigate('closed-workspace', [90, 90, 90]);

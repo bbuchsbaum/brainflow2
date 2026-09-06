@@ -16,6 +16,8 @@ use std::{
 
 const MAX_BYTES: usize = 128 * 1024 * 1024;
 const MAX_PIXELS: usize = 512 * 512;
+const MAX_CUTOUT_MEMBERS: usize = 96;
+const MAX_CUTOUT_DIM: u32 = 64;
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -44,6 +46,34 @@ pub struct PopulationSliceRequest {
     pub dim_px: [u32; 2],
     pub zoom: f32,
     pub summary: SummaryKind,
+    #[serde(default)]
+    pub cutouts: Option<CutoutRequest>,
+}
+#[derive(Clone, Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CutoutRequest {
+    pub center_mm: [f32; 3],
+    /// Width and height of the square image edges, in world millimetres.
+    pub width_mm: f32,
+    pub dim_px: u32,
+    pub member_ids: Vec<String>,
+}
+#[derive(Debug, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CutoutMember {
+    pub member_id: String,
+    pub values: Vec<f32>,
+    pub valid_pixels: usize,
+}
+#[derive(Debug, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CutoutResult {
+    pub plane: Plane,
+    pub members: Vec<CutoutMember>,
+}
+struct CutoutPlan {
+    plane: Plane,
+    pixels: Vec<Option<usize>>,
 }
 #[derive(Clone, Debug, serde::Serialize)]
 pub struct Plane {
@@ -72,6 +102,7 @@ pub struct PopulationSliceResult {
     pub source_cache_hit: bool,
     pub cached_bytes: usize,
     pub sampling: &'static str,
+    pub cutouts: Option<CutoutResult>,
 }
 struct PixelPlan {
     plane: Plane,
@@ -80,6 +111,7 @@ struct PixelPlan {
     center_world: [f32; 3],
     voxels: Vec<[usize; 3]>,
     pixels: Vec<Option<usize>>,
+    cutouts: Option<CutoutPlan>,
 }
 struct CachedPlane {
     key: String,
@@ -150,6 +182,10 @@ impl PopulationSliceEngine {
             &request.orientation,
             request.dim_px,
             request.zoom,
+            request
+                .cutouts
+                .as_ref()
+                .map(|cutouts| (cutouts.center_mm, cutouts.width_mm, cutouts.dim_px)),
         ))
         .map_err(|error| input(error.to_string()))?;
         let candidate = self
@@ -217,7 +253,12 @@ fn validate(request: &PopulationSliceRequest) -> BridgeResult<()> {
     {
         return Err(input("Population slices require observations, a bounded nonempty raster and zoom from 0.25 to 8."));
     }
+    let cutout_pixels = request.cutouts.as_ref().map_or(0, |cutouts| {
+        (cutouts.dim_px as usize).saturating_mul(cutouts.dim_px as usize)
+    });
     let bytes = pixels
+        .checked_add(cutout_pixels)
+        .ok_or_else(|| input("Population support size overflow."))?
         .checked_mul(request.members.len())
         .and_then(|n| n.checked_mul(4))
         .ok_or_else(|| input("Population plane size overflow."))?;
@@ -225,6 +266,21 @@ fn validate(request: &PopulationSliceRequest) -> BridgeResult<()> {
         return Err(input("Visible observation samples exceed the 128 MiB plane budget; reduce raster size or context."));
     }
     let ids: HashSet<_> = request.members.iter().map(|m| &m.member_id).collect();
+    if let Some(cutouts) = &request.cutouts {
+        let cutout_ids: HashSet<_> = cutouts.member_ids.iter().collect();
+        if cutouts.dim_px == 0
+            || cutouts.dim_px > MAX_CUTOUT_DIM
+            || cutouts.member_ids.is_empty()
+            || cutouts.member_ids.len() > MAX_CUTOUT_MEMBERS
+            || cutout_ids.len() != cutouts.member_ids.len()
+            || cutout_ids.iter().any(|id| !ids.contains(id))
+            || !cutouts.center_mm.iter().all(|v| v.is_finite())
+            || !cutouts.width_mm.is_finite()
+            || !(1.0..=200.0).contains(&cutouts.width_mm)
+        {
+            return Err(input("Cutouts require 1-96 unique eligible observations, a 1-64 pixel square, finite center, and width from 1 to 200 mm."));
+        }
+    }
     let selected: HashSet<_> = request.working_member_ids.iter().collect();
     if selected.len() != request.working_member_ids.len()
         || selected.iter().any(|id| !ids.contains(id))
@@ -327,6 +383,51 @@ fn pixel_plan(
             pixels.push(Some(slot));
         }
     }
+    let cutouts = request.cutouts.as_ref().map(|cutouts| {
+        let spacing = cutouts.width_mm / cutouts.dim_px as f32;
+        let length = |v: [f32; 3]| v.iter().map(|v| v * v).sum::<f32>().sqrt();
+        let u_mm = geometry.u_mm.map(|v| v * spacing / length(geometry.u_mm));
+        let v_mm = geometry.v_mm.map(|v| v * spacing / length(geometry.v_mm));
+        let origin_mm = std::array::from_fn(|axis| {
+            cutouts.center_mm[axis] - (u_mm[axis] + v_mm[axis]) * (cutouts.dim_px - 1) as f32 / 2.0
+        });
+        let plane = Plane {
+            origin_mm,
+            u_mm,
+            v_mm,
+            dim_px: [cutouts.dim_px; 2],
+        };
+        let mut cutout_pixels =
+            Vec::with_capacity(cutouts.dim_px as usize * cutouts.dim_px as usize);
+        for y in 0..cutouts.dim_px {
+            for x in 0..cutouts.dim_px {
+                let world = std::array::from_fn(|axis| {
+                    origin_mm[axis] + x as f32 * u_mm[axis] + y as f32 * v_mm[axis]
+                });
+                let point = inverse.transform_point(&Point3::from(world));
+                let rounded = [point.x.round(), point.y.round(), point.z.round()];
+                if (0..3).any(|axis| {
+                    !rounded[axis].is_finite()
+                        || rounded[axis] < 0.0
+                        || rounded[axis] >= dimensions[axis] as f32
+                }) {
+                    cutout_pixels.push(None);
+                    continue;
+                }
+                let coords = rounded.map(|value| value as usize);
+                let slot = *index.entry(coords).or_insert_with(|| {
+                    let slot = voxels.len();
+                    voxels.push(coords);
+                    slot
+                });
+                cutout_pixels.push(Some(slot));
+            }
+        }
+        CutoutPlan {
+            plane,
+            pixels: cutout_pixels,
+        }
+    });
     Ok(PixelPlan {
         plane: Plane {
             origin_mm: geometry.origin_mm,
@@ -339,6 +440,7 @@ fn pixel_plan(
         center_world: [center.x, center.y, center.z],
         voxels,
         pixels,
+        cutouts,
     })
 }
 fn sample_row(
@@ -439,7 +541,12 @@ async fn build_plane(
     guard.clone().validate(cancellation.clone()).await?;
     let bytes = rows.iter().map(|row| row.capacity() * 4).sum::<usize>()
         + plan.voxels.capacity() * std::mem::size_of::<[usize; 3]>()
-        + plan.pixels.capacity() * std::mem::size_of::<Option<usize>>();
+        + (plan.pixels.capacity()
+            + plan
+                .cutouts
+                .as_ref()
+                .map_or(0, |cutouts| cutouts.pixels.capacity()))
+            * std::mem::size_of::<Option<usize>>();
     if bytes > MAX_BYTES {
         return Err(input("Population plane exceeds its retained byte budget."));
     }
@@ -503,6 +610,40 @@ fn reduce_plane(
                 .unwrap_or(0),
         );
     }
+    let cutouts = match (&cached.plan.cutouts, &request.cutouts) {
+        (Some(plan), Some(spec)) => {
+            let mut members = Vec::with_capacity(spec.member_ids.len());
+            for id in &spec.member_ids {
+                cancellation.check()?;
+                let row = cached
+                    .sources
+                    .iter()
+                    .position(|source| &source.member_id == id)
+                    .ok_or_else(|| {
+                        input("Cutout observation is unavailable in the sampled context.")
+                    })?;
+                let values: Vec<_> = plan
+                    .pixels
+                    .iter()
+                    .map(|slot| {
+                        slot.map(|index| cached.rows[row][index])
+                            .unwrap_or(f32::NAN)
+                    })
+                    .collect();
+                let valid_pixels = values.iter().filter(|v| v.is_finite()).count();
+                members.push(CutoutMember {
+                    member_id: id.clone(),
+                    values,
+                    valid_pixels,
+                });
+            }
+            Some(CutoutResult {
+                plane: plan.plane.clone(),
+                members,
+            })
+        }
+        _ => None,
+    };
     let mut range: Option<[f32; 2]> = None;
     for row in &cached.rows {
         cancellation.check()?;
@@ -514,6 +655,7 @@ fn reduce_plane(
     }
     cancellation.check()?;
     Ok(PopulationSliceResult {
+        cutouts,
         context_range: range,
         plane: cached.plan.plane.clone(),
         center_world: cached.plan.center_world,
@@ -562,6 +704,7 @@ mod tests {
             dim_px: [3, 3],
             zoom: 1.,
             summary: SummaryKind::Mean,
+            cutouts: None,
         }
     }
     async fn evaluate(
@@ -655,6 +798,12 @@ mod tests {
         let sources = vec![TestSource::new(&[3, 3, 3], &values)];
         let state = BridgeState::default().unwrap();
         let mut req = request(&sources);
+        req.cutouts = Some(CutoutRequest {
+            center_mm: [1.; 3],
+            width_mm: 3.,
+            dim_px: 3,
+            member_ids: vec!["person-0".into()],
+        });
         for orientation in [
             Orientation::Axial,
             Orientation::Coronal,
@@ -663,6 +812,24 @@ mod tests {
             req.orientation = orientation;
             let result = evaluate(&state, req.clone()).await;
             assert_eq!(result.center_world, [1., 1., 1.]);
+            let cutout = result.cutouts.as_ref().unwrap();
+            assert_eq!(cutout.members[0].values[4], 111.);
+            assert_eq!(cutout.members[0].valid_pixels, 9);
+            let mut observed = cutout.members[0].values.clone();
+            observed.sort_by(f32::total_cmp);
+            // The named anatomical plane, independently enumerated from the
+            // coordinate ramp, must contain every voxel in its 3x3 patch.
+            let fixed_axis = match req.orientation {
+                Orientation::Axial => 2,
+                Orientation::Coronal => 1,
+                Orientation::Sagittal => 0,
+            };
+            let mut expected: Vec<_> = (0..27)
+                .filter(|index| [index % 3, index / 3 % 3, index / 9][fixed_axis] == 1)
+                .map(|index| values[index])
+                .collect();
+            expected.sort_by(f32::total_cmp);
+            assert_eq!(observed, expected);
             let plane = &result.plane;
             assert_eq!(
                 plane
@@ -766,6 +933,16 @@ mod tests {
         let mut req = request(&sources);
         req.dim_px = [128, 128];
         req.crosshair_mm = [39.5, 39.5, 15.5];
+        req.cutouts = Some(CutoutRequest {
+            center_mm: [39.5, 39.5, 12.],
+            width_mm: 32.,
+            dim_px: 40,
+            member_ids: req
+                .members
+                .iter()
+                .map(|member| member.member_id.clone())
+                .collect(),
+        });
         let cold = std::time::Instant::now();
         let result = evaluate(&state, req.clone()).await;
         let cold_ms = cold.elapsed().as_secs_f64() * 1000.;
@@ -780,14 +957,107 @@ mod tests {
             assert!(result.source_cache_hit);
             assert!(result.summary.iter().all(|&v| v == (39 + i) as f32 / 2.));
             assert!(result.focused.iter().all(|&v| v == i as f32));
+            let cutouts = result.cutouts.as_ref().unwrap();
+            assert_eq!(cutouts.members.len(), 80);
+            for (index, member) in cutouts.members.iter().enumerate() {
+                assert_eq!(member.member_id, format!("person-{index}"));
+                assert_eq!(member.valid_pixels, 1600);
+                assert!(member.values.iter().all(|&value| value == index as f32));
+            }
         }
         latencies.sort_by(f64::total_cmp);
-        println!("POPULATION_SLICE_NATIVE debug 80x204800 cold_ms={cold_ms:.2} warm_p50_ms={:.2} warm_p95_ms={:.2} warm_max_ms={:.2} retained_plane_bytes={}", latencies[9], latencies[18], latencies[19], result.cached_bytes);
+        println!("POPULATION_SLICE_WITH_CUTOUTS_NATIVE debug 80x204800 gallery=80x40x40 cold_ms={cold_ms:.2} warm_p50_ms={:.2} warm_p95_ms={:.2} warm_max_ms={:.2} retained_plane_bytes={}", latencies[9], latencies[18], latencies[19], result.cached_bytes);
         state
             .population_slice
             .release(&req.context_key)
             .await
             .unwrap();
         assert!(state.population_slice.cache.lock().unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn population_cutouts_keep_pinned_geometry_and_observed_identity() {
+        let ramp: Vec<_> = (0..27)
+            .map(|i| (i % 3 + 10 * (i / 3 % 3) + 100 * (i / 9)) as f32)
+            .collect();
+        let sources = vec![
+            TestSource::new(&[3, 3, 3], &ramp),
+            TestSource::new(&[3, 3, 3], &ramp.iter().map(|v| -v).collect::<Vec<_>>()),
+        ];
+        let state = BridgeState::default().unwrap();
+        let mut req = request(&sources);
+        let main = evaluate(&state, req.clone()).await;
+        req.cutouts = Some(CutoutRequest {
+            center_mm: [1., 1., 2.],
+            width_mm: 3.,
+            dim_px: 3,
+            member_ids: vec!["person-1".into(), "person-0".into()],
+        });
+        let result = evaluate(&state, req.clone()).await;
+        assert_eq!(main.summary, result.summary);
+        assert_eq!(main.focused, result.focused);
+        let cutouts = result.cutouts.unwrap();
+        assert_eq!(cutouts.plane.origin_mm, [0., 2., 2.]);
+        assert_eq!(cutouts.members[0].member_id, "person-1");
+        assert_eq!(
+            cutouts.members[0].values,
+            vec![-220., -221., -222., -210., -211., -212., -200., -201., -202.]
+        );
+        assert_eq!(cutouts.members[0].valid_pixels, 9);
+        req.cutouts.as_mut().unwrap().member_ids = vec!["person-0".into()];
+        req.focus_member_id = Some("person-1".into());
+        let page = evaluate(&state, req.clone()).await;
+        assert!(page.source_cache_hit);
+        assert_eq!(page.cutouts.unwrap().members[0].values[4], 211.);
+        req.crosshair_mm[2] = 0.;
+        let navigated = evaluate(&state, req).await;
+        assert_eq!(navigated.cutouts.unwrap().members[0].values[4], 211.);
+        assert!(navigated.focused.iter().all(|v| *v >= -22.));
+    }
+
+    #[tokio::test]
+    async fn population_cutouts_expose_shifted_patterns_and_missing_coverage() {
+        let mut left = vec![0.; 27];
+        left[12] = 8.;
+        let mut right = vec![0.; 27];
+        right[14] = 8.;
+        let sources = vec![
+            TestSource::new(&[3, 3, 3], &left),
+            TestSource::new(&[3, 3, 3], &right),
+            TestSource::new(&[3, 3, 3], &[f32::NAN; 27]),
+        ];
+        let state = BridgeState::default().unwrap();
+        let mut req = request(&sources);
+        req.cutouts = Some(CutoutRequest {
+            center_mm: [1., 1., 1.],
+            width_mm: 3.,
+            dim_px: 3,
+            member_ids: req.members.iter().map(|m| m.member_id.clone()).collect(),
+        });
+        let result = evaluate(&state, req.clone()).await;
+        let cutouts = result.cutouts.unwrap();
+        assert_eq!(cutouts.members[0].values[3], 8.);
+        assert_eq!(cutouts.members[1].values[5], 8.);
+        assert_eq!(cutouts.members[0].values[5], 0.);
+        assert_eq!(cutouts.members[1].values[3], 0.);
+        assert_eq!(cutouts.members[2].valid_pixels, 0);
+        assert!(cutouts.members[2].values.iter().all(|v| v.is_nan()));
+        assert!(result.summary.iter().all(|&v| v == 0. || v == 4.));
+        req.cutouts.as_mut().unwrap().center_mm = [500.; 3];
+        let outside = evaluate(&state, req.clone()).await;
+        assert!(outside
+            .cutouts
+            .unwrap()
+            .members
+            .iter()
+            .all(|m| m.valid_pixels == 0));
+        req.cutouts
+            .as_mut()
+            .unwrap()
+            .member_ids
+            .push("unknown".into());
+        assert!(validate(&req).is_err());
+        req.cutouts.as_mut().unwrap().member_ids = vec!["person-0".into(); 97];
+        assert!(validate(&req).is_err());
     }
 }

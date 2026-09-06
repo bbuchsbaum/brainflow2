@@ -25,10 +25,17 @@ vi.mock('@/components/views/sliceViewer', () => ({
   clientPointToWorld: vi.fn(),
 }));
 beforeEach(() => {
+  vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({
+    drawImage: vi.fn(),
+    clearRect: vi.fn(),
+  } as unknown as CanvasRenderingContext2D);
   useSetStudioStore.setState(useSetStudioStore.getInitialState(), true);
   useSetStudioStore.getState().loadDemoSession();
 });
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  vi.restoreAllMocks();
+});
 function setup() {
   const bitmaps: { close: ReturnType<typeof vi.fn> }[] = [];
   const evaluate = vi.fn(async (request: PopulationSliceRequest) => ({
@@ -48,6 +55,21 @@ function setup() {
       memberId: member.memberId,
       revision: { sha256: 'hash', sourceBytes: 400 },
     })),
+    cutouts: request.cutouts
+      ? {
+          plane: {
+            origin_mm: request.cutouts.centerMm,
+            u_mm: [1, 0, 0] as [number, number, number],
+            v_mm: [0, 1, 0] as [number, number, number],
+            dim_px: [request.cutouts.dimPx, request.cutouts.dimPx] as [number, number],
+          },
+          members: request.cutouts.memberIds.map((memberId) => ({
+            memberId,
+            values: Array(request.cutouts!.dimPx ** 2).fill(1),
+            validPixels: request.cutouts!.dimPx ** 2,
+          })),
+        }
+      : null,
     sourceCacheHit: true,
     cachedBytes: 120,
     sampling: 'nearest' as const,
@@ -123,4 +145,27 @@ it('updates focused source from shared state and releases images when closed', a
   unmount();
   expect(release).toHaveBeenCalled();
   expect(bitmaps.every((image) => image.close.mock.calls.length === 1)).toBe(true);
+});
+
+it('opens synchronized cutouts at a pinned location and focuses without changing selection', async () => {
+  const { service, evaluate } = setup();
+  await waitFor(() => expect(service.getSnapshot().displayed).not.toBeNull());
+  fireEvent.click(screen.getByRole('button', { name: 'Show individual cutouts' }));
+  await screen.findByRole('button', { name: 'Focus cutout sub006' });
+  const before = useSetStudioStore.getState();
+  expect(before.population.pinnedProbe).not.toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: 'Focus cutout sub006' }));
+  expect(useSetStudioStore.getState().selection.activeMemberId).toBe('sub006');
+  expect(useSetStudioStore.getState().population.working).toBe(before.population.working);
+  await waitFor(() => expect(evaluate.mock.calls.at(-1)?.[0].focusMemberId).toBe('sub006'));
+  fireEvent.click(screen.getByRole('button', { name: 'Center brain' }));
+  await waitFor(() => expect(evaluate.mock.calls.at(-1)?.[0].crosshairMm).toEqual([10, 20, 30]));
+  expect(evaluate.mock.calls.at(-1)?.[0].cutouts?.centerMm).toEqual(
+    before.population.pinnedProbe!.worldMm,
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Focus cutout sub001' }), { shiftKey: true });
+  expect(useSetStudioStore.getState().selection.activeMemberId).toBe('sub006');
+  fireEvent.click(screen.getByRole('button', { name: 'Hide individual cutouts' }));
+  expect(screen.queryByRole('button', { name: 'Focus cutout sub006' })).toBeNull();
+  expect(useSetStudioStore.getState().population.pinnedProbe).toBe(before.population.pinnedProbe);
 });
