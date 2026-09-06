@@ -4,6 +4,7 @@ pub mod export;
 pub mod inference;
 pub mod relationship;
 pub mod replay;
+mod retention;
 use crate::{
     population_sampling::SampleCancellation,
     set_sample_cache::{QuerySourceGuard, SampleSourceRevision},
@@ -27,6 +28,8 @@ const MAX_CUTOUT_DIM: u32 = 64;
 #[serde(rename_all = "camelCase")]
 pub enum SummaryKind {
     Mean,
+    Median,
+    Mad,
     SampleSd,
     MeanAbsolute,
     Cancellation,
@@ -851,6 +854,55 @@ fn collect_moments(
     }
     Ok(moments)
 }
+fn robust_plane(
+    cached: &CachedPlane,
+    request: &PopulationSliceRequest,
+    token: &SampleCancellation,
+) -> BridgeResult<Vec<(Option<f64>, Option<f64>)>> {
+    let indices: HashMap<_, _> = cached
+        .sources
+        .iter()
+        .enumerate()
+        .map(|(i, s)| (&s.member_id, i))
+        .collect();
+    let groups: Vec<Vec<usize>> = if let Some(aggregation) = &request.aggregation {
+        aggregation
+            .groups
+            .iter()
+            .map(|g| g.member_ids.iter().map(|id| indices[id]).collect())
+            .collect()
+    } else {
+        request
+            .working_member_ids
+            .iter()
+            .map(|id| vec![indices[id]])
+            .collect()
+    };
+    (0..cached.plan.voxels.len())
+        .map(|j| {
+            if j % 4096 == 0 {
+                token.check()?;
+            }
+            Ok(field_table::population::median_mad(groups.iter().map(
+                |g| {
+                    let (mut n, mut mean) = (0, 0.);
+                    for &i in g {
+                        let v = cached.rows[i][j];
+                        if v.is_finite() {
+                            n += 1;
+                            mean += (v as f64 - mean) / n as f64;
+                        }
+                    }
+                    if n > 0 {
+                        mean
+                    } else {
+                        f64::NAN
+                    }
+                },
+            )))
+        })
+        .collect()
+}
 fn reduce_group(
     cached: &CachedPlane,
     group: &GroupRequest,
@@ -929,6 +981,9 @@ fn reduce_plane(
         .filter(|_| !request.focus_only)
         .map(|spec| {
             inference::channels(
+                cached,
+                request,
+                cancellation,
                 &summaries,
                 reference.as_ref().map(|r| r.summaries.as_slice()),
                 &cached.plan.pixels,
@@ -936,6 +991,13 @@ fn reduce_plane(
             )
         })
         .transpose()?;
+    let robust = if !request.focus_only
+        && matches!(request.summary, SummaryKind::Median | SummaryKind::Mad)
+    {
+        Some(robust_plane(cached, request, cancellation)?)
+    } else {
+        None
+    };
     let mut summary = Vec::with_capacity(cached.plan.pixels.len());
     let mut focused = Vec::with_capacity(summary.capacity());
     let mut valid_counts = Vec::with_capacity(summary.capacity());
@@ -948,6 +1010,8 @@ fn reduce_plane(
                 let s = &summaries[index];
                 match request.summary {
                     SummaryKind::Mean => s.mean,
+                    SummaryKind::Median => robust.as_ref().and_then(|r| r[index].0),
+                    SummaryKind::Mad => robust.as_ref().and_then(|r| r[index].1),
                     SummaryKind::SampleSd => s.sample_sd,
                     SummaryKind::MeanAbsolute => s.mean_absolute,
                     SummaryKind::Cancellation => s.cancellation,

@@ -29,14 +29,25 @@ pub(super) fn validate(request: &PopulationSliceRequest) -> BridgeResult<()> {
                     return Err(input("One-sample inference requires only population A."));
                 }
             }
-            Inputs::IndependentGroups => {
+            Inputs::IndependentGroups | Inputs::PairedGroups => {
                 let reference = request.reference.as_ref().ok_or_else(|| {
                     input("Choose population B before comparing independent groups.")
                 })?;
                 let b = participants(&reference.aggregation)?;
                 spec.validate(&b.iter().map(String::as_str).collect::<Vec<_>>())
                     .map_err(input)?;
-                if b.iter().any(|id| a.contains(id)) {
+                if matches!(spec.method.descriptor().inputs, Inputs::PairedGroups) {
+                    if a.len() != b.len() || b.iter().any(|id| !a.contains(id)) {
+                        return Err(input("Paired testing requires exactly the same participant IDs in A and B; resolve unmatched participants explicitly."));
+                    }
+                    if reference
+                        .member_ids
+                        .iter()
+                        .any(|id| request.working_member_ids.contains(id))
+                    {
+                        return Err(input("Paired A and B must use distinct observations; an observation cannot be paired with itself."));
+                    }
+                } else if b.iter().any(|id| a.contains(id)) {
                     return Err(input("Independent-group testing requires disjoint participant IDs in A and B; overlapping people require a paired or repeated-measures method."));
                 }
             }
@@ -53,20 +64,68 @@ impl Channels {
     }
 }
 pub(super) fn channels(
+    cached: &CachedPlane,
+    request: &PopulationSliceRequest,
+    cancellation: &SampleCancellation,
     summaries: &[LocationSummary],
     reference: Option<&[LocationSummary]>,
     pixels: &[Option<usize>],
     spec: &Specification,
 ) -> BridgeResult<Channels> {
-    let native = summaries
-        .iter()
-        .enumerate()
-        .map(|(i, a)| {
-            spec.method
-                .evaluate(a, reference.map(|b| &b[i]), spec.null_value)
-                .map_err(input)
-        })
-        .collect::<BridgeResult<Vec<_>>>()?;
+    let native = if matches!(spec.method.descriptor().inputs, Inputs::PairedGroups) {
+        let mut paired =
+            field_table::population_inference::PairedMoments::new(cached.plan.voxels.len().max(1))
+                .map_err(|e| input(e.to_string()))?;
+        if !cached.plan.voxels.is_empty() {
+            let indices: HashMap<_, _> = cached
+                .sources
+                .iter()
+                .enumerate()
+                .map(|(i, s)| (&s.member_id, i))
+                .collect();
+            let a = request
+                .aggregation
+                .as_ref()
+                .ok_or_else(|| input("Paired A identities unavailable."))?;
+            let b = request
+                .reference
+                .as_ref()
+                .and_then(|r| r.aggregation.as_ref())
+                .ok_or_else(|| input("Paired B identities unavailable."))?;
+            for group in &a.groups {
+                cancellation.check()?;
+                let matched = b
+                    .groups
+                    .iter()
+                    .find(|g| g.participant_id == group.participant_id)
+                    .ok_or_else(|| input("Unmatched participant."))?;
+                let rows_a: Vec<_> = group
+                    .member_ids
+                    .iter()
+                    .map(|id| cached.rows[indices[id]].as_slice())
+                    .collect();
+                let rows_b: Vec<_> = matched
+                    .member_ids
+                    .iter()
+                    .map(|id| cached.rows[indices[id]].as_slice())
+                    .collect();
+                paired
+                    .push(&rows_a, &rows_b)
+                    .map_err(|e| input(e.to_string()))?;
+            }
+        }
+        paired.estimates(spec.null_value).collect::<Vec<_>>()
+    } else {
+        summaries
+            .iter()
+            .enumerate()
+            .map(|(i, a)| {
+                spec.method
+                    .evaluate(a, reference.map(|b| &b[i]), spec.null_value)
+                    .map_err(input)
+            })
+            .collect::<BridgeResult<Vec<_>>>()?
+    };
     Ok(Channels(
         spec.method
             .descriptor()

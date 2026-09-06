@@ -1,3 +1,4 @@
+import { populationProbeActions } from '@/services/studio/PopulationProbeActions';
 import { useState } from 'react';
 import { useSetStudioStore } from '@/stores/setStudioStore';
 import { resolvePopulation } from '@/services/studio/populationContext';
@@ -13,6 +14,7 @@ export function PopulationGroupControls() {
   const set = state.sets[state.selection.activeSetId ?? ''];
   const metadata = set ? studioMetadata(set, population.context.memberIds) : null;
   const [column, setColumn] = useState('');
+  const [secondColumn, setSecondColumn] = useState('');
   const [label, setLabel] = useState('');
   const [error, setError] = useState<string | null>(null);
   const factor = metadata?.columns.includes(column) ? column : '';
@@ -55,13 +57,30 @@ export function PopulationGroupControls() {
           ))}
         </select>
       </label>
+      <label className="block space-y-1">
+        <span>Split each group by (optional)</span>
+        <select
+          className={control}
+          aria-label="Second grouping factor"
+          value={secondColumn}
+          onChange={(e) => setSecondColumn(e.target.value)}
+        >
+          <option value="">No second factor</option>
+          {metadata?.columns.filter((c) => c !== factor).map((c) => <option key={c}>{c}</option>)}
+        </select>
+      </label>
       <button
         className={control}
         disabled={!factor || !!metadata?.issue}
         onClick={() => {
           try {
             const result = state.setPopulationPartition(
-              partitionPopulation(set, population.context.memberIds, factor),
+              partitionPopulation(
+                set,
+                population.context.memberIds,
+                factor,
+                secondColumn || undefined,
+              ),
             );
             setError(result.ok ? null : result.reason);
           } catch (e) {
@@ -71,6 +90,51 @@ export function PopulationGroupControls() {
       >
         Show factor groups
       </button>
+      {state.population.partition && (
+        <details className="rounded border border-border p-2">
+          <summary className="cursor-pointer">Choose comparison groups</summary>
+          <p className="my-2 text-muted-foreground">
+            Assign A and B from exact group membership, even before a summary is available.
+          </p>
+          {(['A', 'B'] as const).map((operand) => (
+            <label key={operand} className="block space-y-1 mt-2">
+              <span>Population {operand}</span>
+              <select
+                className={control}
+                aria-label={`Assign group to ${operand}`}
+                value=""
+                onChange={(event) => {
+                  const group = state.population.partition?.groups.find(
+                    (g) => g.id === event.target.value,
+                  );
+                  if (!group) return;
+                  if (operand === 'A')
+                    populationProbeActions.select(
+                      group.memberIds,
+                      'replace',
+                      state.population.partition!.origin,
+                      group.label,
+                    );
+                  else {
+                    const cohort = save(group.memberIds, group.label);
+                    if (cohort) {
+                      state.setPopulationReferenceMode('cohort');
+                      state.setCompareCohort(cohort);
+                    }
+                  }
+                }}
+              >
+                <option value="">Choose a group</option>
+                {state.population.partition!.groups.map((group) => (
+                  <option key={group.id} value={group.id}>
+                    {group.label} · {group.memberIds.length} observations
+                  </option>
+                ))}
+              </select>
+            </label>
+          ))}
+        </details>
+      )}
       {metadata?.issue && <p className="text-muted-foreground">{metadata.issue}</p>}
       {!!state.population.partitionPast.length && (
         <button className={control} onClick={state.undoPopulationPartition}>

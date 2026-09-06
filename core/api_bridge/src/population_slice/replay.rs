@@ -190,20 +190,29 @@ async fn verified_bundle(
         .filter(|p| !p.as_os_str().is_empty())
         .ok_or_else(|| input("Choose the exported provenance.json inside its bundle directory."))?;
     // Fixed filenames only: record-provided artifact keys never become arbitrary paths.
-    let bundle_paths = vec![
+    let mut bundle_paths = vec![
         path.clone(),
         parent.join("summary.nii.gz"),
         parent.join("coverage.nii.gz"),
         parent.join("reference.nii.gz"),
         parent.join("reference-coverage.nii.gz"),
     ];
+    for method in field_table::population_inference::catalog::methods() {
+        for channel in &method.channels {
+            let artifact = parent.join(&channel.artifact);
+            if !bundle_paths.contains(&artifact) {
+                bundle_paths.push(artifact);
+            }
+        }
+    }
     let guard = QuerySourceGuard::capture(bundle_paths, token.clone()).await?;
     let check = token.clone();
     let (record, record_sha256, artifacts) =
         tokio::task::spawn_blocking(move || -> BridgeResult<_> {
             let _permit = worker_permit;
-            let (record, hash) = read_record(&path, &check)?;
+            let (mut record, hash) = read_record(&path, &check)?;
             let parent = path.parent().unwrap();
+            retention::resolve(&mut record.calculation, parent)?;
             let mut artifacts = serde_json::Map::new();
             for name in artifact_names(&record.calculation) {
                 let expected = &record.artifacts[name];
@@ -247,6 +256,7 @@ pub async fn replay(
     let (record, proof, _permit) = verified_bundle(provenance_path, token.clone()).await?;
     export_checked(
         ExportRequest {
+            include_inputs: false,
             population: record.calculation,
             destination_directory,
             context: record.context,

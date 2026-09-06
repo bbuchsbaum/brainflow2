@@ -916,10 +916,29 @@ pub enum StudioAuditSeverity {
     Error,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq, Eq)]
+#[ts(export)]
+#[serde(rename_all = "camelCase")]
+pub enum StudioValueRole {
+    Effect,
+    StandardError,
+    Variance,
+    T,
+    Z,
+    Label,
+    Other,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[ts(export)]
 #[serde(rename_all = "camelCase")]
 pub struct StudioFeatureSummary {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub value_role: Option<StudioValueRole>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub units: Option<String>,
     pub id: String,
     pub label: String,
     pub kind: StudioSupportKind,

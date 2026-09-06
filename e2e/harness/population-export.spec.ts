@@ -536,3 +536,69 @@ test('selects a method, compares independent groups, and reopens every Welch cha
   await expect(page.getByText('Mean · 40 participants', { exact: true })).toBeVisible();
   expect(errors).toEqual([]);
 });
+
+test('matches paired participants, freezes pair counts and restores the question', async ({
+  page,
+}) => {
+  await page.goto('/population-harness.html?mask&export&roundtrip&paired');
+  await page.getByText(/^Analysis unit:/).click();
+  await page.getByLabel('Participant identity', { exact: true }).selectOption('column:participant');
+  await page.getByLabel('Population analysis unit', { exact: true }).selectOption('single');
+  await page.getByText('Statistical question', { exact: true }).click();
+  await page.getByLabel('Statistical method', { exact: true }).selectOption('paired');
+  await page.getByLabel('Feature value role', { exact: true }).selectOption('effect');
+  await page.getByLabel('Effect units', { exact: true }).fill('a.u.');
+  await page.getByLabel('I declare comparable effects from independent participants.').check();
+  // Select a factor group as A; its complement contains the matching second condition.
+  await page.getByLabel('Group by factor', { exact: true }).selectOption('group');
+  await page.getByRole('button', { name: 'Show factor groups', exact: true }).click();
+
+  await page.getByText('Choose comparison groups', { exact: true }).click();
+  await page.getByLabel('Assign group to A', { exact: true }).selectOption('factor-0');
+  await page.getByLabel('Assign group to B', { exact: true }).selectOption('factor-1');
+  await page.getByRole('button', { name: 'Apply Paired test', exact: true }).click();
+  await page.getByLabel('Test result channel', { exact: true }).selectOption('count');
+  await expect(
+    page.getByText('Valid pair count · A 40 / B 40 participants', { exact: true }),
+  ).toBeVisible();
+  await page.getByText('Save calculation', { exact: true }).click();
+  await page.getByRole('button', { name: 'Freeze discovery…', exact: true }).click();
+  const receipt = JSON.parse((await page.getByTestId('synthetic-export-receipt').textContent())!);
+  expect(receipt.population.inference.method).toBe('paired');
+  expect(receipt.population.aggregation.groups).toHaveLength(40);
+  await page.getByRole('button', { name: 'Open saved population…', exact: true }).click();
+  await expect(page.getByLabel('Test result channel', { exact: true })).toHaveValue('count');
+});
+
+test('pins cached samples and composes grouped, faceted population plots', async ({
+  page,
+}, testInfo) => {
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  await page.goto('/population-harness.html?mask&export&plots');
+  await page
+    .locator('canvas')
+    .first()
+    .click({ position: { x: 150, y: 150 } });
+  await page.getByRole('button', { name: 'Compose in Plot', exact: true }).click();
+  const plot = page.getByLabel('Population plot authoring', { exact: true });
+  await plot.getByLabel('Plot X', { exact: true }).selectOption('group');
+  await plot.getByLabel('Plot Color', { exact: true }).selectOption('group');
+  await plot.getByLabel('Plot Facet', { exact: true }).selectOption('site');
+  await expect(plot.getByTestId('plot-facets')).toBeVisible();
+  await expect(plot.locator('[data-datum-id]')).toHaveCount(80);
+  await plot.locator('[data-datum-id="S042"]').focus();
+  await page.keyboard.press('Enter');
+  await expect(page.getByTestId('fixture-focus')).toHaveText('S042');
+  await plot.screenshot({ path: testInfo.outputPath('population-plot-desktop.png') });
+  await page.setViewportSize({ width: 480, height: 1000 });
+  await page.reload();
+  await page
+    .locator('canvas')
+    .first()
+    .click({ position: { x: 150, y: 150 } });
+  await page.getByRole('button', { name: 'Compose in Plot', exact: true }).click();
+  await plot.screenshot({ path: testInfo.outputPath('population-plot-narrow.png') });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  expect(errors).toEqual([]);
+});

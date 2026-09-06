@@ -1,3 +1,4 @@
+import { populationRgba } from './PopulationSliceService';
 import { populationProbeActions } from './PopulationProbeActions';
 import { resolvePopulation } from './populationContext';
 import { useSetStudioStore } from '@/stores/setStudioStore';
@@ -55,12 +56,16 @@ export function sameRelationshipBindings(
       const other = b.members[i];
       return (
         other?.memberId === member.memberId &&
-        other.sourcePath === member.sourcePath &&
+        (frozen
+          ? hash(other.expectedSha256) && member.expectedSha256 === other.expectedSha256
+          : other.sourcePath === member.sourcePath) &&
         (other.stackIndex ?? null) === (member.stackIndex ?? null) &&
         (!(frozen || other.expectedSha256) || member.expectedSha256 === other.expectedSha256)
       );
     }) &&
-    (a.mask?.sourcePath ?? null) === (b.mask?.sourcePath ?? null) &&
+    (frozen
+      ? !!a.mask === !!b.mask && (!a.mask || hash(b.mask?.expectedSha256))
+      : (a.mask?.sourcePath ?? null) === (b.mask?.sourcePath ?? null)) &&
     (!(frozen || b.mask?.expectedSha256) ||
       (a.mask?.expectedSha256 ?? null) === (b.mask?.expectedSha256 ?? null))
   );
@@ -423,3 +428,64 @@ export class PopulationRelationshipService {
   }
 }
 export const populationRelationshipService = new PopulationRelationshipService();
+
+export async function explainRelationship(
+  fit: RelationshipFit,
+  explanation: {
+    field: { kind: 'pair'; a: string; b: string } | { kind: 'component'; axis: number };
+    crosshairMm: readonly number[];
+    orientation: 'axial';
+  },
+  signal: AbortSignal,
+) {
+  const source = relationshipSource().source;
+  if (
+    !source ||
+    !(
+      sameRelationshipBindings(fit.request, source) ||
+      sameRelationshipBindings(fit.request, source, true)
+    )
+  )
+    throw new Error('The fitted sources are not the current verified population.');
+  const result = await invokeCancelable<
+    RelationshipFit & { explanation: { values: (number | null)[]; total: number; label: string } }
+  >(
+    'fit_population_relationship',
+    {
+      request: {
+        ...fit.request,
+        members: source.members.map((m, i) => ({
+          ...m,
+          expectedSha256: fit.request.members[i].expectedSha256,
+        })),
+        mask: source.mask
+          ? { ...source.mask, expectedSha256: fit.request.mask?.expectedSha256 }
+          : null,
+        explanation,
+      },
+    },
+    signal,
+  );
+  signal.throwIfAborted();
+  if (
+    JSON.stringify(result.geometry.coordinates) !== JSON.stringify(fit.geometry.coordinates) ||
+    result.supportSha256 !== fit.supportSha256 ||
+    !result.explanation ||
+    result.explanation.values.length !== 128 * 128 ||
+    result.explanation.values.some((v) => v !== null && !Number.isFinite(v)) ||
+    !Number.isFinite(result.explanation.total)
+  )
+    throw new Error('Spatial explanation does not match the frozen fit.');
+  const limit =
+    result.explanation.values.reduce<number>((max, v) => Math.max(max, Math.abs(v ?? 0)), 0) || 1;
+  return {
+    image: new ImageData(
+      populationRgba(result.explanation.values, limit, explanation.field.kind === 'component'),
+      128,
+      128,
+    ),
+    limit,
+    total: result.explanation.total,
+    label: result.explanation.label,
+  };
+}

@@ -23,6 +23,7 @@
  */
 
 import React from 'react';
+import { populationPlot } from '@/components/plots/populationPlot.mode';
 
 import { useLayerStore } from '@/stores/layerStore';
 import { useViewStateStore } from '@/stores/viewStateStore';
@@ -45,6 +46,7 @@ const DEFAULT_PLOT_MODES: PlotMode[] = [
   regionStatsPlot,
   cohortPlot,
   setTracePlot,
+  populationPlot,
 ];
 
 export interface PlotPanelProps {

@@ -1,3 +1,4 @@
+import { populationPlotService } from '@/services/studio/PopulationPlotService';
 import { PopulationBrush } from './PopulationBrush';
 import {
   resolvePopulationParticipants,
@@ -40,6 +41,7 @@ export function PopulationProbePanel({
   const workspaceId = useViewStateStore((state) => state.activeWorkspaceKey);
   const [controller] = useState(() => suppliedController ?? new PopulationProbeController());
   const snapshot = useSyncExternalStore(controller.subscribe, controller.getSnapshot);
+  const [pinError, setPinError] = useState<string | null>(null);
   const [previewHover, setPreviewHover] = useState(false);
   const [radius, setRadius] = useState(0);
   const [nearZeroLimit, setNearZeroLimit] = useState(0);
@@ -250,7 +252,28 @@ export function PopulationProbePanel({
           {orderSourceStatus === 'unknown' && ' · order source revisions unverified'}
         </p>
       )}
+      {pinError && (
+        <p role="alert" className="text-xs text-destructive">
+          {pinError}
+        </p>
+      )}
       <div ref={plotRef} className="min-w-0">
+        {result && plotFrame && (
+          <button
+            className={control}
+            disabled={snapshot.pending || result.query.key !== snapshot.requested?.key}
+            onClick={() => {
+              try {
+                populationPlotService.pin(result, plotFrame);
+                setPinError(null);
+              } catch (error) {
+                setPinError(error instanceof Error ? error.message : String(error));
+              }
+            }}
+          >
+            Compose in Plot
+          </button>
+        )}
         {result && plotFrame && expanded && (
           <PopulationBrush horizontal scope={definition.query?.key ?? 'no-probe'}>
             <PlotEncoder

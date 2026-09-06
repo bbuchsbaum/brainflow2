@@ -1,3 +1,4 @@
+import { PopulationExplanation } from './PopulationExplanation';
 import { useEffect, useState, useSyncExternalStore } from 'react';
 import { useSetStudioStore } from '@/stores/setStudioStore';
 import { useViewStateStore } from '@/stores/viewStateStore';
@@ -111,6 +112,7 @@ export function PopulationRelationshipPanel() {
               retained variation {(100 * fit.geometry.explainedFraction).toFixed(1)}% · normalized
               stress {fit.geometry.stress.toFixed(3)}
             </p>
+            <PopulationExplanation key={fit.fitId} fit={fit} current={current} />
             {snapshot.stale && (
               <p role="alert">
                 Inputs changed since this fit. Refit to order or group current observations.

@@ -1,3 +1,4 @@
+import { populationPlotService } from './PopulationPlotService';
 import { populationRelationshipService } from './PopulationRelationshipService';
 import { resolvePopulationParticipants, groupParticipantMembers } from './populationParticipants';
 import { buildPopulationSource } from './PopulationProbeController';
@@ -79,6 +80,8 @@ export function freezePopulationExport(display: PopulationSliceDisplay) {
       datasetName: set.name,
       featureId: feature.id,
       featureLabel: feature.label,
+      plots: populationPlotService.savedFor(display.query.datasetKey),
+      featureContract: { valueRole: feature.valueRole, units: feature.units },
       participantDefinition: structuredClone(state.population.participants),
       selectionContext: {
         working: state.population.working,
@@ -119,6 +122,7 @@ export const populationExportService = {
   async chooseAndExport(
     frozen: ReturnType<typeof freezePopulationExport>,
     signal: AbortSignal,
+    includeInputs = false,
   ): Promise<PopulationExportResult | null> {
     const path = await getTransport().invoke<string | null>('plugin:dialog|open', {
       options: {
@@ -130,7 +134,13 @@ export const populationExportService = {
     if (!path || signal.aborted) return null;
     return invokeCancelable<PopulationExportResult>(
       'export_population_summary',
-      { request: { ...frozen, destinationDirectory: path } },
+      {
+        request: {
+          ...frozen,
+          destinationDirectory: path,
+          ...(includeInputs ? { includeInputs: true } : {}),
+        },
+      },
       signal,
     );
   },

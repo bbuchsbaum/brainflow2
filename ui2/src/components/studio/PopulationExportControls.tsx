@@ -14,6 +14,7 @@ export function PopulationExportControls({
   current: boolean;
 }) {
   const [busy, setBusy] = useState(false);
+  const [includeInputs, setIncludeInputs] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const active = useRef<AbortController | null>(null);
@@ -37,6 +38,7 @@ export function PopulationExportControls({
         : await populationExportService.chooseAndExport(
             freezePopulationExport(display!),
             controller.signal,
+            includeInputs,
           );
       if (active.current === controller)
         setMessage(
@@ -60,6 +62,25 @@ export function PopulationExportControls({
   }
   return (
     <div className="flex flex-wrap items-center gap-2 text-xs" aria-label="Population export">
+      <label className="flex items-center gap-2">
+        <input
+          type="checkbox"
+          checked={includeInputs}
+          disabled={busy}
+          onChange={(e) => setIncludeInputs(e.target.checked)}
+        />
+        Include source images (
+        {(
+          Array.from(
+            new Map(
+              display?.data?.sources.map((s) => [s.revision.sha256, s.revision.sourceBytes]) ?? [],
+            ).values(),
+          ).reduce((a, b) => a + b, 0) /
+          1024 /
+          1024
+        ).toFixed(1)}{' '}
+        MiB + mask; 4 GiB limit)
+      </label>
       <button
         type="button"
         className="rounded border border-border px-2 py-1 disabled:opacity-40 hover:bg-accent"

@@ -323,6 +323,8 @@ fn inspect_manifest_preview(manifest_path: &str) -> Result<ManifestPreview, Stri
         features: feature_bindings
             .iter()
             .map(|binding| StudioFeatureSummary {
+                value_role: binding.feature.value_role.clone(),
+                units: binding.feature.logical.unit.clone(),
                 id: binding.feature_id.to_string(),
                 label: binding
                     .feature

@@ -168,7 +168,7 @@ fn welch_preserves_group_counts_and_refuses_undefined_local_evidence() {
 fn catalog_is_complete_and_channels_are_method_specific() {
     use field_table::population_inference::catalog::methods;
     use std::collections::HashSet;
-    assert_eq!(methods().len(), 2);
+    assert_eq!(methods().len(), 3);
     let mut ids = HashSet::new();
     for d in methods() {
         assert!(ids.insert(serde_json::to_string(&d.id).unwrap()));
@@ -190,4 +190,67 @@ fn catalog_is_complete_and_channels_are_method_specific() {
         .channels
         .iter()
         .all(|c| c.id != Channel::Count));
+}
+
+#[test]
+fn paired_uses_joint_differences_and_complete_pairs_before_null() {
+    let mut p = PairedMoments::new(3).unwrap();
+    // Actual differences 1, 2, 4: mean 7/3, sample variance 7/3.
+    // Large between-person baselines cancel, unlike an independent-group test.
+    for (a, b) in [(101., 100.), (202., 200.), (304., 300.)] {
+        p.push(
+            &[&[a, a, f32::NAN]],
+            &[&[b, if b == 200. { f32::NAN } else { b }, b]],
+        )
+        .unwrap();
+    }
+    let r: Vec<_> = p.estimates(1.).collect();
+    close(r[0].value(&Channel::Effect).unwrap(), 4. / 3.);
+    close(
+        r[0].value(&Channel::StandardError).unwrap(),
+        7_f64.sqrt() / 3.,
+    );
+    close(r[0].value(&Channel::T).unwrap(), 4. / 7_f64.sqrt());
+    assert_eq!(r[0].value(&Channel::Df), Some(2.));
+    assert_eq!(r[1].value(&Channel::Count), Some(2.));
+    close(r[1].value(&Channel::Effect).unwrap(), 1.5);
+    assert_eq!(r[2].value(&Channel::Count), Some(0.));
+    assert_eq!(r[2].value(&Channel::Effect), None);
+    assert!(Method::Paired
+        .evaluate(&summary(&[1., 2.]), Some(&summary(&[3., 4.])), 0.)
+        .is_err());
+}
+#[test]
+fn paired_within_person_reduction_is_atomic_and_retains_f64_precision() {
+    let mut p = PairedMoments::new(1).unwrap();
+    // These means would lose the difference if rounded to f32 first.
+    p.push(&[&[16777216.], &[16777218.]], &[&[16777216.]])
+        .unwrap();
+    p.push(&[&[16777218.], &[16777220.]], &[&[16777216.]])
+        .unwrap();
+    assert!(p.push(&[&[1.]], &[&[2., 3.]]).is_err());
+    assert!(p.push(&[], &[&[2.]]).is_err());
+    let r = p.estimates(0.).next().unwrap();
+    assert_eq!(r.value(&Channel::Effect), Some(2.));
+    assert_eq!(r.value(&Channel::StandardError), Some(1.));
+    assert_eq!(r.value(&Channel::Count), Some(2.));
+    let mut constant = PairedMoments::new(1).unwrap();
+    for (a, b) in [(10., 8.), (30., 28.)] {
+        constant.push(&[&[a]], &[&[b]]).unwrap();
+    }
+    let r = constant.estimates(0.).next().unwrap();
+    assert_eq!(r.value(&Channel::T), None);
+    assert_eq!(r.value(&Channel::StandardError), Some(0.));
+}
+
+#[test]
+fn robust_summaries_use_finite_values_and_raw_mad() {
+    use field_table::population::median_mad;
+    assert_eq!(
+        median_mad([1., 2., 3., 100., f64::NAN]),
+        (Some(2.5), Some(1.))
+    );
+    assert_eq!(median_mad([f64::NAN]), (None, None));
+    assert_eq!(median_mad([0., 0., 0., 100.]), (Some(0.), Some(0.)));
+    assert_eq!(median_mad([f64::MAX, f64::MAX]), (Some(f64::MAX), Some(0.)));
 }

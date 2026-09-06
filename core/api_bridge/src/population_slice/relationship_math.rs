@@ -153,6 +153,109 @@ pub fn fit(
         merges,
     })
 }
+/// Exact spatial explanation in the same transformed common-support space as MDS.
+pub(super) fn explain(
+    rows: &[Vec<f32>],
+    support: &[usize],
+    metric: &Distance,
+    geometry: &Geometry,
+    choice: &super::ExplanationKind,
+    labels: &[String],
+    token: &SampleCancellation,
+) -> BridgeResult<(Vec<f64>, f64, String)> {
+    let n = rows.len();
+    let p = support.len();
+    let mut means = vec![0.; n];
+    let mut norms = vec![(p as f64).sqrt(); n];
+    if matches!(metric, Distance::PatternShape) {
+        for (i, row) in rows.iter().enumerate() {
+            let mut m2 = 0.;
+            for (k, &j) in support.iter().enumerate() {
+                let x = row[j] as f64;
+                let delta = x - means[i];
+                means[i] += delta / (k + 1) as f64;
+                m2 += delta * (x - means[i]);
+            }
+            if m2 <= 0. {
+                return Err(input("Pattern shape is undefined for a constant map."));
+            }
+            norms[i] = m2.sqrt();
+        }
+    }
+    let pair = match choice {
+        super::ExplanationKind::Pair { a, b } => Some((
+            labels
+                .iter()
+                .position(|id| id == a)
+                .ok_or_else(|| input("Unknown first observation."))?,
+            labels
+                .iter()
+                .position(|id| id == b)
+                .ok_or_else(|| input("Unknown second observation."))?,
+        )),
+        _ => None,
+    };
+    let axis = match choice {
+        super::ExplanationKind::Component { axis }
+            if *axis < 2 && geometry.eigenvalues[*axis] > geometry.eigenvalues[0] * 1e-10 =>
+        {
+            Some(*axis)
+        }
+        super::ExplanationKind::Component { .. } => {
+            return Err(input("Choose one of the first two nonzero components."))
+        }
+        _ => None,
+    };
+    let mut result = Vec::with_capacity(p);
+    for (k, &j) in support.iter().enumerate() {
+        if k % 4096 == 0 {
+            token.check()?;
+        }
+        let transformed = |i: usize| (rows[i][j] as f64 - means[i]) / norms[i];
+        let value = if let Some((a, b)) = pair {
+            let d = if matches!(metric, Distance::Effect) {
+                (rows[a][j] as f64 - rows[b][j] as f64) / norms[a]
+            } else {
+                transformed(a) - transformed(b)
+            };
+            d * d
+        } else {
+            let axis = axis.unwrap();
+            let reference = transformed(0);
+            let delta = |i: usize| {
+                if matches!(metric, Distance::Effect) {
+                    (rows[i][j] as f64 - rows[0][j] as f64) / norms[i]
+                } else {
+                    transformed(i) - reference
+                }
+            };
+            let mean = (0..n).map(delta).sum::<f64>() / n as f64;
+            (0..n)
+                .map(|i| (delta(i) - mean) * geometry.coordinates[i][axis])
+                .sum::<f64>()
+                / geometry.eigenvalues[axis]
+        };
+        if !value.is_finite() {
+            return Err(input("Spatial explanation overflowed."));
+        }
+        result.push(value);
+    }
+    let total = if pair.is_some() {
+        result.iter().sum()
+    } else {
+        result.iter().map(|v| v * v).sum()
+    };
+    Ok((
+        result,
+        total,
+        if pair.is_some() {
+            "Squared distance contribution; sums over common support to squared distance".into()
+        } else {
+            "Unit-norm spatial loading in the fitted transformed space; observed maps remain original".into()
+        },
+    ))
+}
+
 fn average_linkage(distances: &[Vec<f64>], token: &SampleCancellation) -> BridgeResult<Vec<Merge>> {
     let n = distances.len();
     let size = 2 * n - 1;
@@ -292,5 +395,50 @@ mod tests {
         let g = run(&[vec![1.; 3], vec![1.; 3]], Distance::Effect);
         assert!(!g.orderable);
         assert_eq!(g.stress, 0.);
+    }
+}
+
+#[cfg(test)]
+mod explanation_tests {
+    use super::*;
+    #[test]
+    fn contribution_sums_and_loading_normalization_match_geometry() {
+        let rows = vec![vec![1., 2., 4.], vec![2., 1., 6.], vec![4., 5., 0.]];
+        let labels = vec!["A".into(), "B".into(), "C".into()];
+        for metric in [Distance::Effect, Distance::PatternShape] {
+            let token = SampleCancellation::default();
+            let g = fit(&rows, &[0, 1, 2], &metric, &token).unwrap();
+            let (v, total, _) = explain(
+                &rows,
+                &[0, 1, 2],
+                &metric,
+                &g,
+                &super::super::ExplanationKind::Pair {
+                    a: "A".into(),
+                    b: "B".into(),
+                },
+                &labels,
+                &token,
+            )
+            .unwrap();
+            assert!(v.iter().all(|&v| v >= 0.));
+            assert!((total - g.distances[0][1].powi(2)).abs() < 1e-10);
+            if matches!(metric, Distance::Effect) {
+                assert!((v[2] - 4. / 3.).abs() < 1e-12);
+            }
+            for axis in 0..2 {
+                let (_, norm, _) = explain(
+                    &rows,
+                    &[0, 1, 2],
+                    &metric,
+                    &g,
+                    &super::super::ExplanationKind::Component { axis },
+                    &labels,
+                    &token,
+                )
+                .unwrap();
+                assert!((norm - 1.).abs() < 1e-10);
+            }
+        }
     }
 }

@@ -1,3 +1,4 @@
+import { populationPlotService } from './PopulationPlotService';
 import {
   populationRelationshipService,
   validRelationshipFit,
@@ -55,12 +56,28 @@ export function preparePopulationRestore(
   const id = `population-${crypto.randomUUID()}`;
   const featureId = `${id}:feature`;
   const context = object(opened.context);
+  const contract = object(context.featureContract);
+  const roles = ['effect', 'standardError', 'variance', 't', 'z', 'label', 'other'] as const;
+  if (
+    contract.valueRole !== undefined &&
+    !roles.includes(contract.valueRole as (typeof roles)[number])
+  )
+    throw new Error('Unknown saved feature value role.');
+  if (
+    contract.units !== undefined &&
+    (typeof contract.units !== 'string' || !contract.units.trim() || contract.units.length > 128)
+  )
+    throw new Error('Invalid saved feature units.');
+  if (
+    query.inference &&
+    ((contract.valueRole !== undefined && contract.valueRole !== query.inference.role) ||
+      (contract.units !== undefined && contract.units !== query.inference.units))
+  )
+    throw new Error('Saved feature and statistical declarations disagree.');
   const selection = object(context.selectionContext);
   const scale = object(context.displayScale);
   const metadata = object(context.metadata);
-  const notices = [
-    'Original source files remain external. Their saved hashes are checked on every read.',
-  ];
+  const notices = ['Source images are verified by their saved content hashes on every read.'];
   if (selection.compareCohortId && !object(context.exploration).version && !query.reference)
     notices.push(
       'The saved reference cohort is not included in this bundle. Choose a reference before comparing populations.',
@@ -171,7 +188,6 @@ export function preparePopulationRestore(
         const actual = query.members.find((m) => m.memberId === source.memberId);
         return (
           actual &&
-          actual.sourcePath === source.sourcePath &&
           (actual.stackIndex ?? null) === (source.stackIndex ?? null) &&
           actual.expectedSha256 === source.expectedSha256
         );
@@ -179,8 +195,7 @@ export function preparePopulationRestore(
       new Set(bindings.map((binding) => object(binding).memberId)).size === ids.length;
     const fitMask = object(order.mask);
     const maskMatches = query.mask
-      ? fitMask.sourcePath === query.mask.sourcePath &&
-        fitMask.expectedSha256 === query.mask.expectedSha256
+      ? fitMask.expectedSha256 === query.mask.expectedSha256
       : order.mask === null;
     const savedFit = validRelationshipFit(context.orderRelationship)
       ? context.orderRelationship
@@ -210,6 +225,8 @@ export function preparePopulationRestore(
       restoredOrder = {
         ...(order as unknown as PopulationOrder),
         featureId,
+        bindings: structuredClone(query.members),
+        mask: structuredClone(query.mask ?? null),
         label: label(order.label, 'Saved spatial similarity order'),
         probe: null,
       };
@@ -236,6 +253,8 @@ export function preparePopulationRestore(
       restoredOrder = {
         ...(order as unknown as PopulationOrder),
         featureId,
+        bindings: structuredClone(query.members),
+        mask: structuredClone(query.mask ?? null),
         label: label(order.label, 'Saved response order'),
         probe: {
           ...(fitProbe as unknown as PopulationProbe),
@@ -430,6 +449,16 @@ export function preparePopulationRestore(
       {
         id: featureId,
         label: label(context.featureLabel, 'Saved feature'),
+        ...(contract.valueRole !== undefined
+          ? { valueRole: contract.valueRole as (typeof roles)[number] }
+          : query.inference
+            ? { valueRole: query.inference.role }
+            : {}),
+        ...(contract.units !== undefined
+          ? { units: contract.units as string }
+          : query.inference
+            ? { units: query.inference.units }
+            : {}),
         kind: 'volume' as const,
       },
     ],
@@ -479,10 +508,12 @@ export const populationRestoreService = {
         'The destination workspace or dataset changed while opening. Open the saved calculation again in the intended workspace.',
       );
     const payload = preparePopulationRestore(opened, workspaceId, revision + 1);
+    const savedPlots = populationPlotService.prepareSaved(object(opened.context).plots);
     useViewStateStore.getState().setViewState((view) => {
       view.crosshair.world_mm = [...opened.calculation.crosshairMm];
     }, workspaceId);
     state.bootstrapStudio(payload);
+    populationPlotService.restoreSaved(savedPlots);
     populationRelationshipService.restore(
       object(opened.context).relationship,
       object(opened.context).orderRelationship,

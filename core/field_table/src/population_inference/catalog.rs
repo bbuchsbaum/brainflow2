@@ -8,6 +8,7 @@ use std::sync::OnceLock;
 pub enum Inputs {
     OnePopulation,
     IndependentGroups,
+    PairedGroups,
 }
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]

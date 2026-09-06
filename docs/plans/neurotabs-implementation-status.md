@@ -4,7 +4,24 @@ Objective: implement [the complete population exploration plan](neurotabs-popula
 
 ## Current delivery
 
-Latest increment: [extensible statistical methods and Welch delivery D2](neurotabs-statistical-methods.md) adds method-declared input/channel contracts, disjoint-participant A/B inference, separate count maps and versioned method replay. Paired comparisons and general imported role/unit metadata remain next; native desktop acceptance remains separate.
+Latest increment (2026-09-06): paired participant inference, imported feature roles/units, pinned plot composition in the existing Plot dock, included source-image bundles, spatial distance/component explanation slices, median/MAD and two-factor group partitions. The six-part request remains open: the table below distinguishes implemented paths from remaining work. Earlier receipts describe earlier source revisions.
+
+| Requested work | Implemented in this increment | Still required |
+|---|---|---|
+| 1. Statistical flexibility | Paired A/B by exact participant IDs, locally complete differences and five output channels; typed manifest roles and units; shared versioned method catalog | Broader design/covariate metadata and method adapters beyond the three built-ins |
+| 2. Flexible plotting | Pin a sampled probe into Plot; categorical/numerical/declared-time axes, color, facets, individual trajectories, equal-participant means, SD or normal-approximation SE bands; explicit repeated-row means; JSON recipes and samples | Combining multiple probes/sets, full 4D trajectory extraction/alignment, plot layers, native graphics export and live-selection recipes |
+| 3. Explain relationships | Exact squared-distance contribution slice, first two nonzero component loadings and original low/middle/high-score observations | Full shared anatomical explanation views, more components, labeled reconstruction controls and larger-set acceptance |
+| 4. Portable studies | Opt-in hash-verified, deduplicated source/mask copies; moving included bundles; recipes/samples in bounded study context; saved imported semantics | Relocation/rebinding UI for external linked inputs, verified relinking of saved plot samples, broader moved-study acceptance |
+| 5. Broader supports | Exact finite median and unscaled MAD on the existing volume path; explicit two-factor partitions | Actual surface/parcel population adapters, pivot matrix, model adapters and their conformance tests |
+| 6. Acceptance | Analytic/native tests plus Playwright workflows and desktop/narrow screenshots | Full native UI walkthrough, end-to-end latency including IPC/presentation, remote/cold/pressure acceptance and an uncontended all-phases workspace run |
+
+The plot cache owns at most eight pinned sample frames / 16 MiB outside Zustand. Study receipts include at most 512 KiB of associated plot samples; larger samples must be saved separately. Reopened samples remain detached from live images until a future content-verified linking step. A declared time column is not an inferred time axis, and a trajectory does not silently interpolate unavailable samples.
+
+Included inputs use an owned staging directory and content-addressed names. Copying hashes the bytes actually written, enforces 2 GiB/source and 4 GiB for included inputs, deduplicates identical content and publishes only with the completed calculation bundle. Opening resolves only digest-constrained names inside that bundle and rechecks source contents. Linked-input export remains available.
+
+Paired questions require exactly the same participant IDs in A and B, with distinct observation IDs. Within-person reduction precedes subtraction in f64; only locally complete pairs contribute. No marginal-variance shortcut is used. Direct A/B group assignment remains available even when the combined selection cannot satisfy the chosen one-row-per-person rule.
+
+Prior increment: [extensible statistical methods and Welch delivery D2](neurotabs-statistical-methods.md).
 
 Previous increment: [similarity delivery C](neurotabs-similarity-evidence.md) adds explicit common-support distances, stable classical MDS, exact-ID lasso, frozen movie ordering, requested similarity groups and restoration of current/ordering fits. Its numerical, browser and native-fixture evidence remain distinct from pending desktop acceptance.
 
@@ -250,3 +267,22 @@ Delivery A checks (2026-09-06):
 - Native desktop inspection was attempted again and returned `Sky Computer Use service startup request failed`. GoldenLayout/native-dialog visual acceptance and end-to-end desktop latency remain unverified. Native command/fixture results and simulated browser results retain their separate evidence boundaries.
 
 Next: delivery B's factor partitions, group-linked brushing and reference comparison, using this shared order/focus/presentation path. Full presentation history, metadata/similarity orders and linked plot authoring remain explicit follow-on work; the complete M0–M5/P tracker stays open.
+
+## Paired, plot, portability and explanation verification (2026-09-06)
+
+- `cargo test -p field_table`: 69 passed (50 unit, 10 inference and 9 moment tests). Includes paired analytic differences, local missing pairs, large offsets, exact finite median/MAD and manifest feature roles. Receipt: `/private/tmp/neurotabs-current-kernel.log`.
+- Native population slice/export/relationship suite: 36 passed, 2 existing ignored before the final image-level explanation test and catalog-wide artifact guard. Included-source acceptance moves a bundle, deletes the originals, opens/replays it, then rejects a tampered retained input. Receipt: `/private/tmp/neurotabs-current-native.log`. Final native workspace verification is recorded separately when complete.
+- Broad Studio/plot UI run: 265 passed across 39 suites before the final receipt/metadata additions. Final focused run: 43 passed across seven suites, including restoration, imported semantics, crossed groups, plot recipe validation and geometry. Receipts: `/private/tmp/neurotabs-current-ui.log` and `/private/tmp/neurotabs-delivery-focused-final.log`. A redundant broad run under concurrent native compilation encountered timeouts; it is not counted as a passing final broad run.
+- Playwright: all 13 workflows passed in one stable-source run. It uses real controls/encoders and synthetic IPC, with explicit participant matching and a sampler that forwards the native metadata contract. Receipts/screenshots: `/private/tmp/neurotabs-delivery-playwright-stable.log` and `/private/tmp/neurotabs-delivery-playwright-stable/`. The desktop and 480 px population plot screenshots were inspected. Two failures in a previous run during hot reload did not recur against stable source. Final Boolean-render typing and memo-dependency fixes followed the visual run and are covered by the focused renderer checks.
+- TypeScript, Rust formatting and the 117-command permission inventory passed. Scoped ESLint passed without warnings (`/private/tmp/neurotabs-delivery-lint-final.log`). No new Tauri command was introduced.
+- Native computer-use access failed to start on both attempts (`Sky Computer Use service startup request failed`). The desktop walkthrough is unverified. Browser ownership audits were clear and the session-owned browser installations/download were removed; screenshots and logs remain.
+
+This increment does not establish full-process memory limits, end-to-end latency or native surface/parcel population conformance. The open requirements in the current-delivery table remain part of the original scope.
+
+Native workspace unit/integration result for the final Rust source: **855 passed, 29 ignored**. This includes the final explanation raster, paired channels, portable-input tampering checks, runtime render goldens, shader contracts and 200-cycle resource teardown. The invocation then failed during rustdoc with dependency-metadata resolution errors after overlapping Cargo builds. It is not one clean all-phases result; the separate documentation retry is recorded separately. Workspace Clippy completed with ts-rs attribute warnings and existing surface-call borrow and parcel-overlay test arithmetic warnings. Receipts: `/private/tmp/neurotabs-delivery-workspace.log` and `/private/tmp/neurotabs-delivery-clippy.log`.
+
+The final defensive plot-receipt check adds rejection of malformed column roles/units. Its targeted rerun passed 19 tests (`/private/tmp/neurotabs-receipt-final.log`); TypeScript remained clean.
+
+Audited native movie fixture: 80 NIfTI maps on 32×32×32 grids, 128×128 raster, debug build. Cold evaluation 710.56 ms; cached focus changes p50 9.36 ms, p95 24.08 ms, maximum 59.78 ms; retained plane payload 640,000 bytes. The fixture checks source digests, values and teardown. Receipt: `/private/tmp/neurotabs-delivery-native-fixture.log`. These timings exclude IPC/canvas presentation and were collected under heavy host load; they are not end-to-end acceptance.
+
+The separate `cargo test --workspace --doc` retry completed successfully after Clippy finished (`/private/tmp/neurotabs-delivery-doctests.log`). All 18 rustdoc targets completed; they currently contain no executable documentation examples. This resolves the rustdoc build failure, but is separate from the passing native unit/integration run.

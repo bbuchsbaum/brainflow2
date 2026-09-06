@@ -103,7 +103,7 @@ it('routes Welch through declared disjoint A/B participants without changing foc
 
 it('uses method-specific channels and rejects the same participant behind different rows', async () => {
   const { inferenceMethods, inferenceMethod } = await import('../inferenceCatalog');
-  expect(inferenceMethods.map((m) => m.id)).toEqual(['oneSample', 'welch']);
+  expect(inferenceMethods.map((m) => m.id)).toEqual(['oneSample', 'welch', 'paired']);
   expect(inferenceMethod('welch').channels.map((c) => c.id)).toEqual([
     'effect',
     'standardError',
@@ -132,4 +132,68 @@ it('uses method-specific channels and rejects the same participant behind differ
   );
   expect(inferenceIssue({ ...spec, method: 'welch' }, a, null)).toMatch(/population B/);
   expect(inferenceIssue({ ...spec, method: 'missing' as never }, a)).toMatch(/Unsupported/);
+});
+
+it('pairs by exact participant identity and refuses unmatched or reused observations', () => {
+  const a = {
+    within: 'single' as const,
+    groups: [
+      { participantId: 'P1', memberIds: ['a1'] },
+      { participantId: 'P2', memberIds: ['a2'] },
+    ],
+  };
+  const b = {
+    within: 'single' as const,
+    groups: [
+      { participantId: 'P2', memberIds: ['b2'] },
+      { participantId: 'P1', memberIds: ['b1'] },
+    ],
+  };
+  const paired = { ...spec, method: 'paired' as const };
+  expect(inferenceIssue(paired, a, b)).toBeNull();
+  expect(inferenceIssue(paired, a, a)).toMatch(/distinct observations/);
+  expect(
+    inferenceIssue(paired, a, {
+      ...b,
+      groups: [b.groups[0], { participantId: 'P3', memberIds: ['b3'] }],
+    }),
+  ).toMatch(/same participant IDs/);
+  expect(inferenceIssue({ ...paired, channel: 'countA' }, a, b)).toMatch(/not produced/);
+});
+
+it('honors imported feature roles and units instead of allowing a question to relabel data', () => {
+  const s = state();
+  const id = s.selection.activeFeatureId!;
+  useSetStudioStore.setState({
+    features: { ...s.features, [id]: { ...s.features[id], valueRole: 't', units: 'unitless' } },
+  });
+  expect(configureInference(spec)).toMatch(/Imported feature role/);
+  useSetStudioStore.setState({
+    features: { ...s.features, [id]: { ...s.features[id], valueRole: 'effect', units: 'percent' } },
+  });
+  expect(configureInference(spec)).toMatch(/imported feature units/);
+});
+it('refuses relabeling imported roles or units without transformed data', () => {
+  const featureId = state().selection.activeFeatureId!;
+  const setId = state().selection.activeSetId!;
+  state().configurePopulationParticipants({
+    setId,
+    identity: { kind: 'observationIds' },
+    reduction: 'single',
+  });
+  useSetStudioStore.setState({
+    features: {
+      ...state().features,
+      [featureId]: { ...state().features[featureId], valueRole: 't', units: 'statistic' },
+    },
+  });
+  expect(configureInference(spec)).toMatch(/Imported feature role/);
+  useSetStudioStore.setState({
+    features: {
+      ...state().features,
+      [featureId]: { ...state().features[featureId], valueRole: 'effect', units: 'beta' },
+    },
+  });
+  expect(configureInference(spec)).toMatch(/imported feature units/);
+  expect(configureInference({ ...spec, units: 'beta' })).toBeNull();
 });

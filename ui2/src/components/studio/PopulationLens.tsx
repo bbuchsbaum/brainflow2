@@ -49,6 +49,8 @@ const control =
   'rounded border border-border bg-background px-2 py-1 text-xs text-foreground disabled:opacity-40';
 const names: Record<PopulationSummary, string> = {
   mean: 'Mean',
+  median: 'Median',
+  mad: 'Median absolute deviation (unscaled)',
   sampleSd: 'Observed sample SD',
   cancellation: 'Cancellation',
   meanAbsolute: 'Mean absolute magnitude',

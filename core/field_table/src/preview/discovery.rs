@@ -80,6 +80,8 @@ pub(super) fn regex_candidate(
     let features = feature_roles
         .iter()
         .map(|role| StudioFeatureSummary {
+            value_role: None,
+            units: None,
             id: role.clone(),
             label: title_case(role),
             kind: StudioSupportKind::Volume,

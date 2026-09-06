@@ -34,14 +34,32 @@ export function inferenceIssue(
     return 'Select at least two uniquely identified participants.';
   if (method.inputs === 'onePopulation' && reference)
     return 'One-sample inference requires only population A.';
-  if (method.inputs === 'independentGroups') {
+  if (method.inputs !== 'onePopulation') {
     if (!reference || reference.groups.length < method.minimumParticipants)
       return 'Choose population B with at least two declared participants.';
     const a = new Set(aggregation.groups.map((g) => g.participantId));
     const b = reference.groups.map((g) => g.participantId);
-    if (new Set(b).size !== b.length || b.some((id) => a.has(id)))
+    if (method.inputs === 'pairedGroups') {
+      if (new Set(b).size !== b.length || a.size !== b.length || b.some((id) => !a.has(id)))
+        return 'Paired testing requires exactly the same participant IDs in A and B; resolve unmatched participants explicitly.';
+      const members = new Set(aggregation.groups.flatMap((g) => g.memberIds));
+      if (reference.groups.some((g) => g.memberIds.some((id) => members.has(id))))
+        return 'Paired A and B must use distinct observations; an observation cannot be paired with itself.';
+    } else if (new Set(b).size !== b.length || b.some((id) => a.has(id)))
       return 'Independent-group testing requires disjoint participant IDs in A and B; overlapping people require a paired or repeated-measures method.';
   }
+  return null;
+}
+export function importedInferenceIssue(
+  spec: PopulationInferenceSpec,
+  feature = useSetStudioStore.getState().features[
+    useSetStudioStore.getState().selection.activeFeatureId ?? ''
+  ],
+): string | null {
+  if (feature?.valueRole && feature.valueRole !== spec.role)
+    return `Imported feature role is ${feature.valueRole}; it cannot be relabeled by a statistical question.`;
+  if (feature?.units && feature.units.trim() !== spec.units.trim())
+    return `Use the imported feature units: ${feature.units}. Unit conversion requires transformed data.`;
   return null;
 }
 export function configureInference(spec: PopulationInferenceSpec | null): string | null {
@@ -59,10 +77,11 @@ export function configureInference(spec: PopulationInferenceSpec | null): string
   const population = resolvePopulation(state);
   const participants = resolvePopulationParticipants(state, population.workingMemberIds);
   const reference =
-    descriptor.inputs === 'independentGroups'
+    descriptor.inputs !== 'onePopulation'
       ? resolvePopulationParticipants(state, population.referenceMemberIds)
       : null;
   const issue =
+    importedInferenceIssue(spec) ??
     participants.issue ??
     (reference ? (population.referenceIssue ?? reference.issue) : null) ??
     inferenceIssue(spec, participants.aggregation, reference?.aggregation);

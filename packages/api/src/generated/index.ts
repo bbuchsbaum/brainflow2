@@ -102,6 +102,7 @@ export * from './AtlasDiscoveryResult';
 export * from './SurfaceTemplateCatalogEntry';
 export * from './NiftiHeaderInfo';
 export * from './StudioFolderOntologySummary';
+export * from './StudioValueRole';
 export * from './StudioDesignTablePreview';
 export * from './StudioCohortOriginKind';
 export * from './StudioRoleBindingInput';

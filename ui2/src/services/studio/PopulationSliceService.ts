@@ -1,5 +1,5 @@
 import { inferenceMethod, inferenceChannel, inferenceActive } from './inferenceCatalog';
-import { inferenceIssue } from './populationInference';
+import { inferenceIssue, importedInferenceIssue } from './populationInference';
 import type { PopulationInferenceSpec } from '@/types/population';
 import { validatePopulationPartition } from './populationGroups';
 import type { PopulationMemberSource } from '@/types/population';
@@ -18,7 +18,14 @@ import { buildPopulationSource, populationSupportKey } from './PopulationProbeCo
 import { resolvePopulation } from './populationContext';
 import type { ViewPlane } from '@/types/coordinates';
 
-export type PopulationSummary = 'mean' | 'sampleSd' | 'meanAbsolute' | 'cancellation' | 'coverage';
+export type PopulationSummary =
+  | 'mean'
+  | 'median'
+  | 'mad'
+  | 'sampleSd'
+  | 'meanAbsolute'
+  | 'cancellation'
+  | 'coverage';
 export type PopulationOrientation = 'axial' | 'coronal' | 'sagittal';
 export interface PopulationGroupRequest {
   id: string;
@@ -290,7 +297,7 @@ export function buildPopulationSliceQuery(
     if (
       mode === 'comparison' ||
       mode === 'difference' ||
-      (activeTest && inferenceMethod(activeTest.method).inputs === 'independentGroups')
+      (activeTest && inferenceMethod(activeTest.method).inputs !== 'onePopulation')
     ) {
       if (population.referenceIssue) throw new Error(population.referenceIssue);
       if (!population.referenceMemberIds.length || !workingMemberIds.length)
@@ -312,7 +319,9 @@ export function buildPopulationSliceQuery(
       selectionOrigin:
         state.population.working.kind === 'members' ? state.population.working.origin : 'manual',
     };
-    const testIssue = inferenceIssue(inference, aggregation, reference?.aggregation);
+    const testIssue =
+      importedInferenceIssue(inference, state.features[state.selection.activeFeatureId ?? '']) ??
+      inferenceIssue(inference, aggregation, reference?.aggregation);
     if (testIssue) return { query: null, issue: testIssue };
   }
   const request: PopulationSliceRequest = {
@@ -933,11 +942,11 @@ export function populationDisplayKind(request: PopulationSliceRequest) {
 export function populationDiverging(request: PopulationSliceRequest) {
   return request.inference
     ? inferenceChannel(request.inference).scale !== 'nonnegative'
-    : request.summary === 'mean';
+    : ['mean', 'median'].includes(request.summary);
 }
 
 export function populationSharesEffectScale(request: PopulationSliceRequest) {
   return request.inference
     ? inferenceChannel(request.inference).scale === 'effect'
-    : request.summary === 'mean';
+    : ['mean', 'median'].includes(request.summary);
 }

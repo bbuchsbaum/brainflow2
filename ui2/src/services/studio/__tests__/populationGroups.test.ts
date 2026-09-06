@@ -95,3 +95,22 @@ it('previews a named subset without mutating A, B, focus or grouping and rejects
     buildPopulationSliceQuery(before, 'workspace', { ...options, withoutMembers: ['unknown'] }),
   ).toMatchObject({ query: null, issue: expect.any(String) });
 });
+it('partitions two factors as collision-safe keyed cells without dropping missing values', () => {
+  const set = store().sets[store().selection.activeSetId!];
+  const crossed = {
+    ...set,
+    designTablePreview: {
+      columns: ['group', 'site'],
+      rows: ids.map((id, i) => ({
+        id,
+        cells: [['A', 'A', 'A', 'B', 'B', 'B'][i], ['one', 'two', '', 'one', 'two', ''][i]],
+      })),
+    },
+  };
+  const partition = partitionPopulation(crossed, ids, 'group', 'site');
+  expect(partition.groups).toHaveLength(6);
+  expect(partition.groups.flatMap((g) => g.memberIds)).toEqual(ids);
+  expect(partition.groups[2].label).toContain('Missing value');
+  expect(validatePopulationPartition(partition, set.id, ids)).toBeNull();
+  expect(() => partitionPopulation(crossed, ids, 'group', 'group')).toThrow(/distinct/);
+});

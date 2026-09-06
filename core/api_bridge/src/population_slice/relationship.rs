@@ -22,14 +22,38 @@ pub struct Region {
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Request {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub explanation: Option<ExplanationRequest>,
     pub members: Vec<SetMemberRef>,
     pub mask: Option<crate::population_mask::MaskSource>,
     pub region: Option<Region>,
     pub distance: Distance,
 }
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[serde(tag = "kind", rename_all = "camelCase", deny_unknown_fields)]
+pub enum ExplanationKind {
+    Pair { a: String, b: String },
+    Component { axis: usize },
+}
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ExplanationRequest {
+    pub field: ExplanationKind,
+    pub crosshair_mm: [f32; 3],
+    pub orientation: Orientation,
+}
+#[derive(Debug, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Explanation {
+    pub plane: Plane,
+    pub values: Vec<Option<f64>>,
+    pub total: f64,
+    pub label: String,
+}
 #[derive(Debug, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Result {
+    pub explanation: Option<Explanation>,
     pub fit_id: String,
     pub request: Request,
     pub support_sha256: String,
@@ -105,6 +129,39 @@ pub async fn evaluate(
         .set_sample_cache
         .with_volume_cancelable(paths[0].clone(), token.clone(), |volume, _| grid(volume))
         .await?;
+    let explanation_plan = if let Some(explanation) = &request.explanation {
+        let q = PopulationSliceRequest {
+            inference: None,
+            groups: vec![],
+            reference: None,
+            difference: false,
+            focus_only: false,
+            focus_window: vec![],
+            context_key: "relationship-explanation".into(),
+            mask: None,
+            members: request.members.clone(),
+            working_member_ids: vec![],
+            focus_member_id: None,
+            crosshair_mm: explanation.crosshair_mm,
+            orientation: explanation.orientation.clone(),
+            dim_px: [128, 128],
+            zoom: 1.,
+            summary: SummaryKind::Mean,
+            aggregation: None,
+            cutouts: None,
+        };
+        validate(&q)?;
+        Some(
+            state
+                .set_sample_cache
+                .with_volume_cancelable(paths[0].clone(), token.clone(), move |volume, _| {
+                    pixel_plan(volume, &q)
+                })
+                .await?,
+        )
+    } else {
+        None
+    };
     let count = dimensions
         .iter()
         .try_fold(1usize, |a, &b| a.checked_mul(b))
@@ -229,7 +286,8 @@ pub async fn evaluate(
     let check = token.clone();
     let held = permit.clone();
     let candidates = candidate.clone();
-    let (geometry, common_voxels, support_sha256) = tokio::task::spawn_blocking(move || {
+    let explanation_request = request.explanation.clone();
+    let (geometry, common_voxels, support_sha256, explanation) = tokio::task::spawn_blocking(move || {
         let _held = held;
         let mut common = Vec::new();
         let mut hash = Sha256::new();
@@ -253,10 +311,19 @@ pub async fn evaluate(
             }
         }
         let geometry = math::fit(&rows, &common, &distance, &check)?;
+        let explanation = match (explanation_request, explanation_plan) {
+            (Some(request),Some(plan)) => {
+                let (values,total,label)=math::explain(&rows,&common,&distance,&geometry,&request.field,&labels,&check)?;
+                let by_index:HashMap<_,_>=common.iter().zip(values).map(|(&j,value)|(candidates[j],value)).collect();
+                let raster=plan.pixels.iter().map(|slot|slot.and_then(|i| {let v=plan.voxels[i];by_index.get(&(v[0]+v[1]*plan.dimensions[0]+v[2]*plan.dimensions[0]*plan.dimensions[1])).copied()})).collect();
+                Some(Explanation {plane:plan.plane,values:raster,total,label})
+            }, _=>None
+        };
         Ok::<_, bridge_types::BridgeError>((
             geometry,
             common.len(),
             format!("{:x}", hash.finalize()),
+            explanation,
         ))
     })
     .await
@@ -264,15 +331,18 @@ pub async fn evaluate(
     guard.validate(token.clone()).await?;
     token.check()?;
     let affine = std::array::from_fn(|r| std::array::from_fn(|c| affine[(r, c)]));
+    let mut identity_request = request.clone();
+    identity_request.explanation = None;
     let identity = serde_json::to_vec(&(
         "classical-mds-common-support-v1",
-        &request,
+        &identity_request,
         &dimensions,
         affine,
         &support_sha256,
     ))
     .map_err(|e| input(e.to_string()))?;
     Ok(Result {
+        explanation,
         fit_id: format!("{:x}", Sha256::digest(identity)),
         request,
         support_sha256,
@@ -290,6 +360,7 @@ mod tests {
     use crate::set_sample_cache::TestSource;
     fn request(sources: &[TestSource]) -> Request {
         Request {
+            explanation: None,
             members: sources
                 .iter()
                 .enumerate()
@@ -305,6 +376,37 @@ mod tests {
             mask: None,
             region: None,
             distance: Distance::Effect,
+        }
+    }
+    #[tokio::test]
+    async fn explanation_slice_preserves_fit_and_exact_distance_contributions() {
+        let sources = vec![
+            TestSource::new(&[3, 3, 3], &[1.; 27]),
+            TestSource::new(&[3, 3, 3], &[3.; 27]),
+        ];
+        let state = BridgeState::default().unwrap();
+        let mut q = request(&sources);
+        let fit = evaluate(q.clone(), &state, SampleCancellation::default())
+            .await
+            .unwrap();
+        q.explanation = Some(ExplanationRequest {
+            field: ExplanationKind::Pair {
+                a: "S0".into(),
+                b: "S1".into(),
+            },
+            crosshair_mm: [1., 1., 1.],
+            orientation: Orientation::Axial,
+        });
+        let shown = evaluate(q, &state, SampleCancellation::default())
+            .await
+            .unwrap();
+        assert_eq!(shown.fit_id, fit.fit_id);
+        let image = shown.explanation.unwrap();
+        assert_eq!(image.values.len(), 128 * 128);
+        assert!((image.total - 4.).abs() < 1e-12);
+        assert!(image.values.iter().any(Option::is_some));
+        for value in image.values.into_iter().flatten() {
+            assert!((value - 4. / 27.).abs() < 1e-12);
         }
     }
     #[tokio::test]

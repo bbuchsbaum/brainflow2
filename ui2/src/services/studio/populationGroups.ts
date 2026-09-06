@@ -8,26 +8,39 @@ export function partitionPopulation(
   set: SpatialFieldSetSummary,
   contextIds: readonly string[],
   column: string,
+  secondColumn?: string,
 ): PopulationPartition {
   const metadata = studioMetadata(set, contextIds);
   if (metadata.issue) throw new Error(metadata.issue);
   if (!metadata.columns.includes(column)) throw new Error('Choose an available factor column.');
+  if (secondColumn && (!metadata.columns.includes(secondColumn) || secondColumn === column))
+    throw new Error('Choose two distinct available factors.');
   const levels = new Map<string | null, string[]>();
   for (const id of contextIds) {
     const value = metadata.rows.get(id)![column];
-    const key = value.trim() ? value : null;
+    const primary = value.trim() ? value : null;
+    const secondary = secondColumn ? metadata.rows.get(id)![secondColumn] : null;
+    const key = secondColumn
+      ? JSON.stringify([primary, secondary?.trim() ? secondary : null])
+      : primary;
     const members = levels.get(key) ?? [];
     members.push(id);
     levels.set(key, members);
   }
   return {
     setId: set.id,
-    column,
+    column: secondColumn ? `${column} × ${secondColumn}` : column,
     contextIds: [...contextIds],
     origin: 'metadata',
     groups: [...levels].map(([value, memberIds], i) => ({
       id: `factor-${i}`,
-      label: value === null ? 'Missing value' : `${column}: ${value}`,
+      label: secondColumn
+        ? (JSON.parse(value!) as (string | null)[])
+            .map((v, i) => `${[column, secondColumn][i]}: ${v ?? 'Missing value'}`)
+            .join(' · ')
+        : value === null
+          ? 'Missing value'
+          : `${column}: ${value}`,
       value,
       memberIds,
     })),

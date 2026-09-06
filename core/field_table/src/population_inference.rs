@@ -5,25 +5,18 @@ use crate::population::LocationSummary;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 pub mod catalog;
+mod paired;
 mod welch;
+pub use paired::PairedMoments;
 pub use welch::Welch;
 
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
-pub enum FeatureRole {
-    Effect,
-    StandardError,
-    Variance,
-    T,
-    Z,
-    Label,
-    Other,
-}
+pub use bridge_types::StudioValueRole as FeatureRole;
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub enum Method {
     OneSample,
     Welch,
+    Paired,
 }
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "kebab-case")]
@@ -125,11 +118,12 @@ impl OneSample {
 pub enum Estimate {
     OneSample(OneSample),
     Welch(Welch),
+    Paired(OneSample),
 }
 impl Estimate {
     pub fn value(&self, channel: &Channel) -> Option<f64> {
         match self {
-            Self::OneSample(r) => r.value(channel),
+            Self::OneSample(r) | Self::Paired(r) => r.value(channel),
             Self::Welch(r) => r.value(channel),
         }
     }
@@ -143,6 +137,9 @@ impl Method {
         null: f64,
     ) -> Result<Estimate, &'static str> {
         match self {
+            Self::Paired => {
+                Err("Paired inference requires matched differences, not marginal group summaries.")
+            }
             Self::OneSample => {
                 if b.is_some() {
                     return Err("One-sample inference requires one population.");

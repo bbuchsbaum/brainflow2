@@ -1,3 +1,5 @@
+import { attachObservationMetadata } from '@/plotting/attachObservationMetadata';
+import { PopulationPlot } from '@/components/plots/PopulationPlot';
 import type { PopulationSliceData } from '@/services/studio/PopulationSliceService';
 import { PopulationUnitControls } from '@/components/studio/PopulationUnitControls';
 import { setTransport } from '@/services/transport';
@@ -20,6 +22,7 @@ if (!import.meta.env.DEV) throw new Error('This synthetic harness is development
 document.documentElement.classList.add('dark');
 const maskMode = new URLSearchParams(location.search).has('mask');
 const exportMode = new URLSearchParams(location.search).has('export');
+const pairedMode = new URLSearchParams(location.search).has('paired');
 let savedReceipt: { population: unknown; context: unknown } | null = null;
 const fakeHash = 'a'.repeat(64);
 const fakeMaskHash = 'b'.repeat(64);
@@ -165,7 +168,11 @@ const ids = Array.from(
 const metadataFor = (id: string, i: number) => ({
   observation: id,
   group: i < 40 ? 'A' : 'B',
-  participant: i < 40 ? 'P001' : `P${String(i - 38).padStart(3, '0')}`,
+  participant: pairedMode
+    ? `P${String((i % 40) + 1).padStart(3, '0')}`
+    : i < 40
+      ? 'P001'
+      : `P${String(i - 38).padStart(3, '0')}`,
   site: i < 80 ? 'early-site' : 'late-site',
 });
 const state = useSetStudioStore.getState();
@@ -211,38 +218,45 @@ demo.bootstrapStudio({
   expressions: [],
   selection: { activeMemberId: ids[0] },
 });
-const controller = new PopulationProbeController(async (request) => ({
-  columns: [
-    { name: 'member', role: 'nominal' },
-    { name: 'value', role: 'quantitative' },
-  ],
-  rows:
-    request.locus.kind === 'set'
-      ? request.locus.members.map((member) => ({
-          member: member.memberId,
-          value:
+const controller = new PopulationProbeController(async (request) =>
+  attachObservationMetadata(
+    {
+      columns: [
+        { name: 'member', role: 'nominal' },
+        { name: 'value', role: 'quantitative' },
+      ],
+      rows:
+        request.locus.kind === 'set'
+          ? request.locus.members.map((member) => ({
+              member: member.memberId,
+              value:
+                request.locus.kind === 'set' && request.locus.mask && request.locus.worldMm[0] >= 0
+                  ? null
+                  : ids.indexOf(member.memberId) < 40
+                    ? 3
+                    : -1,
+            }))
+          : [],
+      meta: {
+        synthetic: true,
+        sources: ids.map((memberId) => ({
+          memberId,
+          sourceRevision: { sha256: fakeHash, sourceBytes: 0 },
+          ...(request.locus.kind === 'set' && request.locus.mask
+            ? { maskRevision: { sha256: fakeMaskHash, sourceBytes: 0 } }
+            : {}),
+          stackIndex: null,
+          validCount:
             request.locus.kind === 'set' && request.locus.mask && request.locus.worldMm[0] >= 0
-              ? null
-              : ids.indexOf(member.memberId) < 40
-                ? 3
-                : -1,
-        }))
-      : [],
-  meta: {
-    synthetic: true,
-    sources: ids.map((memberId) => ({
-      memberId,
-      sourceRevision: { sha256: fakeHash, sourceBytes: 0 },
-      ...(request.locus.kind === 'set' && request.locus.mask
-        ? { maskRevision: { sha256: fakeMaskHash, sourceBytes: 0 } }
-        : {}),
-      stackIndex: null,
-      validCount:
-        request.locus.kind === 'set' && request.locus.mask && request.locus.worldMm[0] >= 0 ? 0 : 1,
-      error: null,
-    })),
-  },
-}));
+              ? 0
+              : 1,
+          error: null,
+        })),
+      },
+    },
+    request.locus.kind === 'set' ? request.locus.members : [],
+  ),
+);
 const slices = new PopulationSliceService(
   {
     async evaluate(request) {
@@ -257,13 +271,26 @@ const slices = new PopulationSliceService(
             ? value
             : null;
         });
-      const observed = (id: string) => (ids.indexOf(id) < 40 ? 3 : -1);
-      const values = request.aggregation
+      const observed = (id: string) =>
+        ids.indexOf(id) < 40 ? (pairedMode ? 3 + (ids.indexOf(id) % 3) : 3) : -1;
+      const rawValues = request.aggregation
         ? request.aggregation.groups.map(
             (group) =>
               group.memberIds.reduce((sum, id) => sum + observed(id), 0) / group.memberIds.length,
           )
         : request.workingMemberIds.map(observed);
+      const values =
+        request.inference?.method === 'paired'
+          ? request.aggregation!.groups.map((g) => {
+              const b = request.reference!.aggregation!.groups.find(
+                (b) => b.participantId === g.participantId,
+              )!;
+              return (
+                g.memberIds.reduce((s, id) => s + observed(id), 0) / g.memberIds.length -
+                b.memberIds.reduce((s, id) => s + observed(id), 0) / b.memberIds.length
+              );
+            })
+          : rawValues;
       const groupData = (group: NonNullable<typeof request.reference>) => {
         const units = group.aggregation
           ? group.aggregation.groups.map(
@@ -457,6 +484,19 @@ function Harness() {
           />
           <PopulationLens service={slices} probeController={controller} />
           <PopulationProbePanel controller={controller} />
+          {new URLSearchParams(location.search).has('plots') && (
+            <div style={{ height: 600 }}>
+              <PopulationPlot
+                ctx={{
+                  width: Math.min(760, window.innerWidth - 48),
+                  height: 600,
+                  layerId: undefined,
+                  layerName: undefined,
+                  crosshairMm: undefined,
+                }}
+              />
+            </div>
+          )}
         </div>
         <aside className="min-w-0 border-l border-border" aria-label="Inspector">
           <PopulationInspector />

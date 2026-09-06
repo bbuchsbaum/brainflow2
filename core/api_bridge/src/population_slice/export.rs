@@ -11,6 +11,8 @@ use std::{
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ExportRequest {
+    #[serde(default)]
+    pub include_inputs: bool,
     pub population: PopulationSliceRequest,
     pub destination_directory: String,
     /// Descriptive dataset/feature/metadata context, separate from executable operands.
@@ -120,6 +122,7 @@ pub(super) async fn export_checked(
         token.clone(),
     )
     .await?;
+    let retained_mask_path = mask_path.clone();
     let mask = match (&population.mask, mask_path) {
         (Some(source), Some(path)) => {
             Some(crate::population_mask::prepare_mask(source, path, state, &token).await?)
@@ -318,6 +321,7 @@ pub(super) async fn export_checked(
     let check = token.clone();
     let destination_copy = destination.clone();
     let expected_artifacts = proof.as_ref().map(|p| p.artifacts.clone());
+    let include_inputs = request.include_inputs;
     let staged = tokio::task::spawn_blocking(move || -> BridgeResult<StagedBundle> {
         let _permit = permit;
         check.check()?;
@@ -350,6 +354,12 @@ pub(super) async fn export_checked(
         }
         let mut provenance = provenance;
         provenance["artifacts"] = artifacts.into();
+        if include_inputs {
+            let mut calculation: PopulationSliceRequest = serde_json::from_value(provenance["calculation"].clone()).map_err(|e|input(e.to_string()))?;
+            retention::retain(&mut calculation, &paths, retained_mask_path.as_deref(), &staged.path, &check)?;
+            provenance["calculation"] = serde_json::to_value(calculation).map_err(|e|input(e.to_string()))?;
+            provenance["semantics"]["sourceRetention"] = "Included content-addressed inputs; hashes checked on every opening".into();
+        }
         fs::write(staged.path.join("provenance.json"), serde_json::to_vec_pretty(&provenance).map_err(|e| input(e.to_string()))?)?;
         check.check()?;
         Ok(staged)
@@ -519,6 +529,7 @@ mod tests {
             let live = freeze(&mut q, &state).await;
             let result = export(
                 ExportRequest {
+                    include_inputs: false,
                     population: q.clone(),
                     destination_directory: dest.0.to_string_lossy().into(),
                     context: serde_json::json!({"feature":"contrast"}),
@@ -598,6 +609,7 @@ mod tests {
         let dest = Destination::new();
         let mut q = query(&[&source]);
         let req = |q| ExportRequest {
+            include_inputs: false,
             population: q,
             destination_directory: dest.0.to_string_lossy().into(),
             context: serde_json::json!({}),
@@ -646,6 +658,7 @@ mod tests {
         freeze(&mut q, &state).await;
         let result = export(
             ExportRequest {
+                include_inputs: false,
                 population: q,
                 destination_directory: dest.0.to_string_lossy().into(),
                 context: serde_json::json!({}),
@@ -685,6 +698,7 @@ mod tests {
         freeze(&mut q, &state).await;
         let first = export(
             ExportRequest {
+                include_inputs: false,
                 population: q,
                 destination_directory: original.0.to_string_lossy().into(),
                 context: serde_json::json!({}),
@@ -766,6 +780,7 @@ mod tests {
         freeze(&mut q, &state).await;
         let first = export(
             ExportRequest {
+                include_inputs: false,
                 population: q,
                 destination_directory: original.0.to_string_lossy().into(),
                 context: serde_json::json!({"datasetId":"saved"}),
@@ -821,6 +836,7 @@ mod tests {
         freeze(&mut q, &state).await;
         let first = export(
             ExportRequest {
+                include_inputs: false,
                 population: q,
                 destination_directory: original.0.to_string_lossy().into(),
                 context: serde_json::json!({}),
@@ -934,6 +950,7 @@ mod tests {
         let original = serde_json::to_value(&q).unwrap();
         let result = export(
             ExportRequest {
+                include_inputs: false,
                 population: q,
                 destination_directory: dest.0.to_string_lossy().into(),
                 context: serde_json::json!({"datasetName":"Saved frames"}),
@@ -1072,6 +1089,7 @@ mod tests {
         let destination = Destination::new();
         let out = export(
             ExportRequest {
+                include_inputs: false,
                 population: q.clone(),
                 destination_directory: destination.0.to_string_lossy().into(),
                 context: serde_json::json!({"discovery":"map-derived"}),
@@ -1226,6 +1244,7 @@ mod tests {
         let dest = Destination::new();
         let out = export(
             ExportRequest {
+                include_inputs: false,
                 population: q.clone(),
                 destination_directory: dest.0.to_string_lossy().into(),
                 context: serde_json::json!({}),
@@ -1319,5 +1338,177 @@ mod tests {
         bad = q.clone();
         bad.inference.as_mut().unwrap().channel = Channel::Count;
         assert!(validate(&bad).is_err());
+    }
+    #[tokio::test]
+    async fn paired_local_counts_export_and_replay_preserve_matching() {
+        use field_table::population_inference::{
+            Channel, FeatureRole, Method, SelectionOrigin, Specification,
+        };
+        let sources: Vec<_> = [101., 202., 304., 100., 200., 300.]
+            .iter()
+            .enumerate()
+            .map(|(i, &v)| {
+                let mut x = vec![v; 27];
+                if i == 4 {
+                    x[0] = f32::NAN;
+                }
+                if i >= 3 {
+                    x[1] = f32::NAN;
+                }
+                TestSource::new(&[3, 3, 3], &x)
+            })
+            .collect();
+        let state = BridgeState::default().unwrap();
+        let mut q = query(&sources.iter().collect::<Vec<_>>());
+        let ids: Vec<_> = q.members.iter().map(|m| m.member_id.clone()).collect();
+        let aggregation = |ids: &[String]| {
+            Some(ParticipantAggregation {
+                within: WithinParticipant::Single,
+                groups: ids
+                    .iter()
+                    .enumerate()
+                    .map(|(i, id)| ParticipantGroup {
+                        participant_id: format!("P{i}"),
+                        member_ids: vec![id.clone()],
+                    })
+                    .collect(),
+            })
+        };
+        q.working_member_ids = ids[..3].to_vec();
+        q.aggregation = aggregation(&ids[..3]);
+        let mut b = aggregation(&ids[3..]);
+        b.as_mut().unwrap().groups.reverse(); // Identity, never positional pairing.
+        q.reference = Some(GroupRequest {
+            id: "B".into(),
+            member_ids: ids[3..].to_vec(),
+            aggregation: b,
+        });
+        q.inference = Some(Specification {
+            method: Method::Paired,
+            role: FeatureRole::Effect,
+            units: "a.u.".into(),
+            null_value: 1.,
+            independent_participants: true,
+            selection_origin: SelectionOrigin::Metadata,
+            channel: Channel::T,
+        });
+        let live = freeze(&mut q, &state).await;
+        assert!(live
+            .summary
+            .iter()
+            .any(|&v| (v - 4. / 7_f32.sqrt()).abs() < 1e-6));
+        let dest = Destination::new();
+        let out = export(
+            ExportRequest {
+                include_inputs: false,
+                population: q.clone(),
+                destination_directory: dest.0.to_string_lossy().into(),
+                context: serde_json::json!({}),
+            },
+            &state,
+            SampleCancellation::default(),
+        )
+        .await
+        .unwrap();
+        let counts = values(
+            &Path::new(&out.directory)
+                .join("count.nii.gz")
+                .to_string_lossy(),
+            &state,
+        )
+        .await;
+        let effects = values(
+            &Path::new(&out.directory)
+                .join("effect.nii.gz")
+                .to_string_lossy(),
+            &state,
+        )
+        .await;
+        assert_eq!(counts[0], 2.);
+        assert_eq!(counts[1], 0.);
+        assert_eq!(effects[0], 1.5);
+        assert!(effects[1].is_nan());
+        super::super::replay::replay(
+            out.provenance_path.clone(),
+            dest.0.to_string_lossy().into(),
+            &state,
+            SampleCancellation::default(),
+        )
+        .await
+        .unwrap();
+        let opened =
+            super::super::replay::open(out.provenance_path, &state, SampleCancellation::default())
+                .await
+                .unwrap();
+        assert_eq!(opened.calculation.inference.unwrap().method, Method::Paired);
+        let mut bad = q.clone();
+        bad.reference
+            .as_mut()
+            .unwrap()
+            .aggregation
+            .as_mut()
+            .unwrap()
+            .groups[0]
+            .participant_id = "unmatched".into();
+        assert!(validate(&bad).is_err());
+        bad = q.clone();
+        bad.reference.as_mut().unwrap().member_ids = q.working_member_ids.clone();
+        bad.reference.as_mut().unwrap().aggregation = q.aggregation.clone();
+        assert!(validate(&bad).is_err());
+    }
+
+    #[tokio::test]
+    async fn retained_inputs_reopen_after_move_without_originals_and_reject_tampering() {
+        let source = TestSource::new(&[3, 3, 3], &[7.; 27]);
+        let state = BridgeState::default().unwrap();
+        let mut q = query(&[&source, &source]);
+        freeze(&mut q, &state).await;
+        let dest = Destination::new();
+        let out = export(
+            ExportRequest {
+                include_inputs: true,
+                population: q,
+                destination_directory: dest.0.to_string_lossy().into(),
+                context: serde_json::json!({}),
+            },
+            &state,
+            SampleCancellation::default(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            fs::read_dir(Path::new(&out.directory).join("inputs"))
+                .unwrap()
+                .count(),
+            1
+        );
+        let moved = dest.0.join("moved");
+        fs::rename(&out.directory, &moved).unwrap();
+        fs::remove_file(&source.path).unwrap();
+        let record = moved.join("provenance.json").to_string_lossy().into_owned();
+        let opened =
+            super::super::replay::open(record.clone(), &state, SampleCancellation::default())
+                .await
+                .unwrap();
+        assert!(opened.calculation.members[0].source_path.starts_with(
+            &fs::canonicalize(&moved)
+                .unwrap()
+                .to_string_lossy()
+                .to_string()
+        ));
+        super::super::replay::replay(
+            record.clone(),
+            dest.0.to_string_lossy().into(),
+            &state,
+            SampleCancellation::default(),
+        )
+        .await
+        .unwrap();
+        fs::write(&opened.calculation.members[0].source_path, b"changed").unwrap();
+        assert!(
+            super::super::replay::open(record, &state, SampleCancellation::default())
+                .await
+                .is_err()
+        );
     }
 }

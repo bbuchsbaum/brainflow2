@@ -226,3 +226,10 @@ Keep AGENTS.md current when touching core architecture, commands, or directory s
   this browsing workflow does not preallocate the whole collection or assume the
   co-registered `ImageSet` GPU ring contract. See `docs/folder-image-sets.md` and
   the dev-only `/image-set-harness.html` for the workflow and UI check.
+
+## NeuroTabs population extensions (2026-09-06)
+
+- Statistical methods are declared in `core/field_table/src/population_inference/methods.json`; the catalog drives native and UI input/channel contracts. Paired inference uses exact participant matching and moments of locally complete within-person A-minus-B differences. Manifest `value_role` and `logical.unit` reach `StudioFeatureSummary`; statistical controls cannot silently relabel imported values.
+- `PopulationPlotService` owns bounded pinned sample frames outside Zustand (eight plots / 16 MiB), displayed by the `population` mode in the existing Plot dock. `populationPlot.ts` owns regrouping and explicit participant/axis reductions. Recipes preserve missing observations and distinguish descriptive SD from normal-approximation mean bands. Study receipts include up to 512 KiB of associated samples; reopened plots remain detached from live images pending verified relinking.
+- Population export optionally copies deduplicated, content-addressed input images and masks inside its owned staging bundle. `population_slice/retention.rs` hashes the bytes copied and restricts resolution to digest-named files inside the moved bundle. External-input export remains the default. Saved artifact guards include every output declared by the method catalog.
+- Spatial explanations reuse `fit_population_relationship` with an optional explanation request: exact distance contributions or either of the first two nonzero component loadings on a requested slice. Explanations do not redefine the fitted relationship identity. Median/unscaled MAD and two-factor partitions use the existing volume population path; surface and parcel population adapters remain separate work.

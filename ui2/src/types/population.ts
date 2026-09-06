@@ -99,7 +99,7 @@ export interface PopulationState {
   /** Applied once on restore; subsequent exploration is ordinary live state. */
   readonly restoredView?: {
     orientation: 'axial' | 'coronal' | 'sagittal';
-    summary: 'mean' | 'sampleSd' | 'meanAbsolute' | 'cancellation' | 'coverage';
+    summary: 'mean' | 'median' | 'mad' | 'sampleSd' | 'meanAbsolute' | 'cancellation' | 'coverage';
     zoom: number;
     effectLimit?: number;
     summaryLimit?: number;
@@ -131,7 +131,7 @@ export interface PopulationContext {
 
 /** User-declared feature meaning; input roles are never inferred from filenames. */
 export interface PopulationInferenceSpec {
-  method: 'oneSample' | 'welch';
+  method: 'oneSample' | 'welch' | 'paired';
   role: 'effect' | 'standardError' | 'variance' | 't' | 'z' | 'label' | 'other';
   units: string;
   nullValue: number;

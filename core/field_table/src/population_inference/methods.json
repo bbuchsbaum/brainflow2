@@ -101,5 +101,53 @@
       }
     ],
     "limitations": "Exploratory analysis. Map-derived selections are not independent confirmation. No p-values or multiple-comparison correction. Each group needs two locally valid participants for SE. Welch t and df need positive combined SE. Counts remain separate for A and B."
+  },
+  {
+    "id": "paired",
+    "version": 1,
+    "label": "Paired test",
+    "inputs": "pairedGroups",
+    "description": "Compare A and B within the same explicitly identified participants.",
+    "estimand": "mean(within-person A − B) − null; SE = SD(A − B)/sqrt(nPairs); df = nPairs − 1",
+    "acceptedRoles": [
+      "effect"
+    ],
+    "minimumParticipants": 2,
+    "defaultChannel": "effect",
+    "channels": [
+      {
+        "id": "effect",
+        "label": "Effect relative to null",
+        "scale": "effect",
+        "artifact": "effect.nii.gz"
+      },
+      {
+        "id": "standardError",
+        "label": "Standard error",
+        "scale": "nonnegative",
+        "artifact": "standard-error.nii.gz"
+      },
+      {
+        "id": "t",
+        "label": "t statistic",
+        "scale": "diverging",
+        "artifact": "t.nii.gz",
+        "initialLimit": 5
+      },
+      {
+        "id": "df",
+        "label": "Degrees of freedom",
+        "scale": "nonnegative",
+        "artifact": "df.nii.gz"
+      },
+      {
+        "id": "count",
+        "label": "Valid pair count",
+        "scale": "nonnegative",
+        "artifact": "count.nii.gz",
+        "countPopulation": "A"
+      }
+    ],
+    "limitations": "Exploratory analysis. Map-derived selections are not independent confirmation. No p-values or multiple-comparison correction. A and B must contain exactly the same participant IDs and distinct observations. Only locally complete pairs contribute; SE and df need two pairs, and t needs positive SE."
   }
 ]

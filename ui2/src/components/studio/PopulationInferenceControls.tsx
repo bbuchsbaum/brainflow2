@@ -12,6 +12,7 @@ import { configureInference, selectInferenceChannel } from '@/services/studio/po
 const control = 'rounded border border-border bg-background px-2 py-1 text-xs disabled:opacity-40';
 export function PopulationInferenceControls() {
   const state = useSetStudioStore();
+  const feature = state.features[state.selection.activeFeatureId ?? ''];
   const saved = state.population.inference;
   const current =
     saved?.featureId === state.selection.activeFeatureId &&
@@ -26,12 +27,12 @@ export function PopulationInferenceControls() {
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
     setMethod(current?.method ?? 'oneSample');
-    setRole(current?.role ?? 'other');
-    setUnits(current?.units ?? '');
+    setRole(current?.role ?? feature?.valueRole ?? 'other');
+    setUnits(current?.units ?? feature?.units ?? '');
     setNull(current?.nullValue ?? 0);
     setIndependent(current?.independentParticipants ?? false);
     setError(null);
-  }, [state.selection.activeFeatureId, state.population.sessionRevision, current]);
+  }, [state.selection.activeFeatureId, state.population.sessionRevision, current, feature]);
   const paused = current && !inferenceActive(current, state.population.presentation.arrangement);
   const descriptor = inferenceMethod(method);
   const population = resolvePopulation(state);
@@ -60,11 +61,14 @@ export function PopulationInferenceControls() {
           {descriptor.description} Declare the meaning of the feature; filenames do not establish
           it.
         </p>
-        {descriptor.inputs === 'independentGroups' && (
+        {descriptor.inputs !== 'onePopulation' && (
           <p className="text-muted-foreground">
             A: {population.workingMemberIds.length} observations · B:{' '}
             {population.referenceMemberIds.length} observations. Uses the current selection and
-            reference. Each person must belong to one group only.
+            reference.{' '}
+            {descriptor.inputs === 'pairedGroups'
+              ? 'Match exactly the same participants using distinct A and B observations. Missing values remove that pair locally.'
+              : 'Each person must belong to one group only.'}
           </p>
         )}
         <div className="flex flex-wrap gap-2 items-center">
@@ -73,6 +77,7 @@ export function PopulationInferenceControls() {
             <select
               className={control}
               aria-label="Feature value role"
+              disabled={!!feature?.valueRole}
               value={role}
               onChange={(e) => setRole(e.target.value as typeof role)}
             >
@@ -90,6 +95,7 @@ export function PopulationInferenceControls() {
             <input
               className={`${control} w-36`}
               aria-label="Effect units"
+              readOnly={!!feature?.units}
               value={units}
               placeholder="e.g. % signal change"
               onChange={(e) => setUnits(e.target.value)}
@@ -173,7 +179,9 @@ export function PopulationInferenceControls() {
             {inferenceMethod(current.method).label}:{' '}
             {inferenceMethod(current.method).inputs === 'onePopulation'
               ? 'mean(A)'
-              : 'mean(A) − mean(B)'}{' '}
+              : current.method === 'paired'
+                ? 'mean(within-person A − B)'
+                : 'mean(A) − mean(B)'}{' '}
             − {current.nullValue} {current.units}. Selection changes recalculate the test; focus
             does not change its operands.
           </p>

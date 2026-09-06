@@ -1,6 +1,12 @@
 # NeuroTabs statistical methods
 
-Delivery D2, 2026-09-06, built on `b38f66f2`.
+Delivery D2 and paired extension, 2026-09-06. D2 was built on `b38f66f2`; the paired extension builds on `11aff40f`.
+
+## Paired extension
+
+The third built-in method, `paired`, has its own matched-group input contract. A and B must contain exactly the same participant IDs and distinct observations. Explicit within-person means are calculated in f64 before subtraction; local missingness removes only that pair. The effect is the mean A−B difference minus the declared null. SE uses the sample SD of differences, df is the local pair count minus one, and t is unavailable when SE is zero. Export/replay uses the shared method catalog and five declared channels, including valid pair count.
+
+NeuroTabs manifests may declare `value_role` and `logical.unit`. These reach feature summaries and cannot be relabeled by the statistical controls. Saved descriptive studies retain those declarations too. Future model/design adapters remain separate work; Welch is not hard-coded as the universal comparison.
 
 ## What this increment delivers
 
@@ -39,7 +45,7 @@ Independence, comparable effect meanings and adequate alignment remain researche
 
 Welch writes a v4 record with the exact method descriptor/version, executable A/B membership, participant partitions, null/role/units/channel and frozen source/frame/mask identities. Its ten NIfTI artifacts are summary, A coverage, six declared method channels, B mean and B coverage. These ten float32 output vectors share the existing 128 MiB output admission limit. Block scratch and source caches remain separately bounded. This is not a whole-process memory guarantee.
 
-Opening verifies all artifacts and refuses a mismatched method contract. Strict replay recalculates all ten. Existing v1/v2 descriptive and v3 one-sample records remain supported; legacy v3 records without a descriptor retain their original known method interpretation. Source images remain external and hash-verified.
+Opening verifies all artifacts and refuses a mismatched method contract. Strict replay recalculates all ten. Existing v1/v2 descriptive and v3 one-sample records remain supported; legacy v3 records without a descriptor retain their original known method interpretation. Linked-input exports retain external, hash-verified sources. The subsequent portability extension can include content-addressed source copies inside the study bundle; see the [implementation ledger](neurotabs-implementation-status.md).
 
 ## Evidence and remaining work
 
@@ -52,4 +58,4 @@ Verification: **7 kernel tests** and **33 native population slice/export tests**
 
 Workspace Clippy, TypeScript, scoped ESLint, formatting and the unchanged 117-command permission inventory pass. Clippy reports existing api-bridge/parcel-overlay and ts-rs warnings. The full native workspace test was attempted but interrupted after incremental dependency-graph file errors; two attempts to authorize its non-incremental GPU-enabled rerun timed out in automatic permission review. Full-workspace GPU verification is therefore **not established for D2**. The final focused native run and workspace Clippy use two build jobs and disabled incremental compilation. No GPU/render code was changed.
 
-Receipts: `/private/tmp/neurotabs-welch-{kernel-final,native-final,ui,ui-final-focused,restore-final,clippy,types-final,lint-final,permissions}.log`; visual artifacts and its complete log are under `/private/tmp/neurotabs-welch-playwright-final-pass/` and `/private/tmp/neurotabs-welch-playwright-final-pass.log`. The final browser ownership audit was clear and the session-owned browser installation was removed. Native desktop acceptance and end-to-end latency distributions remain separate from the synthetic browser harness. Next statistical work is a paired-input adapter, followed by broader typed design/feature metadata. Grouped/faceted/time-course plotting remains delivery E.
+Receipts: `/private/tmp/neurotabs-welch-{kernel-final,native-final,ui,ui-final-focused,restore-final,clippy,types-final,lint-final,permissions}.log`; visual artifacts and its complete log are under `/private/tmp/neurotabs-welch-playwright-final-pass/` and `/private/tmp/neurotabs-welch-playwright-final-pass.log`. The final browser ownership audit was clear and the session-owned browser installation was removed. Native desktop acceptance and end-to-end latency distributions remain separate from the synthetic browser harness. This D2 receipt predates the paired-input adapter and imported role/unit declarations now described above. Current plot, portability and acceptance status is tracked in the [implementation ledger](neurotabs-implementation-status.md).

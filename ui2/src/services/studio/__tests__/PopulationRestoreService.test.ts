@@ -362,3 +362,77 @@ it('reopens independent-group inference in Inspect with both participant partiti
   expect(built.query!.request.aggregation).toEqual(record.calculation.aggregation);
   expect(built.query!.request.inference).toEqual(record.calculation.inference);
 });
+
+it('reopens paired inference in Inspect with both participant partitions and channel intact', () => {
+  const record = opened();
+  record.calculation.members.push({
+    ...record.calculation.members[2],
+    memberId: 'd',
+    stackIndex: 3,
+  });
+  const aggregation = (ids: string[]) => ({
+    within: 'single' as const,
+    groups: ids.map((id) => ({ participantId: id, memberIds: [id] })),
+  });
+  record.calculation.summary = 'mean';
+  record.calculation.aggregation = aggregation(['a', 'b']);
+  record.calculation.reference = {
+    id: 'B',
+    memberIds: ['c', 'd'],
+    aggregation: {
+      within: 'single',
+      groups: [
+        { participantId: 'b', memberIds: ['d'] },
+        { participantId: 'a', memberIds: ['c'] },
+      ],
+    },
+  };
+  record.calculation.inference = {
+    method: 'paired',
+    role: 'effect',
+    units: 'a.u.',
+    nullValue: 1,
+    independentParticipants: true,
+    selectionOrigin: 'map-derived',
+    channel: 'count',
+  };
+  const payload = preparePopulationRestore(record, 'workspace', 2);
+  useSetStudioStore.getState().bootstrapStudio(payload);
+  const state = useSetStudioStore.getState();
+  expect(state.population.presentation.arrangement).toBe('inspect');
+  expect(state.selection.activeMemberId).toBe('c');
+  expect(state.population.inference).toMatchObject({
+    method: 'paired',
+    channel: 'count',
+    setId: state.selection.activeSetId,
+  });
+  const built = buildPopulationSliceQuery(state, 'workspace', {
+    crosshairMm: [3, 4, 5],
+    orientation: 'coronal',
+    dimPx: [10, 10],
+    zoom: 2,
+    summary: 'mean',
+  });
+  expect(built.issue).toBeNull();
+  expect(built.query!.request.reference?.aggregation?.within).toBe('single');
+  expect(built.query!.request.reference?.aggregation?.groups).toEqual(
+    expect.arrayContaining(record.calculation.reference.aggregation!.groups),
+  );
+  expect(built.query!.request.reference?.aggregation?.groups).toHaveLength(2);
+  expect(built.query!.request.aggregation).toEqual(record.calculation.aggregation);
+  expect(built.query!.request.inference).toEqual(record.calculation.inference);
+});
+it('retains descriptive imported feature semantics and refuses unknown saved roles', () => {
+  const record = opened();
+  record.context = {
+    ...(record.context as object),
+    featureContract: { valueRole: 'effect', units: 'percent signal change' },
+  };
+  const restored = preparePopulationRestore(record, 'workspace', 2);
+  expect(restored.features[0]).toMatchObject({
+    valueRole: 'effect',
+    units: 'percent signal change',
+  });
+  record.context = { featureContract: { valueRole: 'unknownStatistic' } };
+  expect(() => preparePopulationRestore(record, 'workspace', 2)).toThrow('Unknown saved feature');
+});
