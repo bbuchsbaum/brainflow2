@@ -7,7 +7,9 @@ describe('SetStudioStore table import wizard', () => {
     useSetStudioStore.setState(useSetStudioStore.getInitialState());
   });
 
-  function makeManifestCandidate(overrides: Partial<StudioImportCandidate> = {}): StudioImportCandidate {
+  function makeManifestCandidate(
+    overrides: Partial<StudioImportCandidate> = {},
+  ): StudioImportCandidate {
     const candidate: StudioImportCandidate = {
       id: 'stale-manifest',
       label: 'Stale manifest preview',
@@ -72,7 +74,7 @@ describe('SetStudioStore table import wizard', () => {
         'subject,filepath,diagnosis,notes',
         'sub001,"/tmp/sub001.nii.gz","control, baseline","said ""hello"""',
         'sub002,"/tmp/sub002.nii.gz",case,"second row"',
-      ].join('\n')
+      ].join('\n'),
     );
 
     let state = useSetStudioStore.getState();
@@ -98,8 +100,16 @@ describe('SetStudioStore table import wizard', () => {
     const candidate = candidateId ? state.importCandidates[candidateId] : null;
     expect(candidate?.mode).toBe('table');
     expect(candidate?.set.memberSummaries).toEqual([
-      { id: 'sub001', sourcePath: '/tmp/sub001.nii.gz' },
-      { id: 'sub002', sourcePath: '/tmp/sub002.nii.gz' },
+      {
+        id: 'sub001',
+        sourcePath: '/tmp/sub001.nii.gz',
+        designValues: { subject: 'sub001', diagnosis: 'control, baseline', notes: 'said "hello"' },
+      },
+      {
+        id: 'sub002',
+        sourcePath: '/tmp/sub002.nii.gz',
+        designValues: { subject: 'sub002', diagnosis: 'case', notes: 'second row' },
+      },
     ]);
     expect(candidate?.set.designColumns).toEqual(['diagnosis', 'notes']);
     expect(candidate?.set.designTablePreview?.rows[0].cells).toEqual([
@@ -121,7 +131,7 @@ describe('SetStudioStore table import wizard', () => {
         'sub002,,case',
         ',/tmp/sub003.nii.gz,control',
         'sub004,/tmp/sub004.nii.gz,case',
-      ].join('\n')
+      ].join('\n'),
     );
     store.buildTsvImportCandidate();
 
@@ -147,7 +157,7 @@ describe('SetStudioStore table import wizard', () => {
           message: expect.stringContaining('Duplicate subject IDs'),
           memberIds: ['sub001'],
         }),
-      ])
+      ]),
     );
   });
 
@@ -155,10 +165,7 @@ describe('SetStudioStore table import wizard', () => {
     const store = useSetStudioStore.getState();
     store.openImportDialog('table');
     store.parseTsvContent(
-      [
-        'subject,filepath,diagnosis',
-        'sub001,/tmp/sub001.nii.gz,control',
-      ].join('\n')
+      ['subject,filepath,diagnosis', 'sub001,/tmp/sub001.nii.gz,control'].join('\n'),
     );
 
     let state = useSetStudioStore.getState();
@@ -170,11 +177,7 @@ describe('SetStudioStore table import wizard', () => {
     state = useSetStudioStore.getState();
     expect(state.importDialog.mode).toBe('table');
     expect(state.importDialog.tsvWizard.step).toBe('map');
-    expect(state.importDialog.tsvWizard.headers).toEqual([
-      'subject',
-      'filepath',
-      'diagnosis',
-    ]);
+    expect(state.importDialog.tsvWizard.headers).toEqual(['subject', 'filepath', 'diagnosis']);
     expect(state.importDialog.tsvWizard.rows).toHaveLength(1);
   });
 
@@ -193,7 +196,9 @@ describe('SetStudioStore table import wizard', () => {
     expect(state.importDialog.isLoading).toBe(false);
     expect(state.importDialog.error).toBe('No preview candidates were found.');
     expect(state.importDialog.selectedCandidateId).toBeNull();
-    expect(Object.values(state.importCandidates).some((candidate) => candidate.mode === 'manifest')).toBe(false);
+    expect(
+      Object.values(state.importCandidates).some((candidate) => candidate.mode === 'manifest'),
+    ).toBe(false);
   });
 
   it('does not confirm an empty error preview candidate', () => {

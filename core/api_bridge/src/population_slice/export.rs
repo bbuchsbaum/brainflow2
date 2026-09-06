@@ -771,4 +771,109 @@ mod tests {
         .is_err());
         assert_eq!(fs::read_dir(&target.0).unwrap().count(), 0);
     }
+    #[tokio::test]
+    async fn open_verifies_bundle_sources_mask_and_frame_without_publishing() {
+        let a = TestSource::new(&[3, 3, 3, 2], &[vec![1.; 27], vec![7.; 27]].concat());
+        let mask = TestSource::new(&[3, 3, 3], &[1.; 27]);
+        let state = BridgeState::default().unwrap();
+        let dest = Destination::new();
+        let mut q = query(&[&a, &a]);
+        q.members[0].stack_index = Some(1);
+        q.members[1].stack_index = Some(0);
+        q.working_member_ids = vec!["s0".into()];
+        q.focus_member_id = Some("s1".into());
+        q.mask = Some(crate::population_mask::MaskSource {
+            source_path: mask.path.to_string_lossy().into(),
+            expected_sha256: None,
+        });
+        q.aggregation = Some(ParticipantAggregation {
+            within: WithinParticipant::Single,
+            groups: vec![ParticipantGroup {
+                participant_id: "person".into(),
+                member_ids: vec!["s0".into()],
+            }],
+        });
+        freeze(&mut q, &state).await;
+        let original = serde_json::to_value(&q).unwrap();
+        let result = export(
+            ExportRequest {
+                population: q,
+                destination_directory: dest.0.to_string_lossy().into(),
+                context: serde_json::json!({"datasetName":"Saved frames"}),
+            },
+            &state,
+            SampleCancellation::default(),
+        )
+        .await
+        .unwrap();
+        let opened = super::super::replay::open(
+            result.provenance_path.clone(),
+            &state,
+            SampleCancellation::default(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(serde_json::to_value(&opened.calculation).unwrap(), original);
+        assert_eq!(opened.context["datasetName"], "Saved frames");
+        assert_eq!(
+            opened.record_sha256,
+            format!(
+                "{:x}",
+                Sha256::digest(fs::read(&result.provenance_path).unwrap())
+            )
+        );
+        assert_eq!(fs::read_dir(&dest.0).unwrap().count(), 1);
+        assert_eq!(fs::read_dir(&result.directory).unwrap().count(), 3);
+        let bytes = fs::read(&result.provenance_path).unwrap();
+        let mut invalid: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        invalid["calculation"]["members"][0]["stackIndex"] = 3.into();
+        fs::write(
+            &result.provenance_path,
+            serde_json::to_vec(&invalid).unwrap(),
+        )
+        .unwrap();
+        assert!(super::super::replay::open(
+            result.provenance_path.clone(),
+            &state,
+            SampleCancellation::default()
+        )
+        .await
+        .is_err());
+        fs::write(&result.provenance_path, &bytes).unwrap();
+        let artifact = fs::read(&result.coverage_path).unwrap();
+        fs::write(&result.coverage_path, b"changed").unwrap();
+        assert!(super::super::replay::open(
+            result.provenance_path.clone(),
+            &state,
+            SampleCancellation::default()
+        )
+        .await
+        .is_err());
+        fs::write(&result.coverage_path, artifact).unwrap();
+        mask.write(&[3, 3, 3], &[0.; 27]);
+        assert!(super::super::replay::open(
+            result.provenance_path.clone(),
+            &state,
+            SampleCancellation::default()
+        )
+        .await
+        .is_err());
+        mask.write(&[3, 3, 3], &[1.; 27]);
+        a.write(&[3, 3, 3, 2], &[3.; 54]);
+        assert!(super::super::replay::open(
+            result.provenance_path.clone(),
+            &state,
+            SampleCancellation::default()
+        )
+        .await
+        .is_err());
+        let cancel = SampleCancellation::default();
+        cancel.cancel();
+        assert!(
+            super::super::replay::open(result.provenance_path, &state, cancel)
+                .await
+                .is_err()
+        );
+        assert_eq!(fs::read_dir(&dest.0).unwrap().count(), 1);
+    }
 }

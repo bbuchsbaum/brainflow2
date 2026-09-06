@@ -1,3 +1,4 @@
+import type { PopulationMemberSource } from '@/types/population';
 import type { PopulationMask } from '@/types/population';
 import {
   resolvePopulationParticipants,
@@ -18,7 +19,7 @@ export type PopulationOrientation = 'axial' | 'coronal' | 'sagittal';
 export interface PopulationSliceRequest {
   contextKey: string;
   mask?: PopulationMask | null;
-  members: { memberId: string; sourcePath: string }[];
+  members: PopulationMemberSource[];
   workingMemberIds: string[];
   focusMemberId: string | null;
   crosshairMm: [number, number, number];
@@ -37,6 +38,7 @@ export interface PopulationSliceRequest {
 export interface PopulationSliceQuery {
   /** Masks change support, not the compatible effect scale. */
   scaleKey?: string;
+  initialScale?: { effectLimit?: number; summaryLimit?: number; summary: PopulationSummary };
   key: string;
   datasetKey: string;
   request: PopulationSliceRequest;
@@ -208,6 +210,7 @@ export function buildPopulationSliceQuery(
       key: JSON.stringify(request),
       datasetKey: source.datasetKey,
       scaleKey: source.scaleKey,
+      initialScale: state.population.restoredView,
       request,
     },
     issue: null,
@@ -233,7 +236,12 @@ function validateData(data: PopulationSliceData, query: PopulationSliceQuery) {
     size > 512 * 512 ||
     [data.summary, data.focused, data.validCounts].some((values) => values.length !== size) ||
     data.sources.length !== ids.length ||
-    data.sources.some((source, i) => source.memberId !== ids[i]) ||
+    data.sources.some(
+      (source, i) =>
+        source.memberId !== ids[i] ||
+        (query.request.members[i].expectedSha256 != null &&
+          source.revision.sha256 !== query.request.members[i].expectedSha256),
+    ) ||
     data.eligibleCount !== query.request.workingMemberIds.length ||
     data.unitCount !==
       (query.request.aggregation?.groups.length ?? query.request.workingMemberIds.length) ||
@@ -354,6 +362,13 @@ export class PopulationSliceService {
       this.scaleDataset = scaleKey ?? null;
       this.effectLimit = null;
       this.summaryLimits.clear();
+      if (query?.initialScale) {
+        const { effectLimit, summaryLimit, summary } = query.initialScale;
+        if (effectLimit && Number.isFinite(effectLimit) && effectLimit > 0)
+          this.effectLimit = effectLimit;
+        if (summaryLimit && Number.isFinite(summaryLimit) && summaryLimit > 0)
+          this.summaryLimits.set(summary, summaryLimit);
+      }
     }
     this.publish({
       requested: copy,

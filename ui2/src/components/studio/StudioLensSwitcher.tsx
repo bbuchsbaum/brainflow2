@@ -12,11 +12,11 @@ const LENS_OPTIONS: LensOption[] = [
   { id: 'population', label: 'Population', available: true },
   { id: 'deck', label: 'Deck', available: true },
   { id: 'compare', label: 'Compare', available: true },
-  { id: 'pivot-matrix', label: 'Pivot Matrix', available: false, hint: 'Phase 2' },
 ];
 
 interface StudioLensSwitcherProps {
   activeLens: StudioLensType;
+  populationOnly?: boolean;
   onSelectLens: (lens: StudioLensType) => void;
   compareCohort: StudioCohortSummary | null;
   cohorts: StudioCohortSummary[];
@@ -25,6 +25,7 @@ interface StudioLensSwitcherProps {
 
 export function StudioLensSwitcher({
   activeLens,
+  populationOnly = false,
   onSelectLens,
   compareCohort,
   cohorts,
@@ -42,7 +43,7 @@ export function StudioLensSwitcher({
       >
         {LENS_OPTIONS.map((option) => {
           const selected = activeLens === option.id;
-          const disabled = !option.available;
+          const disabled = !option.available || (populationOnly && option.id !== 'population');
           return (
             <button
               key={option.id}
@@ -51,6 +52,11 @@ export function StudioLensSwitcher({
               aria-disabled={disabled || undefined}
               type="button"
               disabled={disabled}
+              title={
+                populationOnly && disabled
+                  ? 'Saved inputs are explored in Population; import a study to use this view.'
+                  : undefined
+              }
               onClick={() => !disabled && onSelectLens(option.id)}
               className={`inline-flex items-center gap-1.5 rounded-sm px-3 py-1 text-xs transition-colors ${
                 selected

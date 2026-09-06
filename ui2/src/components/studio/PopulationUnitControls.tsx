@@ -6,7 +6,8 @@ import { resolvePopulation } from '@/services/studio/populationContext';
 import { resolvePopulationParticipants } from '@/services/studio/populationParticipants';
 import type { PopulationParticipantDefinition } from '@/types/population';
 
-const control = 'rounded border border-border bg-background px-2 py-1 text-xs text-foreground';
+const control =
+  'w-full min-w-0 max-w-full rounded border border-border bg-background px-2 py-1 text-xs text-foreground';
 export function PopulationUnitControls() {
   const state = useSetStudioStore();
   const [error, setError] = useState<string | null>(null);
@@ -24,14 +25,21 @@ export function PopulationUnitControls() {
     setError((previous) => (previous === null ? previous : null));
   }, [state.population.sessionRevision, state.selection.activeSetId]);
   const definition = state.population.participants;
-  const issue = error ?? selected.issue ?? (participants.identity ? null : participants.issue);
+  const issue =
+    error ??
+    selected.issue ??
+    (state.population.participants?.identity.kind === 'saved' || participants.identity
+      ? null
+      : participants.issue);
   const columns = set ? studioMetadata(set, []).columns : [];
   const mapping = definition?.identity;
   const choice = !mapping
     ? 'none'
     : mapping.kind === 'observationIds'
       ? 'rows'
-      : `column:${mapping.column}`;
+      : mapping.kind === 'saved'
+        ? 'saved'
+        : `column:${mapping.column}`;
   const configure = (next: PopulationParticipantDefinition | null) => {
     const result = populationProbeActions.configureParticipants(next);
     setError(result.ok ? null : result.reason);
@@ -45,10 +53,12 @@ export function PopulationUnitControls() {
         {population.context.memberIds.length} observations
         {participants.identity
           ? ` / ${participants.groups.length} participants`
-          : ' · participant IDs not configured'}
+          : definition?.identity.kind === 'saved'
+            ? ' · saved selection identities'
+            : ' · participant IDs not configured'}
       </summary>
       <div className="mt-2 flex flex-wrap items-center gap-2">
-        <label>
+        <label className="block w-full min-w-0">
           Participant identity{' '}
           <select
             aria-label="Participant identity"
@@ -62,15 +72,18 @@ export function PopulationUnitControls() {
                   : {
                       setId: set.id,
                       identity:
-                        value === 'rows'
-                          ? { kind: 'observationIds' }
-                          : { kind: 'column', column: value.slice(7) },
+                        value === 'saved' && mapping?.kind === 'saved'
+                          ? mapping
+                          : value === 'rows'
+                            ? { kind: 'observationIds' }
+                            : { kind: 'column', column: value.slice(7) },
                       reduction: definition?.reduction ?? 'observations',
                     },
               );
             }}
           >
             <option value="none">Not configured</option>
+            {mapping?.kind === 'saved' && <option value="saved">Saved participant groups</option>}
             <option value="rows">Declare each observation a distinct participant</option>
             {columns.map((column) => (
               <option key={column} value={`column:${column}`}>
@@ -79,7 +92,7 @@ export function PopulationUnitControls() {
             ))}
           </select>
         </label>
-        <label>
+        <label className="block w-full min-w-0">
           Summarize{' '}
           <select
             aria-label="Population analysis unit"
@@ -100,7 +113,7 @@ export function PopulationUnitControls() {
           </select>
         </label>
       </div>
-      {participants.identity && (
+      {selected.identity && (
         <p className="mt-1 text-muted-foreground">
           Working selection: {population.workingMemberIds.length} observations /{' '}
           {selected.groups.length} participants. Focus and gallery continue to identify original

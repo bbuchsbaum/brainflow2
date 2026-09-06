@@ -1,5 +1,4 @@
 import { PopulationExportControls } from './PopulationExportControls';
-import { PopulationMaskControls } from './PopulationMaskControls';
 import { resolvePopulationParticipants } from '@/services/studio/populationParticipants';
 import {
   populationArrangementLabel,
@@ -90,6 +89,16 @@ export function PopulationLens({
   const [showCutouts, setShowCutouts] = useState(false);
   const [cutoutWidth, setCutoutWidth] = useState(32);
   const [cutoutPage, setCutoutPage] = useState(0);
+  useEffect(() => {
+    const restored = studio.population.restoredView;
+    setOrientation(restored?.orientation ?? 'axial');
+    setSummary(restored?.summary ?? 'mean');
+    setZoom(restored?.zoom ?? 1);
+    setWithoutFocused(false);
+    setShowCutouts(false);
+    setCutoutPage(0);
+  }, [studio.population.sessionRevision, studio.population.restoredView]);
+
   const population = useMemo(() => resolvePopulation(studio), [studio]);
   const participants = useMemo(
     () => resolvePopulationParticipants(studio, population.workingMemberIds),
@@ -214,8 +223,14 @@ export function PopulationLens({
       aria-label="Population brain views"
       className="flex min-h-0 flex-col gap-2 rounded-lg border border-border bg-card p-3"
     >
-      <PopulationMaskControls />
-      <PopulationExportControls display={result} current={current && !snapshot.pending} />
+      <details className="text-xs">
+        <summary className="w-fit cursor-pointer rounded border border-border px-2 py-1 text-muted-foreground hover:bg-accent">
+          Save calculation
+        </summary>
+        <div className="pt-2">
+          <PopulationExportControls display={result} current={current && !snapshot.pending} />
+        </div>
+      </details>
       <p className="text-sm font-medium">
         Population ·{' '}
         {studio.features[studio.selection.activeFeatureId ?? '']?.label ?? 'Selected feature'}
@@ -225,6 +240,7 @@ export function PopulationLens({
           Summary{' '}
           <select
             className={control}
+            aria-label="Summary"
             value={summary}
             onChange={(event) => setSummary(event.target.value as PopulationSummary)}
           >
@@ -239,6 +255,7 @@ export function PopulationLens({
           Plane{' '}
           <select
             className={control}
+            aria-label="Plane"
             value={orientation}
             onChange={(event) => setOrientation(event.target.value as PopulationOrientation)}
           >
@@ -251,14 +268,17 @@ export function PopulationLens({
           Zoom{' '}
           <select
             className={control}
+            aria-label="Zoom"
             value={zoom}
             onChange={(event) => setZoom(Number(event.target.value))}
           >
-            {[0.5, 1, 2, 4, 8].map((value) => (
-              <option key={value} value={value}>
-                {value}×
-              </option>
-            ))}
+            {[...new Set([0.5, 1, 2, 4, 8, zoom])]
+              .sort((a, b) => a - b)
+              .map((value) => (
+                <option key={value} value={value}>
+                  {value}×
+                </option>
+              ))}
           </select>
         </label>
         <button
@@ -313,7 +333,15 @@ export function PopulationLens({
         )}
         <button
           className={control}
-          disabled={!studio.selection.activeMemberId}
+          disabled={
+            !studio.selection.activeMemberId ||
+            (previewParticipant && !participants.identity?.has(studio.selection.activeMemberId))
+          }
+          title={
+            previewParticipant && !participants.identity?.has(studio.selection.activeMemberId ?? '')
+              ? 'The focused observation has no saved participant identity.'
+              : undefined
+          }
           onPointerDown={(event) => {
             event.currentTarget.setPointerCapture?.(event.pointerId);
             setWithoutFocused(true);

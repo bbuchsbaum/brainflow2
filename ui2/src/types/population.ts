@@ -1,3 +1,11 @@
+/** Exact source/frame identity carried through every restored image and probe request. */
+export interface PopulationMemberSource {
+  memberId: string;
+  sourcePath: string;
+  stackIndex?: number;
+  expectedSha256?: string;
+}
+
 /** Common binary support; physical grid is validated by native sampling. */
 export interface PopulationMask {
   readonly sourcePath: string;
@@ -8,7 +16,11 @@ export interface PopulationParticipantDefinition {
   readonly setId: string;
   readonly identity:
     | { readonly kind: 'observationIds' }
-    | { readonly kind: 'column'; readonly column: string };
+    | { readonly kind: 'column'; readonly column: string }
+    | {
+        readonly kind: 'saved';
+        readonly groups: readonly { participantId: string; memberIds: readonly string[] }[];
+      };
   /** observations retains equal row weighting; single rejects repeated selected
    * rows; mean gives each participant equal weight after averaging selected rows. */
   readonly reduction: 'observations' | 'single' | 'mean';
@@ -46,6 +58,15 @@ export interface PopulationRelationship {
 }
 
 export interface PopulationState {
+  /** Applied once on restore; subsequent exploration is ordinary live state. */
+  readonly restoredView?: {
+    orientation: 'axial' | 'coronal' | 'sagittal';
+    summary: 'mean' | 'sampleSd' | 'meanAbsolute' | 'cancellation' | 'coverage';
+    zoom: number;
+    effectLimit?: number;
+    summaryLimit?: number;
+  };
+
   readonly mask: (PopulationMask & { readonly setId: string }) | null;
   readonly participants: PopulationParticipantDefinition | null;
   /** In-memory import generation; distinct from a file/content revision. */

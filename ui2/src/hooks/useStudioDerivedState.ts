@@ -75,11 +75,11 @@ export function computeStudioDerivedSnapshot(input: StudioDerivedSnapshotInput) 
     activeDesignFilters,
   } = input;
 
-  const activeSet = activeSetId ? sets[activeSetId] ?? null : null;
-  const activeFeature = activeFeatureId ? features[activeFeatureId] ?? null : null;
-  const compareCohort = compareCohortId ? cohorts[compareCohortId] ?? null : null;
-  const scopeCohort = activeScopeCohortId ? cohorts[activeScopeCohortId] ?? null : null;
-  const activeExpression = activeExpressionId ? expressions[activeExpressionId] ?? null : null;
+  const activeSet = activeSetId ? (sets[activeSetId] ?? null) : null;
+  const activeFeature = activeFeatureId ? (features[activeFeatureId] ?? null) : null;
+  const compareCohort = compareCohortId ? (cohorts[compareCohortId] ?? null) : null;
+  const scopeCohort = activeScopeCohortId ? (cohorts[activeScopeCohortId] ?? null) : null;
+  const activeExpression = activeExpressionId ? (expressions[activeExpressionId] ?? null) : null;
   const activeMember =
     activeSet?.memberSummaries.find((member) => member.id === activeMemberId) ?? null;
   const cohortList =
@@ -152,17 +152,15 @@ export function computeStudioDerivedSnapshot(input: StudioDerivedSnapshotInput) 
     }
 
     const rows = searchFilteredMemberIds
-      .map(id => metadata.rows.get(id))
-      .filter(row => row !== undefined);
+      .map((id) => metadata.rows.get(id))
+      .filter((row) => row !== undefined);
     return metadata.columns
       .slice(0, 4)
       .map((column) => {
         const values = Array.from(
           new Set(
-            rows
-              .map((row) => row[column])
-              .filter((value): value is string => Boolean(value))
-          )
+            rows.map((row) => row[column]).filter((value): value is string => Boolean(value)),
+          ),
         ).slice(0, 6);
 
         return { column, values };
@@ -170,7 +168,9 @@ export function computeStudioDerivedSnapshot(input: StudioDerivedSnapshotInput) 
       .filter((option) => option.values.length > 0);
   })();
 
-  const activeFilterLabels = activeDesignFilters.map((filter) => `${filter.column}=${filter.value}`);
+  const activeFilterLabels = activeDesignFilters.map(
+    (filter) => `${filter.column}=${filter.value}`,
+  );
   const sortLabel = sortColumn ? `${sortColumn} ${sortDirection}` : null;
 
   return {
@@ -289,7 +289,7 @@ export function useStudioDerivedState() {
       sortColumn,
       sortDirection,
       activeDesignFilters,
-    ]
+    ],
   );
 }
 
@@ -298,6 +298,14 @@ export function deriveWorkspaceReadiness(activeSet: SpatialFieldSetSummary | nul
     return null;
   }
 
+  if (activeSet.savedPopulation)
+    return {
+      state: 'ready' as const,
+      eyebrow: 'Population ready',
+      title: 'Saved inputs verified',
+      message: 'Explore the saved selection and original observations in Population.',
+      className: 'border-border bg-card text-foreground',
+    };
   const readiness = setImportReadiness(activeSet);
 
   if (readiness === 'compare_ready') {
@@ -327,9 +335,7 @@ export function deriveWorkspaceReadiness(activeSet: SpatialFieldSetSummary | nul
       state: 'blocked' as const,
       eyebrow: 'Import Blocked',
       title: 'Fix import errors before relying on this set',
-      message:
-        activeSet.importContract?.reason ??
-        'The import contract marks this set as blocked.',
+      message: activeSet.importContract?.reason ?? 'The import contract marks this set as blocked.',
       className: 'border-rose-500/30 bg-rose-500/10 text-foreground',
     };
   }
@@ -344,10 +350,7 @@ export function deriveWorkspaceReadiness(activeSet: SpatialFieldSetSummary | nul
   };
 }
 
-export function buildSubsetCohortLabel(
-  filters: StudioDesignFilter[],
-  search: string
-): string {
+export function buildSubsetCohortLabel(filters: StudioDesignFilter[], search: string): string {
   const parts = [
     ...filters.map((filter) => `${filter.column}=${filter.value}`),
     ...(search.trim() ? [`search ${search.trim()}`] : []),
@@ -361,10 +364,12 @@ export function buildSubsetCohortLabel(
 export function buildSubsetCohortDescription(
   filters: StudioDesignFilter[],
   search: string,
-  scopeLabel: string | null
+  scopeLabel: string | null,
 ): string {
   const clauses = [
-    filters.length > 0 ? `filters ${filters.map((filter) => `${filter.column}=${filter.value}`).join(', ')}` : null,
+    filters.length > 0
+      ? `filters ${filters.map((filter) => `${filter.column}=${filter.value}`).join(', ')}`
+      : null,
     search.trim() ? `search "${search.trim()}"` : null,
     scopeLabel ? `scoped within ${scopeLabel}` : null,
   ].filter(Boolean);
@@ -377,7 +382,7 @@ export function buildSubsetCohortDescription(
 export function buildSubsetOriginLabel(
   filters: StudioDesignFilter[],
   search: string,
-  scopeLabel: string | null
+  scopeLabel: string | null,
 ): string {
   const parts = [
     ...filters.map((filter) => `${filter.column}=${filter.value}`),

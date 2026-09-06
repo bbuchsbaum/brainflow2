@@ -38,7 +38,13 @@ export function SetStudioWorkspace() {
         <StudioImportDialog />
         <StudioToolbar
           setName={activeSet.name}
-          dataStateLabel={activeSet.sourceKind === 'demo' ? 'Demo data' : 'Imported'}
+          dataStateLabel={
+            activeSet.savedPopulation
+              ? 'Saved calculation'
+              : activeSet.sourceKind === 'demo'
+                ? 'Demo data'
+                : 'Imported'
+          }
         />
         <StudioAuditBanner activeSet={activeSet} readiness={workspaceReadiness} />
 

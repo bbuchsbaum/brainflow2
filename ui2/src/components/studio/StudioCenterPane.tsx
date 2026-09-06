@@ -1,4 +1,3 @@
-import { PopulationUnitControls } from './PopulationUnitControls';
 import { PopulationProbeController } from '@/services/studio/PopulationProbeController';
 import { useCallback, useState } from 'react';
 import { getStudioDisplayService } from '@/services/studio/StudioDisplayService';
@@ -115,10 +114,10 @@ export function StudioCenterPane() {
         scopeCohort,
         activeMemberId,
         activeExpressionId,
-      })
+      }),
     );
 
-    const sourcePath = pane.binding?.ready ? pane.binding.sourcePath?.trim() ?? null : null;
+    const sourcePath = pane.binding?.ready ? (pane.binding.sourcePath?.trim() ?? null) : null;
     if (!sourcePath) {
       return;
     }
@@ -135,7 +134,7 @@ export function StudioCenterPane() {
         scopeCohort,
         activeMemberId,
         activeExpressionId,
-      })
+      }),
     );
   };
 
@@ -150,7 +149,7 @@ export function StudioCenterPane() {
           scopeCohort,
           activeMemberId,
           activeExpressionId,
-        })
+        }),
       );
       return;
     }
@@ -162,7 +161,7 @@ export function StudioCenterPane() {
         activeFeatureLabel: activeFeature?.label ?? null,
         scopeCohort,
         activeExpressionId,
-      })
+      }),
     );
   };
 
@@ -181,7 +180,7 @@ export function StudioCenterPane() {
   const handleOpenCompareView = () => {
     const currentSourcePath = activeMember?.sourcePath?.trim() ?? '';
     const compareSourcePath =
-      activeArtifact?.lens === 'compare' ? activeArtifact.sourcePath?.trim() ?? '' : '';
+      activeArtifact?.lens === 'compare' ? (activeArtifact.sourcePath?.trim() ?? '') : '';
     if (!currentSourcePath || !compareSourcePath) {
       return;
     }
@@ -219,13 +218,12 @@ export function StudioCenterPane() {
     <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto">
       <StudioLensSwitcher
         activeLens={activeLens}
+        populationOnly={!!activeSet?.savedPopulation}
         onSelectLens={setActiveLens}
         compareCohort={compareCohort}
         cohorts={cohortList}
         onSelectCompareCohort={setCompareCohort}
       />
-
-      {activeLens === 'population' && <PopulationUnitControls />}
 
       <div className={activeLens === 'population' ? 'shrink-0' : 'min-h-[480px] flex-1'}>
         <LensCanvas

@@ -12950,6 +12950,21 @@ async fn replay_population_summary(
     .await
 }
 
+/// Reopen a saved descriptive calculation after verifying its bundle and inputs.
+#[command]
+async fn open_population_summary(
+    provenance_path: String,
+    ticket: Option<SampleTicket>,
+    state: State<'_, BridgeState>,
+) -> BridgeResult<population_slice::replay::OpenedCalculation> {
+    let cancellation = ticket
+        .as_ref()
+        .map(|ticket| state.population_sampling.begin(ticket))
+        .transpose()?
+        .unwrap_or_default();
+    population_slice::replay::open(provenance_path, state.inner(), cancellation).await
+}
+
 /// Release the plane matrix owned by a particular mounted population view.
 #[command]
 async fn release_population_slice(

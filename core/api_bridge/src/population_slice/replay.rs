@@ -150,12 +150,10 @@ fn read_record(path: &Path, token: &SampleCancellation) -> BridgeResult<(Record,
     Ok((record, format!("{:x}", Sha256::digest(bytes))))
 }
 
-pub async fn replay(
+async fn verified_bundle(
     provenance_path: String,
-    destination_directory: String,
-    state: &BridgeState,
     token: SampleCancellation,
-) -> BridgeResult<ExportResult> {
+) -> BridgeResult<(Record, ReplayProof, Arc<tokio::sync::OwnedSemaphorePermit>)> {
     static ADMISSION: std::sync::OnceLock<Arc<tokio::sync::Semaphore>> = std::sync::OnceLock::new();
     let admission = Arc::clone(ADMISSION.get_or_init(|| Arc::new(tokio::sync::Semaphore::new(1))));
     let permit = tokio::select! {
@@ -204,6 +202,25 @@ pub async fn replay(
     let sources = serde_json::to_value(&record.sources).map_err(|e| input(e.to_string()))?;
     let mask_revision =
         serde_json::to_value(&record.mask_revision).map_err(|e| input(e.to_string()))?;
+    let proof = ReplayProof {
+        artifacts,
+        grid: record.grid.clone(),
+        sources,
+        mask_revision,
+        record_path: provenance_path,
+        record_sha256,
+        guard,
+    };
+    Ok((record, proof, _permit))
+}
+
+pub async fn replay(
+    provenance_path: String,
+    destination_directory: String,
+    state: &BridgeState,
+    token: SampleCancellation,
+) -> BridgeResult<ExportResult> {
+    let (record, proof, _permit) = verified_bundle(provenance_path, token.clone()).await?;
     export_checked(
         ExportRequest {
             population: record.calculation,
@@ -212,15 +229,56 @@ pub async fn replay(
         },
         state,
         token,
-        Some(ReplayProof {
-            artifacts,
-            grid: record.grid,
-            sources,
-            mask_revision,
-            record_path: provenance_path,
-            record_sha256,
-            guard,
-        }),
+        Some(proof),
     )
     .await
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OpenedCalculation {
+    pub record_path: String,
+    pub record_sha256: String,
+    pub calculation: PopulationSliceRequest,
+    pub context: serde_json::Value,
+}
+
+/// Validate original inputs and bundle integrity without creating output files.
+/// This is source verification, not a claim of full artifact recalculation.
+pub async fn open(
+    provenance_path: String,
+    state: &BridgeState,
+    token: SampleCancellation,
+) -> BridgeResult<OpenedCalculation> {
+    let (record, proof, _permit) = verified_bundle(provenance_path, token.clone()).await?;
+    let mut query = record.calculation.clone();
+    query.dim_px = [1, 1];
+    query.cutouts = None;
+    // Own a short-lived plane instead of displacing the live lens cache. Sampling
+    // checks every source hash, frame and physical grid even outside the mask.
+    let plane = build_plane(String::new(), &query, state, &token).await?;
+    let affine = plane.plan.affine;
+    let grid = serde_json::json!({
+        "dimensions": plane.plan.dimensions,
+        "voxelToWorld": (0..4).map(|r| (0..4).map(|c| affine[(r,c)]).collect::<Vec<_>>()).collect::<Vec<_>>(),
+        "spatialUnits": "mm"
+    });
+    if grid != proof.grid
+        || serde_json::to_value(&plane.sources).map_err(|e| input(e.to_string()))? != proof.sources
+        || serde_json::to_value(&plane.mask_revision).map_err(|e| input(e.to_string()))?
+            != proof.mask_revision
+    {
+        return Err(input(
+            "Saved grid or source identities differ from the verified inputs.",
+        ));
+    }
+    plane.guard.validate(token.clone()).await?;
+    proof.guard.validate(token.clone()).await?;
+    token.check()?;
+    Ok(OpenedCalculation {
+        record_path: proof.record_path,
+        record_sha256: proof.record_sha256,
+        calculation: record.calculation,
+        context: record.context,
+    })
 }

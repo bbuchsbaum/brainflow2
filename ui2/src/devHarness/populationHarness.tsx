@@ -1,5 +1,8 @@
-import { setTransport } from '@/services/transport';
 import { PopulationUnitControls } from '@/components/studio/PopulationUnitControls';
+import { setTransport } from '@/services/transport';
+import { PopulationInspector } from '@/components/studio/PopulationInspector';
+import { StudioToolbar } from '@/components/studio/StudioToolbar';
+import { StudioLensSwitcher } from '@/components/studio/StudioLensSwitcher';
 import { DesignPane } from '@/components/studio/DesignPane';
 import { useStudioDerivedState } from '@/hooks/useStudioDerivedState';
 /* eslint-disable react-refresh/only-export-components -- isolated dev-only visual entry */
@@ -28,6 +31,42 @@ if (maskMode || exportMode)
         )
       )
         return '/synthetic/export/population-demo/provenance.json' as T;
+      if (command === 'open_population_summary') {
+        if (new URLSearchParams(location.search).has('open-error'))
+          throw new Error('Saved source hash changed. Original population preserved.');
+        return {
+          recordPath: '/synthetic/export/population-demo/provenance.json',
+          recordSha256: 'c'.repeat(64),
+          calculation: {
+            contextKey: 'saved',
+            members: ids.map((memberId, i) => ({
+              memberId,
+              sourcePath: `/synthetic/${memberId}.nii`,
+              stackIndex: i === 0 ? 1 : null,
+              expectedSha256: fakeHash,
+            })),
+            workingMemberIds: ids.slice(0, 40),
+            focusMemberId: 'S042',
+            crosshairMm: [-5, 0, 0],
+            orientation: 'coronal',
+            dimPx: [10, 10],
+            zoom: 1.5,
+            summary: 'mean',
+            aggregation: {
+              within: 'mean',
+              groups: [{ participantId: 'P001', memberIds: ids.slice(0, 40) }],
+            },
+            mask: { sourcePath: '/synthetic/left-half-mask.nii', expectedSha256: fakeMaskHash },
+          },
+          context: {
+            datasetName: 'Saved population',
+            featureLabel: 'Saved contrast',
+            metadata: Object.fromEntries(ids.slice(0, 40).map((id, i) => [id, metadataFor(id, i)])),
+            displayScale: { effectLimit: 6, summaryLimit: 6 },
+            selectionContext: { pinnedProbe: { worldMm: [-5, 0, 0], radiusMm: 0, reduce: 'mean' } },
+          },
+        } as T;
+      }
       if (command === 'replay_population_summary') {
         window.dispatchEvent(new CustomEvent('synthetic-replay', { detail: args }));
         return {
@@ -251,8 +290,9 @@ function Harness() {
     };
   }, []);
   const focus = useSetStudioStore((state) => state.selection.activeMemberId);
+  const active = useSetStudioStore((state) => state.sets[state.selection.activeSetId ?? '']);
   return (
-    <main className="mx-auto h-screen max-w-5xl overflow-y-auto p-5 text-foreground">
+    <main className="mx-auto min-h-screen max-w-[1440px] p-3 text-foreground">
       <h1 className="mb-2 text-lg font-medium">Population probe interaction harness</h1>
       <p className="mb-5 text-sm text-muted-foreground">
         80 synthetic observations: forty +3, forty −1. The ellipse images and sampled values are
@@ -263,9 +303,27 @@ function Harness() {
       <div className="mb-3 rounded border border-border bg-card p-4 text-sm">
         Focused observation: <span data-testid="fixture-focus">{focus}</span>
       </div>
-      <PopulationUnitControls />
-      <PopulationLens service={slices} probeController={controller} />
-      <PopulationProbePanel controller={controller} />
+      <StudioToolbar
+        setName={active?.name ?? 'Population'}
+        dataStateLabel={active?.savedPopulation ? 'Saved calculation' : 'Synthetic fixture'}
+      />
+      <div className="grid min-w-0 grid-cols-1 gap-3 pt-3 lg:grid-cols-[minmax(0,1fr)_300px]">
+        <div className="min-w-0 space-y-3">
+          <StudioLensSwitcher
+            activeLens="population"
+            populationOnly={!!active?.savedPopulation}
+            onSelectLens={() => {}}
+            compareCohort={null}
+            cohorts={[]}
+            onSelectCompareCohort={() => {}}
+          />
+          <PopulationLens service={slices} probeController={controller} />
+          <PopulationProbePanel controller={controller} />
+        </div>
+        <aside className="min-w-0 border-l border-border" aria-label="Inspector">
+          <PopulationInspector />
+        </aside>
+      </div>
       {exportMode && replayed != null && (
         <pre
           data-testid="synthetic-replay-receipt"

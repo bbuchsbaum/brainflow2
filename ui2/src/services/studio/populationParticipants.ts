@@ -24,6 +24,26 @@ export function participantIdentity(
   if (new Set(ids).size !== ids.length || ids.some((id) => !id.trim() || id !== id.trim()))
     throw new Error('Participant identity requires unique observation IDs.');
   if (definition.identity.kind === 'observationIds') return new Map(ids.map((id) => [id, id]));
+  if (definition.identity.kind === 'saved') {
+    const identity = new Map<string, string>();
+    const participants = new Set<string>();
+    for (const group of definition.identity.groups) {
+      if (
+        !group.participantId.trim() ||
+        group.participantId !== group.participantId.trim() ||
+        participants.has(group.participantId) ||
+        !group.memberIds.length
+      )
+        throw new Error('Saved participant groups are invalid.');
+      participants.add(group.participantId);
+      for (const id of group.memberIds) {
+        if (!ids.includes(id) || identity.has(id))
+          throw new Error('Saved participant groups contain duplicate or unknown observations.');
+        identity.set(id, group.participantId);
+      }
+    }
+    return identity;
+  }
   const metadata = studioMetadata(set);
   if (metadata.issue) throw new Error(metadata.issue);
   const column = definition.identity.column;
@@ -52,7 +72,10 @@ export function groupParticipantMembers(
   const groups = new Map<string, string[]>();
   for (const id of members) {
     const participant = identity.get(id);
-    if (!participant) throw new Error(`Observation ${id} has no declared participant identity.`);
+    if (!participant)
+      throw new Error(
+        `Observation ${id} has no saved participant identity. Configure participant IDs before including it in a participant summary.`,
+      );
     const group = groups.get(participant) ?? [];
     if (group.includes(id)) throw new Error('Participant groups require unique observation IDs.');
     group.push(id);

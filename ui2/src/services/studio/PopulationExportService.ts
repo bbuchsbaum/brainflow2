@@ -45,6 +45,12 @@ export function freezePopulationExport(display: PopulationSliceDisplay) {
   return structuredClone({
     population: { ...request, members, mask },
     context: {
+      openedFrom: set.savedPopulation
+        ? {
+            recordPath: set.savedPopulation.recordPath,
+            recordSha256: set.savedPopulation.recordSha256,
+          }
+        : null,
       datasetId: set.id,
       datasetName: set.name,
       featureId: feature.id,
@@ -65,7 +71,7 @@ export function freezePopulationExport(display: PopulationSliceDisplay) {
     },
   });
 }
-async function invokeCancelable<T>(
+export async function invokeCancelable<T>(
   command: string,
   args: Record<string, unknown>,
   signal: AbortSignal,

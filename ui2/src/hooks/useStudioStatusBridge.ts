@@ -1,3 +1,4 @@
+import { resolvePopulation } from '@/services/studio/populationContext';
 import { useEffect, useRef } from 'react';
 import { useAppModeStore } from '@/stores/appModeStore';
 import { useSetStudioStore } from '@/stores/setStudioStore';
@@ -7,13 +8,19 @@ export function useStudioStatusBridge() {
   const appMode = useAppModeStore((state) => state.mode);
   const studioSetName = useSetStudioStore((state) => {
     const setId = state.selection.activeSetId;
-    return setId ? state.sets[setId]?.name ?? 'Set Studio' : 'Set Studio';
+    return setId ? (state.sets[setId]?.name ?? 'Set Studio') : 'Set Studio';
   });
   const studioSetMemberCount = useSetStudioStore((state) => {
     const setId = state.selection.activeSetId;
-    return setId ? state.sets[setId]?.memberCount ?? 0 : 0;
+    return setId ? (state.sets[setId]?.memberCount ?? 0) : 0;
   });
   const studioLens = useSetStudioStore((state) => state.selection.activeLens);
+  const selectedCount = useSetStudioStore(
+    (state) => resolvePopulation(state).workingMemberIds.length,
+  );
+  const savedCalculation = useSetStudioStore(
+    (state) => !!state.sets[state.selection.activeSetId ?? '']?.savedPopulation,
+  );
   const activeMemberLabel = useSetStudioStore((state) => {
     const setId = state.selection.activeSetId;
     const memberId = state.selection.activeMemberId;
@@ -26,11 +33,11 @@ export function useStudioStatusBridge() {
   });
   const studioFeatureLabel = useSetStudioStore((state) => {
     const featureId = state.selection.activeFeatureId;
-    return featureId ? state.features[featureId]?.label ?? '—' : '—';
+    return featureId ? (state.features[featureId]?.label ?? '—') : '—';
   });
   const studioSourceKind = useSetStudioStore((state) => {
     const setId = state.selection.activeSetId;
-    return setId ? state.sets[setId]?.sourceKind ?? null : null;
+    return setId ? (state.sets[setId]?.sourceKind ?? null) : null;
   });
   const materializationLabel = useSetStudioStore((state) => {
     const m = state.materialization;
@@ -63,9 +70,17 @@ export function useStudioStatusBridge() {
       statusStore.setBatch([
         ['coordSys', 'Studio'],
         ['crosshair', studioSetName],
-        ['mouse', `${studioLens === 'deck' ? 'Browse' : 'Compare'} · ${studioSetMemberCount} members${activeMemberLabel ? ` · ${activeMemberLabel}` : ''}`],
+        [
+          'mouse',
+          `${studioLens === 'population' ? 'Population' : studioLens === 'deck' ? 'Browse' : 'Compare'} · ${studioSetMemberCount} members${activeMemberLabel ? ` · ${activeMemberLabel}` : ''}`,
+        ],
         ['layer', `Feature ${studioFeatureLabel}`],
-        ['atlas', `${studioSourceKind === 'demo' ? 'Demo' : 'Imported'} · ${materializationLabel}`],
+        [
+          'atlas',
+          studioLens === 'population'
+            ? `${selectedCount} selected · ${savedCalculation ? 'Saved inputs' : 'Live summary'}`
+            : `${studioSourceKind === 'demo' ? 'Demo' : 'Imported'} · ${materializationLabel}`,
+        ],
       ]);
       return;
     }
@@ -93,5 +108,7 @@ export function useStudioStatusBridge() {
     studioSetMemberCount,
     studioSetName,
     studioSourceKind,
+    selectedCount,
+    savedCalculation,
   ]);
 }

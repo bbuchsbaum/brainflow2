@@ -1,3 +1,4 @@
+import type { PopulationState } from '@/types/population';
 import { create } from 'zustand';
 import type {
   StudioArtifactSummary,
@@ -33,6 +34,7 @@ import {
 } from './setStudio/populationSlice';
 
 interface StudioBootstrapPayload {
+  population?: Partial<Omit<PopulationState, 'sessionRevision'>>;
   set: SpatialFieldSetSummary;
   features: StudioFeatureSummary[];
   cohorts: StudioCohortSummary[];
@@ -42,7 +44,9 @@ interface StudioBootstrapPayload {
 }
 
 interface SetStudioStoreState
-  extends SetStudioImportSlice, SetStudioMaterializationSlice, PopulationSlice {
+  extends SetStudioImportSlice,
+    SetStudioMaterializationSlice,
+    PopulationSlice {
   sets: Record<string, SpatialFieldSetSummary>;
   features: Record<string, StudioFeatureSummary>;
   cohorts: Record<string, StudioCohortSummary>;
@@ -354,7 +358,11 @@ export const useSetStudioStore = create<SetStudioStoreState>((set, get) => ({
       null;
 
     set({
-      population: initialPopulationState(get().population.sessionRevision + 1),
+      population: {
+        ...initialPopulationState(get().population.sessionRevision + 1),
+        ...structuredClone(payload.population ?? {}),
+        sessionRevision: get().population.sessionRevision + 1,
+      },
       sets: {
         ...get().sets,
         [payload.set.id]: payload.set,
@@ -380,10 +388,9 @@ export const useSetStudioStore = create<SetStudioStoreState>((set, get) => ({
         activeFeatureId,
         activeLens: payload.selection?.activeLens ?? 'deck',
         activeMemberId:
-          payload.selection?.activeMemberId ??
-          payload.set.memberIds[2] ??
-          payload.set.memberIds[0] ??
-          null,
+          payload.selection?.activeMemberId !== undefined
+            ? payload.selection.activeMemberId
+            : (payload.set.memberIds[2] ?? payload.set.memberIds[0] ?? null),
         compareCohortId:
           payload.selection?.compareCohortId ?? payload.set.savedCohortIds[0] ?? null,
         activeScopeCohortId: payload.selection?.activeScopeCohortId ?? null,

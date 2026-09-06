@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-open-population-summary"
+description = "Enables the open_population_summary command without any pre-configured scope."
+commands.allow = ["open_population_summary"]
+
+[[permission]]
+identifier = "deny-open-population-summary"
+description = "Denies the open_population_summary command without any pre-configured scope."
+commands.deny = ["open_population_summary"]

@@ -1,3 +1,4 @@
+import type { PopulationMemberSource } from './population';
 import type {
   SpatialFieldSetSummary as BackendSpatialFieldSetSummary,
   StudioAlignmentClass,
@@ -93,6 +94,14 @@ export interface StudioDesignFilter {
 }
 
 export type SpatialFieldSetSummary = BackendSpatialFieldSetSummary & {
+  /** Native verified saved inputs; deliberately unavailable to legacy compare materialization. */
+  savedPopulation?: {
+    featureId: string;
+    recordPath: string;
+    recordSha256: string;
+    members: PopulationMemberSource[];
+    notices: string[];
+  };
   sourceKind?: StudioSessionSourceKind;
   importContract?: StudioImportContract | null;
 };

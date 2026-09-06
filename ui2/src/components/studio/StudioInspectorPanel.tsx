@@ -1,3 +1,4 @@
+import { PopulationInspector } from './PopulationInspector';
 import { getEventBus } from '@/events/EventBus';
 import { getStudioDisplayService } from '@/services/studio/StudioDisplayService';
 import { getConfirmationService } from '@/services/ConfirmationService';
@@ -9,6 +10,7 @@ import { InspectorPane } from './InspectorPane';
 export function StudioInspectorPanel() {
   const {
     activeSet,
+    activeLens,
     activeMemberId,
     activeMember,
     compareCohort,
@@ -52,14 +54,15 @@ export function StudioInspectorPanel() {
   };
 
   const renameRecipe = async (recipe: StudioSavedRecipeSummary) => {
-    const nextTitle = (
-      await getConfirmationService().prompt({
-        title: 'Rename Saved Recipe',
-        message: `Rename saved recipe "${recipe.title}" to:`,
-        defaultValue: recipe.title,
-        confirmLabel: 'Rename',
-      })
-    )?.trim() ?? '';
+    const nextTitle =
+      (
+        await getConfirmationService().prompt({
+          title: 'Rename Saved Recipe',
+          message: `Rename saved recipe "${recipe.title}" to:`,
+          defaultValue: recipe.title,
+          confirmLabel: 'Rename',
+        })
+      )?.trim() ?? '';
     if (!nextTitle || nextTitle === recipe.title) {
       return;
     }
@@ -88,6 +91,8 @@ export function StudioInspectorPanel() {
       message: `Deleted saved recipe ${recipe.title}.`,
     });
   };
+
+  if (activeLens === 'population') return <PopulationInspector />;
 
   return (
     <InspectorPane

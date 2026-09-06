@@ -1,4 +1,4 @@
-import type { PopulationMask } from '@/types/population';
+import type { PopulationMask, PopulationMemberSource } from '@/types/population';
 import { studioMetadata } from './studioMetadata';
 import {
   arrangePopulationResponses,
@@ -148,7 +148,10 @@ export function buildPopulationSource(
   if (!set) return { source: null, issue: null };
   const context = resolvePopulationContext(state);
   if (context.issue) return { source: null, issue: context.issue };
-  if (set.supportKind !== 'volume' || setImportReadiness(set) !== 'compare_ready') {
+  if (
+    set.supportKind !== 'volume' ||
+    (!set.savedPopulation && setImportReadiness(set) !== 'compare_ready')
+  ) {
     return {
       source: null,
       issue: 'Population probes require volume observations with an audited common support.',
@@ -165,8 +168,27 @@ export function buildPopulationSource(
           : {}),
       }
     : null;
-  const members: { memberId: string; sourcePath: string }[] = [];
+  const members: PopulationMemberSource[] = [];
   for (const id of context.memberIds) {
+    if (set.savedPopulation) {
+      const saved = set.savedPopulation;
+      const matches = saved.members.filter((member) => member.memberId === id);
+      if (
+        saved.featureId !== state.selection.activeFeatureId ||
+        matches.length !== 1 ||
+        !matches[0].sourcePath.trim() ||
+        !/^[a-f0-9]{64}$/i.test(matches[0].expectedSha256 ?? '') ||
+        (matches[0].stackIndex != null &&
+          (!Number.isSafeInteger(matches[0].stackIndex) || matches[0].stackIndex < 0))
+      )
+        return {
+          source: null,
+          issue: 'Saved population source bindings are incomplete or invalid.',
+        };
+      members.push({ ...matches[0] });
+      continue;
+    }
+
     const summaries = set.memberSummaries.filter((candidate) => candidate.id === id);
     if (summaries.length !== 1)
       return { source: null, issue: `Observation ${id} requires exactly one source record.` };
