@@ -59,11 +59,12 @@ export interface PopulationRelationship {
 
 export interface PopulationOrder {
   readonly featureId: string;
-  readonly rule: 'response';
+  readonly rule: 'response' | 'similarity';
+  readonly fitId?: string;
   readonly orderedIds: readonly string[];
   readonly unavailableIds: readonly string[];
   readonly label: string;
-  readonly probe: PopulationProbe;
+  readonly probe: PopulationProbe | null;
   readonly bindings: readonly PopulationMemberSource[];
   readonly mask: PopulationMask | null;
   readonly tieRule: 'source';
@@ -86,7 +87,8 @@ export interface PopulationPartition {
     value: string | null;
     memberIds: readonly string[];
   }[];
-  readonly origin: 'metadata';
+  readonly origin: 'metadata' | 'map-derived';
+  readonly fitId?: string;
 }
 
 export interface PopulationState {

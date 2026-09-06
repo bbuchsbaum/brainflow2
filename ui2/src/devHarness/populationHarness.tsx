@@ -32,6 +32,59 @@ if (maskMode || exportMode)
         )
       )
         return '/synthetic/export/population-demo/provenance.json' as T;
+      if (command === 'fit_population_relationship') {
+        const request = args!
+          .request as import('@/services/studio/PopulationRelationshipService').RelationshipRequest;
+        if (request.distance === 'pattern-shape')
+          throw new Error('S001 is constant on common support; pattern shape is undefined.');
+        const members = request.members.map((m) => ({ ...m, expectedSha256: fakeHash })),
+          n = members.length;
+        const values = members.map((m) => (ids.indexOf(m.memberId) < 40 ? 3 : -1)),
+          mean = values.reduce((a, b) => a + b, 0) / n;
+        const merges: { left: number; right: number; distance: number; count: number }[] = [];
+        const roots: number[] = [];
+        for (const value of [3, -1]) {
+          const positions = values.flatMap((v, i) => (v === value ? [i] : []));
+          let root = positions[0];
+          for (let j = 1; j < positions.length; j++) {
+            merges.push({ left: root, right: positions[j], distance: 0, count: j + 1 });
+            root = n + merges.length - 1;
+          }
+          roots.push(root);
+        }
+        merges.push({ left: roots[0], right: roots[1], distance: 4, count: n });
+        return {
+          fitId: (request.region ? 'e' : 'd').repeat(64),
+          request: {
+            ...request,
+            members,
+            mask: request.mask ? { ...request.mask, expectedSha256: fakeMaskHash } : null,
+          },
+          supportSha256: 'f'.repeat(64),
+          candidateVoxels: 100,
+          commonVoxels: 90,
+          finiteCounts: Array(n).fill(95),
+          dimensions: [5, 5, 4],
+          affine: [
+            [1, 0, 0, 0],
+            [0, 1, 0, 0],
+            [0, 0, 1, 0],
+            [0, 0, 0, 1],
+          ],
+          geometry: {
+            coordinates: values.map((v) => [v - mean, 0]),
+            distances: values.map((v) => values.map((w) => Math.abs(v - w))),
+            eigenvalues: [
+              values.reduce((sum, v) => sum + (v - mean) ** 2, 0),
+              ...Array(n - 1).fill(0),
+            ],
+            explainedFraction: 1,
+            stress: 0,
+            orderable: true,
+            merges,
+          },
+        } as T;
+      }
       if (command === 'open_population_summary') {
         if (new URLSearchParams(location.search).has('roundtrip') && savedReceipt)
           return {

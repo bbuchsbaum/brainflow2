@@ -1,3 +1,5 @@
+import { PopulationRelationshipPanel } from './PopulationRelationshipPanel';
+import { populationRelationshipService } from '@/services/studio/PopulationRelationshipService';
 import { PopulationGroupViews } from './PopulationGroupViews';
 import { PopulationSelectionRange } from './PopulationSelectionRange';
 import { PopulationNavigation } from './PopulationNavigation';
@@ -59,6 +61,10 @@ export function PopulationLens({
   const crosshair = useViewStateStore((state) => state.viewState.crosshair);
   const [service] = useState(() => supplied ?? new PopulationSliceService());
   const snapshot = useSyncExternalStore(service.subscribe, service.getSnapshot);
+  const relationshipSnapshot = useSyncExternalStore(
+    populationRelationshipService.subscribe,
+    populationRelationshipService.getSnapshot,
+  );
   const probeSnapshot = useSyncExternalStore(
     probeController?.subscribe ?? noProbeSubscription,
     probeController?.getSnapshot ?? noProbeSnapshot,
@@ -146,6 +152,17 @@ export function PopulationLens({
     presentation.order.orderedIds.every((id) => population.context.memberIds.includes(id))
       ? presentation.order
       : null;
+  const savedOrderLabel = savedOrder
+    ? `${savedOrder.label}${
+        savedOrder.rule !== 'similarity'
+          ? ''
+          : savedOrder.fitId !== relationshipSnapshot.fit?.fitId
+            ? ' · earlier fit'
+            : relationshipSnapshot.stale
+              ? ' · inputs changed'
+              : ''
+      }`
+    : undefined;
   const orderedIds = useMemo(
     () => savedOrder?.orderedIds ?? arrangement?.orderedIds ?? population.context.memberIds,
     [savedOrder, arrangement, population.context.memberIds],
@@ -268,6 +285,13 @@ export function PopulationLens({
     return () => observer.disconnect();
   }, []);
   const result = snapshot.displayed;
+  useEffect(() => {
+    if (result)
+      populationRelationshipService.observeSources(
+        result.data.sources,
+        result.data.maskRevision?.sha256,
+      );
+  }, [result]);
   const orderSourceStatus =
     arrangement && result
       ? populationOrderSourceStatus(
@@ -497,6 +521,7 @@ export function PopulationLens({
           {issue}
         </p>
       )}
+      <PopulationRelationshipPanel />
       <PopulationNavigation
         ids={navigationIds}
         focusedId={studio.selection.activeMemberId}
@@ -505,13 +530,19 @@ export function PopulationLens({
         scope={`${workspaceId}:${studio.population.sessionRevision}:${studio.selection.activeFeatureId}`}
         onFocus={populationProbeActions.focus}
         label={
-          savedOrder?.label ??
+          savedOrderLabel ??
           (arrangement ? populationArrangementLabel(arrangement) : 'Source order')
         }
       />
       <PopulationSelectionRange
         ids={navigationIds}
-        origin={savedOrder || arrangement ? 'map-derived' : contributors ? 'metadata' : 'manual'}
+        origin={
+          savedOrder || arrangement
+            ? 'map-derived'
+            : contributors
+              ? (studio.population.partition?.origin ?? 'metadata')
+              : 'manual'
+        }
         scope={`${workspaceId}:${studio.population.sessionRevision}`}
       />
       <div

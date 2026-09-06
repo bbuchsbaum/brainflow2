@@ -78,7 +78,7 @@ export function PopulationGroupViews({
                   populationProbeActions.select(
                     definition.memberIds,
                     'replace',
-                    'metadata',
+                    state.population.partition?.origin ?? 'metadata',
                     definition.label,
                   )
                 }
@@ -92,7 +92,10 @@ export function PopulationGroupViews({
                   const id = state.createSavedCohort({
                     memberIds: [...definition.memberIds],
                     label: definition.label,
-                    originLabel: `Factor ${state.population.partition?.column}`,
+                    originLabel:
+                      state.population.partition?.origin === 'map-derived'
+                        ? `Spatial similarity ${state.population.partition.fitId}`
+                        : `Factor ${state.population.partition?.column}`,
                   });
                   if (id) {
                     state.setPopulationReferenceMode('cohort');

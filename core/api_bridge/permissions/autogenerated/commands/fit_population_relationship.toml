@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-fit-population-relationship"
+description = "Enables the fit_population_relationship command without any pre-configured scope."
+commands.allow = ["fit_population_relationship"]
+
+[[permission]]
+identifier = "deny-fit-population-relationship"
+description = "Denies the fit_population_relationship command without any pre-configured scope."
+commands.deny = ["fit_population_relationship"]

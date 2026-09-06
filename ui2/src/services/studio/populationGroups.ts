@@ -41,7 +41,8 @@ export function validatePopulationPartition(
   if (
     !partition ||
     partition.setId !== setId ||
-    partition.origin !== 'metadata' ||
+    !['metadata', 'map-derived'].includes(partition.origin) ||
+    (partition.origin === 'map-derived' && !/^[a-f0-9]{64}$/i.test(partition.fitId ?? '')) ||
     typeof partition.column !== 'string' ||
     !partition.column.trim() ||
     !Array.isArray(partition.contextIds) ||

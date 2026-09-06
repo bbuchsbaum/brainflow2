@@ -1,3 +1,8 @@
+import {
+  populationRelationshipService,
+  validRelationshipFit,
+  sameRelationshipBindings,
+} from './PopulationRelationshipService';
 import type {
   PopulationState,
   PopulationProbe,
@@ -177,7 +182,38 @@ export function preparePopulationRestore(
       ? fitMask.sourcePath === query.mask.sourcePath &&
         fitMask.expectedSha256 === query.mask.expectedSha256
       : order.mask === null;
+    const savedFit = validRelationshipFit(context.orderRelationship)
+      ? context.orderRelationship
+      : context.relationship;
+    const similarityMatches =
+      order.rule === 'similarity' &&
+      validRelationshipFit(savedFit) &&
+      savedFit.fitId === order.fitId &&
+      sameRelationshipBindings(
+        savedFit.request,
+        { members: query.members, mask: query.mask ?? null },
+        true,
+      ) &&
+      savedFit.geometry.orderable;
     if (
+      similarityMatches &&
+      order.tieRule === 'source' &&
+      matching &&
+      maskMatches &&
+      Array.isArray(unavailable) &&
+      unavailable.length === 0 &&
+      Array.isArray(ordered) &&
+      ordered.length === ids.length &&
+      new Set(ordered).size === ids.length &&
+      ordered.every((id) => ids.includes(id))
+    ) {
+      restoredOrder = {
+        ...(order as unknown as PopulationOrder),
+        featureId,
+        label: label(order.label, 'Saved spatial similarity order'),
+        probe: null,
+      };
+    } else if (
       order.rule === 'response' &&
       order.tieRule === 'source' &&
       matching &&
@@ -444,6 +480,10 @@ export const populationRestoreService = {
       view.crosshair.world_mm = [...opened.calculation.crosshairMm];
     }, workspaceId);
     state.bootstrapStudio(payload);
+    populationRelationshipService.restore(
+      object(opened.context).relationship,
+      object(opened.context).orderRelationship,
+    );
     return true;
   },
 };

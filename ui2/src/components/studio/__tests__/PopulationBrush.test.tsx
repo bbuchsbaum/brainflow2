@@ -51,3 +51,58 @@ it('commits rendered IDs once on release and cancels without changing membership
   expect(select).toHaveBeenCalledTimes(1);
   expect(screen.queryByLabelText('Population brush surface')).toBeNull();
 });
+
+it('lassos actual identities and cancels an unfinished polygon on refit', () => {
+  vi.stubGlobal('PointerEvent', MouseEvent);
+  const select = vi.spyOn(populationProbeActions, 'select').mockReturnValue({ ok: true });
+  const bounds = (x: number, y: number, width: number, height: number) => ({
+    x,
+    y,
+    left: x,
+    top: y,
+    right: x + width,
+    bottom: y + height,
+    width,
+    height,
+    toJSON() {},
+  });
+  const { container, rerender } = render(
+    <PopulationBrush scope="fit1" lasso>
+      <svg>
+        <circle data-datum-id="inside" />
+        <circle data-datum-id="outside" />
+      </svg>
+    </PopulationBrush>,
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Lasso observations' }));
+  const surface = screen.getByLabelText('Population brush surface');
+  surface.setPointerCapture = vi.fn();
+  vi.spyOn(surface.parentElement!, 'getBoundingClientRect').mockReturnValue(bounds(0, 0, 100, 100));
+  const circles = container.querySelectorAll('circle');
+  vi.spyOn(circles[0], 'getBoundingClientRect').mockReturnValue(bounds(20, 20, 4, 4));
+  vi.spyOn(circles[1], 'getBoundingClientRect').mockReturnValue(bounds(80, 20, 4, 4));
+  fireEvent.pointerDown(surface, { button: 0, clientX: 10, clientY: 10 });
+  for (const [clientX, clientY] of [
+    [50, 10],
+    [50, 50],
+    [10, 50],
+  ])
+    fireEvent.pointerMove(surface, { clientX, clientY });
+  expect(select).not.toHaveBeenCalled();
+  fireEvent.pointerUp(surface, { clientX: 10, clientY: 10 });
+  expect(select).toHaveBeenCalledExactlyOnceWith(
+    ['inside'],
+    'replace',
+    'map-derived',
+    'Spatial relationship lasso',
+  );
+  fireEvent.pointerDown(surface, { button: 0, clientX: 0, clientY: 0 });
+  fireEvent.pointerMove(surface, { clientX: 100, clientY: 100 });
+  rerender(
+    <PopulationBrush scope="fit2" lasso>
+      <svg />
+    </PopulationBrush>,
+  );
+  fireEvent.pointerUp(surface, { clientX: 0, clientY: 0 });
+  expect(select).toHaveBeenCalledTimes(1);
+});

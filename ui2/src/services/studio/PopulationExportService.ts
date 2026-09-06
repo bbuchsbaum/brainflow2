@@ -1,3 +1,4 @@
+import { populationRelationshipService } from './PopulationRelationshipService';
 import { resolvePopulationParticipants, groupParticipantMembers } from './populationParticipants';
 import { buildPopulationSource } from './PopulationProbeController';
 import { useViewStateStore } from '@/stores/viewStateStore';
@@ -60,6 +61,8 @@ export function freezePopulationExport(display: PopulationSliceDisplay) {
           }
         : null,
       presentation: state.population.presentation,
+      relationship: populationRelationshipService.exportFor(members, mask),
+      orderRelationship: populationRelationshipService.exportOrderFor(members, mask),
       exploration: {
         version: 1,
         partition: state.population.partition,

@@ -8,12 +8,16 @@ export function PopulationBrush({
   children,
   scope,
   horizontal = false,
+  lasso = false,
   origin = 'map-derived',
+  selectionLabel,
 }: {
   children: ReactNode;
   scope: string;
   horizontal?: boolean;
+  lasso?: boolean;
   origin?: PopulationSelectionOrigin;
+  selectionLabel?: string;
 }) {
   const [enabled, setEnabled] = useState(false);
   const [operation, setOperation] = useState<'replace' | 'union' | 'intersection' | 'difference'>(
@@ -22,16 +26,22 @@ export function PopulationBrush({
   const [rect, setRect] = useState<{ x: number; y: number; width: number; height: number } | null>(
     null,
   );
+  const path = useRef<[number, number][]>([]);
+  const [polygon, setPolygon] = useState<[number, number][]>([]);
   const [error, setError] = useState<string | null>(null);
   const host = useRef<HTMLDivElement>(null);
   const start = useRef<{ x: number; y: number; scope: string } | null>(null);
   useEffect(() => {
     start.current = null;
     setRect(null);
+    path.current = [];
+    setPolygon([]);
   }, [scope]);
   const cancel = () => {
     start.current = null;
     setRect(null);
+    path.current = [];
+    setPolygon([]);
   };
   return (
     <div
@@ -53,7 +63,13 @@ export function PopulationBrush({
             setEnabled((v) => !v);
           }}
         >
-          {enabled ? 'Finish brushing' : horizontal ? 'Brush response plot' : 'Brush montage'}
+          {enabled
+            ? 'Finish brushing'
+            : lasso
+              ? 'Lasso observations'
+              : horizontal
+                ? 'Brush response plot'
+                : 'Brush montage'}
         </button>
         {enabled && (
           <>
@@ -87,11 +103,17 @@ export function PopulationBrush({
               e.currentTarget.focus();
               e.currentTarget.setPointerCapture(e.pointerId);
               start.current = { x: e.clientX, y: e.clientY, scope };
+              path.current = [[e.clientX, e.clientY]];
             }}
             onPointerMove={(e) => {
               if (!start.current || !host.current) return;
               const bounds = host.current.getBoundingClientRect(),
                 first = start.current;
+              if (lasso) {
+                path.current.push([e.clientX, e.clientY]);
+                setPolygon(path.current.map(([x, y]) => [x - bounds.left, y - bounds.top]));
+                return;
+              }
               setRect({
                 x: Math.min(first.x, e.clientX) - bounds.left,
                 y: horizontal ? 0 : Math.min(first.y, e.clientY) - bounds.top,
@@ -102,12 +124,15 @@ export function PopulationBrush({
             onPointerCancel={cancel}
             onPointerUp={(e) => {
               const first = start.current;
+              const vertices = [...path.current, [e.clientX, e.clientY] as [number, number]];
               cancel();
               if (
                 !first ||
                 first.scope !== scope ||
                 !host.current ||
-                Math.hypot(first.x - e.clientX, first.y - e.clientY) < 3
+                (lasso
+                  ? vertices.length < 4
+                  : Math.hypot(first.x - e.clientX, first.y - e.clientY) < 3)
               )
                 return;
               const left = Math.min(first.x, e.clientX),
@@ -127,9 +152,9 @@ export function PopulationBrush({
                   x <= visible.right &&
                   y >= visible.top &&
                   y <= visible.bottom &&
-                  x >= left &&
-                  x <= right &&
-                  (horizontal || (y >= top && y <= bottom))
+                  (lasso
+                    ? insidePolygon(x, y, vertices)
+                    : x >= left && x <= right && (horizontal || (y >= top && y <= bottom)))
                 )
                   ids.add(id);
               });
@@ -137,11 +162,26 @@ export function PopulationBrush({
                 [...ids],
                 operation,
                 origin,
-                horizontal ? 'Response plot brush' : 'Montage brush',
+                selectionLabel ??
+                  (lasso
+                    ? 'Spatial relationship lasso'
+                    : horizontal
+                      ? 'Response plot brush'
+                      : 'Montage brush'),
               );
               setError(result.ok ? null : result.reason);
             }}
           >
+            {lasso && polygon.length > 1 && (
+              <svg className="pointer-events-none absolute inset-0 h-full w-full">
+                <polygon
+                  points={polygon.map((p) => p.join(',')).join(' ')}
+                  fill="currentColor"
+                  fillOpacity="0.15"
+                  stroke="currentColor"
+                />
+              </svg>
+            )}
             {rect && (
               <div
                 className="pointer-events-none absolute border border-primary bg-primary/15"
@@ -153,4 +193,14 @@ export function PopulationBrush({
       </div>
     </div>
   );
+}
+
+function insidePolygon(x: number, y: number, vertices: [number, number][]): boolean {
+  let inside = false;
+  for (let i = 0, j = vertices.length - 1; i < vertices.length; j = i++) {
+    const [xi, yi] = vertices[i],
+      [xj, yj] = vertices[j];
+    if (yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) inside = !inside;
+  }
+  return inside;
 }

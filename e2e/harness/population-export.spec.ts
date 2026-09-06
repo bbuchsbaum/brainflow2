@@ -300,3 +300,106 @@ test('brushes original montage IDs on release while keeping focus independent', 
   await page.keyboard.press('Escape');
   await expect(page.getByRole('button', { name: 'Brush montage', exact: true })).toBeVisible();
 });
+
+test('fits stable spatial relationships, orders the movie, groups and reopens the same fit', async ({
+  page,
+}, testInfo) => {
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  await page.goto('/population-harness.html?export&roundtrip');
+  await page.getByText('Spatial relationships', { exact: true }).click();
+  await page.getByRole('button', { name: 'Fit on current support', exact: true }).click();
+  const points = page.getByRole('group', { name: 'Spatial MDS observations' });
+  await expect(points).toBeVisible();
+  await expect(page.getByText(/90 \/ 100 common finite voxels/)).toBeVisible();
+  const initial = await points
+    .locator('circle')
+    .evaluateAll((nodes) =>
+      nodes.map((n) => [
+        n.getAttribute('data-datum-id'),
+        n.getAttribute('data-fit-x'),
+        n.getAttribute('data-fit-y'),
+      ]),
+    );
+  const focus = page.getByRole('button', { name: 'Focus relationship S042', exact: true });
+  await focus.focus();
+  await page.keyboard.press('Enter');
+  await expect(page.getByTestId('fixture-focus')).toHaveText('S042');
+  await page.keyboard.press('Shift+Enter');
+  expect(
+    await points
+      .locator('circle')
+      .evaluateAll((nodes) =>
+        nodes.map((n) => [
+          n.getAttribute('data-datum-id'),
+          n.getAttribute('data-fit-x'),
+          n.getAttribute('data-fit-y'),
+        ]),
+      ),
+  ).toEqual(initial);
+  await page.getByRole('button', { name: 'Order movie by MDS axis 1', exact: true }).click();
+  await expect(
+    page.getByText(/^MDS axis 1 · effect · fit dddddddd · Show every observation/),
+  ).toBeVisible();
+  await page.screenshot({ path: testInfo.outputPath('population-similarity-desktop.png') });
+  await page.getByLabel('Probe radius in millimetres', { exact: true }).fill('5');
+  await page.getByRole('button', { name: 'Pin crosshair', exact: true }).click();
+  await page.getByRole('button', { name: 'Compare maps in pinned region', exact: true }).click();
+  await expect(page.getByText(/Fit eeeeeeee · 90/)).toBeVisible();
+  await expect(page.getByText(/fit dddddddd · earlier fit · Show every observation/)).toBeVisible();
+  await page.getByRole('button', { name: 'Create similarity groups', exact: true }).click();
+  await expect(page.getByRole('region', { name: 'Similarity group 1', exact: true })).toBeVisible();
+  await page.getByText('Save calculation', { exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Export summary…', exact: true })).toBeEnabled();
+  await page.getByRole('button', { name: 'Export summary…', exact: true }).click();
+  const receipt = JSON.parse((await page.getByTestId('synthetic-export-receipt').textContent())!);
+  expect(receipt.context.relationship.geometry.coordinates).toHaveLength(80);
+  expect(receipt.context.relationship.fitId).toBe('e'.repeat(64));
+  expect(receipt.context.orderRelationship.fitId).toBe('d'.repeat(64));
+  expect(receipt.context.presentation.order.orderedIds[0]).toBe('S041');
+  expect(receipt.context.exploration.partition.origin).toBe('map-derived');
+  await page.getByRole('button', { name: 'Open saved population…', exact: true }).click();
+  await expect(
+    page.getByText(/^MDS axis 1 · effect · fit dddddddd · earlier fit · Show every observation/),
+  ).toBeVisible();
+  await expect(points).toBeVisible();
+  expect(
+    await points
+      .locator('circle')
+      .evaluateAll((nodes) =>
+        nodes.map((n) => [
+          n.getAttribute('data-datum-id'),
+          n.getAttribute('data-fit-x'),
+          n.getAttribute('data-fit-y'),
+        ]),
+      ),
+  ).toEqual(initial);
+  await page.getByRole('button', { name: 'Lasso observations', exact: true }).click();
+  await points.scrollIntoViewIfNeeded();
+  const target = await focus.boundingBox();
+  expect(target).not.toBeNull();
+  const x = target!.x + target!.width / 2,
+    y = target!.y + target!.height / 2;
+  await page.mouse.move(x - 20, y - 20);
+  await page.mouse.down();
+  await page.mouse.move(x + 20, y - 20, { steps: 3 });
+  await page.mouse.move(x + 20, y + 20, { steps: 3 });
+  await page.mouse.move(x - 20, y + 20, { steps: 3 });
+  await page.mouse.move(x - 20, y - 20, { steps: 3 });
+  await page.mouse.up();
+  await expect(points.locator('circle[aria-pressed="true"]')).toHaveCount(40);
+  await expect(page.getByTestId('fixture-focus')).toHaveText('S042');
+  await page.getByRole('button', { name: 'Finish brushing', exact: true }).click();
+  await page.getByLabel('Spatial distance', { exact: true }).selectOption('pattern-shape');
+  await page.getByRole('button', { name: 'Fit on current support', exact: true }).click();
+  await expect(page.getByRole('alert').filter({ hasText: /constant/ })).toBeVisible();
+  await expect(points.locator('circle')).toHaveCount(80);
+  await page.getByLabel('Spatial distance', { exact: true }).selectOption('effect');
+  await page.setViewportSize({ width: 480, height: 1000 });
+  await points.scrollIntoViewIfNeeded();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page
+    .getByLabel('Spatial relationships', { exact: true })
+    .screenshot({ path: testInfo.outputPath('population-similarity-narrow.png') });
+  expect(errors).toEqual([]);
+});

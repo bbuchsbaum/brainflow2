@@ -12913,6 +12913,21 @@ async fn evaluate_population_slice(
         .await
 }
 
+/// Fit exact spatial relationships on a declared common finite support.
+#[command]
+async fn fit_population_relationship(
+    request: population_slice::relationship::Request,
+    ticket: Option<SampleTicket>,
+    state: State<'_, BridgeState>,
+) -> BridgeResult<population_slice::relationship::Result> {
+    let cancellation = ticket
+        .as_ref()
+        .map(|ticket| state.population_sampling.begin(ticket))
+        .transpose()?
+        .unwrap_or_default();
+    population_slice::relationship::evaluate(request, state.inner(), cancellation).await
+}
+
 /// Save a full native-grid summary, coverage and frozen calculation provenance.
 #[command]
 async fn export_population_summary(
