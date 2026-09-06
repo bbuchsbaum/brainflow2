@@ -249,6 +249,8 @@ export class SampleProvider {
       const member: {
         memberId: string;
         sourcePath: string;
+        stackIndex?: number;
+        expectedSha256?: string;
         displayLabel?: string;
         designValues?: { column: string; value: string }[];
       } = {
@@ -258,6 +260,8 @@ export class SampleProvider {
       if (m.displayLabel !== undefined) {
         member.displayLabel = m.displayLabel;
       }
+      if (m.stackIndex !== undefined) member.stackIndex = m.stackIndex;
+      if (m.expectedSha256 !== undefined) member.expectedSha256 = m.expectedSha256;
       if (m.designValues !== undefined && m.designValues.length > 0) {
         member.designValues = m.designValues.map((value) => ({
           column: value.column,
@@ -266,6 +270,7 @@ export class SampleProvider {
       }
       return member;
     });
+    const memberById = new Map(members.map((member) => [member.memberId, member]));
     const worldMm: [number, number, number] = [
       locus.worldMm[0],
       locus.worldMm[1],
@@ -286,6 +291,8 @@ export class SampleProvider {
           lower: number | null;
           upper: number | null;
           count: number;
+          sourceRevision?: { sha256: string; sourceBytes: number } | null;
+          error?: string | null;
         }[]
       >('sample_set_trace_at_world', {
         members,
@@ -337,6 +344,13 @@ export class SampleProvider {
           radiusMm: locus.radiusMm,
           reduce,
           band,
+          sources: traces.map((trace) => ({
+            memberId: trace.memberId,
+            sourceRevision: trace.sourceRevision ?? null,
+            stackIndex: memberById.get(trace.memberId)?.stackIndex ?? null,
+            validCount: trace.count,
+            error: trace.error ?? null,
+          })),
           ...(designColumns.length > 0 ? { designColumns } : {}),
           // A line through member values with a shaded lower..upper band.
           suggested: {
@@ -353,15 +367,20 @@ export class SampleProvider {
     // type is `number | null` (NOT `number`). Downstream `numericColumn` coerces
     // null -> NaN, which the box mark / joinDesignTable already drop, but the
     // type must be honest.
-    const samples = await getTransport().invoke<{ memberId: string; value: number | null }[]>(
-      'sample_set_at_world',
+    const samples = await getTransport().invoke<
       {
-        members,
-        worldMm,
-        radiusMm: locus.radiusMm,
-        reduce,
-      },
-    );
+        memberId: string;
+        value: number | null;
+        count?: number;
+        sourceRevision?: { sha256: string; sourceBytes: number } | null;
+        error?: string | null;
+      }[]
+    >('sample_set_at_world', {
+      members,
+      worldMm,
+      radiusMm: locus.radiusMm,
+      reduce,
+    });
 
     return {
       columns: [column('member', 'nominal'), column('value', 'quantitative')],
@@ -371,6 +390,13 @@ export class SampleProvider {
         locus: 'set',
         radiusMm: locus.radiusMm,
         reduce,
+        sources: samples.map((sample) => ({
+          memberId: sample.memberId,
+          sourceRevision: sample.sourceRevision ?? null,
+          stackIndex: memberById.get(sample.memberId)?.stackIndex ?? null,
+          validCount: sample.count ?? null,
+          error: sample.error ?? null,
+        })),
       },
     };
   }

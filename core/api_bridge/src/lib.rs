@@ -1,4 +1,5 @@
 pub mod atlas_roi;
+mod set_sample_cache;
 pub use atlas_roi::AtlasRoiLocation;
 pub mod parcel_overlay;
 pub use parcel_overlay::{
@@ -1435,8 +1436,8 @@ pub struct BridgeState {
     // NIfTIs loaded across repeated crosshair moves without ever registering
     // them into the GPU VolumeRegistry/atlas (avoids AtlasPressureMonitor thrash
     // for large cohorts).
-    // TODO: bound/LRU if cohort path counts grow.
-    pub set_sample_cache: Arc<Mutex<HashMap<PathBuf, Arc<VolumeSendable>>>>,
+    // Byte-bounded decoded payloads; source snapshot identity is retained for plots.
+    pub set_sample_cache: set_sample_cache::SetSampleCache,
     // Precomputed volume->surface samplers keyed by sampler handle (vol2surf M5).
     // Built once per (surface, template grid); reused across timepoints/volumes.
     pub surface_samplers: Arc<Mutex<HashMap<String, SurfaceSamplerEntry>>>,
@@ -1477,7 +1478,7 @@ impl BridgeState {
             remote_mounts: Arc::new(Mutex::new(HashMap::new())),
             pending_remote_host_key: Arc::new(Mutex::new(HashMap::new())),
             pending_remote_auth: Arc::new(Mutex::new(HashMap::new())),
-            set_sample_cache: Arc::new(Mutex::new(HashMap::new())),
+            set_sample_cache: set_sample_cache::SetSampleCache::default(),
             surface_samplers: Arc::new(Mutex::new(HashMap::new())),
             resident_image_sets: Arc::new(Mutex::new(HashMap::new())),
         }
@@ -11831,6 +11832,42 @@ fn read_stack_at_voxel(
     }
 }
 
+/// Read one explicit frame without allocating the full temporal series.
+fn read_member_frame_at_voxel(
+    volume: &VolumeSendable,
+    x: usize,
+    y: usize,
+    z: usize,
+    frame: usize,
+) -> Option<f32> {
+    match volume {
+        VolumeSendable::Vec4DF32(volume) => volume.data.get([x, y, z, frame]).copied(),
+        VolumeSendable::Vec4DF64(volume) => {
+            volume.data.get([x, y, z, frame]).map(|&value| value as f32)
+        }
+        VolumeSendable::Vec4DI16(volume) => {
+            volume.data.get([x, y, z, frame]).map(|&value| value as f32)
+        }
+        VolumeSendable::Vec4DU16(volume) => {
+            volume.data.get([x, y, z, frame]).map(|&value| value as f32)
+        }
+        VolumeSendable::Vec4DI32(volume) => {
+            volume.data.get([x, y, z, frame]).map(|&value| value as f32)
+        }
+        VolumeSendable::Vec4DU32(volume) => {
+            volume.data.get([x, y, z, frame]).map(|&value| value as f32)
+        }
+        VolumeSendable::Vec4DI8(volume) => {
+            volume.data.get([x, y, z, frame]).map(|&value| value as f32)
+        }
+        VolumeSendable::Vec4DU8(volume) => {
+            volume.data.get([x, y, z, frame]).map(|&value| value as f32)
+        }
+        _ if frame == 0 => read_stack_at_voxel(volume, x, y, z)?.first().copied(),
+        _ => None,
+    }
+}
+
 /// Collapse multiple values into one using the requested reduction operator.
 /// Unrecognized operators fall back to "mean"; an empty slice yields 0.0.
 fn reduce_values(vals: &[f32], op: &str) -> f32 {
@@ -11838,7 +11875,7 @@ fn reduce_values(vals: &[f32], op: &str) -> f32 {
         return 0.0;
     }
     match op {
-        "sum" => vals.iter().sum(),
+        "sum" => vals.iter().map(|&value| value as f64).sum::<f64>() as f32,
         "min" => vals.iter().cloned().fold(f32::INFINITY, f32::min),
         "max" => vals.iter().cloned().fold(f32::NEG_INFINITY, f32::max),
         "median" => {
@@ -11848,11 +11885,11 @@ fn reduce_values(vals: &[f32], op: &str) -> f32 {
             if n % 2 == 1 {
                 sorted[n / 2]
             } else {
-                (sorted[n / 2 - 1] + sorted[n / 2]) / 2.0
+                ((sorted[n / 2 - 1] as f64 + sorted[n / 2] as f64) / 2.0) as f32
             }
         }
         // "mean" and any unrecognized operator.
-        _ => vals.iter().sum::<f32>() / vals.len() as f32,
+        _ => (vals.iter().map(|&value| value as f64).sum::<f64>() / vals.len() as f64) as f32,
     }
 }
 
@@ -12288,6 +12325,13 @@ pub async fn compute_region_stats_for_testing(
 pub struct SetMemberRef {
     pub member_id: String,
     pub source_path: String,
+    /// A 4D source requires an explicit zero-based stack member. This index is
+    /// not a physical time coordinate; temporal units belong to the dataset.
+    #[serde(default)]
+    pub stack_index: Option<usize>,
+    /// Frozen queries may require the exact snapshot digest observed earlier.
+    #[serde(default)]
+    pub expected_sha256: Option<String>,
     /// Optional ontology-aware display label, e.g. `sub-01 faces`.
     #[serde(default)]
     pub display_label: Option<String>,
@@ -12305,6 +12349,9 @@ pub struct SetMemberRef {
 pub struct MemberSample {
     pub member_id: String,
     pub value: f32,
+    pub count: u32,
+    pub source_revision: Option<set_sample_cache::SampleSourceRevision>,
+    pub error: Option<String>,
 }
 
 /// Gather the finite ROI voxel values of a single (already-loaded) member volume
@@ -12312,8 +12359,7 @@ pub struct MemberSample {
 ///
 /// Pure / disk-free seam: transforms the world point into the member's voxel
 /// grid, gathers the sampling locus (point for `radius_mm <= 0`, sphere
-/// otherwise), reads the first stack entry at each voxel (members are typically
-/// 3D stat maps; 4D members use index 0) and keeps the finite ones. Returns an
+/// otherwise), reads the explicitly selected stack entry at each voxel and keeps the finite ones. Returns an
 /// empty vector when the affine is unrecoverable, the locus errors (e.g. an
 /// oversized sphere), the point is out of bounds, or no finite samples exist —
 /// callers treat "no values" as a non-finite / skipped member rather than
@@ -12322,6 +12368,7 @@ fn gather_member_roi_values(
     volume_data: &VolumeSendable,
     world_mm: &[f32],
     radius_mm: f32,
+    stack_index: usize,
 ) -> Vec<f32> {
     // Transform the requested world point into (fractional) voxel coordinates.
     let affine = match get_affine_from_volume(volume_data) {
@@ -12344,14 +12391,12 @@ fn gather_member_roi_values(
         return Vec::new();
     }
 
-    // Members are 3D stat maps; if a member is 4D we take stack index 0.
+    // The caller validates the explicit frame before gathering spatial values.
     let mut vals: Vec<f32> = Vec::with_capacity(voxels.len());
     for (x, y, z) in voxels {
-        if let Some(stack) = read_stack_at_voxel(volume_data, x, y, z) {
-            if let Some(&value) = stack.first() {
-                if value.is_finite() {
-                    vals.push(value);
-                }
+        if let Some(value) = read_member_frame_at_voxel(volume_data, x, y, z, stack_index) {
+            if value.is_finite() {
+                vals.push(value);
             }
         }
     }
@@ -12363,13 +12408,14 @@ fn gather_member_roi_values(
 /// Reduces with `reduce` (mean/median/min/max/sum, mean default). Returns
 /// `f32::NAN` when the locus yields no finite samples or when the requested
 /// point is out of bounds. See [`gather_member_roi_values`].
+#[cfg(test)]
 fn sample_member_volume(
     volume_data: &VolumeSendable,
     world_mm: &[f32],
     radius_mm: f32,
     reduce: &str,
 ) -> f32 {
-    let vals = gather_member_roi_values(volume_data, world_mm, radius_mm);
+    let vals = gather_member_roi_values(volume_data, world_mm, radius_mm, 0);
     if vals.is_empty() {
         return f32::NAN;
     }
@@ -12394,7 +12440,7 @@ fn quantile_type7(vals: &[f32], q: f32) -> f32 {
     let lo = h.floor() as usize;
     let hi = h.ceil() as usize;
     let frac = h - lo as f32;
-    sorted[lo] + (sorted[hi] - sorted[lo]) * frac
+    (sorted[lo] as f64 + (sorted[hi] as f64 - sorted[lo] as f64) * frac as f64) as f32
 }
 
 /// One member's cross-set trace point: the ROI-reduced value plus a lower/upper
@@ -12422,6 +12468,8 @@ pub struct MemberTrace {
     pub upper: f32,
     /// Number of finite ROI voxels the summary was computed from.
     pub count: u32,
+    pub source_revision: Option<set_sample_cache::SampleSourceRevision>,
+    pub error: Option<String>,
 }
 
 /// Compute a lower/upper spread band around `center` from ROI voxel `vals`.
@@ -12444,16 +12492,20 @@ fn roi_spread_band(vals: &[f32], center: f32, band: &str) -> (f32, f32) {
         "ci95" => (quantile_type7(vals, 0.025), quantile_type7(vals, 0.975)),
         "iqr" => (quantile_type7(vals, 0.25), quantile_type7(vals, 0.75)),
         "sd" | "sem95" => {
-            let mean = vals.iter().sum::<f32>() / n as f32;
-            let var = vals.iter().map(|&v| (v - mean).powi(2)).sum::<f32>() / (n as f32 - 1.0);
+            let mean = vals.iter().map(|&value| value as f64).sum::<f64>() / n as f64;
+            let var = vals
+                .iter()
+                .map(|&value| (value as f64 - mean).powi(2))
+                .sum::<f64>()
+                / (n as f64 - 1.0);
             let sd = var.max(0.0).sqrt();
             let half = if band == "sd" {
                 sd
             } else {
                 // sem95: 95% normal-approx CI half-width of the mean.
-                1.96 * sd / (n as f32).sqrt()
+                1.96 * sd / (n as f64).sqrt()
             };
-            (center - half, center + half)
+            ((center as f64 - half) as f32, (center as f64 + half) as f32)
         }
         _ => roi_spread_band(vals, center, "sem95"),
     }
@@ -12495,32 +12547,58 @@ async fn resolve_member_source_path(
     }
 }
 
-/// Load (or fetch from the CPU cache) the `VolumeSendable` backing one member.
-async fn load_member_volume_cached(
-    source_path: &str,
+/// Resolve and sample a single immutable decoded snapshot on a blocking worker.
+async fn sample_member_source(
+    member: &SetMemberRef,
+    world_mm: &[f32],
+    radius_mm: f32,
     state: &BridgeState,
-) -> BridgeResult<Arc<VolumeSendable>> {
-    let path = resolve_member_source_path(source_path, state).await?;
-
-    {
-        let cache = state.set_sample_cache.lock().await;
-        if let Some(volume) = cache.get(&path) {
-            return Ok(Arc::clone(volume));
+) -> BridgeResult<(Vec<f32>, set_sample_cache::SampleSourceRevision)> {
+    let path = resolve_member_source_path(&member.source_path, state).await?;
+    let world = world_mm.to_vec();
+    let stack_index = member.stack_index;
+    let expected = member.expected_sha256.clone();
+    state.set_sample_cache.with_volume(path, move |volume, revision| {
+        if expected.as_ref().is_some_and(|hash| hash != &revision.sha256) {
+            return Err(BridgeError::Input { code: 2025, details: "Population source revision changed; recompute or restore the frozen source.".into() });
         }
+        let frames = stack_length_for_volume(volume);
+        if frames > 1 && stack_index.is_none() {
+            return Err(BridgeError::Input { code: 2025, details: "A 4D population source requires an explicit stackIndex; frame zero is not assumed.".into() });
+        }
+        let frame = stack_index.unwrap_or(0);
+        if frame >= frames {
+            return Err(BridgeError::Input { code: 2025, details: format!("stackIndex {frame} is outside the source's {frames} frames.") });
+        }
+        Ok((gather_member_roi_values(volume, &world, radius_mm, frame), revision.clone()))
+    }).await
+}
+
+fn validate_set_sample_request(
+    members: &[SetMemberRef],
+    world_mm: &[f32],
+    radius_mm: f32,
+    reduce: &str,
+) -> BridgeResult<()> {
+    if world_mm.len() != 3
+        || !world_mm.iter().all(|value| value.is_finite())
+        || !radius_mm.is_finite()
+        || radius_mm < 0.0
+        || !matches!(reduce, "mean" | "median" | "min" | "max" | "sum")
+    {
+        return Err(BridgeError::Input { code: 2016, details: "Population sampling requires finite [x, y, z] mm, a nonnegative radius and a supported reducer.".into() });
     }
-
-    // Miss: load via the same loader load_file uses, then insert. We drop the
-    // affine here because get_affine_from_volume recovers it from the payload.
-    let (volume_sendable, _affine) =
-        nifti_loader::load_nifti_volume_auto(&path).map_err(|e| BridgeError::Loader {
-            code: 5001,
-            details: format!("Failed to load member volume {}: {}", path.display(), e),
-        })?;
-    let volume = Arc::new(volume_sendable);
-
-    let mut cache = state.set_sample_cache.lock().await;
-    let entry = cache.entry(path).or_insert_with(|| Arc::clone(&volume));
-    Ok(Arc::clone(entry))
+    let mut ids = HashSet::new();
+    if members
+        .iter()
+        .any(|member| member.member_id.trim().is_empty() || !ids.insert(&member.member_id))
+    {
+        return Err(BridgeError::Input {
+            code: 2016,
+            details: "Population sampling requires unique, nonempty observation IDs.".into(),
+        });
+    }
+    Ok(())
 }
 
 /// Sample every cohort member at one world locus, returning one reduced scalar
@@ -12533,41 +12611,18 @@ async fn sample_set_at_world_impl(
     reduce: &str,
     state: &BridgeState,
 ) -> BridgeResult<Vec<MemberSample>> {
-    if world_mm.len() != 3 {
-        return Err(BridgeError::Input {
-            code: 2016,
-            details: "world_mm must be [x, y, z] in mm".to_string(),
-        });
-    }
-
-    let mut samples = Vec::with_capacity(members.len());
-    for member in members {
-        let value = match load_member_volume_cached(&member.source_path, state).await {
-            Ok(volume) => sample_member_volume(&volume, world_mm, radius_mm, reduce),
-            Err(err) => {
-                tracing::warn!(
-                    member_id = %member.member_id,
-                    source_path = %member.source_path,
-                    error = %err,
-                    "sample_set_at_world: skipping member that failed to load"
-                );
-                f32::NAN
-            }
-        };
-        if !value.is_finite() {
-            tracing::warn!(
-                member_id = %member.member_id,
-                source_path = %member.source_path,
-                "sample_set_at_world: member sampled to a non-finite value (out of bounds or empty locus)"
-            );
-        }
-        samples.push(MemberSample {
-            member_id: member.member_id.clone(),
-            value,
-        });
-    }
-
-    Ok(samples)
+    let traces =
+        sample_set_trace_at_world_impl(members, world_mm, radius_mm, reduce, "none", state).await?;
+    Ok(traces
+        .into_iter()
+        .map(|trace| MemberSample {
+            member_id: trace.member_id,
+            value: trace.value,
+            count: trace.count,
+            source_revision: trace.source_revision,
+            error: trace.error,
+        })
+        .collect())
 }
 
 #[command]
@@ -12608,47 +12663,29 @@ async fn sample_set_trace_at_world_impl(
     band: &str,
     state: &BridgeState,
 ) -> BridgeResult<Vec<MemberTrace>> {
-    if world_mm.len() != 3 {
+    validate_set_sample_request(members, world_mm, radius_mm, reduce)?;
+    if !matches!(band, "none" | "sd" | "sem95" | "ci95" | "iqr") {
         return Err(BridgeError::Input {
             code: 2016,
-            details: "world_mm must be [x, y, z] in mm".to_string(),
+            details: "Unknown spatial dispersion band.".into(),
         });
     }
-
     let mut traces = Vec::with_capacity(members.len());
     for member in members {
-        let vals = match load_member_volume_cached(&member.source_path, state).await {
-            Ok(volume) => gather_member_roi_values(&volume, world_mm, radius_mm),
-            Err(err) => {
-                tracing::warn!(
-                    member_id = %member.member_id,
-                    source_path = %member.source_path,
-                    error = %err,
-                    "sample_set_trace_at_world: skipping member that failed to load"
-                );
-                Vec::new()
-            }
+        let (vals, source_revision, error) =
+            match sample_member_source(member, world_mm, radius_mm, state).await {
+                Ok((vals, revision)) => (vals, Some(revision), None),
+                Err(error) => (Vec::new(), None, Some(error.to_string())),
+            };
+        let error = error.or_else(|| {
+            vals.is_empty()
+                .then(|| "No finite measurements at this spatial probe.".to_string())
+        });
+        let value = if vals.is_empty() {
+            f32::NAN
+        } else {
+            reduce_values(&vals, reduce)
         };
-
-        if vals.is_empty() {
-            tracing::warn!(
-                member_id = %member.member_id,
-                source_path = %member.source_path,
-                "sample_set_trace_at_world: member yielded no finite ROI samples (out of bounds or empty locus)"
-            );
-            traces.push(MemberTrace {
-                member_id: member.member_id.clone(),
-                display_label: member.display_label.clone(),
-                design_values: member.design_values.clone(),
-                value: f32::NAN,
-                lower: f32::NAN,
-                upper: f32::NAN,
-                count: 0,
-            });
-            continue;
-        }
-
-        let value = reduce_values(&vals, reduce);
         let (lower, upper) = roi_spread_band(&vals, value, band);
         traces.push(MemberTrace {
             member_id: member.member_id.clone(),
@@ -12658,9 +12695,10 @@ async fn sample_set_trace_at_world_impl(
             lower,
             upper,
             count: vals.len() as u32,
+            source_revision,
+            error,
         });
     }
-
     Ok(traces)
 }
 
@@ -14730,17 +14768,18 @@ mod tests {
         assert!(value.is_nan(), "all-NaN locus should be NaN, got {value}");
     }
 
-    /// Prime the CPU sample cache directly so the cohort sampler resolves
-    /// members without touching disk or the template service.
-    async fn prime_set_sample_cache(state: &BridgeState, path: &str, volume: VolumeSendable) {
-        let mut cache = state.set_sample_cache.lock().await;
-        cache.insert(PathBuf::from(path), Arc::new(volume));
+    async fn sample_test_source(volume: VolumeSendable) -> set_sample_cache::TestSource {
+        let dims = get_spatial_dims_from_volume(&volume);
+        let data = volume_data_as_f32_for_projection(&volume).expect("fixture data");
+        set_sample_cache::TestSource::new(&dims, &data)
     }
 
     fn set_member_ref(member_id: &str, source_path: &str) -> SetMemberRef {
         SetMemberRef {
             member_id: member_id.to_string(),
             source_path: source_path.to_string(),
+            stack_index: None,
+            expected_sha256: None,
             display_label: None,
             design_values: Vec::new(),
         }
@@ -14750,22 +14789,20 @@ mod tests {
     async fn sample_set_at_world_returns_one_value_per_member_in_order() {
         let state = BridgeState::default().expect("bridge state");
         // Two same-grid members; voxel (1,0,0) holds distinct values.
-        prime_set_sample_cache(
-            &state,
-            "/cohort/sub-01.nii.gz",
-            make_f32_scalar([2, 2, 2], vec![0.0, 5.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
-        )
+        let source1 = sample_test_source(make_f32_scalar(
+            [2, 2, 2],
+            vec![0.0, 5.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+        ))
         .await;
-        prime_set_sample_cache(
-            &state,
-            "/cohort/sub-02.nii.gz",
-            make_f32_scalar([2, 2, 2], vec![0.0, 9.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
-        )
+        let source2 = sample_test_source(make_f32_scalar(
+            [2, 2, 2],
+            vec![0.0, 9.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+        ))
         .await;
 
         let members = vec![
-            set_member_ref("m1", "/cohort/sub-01.nii.gz"),
-            set_member_ref("m2", "/cohort/sub-02.nii.gz"),
+            set_member_ref("m1", &source1.path.to_string_lossy()),
+            set_member_ref("m2", &source2.path.to_string_lossy()),
         ];
 
         let samples =
@@ -14783,17 +14820,16 @@ mod tests {
     #[tokio::test]
     async fn sample_set_at_world_bad_member_yields_nan_without_aborting() {
         let state = BridgeState::default().expect("bridge state");
-        prime_set_sample_cache(
-            &state,
-            "/cohort/good.nii.gz",
-            make_f32_scalar([2, 2, 2], vec![0.0, 7.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
-        )
+        let source = sample_test_source(make_f32_scalar(
+            [2, 2, 2],
+            vec![0.0, 7.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+        ))
         .await;
 
         let members = vec![
             // Not in cache and not a real file on disk => load fails => NaN.
             set_member_ref("missing", "/cohort/does-not-exist.nii.gz"),
-            set_member_ref("good", "/cohort/good.nii.gz"),
+            set_member_ref("good", &source.path.to_string_lossy()),
         ];
 
         let samples =
@@ -14813,6 +14849,76 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn sample_set_requires_explicit_4d_frame_and_preserves_source_revision() {
+        let state = BridgeState::default().expect("state");
+        let source = set_sample_cache::TestSource::new(&[1, 1, 1, 3], &[4.0, 7.0, 11.0]);
+        let mut member = set_member_ref("person", &source.path.to_string_lossy());
+        let missing =
+            sample_set_at_world_for_testing(&[member.clone()], &[0.0; 3], 0.0, "mean", &state)
+                .await
+                .unwrap();
+        assert!(missing[0].value.is_nan());
+        assert!(missing[0]
+            .error
+            .as_ref()
+            .unwrap()
+            .contains("explicit stackIndex"));
+        member.stack_index = Some(2);
+        let values =
+            sample_set_at_world_for_testing(&[member.clone()], &[0.0; 3], 0.0, "mean", &state)
+                .await
+                .unwrap();
+        assert_eq!(values[0].value, 11.0);
+        assert_eq!(values[0].count, 1);
+        assert!(values[0].error.is_none());
+        let hash = values[0].source_revision.as_ref().unwrap().sha256.clone();
+        member.expected_sha256 = Some(hash);
+        source.write(&[1, 1, 1, 3], &[14.0, 17.0, 21.0]);
+        let stale =
+            sample_set_at_world_for_testing(&[member.clone()], &[0.0; 3], 0.0, "mean", &state)
+                .await
+                .unwrap();
+        assert!(stale[0].value.is_nan());
+        assert!(stale[0]
+            .error
+            .as_ref()
+            .unwrap()
+            .contains("revision changed"));
+        member.expected_sha256 = None;
+        member.stack_index = Some(3);
+        let invalid = sample_set_at_world_for_testing(&[member], &[0.0; 3], 0.0, "mean", &state)
+            .await
+            .unwrap();
+        assert!(invalid[0].error.as_ref().unwrap().contains("outside"));
+    }
+
+    #[tokio::test]
+    async fn sample_set_rejects_ambiguous_identity_and_invalid_probe() {
+        let state = BridgeState::default().expect("state");
+        let member = set_member_ref("person", "/unused.nii");
+        assert!(sample_set_at_world_for_testing(
+            &[member.clone(), member],
+            &[0.0; 3],
+            0.0,
+            "mean",
+            &state
+        )
+        .await
+        .is_err());
+        for (world, radius, reduce) in [
+            (vec![f32::NAN, 0.0, 0.0], 0.0, "mean"),
+            (vec![0.0; 3], -1.0, "mean"),
+            (vec![0.0; 3], 0.0, "typo"),
+        ] {
+            assert!(
+                sample_set_at_world_for_testing(&[], &world, radius, reduce, &state)
+                    .await
+                    .is_err()
+            );
+        }
+    }
+
+    #[tokio::test]
     async fn sample_set_at_world_rejects_bad_world_len() {
         let state = BridgeState::default().expect("bridge state");
         let err = sample_set_at_world_for_testing(&[], &[1.0, 2.0], 0.0, "mean", &state)
@@ -14822,6 +14928,15 @@ mod tests {
             BridgeError::Input { code, .. } => assert_eq!(code, 2016),
             other => panic!("expected Input(2016) for bad world_mm, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn population_spatial_reductions_avoid_float32_intermediate_overflow() {
+        let values = [1e38f32, 1e38f32, 1e38f32, 1e38f32];
+        assert_eq!(reduce_values(&values, "mean"), 1e38);
+        assert_eq!(reduce_values(&values, "median"), 1e38);
+        assert_eq!(quantile_type7(&[-3e38, 3e38], 0.5), 0.0);
+        assert_eq!(roi_spread_band(&values, 1e38, "sd"), (1e38, 1e38));
     }
 
     #[test]
@@ -14886,9 +15001,9 @@ mod tests {
     #[tokio::test]
     async fn sample_set_trace_reports_mean_and_ci_band() {
         let state = BridgeState::default().expect("bridge state");
-        prime_set_sample_cache(&state, "/cohort/probe.nii.gz", make_roi_probe_volume()).await;
+        let source = sample_test_source(make_roi_probe_volume()).await;
 
-        let members = vec![set_member_ref("m1", "/cohort/probe.nii.gz")];
+        let members = vec![set_member_ref("m1", &source.path.to_string_lossy())];
 
         // Radius-1 sphere @ unit spacing captures center + 6 face neighbours = 7 voxels.
         let traces = sample_set_trace_at_world_for_testing(
@@ -14924,11 +15039,13 @@ mod tests {
     #[tokio::test]
     async fn sample_set_trace_carries_member_labels_and_design_values() {
         let state = BridgeState::default().expect("bridge state");
-        prime_set_sample_cache(&state, "/cohort/probe.nii.gz", make_roi_probe_volume()).await;
+        let source = sample_test_source(make_roi_probe_volume()).await;
 
         let members = vec![SetMemberRef {
             member_id: "m1".to_string(),
-            source_path: "/cohort/probe.nii.gz".to_string(),
+            source_path: source.path.to_string_lossy().into_owned(),
+            stack_index: None,
+            expected_sha256: None,
             display_label: Some("sub-01 faces".to_string()),
             design_values: vec![
                 StudioDiscoveryDesignValue {
@@ -14966,11 +15083,11 @@ mod tests {
     #[tokio::test]
     async fn sample_set_trace_bad_member_yields_nan_trace() {
         let state = BridgeState::default().expect("bridge state");
-        prime_set_sample_cache(&state, "/cohort/good.nii.gz", make_roi_probe_volume()).await;
+        let source = sample_test_source(make_roi_probe_volume()).await;
 
         let members = vec![
             set_member_ref("missing", "/cohort/nope.nii.gz"),
-            set_member_ref("good", "/cohort/good.nii.gz"),
+            set_member_ref("good", &source.path.to_string_lossy()),
         ];
 
         let traces = sample_set_trace_at_world_for_testing(

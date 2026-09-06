@@ -522,3 +522,82 @@ describe('SampleProvider — set locus', () => {
     expect(invokeMock).toHaveBeenCalledWith('sample_set_at_world', expect.anything());
   });
 });
+
+describe('population source and frame identity', () => {
+  it.each([undefined, 'none'] as const)(
+    'retains snapshot identity and failure reasons for band %s',
+    async (band) => {
+      invokeMock.mockResolvedValue([
+        {
+          memberId: 'S01',
+          value: 11,
+          count: 1,
+          lower: 11,
+          upper: 11,
+          sourceRevision: { sha256: 'source-hash', sourceBytes: 364 },
+          error: null,
+        },
+        {
+          memberId: 'S02',
+          value: null,
+          count: 0,
+          lower: null,
+          upper: null,
+          sourceRevision: null,
+          error: 'Source revision changed.',
+        },
+      ]);
+      const frame = await sampleProvider.sample({
+        datasetId: 'population',
+        band,
+        locus: {
+          kind: 'set',
+          worldMm: [0, 0, 0],
+          radiusMm: 0,
+          members: [
+            {
+              memberId: 'S01',
+              sourcePath: '/series.nii',
+              stackIndex: 2,
+              expectedSha256: 'source-hash',
+            },
+            {
+              memberId: 'S02',
+              sourcePath: '/other.nii',
+              stackIndex: 1,
+              expectedSha256: 'old-hash',
+            },
+          ],
+        },
+      });
+      expect(invokeMock).toHaveBeenLastCalledWith(
+        band === undefined ? 'sample_set_at_world' : 'sample_set_trace_at_world',
+        expect.objectContaining({
+          members: expect.arrayContaining([
+            expect.objectContaining({
+              memberId: 'S01',
+              stackIndex: 2,
+              expectedSha256: 'source-hash',
+            }),
+          ]),
+        }),
+      );
+      expect(frame.meta?.sources).toEqual([
+        expect.objectContaining({
+          memberId: 'S01',
+          stackIndex: 2,
+          sourceRevision: { sha256: 'source-hash', sourceBytes: 364 },
+          error: null,
+        }),
+        expect.objectContaining({
+          memberId: 'S02',
+          stackIndex: 1,
+          sourceRevision: null,
+          error: 'Source revision changed.',
+        }),
+      ]);
+      expect(frame.rows[1].value).toBeNull();
+      expect(frame.columns.find((column) => column.name === 'member')?.role).toBe('nominal');
+    },
+  );
+});

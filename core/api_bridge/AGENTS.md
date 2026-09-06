@@ -10,6 +10,7 @@ Tauri plugin providing command bridge between TypeScript frontend and Rust backe
 | File | Description |
 |------|-------------|
 | `src/lib.rs` | Main plugin module with all Tauri command implementations (4000+ lines) |
+| `src/set_sample_cache.rs` | Bounded CPU population-source cache, private decoded snapshots and source digests |
 | `src/render_lifecycle.rs` | Serialized initialization and atomic publication of a fully ready shared renderer |
 | `src/render_bridge_adapter.rs` | Brainflow-to-renderer adapter helpers for frontend view-state conversion and render response packet encoding |
 | `src/error_context.rs` | User-friendly error message generation and context enrichment |
@@ -36,6 +37,8 @@ This is the central IPC bridge. When adding new commands, you MUST update FOUR p
 Run `cargo test -p api-bridge` for unit tests. Integration tests in `tests/pipeline_integration_test.rs` validate end-to-end workflows. Test both success and error paths. Verify TypeScript bindings with `cargo run --bin export_api_bridge_types` and check `bindings/` output matches frontend expectations.
 
 ### Common Patterns
+- Population sampling uses `SetSampleCache::with_volume`: canonical file identity is revalidated on a cache hit; a miss hashes and decodes the same private single-file NIfTI snapshot. Cache ownership belongs to `BridgeState`, with explicit `clear` and drop cleanup. `BRAINFLOW_SET_SAMPLE_CACHE_BYTES` defaults to 512 MiB of decoded payload; 0 disables retention. One admitted blocking worker owns snapshot/decode/sample work even if its async caller is canceled. Decoder scratch and returned samples are outside resident-byte accounting. Full dataset teardown/cancellation coordination is still separate work.
+- Set sampling requires unique observation IDs, valid probe/reducer parameters and an explicit `stackIndex` for multi-frame sources. `expectedSha256` rejects a changed frozen source. Responses carry source digest/byte count, valid count and error reason; frame indices do not establish physical time. Filesystem stamps are the warm freshness shortcut (Unix includes inode/change time); they are not a guarantee against changes invisible to filesystem metadata. Whole-query revision freezing remains to be wired above this per-source contract.
 - Commands use `State<Arc<Mutex<T>>>` for shared state access
 - Error handling: wrap errors with context using `map_err(|e| BridgeError::custom(...))`
 - Volume handles: use `VolumeHandleInfo` for tracking loaded volumes

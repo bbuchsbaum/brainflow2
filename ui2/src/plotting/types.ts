@@ -51,6 +51,15 @@ export type CellValue = number | string | null;
 /** One row of a {@link SampleFrame}, keyed by column name. */
 export type FrameRow = Readonly<Record<string, CellValue>>;
 
+/** Identity and validity of a sampled observation's source snapshot. */
+export interface SampleSourceIdentity {
+  readonly memberId: string;
+  readonly sourceRevision: { readonly sha256: string; readonly sourceBytes: number } | null;
+  readonly stackIndex: number | null;
+  readonly validCount: number | null;
+  readonly error: string | null;
+}
+
 /**
  * A tidy (long-form) table: the universal currency between sampling and
  * plotting. Columns carry roles; rows are records keyed by column name. The
@@ -61,14 +70,16 @@ export interface SampleFrame {
   readonly columns: readonly FrameColumn[];
   readonly rows: readonly FrameRow[];
   /** Provenance / summary stats (datasetId, locus, value range, …). */
-  readonly meta?: Readonly<Record<string, unknown>>;
+  readonly meta?: Readonly<Record<string, unknown>> & {
+    readonly sources?: readonly SampleSourceIdentity[];
+  };
 }
 
 // ---------------------------------------------------------------------------
 // Sampling
 // ---------------------------------------------------------------------------
 
-/** World-space position in millimetres (LPI), `[x, y, z]`. */
+/** Position in the preserved volume world frame, `[x, y, z]` mm (+R, +A, +S for NIfTI). */
 export type WorldMm = readonly [number, number, number];
 
 /**
@@ -97,6 +108,10 @@ export type Locus =
       readonly members: readonly {
         readonly memberId: string;
         readonly sourcePath: string;
+        /** Explicit zero-based frame for 4D sources; never a physical time coordinate. */
+        readonly stackIndex?: number;
+        /** Require the exact decoded-source snapshot used by a frozen query. */
+        readonly expectedSha256?: string;
         /** Optional ontology-aware label for member-axis display. */
         readonly displayLabel?: string;
         /** Optional ontology axes, e.g. subject / condition / contrast. */
