@@ -4,8 +4,8 @@
     "version": 1,
     "label": "One-sample test",
     "inputs": "onePopulation",
-    "description": "Test the selected participants’ mean effect against a stated value.",
-    "estimand": "mean(A) − null; SE = SD(A)/sqrt(nA); df = nA − 1",
+    "description": "Test the selected participants\u2019 mean effect against a stated value.",
+    "estimand": "mean(A) \u2212 null; SE = SD(A)/sqrt(nA); df = nA \u2212 1",
     "acceptedRoles": [
       "effect"
     ],
@@ -53,7 +53,7 @@
     "label": "Welch unequal-variance test",
     "inputs": "independentGroups",
     "description": "Compare mean effects in A and B using independent participants and separate group variances.",
-    "estimand": "mean(A) − mean(B) − null; SE = sqrt(var(A)/nA + var(B)/nB); Welch–Satterthwaite df",
+    "estimand": "mean(A) \u2212 mean(B) \u2212 null; SE = sqrt(var(A)/nA + var(B)/nB); Welch\u2013Satterthwaite df",
     "acceptedRoles": [
       "effect"
     ],
@@ -108,7 +108,7 @@
     "label": "Paired test",
     "inputs": "pairedGroups",
     "description": "Compare A and B within the same explicitly identified participants.",
-    "estimand": "mean(within-person A − B) − null; SE = SD(A − B)/sqrt(nPairs); df = nPairs − 1",
+    "estimand": "mean(within-person A \u2212 B) \u2212 null; SE = SD(A \u2212 B)/sqrt(nPairs); df = nPairs \u2212 1",
     "acceptedRoles": [
       "effect"
     ],
@@ -149,5 +149,54 @@
       }
     ],
     "limitations": "Exploratory analysis. Map-derived selections are not independent confirmation. No p-values or multiple-comparison correction. A and B must contain exactly the same participant IDs and distinct observations. Only locally complete pairs contribute; SE and df need two pairs, and t needs positive SE."
+  },
+  {
+    "id": "linearModel",
+    "version": 1,
+    "label": "Linear model (OLS)",
+    "inputs": "designMatrix",
+    "description": "A participant-level linear model with an explicit design and coefficient contrast.",
+    "estimand": "Declared contrast of regression coefficients relative to the null.",
+    "acceptedRoles": [
+      "effect"
+    ],
+    "minimumParticipants": 3,
+    "defaultChannel": "effect",
+    "channels": [
+      {
+        "id": "effect",
+        "label": "Coefficient contrast",
+        "scale": "diverging",
+        "artifact": "effect.nii.gz",
+        "initialLimit": 1
+      },
+      {
+        "id": "standardError",
+        "label": "Standard error",
+        "scale": "nonnegative",
+        "artifact": "standard-error.nii.gz"
+      },
+      {
+        "id": "t",
+        "label": "t statistic",
+        "scale": "diverging",
+        "artifact": "t.nii.gz",
+        "initialLimit": 5
+      },
+      {
+        "id": "df",
+        "label": "Degrees of freedom",
+        "scale": "nonnegative",
+        "artifact": "df.nii.gz"
+      },
+      {
+        "id": "count",
+        "label": "Valid participant count",
+        "scale": "nonnegative",
+        "artifact": "count.nii.gz",
+        "countPopulation": "A"
+      }
+    ],
+    "limitations": "Independent participants; homoskedastic linear-model errors. Finite responses define a local complete-case fit. Rank-deficient local designs are unavailable. Exploratory selection remains exploratory."
   }
 ]

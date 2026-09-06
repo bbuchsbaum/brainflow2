@@ -1,3 +1,4 @@
+import type { ViewPlane } from '@/types/coordinates';
 import { populationRgba } from './PopulationSliceService';
 import { populationProbeActions } from './PopulationProbeActions';
 import { resolvePopulation } from './populationContext';
@@ -28,6 +29,7 @@ export interface RelationshipFit {
   affine: number[][];
   geometry: {
     coordinates: [number, number][];
+    componentScores?: number[][];
     distances: number[][];
     eigenvalues: number[];
     explainedFraction: number;
@@ -108,6 +110,15 @@ export function validRelationshipFit(value: unknown): value is RelationshipFit {
     )
       return false;
     if (
+      (g.componentScores !== undefined &&
+        (g.componentScores.length !== n ||
+          g.componentScores.some(
+            (row) =>
+              !Array.isArray(row) ||
+              row.length > 8 ||
+              row.length !== g.componentScores![0].length ||
+              !row.every(Number.isFinite),
+          ))) ||
       g.coordinates.length !== n ||
       g.coordinates.some((p) => p.length !== 2 || !p.every(Number.isFinite)) ||
       g.distances.length !== n ||
@@ -432,9 +443,12 @@ export const populationRelationshipService = new PopulationRelationshipService()
 export async function explainRelationship(
   fit: RelationshipFit,
   explanation: {
-    field: { kind: 'pair'; a: string; b: string } | { kind: 'component'; axis: number };
+    field:
+      | { kind: 'pair'; a: string; b: string }
+      | { kind: 'component'; axis: number }
+      | { kind: 'reconstruction'; member: string; components: number };
     crosshairMm: readonly number[];
-    orientation: 'axial';
+    orientation: 'axial' | 'sagittal' | 'coronal';
   },
   signal: AbortSignal,
 ) {
@@ -448,7 +462,9 @@ export async function explainRelationship(
   )
     throw new Error('The fitted sources are not the current verified population.');
   const result = await invokeCancelable<
-    RelationshipFit & { explanation: { values: (number | null)[]; total: number; label: string } }
+    RelationshipFit & {
+      explanation: { values: (number | null)[]; total: number; label: string; plane: ViewPlane };
+    }
   >(
     'fit_population_relationship',
     {
@@ -469,8 +485,18 @@ export async function explainRelationship(
   signal.throwIfAborted();
   if (
     JSON.stringify(result.geometry.coordinates) !== JSON.stringify(fit.geometry.coordinates) ||
+    (fit.geometry.componentScores !== undefined &&
+      JSON.stringify(result.geometry.componentScores) !==
+        JSON.stringify(fit.geometry.componentScores)) ||
     result.supportSha256 !== fit.supportSha256 ||
     !result.explanation ||
+    !result.explanation.plane ||
+    result.explanation.plane.dim_px?.join(',') !== '128,128' ||
+    [
+      result.explanation.plane.origin_mm,
+      result.explanation.plane.u_mm,
+      result.explanation.plane.v_mm,
+    ].some((v) => v.length !== 3 || !v.every(Number.isFinite)) ||
     result.explanation.values.length !== 128 * 128 ||
     result.explanation.values.some((v) => v !== null && !Number.isFinite(v)) ||
     !Number.isFinite(result.explanation.total)
@@ -480,11 +506,12 @@ export async function explainRelationship(
     result.explanation.values.reduce<number>((max, v) => Math.max(max, Math.abs(v ?? 0)), 0) || 1;
   return {
     image: new ImageData(
-      populationRgba(result.explanation.values, limit, explanation.field.kind === 'component'),
+      populationRgba(result.explanation.values, limit, explanation.field.kind !== 'pair'),
       128,
       128,
     ),
     limit,
+    plane: result.explanation.plane,
     total: result.explanation.total,
     label: result.explanation.label,
   };

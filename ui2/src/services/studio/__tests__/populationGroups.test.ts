@@ -114,3 +114,42 @@ it('partitions two factors as collision-safe keyed cells without dropping missin
   expect(validatePopulationPartition(partition, set.id, ids)).toBeNull();
   expect(() => partitionPopulation(crossed, ids, 'group', 'group')).toThrow(/distinct/);
 });
+
+it('computes crossed-factor probe cells with explicit missingness and rejects ambiguous restored levels', async () => {
+  const { populationPivot } = await import('../populationPivot');
+  const set = store().sets[store().selection.activeSetId!];
+  const crossed = {
+    ...set,
+    designTablePreview: {
+      columns: ['group', 'site'],
+      rows: ids.map((id, i) => ({ id, cells: [i < 3 ? 'A' : 'B', i === 5 ? '' : 'one'] })),
+    },
+  };
+  const partition = partitionPopulation(crossed, ids, 'group', 'site');
+  const sampled = {
+    columns: [
+      { name: 'member', role: 'nominal' as const },
+      { name: 'value', role: 'quantitative' as const },
+    ],
+    rows: ids.map((member, i) => ({ member, value: [1, 3, null, 8, 10, null][i] })),
+  };
+  const pivot = populationPivot(partition, sampled);
+  expect(pivot.rows).toEqual(['A', 'B']);
+  expect(pivot.columns).toEqual(['one', null]);
+  expect(pivot.cells.map((c) => [c.count, c.valid, c.mean])).toEqual([
+    [3, 2, 2],
+    [2, 2, 9],
+    [1, 0, null],
+  ]);
+  expect(() => populationPivot(partition, { ...sampled, rows: sampled.rows.slice(1) })).toThrow(
+    /cover/,
+  );
+  for (const value of ['bad', '[1,2]', '["A"]']) {
+    const bad = structuredClone(partition);
+    bad.groups[0].value = value;
+    expect(validatePopulationPartition(bad, set.id, ids)).toMatch(/levels/);
+  }
+  const duplicate = structuredClone(partition);
+  duplicate.groups[1].value = duplicate.groups[0].value;
+  expect(validatePopulationPartition(duplicate, set.id, ids)).toMatch(/unique level/);
+});

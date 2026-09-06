@@ -1,3 +1,4 @@
+import { buildPopulationDesign } from '@/services/studio/populationDesign';
 import {
   inferenceMethods,
   inferenceMethod,
@@ -20,6 +21,9 @@ export function PopulationInferenceControls() {
       ? saved
       : null;
   const [method, setMethod] = useState<PopulationInferenceSpec['method']>('oneSample');
+  const [covariates, setCovariates] = useState<string[]>([]);
+  const [coefficient, setCoefficient] = useState('(intercept)');
+  const [contrastUnits, setContrastUnits] = useState('');
   const [role, setRole] = useState<PopulationInferenceSpec['role']>('other');
   const [units, setUnits] = useState('');
   const [nullValue, setNull] = useState(0);
@@ -27,6 +31,11 @@ export function PopulationInferenceControls() {
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
     setMethod(current?.method ?? 'oneSample');
+    setCovariates(current?.design?.columns.slice(1) ?? []);
+    setCoefficient(
+      current?.design?.columns[current.design.contrast.findIndex((v) => v !== 0)] ?? '(intercept)',
+    );
+    setContrastUnits(current?.design?.contrastUnits ?? '');
     setRole(current?.role ?? feature?.valueRole ?? 'other');
     setUnits(current?.units ?? feature?.units ?? '');
     setNull(current?.nullValue ?? 0);
@@ -61,7 +70,7 @@ export function PopulationInferenceControls() {
           {descriptor.description} Declare the meaning of the feature; filenames do not establish
           it.
         </p>
-        {descriptor.inputs !== 'onePopulation' && (
+        {['independentGroups', 'pairedGroups'].includes(descriptor.inputs) && (
           <p className="text-muted-foreground">
             A: {population.workingMemberIds.length} observations · B:{' '}
             {population.referenceMemberIds.length} observations. Uses the current selection and
@@ -70,6 +79,62 @@ export function PopulationInferenceControls() {
               ? 'Match exactly the same participants using distinct A and B observations. Missing values remove that pair locally.'
               : 'Each person must belong to one group only.'}
           </p>
+        )}
+        {method === 'linearModel' && (
+          <fieldset className="space-y-2 rounded border border-border p-2">
+            <legend>Participant design</legend>
+            <p className="text-muted-foreground">
+              An intercept is included. Select numeric covariates; encode factors in the table
+              explicitly. Covariates must agree across each person's repeated rows. Rank is checked
+              by the native solver.
+            </p>
+            <div className="flex flex-wrap gap-2">
+              {(state.sets[state.selection.activeSetId ?? '']?.designColumns ?? []).map(
+                (column) => (
+                  <label key={column} className="flex items-center gap-1">
+                    <input
+                      type="checkbox"
+                      checked={covariates.includes(column)}
+                      onChange={(e) =>
+                        setCovariates((cols) =>
+                          e.target.checked ? [...cols, column] : cols.filter((c) => c !== column),
+                        )
+                      }
+                    />
+                    {column}
+                  </label>
+                ),
+              )}
+            </div>
+            <label>
+              Coefficient{' '}
+              <select
+                className={control}
+                aria-label="Model coefficient"
+                value={coefficient}
+                onChange={(e) => setCoefficient(e.target.value)}
+              >
+                {['(intercept)', ...covariates].map((c) => (
+                  <option key={c}>{c}</option>
+                ))}
+              </select>
+            </label>
+            <label className="block">
+              Coefficient units{' '}
+              <input
+                className={control}
+                aria-label="Coefficient units"
+                placeholder="e.g. % signal change / year"
+                value={contrastUnits}
+                onChange={(e) => setContrastUnits(e.target.value)}
+              />
+            </label>
+            <p className="text-muted-foreground">
+              Ordinary least squares; independent participants and homoskedastic errors. Missing
+              responses remove people locally. No automatic covariate centering, column dropping or
+              mixed-effects fit.
+            </p>
+          </fieldset>
         )}
         <div className="flex flex-wrap gap-2 items-center">
           <label>
@@ -124,22 +189,29 @@ export function PopulationInferenceControls() {
         <div className="flex flex-wrap gap-2 items-center">
           <button
             className={control}
-            onClick={() =>
-              setError(
-                configureInference({
-                  method,
-                  role,
-                  units,
-                  nullValue,
-                  independentParticipants: independent,
-                  selectionOrigin:
-                    state.population.working.kind === 'members'
-                      ? state.population.working.origin
-                      : 'manual',
-                  channel: 'effect',
-                }),
-              )
-            }
+            onClick={() => {
+              try {
+                setError(
+                  configureInference({
+                    method,
+                    role,
+                    units,
+                    nullValue,
+                    independentParticipants: independent,
+                    ...(method === 'linearModel'
+                      ? { design: buildPopulationDesign(covariates, coefficient, contrastUnits) }
+                      : {}),
+                    selectionOrigin:
+                      state.population.working.kind === 'members'
+                        ? state.population.working.origin
+                        : 'manual',
+                    channel: 'effect',
+                  }),
+                );
+              } catch (e) {
+                setError((e as Error).message);
+              }
+            }}
           >
             {method === 'oneSample' ? 'Apply one-sample test' : `Apply ${descriptor.label}`}
           </button>
@@ -177,13 +249,15 @@ export function PopulationInferenceControls() {
           <p role="status">
             {paused ? 'Test paused in this descriptive arrangement. ' : ''}
             {inferenceMethod(current.method).label}:{' '}
-            {inferenceMethod(current.method).inputs === 'onePopulation'
-              ? 'mean(A)'
-              : current.method === 'paired'
-                ? 'mean(within-person A − B)'
-                : 'mean(A) − mean(B)'}{' '}
-            − {current.nullValue} {current.units}. Selection changes recalculate the test; focus
-            does not change its operands.
+            {current.method === 'linearModel'
+              ? `coefficient contrast (${current.design?.columns.join(', ')})`
+              : inferenceMethod(current.method).inputs === 'onePopulation'
+                ? 'mean(A)'
+                : current.method === 'paired'
+                  ? 'mean(within-person A − B)'
+                  : 'mean(A) − mean(B)'}{' '}
+            − {current.nullValue} {current.design?.contrastUnits ?? current.units}. Selection
+            changes recalculate the test; focus does not change its operands.
           </p>
         )}
         <p className="text-muted-foreground">

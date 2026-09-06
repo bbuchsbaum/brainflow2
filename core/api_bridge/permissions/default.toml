@@ -112,6 +112,7 @@ permissions = [
     "allow-export-population-summary",
     "allow-replay-population-summary",
   "allow-open-population-summary",
+    "allow-export-population-plot",
     "allow-release-population-slice",
     "allow-sample-set-trace-at-world"
 ]

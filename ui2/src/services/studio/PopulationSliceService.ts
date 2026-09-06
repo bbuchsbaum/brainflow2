@@ -51,6 +51,7 @@ export interface PopulationSliceRequest {
   members: PopulationMemberSource[];
   workingMemberIds: string[];
   focusMemberId: string | null;
+  focusStackIndex?: number;
   crosshairMm: [number, number, number];
   orientation: PopulationOrientation;
   dimPx: [number, number];
@@ -297,7 +298,8 @@ export function buildPopulationSliceQuery(
     if (
       mode === 'comparison' ||
       mode === 'difference' ||
-      (activeTest && inferenceMethod(activeTest.method).inputs !== 'onePopulation')
+      (activeTest &&
+        ['independentGroups', 'pairedGroups'].includes(inferenceMethod(activeTest.method).inputs))
     ) {
       if (population.referenceIssue) throw new Error(population.referenceIssue);
       if (!population.referenceMemberIds.length || !workingMemberIds.length)
@@ -311,6 +313,7 @@ export function buildPopulationSliceQuery(
   if (activeTest) {
     inference = {
       method: activeTest.method,
+      ...(activeTest.design ? { design: activeTest.design } : {}),
       role: activeTest.role,
       units: activeTest.units,
       nullValue: activeTest.nullValue,
@@ -335,6 +338,9 @@ export function buildPopulationSliceQuery(
     members: source.members,
     ...(source.mask ? { mask: source.mask } : {}),
     workingMemberIds,
+    ...(state.population.focusedFrame?.memberId === state.selection.activeMemberId
+      ? { focusStackIndex: state.population.focusedFrame.frame }
+      : {}),
     aggregation,
     focusMemberId: source.members.some(
       (member) => member.memberId === state.selection.activeMemberId,
@@ -519,8 +525,8 @@ export class PopulationSliceService {
   private samePopulation(a: PopulationSliceQuery, b: PopulationSliceQuery) {
     return (
       a.datasetKey === b.datasetKey &&
-      JSON.stringify({ ...a.request, focusMemberId: null }) ===
-        JSON.stringify({ ...b.request, focusMemberId: null })
+      JSON.stringify({ ...a.request, focusMemberId: null, focusStackIndex: null }) ===
+        JSON.stringify({ ...b.request, focusMemberId: null, focusStackIndex: null })
     );
   }
   private sameInference(a: PopulationSliceQuery, b: PopulationSliceQuery) {
@@ -671,10 +677,11 @@ export class PopulationSliceService {
       const base = this.focusBase;
       const focusChanged =
         base &&
-        this.snapshot.displayed?.query.request.focusMemberId !== query.request.focusMemberId;
+        (this.snapshot.displayed?.query.request.focusMemberId !== query.request.focusMemberId ||
+          this.snapshot.displayed?.query.request.focusStackIndex !== query.request.focusStackIndex);
       const reuse = !!focusChanged && this.samePopulation(base.query, query);
       const cached =
-        reuse && Date.now() < this.focusExpires
+        reuse && query.request.focusStackIndex === undefined && Date.now() < this.focusExpires
           ? this.focusCache.get(query.request.focusMemberId ?? '')
           : undefined;
       let data: PopulationSliceData;
@@ -696,7 +703,10 @@ export class PopulationSliceService {
           8,
           Math.floor((8 * 1024 * 1024) / (query.request.dimPx[0] * query.request.dimPx[1] * 8)),
         );
-        const focusWindow = [...ids.slice(Math.max(0, index - 1), Math.max(0, index - 1) + count)];
+        const focusWindow =
+          query.request.focusStackIndex !== undefined
+            ? []
+            : [...ids.slice(Math.max(0, index - 1), Math.max(0, index - 1) + count)];
         data = await this.dependencies.evaluate(
           { ...query.request, contextKey, focusOnly: reuse, focusWindow },
           abort.signal,

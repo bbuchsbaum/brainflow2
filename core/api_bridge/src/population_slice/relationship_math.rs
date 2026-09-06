@@ -15,6 +15,9 @@ pub struct Merge {
 #[serde(rename_all = "camelCase")]
 pub struct Geometry {
     pub coordinates: Vec<[f64; 2]>,
+    /// Up to eight positive axes; the first two retain the plotted geometry.
+    #[serde(default)]
+    pub component_scores: Vec<Vec<f64>>,
     pub distances: Vec<Vec<f64>>,
     pub eigenvalues: Vec<f64>,
     pub explained_fraction: f64,
@@ -110,8 +113,14 @@ pub fn fit(
         .collect();
     let tolerance = eigenvalues[0] * 1e-10;
     let total: f64 = eigenvalues.iter().filter(|&&v| v > tolerance).sum();
+    let rank = eigenvalues
+        .iter()
+        .take(8)
+        .take_while(|&&v| v > tolerance)
+        .count();
+    let mut component_scores = vec![vec![0.; rank]; n];
     let mut coordinates = vec![[0.; 2]; n];
-    for axis in 0..2 {
+    for axis in 0..rank {
         if eigenvalues[axis] <= tolerance {
             continue;
         }
@@ -121,7 +130,10 @@ pub fn fit(
             .unwrap();
         let sign = if column[anchor] < 0. { -1. } else { 1. };
         for i in 0..n {
-            coordinates[i][axis] = column[i] * eigenvalues[axis].sqrt() * sign;
+            component_scores[i][axis] = column[i] * eigenvalues[axis].sqrt() * sign;
+            if axis < 2 {
+                coordinates[i][axis] = component_scores[i][axis];
+            }
         }
     }
     let mut residual = 0.;
@@ -137,6 +149,7 @@ pub fn fit(
     let merges = average_linkage(&distances, token)?;
     Ok(Geometry {
         coordinates,
+        component_scores,
         distances,
         explained_fraction: if total > 0. {
             (eigenvalues[0] + eigenvalues[1]) / total
@@ -197,12 +210,28 @@ pub(super) fn explain(
     };
     let axis = match choice {
         super::ExplanationKind::Component { axis }
-            if *axis < 2 && geometry.eigenvalues[*axis] > geometry.eigenvalues[0] * 1e-10 =>
+            if *axis < geometry.component_scores[0].len()
+                && geometry.eigenvalues[*axis] > geometry.eigenvalues[0] * 1e-10 =>
         {
             Some(*axis)
         }
         super::ExplanationKind::Component { .. } => {
-            return Err(input("Choose one of the first two nonzero components."))
+            return Err(input(
+                "Choose an available nonzero component (up to eight).",
+            ))
+        }
+        _ => None,
+    };
+    let reconstruction = match choice {
+        super::ExplanationKind::Reconstruction { member, components } => {
+            let i = labels
+                .iter()
+                .position(|id| id == member)
+                .ok_or_else(|| input("Unknown reconstruction observation."))?;
+            if *components > geometry.component_scores[0].len() {
+                return Err(input("Reconstruction requests unavailable components."));
+            }
+            Some((i, *components))
         }
         _ => None,
     };
@@ -220,7 +249,6 @@ pub(super) fn explain(
             };
             d * d
         } else {
-            let axis = axis.unwrap();
             let reference = transformed(0);
             let delta = |i: usize| {
                 if matches!(metric, Distance::Effect) {
@@ -230,10 +258,26 @@ pub(super) fn explain(
                 }
             };
             let mean = (0..n).map(delta).sum::<f64>() / n as f64;
-            (0..n)
-                .map(|i| (delta(i) - mean) * geometry.coordinates[i][axis])
-                .sum::<f64>()
-                / geometry.eigenvalues[axis]
+            let loading = |axis: usize| {
+                (0..n)
+                    .map(|i| (delta(i) - mean) * geometry.component_scores[i][axis])
+                    .sum::<f64>()
+                    / geometry.eigenvalues[axis]
+            };
+            if let Some((i, count)) = reconstruction {
+                let value = reference
+                    + mean
+                    + (0..count)
+                        .map(|axis| geometry.component_scores[i][axis] * loading(axis))
+                        .sum::<f64>();
+                if matches!(metric, Distance::Effect) {
+                    value * (p as f64).sqrt()
+                } else {
+                    value
+                }
+            } else {
+                loading(axis.unwrap())
+            }
         };
         if !value.is_finite() {
             return Err(input("Spatial explanation overflowed."));
@@ -250,6 +294,9 @@ pub(super) fn explain(
         total,
         if pair.is_some() {
             "Squared distance contribution; sums over common support to squared distance".into()
+        } else if let Some((_, count)) = reconstruction {
+            format!("Reconstruction using {count} components plus the population center; {}; not an observed map",
+                if matches!(metric, Distance::Effect) { "original effect units" } else { "centered, normalized pattern units" })
         } else {
             "Unit-norm spatial loading in the fitted transformed space; observed maps remain original".into()
         },
@@ -401,6 +448,92 @@ mod tests {
 #[cfg(test)]
 mod explanation_tests {
     use super::*;
+    #[test]
+    fn all_positive_components_reconstruct_originals_and_partial_error_decreases() {
+        let rows = vec![
+            vec![10., 2., 3., 1.],
+            vec![11., 5., 0., 2.],
+            vec![8., 3., 7., 4.],
+            vec![9., 0., 4., 8.],
+        ];
+        let labels: Vec<String> = (0..4).map(|i| i.to_string()).collect();
+        let support = vec![0, 1, 2, 3];
+        let token = SampleCancellation::default();
+        for metric in [Distance::Effect, Distance::PatternShape] {
+            let g = fit(&rows, &support, &metric, &token).unwrap();
+            let rank = g.component_scores[0].len();
+            assert_eq!(rank, 3);
+            for (i, row) in rows.iter().enumerate() {
+                let mean = row.iter().map(|&x| x as f64).sum::<f64>() / 4.;
+                let norm = row
+                    .iter()
+                    .map(|&x| (x as f64 - mean).powi(2))
+                    .sum::<f64>()
+                    .sqrt();
+                let expected: Vec<f64> = row
+                    .iter()
+                    .map(|&x| {
+                        if matches!(metric, Distance::Effect) {
+                            x as f64
+                        } else {
+                            (x as f64 - mean) / norm
+                        }
+                    })
+                    .collect();
+                let mut previous = f64::INFINITY;
+                for components in 0..=rank {
+                    let (reconstructed, _, label) = explain(
+                        &rows,
+                        &support,
+                        &metric,
+                        &g,
+                        &super::super::ExplanationKind::Reconstruction {
+                            member: labels[i].clone(),
+                            components,
+                        },
+                        &labels,
+                        &token,
+                    )
+                    .unwrap();
+                    let error = reconstructed
+                        .iter()
+                        .zip(&expected)
+                        .map(|(a, b)| (a - b).powi(2))
+                        .sum::<f64>();
+                    assert!(error <= previous + 1e-10);
+                    if components == rank {
+                        assert!(error < 1e-20, "{error}");
+                    }
+                    assert!(label.contains("not an observed map"));
+                    previous = error;
+                }
+            }
+            let (_, norm, _) = explain(
+                &rows,
+                &support,
+                &metric,
+                &g,
+                &super::super::ExplanationKind::Component { axis: 2 },
+                &labels,
+                &token,
+            )
+            .unwrap();
+            assert!((norm - 1.).abs() < 1e-10);
+            assert!(explain(
+                &rows,
+                &support,
+                &metric,
+                &g,
+                &super::super::ExplanationKind::Reconstruction {
+                    member: labels[0].clone(),
+                    components: 9
+                },
+                &labels,
+                &token
+            )
+            .is_err());
+        }
+    }
     #[test]
     fn contribution_sums_and_loading_normalization_match_geometry() {
         let rows = vec![vec![1., 2., 4.], vec![2., 1., 6.], vec![4., 5., 0.]];

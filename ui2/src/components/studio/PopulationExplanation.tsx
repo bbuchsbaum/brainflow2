@@ -1,3 +1,9 @@
+import { ReusableSliceViewport, SliceViewerImageSurface } from '@/components/views/sliceViewer';
+import {
+  populationAxisLabel,
+  populationSliceActions,
+} from '@/services/studio/PopulationSliceService';
+import type { ViewPlane } from '@/types/coordinates';
 import { useEffect, useRef, useState } from 'react';
 import type { RelationshipFit } from '@/services/studio/PopulationRelationshipService';
 import { explainRelationship } from '@/services/studio/PopulationRelationshipService';
@@ -16,10 +22,30 @@ export function PopulationExplanation({
   const [a, setA] = useState(ids[0]);
   const [b, setB] = useState(ids[1]);
   const [kind, setKind] = useState('pair');
+  const [orientation, setOrientation] = useState<'axial' | 'sagittal' | 'coronal'>('axial');
+  const scores = fit.geometry.componentScores ?? fit.geometry.coordinates;
+  const available = Math.min(
+    scores[0]?.length ?? 0,
+    fit.geometry.eigenvalues.filter((v) => v > fit.geometry.eigenvalues[0] * 1e-10).length,
+  );
+  const [components, setComponents] = useState(1);
   const [message, setMessage] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const canvas = useRef<HTMLCanvasElement>(null);
+  const box = useRef<HTMLDivElement>(null);
+  const [width, setWidth] = useState(320);
+  const [preview, setPreview] = useState<{ image: ImageBitmap; plane: ViewPlane } | null>(null);
+  const crosshairState = useViewStateStore((s) => s.viewState.crosshair);
+  const workspace = useViewStateStore((s) => s.activeWorkspaceKey);
+  useEffect(() => {
+    const observer = new ResizeObserver(([entry]) => {
+      const next = Math.max(1, Math.floor(entry.contentRect.width));
+      setWidth((previous) => (previous === next ? previous : next));
+    });
+    if (box.current) observer.observe(box.current);
+    return () => observer.disconnect();
+  }, []);
+  useEffect(() => () => preview?.image.close(), [preview]);
   const abort = useRef<AbortController | null>(null);
   useEffect(
     () => () => {
@@ -40,16 +66,25 @@ export function PopulationExplanation({
         fit,
         {
           field:
-            kind === 'pair' ? { kind: 'pair', a, b } : { kind: 'component', axis: Number(kind) },
+            kind === 'pair'
+              ? { kind: 'pair', a, b }
+              : kind === 'reconstruction'
+                ? { kind: 'reconstruction', member: a, components }
+                : { kind: 'component', axis: Number(kind) },
           crosshairMm: crosshair,
-          orientation: 'axial',
+          orientation,
         },
         controller.signal,
       );
       if (controller.signal.aborted || abort.current !== controller) return;
-      canvas.current?.getContext('2d')?.putImageData(result.image, 0, 0);
+      const image = await createImageBitmap(result.image);
+      if (controller.signal.aborted || abort.current !== controller) {
+        image.close();
+        return;
+      }
+      setPreview({ image, plane: result.plane });
       setMessage(
-        `${kind === 'pair' ? `${a} vs ${b}` : `Component ${Number(kind) + 1}`} · ${result.label} · axial z=${crosshair[2].toFixed(1)} mm · total ${result.total.toPrecision(5)} · display limit ${result.limit.toPrecision(4)}`,
+        `${kind === 'pair' ? `${a} vs ${b}` : kind === 'reconstruction' ? `Reconstruction of ${a}` : `Component ${Number(kind) + 1}`} · ${result.label} · ${orientation} ${crosshair.map((v) => v.toFixed(1)).join(', ')} mm${kind === 'pair' ? ` · squared distance ${result.total.toPrecision(5)}` : ''} · display limit ${result.limit.toPrecision(4)}`,
       );
     } catch (e) {
       if (!controller.signal.aborted) setError((e as Error).message);
@@ -57,9 +92,9 @@ export function PopulationExplanation({
       if (abort.current === controller) setBusy(false);
     }
   }
-  const axis = kind === 'pair' ? 0 : Number(kind);
+  const axis = kind === 'pair' || kind === 'reconstruction' ? 0 : Number(kind);
   const ordered = ids
-    .map((id, i) => ({ id, score: fit.geometry.coordinates[i][axis] }))
+    .map((id, i) => ({ id, score: scores[i][axis] ?? 0 }))
     .sort((a, b) => a.score - b.score);
   return (
     <details
@@ -76,10 +111,14 @@ export function PopulationExplanation({
             onChange={(e) => setKind(e.target.value)}
           >
             <option value="pair">Where two maps differ</option>
-            <option value="0">Component 1 loading</option>
-            <option value="1">Component 2 loading</option>
+            {Array.from({ length: available }, (_, axis) => (
+              <option key={axis} value={axis}>
+                Component {axis + 1} loading
+              </option>
+            ))}
+            {available > 0 && <option value="reconstruction">Reconstruct an observation</option>}
           </select>
-          {kind === 'pair' && (
+          {(kind === 'pair' || kind === 'reconstruction') && (
             <>
               <select
                 className={control}
@@ -91,23 +130,51 @@ export function PopulationExplanation({
                   <option key={id}>{id}</option>
                 ))}
               </select>
-              <select
-                className={control}
-                aria-label="Second comparison map"
-                value={b}
-                onChange={(e) => setB(e.target.value)}
-              >
-                {ids.map((id) => (
-                  <option key={id}>{id}</option>
-                ))}
-              </select>
+              {kind === 'pair' && (
+                <select
+                  className={control}
+                  aria-label="Second comparison map"
+                  value={b}
+                  onChange={(e) => setB(e.target.value)}
+                >
+                  {ids.map((id) => (
+                    <option key={id}>{id}</option>
+                  ))}
+                </select>
+              )}
             </>
           )}
+          {kind === 'reconstruction' && (
+            <label className="flex items-center gap-2">
+              Components
+              <input
+                aria-label="Reconstruction components"
+                type="range"
+                min={0}
+                max={available}
+                value={components}
+                onChange={(e) => setComponents(Number(e.target.value))}
+              />
+              <span>
+                {components} / {available}
+              </span>
+            </label>
+          )}
+          <select
+            className={control}
+            aria-label="Explanation orientation"
+            value={orientation}
+            onChange={(e) => setOrientation(e.target.value as typeof orientation)}
+          >
+            <option value="axial">Axial</option>
+            <option value="sagittal">Sagittal</option>
+            <option value="coronal">Coronal</option>
+          </select>
           <button className={control} disabled={!current || busy} onClick={() => void show()}>
-            {busy ? 'Computing…' : 'Show current axial slice'}
+            {busy ? 'Computing…' : 'Show current slice'}
           </button>
         </div>
-        {kind !== 'pair' && (
+        {kind !== 'pair' && kind !== 'reconstruction' && (
           <p>
             Actual observations along this component:{' '}
             {[ordered[0], ordered[Math.floor(ordered.length / 2)], ordered[ordered.length - 1]].map(
@@ -126,14 +193,62 @@ export function PopulationExplanation({
             people.
           </p>
         )}
-        <canvas
-          ref={canvas}
-          width={128}
-          height={128}
-          className="block bg-black"
-          style={{ width: 256, height: 'auto', aspectRatio: '1', maxWidth: '100%' }}
+        {kind === 'reconstruction' && (
+          <p className="text-muted-foreground">
+            This is a model reconstruction, not an original observation. Zero components shows the
+            population center.{' '}
+            <button
+              className={control}
+              disabled={!current}
+              onClick={() => populationProbeActions.focus(a)}
+            >
+              Focus original {a}
+            </button>
+          </p>
+        )}
+        <div
+          ref={box}
+          className="relative bg-black w-full max-w-2xl"
+          style={{ height: 320 }}
           aria-label="Spatial relationship explanation slice"
-        />
+        >
+          <ReusableSliceViewport
+            width={width}
+            height={320}
+            viewPlane={preview?.plane}
+            crosshair={crosshairState}
+            onWorldClick={(world) => {
+              if (current) populationSliceActions.navigate(workspace, world, true);
+            }}
+            renderSurface={(props) => (
+              <SliceViewerImageSurface
+                {...props}
+                image={preview?.image ?? null}
+                emptyFallback={
+                  <p className="absolute inset-0 grid place-items-center text-xs text-muted-foreground">
+                    Choose a field and show the current slice
+                  </p>
+                }
+              />
+            )}
+          />
+          {preview && (
+            <div className="pointer-events-none absolute inset-0 text-xs text-white/80" aria-hidden>
+              <span className="absolute left-1 top-1/2">
+                {populationAxisLabel(preview.plane.u_mm.map((v) => -v))}
+              </span>
+              <span className="absolute right-1 top-1/2">
+                {populationAxisLabel(preview.plane.u_mm)}
+              </span>
+              <span className="absolute left-1/2 top-1">
+                {populationAxisLabel(preview.plane.v_mm.map((v) => -v))}
+              </span>
+              <span className="absolute left-1/2 bottom-1">
+                {populationAxisLabel(preview.plane.v_mm)}
+              </span>
+            </div>
+          )}
+        </div>
         <p className="text-muted-foreground">
           {message || 'Choose a comparison and display the slice. The fit stays fixed.'}
         </p>

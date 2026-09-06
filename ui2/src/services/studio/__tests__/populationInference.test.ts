@@ -103,7 +103,12 @@ it('routes Welch through declared disjoint A/B participants without changing foc
 
 it('uses method-specific channels and rejects the same participant behind different rows', async () => {
   const { inferenceMethods, inferenceMethod } = await import('../inferenceCatalog');
-  expect(inferenceMethods.map((m) => m.id)).toEqual(['oneSample', 'welch', 'paired']);
+  expect(inferenceMethods.map((m) => m.id)).toEqual([
+    'oneSample',
+    'welch',
+    'paired',
+    'linearModel',
+  ]);
   expect(inferenceMethod('welch').channels.map((c) => c.id)).toEqual([
     'effect',
     'standardError',
@@ -196,4 +201,45 @@ it('refuses relabeling imported roles or units without transformed data', () => 
   });
   expect(configureInference(spec)).toMatch(/imported feature units/);
   expect(configureInference({ ...spec, units: 'beta' })).toBeNull();
+});
+
+it('routes an explicit OLS design without inventing population B and rejects membership drift', () => {
+  state().configurePopulationParticipants({
+    setId: state().selection.activeSetId!,
+    identity: { kind: 'observationIds' },
+    reduction: 'single',
+  });
+  const ids = state().sets[state().selection.activeSetId!].memberIds;
+  const model: PopulationInferenceSpec = {
+    ...spec,
+    method: 'linearModel',
+    design: {
+      participantIds: [...ids],
+      columns: ['intercept', 'x'],
+      values: ids.map((_, i) => [1, i]),
+      contrast: [0, 1],
+      contrastUnits: 'effect / x',
+    },
+  };
+  expect(configureInference(model)).toBeNull();
+  const result = buildPopulationSliceQuery(state(), 'workspace', {
+    crosshairMm: [0, 0, 0],
+    orientation: 'axial',
+    dimPx: [2, 2],
+    zoom: 1,
+    summary: 'mean',
+  });
+  expect(result.issue).toBeNull();
+  expect(result.query!.request.inference!.design).toEqual(model.design);
+  expect(result.query!.request.reference).toBeUndefined();
+  state().selectPopulationMembers(ids.slice(0, 3), 'manual');
+  expect(
+    buildPopulationSliceQuery(state(), 'workspace', {
+      crosshairMm: [0, 0, 0],
+      orientation: 'axial',
+      dimPx: [2, 2],
+      zoom: 1,
+      summary: 'mean',
+    }).issue,
+  ).toMatch(/participant-keyed/);
 });

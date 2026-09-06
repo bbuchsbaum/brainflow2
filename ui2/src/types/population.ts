@@ -78,6 +78,7 @@ export interface PopulationPresentation {
 }
 
 export interface PopulationPartition {
+  readonly factorColumns?: readonly [string, string];
   readonly setId: string;
   readonly column: string;
   readonly contextIds: readonly string[];
@@ -92,6 +93,7 @@ export interface PopulationPartition {
 }
 
 export interface PopulationState {
+  readonly focusedFrame?: { readonly memberId: string; readonly frame: number } | null;
   readonly inference: PopulationInference | null;
   readonly partition: PopulationPartition | null;
   readonly partitionPast: readonly (PopulationPartition | null)[];
@@ -131,7 +133,14 @@ export interface PopulationContext {
 
 /** User-declared feature meaning; input roles are never inferred from filenames. */
 export interface PopulationInferenceSpec {
-  method: 'oneSample' | 'welch' | 'paired';
+  method: 'oneSample' | 'welch' | 'paired' | 'linearModel';
+  design?: {
+    participantIds: string[];
+    columns: string[];
+    values: number[][];
+    contrast: number[];
+    contrastUnits: string;
+  };
   role: 'effect' | 'standardError' | 'variance' | 't' | 'z' | 'label' | 'other';
   units: string;
   nullValue: number;

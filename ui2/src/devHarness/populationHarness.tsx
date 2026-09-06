@@ -36,9 +36,27 @@ if (maskMode || exportMode)
         )
       )
         return '/synthetic/export/population-demo/provenance.json' as T;
+      if (command === 'sample_set_at_world') {
+        const members = args!.members as { memberId: string; stackIndex?: number }[];
+        return members.map((m) => ({
+          memberId: m.memberId,
+          value: m.stackIndex ?? 1,
+          count: 1,
+          sourceRevision: { sha256: fakeHash, sourceBytes: 0 },
+          ...(args!.mask ? { maskRevision: { sha256: fakeMaskHash, sourceBytes: 0 } } : {}),
+          error: null,
+        })) as T;
+      }
+      if (command === 'cancel_population_sample') return undefined as T;
       if (command === 'fit_population_relationship') {
         const request = args!
-          .request as import('@/services/studio/PopulationRelationshipService').RelationshipRequest;
+          .request as import('@/services/studio/PopulationRelationshipService').RelationshipRequest & {
+          explanation?: {
+            field: { kind: string };
+            orientation: string;
+            crosshairMm: [number, number, number];
+          };
+        };
         if (request.distance === 'pattern-shape')
           throw new Error('S001 is constant on common support; pattern shape is undefined.');
         const members = request.members.map((m) => ({ ...m, expectedSha256: fakeHash })),
@@ -64,6 +82,28 @@ if (maskMode || exportMode)
             members,
             mask: request.mask ? { ...request.mask, expectedSha256: fakeMaskHash } : null,
           },
+          ...(request.explanation
+            ? {
+                explanation: {
+                  values: Array.from({ length: 128 * 128 }, (_, i) =>
+                    ((i % 128) - 64) ** 2 + (Math.floor(i / 128) - 64) ** 2 < 1800
+                      ? Math.sin(i / 128)
+                      : null,
+                  ),
+                  total: 16,
+                  label:
+                    request.explanation.field.kind === 'reconstruction'
+                      ? 'Reconstruction in original effect units'
+                      : 'Spatial loading in fitted space',
+                  plane: {
+                    origin_mm: [-32, 32, 0],
+                    u_mm: [0.5, 0, 0],
+                    v_mm: [0, -0.5, 0],
+                    dim_px: [128, 128],
+                  },
+                },
+              }
+            : {}),
           supportSha256: 'f'.repeat(64),
           candidateVoxels: 100,
           commonVoxels: 90,
@@ -76,6 +116,7 @@ if (maskMode || exportMode)
             [0, 0, 0, 1],
           ],
           geometry: {
+            componentScores: values.map((v) => [v - mean]),
             coordinates: values.map((v) => [v - mean, 0]),
             distances: values.map((v) => values.map((w) => Math.abs(v - w))),
             eigenvalues: [
@@ -167,6 +208,7 @@ const ids = Array.from(
 );
 const metadataFor = (id: string, i: number) => ({
   observation: id,
+  ...(new URLSearchParams(location.search).has('ols') ? { age: String(20 + i) } : {}),
   group: i < 40 ? 'A' : 'B',
   participant: pairedMode
     ? `P${String((i % 40) + 1).padStart(3, '0')}`
@@ -204,7 +246,13 @@ demo.bootstrapStudio({
       },
       notes: [],
     },
-    designColumns: ['observation', 'group', 'participant', 'site'],
+    designColumns: [
+      'observation',
+      'group',
+      'participant',
+      'site',
+      ...(new URLSearchParams(location.search).has('ols') ? ['age'] : []),
+    ],
     designTablePreview: {
       columns: ['observation', 'group', 'participant', 'site'],
       rows: ids.slice(0, 6).map((id, i) => ({
@@ -213,7 +261,9 @@ demo.bootstrapStudio({
       })),
     },
   },
-  features: Object.values(demo.features),
+  features: Object.values(demo.features).map((f) =>
+    new URLSearchParams(location.search).has('combine') ? { ...f, units: 'a.u.' } : f,
+  ),
   cohorts: [],
   expressions: [],
   selection: { activeMemberId: ids[0] },
@@ -384,7 +434,10 @@ const slices = new PopulationSliceService(
           values: field(observed(memberId)),
           validPixels: field(observed(memberId)).filter((v) => v !== null).length,
         })),
-        focused: field(request.focusMemberId ? observed(request.focusMemberId) : NaN),
+        focused: field(
+          request.focusStackIndex ??
+            (request.focusMemberId ? observed(request.focusMemberId) : NaN),
+        ),
         validCounts: request.focusOnly ? [] : field(values.length).map((v) => v ?? 0),
         eligibleCount: request.workingMemberIds.length,
         unitCount: values.length,

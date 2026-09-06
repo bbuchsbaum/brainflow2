@@ -34,6 +34,7 @@ pub struct Request {
 pub enum ExplanationKind {
     Pair { a: String, b: String },
     Component { axis: usize },
+    Reconstruction { member: String, components: usize },
 }
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -141,6 +142,7 @@ pub async fn evaluate(
             mask: None,
             members: request.members.clone(),
             working_member_ids: vec![],
+            focus_stack_index: None,
             focus_member_id: None,
             crosshair_mm: explanation.crosshair_mm,
             orientation: explanation.orientation.clone(),

@@ -40,6 +40,7 @@ export function initialPopulationState(sessionRevision = 0): PopulationState {
 
 export interface PopulationSlice {
   population: PopulationState;
+  setPopulationFocusedFrame: (memberId: string, frame: number) => PopulationActionResult;
   configurePopulationInference: (definition: PopulationInference | null) => PopulationActionResult;
   setPopulationPartition: (partition: PopulationPartition | null) => PopulationActionResult;
   undoPopulationPartition: () => void;
@@ -74,7 +75,7 @@ export interface PopulationSlice {
 }
 
 type Host = PopulationContextHost & PopulationSlice;
-type Set = (state: Partial<Pick<Host, 'population'>>) => void;
+type Set = (state: Partial<Pick<Host, 'population' | 'selection'>>) => void;
 const ok: PopulationActionResult = { ok: true };
 const fail = (reason: string): PopulationActionResult => ({ ok: false, reason });
 const same = (a: unknown, b: unknown): boolean => JSON.stringify(a) === JSON.stringify(b);
@@ -111,6 +112,23 @@ export function createPopulationSlice(
     return ok;
   };
   return {
+    setPopulationFocusedFrame(memberId, frame) {
+      const checked = checkedMembers([memberId]);
+      if (!checked.ok) return checked;
+      if (!Number.isSafeInteger(frame) || frame < 0)
+        return fail('Choose a nonnegative integer image frame.');
+      const state = get();
+      if (
+        state.selection.activeMemberId !== memberId ||
+        state.population.focusedFrame?.memberId !== memberId ||
+        state.population.focusedFrame.frame !== frame
+      )
+        set({
+          selection: { ...state.selection, activeMemberId: memberId },
+          population: { ...state.population, focusedFrame: { memberId, frame } },
+        });
+      return ok;
+    },
     configurePopulationInference(definition) {
       const state = get();
       if (

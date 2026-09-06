@@ -73,6 +73,7 @@ fn published_nist_reference_and_large_offset_null() {
 #[test]
 fn readiness_refuses_wrong_roles_units_independence_and_duplicate_people() {
     let mut s = Specification {
+        design: None,
         method: Method::OneSample,
         role: FeatureRole::Effect,
         units: "percent signal change".into(),
@@ -168,7 +169,7 @@ fn welch_preserves_group_counts_and_refuses_undefined_local_evidence() {
 fn catalog_is_complete_and_channels_are_method_specific() {
     use field_table::population_inference::catalog::methods;
     use std::collections::HashSet;
-    assert_eq!(methods().len(), 3);
+    assert_eq!(methods().len(), 4);
     let mut ids = HashSet::new();
     for d in methods() {
         assert!(ids.insert(serde_json::to_string(&d.id).unwrap()));

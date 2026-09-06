@@ -5,7 +5,7 @@ export interface InferenceMethod {
   id: PopulationInferenceSpec['method'];
   version: number;
   label: string;
-  inputs: 'onePopulation' | 'independentGroups' | 'pairedGroups';
+  inputs: 'onePopulation' | 'independentGroups' | 'pairedGroups' | 'designMatrix';
   description: string;
   estimand: string;
   limitations: string;

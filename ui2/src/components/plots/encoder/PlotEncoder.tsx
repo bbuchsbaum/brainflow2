@@ -103,7 +103,7 @@ export function PlotEncoder({ frame, spec, width, height, context }: PlotEncoder
         {[...groups].map(([name, rows]) => (
           <div key={name}>
             <div style={{ fontSize: 11, padding: 4 }}>
-              {facet}: {name}
+              {renderFrame.columns.find((column) => column.name === facet)?.label ?? facet}: {name}
             </div>
             <PlotEncoder
               frame={{ ...renderFrame, rows }}

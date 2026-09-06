@@ -684,7 +684,7 @@ export function PopulationLens({
                     ? `${result?.query.request.inference ? inferenceChannel(result.query.request.inference).label : result?.query.request.difference ? 'A − B mean difference' : result?.query.request.reference ? 'A mean' : names[result?.query.request.summary ?? summary]} · ${result?.query.request.inference && result.data.reference ? `A ${result.data.unitCount} / B ${result.data.reference.unitCount}` : (result?.data.unitCount ?? 0)} ${result?.query.request.aggregation ? 'participants' : 'observations'}`
                     : pane === 'reference'
                       ? `B mean · ${result?.data.reference?.unitCount ?? 0} analysis units`
-                      : `Actual observation · ${result?.query.request.focusMemberId ?? 'none'}`}
+                      : `Actual observation · ${result?.query.request.focusMemberId ?? 'none'}${result?.query.request.focusStackIndex !== undefined ? ` · frame ${result.query.request.focusStackIndex + 1}` : ''}`}
                 </span>
                 {result && (
                   <span className="shrink-0 tabular-nums">

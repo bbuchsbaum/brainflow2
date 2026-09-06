@@ -36,7 +36,8 @@ export function validatePlotRecipe(frame: SampleFrame, r: PopulationPlotRecipe) 
         typeof c.name !== 'string' ||
         !c.name.trim() ||
         !['quantitative', 'nominal', 'ordinal', 'temporal', 'index'].includes(c.role) ||
-        (c.unit !== undefined && typeof c.unit !== 'string'),
+        (c.unit !== undefined && typeof c.unit !== 'string') ||
+        (c.label !== undefined && typeof c.label !== 'string'),
     ) ||
     frame.rows.some(
       (row) =>
@@ -46,7 +47,7 @@ export function validatePlotRecipe(frame: SampleFrame, r: PopulationPlotRecipe) 
         Object.values(row).some(
           (v) =>
             v !== null &&
-            (!['string', 'number', 'boolean'].includes(typeof v) ||
+            (!['string', 'number'].includes(typeof v) ||
               (typeof v === 'number' && !Number.isFinite(v))),
         ),
     )
@@ -201,7 +202,14 @@ function plotSpec(r: PopulationPlotRecipe, summary: boolean): ResolvedPlotSpec {
       detail: summary ? undefined : (r.detail ?? undefined),
     },
     transforms: [],
-    params: { jitter: !summary && r.mark === 'point' && r.axis === 'category' && r.x !== 'member' },
+    params: {
+      jitter:
+        !summary &&
+        r.mark === 'point' &&
+        r.axis === 'category' &&
+        r.x !== 'member' &&
+        r.x !== '__populationObservation',
+    },
     ...(summary && r.band !== 'none' ? { band: { lower: 'lower', upper: 'upper' } } : {}),
   };
 }

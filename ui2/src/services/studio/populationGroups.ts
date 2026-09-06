@@ -29,6 +29,7 @@ export function partitionPopulation(
   }
   return {
     setId: set.id,
+    ...(secondColumn ? { factorColumns: [column, secondColumn] as const } : {}),
     column: secondColumn ? `${column} × ${secondColumn}` : column,
     contextIds: [...contextIds],
     origin: 'metadata',
@@ -55,6 +56,11 @@ export function validatePopulationPartition(
     !partition ||
     partition.setId !== setId ||
     !['metadata', 'map-derived'].includes(partition.origin) ||
+    (partition.factorColumns !== undefined &&
+      (!Array.isArray(partition.factorColumns) ||
+        partition.factorColumns.length !== 2 ||
+        partition.factorColumns.some((c) => typeof c !== 'string' || !c.trim()) ||
+        partition.factorColumns[0] === partition.factorColumns[1])) ||
     (partition.origin === 'map-derived' && !/^[a-f0-9]{64}$/i.test(partition.fitId ?? '')) ||
     typeof partition.column !== 'string' ||
     !partition.column.trim() ||
@@ -67,7 +73,8 @@ export function validatePopulationPartition(
   )
     return 'Grouping belongs to another context. Regroup the current observations.';
   const ids = new Set<string>(),
-    groups = new Set<string>();
+    groups = new Set<string>(),
+    levels = new Set<string>();
   for (const group of partition.groups) {
     if (
       !group ||
@@ -81,6 +88,23 @@ export function validatePopulationPartition(
       !group.memberIds.length
     )
       return 'Grouping requires uniquely identified, nonempty groups.';
+    if (partition.factorColumns) {
+      let pair: unknown;
+      try {
+        pair = JSON.parse(group.value ?? 'null');
+      } catch {
+        return 'Invalid crossed-factor levels.';
+      }
+      if (
+        !Array.isArray(pair) ||
+        pair.length !== 2 ||
+        pair.some((v) => v !== null && typeof v !== 'string')
+      )
+        return 'Invalid crossed-factor levels.';
+      const key = JSON.stringify(pair);
+      if (levels.has(key)) return 'Crossed-factor cells must have unique level pairs.';
+      levels.add(key);
+    }
     groups.add(group.id);
     for (const id of group.memberIds) {
       if (ids.has(id) || !context.includes(id))

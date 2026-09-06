@@ -435,6 +435,11 @@ export function preparePopulationRestore(
         ? 'complement'
         : 'cohort',
     pinnedProbe,
+    ...(query.focusStackIndex !== undefined && query.focusMemberId
+      ? {
+          focusedFrame: { memberId: query.focusMemberId, frame: query.focusStackIndex },
+        }
+      : {}),
     restoredView: {
       orientation: query.orientation,
       summary: query.summary,
@@ -478,11 +483,21 @@ export function preparePopulationRestore(
 }
 
 export const populationRestoreService = {
-  async chooseAndOpen(signal: AbortSignal): Promise<boolean> {
+  async chooseAndOpen(signal: AbortSignal, fromDirectory?: string): Promise<boolean> {
     const before = useSetStudioStore.getState();
     const revision = before.population.sessionRevision;
     const setId = before.selection.activeSetId;
     const workspaceId = useViewStateStore.getState().activeWorkspaceKey;
+    let relocation: { fromDirectory: string; toDirectory: string } | undefined;
+    if (fromDirectory !== undefined) {
+      if (!fromDirectory.trim())
+        throw new Error('Enter the original source directory recorded in the saved study.');
+      const toDirectory = await getTransport().invoke<string | null>('plugin:dialog|open', {
+        options: { multiple: false, directory: true, title: 'Locate the moved source directory' },
+      });
+      if (!toDirectory || signal.aborted) return false;
+      relocation = { fromDirectory: fromDirectory.trim(), toDirectory };
+    }
     const provenancePath = await getTransport().invoke<string | null>('plugin:dialog|open', {
       options: {
         multiple: false,
@@ -494,7 +509,7 @@ export const populationRestoreService = {
     if (!provenancePath || signal.aborted) return false;
     const opened = await invokeCancelable<OpenedPopulationCalculation>(
       'open_population_summary',
-      { provenancePath },
+      { provenancePath, ...(relocation ? { relocation } : {}) },
       signal,
     );
     signal.throwIfAborted();

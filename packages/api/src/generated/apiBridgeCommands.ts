@@ -117,6 +117,7 @@ export const apiBridgeCommands = [
   "export_population_summary",
   "replay_population_summary",
   "open_population_summary",
+  "export_population_plot",
   "release_population_slice",
   "sample_set_trace_at_world",
 ] as const;

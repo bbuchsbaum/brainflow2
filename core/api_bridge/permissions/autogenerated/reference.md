@@ -109,8 +109,11 @@ Default permissions for api-bridge plugin
 - `allow-sample-set-at-world`
 - `allow-cancel-population-sample`
 - `allow-evaluate-population-slice`
+- `allow-fit-population-relationship`
 - `allow-export-population-summary`
 - `allow-replay-population-summary`
+- `allow-open-population-summary`
+- `allow-export-population-plot`
 - `allow-release-population-slice`
 - `allow-sample-set-trace-at-world`
 
@@ -594,6 +597,32 @@ Denies the evaluate_population_slice command without any pre-configured scope.
 <tr>
 <td>
 
+`api-bridge:allow-export-population-plot`
+
+</td>
+<td>
+
+Enables the export_population_plot command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:deny-export-population-plot`
+
+</td>
+<td>
+
+Denies the export_population_plot command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
 `api-bridge:allow-export-population-summary`
 
 </td>
@@ -613,6 +642,32 @@ Enables the export_population_summary command without any pre-configured scope.
 <td>
 
 Denies the export_population_summary command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:allow-fit-population-relationship`
+
+</td>
+<td>
+
+Enables the fit_population_relationship command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:deny-fit-population-relationship`
+
+</td>
+<td>
+
+Denies the fit_population_relationship command without any pre-configured scope.
 
 </td>
 </tr>
@@ -1653,6 +1708,32 @@ Enables the materialize_set_studio_compare_panes command without any pre-configu
 <td>
 
 Denies the materialize_set_studio_compare_panes command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:allow-open-population-summary`
+
+</td>
+<td>
+
+Enables the open_population_summary command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:deny-open-population-summary`
+
+</td>
+<td>
+
+Denies the open_population_summary command without any pre-configured scope.
 
 </td>
 </tr>

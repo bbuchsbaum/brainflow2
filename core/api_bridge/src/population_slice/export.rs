@@ -244,7 +244,7 @@ pub(super) async fn export_checked(
         let worker_permit = permit.clone();
         let result = tokio::task::spawn_blocking(move || {
             let _permit = worker_permit;
-            reduce_plane(&cached, &query, false, &check)
+            reduce_plane(&cached, &query, false, &check, None)
         })
         .await
         .map_err(|e| input(e.to_string()))??;
@@ -419,6 +419,7 @@ mod tests {
                 })
                 .collect(),
             working_member_ids: (0..sources.len()).map(|i| format!("s{i}")).collect(),
+            focus_stack_index: None,
             focus_member_id: Some("s0".into()),
             crosshair_mm: [1.; 3],
             orientation: Orientation::Axial,
@@ -1063,6 +1064,7 @@ mod tests {
                 .collect(),
         });
         q.inference = Some(Specification {
+            design: None,
             method: Method::OneSample,
             role: FeatureRole::Effect,
             units: "percent signal change".into(),
@@ -1228,6 +1230,7 @@ mod tests {
             aggregation: aggregation(&ids[3..]),
         });
         q.inference = Some(Specification {
+            design: None,
             method: Method::Welch,
             role: FeatureRole::Effect,
             units: "a.u.".into(),
@@ -1384,6 +1387,7 @@ mod tests {
             aggregation: b,
         });
         q.inference = Some(Specification {
+            design: None,
             method: Method::Paired,
             role: FeatureRole::Effect,
             units: "a.u.".into(),
@@ -1457,6 +1461,111 @@ mod tests {
         assert!(validate(&bad).is_err());
     }
 
+    #[tokio::test]
+    async fn linear_model_channels_replay_and_external_relocation_are_verified() {
+        use field_table::population_inference::{
+            linear_model::LinearDesign, Channel, FeatureRole, Method, SelectionOrigin,
+            Specification,
+        };
+        let sources: Vec<_> = [1., 2., 5., 4., 9., 8.]
+            .iter()
+            .map(|&v| TestSource::new(&[3, 3, 3], &[v; 27]))
+            .collect();
+        let state = BridgeState::default().unwrap();
+        let mut q = query(&sources.iter().collect::<Vec<_>>());
+        q.aggregation = Some(ParticipantAggregation {
+            within: WithinParticipant::Single,
+            groups: (0..6)
+                .map(|i| ParticipantGroup {
+                    participant_id: format!("p{i}"),
+                    member_ids: vec![format!("s{i}")],
+                })
+                .collect(),
+        });
+        q.inference = Some(Specification {
+            method: Method::LinearModel,
+            role: FeatureRole::Effect,
+            units: "effect".into(),
+            null_value: 0.,
+            independent_participants: true,
+            selection_origin: SelectionOrigin::Metadata,
+            channel: Channel::Effect,
+            design: Some(LinearDesign {
+                participant_ids: (0..6).map(|i| format!("p{i}")).collect(),
+                columns: vec!["intercept".into(), "x".into(), "z".into()],
+                values: (0..6).map(|i| vec![1., i as f64, (i % 2) as f64]).collect(),
+                contrast: vec![0., 1., 0.],
+                contrast_units: "effect/x".into(),
+            }),
+        });
+        let live = freeze(&mut q, &state).await;
+        assert!(live.summary.iter().any(|&v| (v - 1.75).abs() < 1e-6));
+        let dest = Destination::new();
+        let out = export(
+            ExportRequest {
+                include_inputs: false,
+                population: q,
+                destination_directory: dest.0.to_string_lossy().into(),
+                context: serde_json::json!({}),
+            },
+            &state,
+            SampleCancellation::default(),
+        )
+        .await
+        .unwrap();
+        let se = values(
+            &Path::new(&out.directory)
+                .join("standard-error.nii.gz")
+                .to_string_lossy(),
+            &state,
+        )
+        .await;
+        assert!((se[0] - 0.1863389981249824).abs() < 1e-6);
+        super::super::replay::replay(
+            out.provenance_path.clone(),
+            dest.0.to_string_lossy().into(),
+            &state,
+            SampleCancellation::default(),
+        )
+        .await
+        .unwrap();
+        let moved = Destination::new();
+        let source = &sources[0];
+        for item in &sources {
+            fs::copy(&item.path, moved.0.join(item.path.file_name().unwrap())).unwrap();
+            fs::remove_file(&item.path).unwrap();
+        }
+        // Rebind the fixture directory while preserving every relative filename.
+        let mapping = super::super::replay::SourceRelocation {
+            from_directory: source.path.parent().unwrap().to_string_lossy().into(),
+            to_directory: moved.0.to_string_lossy().into(),
+        };
+        let opened = super::super::replay::open_relocated(
+            out.provenance_path.clone(),
+            Some(mapping.clone()),
+            &state,
+            SampleCancellation::default(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            opened.calculation.inference.unwrap().method,
+            Method::LinearModel
+        );
+        fs::write(
+            moved.0.join(source.path.file_name().unwrap()),
+            b"not the same input",
+        )
+        .unwrap();
+        assert!(super::super::replay::open_relocated(
+            out.provenance_path,
+            Some(mapping),
+            &state,
+            SampleCancellation::default()
+        )
+        .await
+        .is_err());
+    }
     #[tokio::test]
     async fn retained_inputs_reopen_after_move_without_originals_and_reject_tampering() {
         let source = TestSource::new(&[3, 3, 3], &[7.; 27]);

@@ -106,3 +106,59 @@ it('rejects malformed column roles and units in imported plot receipts', () => {
   Object.assign(invalidUnit.columns[1], { unit: { symbol: 'beta' } });
   expect(() => composePopulationPlot(invalidUnit, base)).toThrow('Invalid tabular');
 });
+
+it('combines probes without multiplying overlapping observations and rejects inconsistent receipts', async () => {
+  const { combinePopulationPlots } = await import('../populationPlotCombine');
+  const { defaultPopulationPlotRecipe } = await import('../populationPlot');
+  const make = (id: string, worldMm: [number, number, number]) => ({
+    id,
+    label: id,
+    datasetKey: 'd',
+    setId: 'set',
+    sessionRevision: 1,
+    frame: {
+      ...frame,
+      columns: frame.columns.map((c) => (c.name === 'value' ? { ...c, unit: 'beta' } : c)),
+      meta: {
+        sources: frame.rows.map((r) => ({
+          memberId: String(r.member),
+          sourceRevision: { sha256: 'a'.repeat(64), sourceBytes: 100 },
+          stackIndex: null,
+          validCount: 1,
+          error: null,
+        })),
+      },
+    },
+    recipe: defaultPopulationPlotRecipe,
+    query: {
+      key: id,
+      datasetKey: 'd',
+      probe: { worldMm, radiusMm: 0, reduce: 'mean' as const, supportKey: 's' },
+      request: {
+        datasetId: 'set',
+        reduce: 'mean' as const,
+        locus: {
+          kind: 'set' as const,
+          members: frame.rows.map((r) => ({
+            memberId: String(r.member),
+            sourcePath: '/source.nii',
+          })),
+          worldMm,
+          radiusMm: 0,
+        },
+      },
+    },
+  });
+  const a = make('A', [0, 0, 0]);
+  const b = make('B', [0, 0, 0]);
+  const union = combinePopulationPlots([a, b]);
+  expect(union.rows).toHaveLength(4);
+  expect(JSON.parse(String(union.rows[0].__populationSets))).toEqual(['A', 'B']);
+  expect(combinePopulationPlots([a, make('C', [1, 0, 0])]).rows).toHaveLength(8);
+  const conflicting = structuredClone(b);
+  conflicting.frame.rows[0].value = 99;
+  expect(() => combinePopulationPlots([a, conflicting])).toThrow('disagree');
+  const incompatible = structuredClone(b);
+  incompatible.frame.columns.find((c) => c.name === 'value')!.unit = 't';
+  expect(() => combinePopulationPlots([a, incompatible])).toThrow('units');
+});

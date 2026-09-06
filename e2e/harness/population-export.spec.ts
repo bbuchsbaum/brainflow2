@@ -602,3 +602,134 @@ test('pins cached samples and composes grouped, faceted population plots', async
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   expect(errors).toEqual([]);
 });
+
+test('declares an OLS covariate and exports the participant-keyed design', async ({
+  page,
+}, testInfo) => {
+  await page.goto('/population-harness.html?mask&export&ols');
+  await page.getByText(/^Analysis unit:/).click();
+  await page.getByLabel('Participant identity', { exact: true }).selectOption('rows');
+  await page.getByLabel('Population analysis unit', { exact: true }).selectOption('single');
+  await page.getByText('Statistical question', { exact: true }).click();
+  await page.getByLabel('Statistical method', { exact: true }).selectOption('linearModel');
+  await page.getByRole('checkbox', { name: 'age', exact: true }).check();
+  await page.getByLabel('Model coefficient', { exact: true }).selectOption('age');
+  await page.getByLabel('Coefficient units', { exact: true }).fill('a.u. / year');
+  await page.getByLabel('Feature value role', { exact: true }).selectOption('effect');
+  await page.getByLabel('Effect units', { exact: true }).fill('a.u.');
+  await page
+    .getByRole('checkbox', { name: 'I declare comparable effects from independent participants.' })
+    .check();
+  await page.getByRole('button', { name: 'Apply Linear model (OLS)', exact: true }).click();
+  await expect(page.getByRole('status').filter({ hasText: 'coefficient contrast' })).toBeVisible();
+  await page.getByText('Save calculation', { exact: true }).click();
+  await page.getByRole('button', { name: 'Freeze discovery…', exact: true }).click();
+  const receipt = JSON.parse((await page.getByTestId('synthetic-export-receipt').textContent())!);
+  expect(receipt.population.inference.design.columns).toEqual(['(intercept)', 'age']);
+  expect(receipt.population.inference.design.contrast).toEqual([0, 1]);
+  expect(receipt.population.inference.design.values[0]).toEqual([1, 20]);
+  expect(receipt.population.reference).toBeUndefined();
+  await page.screenshot({ path: testInfo.outputPath('population-ols.png') });
+});
+
+test('combines identical pinned probes once and keeps original image links', async ({
+  page,
+}, testInfo) => {
+  await page.goto('/population-harness.html?mask&export&plots&combine');
+  await page
+    .locator('canvas')
+    .first()
+    .click({ position: { x: 150, y: 150 } });
+  await page.getByRole('button', { name: 'Compose in Plot', exact: true }).click();
+  await page.getByRole('button', { name: 'Compose in Plot', exact: true }).click();
+  const plot = page.getByLabel('Population plot authoring', { exact: true });
+  await plot.getByText('Combine pinned plots', { exact: true }).click();
+  const choices = plot.getByRole('checkbox');
+  await choices.nth(0).check();
+  await choices.nth(1).check();
+  await plot.getByRole('button', { name: 'Combine samples', exact: true }).click();
+  await expect(plot.getByText(/Pinned samples · 80 \/ 80 sample rows/)).toBeVisible();
+  await expect(plot.locator('[data-datum-id]')).toHaveCount(80);
+  await plot.locator('[data-datum-id]').nth(41).focus();
+  await page.keyboard.press('Enter');
+  await expect(page.getByTestId('fixture-focus')).toHaveText('S042');
+  await plot.screenshot({ path: testInfo.outputPath('population-combined.png') });
+});
+
+test('samples declared 4D frames and focuses a real time point without replacing the cohort', async ({
+  page,
+}, testInfo) => {
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  await page.goto('/population-harness.html?mask&export&plots&combine');
+  await page
+    .locator('canvas')
+    .first()
+    .click({ position: { x: 150, y: 150 } });
+  await page.getByRole('button', { name: 'Compose in Plot', exact: true }).click();
+  const plot = page.getByLabel('Population plot authoring', { exact: true });
+  await plot.getByText('Create time courses from 4D images', { exact: true }).click();
+  await plot.getByLabel('Frame count', { exact: true }).fill('3');
+  await plot.getByLabel('Time step', { exact: true }).fill('2');
+  await plot
+    .getByRole('checkbox', { name: 'These sources share this time axis and frame alignment.' })
+    .check();
+  await plot.getByRole('button', { name: 'Create time courses', exact: true }).click();
+  await expect(plot.locator('[data-datum-id]')).toHaveCount(240);
+  const point = plot.getByRole('button', { name: '["S042",2]: 2', exact: true });
+  await point.focus();
+  await page.keyboard.press('Enter');
+  await expect(page.getByTestId('fixture-focus')).toHaveText('S042');
+  await expect(
+    page.getByText('Actual observation · S042 · frame 3', { exact: true }),
+  ).toBeVisible();
+  await expect(page.getByText(/Selected mean:/)).toContainText('1.000');
+  await plot.getByLabel('Plot membership binding', { exact: true }).selectOption('working');
+  await page.getByRole('button', { name: 'Focused only', exact: true }).click();
+  await expect(plot.locator('[data-datum-id]')).toHaveCount(3);
+  await expect(plot.getByText(/Pinned samples · 3 \/ 240 sample rows/)).toBeVisible();
+  await plot.evaluate((el) => (el.scrollTop = 0));
+  await plot.screenshot({ path: testInfo.outputPath('population-time-courses.png') });
+  const downloading = page.waitForEvent('download');
+  await plot.getByRole('button', { name: 'Export PNG', exact: true }).click();
+  const download = await downloading;
+  await download.saveAs(testInfo.outputPath('population-time-courses.png-export.png'));
+  expect(download.suggestedFilename()).toMatch(/\.png$/);
+  expect(errors).toEqual([]);
+});
+
+test('selects exact crossed-factor cells without moving focus', async ({ page }, testInfo) => {
+  await page.goto('/population-harness.html?export');
+  await page.getByRole('button', { name: 'Pin crosshair', exact: true }).click();
+  await page.getByLabel('Group by factor', { exact: true }).selectOption('group');
+  await page.getByLabel('Second grouping factor', { exact: true }).selectOption('site');
+  await page.getByRole('button', { name: 'Show factor groups', exact: true }).click();
+  const matrix = page.getByLabel('Population group matrix', { exact: true });
+  await matrix.locator('summary').click();
+  const cells = matrix.locator('tbody button');
+  await expect(cells.first()).toBeEnabled();
+  await cells.first().click();
+  await expect(page.getByTestId('fixture-focus')).toHaveText('S001');
+  await expect(page.getByText(/Selected mean:/)).toContainText('3.000');
+  await matrix.screenshot({ path: testInfo.outputPath('population-group-matrix.png') });
+});
+
+test('renders a labeled reconstruction in the shared anatomical viewport', async ({
+  page,
+}, testInfo) => {
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  await page.goto('/population-harness.html?export');
+  await page.getByText('Spatial relationships', { exact: true }).click();
+  await page.getByRole('button', { name: 'Fit on current support', exact: true }).click();
+  await page.getByText('Explain in the brain', { exact: true }).click();
+  const explanation = page.getByLabel('Explain spatial relationships', { exact: true });
+  await explanation
+    .getByLabel('Relationship explanation', { exact: true })
+    .selectOption('reconstruction');
+  await explanation.getByRole('button', { name: 'Show current slice', exact: true }).click();
+  await expect(explanation.getByText(/Reconstruction of S001/)).toBeVisible();
+  await expect(explanation.locator('canvas')).toBeVisible();
+  await explanation.screenshot({ path: testInfo.outputPath('population-reconstruction.png') });
+  expect(errors).toEqual([]);
+});

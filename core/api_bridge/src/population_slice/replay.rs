@@ -277,14 +277,84 @@ pub struct OpenedCalculation {
     pub context: serde_json::Value,
 }
 
+/// An explicit directory substitution. Contents, frames and grids still have to
+/// match the saved record; this never changes digests or rewrites provenance.
+#[derive(serde::Deserialize, Clone)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SourceRelocation {
+    pub from_directory: String,
+    pub to_directory: String,
+}
+fn relocate(query: &mut PopulationSliceRequest, mapping: &SourceRelocation) -> BridgeResult<()> {
+    let from = Path::new(&mapping.from_directory);
+    let to = Path::new(&mapping.to_directory);
+    if !from.is_absolute()
+        || !to.is_absolute()
+        || from
+            .components()
+            .any(|c| matches!(c, std::path::Component::ParentDir))
+    {
+        return Err(input(
+            "Relocation requires absolute directory paths without parent traversal.",
+        ));
+    }
+    let to = std::fs::canonicalize(to)?;
+    if !to.is_dir() {
+        return Err(input("Choose an existing destination directory."));
+    }
+    let mut count = 0;
+    let mut replace = |source: &mut String| -> BridgeResult<()> {
+        if let Ok(relative) = Path::new(source).strip_prefix(from) {
+            if relative
+                .components()
+                .any(|c| !matches!(c, std::path::Component::Normal(_)))
+                || relative.as_os_str().is_empty()
+            {
+                return Err(input("Invalid relative source path in relocation."));
+            }
+            let candidate = std::fs::canonicalize(to.join(relative))?;
+            if !candidate.starts_with(&to) {
+                return Err(input("Relocated source escapes the chosen directory."));
+            }
+            *source = candidate.to_string_lossy().into_owned();
+            count += 1;
+        }
+        Ok(())
+    };
+    for member in &mut query.members {
+        replace(&mut member.source_path)?;
+    }
+    if let Some(mask) = &mut query.mask {
+        replace(&mut mask.source_path)?;
+    }
+    if count == 0 {
+        return Err(input(
+            "The original directory does not match any saved source or mask path.",
+        ));
+    }
+    Ok(())
+}
+
 /// Validate original inputs and bundle integrity without creating output files.
 /// This is source verification, not a claim of full artifact recalculation.
+#[cfg(test)]
 pub async fn open(
     provenance_path: String,
     state: &BridgeState,
     token: SampleCancellation,
 ) -> BridgeResult<OpenedCalculation> {
-    let (record, proof, _permit) = verified_bundle(provenance_path, token.clone()).await?;
+    open_relocated(provenance_path, None, state, token).await
+}
+pub async fn open_relocated(
+    provenance_path: String,
+    relocation: Option<SourceRelocation>,
+    state: &BridgeState,
+    token: SampleCancellation,
+) -> BridgeResult<OpenedCalculation> {
+    let (mut record, proof, _permit) = verified_bundle(provenance_path, token.clone()).await?;
+    if let Some(mapping) = &relocation {
+        relocate(&mut record.calculation, mapping)?;
+    }
     let mut query = record.calculation.clone();
     query.dim_px = [1, 1];
     query.cutouts = None;

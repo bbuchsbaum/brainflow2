@@ -7,6 +7,7 @@ use std::sync::OnceLock;
 #[serde(rename_all = "camelCase")]
 pub enum Inputs {
     OnePopulation,
+    DesignMatrix,
     IndependentGroups,
     PairedGroups,
 }

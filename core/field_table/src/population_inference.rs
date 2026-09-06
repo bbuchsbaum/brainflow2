@@ -5,6 +5,7 @@ use crate::population::LocationSummary;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 pub mod catalog;
+pub mod linear_model;
 mod paired;
 mod welch;
 pub use paired::PairedMoments;
@@ -17,6 +18,7 @@ pub enum Method {
     OneSample,
     Welch,
     Paired,
+    LinearModel,
 }
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "kebab-case")]
@@ -39,6 +41,8 @@ pub enum Channel {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Specification {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub design: Option<linear_model::LinearDesign>,
     pub method: Method,
     pub role: FeatureRole,
     pub units: String,
@@ -70,6 +74,14 @@ impl Specification {
             || participants.iter().collect::<HashSet<_>>().len() != participants.len()
         {
             return Err("Testing requires at least two uniquely identified participants.");
+        }
+        match (&self.method, &self.design) {
+            (Method::LinearModel, Some(design)) => design.validate(participants)?,
+            (Method::LinearModel, None) => {
+                return Err("Declare a participant-keyed OLS design and contrast.")
+            }
+            (_, Some(_)) => return Err("This method does not accept a design matrix."),
+            _ => {}
         }
         Ok(())
     }
@@ -119,11 +131,12 @@ pub enum Estimate {
     OneSample(OneSample),
     Welch(Welch),
     Paired(OneSample),
+    LinearModel(OneSample),
 }
 impl Estimate {
     pub fn value(&self, channel: &Channel) -> Option<f64> {
         match self {
-            Self::OneSample(r) | Self::Paired(r) => r.value(channel),
+            Self::OneSample(r) | Self::Paired(r) | Self::LinearModel(r) => r.value(channel),
             Self::Welch(r) => r.value(channel),
         }
     }
@@ -137,6 +150,9 @@ impl Method {
         null: f64,
     ) -> Result<Estimate, &'static str> {
         match self {
+            Self::LinearModel => {
+                Err("OLS requires the participant response matrix and declared design.")
+            }
             Self::Paired => {
                 Err("Paired inference requires matched differences, not marginal group summaries.")
             }

@@ -382,6 +382,47 @@ function ContinuousMark({ kind, frame, spec, width, height, context }: Continuou
       ))
     : null;
 
+  const markers = points
+    .filter((p) => Number.isFinite(p.y))
+    .map((p, i) => {
+      const link = context?.datumLink;
+      const id = link && p.rowIndex !== undefined ? frame.rows[p.rowIndex][link.idColumn] : null;
+      if (!link || typeof id !== 'string')
+        return <Circle key={i} cx={px(p)} cy={py(p.y)} r={2} fill={colorFor(p)} />;
+      const focused = id === link.focusedId;
+      const selected = link.selectedIds.has(id);
+      return (
+        <Circle
+          key={id}
+          cx={px(p)}
+          cy={py(p.y)}
+          r={focused ? 5 : 3.5}
+          fill={colorFor(p)}
+          fillOpacity={selected ? 1 : 0.3}
+          stroke={focused ? 'var(--app-text-primary)' : 'none'}
+          strokeWidth={1.5}
+          role="button"
+          tabIndex={0}
+          data-datum-id={id}
+          aria-label={`${id}: ${p.y}`}
+          aria-pressed={selected}
+          aria-current={focused ? 'true' : undefined}
+          onClick={(event) => (event.shiftKey ? link.onToggleSelection(id) : link.onFocus(id))}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter' || event.key === ' ') {
+              event.preventDefault();
+              if (event.shiftKey) link.onToggleSelection(id);
+              else link.onFocus(id);
+            }
+          }}
+        >
+          <title>
+            {id}: {p.y} · Click to focus; Shift-click to select
+          </title>
+        </Circle>
+      );
+    });
+
   let geometry: ReactNode = null;
   if (kind === 'line') {
     geometry = [...groups].map(([key, data]) => (
@@ -429,49 +470,7 @@ function ContinuousMark({ kind, frame, spec, width, height, context }: Continuou
     }
     geometry = (
       <>
-        {points
-          .filter((p) => Number.isFinite(p.y))
-          .map((p, i) => {
-            const link = context?.datumLink;
-            const id =
-              link && p.rowIndex !== undefined ? frame.rows[p.rowIndex][link.idColumn] : null;
-            if (!link || typeof id !== 'string')
-              return <Circle key={i} cx={px(p)} cy={py(p.y)} r={2} fill={colorFor(p)} />;
-            const focused = id === link.focusedId;
-            const selected = link.selectedIds.has(id);
-            return (
-              <Circle
-                key={id}
-                cx={px(p)}
-                cy={py(p.y)}
-                r={focused ? 5 : 3.5}
-                fill={colorFor(p)}
-                fillOpacity={selected ? 1 : 0.3}
-                stroke={focused ? 'var(--app-text-primary)' : 'none'}
-                strokeWidth={1.5}
-                role="button"
-                tabIndex={0}
-                data-datum-id={id}
-                aria-label={`${id}: ${p.y}`}
-                aria-pressed={selected}
-                aria-current={focused ? 'true' : undefined}
-                onClick={(event) =>
-                  event.shiftKey ? link.onToggleSelection(id) : link.onFocus(id)
-                }
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter' || event.key === ' ') {
-                    event.preventDefault();
-                    if (event.shiftKey) link.onToggleSelection(id);
-                    else link.onFocus(id);
-                  }
-                }}
-              >
-                <title>
-                  {id}: {p.y} · Click to focus; Shift-click to select
-                </title>
-              </Circle>
-            );
-          })}
+        {markers}
         {fitLine && (
           <LinePath<SeriesPoint>
             data={fitLine}
@@ -489,7 +488,7 @@ function ContinuousMark({ kind, frame, spec, width, height, context }: Continuou
 
   return (
     <CartesianMark
-      interactive={kind === 'point' && !!context?.datumLink}
+      interactive={!!context?.datumLink}
       kind={kind}
       width={width}
       height={height}
@@ -500,6 +499,7 @@ function ContinuousMark({ kind, frame, spec, width, height, context }: Continuou
     >
       {ribbon}
       {geometry}
+      {kind !== 'point' && context?.datumLink ? markers : null}
     </CartesianMark>
   );
 }

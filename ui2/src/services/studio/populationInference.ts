@@ -1,3 +1,4 @@
+import { linearDesignIssue } from './populationDesign';
 import { inferenceMethod, inferenceChannel } from './inferenceCatalog';
 import type { PopulationInferenceSpec } from '@/types/population';
 import { useSetStudioStore } from '@/stores/setStudioStore';
@@ -32,9 +33,9 @@ export function inferenceIssue(
     new Set(aggregation.groups.map((g) => g.participantId)).size !== aggregation.groups.length
   )
     return 'Select at least two uniquely identified participants.';
-  if (method.inputs === 'onePopulation' && reference)
+  if (['onePopulation', 'designMatrix'].includes(method.inputs) && reference)
     return 'One-sample inference requires only population A.';
-  if (method.inputs !== 'onePopulation') {
+  if (['independentGroups', 'pairedGroups'].includes(method.inputs)) {
     if (!reference || reference.groups.length < method.minimumParticipants)
       return 'Choose population B with at least two declared participants.';
     const a = new Set(aggregation.groups.map((g) => g.participantId));
@@ -48,6 +49,8 @@ export function inferenceIssue(
     } else if (new Set(b).size !== b.length || b.some((id) => a.has(id)))
       return 'Independent-group testing requires disjoint participant IDs in A and B; overlapping people require a paired or repeated-measures method.';
   }
+  if (method.inputs === 'designMatrix') return linearDesignIssue(spec.design, aggregation);
+  if (spec.design) return 'This method does not accept a design matrix.';
   return null;
 }
 export function importedInferenceIssue(
@@ -76,10 +79,9 @@ export function configureInference(spec: PopulationInferenceSpec | null): string
   }
   const population = resolvePopulation(state);
   const participants = resolvePopulationParticipants(state, population.workingMemberIds);
-  const reference =
-    descriptor.inputs !== 'onePopulation'
-      ? resolvePopulationParticipants(state, population.referenceMemberIds)
-      : null;
+  const reference = ['independentGroups', 'pairedGroups'].includes(descriptor.inputs)
+    ? resolvePopulationParticipants(state, population.referenceMemberIds)
+    : null;
   const issue =
     importedInferenceIssue(spec) ??
     participants.issue ??

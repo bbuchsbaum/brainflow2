@@ -1,6 +1,11 @@
+import { PopulationTimeCourseControls } from './PopulationTimeCourseControls';
+import {
+  populationPlotPng,
+  savePopulationPlot,
+} from '@/services/studio/PopulationPlotExportService';
 import { resolvePopulation } from '@/services/studio/populationContext';
 import { populationCategoryColor } from './encoder/cartesianMarks';
-import { useState, useSyncExternalStore } from 'react';
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { populationPlotService } from '@/services/studio/PopulationPlotService';
 import { composePopulationPlot, type PopulationPlotRecipe } from '@/services/studio/populationPlot';
 import { useSetStudioStore } from '@/stores/setStudioStore';
@@ -12,6 +17,13 @@ export function PopulationPlot({ ctx }: { ctx: PlotModeContext }) {
     populationPlotService.subscribe,
     populationPlotService.getSnapshot,
   );
+  const graphic = useRef<HTMLDivElement>(null);
+  const [saving, setSaving] = useState(false);
+  const [savedFile, setSavedFile] = useState<string | null>(null);
+  const [combineIds, setCombineIds] = useState<string[]>([]);
+  const [verifying, setVerifying] = useState(false);
+  const verification = useRef<AbortController | null>(null);
+  useEffect(() => () => verification.current?.abort(), []);
   const [active, setActive] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const studio = useSetStudioStore();
@@ -26,18 +38,38 @@ export function PopulationPlot({ ctx }: { ctx: PlotModeContext }) {
       setError((e as Error).message);
     }
   };
-  const download = () => {
-    if (!p) return;
-    const url = URL.createObjectURL(
-      new Blob([populationPlotService.serialize(p.id)], { type: 'application/json' }),
-    );
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'population-plot.json';
-    a.click();
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  const download = async (format: 'json' | 'png' = 'json') => {
+    if (!p || saving) return;
+    setSaving(true);
+    setSavedFile(null);
+    try {
+      const bytes =
+        format === 'json'
+          ? new TextEncoder().encode(populationPlotService.serialize(p.id))
+          : await populationPlotPng(
+              graphic.current!,
+              `${p.label} · ${visibleFrame?.rows.length ?? 0}/${p.frame.rows.length} sample rows · ${p.selectionBinding === 'working' ? 'working selection' : 'pinned snapshot'}\nX: ${p.frame.columns.find((c) => c.name === p.recipe.x)?.label ?? p.recipe.x}${p.recipe.axisUnit ? ` (${p.recipe.axisUnit})` : ''} · Values: ${p.frame.columns.find((c) => c.name === 'value')?.unit ?? 'units unspecified'} · ${p.recipe.summary} · band: ${p.recipe.band}`,
+              p.recipe.color
+                ? [
+                    ...new Set(
+                      (composed?.frame.rows ?? []).map((r) =>
+                        String(r[p.recipe.color!] ?? '(missing)'),
+                      ),
+                    ),
+                  ].map((label) => ({ label, color: populationCategoryColor(label) }))
+                : [],
+            );
+      const result = await savePopulationPlot(bytes, format);
+      setSavedFile(result);
+      setError(null);
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setSaving(false);
+    }
   };
-  const composed = p ? composePopulationPlot(p.frame, p.recipe) : null;
+  const visibleFrame = p ? populationPlotService.frameForView(p) : null;
+  const composed = p && visibleFrame ? composePopulationPlot(visibleFrame, p.recipe) : null;
   const select = (label: string, key: 'x' | 'color' | 'facet' | 'detail', optional = false) =>
     p && (
       <label>
@@ -51,7 +83,7 @@ export function PopulationPlot({ ctx }: { ctx: PlotModeContext }) {
           {optional && <option value="">None</option>}
           {p.frame.columns.map((c) => (
             <option key={c.name} value={c.name}>
-              {c.name}
+              {c.label ?? c.name}
             </option>
           ))}
         </select>
@@ -62,6 +94,7 @@ export function PopulationPlot({ ctx }: { ctx: PlotModeContext }) {
       className="h-full overflow-auto p-2 text-xs space-y-2"
       aria-label="Population plot authoring"
     >
+      {p && <PopulationTimeCourseControls key={p.id} plot={p} onCreated={setActive} />}
       <div className="flex flex-wrap gap-2 items-center">
         <select
           className={control}
@@ -77,8 +110,15 @@ export function PopulationPlot({ ctx }: { ctx: PlotModeContext }) {
         </select>
         {p && (
           <>
-            <button className={control} onClick={download}>
+            <button className={control} disabled={saving} onClick={() => void download()}>
               Save plot + samples
+            </button>
+            <button
+              className={control}
+              disabled={saving || !composed}
+              onClick={() => void download('png')}
+            >
+              Export PNG
             </button>
             <button className={control} onClick={() => populationPlotService.close(p.id)}>
               Close plot
@@ -105,9 +145,107 @@ export function PopulationPlot({ ctx }: { ctx: PlotModeContext }) {
           />
         </label>
       </div>
+      {plots.filter((plot) => !plot.origins).length >= 2 && (
+        <details>
+          <summary className="cursor-pointer">Combine pinned plots</summary>
+          <div className="flex flex-wrap gap-2 mt-2">
+            {plots
+              .filter((plot) => !plot.origins)
+              .map((plot) => (
+                <label key={plot.id} className="flex items-center gap-1 max-w-full">
+                  <input
+                    type="checkbox"
+                    checked={combineIds.includes(plot.id)}
+                    onChange={(e) =>
+                      setCombineIds((ids) =>
+                        e.target.checked ? [...ids, plot.id] : ids.filter((id) => id !== plot.id),
+                      )
+                    }
+                  />
+                  <span className="truncate">{plot.label}</span>
+                </label>
+              ))}
+            <button
+              className={control}
+              disabled={combineIds.length < 2}
+              onClick={() => {
+                try {
+                  setActive(populationPlotService.combine(combineIds));
+                  setError(null);
+                } catch (e) {
+                  setError((e as Error).message);
+                }
+              }}
+            >
+              Combine samples
+            </button>
+            <p className="w-full text-muted-foreground">
+              Matching units are required. Identical observation/source/frame/probe samples appear
+              once; set memberships are retained. Participant identity across sets must be declared
+              using the line control.
+            </p>
+          </div>
+        </details>
+      )}
+      {p && !p.origins && !populationPlotService.canLink(p) && (
+        <button
+          className={control}
+          disabled={verifying}
+          onClick={async () => {
+            const controller = new AbortController();
+            verification.current?.abort();
+            verification.current = controller;
+            setVerifying(true);
+            try {
+              await populationPlotService.verifyAndLink(p.id, controller.signal);
+              if (!controller.signal.aborted) setError(null);
+            } catch (e) {
+              if (!controller.signal.aborted) setError((e as Error).message);
+            } finally {
+              if (verification.current === controller) {
+                verification.current = null;
+                setVerifying(false);
+              }
+            }
+          }}
+        >
+          {verifying
+            ? 'Checking source hashes and sampled values…'
+            : 'Verify and link to current population'}
+        </button>
+      )}
       {!p && (
         <p>
           Pin sampled population values with “Compose in Plot” to compare groups and trajectories.
+        </p>
+      )}
+      {p && (
+        <label className="flex items-center gap-2">
+          Membership
+          <select
+            className={control}
+            aria-label="Plot membership binding"
+            value={p.selectionBinding ?? 'snapshot'}
+            onChange={(e) => {
+              try {
+                populationPlotService.bindSelection(p.id, e.target.value as 'snapshot' | 'working');
+                setError(null);
+              } catch (e) {
+                setError((e as Error).message);
+              }
+            }}
+          >
+            <option value="snapshot">Pinned snapshot</option>
+            <option value="working" disabled={!populationPlotService.canLink(p)}>
+              Follow working selection
+            </option>
+          </select>
+        </label>
+      )}
+      {p && !visibleFrame && (
+        <p role="status">
+          Verify this plot's live links to resume following the working selection, or choose its
+          pinned snapshot.
         </p>
       )}
       {p && composed && (
@@ -195,7 +333,7 @@ export function PopulationPlot({ ctx }: { ctx: PlotModeContext }) {
             </label>
           </div>
           <p className="text-muted-foreground">
-            Pinned samples · {p.frame.rows.length} observations{' '}
+            Pinned samples · {visibleFrame?.rows.length} / {p.frame.rows.length} sample rows{' '}
             {p.frame.columns.find((c) => c.name === 'value')?.unit &&
               `· ${p.frame.columns.find((c) => c.name === 'value')!.unit}`}{' '}
             ·{' '}
@@ -230,26 +368,50 @@ export function PopulationPlot({ ctx }: { ctx: PlotModeContext }) {
               ))}
             </div>
           )}
-          <PlotEncoder
-            frame={composed.frame}
-            spec={composed.spec}
-            width={Math.max(200, ctx.width - 16)}
-            height={Math.max(220, ctx.height - 180)}
-            context={
-              !composed.summary && p.recipe.within === 'single' && populationPlotService.canLink(p)
-                ? {
-                    datumLink: {
-                      idColumn: 'member',
-                      focusedId: studio.selection.activeMemberId,
-                      selectedIds: new Set(population.workingMemberIds),
-                      onFocus: (id) => populationPlotService.focus(p, id),
-                      onToggleSelection: (id) => populationPlotService.select(p, id),
-                    },
-                  }
-                : undefined
-            }
-          />
+          <div ref={graphic}>
+            <PlotEncoder
+              frame={composed.frame}
+              spec={composed.spec}
+              width={Math.max(200, ctx.width - 16)}
+              height={Math.max(220, ctx.height - 180)}
+              context={
+                !composed.summary &&
+                p.recipe.within === 'single' &&
+                populationPlotService.canLink(p)
+                  ? {
+                      datumLink: {
+                        idColumn: 'member',
+                        focusedId:
+                          (p.frame.rows.find(
+                            (r) =>
+                              populationPlotService.linkedMember(p, String(r.member)) ===
+                                studio.selection.activeMemberId &&
+                              (populationPlotService.linkedFrame(p, String(r.member)) === null ||
+                                populationPlotService.linkedFrame(p, String(r.member)) ===
+                                  studio.population.focusedFrame?.frame),
+                          )?.member as string) ?? null,
+                        selectedIds: new Set(
+                          p.frame.rows
+                            .filter((r) => {
+                              const id = populationPlotService.linkedMember(p, String(r.member));
+                              return id !== null && population.workingMemberIds.includes(id);
+                            })
+                            .map((r) => String(r.member)),
+                        ),
+                        onFocus: (id) => populationPlotService.focus(p, id),
+                        onToggleSelection: (id) => populationPlotService.select(p, id),
+                      },
+                    }
+                  : undefined
+              }
+            />
+          </div>
         </>
+      )}
+      {savedFile && (
+        <p role="status" className="break-all">
+          Saved {savedFile}
+        </p>
       )}
       {error && (
         <p role="alert" className="text-destructive">

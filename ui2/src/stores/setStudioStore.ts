@@ -393,7 +393,7 @@ export const useSetStudioStore = create<SetStudioStoreState>((set, get) => ({
             : (payload.set.memberIds[2] ?? payload.set.memberIds[0] ?? null),
         compareCohortId:
           payload.selection?.compareCohortId === undefined
-            ? payload.set.savedCohortIds[0] ?? null
+            ? (payload.set.savedCohortIds[0] ?? null)
             : payload.selection.compareCohortId,
         activeScopeCohortId: payload.selection?.activeScopeCohortId ?? null,
         activeExpressionId:
@@ -472,10 +472,10 @@ export const useSetStudioStore = create<SetStudioStoreState>((set, get) => ({
   },
 
   setActiveMember: (memberId) => {
-    const { selection, sets } = get();
+    const { selection, sets, population } = get();
     const activeSet = selection.activeSetId ? sets[selection.activeSetId] : null;
     if (memberId !== null && !activeSet?.memberIds.includes(memberId)) return;
-    if (selection.activeMemberId === memberId) {
+    if (selection.activeMemberId === memberId && !population.focusedFrame) {
       return;
     }
 
@@ -484,6 +484,7 @@ export const useSetStudioStore = create<SetStudioStoreState>((set, get) => ({
         ...selection,
         activeMemberId: memberId,
       },
+      ...(population.focusedFrame ? { population: { ...population, focusedFrame: null } } : {}),
     });
   },
 

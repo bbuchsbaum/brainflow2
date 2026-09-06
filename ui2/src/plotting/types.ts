@@ -33,6 +33,8 @@ export type ColumnRole = 'quantitative' | 'nominal' | 'ordinal' | 'temporal' | '
 
 /** A single column descriptor in a {@link SampleFrame}. */
 export interface FrameColumn {
+  /** Human-readable display title; the stable column key remains name. */
+  readonly label?: string;
   /** Column key; matches the keys used in each {@link FrameRow}. */
   readonly name: string;
   /** Variable role; see {@link ColumnRole}. */

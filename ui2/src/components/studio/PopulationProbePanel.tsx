@@ -1,3 +1,4 @@
+import { PopulationPivot } from './PopulationPivot';
 import { populationPlotService } from '@/services/studio/PopulationPlotService';
 import { PopulationBrush } from './PopulationBrush';
 import {
@@ -294,6 +295,14 @@ export function PopulationProbePanel({
           </PopulationBrush>
         )}
       </div>
+      {result && studio.population.partition?.factorColumns && (
+        <PopulationPivot
+          key={JSON.stringify(studio.population.partition)}
+          partition={studio.population.partition}
+          frame={result.frame}
+          current={result.query.key === definition.query?.key}
+        />
+      )}
       {result && expanded && (
         <>
           <div className="flex flex-wrap items-center justify-between gap-2 text-xs">

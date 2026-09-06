@@ -1,5 +1,6 @@
 pub mod atlas_roi;
 mod population_mask;
+mod population_plot_export;
 mod population_sampling;
 mod population_slice;
 mod set_sample_cache;
@@ -12965,10 +12966,26 @@ async fn replay_population_summary(
     .await
 }
 
+/// Save a bounded population graphic or recipe to a newly chosen output file.
+#[command]
+async fn export_population_plot(
+    path: String,
+    bytes: Vec<u8>,
+    format: String,
+) -> BridgeResult<String> {
+    tokio::task::spawn_blocking(move || population_plot_export::save(&path, &bytes, &format))
+        .await
+        .map_err(|e| BridgeError::Input {
+            code: 6451,
+            details: e.to_string(),
+        })?
+}
+
 /// Reopen a saved descriptive calculation after verifying its bundle and inputs.
 #[command]
 async fn open_population_summary(
     provenance_path: String,
+    relocation: Option<population_slice::replay::SourceRelocation>,
     ticket: Option<SampleTicket>,
     state: State<'_, BridgeState>,
 ) -> BridgeResult<population_slice::replay::OpenedCalculation> {
@@ -12977,7 +12994,13 @@ async fn open_population_summary(
         .map(|ticket| state.population_sampling.begin(ticket))
         .transpose()?
         .unwrap_or_default();
-    population_slice::replay::open(provenance_path, state.inner(), cancellation).await
+    population_slice::replay::open_relocated(
+        provenance_path,
+        relocation,
+        state.inner(),
+        cancellation,
+    )
+    .await
 }
 
 /// Release the plane matrix owned by a particular mounted population view.

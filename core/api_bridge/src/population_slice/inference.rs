@@ -24,7 +24,7 @@ pub(super) fn validate(request: &PopulationSliceRequest) -> BridgeResult<()> {
         spec.validate(&a.iter().map(String::as_str).collect::<Vec<_>>())
             .map_err(input)?;
         match spec.method.descriptor().inputs {
-            Inputs::OnePopulation => {
+            Inputs::OnePopulation | Inputs::DesignMatrix => {
                 if request.reference.is_some() {
                     return Err(input("One-sample inference requires only population A."));
                 }
@@ -72,7 +72,67 @@ pub(super) fn channels(
     pixels: &[Option<usize>],
     spec: &Specification,
 ) -> BridgeResult<Channels> {
-    let native = if matches!(spec.method.descriptor().inputs, Inputs::PairedGroups) {
+    let native = if matches!(spec.method.descriptor().inputs, Inputs::DesignMatrix) {
+        let design = spec
+            .design
+            .as_ref()
+            .ok_or_else(|| input("OLS design unavailable."))?;
+        let aggregation = request
+            .aggregation
+            .as_ref()
+            .ok_or_else(|| input("Participant identities unavailable."))?;
+        let indices: HashMap<_, _> = cached
+            .sources
+            .iter()
+            .enumerate()
+            .map(|(i, s)| (&s.member_id, i))
+            .collect();
+        let mut estimates = Vec::new();
+        let width = cached.plan.voxels.len().max(1);
+        for first in (0..width).step_by(512) {
+            cancellation.check()?;
+            let last = (first + 512).min(width);
+            let mut responses = Vec::new();
+            for id in &design.participant_ids {
+                let group = aggregation
+                    .groups
+                    .iter()
+                    .find(|g| &g.participant_id == id)
+                    .ok_or_else(|| input("OLS participant mismatch."))?;
+                let rows: Vec<_> = group
+                    .member_ids
+                    .iter()
+                    .map(|id| cached.rows[indices[id]].as_slice())
+                    .collect();
+                let values = (first..last)
+                    .map(|j| {
+                        let mut mean = 0.;
+                        let mut n = 0.;
+                        for row in &rows {
+                            if let Some(&v) = row.get(j) {
+                                if v.is_finite() {
+                                    n += 1.;
+                                    mean += (v as f64 - mean) / n;
+                                }
+                            }
+                        }
+                        if n > 0. {
+                            mean
+                        } else {
+                            f64::NAN
+                        }
+                    })
+                    .collect();
+                responses.push(values);
+            }
+            estimates.extend(
+                design
+                    .evaluate(&responses, spec.null_value)
+                    .map_err(input)?,
+            );
+        }
+        estimates
+    } else if matches!(spec.method.descriptor().inputs, Inputs::PairedGroups) {
         let mut paired =
             field_table::population_inference::PairedMoments::new(cached.plan.voxels.len().max(1))
                 .map_err(|e| input(e.to_string()))?;

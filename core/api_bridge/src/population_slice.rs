@@ -64,6 +64,9 @@ pub struct PopulationSliceRequest {
     pub members: Vec<SetMemberRef>,
     pub working_member_ids: Vec<String>,
     pub focus_member_id: Option<String>,
+    /// Display-only frame override; cohort members retain their declared frames.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub focus_stack_index: Option<usize>,
     pub crosshair_mm: [f32; 3],
     pub orientation: Orientation,
     pub dim_px: [u32; 2],
@@ -307,11 +310,41 @@ impl PopulationSliceEngine {
                 built
             }
         };
+        let focused_override = if let Some(frame) = request.focus_stack_index {
+            let index = request
+                .members
+                .iter()
+                .position(|m| Some(&m.member_id) == request.focus_member_id.as_ref())
+                .ok_or_else(|| input("A focused frame requires an identified observation."))?;
+            let mut member = request.members[index].clone();
+            member.stack_index = Some(frame);
+            member.expected_sha256 = Some(cached.sources[index].revision.sha256.clone());
+            let path = crate::resolve_member_source_path(&member.source_path, state).await?;
+            let plan = Arc::clone(&cached.plan);
+            let token = cancellation.clone();
+            Some(
+                state
+                    .set_sample_cache
+                    .with_volume_cancelable(path, cancellation.clone(), move |volume, revision| {
+                        // The plane's pixel map already excludes the common mask.
+                        sample_row(volume, revision, &member, &plan, &token, None)
+                    })
+                    .await?,
+            )
+        } else {
+            None
+        };
         let guard = cached.guard.clone();
         let token = cancellation.clone();
         let result = tokio::task::spawn_blocking(move || {
             let _permit = permit; // A canceled async caller cannot release a running reduction.
-            reduce_plane(&cached, &request, cache_hit, &cancellation)
+            reduce_plane(
+                &cached,
+                &request,
+                cache_hit,
+                &cancellation,
+                focused_override.as_deref(),
+            )
         })
         .await
         .map_err(|error| input(format!("Population reduction failed: {error}")))??;
@@ -320,6 +353,13 @@ impl PopulationSliceEngine {
     }
 }
 fn validate(request: &PopulationSliceRequest) -> BridgeResult<()> {
+    if request.focus_stack_index.is_some()
+        && (request.focus_member_id.is_none() || !request.focus_window.is_empty())
+    {
+        return Err(input(
+            "A focused frame requires one observation and no canonical focus window.",
+        ));
+    }
     let window: HashSet<_> = request.focus_window.iter().collect();
     if window.len() != request.focus_window.len()
         || window.len() > 8
@@ -940,6 +980,7 @@ fn reduce_plane(
     request: &PopulationSliceRequest,
     cache_hit: bool,
     cancellation: &SampleCancellation,
+    focused_override: Option<&[f32]>,
 ) -> BridgeResult<PopulationSliceResult> {
     let selected: HashSet<_> = request.working_member_ids.iter().collect();
     let focus = request
@@ -1036,8 +1077,10 @@ fn reduce_plane(
             );
         }
         focused.push(
-            slot.and_then(|index| focus.map(|focus| cached.rows[focus][index]))
-                .unwrap_or(f32::NAN),
+            slot.and_then(|index| {
+                focus.map(|focus| focused_override.unwrap_or(&cached.rows[focus])[index])
+            })
+            .unwrap_or(f32::NAN),
         );
     }
     let cutouts = match (&cached.plan.cutouts, &request.cutouts) {
@@ -1165,6 +1208,7 @@ mod tests {
             context_key: "workspace:dataset:revision".into(),
             working_member_ids: members.iter().map(|m| m.member_id.clone()).collect(),
             focus_member_id: Some(members[0].member_id.clone()),
+            focus_stack_index: None,
             members,
             crosshair_mm: [1., 1., 1.],
             orientation: Orientation::Axial,
@@ -1812,6 +1856,40 @@ mod tests {
         let outside = evaluate(&state, req).await;
         assert!(outside.summary.iter().all(|v| v.is_nan()));
         assert!(outside.valid_counts.iter().all(|&n| n == 0));
+    }
+
+    #[tokio::test]
+    async fn focused_time_frame_preserves_population_and_rejects_invalid_frames() {
+        let sources = vec![TestSource::new(
+            &[3, 3, 3, 2],
+            &[vec![1.; 27], vec![7.; 27]].concat(),
+        )];
+        let state = BridgeState::default().unwrap();
+        let mut req = request(&sources);
+        req.members[0].stack_index = Some(0);
+        let base = evaluate(&state, req.clone()).await;
+        req.focus_stack_index = Some(1);
+        let changed = evaluate(&state, req.clone()).await;
+        assert!(changed.source_cache_hit);
+        assert_eq!(base.summary, changed.summary);
+        assert!(changed
+            .focused
+            .iter()
+            .filter(|v| v.is_finite())
+            .all(|&v| v == 7.));
+        assert!(base
+            .focused
+            .iter()
+            .filter(|v| v.is_finite())
+            .all(|&v| v == 1.));
+        req.focus_stack_index = Some(2);
+        assert!(state
+            .population_slice
+            .evaluate(req, &state, SampleCancellation::default())
+            .await
+            .unwrap_err()
+            .to_string()
+            .contains("valid explicit frame"));
     }
 
     #[tokio::test]
