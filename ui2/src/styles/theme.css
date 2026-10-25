@@ -35,62 +35,62 @@
      * ──────────────────────────────────────────────────────────────── */
 
     /* App backgrounds */
-    --bf-bg-app: #161615;
-    --bf-bg-shell: #1e1e1d;
-    --bf-bg-panel: #1e1e1d;
-    --bf-bg-panel-raised: #282827;
-    --bf-bg-panel-sunken: #111110;
-    --bf-bg-canvas: #080808;
-    --bf-bg-input: #161615;
-    --bf-bg-hover: #2a2a29;
-    --bf-bg-active: #333331;
-    --bf-bg-selected: #3a3529;
+    --bf-bg-app: #1b1c1f;
+    --bf-bg-shell: #222326;
+    --bf-bg-panel: #222326;
+    --bf-bg-panel-raised: #2a2b2f;
+    --bf-bg-panel-sunken: #151619;
+    --bf-bg-canvas: #000000;
+    --bf-bg-input: #1b1c1f;
+    --bf-bg-hover: #2e2f33;
+    --bf-bg-active: #36383d;
+    --bf-bg-selected: #303237;
 
     /* Borders and dividers */
-    --bf-border-subtle: rgba(255, 255, 255, 0.09);
-    --bf-border: rgba(255, 255, 255, 0.18);
+    --bf-border-subtle: rgba(255, 255, 255, 0.08);
+    --bf-border: rgba(255, 255, 255, 0.16);
     --bf-border-strong: rgba(255, 255, 255, 0.28);
-    --bf-border-focus: #e0a63f;
-    --bf-divider: rgba(255, 255, 255, 0.09);
+    --bf-border-focus: #d4a556;
+    --bf-divider: rgba(255, 255, 255, 0.08);
 
     /* Text */
-    --bf-text-primary: #ebe8e2;
-    --bf-text-secondary: #b3afa7;
-    --bf-text-muted: #7d796f;
-    --bf-text-faint: #55524c;
-    --bf-text-inverse: #161615;
+    --bf-text-primary: #e9eaec;
+    --bf-text-secondary: #bdbfc4;
+    --bf-text-muted: #a4a7ad;
+    --bf-text-faint: #76797f;
+    --bf-text-inverse: #16171a;
 
     /* Brand and interaction */
-    --bf-brand: #e0a63f;
-    --bf-accent: #e0a63f;
-    --bf-accent-hover: #eab65a;
-    --bf-accent-active: #cf9630;
-    --bf-accent-soft: rgba(224, 166, 63, 0.16);
+    --bf-brand: #d4a556;
+    --bf-accent: #d4a556;
+    --bf-accent-hover: #ddb46a;
+    --bf-accent-active: #c2944a;
+    --bf-accent-soft: rgba(212, 165, 86, 0.14);
 
     /* Semantic */
-    --bf-success: #35d36b;
-    --bf-success-soft: rgba(53, 211, 107, 0.14);
-    --bf-warning: #f59e0b;
-    --bf-warning-soft: rgba(245, 158, 11, 0.14);
-    --bf-danger: #ef4444;
-    --bf-danger-soft: rgba(239, 68, 68, 0.14);
-    --bf-info: #38bdf8;
+    --bf-success: #6cc596;
+    --bf-success-soft: rgba(108, 197, 150, 0.14);
+    --bf-warning: #f28a5a;
+    --bf-warning-soft: rgba(242, 138, 90, 0.14);
+    --bf-danger: #f5868f;
+    --bf-danger-soft: rgba(245, 134, 143, 0.14);
+    --bf-info: #93b4d6;
 
     /* Anatomical orientation colors */
-    --bf-axial: #2f80ff;
-    --bf-sagittal: #40c463;
-    --bf-coronal: #ff9900;
-    --bf-crosshair: #e0a63f;
+    --bf-axial: #9fb7d8;
+    --bf-sagittal: #93c9b0;
+    --bf-coronal: #c9b48f;
+    --bf-crosshair: #5fe0a0;
 
     /* Files-panel file-type icon colors */
-    --bf-icon-volume: #2f80ff; /* NIfTI / volumetric data — matches --bf-axial */
-    --bf-icon-surface: #10b981; /* GIfTI surface / functional meshes */
-    --bf-icon-freesurfer: #8b5cf6; /* MGZ / MGH FreeSurfer volumes */
+    --bf-icon-volume: #9fb7d8;
+    --bf-icon-surface: #93c9b0;
+    --bf-icon-freesurfer: #b9a6d9;
 
     /* Plot colors */
-    --bf-plot-line: #38a3ff;
-    --bf-plot-grid: rgba(255, 255, 255, 0.1);
-    --bf-plot-axis: rgba(235, 232, 226, 0.55);
+    --bf-plot-line: #7fb2e5;
+    --bf-plot-grid: rgba(255, 255, 255, 0.08);
+    --bf-plot-axis: rgba(233, 234, 236, 0.72);
 
     /* Shadows */
     --bf-shadow-panel: 0 10px 32px rgba(0, 0, 0, 0.32);
@@ -122,10 +122,16 @@
 
     /* Fonts (Design.md §4.1) */
     --bf-font-sans:
-      "IBM Plex Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI",
-      Helvetica, Arial, sans-serif;
-    --bf-font-mono:
-      "IBM Plex Mono", "SFMono-Regular", Menlo, Consolas, monospace;
+      'IBM Plex Sans', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Helvetica, Arial,
+      sans-serif;
+    --bf-font-mono: 'IBM Plex Mono', 'SFMono-Regular', Menlo, Consolas, monospace;
+
+    /* Type scale (tailwind text-bf-2xs … text-bf-lg) */
+    --bf-text-2xs: 10px;
+    --bf-text-xs: 11px;
+    --bf-text-sm: 12px;
+    --bf-text-md: 13px;
+    --bf-text-lg: 15px;
 
     /* Motion (Design.md §18.3) */
     --bf-motion-fast: 100ms;
@@ -136,25 +142,25 @@
      * Remapped to mockup7 values so any Tailwind consumer flips along
      * with the rest of the app.
      * ──────────────────────────────────────────────────────────────── */
-    --background: 60 2% 8%; /* #161615 */
-    --foreground: 40 18% 90%; /* #ebe8e2 */
-    --card: 60 2% 12%; /* #1e1e1d */
-    --card-foreground: 40 18% 90%;
-    --popover: 60 2% 12%;
-    --popover-foreground: 40 18% 90%;
-    --primary: 38 72% 56%; /* #e0a63f */
-    --primary-foreground: 60 2% 8%;
-    --secondary: 60 1% 16%;
-    --secondary-foreground: 40 18% 90%;
-    --muted: 60 1% 16%;
-    --muted-foreground: 43 6% 46%;
-    --accent: 60 1% 16%;
-    --accent-foreground: 40 18% 90%;
-    --destructive: 0 84% 60%;
-    --destructive-foreground: 0 0% 100%;
-    --border: 60 2% 22%;
-    --input: 60 2% 8%;
-    --ring: 38 72% 56%;
+    --background: 225 6% 14%; /* = --bf-bg-panel (#222326); one docked ground */
+    --foreground: 220 7% 92%;
+    --card: 225 6% 14%;
+    --card-foreground: 220 7% 92%;
+    --popover: 225 6% 14%;
+    --popover-foreground: 220 7% 92%;
+    --primary: 220 9% 86%;
+    --primary-foreground: 225 8% 9%;
+    --secondary: 228 6% 17%;
+    --secondary-foreground: 220 7% 92%;
+    --muted: 228 6% 17%;
+    --muted-foreground: 220 5% 66%;
+    --accent: 228 5% 19%;
+    --accent-foreground: 220 7% 92%;
+    --destructive: 355 85% 74%;
+    --destructive-foreground: 225 7% 10%; /* dark text on the light danger fill */
+    --border: 223 6% 23%;
+    --input: 225 7% 11%;
+    --ring: 38 59% 58%;
     --radius: 4px;
 
     /* ────────────────────────────────────────────────────────────────
@@ -184,18 +190,18 @@
     --app-text-disabled: var(--bf-text-faint);
 
     /* Brand / accent */
-    --app-accent: var(--bf-accent);
-    --app-accent-foreground: var(--bf-text-inverse);
-    --app-accent-hover: var(--bf-accent-hover);
-    --app-accent-active: var(--bf-accent-active);
-    --app-accent-text: var(--bf-accent);
-    --app-accent-muted: var(--bf-accent-soft);
+    --app-accent: hsl(var(--primary));
+    --app-accent-foreground: hsl(var(--primary-foreground));
+    --app-accent-hover: hsl(var(--foreground));
+    --app-accent-active: hsl(var(--primary));
+    --app-accent-text: var(--bf-text-primary);
+    --app-accent-muted: rgba(255, 255, 255, 0.08);
 
     /* Tabs / splitters */
     --app-tab-inactive: var(--bf-bg-shell);
     --app-tab-active: var(--bf-bg-panel);
     --app-splitter: var(--bf-border);
-    --app-splitter-hover: var(--bf-accent);
+    --app-splitter-hover: var(--bf-border-strong);
 
     /* Semantic */
     --app-success: var(--bf-success);
@@ -209,7 +215,7 @@
     --layer-divider: var(--bf-divider);
     --layer-hover: var(--bf-bg-hover);
     --layer-selected: var(--bf-bg-selected);
-    --layer-accent: var(--bf-accent);
+    --layer-accent: hsl(var(--primary));
     --layer-track-bg: var(--bf-bg-panel-sunken);
 
     /* Typography (legacy aliases over the canonical sans/mono) */
@@ -293,7 +299,7 @@
     /* Plot host palette aliases */
     --app-plot-line: var(--bf-plot-line);
     --app-plot-grid: var(--bf-plot-grid);
-    --app-plot-cursor: var(--bf-accent-hover);
+    --app-plot-cursor: var(--bf-text-secondary);
     --app-plot-zero: var(--bf-plot-axis);
 
     /* Sizing — layer colormap strip + bottom workbench dock */
@@ -325,7 +331,7 @@
  *
  * Usage: <input type="range" class="bf-thumb-circle ..." />
  */
-input[type="range"].bf-thumb-circle {
+input[type='range'].bf-thumb-circle {
   -webkit-appearance: none;
   appearance: none;
   background: transparent;
@@ -333,13 +339,13 @@ input[type="range"].bf-thumb-circle {
   margin: 0;
   padding: 0;
 }
-input[type="range"].bf-thumb-circle::-webkit-slider-thumb {
+input[type='range'].bf-thumb-circle::-webkit-slider-thumb {
   -webkit-appearance: none;
   appearance: none;
   width: 6px;
   height: 12px;
   border-radius: 1px;
-  background: var(--bf-accent);
+  background: hsl(var(--primary));
   border: 0;
   /*
    * WebKit/Blink vertically centre an explicit-height runnable track within
@@ -356,30 +362,30 @@ input[type="range"].bf-thumb-circle::-webkit-slider-thumb {
   pointer-events: auto;
   transition: background-color 0.15s ease;
 }
-input[type="range"].bf-thumb-circle:hover::-webkit-slider-thumb,
-input[type="range"].bf-thumb-circle:focus-visible::-webkit-slider-thumb {
-  background: var(--bf-accent-hover);
+input[type='range'].bf-thumb-circle:hover::-webkit-slider-thumb,
+input[type='range'].bf-thumb-circle:focus-visible::-webkit-slider-thumb {
+  background: hsl(var(--foreground));
   border: 0;
 }
-input[type="range"].bf-thumb-circle::-webkit-slider-runnable-track {
+input[type='range'].bf-thumb-circle::-webkit-slider-runnable-track {
   background: transparent;
   height: 3px;
   border: 0;
 }
-input[type="range"].bf-thumb-circle::-moz-range-thumb {
+input[type='range'].bf-thumb-circle::-moz-range-thumb {
   width: 6px;
   height: 12px;
   border-radius: 1px;
-  background: var(--bf-accent);
+  background: hsl(var(--primary));
   border: 0;
   cursor: pointer;
   pointer-events: auto;
 }
-input[type="range"].bf-thumb-circle:hover::-moz-range-thumb {
-  background: var(--bf-accent-hover);
+input[type='range'].bf-thumb-circle:hover::-moz-range-thumb {
+  background: hsl(var(--foreground));
   border: 0;
 }
-input[type="range"].bf-thumb-circle::-moz-range-track {
+input[type='range'].bf-thumb-circle::-moz-range-track {
   background: transparent;
   height: 3px;
   border: 0;
@@ -403,7 +409,7 @@ select.bf-select,
   color: var(--bf-text-primary);
   line-height: 1;
   cursor: pointer;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 24 24' fill='none' stroke='%23a4a7ad' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
   background-repeat: no-repeat;
   background-position: right 8px center;
   background-size: 10px 10px;
@@ -417,14 +423,14 @@ select:not([multiple]):not([size]) {
 }
 select.bf-select:hover,
 :where(select:not([multiple]):not([size])):hover {
-  border-color: rgba(148, 163, 184, 0.32);
+  border-color: var(--bf-border-strong);
 }
 select.bf-select:focus,
 select.bf-select:focus-visible,
 :where(select:not([multiple]):not([size])):focus-visible {
-  outline: none;
-  border-color: var(--bf-border-focus);
-  box-shadow: 0 0 0 2px rgba(47, 128, 255, 0.2);
+  outline: 2px solid var(--bf-border-focus);
+  outline-offset: 1px;
+  border-color: var(--bf-border-strong);
 }
 select.bf-select option,
 :where(select) option {
@@ -471,14 +477,14 @@ input[type='checkbox'] {
   vertical-align: middle;
 }
 input[type='checkbox']:checked {
-  border-color: var(--bf-accent);
-  background-color: var(--bf-accent);
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='white' stroke-width='2'%3E%3Cpath d='m3 8 3 3 7-7'/%3E%3C/svg%3E");
+  border-color: hsl(var(--primary));
+  background-color: hsl(var(--primary));
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%2316171a' stroke-width='2'%3E%3Cpath d='m3 8 3 3 7-7'/%3E%3C/svg%3E");
 }
 input[type='checkbox']:indeterminate {
-  border-color: var(--bf-accent);
-  background-color: var(--bf-accent);
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' stroke='white' stroke-width='2'%3E%3Cpath d='M3 8h10'/%3E%3C/svg%3E");
+  border-color: hsl(var(--primary));
+  background-color: hsl(var(--primary));
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' stroke='%2316171a' stroke-width='2'%3E%3Cpath d='M3 8h10'/%3E%3C/svg%3E");
 }
 input[type='checkbox']:focus-visible,
 button.bf-control-button:focus-visible {
@@ -508,13 +514,13 @@ button.bf-control-button:hover:enabled {
   color: var(--bf-text-primary);
 }
 button.bf-control-button-primary {
-  border-color: var(--bf-accent);
-  background: var(--bf-accent);
-  color: white;
+  border-color: hsl(var(--primary));
+  background: hsl(var(--primary));
+  color: hsl(var(--primary-foreground));
 }
 button.bf-control-button-primary:hover:enabled {
-  background: var(--bf-accent-hover);
-  color: white;
+  background: hsl(var(--foreground));
+  color: hsl(var(--primary-foreground));
 }
 .bf-parcel-form select.bf-select {
   height: 30px;

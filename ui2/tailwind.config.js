@@ -1,9 +1,12 @@
+// Token colours with Tailwind opacity modifiers (e.g. border-bf-danger/40).
+const withAlpha = (token) =>
+  `color-mix(in srgb, var(${token}) calc(<alpha-value> * 100%), transparent)`;
+
 /** @type {import('tailwindcss').Config} */
 export default {
-  content: [
-    "./index.html",
-    "./src/**/*.{js,ts,jsx,tsx}",
-  ],
+  // The app is dark-only today; `dark:` variants must not follow the OS setting.
+  darkMode: 'class',
+  content: ['./index.html', './src/**/*.{js,ts,jsx,tsx}'],
   theme: {
     extend: {
       colors: {
@@ -51,51 +54,51 @@ export default {
         // ------------------------------------------------------------
         bf: {
           // Backgrounds
-          'bg-app': 'var(--bf-bg-app)',
-          'bg-shell': 'var(--bf-bg-shell)',
-          'bg-panel': 'var(--bf-bg-panel)',
-          'bg-panel-raised': 'var(--bf-bg-panel-raised)',
-          'bg-panel-sunken': 'var(--bf-bg-panel-sunken)',
-          'bg-canvas': 'var(--bf-bg-canvas)',
-          'bg-input': 'var(--bf-bg-input)',
-          'bg-hover': 'var(--bf-bg-hover)',
-          'bg-active': 'var(--bf-bg-active)',
-          'bg-selected': 'var(--bf-bg-selected)',
+          'bg-app': withAlpha('--bf-bg-app'),
+          'bg-shell': withAlpha('--bf-bg-shell'),
+          'bg-panel': withAlpha('--bf-bg-panel'),
+          'bg-panel-raised': withAlpha('--bf-bg-panel-raised'),
+          'bg-panel-sunken': withAlpha('--bf-bg-panel-sunken'),
+          'bg-canvas': withAlpha('--bf-bg-canvas'),
+          'bg-input': withAlpha('--bf-bg-input'),
+          'bg-hover': withAlpha('--bf-bg-hover'),
+          'bg-active': withAlpha('--bf-bg-active'),
+          'bg-selected': withAlpha('--bf-bg-selected'),
           // Borders & dividers
-          'border-subtle': 'var(--bf-border-subtle)',
-          border: 'var(--bf-border)',
-          'border-strong': 'var(--bf-border-strong)',
-          'border-focus': 'var(--bf-border-focus)',
-          divider: 'var(--bf-divider)',
+          'border-subtle': withAlpha('--bf-border-subtle'),
+          border: withAlpha('--bf-border'),
+          'border-strong': withAlpha('--bf-border-strong'),
+          'border-focus': withAlpha('--bf-border-focus'),
+          divider: withAlpha('--bf-divider'),
           // Text
-          'text-primary': 'var(--bf-text-primary)',
-          'text-secondary': 'var(--bf-text-secondary)',
-          'text-muted': 'var(--bf-text-muted)',
-          'text-faint': 'var(--bf-text-faint)',
-          'text-inverse': 'var(--bf-text-inverse)',
+          'text-primary': withAlpha('--bf-text-primary'),
+          'text-secondary': withAlpha('--bf-text-secondary'),
+          'text-muted': withAlpha('--bf-text-muted'),
+          'text-faint': withAlpha('--bf-text-faint'),
+          'text-inverse': withAlpha('--bf-text-inverse'),
           // Brand & interaction
-          brand: 'var(--bf-brand)',
-          accent: 'var(--bf-accent)',
-          'accent-hover': 'var(--bf-accent-hover)',
-          'accent-active': 'var(--bf-accent-active)',
-          'accent-soft': 'var(--bf-accent-soft)',
+          brand: withAlpha('--bf-brand'),
+          accent: withAlpha('--bf-accent'),
+          'accent-hover': withAlpha('--bf-accent-hover'),
+          'accent-active': withAlpha('--bf-accent-active'),
+          'accent-soft': withAlpha('--bf-accent-soft'),
           // Semantic
-          success: 'var(--bf-success)',
-          'success-soft': 'var(--bf-success-soft)',
-          warning: 'var(--bf-warning)',
-          'warning-soft': 'var(--bf-warning-soft)',
-          danger: 'var(--bf-danger)',
-          'danger-soft': 'var(--bf-danger-soft)',
-          info: 'var(--bf-info)',
+          success: withAlpha('--bf-success'),
+          'success-soft': withAlpha('--bf-success-soft'),
+          warning: withAlpha('--bf-warning'),
+          'warning-soft': withAlpha('--bf-warning-soft'),
+          danger: withAlpha('--bf-danger'),
+          'danger-soft': withAlpha('--bf-danger-soft'),
+          info: withAlpha('--bf-info'),
           // Anatomical orientation
-          axial: 'var(--bf-axial)',
-          sagittal: 'var(--bf-sagittal)',
-          coronal: 'var(--bf-coronal)',
-          crosshair: 'var(--bf-crosshair)',
+          axial: withAlpha('--bf-axial'),
+          sagittal: withAlpha('--bf-sagittal'),
+          coronal: withAlpha('--bf-coronal'),
+          crosshair: withAlpha('--bf-crosshair'),
           // Plot
-          'plot-line': 'var(--bf-plot-line)',
-          'plot-grid': 'var(--bf-plot-grid)',
-          'plot-axis': 'var(--bf-plot-axis)',
+          'plot-line': withAlpha('--bf-plot-line'),
+          'plot-grid': withAlpha('--bf-plot-grid'),
+          'plot-axis': withAlpha('--bf-plot-axis'),
         },
       },
       // Spacing scale aligned with Design.md §3.1 / §5
@@ -138,9 +141,16 @@ export default {
         'bf-normal': 'var(--bf-motion-normal)',
       },
       fontFamily: {
-        mono: ['IBM Plex Mono', 'SFMono-Regular', 'Menlo', 'monospace'],
+        sans: ['var(--bf-font-sans)'],
+        mono: ['var(--bf-font-mono)'],
       },
       fontSize: {
+        // Type scale: the only sizes UI chrome should use.
+        'bf-2xs': ['var(--bf-text-2xs)', { lineHeight: '14px' }],
+        'bf-xs': ['var(--bf-text-xs)', { lineHeight: '16px' }],
+        'bf-sm': ['var(--bf-text-sm)', { lineHeight: '18px' }],
+        'bf-md': ['var(--bf-text-md)', { lineHeight: '20px' }],
+        'bf-lg': ['var(--bf-text-lg)', { lineHeight: '22px' }],
         'role-title': 'var(--app-role-title-size)',
         'role-section': 'var(--app-role-section-size)',
         'role-label': 'var(--app-role-label-size)',
@@ -166,8 +176,5 @@ export default {
       },
     },
   },
-  plugins: [
-    require('tailwind-scrollbar')({ nocompatible: true }),
-    require('tailwindcss-animate'),
-  ],
-}
+  plugins: [require('tailwind-scrollbar')({ nocompatible: true }), require('tailwindcss-animate')],
+};
