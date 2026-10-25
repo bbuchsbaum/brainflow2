@@ -131,11 +131,11 @@ export function GoToCoordinateDialog({ open, onClose }: GoToCoordinateDialogProp
   const inputClass = (axis: 'x' | 'y' | 'z') => {
     const oob = isOutOfBounds(axis);
     return [
-      'w-full px-3 py-1.5 rounded text-sm font-mono tabular-nums bg-gray-800 text-gray-100',
-      'border focus:outline-none focus:ring-1',
+      'w-full px-3 py-1.5 rounded-sm text-sm font-mono tabular-nums bg-bf-bg-input text-foreground',
+      'border focus:outline-none focus:ring-2',
       oob
-        ? 'border-amber-500 focus:ring-amber-500'
-        : 'border-gray-600 focus:ring-blue-500',
+        ? 'border-bf-warning focus:ring-bf-warning'
+        : 'border-border focus:ring-ring',
     ].join(' ');
   };
 
@@ -143,34 +143,38 @@ export function GoToCoordinateDialog({ open, onClose }: GoToCoordinateDialogProp
     <Modal
       isOpen={open}
       onClose={onClose}
-      title="Go to Coordinate"
-      ariaLabel="Go to Coordinate"
+      title="Go to coordinate"
+      ariaLabel="Go to coordinate"
       size="sm"
       initialFocusRef={firstInputRef}
       bodyClassName="p-0"
-      className="max-w-xs rounded-xl ring-1 ring-white/10 shadow-2xl"
+      className="max-w-xs rounded-sm ring-1 ring-bf-border-strong shadow-2xl"
     >
       <div className="px-5 py-4 space-y-4">
-          {/* Space toggle */}
-          <div className="flex items-center gap-2">
+          {/* Space toggle: one joined segmented group */}
+          <div className="flex items-stretch rounded-sm border border-border" role="group" aria-label="Coordinate space">
             <button
+              type="button"
+              aria-pressed={space === 'world'}
               onClick={() => setSpace('world')}
               className={[
-                'flex-1 py-1.5 text-xs font-medium rounded transition-colors',
+                'relative flex-1 py-1.5 text-bf-xs font-medium transition-colors border-r border-bf-border-subtle focus-visible:z-10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background',
                 space === 'world'
-                  ? 'bg-blue-600 text-white'
-                  : 'bg-gray-800 text-gray-400 hover:text-gray-200',
+                  ? 'bg-bf-bg-active text-foreground shadow-[inset_0_-2px_0_var(--bf-text-muted)]'
+                  : 'bg-bf-bg-input text-muted-foreground hover:bg-accent hover:text-foreground',
               ].join(' ')}
             >
               World (mm)
             </button>
             <button
+              type="button"
+              aria-pressed={space === 'voxel'}
               onClick={() => setSpace('voxel')}
               className={[
-                'flex-1 py-1.5 text-xs font-medium rounded transition-colors',
+                'relative flex-1 py-1.5 text-bf-xs font-medium transition-colors focus-visible:z-10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background',
                 space === 'voxel'
-                  ? 'bg-blue-600 text-white'
-                  : 'bg-gray-800 text-gray-400 hover:text-gray-200',
+                  ? 'bg-bf-bg-active text-foreground shadow-[inset_0_-2px_0_var(--bf-text-muted)]'
+                  : 'bg-bf-bg-input text-muted-foreground hover:bg-accent hover:text-foreground',
               ].join(' ')}
             >
               Voxel
@@ -181,8 +185,13 @@ export function GoToCoordinateDialog({ open, onClose }: GoToCoordinateDialogProp
           <div className="grid grid-cols-3 gap-2">
             {(['x', 'y', 'z'] as const).map(axis => (
               <div key={axis} className="space-y-1">
-                <Label className="text-xs text-gray-400 uppercase">{axis}</Label>
+                <Label htmlFor={`goto-${axis}`} className="text-bf-sm text-muted-foreground">
+                  {axis.toUpperCase()}
+                </Label>
                 <input
+                  id={`goto-${axis}`}
+                  aria-label={`${axis.toUpperCase()} ${space === 'world' ? '(mm)' : '(voxel index)'}`}
+                  aria-invalid={isOutOfBounds(axis) || undefined}
                   ref={axis === 'x' ? firstInputRef : undefined}
                   type="number"
                   value={inputs[axis]}
@@ -196,7 +205,7 @@ export function GoToCoordinateDialog({ open, onClose }: GoToCoordinateDialogProp
 
           {/* Bounds warning */}
           {bounds && (['x', 'y', 'z'] as const).some(a => isOutOfBounds(a)) && (
-            <p className="text-xs text-amber-400">
+            <p className="text-xs text-bf-warning" role="status">
               Coordinate is outside volume bounds.
             </p>
           )}
@@ -204,7 +213,7 @@ export function GoToCoordinateDialog({ open, onClose }: GoToCoordinateDialogProp
 
       <div
         className="px-5 py-3 border-t flex items-center justify-between gap-2"
-        style={{ borderColor: 'var(--app-border-subtle, #1e293b)' }}
+        style={{ borderColor: 'var(--bf-border-subtle)' }}
       >
         <Button onClick={handleCurrent} variant="outline" size="sm" className="text-xs">
           Current

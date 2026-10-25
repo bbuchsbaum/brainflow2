@@ -45,24 +45,25 @@ export function PerformanceDashboard() {
 
   const getStatusColor = (status: string) => {
     switch (status) {
-      case 'good': return 'text-green-400';
-      case 'warning': return 'text-yellow-400';
-      case 'poor': return 'text-red-400';
-      default: return 'text-gray-400';
+      case 'good': return 'text-bf-success';
+      case 'warning': return 'text-bf-warning';
+      case 'poor': return 'text-bf-danger';
+      default: return 'text-bf-text-secondary';
     }
   };
 
   const getSeverityColor = (severity: string) => {
-    return severity === 'critical' ? 'text-red-500' : 'text-yellow-500';
+    return severity === 'critical' ? 'text-bf-danger' : 'text-bf-warning';
   };
 
   return createPortal(
-    <div className="fixed top-4 right-4 bg-black bg-opacity-90 text-white p-4 rounded-lg z-50 max-w-md font-mono text-xs">
+    <div className="fixed top-4 right-4 bg-popover/95 border border-border text-foreground p-4 rounded-sm z-50 max-w-md font-mono text-xs">
       <div className="flex justify-between items-center mb-2">
-        <h3 className="font-bold text-sm">Performance Monitor</h3>
+        <h3 className="font-bold text-bf-sm">Performance monitor</h3>
         <button 
           onClick={() => setIsVisible(false)} 
-          className="text-gray-400 hover:text-white"
+          className="text-bf-text-secondary hover:text-foreground"
+          aria-label="Close performance monitor"
         >
           ✕
         </button>
@@ -71,20 +72,20 @@ export function PerformanceDashboard() {
       <div className="space-y-2">
         {/* Status Summary */}
         <div className={`font-semibold ${getStatusColor(metrics.summary.status)}`}>
-          Status: {metrics.summary.status.toUpperCase()}
+          Status: {metrics.summary.status}
         </div>
         
         <div className="grid grid-cols-2 gap-2 text-xs">
           <div>Components: {metrics.summary.totalComponents}</div>
-          <div>Active Alerts: {metrics.summary.totalAlerts}</div>
-          <div>Avg Render: {metrics.summary.avgRenderTime.toFixed(1)}ms</div>
+          <div>Active alerts: {metrics.summary.totalAlerts}</div>
+          <div>Avg render: {metrics.summary.avgRenderTime.toFixed(1)}ms</div>
           <div>FPS: {metrics.summary.avgRenderTime > 0 ? (1000 / metrics.summary.avgRenderTime).toFixed(0) : '60'}</div>
         </div>
 
         {/* Recent Alerts */}
         {metrics.alerts.length > 0 && (
           <div className="mt-3">
-            <div className="font-semibold text-red-400 mb-1">Recent Alerts:</div>
+            <div className="font-semibold text-bf-danger mb-1">Recent alerts:</div>
             <div className="space-y-1 max-h-24 overflow-y-auto">
               {metrics.alerts.slice(-3).map((alert, i) => (
                 <div key={i} className={`text-xs ${getSeverityColor(alert.severity)}`}>
@@ -97,13 +98,13 @@ export function PerformanceDashboard() {
 
         {/* Component Metrics */}
         <div className="mt-3">
-          <div className="font-semibold mb-1">Component Metrics:</div>
+          <div className="font-semibold mb-1">Component metrics:</div>
           <div className="space-y-1 max-h-32 overflow-y-auto">
             {Object.entries(metrics.metrics).slice(0, 5).map(([component, data]) => (
               <div 
                 key={component} 
-                className={`text-xs cursor-pointer hover:bg-gray-800 p-1 rounded ${
-                  selectedComponent === component ? 'bg-gray-800' : ''
+                className={`text-xs cursor-pointer hover:bg-accent p-1 rounded-sm ${
+                  selectedComponent === component ? 'bg-bf-bg-selected' : ''
                 }`}
                 onClick={() => setSelectedComponent(
                   selectedComponent === component ? null : component
@@ -111,7 +112,7 @@ export function PerformanceDashboard() {
               >
                 <div className="font-semibold">{component}:</div>
                 {selectedComponent === component ? (
-                  <div className="ml-2 space-y-0.5 text-gray-300">
+                  <div className="ml-2 space-y-0.5 text-bf-text-secondary">
                     <div>Render: {data.renderTime.toFixed(1)}ms</div>
                     <div>Frequency: {data.updateFrequency.toFixed(1)}/s</div>
                     <div>Re-renders: {data.reRenderCount}</div>
@@ -124,7 +125,7 @@ export function PerformanceDashboard() {
                     )}
                   </div>
                 ) : (
-                  <div className="text-gray-400">
+                  <div className="text-bf-text-secondary">
                     {data.renderTime.toFixed(1)}ms | {data.updateFrequency.toFixed(1)}/s
                   </div>
                 )}
@@ -136,8 +137,8 @@ export function PerformanceDashboard() {
         {/* Memory Usage */}
         {typeof performance !== 'undefined' && 'memory' in performance && (
           <div className="mt-3 text-xs">
-            <div className="font-semibold">Memory Usage:</div>
-            <div className="text-gray-300">
+            <div className="font-semibold">Memory usage:</div>
+            <div className="text-bf-text-secondary">
               {((performance as any).memory.usedJSHeapSize / 1024 / 1024).toFixed(1)}MB / 
               {((performance as any).memory.jsHeapSizeLimit / 1024 / 1024).toFixed(0)}MB
             </div>
@@ -145,22 +146,22 @@ export function PerformanceDashboard() {
         )}
 
         {/* Controls */}
-        <div className="mt-3 pt-2 border-t border-gray-700 flex gap-2">
+        <div className="mt-3 pt-2 border-t border-border flex gap-2">
           <button
             onClick={() => getPerformanceMonitoringService().clearAlerts()}
-            className="text-xs px-2 py-1 bg-gray-700 hover:bg-gray-600 rounded"
+            className="text-xs px-2 py-1 bg-card hover:bg-accent border border-border rounded-sm"
           >
-            Clear Alerts
+            Clear alerts
           </button>
           <button
             onClick={() => getPerformanceMonitoringService().resetMetrics()}
-            className="text-xs px-2 py-1 bg-gray-700 hover:bg-gray-600 rounded"
+            className="text-xs px-2 py-1 bg-card hover:bg-accent border border-border rounded-sm"
           >
-            Reset All
+            Reset all
           </button>
         </div>
 
-        <div className="text-xs text-gray-500 mt-2">
+        <div className="text-xs text-muted-foreground mt-2">
           Press Ctrl+Shift+P to toggle
         </div>
       </div>

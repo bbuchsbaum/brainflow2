@@ -10,14 +10,14 @@ export function StudioToolbar({ setName, dataStateLabel }: StudioToolbarProps) {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
-            <div className="text-base font-semibold text-foreground">{setName}</div>
+            <div className="text-bf-lg font-semibold text-foreground">{setName}</div>
             {dataStateLabel ? (
-              <span className="rounded-full border border-border bg-card px-2 py-0.5 text-[11px] text-muted-foreground">
+              <span className="rounded-sm border border-border bg-card px-2 py-0.5 text-bf-xs text-muted-foreground">
                 {dataStateLabel}
               </span>
             ) : null}
           </div>
-          <div className="mt-1 text-xs text-muted-foreground">
+          <div className="mt-1 text-bf-sm text-muted-foreground">
             NeuroTabs · Explore individuals and populations
           </div>
         </div>

@@ -13,7 +13,7 @@ import { useSetStudioStore } from '@/stores/setStudioStore';
 import { getSetIngestionService } from '@/services/studio/SetIngestionService';
 import { canImportCandidate } from '@/services/studio/importContract';
 
-const inputClass = 'h-9 w-full rounded-md border border-input bg-background px-3 text-sm';
+const inputClass = 'h-9 w-full rounded-sm border border-input bg-background px-3 text-bf-md';
 const PAGE_SIZE = 40;
 
 /** A pending folder draft occupies the center pane; the existing study stays intact. */
@@ -52,7 +52,7 @@ export function StudioFolderReview() {
     >
       <header className="space-y-3 border-b border-border p-4">
         <div className="flex items-center justify-between gap-3">
-          <h1 className="flex items-center gap-2 text-base font-semibold">
+          <h1 className="flex items-center gap-2 text-bf-lg font-semibold">
             <FolderOpen size={18} />
             Open set
           </h1>
@@ -60,7 +60,7 @@ export function StudioFolderReview() {
             Change folder…
           </Button>
         </div>
-        <div className="min-w-0 text-sm">
+        <div className="min-w-0 text-bf-md">
           {(source?.label || summary?.sourceLabel) && (
             <div className="font-medium">{source?.label || summary?.sourceLabel}</div>
           )}
@@ -72,7 +72,7 @@ export function StudioFolderReview() {
           </div>
         </div>
         <div
-          className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground"
+          className="flex flex-wrap items-center justify-between gap-2 text-bf-sm text-muted-foreground"
           role="status"
           aria-live="polite"
         >
@@ -97,20 +97,20 @@ export function StudioFolderReview() {
 
       <div className="min-h-0 min-w-0 overflow-auto p-4">
         {(dialog.ontologyError || dialog.error) && (
-          <div role="alert" className="mb-3 rounded border border-destructive/40 p-3 text-sm">
+          <div role="alert" className="mb-3 rounded-sm border border-destructive/40 p-3 text-bf-md">
             {dialog.ontologyError || dialog.error} Your current study has not changed. Reconnect the
             source if needed, then scan again.
           </div>
         )}
         {truncated && (
-          <div role="alert" className="mb-3 rounded border border-border p-3 text-sm">
+          <div role="alert" className="mb-3 rounded-sm border border-border p-3 text-bf-md">
             The scan limit was reached. Some files have not been examined. Narrow the folder or
             increase the limit under Advanced options, then scan again.
           </div>
         )}
         {summary && summary.candidates.length > 0 && (
           <div className="mb-4 space-y-2">
-            <label htmlFor="folder-organization" className="text-sm font-medium">
+            <label htmlFor="folder-organization" className="text-bf-md font-medium">
               Organize members
             </label>
             <Select
@@ -133,24 +133,24 @@ export function StudioFolderReview() {
                 ))}
               </SelectContent>
             </Select>
-            <p className="text-xs leading-relaxed text-muted-foreground">
+            <p className="text-bf-sm leading-relaxed text-muted-foreground">
               {proposal?.description ?? 'Choose how the files become members and images.'}
             </p>
           </div>
         )}
         {!busy && summary && summary.candidates.length === 0 && (
-          <p className="py-6 text-sm text-muted-foreground">
+          <p className="py-6 text-bf-md text-muted-foreground">
             No images were found. Choose another folder or change the scan depth.
           </p>
         )}
         {groups.length > 0 && (
           <>
             <div
-              className="max-w-full overflow-x-auto rounded-md border border-border"
+              className="max-w-full overflow-x-auto rounded-sm border border-border"
               tabIndex={0}
               aria-label="Member and image assignments"
             >
-              <table className="w-full border-collapse text-left text-sm">
+              <table className="w-full border-collapse text-left text-bf-md">
                 <caption className="sr-only">
                   Members as rows and images as columns. Select an available image to inspect its
                   source path.
@@ -178,7 +178,7 @@ export function StudioFolderReview() {
                             {bindings.length ? (
                               <button
                                 type="button"
-                                className="rounded px-2 py-1 text-left underline decoration-border underline-offset-4 hover:bg-accent focus-visible:outline focus-visible:outline-ring"
+                                className="rounded-sm px-2 py-1 text-left text-foreground underline decoration-[var(--bf-border-strong)] underline-offset-2 hover:decoration-current hover:bg-accent focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring"
                                 onClick={() =>
                                   setPath(
                                     bindings
@@ -206,7 +206,7 @@ export function StudioFolderReview() {
               </table>
             </div>
             {groups.length > PAGE_SIZE && (
-              <div className="mt-2 flex items-center justify-between text-xs">
+              <div className="mt-2 flex items-center justify-between text-bf-sm">
                 <Button
                   variant="ghost"
                   size="sm"
@@ -230,14 +230,14 @@ export function StudioFolderReview() {
               </div>
             )}
             {missing > 0 && (
-              <p className="mt-3 text-sm text-muted-foreground">
+              <p className="mt-3 text-bf-md text-muted-foreground">
                 {missing} missing image assignments. Available images can still be browsed.
               </p>
             )}
           </>
         )}
         {path && (
-          <div className="mt-3 rounded border border-border p-3 text-xs" aria-label="Image source">
+          <div className="mt-3 rounded-sm border border-border p-3 text-bf-sm" aria-label="Image source">
             <div className="mb-2 flex items-center justify-between">
               <strong>Source path</strong>
               <Button size="sm" variant="ghost" onClick={() => setPath(null)}>
@@ -248,7 +248,7 @@ export function StudioFolderReview() {
           </div>
         )}
         {issues.length > 0 && (
-          <details className="mt-3 text-sm">
+          <details className="mt-3 text-bf-md">
             <summary className="cursor-pointer">
               Review {issues.length} import {issues.length === 1 ? 'issue' : 'issues'}
             </summary>
@@ -260,16 +260,16 @@ export function StudioFolderReview() {
           </details>
         )}
         {summary?.warnings.map((warning, index) => (
-          <p key={index} className="mt-2 text-xs text-muted-foreground">
+          <p key={index} className="mt-2 text-bf-sm text-muted-foreground">
             {warning.message}
           </p>
         ))}
         <details className="mt-5 border-t border-border pt-3">
-          <summary className="cursor-pointer text-sm text-muted-foreground">
+          <summary className="cursor-pointer text-bf-md text-muted-foreground">
             Advanced options
           </summary>
           <div className="mt-3 grid min-w-0 gap-3">
-            <label className="space-y-1 text-xs">
+            <label className="space-y-1 text-bf-sm">
               Folder path
               <input
                 className={inputClass}
@@ -278,7 +278,7 @@ export function StudioFolderReview() {
               />
             </label>
             <div className="grid grid-cols-2 gap-3">
-              <label className="space-y-1 text-xs">
+              <label className="space-y-1 text-bf-sm">
                 Search depth
                 <input
                   type="number"
@@ -288,7 +288,7 @@ export function StudioFolderReview() {
                   onChange={(event) => service.editFolderReview('depth', event.target.value)}
                 />
               </label>
-              <label className="space-y-1 text-xs">
+              <label className="space-y-1 text-bf-sm">
                 Maximum images
                 <input
                   type="number"
@@ -299,7 +299,7 @@ export function StudioFolderReview() {
                 />
               </label>
             </div>
-            <label className="space-y-1 text-xs">
+            <label className="space-y-1 text-bf-sm">
               Filename matching (regex)
               <input
                 className={`${inputClass} font-mono`}
@@ -314,7 +314,7 @@ export function StudioFolderReview() {
             >
               Check filename matching
             </Button>
-            <p className="text-xs text-muted-foreground">
+            <p className="text-bf-sm text-muted-foreground">
               Discovery lists files without downloading images. Image information is checked when a
               member is opened; population operations check their required inputs separately.
             </p>
@@ -322,7 +322,7 @@ export function StudioFolderReview() {
         </details>
       </div>
       <footer className="flex flex-wrap items-center justify-between gap-3 border-t border-border bg-background p-4">
-        <p className="min-w-0 flex-1 text-xs text-muted-foreground">
+        <p className="min-w-0 flex-1 text-bf-sm text-muted-foreground">
           {candidate && !canImportCandidate(candidate)
             ? candidate.contract.reason
             : 'Open for browsing.'}

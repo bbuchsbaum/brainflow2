@@ -130,7 +130,7 @@ describe('SurfaceLayerPanel', () => {
 
     render(<SurfaceLayerPanel />);
 
-    fireEvent.click(screen.getByTitle('Add Data Layer'));
+    fireEvent.click(screen.getByTitle('Add data layer'));
 
     expect(requestOverlayFileSelection).toHaveBeenCalledWith('surface-1');
   });
@@ -142,7 +142,7 @@ describe('SurfaceLayerPanel', () => {
 
     render(<SurfaceLayerPanel />);
 
-    fireEvent.click(screen.getByTitle('Remove Surface'));
+    fireEvent.click(screen.getByTitle('Remove surface'));
 
     await waitFor(() => {
       expect(confirmSurfaceRemoval).toHaveBeenCalledWith('surface-1');
@@ -158,7 +158,7 @@ describe('SurfaceLayerPanel', () => {
     render(<SurfaceLayerPanel />);
 
     fireEvent.click(screen.getAllByTitle('Expand')[0]);
-    fireEvent.click(screen.getByTitle('Remove Layer'));
+    fireEvent.click(screen.getByTitle('Remove layer'));
 
     await waitFor(() => {
       expect(confirmSurfaceLayerRemoval).toHaveBeenCalledWith('Layer 1');

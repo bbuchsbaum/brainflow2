@@ -44,7 +44,7 @@ export function GlobalProgressBar() {
   
   return (
     <div 
-      className="fixed top-0 left-0 right-0 z-50 h-1 bg-gray-900/20"
+      className="fixed top-0 left-0 right-0 z-50 h-1 bg-background/20"
       style={{ 
         // Position below window controls on macOS
         paddingTop: 'env(titlebar-area-height, 0px)'
@@ -76,7 +76,7 @@ export function GlobalProgressBar() {
       {/* Task count indicator */}
       {activeCount > 1 && (
         <div 
-          className="absolute right-2 top-1 text-xs px-2 py-0.5 rounded-full"
+          className="absolute right-2 top-1 text-xs px-2 py-0.5 rounded-sm"
           style={{
             backgroundColor: 'var(--layer-bg)',
             color: 'var(--layer-text)',

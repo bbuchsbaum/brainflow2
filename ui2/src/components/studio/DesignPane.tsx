@@ -89,9 +89,9 @@ export function DesignPane({
   if (!activeSet) {
     return (
       <StudioPane title="Subjects" headerActions={headerActions} showHeader={false}>
-        <div className="rounded-lg border border-border bg-background px-3 py-3">
-          <div className="text-sm font-medium text-foreground">No study loaded</div>
-          <div className="mt-1 text-xs leading-5 text-muted-foreground">
+        <div className="rounded-sm border border-border bg-background px-3 py-3">
+          <div className="text-bf-md font-medium text-foreground">No study loaded</div>
+          <div className="mt-1 text-bf-sm leading-5 text-muted-foreground">
             Use the actions above to import a table or manifest.
           </div>
         </div>
@@ -125,38 +125,39 @@ export function DesignPane({
       showHeader={false}
     >
       <div className="space-y-3">
-        {metadata.issue && <p role="alert" className="text-xs text-destructive">{metadata.issue}</p>}
+        {metadata.issue && <p role="alert" className="text-bf-sm text-destructive">{metadata.issue}</p>}
         {showImportSummary ? (
-          <div className="rounded-lg border border-border bg-background p-3">
+          <div className="rounded-sm border border-border bg-background p-3">
             <div className="flex items-center justify-between gap-3">
-              <div className="text-sm font-medium text-foreground">Import Summary</div>
-              <AuditBadge severity={activeSet.ingestAudit.join.severity}>
-                {activeSet.ingestAudit.sourceLabel}
-              </AuditBadge>
+              <div className="text-bf-md font-medium text-foreground">Import summary</div>
+              {/* The source label names where rows came from; it is not a
+                  status, so it stays neutral. Join severity is carried by
+                  the Import issues box and the audit banner. */}
+              <SourceBadge>{activeSet.ingestAudit.sourceLabel}</SourceBadge>
             </div>
-            <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
+            <div className="mt-3 grid grid-cols-2 gap-2 text-bf-md">
               <AuditStat label="Matched" value={String(activeSet.ingestAudit.join.matchedRows)} />
               <AuditStat label="Unmatched" value={String(activeSet.ingestAudit.join.unmatchedRows)} />
-              <AuditStat label="Duplicate Keys" value={String(activeSet.ingestAudit.join.duplicateKeys)} />
+              <AuditStat label="Duplicate keys" value={String(activeSet.ingestAudit.join.duplicateKeys)} />
               <AuditStat label="Alignment" value={activeSet.ingestAudit.support.alignmentClass} />
             </div>
             <div className="mt-3 space-y-2">
               {activeSet.ingestAudit.notes.map((note) => (
-                <div key={note} className="text-xs leading-5 text-muted-foreground">
+                <div key={note} className="text-bf-sm leading-5 text-muted-foreground">
                   {note}
                 </div>
               ))}
             </div>
             {activeSet.ingestAudit.join.issueDetails.length > 0 ? (
-              <div className="mt-3 rounded-md border border-amber-500/30 bg-amber-500/10 p-3">
-                <div className="text-xs font-medium text-foreground">Import issues</div>
+              <div className="mt-3 rounded-sm border border-bf-warning/50 p-3">
+                <div className="text-bf-sm font-medium text-bf-warning">Import issues</div>
                 <div className="mt-2 space-y-1">
                   {activeSet.ingestAudit.join.issueDetails.map((detail) => (
                     <button
                       key={`${detail.message}-${detail.memberIds.join('|')}`}
                       type="button"
                       onClick={() => onSelectJoinIssue?.(detail)}
-                      className="block w-full rounded-md px-2 py-1 text-left text-xs leading-5 text-foreground transition-colors hover:bg-amber-500/10"
+                      className="block w-full rounded-sm px-2 py-1 text-left text-bf-sm leading-5 text-foreground transition-colors hover:bg-accent"
                     >
                       {detail.message}
                     </button>
@@ -167,23 +168,24 @@ export function DesignPane({
           </div>
         ) : null}
 
-        <div className="rounded-lg border border-border bg-background px-3 py-2">
+        <div className="rounded-sm border border-border bg-background px-3 py-2 focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-1 focus-within:ring-offset-background">
           <input
+            aria-label="Search design rows or member IDs"
             value={designSearch ?? ''}
             onChange={(event) => onDesignSearchChange?.(event.target.value)}
-            placeholder="Search design rows or member ids..."
-            className="w-full bg-transparent text-sm text-foreground placeholder:text-muted-foreground focus:outline-none"
+            placeholder="Search design rows or member IDs…"
+            className="w-full bg-transparent text-bf-md text-foreground placeholder:text-muted-foreground focus-visible:outline-none"
           />
         </div>
 
         {previewColumns.length > 0 ? (
-          <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-background px-3 py-2">
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-sm border border-border bg-background px-3 py-2">
             <div className="flex items-center gap-2">
-              <span className="text-xs text-muted-foreground">Sort</span>
+              <span className="text-bf-sm text-muted-foreground">Sort</span>
               <select
                 value={sortColumn ?? ''}
                 onChange={(event) => onSortColumnChange?.(event.target.value || null)}
-                className="rounded-md border border-border bg-card px-3 py-1.5 text-sm text-foreground"
+                className="rounded-sm border border-border bg-card px-3 py-1.5 text-bf-md text-foreground"
               >
                 <option value="">Design order</option>
                 {previewColumns.map((column) => (
@@ -198,6 +200,9 @@ export function DesignPane({
               size="sm"
               onClick={onToggleSortDirection}
               disabled={!sortColumn}
+              // Disabled (design order has no direction) but still readable:
+              // muted text at full opacity instead of 50%-faded secondary.
+              className="disabled:opacity-100 disabled:text-muted-foreground"
             >
               {sortDirection === 'desc' ? 'Descending' : 'Ascending'}
             </Button>
@@ -205,13 +210,13 @@ export function DesignPane({
         ) : null}
 
         {scopedCohortLabel ? (
-          <div className="rounded-lg border border-sky-500/30 bg-sky-500/10 px-3 py-2 text-sm text-foreground">
+          <div className="rounded-sm border border-primary/40 bg-primary/10 px-3 py-2 text-bf-md text-foreground">
             Scoped to cohort {scopedCohortLabel}
             {onClearScope ? (
               <button
                 type="button"
                 onClick={onClearScope}
-                className="ml-3 text-xs text-muted-foreground hover:text-foreground"
+                className="ml-3 text-bf-sm text-muted-foreground hover:text-foreground"
               >
                 Clear
               </button>
@@ -220,7 +225,7 @@ export function DesignPane({
         ) : null}
 
         {issueFocusLabel ? (
-          <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-foreground">
+          <div className="rounded-sm border border-bf-warning/50 px-3 py-2 text-bf-md text-foreground">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>Issue focus {issueFocusLabel}</div>
               <div className="flex flex-wrap gap-2">
@@ -228,13 +233,13 @@ export function DesignPane({
                   Compare
                 </Button>
                 <Button variant="ghost" size="sm" onClick={onSaveIssueFocusAsCohort} disabled={!activeIssueMemberIds?.length}>
-                  Save Group
+                  Save group
                 </Button>
                 {onClearIssueFocus ? (
                   <button
                     type="button"
                     onClick={onClearIssueFocus}
-                    className="ml-1 text-xs text-muted-foreground hover:text-foreground"
+                    className="ml-1 text-bf-sm text-muted-foreground hover:text-foreground"
                   >
                     Clear
                   </button>
@@ -245,12 +250,12 @@ export function DesignPane({
         ) : null}
 
         {(designSearch?.trim() || (activeDesignFilters && activeDesignFilters.length > 0)) ? (
-          <div className="rounded-lg border border-violet-500/30 bg-violet-500/10 px-3 py-2 text-sm text-foreground">
+          <div className="rounded-sm border border-border bg-bf-bg-panel-raised px-3 py-2 text-bf-md text-foreground">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div className="flex flex-wrap items-center gap-2">
                 <span>Subset</span>
                 {designSearch?.trim() ? (
-                  <span className="rounded-full border border-violet-400/30 bg-violet-500/10 px-2.5 py-1 text-xs text-foreground">
+                  <span className="rounded-sm border border-border bg-bf-bg-active px-2.5 py-1 text-bf-sm text-foreground">
                     search={designSearch.trim()}
                   </span>
                 ) : null}
@@ -259,7 +264,7 @@ export function DesignPane({
                     key={`${filter.column}-${filter.value}`}
                     type="button"
                     onClick={() => onRemoveDesignFilter?.(filter)}
-                    className="rounded-full border border-violet-400/30 bg-violet-500/10 px-2.5 py-1 text-xs text-foreground transition-colors hover:bg-violet-500/20"
+                    className="rounded-sm border border-border bg-bf-bg-active px-2.5 py-1 text-bf-sm text-foreground transition-colors hover:bg-accent"
                   >
                     {filter.column}={filter.value}
                   </button>
@@ -274,13 +279,13 @@ export function DesignPane({
                   ) : null}
                   {onSaveFilteredSubsetAsCohort ? (
                     <Button variant="ghost" size="sm" onClick={onSaveFilteredSubsetAsCohort}>
-                      Save Group
+                      Save group
                     </Button>
                   ) : null}
                   <button
                     type="button"
                     onClick={onClearSubsetNarrowing}
-                    className="text-xs text-muted-foreground hover:text-foreground"
+                    className="text-bf-sm text-muted-foreground hover:text-foreground"
                   >
                     Clear
                   </button>
@@ -290,22 +295,22 @@ export function DesignPane({
           </div>
         ) : null}
 
-        <div className="flex items-center justify-between gap-3 rounded-lg border border-border bg-background px-3 py-2">
-          <div className="text-sm text-muted-foreground">
+        <div className="flex items-center justify-between gap-3 rounded-sm border border-border bg-background px-3 py-2">
+          <div className="text-bf-md text-muted-foreground">
             {previewRows.length} visible members
           </div>
           <Button variant="ghost" size="sm" onClick={onSaveVisibleCohort} disabled={previewRows.length === 0}>
-            Save Group
+            Save group
           </Button>
         </div>
 
         {quickFilterOptions && quickFilterOptions.length > 0 ? (
-          <div className="rounded-lg border border-border bg-background p-3">
-            <div className="text-sm font-medium text-foreground">Filters</div>
+          <div className="rounded-sm border border-border bg-background p-3">
+            <div className="text-bf-md font-medium text-foreground">Filters</div>
             <div className="mt-3 space-y-3">
               {quickFilterOptions.map((option) => (
                 <div key={option.column}>
-                  <div className="text-xs text-muted-foreground">{option.column}</div>
+                  <div className="text-bf-sm text-muted-foreground">{option.column}</div>
                   <div className="mt-2 flex flex-wrap gap-2">
                     {option.values.map((value) => {
                       const isActive = Boolean(
@@ -318,9 +323,9 @@ export function DesignPane({
                           key={`${option.column}-${value}`}
                           type="button"
                           onClick={() => onToggleDesignFilter?.({ column: option.column, value })}
-                          className={`rounded-full border px-2.5 py-1 text-xs transition-colors ${
+                          className={`rounded-sm border px-2.5 py-1 text-bf-sm transition-colors ${
                             isActive
-                              ? 'border-violet-500/50 bg-violet-500/10 text-foreground'
+                              ? 'border-border bg-bf-bg-selected shadow-[inset_2px_0_0_var(--bf-accent)] text-foreground'
                               : 'border-border bg-card text-muted-foreground hover:bg-accent hover:text-accent-foreground'
                           }`}
                         >
@@ -336,9 +341,9 @@ export function DesignPane({
         ) : null}
 
         {showPreview ? (
-          <div className="rounded-lg border border-border bg-background">
+          <div className="rounded-sm border border-border bg-background">
             <div
-              className="grid gap-2 border-b border-border px-3 py-2 text-xs text-muted-foreground"
+              className="grid gap-2 border-b border-border px-3 py-2 text-bf-sm text-muted-foreground"
               style={{ gridTemplateColumns: `repeat(${Math.max(visibleColumns.length, 1)}, minmax(0, 1fr))` }}
             >
               {visibleColumns.map((column) => <span key={column}>{column}</span>)}
@@ -348,11 +353,11 @@ export function DesignPane({
                 key={row.id}
                 type="button"
                 onClick={() => onSelectMember(row.id)}
-                className={`grid w-full gap-2 px-3 py-2 text-left text-sm transition-colors ${
+                className={`grid w-full gap-2 px-3 py-2 text-left text-bf-md transition-colors ${
                   row.id === activeMemberId
                     ? 'bg-accent text-accent-foreground'
                     : activeIssueMemberIds?.includes(row.id)
-                      ? 'bg-amber-500/10 text-foreground'
+                      ? 'text-bf-warning hover:bg-accent'
                     : 'text-foreground hover:bg-accent hover:text-accent-foreground'
                 }`}
                 style={{ gridTemplateColumns: `repeat(${Math.max(visibleColumns.length, 1)}, minmax(0, 1fr))` }}
@@ -363,7 +368,7 @@ export function DesignPane({
               </button>
             ))}
             {pageCount > 1 && (
-              <div className="flex items-center justify-between border-t border-border p-2 text-xs">
+              <div className="flex items-center justify-between border-t border-border p-2 text-bf-sm">
                 <Button size="sm" variant="ghost" disabled={currentPage === 0} onClick={() => setPage(currentPage - 1)}>Previous observations</Button>
                 <span>Page {currentPage + 1} / {pageCount}</span>
                 <Button size="sm" variant="ghost" disabled={currentPage + 1 === pageCount} onClick={() => setPage(currentPage + 1)}>Next observations</Button>
@@ -373,13 +378,13 @@ export function DesignPane({
         ) : null}
 
         {showColumns ? (
-          <div className="rounded-lg border border-border bg-background p-3">
+          <div className="rounded-sm border border-border bg-background p-3">
             <CollapsibleSection title="Columns" defaultExpanded={false}>
               <div className="flex flex-wrap gap-2">
                 {activeSet.designColumns.map((column) => (
                   <span
                     key={column}
-                    className="rounded-full border border-border bg-card px-2.5 py-1 text-xs text-muted-foreground"
+                    className="rounded-sm border border-border bg-card px-2.5 py-1 text-bf-sm text-muted-foreground"
                   >
                     {column}
                   </span>
@@ -390,40 +395,40 @@ export function DesignPane({
         ) : null}
 
         {showGroups ? (
-          <div className="rounded-lg border border-border bg-background p-3">
+          <div className="rounded-sm border border-border bg-background p-3">
             <CollapsibleSection title="Groups" defaultExpanded>
               <div className="space-y-2">
                 {cohorts.map((cohort) => (
                   <div
                     key={cohort.id}
-                    className={`rounded-md border px-3 py-2 ${
+                    className={`rounded-sm border px-3 py-2 ${
                       cohort.id === activeScopeCohortId
-                        ? 'border-sky-500/50 bg-sky-500/10'
+                        ? 'border-border bg-bf-bg-selected shadow-[inset_2px_0_0_var(--bf-accent)]'
                         : cohort.id === activeCompareCohortId
-                          ? 'border-emerald-500/40 bg-emerald-500/10'
+                          ? 'border-border bg-bf-bg-active'
                           : 'border-border bg-card'
                     }`}
                   >
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
                         <div className="flex flex-wrap items-center gap-2">
-                          <div className="text-sm font-medium text-foreground">{cohort.label}</div>
-                          <span className="rounded-full border border-border bg-background px-2 py-0.5 text-[10px] text-muted-foreground">
+                          <div className="text-bf-md font-medium text-foreground">{cohort.label}</div>
+                          <span className="rounded-sm border border-border bg-background px-2 py-0.5 text-bf-2xs text-muted-foreground">
                             {cohortOriginLabel(cohort)}
                           </span>
                         </div>
-                        <div className="mt-1 text-xs text-muted-foreground">
+                        <div className="mt-1 text-bf-sm text-muted-foreground">
                           {cohort.memberCount} members
                         </div>
                       </div>
-                      <div className="flex flex-col items-end gap-1 text-[11px]">
+                      <div className="flex flex-col items-end gap-1 text-bf-xs">
                         {cohort.id === activeCompareCohortId ? (
-                          <span className="rounded-full border border-emerald-500/40 bg-emerald-500/10 px-2 py-1 text-foreground">
+                          <span className="rounded-sm border border-border bg-bf-bg-active px-2 py-1 text-foreground">
                             Compare
                           </span>
                         ) : null}
                         {cohort.id === activeScopeCohortId ? (
-                          <span className="rounded-full border border-sky-500/40 bg-sky-500/10 px-2 py-1 text-foreground">
+                          <span className="rounded-sm border border-primary/50 bg-primary/10 px-2 py-1 text-foreground">
                             Scope
                           </span>
                         ) : null}
@@ -486,29 +491,16 @@ function cohortOriginLabel(cohort: StudioCohortSummary): string {
 
 function AuditStat({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-md border border-border bg-card px-3 py-2">
-      <div className="text-[11px] text-muted-foreground">{label}</div>
-      <div className="mt-1 text-sm text-foreground">{value}</div>
+    <div className="min-w-0 py-1">
+      <div className="text-bf-xs text-muted-foreground">{label}</div>
+      <div className="mt-1 text-bf-md text-foreground">{value}</div>
     </div>
   );
 }
 
-function AuditBadge({
-  severity,
-  children,
-}: {
-  severity: 'ok' | 'warning' | 'error';
-  children: React.ReactNode;
-}) {
-  const className =
-    severity === 'ok'
-      ? 'border-emerald-500/40 bg-emerald-500/10 text-foreground'
-      : severity === 'warning'
-        ? 'border-amber-500/40 bg-amber-500/10 text-foreground'
-        : 'border-rose-500/40 bg-rose-500/10 text-foreground';
-
+function SourceBadge({ children }: { children: React.ReactNode }) {
   return (
-    <span className={`rounded-full border px-2.5 py-1 text-[11px] ${className}`}>
+    <span className="rounded-sm border border-border px-2 py-0.5 text-bf-xs text-bf-text-secondary">
       {children}
     </span>
   );

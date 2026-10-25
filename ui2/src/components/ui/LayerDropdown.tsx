@@ -24,7 +24,7 @@ export const LayerDropdown: React.FC<LayerDropdownProps> = ({
 
   if (layers.length === 0) {
     return (
-      <div className="text-[13px] text-muted-foreground text-center py-4">
+      <div className="text-bf-md text-muted-foreground text-center py-4">
         Layer stack empty
       </div>
     );
@@ -33,7 +33,7 @@ export const LayerDropdown: React.FC<LayerDropdownProps> = ({
   return (
     <div className="mb-4">
       {/* Label */}
-      <label className="block text-[13px] font-medium mb-2 text-foreground">
+      <label className="block text-bf-md font-medium mb-2 text-foreground">
         Active Layer
       </label>
       
@@ -46,7 +46,7 @@ export const LayerDropdown: React.FC<LayerDropdownProps> = ({
             aria-label="Select active layer"
             className={cn(
               "w-full h-10 px-3 flex items-center justify-between",
-              "rounded-md border bg-background text-[13px]",
+              "rounded-sm border bg-background text-bf-md",
               "transition-all duration-200",
               "hover:bg-primary/10 hover:border-primary/50",
               "focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 focus:ring-offset-background",
@@ -92,7 +92,7 @@ export const LayerDropdown: React.FC<LayerDropdownProps> = ({
                   "transition-all duration-150",
                   "border-l-2",
                   layer.id === selectedLayerId 
-                    ? "bg-primary/15 border-primary text-foreground"
+                    ? "bg-bf-bg-selected border-[var(--bf-accent)] text-foreground"
                     : "hover:bg-accent border-transparent"
                 )}
                 onClick={() => {
@@ -110,7 +110,7 @@ export const LayerDropdown: React.FC<LayerDropdownProps> = ({
                 {/* Layer name */}
                 <span 
                   className={cn(
-                    "flex-1 text-[13px] truncate font-medium",
+                    "flex-1 text-bf-md truncate font-medium",
                     layer.id === selectedLayerId ? "text-primary" : "text-foreground"
                   )}
                   title={layer.name}

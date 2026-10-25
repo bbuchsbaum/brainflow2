@@ -20,7 +20,12 @@ import { getSliceNavigationService } from "@/services/SliceNavigationService";
 import { useTransientOverlay } from "@/components/ui/TransientOverlay";
 import { getTimeNavigationService } from "@/services/TimeNavigationService";
 import { RenderErrorBoundary } from "@/components/ui/RenderErrorBoundary";
-import { getLineDash, type CrosshairStyle } from "@/utils/crosshairUtils";
+import { useCrosshairSettingsStore } from "@/stores/crosshairSettingsStore";
+import {
+  buildActiveCrosshairStyle,
+  type CrosshairRect,
+  type CrosshairStyle,
+} from "@/utils/crosshairUtils";
 import { throttle } from "lodash";
 import { useSliceViewModel } from "@/hooks/useSliceViewModel";
 import { SLIDER_HEIGHT } from "./constants";
@@ -98,7 +103,7 @@ function SliceViewCanvasRaw({
         className={`h-full w-full relative ${className}`}
         data-view-id={viewId}
       >
-        <div className="absolute inset-0 flex items-center justify-center text-xs text-gray-400">
+        <div className="absolute inset-0 flex items-center justify-center text-bf-xs text-bf-text-secondary">
           Loading view…
         </div>
       </div>
@@ -309,22 +314,44 @@ function SliceViewCanvasRaw({
     [sliceNavService, viewId],
   );
 
+  const centerGapSetting = useCrosshairSettingsStore(
+    (state) => state.settings.centerGap,
+  );
   const crosshairStyle = useMemo<CrosshairStyle>(
-    () => ({
-      color: crosshairSettings.activeColor,
-      lineWidth: crosshairSettings.activeThickness,
-      lineDash: getLineDash(
-        crosshairSettings.activeStyle,
-        crosshairSettings.activeThickness,
-      ),
-      opacity: 1,
-    }),
+    () =>
+      buildActiveCrosshairStyle({
+        activeColor: crosshairSettings.activeColor,
+        activeThickness: crosshairSettings.activeThickness,
+        activeStyle: crosshairSettings.activeStyle,
+        centerGap: centerGapSetting,
+      }),
     [
       crosshairSettings.activeColor,
       crosshairSettings.activeThickness,
       crosshairSettings.activeStyle,
+      centerGapSetting,
     ],
   );
+
+  // Orientation letters: the crosshair stroke is clipped around them (the
+  // letters and the line geometry are unchanged). Measured at draw time.
+  const orientationLabelRefs = useRef<Array<HTMLSpanElement | null>>([]);
+  const orientationLabelKey =
+    showMarkers && hasLayers
+      ? JSON.stringify(anatomicalLabels(viewPlane) ?? null)
+      : "";
+  const getCrosshairKnockouts = useCallback((): CrosshairRect[] => {
+    if (!orientationLabelKey) return [];
+    const rects: CrosshairRect[] = [];
+    for (const el of orientationLabelRefs.current) {
+      if (!el || !el.isConnected) continue;
+      const r = el.getBoundingClientRect();
+      if (r.width > 0 && r.height > 0) {
+        rects.push({ x: r.left, y: r.top, width: r.width, height: r.height });
+      }
+    }
+    return rects;
+  }, [orientationLabelKey]);
 
   // Handle mouse clicks to update crosshair — skip if window/level drag is active
   const isDraggingRef = useRef(isDragging);
@@ -494,6 +521,7 @@ function SliceViewCanvasRaw({
           viewPlane={viewPlane}
           crosshair={crosshair}
           crosshairStyle={crosshairStyle}
+          getCrosshairKnockouts={getCrosshairKnockouts}
           showSliceBorder={primaryOptions.showBorder}
           sliceBorderWidth={primaryOptions.borderThicknessPx}
           onCanvasReady={handleCanvasReady}
@@ -563,7 +591,8 @@ function SliceViewCanvasRaw({
               value={heatmapOpacity}
               onChange={(e) => setHeatmapOpacity(Number(e.target.value))}
               title="Overlay opacity"
-              className="w-16 accent-blue-400"
+              aria-label="Overlay opacity"
+              className="w-16 accent-primary"
             />
           )}
         </div>
@@ -576,7 +605,7 @@ function SliceViewCanvasRaw({
           const labels = anatomicalLabels(viewPlane);
           if (!labels) return null;
           const pillCls =
-            "absolute font-mono text-white/50 text-[10.5px] leading-none select-none pointer-events-none";
+            "absolute font-mono text-bf-text-secondary text-bf-xs leading-none select-none pointer-events-none";
           const labelShadow = {
             textShadow: "0 0 4px rgba(0,0,0,0.8), 0 0 8px rgba(0,0,0,0.4)",
           };
@@ -584,12 +613,18 @@ function SliceViewCanvasRaw({
             <>
               <span
                 className={`${pillCls} left-1/2 -translate-x-1/2`}
+                ref={(el) => {
+                  orientationLabelRefs.current[0] = el;
+                }}
                 style={{ top: LABEL_OFFSET, ...labelShadow }}
               >
                 {labels.top}
               </span>
               <span
                 className={`${pillCls} left-1/2 -translate-x-1/2`}
+                ref={(el) => {
+                  orientationLabelRefs.current[1] = el;
+                }}
                 style={{
                   bottom: hasLayers
                     ? SLIDER_HEIGHT + LABEL_OFFSET
@@ -601,12 +636,18 @@ function SliceViewCanvasRaw({
               </span>
               <span
                 className={`${pillCls} top-1/2 -translate-y-1/2`}
+                ref={(el) => {
+                  orientationLabelRefs.current[2] = el;
+                }}
                 style={{ left: LABEL_OFFSET, ...labelShadow }}
               >
                 {labels.left}
               </span>
               <span
                 className={`${pillCls} top-1/2 -translate-y-1/2`}
+                ref={(el) => {
+                  orientationLabelRefs.current[3] = el;
+                }}
                 style={{ right: LABEL_OFFSET, ...labelShadow }}
               >
                 {labels.right}
@@ -617,7 +658,7 @@ function SliceViewCanvasRaw({
 
       {/* Hover value overlay */}
       {hoverValue !== null && showHover && (
-        <div className="absolute top-1 left-1 bg-black/70 text-white text-[10px] font-mono tabular-nums px-1.5 py-0.5">
+        <div className="absolute top-1 left-1 bg-black/70 text-foreground text-bf-2xs font-mono tabular-nums px-1.5 py-0.5">
           {hoverValue.toFixed(3)}
         </div>
       )}

@@ -18,7 +18,7 @@ interface FieldRowProps {
 export function FieldRow({ label, children, htmlFor }: FieldRowProps) {
   return (
     <div className="grid grid-cols-[120px_1fr] items-center gap-4 py-3">
-      <Label htmlFor={htmlFor} className="text-sm text-gray-300">
+      <Label htmlFor={htmlFor} className="text-sm text-bf-text-secondary">
         {label}
       </Label>
       <div className="flex items-center">

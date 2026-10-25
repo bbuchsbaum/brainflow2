@@ -75,7 +75,7 @@ export const Tooltip: React.FC<TooltipProps> = ({
       {isVisible && !disabled && (
         <div
           ref={tooltipRef}
-          className={`absolute z-50 px-2 py-1 text-sm text-white bg-gray-900 rounded-md shadow-lg whitespace-nowrap ${positionClasses[position]} ${className}`}
+          className={`absolute z-50 px-2 py-1 text-bf-xs text-popover-foreground bg-popover border border-border rounded-sm shadow-lg whitespace-nowrap ${positionClasses[position]} ${className}`}
           role="tooltip"
         >
           {content}

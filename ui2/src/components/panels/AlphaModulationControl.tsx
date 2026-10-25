@@ -143,7 +143,7 @@ const AlphaCurveSparkline: React.FC<{
           y2={height}
           stroke="currentColor"
           strokeWidth={1}
-          className="text-muted-foreground/50"
+          className="text-muted-foreground"
           strokeDasharray="2 2"
         />
       ))}
@@ -198,8 +198,8 @@ export const AlphaModulationControl: React.FC<AlphaModulationControlProps> = ({
                 idx > 0 ? "border-l-0" : ""
               } ${
                 mode === m.value
-                  ? "bg-primary text-primary-foreground border-primary"
-                  : "bg-transparent hover:bg-muted/50 border-border text-muted-foreground"
+                  ? "bg-bf-bg-active text-foreground border-border shadow-[inset_0_-2px_0_var(--bf-text-muted)]"
+                  : "bg-transparent hover:bg-accent hover:text-foreground border-border text-muted-foreground"
               }`}
               style={{
                 borderRadius:

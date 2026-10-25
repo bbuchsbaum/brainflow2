@@ -48,8 +48,6 @@ const TOOLBAR_STYLE: React.CSSProperties = {
 
 const SECTION_TITLE_STYLE: React.CSSProperties = {
   fontSize: 'var(--app-role-section-size)',
-  letterSpacing: 'var(--app-role-section-tracking)',
-  textTransform: 'uppercase',
   color: 'var(--app-text-muted)',
   padding: '6px 8px 2px',
 };
@@ -100,13 +98,13 @@ function StatusIcon({ status }: { status: LoadingStatus }) {
     case 'queued':
       return <Hourglass {...common} style={{ color: 'var(--app-text-muted)' }} />;
     case 'loading':
-      return <Loader2 {...common} style={{ color: 'var(--app-accent, #2f80ff)' }} />;
+      return <Loader2 {...common} style={{ color: 'var(--bf-accent)' }} />;
     case 'complete':
-      return <CheckCircle2 {...common} style={{ color: 'var(--app-success, #35d36b)' }} />;
+      return <CheckCircle2 {...common} style={{ color: 'var(--bf-success)' }} />;
     case 'error':
-      return <AlertCircle {...common} style={{ color: 'var(--app-danger, #ef4444)' }} />;
+      return <AlertCircle {...common} style={{ color: 'var(--bf-danger)' }} />;
     case 'cancelled':
-      return <XCircle {...common} style={{ color: 'var(--app-text-faint, #566579)' }} />;
+      return <XCircle {...common} style={{ color: 'var(--bf-text-faint)' }} />;
     default:
       return null;
   }
@@ -137,7 +135,7 @@ const ActivityRow: React.FC<ActivityRowProps> = ({ item, testid }) => {
             textOverflow: 'ellipsis',
             color:
               item.status === 'error'
-                ? 'var(--app-danger, #ef4444)'
+                ? 'var(--bf-danger)'
                 : 'var(--app-text-primary)',
           }}
           title={item.path}
@@ -149,7 +147,7 @@ const ActivityRow: React.FC<ActivityRowProps> = ({ item, testid }) => {
           <div
             style={{
               ...META_STYLE,
-              color: 'var(--app-danger, #ef4444)',
+              color: 'var(--bf-danger)',
               whiteSpace: 'nowrap',
               overflow: 'hidden',
               textOverflow: 'ellipsis',
@@ -166,7 +164,7 @@ const ActivityRow: React.FC<ActivityRowProps> = ({ item, testid }) => {
               style={{
                 width: `${Math.min(100, Math.max(0, item.progress ?? 0))}%`,
                 height: '100%',
-                background: 'var(--app-accent, #2f80ff)',
+                background: 'var(--bf-accent)',
                 transition: 'width 120ms linear',
               }}
             />
@@ -248,9 +246,7 @@ const ActivityPanelContent: React.FC = () => {
           className="bf-role-section"
           style={{
             fontSize: 'var(--app-role-section-size)',
-            letterSpacing: 'var(--app-role-section-tracking)',
             color: 'var(--app-text-muted)',
-            textTransform: 'uppercase',
           }}
         >
           {active.length} active · {queue.length} queued · {recent.length} recent
@@ -272,8 +268,6 @@ const ActivityPanelContent: React.FC = () => {
             alignItems: 'center',
             gap: '4px',
             fontSize: 'var(--app-role-section-size)',
-            textTransform: 'uppercase',
-            letterSpacing: 'var(--app-role-section-tracking)',
           }}
         >
           <Trash2 width={12} height={12} aria-hidden="true" />

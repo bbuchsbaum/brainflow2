@@ -36,10 +36,10 @@ export class MosaicCellErrorBoundary extends Component<Props, State> {
   render() {
     if (this.state.hasError) {
       return (
-        <div className="flex flex-col items-center justify-center h-full bg-gray-100 border border-gray-300 text-gray-600">
+        <div className="flex flex-col items-center justify-center h-full bg-bf-bg-panel-sunken border border-bf-border-subtle text-bf-text-secondary">
           <div className="text-sm font-medium">Slice {this.props.sliceIndex}</div>
-          <div className="text-xs text-red-600">Render Error</div>
-          <div className="text-xs text-gray-500 mt-1">
+          <div className="text-bf-xs text-bf-danger">Render error</div>
+          <div className="text-bf-xs text-muted-foreground mt-1">
             {this.state.error?.message || 'Unknown error'}
           </div>
         </div>

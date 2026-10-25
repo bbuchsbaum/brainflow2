@@ -32,14 +32,14 @@ export function StudioLensSwitcher({
   onSelectCompareCohort,
 }: StudioLensSwitcherProps) {
   return (
-    <div className="flex flex-wrap items-center gap-3 rounded-lg border border-border bg-card px-3 py-2">
-      <span className="text-[11px] font-medium uppercase tracking-[0.06em] text-muted-foreground">
+    <div className="flex flex-wrap items-center gap-3 rounded-sm border border-border bg-card px-3 py-2">
+      <span className="text-bf-xs font-medium text-muted-foreground">
         Lens
       </span>
       <div
         role="tablist"
         aria-label="Set Studio lens"
-        className="inline-flex items-center rounded-md border border-border bg-background p-0.5"
+        className="inline-flex items-stretch rounded-sm border border-border bg-background"
       >
         {LENS_OPTIONS.map((option) => {
           const selected = activeLens === option.id;
@@ -58,17 +58,17 @@ export function StudioLensSwitcher({
                   : undefined
               }
               onClick={() => !disabled && onSelectLens(option.id)}
-              className={`inline-flex items-center gap-1.5 rounded-sm px-3 py-1 text-xs transition-colors ${
+              className={`relative inline-flex items-center gap-1.5 border-r border-bf-border-subtle px-3 py-1 text-bf-sm transition-colors last:border-r-0 focus-visible:z-10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background ${
                 selected
-                  ? 'bg-accent text-accent-foreground shadow-sm'
+                  ? 'bg-bf-bg-active text-foreground shadow-[inset_0_-2px_0_var(--bf-text-muted)]'
                   : disabled
-                    ? 'text-muted-foreground/60'
-                    : 'text-muted-foreground hover:bg-accent/40 hover:text-accent-foreground'
+                    ? 'text-bf-text-faint'
+                    : 'text-muted-foreground hover:bg-accent hover:text-foreground'
               }`}
             >
               {option.label}
               {option.hint ? (
-                <span className="text-[9px] uppercase tracking-[0.08em] text-muted-foreground/70">
+                <span className="text-bf-2xs text-muted-foreground">
                   {option.hint}
                 </span>
               ) : null}
@@ -80,12 +80,12 @@ export function StudioLensSwitcher({
       {activeLens === 'compare' ? (
         <>
           <span className="h-4 w-px bg-border" aria-hidden />
-          <label className="flex items-center gap-2 text-xs text-muted-foreground">
-            <span className="text-[11px] font-medium uppercase tracking-[0.06em]">
+          <label className="flex items-center gap-2 text-bf-sm text-muted-foreground">
+            <span className="text-bf-xs font-medium">
               Compare mode
             </span>
             <select
-              className="rounded-md border border-border bg-background px-2.5 py-1 text-xs text-foreground"
+              className="rounded-sm border border-border bg-background px-2.5 py-1 text-bf-sm text-foreground"
               value={compareCohort?.id ?? ''}
               onChange={(event) => onSelectCompareCohort(event.target.value || null)}
             >

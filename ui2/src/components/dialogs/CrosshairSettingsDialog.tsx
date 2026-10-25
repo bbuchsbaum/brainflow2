@@ -9,16 +9,64 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { ChevronDown } from 'lucide-react';
 import { Label } from '@/components/ui/shadcn/label';
 import { Switch } from '@/components/ui/shadcn/switch';
-import { Slider } from '@/components/ui/shadcn/slider';
+import * as SliderPrimitive from '@radix-ui/react-slider';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/shadcn/radio-group';
 import { Button } from '@/components/ui/shadcn/button';
 import { Modal } from '@/components/ui/Modal';
 import { useCrosshairSettings } from '@/contexts/CrosshairContext';
 import type { CrosshairSettings } from '@/contexts/CrosshairContext';
+import { DEFAULT_SETTINGS, MEDICAL_COLOR_PRESETS } from '@/stores/crosshairSettingsStore';
 
 interface CrosshairSettingsDialogProps {
   onClose: () => void;
 }
+
+// Field row for consistent layout. Defined at module scope so it keeps a
+// stable component identity across renders (an inline component would remount
+// its children, e.g. interrupting a slider drag, on every state change).
+const Field: React.FC<{ label: string; htmlFor?: string; children: React.ReactNode }> = ({
+  label,
+  htmlFor,
+  children,
+}) => (
+  <div className="grid grid-cols-[96px_minmax(0,1fr)] items-center gap-3">
+    <Label htmlFor={htmlFor} className="text-bf-sm font-normal text-muted-foreground">
+      {label}
+    </Label>
+    {children}
+  </div>
+);
+
+// Slider with a named thumb. Radix puts `aria-label` on the thumb (the
+// element with role=slider) only when it is passed to the Thumb itself, so the
+// shared shadcn Slider would leave it unnamed. Same visuals as that Slider.
+const NamedSlider: React.FC<
+  React.ComponentPropsWithoutRef<typeof SliderPrimitive.Root> & { thumbLabel: string; valueText?: string }
+> = ({ thumbLabel, valueText, className = '', ...props }) => (
+  <SliderPrimitive.Root
+    className={`relative flex h-5 w-full touch-none select-none items-center ${className}`}
+    {...props}
+  >
+    <SliderPrimitive.Track className="relative h-[3px] w-full grow overflow-hidden rounded-full bg-[hsl(var(--muted))]">
+      <SliderPrimitive.Range className="absolute h-full bg-[hsl(var(--primary))]" />
+    </SliderPrimitive.Track>
+    <SliderPrimitive.Thumb
+      aria-label={thumbLabel}
+      aria-valuetext={valueText}
+      className="block h-3 w-3 rounded-full bg-primary ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 disabled:pointer-events-none disabled:opacity-50 hover:bg-foreground cursor-pointer"
+      style={{ boxShadow: '0 0 0 1px hsl(220 56% 4% / 0.7)' }}
+    />
+  </SliderPrimitive.Root>
+);
+
+// Selected swatch: an inner 2px neutral ring with a 1px dark inner edge (so it
+// reads on light swatches too). Keyboard focus is a separate outer amber
+// outline with an offset, so a focused selected swatch shows both.
+const SWATCH_SELECTED_SHADOW =
+  'inset 0 0 0 2px var(--bf-text-primary, #e6e7ea), inset 0 0 0 3px rgba(0, 0, 0, 0.6)';
+
+// Section headings outrank field labels: same size, heavier and brighter.
+const SECTION_HEADING = 'text-bf-sm font-semibold text-foreground';
 
 export function CrosshairSettingsDialog({ onClose }: CrosshairSettingsDialogProps) {
   const { settings: currentSettings, updateSettings } = useCrosshairSettings();
@@ -49,21 +97,8 @@ export function CrosshairSettingsDialog({ onClose }: CrosshairSettingsDialogProp
   }, [updateSettings, onClose]);
 
   const handleReset = () => {
-    const defaults: CrosshairSettings = {
-      visible: true,
-      activeColor: '#ffff00',
-      activeThickness: 1,
-      activeStyle: 'solid',
-      showMirror: false,
-      mirrorColor: '#ff0000',
-      mirrorOpacity: 0.6,
-      mirrorThickness: 1,
-      mirrorStyle: 'dashed',
-      autoContrast: false,
-      snapToVoxel: true,
-      showCoordinates: false,
-      coordinateFormat: 'mm'
-    };
+    // Restore the store's canonical defaults exactly (single source of truth).
+    const defaults: CrosshairSettings = { ...DEFAULT_SETTINGS };
     setLocalSettings(defaults);
     // Apply the reset immediately
     updateSettings(defaults);
@@ -82,68 +117,86 @@ export function CrosshairSettingsDialog({ onClose }: CrosshairSettingsDialogProp
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [handleCancel, handleDone]);
 
-  // Field component for consistent layout
-  const Field: React.FC<{ label: string; children: React.ReactNode }> = ({ label, children }) => (
-    <div className="grid grid-cols-[100px_1fr] items-center gap-3">
-      <Label className="text-sm text-gray-300">{label}</Label>
-      {children}
-    </div>
-  );
-
   return (
     <Modal
       isOpen={true}
       onClose={handleCancel}
-      title="Crosshair Settings"
-      ariaLabel="Crosshair Settings"
+      title="Crosshair settings"
+      ariaLabel="Crosshair settings"
       size="sm"
       initialFocusRef={visibleSwitchRef}
       bodyClassName="p-0"
-      className="max-w-sm rounded-xl ring-1 ring-white/10 shadow-2xl"
+      className="max-w-sm rounded-sm ring-1 ring-bf-border-strong shadow-2xl"
     >
         <div className="flex-1 overflow-y-auto">
           {/* Visibility Section */}
-          <section className="px-6 py-5 border-b space-y-4" style={{ borderColor: 'var(--app-border-subtle, #1e293b)' }}>
-            <h3 className="font-medium text-gray-200">Visibility</h3>
-            <Field label="Show crosshairs">
-              <div className="flex items-center justify-between">
+          <section className="px-6 py-5 border-b space-y-4" style={{ borderColor: 'var(--bf-border-subtle)' }}>
+            <h3 className={SECTION_HEADING}>Visibility</h3>
+            <Field label="Show crosshairs" htmlFor="crosshair-visible">
+              <div className="flex items-center">
                 <Switch
+                  id="crosshair-visible"
                   ref={visibleSwitchRef}
                   checked={localSettings.visible}
                   onCheckedChange={(checked) => updateLocalSetting('visible', checked)}
                 />
-                <span className="text-xs text-gray-500">Hotkey: C</span>
               </div>
             </Field>
           </section>
 
           {/* Active Crosshair Section */}
-          <section className="px-6 py-5 border-b space-y-4" style={{ borderColor: 'var(--app-border-subtle, #1e293b)' }}>
-            <h3 className="font-medium text-gray-200">Active crosshair</h3>
+          <section className="px-6 py-5 border-b space-y-4" style={{ borderColor: 'var(--bf-border-subtle)' }}>
+            <h3 className={SECTION_HEADING}>Active crosshair</h3>
             
             <Field label="Color">
-              <div className="flex items-center gap-2">
-                <input
-                  type="color"
-                  value={localSettings.activeColor}
-                  onChange={(e) => updateLocalSetting('activeColor', e.target.value)}
-                  className="h-8 w-16 rounded border border-gray-700 bg-gray-800 cursor-pointer hover:border-gray-600"
-                />
-                <span className="text-xs text-gray-500">{localSettings.activeColor}</span>
+              <div className="flex min-w-0 flex-col gap-2">
+                <div className="flex items-center gap-2">
+                  <input
+                    type="color"
+                    value={localSettings.activeColor}
+                    onChange={(e) => updateLocalSetting('activeColor', e.target.value)}
+                    aria-label="Active crosshair color"
+                    className="h-7 w-12 rounded-sm border border-border bg-bf-bg-input cursor-pointer hover:border-bf-border-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background"
+                  />
+                  <span className="font-mono text-bf-xs text-muted-foreground">{localSettings.activeColor}</span>
+                </div>
+                <div role="group" aria-label="Color presets" className="flex flex-wrap gap-1.5 p-0.5">
+                  {MEDICAL_COLOR_PRESETS.map((preset) => {
+                    const selected =
+                      localSettings.activeColor.toLowerCase() === preset.value.toLowerCase();
+                    return (
+                      <button
+                        key={preset.value}
+                        type="button"
+                        aria-label={preset.name}
+                        aria-pressed={selected}
+                        title={`${preset.name} ${preset.value}`}
+                        onClick={() => updateLocalSetting('activeColor', preset.value)}
+                        className="h-5 w-5 rounded-sm border border-bf-border-strong outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--bf-border-focus)]"
+                        style={{
+                          backgroundColor: preset.value,
+                          boxShadow: selected ? SWATCH_SELECTED_SHADOW : undefined,
+                        }}
+                      />
+                    );
+                  })}
+                </div>
               </div>
             </Field>
 
             <Field label="Thickness">
               <div className="flex items-center gap-3">
-                <Slider
+                <NamedSlider
+                  thumbLabel="Thickness"
+                  valueText={`${localSettings.activeThickness} px`}
                   min={1}
                   max={5}
                   step={0.5}
                   value={[localSettings.activeThickness]}
                   onValueChange={([v]) => updateLocalSetting('activeThickness', v)}
-                  className="flex-1"
+                  className="flex-1 [&_[role=slider]]:bg-primary [&_[role=slider]:hover]:bg-primary"
                 />
-                <span className="text-xs text-gray-400 w-8 text-right">{localSettings.activeThickness}</span>
+                <span className="font-mono text-bf-xs text-bf-text-secondary w-8 text-right">{localSettings.activeThickness}</span>
               </div>
             </Field>
 
@@ -151,38 +204,61 @@ export function CrosshairSettingsDialog({ onClose }: CrosshairSettingsDialogProp
               <RadioGroup
                 value={localSettings.activeStyle}
                 onValueChange={(v) => updateLocalSetting('activeStyle', v as 'solid' | 'dashed' | 'dotted')}
-                className="flex gap-4"
+                className="flex flex-wrap gap-x-3 gap-y-2"
               >
                 {(['solid', 'dashed', 'dotted'] as const).map((style) => (
                   <div key={style} className="flex items-center gap-1.5">
                     <RadioGroupItem value={style} id={`active-${style}`} className="h-4 w-4" />
-                    <Label htmlFor={`active-${style}`} className="capitalize text-sm cursor-pointer">
+                    <Label
+                      htmlFor={`active-${style}`}
+                      className="capitalize text-bf-sm font-normal text-foreground cursor-pointer"
+                    >
                       {style}
                     </Label>
                   </div>
                 ))}
               </RadioGroup>
             </Field>
+
+            <Field label="Centre gap" htmlFor="crosshair-center-gap">
+              <div className="flex items-center">
+                <Switch
+                  id="crosshair-center-gap"
+                  checked={localSettings.centerGap !== false}
+                  onCheckedChange={(checked) => updateLocalSetting('centerGap', checked)}
+                />
+              </div>
+            </Field>
           </section>
 
-          {/* Mirror Crosshairs Section - Collapsible */}
-          <section className="border-b" style={{ borderColor: 'var(--app-border-subtle, #1e293b)' }}>
-            <button
-              onClick={() => setMirrorExpanded(!mirrorExpanded)}
-              className="w-full px-6 py-5 flex items-center justify-between hover:bg-gray-800/30 transition-colors"
-            >
-              <h3 className="font-medium text-gray-200">Mirror crosshairs</h3>
-              <ChevronDown 
-                className={`w-4 h-4 text-gray-400 transition-transform ${
-                  mirrorExpanded ? 'rotate-180' : ''
-                }`} 
-              />
-            </button>
+          {/* Mirror Crosshairs Section - Collapsible. The heading wraps the
+              toggle (accordion pattern) so its rule spans the full width like
+              the other sections' headings. */}
+          <section className="border-b" style={{ borderColor: 'var(--bf-border-subtle)' }}>
+            <div className="px-6 pt-5">
+              <h3 className={`${SECTION_HEADING} ${mirrorExpanded ? '' : 'mb-5'}`}>
+                <button
+                  type="button"
+                  aria-expanded={mirrorExpanded}
+                  onClick={() => setMirrorExpanded(!mirrorExpanded)}
+                  className="-mx-1 flex w-[calc(100%+0.5rem)] items-center justify-between rounded-sm px-1 text-left hover:bg-accent transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background"
+                >
+                  Mirror crosshairs
+                  <ChevronDown
+                    aria-hidden="true"
+                    className={`w-4 h-4 text-bf-text-secondary transition-transform ${
+                      mirrorExpanded ? 'rotate-180' : ''
+                    }`}
+                  />
+                </button>
+              </h3>
+            </div>
             
             {mirrorExpanded && (
-              <div className="px-6 pb-5 space-y-4">
-                <Field label="Show lines">
+              <div className="px-6 pt-1.5 pb-5 space-y-4">
+                <Field label="Show lines" htmlFor="crosshair-mirror-visible">
                   <Switch
+                    id="crosshair-mirror-visible"
                     checked={localSettings.showMirror}
                     onCheckedChange={(checked) => updateLocalSetting('showMirror', checked)}
                   />
@@ -196,23 +272,26 @@ export function CrosshairSettingsDialog({ onClose }: CrosshairSettingsDialogProp
                           type="color"
                           value={localSettings.mirrorColor}
                           onChange={(e) => updateLocalSetting('mirrorColor', e.target.value)}
-                          className="h-8 w-16 rounded border border-gray-700 bg-gray-800 cursor-pointer hover:border-gray-600"
+                          aria-label="Mirror crosshair color"
+                          className="h-7 w-12 rounded-sm border border-border bg-bf-bg-input cursor-pointer hover:border-bf-border-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background"
                         />
-                        <span className="text-xs text-gray-500">{localSettings.mirrorColor}</span>
+                        <span className="font-mono text-bf-xs text-muted-foreground">{localSettings.mirrorColor}</span>
                       </div>
                     </Field>
 
                     <Field label="Opacity">
                       <div className="flex items-center gap-3">
-                        <Slider
+                        <NamedSlider
+                          thumbLabel="Mirror opacity"
+                          valueText={`${Math.round(localSettings.mirrorOpacity * 100)}%`}
                           min={0}
                           max={1}
                           step={0.1}
                           value={[localSettings.mirrorOpacity]}
                           onValueChange={([v]) => updateLocalSetting('mirrorOpacity', v)}
-                          className="flex-1"
+                          className="flex-1 [&_[role=slider]]:bg-primary [&_[role=slider]:hover]:bg-primary"
                         />
-                        <span className="text-xs text-gray-400 w-8 text-right">
+                        <span className="font-mono text-bf-xs text-bf-text-secondary w-8 text-right">
                           {Math.round(localSettings.mirrorOpacity * 100)}%
                         </span>
                       </div>
@@ -225,7 +304,7 @@ export function CrosshairSettingsDialog({ onClose }: CrosshairSettingsDialogProp
         </div>
 
         {/* Footer */}
-        <div className="px-6 py-4 border-t flex items-center justify-between" style={{ borderColor: 'var(--app-border-subtle, #1e293b)' }}>
+        <div className="px-6 py-4 border-t flex items-center justify-between" style={{ borderColor: 'var(--bf-border-subtle)' }}>
           <Button
             onClick={handleReset}
             variant="outline"

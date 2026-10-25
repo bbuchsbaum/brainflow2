@@ -46,7 +46,7 @@ import {
 } from '@/services/studio/PopulationSliceService';
 
 const control =
-  'rounded border border-border bg-background px-2 py-1 text-xs text-foreground disabled:opacity-40';
+  'rounded-sm border border-border bg-background px-2 py-1 text-bf-sm text-foreground disabled:opacity-40';
 const names: Record<PopulationSummary, string> = {
   mean: 'Mean',
   median: 'Median',
@@ -362,22 +362,22 @@ export function PopulationLens({
   return (
     <section
       aria-label="Population brain views"
-      className="flex min-h-0 flex-col gap-2 rounded-lg border border-border bg-card p-3"
+      className="flex min-h-0 flex-col gap-2 rounded-sm border border-border bg-card p-3"
     >
-      <details className="text-xs">
-        <summary className="w-fit cursor-pointer rounded border border-border px-2 py-1 text-muted-foreground hover:bg-accent">
+      <details className="text-bf-sm">
+        <summary className="w-fit cursor-pointer rounded-sm border border-border px-2 py-1 text-muted-foreground hover:bg-accent">
           Save calculation
         </summary>
         <div className="pt-2">
           <PopulationExportControls display={result} current={current && !snapshot.pending} />
         </div>
       </details>
-      <p className="text-sm font-medium">
+      <p className="text-bf-md font-medium">
         Population ·{' '}
         {studio.features[studio.selection.activeFeatureId ?? '']?.label ?? 'Selected feature'}
       </p>
       <div className="flex flex-wrap items-center gap-2">
-        <label className="text-xs">
+        <label className="text-bf-sm">
           {activeTest ? 'Channel' : 'Summary'}{' '}
           <select
             className={control}
@@ -399,7 +399,7 @@ export function PopulationLens({
             )}
           </select>
         </label>
-        <label className="text-xs">
+        <label className="text-bf-sm">
           Plane{' '}
           <select
             className={control}
@@ -412,7 +412,7 @@ export function PopulationLens({
             <option value="sagittal">Sagittal</option>
           </select>
         </label>
-        <label className="text-xs">
+        <label className="text-bf-sm">
           Zoom{' '}
           <select
             className={control}
@@ -462,7 +462,7 @@ export function PopulationLens({
           Refresh images
         </button>
       </div>
-      <div className="flex flex-wrap items-center gap-2 text-xs">
+      <div className="flex flex-wrap items-center gap-2 text-bf-sm">
         {(participants.identity ||
           studio.population.partition ||
           studio.sets[studio.selection.activeSetId ?? '']?.savedCohortIds.length) && (
@@ -539,7 +539,7 @@ export function PopulationLens({
         )}
       </div>
       {issue && (
-        <p role="alert" className="text-xs text-destructive">
+        <p role="alert" className="text-bf-sm text-destructive">
           {issue}
         </p>
       )}
@@ -569,7 +569,7 @@ export function PopulationLens({
         scope={`${workspaceId}:${studio.population.sessionRevision}`}
       />
       <div
-        className="flex flex-wrap items-center gap-2 text-xs"
+        className="flex flex-wrap items-center gap-2 text-bf-sm"
         aria-label="Population arrangement"
       >
         {(
@@ -581,7 +581,7 @@ export function PopulationLens({
         ).map((value) => (
           <button
             key={value}
-            className={`${control} ${presentation.arrangement === value ? 'border-primary text-primary bg-muted' : ''}`}
+            className={`${control} ${presentation.arrangement === value ? '!bg-bf-bg-active text-foreground shadow-[inset_0_-2px_0_var(--bf-text-muted)]' : ''}`}
             aria-pressed={presentation.arrangement === value}
             onClick={() =>
               studio.setPopulationPresentation({
@@ -611,7 +611,7 @@ export function PopulationLens({
       </div>
       {comparing && (
         <div
-          className="flex flex-wrap items-center gap-2 text-xs"
+          className="flex flex-wrap items-center gap-2 text-bf-sm"
           aria-label="Descriptive comparison"
         >
           <span>
@@ -634,7 +634,7 @@ export function PopulationLens({
         </div>
       )}
       {grouped && groupPages > 1 && (
-        <div className="flex gap-2 text-xs">
+        <div className="flex gap-2 text-bf-sm">
           <button
             className={control}
             disabled={currentGroupPage === 0}
@@ -678,7 +678,7 @@ export function PopulationLens({
               : (['summary', 'focused'] as const)
           ).map((pane) => (
             <div key={pane} className="min-w-0">
-              <div className="mb-1 flex min-w-0 justify-between gap-2 text-xs">
+              <div className="mb-1 flex min-w-0 justify-between gap-2 text-bf-sm">
                 <span className="truncate">
                   {pane === 'summary'
                     ? `${result?.query.request.inference ? inferenceChannel(result.query.request.inference).label : result?.query.request.difference ? 'A − B mean difference' : result?.query.request.reference ? 'A mean' : names[result?.query.request.summary ?? summary]} · ${result?.query.request.inference && result.data.reference ? `A ${result.data.unitCount} / B ${result.data.reference.unitCount}` : (result?.data.unitCount ?? 0)} ${result?.query.request.aggregation ? 'participants' : 'observations'}`
@@ -736,7 +736,7 @@ export function PopulationLens({
                       {...props}
                       image={result?.images[pane] ?? null}
                       emptyFallback={
-                        <p className="absolute inset-0 grid place-items-center text-xs text-muted-foreground">
+                        <p className="absolute inset-0 grid place-items-center text-bf-sm text-muted-foreground">
                           {snapshot.pending ? 'Evaluating population…' : 'No population image'}
                         </p>
                       }
@@ -745,7 +745,7 @@ export function PopulationLens({
                 />
                 {result && (
                   <div
-                    className="pointer-events-none absolute inset-0 text-xs text-white/80"
+                    className="pointer-events-none absolute inset-0 text-bf-sm text-white/80"
                     aria-hidden
                   >
                     <span className="absolute left-1 top-1/2">
@@ -767,7 +767,7 @@ export function PopulationLens({
           ))}
         </div>
       </div>
-      <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+      <div className="flex flex-wrap items-center justify-between gap-2 text-bf-sm">
         <p role="status" className="text-muted-foreground">
           {result
             ? `${result.query.request.orientation} · (${result.query.request.crosshairMm.map((v) => v.toFixed(1)).join(', ')}) mm · nearest voxel`
@@ -809,7 +809,7 @@ export function PopulationLens({
           Fit scale to visible context
         </button>
       </div>
-      <div className="flex flex-wrap items-center gap-2 text-xs">
+      <div className="flex flex-wrap items-center gap-2 text-bf-sm">
         <button
           className={control}
           hidden={montage}
@@ -936,7 +936,7 @@ export function PopulationLens({
       </div>
       {(showCutouts || montage) && result?.data.cutouts && (
         <div className="min-w-0 border-t border-border pt-2">
-          <p className="mb-1 text-xs text-muted-foreground">
+          <p className="mb-1 text-bf-sm text-muted-foreground">
             {result.data.cutouts.members.length} of {population.context.memberIds.length}{' '}
             observations ·{' '}
             {arrangement?.mode === 'witnesses'
@@ -953,7 +953,7 @@ export function PopulationLens({
             {!current && ' · previous query'}
           </p>
           {arrangement && (
-            <p className="mb-1 text-xs text-muted-foreground">
+            <p className="mb-1 text-bf-sm text-muted-foreground">
               {populationArrangementLabel(arrangement)}.{' '}
               {arrangement.mode === 'witnesses' &&
                 'Witnesses omit unavailable responses; expand to inspect every observation.'}
@@ -979,7 +979,7 @@ export function PopulationLens({
         </div>
       )}
       {result && (
-        <details className="text-xs text-muted-foreground">
+        <details className="text-bf-sm text-muted-foreground">
           <summary className="cursor-pointer">Coverage and source revisions</summary>
           <p className="my-1">
             {result.query.request.members.length} eligible observations; {result.data.eligibleCount}{' '}
@@ -1008,7 +1008,7 @@ export function PopulationLens({
           </div>
         </details>
       )}
-      <p className="text-xs text-muted-foreground">
+      <p className="text-bf-sm text-muted-foreground">
         Click either image to pin a location. Mean and individual share the blue–white–red effect
         scale; magnitude, spread, cancellation and coverage use a separate gold scale. Scales stay
         fixed while browsing.

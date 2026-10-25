@@ -82,8 +82,6 @@ function Segmented<T extends string>({
               cursor: "pointer",
               borderRadius: "var(--app-radius-sm)",
               fontSize: "var(--app-role-section-size)",
-              letterSpacing: "var(--app-role-section-tracking)",
-              textTransform: "uppercase",
             }}
           >
             {opt.label}
@@ -109,8 +107,6 @@ export const SliceArrangementToolbar: React.FC<
 
   const labelStyle: React.CSSProperties = {
     color: "var(--app-text-muted)",
-    textTransform: "uppercase",
-    letterSpacing: "var(--app-role-section-tracking)",
     fontSize: "var(--app-role-section-size)",
   };
 

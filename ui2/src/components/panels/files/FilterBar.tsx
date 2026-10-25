@@ -45,7 +45,7 @@ export const FilterBar: React.FC<FilterBarProps> = ({
           </svg>
           <input
             type="text"
-            placeholder="Search files..."
+            placeholder="Search"
             value={searchInput}
             onChange={onSearchChange}
             className="fb-search-input"

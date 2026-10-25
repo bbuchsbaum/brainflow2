@@ -14,9 +14,9 @@ export function CoordinateHeader() {
   };
   
   return (
-    <div className="bg-gray-800 text-white px-4 py-2 flex items-center justify-between text-sm">
+    <div className="bg-card text-foreground px-4 py-2 flex items-center justify-between text-bf-sm">
       <div className="flex items-center space-x-6">
-        <span className="text-gray-400">Coordinates (mm):</span>
+        <span className="text-bf-text-secondary">Coordinates (mm):</span>
         <div className="flex space-x-4 font-mono">
           <span className="text-red-400">
             X: {formatCoordinate(crosshair.world_mm[0])}
@@ -29,7 +29,7 @@ export function CoordinateHeader() {
           </span>
         </div>
       </div>
-      <div className="text-xs text-gray-500">
+      <div className="text-bf-xs text-muted-foreground">
         RAS Coordinate System
       </div>
     </div>

@@ -7,7 +7,7 @@ import { folderName, getImageSetService } from '@/services/ImageSetService';
 import type { ImageSetPreview } from '@/types/imageSet';
 
 const button =
-  'rounded border border-border px-3 py-1.5 text-xs hover:bg-accent/40 focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring disabled:opacity-40';
+  'rounded border border-border px-3 py-1.5 text-xs hover:bg-accent/40 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring disabled:opacity-40';
 
 export function OpenImageSetDialog() {
   const preview = useImageSetStore((state) => state.preview);
@@ -57,8 +57,8 @@ function ImageSetChecklist({ preview }: { preview: ImageSetPreview }) {
           Choose images for one layer. Switch between them in the Inspector.
         </p>
       </div>
-      <label className="block space-y-1.5 text-xs font-medium">
-        <span>Set name</span>
+      <label className="block space-y-1.5 text-bf-sm">
+        <span className="text-muted-foreground">Set name</span>
         <input
           value={name}
           onChange={(event) => setName(event.target.value)}

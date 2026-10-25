@@ -8,30 +8,44 @@ import { scaleLinear, scaleLog } from '@visx/scale';
 import { AxisBottom, AxisLeft } from '@visx/axis';
 import { BarRounded } from '@visx/shape';
 import { Group } from '@visx/group';
-import { LinearGradient } from '@visx/gradient';
 import { useTooltip, TooltipWithBounds, defaultStyles } from '@visx/tooltip';
 import { localPoint } from '@visx/event';
 import type { HistogramChartProps, HistogramBin } from '@/types/histogram';
-import { colormaps } from '@/components/ui/colormapOptions';
 
-const surfaceColor = 'hsl(var(--card))';
+// The plot well matches the plot body ground (one step below the panel).
+const surfaceColor = 'var(--bf-bg-app)';
 const borderColor = 'hsl(var(--border))';
 const overlayFill = 'hsla(var(--foreground) / 0.05)';
 const overlayStroke = 'hsla(var(--foreground) / 0.18)';
-const thresholdColor = 'hsl(var(--primary))';
-const statsTextColor = 'hsla(var(--foreground) / 0.6)';
+// Threshold marks are data annotations: a neutral light dashed line, never the
+// chrome accent or the primary (button) colour.
+const thresholdColor = 'var(--bf-text-secondary)';
+const statsTextColor = 'var(--bf-text-muted)';
 const axisStroke = 'hsla(var(--foreground) / 0.35)';
-const axisLabelColor = 'hsla(var(--foreground) / 0.55)';
+// Tick text: secondary text on the panel (well above 4.5:1), at the 2xs step.
+const axisLabelColor = 'var(--bf-text-secondary)';
+const axisLabelSize = 'var(--bf-text-2xs)';
+// Bars are a neutral light grey, not a hue: next to diverging (red-blue) maps
+// any blue reads as "negative". The layer's colours belong to the image.
+const barFill = 'var(--bf-text-secondary)';
+const barFillOpacity = 0.45;
 const toggleActiveFill = 'hsl(var(--primary))';
 const toggleInactiveFill = 'hsl(var(--muted))';
 const toggleStroke = 'hsl(var(--border))';
 const toggleTextColor = 'hsl(var(--foreground))';
+const toggleActiveTextColor = 'hsl(var(--primary-foreground))';
 const tooltipBg = 'hsl(var(--card))';
 const tooltipColor = 'hsl(var(--foreground))';
 const tooltipBorder = 'hsl(var(--border))';
 
-// Margin for axes - increased to provide better spacing and ensure chart fits
-const margin = { top: 15, right: 15, bottom: 35, left: 15 };
+// The top margin is a header line that holds the scale toggle (left) and the
+// mean/SD summary (right), so neither overprints the bars. The bottom margin
+// fits the x-axis ticks and labels.
+const margin = { top: 20, right: 12, bottom: 22, left: 12 };
+const HEADER_BASELINE = 13;
+/** Below these sizes the chart cannot draw meaningful bars. */
+const MIN_CHART_WIDTH = 120;
+const MIN_CHART_HEIGHT = 64;
 
 // Tooltip styles
 const tooltipStyles = {
@@ -39,7 +53,7 @@ const tooltipStyles = {
   backgroundColor: tooltipBg,
   color: tooltipColor,
   padding: '8px',
-  borderRadius: '6px',
+  borderRadius: '2px',
   border: `1px solid ${tooltipBorder}`,
   fontSize: '12px',
   boxShadow: '0 4px 6px rgba(0, 0, 0, 0.1)',
@@ -120,28 +134,18 @@ export const HistogramChart: React.FC<HistogramChartProps> = ({
   }, []);
 
   // Calculate inner dimensions with minimum size validation
-  const innerWidth = Math.max(width - margin.left - margin.right, 100);
-  const innerHeight = Math.max(height - margin.top - margin.bottom, 80);
+  // Never floor these above the available space: a floor larger than the
+  // box makes the SVG overflow and clip the axis.
+  const innerWidth = Math.max(width - margin.left - margin.right, 1);
+  const innerHeight = Math.max(height - margin.top - margin.bottom, 1);
   
   // Log dimension calculation for debugging
   console.log('[HistogramChart] Dimension calculation:', {
     providedDimensions: { width, height },
     margins: margin,
     innerDimensions: { innerWidth, innerHeight },
-    isTooSmall: width < 200 || height < 150
+    isTooSmall: width < MIN_CHART_WIDTH || height < MIN_CHART_HEIGHT
   });
-
-  // Get colormap gradient
-  const colormapData = useMemo(() => {
-    const cm = colormaps.find(c => c.name === colormap) || colormaps[0];
-    // Extract colors from the gradient string
-    const gradientMatch = cm.gradient.match(/linear-gradient\(to right,\s*(.+)\)/);
-    if (gradientMatch) {
-      const colors = gradientMatch[1].split(',').map(c => c.trim());
-      return colors;
-    }
-    return ['#000000', '#ffffff']; // Fallback to grayscale
-  }, [colormap]);
 
   // Create scales
   const xScale = useMemo(() => {
@@ -184,14 +188,14 @@ export const HistogramChart: React.FC<HistogramChartProps> = ({
   }, [data, innerHeight, useLogScale]);
 
   // Handle chart too small
-  if (width < 150 || height < 100) {
+  if (width < MIN_CHART_WIDTH || height < MIN_CHART_HEIGHT) {
     return (
       <div 
         className="flex items-center justify-center text-xs" 
         style={{ width, height }}
       >
         <div className="text-muted-foreground text-center">
-          Panel too small<br/>for histogram
+          Enlarge the panel to see the histogram
         </div>
       </div>
     );
@@ -216,7 +220,7 @@ export const HistogramChart: React.FC<HistogramChartProps> = ({
         className="flex items-center justify-center" 
         style={{ width, height }}
       >
-        <div className="text-red-500 text-sm">Error: {error.message}</div>
+        <div className="text-bf-danger text-bf-sm">Error: {error.message}</div>
       </div>
     );
   }
@@ -269,27 +273,7 @@ export const HistogramChart: React.FC<HistogramChartProps> = ({
   return (
     <div className="relative">
       <svg width={width} height={height}>
-        {/* Gradient definition for colormap - horizontal to match intensity axis */}
         <defs key={`defs-${colormap}-${Date.now()}`}>
-          <LinearGradient 
-            id={gradientId}
-            key={`gradient-${colormap}-${Date.now()}`}
-            from="#000000" 
-            to="#ffffff"
-            x1="0%"
-            y1="0%"
-            x2="100%"
-            y2="0%"
-          >
-            {colormapData.map((color, i) => (
-              <stop
-                key={i}
-                offset={`${(i / (colormapData.length - 1)) * 100}%`}
-                stopColor={color}
-              />
-            ))}
-          </LinearGradient>
-          
           {/* Create a single clipping mask for all bars */}
           <clipPath 
             id={clipId}
@@ -376,15 +360,19 @@ export const HistogramChart: React.FC<HistogramChartProps> = ({
           </>
           )}
 
-          {/* Single rectangle with gradient, clipped to bar shapes */}
+          {/* Single rectangle clipped to the bar shapes. Bars are neutral
+              light grey (as in the Inspector mini histogram) at a moderate
+              opacity so the dock is not a bright mass; the window band and
+              threshold marks are neutral too. */}
           <rect
+            data-testid="histogram-bars"
             x={0}
             y={0}
             width={innerWidth}
             height={innerHeight}
-            fill={`url(#${gradientId})`}
+            fill={barFill}
             clipPath={`url(#${clipId})`}
-            fillOpacity={0.9}
+            fillOpacity={barFillOpacity}
           />
 
           {/* Invisible bars for hover interaction */}
@@ -428,56 +416,65 @@ export const HistogramChart: React.FC<HistogramChartProps> = ({
             <AxisBottom
               top={innerHeight}
               scale={xScale}
+              tickLength={4}
+              numTicks={Math.max(2, Math.floor(innerWidth / 60))}
               tickFormat={(value) => Number(value).toFixed(0)}
               stroke={axisStroke}
               tickStroke={axisStroke}
               tickLabelProps={() => ({
                 fill: axisLabelColor,
                 fontSize: 10,
+                style: { fontSize: axisLabelSize },
                 textAnchor: 'middle',
               })}
             />
           )}
 
-          {/* Statistics text */}
-          <text
-            x={innerWidth - 10}
-            y={20}
-            fill={statsTextColor}
-            fontSize={12}
-            textAnchor="end"
-          >
-            μ={data.mean.toFixed(1)}, σ={data.std.toFixed(1)}
-          </text>
-          
-          {/* Log scale toggle button */}
-          <g
-            transform={`translate(10, 10)`}
-            onClick={() => onLogScaleChange?.(!useLogScale)}
-            style={{ cursor: 'pointer' }}
-          >
-            <rect
-              x={0}
-              y={0}
-              width={55}
-              height={20}
-              rx={3}
-              fill={useLogScale ? toggleActiveFill : toggleInactiveFill}
-              stroke={toggleStroke}
-              strokeWidth={1}
-            />
-            <text
-              x={27.5}
-              y={14}
-              fill={toggleTextColor}
-              fontSize={11}
-              textAnchor="middle"
-              style={{ userSelect: 'none' }}
-            >
-              {useLogScale ? 'Log Y' : 'Linear Y'}
-            </text>
-          </g>
         </Group>
+
+        {/* Header line (inside the top margin, outside the plot area). The
+            summary is dropped when it would collide with the toggle. */}
+        {width >= 180 && (
+        <text
+          data-testid="histogram-stats"
+          x={width - margin.right}
+          y={HEADER_BASELINE}
+          fill={statsTextColor}
+          fontSize={10}
+          textAnchor="end"
+          style={{ fontVariantNumeric: 'tabular-nums' }}
+        >
+          μ={data.mean.toFixed(1)}  σ={data.std.toFixed(1)}
+        </text>
+        )}
+
+        {/* Log scale toggle button */}
+        <g
+          transform={`translate(${margin.left}, 2)`}
+          onClick={() => onLogScaleChange?.(!useLogScale)}
+          style={{ cursor: 'pointer' }}
+        >
+          <rect
+            x={0}
+            y={0}
+            width={48}
+            height={15}
+            rx={2}
+            fill={useLogScale ? toggleActiveFill : toggleInactiveFill}
+            stroke={toggleStroke}
+            strokeWidth={1}
+          />
+          <text
+            x={24}
+            y={11}
+            fill={useLogScale ? toggleActiveTextColor : toggleTextColor}
+            fontSize={10}
+            textAnchor="middle"
+            style={{ userSelect: 'none' }}
+          >
+            {useLogScale ? 'Log Y' : 'Linear Y'}
+          </text>
+        </g>
       </svg>
 
       {/* Tooltip */}

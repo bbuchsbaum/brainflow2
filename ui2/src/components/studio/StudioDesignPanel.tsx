@@ -118,7 +118,7 @@ export function StudioDesignPanel() {
   const handleRenameCohort = async (cohortId: string, currentLabel: string) => {
     const nextLabel = (
       await getConfirmationService().prompt({
-        title: 'Rename Group',
+        title: 'Rename group',
         message: `Rename group "${currentLabel}" to:`,
         defaultValue: currentLabel,
         confirmLabel: 'Rename',
@@ -134,7 +134,7 @@ export function StudioDesignPanel() {
 
   const handleDeleteCohort = async (cohortId: string, label: string) => {
     const confirmed = await getConfirmationService().confirm({
-      title: 'Delete Group',
+      title: 'Delete group',
       message: `Delete group "${label}"?`,
       tone: 'destructive',
       confirmLabel: 'Delete',
@@ -161,7 +161,7 @@ export function StudioDesignPanel() {
 
     const savedCohort = saveMembersAsCohort({
       memberIds: activeIssueMemberIds,
-      label: activeIssueLabel ? `Issue · ${trimLabel(activeIssueLabel)}` : 'Issue Focus',
+      label: activeIssueLabel ? `Issue · ${trimLabel(activeIssueLabel)}` : 'Issue focus',
       description: activeIssueLabel
         ? `Saved from issue focus: ${activeIssueLabel}`
         : 'Saved from the active issue focus.',
@@ -212,12 +212,12 @@ export function StudioDesignPanel() {
             },
             {
               id: 'import-discover',
-              label: 'Discover Files',
+              label: 'Discover files',
               onClick: () => { void studioService.openRegexDiscoveryInStudio(); },
             },
             {
               id: 'import-demo',
-              label: 'Load Demo',
+              label: 'Load demo',
               onClick: () => { void studioService.openDemoInStudio(); },
             },
           ]}

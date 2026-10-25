@@ -181,11 +181,10 @@ export function BidsEventsTimeline({ events }: BidsEventsTimelineProps) {
           height: 120,
           fontFamily: 'var(--app-font-mono)',
           fontSize: 11,
-          color: 'hsla(var(--foreground) / 0.4)',
-          letterSpacing: '0.08em',
+          color: 'hsl(var(--muted-foreground))',
         }}
       >
-        NO EVENTS
+        No events
       </div>
     );
   }

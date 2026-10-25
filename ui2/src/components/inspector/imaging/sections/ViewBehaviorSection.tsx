@@ -15,15 +15,15 @@ export function ViewBehaviorSection({ item }: ViewBehaviorSectionProps) {
   if (item.kind !== 'volume-base') return null;
 
   return (
-    <InspectorSection label="View Behavior" icon={<EyeIcon />} defaultOpen={false}>
+    <InspectorSection label="View behavior" icon={<EyeIcon />} defaultOpen={false}>
       <FieldRow label="Orientation markers">
-        <span className="text-[12px] text-muted-foreground">on</span>
+        <span className="text-bf-sm text-muted-foreground">on</span>
       </FieldRow>
       <FieldRow label="Hover sampling">
-        <span className="text-[12px] text-muted-foreground">on</span>
+        <span className="text-bf-sm text-muted-foreground">on</span>
       </FieldRow>
       <FieldRow label="Slice border">
-        <span className="text-[12px] text-muted-foreground">off</span>
+        <span className="text-bf-sm text-muted-foreground">off</span>
       </FieldRow>
     </InspectorSection>
   );

@@ -7,7 +7,7 @@ import {
   type PopulationSliceDisplay,
 } from '@/services/studio/PopulationSliceService';
 import { populationProbeActions } from '@/services/studio/PopulationProbeActions';
-const control = 'rounded border border-border bg-background px-2 py-1 text-xs disabled:opacity-40';
+const control = 'rounded-sm border border-border bg-background px-2 py-1 text-bf-sm disabled:opacity-40';
 export function PopulationGroupViews({
   display,
   width,
@@ -41,13 +41,13 @@ export function PopulationGroupViews({
         return (
           <section
             key={group.id}
-            className="min-w-0 rounded border border-border p-2"
+            className="min-w-0 rounded-sm border border-border p-2"
             aria-label={definition.label}
           >
-            <h3 className="truncate text-sm font-medium" title={definition.label}>
+            <h3 className="truncate text-bf-md font-medium" title={definition.label}>
               {definition.label}
             </h3>
-            <p className="my-1 text-xs text-muted-foreground">
+            <p className="my-1 text-bf-sm text-muted-foreground">
               {group.eligibleCount} observations · {group.unitCount}{' '}
               {display.query.request.aggregation ? 'participants' : 'analysis units'} · mean · ±
               {display.effectLimit.toPrecision(3)}

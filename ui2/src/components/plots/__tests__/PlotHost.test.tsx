@@ -228,4 +228,25 @@ describe('PlotHost', () => {
     rerender(<PlotHost modes={reducedModes} defaultModeId="time-series" layerId="vol-1" />);
     expect(screen.getByTestId('plot-host')).toHaveAttribute('data-mode', 'histogram');
   });
+
+  it('styles mode chips with the shared segmented grammar (neutral fill + accent bottom edge)', () => {
+    const modes: PlotMode[] = [
+      makeMode({ id: 'histogram', label: 'Histogram' }),
+      makeMode({ id: 'population', label: 'Population' }),
+    ];
+    render(<PlotHost modes={modes} layerId="vol-1" layerName="vol-1" />);
+
+    const active = screen.getByTestId('plot-host-mode-histogram');
+    const inactive = screen.getByTestId('plot-host-mode-population');
+    expect(active.className).toContain('bg-bf-bg-active');
+    expect(active.className).toContain('shadow-[inset_0_-2px_0_var(--bf-text-muted)]');
+    expect(active.className).not.toContain('bg-primary');
+    expect(inactive.className).toContain('text-muted-foreground');
+    expect(inactive.className).toContain('hover:bg-accent');
+    for (const chip of [active, inactive]) {
+      expect(chip.className).toContain('focus-visible:ring-2');
+      expect(chip.className).toContain('focus-visible:ring-offset-1');
+    }
+  });
 });
+

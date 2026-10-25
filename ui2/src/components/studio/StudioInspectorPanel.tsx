@@ -57,7 +57,7 @@ export function StudioInspectorPanel() {
     const nextTitle =
       (
         await getConfirmationService().prompt({
-          title: 'Rename Saved Recipe',
+          title: 'Rename saved recipe',
           message: `Rename saved recipe "${recipe.title}" to:`,
           defaultValue: recipe.title,
           confirmLabel: 'Rename',
@@ -76,7 +76,7 @@ export function StudioInspectorPanel() {
 
   const deleteRecipe = async (recipe: StudioSavedRecipeSummary) => {
     const confirmed = await getConfirmationService().confirm({
-      title: 'Delete Saved Recipe',
+      title: 'Delete saved recipe',
       message: `Delete saved recipe "${recipe.title}"?`,
       tone: 'destructive',
       confirmLabel: 'Delete',

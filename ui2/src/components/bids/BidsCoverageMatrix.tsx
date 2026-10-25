@@ -112,7 +112,8 @@ const DataCell = React.memo(function DataCell({
   };
 
   if (cell.present && cell.run_count > 0) {
-    style.background = `hsl(var(--primary) / ${runCountOpacity(cell.run_count)})`;
+    // Neutral data tone: amber stays reserved for the selected cell.
+    style.background = `hsl(var(--muted-foreground) / ${(0.55 * runCountOpacity(cell.run_count)).toFixed(3)})`;
   } else {
     style.background = `repeating-linear-gradient(
       -45deg,
@@ -121,6 +122,7 @@ const DataCell = React.memo(function DataCell({
       transparent 2px,
       transparent 6px
     )`;
+    style.boxShadow = 'inset 0 0 0 1px hsl(var(--muted-foreground) / 0.35)';
   }
 
   if (selected) {
@@ -234,19 +236,19 @@ function CellActionBar({
         {cell.file_paths.length === 1 ? (
           <button
             type="button"
-            className="bf-control-sm rounded-appsm border border-border bg-background px-3 text-[10px] font-semibold uppercase tracking-[0.08em] text-primary transition-colors hover:border-primary"
+            className="bf-control-sm rounded-appsm border border-border bg-background px-3 text-bf-xs font-medium text-primary transition-colors hover:border-primary"
             onClick={() => handleOpen(cell.file_paths[0])}
           >
-            Open in Viewer
+            Open in viewer
           </button>
         ) : (
           <>
             <button
               type="button"
-              className="bf-control-sm rounded-appsm border border-border bg-background px-3 text-[10px] font-semibold uppercase tracking-[0.08em] text-primary transition-colors hover:border-primary"
+              className="bf-control-sm rounded-appsm border border-border bg-background px-3 text-bf-xs font-medium text-primary transition-colors hover:border-primary"
               onClick={() => setDropdownOpen((v) => !v)}
             >
-              Open in Viewer &#x25BE;
+              Open in viewer &#x25BE;
             </button>
             {dropdownOpen && (
               <div
@@ -260,7 +262,7 @@ function CellActionBar({
                     <button
                       key={fp}
                       type="button"
-                      className="bf-role-mono block w-full px-3 py-1.5 text-left text-[10px] text-foreground/80 transition-colors hover:bg-primary/10"
+                      className="bf-role-mono block w-full px-3 py-1.5 text-left text-bf-2xs text-foreground/80 transition-colors hover:bg-accent"
                       onClick={() => handleOpen(fp)}
                     >
                       {shortName}

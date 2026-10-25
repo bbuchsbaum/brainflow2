@@ -77,7 +77,7 @@ const EmptyState: React.FC<{ message?: string }> = ({ message }) => (
         strokeWidth="0.75"
         strokeLinecap="square"
         strokeLinejoin="miter"
-        className="text-muted-foreground/25 mb-3"
+        className="text-bf-text-faint mb-3"
       >
         <line x1="4" y1="6" x2="20" y2="6" />
         <circle cx="8" cy="6" r="2" />
@@ -88,8 +88,8 @@ const EmptyState: React.FC<{ message?: string }> = ({ message }) => (
       </svg>
 
       {/* Technical status */}
-      <span className="text-[9px] font-mono text-muted-foreground/40 uppercase tracking-[0.2em]">
-        {message || 'No Selection'}
+      <span className="text-bf-2xs font-mono text-muted-foreground">
+        {message || 'No selection'}
       </span>
     </div>
   </div>
@@ -111,11 +111,11 @@ const Vol2SurfPanel: React.FC<{
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between mb-2">
-        <h3 className="text-sm font-medium">Volume-on-Surface Properties</h3>
+        <h3 className="text-sm font-medium">Volume-on-Surface properties</h3>
         <span className="text-xs text-muted-foreground">Vol2Surf</span>
       </div>
       <div className="text-sm text-muted-foreground mb-4">
-        Source Volume: {layer.sourceVolumeId || 'Unknown'}
+        Source volume: {layer.sourceVolumeId || 'Unknown'}
       </div>
       <LayerControlsPanel
         selectedLayer={!!layer}
@@ -203,7 +203,7 @@ export const LayerPropertiesManager: React.FC<LayerPropertiesManagerProps> = ({
       return (
         <div className="space-y-4">
           <div className="flex items-center justify-between mb-2">
-            <h3 className="text-sm font-medium">Surface Properties</h3>
+            <h3 className="text-sm font-medium">Surface properties</h3>
             <span className="text-xs text-muted-foreground">Mesh</span>
           </div>
           <EmptyState message="Use the Surfaces sidebar to inspect and edit mesh layers" />

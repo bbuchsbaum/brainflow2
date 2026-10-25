@@ -47,11 +47,11 @@ export const TooltipOverlay: React.FC = () => {
       }}
     >
       <div
-        className="rounded-md shadow-lg text-xs"
+        className="rounded-sm shadow-lg text-bf-xs"
         style={{
-          backgroundColor: 'rgba(17, 24, 39, 0.94)', // gray-900 with alpha
-          color: '#e5e7eb', // gray-200
-          border: '1px solid rgba(55, 65, 81, 0.9)', // gray-700
+          backgroundColor: 'hsl(var(--popover) / 0.96)',
+          color: 'var(--bf-text-primary)',
+          border: '1px solid var(--bf-border)',
           padding: '6px 8px',
         }}
       >

@@ -569,14 +569,14 @@ const VolumeLayerPanelContent: React.FC = () => {
                   onKeyDown={(event) => handleSidebarTabKeyDown(event, index)}
                   aria-label={tab.label}
                   title={tab.label}
-                  className={`bf-role-label rounded-appsm border px-2 text-center font-semibold tracking-[0.01em] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background ${
+                  className={`bf-role-label rounded-appsm border px-2 text-center font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background ${
                     compactSidebarTabs
                       ? "min-h-[34px]"
                       : "bf-control-md min-h-[34px]"
                   } ${
                     isActive
-                      ? "border-primary/60 bg-primary/10 text-foreground"
-                      : "border-transparent text-foreground/70 hover:border-border hover:bg-muted/50 hover:text-foreground"
+                      ? "border-border bg-bf-bg-selected shadow-[inset_2px_0_0_var(--bf-accent)] text-foreground"
+                      : "border-transparent text-bf-text-secondary hover:border-border hover:bg-muted/50 hover:text-foreground"
                   }`}
                 >
                   <span

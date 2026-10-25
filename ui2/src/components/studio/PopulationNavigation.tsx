@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 
-const control = 'rounded border border-border bg-background px-2 py-1 text-xs disabled:opacity-40';
+const control = 'rounded-sm border border-border bg-background px-2 py-1 text-bf-sm disabled:opacity-40';
 
 /** Discrete observations, never interpolated frames. Each completed display
  * receives its full dwell time; a cache miss slows playback rather than skipping. */
@@ -50,7 +50,7 @@ export function PopulationNavigation({
       onBlur={(event) => {
         if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setPlaying(false);
       }}
-      className="rounded border border-border bg-muted/20 p-2 space-y-2"
+      className="rounded-sm border border-border bg-muted/20 p-2 space-y-2"
       onKeyDown={(event) => {
         if (event.target !== event.currentTarget) return;
         if (event.key === ' ') {
@@ -63,7 +63,7 @@ export function PopulationNavigation({
         }
       }}
     >
-      <div className="flex flex-wrap items-center gap-2 text-xs">
+      <div className="flex flex-wrap items-center gap-2 text-bf-sm">
         <button
           className={control}
           aria-label="Previous observation"
@@ -123,7 +123,7 @@ export function PopulationNavigation({
         onPointerDown={() => setPlaying(false)}
         onChange={(e) => move(Number(e.target.value))}
       />
-      <p className="text-xs text-muted-foreground" title={label}>
+      <p className="text-bf-sm text-muted-foreground" title={label}>
         {label} · Show every observation{playing && !ready ? ' · Buffering…' : ''}
       </p>
     </div>

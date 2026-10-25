@@ -23,11 +23,18 @@ import { useActivePanelStore } from '@/stores/activePanelStore';
 import { useAppModeStore } from '@/stores/appModeStore';
 import { useLayoutSettingsStore } from '@/stores/layoutSettingsStore';
 import { safeListen, safeUnlisten } from '@/utils/eventUtils';
+import { getEventBus } from '@/events/EventBus';
 import { debounce } from 'lodash';
 import type { WorkspaceType } from '@/types/workspace';
 import { CrosshairProvider } from '@/contexts/CrosshairContext';
 import { getLayoutService } from '@/services/layoutService';
 import { PanelErrorBoundary } from '@/components/common/PanelErrorBoundary';
+import {
+  ensureFocusedStack,
+  focusCentreStackAfterLoad,
+  installStackFocusTracker,
+  markFocusedStack,
+} from './glStackFocus';
 
 // Workspace router — owns the workspaceType → component switch (extracted for testability).
 import { WorkspaceRouter } from '@/components/layout/WorkspaceRouter';
@@ -682,6 +689,38 @@ export function GoldenLayoutRoot() {
         console.warn('[GoldenLayoutRoot] Failed to focus active workspace tab:', error);
       }
     }
+  }, [activeWorkspaceId, isLayoutReady]);
+
+  // Focused-stack tracking: only the focused stack's active tab carries the
+  // amber edge (HYBRID rule 3, V5 amendment). See glStackFocus.ts.
+  useEffect(() => {
+    const layout = layoutRef.current;
+    const root = containerRef.current;
+    if (!layout || !root || !isLayoutReady) return;
+    const getDefaultStack = () => getCenterWorkspaceStack(layout)?.element ?? null;
+    const cleanup = installStackFocusTracker(root, getDefaultStack);
+    const handleStateChanged = () => ensureFocusedStack(root, getDefaultStack);
+    layout.on('stateChanged', handleStateChanged);
+    // A finished load puts the data in the viewer: mark the centre stack (and
+    // release a tree row that only holds focus from a pointer click).
+    const handleLoaded = () => focusCentreStackAfterLoad(root, getDefaultStack);
+    const bus = getEventBus();
+    const offFile = bus.on('file.loaded', handleLoaded);
+    const offSurface = bus.on('surface.loaded', handleLoaded);
+    return () => {
+      cleanup();
+      layout.off('stateChanged', handleStateChanged);
+      offFile();
+      offSurface();
+    };
+  }, [isLayoutReady]);
+
+  // Switching workspace (top bar, menu, tab click) moves focus to the centre stack.
+  useEffect(() => {
+    const layout = layoutRef.current;
+    const root = containerRef.current;
+    if (!layout || !root || !isLayoutReady || !activeWorkspaceId) return;
+    markFocusedStack(root, getCenterWorkspaceStack(layout)?.element ?? null);
   }, [activeWorkspaceId, isLayoutReady]);
 
   // Create default workspace after GoldenLayout is ready

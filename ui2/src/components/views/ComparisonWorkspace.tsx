@@ -209,7 +209,7 @@ function ComparisonWorkspaceRaw({ workspaceId = 'comparison-default' }: Comparis
           {(['axial', 'sagittal', 'coronal'] as const).map(vt => (
             <button
               key={vt}
-              className={`bf-control-sm rounded-appsm border px-2 text-[10px] font-semibold transition-colors ${
+              className={`bf-control-sm rounded-appsm border px-2 text-bf-2xs font-semibold transition-colors ${
                 globalViewType === vt
                   ? 'border-primary bg-primary/10 text-primary'
                   : 'border-border bg-background text-muted-foreground hover:border-primary/60 hover:text-foreground'
@@ -225,7 +225,7 @@ function ComparisonWorkspaceRaw({ workspaceId = 'comparison-default' }: Comparis
         {/* Layout toggle */}
         <div className="flex items-center gap-1 rounded-appsm border border-border bg-background p-0.5">
           <button
-            className={`bf-control-sm rounded-appsm border px-2 text-[10px] font-semibold transition-colors ${
+            className={`bf-control-sm rounded-appsm border px-2 text-bf-2xs font-semibold transition-colors ${
               layout === 'row'
                 ? 'border-primary bg-primary/10 text-primary'
                 : 'border-border bg-background text-muted-foreground hover:border-primary/60 hover:text-foreground'
@@ -236,7 +236,7 @@ function ComparisonWorkspaceRaw({ workspaceId = 'comparison-default' }: Comparis
             Row
           </button>
           <button
-            className={`bf-control-sm rounded-appsm border px-2 text-[10px] font-semibold transition-colors ${
+            className={`bf-control-sm rounded-appsm border px-2 text-bf-2xs font-semibold transition-colors ${
               layout === 'grid'
                 ? 'border-primary bg-primary/10 text-primary'
                 : 'border-border bg-background text-muted-foreground hover:border-primary/60 hover:text-foreground'
@@ -250,7 +250,7 @@ function ComparisonWorkspaceRaw({ workspaceId = 'comparison-default' }: Comparis
 
         {/* Add panel */}
         <button
-          className="bf-control-sm ml-auto rounded-appsm border border-border bg-background px-2.5 text-[10px] font-semibold text-muted-foreground transition-colors hover:border-primary/60 hover:text-foreground"
+          className="bf-control-sm ml-auto rounded-appsm border border-border bg-background px-2.5 text-bf-2xs font-semibold text-muted-foreground transition-colors hover:border-primary/60 hover:text-foreground"
           onClick={handleAddEmptyPanel}
           title="Add empty panel"
         >

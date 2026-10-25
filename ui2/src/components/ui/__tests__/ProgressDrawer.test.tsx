@@ -188,7 +188,7 @@ describe('ProgressDrawer', () => {
     render(<ProgressDrawer onClose={vi.fn()} />);
 
     await act(async () => {
-      fireEvent.click(screen.getByRole('button', { name: 'Clear Completed Tasks' }));
+      fireEvent.click(screen.getByRole('button', { name: 'Clear completed tasks' }));
     });
 
     expect(Array.from(useProgressStore.getState().tasks.keys())).toEqual(['active']);

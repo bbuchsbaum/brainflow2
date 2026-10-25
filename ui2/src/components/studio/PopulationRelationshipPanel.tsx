@@ -10,7 +10,7 @@ import {
 import { populationProbeActions } from '@/services/studio/PopulationProbeActions';
 import { resolvePopulation } from '@/services/studio/populationContext';
 import { PopulationBrush } from './PopulationBrush';
-const control = 'rounded border border-border bg-background px-2 py-1 text-xs disabled:opacity-40';
+const control = 'rounded-sm border border-border bg-background px-2 py-1 text-bf-sm disabled:opacity-40';
 export function PopulationRelationshipPanel() {
   const state = useSetStudioStore();
   useViewStateStore((s) => s.activeWorkspaceKey);
@@ -34,7 +34,7 @@ export function PopulationRelationshipPanel() {
   const limit = Math.max(0, ...coordinates.flat().map(Math.abs)) || 1;
   return (
     <details
-      className="rounded border border-border p-3 text-xs"
+      className="rounded-sm border border-border p-3 text-bf-sm"
       aria-label="Spatial relationships"
     >
       <summary className="cursor-pointer font-medium">
@@ -166,10 +166,13 @@ export function PopulationRelationshipPanel() {
                     r={member.memberId === state.selection.activeMemberId ? 7 : 4}
                     fill={
                       selected.has(member.memberId)
-                        ? 'var(--app-accent, #e0a63b)'
-                        : 'var(--app-text-muted, #999)'
+                        ? 'var(--bf-text-primary)'
+                        : 'var(--bf-text-muted)'
                     }
-                    stroke={member.memberId === state.selection.activeMemberId ? 'white' : 'none'}
+                    // Selected marks are light neutral (chrome is achromatic;
+                    // amber is never a data colour). The active member gets
+                    // the accent as a thin state edge, not a fill.
+                    stroke={member.memberId === state.selection.activeMemberId ? 'var(--bf-accent)' : 'none'}
                     strokeWidth="2"
                     role="button"
                     tabIndex={0}

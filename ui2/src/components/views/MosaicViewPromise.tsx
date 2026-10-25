@@ -363,15 +363,15 @@ function MosaicViewPromiseRaw({
     console.log('[MosaicViewPromise] No volume to display:', { primaryVolumeId, totalSlices });
     return (
       <div
-        className="flex items-center justify-center h-full text-gray-500 relative"
+        className="flex items-center justify-center h-full text-bf-sm text-muted-foreground relative"
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
       >
         {isDragging ? (
-          <div className="bg-white rounded-lg px-6 py-4 shadow-2xl">
-            <div className="text-blue-600 font-semibold text-lg">Drop to load volume</div>
-            <div className="text-gray-500 text-sm mt-1">Supported: .nii, .nii.gz, .gii</div>
+          <div className="rounded-sm border border-border bg-popover px-6 py-4 shadow-2xl">
+            <div className="text-primary font-semibold text-bf-lg">Drop to load volume</div>
+            <div className="text-muted-foreground text-bf-sm mt-1">Supported: .nii, .nii.gz, .gii</div>
           </div>
         ) : (
           'No volume loaded — drag a file here'
@@ -400,10 +400,10 @@ function MosaicViewPromiseRaw({
     >
       {/* Drop overlay */}
       {isDragging && (
-        <div className="absolute inset-0 bg-blue-500 bg-opacity-10 pointer-events-none flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg px-6 py-4 shadow-2xl">
-            <div className="text-blue-600 font-semibold text-lg">Drop to add layer</div>
-            <div className="text-gray-500 text-sm mt-1">Supported: .nii, .nii.gz, .gii</div>
+        <div className="absolute inset-0 bg-primary/10 pointer-events-none flex items-center justify-center z-50">
+          <div className="rounded-sm border border-border bg-popover px-6 py-4 shadow-2xl">
+            <div className="text-primary font-semibold text-bf-lg">Drop to add layer</div>
+            <div className="text-muted-foreground text-bf-sm mt-1">Supported: .nii, .nii.gz, .gii</div>
           </div>
         </div>
       )}

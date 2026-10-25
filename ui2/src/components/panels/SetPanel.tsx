@@ -36,7 +36,7 @@ export function SetPanel() {
       <div className="flex h-full flex-col p-4">
         <div className="mb-4">
           <h2 className="text-sm font-semibold text-foreground">
-            Set Panel
+            Set panel
           </h2>
           <p className="mt-2 text-sm text-muted-foreground">
             Quick access to active field sets, saved cohorts, and recent Studio queries.
@@ -44,9 +44,9 @@ export function SetPanel() {
         </div>
 
         <div className="space-y-4">
-          <section className="rounded-lg border border-border bg-card p-3">
+          <section className="rounded-sm border border-border bg-card p-3">
             <div className="text-xs font-medium text-muted-foreground">
-              Active Set
+              Active set
             </div>
             <div className="mt-2 text-sm font-medium text-foreground">
               {activeSet?.name ?? 'None selected'}
@@ -63,7 +63,7 @@ export function SetPanel() {
                   {activeSet.ingestAudit.join.unmatchedRows} unmatched
                 </div>
                 {readiness ? (
-                  <div className={`mt-3 rounded-md border px-3 py-2 text-xs ${readiness.className}`}>
+                  <div className={`mt-3 rounded-sm border px-3 py-2 text-xs ${readiness.className}`}>
                     <div className="font-medium">{readiness.eyebrow}</div>
                     <div className="mt-1">{readiness.message}</div>
                   </div>
@@ -72,16 +72,16 @@ export function SetPanel() {
             ) : null}
           </section>
 
-          <section className="rounded-lg border border-border bg-card p-3">
+          <section className="rounded-sm border border-border bg-card p-3">
             <div className="text-xs font-medium text-muted-foreground">
-              Saved Cohorts
+              Saved cohorts
             </div>
             {activeCohorts.length > 0 ? (
               <div className="mt-2 space-y-2">
                 {activeCohorts.slice(0, 4).map((cohort) => (
                   <div
                     key={cohort.id}
-                    className="rounded-md border border-border bg-background px-3 py-2 text-sm text-muted-foreground"
+                    className="rounded-sm border border-border bg-background px-3 py-2 text-sm text-muted-foreground"
                   >
                     <div className="font-medium text-foreground">{cohort.label}</div>
                     <div className="mt-1 text-xs text-muted-foreground">
@@ -98,9 +98,9 @@ export function SetPanel() {
             )}
           </section>
 
-          <section className="rounded-lg border border-border bg-card p-3">
+          <section className="rounded-sm border border-border bg-card p-3">
             <div className="text-xs font-medium text-muted-foreground">
-              Saved Recipes
+              Saved recipes
             </div>
             <div className="mt-2 text-sm text-foreground">
               {savedRecipes.length} saved snapshot{savedRecipes.length === 1 ? '' : 's'}
@@ -112,7 +112,7 @@ export function SetPanel() {
             </div>
           </section>
 
-          <section className="rounded-lg border border-border bg-card p-3">
+          <section className="rounded-sm border border-border bg-card p-3">
             <div className="text-xs font-medium text-muted-foreground">
               Materialization
             </div>
@@ -124,38 +124,38 @@ export function SetPanel() {
             </div>
           </section>
 
-          <section className="rounded-lg border border-border bg-card p-3">
+          <section className="rounded-sm border border-border bg-card p-3">
             <div className="text-xs font-medium text-muted-foreground">
-              Quick Actions
+              Quick actions
             </div>
             <div className="mt-3 flex flex-col gap-2">
               <button
                 type="button"
                 onClick={handleOpenStudio}
-                className="rounded-md border border-border bg-background px-3 py-2 text-left text-sm text-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+                className="rounded-sm border border-border bg-background px-3 py-2 text-left text-sm text-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
               >
                 Open Set Studio
               </button>
               <button
                 type="button"
                 onClick={handleImportManifest}
-                className="rounded-md border border-border bg-background px-3 py-2 text-left text-sm text-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+                className="rounded-sm border border-border bg-background px-3 py-2 text-left text-sm text-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
               >
-                Import Manifest
+                Import manifest
               </button>
               <button
                 type="button"
                 onClick={handleRegexDiscovery}
-                className="rounded-md border border-border bg-background px-3 py-2 text-left text-sm text-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+                className="rounded-sm border border-border bg-background px-3 py-2 text-left text-sm text-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
               >
                 Discover by Regex
               </button>
               <button
                 type="button"
                 onClick={handleLoadDemo}
-                className="rounded-md border border-border bg-background px-3 py-2 text-left text-sm text-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+                className="rounded-sm border border-border bg-background px-3 py-2 text-left text-sm text-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
               >
-                Load Demo
+                Load demo
               </button>
             </div>
           </section>
@@ -174,32 +174,32 @@ function deriveSetReadiness(activeSet: ReturnType<typeof useSetStudioStore.getSt
 
   if (readiness === 'compare_ready') {
     return {
-      eyebrow: 'Compare Ready',
+      eyebrow: 'Compare ready',
       message: 'Safe to use cohort-relative Compare as the primary workflow.',
-      className: 'border-emerald-500/30 bg-emerald-500/10 text-foreground',
+      className: 'border-bf-success/40 bg-bf-success-soft text-foreground',
     };
   }
 
   if (readiness === 'inspect_only') {
     return {
-      eyebrow: 'Audit Attention',
+      eyebrow: 'Audit attention',
       message: 'Import is available for inspection, but compare trust is blocked.',
-      className: 'border-rose-500/30 bg-rose-500/10 text-foreground',
+      className: 'border-bf-danger/40 bg-bf-danger-soft text-foreground',
     };
   }
 
   if (readiness === 'blocked') {
     return {
-      eyebrow: 'Import Blocked',
+      eyebrow: 'Import blocked',
       message: activeSet.importContract?.reason ?? 'Fix import errors before using this set.',
-      className: 'border-rose-500/30 bg-rose-500/10 text-foreground',
+      className: 'border-bf-danger/40 bg-bf-danger-soft text-foreground',
     };
   }
 
   return {
-    eyebrow: 'Deck First',
+    eyebrow: 'Deck first',
     message: 'Warnings are present; review this set before relying on Compare.',
-    className: 'border-amber-500/30 bg-amber-500/10 text-foreground',
+    className: 'border-bf-warning/40 bg-bf-warning-soft text-foreground',
   };
 }
 

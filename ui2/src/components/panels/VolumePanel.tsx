@@ -74,8 +74,8 @@ const CompactInterpolationSelector: React.FC<{
         <button
           className={`px-3 py-1 bf-role-section min-h-control-md border border-r-0 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background ${
             value === 'nearest'
-              ? 'bg-primary text-primary-foreground border-primary'
-              : 'bg-transparent hover:bg-muted/50 border-border text-muted-foreground'
+              ? 'bg-bf-bg-active text-foreground border-border shadow-[inset_0_-2px_0_var(--bf-text-muted)]'
+              : 'bg-transparent hover:bg-accent hover:text-foreground border-border text-muted-foreground'
           }`}
           style={{ borderRadius: '1px 0 0 1px' }}
           onClick={() => onChange('nearest')}
@@ -87,8 +87,8 @@ const CompactInterpolationSelector: React.FC<{
         <button
           className={`px-3 py-1 bf-role-section min-h-control-md border transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background ${
             value === 'linear'
-              ? 'bg-primary text-primary-foreground border-primary'
-              : 'bg-transparent hover:bg-muted/50 border-border text-muted-foreground'
+              ? 'bg-bf-bg-active text-foreground border-border shadow-[inset_0_-2px_0_var(--bf-text-muted)]'
+              : 'bg-transparent hover:bg-accent hover:text-foreground border-border text-muted-foreground'
           }`}
           style={{ borderRadius: '0 1px 1px 0' }}
           onClick={() => onChange('linear')}
@@ -255,7 +255,7 @@ export const VolumePanel: React.FC<VolumePanelProps> = ({
             <div className="flex items-center gap-2">
               <Layers className="w-4 h-4 text-muted-foreground" />
               <span className="bf-role-title text-foreground">
-                Volume Properties
+                Volume properties
               </span>
             </div>
             <span className="bf-role-section bf-role-mono text-primary">
@@ -280,23 +280,23 @@ export const VolumePanel: React.FC<VolumePanelProps> = ({
             )}
             {metadata?.spacing && (
               <PropertyRow
-                label="Voxel Size"
+                label="Voxel size"
                 value={`${metadata.spacing.map(s => s.toFixed(2)).join(' × ')} mm`}
                 mono
               />
             )}
             {metadata?.dataRange && (
               <PropertyRow
-                label="Data Range"
+                label="Data range"
                 value={`${metadata.dataRange.min.toFixed(1)} – ${metadata.dataRange.max.toFixed(1)}`}
                 mono
               />
             )}
           </PropertyBox>
 
-          {/* Display Settings - Compact */}
+          {/* Display settings - Compact */}
           <CollapsibleSection
-            title="Display Settings"
+            title="Display settings"
             icon={Settings}
             defaultExpanded={false}
           >
@@ -308,7 +308,7 @@ export const VolumePanel: React.FC<VolumePanelProps> = ({
               />
 
               <CompactToggle
-                label="Slice Border"
+                label="Slice border"
                 value={showBorder}
                 onChange={handleBorderToggle}
                 disabled={!render}
@@ -316,7 +316,7 @@ export const VolumePanel: React.FC<VolumePanelProps> = ({
               />
 
               <CompactToggle
-                label="Orientation Markers"
+                label="Orientation markers"
                 value={showOrientationMarkers}
                 onChange={handleOrientationToggle}
                 disabled={!render}
@@ -324,7 +324,7 @@ export const VolumePanel: React.FC<VolumePanelProps> = ({
               />
 
               <CompactToggle
-                label="Hover Info"
+                label="Hover info"
                 value={showValueOnHover}
                 onChange={handleHoverToggle}
                 disabled={!render}
@@ -378,7 +378,7 @@ export const VolumePanel: React.FC<VolumePanelProps> = ({
               </div>
             </CollapsibleSection>
           ) : (
-            <CollapsibleSection title="Data Mapping" icon={Layers} defaultExpanded={true}>
+            <CollapsibleSection title="Data mapping" icon={Layers} defaultExpanded={true}>
               <SharedControls
                 render={adaptedRender}
                 metadata={adaptedMetadata}

@@ -59,26 +59,26 @@ export function DeckLens({
 
   return (
     <div className="flex h-full flex-col gap-3">
-      <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-card px-4 py-3">
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-sm border border-border bg-card px-4 py-3">
         <div>
-          <div className="text-sm font-medium text-foreground">Deck</div>
-          <div className="mt-1 text-sm text-muted-foreground">Browse members one at a time.</div>
+          <div className="text-bf-md font-medium text-foreground">Deck</div>
+          <div className="mt-1 text-bf-md text-muted-foreground">Browse members one at a time.</div>
           {searchLabel || sortLabel || (filterLabels?.length ?? 0) > 0 ? (
             <div className="mt-3 flex flex-wrap items-center gap-2">
               {searchLabel ? (
-                <span className="rounded-full border border-violet-500/30 bg-violet-500/10 px-2.5 py-1 text-[11px] text-violet-700 dark:text-violet-200">
+                <span className="rounded-sm border border-border bg-bf-bg-active px-2.5 py-1 text-bf-xs text-foreground">
                   Search {searchLabel}
                 </span>
               ) : null}
               {sortLabel ? (
-                <span className="rounded-full border border-border bg-background px-2.5 py-1 text-[11px] text-muted-foreground">
+                <span className="rounded-sm border border-border bg-background px-2.5 py-1 text-bf-xs text-muted-foreground">
                   Sort {sortLabel}
                 </span>
               ) : null}
               {filterLabels?.map((label) => (
                 <span
                   key={label}
-                  className="rounded-full border border-violet-500/30 bg-violet-500/10 px-2.5 py-1 text-[11px] text-violet-700 dark:text-violet-200"
+                  className="rounded-sm border border-border bg-bf-bg-active px-2.5 py-1 text-bf-xs text-foreground"
                 >
                   {label}
                 </span>
@@ -87,12 +87,12 @@ export function DeckLens({
           ) : null}
         </div>
         <div className="flex items-center gap-2">
-          <div className="mr-2 text-xs text-muted-foreground">
+          <div className="mr-2 text-bf-sm text-muted-foreground">
             {memberIndex >= 0 ? `${memberIndex + 1} of ${memberIds.length}` : 'No member selected'}
           </div>
           {scopeLabel && onClearScope ? (
             <Button variant="ghost" size="sm" onClick={onClearScope}>
-              Clear Scope
+              Clear scope
             </Button>
           ) : null}
           <Button
@@ -122,7 +122,7 @@ export function DeckLens({
           footer={footer}
           actions={[
             { label: 'Inspect', onClick: onInspectCurrent },
-            ...(activeMemberSourcePath ? [{ label: 'Open Source', onClick: onOpenCurrentSource }] : []),
+            ...(activeMemberSourcePath ? [{ label: 'Open source', onClick: onOpenCurrentSource }] : []),
           ]}
         />
       </div>

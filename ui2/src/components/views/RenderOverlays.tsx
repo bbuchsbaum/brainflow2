@@ -82,7 +82,7 @@ export function RenderOverlays({
         y="20"
         fill="white"
         fontSize="14"
-        fontFamily="monospace"
+        style={{ fontFamily: 'var(--bf-font-sans, sans-serif)' }}
         opacity="0.8"
       >
         {viewType.charAt(0).toUpperCase() + viewType.slice(1)}

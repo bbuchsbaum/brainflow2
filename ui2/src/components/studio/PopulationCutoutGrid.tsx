@@ -84,11 +84,11 @@ export function PopulationCutoutGrid({
 
   return (
     <div aria-label="Individual population cutouts" className="min-w-0">
-      <p className="mb-1 text-xs text-muted-foreground">
+      <p className="mb-1 text-bf-sm text-muted-foreground">
         Click to focus. Shift-click or Shift-Enter to change selection. Outlined cells are selected;
         the focused observation has a blue border.
       </p>
-      <p aria-live="polite" className="mb-1 h-4 text-xs tabular-nums">
+      <p aria-live="polite" className="mb-1 h-4 text-bf-sm tabular-nums">
         {hover ?? 'Hover a cutout to inspect its observed value.'}
       </p>
       <PopulationBrush scope={display.query.key}>
@@ -141,17 +141,17 @@ export function PopulationCutoutGrid({
                     setHover((previous) => (previous === text ? previous : text));
                     onHover?.(sliceImagePointToWorld(px, py, cutouts.plane));
                   }}
-                  className={`relative min-w-0 border p-0 bg-transparent text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary ${focusedId === member.memberId ? 'border-blue-400' : selectedIds.has(member.memberId) ? 'border-primary/70' : 'border-transparent'}`}
+                  className={`relative min-w-0 border p-0 bg-transparent text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring ${focusedId === member.memberId ? 'border-foreground' : selectedIds.has(member.memberId) ? 'border-primary/70' : 'border-transparent'}`}
                   style={{ gridColumn: (index % columns) + 1 }}
                 >
                   {member.validPixels === 0 && (
-                    <span className="absolute inset-x-0 top-1/3 text-center text-xs text-muted-foreground">
+                    <span className="absolute inset-x-0 top-1/3 text-center text-bf-sm text-muted-foreground">
                       No coverage
                     </span>
                   )}
-                  <span className="absolute inset-x-0 bottom-0 bg-background/95 px-1 py-0.5 text-xs">
+                  <span className="absolute inset-x-0 bottom-0 bg-background/95 px-1 py-0.5 text-bf-sm">
                     <span className="block truncate">{member.memberId}</span>
-                    <span className="block text-[10px] text-muted-foreground">
+                    <span className="block text-bf-2xs text-muted-foreground">
                       {member.validPixels}/{member.values.length} pixels
                     </span>
                   </span>

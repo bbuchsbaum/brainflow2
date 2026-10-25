@@ -1,5 +1,5 @@
 /**
- * Surface Geometry Controls
+ * Surface Geometry controls
  * Reworked into high-density instrument strips (label left, control center, value right)
  */
 
@@ -15,8 +15,8 @@ const labelWidth = '6.2rem';
 const valueWidth = '3.6rem';
 const rowBase = 'flex items-center gap-3 py-1.5 px-2 border-b border-border/40 last:border-b-0';
 const labelClass =
-  'text-[10px] uppercase tracking-wider font-bold text-right shrink-0 text-foreground/80';
-const valueClass = 'text-[10px] font-mono text-foreground text-right shrink-0';
+  'text-bf-2xs font-bold text-right shrink-0 text-bf-text-secondary';
+const valueClass = 'text-bf-2xs font-mono text-foreground text-right shrink-0';
 
 const SegmentedControl: React.FC<{
   options: string[];
@@ -27,7 +27,7 @@ const SegmentedControl: React.FC<{
     {options.map((option, idx) => (
       <button
         key={option}
-        className={`flex-1 py-1 text-[10px] font-medium uppercase border-r border-border last:border-0 transition-colors ${
+        className={`flex-1 py-1 text-bf-2xs font-medium border-r border-border last:border-0 transition-colors ${
           active === option
             ? 'bg-accent text-accent-foreground'
             : 'bg-transparent text-muted-foreground hover:bg-muted hover:text-foreground'
@@ -211,7 +211,7 @@ export const SurfaceGeometryControls: React.FC<SurfaceGeometryControlsProps> = (
             {lightPresets.map((preset) => (
               <button
                 key={preset.name}
-                className="bg-muted/30 hover:bg-accent hover:text-white border border-transparent hover:border-accent/50 text-[10px] uppercase tracking-wide py-1.5 rounded-[1px] transition-all"
+                className="bg-muted/30 hover:bg-accent hover:text-foreground border border-transparent hover:border-border text-bf-2xs py-1.5 rounded-[1px] transition-all"
                 onClick={() => handlePresetApply(preset.name)}
               >
                 {preset.name}
@@ -230,7 +230,7 @@ export const SurfaceGeometryControls: React.FC<SurfaceGeometryControlsProps> = (
             onChange={(checked) => updateDisplaySettings(surfaceViewId, { wireframe: checked })}
           />
           <ToggleRow
-            label="Flat Shading"
+            label="Flat shading"
             checked={displaySettings.flatShading}
             onChange={(checked) => updateDisplaySettings(surfaceViewId, { flatShading: checked })}
           />
@@ -269,12 +269,12 @@ export const SurfaceGeometryControls: React.FC<SurfaceGeometryControlsProps> = (
       <CollapsibleSection title="Material" icon={Sparkles} defaultExpanded={false}>
         <div className="rounded-sm border border-border/50 bg-muted/10">
           <ColorRow
-            label="Surface Color"
+            label="Surface color"
             value={materialSettings.surfaceColor}
             onChange={(value) => updateMaterialSettings(surfaceViewId, { surfaceColor: value })}
           />
           <ColorRow
-            label="Specular Color"
+            label="Specular color"
             value={materialSettings.specularColor}
             onChange={(value) => updateMaterialSettings(surfaceViewId, { specularColor: value })}
           />
@@ -293,12 +293,12 @@ export const SurfaceGeometryControls: React.FC<SurfaceGeometryControlsProps> = (
             className="px-2"
           />
           <ColorRow
-            label="Emissive Color"
+            label="Emissive color"
             value={materialSettings.emissiveColor}
             onChange={(value) => updateMaterialSettings(surfaceViewId, { emissiveColor: value })}
           />
           <SingleSlider
-            label="Emissive Intensity"
+            label="Emissive intensity"
             min={0}
             max={1}
             value={materialSettings.emissiveIntensity}
@@ -316,8 +316,8 @@ export const SurfaceGeometryControls: React.FC<SurfaceGeometryControlsProps> = (
         </div>
       </CollapsibleSection>
 
-      {/* Volume Projection */}
-      <CollapsibleSection title="Volume Projection" icon={Zap} defaultExpanded={false}>
+      {/* Volume projection */}
+      <CollapsibleSection title="Volume projection" icon={Zap} defaultExpanded={false}>
         <div className="rounded-sm border border-border/50 bg-muted/10">
           <ToggleRow
             label="GPU Mode"
@@ -326,7 +326,7 @@ export const SurfaceGeometryControls: React.FC<SurfaceGeometryControlsProps> = (
               updateProjectionSettings(surfaceViewId, { useGPUProjection: checked })
             }
           />
-          <div className="px-2 py-2 text-[10px] text-muted-foreground">
+          <div className="px-2 py-2 text-bf-2xs text-muted-foreground">
             {projectionSettings.useGPUProjection ? (
               <span>
                 GPU mode: Volume data is sampled directly in the shader. Better for 4D time series.

@@ -72,9 +72,9 @@ export function AtlasRoiPicker({
     }
   };
   const buttonClass =
-    'rounded border border-border px-2 py-1 text-[11px] hover:bg-accent/40 disabled:opacity-40';
+    'rounded border border-border px-2 py-1 text-bf-xs hover:bg-accent/40 disabled:opacity-40';
   return (
-    <div className="space-y-2 py-2 text-[12px]">
+    <div className="space-y-2 py-2 text-bf-sm">
       <label htmlFor={`${listId}-input`} className="text-muted-foreground">
         ROI
       </label>
@@ -88,7 +88,7 @@ export function AtlasRoiPicker({
         aria-activedescendant={
           open && matches[active] ? `${listId}-${matches[active].id}` : undefined
         }
-        className="w-full rounded border border-border bg-background px-2 py-1.5 text-[12px]"
+        className="w-full rounded border border-border bg-background px-2 py-1.5 text-bf-sm"
         placeholder={loading ? 'Loading ROI names…' : 'Search name or ID…'}
         disabled={loading}
         value={open ? query : selected ? `${selected.id} · ${selected.name}` : ''}
@@ -144,7 +144,7 @@ export function AtlasRoiPicker({
               <p className="break-words">
                 <span className="font-mono text-muted-foreground">{roi.id}</span> · {roi.name}
               </p>
-              <p className="text-[10px] text-muted-foreground">
+              <p className="text-bf-2xs text-muted-foreground">
                 {[roi.hemisphere, roi.network, !roi.worldMm ? 'absent in this image' : null]
                   .filter(Boolean)
                   .join(' · ')}
@@ -197,12 +197,12 @@ export function AtlasRoiPicker({
         </button>
       </div>
       {selected && (
-        <p className="text-[11px] text-muted-foreground">
+        <p className="text-bf-xs text-muted-foreground">
           {selected.hemisphere} · {selected.voxelCount.toLocaleString()} voxels
         </p>
       )}
       {error && (
-        <p role="alert" className="text-[11px] text-destructive">
+        <p role="alert" className="text-bf-xs text-destructive">
           {error}
         </p>
       )}

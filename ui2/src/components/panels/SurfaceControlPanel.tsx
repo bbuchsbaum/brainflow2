@@ -25,7 +25,7 @@ export const SurfaceControlPanel: React.FC = () => {
   if (!selectedItemType || !activeSurfaceId) {
     return (
       <div className="h-full flex flex-col items-center justify-center p-4 text-center">
-        <Info className="h-8 w-8 text-muted-foreground/30 mb-2" />
+        <Info className="h-8 w-8 text-bf-text-faint mb-2" />
         <p className="text-sm text-muted-foreground">No selection</p>
         <p className="text-xs text-muted-foreground mt-1">
           Select a surface geometry or data layer to view controls
@@ -51,18 +51,18 @@ export const SurfaceControlPanel: React.FC = () => {
           isDerivedSurface ? (
             <>
               <GitBranch className="h-4 w-4 text-muted-foreground" />
-              <span className="text-[11px] font-semibold uppercase tracking-[0.12em]">Derived Surface Controls</span>
+              <span className="text-bf-xs font-semibold">Derived surface controls</span>
             </>
           ) : (
             <>
               <Settings2 className="h-4 w-4 text-muted-foreground" />
-              <span className="text-[11px] font-semibold uppercase tracking-[0.12em]">Geometry Controls</span>
+              <span className="text-bf-xs font-semibold">Geometry controls</span>
             </>
           )
         ) : (
           <>
             <Layers className="h-4 w-4 text-muted-foreground" />
-            <span className="text-[11px] font-semibold uppercase tracking-[0.12em]">Data Layer Controls</span>
+            <span className="text-bf-xs font-semibold">Data layer controls</span>
           </>
         )}
       </div>
@@ -79,7 +79,7 @@ export const SurfaceControlPanel: React.FC = () => {
             <SurfaceGeometryControls surfaceViewId={explicitSurfaceViewId} />
           ) : (
             <div className="h-full flex flex-col items-center justify-center p-4 text-center">
-              <Info className="h-8 w-8 text-muted-foreground/30 mb-2" />
+              <Info className="h-8 w-8 text-bf-text-faint mb-2" />
               <p className="text-sm text-muted-foreground">No active surface view</p>
               <p className="text-xs text-muted-foreground mt-1">
                 Focus a surface tab to edit per-view geometry settings

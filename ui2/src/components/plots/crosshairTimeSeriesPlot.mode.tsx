@@ -17,7 +17,7 @@ import type { PlotMode } from "./plotHost.types";
 
 export const crosshairTimeSeriesPlot: PlotMode = {
   id: TIME_SERIES_MODE_ID,
-  label: "Time Series",
+  label: "Time series",
   supports: (ctx) => {
     if (!ctx.layerId) {
       return {

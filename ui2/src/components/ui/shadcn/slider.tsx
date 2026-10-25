@@ -19,7 +19,7 @@ const Slider = React.forwardRef<
       <SliderPrimitive.Range className="absolute h-full bg-[hsl(var(--primary))]" />
     </SliderPrimitive.Track>
     <SliderPrimitive.Thumb
-      className="block h-3 w-3 rounded-full bg-[hsl(199_89%_48%)] ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 hover:bg-[hsl(199_89%_60%)] cursor-pointer"
+      className="block h-3 w-3 rounded-full bg-primary ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 disabled:pointer-events-none disabled:opacity-50 hover:bg-foreground cursor-pointer"
       style={{ boxShadow: '0 0 0 1px hsl(220 56% 4% / 0.7)' }}
     />
   </SliderPrimitive.Root>

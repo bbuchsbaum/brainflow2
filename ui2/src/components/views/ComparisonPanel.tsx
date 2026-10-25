@@ -10,7 +10,7 @@ import { useCallback, useEffect, useRef, useMemo, useState } from 'react';
 import { SliceViewport } from './SliceViewport';
 import { useViewStateStore } from '@/stores/viewStateStore';
 import { useComparisonStore } from '@/stores/comparisonStore';
-import { getLineDash, type CrosshairStyle } from '@/utils/crosshairUtils';
+import { buildActiveCrosshairStyle, type CrosshairStyle } from '@/utils/crosshairUtils';
 import { useCrosshairSettingsStore } from '@/stores/crosshairSettingsStore';
 import { comparisonTag, getComparisonRenderService } from '@/services/ComparisonRenderService';
 import type { ComparisonPanelConfig } from '@/types/comparison';
@@ -159,15 +159,16 @@ export function ComparisonPanel({
   const viewPlane = resolvedViewPlane ?? fallbackViewPlane;
   const crosshairSettings = useCrosshairSettingsStore(state => state.getViewSettings(panel.viewType));
   const setCrosshair = useRef(useViewStateStore.getState().setCrosshair).current;
-  const crosshairStyle = useMemo<CrosshairStyle>(() => ({
-    color: crosshairSettings.activeColor,
-    lineWidth: crosshairSettings.activeThickness,
-    lineDash: getLineDash(crosshairSettings.activeStyle, crosshairSettings.activeThickness),
-    opacity: 1,
+  const crosshairStyle = useMemo<CrosshairStyle>(() => buildActiveCrosshairStyle({
+    activeColor: crosshairSettings.activeColor,
+    activeThickness: crosshairSettings.activeThickness,
+    activeStyle: crosshairSettings.activeStyle,
+    centerGap: crosshairSettings.centerGap,
   }), [
     crosshairSettings.activeColor,
     crosshairSettings.activeThickness,
     crosshairSettings.activeStyle,
+    crosshairSettings.centerGap,
   ]);
 
   const handleWorldClick = useCallback((worldCoord: [number, number, number]) => {
@@ -196,7 +197,7 @@ export function ComparisonPanel({
         style={{ height: COMPARISON_PANEL_HEADER_HEIGHT }}
       >
         <div className="flex min-w-0 flex-1 items-center gap-2">
-          <span className="truncate text-[11px] font-medium text-foreground" title={panel.label}>
+          <span className="truncate text-bf-xs font-medium text-foreground" title={panel.label}>
             {panel.label}
           </span>
 
@@ -205,7 +206,7 @@ export function ComparisonPanel({
             {badgeLayerIds.map(lid => (
               <span
                 key={lid}
-                className="inline-flex min-w-0 max-w-[132px] items-center gap-0.5 rounded-appsm border border-border bg-background px-1.5 text-[9px] text-muted-foreground"
+                className="inline-flex min-w-0 max-w-[132px] items-center gap-0.5 rounded-appsm border border-border bg-background px-1.5 text-bf-2xs text-muted-foreground"
                 title={layerNames.get(lid) ?? lid}
               >
                 <span className="truncate">{layerNames.get(lid) ?? lid}</span>
@@ -213,6 +214,7 @@ export function ComparisonPanel({
                   className="ml-0.5 shrink-0 text-muted-foreground transition-colors hover:text-foreground"
                   onClick={() => onRemoveLayer(panel.id, lid)}
                   title="Remove layer"
+                  aria-label="Remove layer"
                 >
                   ×
                 </button>
@@ -221,7 +223,7 @@ export function ComparisonPanel({
           </div>
 
           {layerBadges.length === 0 && (
-            <span className="text-[9px] italic text-muted-foreground">
+            <span className="text-bf-2xs italic text-muted-foreground">
               Drop a layer or file here
             </span>
           )}
@@ -230,7 +232,8 @@ export function ComparisonPanel({
         <div className="flex shrink-0 items-center gap-1">
           {/* Per-panel orientation override */}
           <select
-            className="rounded-appsm border border-border bg-background px-1 py-0.5 text-[10px] text-foreground outline-none transition-colors hover:border-primary/60"
+            className="rounded-appsm border border-border bg-background px-1 py-0.5 text-bf-2xs text-foreground transition-colors hover:border-bf-border-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background"
+            aria-label="Panel orientation"
             value={panel.viewType}
             onChange={e => onViewTypeChange(panel.id, e.target.value as 'axial' | 'sagittal' | 'coronal')}
           >
@@ -241,9 +244,10 @@ export function ComparisonPanel({
 
           {/* Remove panel */}
           <button
-            className="text-[12px] text-muted-foreground transition-colors hover:text-destructive"
+            className="text-bf-sm text-muted-foreground transition-colors hover:text-destructive"
             onClick={() => onRemovePanel(panel.id)}
             title="Remove panel"
+            aria-label="Remove panel"
           >
             ✕
           </button>

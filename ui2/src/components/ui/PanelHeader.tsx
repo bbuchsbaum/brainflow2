@@ -54,7 +54,7 @@ export const PanelHeader: React.FC<PanelHeaderProps> = ({
         {primaryAction && (
           <button
             type="button"
-            className="bf-control-sm rounded-appsm border border-border bg-background px-2.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-foreground transition-colors hover:border-primary hover:text-primary disabled:cursor-not-allowed disabled:opacity-50"
+            className="bf-control-sm rounded-appsm border border-border bg-background px-2.5 text-bf-2xs font-semibold text-foreground transition-colors hover:border-primary hover:text-primary disabled:cursor-not-allowed disabled:opacity-50"
             onClick={primaryAction.onClick}
             disabled={primaryAction.disabled}
             title={primaryAction.title ?? primaryAction.label}

@@ -54,6 +54,8 @@
   outline: none;
 }
 
+/* The treeitem's own outline is suppressed; FileTreeRow.css draws the
+   :focus-visible ring on the inner row so it is inset and never clipped. */
 .file-browser-panel .react-arborist [role='treeitem'] {
   outline: none;
 }
@@ -95,8 +97,6 @@
 
 .file-browser-panel .empty-state-kicker {
   margin: 0;
-  text-transform: uppercase;
-  letter-spacing: var(--app-role-section-tracking);
   font-size: var(--app-role-section-size);
   font-weight: var(--app-role-section-weight);
   color: var(--bf-text-secondary);
@@ -142,9 +142,9 @@
 }
 
 .file-browser-panel .empty-state-button.primary {
-  background: var(--bf-accent);
-  color: #ffffff;
-  border-color: color-mix(in srgb, var(--bf-accent) 70%, #000 30%);
+  background: hsl(var(--primary));
+  color: var(--bf-text-inverse);
+  border-color: transparent;
 }
 
 .file-browser-panel .empty-state-button.secondary {
@@ -156,8 +156,8 @@
 }
 
 .file-browser-panel .empty-state-button.primary:hover:not(:disabled) {
-  background: var(--bf-accent-hover);
-  color: #fff;
+  background: hsl(var(--primary) / 0.88);
+  color: var(--bf-text-inverse);
 }
 
 .file-browser-panel .empty-state-button:disabled {
@@ -199,7 +199,7 @@
   width: 20px;
   height: 20px;
   border: 2px solid var(--bf-border);
-  border-top-color: var(--bf-accent);
+  border-top-color: var(--bf-text-secondary);
   border-radius: 50%;
   animation: spin 0.8s linear infinite;
 }

@@ -161,7 +161,7 @@ export function TimeSlider({ className = '', disabled = false }: TimeSliderProps
   // Falls back to frame index only when TR is null/0.
   const timeDisplay = useMemo(() => {
     if (isDisabled || !effectiveTimeInfo) {
-      return 'Time ⏱ unavailable';
+      return 'No time axis';
     }
     const frame = displayTimepoint;
     const lastFrame = denominator;
@@ -223,11 +223,32 @@ export function TimeSlider({ className = '', disabled = false }: TimeSliderProps
   }, [isDisabled, timeNav]);
 
   const transportClass =
-    'inline-flex h-6 w-6 items-center justify-center rounded text-[11px] ' +
+    'inline-flex h-6 w-6 items-center justify-center rounded text-bf-xs ' +
     'text-[var(--bf-text-secondary)] bg-[var(--bf-bg-input)] border border-[var(--bf-border-subtle)] ' +
     'transition-colors hover:bg-[var(--bf-bg-hover)] hover:text-[var(--bf-text-primary)] ' +
     'disabled:opacity-40 disabled:cursor-not-allowed focus:outline-none ' +
-    'focus-visible:ring-1 focus-visible:ring-[var(--bf-border-focus)]';
+    'focus-visible:ring-2 focus-visible:ring-[var(--bf-border-focus)]';
+
+  // Without a time axis the transport is collapsed to one muted sans label:
+  // disabled icons render below 3:1, and four dead controls add noise. The
+  // full transport appears as soon as a 4D volume is loaded.
+  if (isDisabled) {
+    return (
+      <div
+        className={`flex items-center px-2 ${className}`}
+        aria-disabled="true"
+        data-testid="time-slider-empty"
+        title="Load a 4D volume to enable time navigation"
+      >
+        <span
+          className="whitespace-nowrap text-bf-xs text-[var(--bf-text-muted)]"
+          data-testid="time-slider-readout"
+        >
+          No time axis
+        </span>
+      </div>
+    );
+  }
 
   return (
     <div className={`flex items-center gap-2 px-2 ${className}`} aria-disabled={isDisabled}>
@@ -322,7 +343,7 @@ export function TimeSlider({ className = '', disabled = false }: TimeSliderProps
             <div
               className={`
                 h-full transition-colors duration-150
-                ${isPlaying ? 'bg-[var(--bf-success)]' : 'bg-[var(--bf-accent)]'}
+                ${isPlaying ? 'bg-[var(--bf-success)]' : 'bg-[var(--bf-text-secondary)]'}
               `}
               style={{ width: `${percentage}%` }}
             />
@@ -337,7 +358,7 @@ export function TimeSlider({ className = '', disabled = false }: TimeSliderProps
           className={`
             absolute top-1/2 -translate-y-1/2 -translate-x-1/2
             w-2 h-2 rounded-full transition-all duration-150
-            ${isPlaying ? 'bg-[var(--bf-success)]' : 'bg-[var(--bf-accent)]'}
+            ${isPlaying ? 'bg-[var(--bf-success)]' : 'bg-[var(--bf-text-secondary)]'}
             ${isDragging && !isDisabled ? 'opacity-100 scale-125' : 'opacity-0 group-hover:opacity-100'}
           `}
           style={{ left: `${percentage}%` }}

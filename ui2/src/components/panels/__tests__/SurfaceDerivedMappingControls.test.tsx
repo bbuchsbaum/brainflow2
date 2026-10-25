@@ -108,7 +108,7 @@ describe('SurfaceDerivedMappingControls', () => {
 
     render(<SurfaceDerivedMappingControls surfaceId="surface-a" surfaceViewId="view-a" />);
 
-    fireEvent.click(screen.getByRole('button', { name: 'Select Source Volume' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Select Source volume' }));
 
     expect(useLayerStore.getState().selectedLayerId).toBe('vol-1');
   });

@@ -61,7 +61,7 @@ export function PopulationExportControls({
     }
   }
   return (
-    <div className="flex flex-wrap items-center gap-2 text-xs" aria-label="Population export">
+    <div className="flex flex-wrap items-center gap-2 text-bf-sm" aria-label="Population export">
       <label className="flex items-center gap-2">
         <input
           type="checkbox"
@@ -83,7 +83,7 @@ export function PopulationExportControls({
       </label>
       <button
         type="button"
-        className="rounded border border-border px-2 py-1 disabled:opacity-40 hover:bg-accent"
+        className="rounded-sm border border-border px-2 py-1 disabled:opacity-40 hover:bg-accent"
         disabled={!current || !display?.query.request.workingMemberIds.length || busy}
         onClick={() => void save()}
       >
@@ -95,7 +95,7 @@ export function PopulationExportControls({
       </button>
       <button
         type="button"
-        className="rounded border border-border px-2 py-1 disabled:opacity-40 hover:bg-accent"
+        className="rounded-sm border border-border px-2 py-1 disabled:opacity-40 hover:bg-accent"
         disabled={busy}
         onClick={() => void save(true)}
         title="Verify and recalculate a saved bundle from its original sources"
@@ -105,7 +105,7 @@ export function PopulationExportControls({
       {busy ? (
         <button
           type="button"
-          className="rounded border border-border px-2 py-1"
+          className="rounded-sm border border-border px-2 py-1"
           onClick={() => active.current?.abort()}
         >
           Cancel export

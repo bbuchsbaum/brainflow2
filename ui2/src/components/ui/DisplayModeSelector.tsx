@@ -6,6 +6,10 @@
  *   - existing workspace of the target display mode → activate it;
  *   - none → create a new one via `workspaceStore.createWorkspace`.
  *
+ * When a tool workspace (BIDS, Analysis, Set Studio) is active, the switcher
+ * stays visible with no active segment; a click returns to the latest view in
+ * that mode, or opens one.
+ *
  * Only *available* modes are rendered. A mode is hidden when it has no
  * associated workspace type yet (Surface) or when its feature flag is off
  * (Integrated when `integratedWorkspaceV1` is false) — we drop dead buttons
@@ -24,6 +28,7 @@ import { useWorkspaceStore } from "@/stores/workspaceStore";
 import type { DisplayModeMetadata } from "@/types/displayModes";
 
 import {
+  findLatestViewInMode,
   getDisplayModePillMetadata,
   isViewWorkspaceType,
   resolveActiveDisplayMode,
@@ -44,6 +49,9 @@ export const DisplayModeSelector: React.FC<DisplayModeSelectorProps> = ({
     return id ? (state.workspaces.get(id)?.type ?? null) : null;
   });
   const createWorkspace = useWorkspaceStore((state) => state.createWorkspace);
+  const activateWorkspace = useWorkspaceStore(
+    (state) => state.activateWorkspace,
+  );
   const setActiveWorkspaceMode = useWorkspaceStore(
     (state) => state.setActiveWorkspaceMode,
   );
@@ -76,8 +84,22 @@ export const DisplayModeSelector: React.FC<DisplayModeSelectorProps> = ({
       // than spawning/activating a separate per-mode workspace, so the pills
       // and tabs stop being redundant. (Cold edge: no view open yet → create
       // the first one.)
-      if (useWorkspaceStore.getState().activeWorkspaceId) {
+      const { activeWorkspaceId, workspaces } = useWorkspaceStore.getState();
+      const active = activeWorkspaceId
+        ? workspaces.get(activeWorkspaceId)
+        : undefined;
+      if (active && isViewWorkspaceType(active.type)) {
         setActiveWorkspaceMode(mode.id);
+      } else if (active) {
+        // A tool destination (BIDS, Analysis, Set Studio) is active. Never
+        // reconfigure the tool tab itself: go back to the most recent view
+        // already in this mode, or open a new view in it.
+        const existing = findLatestViewInMode(workspaces.values(), mode.id);
+        if (existing) {
+          activateWorkspace(existing.id);
+        } else {
+          void createWorkspace(mode.defaultWorkspaceType);
+        }
       } else {
         void createWorkspace(mode.defaultWorkspaceType);
       }
@@ -85,6 +107,7 @@ export const DisplayModeSelector: React.FC<DisplayModeSelectorProps> = ({
       setIntegratedDefaultDisplayMode(mode.defaultWorkspaceType);
     },
     [
+      activateWorkspace,
       createWorkspace,
       isFlagDisabled,
       setActiveWorkspaceMode,
@@ -92,16 +115,9 @@ export const DisplayModeSelector: React.FC<DisplayModeSelectorProps> = ({
     ],
   );
 
-  // The pill only governs view workspaces. When a tool destination (BIDS,
-  // Analysis, Set Studio) is active there is no mode to switch, so hide the
-  // pill rather than show a mode that doesn't apply to what's on screen. When
-  // no workspace is open (null), keep it visible so the first view can be created.
-  if (
-    activeWorkspaceType !== null &&
-    !isViewWorkspaceType(activeWorkspaceType)
-  ) {
-    return null;
-  }
+  // The switcher stays visible when a tool destination (BIDS, Analysis, Set
+  // Studio) is active: no segment is marked active (the tool is not a view
+  // mode), and a click returns to a view in that mode (see handleClick).
 
   return (
     <div
@@ -120,7 +136,6 @@ export const DisplayModeSelector: React.FC<DisplayModeSelectorProps> = ({
         height: "24px",
         border: "1px solid var(--app-border)",
         borderRadius: "var(--app-radius-sm)",
-        overflow: "hidden",
       }}
     >
       {visibleModes.map((mode, index) => {
@@ -137,20 +152,23 @@ export const DisplayModeSelector: React.FC<DisplayModeSelectorProps> = ({
             data-testid={`display-mode-${mode.id}`}
             data-active={isActive ? "true" : "false"}
             onClick={() => handleClick(mode)}
+            // Active = raised neutral fill + 2px accent bottom edge (a state
+            // edge, never an area fill); inactive = muted text; hover = the
+            // neutral accent fill. Focus is a separate 2px amber ring with a
+            // 1px offset; the group does not clip, and the focused segment is
+            // lifted above its neighbours so the ring is never cut off.
+            className={[
+              "relative h-full whitespace-nowrap px-3 text-bf-sm transition-colors",
+              "focus-visible:z-10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background",
+              isActive
+                ? "bg-bf-bg-active font-medium text-foreground shadow-[inset_0_-2px_0_var(--bf-accent)]"
+                : "bg-transparent font-medium text-muted-foreground hover:bg-accent hover:text-foreground",
+            ].join(" ")}
             style={{
               appearance: "none",
-              height: "100%",
-              padding: "0 12px",
               border: 0,
               borderRight: isLast ? 0 : "1px solid var(--app-border-subtle)",
-              background: isActive ? "var(--app-text-primary)" : "transparent",
-              color: isActive
-                ? "var(--bf-text-inverse)"
-                : "var(--app-text-secondary)",
               cursor: "pointer",
-              fontSize: "12px",
-              fontWeight: isActive ? 600 : 500,
-              whiteSpace: "nowrap",
             }}
           >
             {mode.label}

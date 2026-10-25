@@ -1,4 +1,5 @@
 import React from 'react';
+import { cn } from '@/utils/cn';
 
 interface IconButtonProps {
   icon: React.ReactNode;
@@ -29,13 +30,13 @@ export const IconButton: React.FC<IconButtonProps> = ({
   title,
   'aria-label': ariaLabel
 }) => {
-  const baseClasses = 'inline-flex items-center justify-center font-medium rounded-md transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed';
+  const baseClasses = 'inline-flex items-center justify-center font-medium rounded-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background disabled:opacity-50 disabled:cursor-not-allowed';
   
   const variantClasses = {
-    primary: 'bg-blue-600 text-white hover:bg-blue-700 focus:ring-blue-500',
-    secondary: 'bg-gray-100 text-gray-900 hover:bg-gray-200 focus:ring-gray-500',
-    danger: 'bg-red-600 text-white hover:bg-red-700 focus:ring-red-500',
-    ghost: 'text-gray-600 hover:bg-gray-100 hover:text-gray-900 focus:ring-gray-500'
+    primary: 'bg-primary text-primary-foreground hover:bg-primary/90',
+    secondary: 'bg-bf-bg-panel-raised border border-border text-foreground hover:bg-accent',
+    danger: 'bg-bf-danger-soft border border-destructive/40 text-bf-danger hover:bg-destructive/25',
+    ghost: 'text-bf-text-secondary hover:text-foreground hover:bg-accent'
   };
   
   const sizeClasses = {
@@ -50,12 +51,12 @@ export const IconButton: React.FC<IconButtonProps> = ({
     lg: 'w-6 h-6'
   };
   
-  const classes = [
+  const classes = cn(
     baseClasses,
     variantClasses[variant],
     sizeClasses[size],
     className
-  ].join(' ');
+  );
 
   const iconElement = React.isValidElement(icon) 
     ? React.cloneElement(icon as React.ReactElement<any>, {

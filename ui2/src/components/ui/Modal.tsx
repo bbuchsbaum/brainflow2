@@ -164,7 +164,7 @@ export const Modal: React.FC<ModalProps> = ({
     >
       <div 
         ref={panelRef}
-        className={`relative w-full ${sizeClasses[size]} rounded-lg border border-border bg-background text-foreground shadow-xl ${className}`}
+        className={`relative w-full ${sizeClasses[size]} rounded-sm border border-border bg-background text-foreground shadow-xl ${className}`}
         onClick={(e) => e.stopPropagation()}
         role="dialog"
         aria-modal="true"

@@ -58,7 +58,7 @@ export const MetadataTooltip: React.FC<MetadataTooltipProps> = ({ metadata, clas
 
         {/* Binary indicator */}
         {metadata.isBinaryLike && (
-          <div className="text-center mt-3 px-2 py-1 bg-yellow-500/10 text-yellow-600 text-xs rounded">
+          <div className="text-center mt-3 px-2 py-1 bg-bf-warning-soft text-bf-warning text-bf-xs rounded-sm">
             Binary mask detected
           </div>
         )}

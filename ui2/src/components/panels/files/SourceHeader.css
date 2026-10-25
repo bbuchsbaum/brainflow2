@@ -48,13 +48,11 @@
 
 .fb-source-kind {
   flex-shrink: 0;
-  font-family: var(--bf-font-mono);
-  font-size: 9px;
-  font-weight: 600;
-  letter-spacing: 0.04em;
+  font-family: var(--bf-font-sans);
+  font-size: var(--bf-text-2xs);
+  font-weight: 500;
   padding: 1px 5px;
-  border-radius: 3px;
-  text-transform: uppercase;
+  border-radius: var(--bf-radius-sm);
   border: 1px solid var(--bf-border-subtle);
   background: color-mix(in srgb, var(--bf-bg-panel) 78%, transparent);
   color: var(--bf-text-secondary);
@@ -62,9 +60,9 @@
 }
 
 .fb-source-kind--remote {
-  border-color: color-mix(in srgb, var(--bf-accent) 50%, transparent);
-  color: var(--bf-accent);
-  background: color-mix(in srgb, var(--bf-accent) 10%, transparent);
+  border-color: var(--bf-border-strong);
+  color: var(--bf-text-primary);
+  background: var(--bf-bg-panel-raised);
 }
 
 .fb-source-breadcrumb {

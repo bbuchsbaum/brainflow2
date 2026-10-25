@@ -78,8 +78,6 @@ function ModeToggle({ active, onChange }: ModeToggleProps) {
               cursor: 'pointer',
               borderRadius: 'var(--app-radius-sm)',
               fontSize: 'var(--app-role-section-size)',
-              letterSpacing: 'var(--app-role-section-tracking)',
-              textTransform: 'uppercase',
             }}
           >
             {label}
@@ -184,8 +182,6 @@ const InspectorAnnotatePanelContent: React.FC<InspectorAnnotatePanelProps> = ({
               alignItems: 'center',
               gap: '6px',
               color: 'var(--app-text-muted)',
-              textTransform: 'uppercase',
-              letterSpacing: 'var(--app-role-section-tracking)',
               fontSize: 'var(--app-role-section-size)',
               minWidth: 0,
               overflow: 'hidden',
@@ -214,8 +210,6 @@ const InspectorAnnotatePanelContent: React.FC<InspectorAnnotatePanelProps> = ({
               className="bf-role-section"
               style={{
                 color: 'var(--app-text-muted)',
-                letterSpacing: 'var(--app-role-section-tracking)',
-                textTransform: 'uppercase',
               }}
             >
               No layer selected

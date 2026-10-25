@@ -31,7 +31,7 @@ const pointSpec: ResolvedPlotSpec = {
   params: {},
 };
 const control =
-  'rounded border border-border bg-background px-2 py-1 text-xs text-foreground hover:bg-accent disabled:opacity-40';
+  'rounded-sm border border-border bg-background px-2 py-1 text-bf-sm text-foreground hover:bg-accent disabled:opacity-40';
 const coordinates = (probe: PopulationProbe) =>
   probe.worldMm.map((value) => value.toFixed(1)).join(', ');
 
@@ -163,12 +163,12 @@ export function PopulationProbePanel({
   return (
     <section
       aria-label="Population values"
-      className="shrink-0 rounded-lg border border-border bg-card px-3 py-2"
+      className="shrink-0 rounded-sm border border-border bg-card px-3 py-2"
     >
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="text-sm font-medium">
+        <div className="text-bf-md font-medium">
           Population values{' '}
-          <span className="ml-2 text-xs text-muted-foreground">
+          <span className="ml-2 text-bf-sm text-muted-foreground">
             {selected.size} selected / {population.context.memberIds.length} observations
           </span>
         </div>
@@ -182,7 +182,7 @@ export function PopulationProbePanel({
               {expanded ? 'Hide values' : 'Show values'}
             </button>
           )}
-          <label className="flex items-center gap-1 text-xs">
+          <label className="flex items-center gap-1 text-bf-sm">
             <input
               type="checkbox"
               checked={previewHover}
@@ -190,7 +190,7 @@ export function PopulationProbePanel({
             />{' '}
             Preview hover
           </label>
-          <label className="flex items-center gap-1 text-xs">
+          <label className="flex items-center gap-1 text-bf-sm">
             Radius{' '}
             <input
               aria-label="Probe radius in millimetres"
@@ -199,7 +199,7 @@ export function PopulationProbePanel({
               step={1}
               value={radius}
               onChange={(event) => updateRadius(event.target.valueAsNumber)}
-              className="w-14 rounded border border-border bg-background px-1 py-0.5"
+              className="w-14 rounded-sm border border-border bg-background px-1 py-0.5"
             />{' '}
             mm
           </label>
@@ -225,11 +225,11 @@ export function PopulationProbePanel({
         </div>
       </div>
       {issue && (
-        <p role="alert" className="mt-2 text-xs text-destructive">
+        <p role="alert" className="mt-2 text-bf-sm text-destructive">
           {issue}
         </p>
       )}
-      <div className="mt-1 text-xs text-muted-foreground" role="status">
+      <div className="mt-1 text-bf-sm text-muted-foreground" role="status">
         {result ? (
           <>
             Showing ({coordinates(result.query.probe)}) mm ·{' '}
@@ -245,7 +245,7 @@ export function PopulationProbePanel({
         )}
       </div>
       {snapshot.arrangement && (
-        <p className="mt-1 text-xs text-muted-foreground">
+        <p className="mt-1 text-bf-sm text-muted-foreground">
           {populationArrangementLabel(snapshot.arrangement)} · plot shows every observation
           {snapshot.arrangement.query.key !== result?.query.key &&
             ' · order fitted at an earlier probe'}
@@ -254,7 +254,7 @@ export function PopulationProbePanel({
         </p>
       )}
       {pinError && (
-        <p role="alert" className="text-xs text-destructive">
+        <p role="alert" className="text-bf-sm text-destructive">
           {pinError}
         </p>
       )}
@@ -305,7 +305,7 @@ export function PopulationProbePanel({
       )}
       {result && expanded && (
         <>
-          <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+          <div className="flex flex-wrap items-center justify-between gap-2 text-bf-sm">
             <p>
               Selected mean: {mean === null ? 'unavailable' : mean.toPrecision(4)} · {count} finite{' '}
               {unit}
@@ -337,7 +337,7 @@ export function PopulationProbePanel({
             </div>
           </div>
           <div
-            className="mt-2 rounded border border-border px-2 py-1 text-xs"
+            className="mt-2 rounded-sm border border-border px-2 py-1 text-bf-sm"
             aria-label="Observed response distribution"
           >
             <div className="flex flex-wrap items-center justify-between gap-2">
@@ -346,7 +346,7 @@ export function PopulationProbePanel({
                 Near zero ±{' '}
                 <input
                   aria-label="Near-zero response limit"
-                  className="w-20 rounded border border-border bg-background px-1 py-0.5"
+                  className="w-20 rounded-sm border border-border bg-background px-1 py-0.5"
                   type="number"
                   min={0}
                   step="any"
@@ -366,7 +366,7 @@ export function PopulationProbePanel({
               {distribution.positive} ({share(distribution.positive)})
             </p>
             {count > 0 && (
-              <div aria-hidden className="mt-1 flex h-2 overflow-hidden rounded">
+              <div aria-hidden className="mt-1 flex h-2 overflow-hidden rounded-sm">
                 <span
                   className="bg-blue-500"
                   style={{ width: `${(100 * distribution.negative) / count}%` }}
@@ -411,11 +411,11 @@ export function PopulationProbePanel({
               </p>
             )}
           </div>
-          <p className="mt-1 text-xs text-muted-foreground">
+          <p className="mt-1 text-bf-sm text-muted-foreground">
             Click a point to focus its image. Shift-click to change selection. Selection changes
             reuse these sampled values.
           </p>
-          <details className="mt-1 text-xs">
+          <details className="mt-1 text-bf-sm">
             <summary className="cursor-pointer text-muted-foreground">
               Observation values and source status
             </summary>

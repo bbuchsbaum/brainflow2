@@ -104,6 +104,7 @@ function VolumeRenderRows({
     <>
       <FieldRow label="Visible">
         <Toggle
+          label="Visible"
           checked={viewLayer.visible}
           onChange={(v) => {
             // Visibility is owned by viewState — the renderer reads from
@@ -128,6 +129,8 @@ function VolumeRenderRows({
 
       <FieldRow label="Opacity">
         <Slider
+          label="Opacity"
+          valueText={`${Math.round(opacity * 100)}%`}
           value={opacity}
           min={0}
           max={1}
@@ -165,6 +168,7 @@ function VolumeRenderRows({
         <FieldRow label="Palette">
           <div className="flex items-center gap-2">
             <select
+              aria-label="Palette"
               value={viewLayer.atlasPaletteKind ?? ""}
               disabled={!viewLayer.atlasConfig || paletteApplying}
               onChange={(e) => {
@@ -185,7 +189,7 @@ function VolumeRenderRows({
                   })
                   .finally(() => setPaletteApplying(false));
               }}
-              className="bf-select text-[11px] capitalize"
+              className="bf-select text-bf-xs capitalize"
             >
               {viewLayer.atlasPaletteKind ? null : (
                 <option value="" disabled>
@@ -199,7 +203,7 @@ function VolumeRenderRows({
               ))}
             </select>
             {paletteApplying ? (
-              <span className="text-[10px] text-muted-foreground">
+              <span className="text-bf-2xs text-muted-foreground">
                 applying…
               </span>
             ) : null}
@@ -215,11 +219,12 @@ function VolumeRenderRows({
       {kind === "overlay" ? (
         <FieldRow label="Blend mode">
           <select
+            aria-label="Blend mode"
             value={blendMode}
             onChange={(e) =>
               setLayerField("blendMode", e.target.value as typeof blendMode)
             }
-            className="bf-select text-[11px] capitalize"
+            className="bf-select text-bf-xs capitalize"
           >
             {BLEND_MODES.map((mode) => (
               <option key={mode} value={mode}>
@@ -237,6 +242,7 @@ function VolumeRenderRows({
       {layerMode === "scalar" ? (
         <FieldRow label="Interpolation">
           <select
+            aria-label="Interpolation"
             value={interpolation}
             onChange={(e) =>
               setLayerField(
@@ -244,7 +250,7 @@ function VolumeRenderRows({
                 e.target.value as typeof interpolation,
               )
             }
-            className="bf-select text-[11px] capitalize"
+            className="bf-select text-bf-xs capitalize"
           >
             <option value="linear">Linear</option>
             <option value="nearest">Nearest</option>
@@ -264,7 +270,7 @@ function VolumeRenderRows({
       {layer.volumeType === "TimeSeries4D" && layer.timeSeriesInfo ? (
         <FieldRow label="Time frame">
           <span
-            className="font-mono text-[12px] tabular-nums text-foreground"
+            className="font-mono text-bf-sm tabular-nums text-foreground"
             style={{ fontVariantNumeric: "tabular-nums" }}
           >
             {layer.currentTimepoint ?? 0} /{" "}
@@ -348,6 +354,7 @@ function LabelOutlineBlock({
     <>
       <FieldRow label="Outline">
         <Toggle
+          label="Outline"
           checked={outline.enabled}
           onChange={(enabled) => update({ enabled })}
         />
@@ -365,7 +372,7 @@ function LabelOutlineBlock({
             type="button"
             onClick={useCrosshairLabel}
             disabled={sampling}
-            className="rounded-sm border border-border px-2 py-0.5 text-[11px] text-foreground transition-colors hover:bg-accent/40 disabled:cursor-not-allowed disabled:opacity-50"
+            className="rounded-sm border border-border px-2 py-0.5 text-bf-xs text-foreground transition-colors hover:bg-accent/40 disabled:cursor-not-allowed disabled:opacity-50"
           >
             {sampling ? 'Sampling…' : 'Use crosshair ROI'}
           </button>
@@ -374,13 +381,15 @@ function LabelOutlineBlock({
 
       <FieldRow label="Thickness">
         <Slider
+          label="Outline thickness"
+          valueText={`${Math.round(outline.thicknessPx)} px`}
           value={outline.thicknessPx}
           min={1}
           max={8}
           step={1}
           onChange={(thicknessPx) => update({ thicknessPx })}
         />
-        <span className="font-mono text-[11px] tabular-nums text-muted-foreground">
+        <span className="font-mono text-bf-xs tabular-nums text-muted-foreground">
           {Math.round(outline.thicknessPx)} px
         </span>
       </FieldRow>
@@ -393,7 +402,7 @@ function LabelOutlineBlock({
             update({ color: hexToRgbaTuple(e.target.value, outline.color[3]) })
           }
           className="h-5 w-8 cursor-pointer rounded-sm border border-border bg-transparent p-0"
-          aria-label="outline color"
+          aria-label="Outline color"
         />
       </FieldRow>
     </>
@@ -412,6 +421,7 @@ function SurfaceRenderRows({ item }: { item: SceneItem }) {
     return (
       <FieldRow label="Visible">
         <Toggle
+          label="Visible"
           checked={surface.visible}
           onChange={(v) => setSurfaceVisibility?.(surface.handle, v)}
         />
@@ -430,10 +440,12 @@ function SurfaceRenderRows({ item }: { item: SceneItem }) {
       return (
         <>
           <FieldRow label="Visible">
-            <Toggle checked={layer.visible !== false} onChange={(v) => update('visible', v)} />
+            <Toggle label="Visible" checked={layer.visible !== false} onChange={(v) => update('visible', v)} />
           </FieldRow>
           <FieldRow label="Opacity">
             <Slider
+              label="Opacity"
+              valueText={`${Math.round(layer.opacity * 100)}%`}
               value={layer.opacity}
               min={0}
               max={1}
@@ -459,7 +471,7 @@ function SurfaceRenderRows({ item }: { item: SceneItem }) {
             dataMax={Math.max(0, layer.dataRange[1])}
             onChange={(low, high) => update('threshold', [low, high])}
           />
-          <button className="text-[11px] underline" onClick={() => update('threshold', [0, 0])}>
+          <button type="button" className="text-bf-xs text-foreground underline underline-offset-2 decoration-[var(--bf-border-strong)] hover:decoration-current focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background" onClick={() => update('threshold', [0, 0])}>
             Clear threshold
           </button>
         </>
@@ -467,20 +479,20 @@ function SurfaceRenderRows({ item }: { item: SceneItem }) {
     return (
       <>
         <FieldRow label="Visible">
-          <span className="text-[12px] text-muted-foreground">
+          <span className="text-bf-sm text-muted-foreground">
             {layer.visible === false ? "hidden" : "visible"}
           </span>
         </FieldRow>
         <FieldRow label="Opacity">
           <span
-            className="font-mono text-[12px] tabular-nums text-foreground"
+            className="font-mono text-bf-sm tabular-nums text-foreground"
             style={{ fontVariantNumeric: "tabular-nums" }}
           >
             {Math.round((layer.opacity ?? 1) * 100)}%
           </span>
         </FieldRow>
         <FieldRow label="Colormap">
-          <span className="text-[12px] text-foreground">{layer.colormap}</span>
+          <span className="text-bf-sm text-foreground">{layer.colormap}</span>
         </FieldRow>
       </>
     );
@@ -494,18 +506,21 @@ function SurfaceRenderRows({ item }: { item: SceneItem }) {
 function Toggle({
   checked,
   onChange,
+  label,
 }: {
   checked: boolean;
   onChange: (v: boolean) => void;
+  label: string;
 }) {
   return (
     <button
       type="button"
       role="switch"
       aria-checked={checked}
+      aria-label={label}
       onClick={() => onChange(!checked)}
-      className={`relative inline-flex h-4 w-7 items-center rounded-full transition-colors ${
-        checked ? "bg-sky-500" : "bg-border"
+      className={`relative inline-flex h-4 w-7 items-center rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background ${
+        checked ? "bg-primary" : "bg-border"
       }`}
     >
       <span
@@ -524,22 +539,28 @@ function Slider({
   max,
   step,
   onChange,
+  label,
+  valueText,
 }: {
   value: number;
   min: number;
   max: number;
   step: number;
   onChange: (v: number) => void;
+  label: string;
+  valueText?: string;
 }) {
   return (
     <input
       type="range"
+      aria-label={label}
+      aria-valuetext={valueText}
       value={value}
       min={min}
       max={max}
       step={step}
       onChange={(e) => onChange(Number.parseFloat(e.target.value))}
-      className={`h-1 w-28 cursor-pointer appearance-none rounded-full bg-border accent-sky-500`}
+      className={`h-1 w-28 cursor-pointer appearance-none rounded-full bg-border accent-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring`}
     />
   );
 }
@@ -547,7 +568,7 @@ function Slider({
 function Pct({ value }: { value: number }) {
   return (
     <span
-      className="font-mono text-[11px] tabular-nums text-muted-foreground"
+      className="font-mono text-bf-xs tabular-nums text-muted-foreground"
       style={{ fontVariantNumeric: "tabular-nums" }}
     >
       {Math.round(value * 100)}%
@@ -568,7 +589,7 @@ function Pct({ value }: { value: number }) {
  *   Enter/blur commits (clamped to low ≤ high and within [dataMin, dataMax]),
  *   Escape reverts.
  * - Slider row: shared visible track in `hsl(var(--border)/0.7)` with an
- *   active band tinted sky between handles. Two stacked native range inputs
+ *   active band tinted with the accent between handles. Two stacked native range inputs
  *   styled as small filled circles via Tailwind arbitrary thumb selectors.
  *   Data-min / data-max anchors deliberately omitted — they're already shown
  *   in the Data section as `Range: <min> — <max>`.
@@ -601,16 +622,17 @@ function RangeBlock({
   };
 
   return (
-    <div className="py-1.5 text-[12px]">
+    <div className="py-1.5 text-bf-sm">
       <div className="flex items-center justify-between gap-3">
         <span className="text-muted-foreground">{label}</span>
         <span className="flex items-center gap-1.5">
-          <EditableNumber value={low} onCommit={handleLow} />
-          <span className="text-[11px] text-muted-foreground/70">–</span>
-          <EditableNumber value={high} onCommit={handleHigh} />
+          <EditableNumber value={low} onCommit={handleLow} label={`${label} low`} />
+          <span className="text-bf-xs text-muted-foreground">–</span>
+          <EditableNumber value={high} onCommit={handleHigh} label={`${label} high`} />
         </span>
       </div>
       <DualRangeTrack
+        label={label}
         low={low}
         high={high}
         dataMin={dataMin}
@@ -631,9 +653,11 @@ function RangeBlock({
 function EditableNumber({
   value,
   onCommit,
+  label,
 }: {
   value: number;
   onCommit: (next: number) => void;
+  label: string;
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(() => formatChip(value));
@@ -685,8 +709,8 @@ function EditableNumber({
             cancel();
           }
         }}
-        aria-label="value"
-        className="w-14 rounded-sm bg-background px-1 text-right font-mono text-[11px] tabular-nums text-foreground outline-none ring-1 ring-sky-500"
+        aria-label={label}
+        className="w-14 rounded-sm bg-background px-1 text-right font-mono text-bf-xs tabular-nums text-foreground outline-none ring-2 ring-ring"
         style={{ fontVariantNumeric: "tabular-nums" }}
       />
     );
@@ -696,8 +720,9 @@ function EditableNumber({
     <button
       type="button"
       onClick={() => setEditing(true)}
-      title={`${value} — click to edit`}
-      className="w-14 rounded-sm px-1 text-right font-mono text-[11px] tabular-nums text-foreground transition-colors hover:bg-accent/40 hover:underline focus:outline-none focus-visible:ring-1 focus-visible:ring-sky-500"
+      title={`${formatChip(value)} — click to edit`}
+      aria-label={`${label}: ${formatChip(value)}, click to edit`}
+      className="w-14 rounded-sm px-1 text-right font-mono text-bf-xs tabular-nums text-foreground transition-colors hover:bg-accent/40 hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
       style={{ fontVariantNumeric: "tabular-nums" }}
     >
       {formatChip(value)}
@@ -711,6 +736,7 @@ function EditableNumber({
  * underneath the inputs so we don't depend on inline gradient strings.
  */
 function DualRangeTrack({
+  label,
   low,
   high,
   dataMin,
@@ -719,6 +745,7 @@ function DualRangeTrack({
   onLow,
   onHigh,
 }: {
+  label: string;
   low: number;
   high: number;
   dataMin: number;
@@ -756,7 +783,7 @@ function DualRangeTrack({
         {/* Active band between thumbs */}
         <div
           aria-hidden
-          className="absolute top-1/2 h-[3px] -translate-y-1/2 rounded-full bg-sky-500/60"
+          className="absolute top-1/2 h-[3px] -translate-y-1/2 rounded-full bg-primary/60"
           style={{
             left: `${lowPct}%`,
             width: `${Math.max(0, highPct - lowPct)}%`,
@@ -770,7 +797,8 @@ function DualRangeTrack({
           step={step}
           value={low}
           onChange={(e) => onLow(Number.parseFloat(e.target.value))}
-          aria-label="range low"
+          aria-label={`${label} low`}
+          aria-valuetext={formatChip(low)}
           className={thumbClass}
         />
         {/* High handle */}
@@ -781,7 +809,8 @@ function DualRangeTrack({
           step={step}
           value={high}
           onChange={(e) => onHigh(Number.parseFloat(e.target.value))}
-          aria-label="range high"
+          aria-label={`${label} high`}
+          aria-valuetext={formatChip(high)}
           className={thumbClass}
         />
       </div>

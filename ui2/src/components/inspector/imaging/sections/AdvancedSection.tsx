@@ -13,7 +13,7 @@ interface AdvancedSectionProps {
 export function AdvancedSection({ item: _item }: AdvancedSectionProps) {
   return (
     <InspectorSection label="Advanced" icon={<GearIcon />} defaultOpen={false}>
-      <div className="rounded-md border border-dashed border-border/60 bg-card/30 px-3 py-2 text-[11px] text-muted-foreground/70">
+      <div className="rounded-sm border border-dashed border-border/60 bg-card/30 px-3 py-2 text-bf-xs text-muted-foreground">
         No advanced settings yet for this item kind.
       </div>
     </InspectorSection>

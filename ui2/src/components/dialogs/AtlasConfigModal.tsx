@@ -189,12 +189,12 @@ export const AtlasConfigModal: React.FC<AtlasConfigModalProps> = ({
             </p>
           </div>
 
-          {/* Atlas Information */}
+          {/* Atlas information */}
           <div 
-            className="rounded-lg p-4"
+            className="rounded-sm p-4"
             style={{ backgroundColor: 'var(--app-bg-tertiary)', border: '1px solid var(--app-border)' }}
           >
-            <h3 className="font-medium mb-2" style={{ color: 'var(--app-text-primary)' }}>Atlas Information</h3>
+            <h3 className="m-0 mb-2 border-0 p-0 text-bf-sm font-semibold text-foreground">Atlas information</h3>
             <div className="text-sm space-y-1" style={{ color: 'var(--app-text-secondary)' }}>
               <p>{atlas.description}</p>
               {atlas.citation && (
@@ -215,18 +215,18 @@ export const AtlasConfigModal: React.FC<AtlasConfigModalProps> = ({
 
           {/* Configuration Options */}
           <div className="space-y-4">
-            <h3 className="font-medium" style={{ color: 'var(--app-text-primary)' }}>Configuration</h3>
+            <h3 className="m-0 border-0 p-0 text-bf-sm font-semibold text-foreground">Configuration</h3>
 
             {/* Space Selection */}
             <div>
-              <label className="block text-sm font-medium mb-2" style={{ color: 'var(--app-text-primary)' }}>
+              <label className="block text-bf-sm text-muted-foreground mb-2">
                 Space/Template
               </label>
               <select
                 ref={firstFieldRef}
                 value={config.space}
                 onChange={(e) => setConfig(prev => ({ ...prev, space: e.target.value }))}
-                className="w-full rounded-md px-3 py-2 text-sm"
+                className="w-full rounded-sm px-3 py-2 text-sm"
                 style={{
                   backgroundColor: 'var(--app-bg-tertiary)',
                   border: '1px solid var(--app-border)',
@@ -248,13 +248,13 @@ export const AtlasConfigModal: React.FC<AtlasConfigModalProps> = ({
 
             {/* Resolution Selection */}
             <div>
-              <label className="block text-sm font-medium mb-2" style={{ color: 'var(--app-text-primary)' }}>
+              <label className="block text-bf-sm text-muted-foreground mb-2">
                 Resolution
               </label>
               <select
                 value={config.resolution}
                 onChange={(e) => setConfig(prev => ({ ...prev, resolution: e.target.value }))}
-                className="w-full rounded-md px-3 py-2 text-sm"
+                className="w-full rounded-sm px-3 py-2 text-sm"
                 style={{
                   backgroundColor: 'var(--app-bg-tertiary)',
                   border: '1px solid var(--app-border)',
@@ -275,7 +275,7 @@ export const AtlasConfigModal: React.FC<AtlasConfigModalProps> = ({
                 {/* Networks */}
                 {atlas.network_options && (
                   <div>
-                    <label className="block text-sm font-medium mb-2" style={{ color: 'var(--app-text-primary)' }}>
+                    <label className="block text-bf-sm text-muted-foreground mb-2">
                       Networks
                     </label>
                     <select
@@ -284,7 +284,7 @@ export const AtlasConfigModal: React.FC<AtlasConfigModalProps> = ({
                         ...prev, 
                         networks: e.target.value ? parseInt(e.target.value) : undefined 
                       }))}
-                      className="w-full rounded-md px-3 py-2 text-sm"
+                      className="w-full rounded-sm px-3 py-2 text-sm"
                       style={{
                         backgroundColor: 'var(--app-bg-tertiary)',
                         border: '1px solid var(--app-border)',
@@ -306,7 +306,7 @@ export const AtlasConfigModal: React.FC<AtlasConfigModalProps> = ({
                 {/* Parcels */}
                 {atlas.parcel_options && (
                   <div>
-                    <label className="block text-sm font-medium mb-2" style={{ color: 'var(--app-text-primary)' }}>
+                    <label className="block text-bf-sm text-muted-foreground mb-2">
                       Parcels
                     </label>
                     <select
@@ -315,7 +315,7 @@ export const AtlasConfigModal: React.FC<AtlasConfigModalProps> = ({
                         ...prev, 
                         parcels: e.target.value ? parseInt(e.target.value) : undefined 
                       }))}
-                      className="w-full rounded-md px-3 py-2 text-sm"
+                      className="w-full rounded-sm px-3 py-2 text-sm"
                       style={{
                         backgroundColor: 'var(--app-bg-tertiary)',
                         border: '1px solid var(--app-border)',
@@ -340,7 +340,7 @@ export const AtlasConfigModal: React.FC<AtlasConfigModalProps> = ({
           {/* Validation Error */}
           {validationError && (
             <div 
-              className="flex items-center gap-2 p-3 rounded-md"
+              className="flex items-center gap-2 p-3 rounded-sm"
               style={{ backgroundColor: 'rgba(239, 68, 68, 0.1)', border: '1px solid rgba(239, 68, 68, 0.3)' }}
             >
               <AlertTriangle size={16} className="flex-shrink-0" style={{ color: 'var(--app-error)' }} />
@@ -351,7 +351,7 @@ export const AtlasConfigModal: React.FC<AtlasConfigModalProps> = ({
           {/* Load Result */}
           {loadResult && (
             <div 
-              className="p-4 rounded-md"
+              className="p-4 rounded-sm"
               style={{
                 backgroundColor: loadResult.success 
                   ? 'rgba(34, 197, 94, 0.1)' 
@@ -367,8 +367,8 @@ export const AtlasConfigModal: React.FC<AtlasConfigModalProps> = ({
                 ) : (
                   <AlertTriangle size={16} style={{ color: 'var(--app-error)' }} />
                 )}
-                <h4 
-                  className="font-medium"
+                <h4
+                  className="m-0 border-0 p-0 text-bf-sm font-semibold"
                   style={{ 
                     color: loadResult.success ? 'var(--app-success)' : 'var(--app-error)' 
                   }}
@@ -397,7 +397,7 @@ export const AtlasConfigModal: React.FC<AtlasConfigModalProps> = ({
           {/* Download Size Warning */}
           {atlas.download_size_mb && atlas.download_size_mb > 50 && !atlas.is_cached && (
             <div 
-              className="flex items-center gap-2 p-3 rounded-md"
+              className="flex items-center gap-2 p-3 rounded-sm"
               style={{ backgroundColor: 'rgba(251, 191, 36, 0.1)', border: '1px solid rgba(251, 191, 36, 0.3)' }}
             >
               <Info size={16} className="flex-shrink-0" style={{ color: 'var(--app-warning)' }} />

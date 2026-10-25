@@ -6,7 +6,7 @@
  * `compute_layer_histogram` path and stashes the rich histogram payload on
  * `frame.meta.histogram`) and renders it through {@link EncodedPlotView}. The
  * `hist` mark drives the same interactive `HistogramChart` as before — intensity
- * window / threshold drag, colormap gradient, log scale, tooltips — so there is
+ * window / threshold drag, log scale, tooltips — so there is
  * no interactivity regression; the layer render props + edit callbacks are
  * threaded to the mark via the encoder context.
  *
@@ -31,8 +31,13 @@ import type { PlotModeContext } from "./plotHost.types";
 /** Mode id — also the key under which this mode's spec/params are persisted. */
 export const HISTOGRAM_MODE_ID = "histogram";
 
-/** Body padding (px) reserved around the encoded plot. */
-const HISTOGRAM_BODY_PADDING = 16;
+/**
+ * Body padding (px) reserved around the encoded plot. Kept tight vertically:
+ * the default bottom dock leaves ~150 px for the body, and the encoding strip
+ * plus axis must still leave room for the bars.
+ */
+const HISTOGRAM_BODY_PADDING_X = 12;
+const HISTOGRAM_BODY_PADDING_Y = 6;
 /** Minimum chart dimensions enforced when the body is collapsed. */
 const HISTOGRAM_MIN_WIDTH = 100;
 const HISTOGRAM_MIN_HEIGHT = 80;
@@ -162,13 +167,13 @@ export function HistogramPlotBody({ ctx }: HistogramPlotBodyProps) {
     [layerId],
   );
 
-  // Padding applies on every side, so subtract twice (matches the 16px box).
+  // Padding applies on both sides of each axis, so subtract twice.
   const chartWidth = Math.max(
-    ctx.width - HISTOGRAM_BODY_PADDING * 2,
+    ctx.width - HISTOGRAM_BODY_PADDING_X * 2,
     HISTOGRAM_MIN_WIDTH,
   );
   const chartHeight = Math.max(
-    ctx.height - HISTOGRAM_BODY_PADDING * 2,
+    ctx.height - HISTOGRAM_BODY_PADDING_Y * 2,
     HISTOGRAM_MIN_HEIGHT,
   );
 
@@ -200,7 +205,7 @@ export function HistogramPlotBody({ ctx }: HistogramPlotBodyProps) {
       style={{
         position: "absolute",
         inset: 0,
-        padding: "16px",
+        padding: `${HISTOGRAM_BODY_PADDING_Y}px ${HISTOGRAM_BODY_PADDING_X}px`,
         overflow: "hidden",
         background: "transparent",
       }}

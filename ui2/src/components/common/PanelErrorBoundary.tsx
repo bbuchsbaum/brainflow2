@@ -30,23 +30,23 @@ export class PanelErrorBoundary extends Component<Props, State> {
     if (this.state.hasError) {
       return (
         <div className="flex flex-col h-full p-4">
-          <div className="bg-red-500/20 border border-red-500/50 rounded p-4">
-            <h3 className="text-red-400 font-semibold mb-2">
-              {this.props.panelName} Error
+          <div className="bg-bf-danger-soft border border-destructive/50 rounded-sm p-4">
+            <h3 className="text-bf-danger font-semibold mb-2">
+              {this.props.panelName} error
             </h3>
-            <p className="text-red-300 text-sm mb-2">
+            <p className="text-foreground text-bf-sm mb-2">
               An error occurred in this panel:
             </p>
-            <pre className="text-xs text-red-200 bg-red-900/20 p-2 rounded overflow-auto max-h-48">
+            <pre className="text-bf-xs text-bf-text-secondary bg-bf-bg-panel-sunken p-2 rounded-sm overflow-auto max-h-48">
               {this.state.error?.message}
               {'\n\n'}
               {this.state.error?.stack}
             </pre>
             <button
               onClick={() => this.setState({ hasError: false, error: null })}
-              className="mt-3 px-3 py-1 bg-red-600 text-white text-sm rounded hover:bg-red-700 transition-colors"
+              className="mt-3 h-7 px-2.5 bg-bf-bg-panel-raised border border-border text-foreground text-bf-sm rounded-sm hover:bg-accent transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             >
-              Try Again
+              Try again
             </button>
           </div>
         </div>

@@ -34,7 +34,7 @@
 .mosaic-cell {
   position: relative;
   overflow: hidden;
-  background-color: var(--app-bg-primary); /* Use theme variable */
+  background-color: var(--bf-bg-canvas); /* Image cells sit on the black canvas, not the app ground */
   /* border removed - canvas already has border for consistency with SliceView */
   display: flex;
   align-items: center;
@@ -43,7 +43,8 @@
 }
 
 .mosaic-cell canvas {
-  border: 1px solid #d1d5db; /* gray-300 equivalent for consistency with SliceView */
+  /* Hairline frame; keep 1px width so canvas geometry and click mapping are unchanged. */
+  border: 1px solid var(--bf-border-subtle);
   image-rendering: pixelated; /* Prevent blurring of medical images */
   image-rendering: -moz-crisp-edges;
   image-rendering: crisp-edges;
@@ -91,7 +92,7 @@
   appearance: none;
   width: 12px;
   height: 12px;
-  background: var(--app-accent);
+  background: hsl(var(--primary)); /* slider 'on' state is the light neutral, not the accent */
   border-radius: 50%;
   cursor: pointer;
   transition: all var(--app-transition-fast);
@@ -100,7 +101,7 @@
 }
 
 .mosaic-slider::-webkit-slider-thumb:hover {
-  background: var(--app-accent-hover);
+  background: hsl(var(--foreground));
   transform: scale(1.25);
 }
 
@@ -108,7 +109,7 @@
   appearance: none;
   width: 12px;
   height: 12px;
-  background: var(--app-accent);
+  background: hsl(var(--primary));
   border-radius: 50%;
   cursor: pointer;
   border: none;
@@ -116,7 +117,7 @@
 }
 
 .mosaic-slider::-moz-range-thumb:hover {
-  background: var(--app-accent-hover);
+  background: hsl(var(--foreground));
   transform: scale(1.25);
 }
 

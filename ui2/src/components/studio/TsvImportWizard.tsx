@@ -84,15 +84,15 @@ function TsvLoadStep({
   return (
     <div className="space-y-5">
       <div>
-        <div className="text-sm font-medium text-foreground">Load a table file</div>
-        <div className="mt-1 text-sm text-muted-foreground">
+        <div className="text-bf-md font-medium text-foreground">Load a table file</div>
+        <div className="mt-1 text-bf-md text-muted-foreground">
           Select a TSV or CSV file with one row per subject. It should have columns for file paths,
           subject IDs, and any design variables (diagnosis, age, site, etc.).
         </div>
       </div>
 
-      <div className="rounded-lg border border-border bg-card p-4">
-        <div className="text-sm font-medium text-foreground">Browse for file</div>
+      <div className="rounded-sm border border-border bg-card p-4">
+        <div className="text-bf-md font-medium text-foreground">Browse for file</div>
         <div className="mt-3 flex items-center gap-3">
           <input
             ref={fileInputRef}
@@ -109,28 +109,28 @@ function TsvLoadStep({
             Choose File...
           </Button>
           {tsvPath && tsvPath !== 'pasted content' ? (
-            <span className="text-sm text-muted-foreground truncate">{tsvPath}</span>
+            <span className="text-bf-md text-muted-foreground truncate">{tsvPath}</span>
           ) : null}
         </div>
       </div>
 
-      <div className="rounded-lg border border-border bg-card p-4">
-        <div className="text-sm font-medium text-foreground">Or paste table content</div>
+      <div className="rounded-sm border border-border bg-card p-4">
+        <div className="text-bf-md font-medium text-foreground">Or paste table content</div>
         <textarea
           ref={textAreaRef}
-          className="mt-3 w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground font-mono focus:outline-none focus:ring-1 focus:ring-ring"
+          className="mt-3 w-full rounded-sm border border-border bg-background px-3 py-2 text-bf-md text-foreground font-mono focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           rows={6}
           placeholder={'subject\tfile\tdiagnosis\tsex\tage\nsub001\t/data/sub001_stat.nii.gz\tcontrol\tF\t25\nsub002\t/data/sub002_stat.nii.gz\tpatient\tM\t32'}
         />
         <div className="mt-2 flex justify-end">
           <Button variant="secondary" size="sm" onClick={handlePaste}>
-            Parse Pasted Content
+            Parse pasted content
           </Button>
         </div>
       </div>
 
       {parseError ? (
-        <div className="rounded-lg border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-sm text-foreground">
+        <div className="rounded-sm border border-destructive/40 bg-bf-danger-soft px-3 py-2 text-bf-md text-foreground">
           {parseError}
         </div>
       ) : null}
@@ -170,20 +170,20 @@ function TsvMapStep({
   return (
     <div className="space-y-5">
       <div>
-        <div className="text-sm font-medium text-foreground">Map columns</div>
-        <div className="mt-1 text-sm text-muted-foreground">
+        <div className="text-bf-md font-medium text-foreground">Map columns</div>
+        <div className="mt-1 text-bf-md text-muted-foreground">
           Tell Studio which column has the file paths and which has the subject IDs.
           All other columns become design variables automatically.
         </div>
       </div>
 
       <div className="grid gap-4 md:grid-cols-2">
-        <div className="rounded-lg border border-border bg-card p-4">
-          <label className="mb-2 block text-xs font-medium text-muted-foreground">
-            File Path Column
+        <div className="rounded-sm border border-border bg-card p-4">
+          <label className="mb-2 block text-bf-sm font-medium text-muted-foreground">
+            File path column
           </label>
           <select
-            className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+            className="w-full rounded-sm border border-border bg-background px-3 py-2 text-bf-md text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             value={columnMapping.filePathColumn ?? ''}
             onChange={(e) => onMappingChange({ filePathColumn: e.target.value || null })}
           >
@@ -196,12 +196,12 @@ function TsvMapStep({
           </select>
         </div>
 
-        <div className="rounded-lg border border-border bg-card p-4">
-          <label className="mb-2 block text-xs font-medium text-muted-foreground">
+        <div className="rounded-sm border border-border bg-card p-4">
+          <label className="mb-2 block text-bf-sm font-medium text-muted-foreground">
             Subject ID Column
           </label>
           <select
-            className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+            className="w-full rounded-sm border border-border bg-background px-3 py-2 text-bf-md text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             value={columnMapping.subjectIdColumn ?? ''}
             onChange={(e) => onMappingChange({ subjectIdColumn: e.target.value || null })}
           >
@@ -215,9 +215,9 @@ function TsvMapStep({
         </div>
       </div>
 
-      <div className="rounded-lg border border-border bg-card p-4">
+      <div className="rounded-sm border border-border bg-card p-4">
         <div className="flex items-center justify-between">
-          <div className="text-sm font-medium text-foreground">
+          <div className="text-bf-md font-medium text-foreground">
             Design variables ({designColumns.length})
           </div>
         </div>
@@ -238,9 +238,9 @@ function TsvMapStep({
                       : [...columnMapping.excludedColumns, h];
                     onMappingChange({ excludedColumns: next });
                   }}
-                  className={`rounded-full border px-2.5 py-1 text-xs transition-colors ${
+                  className={`rounded-sm border px-2.5 py-1 text-bf-sm transition-colors ${
                     isSubjectId
-                      ? 'border-sky-500/50 bg-sky-500/10 text-foreground cursor-default'
+                      ? 'border-border bg-bf-bg-selected shadow-[inset_2px_0_0_var(--bf-accent)] text-foreground cursor-default'
                       : excluded
                         ? 'border-border bg-background text-muted-foreground line-through opacity-50'
                         : 'border-border bg-background text-muted-foreground hover:bg-accent'
@@ -252,25 +252,25 @@ function TsvMapStep({
               );
             })}
         </div>
-        <div className="mt-2 text-xs text-muted-foreground">
+        <div className="mt-2 text-bf-sm text-muted-foreground">
           Click to exclude columns from design variables.
         </div>
       </div>
 
-      <div className="rounded-lg border border-border bg-card p-4">
-        <div className="text-sm font-medium text-foreground">Preview ({rows.length} rows total)</div>
-        <div className="mt-3 overflow-x-auto rounded-md border border-border">
-          <table className="w-full text-sm">
+      <div className="rounded-sm border border-border bg-card p-4">
+        <div className="text-bf-md font-medium text-foreground">Preview ({rows.length} rows total)</div>
+        <div className="mt-3 overflow-x-auto rounded-sm border border-border">
+          <table className="w-full text-bf-md">
             <thead>
               <tr className="border-b border-border bg-background">
                 {previewCols.map((col) => (
                   <th
                     key={col}
-                    className={`px-3 py-2 text-left text-[11px] font-medium text-muted-foreground ${
+                    className={`px-3 py-2 text-left text-bf-xs font-medium text-muted-foreground ${
                       col === columnMapping.filePathColumn
-                        ? 'bg-emerald-500/5'
+                        ? 'bg-bf-bg-active'
                         : col === columnMapping.subjectIdColumn
-                          ? 'bg-sky-500/5'
+                          ? 'bg-bf-bg-hover'
                           : ''
                     }`}
                   >
@@ -291,9 +291,9 @@ function TsvMapStep({
                         key={ci}
                         className={`px-3 py-2 text-foreground ${
                           col === columnMapping.filePathColumn
-                            ? 'bg-emerald-500/5 font-mono text-xs'
+                            ? 'bg-bf-bg-active font-mono text-bf-sm'
                             : col === columnMapping.subjectIdColumn
-                              ? 'bg-sky-500/5'
+                              ? 'bg-bf-bg-hover'
                               : ''
                         }`}
                       >

@@ -29,25 +29,27 @@ interface StudioComparePaneProps {
   children?: React.ReactNode;
 }
 
+// Pane identity is carried by the letter badge; chrome stays neutral so the
+// amber accent remains reserved for selection and status colours for status.
 const ACCENT_TEXT: Record<ComparePaneAccent, string> = {
-  sky: 'text-sky-700 dark:text-sky-200',
-  emerald: 'text-emerald-700 dark:text-emerald-200',
-  amber: 'text-amber-700 dark:text-amber-200',
-  violet: 'text-violet-700 dark:text-violet-200',
+  sky: 'text-foreground',
+  emerald: 'text-foreground',
+  amber: 'text-foreground',
+  violet: 'text-foreground',
 };
 
 const ACCENT_BORDER: Record<ComparePaneAccent, string> = {
-  sky: 'border-sky-500/30',
-  emerald: 'border-emerald-500/30',
-  amber: 'border-amber-500/30',
-  violet: 'border-violet-500/30',
+  sky: 'border-primary/60',
+  emerald: 'border-primary/60',
+  amber: 'border-primary/60',
+  violet: 'border-primary/60',
 };
 
 const ACCENT_BADGE: Record<ComparePaneAccent, string> = {
-  sky: 'bg-sky-500/15 text-sky-700 dark:text-sky-200',
-  emerald: 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-200',
-  amber: 'bg-amber-500/15 text-amber-700 dark:text-amber-200',
-  violet: 'bg-violet-500/15 text-violet-700 dark:text-violet-200',
+  sky: 'bg-bf-bg-active text-foreground',
+  emerald: 'bg-bf-bg-active text-foreground',
+  amber: 'bg-bf-bg-active text-foreground',
+  violet: 'bg-bf-bg-active text-foreground',
 };
 
 export function StudioComparePane({
@@ -91,8 +93,8 @@ export function StudioComparePane({
   return (
     <article
       aria-label={`${letter} ${title}`}
-      className={`flex min-h-0 min-w-0 flex-col overflow-hidden rounded-lg border bg-card transition-shadow ${
-        selected ? `${ACCENT_BORDER[accent]} shadow-md` : 'border-border'
+      className={`flex min-h-0 min-w-0 flex-col overflow-hidden rounded-sm border bg-card transition-shadow ${
+        selected ? ACCENT_BORDER[accent] : 'border-border'
       }`}
     >
       {/* Header */}
@@ -100,13 +102,13 @@ export function StudioComparePane({
         <div className="flex min-w-0 items-center gap-2">
           <span
             aria-hidden
-            className={`inline-flex h-5 w-5 items-center justify-center rounded text-[11px] font-semibold ${ACCENT_BADGE[accent]}`}
+            className={`inline-flex h-5 w-5 items-center justify-center rounded-sm text-bf-xs font-semibold ${ACCENT_BADGE[accent]}`}
           >
             {letter}
           </span>
           <div className="min-w-0">
-            <div className={`truncate text-sm font-semibold ${ACCENT_TEXT[accent]}`}>{title}</div>
-            <div className="truncate text-[11px] text-muted-foreground">{subtitle}</div>
+            <div className={`truncate text-bf-md font-semibold ${ACCENT_TEXT[accent]}`}>{title}</div>
+            <div className="truncate text-bf-xs text-muted-foreground">{subtitle}</div>
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-1.5">
@@ -123,18 +125,18 @@ export function StudioComparePane({
       </header>
 
       {/* Body — host area for the renderer canvas (or skeleton/empty state) */}
-      <div className="relative min-h-0 flex-1 bg-black">
+      <div className="relative min-h-0 flex-1 bg-bf-bg-canvas">
         {children ?? <PaneSkeleton status={status} reason={pane?.reason ?? null} />}
         <ColorbarChip label={unitsLabel} />
       </div>
 
       {/* Footer provenance chips */}
-      <footer className="flex flex-wrap items-center gap-1.5 border-t border-border bg-card/80 px-3 py-2 text-[11px] text-muted-foreground">
+      <footer className="flex flex-wrap items-center gap-1.5 border-t border-border bg-card/80 px-3 py-2 text-bf-xs text-muted-foreground">
         {letter !== 'A' && cohortId && onDrillToCohort ? (
           <button
             type="button"
             onClick={onDrillToCohort}
-            className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 transition-colors hover:bg-accent hover:text-accent-foreground ${ACCENT_BORDER[accent]}`}
+            className={`inline-flex items-center gap-1 rounded-sm border px-2 py-0.5 transition-colors border-border hover:bg-accent hover:text-accent-foreground`}
             aria-label={`Drill to ${cohortLabel ?? 'cohort'} members`}
           >
             <span className="tabular-nums" style={{ fontVariantNumeric: 'tabular-nums' }}>
@@ -144,7 +146,7 @@ export function StudioComparePane({
           </button>
         ) : (
           <span
-            className="inline-flex items-center rounded-full border border-border bg-background/60 px-2 py-0.5 tabular-nums"
+            className="inline-flex items-center rounded-sm border border-border bg-background/60 px-2 py-0.5 tabular-nums"
             style={{ fontVariantNumeric: 'tabular-nums' }}
           >
             {memberCountText}
@@ -161,8 +163,8 @@ export function StudioComparePane({
 
 function Chip({ label, value }: { label: string; value: string }) {
   return (
-    <span className="inline-flex items-center gap-1 rounded-full border border-border bg-background/60 px-2 py-0.5">
-      <span className="text-[10px] uppercase tracking-[0.06em] text-muted-foreground/80">
+    <span className="inline-flex items-center gap-1 rounded-sm border border-border bg-background/60 px-2 py-0.5">
+      <span className="text-bf-2xs text-muted-foreground">
         {label}
       </span>
       <span className="text-foreground">{value}</span>
@@ -206,7 +208,7 @@ function StatusBadge({ status }: { status: PaneStatus }) {
       role="status"
       aria-label={label}
       title={label}
-      className={`inline-flex h-5 w-5 items-center justify-center rounded-full border text-[10px] ${className}`}
+      className={`inline-flex h-5 w-5 items-center justify-center rounded-sm border text-bf-2xs ${className}`}
     >
       {glyph}
     </span>
@@ -221,31 +223,31 @@ function describeStatus(status: PaneStatus): {
   switch (status) {
     case 'ready':
       return {
-        className: 'border-emerald-500/40 bg-emerald-500/15 text-emerald-600 dark:text-emerald-300',
+        className: 'border-bf-success/40 text-bf-success',
         glyph: '✓',
         label: 'Ready',
       };
     case 'recomputing':
       return {
-        className: 'border-sky-500/40 bg-sky-500/15 text-sky-600 dark:text-sky-300',
+        className: 'border-border bg-bf-bg-active text-bf-text-secondary',
         glyph: '↻',
         label: 'Recomputing',
       };
     case 'computing':
       return {
-        className: 'border-sky-500/40 bg-sky-500/15 text-sky-600 dark:text-sky-300',
+        className: 'border-border bg-bf-bg-active text-bf-text-secondary',
         glyph: '⏳',
         label: 'Computing',
       };
     case 'stale':
       return {
-        className: 'border-amber-500/40 bg-amber-500/15 text-amber-600 dark:text-amber-300',
+        className: 'border-bf-warning/50 text-bf-warning',
         glyph: '⚠',
         label: 'Stale',
       };
     case 'failed':
       return {
-        className: 'border-rose-500/40 bg-rose-500/15 text-rose-600 dark:text-rose-300',
+        className: 'border-destructive/50 text-bf-danger',
         glyph: '!',
         label: 'Failed',
       };
@@ -324,7 +326,7 @@ function PaneActionsMenu({
         title="More actions"
         aria-label="More actions"
         onClick={() => setOpen((p) => !p)}
-        className="inline-flex h-6 w-6 items-center justify-center rounded-md border border-border bg-background text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-500"
+        className="inline-flex h-6 w-6 items-center justify-center rounded-sm border border-border bg-background text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
       >
         <svg viewBox="0 0 16 16" className="h-3 w-3" fill="currentColor" aria-hidden>
           <circle cx="3" cy="8" r="1.4" />
@@ -335,7 +337,7 @@ function PaneActionsMenu({
       {open ? (
         <div
           role="menu"
-          className="absolute right-0 top-7 z-20 min-w-[180px] overflow-hidden rounded-md border border-border bg-card shadow-md"
+          className="absolute right-0 top-7 z-20 min-w-[180px] overflow-hidden rounded-sm border border-border bg-card shadow-md"
         >
           {items.map((item) => (
             <button
@@ -348,7 +350,7 @@ function PaneActionsMenu({
                 setOpen(false);
                 item.onClick();
               }}
-              className={`block w-full px-3 py-2 text-left text-xs transition-colors hover:bg-accent hover:text-accent-foreground ${
+              className={`block w-full px-3 py-2 text-left text-bf-sm transition-colors hover:bg-accent hover:text-accent-foreground ${
                 item.disabled ? 'cursor-not-allowed opacity-40' : ''
               }`}
             >
@@ -380,7 +382,7 @@ function ColorbarChip({ label }: { label: string }) {
   return (
     <div
       aria-hidden
-      className="pointer-events-none absolute right-2 top-2 inline-flex items-center gap-1 rounded-full border border-border bg-background/80 px-2 py-0.5 text-[10px] uppercase tracking-[0.06em] text-muted-foreground"
+      className="pointer-events-none absolute right-2 top-2 inline-flex items-center gap-1 rounded-sm border border-border bg-background/80 px-2 py-0.5 text-bf-2xs text-muted-foreground"
     >
       <span className="h-2 w-3 rounded-sm bg-gradient-to-r from-sky-600 via-slate-200 to-rose-500" />
       <span className="font-mono">{label}</span>
@@ -406,7 +408,7 @@ function PaneSkeleton({
             ? reason ?? 'Materialization failed.'
             : reason ?? 'No binding yet.';
   return (
-    <div className="flex h-full items-center justify-center px-4 text-center text-[11px] text-muted-foreground">
+    <div className="flex h-full items-center justify-center px-4 text-center text-bf-xs text-muted-foreground">
       {message}
     </div>
   );

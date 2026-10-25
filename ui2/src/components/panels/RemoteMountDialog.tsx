@@ -80,7 +80,7 @@ function withAuthHint(message: string, authMethod: RemoteAuthMethod): string {
     return (
       `${message} ` +
       'This host is not offering password authentication. ' +
-      'Switch Auth Method to SSH Agent or SSH Key File, and verify username case (typically lowercase).'
+      'Switch Auth method to SSH Agent or SSH Key File, and verify username case (typically lowercase).'
     );
   }
 
@@ -89,7 +89,7 @@ function withAuthHint(message: string, authMethod: RemoteAuthMethod): string {
       return (
         `${message} ` +
         'This host expects keyboard-interactive authentication (often MFA/Duo). ' +
-        'Switch Auth Method to Keyboard Interactive and retry.'
+        'Switch Auth method to Keyboard interactive and retry.'
       );
     }
 
@@ -443,7 +443,7 @@ export function RemoteMountDialog({ isOpen, onClose, onMounted }: RemoteMountDia
     <Modal
       isOpen={isOpen}
       onClose={onClose}
-      title="Mount Remote Folder"
+      title="Mount remote folder"
       ariaLabel="Remote mount"
       size="xl"
       initialFocusRef={profileSelectRef}
@@ -461,7 +461,7 @@ export function RemoteMountDialog({ isOpen, onClose, onMounted }: RemoteMountDia
           {step === 'form' && (
             <div className="remote-mount-form-grid">
               <label className="remote-mount-field">
-                <span>Saved Profile</span>
+                <span>Saved profile</span>
                 <div className="remote-mount-profile-row">
                   <select
                     ref={profileSelectRef}
@@ -518,7 +518,7 @@ export function RemoteMountDialog({ isOpen, onClose, onMounted }: RemoteMountDia
               </div>
 
               <label className="remote-mount-field">
-                <span>Remote Folder</span>
+                <span>Remote folder</span>
                 <input
                   value={form.remotePath}
                   onChange={(event) =>
@@ -530,7 +530,7 @@ export function RemoteMountDialog({ isOpen, onClose, onMounted }: RemoteMountDia
               </label>
 
               <label className="remote-mount-field">
-                <span>Auth Method</span>
+                <span>Auth method</span>
                 <select
                   value={form.authMethod}
                   onChange={(event) => {
@@ -551,9 +551,9 @@ export function RemoteMountDialog({ isOpen, onClose, onMounted }: RemoteMountDia
                   disabled={pending}
                 >
                   <option value="password">Password</option>
-                  <option value="key_file">SSH Key File</option>
+                  <option value="key_file">SSH key file</option>
                   <option value="agent">SSH Agent</option>
-                  <option value="keyboard_interactive">Keyboard Interactive</option>
+                  <option value="keyboard_interactive">Keyboard interactive</option>
                 </select>
               </label>
 
@@ -588,7 +588,7 @@ export function RemoteMountDialog({ isOpen, onClose, onMounted }: RemoteMountDia
               {form.authMethod === 'key_file' && (
                 <>
                   <label className="remote-mount-field">
-                    <span>SSH Key File (optional)</span>
+                    <span>SSH key file (optional)</span>
                     <input
                       value={form.keyPath}
                       onChange={(event) =>
@@ -645,7 +645,7 @@ export function RemoteMountDialog({ isOpen, onClose, onMounted }: RemoteMountDia
 
               {form.saveProfile && (
                 <label className="remote-mount-field">
-                  <span>Profile Name</span>
+                  <span>Profile name</span>
                   <input
                     value={form.profileName}
                     onChange={(event) =>

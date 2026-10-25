@@ -7,7 +7,7 @@ import { resolvePopulationParticipants } from '@/services/studio/populationParti
 import type { PopulationParticipantDefinition } from '@/types/population';
 
 const control =
-  'w-full min-w-0 max-w-full rounded border border-border bg-background px-2 py-1 text-xs text-foreground';
+  'w-full min-w-0 max-w-full rounded-sm border border-border bg-background px-2 py-1 text-bf-sm text-foreground';
 export function PopulationUnitControls() {
   const state = useSetStudioStore();
   const [error, setError] = useState<string | null>(null);
@@ -46,7 +46,7 @@ export function PopulationUnitControls() {
   };
   if (!set) return null;
   return (
-    <details className="rounded border border-border bg-card px-3 py-2 text-xs">
+    <details className="rounded-sm border border-border bg-card px-3 py-2 text-bf-sm">
       <summary className="cursor-pointer">
         Analysis unit:{' '}
         {definition && definition.reduction !== 'observations' ? 'participants' : 'observations'} ·{' '}

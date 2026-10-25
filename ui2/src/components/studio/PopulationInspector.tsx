@@ -14,15 +14,15 @@ export function PopulationInspector() {
     (member) => member.memberId === state.selection.activeMemberId,
   );
   return (
-    <section aria-label="Population inspector" className="flex min-w-0 flex-col gap-3 p-3 text-sm">
+    <section aria-label="Population inspector" className="flex min-w-0 flex-col gap-3 p-3 text-bf-md">
       <div>
         <h2 className="font-medium">Population</h2>
-        <p className="mt-1 text-xs text-muted-foreground">
+        <p className="mt-1 text-bf-sm text-muted-foreground">
           {population.workingMemberIds.length} selected / {population.context.memberIds.length}{' '}
           available
         </p>
       </div>
-      <div className="border-t border-border pt-3 text-xs">
+      <div className="border-t border-border pt-3 text-bf-sm">
         <div className="text-muted-foreground">Focused observation</div>
         <p className="mt-1 break-all font-mono">{state.selection.activeMemberId ?? 'None'}</p>
         {source?.stackIndex != null && (
@@ -34,7 +34,7 @@ export function PopulationInspector() {
       <PopulationUnitControls />
       <PopulationMaskControls />
       <PopulationGroupControls />
-      <div className="border-t border-border pt-3 text-xs">
+      <div className="border-t border-border pt-3 text-bf-sm">
         <div className="text-muted-foreground">Spatial probe</div>
         <p className="mt-1">
           {state.population.pinnedProbe
@@ -43,7 +43,7 @@ export function PopulationInspector() {
         </p>
       </div>
       {saved && (
-        <details className="border-t border-border pt-3 text-xs">
+        <details className="border-t border-border pt-3 text-bf-sm">
           <summary className="cursor-pointer font-medium">
             Saved calculation · verified inputs
           </summary>
@@ -61,7 +61,7 @@ export function PopulationInspector() {
           ))}
         </details>
       )}
-      <p className="text-xs leading-5 text-muted-foreground">
+      <p className="text-bf-sm leading-5 text-muted-foreground">
         Summaries describe the selected observations. Focusing an individual keeps the selection and
         anatomical position fixed.
       </p>

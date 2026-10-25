@@ -10,11 +10,11 @@
 
 /* Additional styles for better contrast */
 .task-card-active {
-  background-color: rgba(16, 185, 129, 0.05);
-  border-color: #10b981;
+  background-color: var(--bf-accent-soft);
+  border-color: var(--bf-accent);
 }
 
 .task-card-inactive {
   background-color: transparent;
-  border-color: var(--app-border, #374151);
+  border-color: var(--bf-border);
 }

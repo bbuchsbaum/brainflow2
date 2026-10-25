@@ -84,8 +84,6 @@ function Segmented<T extends string>({
               cursor: "pointer",
               borderRadius: "var(--app-radius-sm)",
               fontSize: "var(--app-role-section-size)",
-              letterSpacing: "var(--app-role-section-tracking)",
-              textTransform: "uppercase",
               whiteSpace: "nowrap",
             }}
           >
@@ -114,8 +112,6 @@ export const ArrangementMenu: React.FC<ArrangementMenuProps> = ({
 
   const labelStyle: React.CSSProperties = {
     color: "var(--app-text-muted)",
-    textTransform: "uppercase",
-    letterSpacing: "var(--app-role-section-tracking)",
     fontSize: "var(--app-role-section-size)",
     marginBottom: "4px",
   };

@@ -41,7 +41,6 @@
 }
 
 .fb-selected-meta-pending {
-  font-style: italic;
   opacity: 0.7;
 }
 
@@ -49,7 +48,6 @@
   margin: 0;
   font-size: var(--app-role-label-size);
   color: var(--bf-text-muted);
-  font-style: italic;
 }
 
 .fb-selected-actions {
@@ -87,14 +85,14 @@
 }
 
 .fb-selected-button--primary {
-  background: var(--bf-accent);
-  color: #ffffff;
-  border-color: color-mix(in srgb, var(--bf-accent) 70%, #000 30%);
+  background: hsl(var(--primary));
+  color: var(--bf-text-inverse);
+  border-color: transparent;
 }
 
 .fb-selected-button--primary:hover:not(:disabled) {
-  background: var(--bf-accent-hover);
-  color: #fff;
+  background: hsl(var(--primary) / 0.88);
+  color: var(--bf-text-inverse);
 }
 
 @media (max-width: 320px) {

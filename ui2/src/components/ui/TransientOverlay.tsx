@@ -70,8 +70,8 @@ export function TransientOverlay({
         transition: 'opacity 300ms ease-out'
       }}
     >
-      <div className="bg-gray-900 bg-opacity-90 text-white px-4 py-2 rounded-lg shadow-lg">
-        <div className="text-sm font-medium">{message}</div>
+      <div className="bg-popover/95 border border-border text-foreground px-4 py-2 rounded-sm shadow-lg">
+        <div className="text-bf-sm font-medium">{message}</div>
       </div>
     </div>
   );

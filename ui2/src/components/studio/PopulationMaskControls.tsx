@@ -21,7 +21,7 @@ export function PopulationMaskControls() {
     }
   };
   return (
-    <div className="rounded border border-border bg-card px-3 py-2 text-xs">
+    <div className="rounded-sm border border-border bg-card px-3 py-2 text-bf-sm">
       <div className="flex flex-wrap items-center gap-2">
         <span title={mask?.sourcePath}>
           Mask: {mask ? mask.sourcePath.split(/[\\/]/).at(-1) : 'None · finite values included'}
@@ -29,7 +29,7 @@ export function PopulationMaskControls() {
         <button
           type="button"
           disabled={busy}
-          className="rounded border border-border px-2 py-1 hover:bg-accent disabled:opacity-50"
+          className="rounded-sm border border-border px-2 py-1 hover:bg-accent disabled:opacity-50"
           onClick={() => void choose()}
         >
           {busy ? 'Choosing…' : mask ? 'Change mask…' : 'Choose mask…'}
@@ -37,7 +37,7 @@ export function PopulationMaskControls() {
         {mask && (
           <button
             type="button"
-            className="rounded border border-border px-2 py-1 hover:bg-accent"
+            className="rounded-sm border border-border px-2 py-1 hover:bg-accent"
             onClick={() => {
               populationProbeActions.configureMask(null);
               setError(null);

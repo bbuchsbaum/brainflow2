@@ -221,7 +221,7 @@ export function SurfaceMetadataDrawer({
         
         <div className="mt-6 space-y-4">
           {sections.map((section) => (
-            <div key={section.title} className="border rounded-lg overflow-hidden">
+            <div key={section.title} className="border rounded-sm overflow-hidden">
               <button
                 type="button"
                 onClick={() => toggleSection(section.id)}
@@ -261,7 +261,7 @@ export function SurfaceMetadataDrawer({
                             title="Copy to clipboard"
                           >
                             {copiedField === field.label ? (
-                              <VscCheck className="h-3 w-3 text-green-500" />
+                              <VscCheck className="h-3 w-3 text-bf-success" />
                             ) : (
                               <VscCopy className="h-3 w-3 text-muted-foreground" />
                             )}
@@ -276,7 +276,7 @@ export function SurfaceMetadataDrawer({
           ))}
         </div>
         
-        <div className="mt-6 p-4 bg-muted/30 rounded-lg">
+        <div className="mt-6 p-4 bg-muted/30 rounded-sm">
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
             <VscInfo className="h-4 w-4" />
             <span>

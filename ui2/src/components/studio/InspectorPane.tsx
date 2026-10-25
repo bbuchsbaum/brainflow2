@@ -56,9 +56,9 @@ export function InspectorPane({
   if (!activeSet && !activeArtifact && !activeMemberId) {
     return (
       <StudioPane title="Details" showHeader={false}>
-        <div className="rounded-lg border border-border bg-background px-3 py-3">
-          <div className="text-sm font-medium text-foreground">Nothing selected</div>
-          <div className="mt-1 text-xs leading-5 text-muted-foreground">
+        <div className="rounded-sm border border-border bg-background px-3 py-3">
+          <div className="text-bf-md font-medium text-foreground">Nothing selected</div>
+          <div className="mt-1 text-bf-sm leading-5 text-muted-foreground">
             Select a member or compare result to inspect it here.
           </div>
         </div>
@@ -195,7 +195,7 @@ export function InspectorPane({
 
     const requestedTitle = (
       await getConfirmationService().prompt({
-        title: 'Save Recipe',
+        title: 'Save recipe',
         message: 'Save the current Studio recipe as:',
         defaultValue: activeArtifact.title,
         confirmLabel: 'Save',
@@ -238,16 +238,16 @@ export function InspectorPane({
       title="Details"
       showHeader={false}
     >
-      <div className="space-y-4 text-sm text-foreground">
+      <div className="space-y-4 text-bf-md text-foreground">
         {!activeArtifact && !activeMemberId ? (
-          <div className="rounded-lg border border-border bg-background px-3 py-3">
-            <div className="text-sm font-medium text-foreground">Nothing selected</div>
-            <div className="mt-1 text-xs leading-5 text-muted-foreground">
+          <div className="rounded-sm border border-border bg-background px-3 py-3">
+            <div className="text-bf-md font-medium text-foreground">Nothing selected</div>
+            <div className="mt-1 text-bf-sm leading-5 text-muted-foreground">
               Select a member or compare result to inspect it here.
             </div>
           </div>
         ) : (
-          <div className="space-y-4 divide-y divide-border rounded-lg border border-border bg-background px-3 py-3">
+          <div className="space-y-4 divide-y divide-border rounded-sm border border-border bg-background px-3 py-3">
             <DetailSection title="Current">
               <InfoRow label="Active" value={activeArtifact?.title ?? activeMemberId ?? 'No member selected'} />
               <InfoRow label="Source" value={activeArtifact?.sourcePath ?? activeMember?.sourcePath ?? 'No bound file path'} />
@@ -277,36 +277,36 @@ export function InspectorPane({
             ) : null}
 
             <DetailSection title="Actions">
-              <div className="flex flex-wrap gap-2">
+              <div className="flex flex-wrap gap-x-4 gap-y-2">
                 <Button
-                  variant="ghost"
+                  variant="link"
                   size="sm"
                   onClick={() => {
                     void copyText(activeArtifact?.recipe ?? activeExpression?.recipe ?? null, 'Recipe');
                   }}
                 >
-                  Copy Recipe
+                  Copy recipe
                 </Button>
                 <Button
-                  variant="ghost"
+                  variant="link"
                   size="sm"
                   onClick={() => {
                     void copyText(activeArtifact?.sourcePath ?? activeMember?.sourcePath ?? null, 'Source path');
                   }}
                 >
-                  Copy Path
+                  Copy path
                 </Button>
                 <Button
-                  variant="ghost"
+                  variant="link"
                   size="sm"
                   onClick={() => {
                     void copyText(activeArtifact?.provenancePath ?? null, 'Provenance path');
                   }}
                 >
-                  Copy Provenance Path
+                  Copy provenance path
                 </Button>
                 <Button
-                  variant="ghost"
+                  variant="link"
                   size="sm"
                   onClick={() => {
                     void copyText(provenanceJson, 'Provenance JSON');
@@ -315,44 +315,44 @@ export function InspectorPane({
                   Copy JSON
                 </Button>
                 <Button
-                  variant="ghost"
+                  variant="link"
                   size="sm"
                   onClick={() => {
                     void saveCurrentRecipe();
                   }}
                 >
-                  Save Recipe
+                  Save recipe
                 </Button>
               </div>
             </DetailSection>
           </div>
         )}
 
-        <div className="rounded-lg border border-border bg-background p-3">
+        <div className="rounded-sm border border-border bg-background p-3">
           <CollapsibleSection title={`Saved recipes (${savedRecipes.length})`} defaultExpanded={false}>
             {savedRecipes.length === 0 ? (
-              <div className="text-xs text-muted-foreground">No saved recipes yet.</div>
+              <div className="text-bf-sm text-muted-foreground">No saved recipes yet.</div>
             ) : (
               <div className="space-y-2">
                 {savedRecipes.map((recipe) => (
-                  <div key={recipe.id} className="rounded-md border border-border bg-card px-3 py-2">
+                  <div key={recipe.id} className="rounded-sm border border-border bg-card px-3 py-2">
                     <button
                       type="button"
                       onClick={() => onSelectArtifact(recipe.artifact)}
                       className="w-full text-left"
                     >
-                      <div className="text-xs text-muted-foreground">
+                      <div className="text-bf-sm text-muted-foreground">
                         saved {formatTimestamp(recipe.savedAtMs)}
                       </div>
-                      <div className="mt-1 text-sm text-foreground">{recipe.title}</div>
-                      <div className="mt-1 text-xs text-muted-foreground">
+                      <div className="mt-1 text-bf-md text-foreground">{recipe.title}</div>
+                      <div className="mt-1 text-bf-sm text-muted-foreground">
                         {recipe.subtitle ?? recipe.artifact.recipe ?? 'No recipe subtitle'}
                       </div>
-                      <div className="mt-1 text-xs text-muted-foreground">
+                      <div className="mt-1 text-bf-sm text-muted-foreground">
                         {formatSavedRecipeSummary(recipe)}
                       </div>
                       {recipe.scopeCohortLabel ? (
-                        <div className="mt-1 text-xs text-muted-foreground">
+                        <div className="mt-1 text-bf-sm text-muted-foreground">
                           scope {formatCapturedCohortOrigin(
                             recipe.scopeCohortLabel,
                             recipe.scopeCohortOriginKind,
@@ -375,7 +375,7 @@ export function InspectorPane({
                           void copyText(recipe.artifact.recipe, 'Saved recipe');
                         }}
                       >
-                        Copy Recipe
+                        Copy recipe
                       </Button>
                       <Button
                         variant="ghost"
@@ -404,18 +404,18 @@ export function InspectorPane({
             )}
           </CollapsibleSection>
         </div>
-        <div className="rounded-lg border border-border bg-background p-3">
+        <div className="rounded-sm border border-border bg-background p-3">
           <CollapsibleSection title={`Recent artifacts (${artifactHistory.length})`} defaultExpanded={false}>
             {artifactHistory.length === 0 ? (
-              <div className="text-xs text-muted-foreground">No artifact history yet.</div>
+              <div className="text-bf-sm text-muted-foreground">No artifact history yet.</div>
             ) : (
               <div className="space-y-2">
                 {artifactHistory.map((artifact) => (
                   <div
                     key={artifact.id}
-                    className={`rounded-md border px-3 py-2 transition-colors ${
+                    className={`rounded-sm border px-3 py-2 transition-colors ${
                       activeArtifact?.id === artifact.id
-                        ? 'border-sky-500/60 bg-sky-500/10'
+                        ? 'border-border bg-bf-bg-selected shadow-[inset_2px_0_0_var(--bf-accent)]'
                         : 'border-border bg-card'
                     }`}
                   >
@@ -424,17 +424,17 @@ export function InspectorPane({
                       onClick={() => onSelectArtifact(artifact)}
                       className="w-full text-left"
                     >
-                      <div className="text-xs text-muted-foreground">
+                      <div className="text-bf-sm text-muted-foreground">
                         {artifact.lens} {artifact.paneId ? `· ${artifact.paneId}` : ''} · inspected {formatTimestamp(artifact.capturedAtMs)}
                       </div>
-                      <div className="mt-1 text-sm text-foreground">{artifact.title}</div>
-                      <div className="mt-1 text-xs text-muted-foreground">
+                      <div className="mt-1 text-bf-md text-foreground">{artifact.title}</div>
+                      <div className="mt-1 text-bf-sm text-muted-foreground">
                         {artifactBindingLabel(artifact)}
                       </div>
-                      <div className="mt-1 text-xs text-muted-foreground">
+                      <div className="mt-1 text-bf-sm text-muted-foreground">
                         materialized {materializedLabel(artifact)}
                       </div>
-                      <div className="mt-1 text-xs text-muted-foreground">
+                      <div className="mt-1 text-bf-sm text-muted-foreground">
                         cohort {formatCapturedCohortOrigin(
                           artifact.cohortLabel,
                           artifact.cohortOriginKind,
@@ -466,8 +466,8 @@ export function InspectorPane({
 function InfoRow({ label, value }: { label: string; value: string }) {
   return (
     <div>
-      <div className="text-xs text-muted-foreground">{label}</div>
-      <div className="mt-1 text-sm text-foreground">{value}</div>
+      <div className="text-bf-sm text-muted-foreground">{label}</div>
+      <div className="mt-1 text-bf-md text-foreground">{value}</div>
     </div>
   );
 }
@@ -475,7 +475,7 @@ function InfoRow({ label, value }: { label: string; value: string }) {
 function DetailSection({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <section className="pt-4 first:pt-0">
-      <div className="text-sm font-medium text-foreground">{title}</div>
+      <div className="text-bf-md font-medium text-foreground">{title}</div>
       <div className="mt-2 space-y-2">{children}</div>
     </section>
   );

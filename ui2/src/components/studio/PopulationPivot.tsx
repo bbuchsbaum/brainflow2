@@ -22,10 +22,10 @@ export function PopulationPivot({
   }
   const rows = pivot.rows.slice(rowPage * 8, rowPage * 8 + 8),
     columns = pivot.columns.slice(columnPage * 8, columnPage * 8 + 8);
-  const control = 'rounded border border-border px-2 py-1 disabled:opacity-40';
+  const control = 'rounded-sm border border-border px-2 py-1 disabled:opacity-40';
   return (
     <details
-      className="rounded border border-border p-2 text-xs"
+      className="rounded-sm border border-border p-2 text-bf-sm"
       aria-label="Population group matrix"
     >
       <summary className="cursor-pointer">

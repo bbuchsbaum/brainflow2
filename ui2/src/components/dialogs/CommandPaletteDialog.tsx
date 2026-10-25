@@ -136,7 +136,7 @@ export function CommandPaletteDialog({ open, commands, onClose }: CommandPalette
       overlayClassName="items-start pt-20 bg-black/55"
       className="max-w-2xl overflow-hidden rounded-sm border shadow-2xl"
     >
-        <div className="flex items-center gap-2 border-b px-3 py-2" style={{ borderColor: 'var(--app-border-subtle, #e2e8f0)' }}>
+        <div className="flex items-center gap-2 border-b px-3 py-2" style={{ borderColor: 'var(--bf-border-subtle)' }}>
           <Search className="h-4 w-4 text-muted-foreground" />
           <input
             ref={inputRef}
@@ -166,7 +166,7 @@ export function CommandPaletteDialog({ open, commands, onClose }: CommandPalette
                   type="button"
                   role="option"
                   aria-selected={selected}
-                  className={`flex w-full items-start justify-between gap-3 px-3 py-2 text-left text-sm ${selected ? 'bg-accent shadow-[inset_2px_0_0_hsl(var(--primary))]' : 'hover:bg-accent'}`}
+                  className={`flex w-full items-start justify-between gap-3 px-3 py-2 text-left text-sm ${selected ? 'bg-accent shadow-[inset_2px_0_0_var(--bf-accent)]' : 'hover:bg-accent'}`}
                   onMouseEnter={() => setSelectedIndex(index)}
                   onClick={() => {
                     void executeCommand(command);
@@ -178,7 +178,7 @@ export function CommandPaletteDialog({ open, commands, onClose }: CommandPalette
                       <div className="mt-0.5 text-xs text-muted-foreground">{command.subtitle}</div>
                     ) : null}
                   </div>
-                  <div className="shrink-0 text-[10px] uppercase tracking-[0.08em] text-muted-foreground">
+                  <div className="shrink-0 text-bf-2xs text-muted-foreground">
                     {running ? 'Running...' : command.shortcut ?? command.group ?? ''}
                   </div>
                 </button>
@@ -187,7 +187,7 @@ export function CommandPaletteDialog({ open, commands, onClose }: CommandPalette
           )}
         </div>
 
-        <div className="border-t px-3 py-2 text-xs text-muted-foreground" style={{ borderColor: 'var(--app-border-subtle, #e2e8f0)' }}>
+        <div className="border-t px-3 py-2 text-xs text-muted-foreground" style={{ borderColor: 'var(--bf-border-subtle)' }}>
           Use ↑/↓ to navigate, Enter to run, Esc to close.
         </div>
     </Modal>

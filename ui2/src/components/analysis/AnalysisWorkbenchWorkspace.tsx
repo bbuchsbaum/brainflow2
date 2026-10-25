@@ -8,6 +8,8 @@ import type {
 import { useSelectedLayer, useSelectedLayerId, useLayerMetadata } from '@/stores/layerStore';
 import { getAnalysisService } from '@/services/analysis/AnalysisService';
 import { buildAnalysisStartRequest, useAnalysisStore } from '@/stores/analysisStore';
+import { Button } from '@/components/ui/shadcn/button';
+import { JobStatusPill } from './JobStatusPill';
 
 interface AnalysisWorkbenchWorkspaceProps {
   workspaceId: string;
@@ -15,23 +17,6 @@ interface AnalysisWorkbenchWorkspaceProps {
 
 function runnerLabel(descriptor: AnalysisDescriptor): string {
   return descriptor.runner.type === 'builtin' ? 'Builtin' : 'Sidecar';
-}
-
-function stateLabel(job: AnalysisJobStatus): string {
-  switch (job.state) {
-    case 'queued':
-      return 'Queued';
-    case 'running':
-      return 'Running';
-    case 'completed':
-      return 'Completed';
-    case 'failed':
-      return 'Failed';
-    case 'cancelled':
-      return 'Cancelled';
-    default:
-      return job.state;
-  }
 }
 
 function isArtifactOpenable(artifact: AnalysisArtifact): boolean {
@@ -114,24 +99,22 @@ function JobCard({
           <p className="bf-role-body text-foreground truncate">
             {descriptor?.name ?? job.analysis_id}
           </p>
-          <p className="bf-role-mono text-[10px] text-muted-foreground mt-1 truncate">
+          <p className="bf-role-mono text-bf-2xs text-muted-foreground mt-1 truncate">
             {job.job_id}
           </p>
         </div>
-        <span className="rounded-appsm border border-border px-2 py-1 text-[10px] uppercase tracking-[0.08em] text-muted-foreground">
-          {stateLabel(job)}
-        </span>
+        <JobStatusPill state={job.state} />
       </div>
 
       {progressPct !== null && (job.state === 'queued' || job.state === 'running' || job.state === 'completed') && (
         <div className="space-y-1">
-          <div className="h-1.5 rounded-full bg-muted overflow-hidden">
+          <div className="h-1.5 rounded-sm bg-bf-bg-panel-sunken overflow-hidden">
             <div
               className="h-full bg-primary transition-[width]"
               style={{ width: `${progressPct}%` }}
             />
           </div>
-          <div className="flex items-center justify-between text-[10px] text-muted-foreground">
+          <div className="flex items-center justify-between text-bf-2xs text-muted-foreground">
             <span>{job.message ?? 'No status message'}</span>
             <span>{progressPct}%</span>
           </div>
@@ -139,7 +122,7 @@ function JobCard({
       )}
 
       {job.error && (
-        <div className="rounded-appsm border border-destructive/40 bg-destructive/10 px-3 py-2 text-[11px] text-destructive">
+        <div className="rounded-appsm border border-destructive/40 bg-destructive/10 px-3 py-2 text-bf-xs text-destructive">
           {job.error}
         </div>
       )}
@@ -150,24 +133,24 @@ function JobCard({
           {job.artifacts.map((artifact, index) => (
             <div
               key={`${job.job_id}-${artifact.path}-${index}`}
-              className="rounded-appsm border border-border/70 bg-muted/20 px-3 py-2"
+              className="rounded-appsm border border-bf-border-subtle bg-bf-bg-panel-sunken px-3 py-2"
             >
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
-                  <p className="text-sm text-foreground truncate">
+                  <p className="text-bf-md text-foreground truncate">
                     {artifact.name ?? artifact.kind}
                   </p>
-                  <p className="text-[10px] uppercase tracking-[0.08em] text-muted-foreground mt-1">
+                  <p className="text-bf-2xs text-muted-foreground mt-1">
                     {artifact.kind}
                   </p>
-                  <p className="bf-role-mono text-[10px] text-muted-foreground truncate mt-1">
+                  <p className="bf-role-mono text-bf-2xs text-muted-foreground truncate mt-1" title={artifact.path}>
                     {artifact.path}
                   </p>
                 </div>
                 {isArtifactOpenable(artifact) && (
                   <button
                     type="button"
-                    className="shrink-0 rounded-appsm border border-border px-2.5 py-1 text-[10px] uppercase tracking-[0.08em] text-foreground hover:bg-muted/50"
+                    className="shrink-0 rounded-appsm border border-border px-2.5 py-1 text-bf-2xs text-foreground hover:bg-accent"
                     onClick={() => onOpenArtifact(artifact)}
                   >
                     Open
@@ -182,10 +165,10 @@ function JobCard({
       {(job.state === 'queued' || job.state === 'running') && (
         <button
           type="button"
-          className="rounded-appsm border border-border px-3 py-1.5 text-[10px] uppercase tracking-[0.08em] text-foreground hover:bg-muted/50"
+          className="rounded-appsm border border-border px-3 py-1.5 text-bf-2xs text-foreground hover:bg-accent"
           onClick={() => onCancel(job.job_id)}
         >
-          Cancel Job
+          Cancel job
         </button>
       )}
     </div>
@@ -285,7 +268,7 @@ export function AnalysisWorkbenchWorkspace({ workspaceId: _workspaceId }: Analys
       <aside className="w-72 shrink-0 border-r border-border bg-card/40 p-4 overflow-y-auto">
         <div className="space-y-2">
           <p className="bf-role-section text-muted-foreground">Analyses</p>
-          <h2 className="bf-role-title text-foreground">Analysis Workbench</h2>
+          <h2 className="bf-role-title text-foreground">Analysis workbench</h2>
           <p className="bf-role-body text-muted-foreground">
             Builtin and sidecar analysis descriptors discovered from the backend.
           </p>
@@ -293,12 +276,12 @@ export function AnalysisWorkbenchWorkspace({ workspaceId: _workspaceId }: Analys
 
         <div className="mt-4 space-y-2">
           {loadStatus === 'loading' && (
-            <div className="rounded-appsm border border-border bg-card px-3 py-2 text-sm text-muted-foreground">
+            <div className="rounded-appsm border border-border bg-card px-3 py-2 text-bf-md text-muted-foreground">
               Loading analyses…
             </div>
           )}
           {loadError && (
-            <div className="rounded-appsm border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+            <div className="rounded-appsm border border-destructive/40 bg-destructive/10 px-3 py-2 text-bf-md text-destructive">
               {loadError}
             </div>
           )}
@@ -311,17 +294,17 @@ export function AnalysisWorkbenchWorkspace({ workspaceId: _workspaceId }: Analys
                 onClick={() => selectAnalysis(descriptor.id)}
                 className={`w-full rounded-appsm border px-3 py-3 text-left transition-colors ${
                   isSelected
-                    ? 'border-primary/60 bg-primary/10'
-                    : 'border-border bg-card hover:bg-muted/30'
+                    ? 'border-border bg-bf-bg-selected shadow-[inset_2px_0_0_var(--bf-accent)]'
+                    : 'border-border bg-card hover:bg-accent'
                 }`}
               >
                 <div className="flex items-center justify-between gap-2">
-                  <span className="text-sm font-medium text-foreground">{descriptor.name}</span>
-                  <span className="text-[10px] uppercase tracking-[0.08em] text-muted-foreground">
+                  <span className="text-bf-md font-medium text-foreground">{descriptor.name}</span>
+                  <span className="text-bf-xs text-bf-text-secondary">
                     {runnerLabel(descriptor)}
                   </span>
                 </div>
-                <p className="text-xs text-muted-foreground mt-1 truncate">
+                <p className="text-bf-sm text-muted-foreground mt-1 truncate">
                   {descriptor.description ?? 'No description'}
                 </p>
               </button>
@@ -339,10 +322,10 @@ export function AnalysisWorkbenchWorkspace({ workspaceId: _workspaceId }: Analys
           <div className="space-y-5">
             <header className="space-y-2">
               <div className="flex items-center gap-2">
-                <span className="rounded-appsm border border-border px-2 py-1 text-[10px] uppercase tracking-[0.08em] text-muted-foreground">
+                <span className="rounded-appsm border border-border px-2 py-1 text-bf-xs text-bf-text-secondary">
                   {runnerLabel(selectedDescriptor)}
                 </span>
-                <span className="rounded-appsm border border-border px-2 py-1 text-[10px] uppercase tracking-[0.08em] text-muted-foreground">
+                <span className="rounded-appsm border border-border px-2 py-1 text-bf-xs text-bf-text-secondary">
                   v{selectedDescriptor.version}
                 </span>
               </div>
@@ -359,29 +342,29 @@ export function AnalysisWorkbenchWorkspace({ workspaceId: _workspaceId }: Analys
                     <p className="bf-role-section text-muted-foreground">Contract</p>
                     <div className="mt-3 grid gap-4 md:grid-cols-2">
                       <div>
-                        <p className="text-xs uppercase tracking-[0.08em] text-muted-foreground">Inputs</p>
+                        <p className="text-bf-xs font-medium text-muted-foreground">Inputs</p>
                         <div className="mt-2 flex flex-wrap gap-2">
                           {selectedDescriptor.inputs.length > 0 ? (
                             selectedDescriptor.inputs.map((inputKind) => (
                               <span
                                 key={inputKind}
-                                className="rounded-appsm border border-border px-2 py-1 text-[11px] text-foreground"
+                                className="rounded-appsm border border-border px-2 py-1 text-bf-xs text-foreground"
                               >
                                 {inputKind}
                               </span>
                             ))
                           ) : (
-                            <span className="text-sm text-muted-foreground">No inputs</span>
+                            <span className="text-bf-md text-muted-foreground">No inputs</span>
                           )}
                         </div>
                       </div>
                       <div>
-                        <p className="text-xs uppercase tracking-[0.08em] text-muted-foreground">Outputs</p>
+                        <p className="text-bf-xs font-medium text-muted-foreground">Outputs</p>
                         <div className="mt-2 flex flex-wrap gap-2">
                           {selectedDescriptor.outputs.map((outputKind) => (
                             <span
                               key={outputKind}
-                              className="rounded-appsm border border-border px-2 py-1 text-[11px] text-foreground"
+                              className="rounded-appsm border border-border px-2 py-1 text-bf-xs text-foreground"
                             >
                               {outputKind}
                             </span>
@@ -391,26 +374,38 @@ export function AnalysisWorkbenchWorkspace({ workspaceId: _workspaceId }: Analys
                     </div>
                   </div>
 
-                  <div className="rounded-appsm border border-border/70 bg-muted/20 p-3">
-                    <p className="text-xs uppercase tracking-[0.08em] text-muted-foreground">Bound Input</p>
+                  <div className="min-w-0 border-t border-border pt-3">
+                    <p className="text-bf-xs font-medium text-muted-foreground">Bound input</p>
                     {bindingState.inputs[0] ? (
-                      <div className="mt-2 space-y-1">
-                        <p className="text-sm text-foreground">{bindingState.inputs[0].name ?? bindingState.inputs[0].handle}</p>
-                        <p className="bf-role-mono text-[10px] text-muted-foreground truncate">
+                      <div className="mt-2 min-w-0 space-y-1">
+                        <p
+                          className="truncate text-bf-md text-foreground"
+                          title={bindingState.inputs[0].name ?? bindingState.inputs[0].handle ?? undefined}
+                        >
+                          {bindingState.inputs[0].name ?? bindingState.inputs[0].handle}
+                        </p>
+                        <p
+                          className="bf-role-mono text-bf-2xs text-muted-foreground truncate"
+                          title={bindingState.inputs[0].path ?? undefined}
+                        >
                           {bindingState.inputs[0].path}
                         </p>
                       </div>
                     ) : (
-                      <p className="mt-2 text-sm text-muted-foreground">{bindingState.reason}</p>
+                      <p className="mt-2 text-bf-md text-muted-foreground">{bindingState.reason}</p>
                     )}
                   </div>
 
+                  <p className="text-bf-md text-muted-foreground">
+                    The current workbench slice supports runnable single-volume analyses.
+                  </p>
+
                   <div className="space-y-2">
                     <div className="flex items-center justify-between gap-3">
-                      <p className="text-xs uppercase tracking-[0.08em] text-muted-foreground">Parameters (JSON)</p>
+                      <p className="text-bf-xs font-medium text-muted-foreground">Parameters (JSON)</p>
                       <button
                         type="button"
-                        className="rounded-appsm border border-border px-2.5 py-1 text-[10px] uppercase tracking-[0.08em] text-foreground hover:bg-muted/50"
+                        className="rounded-appsm border border-border px-2.5 py-1 text-bf-2xs text-foreground hover:bg-accent"
                         onClick={() => setParamDraft(selectedDescriptor.id, '{}')}
                       >
                         Clear
@@ -420,28 +415,27 @@ export function AnalysisWorkbenchWorkspace({ workspaceId: _workspaceId }: Analys
                       value={paramDraft}
                       onChange={(event) => setParamDraft(selectedDescriptor.id, event.target.value)}
                       spellCheck={false}
-                      className="min-h-[220px] w-full rounded-appsm border border-border bg-background px-3 py-2 font-mono text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                      className="min-h-[220px] w-full rounded-appsm border border-border bg-background px-3 py-2 font-mono text-bf-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                     />
                   </div>
 
                   {startError && (
-                    <div className="rounded-appsm border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+                    <div className="rounded-appsm border border-destructive/40 bg-destructive/10 px-3 py-2 text-bf-md text-destructive">
                       {startError}
                     </div>
                   )}
 
-                  <div className="flex items-center justify-between gap-3">
-                    <p className="text-sm text-muted-foreground">
-                      The current workbench slice supports runnable single-volume analyses.
-                    </p>
-                    <button
+                  <div className="flex items-center">
+                    <Button
                       type="button"
-                      className="rounded-appsm border border-primary/60 bg-primary/10 px-4 py-2 text-sm text-foreground disabled:cursor-not-allowed disabled:opacity-50"
+                      variant="default"
+                      size="lg"
+                      className="shrink-0"
                       disabled={isStarting || bindingState.inputs.length === 0}
                       onClick={handleRun}
                     >
                       {isStarting ? 'Starting…' : 'Run Analysis'}
-                    </button>
+                    </Button>
                   </div>
                 </div>
               </div>
@@ -449,17 +443,17 @@ export function AnalysisWorkbenchWorkspace({ workspaceId: _workspaceId }: Analys
               <aside className="space-y-4">
                 <div>
                   <p className="bf-role-section text-muted-foreground">Jobs</p>
-                  <h2 className="bf-role-title text-foreground mt-1">Run History</h2>
+                  <h2 className="bf-role-title text-foreground mt-1">Run history</h2>
                 </div>
 
                 {artifactError && (
-                  <div className="rounded-appsm border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+                  <div className="rounded-appsm border border-destructive/40 bg-destructive/10 px-3 py-2 text-bf-md text-destructive">
                     {artifactError}
                   </div>
                 )}
 
                 {jobs.length === 0 ? (
-                  <div className="rounded-appsm border border-border bg-card p-4 text-sm text-muted-foreground">
+                  <div className="rounded-appsm border border-border bg-card p-4 text-bf-md text-muted-foreground">
                     No analysis jobs yet. Run the selected analysis to populate this panel.
                   </div>
                 ) : (

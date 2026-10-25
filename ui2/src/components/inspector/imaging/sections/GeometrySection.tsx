@@ -122,12 +122,12 @@ function GeometrySectionBody() {
             if (preset) applyLighting(preset.values);
           }}
         >
-          <SelectTrigger className="h-7 w-[128px] text-[12px]">
+          <SelectTrigger className="h-7 w-[128px] text-bf-sm">
             <SelectValue placeholder="Custom" />
           </SelectTrigger>
           <SelectContent>
             {LIGHTING_PRESETS.map((p) => (
-              <SelectItem key={p.name} value={p.name} className="text-[12px]">
+              <SelectItem key={p.name} value={p.name} className="text-bf-sm">
                 {p.name}
               </SelectItem>
             ))}
@@ -143,12 +143,12 @@ function GeometrySectionBody() {
             if (preset) applyMaterial(preset.values);
           }}
         >
-          <SelectTrigger className="h-7 w-[128px] text-[12px]">
+          <SelectTrigger className="h-7 w-[128px] text-bf-sm">
             <SelectValue placeholder="Custom" />
           </SelectTrigger>
           <SelectContent>
             {MATERIAL_PRESETS.map((p) => (
-              <SelectItem key={p.name} value={p.name} className="text-[12px]">
+              <SelectItem key={p.name} value={p.name} className="text-bf-sm">
                 {p.name}
               </SelectItem>
             ))}
@@ -161,14 +161,14 @@ function GeometrySectionBody() {
           value={display.flatShading ? 'Flat' : 'Smooth'}
           onValueChange={(v) => applyDisplay({ flatShading: v === 'Flat' })}
         >
-          <SelectTrigger className="h-7 w-[128px] text-[12px]">
+          <SelectTrigger className="h-7 w-[128px] text-bf-sm">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="Smooth" className="text-[12px]">
+            <SelectItem value="Smooth" className="text-bf-sm">
               Smooth
             </SelectItem>
-            <SelectItem value="Flat" className="text-[12px]">
+            <SelectItem value="Flat" className="text-bf-sm">
               Flat
             </SelectItem>
           </SelectContent>
@@ -187,7 +187,7 @@ function GeometrySectionBody() {
           <PopoverTrigger asChild>
             <button
               type="button"
-              className="flex w-full items-center justify-center gap-1.5 rounded-md border border-border bg-card/40 px-3 py-1.5 text-[11px] text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+              className="flex w-full items-center justify-center gap-1.5 rounded-sm border border-border bg-card/40 px-3 py-1.5 text-bf-xs text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
             >
               <GearIcon />
               Surface settings…

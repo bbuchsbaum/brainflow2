@@ -7,7 +7,7 @@ import { studioMetadata } from '@/services/studio/studioMetadata';
 import { resolvePopulationParticipants } from '@/services/studio/populationParticipants';
 
 const control =
-  'w-full min-w-0 rounded border border-border bg-background px-2 py-1 text-xs disabled:opacity-40';
+  'w-full min-w-0 rounded-sm border border-border bg-background px-2 py-1 text-bf-sm disabled:opacity-40';
 export function PopulationGroupControls() {
   const state = useSetStudioStore();
   const population = resolvePopulation(state);
@@ -38,7 +38,7 @@ export function PopulationGroupControls() {
       : null;
   return (
     <div
-      className="space-y-3 border-t border-border pt-3 text-xs"
+      className="space-y-3 border-t border-border pt-3 text-bf-sm"
       aria-label="Population groups and reference"
     >
       <label className="block space-y-1">
@@ -91,7 +91,7 @@ export function PopulationGroupControls() {
         Show factor groups
       </button>
       {state.population.partition && (
-        <details className="rounded border border-border p-2">
+        <details className="rounded-sm border border-border p-2">
           <summary className="cursor-pointer">Choose comparison groups</summary>
           <p className="my-2 text-muted-foreground">
             Assign A and B from exact group membership, even before a summary is available.

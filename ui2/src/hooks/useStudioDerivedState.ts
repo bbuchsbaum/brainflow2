@@ -311,42 +311,42 @@ export function deriveWorkspaceReadiness(activeSet: SpatialFieldSetSummary | nul
   if (readiness === 'compare_ready') {
     return {
       state: 'ready' as const,
-      eyebrow: 'Compare Ready',
+      eyebrow: 'Compare ready',
       title: 'This set is ready for cohort-relative reading',
       message:
         'Alignment and join audit are clean enough to trust Compare as the primary workflow.',
-      className: 'border-emerald-500/30 bg-emerald-500/10 text-foreground',
+      className: 'border-bf-success/40 bg-card text-foreground',
     };
   }
 
   if (readiness === 'inspect_only') {
     return {
       state: 'blocked' as const,
-      eyebrow: 'Audit Attention',
+      eyebrow: 'Audit attention',
       title: 'Inspect this set before relying on Compare',
       message:
         'Blocking ingest or support problems are present. Use Deck and the audit panels to inspect the set first.',
-      className: 'border-rose-500/30 bg-rose-500/10 text-foreground',
+      className: 'border-bf-danger/30 bg-bf-danger-soft text-foreground',
     };
   }
 
   if (readiness === 'blocked') {
     return {
       state: 'blocked' as const,
-      eyebrow: 'Import Blocked',
+      eyebrow: 'Import blocked',
       title: 'Fix import errors before relying on this set',
       message: activeSet.importContract?.reason ?? 'The import contract marks this set as blocked.',
-      className: 'border-rose-500/30 bg-rose-500/10 text-foreground',
+      className: 'border-bf-danger/30 bg-bf-danger-soft text-foreground',
     };
   }
 
   return {
     state: 'review' as const,
-    eyebrow: 'Deck First',
+    eyebrow: 'Deck first',
     title: 'Warnings are present; review before compare',
     message:
       'Studio can still browse this set, but unmatched rows, duplicate keys, or support warnings mean Compare should be treated as provisional.',
-    className: 'border-amber-500/30 bg-amber-500/10 text-foreground',
+    className: 'border-bf-warning/50 bg-card text-foreground',
   };
 }
 
@@ -356,7 +356,7 @@ export function buildSubsetCohortLabel(filters: StudioDesignFilter[], search: st
     ...(search.trim() ? [`search ${search.trim()}`] : []),
   ];
   if (parts.length === 0) {
-    return 'Saved Subset';
+    return 'Saved subset';
   }
   return `Subset · ${trimLabel(parts.join(' · '), 48)}`;
 }

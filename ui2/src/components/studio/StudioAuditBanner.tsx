@@ -34,11 +34,11 @@ export function StudioAuditBanner({ activeSet, readiness }: StudioAuditBannerPro
   return (
     <section
       aria-label="Set Studio audit summary"
-      className={`mx-3 mt-3 flex flex-wrap items-center gap-3 rounded-lg border px-4 py-2.5 text-xs ${tone.container}`}
+      className={`mx-3 mt-3 flex flex-wrap items-center gap-3 rounded-sm border px-4 py-2.5 text-bf-sm ${tone.container}`}
     >
       <div className="flex items-center gap-2">
         <StatusIcon className={`h-4 w-4 ${tone.icon}`} aria-hidden />
-        <span className={`text-[11px] font-medium uppercase tracking-[0.06em] ${tone.label}`}>
+        <span className={`text-bf-xs font-medium ${tone.label}`}>
           {readiness.eyebrow}
         </span>
       </div>
@@ -47,7 +47,9 @@ export function StudioAuditBanner({ activeSet, readiness }: StudioAuditBannerPro
         label="Matched"
         value={`${audit.join.matchedRows}`}
         suffix={totalRows > 0 ? `(${matchedPct}%)` : undefined}
-        severity={audit.join.severity}
+        // Matched rows are a count, not a caution: stay neutral unless the
+        // join failed outright. Unmatched rows carry the warning tone.
+        severity={audit.join.severity === 'error' ? 'error' : 'ok'}
       />
       <Chip
         label="Unmatched"
@@ -91,17 +93,17 @@ function Chip({
 }) {
   const severityClass =
     severity === 'error'
-      ? 'border-rose-500/30 bg-rose-500/10 text-rose-700 dark:text-rose-200'
+      ? 'border-destructive/50 text-bf-danger'
       : severity === 'warning'
-        ? 'border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-200'
+        ? 'border-bf-warning/50 text-bf-warning'
         : 'border-border bg-background/60 text-foreground';
   return (
     <span
-      className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 ${severityClass} ${
+      className={`inline-flex items-center gap-1.5 rounded-sm border px-2.5 py-1 ${severityClass} ${
         wide ? 'max-w-[260px]' : ''
       }`}
     >
-      <span className="text-[10px] font-medium uppercase tracking-[0.06em] text-muted-foreground">
+      <span className="text-bf-2xs font-medium text-muted-foreground">
         {label}
       </span>
       <span
@@ -126,25 +128,23 @@ function toneClasses(state: WorkspaceReadiness['state']) {
   switch (state) {
     case 'ready':
       return {
-        container:
-          'border-emerald-500/30 bg-emerald-500/10 text-emerald-900 dark:text-emerald-100',
-        icon: 'text-emerald-500',
-        label: 'text-emerald-700 dark:text-emerald-200',
+        container: 'border-border bg-card text-foreground',
+        icon: 'text-bf-success',
+        label: 'text-bf-success',
       };
     case 'review':
       return {
-        container:
-          'border-amber-500/30 bg-amber-500/10 text-amber-900 dark:text-amber-100',
-        icon: 'text-amber-500',
-        label: 'text-amber-700 dark:text-amber-200',
+        container: 'border-bf-warning/50 bg-card text-foreground',
+        icon: 'text-bf-warning',
+        label: 'text-bf-warning',
       };
     case 'blocked':
     default:
       return {
         container:
-          'border-rose-500/40 bg-rose-500/10 text-rose-900 dark:text-rose-100',
-        icon: 'text-rose-500',
-        label: 'text-rose-700 dark:text-rose-200',
+          'border-destructive/40 bg-bf-danger-soft text-foreground',
+        icon: 'text-bf-danger',
+        label: 'text-bf-danger',
       };
   }
 }

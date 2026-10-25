@@ -72,15 +72,15 @@ export function StudioTimeRow({
     <section
       aria-label="Pane A time scrubber"
       title={disabledReason ?? undefined}
-      className={`flex items-center gap-3 rounded-lg border border-border bg-card px-3 py-2 ${
+      className={`flex items-center gap-3 rounded-sm border border-border bg-card px-3 py-2 ${
         disabledReason ? 'opacity-60' : ''
       }`}
     >
       <div className="flex flex-col">
-        <span className="text-[11px] font-medium uppercase tracking-[0.06em] text-muted-foreground">
+        <span className="text-bf-xs font-medium text-muted-foreground">
           Time (4D)
         </span>
-        <span className="text-[10px] text-muted-foreground/80">Applies to Pane A only</span>
+        <span className="text-bf-2xs text-muted-foreground">Applies to Pane A only</span>
       </div>
 
       <div className="flex shrink-0 items-center gap-1">
@@ -129,18 +129,18 @@ export function StudioTimeRow({
         disabled={!isFourD}
         onChange={(event) => onFrameChange(Number.parseInt(event.target.value, 10) || 0)}
         aria-label="Frame index"
-        className="h-1 flex-1 cursor-pointer appearance-none rounded-full bg-border accent-sky-500 disabled:cursor-not-allowed"
+        className="h-1 flex-1 cursor-pointer appearance-none rounded-sm bg-border accent-primary disabled:cursor-not-allowed"
       />
 
       <div
-        className="flex shrink-0 items-baseline gap-3 font-mono text-xs text-muted-foreground tabular-nums"
+        className="flex shrink-0 items-baseline gap-3 font-mono text-bf-sm text-muted-foreground tabular-nums"
         style={{ fontVariantNumeric: 'tabular-nums' }}
       >
         <span className="text-foreground">{isFourD ? safeFrame : '—'}</span>
         <span>/</span>
         <span>{isFourD ? total - 1 : '—'}</span>
         {trSeconds && trSeconds > 0 ? (
-          <span className="ml-2 text-[10px] uppercase tracking-[0.06em]">
+          <span className="ml-2 text-bf-2xs">
             TR = {trSeconds.toFixed(1)} s
           </span>
         ) : null}
@@ -167,7 +167,7 @@ function TransportButton({
       aria-label={title}
       onClick={onClick}
       disabled={disabled}
-      className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-border bg-background text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground disabled:cursor-not-allowed disabled:opacity-40 focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-500"
+      className="inline-flex h-7 w-7 items-center justify-center rounded-sm border border-border bg-background text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground disabled:cursor-not-allowed disabled:opacity-40 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
     >
       {children}
     </button>

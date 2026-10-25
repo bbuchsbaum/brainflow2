@@ -99,7 +99,7 @@ export function NotificationToast() {
                 borderRadius: '1px'
               }}
             />
-            <span className="text-[12px]">{notification.message}</span>
+            <span className="text-bf-sm">{notification.message}</span>
           </div>
         </div>
       ))}

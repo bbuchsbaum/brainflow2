@@ -154,42 +154,61 @@ describe("DisplayModeSelector", () => {
     ).toBe("true");
   });
 
-  it("hides the pill entirely when the active workspace is a tool (set-studio)", () => {
-    // The pill governs view modes only; with a tool destination active there is
-    // no mode to switch, so the whole selector is hidden rather than shown empty.
+  it.each(["set-studio", "bids-explorer", "analysis-workbench"] as const)(
+    "stays visible with no active segment when the active workspace is a tool (%s)",
+    (toolType) => {
+      workspaceStoreState.workspaces.set("w-1", makeWorkspace("w-1", toolType));
+      workspaceStoreState.activeWorkspaceId = "w-1";
+
+      render(<DisplayModeSelector />);
+
+      const selector = screen.getByTestId("display-mode-selector");
+      expect(selector.getAttribute("data-active-mode")).toBe("");
+      expect(
+        screen
+          .getAllByRole("tab")
+          .every((tab) => tab.getAttribute("aria-selected") === "false"),
+      ).toBe(true);
+    },
+  );
+
+  it("returns from a tool to the latest view in the clicked mode without reconfiguring the tool tab", () => {
+    const older = makeWorkspace("view-old", "mosaic");
+    older.timestamp = 1;
+    const newer = makeWorkspace("view-new", "mosaic");
+    newer.timestamp = 2;
+    workspaceStoreState.workspaces.set("view-old", older);
+    workspaceStoreState.workspaces.set("view-new", newer);
     workspaceStoreState.workspaces.set(
-      "w-1",
-      makeWorkspace("w-1", "set-studio"),
+      "tool",
+      makeWorkspace("tool", "bids-explorer"),
     );
-    workspaceStoreState.activeWorkspaceId = "w-1";
+    workspaceStoreState.activeWorkspaceId = "tool";
 
     render(<DisplayModeSelector />);
+    fireEvent.click(screen.getByTestId("display-mode-mosaic"));
 
-    expect(screen.queryByTestId("display-mode-selector")).toBeNull();
+    expect(workspaceStoreState.activateWorkspace).toHaveBeenCalledWith(
+      "view-new",
+    );
+    expect(workspaceStoreState.setActiveWorkspaceMode).not.toHaveBeenCalled();
+    expect(workspaceStoreState.createWorkspace).not.toHaveBeenCalled();
   });
 
-  it("hides the pill when the active workspace is BIDS Explorer", () => {
+  it("opens a new view from a tool when no view is in the clicked mode", () => {
     workspaceStoreState.workspaces.set(
-      "w-1",
-      makeWorkspace("w-1", "bids-explorer"),
+      "tool",
+      makeWorkspace("tool", "analysis-workbench"),
     );
-    workspaceStoreState.activeWorkspaceId = "w-1";
+    workspaceStoreState.activeWorkspaceId = "tool";
 
     render(<DisplayModeSelector />);
+    fireEvent.click(screen.getByTestId("display-mode-orthogonal"));
 
-    expect(screen.queryByTestId("display-mode-selector")).toBeNull();
-  });
-
-  it("hides the pill when the active workspace is the Analysis Workbench", () => {
-    workspaceStoreState.workspaces.set(
-      "w-1",
-      makeWorkspace("w-1", "analysis-workbench"),
+    expect(workspaceStoreState.createWorkspace).toHaveBeenCalledWith(
+      "orthogonal-locked",
     );
-    workspaceStoreState.activeWorkspaceId = "w-1";
-
-    render(<DisplayModeSelector />);
-
-    expect(screen.queryByTestId("display-mode-selector")).toBeNull();
+    expect(workspaceStoreState.setActiveWorkspaceMode).not.toHaveBeenCalled();
   });
 
   it("does not render the surface pill (no workspace mapping yet)", () => {

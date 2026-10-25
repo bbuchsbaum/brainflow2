@@ -66,7 +66,7 @@ export const TopAppBar: React.FC<TopAppBarProps> = ({
             display: "block",
             flex: "none",
             fill: "none",
-            stroke: "var(--bf-accent)",
+            stroke: "var(--bf-text-primary)",
             strokeWidth: 1.25,
           }}
         >
@@ -76,9 +76,8 @@ export const TopAppBar: React.FC<TopAppBarProps> = ({
         </svg>
         <span
           style={{
-            fontSize: "13px",
+            fontSize: "var(--bf-text-md)",
             fontWeight: 600,
-            letterSpacing: "0.01em",
             color: "var(--bf-text-primary)",
           }}
         >

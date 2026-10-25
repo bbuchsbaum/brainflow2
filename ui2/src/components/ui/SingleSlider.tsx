@@ -158,7 +158,7 @@ export const SingleSlider: React.FC<SingleSliderProps> = ({
         className={`single-slider-strip flex items-center gap-3 py-1.5 border-b border-border/40 last:border-b-0 ${className}`}
       >
         <label
-          className="text-[10px] uppercase tracking-wider font-bold text-right shrink-0 truncate"
+          className="text-bf-2xs font-bold text-right shrink-0 truncate"
           style={{ color: labelColor, width: resolvedLabelWidth }}
         >
           {label}
@@ -191,9 +191,9 @@ export const SingleSlider: React.FC<SingleSliderProps> = ({
               />
               {showTooltip && (
                 <div
-                  className="absolute -top-6 left-1/2 -translate-x-1/2 px-1.5 py-0.5 text-[9px] font-mono text-white shadow-lg pointer-events-none whitespace-nowrap"
+                  className="absolute -top-6 left-1/2 -translate-x-1/2 px-1.5 py-0.5 text-bf-2xs font-mono text-foreground border border-border shadow-lg pointer-events-none whitespace-nowrap"
                   style={{
-                    backgroundColor: "rgba(0, 0, 0, 0.85)",
+                    backgroundColor: "var(--bf-bg-panel-sunken)",
                     borderRadius: "1px",
                   }}
                 >
@@ -204,7 +204,7 @@ export const SingleSlider: React.FC<SingleSliderProps> = ({
           </div>
         </div>
         <span
-          className="text-[10px] font-mono tabular-nums text-right shrink-0"
+          className="text-bf-2xs font-mono tabular-nums text-right shrink-0"
           style={{ color: valueColor, width: resolvedValueWidth }}
         >
           {displayValue}
@@ -223,13 +223,13 @@ export const SingleSlider: React.FC<SingleSliderProps> = ({
           style={{ marginBottom: "4px" }}
         >
           <label
-            className="text-[9px] uppercase tracking-widest font-semibold truncate"
+            className="text-bf-2xs font-semibold truncate"
             style={{ color: labelColor, maxWidth: "70%" }}
           >
             {label}
           </label>
           <span
-            className="text-[9px] font-mono tabular-nums"
+            className="text-bf-2xs font-mono tabular-nums"
             style={{ color: valueColor }}
           >
             {showPercentage
@@ -270,9 +270,9 @@ export const SingleSlider: React.FC<SingleSliderProps> = ({
               />
               {showTooltip && (
                 <div
-                  className="absolute -top-6 left-1/2 -translate-x-1/2 px-1.5 py-0.5 text-[9px] font-mono text-white shadow-lg pointer-events-none whitespace-nowrap"
+                  className="absolute -top-6 left-1/2 -translate-x-1/2 px-1.5 py-0.5 text-bf-2xs font-mono text-foreground border border-border shadow-lg pointer-events-none whitespace-nowrap"
                   style={{
-                    backgroundColor: "rgba(0, 0, 0, 0.85)",
+                    backgroundColor: "var(--bf-bg-panel-sunken)",
                     borderRadius: "1px",
                   }}
                 >
@@ -298,13 +298,13 @@ export const SingleSlider: React.FC<SingleSliderProps> = ({
         style={{ marginBottom: "6px" }}
       >
         <label
-          className="text-[10px] uppercase tracking-widest font-semibold"
+          className="text-bf-2xs font-semibold"
           style={{ color: labelColor }}
         >
           {label}
         </label>
         <span
-          className="text-[10px] font-mono tabular-nums"
+          className="text-bf-2xs font-mono tabular-nums"
           style={{ color: valueColor }}
         >
           {showPercentage
@@ -346,9 +346,9 @@ export const SingleSlider: React.FC<SingleSliderProps> = ({
             {/* Tooltip */}
             {showTooltip && (
               <div
-                className="absolute -top-8 left-1/2 -translate-x-1/2 px-2 py-1 text-[10px] font-mono text-white shadow-lg pointer-events-none whitespace-nowrap"
+                className="absolute -top-8 left-1/2 -translate-x-1/2 px-2 py-1 text-bf-2xs font-mono text-foreground border border-border shadow-lg pointer-events-none whitespace-nowrap"
                 style={{
-                  backgroundColor: "rgba(0, 0, 0, 0.85)",
+                  backgroundColor: "var(--bf-bg-panel-sunken)",
                   borderRadius: "1px",
                 }}
               >

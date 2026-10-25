@@ -227,7 +227,7 @@ describe('SurfaceControlPanel', () => {
 
     render(<SurfaceControlPanel />);
 
-    expect(screen.getByText('Derived Surface Controls')).toBeInTheDocument();
+    expect(screen.getByText('Derived surface controls')).toBeInTheDocument();
     expect(screen.getByTestId('derived-mapping-controls')).toHaveTextContent('surface-a:view-a');
     expect(screen.queryByTestId('geometry-controls')).not.toBeInTheDocument();
   });

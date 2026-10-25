@@ -11,8 +11,11 @@
   align-items: center;
 }
 
+/* The search field keeps a minimum width that fits its "Search" placeholder;
+   the sort control gives up width first (it shrinks toward a compact select). */
 .fb-search {
-  flex: 1;
+  flex: 1 1 auto;
+  min-width: 96px;
   position: relative;
 }
 
@@ -86,9 +89,16 @@
   display: flex;
   align-items: center;
   gap: var(--bf-space-1);
+  flex: 0 1 auto;
+  min-width: 0;
 }
 
 .fb-sort-select {
+  flex: 0 1 auto;
+  width: 96px;
+  /* Never narrower than the longest short label ("Name") plus the chevron. */
+  min-width: 68px;
+  text-overflow: ellipsis;
   background-color: var(--bf-bg-shell);
   color: var(--bf-text-primary);
   border: 1px solid var(--bf-border-subtle);
@@ -127,7 +137,7 @@
   color: var(--bf-text-secondary);
   cursor: pointer;
   padding: 0;
-  font-size: 12px;
+  font-size: var(--bf-text-sm);
   display: inline-flex;
   align-items: center;
   justify-content: center;

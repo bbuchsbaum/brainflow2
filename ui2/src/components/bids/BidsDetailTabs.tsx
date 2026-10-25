@@ -5,8 +5,8 @@ import { BidsValidationPanel } from './BidsValidationPanel';
 import { BidsEventsTimeline } from './BidsEventsTimeline';
 
 const TABS: { id: BidsDetailTab; label: string }[] = [
-  { id: 'events', label: 'EVENTS' },
-  { id: 'validation', label: 'VALIDATION' },
+  { id: 'events', label: 'Events' },
+  { id: 'validation', label: 'Validation' },
 ];
 
 interface EventsTabContentProps {
@@ -73,10 +73,8 @@ function EventsTabContent({ selection }: EventsTabContentProps) {
           display: 'flex',
           alignItems: 'center',
           gap: 8,
-          fontFamily: 'var(--app-font-mono)',
           fontSize: 11,
-          color: 'hsla(var(--foreground) / 0.4)',
-          letterSpacing: '0.08em',
+          color: 'hsl(var(--muted-foreground))',
         }}
       >
         <svg
@@ -90,7 +88,7 @@ function EventsTabContent({ selection }: EventsTabContentProps) {
           <circle cx="6" cy="6" r="4" stroke="currentColor" strokeWidth="1.5" className="text-border" />
           <path d="M6 2a4 4 0 0 1 4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" className="text-primary" />
         </svg>
-        LOADING EVENTS&hellip;
+        Loading events&hellip;
       </div>
     );
   }
@@ -118,15 +116,18 @@ export function BidsDetailTabs() {
   return (
     <div className="flex flex-col h-full">
       {/* Tab bar */}
-      <div className="flex border-b border-border px-4 shrink-0">
+      <div role="tablist" aria-label="BIDS run details" className="flex border-b border-border px-4 shrink-0">
         {TABS.map(tab => (
           <button
             key={tab.id}
+            type="button"
+            role="tab"
+            aria-selected={activeTab === tab.id}
             onClick={() => setTab(tab.id)}
-            className={`bf-role-section py-2 px-3 transition-colors duration-200 ${
+            className={`bf-role-section py-2 px-3 transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background ${
               activeTab === tab.id
-                ? 'text-foreground border-b-2 border-primary'
-                : 'text-muted-foreground border-b-2 border-transparent hover:text-foreground/70'
+                ? 'bg-bf-bg-active text-foreground shadow-[inset_0_-2px_0_var(--bf-text-muted)]'
+                : 'text-muted-foreground hover:bg-accent hover:text-foreground'
             }`}
           >
             {tab.label}

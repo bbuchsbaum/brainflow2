@@ -98,27 +98,30 @@ function iconForKind(info: FileTypeInfo, isOpen: boolean): React.ComponentType {
   }
 }
 
-function truncateMiddle(value: string, maxLength: number): string {
-  if (value.length <= maxLength) return value;
-  const left = Math.ceil((maxLength - 1) / 2);
-  const right = Math.floor((maxLength - 1) / 2);
-  return `${value.slice(0, left)}…${value.slice(value.length - right)}`;
-}
-
-function formatDisplayName(
+/**
+ * Split a file name into three runs for middle truncation:
+ *
+ *   head      — the start of the name; shrinks first, ellipsis at its end.
+ *   stem      — the last few stem characters (where siblings such as
+ *               `_brain` / `_brain_mask` usually differ); shrinks only once
+ *               the head is gone, with the ellipsis at its START.
+ *   extension — e.g. `.nii.gz`; never truncated.
+ *
+ * `tail` is `stem + extension` (or null when the name is short enough to be
+ * shown whole). No characters are dropped here; ellipses only appear when the
+ * column is actually too narrow, and at most one run is visibly cut at a time.
+ */
+export function splitDisplayName(
   name: string,
   isDir: boolean,
-  searchQuery: string,
-): { head: string; tail: string | null } {
-  if (searchQuery.trim().length > 0) return { head: name, tail: null };
-  if (isDir) return { head: truncateMiddle(name, 34), tail: null };
-
-  // Threshold tuned for the 320 px left rail (Design.md §2.2). Above this,
-  // we split the name into a head (truncated) + tail (the meaningful
-  // extension like `.nii.gz`) so the file type stays visible even when the
-  // column is narrow. Below it the full name fits and CSS ellipsis suffices.
-  const maxLength = 28;
-  if (name.length <= maxLength) return { head: name, tail: null };
+): {
+  head: string;
+  tail: string | null;
+  stem: string | null;
+  extension: string | null;
+} {
+  const whole = { head: name, tail: null, stem: null, extension: null };
+  if (isDir || name.length <= 16) return whole;
 
   const lowerName = name.toLowerCase();
   const knownCompoundExtensions = [".nii.gz", ".tar.gz", ".csv.gz", ".tsv.gz"];
@@ -133,17 +136,17 @@ function formatDisplayName(
     return 0;
   })();
 
-  const desiredTailLength = extensionLength > 0 ? extensionLength + 8 : 14;
-  const tailLength = Math.min(
-    Math.max(desiredTailLength, 12),
-    20,
-    name.length - 8,
-  );
-  const headLength = Math.max(8, maxLength - tailLength - 1);
-
+  // Extension plus up to ten characters of the stem, always leaving at least
+  // four leading characters in the head.
+  const tailLength = Math.min(extensionLength + 10, name.length - 4);
+  if (tailLength <= 0) return whole;
+  const tail = name.slice(name.length - tailLength);
+  const extension = extensionLength > 0 ? name.slice(name.length - extensionLength) : "";
   return {
-    head: `${name.slice(0, headLength)}…`,
-    tail: name.slice(name.length - tailLength),
+    head: name.slice(0, name.length - tailLength),
+    tail,
+    stem: tail.slice(0, tail.length - extension.length) || null,
+    extension: extension || null,
   };
 }
 
@@ -159,11 +162,14 @@ function formatFileSize(bytes?: number): string {
   return `${size.toFixed(unitIndex > 0 ? 1 : 0)}${units[unitIndex]}`;
 }
 
-function highlightText(text: string, query: string): string {
-  if (!query) return text;
-  const escaped = query.replace(/[-/\\^$*+?.()|[\]{}]/g, "\\$&");
-  const regex = new RegExp(`(${escaped})`, "gi");
-  return text.replace(regex, '<mark class="bg-yellow-200">$1</mark>');
+function highlightText(text: string, query: string): React.ReactNode {
+  const trimmed = query.trim();
+  if (!trimmed) return text;
+  const escaped = trimmed.replace(/[-/\\^$*+?.()|[\]{}]/g, "\\$&");
+  const parts = text.split(new RegExp(`(${escaped})`, "gi"));
+  return parts.map((part, index) =>
+    index % 2 === 1 ? <mark key={index}>{part}</mark> : part,
+  );
 }
 
 export const FileTreeRow: React.FC<FileTreeRowProps> = ({ node, style }) => {
@@ -288,7 +294,7 @@ export const FileTreeRow: React.FC<FileTreeRowProps> = ({ node, style }) => {
           if (!isBids || !current.isOpen || current.items !== dirItems) return;
           contextMenu.open(clientX, clientY, [...dirItems, {
             id: "open-bids",
-            label: "Open as BIDS Dataset",
+            label: "Open as BIDS dataset",
             onClick: () => {
               void useWorkspaceStore.getState().createWorkspace("bids-explorer");
               void useBidsStore.getState().scanDataset(dirPath);
@@ -311,7 +317,7 @@ export const FileTreeRow: React.FC<FileTreeRowProps> = ({ node, style }) => {
       },
       {
         id: "add-layer",
-        label: "Add As Layer",
+        label: "Add as layer",
         onClick: () => {
           eventBus.emit("filebrowser.file.open", {
             path: data.path,
@@ -322,7 +328,7 @@ export const FileTreeRow: React.FC<FileTreeRowProps> = ({ node, style }) => {
       { id: "sep-1", label: "", separator: true },
       {
         id: "new-workspace",
-        label: "Open In New Tab",
+        label: "Open in new tab",
         onClick: () => {
           eventBus.emit("filebrowser.file.open", {
             path: data.path,
@@ -332,7 +338,7 @@ export const FileTreeRow: React.FC<FileTreeRowProps> = ({ node, style }) => {
       },
       {
         id: "comparison",
-        label: "Open In Comparison View",
+        label: "Open in comparison view",
         onClick: () => {
           eventBus.emit("filebrowser.file.open", {
             path: data.path,
@@ -345,13 +351,14 @@ export const FileTreeRow: React.FC<FileTreeRowProps> = ({ node, style }) => {
     contextMenu.open(event.clientX, event.clientY, items);
   }
 
-  const displayName = formatDisplayName(data.name, isDirectory, searchQuery);
+  const displayName = splitDisplayName(data.name, isDirectory);
   const isSearchActive = searchQuery.trim().length > 0;
 
   return (
     <div
       style={{ ...style, paddingLeft: `${style.paddingLeft || 0}px` }}
       className={`file-tree-item ${isSelected ? "selected" : ""} ${isDirectory ? "font-medium" : ""}`}
+      title={remoteMountRowTooltip || data.name}
       draggable={!isDirectory}
       onDragStart={!isDirectory ? handleDragStart : undefined}
       onDragEnd={!isDirectory ? () => clearActiveDragData() : undefined}
@@ -367,6 +374,7 @@ export const FileTreeRow: React.FC<FileTreeRowProps> = ({ node, style }) => {
         <button
           type="button"
           className="expand-button"
+          aria-label={`${node.isOpen ? "Collapse" : "Expand"} ${data.name}`}
           onClick={(e) => {
             e.stopPropagation();
             const wasOpen = node.isOpen;
@@ -404,26 +412,33 @@ export const FileTreeRow: React.FC<FileTreeRowProps> = ({ node, style }) => {
 
       {!isDirectory && <FileTypeBadge info={typeInfo} />}
 
-      <div className="file-name" title={remoteMountRowTooltip || undefined}>
-        {isSearchActive ? (
-          <span
-            className="file-name-text"
-            title={remoteMountRowTooltip || data.name}
-            dangerouslySetInnerHTML={{
-              __html: highlightText(displayName.head, searchQuery),
-            }}
-          />
-        ) : (
-          <span
-            className="file-name-text"
-            title={remoteMountRowTooltip || data.name}
-          >
-            <span className="file-name-head">{displayName.head}</span>
-            {displayName.tail && (
-              <span className="file-name-tail">{displayName.tail}</span>
-            )}
-          </span>
-        )}
+      <div className="file-name" title={remoteMountRowTooltip || data.name}>
+        <span className="file-name-text">
+          {isSearchActive ? (
+            <span className="file-name-head">
+              {highlightText(data.name, searchQuery)}
+            </span>
+          ) : (
+            <>
+              <span className="file-name-head">{displayName.head}</span>
+              {displayName.stem && (
+                <span
+                  className="file-name-stem"
+                  style={{
+                    minWidth: `${Math.min(3, displayName.stem.length)}ch`,
+                  }}
+                >
+                  {/* RTL box puts the ellipsis at the start; the isolated LTR
+                      run keeps neutral characters (_ - .) in reading order. */}
+                  <bdi dir="ltr">{displayName.stem}</bdi>
+                </span>
+              )}
+              {displayName.extension && (
+                <span className="file-name-ext">{displayName.extension}</span>
+              )}
+            </>
+          )}
+        </span>
         {remoteHostLabel && (
           <span
             className="remote-origin-badge"

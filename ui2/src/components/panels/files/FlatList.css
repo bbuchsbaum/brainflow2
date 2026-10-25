@@ -38,14 +38,19 @@
 }
 
 .fb-flat-row.is-selected {
-  background: var(--bf-accent-active);
+  background: var(--bf-bg-selected);
   border-left-color: var(--bf-accent);
-  color: hsl(var(--primary-foreground));
+  color: var(--bf-text-primary);
 }
 
+/* Focus = 2px ring with a 1px gap INSIDE it (inset shadows, since rows span
+   the full scroll width), so the ring never touches the row fill; selection =
+   fill + left edge. Distinct in form. */
 .fb-flat-row:focus-visible {
-  outline: var(--app-focus-ring-width) solid var(--bf-border-focus);
-  outline-offset: -2px;
+  outline: none;
+  box-shadow:
+    inset 0 0 0 2px var(--bf-border-focus),
+    inset 0 0 0 3px var(--bf-bg-panel);
 }
 
 .fb-flat-row-name {
@@ -82,8 +87,6 @@
 
 .fb-flat-empty-kicker {
   margin: 0;
-  text-transform: uppercase;
-  letter-spacing: var(--app-role-section-tracking);
   font-size: var(--app-role-section-size);
   font-weight: var(--app-role-section-weight);
   color: var(--bf-text-secondary);

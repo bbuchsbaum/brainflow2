@@ -29,7 +29,7 @@ export function PropertyRow({
 }: PropertyRowProps) {
   return (
     <div className={cn('flex justify-between items-baseline gap-2 min-w-0', className)}>
-      <span className="bf-role-section text-muted-foreground shrink-0 whitespace-nowrap text-[11px]">
+      <span className="bf-role-section text-muted-foreground shrink-0 whitespace-nowrap text-bf-xs">
         {label}
       </span>
       <span

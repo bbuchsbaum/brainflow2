@@ -114,9 +114,12 @@ export function SceneStackItem({
       onClick={onSelect}
       onKeyDown={handleKeyDown}
       aria-pressed={selected}
-      className={`group flex w-full cursor-pointer items-center gap-2.5 rounded-sm px-2 py-1.5 text-left transition-colors ${
+      // Selection = selected fill + 2px accent leading edge; focus = a
+      // separate 2px ring with a 1px offset (HYBRID rule 4). Tailwind's ring
+      // composes with the inset edge shadow, so both show when both apply.
+      className={`group flex w-full cursor-pointer items-center gap-2.5 rounded-sm px-2 py-1.5 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background ${
         selected
-          ? "bg-card shadow-[inset_2px_0_0_hsl(var(--primary))]"
+          ? "bg-bf-bg-selected shadow-[inset_2px_0_0_var(--bf-accent)]"
           : "hover:bg-accent"
       }`}
     >
@@ -129,15 +132,15 @@ export function SceneStackItem({
         {KIND_GLYPH[item.kind]}
       </span>
       <span className="min-w-0 flex-1">
-        <span className="block truncate text-[12px] text-foreground">
+        <span className="block truncate text-bf-sm text-foreground">
           {item.name}
         </span>
-        <span className="block truncate text-[11px] text-muted-foreground">
+        <span className="block truncate text-bf-xs text-muted-foreground">
           {item.subtitle}
         </span>
       </span>
       <span
-        className="shrink-0 font-mono text-[11px] tabular-nums text-muted-foreground"
+        className="shrink-0 font-mono text-bf-xs tabular-nums text-muted-foreground"
         style={{ fontVariantNumeric: "tabular-nums" }}
       >
         {opacityPct}%

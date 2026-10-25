@@ -60,7 +60,7 @@ describe('FileBrowserPanel SourceHeader', () => {
     );
   });
 
-  it('renders the LOCAL chip and basename for a local mount', () => {
+  it('renders the Local chip and basename for a local mount', () => {
     resetStore([
       makeRootNode('/Volumes/data/study1', 'study1', { kind: 'local' }),
     ]);
@@ -68,7 +68,7 @@ describe('FileBrowserPanel SourceHeader', () => {
     render(<FileBrowserPanel />);
 
     expect(screen.getByText('study1')).toBeInTheDocument();
-    expect(screen.getByText('LOCAL')).toBeInTheDocument();
+    expect(screen.getByText('Local')).toBeInTheDocument();
     const region = screen.getByRole('region', { name: 'Mounted source' });
     expect(region).toHaveAttribute('title', '/Volumes/data/study1');
   });

@@ -71,13 +71,13 @@
 }
 
 .files-start-command--primary {
-  background: var(--bf-text-primary);
+  background: hsl(var(--primary));
   color: var(--bf-text-inverse);
   border-color: transparent;
 }
 
 .files-start-command--primary:hover:not(:disabled) {
-  background: #f5f2ec;
+  background: hsl(var(--primary) / 0.88);
   border-color: transparent;
   color: var(--bf-text-inverse);
 }
@@ -126,7 +126,7 @@
 }
 
 .files-start-section-title {
-  font-family: var(--bf-font-mono);
+  font-family: var(--bf-font-sans);
   font-size: var(--app-role-section-size);
   font-weight: 400;
   color: var(--bf-text-muted);
@@ -149,7 +149,6 @@
   margin: 0;
   font-size: var(--app-role-label-size);
   color: var(--bf-text-muted);
-  font-style: italic;
 }
 
 .files-start-list {

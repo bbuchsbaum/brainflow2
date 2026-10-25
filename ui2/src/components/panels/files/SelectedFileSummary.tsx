@@ -217,7 +217,7 @@ export const SelectedFileSummary: React.FC<SelectedFileSummaryProps> = ({
           className="fb-selected-button"
           onClick={() => fireOpen("add-layer")}
         >
-          Add Layer
+          Add layer
         </button>
       </div>
     </div>

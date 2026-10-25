@@ -14,7 +14,7 @@ interface LoadingOverlayProps {
 export function LoadingOverlay({ message = 'Loading...' }: LoadingOverlayProps) {
   return (
     <div className="absolute inset-0 bg-black bg-opacity-50 flex items-center justify-center">
-      <div className="text-white text-sm">{message}</div>
+      <div className="text-foreground text-bf-sm">{message}</div>
     </div>
   );
 }
@@ -29,9 +29,17 @@ export function ErrorOverlay({ error }: ErrorOverlayProps) {
   const errorMessage = error instanceof Error ? error.message : error;
   
   return (
-    <div className="absolute inset-0 bg-red-500 bg-opacity-75 flex items-center justify-center">
-      <div className="text-white text-sm text-center p-2">
-        {errorMessage}
+    // Dark scrim, not a tinted fill: a translucent danger fill under light text
+    // fell to ~3.5:1 over black and lower over tissue. At 85% black the worst
+    // case (scrim over white matter) is #262626, where the danger title is
+    // ~6.3:1 and primary text ~13:1.
+    <div
+      role="alert"
+      className="absolute inset-0 bg-black/[0.85] flex items-center justify-center"
+    >
+      <div className="text-center p-2 max-w-full">
+        <div className="text-bf-danger text-bf-sm font-medium">Render error</div>
+        <div className="text-bf-text-primary text-bf-sm break-words">{errorMessage}</div>
       </div>
     </div>
   );
@@ -45,7 +53,7 @@ export function DragOverlay({ message = 'Drop file to load' }: DragOverlayProps)
   return (
     <div className="absolute inset-0 bg-primary/15 pointer-events-none flex items-center justify-center">
       <div className="bg-card px-4 py-2 shadow-lg border border-primary/30">
-        <div className="text-primary font-medium text-[12px]">{message}</div>
+        <div className="text-primary font-medium text-bf-sm">{message}</div>
       </div>
     </div>
   );
@@ -65,7 +73,7 @@ export function LabelOverlay({ label, position = 'bottom-left' }: LabelOverlayPr
   };
   
   return (
-    <div className={`absolute ${positionClasses[position]} text-xs text-white bg-black/50 px-1`}>
+    <div className={`absolute ${positionClasses[position]} text-bf-xs text-foreground bg-black/50 px-1`}>
       {label}
     </div>
   );
@@ -89,7 +97,7 @@ export function CoordinateDisplay({ coordinates, position = 'top-left' }: Coordi
   };
   
   return (
-    <div className={`absolute ${positionClasses[position]} bg-black bg-opacity-75 text-white text-xs px-2 py-1`}>
+    <div className={`absolute ${positionClasses[position]} bg-black bg-opacity-75 text-foreground text-bf-xs px-2 py-1`}>
       {formatCoordinate(coordinates)}
     </div>
   );
@@ -100,20 +108,21 @@ interface NoLayersOverlayProps {
 }
 
 /**
- * Text-only empty state (Workstation restyle): one sentence plus a mono hint,
+ * Text-only empty state (Workstation restyle): one sentence plus a sans hint
+ * (mono is reserved for identifiers, paths and numbers),
  * no illustration.
  */
 export function NoLayersOverlay({ showLoadingHint = true }: NoLayersOverlayProps) {
   return (
     <div className="absolute inset-0 flex flex-col items-center justify-center gap-1.5 pointer-events-none select-none text-center">
       <p
-        className="text-[12px] font-medium"
+        className="text-bf-sm font-medium"
         style={{ color: "var(--bf-text-secondary)" }}
       >
         No volume loaded
       </p>
       {showLoadingHint && (
-        <p className="text-[11px] font-mono text-muted-foreground">
+        <p className="text-bf-sm text-muted-foreground">
           Double-click a file in Files, or drop one here
         </p>
       )}
@@ -134,7 +143,7 @@ export function LoadingVolumeOverlay({ position = 'top-right' }: LoadingVolumeOv
   };
 
   return (
-    <div className={`absolute ${positionClasses[position]} bg-card border-l-2 border-primary text-foreground font-mono text-[11px] px-2 py-1`}>
+    <div className={`absolute ${positionClasses[position]} bg-card border-l-2 border-primary text-foreground font-sans text-bf-xs px-2 py-1`}>
       Loading volume…
     </div>
   );

@@ -160,7 +160,7 @@ export function WorkspaceMenu({ className }: WorkspaceMenuProps) {
           {preset.id === activePresetId ? "● " : ""}
           {preset.label}
         </span>
-        <span className="shrink-0 text-[10px] uppercase tracking-[0.08em] text-muted-foreground">
+        <span className="shrink-0 text-bf-2xs text-muted-foreground">
           {preset.shortcut}
         </span>
       </div>

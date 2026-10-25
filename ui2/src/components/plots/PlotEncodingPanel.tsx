@@ -17,6 +17,8 @@ import { resolveSpec } from '@/plotting';
 import type { Encoding, Mark, ReduceOp, SampleFrame, Transform } from '@/plotting';
 import { usePlotSpecStore } from '@/stores/plotSpecStore';
 
+import { PLOT_FOCUS_RING } from './PlotHost';
+
 import { SUPPORTED_MARKS } from './encoder/registry';
 
 /** Sphere radii (mm) offered for spatial sampling. 0 == single voxel. */
@@ -38,27 +40,14 @@ const labelStyle: React.CSSProperties = {
   alignItems: 'center',
   gap: 4,
   fontSize: 11,
-  color: 'var(--app-text-muted)',
+  color: 'var(--bf-text-muted)',
   whiteSpace: 'nowrap',
 };
+// Chrome (flat surface, border, chevron, focus) comes from the shared
+// `bf-select` class in theme.css; only the compact toolbar sizing is local.
 const selectStyle: React.CSSProperties = {
-  // Flatten the native macOS select chrome (the glossy "3D bubble" + steppers)
-  // to match the app's flat dark controls, and draw our own chevron.
-  appearance: 'none',
-  WebkitAppearance: 'none',
-  MozAppearance: 'none',
   fontSize: 11,
   height: 20,
-  padding: '0 18px 0 6px',
-  borderRadius: 'var(--app-radius-sm, 4px)',
-  border: '1px solid var(--app-border, #2a2a2a)',
-  backgroundColor: 'var(--app-input-bg, rgba(255, 255, 255, 0.04))',
-  backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='6'%3E%3Cpath d='M1 1l3 3 3-3' fill='none' stroke='%238a93a3' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E")`,
-  backgroundRepeat: 'no-repeat',
-  backgroundPosition: 'right 6px center',
-  color: 'var(--app-text-primary, var(--app-text, inherit))',
-  cursor: 'pointer',
-  outline: 'none',
   maxWidth: 130,
 };
 
@@ -83,6 +72,7 @@ function LabeledSelect({
         value={value}
         onChange={(e) => onChange(e.currentTarget.value)}
         style={selectStyle}
+        className={`bf-select ${PLOT_FOCUS_RING}`}
       >
         {children}
       </select>
@@ -186,7 +176,7 @@ export function PlotEncodingPanel({
         alignItems: 'center',
         gap: 10,
         padding: '4px 8px',
-        borderBottom: '1px solid var(--app-border, #2a2a2a)',
+        borderBottom: '1px solid var(--bf-border)',
       }}
     >
       <LabeledSelect

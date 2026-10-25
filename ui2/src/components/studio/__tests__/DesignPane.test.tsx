@@ -85,7 +85,7 @@ describe('DesignPane', () => {
       />
     );
 
-    const subsetBanner = screen.getByText('Subset').closest('div.rounded-lg');
+    const subsetBanner = screen.getByText('Subset').closest('div.rounded-sm');
     expect(subsetBanner).not.toBeNull();
     const subsetScope = within(subsetBanner!);
 
@@ -95,7 +95,7 @@ describe('DesignPane', () => {
     fireEvent.click(subsetScope.getByRole('button', { name: 'Compare' }));
     expect(onUseFilteredSubsetInCompare).toHaveBeenCalledTimes(1);
 
-    fireEvent.click(subsetScope.getByRole('button', { name: 'Save Group' }));
+    fireEvent.click(subsetScope.getByRole('button', { name: 'Save group' }));
     expect(onSaveFilteredSubsetAsCohort).toHaveBeenCalledTimes(1);
 
     fireEvent.click(subsetScope.getByRole('button', { name: 'Clear' }));

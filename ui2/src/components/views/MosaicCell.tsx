@@ -9,7 +9,12 @@ import { useCallback, useRef, useMemo, type MouseEvent } from 'react';
 import { SliceViewport, type SliceViewportPlacement } from './SliceViewport';
 import { useViewStateStore } from '@/stores/viewStateStore';
 import type { MosaicRenderService } from '@/services/MosaicRenderService';
-import { drawCrosshair, getLineDash } from '@/utils/crosshairUtils';
+import {
+  adaptCrosshairStyleToViewport,
+  buildActiveCrosshairStyle,
+  drawCrosshair,
+  getLineDash,
+} from '@/utils/crosshairUtils';
 import { useCrosshairSettingsStore } from '@/stores/crosshairSettingsStore';
 import { CoordinateTransform } from '@/utils/coordinates';
 import type { CrosshairStyle } from '@/utils/crosshairUtils';
@@ -40,7 +45,7 @@ export function MosaicCell({
   if (sliceIndex == null || sliceIndex < 0) {
     console.warn(`[MosaicCell] Invalid sliceIndex: ${sliceIndex}`);
     return (
-      <div className="flex items-center justify-center h-full text-gray-400">
+      <div className="flex items-center justify-center h-full text-bf-xs text-bf-text-secondary">
         <span>No slice</span>
       </div>
     );
@@ -126,20 +131,18 @@ export function MosaicCell({
       
       
       // Choose style based on whether this is the active slice
-      const style: CrosshairStyle = crosshairInfo.isActive 
-        ? {
-            color: crosshairSettings.activeColor,
-            lineWidth: crosshairSettings.activeThickness,
-            lineDash: getLineDash(crosshairSettings.activeStyle, crosshairSettings.activeThickness),
-            opacity: 1
-          }
+      // Mosaic cells are small: the stroke steps down to the compact weight
+      // (1px core, 4/4 dashes) below the compact threshold. Styling only.
+      const baseStyle: CrosshairStyle = crosshairInfo.isActive
+        ? buildActiveCrosshairStyle(crosshairSettings)
         : {
             color: crosshairSettings.mirrorColor,
             lineWidth: crosshairSettings.mirrorThickness,
             lineDash: getLineDash(crosshairSettings.mirrorStyle, crosshairSettings.mirrorThickness),
             opacity: crosshairSettings.mirrorOpacity
           };
-      
+      const style = adaptCrosshairStyleToViewport(baseStyle, width, height);
+
       drawCrosshair({
         ctx,
         canvasX,
@@ -148,7 +151,7 @@ export function MosaicCell({
         style
       });
     }
-  }, [axis, sliceIndex, crosshair, axisViewPlane, mosaicRenderService, crosshairSettings, tag]);
+  }, [axis, sliceIndex, crosshair, axisViewPlane, mosaicRenderService, crosshairSettings, tag, width, height]);
   
   const handleCanvasReady = useCallback((canvas: HTMLCanvasElement) => {
     canvasRef.current = canvas;

@@ -87,7 +87,10 @@ export function InlineHistogramPreview({
       viewBox={`0 0 ${VIEW_W} ${VIEW_H}`}
       preserveAspectRatio="none"
       className="block h-7 w-full"
+      // Neutral light grey bars, matching the dock histogram: a hue here
+      // would read as data next to colormapped (e.g. red-blue) layers.
       fill="currentColor"
+      fillOpacity={0.45}
       aria-hidden
     >
       {bars}
@@ -99,7 +102,7 @@ export function InlineHistogramPreview({
     return (
       <div
         data-testid="inline-histogram-preview"
-        className="mt-2 block w-full rounded-md border border-border/40 bg-card/30 px-1.5 py-1 text-sky-600/80 dark:text-sky-300/80"
+        className="mt-2 block w-full rounded-sm border border-border/40 bg-card/30 px-1.5 py-1 text-bf-text-secondary"
       >
         {chart}
       </div>
@@ -113,7 +116,7 @@ export function InlineHistogramPreview({
       data-testid="inline-histogram-preview"
       aria-label="Open full plot in the bottom dock"
       title="Open full plot in the bottom dock"
-      className="mt-2 block w-full rounded-md border border-border/40 bg-card/30 px-1.5 py-1 text-sky-600/80 transition-colors hover:border-border/70 hover:bg-accent/30 dark:text-sky-300/80"
+      className="mt-2 block w-full rounded-sm border border-border/40 bg-card/30 px-1.5 py-1 text-bf-text-secondary transition-colors hover:border-border/70 hover:bg-accent/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
     >
       {chart}
     </button>

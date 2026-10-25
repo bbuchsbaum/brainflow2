@@ -9,9 +9,9 @@ type Severity = 'critical' | 'high' | 'medium' | 'low';
 const SEVERITY_ORDER: Severity[] = ['critical', 'high', 'medium', 'low'];
 
 const SEVERITY_COLORS: Record<Severity, string> = {
-  critical: '#dc2626',
-  high: '#ea580c',
-  medium: '#f59e0b',
+  critical: 'var(--bf-danger)',
+  high: 'var(--bf-danger)',
+  medium: 'var(--bf-warning)',
   low: 'hsl(var(--muted-foreground))',
 };
 
@@ -100,11 +100,11 @@ export function BidsValidationPanel() {
             width: '8px',
             height: '8px',
             borderRadius: '50%',
-            backgroundColor: '#16a34a',
+            backgroundColor: 'var(--bf-success)',
             flexShrink: 0,
           }}
         />
-        <span className="bf-role-body text-foreground">Passed — No issues found</span>
+        <span className="bf-role-body text-foreground">Passed — no issues found</span>
       </div>
     );
   }

@@ -36,10 +36,10 @@ export function PopulationOpenControls() {
     }
   };
   return (
-    <div className="flex flex-wrap items-center gap-2 text-xs">
+    <div className="flex flex-wrap items-center gap-2 text-bf-sm">
       <button
         type="button"
-        className="rounded border border-border px-2 py-1 hover:bg-accent disabled:opacity-40"
+        className="rounded-sm border border-border px-2 py-1 hover:bg-accent disabled:opacity-40"
         disabled={busy}
         onClick={() => void open()}
       >
@@ -50,13 +50,13 @@ export function PopulationOpenControls() {
         <div className="mt-2 flex flex-wrap gap-2">
           <input
             aria-label="Original source directory"
-            className="min-w-0 flex-1 rounded border border-border bg-background px-2 py-1"
+            className="min-w-0 flex-1 rounded-sm border border-border bg-background px-2 py-1"
             placeholder="Original directory from the saved study"
             value={fromDirectory}
             onChange={(e) => setFromDirectory(e.target.value)}
           />
           <button
-            className="rounded border border-border px-2 py-1 disabled:opacity-40"
+            className="rounded-sm border border-border px-2 py-1 disabled:opacity-40"
             disabled={busy || !fromDirectory.trim()}
             onClick={() => void open(true)}
           >
@@ -71,7 +71,7 @@ export function PopulationOpenControls() {
       {busy && (
         <button
           type="button"
-          className="rounded border border-border px-2 py-1"
+          className="rounded-sm border border-border px-2 py-1"
           onClick={() => active.current?.abort()}
         >
           Cancel open

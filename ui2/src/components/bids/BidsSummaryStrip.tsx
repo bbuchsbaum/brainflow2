@@ -83,10 +83,8 @@ function MetricGroup({ label, children }: MetricGroupProps) {
       <span
         className="bf-role-section text-muted-foreground"
         style={{
-          fontSize: '11px',
-          fontWeight: 600,
-          letterSpacing: '0.12em',
-          textTransform: 'uppercase',
+          fontSize: 'var(--bf-text-xs)',
+          fontWeight: 500,
           whiteSpace: 'nowrap',
         }}
       >

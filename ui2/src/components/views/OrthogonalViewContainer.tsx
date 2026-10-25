@@ -135,16 +135,17 @@ export function OrthogonalViewContainer({
   return (
     <div
       ref={containerRef}
-      className={`orthogonal-view-container ${className} h-full w-full relative bg-gray-900`}
+      className={`orthogonal-view-container ${className} h-full w-full relative bg-background`}
     >
       {/* Toggle button - minimal design */}
       <button
         className="absolute top-3 right-3 z-20 p-2
-                   bg-gray-800/60 hover:bg-gray-700/60 
-                   text-gray-300 hover:text-white
-                   rounded border border-gray-700/50
+                   bg-card/60 hover:bg-accent
+                   text-bf-text-secondary hover:text-foreground
+                   rounded-sm border border-border
                    transition-all duration-150"
         onClick={toggleMode}
+        aria-label={isLocked() ? 'Unlock views' : 'Lock views together'}
         title={isLocked() ? 'Unlock views for flexible layout (⌘L)' : 'Lock views together (⌘L)'}
       >
         <svg
@@ -184,12 +185,12 @@ export function OrthogonalViewContainer({
 
       {/* Container-level drag overlay */}
       {isDragging && (
-        <div className="absolute inset-0 bg-blue-500 bg-opacity-10 pointer-events-none flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg px-6 py-4 shadow-2xl">
-            <div className="text-blue-600 font-semibold text-lg">
+        <div className="absolute inset-0 bg-primary/10 pointer-events-none flex items-center justify-center z-50">
+          <div className="rounded-sm border border-border bg-popover px-6 py-4 shadow-2xl">
+            <div className="text-primary font-semibold text-bf-lg">
               Drop neuroimaging files to load
             </div>
-            <div className="text-gray-500 text-sm mt-1">Supported: .nii, .nii.gz, .gii</div>
+            <div className="text-muted-foreground text-bf-sm mt-1">Supported: .nii, .nii.gz, .gii</div>
           </div>
         </div>
       )}

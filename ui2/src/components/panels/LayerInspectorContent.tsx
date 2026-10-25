@@ -87,7 +87,7 @@ const InterpolationToggle: React.FC<{
   disabled?: boolean;
 }> = ({ value, onChange, disabled }) => (
   <div className="flex items-center justify-between gap-4">
-    <label className="bf-role-section text-muted-foreground shrink-0">Blend Mode</label>
+    <label className="bf-role-section text-muted-foreground shrink-0">Blend mode</label>
     <div className="flex gap-0 shrink-0">
       <button
         type="button"
@@ -95,8 +95,8 @@ const InterpolationToggle: React.FC<{
         aria-pressed={value === 'nearest'}
         className={`px-3 py-1 bf-role-section min-h-control-md border border-r-0 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
           value === 'nearest'
-            ? 'bg-primary text-primary-foreground border-primary'
-            : 'bg-transparent hover:bg-muted/50 border-border text-muted-foreground'
+            ? 'bg-bf-bg-active text-foreground border-border shadow-[inset_0_-2px_0_var(--bf-text-muted)]'
+            : 'bg-transparent hover:bg-accent hover:text-foreground border-border text-muted-foreground'
         }`}
         style={{ borderRadius: '1px 0 0 1px' }}
         onClick={() => onChange('nearest')}
@@ -110,8 +110,8 @@ const InterpolationToggle: React.FC<{
         aria-pressed={value === 'linear'}
         className={`px-3 py-1 bf-role-section min-h-control-md border transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
           value === 'linear'
-            ? 'bg-primary text-primary-foreground border-primary'
-            : 'bg-transparent hover:bg-muted/50 border-border text-muted-foreground'
+            ? 'bg-bf-bg-active text-foreground border-border shadow-[inset_0_-2px_0_var(--bf-text-muted)]'
+            : 'bg-transparent hover:bg-accent hover:text-foreground border-border text-muted-foreground'
         }`}
         style={{ borderRadius: '0 1px 1px 0' }}
         onClick={() => onChange('linear')}
@@ -294,14 +294,14 @@ const VolumeInspectorSection: React.FC<VolumeInspectorSectionProps> = ({ layerId
         ) : null}
         {metadata?.spacing ? (
           <PropertyRow
-            label="Voxel Size"
+            label="Voxel size"
             value={`${metadata.spacing.map((s) => s.toFixed(2)).join(' × ')} mm`}
             mono
           />
         ) : null}
         {metadata?.dataRange ? (
           <PropertyRow
-            label="Data Range"
+            label="Data range"
             value={`${metadata.dataRange.min.toFixed(precision)} – ${metadata.dataRange.max.toFixed(precision)}`}
             mono
           />
@@ -570,7 +570,7 @@ const SurfaceDataInspectorSection: React.FC<SurfaceDataInspectorSectionProps> = 
         <PropertyRow label="Layer" value={layer.name} truncate maxValueWidth="60%" />
         <PropertyRow label="Surface" value={surface.name} truncate mono maxValueWidth="60%" />
         <PropertyRow
-          label="Data Range"
+          label="Data range"
           value={`${dataMin.toFixed(precision)} – ${dataMax.toFixed(precision)}`}
           mono
         />

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { populationProbeActions } from '@/services/studio/PopulationProbeActions';
 import type { PopulationSelectionOrigin } from '@/types/population';
-const control = 'rounded border border-border bg-background px-2 py-1 text-xs disabled:opacity-40';
+const control = 'rounded-sm border border-border bg-background px-2 py-1 text-bf-sm disabled:opacity-40';
 /** Keyboard-accessible range gesture with explicit commit/cancel. Until Apply,
  * neither pointer previews nor numeric edits change the scientific selection. */
 export function PopulationSelectionRange({
@@ -29,7 +29,7 @@ export function PopulationSelectionRange({
     Number.isInteger(from) && Number.isInteger(to) && from >= 1 && to >= from && to <= ids.length;
   return (
     <details
-      className="text-xs"
+      className="text-bf-sm"
       onKeyDown={(e) => {
         if (e.key === 'Escape') {
           e.preventDefault();

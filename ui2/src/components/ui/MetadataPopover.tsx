@@ -97,12 +97,12 @@ export const MetadataPopover: React.FC<MetadataPopoverProps> = ({
           <div className="space-y-4" id="metadata-content">
             {/* Dimensions Section */}
             <div className="space-y-2">
-              <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+              <h4 className="text-xs font-medium text-muted-foreground">
                 Volume Properties
               </h4>
               <div className="space-y-1.5">
                 {/* Dimensions */}
-                <div className="flex items-center justify-between mx-2 px-3 py-2 rounded-md border border-primary/20 hover:border-primary/30 transition-colors">
+                <div className="flex items-center justify-between mx-2 px-3 py-2 rounded-sm border border-primary/20 hover:border-primary/30 transition-colors">
                   <span className="text-xs text-muted-foreground">Dimensions</span>
                   <div className="flex items-center gap-2">
                     <span className="text-sm font-medium text-popover-foreground tabular-nums">
@@ -116,7 +116,7 @@ export const MetadataPopover: React.FC<MetadataPopoverProps> = ({
                       data-copied={copiedField === 'dimensions'}
                     >
                       {copiedField === 'dimensions' ? (
-                        <Check className="h-3.5 w-3.5 text-green-500" />
+                        <Check className="h-3.5 w-3.5 text-bf-success" />
                       ) : (
                         <Copy className="h-3.5 w-3.5 text-muted-foreground hover:text-popover-foreground" />
                       )}
@@ -125,7 +125,7 @@ export const MetadataPopover: React.FC<MetadataPopoverProps> = ({
                 </div>
 
                 {/* Resolution */}
-                <div className="flex items-center justify-between mx-2 px-3 py-2 rounded-md border border-primary/20 hover:border-primary/30 transition-colors">
+                <div className="flex items-center justify-between mx-2 px-3 py-2 rounded-sm border border-primary/20 hover:border-primary/30 transition-colors">
                   <span className="text-xs text-muted-foreground">Resolution</span>
                   <span className="text-sm font-medium text-popover-foreground tabular-nums">
                     {spacingText}
@@ -133,7 +133,7 @@ export const MetadataPopover: React.FC<MetadataPopoverProps> = ({
                 </div>
 
                 {/* Data Range */}
-                <div className="flex items-center justify-between mx-2 px-3 py-2 rounded-md border border-primary/20 hover:border-primary/30 transition-colors">
+                <div className="flex items-center justify-between mx-2 px-3 py-2 rounded-sm border border-primary/20 hover:border-primary/30 transition-colors">
                   <span className="text-xs text-muted-foreground">Data Range</span>
                   <span className="text-sm font-medium font-mono text-popover-foreground">
                     {dataRangeText}
@@ -142,7 +142,7 @@ export const MetadataPopover: React.FC<MetadataPopoverProps> = ({
 
                 {/* Data Type */}
                 {metadata.dataType && (
-                  <div className="flex items-center justify-between mx-2 px-3 py-2 rounded-md border border-primary/20 hover:border-primary/30 transition-colors">
+                  <div className="flex items-center justify-between mx-2 px-3 py-2 rounded-sm border border-primary/20 hover:border-primary/30 transition-colors">
                     <span className="text-xs text-muted-foreground">Type</span>
                     <span className="text-sm font-medium font-mono text-popover-foreground">
                       {metadata.dataType}
@@ -152,7 +152,7 @@ export const MetadataPopover: React.FC<MetadataPopoverProps> = ({
 
                 {/* Voxel info */}
                 {voxelSummary && (
-                  <div className="flex items-center justify-between mx-2 px-3 py-2 rounded-md border border-primary/20 hover:border-primary/30 transition-colors">
+                  <div className="flex items-center justify-between mx-2 px-3 py-2 rounded-sm border border-primary/20 hover:border-primary/30 transition-colors">
                     <span className="text-xs text-muted-foreground">Voxels</span>
                     <span className="text-sm font-medium text-popover-foreground tabular-nums">
                       {voxelSummary}
@@ -165,7 +165,7 @@ export const MetadataPopover: React.FC<MetadataPopoverProps> = ({
 
           {/* Binary indicator badge */}
           {metadata.isBinaryLike && (
-            <div className="mt-4 mx-2 px-3 py-1.5 bg-yellow-500/10 border border-yellow-500/20 text-yellow-600 text-xs rounded-md text-center font-medium">
+            <div className="mt-4 mx-2 px-3 py-1.5 bg-bf-warning-soft border border-bf-border text-bf-warning text-bf-xs rounded-sm text-center font-medium">
               Binary mask detected
             </div>
           )}

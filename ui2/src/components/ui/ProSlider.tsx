@@ -252,12 +252,12 @@ export const ProSlider: React.FC<ProSliderProps> = ({
   const accentColor = "hsl(var(--primary))";
   const thumbWidth = compact ? 10 : 12;
   const thumbHeight = compact ? 10 : 12;
-  const valueFontClass = compact ? "text-[9px]" : "text-[11px]";
-  const labelFontClass = compact ? "text-[9px]" : "text-[10px]";
+  const valueFontClass = compact ? "text-bf-2xs" : "text-bf-xs";
+  const labelFontClass = compact ? "text-bf-2xs" : "text-bf-2xs";
   const containerMargin = compact ? "6px" : "12px";
   const valueMargin = compact ? "4px" : "8px";
   const trackHeightClass = compact ? "h-4" : "h-6";
-  const tooltipFontClass = compact ? "text-[9px]" : "text-[10px]";
+  const tooltipFontClass = compact ? "text-bf-2xs" : "text-bf-2xs";
   const stripLabelWidth = labelWidth ?? "6rem";
   const stripValueWidth = valueWidth ?? "4.5rem";
 
@@ -269,7 +269,7 @@ export const ProSlider: React.FC<ProSliderProps> = ({
         style={{ marginBottom: 0 }}
       >
         <label
-          className="text-[10px] uppercase tracking-wider font-bold text-right shrink-0 truncate"
+          className="text-bf-2xs font-bold text-right shrink-0 truncate"
           style={{ color: labelColor, width: stripLabelWidth }}
         >
           {label}
@@ -314,9 +314,9 @@ export const ProSlider: React.FC<ProSliderProps> = ({
               />
               {showTooltip && isDragging && activeThumb === "left" && (
                 <div
-                  className={`absolute -top-8 left-1/2 -translate-x-1/2 px-2 py-1 ${tooltipFontClass} font-mono text-white shadow-lg pointer-events-none whitespace-nowrap`}
+                  className={`absolute -top-8 left-1/2 -translate-x-1/2 px-2 py-1 ${tooltipFontClass} font-mono text-foreground border border-border shadow-lg pointer-events-none whitespace-nowrap`}
                   style={{
-                    backgroundColor: "rgba(0, 0, 0, 0.85)",
+                    backgroundColor: "var(--bf-bg-panel-sunken)",
                     borderRadius: "1px",
                   }}
                 >
@@ -347,9 +347,9 @@ export const ProSlider: React.FC<ProSliderProps> = ({
               />
               {showTooltip && isDragging && activeThumb === "right" && (
                 <div
-                  className={`absolute -top-8 left-1/2 -translate-x-1/2 px-2 py-1 ${tooltipFontClass} font-mono text-white shadow-lg pointer-events-none whitespace-nowrap`}
+                  className={`absolute -top-8 left-1/2 -translate-x-1/2 px-2 py-1 ${tooltipFontClass} font-mono text-foreground border border-border shadow-lg pointer-events-none whitespace-nowrap`}
                   style={{
-                    backgroundColor: "rgba(0, 0, 0, 0.85)",
+                    backgroundColor: "var(--bf-bg-panel-sunken)",
                     borderRadius: "1px",
                   }}
                 >
@@ -361,7 +361,7 @@ export const ProSlider: React.FC<ProSliderProps> = ({
         </div>
 
         <span
-          className="text-[10px] font-mono tabular-nums text-right shrink-0"
+          className="text-bf-2xs font-mono tabular-nums text-right shrink-0"
           style={{ color: valueColor, width: stripValueWidth }}
         >
           {combinedValue}
@@ -377,7 +377,7 @@ export const ProSlider: React.FC<ProSliderProps> = ({
     >
       {/* Label - Instrument Control style */}
       <label
-        className={`block ${labelFontClass} uppercase tracking-widest font-semibold`}
+        className={`block ${labelFontClass} font-semibold`}
         style={{ color: labelColor, marginBottom: compact ? "4px" : "6px" }}
       >
         {label}
@@ -435,9 +435,9 @@ export const ProSlider: React.FC<ProSliderProps> = ({
             {/* Tooltip */}
             {showTooltip && isDragging && activeThumb === "left" && (
               <div
-                className={`absolute -top-8 left-1/2 -translate-x-1/2 px-2 py-1 ${tooltipFontClass} font-mono text-white shadow-lg pointer-events-none whitespace-nowrap`}
+                className={`absolute -top-8 left-1/2 -translate-x-1/2 px-2 py-1 ${tooltipFontClass} font-mono text-foreground border border-border shadow-lg pointer-events-none whitespace-nowrap`}
                 style={{
-                  backgroundColor: "rgba(0, 0, 0, 0.85)",
+                  backgroundColor: "var(--bf-bg-panel-sunken)",
                   borderRadius: "1px",
                 }}
               >
@@ -470,9 +470,9 @@ export const ProSlider: React.FC<ProSliderProps> = ({
             {/* Tooltip */}
             {showTooltip && isDragging && activeThumb === "right" && (
               <div
-                className={`absolute -top-8 left-1/2 -translate-x-1/2 px-2 py-1 ${tooltipFontClass} font-mono text-white shadow-lg pointer-events-none whitespace-nowrap`}
+                className={`absolute -top-8 left-1/2 -translate-x-1/2 px-2 py-1 ${tooltipFontClass} font-mono text-foreground border border-border shadow-lg pointer-events-none whitespace-nowrap`}
                 style={{
-                  backgroundColor: "rgba(0, 0, 0, 0.85)",
+                  backgroundColor: "var(--bf-bg-panel-sunken)",
                   borderRadius: "1px",
                 }}
               >

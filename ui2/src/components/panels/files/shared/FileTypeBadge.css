@@ -1,4 +1,6 @@
-/* FileTypeBadge — short uppercase chip shown next to file rows. */
+/* FileTypeBadge — short uppercase chip shown next to file rows. The file-type
+   hue lives in the border and a low-alpha ground (data-adjacent tint); the
+   label stays neutral secondary text so every badge clears 4.5:1. */
 .file-type-badge {
   display: inline-flex;
   align-items: center;
@@ -6,43 +8,42 @@
   margin-right: var(--bf-space-1);
   padding: 0 5px;
   height: 16px;
-  border-radius: 3px;
+  border-radius: var(--bf-radius-sm);
   border: 1px solid var(--bf-border-subtle);
   background: color-mix(in srgb, var(--bf-bg-panel) 78%, transparent);
   color: var(--bf-text-secondary);
   font-family: var(--bf-font-mono);
-  font-size: 9px;
-  font-weight: 600;
-  letter-spacing: 0.04em;
+  font-size: var(--bf-text-2xs);
+  font-weight: 500; /* Plex Mono 600 is not loaded; 600 would be synthesized */
   text-transform: uppercase;
   line-height: 1;
 }
 
 .file-type-badge--nii,
 .file-type-badge--niiGz {
-  border-color: color-mix(in srgb, var(--bf-icon-volume) 40%, transparent);
-  color: var(--bf-icon-volume);
+  border-color: color-mix(in srgb, var(--bf-icon-volume) 55%, transparent);
+  color: var(--bf-text-secondary);
   background: color-mix(in srgb, var(--bf-icon-volume) 12%, transparent);
 }
 
 .file-type-badge--fourDNii {
-  border-color: color-mix(in srgb, var(--bf-icon-volume) 60%, transparent);
-  color: #fff;
-  background: var(--bf-icon-volume);
+  border-color: var(--bf-icon-volume);
+  color: var(--bf-text-primary);
+  background: color-mix(in srgb, var(--bf-icon-volume) 28%, transparent);
 }
 
 .file-type-badge--gii,
 .file-type-badge--surfGii,
 .file-type-badge--funcGii {
-  border-color: color-mix(in srgb, var(--bf-icon-surface) 40%, transparent);
-  color: var(--bf-icon-surface);
+  border-color: color-mix(in srgb, var(--bf-icon-surface) 55%, transparent);
+  color: var(--bf-text-secondary);
   background: color-mix(in srgb, var(--bf-icon-surface) 12%, transparent);
 }
 
 .file-type-badge--mgz,
 .file-type-badge--mgh {
-  border-color: color-mix(in srgb, var(--bf-icon-freesurfer) 40%, transparent);
-  color: var(--bf-icon-freesurfer);
+  border-color: color-mix(in srgb, var(--bf-icon-freesurfer) 55%, transparent);
+  color: var(--bf-text-secondary);
   background: color-mix(in srgb, var(--bf-icon-freesurfer) 12%, transparent);
 }
 
@@ -56,10 +57,4 @@
   border-color: color-mix(in srgb, var(--bf-warning) 40%, transparent);
   color: var(--bf-warning);
   background: color-mix(in srgb, var(--bf-warning) 12%, transparent);
-}
-
-.file-tree-item.selected .file-type-badge {
-  border-color: hsl(var(--primary));
-  color: hsl(var(--primary-foreground));
-  background: color-mix(in srgb, hsl(var(--primary)) 30%, transparent);
 }

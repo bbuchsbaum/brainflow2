@@ -1,8 +1,9 @@
 import React from 'react';
+import { cn } from '@/utils/cn';
 
 interface ButtonProps {
   children: React.ReactNode;
-  variant?: 'primary' | 'secondary' | 'danger' | 'ghost';
+  variant?: 'primary' | 'secondary' | 'danger' | 'ghost' | 'link';
   size?: 'sm' | 'md' | 'lg';
   disabled?: boolean;
   loading?: boolean;
@@ -31,34 +32,52 @@ export const Button: React.FC<ButtonProps> = ({
   type = 'button',
   title
 }) => {
-  const baseClasses = 'inline-flex items-center justify-center font-medium rounded-md transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed';
-  
+  // Workstation restyle (docs/plans/workstation-shell-restyle.md): 24/28px
+  // controls, 2px radius, primary follows the --primary token, token-only colours.
+  const baseClasses =
+    'inline-flex items-center justify-center font-medium rounded-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background disabled:opacity-50 disabled:cursor-not-allowed';
+
   const variantClasses = {
-    primary: 'bg-blue-600 text-white hover:bg-blue-700 focus:ring-blue-500',
-    secondary: 'bg-gray-100 text-gray-900 hover:bg-gray-200 focus:ring-gray-500',
-    danger: 'bg-red-600 text-white hover:bg-red-700 focus:ring-red-500',
-    ghost: 'text-gray-600 hover:bg-gray-100 hover:text-gray-900 focus:ring-gray-500'
+    primary: 'bg-primary text-primary-foreground hover:bg-primary/90',
+    secondary:
+      'bg-bf-bg-panel-raised border border-border text-foreground hover:bg-accent',
+    danger:
+      'bg-bf-danger-soft border border-destructive/40 text-bf-danger hover:bg-destructive/25',
+    ghost: 'text-bf-text-secondary hover:text-foreground hover:bg-accent',
+    // HYBRID rule 5: links are light neutral with a visible underline, never
+    // amber. No fill, no fixed height: the link sits on the text baseline.
+    link: 'text-foreground underline underline-offset-2 decoration-[var(--bf-border-strong)] hover:decoration-current',
   };
-  
+
   const sizeClasses = {
-    sm: 'px-3 py-1.5 text-sm',
-    md: 'px-4 py-2 text-sm',
-    lg: 'px-6 py-3 text-base'
+    sm: 'h-6 px-2 text-bf-xs',
+    md: 'h-7 px-2.5 text-bf-sm',
+    lg: 'h-7 px-4 text-bf-md',
   };
-  
-  const classes = [
+
+  const linkSizeClasses = {
+    sm: 'h-auto px-0 text-bf-xs',
+    md: 'h-auto px-0 text-bf-sm',
+    lg: 'h-auto px-0 text-bf-md',
+  };
+
+  // cn (tailwind-merge) lets a caller's className override base classes of the
+  // same group (e.g. `disabled:opacity-100` beats the base `disabled:opacity-50`).
+  // A plain join left both in place, and Tailwind emits `disabled:opacity-50`
+  // after `disabled:opacity-100`, so the override silently lost.
+  const classes = cn(
     baseClasses,
     variantClasses[variant],
-    sizeClasses[size],
+    variant === 'link' ? linkSizeClasses[size] : sizeClasses[size],
     className
-  ].join(' ');
+  );
 
   const renderContent = () => {
     if (loading) {
       return (
         <>
           <svg 
-            className="animate-spin -ml-1 mr-2 h-4 w-4" 
+            className="animate-spin -ml-0.5 mr-1.5 h-3.5 w-3.5" 
             fill="none" 
             viewBox="0 0 24 24"
           >
@@ -84,11 +103,11 @@ export const Button: React.FC<ButtonProps> = ({
     return (
       <>
         {icon && iconPosition === 'left' && (
-          <span className="mr-2">{icon}</span>
+          <span className="mr-1.5">{icon}</span>
         )}
         {children}
         {icon && iconPosition === 'right' && (
-          <span className="ml-2">{icon}</span>
+          <span className="ml-1.5">{icon}</span>
         )}
       </>
     );

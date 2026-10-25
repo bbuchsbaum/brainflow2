@@ -57,7 +57,7 @@ const iconButtonStyle: CSSProperties = {
   padding: '0 4px',
   cursor: 'pointer',
   color: 'var(--app-text-muted)',
-  fontSize: '12px',
+  fontSize: 'var(--bf-text-sm)',
   lineHeight: 1,
   height: '20px',
   display: 'inline-flex',
@@ -109,7 +109,8 @@ export function BottomWorkbenchDock({
         minHeight: 0,
         display: 'grid',
         gridTemplateRows: minimized ? `${TAB_BAR_HEIGHT}px` : `${TAB_BAR_HEIGHT}px 1fr`,
-        background: 'var(--app-bg-primary)',
+        // Dock content sits on the panel ground, like every docked panel.
+        background: 'var(--bf-bg-panel)',
         color: 'var(--app-text-primary)',
       }}
     >
@@ -140,21 +141,19 @@ export function BottomWorkbenchDock({
               data-testid={`bottom-dock-tab-${id}`}
               data-active={active ? 'true' : 'false'}
               onClick={() => handleSelect(id)}
-              style={{
-                appearance: 'none',
-                padding: '0 10px',
-                height: '100%',
-                border: 0,
-                background: active ? 'var(--app-bg-primary)' : 'transparent',
-                boxShadow: active
-                  ? 'inset 1px 0 var(--app-border-subtle), inset -1px 0 var(--app-border-subtle)'
-                  : 'none',
-                color: active ? 'var(--app-text-primary)' : 'var(--app-text-muted)',
-                cursor: 'pointer',
-                borderRadius: 0,
-                fontSize: '12px',
-                fontWeight: 500,
-              }}
+              // Same segmented grammar as the top-bar mode switcher: active =
+              // raised neutral fill + 2px neutral bottom edge (a state edge,
+              // never a fill); inactive = muted; hover = neutral accent fill;
+              // focus = separate 2px ring with 1px offset, lifted above
+              // neighbours so it is never clipped.
+              className={[
+                'relative h-full whitespace-nowrap rounded-none border-0 px-2.5 text-bf-sm font-medium transition-colors',
+                'focus-visible:z-10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background',
+                active
+                  ? 'bg-bf-bg-active text-foreground shadow-[inset_0_-2px_0_var(--bf-text-muted)]'
+                  : 'bg-transparent text-muted-foreground hover:bg-accent hover:text-foreground',
+              ].join(' ')}
+              style={{ appearance: 'none', cursor: 'pointer' }}
             >
               {label}
             </button>

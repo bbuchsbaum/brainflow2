@@ -108,11 +108,11 @@ function SceneGroup({
 
   return (
     <div className="mt-2 first:mt-0">
-      <div className="mb-1 px-2 font-mono text-[11px] text-muted-foreground">
+      <div className="mb-1 px-2 text-bf-xs text-muted-foreground">
         {title}
       </div>
       {items.length === 0 ? (
-        <div className="flex h-[30px] items-center rounded-sm border border-dashed border-border px-2 text-[11.5px] text-muted-foreground">
+        <div className="flex h-[30px] items-center rounded-sm border border-dashed border-border px-2 text-bf-xs text-muted-foreground">
           {emptyHint}
         </div>
       ) : (
@@ -170,11 +170,11 @@ function VolumeSceneGroup({
 
   return (
     <div className="mt-2 first:mt-0">
-      <div className="mb-1 px-2 font-mono text-[11px] text-muted-foreground">
+      <div className="mb-1 px-2 text-bf-xs text-muted-foreground">
         Volume view
       </div>
       {items.length === 0 ? (
-        <div className="flex h-[30px] items-center rounded-sm border border-dashed border-border px-2 text-[11.5px] text-muted-foreground">
+        <div className="flex h-[30px] items-center rounded-sm border border-dashed border-border px-2 text-bf-xs text-muted-foreground">
           No volumes loaded · use Load
         </div>
       ) : items.length === 1 ? (
@@ -255,7 +255,7 @@ function SortableSceneStackItem({
       onClick={(event) => event.stopPropagation()}
       aria-label={`Drag to reorder ${item.name}`}
       title="Drag to reorder"
-      className="-ml-1 flex h-5 w-4 shrink-0 cursor-grab touch-none items-center justify-center rounded text-muted-foreground/40 opacity-0 transition-opacity hover:text-muted-foreground focus-visible:opacity-100 group-hover:opacity-100 active:cursor-grabbing"
+      className="-ml-1 flex h-5 w-4 shrink-0 cursor-grab touch-none items-center justify-center rounded text-muted-foreground opacity-0 transition-opacity hover:text-muted-foreground focus-visible:opacity-100 group-hover:opacity-100 active:cursor-grabbing"
     >
       <GripVertical className="h-3.5 w-3.5" />
     </button>

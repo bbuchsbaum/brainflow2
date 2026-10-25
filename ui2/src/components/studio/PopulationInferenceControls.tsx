@@ -10,7 +10,7 @@ import { useEffect, useState } from 'react';
 import { useSetStudioStore } from '@/stores/setStudioStore';
 import type { PopulationInferenceSpec } from '@/types/population';
 import { configureInference, selectInferenceChannel } from '@/services/studio/populationInference';
-const control = 'rounded border border-border bg-background px-2 py-1 text-xs disabled:opacity-40';
+const control = 'rounded-sm border border-border bg-background px-2 py-1 text-bf-sm disabled:opacity-40';
 export function PopulationInferenceControls() {
   const state = useSetStudioStore();
   const feature = state.features[state.selection.activeFeatureId ?? ''];
@@ -46,7 +46,7 @@ export function PopulationInferenceControls() {
   const descriptor = inferenceMethod(method);
   const population = resolvePopulation(state);
   return (
-    <details className="rounded border border-border p-3 text-xs" aria-label="Statistical question">
+    <details className="rounded-sm border border-border p-3 text-bf-sm" aria-label="Statistical question">
       <summary className="cursor-pointer font-medium">
         Statistical question{current ? ` · ${inferenceMethod(current.method).label}` : ''}
       </summary>
@@ -81,7 +81,7 @@ export function PopulationInferenceControls() {
           </p>
         )}
         {method === 'linearModel' && (
-          <fieldset className="space-y-2 rounded border border-border p-2">
+          <fieldset className="space-y-2 rounded-sm border border-border p-2">
             <legend>Participant design</legend>
             <p className="text-muted-foreground">
               An intercept is included. Select numeric covariates; encode factors in the table

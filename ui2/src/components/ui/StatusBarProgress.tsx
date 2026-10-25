@@ -45,10 +45,10 @@ export function StatusBarProgress() {
   return (
     <>
       <button
-        className="flex items-center gap-2 px-3 py-1 text-xs hover:bg-gray-700/50 transition-colors cursor-pointer"
+        type="button"
+        className="flex items-center gap-2 px-3 py-1 text-bf-xs text-bf-text-secondary hover:text-foreground hover:bg-accent rounded-sm transition-colors cursor-pointer focus-visible:outline focus-visible:outline-1 focus-visible:-outline-offset-1 focus-visible:outline-primary"
         onClick={() => setShowDrawer(true)}
         title="Click to view all tasks"
-        style={{ color: '#d1d5db' }}  // gray-300 to match status bar
       >
         {/* Progress indicator */}
         <div className="relative w-4 h-4">
@@ -69,7 +69,7 @@ export function StatusBarProgress() {
               />
               <path 
                 d="M12 2a10 10 0 0 1 10 10" 
-                stroke="#60a5fa"  // blue-400 for good contrast
+                stroke="var(--bf-accent)"
                 strokeWidth="2"
                 strokeLinecap="round"
               />
@@ -91,7 +91,7 @@ export function StatusBarProgress() {
                 cy="12"
                 r="10"
                 fill="none"
-                stroke="#60a5fa"  // blue-400 for good contrast
+                stroke="var(--bf-accent)"
                 strokeWidth="2"
                 strokeDasharray={`${2 * Math.PI * 10}`}
                 strokeDashoffset={`${2 * Math.PI * 10 * (1 - overallProgress / 100)}`}
@@ -110,11 +110,7 @@ export function StatusBarProgress() {
         {/* Task count badge */}
         {activeTasks.length > 1 && (
           <span 
-            className="px-1.5 py-0.5 rounded text-[10px] font-medium"
-            style={{ 
-              backgroundColor: '#60a5fa',  // blue-400
-              color: '#111827'  // gray-900 for contrast
-            }}
+            className="px-1.5 py-0.5 rounded-sm text-bf-2xs font-medium bg-primary text-primary-foreground"
           >
             +{activeTasks.length - 1}
           </span>

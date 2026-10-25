@@ -71,6 +71,21 @@ export function isViewWorkspaceType(
 }
 
 /**
+ * The most recently created view workspace whose display mode is `mode`, or
+ * `undefined`. Used to return from a tool destination to an existing view.
+ */
+export function findLatestViewInMode<
+  W extends Pick<Workspace, "id" | "type" | "timestamp">,
+>(workspaces: Iterable<W>, mode: DisplayMode): W | undefined {
+  let best: W | undefined;
+  for (const w of workspaces) {
+    if (resolveActiveDisplayMode(w.type) !== mode) continue;
+    if (!best || w.timestamp > best.timestamp) best = w;
+  }
+  return best;
+}
+
+/**
  * The tab label to display for a workspace.
  *
  * View workspaces are labelled by their *live* display mode (e.g. "Orthogonal",

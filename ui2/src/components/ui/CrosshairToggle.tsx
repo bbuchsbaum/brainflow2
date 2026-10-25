@@ -42,18 +42,16 @@ export function CrosshairToggle({ className, showLabel = false }: CrosshairToggl
       onClick={toggleVisibility}
       className={cn(
         "inline-flex items-center justify-center",
-        "h-8 px-3 rounded-md",
-        "text-sm font-medium",
+        "h-7 px-2.5 rounded-sm",
+        "text-bf-sm font-medium",
         "transition-all duration-200",
-        "focus:outline-none focus:ring-2 focus:ring-offset-2",
+        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background",
         settings.visible ? [
-          "bg-[var(--app-accent)] text-white",
-          "hover:bg-[var(--app-accent-hover)]",
-          "focus:ring-[var(--app-accent)]"
+          "bg-primary text-primary-foreground",
+          "hover:bg-[var(--app-accent-hover)]"
         ] : [
           "bg-[var(--app-bg-secondary)] text-[var(--app-text-secondary)]",
-          "hover:bg-[var(--app-bg-hover)] hover:text-[var(--app-text-primary)]",
-          "focus:ring-[var(--app-border-focus)]"
+          "hover:bg-[var(--app-bg-hover)] hover:text-[var(--app-text-primary)]"
         ],
         className
       )}

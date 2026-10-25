@@ -99,15 +99,15 @@ export function ExportImageDialog() {
     <Modal
       isOpen={isOpen}
       onClose={close}
-      title="Export Active View"
-      ariaLabel="Export Active View"
+      title="Export active view"
+      ariaLabel="Export active view"
       size="xl"
       initialFocusRef={fileNameInputRef}
       closeOnOverlayClick={!isSaving}
       closeOnEscape={!isSaving}
       closeButtonDisabled={isSaving}
       bodyClassName="p-0"
-      className="max-w-3xl rounded-sm ring-1 ring-white/10 shadow-2xl"
+      className="max-w-3xl rounded-sm ring-1 ring-bf-border-strong shadow-2xl"
     >
       <div className="flex flex-col md:flex-row gap-4 p-4">
           {/* Preview */}
@@ -164,7 +164,7 @@ export function ExportImageDialog() {
               <Label className="text-sm text-muted-foreground">File name</Label>
               <input
                 ref={fileNameInputRef}
-                className="w-full rounded-md bg-background/60 border border-border px-2 py-1.5 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+                className="w-full rounded-sm bg-background/60 border border-border px-2 py-1.5 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
                 value={suggestedName}
                 onChange={(e) => setSuggestedName(e.target.value)}
                 placeholder={`view.${format}`}

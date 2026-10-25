@@ -26,13 +26,44 @@
   background-color: var(--bf-bg-hover);
 }
 
+/* Selection is a tinted ground with a 2px amber inset edge, not a solid
+   accent fill: the selected row must stay readable and must not be the
+   loudest element on screen. Hover stays the neutral fill. */
 .file-tree-item.selected {
-  background-color: var(--bf-accent-active);
-  color: hsl(var(--primary-foreground));
+  background-color: var(--bf-bg-selected);
+  box-shadow: inset 2px 0 0 var(--bf-accent);
+  color: var(--bf-text-primary);
 }
 
 .file-tree-item.selected:hover {
-  background-color: var(--bf-accent-soft);
+  background-color: var(--bf-bg-active);
+}
+
+/* Keyboard focus (react-arborist focuses the treeitem wrapper). Focus is a
+   different FORM from selection (HYBRID rule 4): a full 2px ring with a 1px
+   gap INSIDE it, so the ring never touches the row fill, versus selection's
+   fill + 2px left edge. Rows span the full scroll width, so an outside
+   outline would be clipped at the panel edges; the ring is drawn as stacked
+   inset shadows instead (2px ring at the row edge, then a 1px panel-coloured
+   gap). On a selected row the 2px selection edge sits inside the gap, so
+   ring | gap | edge | fill all stay distinct.
+
+   The ring is gated on [data-kbd-nav] (set by useKeyboardNavWithin while the
+   user keyboard-navigates inside the tree, cleared on pointerdown / blur):
+   react-arborist keeps DOM focus on a row after pointer or programmatic
+   selection, and :focus-visible alone leaves that parked row ringed. */
+.fb-tree-container[data-kbd-nav='true'] [role='treeitem']:focus > .file-tree-item {
+  outline: none;
+  box-shadow:
+    inset 0 0 0 2px var(--bf-border-focus),
+    inset 0 0 0 3px var(--bf-bg-panel);
+}
+
+.fb-tree-container[data-kbd-nav='true'] [role='treeitem']:focus > .file-tree-item.selected {
+  box-shadow:
+    inset 0 0 0 2px var(--bf-border-focus),
+    inset 0 0 0 3px var(--bf-bg-panel),
+    inset 5px 0 0 var(--bf-accent);
 }
 
 .file-tree-item:active {
@@ -41,7 +72,6 @@
 
 .file-tree-item.font-medium {
   font-weight: 500;
-  color: var(--bf-text-primary);
 }
 
 .file-tree-item .expand-button {
@@ -58,6 +88,11 @@
   height: 16px;
   flex-shrink: 0;
   margin-right: var(--bf-space-1);
+}
+
+.file-tree-item .expand-button:focus-visible {
+  outline: 2px solid var(--bf-border-focus);
+  outline-offset: 1px;
 }
 
 .file-tree-item .expand-button:hover {
@@ -97,35 +132,49 @@
   min-width: 0;
 }
 
+/* Middle truncation in one flex row: head | stem | extension.
+   1. The head (start of the name) shrinks first, ellipsis at its end. Its
+      huge flex-shrink weight means it absorbs the whole deficit until it
+      reaches zero width.
+   2. Only then does the stem (last stem characters) shrink, down to ~3ch,
+      with the ellipsis at its START (RTL box + isolated LTR text), so the
+      characters next to the extension stay visible.
+   3. The extension (.nii.gz) never shrinks.
+   So at most one run shows an ellipsis at a time, and the extension is
+   never hidden. */
 .file-tree-item .file-name-text {
-  display: inline-flex;
+  display: flex;
   align-items: center;
-  gap: 1px;
   flex: 1 1 auto;
   min-width: 0;
-  /* No `overflow: hidden` here — that previously clipped the start of the
-     name when the head was already a complete string, hiding the extension
-     and the readable beginning at the same time. Children manage their own
-     overflow + ellipsis. */
+  overflow: hidden;
   white-space: nowrap;
 }
 
 .file-tree-item .file-name-head {
-  flex: 1 1 auto;
+  flex: 0 100000 auto;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.file-tree-item .file-name-tail {
-  flex-shrink: 0;
-  color: var(--bf-text-secondary);
-  font-family: var(--bf-font-mono);
+.file-tree-item .file-name-stem {
+  flex: 0 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  direction: rtl;
 }
 
-.file-tree-item.selected .file-name-tail {
-  color: hsl(var(--primary));
+.file-tree-item .file-name-stem > bdi {
+  unicode-bidi: isolate;
+  direction: ltr;
+}
+
+.file-tree-item .file-name-ext {
+  flex: 0 0 auto;
+  white-space: nowrap;
 }
 
 .file-tree-item .remote-origin-badge {
@@ -134,7 +183,7 @@
   color: var(--bf-text-secondary);
   background: color-mix(in srgb, var(--bf-bg-panel) 78%, transparent);
   border: 1px solid var(--bf-border-subtle);
-  border-radius: 999px;
+  border-radius: var(--bf-radius-sm);
   padding: 1px 6px;
   max-width: 36%;
   overflow: hidden;
@@ -150,10 +199,10 @@
 .file-tree-item .remote-root-badge {
   font-size: var(--app-text-xs);
   font-family: var(--bf-font-mono);
-  color: color-mix(in srgb, var(--bf-text-secondary) 88%, var(--bf-accent) 12%);
-  background: color-mix(in srgb, var(--bf-bg-panel) 72%, var(--bf-accent) 8%);
-  border: 1px solid color-mix(in srgb, var(--bf-border-subtle) 80%, var(--bf-accent) 20%);
-  border-radius: 999px;
+  color: var(--bf-text-secondary);
+  background: var(--bf-bg-panel-raised);
+  border: 1px solid var(--bf-border);
+  border-radius: var(--bf-radius-sm);
   padding: 1px 6px;
   max-width: 52%;
   overflow: hidden;
@@ -181,12 +230,14 @@
 }
 
 .file-tree-item.selected .file-size {
-  color: hsl(var(--primary));
+  color: var(--bf-text-secondary);
 }
 
 .file-tree-item mark {
-  background-color: var(--bf-warning);
-  color: hsl(var(--foreground));
+  background-color: var(--bf-bg-active);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  color: var(--bf-text-primary);
   padding: 0 2px;
   border-radius: 2px;
   font-weight: 500;

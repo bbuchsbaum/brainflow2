@@ -9,6 +9,7 @@ import React, { useEffect, useState, useCallback } from 'react';
 import { ChevronDown, Copy, Check } from 'lucide-react';
 import { getApiService } from '@/services/apiService';
 import type { NiftiHeaderInfo } from '@/services/apiService';
+import { Button } from '@/components/ui/shadcn/button';
 import { Modal } from '@/components/ui/Modal';
 
 interface ImageHeaderDialogProps {
@@ -33,12 +34,18 @@ function CopyValue({ value }: { value: string }) {
   }, [value]);
 
   return (
-    <span className="group flex items-center gap-1 cursor-pointer" onClick={copy}>
-      <span className="font-mono tabular-nums text-sm text-gray-200">{value}</span>
-      <span className="opacity-0 group-hover:opacity-60 transition-opacity">
-        {copied ? <Check className="w-3 h-3 text-green-400" /> : <Copy className="w-3 h-3" />}
+    <button
+      type="button"
+      className="group flex items-center gap-1 cursor-pointer rounded-sm text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      onClick={copy}
+      title="Copy value"
+      aria-label={copied ? `${value} (copied)` : `${value}, copy`}
+    >
+      <span className="font-mono tabular-nums text-sm text-foreground">{value}</span>
+      <span className="opacity-0 group-hover:opacity-60 group-focus-visible:opacity-60 transition-opacity" aria-hidden>
+        {copied ? <Check className="w-3 h-3 text-bf-success" /> : <Copy className="w-3 h-3" />}
       </span>
-    </span>
+    </button>
   );
 }
 
@@ -50,7 +57,7 @@ interface FieldRowProps {
 function FieldRow({ label, value }: FieldRowProps) {
   return (
     <div className="grid grid-cols-[140px_1fr] items-start gap-2 py-1">
-      <span className="text-xs text-gray-400 pt-0.5">{label}</span>
+      <span className="text-bf-sm text-muted-foreground pt-0.5">{label}</span>
       <CopyValue value={value} />
     </div>
   );
@@ -65,14 +72,16 @@ interface SectionProps {
 function Section({ title, defaultOpen = true, children }: SectionProps) {
   const [open, setOpen] = useState(defaultOpen);
   return (
-    <section className="border-b" style={{ borderColor: 'var(--app-border-subtle, #1e293b)' }}>
+    <section className="border-b" style={{ borderColor: 'var(--bf-border-subtle)' }}>
       <button
+        type="button"
+        aria-expanded={open}
         onClick={() => setOpen(o => !o)}
-        className="w-full px-6 py-3 flex items-center justify-between hover:bg-gray-800/30 transition-colors"
+        className="w-full px-6 py-3 flex items-center justify-between hover:bg-accent transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
       >
-        <h3 className="text-sm font-medium text-gray-300">{title}</h3>
+        <h3 className="m-0 border-0 p-0 text-bf-sm font-semibold text-foreground">{title}</h3>
         <ChevronDown
-          className={`w-4 h-4 text-gray-500 transition-transform ${open ? 'rotate-180' : ''}`}
+          className={`w-4 h-4 text-muted-foreground transition-transform ${open ? 'rotate-180' : ''}`}
         />
       </button>
       {open && (
@@ -130,22 +139,22 @@ export function ImageHeaderDialog({ open, onClose, volumeId }: ImageHeaderDialog
     <Modal
       isOpen={open}
       onClose={onClose}
-      title="Image Header"
-      ariaLabel="Image Header"
+      title="Image header"
+      ariaLabel="Image header"
       size="lg"
       bodyClassName="p-0"
-      className="max-w-lg rounded-xl ring-1 ring-white/10 shadow-2xl"
+      className="max-w-lg rounded-sm ring-1 ring-bf-border-strong shadow-2xl"
     >
       <div className="max-h-[90vh] overflow-hidden flex flex-col">
         <div className="flex-1 overflow-y-auto">
           {loading && (
-            <div className="flex items-center justify-center py-12 text-gray-400 text-sm">
+            <div className="flex items-center justify-center py-12 text-muted-foreground text-sm">
               Loading header info…
             </div>
           )}
 
           {error && (
-            <div className="px-6 py-4 text-red-400 text-sm">
+            <div className="px-6 py-4 text-bf-danger text-sm">
               Error: {error}
             </div>
           )}
@@ -203,7 +212,7 @@ export function ImageHeaderDialog({ open, onClose, volumeId }: ImageHeaderDialog
               {/* Transform */}
               <Section title="Transform (voxel → world)" defaultOpen={false}>
                 <div className="overflow-x-auto py-1">
-                  <pre className="font-mono text-xs tabular-nums text-gray-300 whitespace-pre leading-relaxed">
+                  <pre className="font-mono text-xs tabular-nums text-bf-text-secondary whitespace-pre leading-relaxed">
                     {matrixRows(info.voxel_to_world).join('\n')}
                   </pre>
                 </div>
@@ -227,14 +236,11 @@ export function ImageHeaderDialog({ open, onClose, volumeId }: ImageHeaderDialog
 
         <div
           className="px-6 py-3 border-t flex justify-end flex-shrink-0"
-          style={{ borderColor: 'var(--app-border-subtle, #1e293b)' }}
+          style={{ borderColor: 'var(--bf-border-subtle)' }}
         >
-          <button
-            onClick={onClose}
-            className="px-4 py-1.5 rounded text-sm bg-gray-700 hover:bg-gray-600 text-gray-200 transition-colors"
-          >
+          <Button onClick={onClose} variant="outline" size="sm">
             Close
-          </button>
+          </Button>
         </div>
       </div>
     </Modal>

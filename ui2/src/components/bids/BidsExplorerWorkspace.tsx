@@ -90,15 +90,15 @@ function BidsErrorState({ message, datasetPath }: BidsErrorStateProps) {
         <div className="flex gap-3" style={{ marginTop: '24px' }}>
           <button
             type="button"
-            className="bf-control-sm rounded-appsm border border-border bg-background px-3 text-[10px] font-semibold uppercase tracking-[0.08em] text-foreground transition-colors hover:border-primary hover:text-primary"
+            className="bf-control-sm rounded-appsm border border-border bg-background px-3 text-bf-xs font-medium text-foreground transition-colors hover:border-primary hover:text-primary"
             onClick={handleRetry}
           >
-            {datasetPath ? 'Retry' : 'Open Dataset'}
+            {datasetPath ? 'Retry' : 'Open dataset'}
           </button>
           {datasetPath && (
             <button
               type="button"
-              className="bf-control-sm rounded-appsm border border-border bg-background px-3 text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground transition-colors hover:border-border hover:text-foreground"
+              className="bf-control-sm rounded-appsm border border-border bg-background px-3 text-bf-xs font-medium text-muted-foreground transition-colors hover:border-border hover:text-foreground"
               onClick={reset}
             >
               Clear

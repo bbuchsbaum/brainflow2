@@ -1,5 +1,5 @@
 /**
- * Surface Data Layer Controls
+ * Surface Data layer controls
  * Controls for surface data overlays (statistical maps, activation maps, etc.)
  *
  * Uses SharedControls for common data layer properties (intensity, threshold,
@@ -222,11 +222,11 @@ export const SurfaceDataLayerControls: React.FC<SurfaceDataLayerControlsProps> =
       <div className="flex items-center justify-between pb-2 border-b border-border">
         <div className="flex items-center gap-2">
           <Layers className="w-4 h-4 text-muted-foreground" />
-          <span className="text-[11px] uppercase tracking-[0.15em] font-bold text-foreground">
-            Data Layer Properties
+          <span className="text-bf-xs font-bold text-foreground">
+            Data layer properties
           </span>
         </div>
-        <span className="text-[10px] uppercase tracking-widest text-primary font-mono">
+        <span className="text-bf-2xs text-primary font-mono">
           overlay
         </span>
       </div>
@@ -240,7 +240,7 @@ export const SurfaceDataLayerControls: React.FC<SurfaceDataLayerControlsProps> =
           maxValueWidth="140px"
         />
         <PropertyRow
-          label="Data Range"
+          label="Data range"
           value={isCategoricalLayer ? atlasRange : `${trueDataRange[0].toFixed(2)} – ${trueDataRange[1].toFixed(2)}`}
           mono
         />
@@ -254,7 +254,7 @@ export const SurfaceDataLayerControls: React.FC<SurfaceDataLayerControlsProps> =
         >
           <div className="space-y-3 rounded-sm border border-border/50 bg-muted/10 p-2">
             <div className="flex items-center justify-between gap-3">
-              <span className="text-[10px] uppercase tracking-widest text-muted-foreground font-semibold">
+              <span className="text-bf-2xs text-muted-foreground font-semibold">
                 Palette
               </span>
               <Select
@@ -262,7 +262,7 @@ export const SurfaceDataLayerControls: React.FC<SurfaceDataLayerControlsProps> =
                 onValueChange={(v) => void handlePaletteChange(v as AtlasPaletteKind)}
                 disabled={isPaletteLoading}
               >
-                <SelectTrigger className="h-7 w-[180px] text-[11px]">
+                <SelectTrigger className="h-7 w-[180px] text-bf-xs">
                   <SelectValue placeholder="Select palette" />
                 </SelectTrigger>
                 <SelectContent>
@@ -292,7 +292,7 @@ export const SurfaceDataLayerControls: React.FC<SurfaceDataLayerControlsProps> =
         </CollapsibleSection>
       ) : (
         <CollapsibleSection
-          title="Data Mapping"
+          title="Data mapping"
           icon={Layers}
           defaultExpanded={true}
         >
@@ -323,15 +323,15 @@ export const SurfaceDataLayerControls: React.FC<SurfaceDataLayerControlsProps> =
         <div className="space-y-4">
           {/* Show Only Positive/Negative - Instrument Control style */}
           <div className="flex items-center justify-between gap-4">
-            <label className="text-[10px] uppercase tracking-widest text-muted-foreground font-semibold shrink-0">
-              Value Display
+            <label className="text-bf-2xs text-muted-foreground font-semibold shrink-0">
+              Value display
             </label>
             <div className="flex gap-0 shrink-0">
               <button
-                className={`px-3 py-1 text-[10px] uppercase tracking-wider font-medium border border-r-0 transition-colors ${
+                className={`px-3 py-1 text-bf-2xs font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background border border-r-0 transition-colors ${
                   !layer.showOnlyPositive && !layer.showOnlyNegative
-                    ? 'bg-primary text-primary-foreground border-primary'
-                    : 'bg-transparent hover:bg-muted/50 border-border text-muted-foreground'
+                    ? 'bg-bf-bg-active text-foreground border-border shadow-[inset_0_-2px_0_var(--bf-text-muted)]'
+                    : 'bg-transparent hover:bg-accent hover:text-foreground border-border text-muted-foreground'
                 }`}
                 style={{ borderRadius: '1px 0 0 1px' }}
                 onClick={() => {
@@ -342,10 +342,10 @@ export const SurfaceDataLayerControls: React.FC<SurfaceDataLayerControlsProps> =
                 All
               </button>
               <button
-                className={`px-3 py-1 text-[10px] uppercase tracking-wider font-medium border border-r-0 transition-colors ${
+                className={`px-3 py-1 text-bf-2xs font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background border border-r-0 transition-colors ${
                   layer.showOnlyPositive === true
-                    ? 'bg-primary text-primary-foreground border-primary'
-                    : 'bg-transparent hover:bg-muted/50 border-border text-muted-foreground'
+                    ? 'bg-bf-bg-active text-foreground border-border shadow-[inset_0_-2px_0_var(--bf-text-muted)]'
+                    : 'bg-transparent hover:bg-accent hover:text-foreground border-border text-muted-foreground'
                 }`}
                 onClick={() => {
                   updateProperty('showOnlyPositive', true);
@@ -355,10 +355,10 @@ export const SurfaceDataLayerControls: React.FC<SurfaceDataLayerControlsProps> =
                 +
               </button>
               <button
-                className={`px-3 py-1 text-[10px] uppercase tracking-wider font-medium border transition-colors ${
+                className={`px-3 py-1 text-bf-2xs font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background border transition-colors ${
                   layer.showOnlyNegative === true
-                    ? 'bg-primary text-primary-foreground border-primary'
-                    : 'bg-transparent hover:bg-muted/50 border-border text-muted-foreground'
+                    ? 'bg-bf-bg-active text-foreground border-border shadow-[inset_0_-2px_0_var(--bf-text-muted)]'
+                    : 'bg-transparent hover:bg-accent hover:text-foreground border-border text-muted-foreground'
                 }`}
                 style={{ borderRadius: '0 1px 1px 0' }}
                 onClick={() => {
@@ -373,26 +373,26 @@ export const SurfaceDataLayerControls: React.FC<SurfaceDataLayerControlsProps> =
 
           {/* Cluster Size Threshold - Instrument Control style */}
           <div className="flex items-center justify-between gap-4">
-            <label className="text-[10px] uppercase tracking-widest text-muted-foreground font-semibold">
-              Cluster Threshold
+            <label className="text-bf-2xs text-muted-foreground font-semibold">
+              Cluster threshold
             </label>
             <div className="flex items-center gap-2">
               <input
                 type="number"
                 value={layer.clusterThreshold || 0}
                 onChange={(e) => updateProperty('clusterThreshold', parseInt(e.target.value))}
-                className="w-16 h-6 px-2 text-[10px] font-mono border border-border bg-transparent text-foreground"
+                className="w-16 h-6 px-2 text-bf-2xs font-mono border border-border bg-transparent text-foreground"
                 style={{ borderRadius: '1px' }}
                 min="0"
                 step="1"
               />
-              <span className="text-[10px] text-muted-foreground font-mono">vtx</span>
+              <span className="text-bf-2xs text-muted-foreground font-mono">vtx</span>
             </div>
           </div>
 
           {/* Smoothing Kernel - Instrument Control style */}
           <div className="flex items-center justify-between gap-4">
-            <label className="text-[10px] uppercase tracking-widest text-muted-foreground font-semibold">
+            <label className="text-bf-2xs text-muted-foreground font-semibold">
               Smoothing
             </label>
             <Select
@@ -400,7 +400,7 @@ export const SurfaceDataLayerControls: React.FC<SurfaceDataLayerControlsProps> =
               onValueChange={(value) => updateProperty('smoothingKernel', parseInt(value))}
             >
               <SelectTrigger
-                className="w-20 h-6 text-[10px] font-mono border-border"
+                className="w-20 h-6 text-bf-2xs font-mono border-border"
                 style={{ borderRadius: '1px' }}
               >
                 <SelectValue />
@@ -420,7 +420,7 @@ export const SurfaceDataLayerControls: React.FC<SurfaceDataLayerControlsProps> =
 
       {/* Data Statistics - Technical Blueprint style */}
       <PropertyBox>
-        <div className="text-[10px] uppercase tracking-widest text-muted-foreground font-semibold mb-2">
+        <div className="text-bf-2xs text-muted-foreground font-semibold mb-2">
           Statistics
         </div>
         <div className="grid grid-cols-2 gap-x-4 gap-y-1">

@@ -10,7 +10,7 @@ import { explainRelationship } from '@/services/studio/PopulationRelationshipSer
 import { useViewStateStore } from '@/stores/viewStateStore';
 import { populationProbeActions } from '@/services/studio/PopulationProbeActions';
 const control =
-  'rounded border border-border bg-background px-2 py-1 text-xs max-w-full disabled:opacity-40';
+  'rounded-sm border border-border bg-background px-2 py-1 text-bf-sm max-w-full disabled:opacity-40';
 export function PopulationExplanation({
   fit,
   current,
@@ -98,7 +98,7 @@ export function PopulationExplanation({
     .sort((a, b) => a.score - b.score);
   return (
     <details
-      className="rounded border border-border p-2"
+      className="rounded-sm border border-border p-2"
       aria-label="Explain spatial relationships"
     >
       <summary className="cursor-pointer">Explain in the brain</summary>
@@ -225,7 +225,7 @@ export function PopulationExplanation({
                 {...props}
                 image={preview?.image ?? null}
                 emptyFallback={
-                  <p className="absolute inset-0 grid place-items-center text-xs text-muted-foreground">
+                  <p className="absolute inset-0 grid place-items-center text-bf-sm text-muted-foreground">
                     Choose a field and show the current slice
                   </p>
                 }
@@ -233,7 +233,7 @@ export function PopulationExplanation({
             )}
           />
           {preview && (
-            <div className="pointer-events-none absolute inset-0 text-xs text-white/80" aria-hidden>
+            <div className="pointer-events-none absolute inset-0 text-bf-sm text-white/80" aria-hidden>
               <span className="absolute left-1 top-1/2">
                 {populationAxisLabel(preview.plane.u_mm.map((v) => -v))}
               </span>

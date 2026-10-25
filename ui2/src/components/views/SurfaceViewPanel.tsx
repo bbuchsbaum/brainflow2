@@ -211,7 +211,7 @@ export const SurfaceViewPanel: React.FC<SurfaceViewPanelProps> = ({
           load CTA stays reachable (no dead-end spinner/banner). */}
       {loadError && activeSurface && (
         <div className="absolute top-4 left-4 right-4 z-20">
-          <div className="bg-destructive/10 border border-destructive/20 text-destructive rounded-lg p-3 flex items-start gap-2">
+          <div className="bg-destructive/10 border border-destructive/20 text-destructive rounded-sm p-3 flex items-start gap-2">
             <AlertCircle className="h-4 w-4 mt-0.5 flex-shrink-0" />
             <div className="flex-1 text-sm">{loadError}</div>
             <button
@@ -262,10 +262,10 @@ export const SurfaceViewPanel: React.FC<SurfaceViewPanelProps> = ({
           className="absolute inset-0 flex flex-col items-center justify-center gap-2 px-4 text-center select-none"
         >
           <div className="space-y-1.5">
-            <p className="text-[12px] font-medium" style={{ color: 'var(--bf-text-secondary)' }}>
+            <p className="text-bf-sm font-medium" style={{ color: 'var(--bf-text-secondary)' }}>
               {loadError ? 'Couldn’t load surface' : 'No surface loaded'}
             </p>
-            <p className="mx-auto max-w-[280px] text-[12px] text-muted-foreground">
+            <p className="mx-auto max-w-[280px] text-bf-sm text-muted-foreground">
               {loadError ?? 'Load a cortical surface to view it alongside the volume.'}
             </p>
           </div>
@@ -283,7 +283,7 @@ export const SurfaceViewPanel: React.FC<SurfaceViewPanelProps> = ({
                   console.error('[SurfaceViewPanel] Failed to open surface picker:', error),
                 );
             }}
-            className="mt-1.5 inline-flex h-7 items-center gap-1.5 rounded-sm border border-border bg-card px-2.5 text-[12px] font-medium text-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+            className="mt-1.5 inline-flex h-7 items-center gap-1.5 rounded-sm border border-border bg-card px-2.5 text-bf-sm font-medium text-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
           >
             <span aria-hidden>+</span>
             Load surface…
@@ -294,7 +294,7 @@ export const SurfaceViewPanel: React.FC<SurfaceViewPanelProps> = ({
       {/* Surface info overlay - Technical readout style */}
       {activeSurface && activeSurface.metadata && (
         <div
-          className="absolute left-3 px-2 py-1.5 border font-mono text-[10.5px] leading-[1.55]"
+          className="absolute left-3 px-2 py-1.5 border font-mono text-bf-2xs leading-[1.55]"
           style={{
             top: infoOverlayTop,
             backgroundColor: 'hsl(var(--card) / 0.92)',

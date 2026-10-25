@@ -65,6 +65,13 @@ export type {
   RenderViewDiagnostics,
 } from '@brainflow/api';
 
+/**
+ * Whether the backend renderer should draw its own crosshair tick into slice
+ * images. Off: every live slice view (orthogonal, compare, Studio, mosaic)
+ * draws the crosshair on its canvas overlay instead.
+ */
+export const RENDERER_DRAWS_CROSSHAIR = false;
+
 export class ApiService {
   private transport: BackendTransport;
   private renderClient: RenderClient;
@@ -141,7 +148,11 @@ export class ApiService {
     );
     const payload: any = {
       views: viewState.views,
-      crosshair: { ...crosshairToUse, color: crosshairColor },
+      // The canvas overlay draws the whole crosshair (halo, snapped core,
+      // centre gap), so the renderer's own 1px centre tick is turned off: it
+      // would sit up to half a pixel off the snapped line, unhaloed. Only the
+      // backend `show_crosshair` flag changes; world_mm is still sent.
+      crosshair: { ...crosshairToUse, visible: RENDERER_DRAWS_CROSSHAIR, color: crosshairColor },
       layers: payloadLayers,
       timepoint: viewState.timepoint,
     };
@@ -704,7 +715,11 @@ export class ApiService {
     );
     const payload: any = {
       views: viewState.views,
-      crosshair: { ...viewState.crosshair, color: multiCrosshairColor },
+      crosshair: {
+        ...viewState.crosshair,
+        visible: RENDERER_DRAWS_CROSSHAIR,
+        color: multiCrosshairColor,
+      },
       layers: payloadLayers,
       timepoint: viewState.timepoint,
       requestedViews: viewTypes.map((viewType) => {

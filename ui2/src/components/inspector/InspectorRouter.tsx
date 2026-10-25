@@ -81,7 +81,7 @@ function ContextToolbar({
       <button
         type="button"
         onClick={onOpenLoad}
-        className="inline-flex h-6 items-center gap-1 rounded-sm border border-border bg-card px-2 text-[11.5px] font-medium text-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+        className="inline-flex h-6 items-center gap-1 rounded-sm border border-border bg-card px-2 text-bf-xs font-medium text-foreground transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background"
         aria-label="Load"
         title="Load"
         aria-haspopup="menu"
@@ -94,9 +94,9 @@ function ContextToolbar({
         type="button"
         onClick={() => onSelectMode(annotateActive ? 'inspector' : 'annotate')}
         aria-pressed={annotateActive}
-        className={`inline-flex h-6 items-center rounded-sm border px-2 text-[11.5px] font-medium transition-colors ${
+        className={`inline-flex h-6 items-center rounded-sm border px-2 text-bf-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background ${
           annotateActive
-            ? 'border-primary/50 bg-primary/15 text-primary'
+            ? 'border-border bg-bf-bg-active text-foreground shadow-[inset_0_-2px_0_var(--bf-text-muted)]'
             : 'border-border bg-card text-foreground hover:bg-accent hover:text-accent-foreground'
         }`}
         title="Toggle annotate mode"
@@ -137,7 +137,7 @@ function InspectorBody() {
     case 'unknown':
     default:
       return (
-        <div className="px-3 py-6 text-center text-[12px] text-muted-foreground">
+        <div className="px-3 py-6 text-center text-bf-sm text-muted-foreground">
           No active workspace.
         </div>
       );
@@ -146,7 +146,7 @@ function InspectorBody() {
 
 function AnnotateBody() {
   return (
-    <div className="px-3 py-6 text-center text-[12px] text-muted-foreground">
+    <div className="px-3 py-6 text-center text-bf-sm text-muted-foreground">
       Annotate mode is not yet enabled in this Inspector shell.
     </div>
   );
@@ -157,7 +157,7 @@ function InspectorFooter() {
   const activeId = useInspectorSelectionStore((state) => state.activeItemId);
 
   return (
-    <footer className="flex items-center justify-between border-t border-border bg-card/40 px-3 py-1.5 font-mono text-[11px] text-muted-foreground">
+    <footer className="flex items-center justify-between border-t border-border bg-card/40 px-3 py-1.5 text-bf-xs text-muted-foreground">
       <span
         className="tabular-nums"
         style={{ fontVariantNumeric: 'tabular-nums' }}
@@ -167,8 +167,8 @@ function InspectorFooter() {
       <span
         className={
           activeId
-            ? 'tabular-nums text-sky-600 dark:text-sky-300'
-            : 'tabular-nums text-muted-foreground/70'
+            ? 'tabular-nums text-primary'
+            : 'tabular-nums text-muted-foreground'
         }
         style={{ fontVariantNumeric: 'tabular-nums' }}
       >

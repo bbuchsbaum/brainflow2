@@ -133,9 +133,9 @@
 }
 
 .remote-mount-footer > button.primary {
-  background: var(--bf-accent);
-  border-color: color-mix(in srgb, var(--bf-accent) 65%, #000 35%);
-  color: #ffffff;
+  background: hsl(var(--primary));
+  border-color: transparent;
+  color: var(--bf-text-inverse);
 }
 
 .remote-mount-footer > button:hover:not(:disabled) {
@@ -144,8 +144,8 @@
 }
 
 .remote-mount-footer > button.primary:hover:not(:disabled) {
-  background: var(--bf-accent-hover);
-  color: #fff;
+  background: hsl(var(--primary) / 0.88);
+  color: var(--bf-text-inverse);
 }
 
 .remote-mount-footer > button:focus-visible {

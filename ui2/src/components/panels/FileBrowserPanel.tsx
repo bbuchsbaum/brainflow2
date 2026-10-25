@@ -32,6 +32,7 @@ import { ViewModeTabs } from "./files/ViewModeTabs";
 import { ImagesView } from "./files/ImagesView";
 import { LoadedView } from "./files/LoadedView";
 import { BidsView } from "./files/BidsView";
+import { useKeyboardNavWithin } from "./files/useKeyboardNavWithin";
 
 const FileBrowserPanelContent: React.FC = () => {
   const fileBrowserStore = useFileBrowserStore();
@@ -101,7 +102,12 @@ const FileBrowserPanelContent: React.FC = () => {
   // null ref (empty state), bail, and never re-attach — freezing the Tree at
   // its fallback width. The callback ref attaches the ResizeObserver whenever
   // the node appears (and disconnects when it unmounts).
+  // Gate the tree's focus ring on keyboard navigation inside the tree (see
+  // useKeyboardNavWithin): react-arborist parks DOM focus on a row, which
+  // otherwise stays ringed while the user works elsewhere.
+  const kbdNavRef = useKeyboardNavWithin();
   const setTreeContainer = useCallback((node: HTMLDivElement | null) => {
+    kbdNavRef(node);
     treeContainerRef.current = node;
     treeResizeObserverRef.current?.disconnect();
     treeResizeObserverRef.current = null;
@@ -124,7 +130,7 @@ const FileBrowserPanelContent: React.FC = () => {
     const observer = new ResizeObserver(measure);
     observer.observe(node);
     treeResizeObserverRef.current = observer;
-  }, []);
+  }, [kbdNavRef]);
 
   useEffect(
     () => () => {
@@ -408,7 +414,7 @@ const FileBrowserPanelContent: React.FC = () => {
             },
             {
               id: "unmount-selected",
-              label: "Unmount Selected",
+              label: "Unmount selected",
               onClick: () => {
                 void unmountSelectedRoot();
               },
@@ -453,7 +459,7 @@ const FileBrowserPanelContent: React.FC = () => {
             },
             {
               id: "refresh",
-              label: "Refresh Directory",
+              label: "Refresh directory",
               onClick: () => {
                 if (!canRefresh) return;
                 void fileBrowserStore.refreshDirectory(refreshTargetPath);
@@ -462,7 +468,7 @@ const FileBrowserPanelContent: React.FC = () => {
             },
             {
               id: "clear-search",
-              label: "Clear Search",
+              label: "Clear search",
               onClick: handleNoResultsReset,
               disabled: searchQuery.trim().length === 0,
             },
@@ -546,6 +552,7 @@ const FileBrowserPanelContent: React.FC = () => {
             */}
             <div
               ref={setTreeContainer}
+              className="fb-tree-container"
               style={{
                 width: "100%",
                 height: "100%",
@@ -556,7 +563,7 @@ const FileBrowserPanelContent: React.FC = () => {
               {isSearchEmptyState && treeData.length === 0 ? (
                 <div className="empty-state">
                   <div className="empty-state-card">
-                    <p className="empty-state-kicker">No Matching Files</p>
+                    <p className="empty-state-kicker">No matching files</p>
                     <p className="empty-state-message">
                       No neuroimaging files match your current search. Reset
                       search or mount another folder.
@@ -567,7 +574,7 @@ const FileBrowserPanelContent: React.FC = () => {
                         className="empty-state-button secondary"
                         onClick={handleNoResultsReset}
                       >
-                        Clear Search
+                        Clear search
                       </button>
                     </div>
                   </div>

@@ -70,7 +70,7 @@ export function ImageSetSection({ item }: { item: SceneItem }) {
             <ChevronRight className="h-4 w-4" />
           </button>
         </div>
-        <p className="break-all font-mono text-[11px] leading-4 text-muted-foreground">
+        <p className="break-all font-mono text-bf-xs leading-4 text-muted-foreground">
           {entry.members[entry.activeIndex]?.name}
         </p>
         {busy ? (
@@ -78,7 +78,7 @@ export function ImageSetSection({ item }: { item: SceneItem }) {
             <Loader2 className="h-3 w-3 animate-spin" /> Opening {entry.members[index].name}…
           </p>
         ) : (
-          <p className="text-[11px] text-muted-foreground">
+          <p className="text-bf-xs text-muted-foreground">
             One image visible · Contrast remembered per image
           </p>
         )}

@@ -55,7 +55,7 @@ export const SourceHeader: React.FC<SourceHeaderProps> = ({ rootNode, selectedPa
         <div className="fb-source-line">
           <span className="fb-source-label">{rootLabel}</span>
           <span className={`fb-source-kind fb-source-kind--${isRemote ? 'remote' : 'local'}`}>
-            {isRemote ? 'SSH' : 'LOCAL'}
+            {isRemote ? 'SSH' : 'Local'}
           </span>
         </div>
         {(remoteRoot || crumbs.length > 0) && (

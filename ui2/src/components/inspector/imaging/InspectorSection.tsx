@@ -3,7 +3,7 @@ import React, { useState } from 'react';
 interface InspectorSectionProps {
   /** Section icon (small svg or character). */
   icon?: React.ReactNode;
-  /** Uppercase section label, e.g. `RENDER`. */
+  /** Sentence-case section label, e.g. `View behavior`. */
   label: string;
   /** Whether the section is open by default. */
   defaultOpen?: boolean;
@@ -18,7 +18,7 @@ interface InspectorSectionProps {
 
 /**
  * Collapsible section primitive used by every inspector body. Mirrors the
- * mockup chrome: thin divider, icon + uppercase label + chevron, padded
+ * mockup chrome: thin divider, icon + sentence-case label + chevron, padded
  * body. Caller owns the inner controls.
  */
 export function InspectorSection({
@@ -38,17 +38,17 @@ export function InspectorSection({
         aria-expanded={open}
         aria-controls={`${headingId}-body`}
         onClick={() => setOpen((p) => !p)}
-        className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left transition-colors hover:bg-accent"
+        className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
       >
         <span id={headingId} className="flex items-center gap-2 text-foreground">
           {icon ? <span className="text-muted-foreground">{icon}</span> : null}
-          <span className="text-[12px] font-semibold">
+          <span className="text-bf-sm font-semibold">
             {label}
           </span>
         </span>
         <span className="flex items-center gap-2">
           {meta ? (
-            <span className="font-mono text-[11px] text-muted-foreground">{meta}</span>
+            <span className="text-bf-xs tabular-nums text-muted-foreground">{meta}</span>
           ) : null}
           <svg
             viewBox="0 0 16 16"
@@ -85,7 +85,7 @@ export function FieldRow({
   children: React.ReactNode;
 }) {
   return (
-    <div className="flex items-center justify-between gap-3 py-1.5 text-[12px]">
+    <div className="flex items-center justify-between gap-3 py-1.5 text-bf-sm">
       <span className="text-muted-foreground">{label}</span>
       <span className="flex min-w-0 shrink-0 items-center gap-2">{children}</span>
     </div>
@@ -102,21 +102,32 @@ export function FactGrid({
   facts: Array<{ label: string; value: string }>;
 }) {
   return (
-    <div className="grid grid-cols-2 gap-x-4 gap-y-2 rounded-md border border-border bg-card/40 p-3 text-[12px]">
-      {facts.map((fact) => (
-        <div key={fact.label} className="min-w-0">
-          <div className="text-[10px] font-medium uppercase tracking-[0.08em] text-muted-foreground/80">
-            {fact.label}
+    <div className="grid grid-cols-2 gap-x-4 gap-y-2 rounded-sm border border-border bg-card/40 p-3 text-bf-sm">
+      {facts.map((fact) => {
+        // Keep a trailing unit glued to its value: the number may shrink
+        // to an ellipsis (full text in the title), the unit never wraps.
+        const unitMatch = /^(.*\S)\s(mm|ms|s|Hz|%)$/.exec(fact.value);
+        const number = unitMatch ? unitMatch[1] : fact.value;
+        const unit = unitMatch ? unitMatch[2] : null;
+        // Long readouts (e.g. anisotropic voxel size) take the full row so
+        // they stay legible in a narrow Inspector instead of truncating.
+        const wide = fact.value.length > 14;
+        return (
+          <div key={fact.label} className={wide ? 'col-span-2 min-w-0' : 'min-w-0'}>
+            <div className="text-bf-2xs font-medium text-muted-foreground">
+              {fact.label}
+            </div>
+            <div
+              className="flex min-w-0 items-baseline gap-1 whitespace-nowrap font-mono tabular-nums text-foreground"
+              style={{ fontVariantNumeric: 'tabular-nums' }}
+              title={fact.value}
+            >
+              <span className="min-w-0 truncate">{number}</span>
+              {unit ? <span className="shrink-0">{unit}</span> : null}
+            </div>
           </div>
-          <div
-            className="truncate font-mono tabular-nums text-foreground"
-            style={{ fontVariantNumeric: 'tabular-nums' }}
-            title={fact.value}
-          >
-            {fact.value}
-          </div>
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
 }

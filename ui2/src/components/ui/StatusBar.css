@@ -19,7 +19,7 @@
   background: var(--app-bg-tertiary);
   border-top: 1px solid var(--app-border-subtle);
   color: var(--app-text-secondary);
-  font-size: 12px;
+  font-size: var(--bf-text-sm);
   font-family: var(--app-font-sans);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
@@ -43,30 +43,33 @@
 }
 
 .status-label {
-  color: var(--app-text-muted);
-  opacity: 0.85;
-  font-size: 11px;
+  /* Labels use the muted token at full strength (AA); faint is decorative only. */
+  color: var(--bf-text-muted);
+  font-size: var(--bf-text-xs);
   flex-shrink: 0;
   white-space: nowrap;
 }
 
 .status-value {
+  min-width: 0;
+  white-space: nowrap;
   font-family: var(--app-font-mono);
-  font-size: 11.5px;
+  font-size: var(--bf-text-xs);
   font-weight: 500;
   overflow: hidden;
   text-overflow: ellipsis;
   color: var(--app-text-primary);
 }
 
-/* Bauhaus monochrome — restrained value colors.
-   Only crosshair gets the accent; everything else is neutral. */
+/* Restrained value colors. Only the crosshair readout is chromatic, and it
+   uses the crosshair's own colour (set inline from the settings store), not
+   the chrome accent. */
 .status-value--coordinate-system {
   color: var(--app-text-secondary);
 }
 
 .status-value--crosshair {
-  color: var(--app-accent);
+  color: var(--status-crosshair-color, var(--bf-crosshair));
 }
 
 .status-value--mouse {
@@ -101,6 +104,76 @@
   align-items: center;
   gap: 12px;
   flex-shrink: 0;
+  padding-left: 8px;
+}
+
+/* Diagnostics: developer telemetry (atlas pressure, FPS, GPU) behind one
+   compact button + popover, so it never competes with the location readouts. */
+.status-diagnostics-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 20px;
+  padding: 0 8px;
+  background: transparent;
+  border: 1px solid var(--bf-border-subtle);
+  border-radius: var(--bf-radius-xs);
+  color: var(--bf-text-muted);
+  font-family: var(--app-font-sans);
+  font-size: var(--bf-text-xs);
+  cursor: pointer;
+  transition: background-color var(--bf-motion-fast) ease,
+    color var(--bf-motion-fast) ease;
+}
+
+.status-diagnostics-trigger:hover,
+.status-diagnostics-trigger[data-state='open'] {
+  background: var(--bf-bg-hover);
+  color: var(--bf-text-primary);
+}
+
+.status-diagnostics-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex: none;
+}
+
+.status-diagnostics-dot--warning {
+  background: var(--bf-warning);
+}
+
+.status-diagnostics-dot--critical {
+  background: var(--bf-danger);
+}
+
+.status-diagnostics-list {
+  margin: 0;
+  display: grid;
+  gap: 2px;
+  font-size: var(--bf-text-xs);
+}
+
+.status-diagnostics-row {
+  display: grid;
+  grid-template-columns: 5ch minmax(0, 1fr);
+  gap: 8px;
+  align-items: baseline;
+  padding: 2px 4px;
+}
+
+.status-diagnostics-row dt {
+  color: var(--bf-text-muted);
+}
+
+.status-diagnostics-row dd {
+  margin: 0;
+  font-family: var(--app-font-mono);
+  font-variant-numeric: tabular-nums;
+  color: var(--bf-text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .status-toggle {
@@ -115,9 +188,8 @@
 }
 
 .status-toggle span {
-  font-size: 11.5px;
+  font-size: var(--bf-text-xs);
   color: var(--app-text-primary);
-  letter-spacing: 0.01em;
 }
 
 .status-toggle--preset {
@@ -142,16 +214,9 @@
   text-align: left;
 }
 
-/* Responsive: hide less important items on small screens */
-@media (max-width: 1024px) {
-  .status-slot[data-priority='low'] {
-    display: none;
-  }
-}
-
 @media (max-width: 768px) {
   .status-bar {
-    font-size: 11px;
+    font-size: var(--bf-text-xs);
     height: 28px;
   }
 
@@ -160,6 +225,6 @@
   }
 
   .status-label {
-    font-size: 10px;
+    font-size: var(--bf-text-2xs);
   }
 }

@@ -62,13 +62,13 @@ import { useLayoutLibraryStore } from '@/stores/layoutLibraryStore';
 function ErrorFallback({ error, resetErrorBoundary }: any) {
   return (
     <div className="h-screen bg-bf-bg-app flex items-center justify-center">
-      <div className="bg-red-900 border border-red-700 rounded-lg p-6 max-w-md">
-        <h2 className="text-red-400 text-lg font-semibold mb-2">Something went wrong</h2>
-        <pre className="text-red-300 text-sm mb-4 whitespace-pre-wrap">{error.message}</pre>
+      <div className="bg-bf-danger-soft border border-bf-danger/40 rounded-sm p-6 max-w-md">
+        <h2 className="text-bf-danger text-bf-lg font-semibold mb-2">Something went wrong</h2>
+        <pre className="text-foreground text-bf-sm mb-4 whitespace-pre-wrap">{error.message}</pre>
         <div className="flex gap-2">
           <button
             onClick={resetErrorBoundary}
-            className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded"
+            className="bg-primary text-primary-foreground hover:bg-primary/90 px-4 py-2 rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background"
           >
             Try again
           </button>
@@ -77,9 +77,9 @@ function ErrorFallback({ error, resetErrorBoundary }: any) {
               localStorage.removeItem('brainflow2-workspace');
               window.location.reload();
             }}
-            className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded"
+            className="bg-bf-bg-panel-raised border border-border text-foreground hover:bg-accent px-4 py-2 rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background"
           >
-            Clear Cache & Reload
+            Clear cache and reload
           </button>
         </div>
       </div>
@@ -574,13 +574,13 @@ function AppContent() {
       return (
         <div className="h-screen bg-bf-bg-app flex items-center justify-center text-bf-danger">
           <div className="text-center">
-            <h2 className="text-lg font-semibold mb-2">Render Loop Detected</h2>
+            <h2 className="text-lg font-semibold mb-2">Render loop detected</h2>
             <p className="mb-4">The application encountered an infinite render loop</p>
             <button
               onClick={() => window.location.reload()}
-              className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded"
+              className="bg-primary text-primary-foreground hover:bg-primary/90 px-4 py-2 rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background"
             >
-              Reload Application
+              Reload application
             </button>
           </div>
         </div>

@@ -22,6 +22,27 @@ import type { PlotHostProps, PlotMode, PlotModeContext, PlotModeSupport } from '
 
 const HOST_HEADER_HEIGHT = 28;
 
+/** Keyboard focus ring shared by the host's interactive controls. */
+/** Keyboard focus: a 2px ring in the focus token with a 1px offset. */
+export const PLOT_FOCUS_RING =
+  'focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring';
+
+/**
+ * Joined segmented group (V5 navigation kind 2): one bordered group with 1px
+ * internal dividers. Active = raised neutral fill + 2px inset neutral bottom
+ * edge (amber is reserved for the top-bar switcher and the focused stack's
+ * tab); inactive = muted text; hover = the neutral accent fill. Focus is a
+ * separate 2px ring with a 1px offset, lifted above its neighbours.
+ */
+const MODE_GROUP =
+  'inline-flex h-5 items-stretch rounded-sm border border-bf-border';
+const MODE_CHIP_BASE =
+  'relative px-2 text-bf-xs transition-colors border-r border-bf-border-subtle last:border-r-0 focus-visible:z-10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background';
+const MODE_CHIP_ACTIVE =
+  'bg-bf-bg-active font-medium text-foreground shadow-[inset_0_-2px_0_var(--bf-text-muted)]';
+const MODE_CHIP_INACTIVE =
+  'bg-transparent text-muted-foreground hover:bg-accent hover:text-foreground';
+
 interface ResolvedMode {
   mode: PlotMode | undefined;
   support: PlotModeSupport | undefined;
@@ -54,28 +75,18 @@ function EmptyState({ title, detail, testid }: EmptyStateProps) {
         flexDirection: 'column',
         alignItems: 'center',
         justifyContent: 'center',
-        gap: '6px',
-        color: 'var(--app-text-muted)',
+        gap: '4px',
+        color: 'var(--bf-text-muted)',
         textAlign: 'center',
         padding: '12px',
         userSelect: 'none',
       }}
     >
-      <span
-        className="bf-role-section"
-        style={{
-          color: 'var(--app-text-muted)',
-          letterSpacing: 'var(--app-role-section-tracking)',
-          textTransform: 'uppercase',
-        }}
-      >
+      <span className="text-bf-sm font-medium" style={{ color: 'var(--bf-text-secondary)' }}>
         {title}
       </span>
       {detail ? (
-        <span
-          className="bf-role-body"
-          style={{ color: 'var(--app-text-disabled)', maxWidth: '32ch' }}
-        >
+        <span className="text-bf-xs" style={{ color: 'var(--bf-text-muted)', maxWidth: '36ch' }}>
           {detail}
         </span>
       ) : null}
@@ -97,24 +108,12 @@ function ModeSelector({ modes, activeId, onChange }: ModeSelectorProps) {
       <select
         aria-label="Plot mode"
         data-testid="plot-host-mode-select"
+        className={`bf-select ${PLOT_FOCUS_RING}`}
         value={activeId}
         onChange={(e) => onChange(e.target.value)}
         style={{
-          appearance: 'none',
-          WebkitAppearance: 'none',
-          MozAppearance: 'none',
           height: '20px',
-          padding: '0 18px 0 6px',
-          background: 'transparent',
-          backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='6'%3E%3Cpath d='M1 1l3 3 3-3' fill='none' stroke='%238a93a3' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E")`,
-          backgroundRepeat: 'no-repeat',
-          backgroundPosition: 'right 6px center',
-          color: 'var(--app-text-primary)',
-          border: '1px solid var(--app-border)',
-          borderRadius: 'var(--app-radius-sm)',
           fontSize: 'var(--app-role-section-size)',
-          cursor: 'pointer',
-          outline: 'none',
         }}
       >
         {modes.map((m) => (
@@ -131,7 +130,7 @@ function ModeSelector({ modes, activeId, onChange }: ModeSelectorProps) {
       role="tablist"
       aria-label="Plot mode"
       data-testid="plot-host-mode-tabs"
-      style={{ display: 'inline-flex', gap: '2px' }}
+      className={MODE_GROUP}
     >
       {modes.map((m) => {
         const active = m.id === activeId;
@@ -144,21 +143,8 @@ function ModeSelector({ modes, activeId, onChange }: ModeSelectorProps) {
             data-testid={`plot-host-mode-${m.id}`}
             data-active={active ? 'true' : 'false'}
             onClick={() => onChange(m.id)}
-            className="bf-role-section"
-            style={{
-              appearance: 'none',
-              padding: '2px 8px',
-              height: '20px',
-              border: '1px solid var(--app-border)',
-              borderColor: active ? 'var(--app-border-active)' : 'var(--app-border)',
-              background: active ? 'var(--app-bg-active)' : 'transparent',
-              color: active ? 'var(--app-text-primary)' : 'var(--app-text-muted)',
-              cursor: 'pointer',
-              borderRadius: 'var(--app-radius-sm)',
-              fontSize: 'var(--app-role-section-size)',
-              letterSpacing: 'var(--app-role-section-tracking)',
-              textTransform: 'uppercase',
-            }}
+            className={`${MODE_CHIP_BASE} ${active ? MODE_CHIP_ACTIVE : MODE_CHIP_INACTIVE}`}
+            style={{ appearance: 'none', cursor: 'pointer' }}
           >
             {m.label}
           </button>
@@ -258,8 +244,8 @@ export function PlotHost({
     bodyState = 'no-modes';
     body = (
       <EmptyState
-        title="No plot modes"
-        detail="Register a plot mode to display data here."
+        title="No plot yet"
+        detail="Load a volume to see its histogram."
         testid="plot-host-empty-no-modes"
       />
     );
@@ -270,11 +256,21 @@ export function PlotHost({
     bodyState = 'error';
     body = <EmptyState title="Plot error" detail={error.message} testid="plot-host-error" />;
   } else if (!mode) {
+    // The requested mode is not among the modes on offer. PlotPanel passes
+    // only modes whose `supports()` currently passes, so the auto default
+    // ("histogram") is absent until a layer is selected. Treat this as an
+    // ordinary empty state; never surface a registry id to the user.
     bodyState = 'no-mode';
-    body = (
+    body = layerId ? (
       <EmptyState
-        title="Unknown plot mode"
-        detail={`No registered mode with id "${activeId}".`}
+        title="Plot not available"
+        detail="This plot does not apply to the selected layer. Choose another plot above."
+        testid="plot-host-empty-no-mode"
+      />
+    ) : (
+      <EmptyState
+        title="No plot yet"
+        detail="Load a volume to see its histogram."
         testid="plot-host-empty-no-mode"
       />
     );
@@ -324,8 +320,8 @@ export function PlotHost({
         width: '100%',
         display: 'flex',
         flexDirection: 'column',
-        background: 'var(--app-surface-panel-raised)',
-        color: 'var(--app-text-primary)',
+        background: 'var(--bf-bg-panel)',
+        color: 'var(--bf-text-primary)',
         overflow: 'hidden',
       }}
     >
@@ -339,7 +335,7 @@ export function PlotHost({
           padding: '0 8px',
           height: `${HOST_HEADER_HEIGHT}px`,
           minHeight: `${HOST_HEADER_HEIGHT}px`,
-          borderBottom: '1px solid var(--app-border-subtle)',
+          borderBottom: '1px solid var(--bf-border-subtle)',
           flex: '0 0 auto',
         }}
       >
@@ -359,6 +355,8 @@ export function PlotHost({
           flex: '1 1 auto',
           minHeight: 0,
           overflow: 'hidden',
+          // The drawing area sits one step below the panel ground.
+          background: 'var(--bf-bg-app)',
         }}
       >
         {body}

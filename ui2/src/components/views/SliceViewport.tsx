@@ -1,7 +1,7 @@
 import type { MouseEvent } from 'react';
 import { SliceRenderer } from './SliceRenderer';
 import type { SliceRendererProps } from './SliceRenderer';
-import type { CrosshairStyle } from '@/utils/crosshairUtils';
+import type { CrosshairRect, CrosshairStyle } from '@/utils/crosshairUtils';
 import type { ViewPlane } from '@/types/coordinates';
 import type { RenderContext } from '@/types/renderContext';
 import type { DisplayOpenIntent } from '@/types/loadIntent';
@@ -28,6 +28,8 @@ interface SliceViewportProps {
     world_mm: [number, number, number];
   } | null;
   crosshairStyle?: CrosshairStyle | null;
+  /** Client-space boxes (orientation letters) the crosshair stroke avoids. */
+  getCrosshairKnockouts?: () => CrosshairRect[];
   showSliceBorder?: boolean;
   sliceBorderWidth?: number;
   className?: string;
@@ -58,6 +60,7 @@ export function SliceViewport({
   viewPlane,
   crosshair,
   crosshairStyle,
+  getCrosshairKnockouts,
   showSliceBorder = false,
   sliceBorderWidth = 1,
   className = '',
@@ -81,6 +84,10 @@ export function SliceViewport({
 }: SliceViewportProps) {
   useRenderContextRegistration(context);
 
+  // The Brainflow ReusableSliceViewport draws the crosshair itself (halo +
+  // pixel-snapped core, centre gap, compact weight in small views, clipped
+  // around orientation letters) with the shared viewer's projection:
+  // styling only, geometry unchanged.
   return (
     <ReusableSliceViewport
       width={width}
@@ -88,6 +95,7 @@ export function SliceViewport({
       viewPlane={viewPlane}
       crosshair={crosshair}
       crosshairStyle={crosshairStyle}
+      getCrosshairKnockouts={getCrosshairKnockouts}
       showSliceBorder={showSliceBorder}
       sliceBorderWidth={sliceBorderWidth}
       className={className}

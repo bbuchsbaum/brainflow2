@@ -48,7 +48,7 @@ export function BidsEmptyState() {
     >
       <div className="w-full px-8" style={{ maxWidth: '720px' }}>
         {/* Section eyebrow */}
-        <p className="bf-role-section text-muted-foreground">BIDS EXPLORER</p>
+        <p className="bf-role-section text-muted-foreground">BIDS explorer</p>
 
         {/* Body */}
         <p
@@ -81,12 +81,12 @@ export function BidsEmptyState() {
               !bg-primary !text-primary-foreground
               hover:!bg-[hsl(var(--primary)/0.88)]
               !rounded-appsm
-              !text-[11px] !font-semibold !tracking-[0.08em] uppercase
+              !text-bf-xs !font-medium
               !px-4 !py-2
-              focus:!ring-primary
+              focus:!ring-ring
             "
           >
-            {opening ? 'Opening\u2026' : 'Open Dataset'}
+            {opening ? 'Opening\u2026' : 'Open dataset'}
           </Button>
         </div>
 

@@ -103,7 +103,7 @@ export function ContextMenu() {
               role="menuitem"
               aria-disabled={isDisabled}
               className={cn(
-                'flex w-full items-center gap-2 px-3 py-1.5 text-left text-[11px] font-mono uppercase tracking-wider transition-colors',
+                'flex w-full items-center gap-2 px-3 py-1.5 text-left text-bf-xs transition-colors',
                 isDisabled
                   ? 'cursor-not-allowed text-muted-foreground/50'
                   : item.danger

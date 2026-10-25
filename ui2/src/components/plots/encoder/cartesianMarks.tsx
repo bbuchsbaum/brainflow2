@@ -38,7 +38,10 @@ export function populationCategoryColor(label: string) {
 const lineColor = 'var(--app-plot-line)';
 const gridColor = 'var(--app-plot-grid)';
 const mutedColor = 'var(--app-text-muted)';
+const axisLabelColor = 'var(--bf-text-secondary)';
+const axisLabelSize = 'var(--bf-text-2xs)';
 const axisFontFamily = 'var(--app-font-mono, monospace)';
+const proseFontFamily = 'var(--bf-font-sans, sans-serif)';
 
 const MARGIN = { top: 8, right: 10, bottom: 22, left: 36 } as const;
 
@@ -147,8 +150,8 @@ function EmptyMark({ kind, width, height }: { kind: MarkKind; width: number; hei
         textAnchor="middle"
         dominantBaseline="middle"
         fill={mutedColor}
-        fontSize={9}
-        fontFamily={axisFontFamily}
+        fontSize={10}
+        style={{ fontSize: axisLabelSize, fontFamily: proseFontFamily }}
       >
         No data
       </text>
@@ -178,10 +181,12 @@ interface CartesianMarkProps {
   readonly children: ReactNode;
 }
 
+// Tick numerals: mono for tabular alignment, secondary text at the 2xs step.
 const tickLabelProps = () => ({
-  fill: mutedColor,
-  fontSize: 9,
+  fill: axisLabelColor,
+  fontSize: 10,
   fontFamily: axisFontFamily,
+  style: { fontSize: axisLabelSize },
 });
 
 /**

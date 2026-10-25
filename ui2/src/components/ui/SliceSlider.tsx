@@ -33,6 +33,7 @@ export function SliceSlider({
   
   // Get the axis label based on view type
   const axisLabel = viewType === 'axial' ? 'Z' : viewType === 'sagittal' ? 'X' : 'Y';
+  const viewName = `${viewType.charAt(0).toUpperCase()}${viewType.slice(1)}`;
   
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const newValue = parseFloat(e.target.value);
@@ -156,6 +157,8 @@ export function SliceSlider({
             step={step}
             value={value}
             disabled={disabled}
+            aria-label={`${viewName} slice position`}
+            aria-valuetext={`${axisLabel.toLowerCase()} = ${displayValue} mm`}
             onChange={handleChange}
             onPointerDown={handlePointerDown}
             onPointerUp={handlePointerUp}

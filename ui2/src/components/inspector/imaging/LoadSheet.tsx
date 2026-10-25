@@ -44,7 +44,7 @@ export function LoadSheet({
       ref={menuRef}
       role="menu"
       aria-label="Load"
-      className="absolute right-2 top-12 z-30 min-w-[220px] overflow-hidden rounded-md border border-border bg-card shadow-lg"
+      className="absolute right-2 top-12 z-30 min-w-[220px] overflow-hidden rounded-sm border border-border bg-card shadow-lg"
       onKeyDown={(event) => {
         if (event.key === 'Escape' || event.key === 'Tab') {
           if (event.key === 'Escape') event.preventDefault();
@@ -111,10 +111,10 @@ function SheetItem({
       type="button"
       role="menuitem"
       onClick={onClick}
-      className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-[12px] transition-colors hover:bg-accent hover:text-accent-foreground"
+      className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-bf-sm transition-colors hover:bg-accent hover:text-accent-foreground"
     >
       <span className="text-foreground">{label}</span>
-      <span className="text-[10px] text-muted-foreground">{hint}</span>
+      <span className="text-bf-2xs text-muted-foreground">{hint}</span>
     </button>
   );
 }

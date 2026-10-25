@@ -28,7 +28,7 @@ function fillPasswordForm() {
   fireEvent.change(screen.getByLabelText('Host'), { target: { value: 'login.example.org' } });
   fireEvent.change(screen.getByLabelText('Port'), { target: { value: '2222' } });
   fireEvent.change(screen.getByLabelText('User'), { target: { value: 'alice' } });
-  fireEvent.change(screen.getByLabelText('Remote Folder'), { target: { value: '/data' } });
+  fireEvent.change(screen.getByLabelText('Remote folder'), { target: { value: '/data' } });
   fireEvent.change(screen.getByLabelText('Password'), { target: { value: 'secret' } });
 }
 
@@ -81,13 +81,13 @@ describe('RemoteMountDialog', () => {
     setupDialog();
 
     await waitFor(() => {
-      expect(screen.getByLabelText('Saved Profile')).toHaveValue('newer');
+      expect(screen.getByLabelText('Saved profile')).toHaveValue('newer');
       expect(screen.getByLabelText('Host')).toHaveValue('new.example.org');
       expect(screen.getByLabelText('Port')).toHaveValue('2222');
       expect(screen.getByLabelText('User')).toHaveValue('newuser');
-      expect(screen.getByLabelText('Remote Folder')).toHaveValue('/new');
-      expect(screen.getByLabelText('Auth Method')).toHaveValue('key_file');
-      expect(screen.getByLabelText('SSH Key File (optional)')).toHaveValue('~/.ssh/id_new');
+      expect(screen.getByLabelText('Remote folder')).toHaveValue('/new');
+      expect(screen.getByLabelText('Auth method')).toHaveValue('key_file');
+      expect(screen.getByLabelText('SSH key file (optional)')).toHaveValue('~/.ssh/id_new');
     });
   });
 
@@ -114,17 +114,17 @@ describe('RemoteMountDialog', () => {
     setupDialog();
 
     await waitFor(() => {
-      expect(screen.getByLabelText('Saved Profile')).toHaveValue('profile-1');
+      expect(screen.getByLabelText('Saved profile')).toHaveValue('profile-1');
     });
 
-    fireEvent.change(screen.getByLabelText('Saved Profile'), { target: { value: '' } });
+    fireEvent.change(screen.getByLabelText('Saved profile'), { target: { value: '' } });
 
     await waitFor(() => {
       expect(screen.getByLabelText('Host')).toHaveValue('');
       expect(screen.getByLabelText('Port')).toHaveValue('22');
       expect(screen.getByLabelText('User')).toHaveValue('');
-      expect(screen.getByLabelText('Remote Folder')).toHaveValue('/');
-      expect(screen.getByLabelText('Auth Method')).toHaveValue('password');
+      expect(screen.getByLabelText('Remote folder')).toHaveValue('/');
+      expect(screen.getByLabelText('Auth method')).toHaveValue('password');
     });
   });
 
@@ -481,7 +481,7 @@ describe('RemoteMountDialog', () => {
         screen.getByText(/This host is not offering password authentication\./)
       ).toBeInTheDocument();
       expect(
-        screen.getByText(/Switch Auth Method to SSH Agent or SSH Key File/)
+        screen.getByText(/Switch Auth method to SSH Agent or SSH Key File/)
       ).toBeInTheDocument();
     });
   });
@@ -516,7 +516,7 @@ describe('RemoteMountDialog', () => {
       expect(
         screen.getByText(/This host expects keyboard-interactive authentication/)
       ).toBeInTheDocument();
-      expect(screen.getByText(/Switch Auth Method to Keyboard Interactive/)).toBeInTheDocument();
+      expect(screen.getByText(/Switch Auth method to Keyboard interactive/)).toBeInTheDocument();
     });
   });
 
@@ -563,9 +563,9 @@ describe('RemoteMountDialog', () => {
     fireEvent.change(screen.getByLabelText('Host'), { target: { value: 'login.example.org' } });
     fireEvent.change(screen.getByLabelText('Port'), { target: { value: '2222' } });
     fireEvent.change(screen.getByLabelText('User'), { target: { value: 'alice' } });
-    fireEvent.change(screen.getByLabelText('Remote Folder'), { target: { value: '/data' } });
-    fireEvent.change(screen.getByLabelText('Auth Method'), { target: { value: 'key_file' } });
-    fireEvent.change(screen.getByLabelText('SSH Key File (optional)'), {
+    fireEvent.change(screen.getByLabelText('Remote folder'), { target: { value: '/data' } });
+    fireEvent.change(screen.getByLabelText('Auth method'), { target: { value: 'key_file' } });
+    fireEvent.change(screen.getByLabelText('SSH key file (optional)'), {
       target: { value: '~/.ssh/id_ed25519_brainflow' },
     });
     fireEvent.change(screen.getByLabelText('Key Passphrase (optional)'), {

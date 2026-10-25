@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { populationProbeActions } from '@/services/studio/PopulationProbeActions';
 import type { PopulationSelectionOrigin } from '@/types/population';
-const control = 'rounded border border-border bg-background px-2 py-1 text-xs';
+const control = 'rounded-sm border border-border bg-background px-2 py-1 text-bf-sm';
 /** Uses rendered target geometry, not an assumed scale or array position. A
  * completed gesture submits stable IDs once; cancel never changes membership. */
 export function PopulationBrush({
@@ -54,7 +54,7 @@ export function PopulationBrush({
         }
       }}
     >
-      <div className="mb-2 flex flex-wrap items-center gap-2 text-xs">
+      <div className="mb-2 flex flex-wrap items-center gap-2 text-bf-sm">
         <button
           className={control}
           aria-pressed={enabled}

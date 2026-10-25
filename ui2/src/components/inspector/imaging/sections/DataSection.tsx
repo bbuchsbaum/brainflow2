@@ -168,13 +168,13 @@ function OpenInDockLink({
   if (!showsPlot) return null;
 
   return (
-    <div className="mt-2 flex items-center justify-between border-t border-border/40 pt-2 text-[11px]">
+    <div className="mt-2 flex items-center justify-between border-t border-border/40 pt-2 text-bf-xs">
       <span className="text-muted-foreground">Full plot</span>
       <button
         type="button"
         onClick={onOpen}
         data-testid="open-in-dock"
-        className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-sky-600 transition-colors hover:bg-accent/40 dark:text-sky-300"
+        className="inline-flex items-center gap-1 rounded-sm px-1.5 py-0.5 text-foreground underline underline-offset-2 decoration-[var(--bf-border-strong)] transition-colors hover:decoration-current focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background"
         title="Open this layer's plot in the bottom dock"
       >
         <span>Open in dock</span>
@@ -199,7 +199,7 @@ function OpenInDockLink({
 
 function EmptyFacts() {
   return (
-    <div className="rounded-md border border-dashed border-border/60 bg-card/30 px-3 py-2 text-[11px] text-muted-foreground/70">
+    <div className="rounded-sm border border-dashed border-border/60 bg-card/30 px-3 py-2 text-bf-xs text-muted-foreground">
       No metadata yet.
     </div>
   );

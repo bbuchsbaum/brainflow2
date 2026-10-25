@@ -6,8 +6,13 @@
  * relationship. Three states (driven by `useSurfaceAssociationState`):
  *
  *   missing         → "No surface loaded" with a "Load surface…" CTA.
- *   loaded-unlinked → orange unlinked indicator + a hint about how to link.
+ *   loaded-unlinked → warning-toned unlinked indicator + the reason.
  *   loaded-linked   → quiet linked indicator naming the source volume.
+ *
+ * Colour policy: the unlinked state and the pial/white coordinate-linking
+ * caveat are warnings (`--bf-warning`). The template note is neutral guidance; the linked
+ * state carries `--bf-success` on its icon only. Amber is reserved for the
+ * accent, so none of these states use it.
  *
  * The badge is **non-blocking** — it sits in the top-left of the surface
  * canvas at low opacity until hovered. Surface canvas interactions
@@ -31,6 +36,11 @@ const ABS_OVERLAY_STYLE: React.CSSProperties = {
   display: "flex",
 };
 
+const DETAIL_STYLE: React.CSSProperties = {
+  color: "var(--bf-text-muted)",
+  fontWeight: 450,
+};
+
 const CARD_BASE_STYLE: React.CSSProperties = {
   pointerEvents: "auto",
   display: "inline-flex",
@@ -38,15 +48,25 @@ const CARD_BASE_STYLE: React.CSSProperties = {
   gap: "6px",
   padding: "0 8px",
   height: "22px",
-  background: "rgba(30, 30, 29, 0.92)",
-  border: "1px solid var(--app-border)",
-  borderRadius: "2px",
-  color: "var(--app-text-secondary)",
-  fontSize: "var(--app-role-section-size)",
+  background: "hsl(var(--card) / 0.92)",
+  border: "1px solid var(--bf-border)",
+  borderRadius: "var(--bf-radius-sm)",
+  color: "var(--bf-text-secondary)",
+  fontSize: "var(--bf-text-xs)",
   fontWeight: 500,
   backdropFilter: "blur(6px)",
   whiteSpace: "nowrap",
   maxWidth: "320px",
+};
+
+// Coordinate-linking caveat: a scientific caution, so it uses the warning
+// token (text/icon, soft fill, hairline border) rather than neutral grey or
+// the amber selection accent.
+const CAVEAT_STYLE: React.CSSProperties = {
+  ...CARD_BASE_STYLE,
+  color: "var(--bf-warning)",
+  background: "var(--bf-warning-soft)",
+  border: "1px solid color-mix(in srgb, var(--bf-warning) 40%, transparent)",
 };
 
 export const SurfaceAssociationBadge: React.FC = () => {
@@ -71,7 +91,7 @@ export const SurfaceAssociationBadge: React.FC = () => {
     return (
       <div style={ABS_OVERLAY_STYLE}>
         <div data-testid="surface-association-badge" data-state="cursor-unavailable"
-          style={{ ...CARD_BASE_STYLE, color: 'var(--app-warning, #f59e0b)' }}
+          style={CAVEAT_STYLE}
           title="Load a matching pial or white surface with the same vertex topology to link this display to volume coordinates.">
           <Link2Off width={12} height={12} aria-hidden="true" />
           <span>Load matching pial/white surface to link coordinates</span>
@@ -93,8 +113,7 @@ export const SurfaceAssociationBadge: React.FC = () => {
           data-reason={association.reason}
           style={{
             ...CARD_BASE_STYLE,
-            color: "var(--app-warning, #f59e0b)",
-            borderColor: "rgba(245, 158, 11, 0.45)",
+            color: "var(--bf-warning)",
           }}
           title={`${association.surfaceName}: ${reasonLabel}`}
         >
@@ -102,12 +121,7 @@ export const SurfaceAssociationBadge: React.FC = () => {
           <span data-testid="surface-association-state">Source unlinked</span>
           <span
             data-testid="surface-association-detail"
-            style={{
-              color: "var(--app-text-muted)",
-              fontWeight: 450,
-              textTransform: "none",
-              letterSpacing: 0,
-            }}
+            style={DETAIL_STYLE}
           >
             · {reasonLabel}
           </span>
@@ -124,21 +138,14 @@ export const SurfaceAssociationBadge: React.FC = () => {
           data-state="template-underlay"
           style={{
             ...CARD_BASE_STYLE,
-            color: "var(--app-accent, #5b9dff)",
-            borderColor: "rgba(91, 157, 255, 0.45)",
           }}
           title={`${association.surfaceName}: Template surface; coordinate linking requires a volume in the same world space`}
         >
-          <Brain width={12} height={12} aria-hidden="true" />
+          <Brain width={12} height={12} aria-hidden="true" style={{ color: "var(--bf-text-muted)" }} />
           <span data-testid="surface-association-state">Template surface</span>
           <span
             data-testid="surface-association-detail"
-            style={{
-              color: "var(--app-text-muted)",
-              fontWeight: 450,
-              textTransform: "none",
-              letterSpacing: 0,
-            }}
+            style={DETAIL_STYLE}
           >
             · template surface
           </span>
@@ -155,20 +162,15 @@ export const SurfaceAssociationBadge: React.FC = () => {
         data-state="loaded-linked"
         style={{
           ...CARD_BASE_STYLE,
-          color: "var(--app-success, #35d36b)",
-          borderColor: "rgba(53, 211, 107, 0.45)",
         }}
         title={`${association.surfaceName} ↔ ${association.volumeName}`}
       >
-        <Link width={12} height={12} aria-hidden="true" />
+        <Link width={12} height={12} aria-hidden="true" style={{ color: "var(--bf-success)" }} />
         <span data-testid="surface-association-state">Source linked</span>
         <span
           data-testid="surface-association-volume"
           style={{
-            color: "var(--app-text-muted)",
-            fontWeight: 450,
-            textTransform: "none",
-            letterSpacing: 0,
+            ...DETAIL_STYLE,
             overflow: "hidden",
             textOverflow: "ellipsis",
           }}
