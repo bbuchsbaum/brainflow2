@@ -1,0 +1,36 @@
+{
+  "source": "tpl-MNI152NLin2009cAsym_res-01_desc-brain_T1w.nii",
+  "dims": [
+    96,
+    114,
+    96
+  ],
+  "affine": [
+    [
+      2,
+      0,
+      0,
+      -95.5
+    ],
+    [
+      0,
+      2,
+      0,
+      -131.5
+    ],
+    [
+      0,
+      0,
+      2,
+      -77.5
+    ],
+    [
+      0,
+      0,
+      0,
+      1
+    ]
+  ],
+  "intensityMax": 9271.375,
+  "encoding": "uint8, x fastest"
+}
