@@ -274,9 +274,27 @@ describe('PlotPanel ↔ plotModeStore handshake (6c)', () => {
     resetStores();
   });
 
-  it('reflects activePlotModeId from the store as the controlled PlotHost mode', async () => {
-    // No layer selected — PlotHost still renders, just empty-state. We only
-    // care that the toolbar's mode selector reflects the store.
+  function selectTimeSeriesLayer() {
+    seedVolumeLayer({
+      id: 'bold-4d',
+      name: 'BOLD',
+      type: 'functional',
+      timeSeriesInfo: {
+        num_timepoints: 200,
+        tr: 2,
+        temporal_unit: 's',
+        acquisition_time: null,
+      },
+    });
+    act(() => {
+      useViewStateStore.getState().setViewState((state) => {
+        state.crosshair = { world_mm: [0, 0, 0], visible: true };
+      });
+    });
+  }
+
+  it('reflects a supported activePlotModeId from the store as the controlled PlotHost mode', () => {
+    selectTimeSeriesLayer();
     act(() => {
       usePlotModeStore.getState().setActivePlotMode('crosshair-time-series');
     });
@@ -285,6 +303,24 @@ describe('PlotPanel ↔ plotModeStore handshake (6c)', () => {
 
     const host = screen.getByTestId('plot-host');
     expect(host.getAttribute('data-mode')).toBe('crosshair-time-series');
+  });
+
+  it('temporarily falls back without a layer and restores the manual mode when supported', () => {
+    act(() => {
+      usePlotModeStore.getState().setActivePlotMode('crosshair-time-series');
+    });
+
+    render(<PlotPanel defaultMode="histogram" />);
+
+    expect(screen.getByTestId('plot-host').getAttribute('data-mode')).toBe('population');
+    expect(usePlotModeStore.getState().activePlotModeId).toBe('crosshair-time-series');
+    expect(usePlotModeStore.getState().selectionSource).toBe('user');
+
+    selectTimeSeriesLayer();
+
+    expect(screen.getByTestId('plot-host').getAttribute('data-mode')).toBe('crosshair-time-series');
+    expect(usePlotModeStore.getState().activePlotModeId).toBe('crosshair-time-series');
+    expect(usePlotModeStore.getState().selectionSource).toBe('user');
   });
 
   it('falls back to defaultMode when no override is active', () => {
