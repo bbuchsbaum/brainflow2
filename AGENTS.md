@@ -77,9 +77,14 @@ for an intended visual change. See the reference for targeted GPU checks.
 - **Rendering:** runtime masked WGSL is authoritative; `typed-shaders` is
   intentionally disabled. Keep Rust/WGSL layouts aligned with `shader_contract.rs`.
   Use the shared `SliceViewport` for placement, click mapping, and standard overlays.
-- **Visual style:** use live `--bf-*` tokens in `ui2/src/styles/theme.css`, IBM Plex,
-  warm neutrals, an amber accent, sentence-case labels, and 2px radii. `--primary`
-  is the highlight; `--accent` is the neutral hover fill.
+- **Visual style:** use live `--bf-*` tokens in `ui2/src/styles/theme.css`; never raw
+  palette classes or hex. Colour is data: chrome is achromatic (cool neutrals), and
+  chroma is reserved for images, plots and semantic status. `--primary` is a light
+  neutral (primary buttons, "on" states); `--bf-accent`/`ring` is a muted amber used
+  only as a thin focus ring or selected-row edge; `--accent` is the neutral hover
+  fill. Focus and selection differ in form. The crosshair colour is independent of
+  the accent (default green with a dark halo). IBM Plex Sans/Mono, `text-bf-*` type
+  scale, sentence case, 2px radii. Rationale: `docs/plans/ui-redesign-2026-10.md`.
 
 ## Read when relevant
 

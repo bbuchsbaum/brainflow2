@@ -15,6 +15,19 @@ a mix of styles.
   picks one, then we hill-climb it.
 - **Theme:** dark ships first. Tokens are semantic, so a light theme later is a
   new token file only. Specimens are dark only.
+- **Direction chosen (after the bake-off):** hybrid of B "Reading room" and A
+  "Workstation". All three critics ranked B > A > C and independently proposed it.
+  The rules:
+  - Chrome is achromatic, so colour on screen is data or status.
+  - A light-neutral primary.
+  - A muted amber used only as a focus ring or selection edge.
+  - The crosshair is decoupled from the accent: green with a halo.
+  - IBM Plex.
+
+  Evidence is in `.hillclimb/redesign/audit/bake-*/RANKING.md` (local), and the
+  working rules in `.hillclimb/redesign/HYBRID.md`. The direction-token generator
+  (`ui2/scripts/build-direction-tokens.mjs`) is kept as the mechanism for a future
+  light theme.
 - **Monitoring:** a private claude.ai artifact, updated at the end of each round.
   It shows shots, scores, critiques and decisions. The local harness page and
   evidence remain authoritative.
