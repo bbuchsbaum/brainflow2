@@ -16,6 +16,8 @@ This file provides guidance to Claude Code when working with the UI2 React front
 
 When in doubt about colors, sizes, naming, or where a control belongs: consult `Design.md` first; only depart from it with an explicit reason. Existing `--app-*` tokens in `theme.css` map onto the `--bf-*` token names in `Design.md` — prefer the canonical token names from `Design.md` for new surfaces.
 
+**Token values (2026-09-05):** the `--bf-*` *names* in `Design.md` still apply, but their *values* now follow the Workstation restyle in `docs/plans/workstation-shell-restyle.md` (warm neutral grays, IBM Plex, amber accent, sentence case, 2px radii) rather than the blue-black palette in `Design.md` §3.1. Read `theme.css` for the live values; keep new chrome in sentence case and reserve colour for the accent, semantic states, and data.
+
 ## Declarative API Philosophy
 
 The Brainflow2 architecture uses a **declarative API** pattern to minimize coupling between the frontend and backend. This approach was introduced during the Rust backend refactoring to create a cleaner, more maintainable interface.
@@ -39,8 +41,8 @@ The frontend declares the complete desired state and sends it as a single object
 const viewState = {
   crosshair: { position: [10, 20, 30], visible: true },
   layers: [
-    { 
-      id: 'layer1', 
+    {
+      id: 'layer1',
       render: { opacity: 0.8, colormap: 'viridis', ... }
     }
   ],
@@ -152,7 +154,7 @@ The following components are **actively used** in the application:
 - **MosaicViewPromise.tsx** - Promise-based mosaic view for grid slice display
 
 **Removed Components** (2025-08 cleanup):
-- `SliceViewPromise.tsx` - Unused variant 
+- `SliceViewPromise.tsx` - Unused variant
 - `SliceViewRefactored.tsx` - Unused refactored version
 - `SliceViewComparison.tsx` - Test-only component
 - `MosaicViewSimple.tsx` - Event-driven mosaic view (superseded by Promise version)

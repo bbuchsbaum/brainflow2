@@ -5479,11 +5479,17 @@ async fn list_remote_discovery_inventory_files(
     let mut queue = VecDeque::from([(remote_root.to_string(), PathBuf::new())]);
     let mut files = Vec::new();
     let mut truncated = false;
+    let mut visited = 0usize;
 
-    while let Some((remote_dir, relative_dir)) = queue.pop_front() {
+    'scan: while let Some((remote_dir, relative_dir)) = queue.pop_front() {
         let entries = remote_transfer::list_owned(mount.clone(), remote_dir.clone()).await?;
 
         for entry in entries {
+            visited += 1;
+            if visited > max_inventory_files.saturating_mul(32).max(1024) {
+                truncated = true;
+                break 'scan;
+            }
             let child_relative = if relative_dir.as_os_str().is_empty() {
                 PathBuf::from(&entry.name)
             } else {
@@ -5508,7 +5514,7 @@ async fn list_remote_discovery_inventory_files(
 
             if files.len() >= max_inventory_files {
                 truncated = true;
-                continue;
+                break 'scan;
             }
 
             files.push(field_table::DiscoveryInventoryFile {
@@ -5592,6 +5598,7 @@ async fn remote_discovery_inventory_for_request(
 
     let mut inventory = field_table::DiscoveryInventory {
         root_exists: true,
+        truncated: inventory_truncated,
         source_label: Some(mount.origin_label.clone()),
         files,
         notes,
@@ -5681,6 +5688,7 @@ async fn remote_discovery_inventory_for_folder_ontology_request(
 
     Ok(Some(field_table::DiscoveryInventory {
         root_exists: true,
+        truncated: inventory_truncated,
         source_label: Some(mount.origin_label.clone()),
         files,
         notes,
@@ -8949,7 +8957,10 @@ async fn render_frontend_view_with_diagnostics(
     );
     let target_setup_start = std::time::Instant::now();
     service
-        .create_offscreen_target(width, height)
+        .ensure_view(
+            render_loop::view_state::ViewId::new(render_view_id),
+            [width, height],
+        )
         .map_err(|e| BridgeError::GpuError {
             code: 5021,
             details: format!(
@@ -10809,13 +10820,73 @@ async fn clear_template_cache(state: State<'_, BridgeState>) -> BridgeResult<()>
     Ok(())
 }
 
+// A cancelled caller cannot stop an already-running filesystem walk. Keep its
+// admission permit with the blocking worker so replacement scans cannot pile up.
+static LOCAL_IMPORT_PREVIEW_ADMISSION: tokio::sync::Semaphore =
+    tokio::sync::Semaphore::const_new(1);
+
+async fn run_local_import_preview<T: Send + 'static>(
+    preview: impl FnOnce() -> T + Send + 'static,
+) -> BridgeResult<T> {
+    let permit = LOCAL_IMPORT_PREVIEW_ADMISSION
+        .acquire()
+        .await
+        .map_err(|error| BridgeError::Internal {
+            code: 9603,
+            details: error.to_string(),
+        })?;
+    tokio::task::spawn_blocking(move || {
+        let _permit = permit;
+        preview()
+    })
+    .await
+    .map_err(|error| BridgeError::Internal {
+        code: 9603,
+        details: error.to_string(),
+    })
+}
+
+#[cfg(test)]
+#[tokio::test]
+async fn cancelled_local_import_preview_retains_worker_admission() {
+    let (started_tx, started_rx) = tokio::sync::oneshot::channel();
+    let (finish_tx, finish_rx) = std::sync::mpsc::channel::<()>();
+    let caller = tokio::spawn(run_local_import_preview(move || {
+        let _ = started_tx.send(());
+        let _ = finish_rx.recv();
+    }));
+    started_rx.await.unwrap();
+    caller.abort();
+    assert!(caller.await.unwrap_err().is_cancelled());
+    assert_eq!(LOCAL_IMPORT_PREVIEW_ADMISSION.available_permits(), 0);
+    finish_tx.send(()).unwrap();
+    let _permit = tokio::time::timeout(
+        std::time::Duration::from_secs(5),
+        LOCAL_IMPORT_PREVIEW_ADMISSION.acquire(),
+    )
+    .await
+    .expect("worker must release admission after completion")
+    .unwrap();
+}
+
 #[command]
 #[tracing::instrument(skip_all, err, name = "api.preview_set_studio_imports")]
 async fn preview_set_studio_imports(
     request: StudioImportPreviewRequest,
+    ticket: Option<SampleTicket>,
     state: State<'_, BridgeState>,
 ) -> BridgeResult<Vec<StudioImportCandidate>> {
-    preview_set_studio_imports_impl(request, Some(state.inner())).await
+    // Reuse the bounded query-ticket registry; cancellation stops further remote I/O.
+    let cancellation = ticket
+        .as_ref()
+        .map(|ticket| state.population_sampling.begin(ticket))
+        .transpose()?
+        .unwrap_or_default();
+    cancellation.check()?;
+    tokio::select! {
+        _ = cancellation.cancelled() => Err(population_sampling::cancelled()),
+        result = preview_set_studio_imports_impl(request, Some(state.inner())) => result,
+    }
 }
 
 #[doc(hidden)]
@@ -10844,16 +10915,27 @@ async fn preview_set_studio_imports_impl(
         }
     }
 
-    Ok(field_table::preview_import_candidates(request))
+    run_local_import_preview(move || field_table::preview_import_candidates(request)).await
 }
 
 #[command]
 #[tracing::instrument(skip_all, err, name = "api.preview_folder_ontology")]
 async fn preview_folder_ontology(
     request: StudioFolderOntologyPreviewRequest,
+    ticket: Option<SampleTicket>,
     state: State<'_, BridgeState>,
 ) -> BridgeResult<StudioFolderOntologySummary> {
-    preview_folder_ontology_impl(request, Some(state.inner())).await
+    // Reuse the bounded query-ticket registry; cancellation stops further remote I/O.
+    let cancellation = ticket
+        .as_ref()
+        .map(|ticket| state.population_sampling.begin(ticket))
+        .transpose()?
+        .unwrap_or_default();
+    cancellation.check()?;
+    tokio::select! {
+        _ = cancellation.cancelled() => Err(population_sampling::cancelled()),
+        result = preview_folder_ontology_impl(request, Some(state.inner())) => result,
+    }
 }
 
 #[doc(hidden)]
@@ -10878,7 +10960,7 @@ async fn preview_folder_ontology_impl(
         }
     }
 
-    Ok(field_table::preview_folder_ontology(request))
+    run_local_import_preview(move || field_table::preview_folder_ontology(request)).await
 }
 
 #[command]

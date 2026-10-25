@@ -70,7 +70,7 @@ export function SceneStack() {
         onReorder={handleVolumeReorder}
       />
       <SceneGroup
-        title="Surface View"
+        title="Surface view"
         items={surfaces}
         emptyHint="No surfaces loaded"
         showWhenEmpty={false}
@@ -108,11 +108,11 @@ function SceneGroup({
 
   return (
     <div className="mt-2 first:mt-0">
-      <div className="mb-1 px-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground/80">
+      <div className="mb-1 px-2 font-mono text-[11px] text-muted-foreground">
         {title}
       </div>
       {items.length === 0 ? (
-        <div className="rounded-md border border-dashed border-border/60 bg-card/30 px-3 py-2 text-[11px] text-muted-foreground/70">
+        <div className="flex h-[30px] items-center rounded-sm border border-dashed border-border px-2 text-[11.5px] text-muted-foreground">
           {emptyHint}
         </div>
       ) : (
@@ -170,12 +170,12 @@ function VolumeSceneGroup({
 
   return (
     <div className="mt-2 first:mt-0">
-      <div className="mb-1 px-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground/80">
-        Volume View
+      <div className="mb-1 px-2 font-mono text-[11px] text-muted-foreground">
+        Volume view
       </div>
       {items.length === 0 ? (
-        <div className="rounded-md border border-dashed border-border/60 bg-card/30 px-3 py-2 text-[11px] text-muted-foreground/70">
-          No volumes loaded — use + Load
+        <div className="flex h-[30px] items-center rounded-sm border border-dashed border-border px-2 text-[11.5px] text-muted-foreground">
+          No volumes loaded · use Load
         </div>
       ) : items.length === 1 ? (
         <div className="flex flex-col gap-0.5">

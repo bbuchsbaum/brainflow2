@@ -38,17 +38,17 @@ export function InspectorSection({
         aria-expanded={open}
         aria-controls={`${headingId}-body`}
         onClick={() => setOpen((p) => !p)}
-        className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left transition-colors hover:bg-accent/30"
+        className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left transition-colors hover:bg-accent"
       >
         <span id={headingId} className="flex items-center gap-2 text-foreground">
           {icon ? <span className="text-muted-foreground">{icon}</span> : null}
-          <span className="text-[11px] font-semibold uppercase tracking-[0.08em]">
+          <span className="text-[12px] font-semibold">
             {label}
           </span>
         </span>
         <span className="flex items-center gap-2">
           {meta ? (
-            <span className="text-[10px] text-muted-foreground/80">{meta}</span>
+            <span className="font-mono text-[11px] text-muted-foreground">{meta}</span>
           ) : null}
           <svg
             viewBox="0 0 16 16"

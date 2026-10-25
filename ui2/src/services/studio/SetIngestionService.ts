@@ -1,3 +1,6 @@
+import { formatTauriError } from '@/utils/formatTauriError';
+import { useFileBrowserStore } from '@/stores/fileBrowserStore';
+import { describeFolderSource } from './folderSource';
 import type { BackendTransport } from '@/services/transport';
 import { getTransport } from '@/services/transport';
 import { useSetStudioStore } from '@/stores/setStudioStore';
@@ -33,6 +36,8 @@ function parsePositiveInteger(value: string): number | null {
 export class SetIngestionService {
   private transport: BackendTransport;
   private requestVersion = 0;
+  private activeFolderRequest: AbortController | null = null;
+  private folderReviewViews = 0;
 
   constructor(transport: BackendTransport = getTransport()) {
     this.transport = transport;
@@ -45,7 +50,7 @@ export class SetIngestionService {
       .dispatchImportEvent({ type: 'PREVIEW_REQUESTED', mode, requestId });
 
     try {
-      const candidates = await this.transport.invoke<BackendStudioImportCandidate[]>(
+      const candidates = await this.invokePreview<BackendStudioImportCandidate[]>(
         'preview_set_studio_imports',
         this.buildPreviewRequest(mode),
       );
@@ -63,7 +68,7 @@ export class SetIngestionService {
 
       throw new Error('Backend returned no import preview candidates.');
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Backend preview failed.';
+      const message = formatTauriError(error);
       useSetStudioStore.getState().dispatchImportEvent({
         type: 'PREVIEW_FAILED',
         mode,
@@ -82,7 +87,7 @@ export class SetIngestionService {
     const request = this.buildFolderOntologyRequest();
 
     try {
-      const summary = await this.transport.invoke<StudioFolderOntologySummary>(
+      const summary = await this.invokePreview<StudioFolderOntologySummary>(
         'preview_folder_ontology',
         { request },
       );
@@ -91,11 +96,117 @@ export class SetIngestionService {
         .getState()
         .dispatchImportEvent({ type: 'ONTOLOGY_SUCCEEDED', requestId, summary });
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Folder ontology preview failed.';
+      const message = formatTauriError(error);
       useSetStudioStore
         .getState()
         .dispatchImportEvent({ type: 'ONTOLOGY_FAILED', requestId, message });
     }
+  }
+
+  /** Folder review is a draft; it never replaces the current study until confirmation. */
+  async openFolderReview(root: string): Promise<void> {
+    if (!root.trim()) return;
+    useSetStudioStore.getState().dispatchImportEvent({
+      type: 'FOLDER_REVIEW_OPENED',
+      root,
+      source: describeFolderSource(root, useFileBrowserStore.getState().entries),
+    });
+    await this.scanFolderReview();
+  }
+
+  async chooseFolderReview(): Promise<void> {
+    const before = useSetStudioStore.getState().importDialog;
+    try {
+      const root = await this.transport.invoke<string | null>('plugin:dialog|open', {
+        options: { directory: true, multiple: false, title: 'Choose a folder to open as a set' },
+      });
+      if (root && useSetStudioStore.getState().importDialog === before)
+        await this.openFolderReview(root);
+    } catch (error) {
+      const state = useSetStudioStore.getState();
+      if (state.importDialog !== before) return;
+      state.dispatchImportEvent({ type: 'FOLDER_REVIEW_OPENED', root: before.discoveryRoot });
+      state.setFolderOntologyPreviewError(formatTauriError(error));
+    }
+  }
+
+  async scanFolderReview(): Promise<void> {
+    const root = useSetStudioStore.getState().importDialog.discoveryRoot;
+    if (!root.trim()) return;
+    const pending = this.openFolderOntologyPreview(root);
+    const version = this.requestVersion;
+    await pending;
+    if (version !== this.requestVersion) return;
+    const state = useSetStudioStore.getState();
+    const summary = state.importDialog.ontologyPreview;
+    if (
+      !state.importDialog.isOpen ||
+      !state.importDialog.folderReview ||
+      summary?.root !== root ||
+      summary.truncated
+    )
+      return;
+    const proposal = summary.candidates[0];
+    if (proposal) await this.reviewOrganization(proposal.id);
+  }
+
+  async reviewOrganization(candidateId: string): Promise<void> {
+    const state = useSetStudioStore.getState();
+    state.applyFolderOntologyCandidate(candidateId);
+    await this.openImportPreview('regex');
+  }
+
+  /** Defer final teardown through StrictMode's synchronous cleanup/remount pair. */
+  retainFolderReview(): () => void {
+    this.folderReviewViews += 1;
+    let released = false;
+    return () => {
+      if (released) return;
+      released = true;
+      this.folderReviewViews -= 1;
+      queueMicrotask(() => {
+        const dialog = useSetStudioStore.getState().importDialog;
+        if (this.folderReviewViews === 0 && dialog.isOpen && dialog.folderReview)
+          this.cancelReview();
+      });
+    };
+  }
+
+  cancelReview(): void {
+    this.activeFolderRequest?.abort();
+    useSetStudioStore.getState().closeImportDialog();
+  }
+  async confirmReview(): Promise<void> {
+    const state = useSetStudioStore.getState();
+    const before = state.importDialog.selectedCandidateId
+      ? state.importCandidates[state.importDialog.selectedCandidateId]
+      : null;
+    if (!state.importDialog.isOpen || !before?.contract.canImport || state.importDialog.isLoading)
+      return;
+    const pending = this.openImportPreview('regex');
+    const version = this.requestVersion;
+    await pending;
+    const current = useSetStudioStore.getState();
+    if (this.requestVersion !== version || !current.importDialog.isOpen) return;
+    const after = current.importDialog.selectedCandidateId
+      ? current.importCandidates[current.importDialog.selectedCandidateId]
+      : null;
+    if (!after?.contract.canImport) return;
+    if (JSON.stringify(before.discovery?.groups) !== JSON.stringify(after.discovery?.groups)) {
+      current.setImportPreviewError(
+        'The files changed since the preview. Scan again and review the new assignments.',
+      );
+      return;
+    }
+    current.confirmImportCandidate();
+  }
+  editFolderReview(field: 'root' | 'pattern' | 'depth' | 'limit', value: string): void {
+    this.activeFolderRequest?.abort();
+    const state = useSetStudioStore.getState();
+    if (field === 'root') state.setDiscoveryRoot(value);
+    if (field === 'pattern') state.setFilePattern(value);
+    if (field === 'depth') state.setDiscoveryMaxDepth(value);
+    if (field === 'limit') state.setDiscoveryMaxFiles(value);
   }
 
   async validateTablePreview(): Promise<void> {
@@ -116,6 +227,25 @@ export class SetIngestionService {
         outputDir,
       },
     });
+  }
+
+  private async invokePreview<T>(command: string, args: Record<string, unknown>): Promise<T> {
+    this.activeFolderRequest?.abort();
+    if (!useSetStudioStore.getState().importDialog.folderReview)
+      return this.transport.invoke<T>(command, args);
+    const controller = new AbortController();
+    this.activeFolderRequest = controller;
+    const ticket = { id: crypto.randomUUID(), expiresAtMs: Date.now() + 120_000 };
+    const cancel = () => {
+      void this.transport.invoke('cancel_population_sample', { ticket }).catch(() => {});
+    };
+    controller.signal.addEventListener('abort', cancel, { once: true });
+    try {
+      return await this.transport.invoke<T>(command, { ...args, ticket });
+    } finally {
+      controller.signal.removeEventListener('abort', cancel);
+      if (this.activeFolderRequest === controller) this.activeFolderRequest = null;
+    }
   }
 
   private buildPreviewRequest(mode: StudioImportMode): { request: StudioImportPreviewRequest } {

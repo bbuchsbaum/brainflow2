@@ -226,7 +226,7 @@ export const SurfaceDataLayerControls: React.FC<SurfaceDataLayerControlsProps> =
             Data Layer Properties
           </span>
         </div>
-        <span className="text-[10px] uppercase tracking-widest text-accent font-mono">
+        <span className="text-[10px] uppercase tracking-widest text-primary font-mono">
           overlay
         </span>
       </div>

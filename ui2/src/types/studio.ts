@@ -143,6 +143,8 @@ export interface TsvWizardState {
 }
 
 export interface StudioImportDialogState {
+  folderReview?: boolean;
+  folderSource?: { root: string; displayPath: string; label?: string };
   isOpen: boolean;
   mode: StudioImportMode;
   selectedCandidateId: string | null;

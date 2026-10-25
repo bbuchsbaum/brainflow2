@@ -55,28 +55,34 @@ export const TopAppBar: React.FC<TopAppBarProps> = ({
     >
       <div
         data-testid="top-app-bar-brand"
-        style={{ display: "flex", alignItems: "center", gap: "10px" }}
+        style={{ display: "flex", alignItems: "center", gap: "9px" }}
       >
-        <span
+        <svg
           aria-hidden
+          width="16"
+          height="16"
+          viewBox="0 0 16 16"
           style={{
-            width: "20px",
-            height: "20px",
-            borderRadius: "var(--bf-radius-sm)",
-            background:
-              "linear-gradient(135deg, var(--bf-accent), var(--bf-brand))",
-            boxShadow: "var(--bf-shadow-inset)",
+            display: "block",
+            flex: "none",
+            fill: "none",
+            stroke: "var(--bf-accent)",
+            strokeWidth: 1.25,
           }}
-        />
+        >
+          <rect x="2" y="2" width="12" height="12" rx="1" />
+          <path d="M2 8h12" />
+          <path d="M8 2v12" style={{ strokeOpacity: 0.4 }} />
+        </svg>
         <span
           style={{
-            fontSize: "14px",
-            fontWeight: 700,
-            letterSpacing: "-0.01em",
+            fontSize: "13px",
+            fontWeight: 600,
+            letterSpacing: "0.01em",
             color: "var(--bf-text-primary)",
           }}
         >
-          BrainFlow
+          Brainflow
         </span>
       </div>
 

@@ -47,14 +47,14 @@ const StatusBarSlot = React.memo(
 
     // Map slot IDs to labels
     const labelMap: Record<string, string> = {
-      coordSys: "Coordinate System:",
-      crosshair: "Crosshair:",
-      mouse: "Mouse:",
-      layer: "Layer:",
-      region: "Region:",
-      atlas: "Atlas:",
-      fps: "FPS:",
-      gpu: "GPU:",
+      coordSys: "Coordinate system",
+      crosshair: "Crosshair",
+      mouse: "Mouse",
+      layer: "Layer",
+      region: "Region",
+      atlas: "Atlas",
+      fps: "FPS",
+      gpu: "GPU",
     };
 
     const widthMap: Record<string, string> = {

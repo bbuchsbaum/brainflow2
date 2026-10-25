@@ -101,7 +101,7 @@ const LayerNameWithTooltip: React.FC<{ name: string; isSelected: boolean }> = ({
       ref={textRef}
       className={cn(
         "min-w-0 flex-1 truncate text-[13px] font-medium",
-        isSelected ? "text-accent" : "text-foreground",
+        isSelected ? "text-primary" : "text-foreground",
       )}
     >
       {name}
@@ -220,7 +220,7 @@ const SortableLayerRow: React.FC<SortableLayerRowProps> = ({
         <div className="px-0.5 shrink-0">
           <LayerTypeIcon
             type={layer.layerType}
-            className={isSelected ? "text-accent" : "text-muted-foreground"}
+            className={isSelected ? "text-primary" : "text-muted-foreground"}
           />
         </div>
       )}

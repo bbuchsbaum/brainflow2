@@ -138,7 +138,7 @@ export default {
         'bf-normal': 'var(--bf-motion-normal)',
       },
       fontFamily: {
-        mono: ['JetBrains Mono', 'Fira Code', 'monospace'],
+        mono: ['IBM Plex Mono', 'SFMono-Regular', 'Menlo', 'monospace'],
       },
       fontSize: {
         'role-title': 'var(--app-role-title-size)',

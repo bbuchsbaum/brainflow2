@@ -85,7 +85,10 @@ describe('SetIngestionService', () => {
     };
   }
 
-  function withDiscoveryRoot(candidate: StudioImportCandidate, root: string): StudioImportCandidate {
+  function withDiscoveryRoot(
+    candidate: StudioImportCandidate,
+    root: string,
+  ): StudioImportCandidate {
     return {
       ...candidate,
       discovery: {
@@ -140,7 +143,9 @@ describe('SetIngestionService', () => {
             { role: 'auc', patterns: ['auc'] },
             { role: 'tstat', patterns: ['tstat'] },
           ],
-          factors: [{ name: 'subject', source: 'path_entity', values: ['sub-01'], confidence: 0.95 }],
+          factors: [
+            { name: 'subject', source: 'path_entity', values: ['sub-01'], confidence: 0.95 },
+          ],
           roles: [],
           groups: [],
           reasons: ['Found image files beneath maps folders.'],
@@ -176,7 +181,7 @@ describe('SetIngestionService', () => {
         discoveryMaxFiles: 42,
         discoveryDryRun: true,
         discoverySampleHeaders: false,
-        discoveryRequiredRoles: expect.arrayContaining(['tstat', 'pvalue']),
+        discoveryRequiredRoles: ['pvalue'],
         discoveryRolePatterns: expect.arrayContaining([
           { role: 'tstat', patterns: ['tstat', 'spmT'] },
         ]),
@@ -210,9 +215,7 @@ describe('SetIngestionService', () => {
 
   it('does not reuse seeded or stale candidates when backend preview fails', async () => {
     const staleCandidate = makeDiscoveryCandidate();
-    useSetStudioStore
-      .getState()
-      .setImportPreviewResult('regex', [staleCandidate], 'backend');
+    useSetStudioStore.getState().setImportPreviewResult('regex', [staleCandidate], 'backend');
     expect(useSetStudioStore.getState().importCandidates[staleCandidate.id]).toBeTruthy();
 
     const invoke = vi.fn().mockRejectedValue(new Error('backend unavailable'));
@@ -225,7 +228,7 @@ describe('SetIngestionService', () => {
     expect(state.importDialog.error).toBe('backend unavailable');
     expect(state.importDialog.selectedCandidateId).toBeNull();
     expect(
-      Object.values(state.importCandidates).some((candidate) => candidate.mode === 'regex')
+      Object.values(state.importCandidates).some((candidate) => candidate.mode === 'regex'),
     ).toBe(false);
   });
 
@@ -256,8 +259,137 @@ describe('SetIngestionService', () => {
     const service = new SetIngestionService({ invoke } as unknown as BackendTransport);
 
     await expect(service.exportDiscoveryNeuroTabs(candidate)).rejects.toThrow(
-      'local discovery roots'
+      'local discovery roots',
     );
     expect(invoke).not.toHaveBeenCalled();
+  });
+  it('carries the exact selected source through folder review and leaves the study until confirm', async () => {
+    const ontology = makeOntologySummary();
+    ontology.root = '/cache/mount-a/high/full';
+    ontology.sourceLabel = 'trillium · /scratch/brad/high/full';
+    ontology.candidates[0].requiredRoles = [];
+    const candidate = makeDiscoveryCandidate();
+    const invoke = vi.fn(async (command: string) =>
+      command === 'preview_folder_ontology' ? ontology : [candidate],
+    );
+    const service = new SetIngestionService({ invoke } as BackendTransport);
+    useSetStudioStore.getState().loadDemoSession();
+    const previous = useSetStudioStore.getState().selection.activeSetId;
+    await service.openFolderReview(ontology.root);
+    expect(invoke).toHaveBeenCalledWith(
+      'preview_folder_ontology',
+      expect.objectContaining({
+        request: expect.objectContaining({ root: ontology.root }),
+        ticket: expect.any(Object),
+      }),
+    );
+    expect(invoke).toHaveBeenCalledWith(
+      'preview_set_studio_imports',
+      expect.objectContaining({
+        request: expect.objectContaining({
+          discoveryRoot: ontology.root,
+          discoveryRequiredRoles: [],
+          discoverySampleHeaders: false,
+        }),
+      }),
+    );
+    expect(useSetStudioStore.getState().selection.activeSetId).toBe(previous);
+    await service.confirmReview();
+    expect(useSetStudioStore.getState().selection.activeSetId).toBe(candidate.set.id);
+    expect(
+      invoke.mock.calls.filter(([command]) => command === 'preview_set_studio_imports'),
+    ).toHaveLength(2);
+  });
+
+  it('cancels an owned scan and ignores its late result', async () => {
+    let finish!: (value: StudioFolderOntologySummary) => void;
+    const invoke = vi.fn((command: string) =>
+      command === 'preview_folder_ontology'
+        ? new Promise((resolve) => {
+            finish = resolve;
+          })
+        : Promise.resolve(null),
+    );
+    const service = new SetIngestionService({ invoke } as BackendTransport);
+    useSetStudioStore.getState().loadDemoSession();
+    const previous = useSetStudioStore.getState().selection;
+    const pending = service.openFolderReview('/tmp/study');
+    service.cancelReview();
+    finish(makeOntologySummary());
+    await pending;
+    expect(invoke).toHaveBeenCalledWith('cancel_population_sample', { ticket: expect.any(Object) });
+    expect(invoke.mock.calls.some(([command]) => command === 'preview_set_studio_imports')).toBe(
+      false,
+    );
+    expect(useSetStudioStore.getState().selection).toEqual(previous);
+    expect(useSetStudioStore.getState().importDialog.isOpen).toBe(false);
+  });
+
+  it('does not validate or open a truncated proposal', async () => {
+    const ontology = { ...makeOntologySummary(), truncated: true };
+    const invoke = vi.fn().mockResolvedValue(ontology);
+    const service = new SetIngestionService({ invoke } as BackendTransport);
+    await service.openFolderReview('/tmp/study');
+    expect(invoke).toHaveBeenCalledTimes(1);
+    expect(useSetStudioStore.getState().importDialog.selectedCandidateId).toBeNull();
+  });
+
+  it('invalidates a ready candidate when its filename rule changes', async () => {
+    const invoke = vi.fn(async (command: string) =>
+      command === 'preview_folder_ontology' ? makeOntologySummary() : [makeDiscoveryCandidate()],
+    );
+    const service = new SetIngestionService({ invoke } as BackendTransport);
+    await service.openFolderReview('/tmp/study');
+    service.editFolderReview('pattern', 'different');
+    expect(useSetStudioStore.getState().importDialog.selectedCandidateId).toBeNull();
+    await service.confirmReview();
+    expect(useSetStudioStore.getState().selection.activeSetId).toBeNull();
+  });
+  it('retains a review through StrictMode remount and cancels it on final panel teardown', async () => {
+    const service = new SetIngestionService({ invoke: vi.fn() } as BackendTransport);
+    useSetStudioStore
+      .getState()
+      .dispatchImportEvent({ type: 'FOLDER_REVIEW_OPENED', root: '/tmp/study' });
+    const first = service.retainFolderReview();
+    first();
+    const second = service.retainFolderReview();
+    await Promise.resolve();
+    expect(useSetStudioStore.getState().importDialog.isOpen).toBe(true);
+    second();
+    await Promise.resolve();
+    expect(useSetStudioStore.getState().importDialog.isOpen).toBe(false);
+  });
+  it('preserves structured remote error details for reconnect and retry', async () => {
+    const service = new SetIngestionService({
+      invoke: vi.fn().mockRejectedValue({
+        Input: {
+          code: 9001,
+          details: 'Mount trillium is disconnected; reconnect it.',
+        },
+      }),
+    } as BackendTransport);
+    await service.openFolderReview('/cache/mount/full');
+    expect(useSetStudioStore.getState().importDialog.ontologyError).toBe(
+      'Mount trillium is disconnected; reconnect it.',
+    );
+    expect(useSetStudioStore.getState().importDialog.discoveryRoot).toBe('/cache/mount/full');
+  });
+  it('does not revive an old scan when the root changes away and back', async () => {
+    let finish!: (value: StudioFolderOntologySummary) => void;
+    const invoke = vi.fn((command: string) =>
+      command === 'preview_folder_ontology'
+        ? new Promise((resolve) => {
+            finish = resolve;
+          })
+        : Promise.resolve(null),
+    );
+    const service = new SetIngestionService({ invoke } as BackendTransport);
+    const pending = service.openFolderReview('/tmp/study');
+    service.editFolderReview('root', '/tmp/other');
+    service.editFolderReview('root', '/tmp/study');
+    finish(makeOntologySummary());
+    await pending;
+    expect(useSetStudioStore.getState().importDialog.ontologyPreview).toBeNull();
+    expect(useSetStudioStore.getState().importDialog.selectedCandidateId).toBeNull();
   });
 });

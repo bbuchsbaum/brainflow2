@@ -246,7 +246,7 @@ export const SurfaceLayerPanel: React.FC = () => {
                         "group flex-1 flex items-center justify-between px-3 py-2 border-l-[3px] cursor-pointer transition-all rounded-sm",
                         surface.visible === false && "opacity-50",
                         isGeometrySelected
-                          ? "border-accent bg-muted/10" 
+                          ? "border-primary bg-muted/10"
                           : "border-transparent hover:border-border hover:bg-muted/30"
                       )}
                     >
@@ -272,7 +272,7 @@ export const SurfaceLayerPanel: React.FC = () => {
                           <div className="flex items-center gap-2">
                             <span className={cn(
                               "text-[11px] font-mono truncate",
-                              isGeometrySelected ? "text-accent font-semibold" : "text-foreground"
+                              isGeometrySelected ? "text-primary font-semibold" : "text-foreground"
                             )}>
                               {surface.name || `Surface ${id.slice(0, 8)}`}
                             </span>
@@ -338,7 +338,7 @@ export const SurfaceLayerPanel: React.FC = () => {
                               className={cn(
                                 "group flex items-center justify-between px-3 py-1.5 border-l-[3px] cursor-pointer transition-all rounded-sm",
                                 isLayerSelected
-                                  ? "border-accent bg-muted/10" 
+                                  ? "border-primary bg-muted/10"
                                   : "border-transparent hover:border-border hover:bg-muted/30"
                               )}
                             >
@@ -368,7 +368,7 @@ export const SurfaceLayerPanel: React.FC = () => {
                                 {/* Layer Name */}
                                 <span className={cn(
                                   "text-[11px] font-mono truncate",
-                                  isLayerSelected ? "text-accent font-semibold" : "text-foreground"
+                                  isLayerSelected ? "text-primary font-semibold" : "text-foreground"
                                 )}>
                                   {layer.name}
                                 </span>
@@ -422,7 +422,7 @@ export const SurfaceLayerPanel: React.FC = () => {
           <div className="flex items-center justify-between text-xs text-muted-foreground">
             <span>{surfaceList.length} surface{surfaceList.length !== 1 ? 's' : ''} loaded</span>
             {activeSurfaceId && (
-              <span className="text-accent">1 selected</span>
+              <span className="text-primary">1 selected</span>
             )}
           </div>
         </div>

@@ -121,10 +121,10 @@ export function BottomWorkbenchDock({
         style={{
           display: 'flex',
           alignItems: 'center',
-          gap: '2px',
-          padding: '0 8px',
+          gap: 0,
+          padding: '0 6px',
           borderBottom: '1px solid var(--app-border-subtle)',
-          background: 'var(--app-surface-panel-raised)',
+          background: 'var(--app-bg-tertiary)',
         }}
       >
         {DOCK_TABS.map(({ id, label }) => {
@@ -140,20 +140,20 @@ export function BottomWorkbenchDock({
               data-testid={`bottom-dock-tab-${id}`}
               data-active={active ? 'true' : 'false'}
               onClick={() => handleSelect(id)}
-              className="bf-role-section"
               style={{
                 appearance: 'none',
-                padding: '2px 10px',
-                height: '22px',
-                border: '1px solid',
-                borderColor: active ? 'var(--app-border-active)' : 'transparent',
-                background: active ? 'var(--app-bg-active)' : 'transparent',
+                padding: '0 10px',
+                height: '100%',
+                border: 0,
+                background: active ? 'var(--app-bg-primary)' : 'transparent',
+                boxShadow: active
+                  ? 'inset 1px 0 var(--app-border-subtle), inset -1px 0 var(--app-border-subtle)'
+                  : 'none',
                 color: active ? 'var(--app-text-primary)' : 'var(--app-text-muted)',
                 cursor: 'pointer',
-                borderRadius: 'var(--app-radius-sm)',
-                fontSize: 'var(--app-role-section-size)',
-                letterSpacing: 'var(--app-role-section-tracking)',
-                textTransform: 'uppercase',
+                borderRadius: 0,
+                fontSize: '12px',
+                fontWeight: 500,
               }}
             >
               {label}

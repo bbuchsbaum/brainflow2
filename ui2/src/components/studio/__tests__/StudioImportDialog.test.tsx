@@ -588,11 +588,11 @@ describe('StudioImportDialog', () => {
     expect(screen.getByText('File Pattern')).toBeInTheDocument();
     expect(screen.getByText('Capture Preview')).toBeInTheDocument();
     expect(screen.getByText('Role Mapping')).toBeInTheDocument();
-    // The store seeds the discoveryRoot value as "."
-    expect(screen.getByDisplayValue('.')).toBeInTheDocument();
+    // No implicit working-directory scan.
+    expect(useSetStudioStore.getState().importDialog.discoveryRoot).toBe('');
     expect(screen.getAllByText('subject').length).toBeGreaterThan(0);
     expect(screen.getAllByText('role').length).toBeGreaterThan(0);
-    expect(screen.getByLabelText('tstat required')).toBeChecked();
+    expect(screen.getByLabelText('tstat required')).not.toBeChecked();
   });
 
   it('applies a folder ontology proposal to regex discovery controls', () => {

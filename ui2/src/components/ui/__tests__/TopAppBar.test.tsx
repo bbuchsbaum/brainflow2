@@ -32,7 +32,7 @@ describe("TopAppBar", () => {
 
     // Brand region — Design.md §6.1 starts with "Brand".
     const brand = screen.getByTestId("top-app-bar-brand");
-    expect(brand).toHaveTextContent(/BrainFlow/);
+    expect(brand).toHaveTextContent(/Brainflow/);
 
     // Center region houses the display mode pills.
     const center = screen.getByTestId("top-app-bar-center");

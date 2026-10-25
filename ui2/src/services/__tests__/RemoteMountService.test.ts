@@ -250,7 +250,7 @@ describe('RemoteMountService', () => {
         remotePath: '/scratch/brad',
       })
     ).rejects.toThrow(
-      "Startup remote mount 'brad@trillium.alliance.can.ca:/scratch/brad' requires interactive SSH confirmation. Use Mount Remote (SSH)… to complete the connection."
+      "Startup remote mount 'brad@trillium.alliance.can.ca:/scratch/brad' requires interactive SSH confirmation. Use Mount remote (SSH)… to complete the connection."
     );
 
     expect(mountDirectoryMock).not.toHaveBeenCalled();

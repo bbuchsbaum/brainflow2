@@ -124,7 +124,7 @@ const DataCell = React.memo(function DataCell({
   }
 
   if (selected) {
-    style.outline = '1px solid hsl(var(--accent))';
+    style.outline = '1px solid hsl(var(--primary))';
     style.outlineOffset = '-1px';
   }
 

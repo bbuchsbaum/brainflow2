@@ -258,7 +258,7 @@ export const VolumePanel: React.FC<VolumePanelProps> = ({
                 Volume Properties
               </span>
             </div>
-            <span className="bf-role-section bf-role-mono text-accent">
+            <span className="bf-role-section bf-role-mono text-primary">
               {layer.type || 'volume'}
             </span>
           </div>

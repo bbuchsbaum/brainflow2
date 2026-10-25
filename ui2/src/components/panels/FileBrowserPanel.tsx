@@ -370,7 +370,7 @@ const FileBrowserPanelContent: React.FC = () => {
   const selectedFolderForSet =
     selectedFileNode?.type === "directory"
       ? selectedFileNode.path
-      : selectedRootMount?.path ?? rootNode?.path ?? null;
+      : null;
 
   return (
     <div
@@ -426,7 +426,7 @@ const FileBrowserPanelContent: React.FC = () => {
             },
             {
               id: "open-folder-image-set",
-              label: "Open folder as image set…",
+              label: "Open as switchable layer…",
               onClick: () => {
                 if (selectedFolderForSet) void getImageSetService().openFolder(selectedFolderForSet);
               },
@@ -434,7 +434,7 @@ const FileBrowserPanelContent: React.FC = () => {
             },
             {
               id: "create-set-from-folder",
-              label: "Create Set from Folder",
+              label: "Open in Set Studio…",
               onClick: () => {
                 if (!selectedFolderForSet) return;
                 void getSetStudioService().openFolderOntologyInStudio({

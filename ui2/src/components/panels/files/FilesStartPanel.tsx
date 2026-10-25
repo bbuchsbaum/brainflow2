@@ -44,7 +44,7 @@ export const FilesStartPanel: React.FC<FilesStartPanelProps> = ({
               className="files-start-command-icon"
               aria-hidden="true"
             />
-            <span className="files-start-command-label">Mount Directory</span>
+            <span className="files-start-command-label">Mount directory</span>
             <span className="files-start-command-shortcut">
               {shortcutLabel}
             </span>
@@ -62,7 +62,7 @@ export const FilesStartPanel: React.FC<FilesStartPanelProps> = ({
               aria-hidden="true"
             />
             <span className="files-start-command-label">
-              Mount Remote (SSH)…
+              Mount remote (SSH)…
             </span>
           </button>
         </li>
@@ -74,7 +74,7 @@ export const FilesStartPanel: React.FC<FilesStartPanelProps> = ({
             disabled={pending}
           >
             <VscFile className="files-start-command-icon" aria-hidden="true" />
-            <span className="files-start-command-label">Open File…</span>
+            <span className="files-start-command-label">Open file…</span>
           </button>
         </li>
       </ul>

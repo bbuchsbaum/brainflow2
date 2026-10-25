@@ -166,7 +166,7 @@ export function CommandPaletteDialog({ open, commands, onClose }: CommandPalette
                   type="button"
                   role="option"
                   aria-selected={selected}
-                  className={`flex w-full items-start justify-between gap-3 px-3 py-2 text-left text-sm ${selected ? 'bg-accent/60' : 'hover:bg-accent/30'}`}
+                  className={`flex w-full items-start justify-between gap-3 px-3 py-2 text-left text-sm ${selected ? 'bg-accent shadow-[inset_2px_0_0_hsl(var(--primary))]' : 'hover:bg-accent'}`}
                   onMouseEnter={() => setSelectedIndex(index)}
                   onClick={() => {
                     void executeCommand(command);

@@ -99,3 +99,8 @@ Run `cargo test -p api-bridge` for unit tests. Integration tests in `tests/pipel
 - `open_population_summary` accepts optional `relocation` with absolute old/new directory roots. Reopening resolves the moved files then runs the original digest, grid and frame checks; it never modifies the original calculation record.
 - `export_population_plot` validates bounded PNG or plot-JSON content before creating a new chosen file. Existing files are not overwritten. Register command changes through `command_list.rs`, permissions and generated transport bindings.
 - Relationship geometry retains up to eight nonzero component score axes. Reconstruction is explicitly derived; the original member image remains separately accessible. An explanation must match all frozen component scores and the support revision before publication.
+
+## Studio folder preview lifecycle
+
+- `preview_folder_ontology` and `preview_set_studio_imports` accept optional `SampleTicket` values through the existing bounded query-ticket registry. Cancellation ends the remote enumeration future; owned SFTP adapters finish their current operation. Local enumeration runs on a blocking worker with a visited-entry bound; cancellation discards publication while that worker finishes. No new invoke command was added.
+- `DiscoveryInventory.truncated` carries upstream scan incompleteness through both ontology and import validation. Truncated/ambiguous discovery cannot be committed. Listing or staging one remote header cannot grant comparison readiness; complete required source/support validation belongs to the operation.

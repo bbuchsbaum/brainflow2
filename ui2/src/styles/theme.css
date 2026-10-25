@@ -3,8 +3,9 @@
  *
  * Two layers of tokens live here:
  *
- *   1. `--bf-*` (canonical) — the dark blue-black research palette
- *      defined in `resdesign/Design.md` §3. New surfaces should consume
+ *   1. `--bf-*` (canonical) — the warm neutral "Workstation" palette
+ *      (docs/plans/workstation-shell-restyle.md), superseding the
+ *      blue-black palette of `resdesign/Design.md` §3. New surfaces should consume
  *      these directly.
  *
  *   2. `--app-*` (legacy alias) — every existing component reads from
@@ -34,37 +35,37 @@
      * ──────────────────────────────────────────────────────────────── */
 
     /* App backgrounds */
-    --bf-bg-app: #05080c;
-    --bf-bg-shell: #07101a;
-    --bf-bg-panel: #0b1521;
-    --bf-bg-panel-raised: #101c2a;
-    --bf-bg-panel-sunken: #050b12;
-    --bf-bg-canvas: #020508;
-    --bf-bg-input: #08111c;
-    --bf-bg-hover: #122235;
-    --bf-bg-active: #16345d;
-    --bf-bg-selected: #123a72;
+    --bf-bg-app: #161615;
+    --bf-bg-shell: #1e1e1d;
+    --bf-bg-panel: #1e1e1d;
+    --bf-bg-panel-raised: #282827;
+    --bf-bg-panel-sunken: #111110;
+    --bf-bg-canvas: #080808;
+    --bf-bg-input: #161615;
+    --bf-bg-hover: #2a2a29;
+    --bf-bg-active: #333331;
+    --bf-bg-selected: #3a3529;
 
     /* Borders and dividers */
-    --bf-border-subtle: rgba(148, 163, 184, 0.14);
-    --bf-border: rgba(148, 163, 184, 0.24);
-    --bf-border-strong: rgba(148, 163, 184, 0.38);
-    --bf-border-focus: #3b82f6;
-    --bf-divider: rgba(148, 163, 184, 0.16);
+    --bf-border-subtle: rgba(255, 255, 255, 0.09);
+    --bf-border: rgba(255, 255, 255, 0.18);
+    --bf-border-strong: rgba(255, 255, 255, 0.28);
+    --bf-border-focus: #e0a63f;
+    --bf-divider: rgba(255, 255, 255, 0.09);
 
     /* Text */
-    --bf-text-primary: #e6edf7;
-    --bf-text-secondary: #b7c4d4;
-    --bf-text-muted: #7f8fa3;
-    --bf-text-faint: #566579;
-    --bf-text-inverse: #020617;
+    --bf-text-primary: #ebe8e2;
+    --bf-text-secondary: #b3afa7;
+    --bf-text-muted: #7d796f;
+    --bf-text-faint: #55524c;
+    --bf-text-inverse: #161615;
 
     /* Brand and interaction */
-    --bf-brand: #7c3aed;
-    --bf-accent: #2f80ff;
-    --bf-accent-hover: #4c93ff;
-    --bf-accent-active: #1f6feb;
-    --bf-accent-soft: rgba(47, 128, 255, 0.16);
+    --bf-brand: #e0a63f;
+    --bf-accent: #e0a63f;
+    --bf-accent-hover: #eab65a;
+    --bf-accent-active: #cf9630;
+    --bf-accent-soft: rgba(224, 166, 63, 0.16);
 
     /* Semantic */
     --bf-success: #35d36b;
@@ -79,7 +80,7 @@
     --bf-axial: #2f80ff;
     --bf-sagittal: #40c463;
     --bf-coronal: #ff9900;
-    --bf-crosshair: #58d957;
+    --bf-crosshair: #e0a63f;
 
     /* Files-panel file-type icon colors */
     --bf-icon-volume: #2f80ff; /* NIfTI / volumetric data — matches --bf-axial */
@@ -88,18 +89,18 @@
 
     /* Plot colors */
     --bf-plot-line: #38a3ff;
-    --bf-plot-grid: rgba(148, 163, 184, 0.18);
-    --bf-plot-axis: rgba(226, 232, 240, 0.55);
+    --bf-plot-grid: rgba(255, 255, 255, 0.1);
+    --bf-plot-axis: rgba(235, 232, 226, 0.55);
 
     /* Shadows */
     --bf-shadow-panel: 0 10px 32px rgba(0, 0, 0, 0.32);
     --bf-shadow-inset: inset 0 1px 0 rgba(255, 255, 255, 0.04);
 
     /* Radii — mockup7 research scale (3-8px), replaces Bauhaus 1-2px */
-    --bf-radius-xs: 3px;
-    --bf-radius-sm: 4px;
-    --bf-radius-md: 6px;
-    --bf-radius-lg: 8px;
+    --bf-radius-xs: 2px;
+    --bf-radius-sm: 2px;
+    --bf-radius-md: 3px;
+    --bf-radius-lg: 4px;
     --bf-radius-pill: 999px;
 
     /* Spacing */
@@ -121,10 +122,10 @@
 
     /* Fonts (Design.md §4.1) */
     --bf-font-sans:
-      Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
-      "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      "IBM Plex Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI",
+      Helvetica, Arial, sans-serif;
     --bf-font-mono:
-      "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+      "IBM Plex Mono", "SFMono-Regular", Menlo, Consolas, monospace;
 
     /* Motion (Design.md §18.3) */
     --bf-motion-fast: 100ms;
@@ -135,26 +136,26 @@
      * Remapped to mockup7 values so any Tailwind consumer flips along
      * with the rest of the app.
      * ──────────────────────────────────────────────────────────────── */
-    --background: 211 38% 4%; /* #05080c */
-    --foreground: 217 37% 93%; /* #e6edf7 */
-    --card: 213 35% 9%; /* #0b1521 */
-    --card-foreground: 217 37% 93%;
-    --popover: 213 35% 9%;
-    --popover-foreground: 217 37% 93%;
-    --primary: 217 100% 59%; /* #2f80ff */
-    --primary-foreground: 0 0% 100%;
-    --secondary: 213 30% 12%;
-    --secondary-foreground: 217 37% 93%;
-    --muted: 213 30% 14%;
-    --muted-foreground: 215 17% 57%;
-    --accent: 217 100% 65%;
-    --accent-foreground: 0 0% 100%;
+    --background: 60 2% 8%; /* #161615 */
+    --foreground: 40 18% 90%; /* #ebe8e2 */
+    --card: 60 2% 12%; /* #1e1e1d */
+    --card-foreground: 40 18% 90%;
+    --popover: 60 2% 12%;
+    --popover-foreground: 40 18% 90%;
+    --primary: 38 72% 56%; /* #e0a63f */
+    --primary-foreground: 60 2% 8%;
+    --secondary: 60 1% 16%;
+    --secondary-foreground: 40 18% 90%;
+    --muted: 60 1% 16%;
+    --muted-foreground: 43 6% 46%;
+    --accent: 60 1% 16%;
+    --accent-foreground: 40 18% 90%;
     --destructive: 0 84% 60%;
     --destructive-foreground: 0 0% 100%;
-    --border: 215 22% 30%;
-    --input: 215 30% 8%;
-    --ring: 217 100% 59%;
-    --radius: 6px;
+    --border: 60 2% 22%;
+    --input: 60 2% 8%;
+    --ring: 38 72% 56%;
+    --radius: 4px;
 
     /* ────────────────────────────────────────────────────────────────
      * Legacy `--app-*` aliases — every existing component reads these.
@@ -184,7 +185,7 @@
 
     /* Brand / accent */
     --app-accent: var(--bf-accent);
-    --app-accent-foreground: #ffffff;
+    --app-accent-foreground: var(--bf-text-inverse);
     --app-accent-hover: var(--bf-accent-hover);
     --app-accent-active: var(--bf-accent-active);
     --app-accent-text: var(--bf-accent);
@@ -225,10 +226,10 @@
     /* Semantic typography roles */
     --app-role-title-size: 13px;
     --app-role-title-weight: 600;
-    --app-role-title-tracking: 0.08em;
+    --app-role-title-tracking: 0.01em;
     --app-role-section-size: 11px;
-    --app-role-section-weight: 600;
-    --app-role-section-tracking: 0.12em;
+    --app-role-section-weight: 500;
+    --app-role-section-tracking: 0;
     --app-role-label-size: 11px;
     --app-role-label-weight: 500;
     --app-role-value-size: 13px;
@@ -273,12 +274,12 @@
     /* Unified scrollbar — toned for the dark research palette */
     --scrollbar-width: 6px;
     --scrollbar-track: transparent;
-    --scrollbar-thumb: rgba(148, 163, 184, 0.18);
-    --scrollbar-thumb-hover: rgba(148, 163, 184, 0.32);
+    --scrollbar-thumb: rgba(255, 255, 255, 0.14);
+    --scrollbar-thumb-hover: rgba(255, 255, 255, 0.26);
 
-    /* Top accent stripe — now uses the mockup7 blue */
+    /* Top accent stripe — retired in the Workstation restyle (height 0) */
     --top-accent: var(--bf-accent);
-    --top-accent-height: var(--rule-strong);
+    --top-accent-height: 0px;
 
     /* Mockup 7 / Integrated workspace surface tokens (legacy names preserved) */
     --app-surface-canvas: var(--bf-bg-canvas);
@@ -335,29 +336,29 @@ input[type="range"].bf-thumb-circle {
 input[type="range"].bf-thumb-circle::-webkit-slider-thumb {
   -webkit-appearance: none;
   appearance: none;
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  background: hsl(199 89% 48%); /* sky-500 */
+  width: 6px;
+  height: 12px;
+  border-radius: 1px;
+  background: var(--bf-accent);
   border: 0;
   /*
    * WebKit/Blink vertically centre an explicit-height runnable track within
    * the input's content box, then align the thumb's TOP with that track's
    * top. With a 3px runnable track (matching the visible sibling track) the
-   * thumb needs margin-top = (3 - 10) / 2 = -3.5px to sit dead-centre on the
+   * thumb needs margin-top = (3 - 12) / 2 = -4.5px to sit dead-centre on the
    * track's midpoint. (The previous rule targeted `::-webkit-slider-track`,
    * which is NOT a real pseudo-element, so the track defaulted to full input
    * height and -5px lifted the knob ~6px above the visible track.)
    */
-  margin-top: -3.5px;
-  box-shadow: 0 0 0 1px hsl(220 56% 4% / 0.7);
+  margin-top: -4.5px;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.6);
   cursor: pointer;
   pointer-events: auto;
   transition: background-color 0.15s ease;
 }
 input[type="range"].bf-thumb-circle:hover::-webkit-slider-thumb,
 input[type="range"].bf-thumb-circle:focus-visible::-webkit-slider-thumb {
-  background: hsl(199 89% 60%);
+  background: var(--bf-accent-hover);
   border: 0;
 }
 input[type="range"].bf-thumb-circle::-webkit-slider-runnable-track {
@@ -366,16 +367,16 @@ input[type="range"].bf-thumb-circle::-webkit-slider-runnable-track {
   border: 0;
 }
 input[type="range"].bf-thumb-circle::-moz-range-thumb {
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  background: hsl(199 89% 48%);
+  width: 6px;
+  height: 12px;
+  border-radius: 1px;
+  background: var(--bf-accent);
   border: 0;
   cursor: pointer;
   pointer-events: auto;
 }
 input[type="range"].bf-thumb-circle:hover::-moz-range-thumb {
-  background: hsl(199 89% 60%);
+  background: var(--bf-accent-hover);
   border: 0;
 }
 input[type="range"].bf-thumb-circle::-moz-range-track {

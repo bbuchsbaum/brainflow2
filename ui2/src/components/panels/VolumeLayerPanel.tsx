@@ -575,7 +575,7 @@ const VolumeLayerPanelContent: React.FC = () => {
                       : "bf-control-md min-h-[34px]"
                   } ${
                     isActive
-                      ? "border-accent/60 bg-accent/10 text-foreground"
+                      ? "border-primary/60 bg-primary/10 text-foreground"
                       : "border-transparent text-foreground/70 hover:border-border hover:bg-muted/50 hover:text-foreground"
                   }`}
                 >

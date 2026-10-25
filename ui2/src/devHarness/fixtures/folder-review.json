@@ -1,0 +1,645 @@
+{
+  "candidate": {
+    "cohorts": [
+      {
+        "description": "Discovery-backed cohort spanning all grouped members.",
+        "id": "all-members",
+        "label": "All members",
+        "memberCount": 2,
+        "memberIds": [
+          "1001",
+          "1002"
+        ],
+        "originKind": "imported",
+        "originLabel": "Regex discovery preview"
+      }
+    ],
+    "contract": {
+      "canImport": true,
+      "capabilities": [
+        "import",
+        "deck",
+        "export_neurotabs"
+      ],
+      "provenanceKind": "regex_discovery",
+      "provenanceLabel": "root=/synthetic/full pattern=^(?P<member>[^/]+)/(?P<image>.+\\.(?:nii(?:\\.gz)?|(?:surf|func)\\.gii|gii)$) maxDepth=3 maxFiles=20",
+      "readiness": "review_required",
+      "reason": "Backend audit found warnings; import for review before compare."
+    },
+    "description": "Grouped 5 matched file(s) into 2 member set(s) beneath /synthetic/full.",
+    "discovery": {
+      "captureNames": [
+        "member",
+        "image"
+      ],
+      "dryRun": true,
+      "duplicateKeys": 0,
+      "excludePatterns": [],
+      "filePattern": "^(?P<member>[^/]+)/(?P<image>.+\\.(?:nii(?:\\.gz)?|(?:surf|func)\\.gii|gii)$)",
+      "groups": [
+        {
+          "bindings": [
+            {
+              "confidence": 0.0,
+              "relativePath": "1001/rsa-A.nii.gz",
+              "role": "rsa-A.nii.gz",
+              "sourcePath": "/synthetic/full/1001/rsa-A.nii.gz"
+            },
+            {
+              "confidence": 0.0,
+              "relativePath": "1001/rsa_A.nii.gz",
+              "role": "rsa_A.nii.gz",
+              "sourcePath": "/synthetic/full/1001/rsa_A.nii.gz"
+            },
+            {
+              "confidence": 0.0,
+              "relativePath": "1001/session-2/rsa-A.nii.gz",
+              "role": "session-2/rsa-A.nii.gz",
+              "sourcePath": "/synthetic/full/1001/session-2/rsa-A.nii.gz"
+            }
+          ],
+          "confidence": 0.0,
+          "designValues": [
+            {
+              "column": "member",
+              "value": "1001"
+            }
+          ],
+          "duplicateRoles": [],
+          "memberId": "1001",
+          "missingRoles": []
+        },
+        {
+          "bindings": [
+            {
+              "confidence": 0.0,
+              "relativePath": "1002/rsa-A.nii.gz",
+              "role": "rsa-A.nii.gz",
+              "sourcePath": "/synthetic/full/1002/rsa-A.nii.gz"
+            },
+            {
+              "confidence": 0.0,
+              "relativePath": "1002/session-2/rsa-A.nii.gz",
+              "role": "session-2/rsa-A.nii.gz",
+              "sourcePath": "/synthetic/full/1002/session-2/rsa-A.nii.gz"
+            }
+          ],
+          "confidence": 0.0,
+          "designValues": [
+            {
+              "column": "member",
+              "value": "1002"
+            }
+          ],
+          "duplicateRoles": [],
+          "memberId": "1002",
+          "missingRoles": []
+        }
+      ],
+      "includePatterns": [],
+      "inferredDesignColumns": [
+        "member",
+        "roles"
+      ],
+      "matchedFiles": 5,
+      "maxDepth": 3,
+      "maxFiles": 20,
+      "observedRoles": [
+        "rsa-A.nii.gz",
+        "rsa_A.nii.gz",
+        "session-2/rsa-A.nii.gz"
+      ],
+      "requiredRoles": [],
+      "rolePatterns": [
+        {
+          "patterns": [
+            "(^|[_\\-\\./])(beta|cope|coef)([_\\-\\./]|$)",
+            "^beta$"
+          ],
+          "role": "beta"
+        },
+        {
+          "patterns": [
+            "(^|[_\\-\\./])(tstat|t_stat|t-map|tmap|stat)([_\\-\\./]|$)",
+            "^t(stat)?$"
+          ],
+          "role": "tstat"
+        },
+        {
+          "patterns": [
+            "(^|[_\\-\\./])(se|stderr|std_err|standard_error)([_\\-\\./]|$)",
+            "^se$"
+          ],
+          "role": "se"
+        },
+        {
+          "patterns": [
+            "(^|[_\\-\\./])(pvalue|p_value|pval|p-map|pmap)([_\\-\\./]|$)",
+            "^p$"
+          ],
+          "role": "pvalue"
+        },
+        {
+          "patterns": [
+            "(^|[_\\-\\./])(statmap|map)([_\\-\\./]|$)"
+          ],
+          "role": "statmap"
+        }
+      ],
+      "root": "/synthetic/full",
+      "sampleHeaders": false,
+      "truncated": false,
+      "unmatchedFiles": 0
+    },
+    "expressions": [
+      {
+        "cohortId": null,
+        "id": "regex-member",
+        "kind": "member",
+        "label": "Current member",
+        "recipe": "member(sample)"
+      }
+    ],
+    "features": [
+      {
+        "id": "rsa-A.nii.gz",
+        "kind": "volume",
+        "label": "rsa-A.nii.gz"
+      },
+      {
+        "id": "rsa_A.nii.gz",
+        "kind": "volume",
+        "label": "rsa_A.nii.gz"
+      },
+      {
+        "id": "session-2/rsa-A.nii.gz",
+        "kind": "volume",
+        "label": "session-2/rsa-A.nii.gz"
+      }
+    ],
+    "id": "candidate-regex-b",
+    "label": "Regex discovery preview",
+    "materialization": {
+      "failed": 0,
+      "pending": 0,
+      "preview": 2,
+      "warm": 0
+    },
+    "mode": "regex",
+    "set": {
+      "alignmentClass": "unknown",
+      "designColumns": [
+        "member",
+        "roles"
+      ],
+      "designTablePreview": {
+        "columns": [
+          "member",
+          "roles"
+        ],
+        "rows": [
+          {
+            "cells": [
+              "1001",
+              "rsa-A.nii.gz,rsa_A.nii.gz,session-2/rsa-A.nii.gz"
+            ],
+            "id": "1001"
+          },
+          {
+            "cells": [
+              "1002",
+              "rsa-A.nii.gz,session-2/rsa-A.nii.gz"
+            ],
+            "id": "1002"
+          }
+        ]
+      },
+      "id": "study-regex-preview",
+      "ingestAudit": {
+        "join": {
+          "duplicateKeys": 0,
+          "issueDetails": [],
+          "matchedRows": 2,
+          "severity": "ok",
+          "unmatchedRows": 0
+        },
+        "notes": [
+          "Discovery grouped 2 member set(s) under the requested root.",
+          "Observed role(s): rsa-A.nii.gz, rsa_A.nii.gz, session-2/rsa-A.nii.gz."
+        ],
+        "sourceLabel": "Regex discovery",
+        "support": {
+          "alignmentClass": "unknown",
+          "readyForCompare": false,
+          "severity": "ok",
+          "supportLabel": "headers not sampled"
+        }
+      },
+      "memberCount": 2,
+      "memberIds": [
+        "1001",
+        "1002"
+      ],
+      "memberSummaries": [
+        {
+          "bindings": [
+            {
+              "availability": "available",
+              "featureId": "rsa-A.nii.gz",
+              "isPrimary": true,
+              "relativePath": "1001/rsa-A.nii.gz",
+              "role": "rsa-A.nii.gz",
+              "selector": null,
+              "sourceLocator": "1001/rsa-A.nii.gz",
+              "sourcePath": "/synthetic/full/1001/rsa-A.nii.gz",
+              "supportKind": "volume",
+              "supportLabel": "headers not sampled"
+            },
+            {
+              "availability": "available",
+              "featureId": "rsa_A.nii.gz",
+              "isPrimary": false,
+              "relativePath": "1001/rsa_A.nii.gz",
+              "role": "rsa_A.nii.gz",
+              "selector": null,
+              "sourceLocator": "1001/rsa_A.nii.gz",
+              "sourcePath": "/synthetic/full/1001/rsa_A.nii.gz",
+              "supportKind": "volume",
+              "supportLabel": "headers not sampled"
+            },
+            {
+              "availability": "available",
+              "featureId": "session-2/rsa-A.nii.gz",
+              "isPrimary": false,
+              "relativePath": "1001/session-2/rsa-A.nii.gz",
+              "role": "session-2/rsa-A.nii.gz",
+              "selector": null,
+              "sourceLocator": "1001/session-2/rsa-A.nii.gz",
+              "sourcePath": "/synthetic/full/1001/session-2/rsa-A.nii.gz",
+              "supportKind": "volume",
+              "supportLabel": "headers not sampled"
+            }
+          ],
+          "designValues": {
+            "member": "1001",
+            "roles": "rsa-A.nii.gz,rsa_A.nii.gz,session-2/rsa-A.nii.gz"
+          },
+          "id": "1001",
+          "sourcePath": "/synthetic/full/1001/rsa-A.nii.gz"
+        },
+        {
+          "bindings": [
+            {
+              "availability": "available",
+              "featureId": "rsa-A.nii.gz",
+              "isPrimary": true,
+              "relativePath": "1002/rsa-A.nii.gz",
+              "role": "rsa-A.nii.gz",
+              "selector": null,
+              "sourceLocator": "1002/rsa-A.nii.gz",
+              "sourcePath": "/synthetic/full/1002/rsa-A.nii.gz",
+              "supportKind": "volume",
+              "supportLabel": "headers not sampled"
+            },
+            {
+              "availability": "available",
+              "featureId": "session-2/rsa-A.nii.gz",
+              "isPrimary": false,
+              "relativePath": "1002/session-2/rsa-A.nii.gz",
+              "role": "session-2/rsa-A.nii.gz",
+              "selector": null,
+              "sourceLocator": "1002/session-2/rsa-A.nii.gz",
+              "sourcePath": "/synthetic/full/1002/session-2/rsa-A.nii.gz",
+              "supportKind": "volume",
+              "supportLabel": "headers not sampled"
+            }
+          ],
+          "designValues": {
+            "member": "1002",
+            "roles": "rsa-A.nii.gz,session-2/rsa-A.nii.gz"
+          },
+          "id": "1002",
+          "sourcePath": "/synthetic/full/1002/rsa-A.nii.gz"
+        }
+      ],
+      "name": "field-table-generic-folder-review-1788744671541904000 / Discovery Import",
+      "primaryFeatureId": "rsa-A.nii.gz",
+      "savedCohortIds": [
+        "all-members"
+      ],
+      "supportKind": "volume",
+      "supportLabel": "headers not sampled"
+    },
+    "sourceHint": "root=/synthetic/full pattern=^(?P<member>[^/]+)/(?P<image>.+\\.(?:nii(?:\\.gz)?|(?:surf|func)\\.gii|gii)$) maxDepth=3 maxFiles=20"
+  },
+  "ontology": {
+    "candidates": [
+      {
+        "completeness": 1.0,
+        "coverage": 1.0,
+        "description": "Immediate subfolders identify members; relative filenames identify images.",
+        "designColumns": [
+          "member"
+        ],
+        "duplicateKeys": 0,
+        "factors": [
+          {
+            "confidence": 0.6000000238418579,
+            "name": "member",
+            "source": "inferred",
+            "values": [
+              "1001",
+              "1002"
+            ]
+          }
+        ],
+        "filePattern": "^(?P<member>[^/]+)/(?P<image>.+\\.(?:nii(?:\\.gz)?|(?:surf|func)\\.gii|gii)$)",
+        "groups": [
+          {
+            "bindings": [
+              {
+                "confidence": 0.0,
+                "relativePath": "1001/rsa-A.nii.gz",
+                "role": "rsa-A.nii.gz",
+                "sourcePath": "/synthetic/full/1001/rsa-A.nii.gz"
+              },
+              {
+                "confidence": 0.0,
+                "relativePath": "1001/rsa_A.nii.gz",
+                "role": "rsa_A.nii.gz",
+                "sourcePath": "/synthetic/full/1001/rsa_A.nii.gz"
+              },
+              {
+                "confidence": 0.0,
+                "relativePath": "1001/session-2/rsa-A.nii.gz",
+                "role": "session-2/rsa-A.nii.gz",
+                "sourcePath": "/synthetic/full/1001/session-2/rsa-A.nii.gz"
+              }
+            ],
+            "confidence": 0.0,
+            "designValues": [
+              {
+                "column": "member",
+                "value": "1001"
+              }
+            ],
+            "duplicateRoles": [],
+            "memberId": "1001",
+            "missingRoles": []
+          },
+          {
+            "bindings": [
+              {
+                "confidence": 0.0,
+                "relativePath": "1002/rsa-A.nii.gz",
+                "role": "rsa-A.nii.gz",
+                "sourcePath": "/synthetic/full/1002/rsa-A.nii.gz"
+              },
+              {
+                "confidence": 0.0,
+                "relativePath": "1002/session-2/rsa-A.nii.gz",
+                "role": "session-2/rsa-A.nii.gz",
+                "sourcePath": "/synthetic/full/1002/session-2/rsa-A.nii.gz"
+              }
+            ],
+            "confidence": 0.0,
+            "designValues": [
+              {
+                "column": "member",
+                "value": "1002"
+              }
+            ],
+            "duplicateRoles": [],
+            "memberId": "1002",
+            "missingRoles": []
+          }
+        ],
+        "id": "member-folders",
+        "label": "One member per folder",
+        "matchedFiles": 5,
+        "missingRoleBindings": 0,
+        "observedRoles": [
+          "rsa-A.nii.gz",
+          "rsa_A.nii.gz",
+          "session-2/rsa-A.nii.gz"
+        ],
+        "reasons": [
+          "The selected folder contains multiple image-bearing subfolders.",
+          "Image names retain nested paths; no statistical roles are inferred."
+        ],
+        "requiredRoles": [],
+        "rolePatterns": [],
+        "roles": [
+          {
+            "confidence": 0.0,
+            "examples": [
+              "1001/rsa-A.nii.gz",
+              "1002/rsa-A.nii.gz"
+            ],
+            "role": "rsa-A.nii.gz",
+            "source": "filename"
+          },
+          {
+            "confidence": 0.0,
+            "examples": [
+              "1001/rsa_A.nii.gz"
+            ],
+            "role": "rsa_A.nii.gz",
+            "source": "filename"
+          },
+          {
+            "confidence": 0.0,
+            "examples": [
+              "1001/session-2/rsa-A.nii.gz",
+              "1002/session-2/rsa-A.nii.gz"
+            ],
+            "role": "session-2/rsa-A.nii.gz",
+            "source": "filename"
+          }
+        ],
+        "score": 1.0,
+        "strategy": "member_folders",
+        "unmatchedFiles": 0,
+        "warnings": []
+      },
+      {
+        "completeness": 1.0,
+        "coverage": 1.0,
+        "description": "Each image is a member; no statistical role is inferred.",
+        "designColumns": [
+          "member"
+        ],
+        "duplicateKeys": 0,
+        "factors": [
+          {
+            "confidence": 0.6000000238418579,
+            "name": "member",
+            "source": "inferred",
+            "values": [
+              "1001/rsa-A.nii.gz",
+              "1001/rsa_A.nii.gz",
+              "1001/session-2/rsa-A.nii.gz",
+              "1002/rsa-A.nii.gz",
+              "1002/session-2/rsa-A.nii.gz"
+            ]
+          }
+        ],
+        "filePattern": "^(?P<member>.+\\.(?:nii(?:\\.gz)?|(?:surf|func)\\.gii|gii)$)",
+        "groups": [
+          {
+            "bindings": [
+              {
+                "confidence": 0.0,
+                "relativePath": "1001/rsa-A.nii.gz",
+                "role": "image",
+                "sourcePath": "/synthetic/full/1001/rsa-A.nii.gz"
+              }
+            ],
+            "confidence": 0.0,
+            "designValues": [
+              {
+                "column": "member",
+                "value": "1001/rsa-A.nii.gz"
+              }
+            ],
+            "duplicateRoles": [],
+            "memberId": "1001/rsa-A.nii.gz",
+            "missingRoles": []
+          },
+          {
+            "bindings": [
+              {
+                "confidence": 0.0,
+                "relativePath": "1001/rsa_A.nii.gz",
+                "role": "image",
+                "sourcePath": "/synthetic/full/1001/rsa_A.nii.gz"
+              }
+            ],
+            "confidence": 0.0,
+            "designValues": [
+              {
+                "column": "member",
+                "value": "1001/rsa_A.nii.gz"
+              }
+            ],
+            "duplicateRoles": [],
+            "memberId": "1001/rsa_A.nii.gz",
+            "missingRoles": []
+          },
+          {
+            "bindings": [
+              {
+                "confidence": 0.0,
+                "relativePath": "1001/session-2/rsa-A.nii.gz",
+                "role": "image",
+                "sourcePath": "/synthetic/full/1001/session-2/rsa-A.nii.gz"
+              }
+            ],
+            "confidence": 0.0,
+            "designValues": [
+              {
+                "column": "member",
+                "value": "1001/session-2/rsa-A.nii.gz"
+              }
+            ],
+            "duplicateRoles": [],
+            "memberId": "1001/session-2/rsa-A.nii.gz",
+            "missingRoles": []
+          },
+          {
+            "bindings": [
+              {
+                "confidence": 0.0,
+                "relativePath": "1002/rsa-A.nii.gz",
+                "role": "image",
+                "sourcePath": "/synthetic/full/1002/rsa-A.nii.gz"
+              }
+            ],
+            "confidence": 0.0,
+            "designValues": [
+              {
+                "column": "member",
+                "value": "1002/rsa-A.nii.gz"
+              }
+            ],
+            "duplicateRoles": [],
+            "memberId": "1002/rsa-A.nii.gz",
+            "missingRoles": []
+          },
+          {
+            "bindings": [
+              {
+                "confidence": 0.0,
+                "relativePath": "1002/session-2/rsa-A.nii.gz",
+                "role": "image",
+                "sourcePath": "/synthetic/full/1002/session-2/rsa-A.nii.gz"
+              }
+            ],
+            "confidence": 0.0,
+            "designValues": [
+              {
+                "column": "member",
+                "value": "1002/session-2/rsa-A.nii.gz"
+              }
+            ],
+            "duplicateRoles": [],
+            "memberId": "1002/session-2/rsa-A.nii.gz",
+            "missingRoles": []
+          }
+        ],
+        "id": "flat-statmaps",
+        "label": "One member per file",
+        "matchedFiles": 5,
+        "missingRoleBindings": 0,
+        "observedRoles": [
+          "image"
+        ],
+        "reasons": [
+          "Fallback candidate for image folders without a recognizable hierarchy.",
+          "Each file becomes its own member."
+        ],
+        "requiredRoles": [],
+        "rolePatterns": [
+          {
+            "patterns": [
+              "(^|[_\\-\\./])image([_\\-\\./]|$)"
+            ],
+            "role": "image"
+          }
+        ],
+        "roles": [
+          {
+            "confidence": 0.0,
+            "examples": [
+              "1001/rsa-A.nii.gz",
+              "1001/rsa_A.nii.gz",
+              "1001/session-2/rsa-A.nii.gz",
+              "1002/rsa-A.nii.gz",
+              "1002/session-2/rsa-A.nii.gz"
+            ],
+            "role": "image",
+            "source": "filename"
+          }
+        ],
+        "score": 0.6649999618530273,
+        "strategy": "flat_statmap_fallback",
+        "unmatchedFiles": 0,
+        "warnings": [
+          {
+            "code": "fallback_schema",
+            "message": "No richer hierarchy is required for this candidate; review member names carefully.",
+            "paths": []
+          }
+        ]
+      }
+    ],
+    "neuroimagingFiles": 5,
+    "root": "/synthetic/full",
+    "rootExists": true,
+    "scannedFiles": 5,
+    "sourceLabel": null,
+    "truncated": false,
+    "warnings": []
+  },
+  "root": "/synthetic/full"
+}

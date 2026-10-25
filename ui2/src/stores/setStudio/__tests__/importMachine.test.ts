@@ -376,8 +376,8 @@ describe('importReducer — staleness', () => {
       // Root changes while the scan is in flight.
       { type: 'DISCOVERY_ROOT_SET', root: '/tmp/other' },
     );
-    // The scan stays in flight but its root no longer matches.
-    expect(toDialogState(requested.context).isOntologyLoading).toBe(true);
+    // The request identity is invalidated, even if the root is later changed back.
+    expect(toDialogState(requested.context).isOntologyLoading).toBe(false);
 
     const stale = importReducer(requested.context, {
       type: 'ONTOLOGY_SUCCEEDED',

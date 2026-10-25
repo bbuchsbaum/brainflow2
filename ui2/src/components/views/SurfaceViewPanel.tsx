@@ -259,33 +259,13 @@ export const SurfaceViewPanel: React.FC<SurfaceViewPanelProps> = ({
         <div
           data-testid="surface-view-empty-state"
           data-error={loadError ? 'true' : 'false'}
-          className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-muted/10 px-4 text-center select-none"
+          className="absolute inset-0 flex flex-col items-center justify-center gap-2 px-4 text-center select-none"
         >
-          {/* Quiet surface-mesh glyph */}
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            width="56"
-            height="56"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="0.5"
-            strokeLinecap="square"
-            strokeLinejoin="miter"
-            className="text-foreground/20"
-            aria-hidden="true"
-          >
-            <polygon points="12,2 22,8.5 22,15.5 12,22 2,15.5 2,8.5" />
-            <line x1="12" y1="2" x2="12" y2="22" />
-            <line x1="2" y1="8.5" x2="22" y2="15.5" />
-            <line x1="22" y1="8.5" x2="2" y2="15.5" />
-          </svg>
-
-          <div className="space-y-1">
-            <p className="text-[13px] text-foreground/80">
+          <div className="space-y-1.5">
+            <p className="text-[12px] font-medium" style={{ color: 'var(--bf-text-secondary)' }}>
               {loadError ? 'Couldn’t load surface' : 'No surface loaded'}
             </p>
-            <p className="mx-auto max-w-[260px] text-[11px] text-muted-foreground/70">
+            <p className="mx-auto max-w-[280px] text-[12px] text-muted-foreground">
               {loadError ?? 'Load a cortical surface to view it alongside the volume.'}
             </p>
           </div>
@@ -303,7 +283,7 @@ export const SurfaceViewPanel: React.FC<SurfaceViewPanelProps> = ({
                   console.error('[SurfaceViewPanel] Failed to open surface picker:', error),
                 );
             }}
-            className="inline-flex items-center gap-1.5 rounded-md border border-border bg-background px-3 py-1.5 text-[11px] text-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+            className="mt-1.5 inline-flex h-7 items-center gap-1.5 rounded-sm border border-border bg-card px-2.5 text-[12px] font-medium text-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
           >
             <span aria-hidden>+</span>
             Load surface…
@@ -314,35 +294,35 @@ export const SurfaceViewPanel: React.FC<SurfaceViewPanelProps> = ({
       {/* Surface info overlay - Technical readout style */}
       {activeSurface && activeSurface.metadata && (
         <div
-          className="absolute left-3 p-2 border"
+          className="absolute left-3 px-2 py-1.5 border font-mono text-[10.5px] leading-[1.55]"
           style={{
             top: infoOverlayTop,
-            backgroundColor: 'hsl(var(--background) / 0.9)',
-            borderColor: 'hsl(var(--border))',
-            borderRadius: '1px',
+            backgroundColor: 'hsl(var(--card) / 0.92)',
+            borderColor: 'var(--bf-border-subtle)',
+            borderRadius: '2px',
           }}
         >
-          <div className="space-y-1">
-            <div className="text-[10px] uppercase tracking-[0.15em] font-semibold text-foreground truncate max-w-[160px]">
+          <div>
+            <div className="truncate max-w-[220px]" style={{ color: 'var(--bf-text-secondary)' }}>
               {activeSurface.name}
             </div>
             {activeSurface.metadata.vertexCount !== undefined && (
-              <div className="text-[9px] font-mono text-muted-foreground/70">
-                V: {activeSurface.metadata.vertexCount.toLocaleString()}
+              <div className="text-muted-foreground">
+                {activeSurface.metadata.vertexCount.toLocaleString()} vertices
               </div>
             )}
             {activeSurface.metadata.faceCount !== undefined && (
-              <div className="text-[9px] font-mono text-muted-foreground/70">
-                F: {activeSurface.metadata.faceCount.toLocaleString()}
+              <div className="text-muted-foreground">
+                {activeSurface.metadata.faceCount.toLocaleString()} faces
               </div>
             )}
             {activeSurface.metadata.hemisphere && (
-              <div className="text-[9px] font-mono text-muted-foreground/70 uppercase">
+              <div className="text-muted-foreground">
                 {activeSurface.metadata.hemisphere}
               </div>
             )}
             {activeSurface.metadata.surfaceType && (
-              <div className="text-[9px] font-mono text-muted-foreground/70 uppercase">
+              <div className="text-muted-foreground">
                 {activeSurface.metadata.surfaceType}
               </div>
             )}

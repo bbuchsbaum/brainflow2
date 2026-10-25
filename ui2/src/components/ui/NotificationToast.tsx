@@ -38,22 +38,22 @@ export function NotificationToast() {
   // Bauhaus-themed notification styles
   const getNotificationStyle = (type: Notification['type']) => {
     const base = {
-      borderRadius: '1px',
+      borderRadius: '2px',
       border: '1px solid',
     };
     switch (type) {
       case 'info':
         return {
           ...base,
-          backgroundColor: 'hsl(var(--muted))',
-          borderColor: 'hsl(var(--border))',
+          backgroundColor: 'var(--bf-bg-panel-raised)',
+          borderColor: 'var(--bf-border)',
           color: 'hsl(var(--foreground))',
         };
       case 'warning':
         return {
           ...base,
-          backgroundColor: 'hsl(var(--muted))',
-          borderColor: 'hsl(45 100% 40%)',
+          backgroundColor: 'var(--bf-bg-panel-raised)',
+          borderColor: 'var(--app-warning)',
           color: 'hsl(var(--foreground))',
         };
       case 'error':
@@ -66,8 +66,8 @@ export function NotificationToast() {
       case 'success':
         return {
           ...base,
-          backgroundColor: 'hsl(var(--muted))',
-          borderColor: 'hsl(var(--app-success))',
+          backgroundColor: 'var(--bf-bg-panel-raised)',
+          borderColor: 'var(--app-success)',
           color: 'hsl(var(--foreground))',
         };
     }
@@ -76,9 +76,9 @@ export function NotificationToast() {
   const getIndicatorColor = (type: Notification['type']) => {
     switch (type) {
       case 'info': return 'hsl(var(--primary))';
-      case 'warning': return 'hsl(45 100% 50%)';
+      case 'warning': return 'var(--app-warning)';
       case 'error': return 'hsl(var(--destructive))';
-      case 'success': return 'hsl(var(--app-success))';
+      case 'success': return 'var(--app-success)';
     }
   };
 
@@ -99,7 +99,7 @@ export function NotificationToast() {
                 borderRadius: '1px'
               }}
             />
-            <span className="text-[11px] font-mono uppercase tracking-wider">{notification.message}</span>
+            <span className="text-[12px]">{notification.message}</span>
           </div>
         </div>
       ))}

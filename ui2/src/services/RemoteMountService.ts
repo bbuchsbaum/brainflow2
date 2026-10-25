@@ -71,7 +71,7 @@ function formatStartupRemoteSpec(spec: StartupRemoteMountSpec): string {
 
 function buildInteractiveStartupError(spec: StartupRemoteMountSpec): Error {
   return new Error(
-    `Startup remote mount '${formatStartupRemoteSpec(spec)}' requires interactive SSH confirmation. Use Mount Remote (SSH)… to complete the connection.`
+    `Startup remote mount '${formatStartupRemoteSpec(spec)}' requires interactive SSH confirmation. Use Mount remote (SSH)… to complete the connection.`
   );
 }
 

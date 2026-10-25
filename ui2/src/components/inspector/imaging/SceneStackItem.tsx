@@ -6,7 +6,7 @@ interface SceneStackItemProps {
   selected: boolean;
   onSelect: () => void;
   /**
-   * Optional drag handle, rendered before the glyph badge. Provided by the
+   * Optional drag handle, rendered before the kind glyph. Provided by the
    * sortable wrapper for reorderable groups; omitted for static groups. The
    * row is a `<div role="button">` (not a `<button>`) precisely so this nested
    * handle button is valid markup.
@@ -14,34 +14,82 @@ interface SceneStackItemProps {
   dragHandle?: React.ReactNode;
 }
 
-const KIND_GLYPH: Record<SceneItemKind, { letter: string; color: string }> = {
-  "volume-base": { letter: "V", color: "sky" },
-  "volume-overlay": { letter: "O", color: "amber" },
-  "volume-overlay-atlas": { letter: "L", color: "violet" },
-  "surface-geometry": { letter: "S", color: "emerald" },
-  "surface-overlay": { letter: "O", color: "amber" },
-  mapping: { letter: "↦", color: "violet" },
+const GLYPH_PROPS = {
+  width: 14,
+  height: 14,
+  viewBox: "0 0 16 16",
+  fill: "none",
+  stroke: "currentColor",
+  strokeWidth: 1.3,
+  strokeLinecap: "round" as const,
+  strokeLinejoin: "round" as const,
+  "aria-hidden": true,
 };
 
-const COLOR_TEXT: Record<string, string> = {
-  sky: "text-sky-700 dark:text-sky-200",
-  amber: "text-amber-700 dark:text-amber-200",
-  violet: "text-violet-700 dark:text-violet-200",
-  emerald: "text-emerald-700 dark:text-emerald-200",
-};
+/** Three stacked slices — a volume. */
+function VolumeGlyph({ overlay = false }: { overlay?: boolean }) {
+  return (
+    <svg {...GLYPH_PROPS}>
+      <path
+        d="M2 5.5l6-3 6 3-6 3z"
+        fill={overlay ? "currentColor" : "none"}
+        fillOpacity={overlay ? 0.35 : undefined}
+      />
+      <path d="M2 8.5l6 3 6-3" />
+      <path d="M2 11.5l6 3 6-3" />
+    </svg>
+  );
+}
 
-const COLOR_BG: Record<string, string> = {
-  sky: "bg-sky-500/15",
-  amber: "bg-amber-500/15",
-  violet: "bg-violet-500/15",
-  emerald: "bg-emerald-500/15",
-};
+/** A 2×2 parcellation grid — a label atlas. */
+function AtlasGlyph() {
+  return (
+    <svg {...GLYPH_PROPS}>
+      <rect x="2.5" y="2.5" width="4.5" height="4.5" />
+      <rect x="9" y="2.5" width="4.5" height="4.5" />
+      <rect x="2.5" y="9" width="4.5" height="4.5" />
+      <rect x="9" y="9" width="4.5" height="4.5" />
+    </svg>
+  );
+}
 
-const COLOR_BORDER: Record<string, string> = {
-  sky: "border-sky-500/50",
-  amber: "border-amber-500/40",
-  violet: "border-violet-500/40",
-  emerald: "border-emerald-500/40",
+/** A triangle mesh — a surface. */
+function SurfaceGlyph({ overlay = false }: { overlay?: boolean }) {
+  return (
+    <svg {...GLYPH_PROPS}>
+      <path d="M2 12L8 3l6 9z" />
+      <path
+        d="M5 12L8 7.5 11 12z"
+        fill={overlay ? "currentColor" : "none"}
+        fillOpacity={overlay ? 0.35 : undefined}
+      />
+      <path d="M8 3v4.5" />
+    </svg>
+  );
+}
+
+/** An arrow onto a surface — a volume-to-surface mapping. */
+function MappingGlyph() {
+  return (
+    <svg {...GLYPH_PROPS}>
+      <path d="M2.5 8h8" />
+      <path d="M7.5 5l3 3-3 3" />
+      <path d="M13.5 3v10" />
+    </svg>
+  );
+}
+
+/**
+ * Kind glyphs are neutral (the row subtitle already spells the kind out), so
+ * the only colour in the list is the amber selection bar.
+ */
+const KIND_GLYPH: Record<SceneItemKind, React.ReactNode> = {
+  "volume-base": <VolumeGlyph />,
+  "volume-overlay": <VolumeGlyph overlay />,
+  "volume-overlay-atlas": <AtlasGlyph />,
+  "surface-geometry": <SurfaceGlyph />,
+  "surface-overlay": <SurfaceGlyph overlay />,
+  mapping: <MappingGlyph />,
 };
 
 export function SceneStackItem({
@@ -50,10 +98,6 @@ export function SceneStackItem({
   onSelect,
   dragHandle,
 }: SceneStackItemProps) {
-  const glyph = KIND_GLYPH[item.kind];
-  const colorClass = COLOR_TEXT[glyph.color] ?? "";
-  const bgClass = COLOR_BG[glyph.color] ?? "";
-  const borderClass = COLOR_BORDER[glyph.color] ?? "";
   const opacityPct = Math.round(item.opacity * 100);
 
   const handleKeyDown = (event: React.KeyboardEvent) => {
@@ -70,25 +114,22 @@ export function SceneStackItem({
       onClick={onSelect}
       onKeyDown={handleKeyDown}
       aria-pressed={selected}
-      className={`group flex w-full cursor-pointer items-center gap-2.5 rounded-md border px-2 py-1.5 text-left transition-colors ${
+      className={`group flex w-full cursor-pointer items-center gap-2.5 rounded-sm px-2 py-1.5 text-left transition-colors ${
         selected
-          ? `${borderClass} bg-card`
-          : "border-transparent hover:bg-accent/30"
+          ? "bg-card shadow-[inset_2px_0_0_hsl(var(--primary))]"
+          : "hover:bg-accent"
       }`}
     >
       {dragHandle}
       <span
         aria-hidden
-        className={`inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[11px] font-semibold ${bgClass} ${colorClass}`}
+        className="inline-flex h-4 w-4 shrink-0 items-center justify-center"
+        style={{ color: "var(--bf-text-secondary)" }}
       >
-        {glyph.letter}
+        {KIND_GLYPH[item.kind]}
       </span>
       <span className="min-w-0 flex-1">
-        <span
-          className={`block truncate text-[12px] font-medium ${
-            selected ? colorClass : "text-foreground"
-          }`}
-        >
+        <span className="block truncate text-[12px] text-foreground">
           {item.name}
         </span>
         <span className="block truncate text-[11px] text-muted-foreground">

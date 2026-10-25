@@ -23,7 +23,7 @@ const IMPORT_TABS: Array<{ mode: StudioImportMode; label: string; description: s
 const COMMON_DISCOVERY_ROLES = new Set(['beta', 'tstat', 'se', 'pvalue', 'statmap']);
 
 export function StudioImportDialog() {
-  const isOpen = useSetStudioStore((state) => state.importDialog.isOpen);
+  const isOpen = useSetStudioStore((state) => state.importDialog.isOpen && !state.importDialog.folderReview);
   const mode = useSetStudioStore((state) => state.importDialog.mode);
   const tsvWizardStep = useSetStudioStore((state) => state.importDialog.tsvWizard.step);
   const selectedCandidateId = useSetStudioStore((state) => state.importDialog.selectedCandidateId);

@@ -576,7 +576,7 @@ function SliceViewCanvasRaw({
           const labels = anatomicalLabels(viewPlane);
           if (!labels) return null;
           const pillCls =
-            "absolute text-white/70 text-[11px] font-bold leading-none tracking-[0.15em] uppercase select-none pointer-events-none";
+            "absolute font-mono text-white/50 text-[10.5px] leading-none select-none pointer-events-none";
           const labelShadow = {
             textShadow: "0 0 4px rgba(0,0,0,0.8), 0 0 8px rgba(0,0,0,0.4)",
           };

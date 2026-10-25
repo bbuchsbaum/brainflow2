@@ -117,8 +117,8 @@ export function SliceSlider({
   
   return (
     <div
-      className="relative h-full bg-secondary px-3"
-      style={{ boxShadow: 'inset 0 1px 0 0 hsl(var(--border))' }}
+      className="relative h-full bg-card px-3"
+      style={{ boxShadow: 'inset 0 1px 0 0 var(--bf-border-subtle)' }}
       onMouseEnter={() => setShowValue(true)}
       onMouseLeave={() => setShowValue(false)}
     >
@@ -143,12 +143,12 @@ export function SliceSlider({
           {/* Visible track */}
           <div
             aria-hidden
-            className="absolute left-0 right-0 top-1/2 h-[3px] -translate-y-1/2 rounded-full"
-            style={{ backgroundColor: 'hsl(var(--border) / 0.8)' }}
+            className="absolute left-0 right-0 top-1/2 h-px -translate-y-1/2"
+            style={{ backgroundColor: 'var(--bf-border)' }}
           />
-          {/* Native input — track painted transparent, only the circular
-              thumb is visible. `bf-thumb-circle` is the canonical 10 px
-              sky-circle thumb used elsewhere in the app. */}
+          {/* Native input — track painted transparent, only the thumb is
+              visible. `bf-thumb-circle` is the canonical amber 6×12 knob
+              used elsewhere in the app. */}
           <input
             type="range"
             min={min}

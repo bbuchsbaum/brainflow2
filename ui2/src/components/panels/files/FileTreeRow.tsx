@@ -1,3 +1,4 @@
+import { getSetStudioService } from '@/services/studio/SetStudioService';
 import React from "react";
 import "./FileTreeRow.css";
 import type { NodeRendererProps } from "react-arborist";
@@ -256,8 +257,13 @@ export const FileTreeRow: React.FC<FileTreeRowProps> = ({ node, style }) => {
 
       const dirItems: ContextMenuItem[] = [
         {
+          id: 'open-folder-studio',
+          label: 'Open in Set Studio…',
+          onClick: () => void getSetStudioService().openFolderOntologyInStudio({ discoveryRoot: dirPath }),
+        },
+        {
           id: "open-folder-image-set",
-          label: "Open folder as image set…",
+          label: "Open as switchable layer…",
           onClick: () => void getImageSetService().openFolder(dirPath),
         },
         {

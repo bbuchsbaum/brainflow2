@@ -48,9 +48,9 @@ export const LayerDropdown: React.FC<LayerDropdownProps> = ({
               "w-full h-10 px-3 flex items-center justify-between",
               "rounded-md border bg-background text-[13px]",
               "transition-all duration-200",
-              "hover:bg-accent/10 hover:border-accent/50",
+              "hover:bg-primary/10 hover:border-primary/50",
               "focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 focus:ring-offset-background",
-              isOpen && "border-accent bg-accent/10"
+              isOpen && "border-primary bg-primary/10"
             )}
           >
             <span className="truncate flex-1 text-left font-medium">
@@ -92,8 +92,8 @@ export const LayerDropdown: React.FC<LayerDropdownProps> = ({
                   "transition-all duration-150",
                   "border-l-2",
                   layer.id === selectedLayerId 
-                    ? "bg-accent/20 border-accent text-accent-foreground" 
-                    : "hover:bg-accent/10 border-transparent"
+                    ? "bg-primary/15 border-primary text-foreground"
+                    : "hover:bg-accent border-transparent"
                 )}
                 onClick={() => {
                   onSelect(layer.id);
@@ -111,7 +111,7 @@ export const LayerDropdown: React.FC<LayerDropdownProps> = ({
                 <span 
                   className={cn(
                     "flex-1 text-[13px] truncate font-medium",
-                    layer.id === selectedLayerId ? "text-accent" : "text-foreground"
+                    layer.id === selectedLayerId ? "text-primary" : "text-foreground"
                   )}
                   title={layer.name}
                 >
@@ -130,7 +130,7 @@ export const LayerDropdown: React.FC<LayerDropdownProps> = ({
                     className={cn(
                       "w-6 h-6 flex items-center justify-center rounded",
                       "ml-2 text-muted-foreground hover:text-foreground",
-                      "hover:bg-accent/20 transition-colors"
+                      "hover:bg-accent transition-colors"
                     )}
                     title="Show metadata"
                     aria-label={`Show metadata for ${layer.name}`}
@@ -149,7 +149,7 @@ export const LayerDropdown: React.FC<LayerDropdownProps> = ({
                   className={cn(
                     "w-6 h-6 flex items-center justify-center rounded",
                     "ml-1 text-muted-foreground hover:text-foreground",
-                    "hover:bg-accent/20 transition-colors"
+                    "hover:bg-accent transition-colors"
                   )}
                   title={layer.visible ? 'Hide layer' : 'Show layer'}
                   aria-label={`${layer.visible ? 'Hide' : 'Show'} ${layer.name}`}

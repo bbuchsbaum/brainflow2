@@ -39,7 +39,7 @@ export const CollapsibleSection: React.FC<CollapsibleSectionProps> = ({
 
           {/* Title - Blueprint style */}
           <span className="bf-role-section text-foreground/90">
-            <span className="text-accent/60 mr-1 font-normal" aria-hidden="true">{'\u2013'}</span>
+            <span className="text-primary/60 mr-1 font-normal" aria-hidden="true">{'\u2013'}</span>
             {title}
           </span>
         </div>

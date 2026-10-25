@@ -137,21 +137,18 @@ export const DisplayModeSelector: React.FC<DisplayModeSelectorProps> = ({
             data-testid={`display-mode-${mode.id}`}
             data-active={isActive ? "true" : "false"}
             onClick={() => handleClick(mode)}
-            className="bf-role-section"
             style={{
               appearance: "none",
               height: "100%",
               padding: "0 12px",
               border: 0,
-              borderRight: isLast ? 0 : "1px solid var(--app-border)",
-              background: isActive ? "var(--app-bg-active)" : "transparent",
+              borderRight: isLast ? 0 : "1px solid var(--app-border-subtle)",
+              background: isActive ? "var(--app-text-primary)" : "transparent",
               color: isActive
-                ? "var(--app-text-primary)"
-                : "var(--app-text-muted)",
+                ? "var(--bf-text-inverse)"
+                : "var(--app-text-secondary)",
               cursor: "pointer",
-              fontSize: "var(--app-role-section-size)",
-              letterSpacing: "var(--app-role-section-tracking)",
-              textTransform: "uppercase",
+              fontSize: "12px",
               fontWeight: isActive ? 600 : 500,
               whiteSpace: "nowrap",
             }}

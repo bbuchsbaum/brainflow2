@@ -36,4 +36,8 @@ if [[ ! -x "${APP_EXECUTABLE}" ]]; then
   exit 1
 fi
 
+if [[ $# -eq 0 ]]; then
+  exec "${APP_EXECUTABLE}" --mount "${PWD}"
+fi
+
 exec "${APP_EXECUTABLE}" "$@"

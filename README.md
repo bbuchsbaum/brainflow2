@@ -100,6 +100,7 @@ make local:deploy
 ```
 
 This builds the app bundle and installs a stable `~/bin/brainflow` launcher that points at the repo-local bundle.
+Running `brainflow` with no arguments launches the app and mounts the shell's current directory in the file browser sidebar.
 
 ### Windows
 
