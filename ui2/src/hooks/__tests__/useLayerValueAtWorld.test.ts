@@ -17,11 +17,14 @@ const meta = {
 };
 
 describe('isInsideVolume', () => {
-  // 2 mm voxels, voxel 0 centred at x = -90; backend: 0 <= v < dim, round(v) < dim.
-  it('mirrors the backend bounds rule exactly (0 <= v < dim - 0.5)', () => {
+  // 2 mm voxels, voxel 0 centred at x = -90; backend (volume_queries::nearest_voxel):
+  // floor(v + 0.5) in [0, dim), i.e. every voxel's full extent.
+  it('mirrors the backend bounds rule exactly (-0.5 <= v < dim - 0.5)', () => {
     expect(isInsideVolume([0, 0, 0], meta)).toBe(true);
     expect(isInsideVolume([-90, 0, 0], meta)).toBe(true); // v = 0
-    expect(isInsideVolume([-90.4, 0, 0], meta)).toBe(false); // v = -0.2: backend out of bounds
+    expect(isInsideVolume([-90.4, 0, 0], meta)).toBe(true); // v = -0.2: still voxel 0
+    expect(isInsideVolume([-91.0, 0, 0], meta)).toBe(true); // v = -0.5: voxel 0's low face
+    expect(isInsideVolume([-91.1, 0, 0], meta)).toBe(false); // v = -0.55: outside
     expect(isInsideVolume([-89.2, 0, 0], meta)).toBe(true); // v = 0.4 -> voxel 0
     expect(isInsideVolume([90.9, 0, 0], meta)).toBe(true); // v = 90.45 -> voxel 90
     expect(isInsideVolume([91.0, 0, 0], meta)).toBe(false); // v = 90.5 rounds to dim
@@ -34,7 +37,8 @@ describe('isInsideVolume', () => {
     // Column-major, the backend's flattening: translation in elements 12..14.
     const flipped = { ...meta, worldToVoxel: [-0.5, 0, 0, 0, 0, 0.5, 0, 0, 0, 0, 0.5, 0, 45, 63, 36, 1] };
     // Voxel 0 is at x = +90 now: the low face is on the + side.
-    expect(isInsideVolume([90.4, 0, 0], flipped)).toBe(false);
+    expect(isInsideVolume([90.4, 0, 0], flipped)).toBe(true); // v = -0.2
+    expect(isInsideVolume([91.1, 0, 0], flipped)).toBe(false); // v = -0.55
     expect(isInsideVolume([90, 0, 0], flipped)).toBe(true);
     expect(isInsideVolume([-90.9, 0, 0], flipped)).toBe(true);
     expect(isInsideVolume([-91.0, 0, 0], flipped)).toBe(false);
@@ -47,7 +51,8 @@ describe('isInsideVolume', () => {
     };
     expect(isInsideVolume([95.4, 0.5, 0.5], mni)).toBe(true); // v = 95.45
     expect(isInsideVolume([95.5, 0.5, 0.5], mni)).toBe(false); // v = 95.5 rounds to dim
-    expect(isInsideVolume([-95.9, 0.5, 0.5], mni)).toBe(false); // v = -0.2
+    expect(isInsideVolume([-95.9, 0.5, 0.5], mni)).toBe(true); // v = -0.2: voxel 0
+    expect(isInsideVolume([-96.6, 0.5, 0.5], mni)).toBe(false); // v = -0.55
     expect(isInsideVolume([-95.4, 0.5, 0.5], mni)).toBe(true); // v = 0.05
   });
 });
@@ -75,11 +80,13 @@ const columnMajor = (m: M4): number[] =>
   [0, 1, 2, 3].flatMap((c) => [0, 1, 2, 3].map((r) => m[r][c]));
 const apply = (m: M4, p: readonly number[]): number[] =>
   [0, 1, 2].map((r) => m[r][0] * p[0] + m[r][1] * p[1] + m[r][2] * p[2] + m[r][3]);
-/** The backend rule (sample_world_coordinate_impl), computed independently. */
+/** The backend rule (volume_queries::nearest_voxel), computed independently. */
 function backendInside(w2v: M4, dims: number[], world: readonly number[]): boolean {
   const v = apply(w2v, world);
-  if (v.some((c, i) => c < 0 || c >= dims[i])) return false;
-  return v.every((c, i) => Math.round(c) < dims[i]);
+  return v.every((c, i) => {
+    const index = Math.floor(c + 0.5);
+    return index >= 0 && index < dims[i];
+  });
 }
 
 describe('isInsideVolume with non-diagonal affines (full column-major matrix)', () => {
@@ -158,6 +165,17 @@ describe('isInsideVolume with non-diagonal affines (full column-major matrix)', 
       const world = apply(permuted, voxel) as [number, number, number];
       expect(isInsideVolume(world, colMeta)).toBe(true);
       if (!isInsideVolume(world, rowMeta)) rowMismatches += 1;
+    }
+    // Read row-major, the inverse collapses every point near voxel 0, so points
+    // well outside the grid wrongly read as inside.
+    for (const voxel of [
+      [-5, -5, -5],
+      [45, 55, 65],
+      [20, -10, 70],
+    ]) {
+      const world = apply(permuted, voxel) as [number, number, number];
+      expect(isInsideVolume(world, colMeta)).toBe(false);
+      if (isInsideVolume(world, rowMeta)) rowMismatches += 1;
     }
     expect(rowMismatches).toBeGreaterThan(0);
   });

@@ -169,4 +169,36 @@ describe('CrosshairSettingsDialog', () => {
     await screen.findByRole('switch', { name: 'Show crosshairs' });
     expect(screen.queryByText(/hotkey/i)).toBeNull();
   });
+  it('toggles voxel snapping and re-centres the crosshair when it is turned on', async () => {
+    const setCrosshair = vi.fn().mockResolvedValue(undefined);
+    const { useViewStateStore } = await import('@/stores/viewStateStore');
+    const original = useViewStateStore.getState().setCrosshair;
+    useViewStateStore.setState({ setCrosshair } as never);
+    useViewStateStore.getState().setViewState((state) => {
+      state.crosshair.world_mm = [-0.5, -18.5, 17.5];
+    });
+    try {
+      mockUseCrosshairSettings.mockReturnValue({
+        settings: { ...baseSettings, snapToVoxel: false },
+        updateSettings: vi.fn(),
+      });
+      render(<CrosshairSettingsDialog onClose={vi.fn()} />);
+      const { updateSettings } = mockUseCrosshairSettings.mock.results[0].value;
+      const snap = await screen.findByRole('switch', { name: 'Snap to voxel' });
+      expect(snap).toHaveAttribute('aria-checked', 'false');
+      await act(async () => {
+        fireEvent.click(snap);
+      });
+      expect(updateSettings).toHaveBeenCalledWith({ snapToVoxel: true });
+      expect(setCrosshair).toHaveBeenCalledWith([-0.5, -18.5, 17.5], true);
+
+      await act(async () => {
+        fireEvent.click(snap);
+      });
+      expect(updateSettings).toHaveBeenLastCalledWith({ snapToVoxel: false });
+      expect(setCrosshair).toHaveBeenCalledTimes(1);
+    } finally {
+      useViewStateStore.setState({ setCrosshair: original } as never);
+    }
+  });
 });

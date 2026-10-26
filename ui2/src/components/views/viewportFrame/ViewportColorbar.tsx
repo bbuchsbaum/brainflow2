@@ -1,3 +1,4 @@
+import { StatSymbol } from '@/components/ui/StatSymbol';
 import type { CSSProperties } from 'react';
 import {
   HIDDEN_BAND_BACKGROUND,
@@ -22,8 +23,8 @@ export interface ColorbarLayer {
   /** Value units, when the layer declares them. */
   units?: string | null;
   /**
-   * Short layer name drawn as the top caption line, set when the colorbar
-   * describes a layer other than the active one (see `colorbarNameLabel`).
+   * Short layer name for the top caption line ("z · zmap_synthetic"); always
+   * set by `resolveColorbarLayer`.
    */
   nameLabel?: string | null;
 }
@@ -76,6 +77,7 @@ const MAX_BAR_H = 160;
 export const COLORBAR_MIN_WIDTH = 160;
 const CHAR_W = 6.2; // Plex Mono at 10px, approx.
 const NAME_CHAR_W = 5.6; // Plex Sans at 10px, average
+const NAME_MAX_CHARS = 28; // widest name caption before it truncates
 const PAD_X = 8; // scrim px-1 both sides
 const PAD_Y = 8; // scrim pt-1.5 + pb-0.5
 
@@ -148,7 +150,16 @@ export function ViewportColorbar({
     const valueW = Math.ceil(Math.max(5, valueLabel?.length ?? 0) * CHAR_W);
     const groupW = valueW + VALUE_GAP + CARET_W + BAR_W + MARK_W + LABEL_GAP + labelW;
     const lines = colorbarCaptionLines(exprParts, Math.max(groupW, 7 * CHAR_W));
-    const captionW = Math.ceil(Math.max(0, ...lines.map((l) => l.length * CHAR_W)));
+    // The name caption ("z · zmap_synthetic") may widen the box up to
+    // NAME_MAX_CHARS; longer names middle-truncate.
+    const nameChars = (layer.units ? layer.units.length + 3 : 0) + (layer.nameLabel?.length ?? 0);
+    const captionW = Math.ceil(
+      Math.max(
+        0,
+        Math.min(nameChars, NAME_MAX_CHARS) * NAME_CHAR_W,
+        ...lines.map((l) => l.length * CHAR_W),
+      ),
+    );
     const boxW = Math.max(groupW, captionW) + PAD_X;
     return { ticks, labelW, valueW, boxW, lines };
   };
@@ -158,8 +169,7 @@ export function ViewportColorbar({
     capBottomH +
     (nominal.lines.length ? CAPTION_GAP + nominal.lines.length * LINE_H : 0) +
     PAD_Y +
-    (layer.units ? LINE_H : 0) +
-    (layer.nameLabel ? LINE_H + NAME_GAP : 0);
+    (layer.nameLabel || layer.units ? LINE_H + NAME_GAP : 0);
 
   // ── beside the image ──
   let layout: { style: CSSProperties; barH: number; beside: boolean } | null = null;
@@ -286,15 +296,34 @@ export function ViewportColorbar({
       style={{ ...layout.style, width: boxW }}
       onCopy={asciiCopyHandler}
     >
-      {layer.nameLabel && (
+      {(layer.nameLabel || layer.units) && (
+        // One-line caption: the statistic symbol (upright text, italic
+        // variable), then the muted, middle-truncated layer name.
         <div
           data-testid="viewport-colorbar-name"
-          className="truncate text-right leading-none text-bf-text-muted"
+          className="truncate whitespace-nowrap text-right leading-none"
           style={{ height: LINE_H, marginBottom: NAME_GAP }}
-          title={layer.name}
+          title={layer.units ? `${layer.units} · ${layer.name}` : layer.name}
         >
-          {middleTruncate(layer.nameLabel, Math.max(1, Math.floor((boxW - PAD_X) / NAME_CHAR_W)), 7) ??
-            layer.nameLabel}
+          {layer.units && (
+            <StatSymbol label={layer.units} className="text-bf-text-secondary" />
+          )}
+          {layer.units && layer.nameLabel && <span className="text-bf-text-muted"> · </span>}
+          {layer.nameLabel && (
+            <span className="text-bf-text-muted">
+              {middleTruncate(
+                layer.nameLabel,
+                Math.max(
+                  1,
+                  Math.floor(
+                    (boxW - PAD_X - (layer.units ? (layer.units.length + 3) * NAME_CHAR_W : 0)) /
+                      NAME_CHAR_W,
+                  ),
+                ),
+                7,
+              ) ?? layer.nameLabel}
+            </span>
+          )}
         </div>
       )}
       <div
@@ -389,11 +418,6 @@ export function ViewportColorbar({
               <span className={line === 'hidden' ? '' : 'font-mono tabular-nums'}>{line}</span>
             </div>
           ))}
-        </div>
-      )}
-      {layer.units && (
-        <div className="whitespace-nowrap text-right leading-none">
-          {layer.units}
         </div>
       )}
     </div>

@@ -155,20 +155,32 @@ export class ViewExportService {
     this.exporters.delete(key.toLowerCase());
   }
 
+  /**
+   * Save encoded PNG/JPEG bytes through the backend's native save dialog.
+   * Resolves to the written path, or `null` when the user cancelled the
+   * dialog (not an error). Errors (bad bytes, unwritable target) reject.
+   */
+  async saveImageBytes(
+    bytes: Uint8Array,
+    suggestedName?: string,
+  ): Promise<string | null> {
+    const savedPath = await this.transport.invoke<string | null>(
+      "save_image_bytes",
+      {
+        bytes: Array.from(bytes),
+        suggestedName: suggestedName || undefined,
+      },
+    );
+    if (savedPath) {
+      this.notify("info", `Saved image to ${savedPath}`);
+    }
+    return savedPath ?? null;
+  }
+
   async exportActiveView(options: ExportOptions = {}): Promise<void> {
     try {
       const { bytes, suggestedName } = await this.captureActiveView(options);
-      const savedPath = await this.transport.invoke<string | null>(
-        "save_image_bytes",
-        {
-          bytes: Array.from(bytes),
-          suggestedName,
-        },
-      );
-
-      if (savedPath) {
-        this.notify("info", `Saved image to ${savedPath}`);
-      }
+      await this.saveImageBytes(bytes, suggestedName);
     } catch (err) {
       console.error("[ViewExportService] Export failed:", err);
       this.notify("error", (err as Error).message || "Export failed");
@@ -278,7 +290,11 @@ export class ViewExportService {
     const view = viewState.views[viewType];
     const payload: any = {
       views: viewState.views,
-      crosshair: viewState.crosshair,
+      // The live views draw the crosshair on a canvas overlay in the user's
+      // colour and style (RENDERER_DRAWS_CROSSHAIR is off); the renderer's own
+      // crosshair is a different, solid cross. Leave it out of exports until
+      // the composited exporter draws the canvas crosshair (P3 item 8).
+      crosshair: { ...viewState.crosshair, visible: false },
       layers: visibleLayers.map((layer) => ({
         id: layer.id,
         volumeId: layer.volumeId,

@@ -19,15 +19,20 @@ function makeWorkspace(id: string, type: WorkspaceType): Workspace {
   };
 }
 
+const { invokeMock, emitMock } = vi.hoisted(() => ({
+  invokeMock: vi.fn(),
+  emitMock: vi.fn(),
+}));
+
 vi.mock("@/services/transport", () => ({
   getTransport: () => ({
-    invoke: vi.fn(),
+    invoke: invokeMock,
   }),
 }));
 
 vi.mock("@/events/EventBus", () => ({
   getEventBus: () => ({
-    emit: vi.fn(),
+    emit: emitMock,
   }),
 }));
 
@@ -35,6 +40,8 @@ describe("ViewExportService", () => {
   let service: ViewExportService;
 
   beforeEach(() => {
+    invokeMock.mockReset();
+    emitMock.mockReset();
     service = new ViewExportService();
     useActivePanelStore.setState({
       componentType: null,
@@ -134,5 +141,50 @@ describe("ViewExportService", () => {
 
     expect(result.bytes).toEqual(bytes);
     expect(result.suggestedName).toMatch(/^surface-surface-b-.*\.png$/);
+  });
+  it("saves through save_image_bytes and reports the written path", async () => {
+    invokeMock.mockResolvedValue("/tmp/out/slice.png");
+
+    const path = await service.saveImageBytes(
+      new Uint8Array([137, 80]),
+      "slice.png",
+    );
+
+    expect(path).toBe("/tmp/out/slice.png");
+    expect(invokeMock).toHaveBeenCalledWith("save_image_bytes", {
+      bytes: [137, 80],
+      suggestedName: "slice.png",
+    });
+    expect(emitMock).toHaveBeenCalledWith("ui.notification", {
+      type: "info",
+      message: "Saved image to /tmp/out/slice.png",
+    });
+  });
+
+  it("treats a cancelled save dialog (null) as no-op, not an error", async () => {
+    invokeMock.mockResolvedValue(null);
+
+    await expect(
+      service.saveImageBytes(new Uint8Array([1]), ""),
+    ).resolves.toBeNull();
+    expect(invokeMock).toHaveBeenCalledWith("save_image_bytes", {
+      bytes: [1],
+      suggestedName: undefined,
+    });
+    expect(emitMock).not.toHaveBeenCalled();
+  });
+
+  it("exportActiveView stays silent when the user cancels the save dialog", async () => {
+    service.registerExporter("surfaceview:s:v", async () => new Uint8Array([7]));
+    useActiveRenderContextStore.setState({ activeId: "surfaceview:s:v" });
+    invokeMock.mockResolvedValue(null);
+
+    await service.exportActiveView({ format: "jpg" });
+
+    expect(invokeMock).toHaveBeenCalledWith(
+      "save_image_bytes",
+      expect.objectContaining({ bytes: [7] }),
+    );
+    expect(emitMock).not.toHaveBeenCalled();
   });
 });

@@ -357,3 +357,20 @@ describe('Inspector ranges', () => {
     });
   });
 });
+
+describe('Inspector label layers (P3 item 4)', () => {
+  beforeEach(() => reset());
+
+  it('has no intensity window or threshold for a categorical label layer', () => {
+    viewStore.current.getState().setViewState((draft: { layers: Array<VL & { layerMode?: string; colormapId?: number }> }) => {
+      draft.layers[0].layerMode = 'label';
+      draft.layers[0].colormapId = 70;
+    });
+    render(<RenderSection item={{ ...item, kind: 'volume-overlay-atlas' } as SceneItem} />);
+    expect(screen.queryByRole('slider', { name: 'Intensity low' })).toBeNull();
+    expect(screen.queryByRole('slider', { name: 'Threshold low' })).toBeNull();
+    expect(screen.getByText('Opacity')).toBeInTheDocument();
+    expect(screen.getByText('From label table')).toBeInTheDocument();
+  });
+});
+

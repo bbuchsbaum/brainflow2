@@ -438,7 +438,9 @@ const P3_DRIVERS: Record<string, (ctx: ScenarioContext) => Promise<void>> = {
     useDisplayOptionsStore.getState().setOptions(zId, { showValueOnHover: true });
     noteStep('show value on hover: z map');
     await frames(5);
-    await hoverWorld('axial', [-34, -14, 50]);
+    // Inside z blob 1 and atlas region 1, off voxel boundaries (fidelity
+    // critic): T1 167, z 5.431, atlas 1 at voxel (29, 57, 64).
+    await hoverWorld('axial', [-37.5, -17.5, 50.5]);
     const { useStatusBarStore } = await import('@/stores/statusBarStore');
     await until(
       () => useStatusBarStore.getState().values.mouse !== '--',

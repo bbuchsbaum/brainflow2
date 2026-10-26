@@ -5,6 +5,7 @@
  * core/api_bridge/src/lib.rs and the generated bindings in
  * packages/api/src/generated. IDs come from counters, never clocks/RNG.
  */
+import type { StatisticInfo, StatisticKind } from '@brainflow/api';
 import type { HarnessFixtures, VolumeFixture } from './fixtures';
 import type { Handler } from './harnessTransport';
 import {
@@ -18,6 +19,7 @@ import {
   type Vec3,
 } from './geometry';
 import { renderSlice, type SliceFrame, type SliceLayer } from './slicer';
+import { noteStep } from './harnessLog';
 import {
   ANALYSIS_DESCRIPTORS,
   BIDS_EVENTS,
@@ -95,6 +97,16 @@ const VIRTUAL_FS: Record<string, Array<{ name: string; isDir: boolean }>> = {
   ],
 };
 
+const NO_INTENT: NonNullable<VolumeFixture['header']> = {
+  dataType: 'FLOAT32',
+  intentCode: 0,
+  intentName: '',
+  intentP1: 0,
+  intentP2: 0,
+  intentP3: 0,
+  description: '',
+};
+
 const VIEW_CODES: Record<string, number> = { axial: 0, sagittal: 1, coronal: 2 };
 
 function stats(data: Float32Array) {
@@ -115,32 +127,110 @@ function stats(data: Float32Array) {
   return { min, max, mean, std: n ? Math.sqrt(Math.max(sum2 / n - mean * mean, 0)) : 0, n };
 }
 
+/** NIfTI intent codes decoded by `StatisticInfo::from_intent` (bridge_types). */
+const INTENT_KINDS: Record<number, StatisticKind> = {
+  0: 'none',
+  2: 'correlation',
+  3: 't',
+  4: 'f',
+  5: 'z',
+  6: 'chi2',
+  22: 'p',
+  23: 'logp',
+  24: 'log10p',
+  1002: 'label',
+};
+
 /**
- * NIfTI intent/description extras for the Phase 3 fixtures, in the snake_case
- * the bridge uses. The current bindings do not carry them yet (plan item 3);
- * fixtures without a header add nothing, so existing responses are unchanged.
+ * Mirror of `StatisticInfo::from_intent` for the Phase 3 fixture headers
+ * (intent code set; the SPM-description fallback and the distribution names
+ * of codes 7-21 are not needed here). The bridge serialises it camelCase as
+ * `statistic` (generated StatisticInfo).
  */
-function intentFields(fixture: VolumeFixture): Record<string, unknown> {
-  const h = fixture.header;
-  if (!h) return {};
+export function statisticForHeader(h: NonNullable<VolumeFixture['header']>): StatisticInfo {
+  const name = h.intentName.trim();
+  const kind: StatisticKind =
+    INTENT_KINDS[h.intentCode] ??
+    (h.intentCode === 1001 && name
+      ? 'estimate'
+      : h.intentCode >= 7 && h.intentCode <= 21
+        ? 'other'
+        : 'data');
+  const params: [number, number, number] = [h.intentP1, h.intentP2, h.intentP3];
+  const valid = (df: number) => Number.isFinite(df) && df > 0;
+  const dof =
+    kind === 't' || kind === 'chi2' || kind === 'correlation'
+      ? params.slice(0, 1).filter(valid)
+      : kind === 'f' && valid(params[0]) && valid(params[1])
+        ? params.slice(0, 2)
+        : [];
+  const fmt = (df: number) =>
+    Math.abs(df - Math.round(df)) < 1e-3 ? String(Math.round(df)) : String(Number(df.toFixed(2)));
+  const withDof = (base: string) => (dof.length ? `${base}(${dof.map(fmt).join(',')})` : base);
+  const label: Record<StatisticKind, string> = {
+    none: '',
+    z: 'z',
+    t: withDof('t'),
+    f: withDof('F'),
+    chi2: withDof('χ²'),
+    correlation: withDof('r'),
+    p: 'p',
+    logp: 'ln(p)',
+    log10p: 'log10(p)',
+    estimate: name,
+    label: 'label',
+    other: name || `intent ${h.intentCode}`,
+    data: '',
+  };
   return {
-    intent_code: h.intentCode,
-    intent_name: h.intentName,
-    intent_p1: h.intentP1,
-    intent_p2: h.intentP2,
-    intent_p3: h.intentP3,
+    kind,
+    intentCode: h.intentCode,
+    intentParams: params,
+    intentName: name,
+    dof,
+    label: label[kind],
+    fromDescription: false,
+    positiveDataLabel: kind === 'logp' ? '−ln(p)' : kind === 'log10p' ? '−log10(p)' : null,
   };
 }
 
-/** PNG bytes for an RGBA buffer (what render_view returns for `format: 'png'`). */
-async function encodePng(rgba: Uint8Array, width: number, height: number): Promise<Uint8Array> {
+/**
+ * `statistic` on VolumeHandleInfo: only for statistics
+ * (`StatisticInfo::is_statistic`: not none, label or data), like
+ * stat_metadata::statistic_for_path.
+ */
+function handleStatistic(fixture: VolumeFixture): { statistic?: StatisticInfo } {
+  if (!fixture.header) return {};
+  const statistic = statisticForHeader(fixture.header);
+  return statistic.kind === 'none' || statistic.kind === 'label' || statistic.kind === 'data'
+    ? {}
+    : { statistic };
+}
+
+/** Image bytes for an RGBA buffer (what render_view returns for `format: 'png' | 'jpg'`). */
+async function encodeImage(
+  rgba: Uint8Array,
+  width: number,
+  height: number,
+  type: 'image/png' | 'image/jpeg',
+): Promise<Uint8Array> {
   const canvas = new OffscreenCanvas(width, height);
   const ctx = canvas.getContext('2d');
-  if (!ctx) throw new Error('harness: no 2d context for PNG encoding');
-  ctx.putImageData(new ImageData(new Uint8ClampedArray(rgba), width, height), 0, 0);
-  const blob = await canvas.convertToBlob({ type: 'image/png' });
+  if (!ctx) throw new Error('harness: no 2d context for image encoding');
+  if (type === 'image/jpeg') {
+    // JPEG has no alpha: composite over black like the backend encoder.
+    ctx.fillStyle = 'black';
+    ctx.fillRect(0, 0, width, height);
+    const tmp = new OffscreenCanvas(width, height);
+    tmp.getContext('2d')!.putImageData(new ImageData(new Uint8ClampedArray(rgba), width, height), 0, 0);
+    ctx.drawImage(tmp, 0, 0);
+  } else {
+    ctx.putImageData(new ImageData(new Uint8ClampedArray(rgba), width, height), 0, 0);
+  }
+  const blob = await canvas.convertToBlob(type === 'image/jpeg' ? { type, quality: 0.92 } : { type });
   return new Uint8Array(await blob.arrayBuffer());
 }
+
 
 function vec3(v: unknown): Vec3 {
   const a = (v as number[]) ?? [0, 0, 0];
@@ -156,6 +246,9 @@ export function createBackend(fixtures: HarnessFixtures): HarnessBackend {
   const surfaces = new Map<string, string>();
   let jobCounter = 0;
   const jobs = new Map<string, string>();
+  // register_categorical_colormap slots (custom slots follow the builtins).
+  const categoricalLuts = new Map<number, Uint8Array>();
+  const categoricalKeys = new Map<string, number>();
 
   const fixtureForPath = (path: string): VolumeFixture | null => {
     if (path === MNI_PATH) return fixtures.mni;
@@ -174,12 +267,15 @@ export function createBackend(fixtures: HarnessFixtures): HarnessBackend {
       id,
       name,
       dims: [...fixture.dims],
-      dtype: 'f32',
+      // The loader's storage type ("u8" for the UINT8 atlas); scaled or float data is f32.
+      dtype: fixture.header?.dataType === 'UINT8' ? 'u8' : 'f32',
       volume_type: 'Volume3D',
       num_timepoints: null,
       current_timepoint: null,
       time_series_info: null,
-      ...intentFields(fixture),
+      ...handleStatistic(fixture),
+      // VolumeHandleInfo.is_label_map: NIfTI intent 1002 (the atlas fixture).
+      ...(fixture.header?.intentCode === 1002 ? { is_label_map: true } : {}),
     };
   };
 
@@ -222,6 +318,11 @@ export function createBackend(fixtures: HarnessFixtures): HarnessBackend {
               ? 'min'
               : 'alpha';
         const mode = String(l.layerMode ?? l.layer_mode ?? 'scalar');
+        const colormapId = l.colormapId ?? l.colormap_id;
+        const labelLut =
+          mode === 'label' && typeof colormapId === 'number'
+            ? categoricalLuts.get(colormapId)
+            : undefined;
         return [
           {
             data: vol.fixture.data,
@@ -233,6 +334,7 @@ export function createBackend(fixtures: HarnessFixtures): HarnessBackend {
             opacity: Number(l.opacity ?? 1),
             nearest: l.interpolation === 'nearest' || mode !== 'scalar',
             blend,
+            labelLut,
           },
         ];
       });
@@ -394,7 +496,11 @@ export function createBackend(fixtures: HarnessFixtures): HarnessBackend {
         num_timepoints: null,
         description: vol.fixture.header?.description ?? 'Brainflow harness fixture',
         data_range: { min: s.min, max: s.max },
-        ...intentFields(vol.fixture),
+        // NiftiHeaderInfo.statistic is present whenever the header was re-read
+        // (kind "none" for plain images).
+        statistic: vol.fixture.header
+          ? statisticForHeader(vol.fixture.header)
+          : statisticForHeader({ ...NO_INTENT }),
       };
     },
     get_volume_timepoint: () => 0,
@@ -450,8 +556,8 @@ export function createBackend(fixtures: HarnessFixtures): HarnessBackend {
       value: 0,
       coordinate: worldCoord,
     }),
-    // Mirrors sample_world_coordinate_impl: world -> voxel through the inverse
-    // affine, bounds 0 <= v < dims, nearest voxel by rounding, 0 out of bounds.
+    // Mirrors volume_queries::sample_nearest: world -> voxel through the inverse
+    // affine, nearest voxel floor(v + 0.5) (so [-0.5, 0) reads voxel 0), 0 outside.
     sample_layer_value_at_world: ({
       layerId,
       worldCoords,
@@ -464,9 +570,9 @@ export function createBackend(fixtures: HarnessFixtures): HarnessBackend {
       const [wx, wy, wz] = vec3(worldCoords);
       const v = [0, 1, 2].map((r) => m[r][0] * wx + m[r][1] * wy + m[r][2] * wz + m[r][3]);
       const [nx, ny, nz] = vol.fixture.dims;
-      if (v[0] < 0 || v[1] < 0 || v[2] < 0 || v[0] >= nx || v[1] >= ny || v[2] >= nz) return 0;
-      const [i, j, k] = v.map((c) => Math.round(c));
-      if (i >= nx || j >= ny || k >= nz) return 0;
+      const [i, j, k] = v.map((c) => Math.floor(c + 0.5));
+      if (![i, j, k].every(Number.isFinite)) return 0;
+      if (i < 0 || j < 0 || k < 0 || i >= nx || j >= ny || k >= nz) return 0;
       return vol.fixture.data[i + nx * (j + ny * k)];
     },
 
@@ -561,9 +667,15 @@ export function createBackend(fixtures: HarnessFixtures): HarnessBackend {
       const state = JSON.parse(stateJson);
       const view = state.requestedView ?? defaultRequestedView(state);
       const rgba = renderRequested(state, view);
-      // RenderFormat::from_str: "png" encodes; anything else (incl. "jpg") is raw RGBA.
-      if (String(format ?? '').toLowerCase() === 'png') {
-        return encodePng(rgba, Number(view.width), Number(view.height));
+      // RenderFormat::from_str: "png" and "jpg"/"jpeg" encode; anything else is raw RGBA.
+      const fmt = String(format ?? '').toLowerCase();
+      if (fmt === 'png' || fmt === 'jpg' || fmt === 'jpeg') {
+        return encodeImage(
+          rgba,
+          Number(view.width),
+          Number(view.height),
+          fmt === 'png' ? 'image/png' : 'image/jpeg',
+        );
       }
       const packet = new Uint8Array(8 + rgba.length);
       const dv = new DataView(packet.buffer);
@@ -626,6 +738,49 @@ export function createBackend(fixtures: HarnessFixtures): HarnessBackend {
           readback_mode: 'skip',
         },
       };
+    },
+    // No catalogue atlases in the harness: like the backend, ROI search refuses
+    // volumes without a parcel dictionary.
+    get_atlas_roi_locations: () => {
+      throw new Error('ROI search requires an atlas loaded through the atlas catalog');
+    },
+    // register_categorical_colormap(key, maxLabel, lutRgb) -> slot id; the
+    // same key reuses its slot (upsert), like the render loop.
+    register_categorical_colormap: ({
+      key,
+      maxLabel,
+      lutRgb,
+    }: {
+      key: string;
+      maxLabel: number;
+      lutRgb: number[];
+    }) => {
+      if (lutRgb.length !== (maxLabel + 1) * 3) {
+        throw new Error(
+          `lut_rgb length ${lutRgb.length} does not match (max_label + 1) * 3 = ${(maxLabel + 1) * 3}`,
+        );
+      }
+      const slot = categoricalKeys.get(key) ?? 64 + categoricalKeys.size;
+      categoricalKeys.set(key, slot);
+      categoricalLuts.set(slot, Uint8Array.from(lutRgb));
+      return slot;
+    },
+    // save_image_bytes(bytes, suggestedName?, path?) -> written path | null.
+    // The harness never shows a native dialog: it "writes" to a fixed fake
+    // folder and logs the step. `null` (cancel) can be forced per scenario
+    // with setHandler.
+    save_image_bytes: ({ bytes, suggestedName }: { bytes: number[]; suggestedName?: string }) => {
+      const name = suggestedName && suggestedName.trim() ? suggestedName.trim() : 'view.png';
+      const path = `/harness/exports/${name}`;
+      noteStep(`save_image_bytes ${bytes?.length ?? 0} bytes -> ${path}`);
+      return path;
+    },
+    // tauri-plugin-fs read_text_file (scope: capabilities/default.json
+    // fs:read-files). Only the atlas LUT sidecar exists; anything else fails
+    // like a missing file.
+    'plugin:fs|read_text_file': ({ path }: { path: string }) => {
+      if (path === ATLAS_LUT_PATH) return new TextEncoder().encode(fixtures.atlasLut).buffer;
+      throw new Error(`failed to open file at path: ${path} with error: No such file or directory (os error 2)`);
     },
     // Remote mounts: no saved profiles; anything that would reach the network
     // (only after the user presses Connect / answers a challenge) fails

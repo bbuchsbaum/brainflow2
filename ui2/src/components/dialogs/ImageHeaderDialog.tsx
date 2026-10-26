@@ -9,6 +9,7 @@ import React, { useEffect, useState, useCallback } from 'react';
 import { Copy, Check } from 'lucide-react';
 import { getApiService } from '@/services/apiService';
 import type { NiftiHeaderInfo } from '@/services/apiService';
+import { statisticFacts } from '@/utils/statistic';
 import { Modal } from '@/components/ui/Modal';
 import { Button, KeyValue, Notice, Section, type KeyValueItem } from '@/components/ui/bf';
 import {
@@ -27,6 +28,7 @@ interface ImageHeaderDialogProps {
 }
 
 // ---- small helpers --------------------------------------------------------
+
 
 /** Display number at fixed decimals (U+2212 minus, see utils/valueFormat). */
 function fmt(n: number, decimals = 4): string {
@@ -162,6 +164,13 @@ export function ImageHeaderDialog({ open, onClose, volumeId }: ImageHeaderDialog
                   ]}
                 />
               </Section>
+
+              {/* Plain images (intent none) get no Statistic section. */}
+              {info.statistic && info.statistic.kind !== 'none' && (
+                <Section title="Statistic">
+                  <Facts items={statisticFacts(info.statistic, info.data_range)} />
+                </Section>
+              )}
 
               <Section title="Dimensions">
                 <Facts

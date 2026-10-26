@@ -23,11 +23,23 @@ export interface AtlasRegionHit {
  * atlas metadata. Mirrors the `activeAtlasId` heuristic used in the slice views.
  */
 export function findActiveAtlasLayer(): LayerInfo | undefined {
-  return useLayerStore
-    .getState()
-    .layers.find(
-      (l) => l.type === "label" && (l as LayerInfo).atlasMetadata,
-    ) as LayerInfo | undefined;
+  return useLayerStore.getState().layers.find(isRegionSource) as LayerInfo | undefined;
+}
+
+/**
+ * A layer that can name the region at a point: catalogue atlases carry
+ * `atlasMetadata`; user-loaded label volumes with a label table carry only a
+ * legend (LabelTableService).
+ */
+export function isRegionSource(l: Pick<LayerInfo, "type" | "atlasMetadata" | "atlasPaletteLegend">): boolean {
+  return l.type === "label" && (!!l.atlasMetadata || (l.atlasPaletteLegend?.length ?? 0) > 0);
+}
+
+/** True when some layer can name regions (the status Region slot shows then). */
+export function hasRegionSource(
+  layers: ReadonlyArray<Pick<LayerInfo, "type" | "atlasMetadata" | "atlasPaletteLegend">>,
+): boolean {
+  return layers.some(isRegionSource);
 }
 
 /**
@@ -66,9 +78,11 @@ export async function resolveAtlasRegionAtWorld(
 /**
  * Compact, human-readable region label for the status bar, e.g.
  * "LH VisCent ExStr 1". Underscores in the ROI name become spaces; the
- * hemisphere is prefixed as LH/RH when known.
+ * hemisphere is prefixed as LH/RH when known. User-supplied label tables set
+ * `displayName`, which is shown verbatim.
  */
 export function formatRegionLabel(entry: AtlasPaletteLegendEntry): string {
+  if (entry.displayName) return entry.displayName;
   const hemi =
     entry.hemisphere === "left"
       ? "LH"

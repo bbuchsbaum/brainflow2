@@ -2,7 +2,7 @@ import { render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import { ViewportHeader } from '../ViewportHeader';
 import { ViewportColorbar } from '../ViewportColorbar';
-import { chooseColorbarLayerId, colorbarNameLabel, resolveColorbarLayer } from '../useOverlayColorbar';
+import { chooseColorbarLayerId, resolveColorbarLayer } from '../useOverlayColorbar';
 import type { LayerInfo } from '@/stores/layerStore';
 import type { ViewLayer } from '@/types/viewState';
 
@@ -58,18 +58,25 @@ const overlay = {
 };
 
 describe('ViewportColorbar', () => {
-  it('names its layer in a top caption when it is not the active layer', () => {
-    expect(colorbarNameLabel(overlay, 'base')).toBe('Motor zstat1');
-    expect(colorbarNameLabel({ layerId: 'stat', name: 'zstat1.nii.gz' }, 'base')).toBe('zstat1');
-    expect(colorbarNameLabel(overlay, 'stat')).toBeNull();
+  it('captions the bar with the statistic symbol and the layer name, always', () => {
+    expect(resolveColorbarLayer(
+      [{ id: 'mni', name: 'MNI', source: 'file' }, { id: 'stat', name: 'zstat1.nii.gz', source: 'file' }] as unknown as LayerInfo[],
+      'stat',
+      { id: 'stat', name: 'stat', volumeId: 'stat', visible: true, opacity: 1, colormap: 'fmri', intensity: [-6, 6], threshold: [0, 0] } as ViewLayer,
+      true,
+    )?.nameLabel).toBe('zstat1');
     const { rerender } = render(
-      <ViewportColorbar layer={{ ...overlay, nameLabel: 'Motor zstat1' }} width={900} height={320} value={6.15} />,
+      <ViewportColorbar layer={{ ...overlay, units: 'z', nameLabel: 'Motor zstat1' }} width={900} height={320} value={6.15} />,
     );
     const box = screen.getByTestId('viewport-colorbar');
     const name = screen.getByTestId('viewport-colorbar-name');
-    expect(name).toHaveTextContent('Motor zstat1');
+    expect(name).toHaveTextContent('z · Motor zstat1');
+    // The variable is italic (paper notation).
+    expect(name.querySelector('i')).toHaveTextContent('z');
     // First line of the box: above the bar group.
     expect(box.firstElementChild).toBe(name);
+    rerender(<ViewportColorbar layer={{ ...overlay, nameLabel: 'Motor zstat1' }} width={900} height={320} value={6.15} />);
+    expect(screen.getByTestId('viewport-colorbar-name')).toHaveTextContent(/^Motor zstat1$/);
     rerender(<ViewportColorbar layer={overlay} width={900} height={320} value={6.15} />);
     expect(screen.queryByTestId('viewport-colorbar-name')).toBeNull();
   });
@@ -175,6 +182,19 @@ describe('resolveColorbarLayer', () => {
     expect(resolveColorbarLayer(layers, 'mni', viewLayer('mni'), true)).toBeNull();
     expect(resolveColorbarLayer(layers, 'atlas', viewLayer('atlas'), true)).toBeNull();
     expect(resolveColorbarLayer(layers, null, undefined, true)).toBeNull();
+  });
+
+  it('captions the colorbar with the statistic label from the header', () => {
+    const zLayers = [
+      layers[0],
+      { ...layers[1], statistic: { kind: 'z', intentCode: 5, intentParams: [0, 0, 0], intentName: '', dof: [], label: 'z', fromDescription: false, positiveDataLabel: null } },
+    ] as unknown as LayerInfo[];
+    expect(resolveColorbarLayer(zLayers, 'stat', viewLayer('stat'), true)?.units).toBe('z');
+    const tLayers = [
+      layers[0],
+      { ...layers[1], statistic: { kind: 't', intentCode: 3, intentParams: [24, 0, 0], intentName: 't-stat', dof: [24], label: 't(24)', fromDescription: false, positiveDataLabel: null } },
+    ] as unknown as LayerInfo[];
+    expect(resolveColorbarLayer(tLayers, 'stat', viewLayer('stat'), true)?.units).toBe('t(24)');
   });
 
   it('respects the setting, visibility and layer mode', () => {

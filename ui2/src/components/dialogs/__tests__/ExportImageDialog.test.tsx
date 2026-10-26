@@ -1,29 +1,26 @@
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ExportImageDialog } from '../ExportImageDialog';
 import { useExportDialogStore } from '@/stores/exportDialogStore';
 
-const { captureActiveViewMock, transportInvokeMock } = vi.hoisted(() => ({
+const { captureActiveViewMock, saveImageBytesMock } = vi.hoisted(() => ({
   captureActiveViewMock: vi.fn(),
-  transportInvokeMock: vi.fn(),
+  saveImageBytesMock: vi.fn(),
 }));
 
 vi.mock('@/services/ViewExportService', () => ({
   getViewExportService: () => ({
     captureActiveView: captureActiveViewMock,
-  }),
-}));
-
-vi.mock('@/services/transport', () => ({
-  getTransport: () => ({
-    invoke: transportInvokeMock,
+    saveImageBytes: saveImageBytesMock,
   }),
 }));
 
 describe('ExportImageDialog', () => {
   beforeEach(() => {
     captureActiveViewMock.mockReset();
-    transportInvokeMock.mockReset();
+    saveImageBytesMock.mockReset();
     vi.stubGlobal('URL', {
       ...URL,
       createObjectURL: vi.fn(() => 'blob:preview'),
@@ -51,7 +48,7 @@ describe('ExportImageDialog', () => {
       componentType: 'slice',
       componentState: null,
     });
-    transportInvokeMock.mockResolvedValue('/tmp/slice.png');
+    saveImageBytesMock.mockResolvedValue('/tmp/slice.png');
 
     useExportDialogStore.getState().open();
     render(<ExportImageDialog />);
@@ -71,10 +68,7 @@ describe('ExportImageDialog', () => {
     });
 
     await waitFor(() => {
-      expect(transportInvokeMock).toHaveBeenCalledWith('save_image_bytes', {
-        bytes: [1, 2, 3],
-        suggestedName: 'slice.png',
-      });
+      expect(saveImageBytesMock).toHaveBeenCalledWith(new Uint8Array([1, 2, 3]), 'slice.png');
     });
     expect(useExportDialogStore.getState().isOpen).toBe(false);
   });
@@ -89,7 +83,7 @@ describe('ExportImageDialog', () => {
     });
 
     let resolveSave: ((value: string | null) => void) | null = null;
-    transportInvokeMock.mockImplementation(
+    saveImageBytesMock.mockImplementation(
       () =>
         new Promise((resolve) => {
           resolveSave = resolve;
@@ -126,5 +120,82 @@ describe('ExportImageDialog', () => {
     await waitFor(() => {
       expect(useExportDialogStore.getState().isOpen).toBe(false);
     });
+  });
+  it('keeps the dialog open without an error when the save dialog is cancelled', async () => {
+    captureActiveViewMock.mockResolvedValue({
+      bytes: new Uint8Array([4, 4]),
+      mime: 'image/jpeg',
+      suggestedName: 'slice.jpg',
+      componentType: 'slice',
+      componentState: null,
+    });
+    saveImageBytesMock.mockResolvedValue(null);
+
+    useExportDialogStore.getState().open();
+    render(<ExportImageDialog />);
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Save…' })).toBeEnabled();
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Save…' }));
+    });
+
+    await waitFor(() => expect(saveImageBytesMock).toHaveBeenCalledTimes(1));
+    expect(useExportDialogStore.getState().isOpen).toBe(true);
+    expect(useExportDialogStore.getState().error).toBeNull();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Save…' })).toBeEnabled();
+  });
+
+  it('shows a save failure inline and keeps the dialog open', async () => {
+    captureActiveViewMock.mockResolvedValue({
+      bytes: new Uint8Array([5]),
+      mime: 'image/png',
+      suggestedName: 'slice.png',
+      componentType: 'slice',
+      componentState: null,
+    });
+    saveImageBytesMock.mockRejectedValue(new Error('Permission denied'));
+
+    useExportDialogStore.getState().open();
+    render(<ExportImageDialog />);
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Save…' })).toBeEnabled();
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Save…' }));
+    });
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Permission denied');
+    expect(useExportDialogStore.getState().isOpen).toBe(true);
+  });
+});
+
+describe('ExportImageDialog mount', () => {
+  // Regression guard (P3 item 1): the dialog existed but was never mounted, so
+  // "Export View as Image…" opened the store and nothing appeared. The App
+  // shell is too heavy to render here; assert the single global mount.
+  it('is mounted once, globally, in the App shell', () => {
+    const app = readFileSync(resolve(__dirname, '../../../App.tsx'), 'utf8');
+    expect(app.match(/<ExportImageDialog\s*\/>/g)).toHaveLength(1);
+  });
+
+  it('renders nothing until the store opens it, then the dialog', async () => {
+    captureActiveViewMock.mockResolvedValue({
+      bytes: new Uint8Array([1]),
+      mime: 'image/png',
+      suggestedName: 'a.png',
+      componentType: 'slice',
+      componentState: null,
+    });
+    useExportDialogStore.setState({ isOpen: false, bytes: null, imageUrl: null, error: null });
+    render(<ExportImageDialog />);
+    expect(screen.queryByRole('dialog')).toBeNull();
+    await act(async () => {
+      useExportDialogStore.getState().open();
+    });
+    expect(await screen.findByRole('dialog', { name: 'Export active view' })).toBeInTheDocument();
   });
 });

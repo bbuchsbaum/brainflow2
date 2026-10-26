@@ -17,6 +17,8 @@ import { useStudioStatusBridge } from '@/hooks/useStudioStatusBridge';
 import { useWorkspaceMenuListener } from '@/hooks/useWorkspaceMenuListener';
 import { usePanelMenuListener } from '@/hooks/usePanelMenuListener';
 import { useAtlasMenuListener } from '@/hooks/useAtlasMenuListener';
+import { useExportMenuListener } from '@/hooks/useExportMenuListener';
+import { useExportDialogStore } from '@/stores/exportDialogStore';
 import { useSurfaceTemplateMenuListener } from '@/hooks/useSurfaceTemplateMenuListener';
 import { coalesceUtils } from '@/stores/middleware/coalesceUpdatesMiddleware';
 import { ProgressDebug } from '@/components/ui/ProgressDebug';
@@ -29,6 +31,7 @@ import { CrosshairSettingsDialog } from '@/components/dialogs/CrosshairSettingsD
 import { GoToCoordinateDialog } from '@/components/dialogs/GoToCoordinateDialog';
 import { ImageHeaderDialog } from '@/components/dialogs/ImageHeaderDialog';
 import { ConfirmationDialogHost } from '@/components/dialogs/ConfirmationDialogHost';
+import { ExportImageDialog } from '@/components/dialogs/ExportImageDialog';
 import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts';
 import { useNavigationShortcuts } from '@/hooks/useNavigationShortcuts';
 import { useActiveRenderContextStore } from '@/stores/activeRenderContextStore';
@@ -171,6 +174,8 @@ function AppContent() {
 
   // Listen for atlas and surface template menu events
   useAtlasMenuListener();
+  // File > Export View as Image… (native menu) opens the export dialog.
+  useExportMenuListener();
   useSurfaceTemplateMenuListener();
 
   // Initialize status bar service using Zustand store
@@ -207,6 +212,17 @@ function AppContent() {
         group: 'File',
         run: async () => {
           await getTransport().invoke<void>('open_file_dialog');
+        },
+      },
+      {
+        id: 'command.exportViewImage',
+        title: 'Export View as Image…',
+        subtitle: 'Save the active view as PNG or JPEG.',
+        keywords: ['export', 'image', 'png', 'jpg', 'jpeg', 'screenshot', 'save'],
+        group: 'File',
+        shortcut: 'Cmd/Ctrl+Shift+E',
+        run: () => {
+          useExportDialogStore.getState().open();
         },
       },
       {
@@ -615,6 +631,8 @@ function AppContent() {
       <TooltipOverlay />
       <ConfirmationDialogHost />
       <OpenImageSetDialog />
+      {/* Export View as Image (opened from the view context menu via exportDialogStore) */}
+      <ExportImageDialog />
 
       {/* Crosshair Settings Dialog */}
       {showCrosshairSettings && (

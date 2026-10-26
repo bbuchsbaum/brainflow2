@@ -35,7 +35,7 @@ export function AtlasRoiPicker({
     atlasRoiService
       .locations(volumeId)
       .then((result) => {
-        if (generation.current === request) setRois(result);
+        if (generation.current === request) setRois(Array.isArray(result) ? result : []);
       })
       .catch((e) => {
         if (generation.current === request) setError(parcelError(e));

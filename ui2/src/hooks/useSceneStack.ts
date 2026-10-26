@@ -61,7 +61,9 @@ export function buildSceneStack(
   let baseClaimed = false;
   const volumes: SceneItem[] = volumeLayers.map((layer) => {
     const imageSet = layer.imageSetId ? imageSets[layer.imageSetId] : undefined;
-    const isAtlas = layer.source === 'atlas';
+    // A user-loaded label map (NIfTI label intent or a label-table sidecar)
+    // gets the same categorical treatment as a catalogue atlas.
+    const isAtlas = layer.source === 'atlas' || layer.isLabelMap === true;
     let kind: SceneItem['kind'];
     if (isAtlas) {
       kind = 'volume-overlay-atlas';

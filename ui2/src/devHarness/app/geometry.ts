@@ -57,7 +57,18 @@ export function volumeBounds(vol: VolumeFixture) {
     }
   }
   const center = voxelToWorld(vol.affine, vol.dims.map((d) => (d - 1) / 2) as Vec3);
-  return { min: f32v(min), max: f32v(max), center: f32v(center), dims: [...vol.dims] };
+  // Mirrors volume_queries::centre_voxel_index: voxel floor((n - 1) / 2).
+  const centerVoxel = voxelToWorld(
+    vol.affine,
+    vol.dims.map((d) => Math.floor((d - 1) / 2)) as Vec3,
+  );
+  return {
+    min: f32v(min),
+    max: f32v(max),
+    center: f32v(center),
+    dims: [...vol.dims],
+    center_voxel_world: f32v(centerVoxel),
+  };
 }
 
 export function volumeCenter(vol: VolumeFixture): Vec3 {

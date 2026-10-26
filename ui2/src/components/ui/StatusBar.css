@@ -74,6 +74,29 @@
   color: var(--status-crosshair-color, var(--bf-crosshair));
 }
 
+/* ijk: a secondary readout beside the crosshair, mono like every value. */
+.status-value--ijk {
+  color: var(--app-text-secondary);
+}
+
+/* Statistic symbol before a value ("z 5.97"): muted, so numbers line up. */
+.status-value__symbol {
+  color: var(--bf-text-muted);
+  font-family: var(--app-font-sans);
+}
+
+/* Region LUT colour (data colour, not chrome). */
+.status-region-swatch {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-right: 5px;
+  vertical-align: 1px;
+  border-radius: 1px;
+  outline: 1px solid var(--bf-border);
+  forced-color-adjust: none;
+}
+
 .status-value--mouse {
   color: var(--app-text-primary);
 }

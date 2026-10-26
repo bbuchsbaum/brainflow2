@@ -29,6 +29,13 @@ export interface SliceLayer {
   opacity: number;
   nearest: boolean;
   blend: 'alpha' | 'additive' | 'max' | 'min';
+  /**
+   * Categorical LUT (`register_categorical_colormap` bytes, RGB per label id)
+   * for a label layer with a registered `colormapId`: like the GPU's label
+   * path, the rounded value indexes the table, label 0 and ids beyond it are
+   * transparent, and the intensity window / threshold do not apply.
+   */
+  labelLut?: Uint8Array;
 }
 
 export interface SliceFrame {
@@ -140,13 +147,21 @@ export function renderSlice(frame: SliceFrame, layers: SliceLayer[]): Uint8Array
         if (vx < 0 || vy < 0 || vz < 0 || vx >= nx || vy >= ny || vz >= nz) continue;
         const value = sample(layer, vx, vy, vz);
         if (!Number.isFinite(value)) continue;
-        if (value >= layer.threshold[0] && value <= layer.threshold[1]) continue;
         const sa = layer.opacity;
         if (sa <= 0) continue;
-        const span = Math.max(layer.intensity[1] - layer.intensity[0], 1e-9);
-        const t = Math.min(Math.max((value - layer.intensity[0]) / span, 0), 1);
-        const idx = Math.round(t * 255) * 3;
-        const lut = luts[li];
+        let lut = luts[li];
+        let idx: number;
+        if (layer.labelLut) {
+          const id = Math.round(value);
+          if (id <= 0 || (id + 1) * 3 > layer.labelLut.length) continue;
+          lut = layer.labelLut;
+          idx = id * 3;
+        } else {
+          if (value >= layer.threshold[0] && value <= layer.threshold[1]) continue;
+          const span = Math.max(layer.intensity[1] - layer.intensity[0], 1e-9);
+          const t = Math.min(Math.max((value - layer.intensity[0]) / span, 0), 1);
+          idx = Math.round(t * 255) * 3;
+        }
         const sr = lut[idx] / 255,
           sg = lut[idx + 1] / 255,
           sb = lut[idx + 2] / 255;

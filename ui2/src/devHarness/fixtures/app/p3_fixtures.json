@@ -96,6 +96,10 @@
           "value": 3.5
         }
       ],
+      "threshold_ties": {
+        "threshold": 2.3,
+        "f32_exact_voxels": 27
+      },
       "range": [
         -4.977,
         5.965

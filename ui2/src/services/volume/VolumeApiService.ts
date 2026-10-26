@@ -1,7 +1,7 @@
 import type { BackendTransport } from '@/services/transport';
 import { getTransport } from '@/services/transport';
 import type { WorldCoordinates, ViewPlane, ViewType } from '@/types/coordinates';
-import type { VolumeBounds } from '@brainflow/api';
+import type { StatisticInfo, VolumeBounds } from '@brainflow/api';
 
 export interface VolumeHandle {
   id: string;
@@ -18,6 +18,10 @@ export interface VolumeHandle {
     acquisition_time: number | null;
   };
   path?: string;
+  /** Statistic declared by the NIfTI header (absent for plain images). */
+  statistic?: StatisticInfo;
+  /** NIfTI intent 1002 (NIFTI_INTENT_LABEL): a categorical label map. */
+  is_label_map?: boolean;
 }
 
 export interface SampleResult {
@@ -42,6 +46,8 @@ export interface NiftiHeaderInfo {
   num_timepoints: number | null;
   description: string;
   data_range: { min: number; max: number } | null;
+  /** Decoded NIfTI intent; `kind` is "none" for non-statistical images. */
+  statistic?: StatisticInfo;
 }
 
 export class VolumeApiService {

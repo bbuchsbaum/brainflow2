@@ -44,7 +44,11 @@ const BASE = cn(
 );
 
 const BUTTON_VARIANT_CLASSES = {
-  primary: 'bg-primary text-primary-foreground hover:bg-primary/90',
+  // Disabled primary drops the light fill: at 50% opacity the dark label on
+  // the light fill measured 1.16:1. It reads as a quiet raised button with
+  // muted text instead (about 6:1), never as an "on" state.
+  primary:
+    'bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-100 disabled:bg-bf-bg-panel-raised disabled:border disabled:border-border disabled:text-bf-text-muted disabled:hover:bg-bf-bg-panel-raised',
   secondary: 'bg-bf-bg-panel-raised border border-border text-foreground hover:bg-accent',
   danger: 'bg-bf-danger-soft border border-destructive/40 text-bf-danger hover:bg-destructive/25',
   ghost: 'text-bf-text-secondary hover:text-foreground hover:bg-accent',

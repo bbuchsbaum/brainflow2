@@ -10,7 +10,6 @@ import { Loader2 } from 'lucide-react';
 import { Button, FieldRow, Notice, Select, Switch, TextField } from '@/components/ui/bf';
 import { Modal } from '@/components/ui/Modal';
 import { getViewExportService } from '@/services/ViewExportService';
-import { getTransport } from '@/services/transport';
 import { useExportDialogStore } from '@/stores/exportDialogStore';
 
 const FORMAT_OPTIONS = [
@@ -76,12 +75,10 @@ export function ExportImageDialog() {
 
     setIsSaving(true);
     try {
-      const transport = getTransport();
-      await transport.invoke<string | null>('save_image_bytes', {
-        bytes: Array.from(bytes),
-        suggestedName: suggestedName || undefined
-      });
-      close();
+      // null = the user cancelled the native save dialog: keep this dialog
+      // open (they may pick another name or format) and show no error.
+      const savedPath = await getViewExportService().saveImageBytes(bytes, suggestedName);
+      if (savedPath) close();
     } catch (err) {
       setError((err as Error).message || 'Failed to save image');
     } finally {

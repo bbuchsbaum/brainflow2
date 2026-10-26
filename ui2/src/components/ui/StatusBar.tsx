@@ -22,6 +22,16 @@ import { EMPTY_VALUE, formatLayerValue } from "@/utils/valueFormat";
 import { asciiCopyHandler } from "@/utils/numericInput";
 import { useLayerValueAtWorld } from "@/hooks/useLayerValueAtWorld";
 import { Button, KeyValue } from "@/components/ui/bf";
+import { statisticSignAssumed, statisticUnits } from "@/utils/statistic";
+import { hasRegionSource } from "@/services/atlasRegionLookup";
+import { transformWorldToVoxelColumnMajor } from "@/utils/voxelTransform";
+import { StatSymbol } from "./StatSymbol";
+import {
+  formatVoxelIndex,
+  resolveVoxelGridReference,
+  voxelIndexInBounds,
+  worldToVoxelIndex,
+} from "@/utils/voxelSnap";
 
 interface StatusBarProps {
   className?: string;
@@ -41,6 +51,7 @@ interface StatusBarProps {
 const LABELS: Record<string, string> = {
   coordSys: "Coordinate system",
   crosshair: "Crosshair",
+  voxel: "ijk",
   mouse: "Mouse",
   layer: "Layer",
   value: "Value",
@@ -53,9 +64,10 @@ const LABELS: Record<string, string> = {
 const WIDTHS: Record<string, [string, string]> = {
   coordSys: ["22ch", "22ch"],
   crosshair: ["32ch", "32ch"],
+  voxel: ["19ch", "19ch"],
   mouse: ["32ch", "12ch"],
   layer: ["40ch", "16ch"],
-  value: ["17ch", "15ch"],
+  value: ["19ch", "15ch"],
   region: ["30ch", "12ch"],
 };
 
@@ -70,6 +82,7 @@ const VALUE_CLASS: Record<string, string> = {
   coordSys: "status-value--coordinate-system",
   crosshair: "status-value--crosshair",
   mouse: "status-value--mouse",
+  voxel: "status-value--ijk",
   fps: "status-value--fps",
   gpu: "status-value--gpu",
 };
@@ -80,9 +93,11 @@ interface SlotFrameProps {
   title?: string;
   onClick?: () => void;
   valueStyle?: React.CSSProperties;
+  /** Extra class on the value (e.g. the warning state of a fractional ijk). */
+  valueClassName?: string;
 }
 
-const SlotFrame = ({ id, value, title, onClick, valueStyle }: SlotFrameProps) => {
+const SlotFrame = ({ id, value, title, onClick, valueStyle, valueClassName }: SlotFrameProps) => {
   const [basis, min] = WIDTHS[id] ?? ["22ch", "12ch"];
   const isClickable = !!onClick;
   return (
@@ -111,7 +126,7 @@ const SlotFrame = ({ id, value, title, onClick, valueStyle }: SlotFrameProps) =>
     >
       <span className="status-label">{LABELS[id] || id}</span>
       <span
-        className={`status-value ${VALUE_CLASS[id] ?? ""}${isClickable ? " hover:underline" : ""}`}
+        className={`status-value ${VALUE_CLASS[id] ?? ""}${valueClassName ? ` ${valueClassName}` : ""}${isClickable ? " hover:underline" : ""}`}
         style={valueStyle}
         title={title}
       >
@@ -210,13 +225,115 @@ const StatusValueSlot = React.memo(() => {
   const layer = useStatusLayer();
   const layerId = layer?.id ?? null;
   const reading = useLayerValueAtWorld(layerId, crosshair);
+  const statistic = useLayerStore((state) =>
+    layerId ? state.layers.find((l) => l.id === layerId)?.statistic : undefined,
+  );
+  const dataRange = useLayerStore((state) =>
+    layerId ? state.layerMetadata.get(layerId)?.dataRange : undefined,
+  );
   if (!layerId || !layer) return null;
-  const text = reading && reading.value !== null ? formatLayerValue(reading.value) : EMPTY_VALUE;
-  const title = `Nearest-voxel value of ${layer.name}`;
-  return <SlotFrame id="value" value={text} title={title} />;
+  // Statistic maps read "z 5.97" / "t(24) 6.76": the symbol (italic
+  // variable, muted) before the number, so numbers stay in one column.
+  const units = statisticUnits(statistic, dataRange);
+  const number =
+    reading && reading.value !== null ? formatLayerValue(reading.value) : EMPTY_VALUE;
+  const value = units ? (
+    <>
+      <StatSymbol label={units} className="status-value__symbol" /> {number}
+    </>
+  ) : (
+    number
+  );
+  const title = `Nearest-voxel value of ${layer.name}${units ? ` (${units}${statisticSignAssumed(statistic, dataRange) ? ", sign convention assumed" : ""})` : ""}`;
+  return <SlotFrame id="value" value={value} title={title} />;
 });
 
 StatusValueSlot.displayName = "StatusValueSlot";
+
+/**
+ * "ijk" slot: the crosshair's nearest voxel index (`floor(v + 0.5)`, the
+ * backend's nearest-voxel rule) on the voxel-grid reference layer, the same
+ * grid snapping and the Go-to dialog use (utils/voxelSnap.ts). "—" without
+ * a volume or outside the grid.
+ */
+const StatusVoxelSlot = React.memo(() => {
+  const crosshair = useViewStateStore((state) => state.viewState.crosshair.world_mm);
+  const snapToVoxel = useCrosshairSettingsStore((state) => state.settings.snapToVoxel);
+  const layers = useLayerStore((state) => state.layers);
+  const layerMetadata = useLayerStore((state) => state.layerMetadata);
+  const reference = React.useMemo(
+    () => resolveVoxelGridReference(layers, layerMetadata),
+    [layers, layerMetadata],
+  );
+  if (!reference) return null;
+  const world: [number, number, number] = [crosshair[0], crosshair[1], crosshair[2]];
+  const index = worldToVoxelIndex(world, reference);
+  const inside = index.every(Number.isFinite) && voxelIndexInBounds(index, reference.dims);
+  // Snapped (or exactly on a centre): integers, which are themselves the
+  // snapping indicator. Off and between centres: one decimal in the warning
+  // token.
+  const continuous = transformWorldToVoxelColumnMajor(reference.worldToVoxel, world);
+  const between = continuous.some((v, axis) => Math.abs(v - index[axis]) > 1e-3);
+  const fractional = !snapToVoxel && between;
+  const text = !inside
+    ? EMPTY_VALUE
+    : fractional
+      ? formatVoxelIndex(continuous, 1)
+      : formatVoxelIndex(index);
+  return (
+    <SlotFrame
+      id="voxel"
+      value={text}
+      valueClassName={inside && fractional ? "status-value--warning" : undefined}
+      title={
+        fractional
+          ? `Voxel coordinate (i j k) in ${reference.name}: between voxel centres (snapping off)`
+          : `Voxel index (i j k) in ${reference.name}`
+      }
+    />
+  );
+});
+
+StatusVoxelSlot.displayName = "StatusVoxelSlot";
+
+/**
+ * "Region" slot: the atlas/label region at the crosshair (StatusBarService
+ * writes the name and its LUT colour), with a small swatch in that colour.
+ * Hidden while no atlas or label layer with a legend is loaded, instead of a
+ * permanent "—".
+ */
+const StatusRegionSlot = React.memo(() => {
+  const hasAtlas = useLayerStore((state) => hasRegionSource(state.layers));
+  const value = useStatusBarStore((state) => state.values.region);
+  const color = useStatusBarStore((state) => state.values.regionColor);
+  if (!hasAtlas) return null;
+  const text =
+    typeof value === "string" ? displayStatusText(value) : value == null ? EMPTY_VALUE : value;
+  const swatch = typeof color === "string" && typeof text === "string" && text !== EMPTY_VALUE;
+  return (
+    <SlotFrame
+      id="region"
+      title={typeof text === "string" ? text : undefined}
+      value={
+        swatch ? (
+          <>
+            <span
+              aria-hidden
+              data-testid="status-region-swatch"
+              className="status-region-swatch"
+              style={{ background: color as string }}
+            />
+            {text}
+          </>
+        ) : (
+          text
+        )
+      }
+    />
+  );
+});
+
+StatusRegionSlot.displayName = "StatusRegionSlot";
 
 /**
  * Compact "Diagnostics" button: developer telemetry (atlas pressure, FPS, GPU)
@@ -283,7 +400,7 @@ const DiagnosticsButton = () => {
 
 export function StatusBar({
   className = "",
-  slots = ["coordSys", "crosshair", "mouse", "layer", "value", "region"],
+  slots = ["coordSys", "crosshair", "voxel", "mouse", "layer", "value", "region"],
   rightContent,
   onCrosshairClick,
 }: StatusBarProps) {
@@ -316,6 +433,10 @@ export function StatusBar({
             <StatusLayerSlot key={id} />
           ) : id === "value" ? (
             <StatusValueSlot key={id} />
+          ) : id === "voxel" ? (
+            <StatusVoxelSlot key={id} />
+          ) : id === "region" ? (
+            <StatusRegionSlot key={id} />
           ) : (
             <StatusBarSlot
               key={id}

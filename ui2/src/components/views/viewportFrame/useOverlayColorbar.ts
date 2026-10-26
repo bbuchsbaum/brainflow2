@@ -8,15 +8,18 @@ import { shortLayerLabel, type FramePlane } from './frameFormat';
 import { chooseColorbarHost, useViewportFrameStore } from './viewportFrameStore';
 import type { VolumeMetadata } from '@/stores/layerStore';
 import type { ColorbarLayer } from './ViewportColorbar';
+import { statisticUnits } from '@/utils/statistic';
 
 /**
  * Overlay classification, matching the Scene stack (`buildSceneStack`): the
  * first non-atlas volume is the base; other non-atlas volumes are overlays.
  */
 export function isOverlayLayer(layers: readonly LayerInfo[], layerId: string): boolean {
-  const base = layers.find((l) => l.source !== 'atlas');
+  // Label maps count as atlases here, as in the Scene stack.
+  const isAtlas = (l: LayerInfo) => l.source === 'atlas' || l.isLabelMap === true;
+  const base = layers.find((l) => !isAtlas(l));
   const layer = layers.find((l) => l.id === layerId);
-  return !!layer && layer.source !== 'atlas' && base?.id !== layerId;
+  return !!layer && !isAtlas(layer) && base?.id !== layerId;
 }
 
 /** Pure selection of the colorbar layer; null when none should be drawn. */
@@ -40,9 +43,12 @@ export function resolveColorbarLayer(
     intensity: viewLayer.intensity,
     threshold: viewLayer.threshold ?? [0, 0],
     dataRange: metadata?.dataRange ?? null,
-    // No value-unit metadata exists for volumes yet (VolumeMetadata.units is
-    // spatial); nothing is guessed from the file name.
-    units: null,
+    // Value units come from the header's statistic ("z", "t(24)");
+    // VolumeMetadata.units is spatial. Nothing is guessed from the file name.
+    units: statisticUnits(info?.statistic, metadata?.dataRange),
+    // One caption rule everywhere (Proposal C): "z · zmap_synthetic", so the
+    // bar's identity never depends on selection or workspace.
+    nameLabel: shortLayerLabel(name),
   };
 }
 
@@ -93,22 +99,9 @@ export function useLayerColorbar(
 }
 
 /**
- * The colorbar's top caption: the layer's short name when the colorbar
- * describes a layer other than the active one (whose name the header and the
- * status bar carry), so a caret value is never read as the active layer's.
- */
-export function colorbarNameLabel(
-  colorbar: Pick<ColorbarLayer, 'layerId' | 'name'> | null,
-  activeLayerId: string | null,
-): string | null {
-  if (!colorbar || colorbar.layerId === activeLayerId) return null;
-  return shortLayerLabel(colorbar.name);
-}
-
-/**
  * The orthogonal views' colorbar (active workspace): the active layer when it
- * is an overlay, else the topmost visible overlay (then labelled with its
- * name, see `colorbarNameLabel`).
+ * is an overlay, else the topmost visible overlay. The caption always names
+ * the layer (see `resolveColorbarLayer`).
  */
 export function useOverlayColorbar(): ColorbarLayer | null {
   const layers = useLayerStore((s) => s.layers);
@@ -119,11 +112,7 @@ export function useOverlayColorbar(): ColorbarLayer | null {
     () => chooseColorbarLayerId(layers, viewLayers, activeLayerId),
     [layers, viewLayers, activeLayerId],
   );
-  const colorbar = useLayerColorbar(layerId);
-  return useMemo(() => {
-    const nameLabel = colorbarNameLabel(colorbar, activeLayerId);
-    return colorbar && nameLabel ? { ...colorbar, nameLabel } : colorbar;
-  }, [colorbar, activeLayerId]);
+  return useLayerColorbar(layerId);
 }
 
 /** Which orthogonal view hosts the colorbar (see `chooseColorbarHost`). */

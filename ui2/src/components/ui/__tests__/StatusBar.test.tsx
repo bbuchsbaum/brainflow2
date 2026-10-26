@@ -86,9 +86,9 @@ describe('StatusBar readout text', () => {
     setValue('region', '--');
     const { container } = render(<StatusBar />);
     const mouse = container.querySelector('[data-slot="mouse"] .status-value');
-    const region = container.querySelector('[data-slot="region"] .status-value');
     expect(mouse?.textContent).toBe('—');
-    expect(region?.textContent).toBe('—');
+    // Region is hidden until an atlas/label layer exists (StatusBar.voxelStat.test).
+    expect(container.querySelector('[data-slot="region"]')).toBeNull();
   });
 
   it('copies coordinates with ASCII minus', () => {

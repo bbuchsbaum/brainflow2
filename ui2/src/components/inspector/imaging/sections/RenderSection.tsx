@@ -207,6 +207,9 @@ function VolumeRenderRows({
         />
       </FieldRow>
 
+      {/* Label volumes are categorical: colours come from the label table,
+          so there is no intensity window or threshold to set. */}
+      {layerMode !== "label" ? (
       <InspectorRange
         label="Intensity"
         low={intensity[0]}
@@ -217,8 +220,9 @@ function VolumeRenderRows({
         onInteraction={handleInteraction}
         onChange={(low, high) => setLayerField("intensity", [low, high])}
       />
+      ) : null}
 
-      {kind === "overlay" ? (
+      {kind === "overlay" && layerMode !== "label" ? (
         <InspectorRange
           label="Threshold"
           mode="hidden"
@@ -262,11 +266,14 @@ function VolumeRenderRows({
                     })
                     .finally(() => setPaletteApplying(false));
                 }}
-                className="capitalize"
+                className={viewLayer.atlasPaletteKind ? "capitalize" : undefined}
               >
                 {viewLayer.atlasPaletteKind ? null : (
                   <option value="" disabled>
-                    Discrete (atlas)
+                    {/* User label volumes take their colours from the sidecar table (LabelTableService). */}
+                    {viewLayer.atlasConfig || viewLayer.colormapId === undefined
+                      ? "Discrete (atlas)"
+                      : "From label table"}
                   </option>
                 )}
                 {ATLAS_PALETTE_OPTIONS.map((opt) => (
@@ -528,6 +535,17 @@ function LabelOutlineBlock({
   onChange: (next: typeof DEFAULT_OUTLINE) => void;
 }) {
   const [sampling, setSampling] = useState(false);
+  // ROI search (get_atlas_roi_locations) needs a catalogue atlas's parcel
+  // dictionary; a user-loaded label volume (label-table sidecar) has none.
+  // Same catalogue rule as ParcelValuesSection.
+  const isCatalogueLayer = useLayerStore((s) => {
+    const layer = s.layers.find((l) => l.id === layerId);
+    return !!layer && (layer.source === "atlas" || !!layer.atlasMetadata);
+  });
+  const hasAtlasConfig = useViewStateStore(
+    (s) => !!s.viewState.layers.find((l) => l.id === layerId)?.atlasConfig,
+  );
+  const isCatalogueAtlas = isCatalogueLayer || hasAtlasConfig;
 
   const update = (patch: Partial<typeof DEFAULT_OUTLINE>) => {
     onChange({
@@ -565,12 +583,14 @@ function LabelOutlineBlock({
         />
       </FieldRow>
 
-      <AtlasRoiPicker
-        key={layerId}
-        layerId={layerId}
-        selectedId={outline.selectedLabelId}
-        onSelect={(id) => update({ selectedLabelId: id, enabled: id !== 0 })}
-      />
+      {isCatalogueAtlas ? (
+        <AtlasRoiPicker
+          key={layerId}
+          layerId={layerId}
+          selectedId={outline.selectedLabelId}
+          onSelect={(id) => update({ selectedLabelId: id, enabled: id !== 0 })}
+        />
+      ) : null}
       <FieldRow label="Pick from view">
         <Button
           variant="secondary"

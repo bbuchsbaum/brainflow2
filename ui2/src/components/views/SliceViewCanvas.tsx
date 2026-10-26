@@ -56,13 +56,11 @@ import {
   OrientationLabels,
   ViewportColorbar,
   ViewportHeader,
-  headerDensity,
   orientationLabelKey as buildOrientationLabelKey,
   useColorbarHostPlane,
   useOrientationLabelKnockouts,
   useOverlayColorbar,
 } from "./viewportFrame";
-import { displayMinus } from "@/utils/valueFormat";
 
 /** Top-right space kept for the workspace layout button (OrthogonalViewContainer). */
 const LAYOUT_BUTTON_RESERVE = 48;
@@ -270,7 +268,7 @@ function SliceViewCanvasRaw({
     [],
   );
 
-  const { handleMouseMove, handleMouseLeave, hoverValue } = useHoverInfo({
+  const { handleMouseMove, handleMouseLeave } = useHoverInfo({
     viewId,
     enabled: showHover,
     activeLayerId: primaryLayer?.id,
@@ -722,18 +720,8 @@ function SliceViewCanvasRaw({
         />
       )}
 
-      {/* Hover value overlay */}
-      {hoverValue !== null && showHover && (
-        <div
-          className="absolute left-1.5 bg-black/70 text-foreground text-bf-2xs font-mono tabular-nums px-1.5 py-0.5"
-          style={{
-            // Below the header overlay when it is shown.
-            top: headerDensity(width, canvasHeight) === "hidden" ? 4 : 24,
-          }}
-        >
-          {displayMinus(hoverValue.toFixed(3))}
-        </div>
-      )}
+      {/* No in-canvas hover value: it duplicated the hover readout's value
+          without naming its layer (P3 critics). The readout names it. */}
     </div>
   );
 }

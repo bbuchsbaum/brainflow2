@@ -72,7 +72,7 @@ describe('intensityProvider', () => {
       expect(result).toEqual([
         {
           label: 'Value',
-          value: '123.457', // toFixed(3)
+          value: '123.46', // formatLayerValue: 2 decimals, trailing zeros trimmed
           priority: 20,
           group: 'intensity',
         },
@@ -109,7 +109,7 @@ describe('intensityProvider', () => {
       expect(result).toEqual([
         {
           label: 'Value',
-          value: '0.000',
+          value: '0',
           priority: 20,
           group: 'intensity',
         },
@@ -125,7 +125,7 @@ describe('intensityProvider', () => {
       expect(result).toEqual([
         {
           label: 'Value',
-          value: '-5.123',
+          value: '\u22125.12', // U+2212 minus
           priority: 20,
           group: 'intensity',
         },
@@ -141,7 +141,7 @@ describe('intensityProvider', () => {
       expect(result).toEqual([
         {
           label: 'Value',
-          value: '0.000', // toFixed(3) rounds small values
+          value: '1.0e\u22126', // tiny values in exponent form, never a padded 0.000
           priority: 20,
           group: 'intensity',
         },
@@ -157,11 +157,43 @@ describe('intensityProvider', () => {
       expect(result).toEqual([
         {
           label: 'Value',
-          value: '12345678.900',
+          value: '1.2e+7',
           priority: 20,
           group: 'intensity',
         },
       ]);
     });
+  });
+
+  it('names the sampled layer and puts its statistic symbol first', async () => {
+    const { useLayerStore } = await import('@/stores/layerStore');
+    useLayerStore.setState({
+      layers: [
+        {
+          id: 'z',
+          name: 'zmap_synthetic.nii.gz',
+          volumeId: 'z',
+          type: 'volume',
+          visible: true,
+          order: 0,
+          statistic: {
+            kind: 'z',
+            intentCode: 5,
+            intentParams: [0, 0, 0],
+            intentName: '',
+            dof: [],
+            label: 'z',
+            fromDescription: false,
+            positiveDataLabel: null,
+          },
+        } as never,
+      ],
+    });
+    mockSampleLayerAtWorld.mockResolvedValue({ value: 5.4312 });
+    const result = await intensityProvider.getInfo(createMockContext({ activeLayerId: 'z' }));
+    expect(result).toEqual([
+      { label: 'zmap_synthetic', value: 'z 5.43', priority: 20, group: 'intensity' },
+    ]);
+    useLayerStore.setState({ layers: [] });
   });
 });

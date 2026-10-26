@@ -103,3 +103,19 @@ describe('buildSceneStack', () => {
     expect(result.volumes[0].opacity).toBeCloseTo(0.42);
   });
 });
+
+describe('buildSceneStack label maps (P3 item 4)', () => {
+  it('gives a user-loaded label map the atlas kind and keeps the anatomical base', () => {
+    const result = buildSceneStack(
+      [
+        makeVolume({ id: 'dseg', name: 'atlas-synth3_dseg.nii.gz', isLabelMap: true, source: 'file' }),
+        makeVolume({ id: 't1', name: 'T1', source: 'file' }),
+      ],
+      new Map(),
+      null,
+    );
+    const kinds = Object.fromEntries(result.volumes.map((v) => [v.id, v.kind]));
+    expect(kinds).toEqual({ dseg: 'volume-overlay-atlas', t1: 'volume-base' });
+  });
+});
+

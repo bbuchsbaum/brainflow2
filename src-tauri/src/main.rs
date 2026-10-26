@@ -308,6 +308,11 @@ fn main() {
                 .id("open_file")
                 .accelerator("CmdOrCtrl+Shift+O")
                 .build(app)?;
+            // Opens the UI's export dialog (ui2 useExportMenuListener).
+            let export_view = MenuItemBuilder::new("Export View as Image...")
+                .id("export_view_image")
+                .accelerator("CmdOrCtrl+Shift+E")
+                .build(app)?;
 
             // Build templates menu directly
             let templates_menu = {
@@ -490,6 +495,8 @@ fn main() {
                             .separator()
                             .item(&mount_dir)
                             .separator()
+                            .item(&export_view)
+                            .separator()
                             .item(&PredefinedMenuItem::close_window(app, None)?);
 
                         #[cfg(not(target_os = "macos"))]
@@ -516,6 +523,8 @@ fn main() {
                             )
                             .separator()
                             .item(&mount_dir)
+                            .separator()
+                            .item(&export_view)
                             .separator()
                             .item(&PredefinedMenuItem::close_window(app, None)?)
                             .separator()
@@ -666,6 +675,14 @@ fn main() {
                         println!("Open file in comparison workspace menu item clicked");
                         let handle = app.app_handle().clone();
                         open_file_dialog(handle, Some("comparison".to_string()));
+                    }
+                    "export_view_image" => {
+                        if let Err(e) = app.emit(
+                            "export-active-view",
+                            serde_json::json!({ "action": "export-image" }),
+                        ) {
+                            eprintln!("Failed to emit export-active-view event: {}", e);
+                        }
                     }
                     "toggle_crosshair" => {
                         println!("Toggle crosshair menu item clicked");

@@ -338,6 +338,12 @@ function buildP3() {
         description: 'synthetic z map',
         blobs: P3_BLOBS.z,
         spikes: P3_Z_SPIKES,
+        // Strict-threshold trap: these voxels hold exactly Math.fround(2.3), so a
+        // cluster/threshold test at 2.3 must say whether it uses > or >=.
+        threshold_ties: {
+          threshold: 2.3,
+          f32_exact_voxels: zmap.reduce((n, v) => n + (v === Math.fround(2.3) ? 1 : 0), 0),
+        },
         ...known(zmap),
       },
       tmap: {

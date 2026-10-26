@@ -28,11 +28,12 @@ function sampleKey(layerId: string, world: WorldPoint, timepoint: number): strin
 }
 
 /**
- * True exactly where the backend (`sample_world_coordinate_impl`) returns a
- * real voxel: with the continuous voxel coordinate `v` (inverse affine),
- * `0 <= v < dim` before rounding AND `round(v) < dim` (the backend reads 0
- * for a rounded index equal to `dim`), i.e. `0 <= v < dim - 0.5` per VOXEL
- * axis. Elsewhere it answers 0, which would be a fabricated reading.
+ * True exactly where the backend (`sample_world_coordinate_impl`, i.e.
+ * `volume_queries::sample_nearest`) returns a real voxel: with the
+ * continuous voxel coordinate `v` (inverse affine), the nearest index
+ * `floor(v + 0.5)` lies in `[0, dim)`, i.e. `-0.5 <= v < dim - 0.5` per VOXEL
+ * axis (each voxel's full extent). Elsewhere it answers 0, which would be a
+ * fabricated reading.
  *
  * With `worldToVoxel` (the backend's column-major flattening, see
  * `transformWorldToVoxelColumnMajor`), `v` is the full matrix product, so
@@ -61,7 +62,8 @@ export function isInsideVolume(
   ) {
     const v = transformWorldToVoxelColumnMajor(matrix, [world[0], world[1], world[2]]);
     for (let i = 0; i < 3; i += 1) {
-      if (!(v[i] >= -EPS && v[i] < dims[i] - 0.5 - EPS)) return false;
+      const index = Math.floor(v[i] + 0.5);
+      if (!(index >= 0 && index < dims[i])) return false;
     }
     return true;
   }
@@ -80,7 +82,8 @@ export function isInsideVolume(
       continue;
     }
     const v = (world[a] - lo) / spacing;
-    if (!(v >= -EPS && v < count - 0.5 - EPS)) return false;
+    const index = Math.floor(v + 0.5 + EPS);
+    if (!(index >= 0 && index < count)) return false;
   }
   return true;
 }

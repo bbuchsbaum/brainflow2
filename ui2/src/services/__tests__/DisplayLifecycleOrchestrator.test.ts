@@ -194,6 +194,28 @@ describe('DisplayLifecycleOrchestrator', () => {
     expect(mockQueueState.markComplete).not.toHaveBeenCalled();
   });
 
+  it('keeps the file name and the label type for label maps (BIDS dseg, intent 1002)', async () => {
+    const { DisplayLifecycleOrchestrator } = await import('../DisplayLifecycleOrchestrator');
+    const orchestrator = DisplayLifecycleOrchestrator.getInstance();
+    mockVolumeLoadingService.loadVolume.mockResolvedValue({ id: 'layer-1' });
+
+    mockApiService.loadFile.mockResolvedValue({
+      id: 'vol-1', name: 'atlas-synth3_dseg.nii.gz', dims: [96, 114, 96], dtype: 'u8', volume_type: 'Volume3D',
+    });
+    await orchestrator.loadFile({ path: '/s/atlas-synth3_dseg.nii.gz', ingress: 'programmatic' });
+    expect(mockVolumeLoadingService.loadVolume).toHaveBeenLastCalledWith(
+      expect.objectContaining({ displayName: 'atlas-synth3_dseg.nii.gz', layerType: 'label' }),
+    );
+
+    mockApiService.loadFile.mockResolvedValue({
+      id: 'vol-2', name: 'sub-01_regions.nii.gz', dims: [4, 4, 4], dtype: 'i16', volume_type: 'Volume3D', is_label_map: true,
+    });
+    await orchestrator.loadFile({ path: '/s/sub-01_regions.nii.gz', ingress: 'programmatic' });
+    expect(mockVolumeLoadingService.loadVolume).toHaveBeenLastCalledWith(
+      expect.objectContaining({ displayName: 'sub-01_regions.nii.gz', layerType: 'label' }),
+    );
+  });
+
   it('routes NIfTI loads through volume flow only', async () => {
     mockApiService.loadFile.mockResolvedValue({
       id: 'vol-1',

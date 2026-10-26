@@ -1,5 +1,7 @@
 import { formatDataRange, formatDims, formatVoxelSize } from "@/utils/valueFormat";
 import { asciiCopyHandler } from "@/utils/numericInput";
+import { describeStatistic, statisticUnits } from "@/utils/statistic";
+import { StatSymbol } from "@/components/ui/StatSymbol";
 import React from "react";
 import { useLayerStore } from "@/stores/layerStore";
 import { useLayoutSettingsStore } from "@/stores/layoutSettingsStore";
@@ -89,7 +91,7 @@ function VolumeFacts({ item }: { item: SceneItem }) {
 
   if (!layer) return null;
 
-  const facts: Array<{ label: string; value: string }> = [];
+  const facts: Array<{ label: string; value: React.ReactNode }> = [];
   const dim = metadata?.dimensions;
   const ts = layer.timeSeriesInfo;
   if (dim) {
@@ -103,6 +105,21 @@ function VolumeFacts({ item }: { item: SceneItem }) {
     facts.push({
       label: "Range",
       value: formatDataRange(min, max),
+    });
+  }
+  // Statistic maps: "t(24) · intent 3 t-stat, df 24" (utils/statistic.ts).
+  const units = layer.statistic ? statisticUnits(layer.statistic, metadata?.dataRange) : null;
+  if (layer.statistic && units) {
+    // "t(24) · t-stat" with the variable in italic (paper notation).
+    const description = describeStatistic(layer.statistic, metadata?.dataRange);
+    facts.push({
+      label: "Statistic",
+      value: (
+        <span title={description}>
+          <StatSymbol label={units} />
+          {description.slice(units.length)}
+        </span>
+      ),
     });
   }
   if (metadata?.spacing) {

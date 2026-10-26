@@ -22,6 +22,7 @@ import {
 import { useCrosshairSettings } from '@/contexts/CrosshairContext';
 import type { CrosshairSettings } from '@/contexts/CrosshairContext';
 import { DEFAULT_SETTINGS, MEDICAL_COLOR_PRESETS } from '@/stores/crosshairSettingsStore';
+import { useViewStateStore } from '@/stores/viewStateStore';
 
 interface CrosshairSettingsDialogProps {
   onClose: () => void;
@@ -123,6 +124,26 @@ export function CrosshairSettingsDialog({ onClose }: CrosshairSettingsDialogProp
                 ref={visibleSwitchRef}
                 checked={localSettings.visible}
                 onCheckedChange={(checked) => updateLocalSetting('visible', checked)}
+              />
+            </FieldRow>
+          </Section>
+
+          <Section variant="static" title="Navigation">
+            <FieldRow
+              label="Snap to voxel"
+              controlId="crosshair-snap-to-voxel"
+              hint="Place the crosshair on the nearest voxel centre of the bottom image layer."
+            >
+              <Switch
+                checked={localSettings.snapToVoxel}
+                onCheckedChange={(checked) => {
+                  updateLocalSetting('snapToVoxel', checked);
+                  // Turning snapping on re-centres the current position.
+                  if (checked) {
+                    const { viewState, setCrosshair } = useViewStateStore.getState();
+                    void setCrosshair([...viewState.crosshair.world_mm], true);
+                  }
+                }}
               />
             </FieldRow>
           </Section>

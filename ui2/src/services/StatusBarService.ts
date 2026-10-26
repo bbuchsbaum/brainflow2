@@ -113,11 +113,17 @@ export class StatusBarService {
       const hit = await resolveAtlasRegionAtWorld(worldMm);
       if (this.isInitialized) {
         setValue("region", hit ? formatRegionLabel(hit.entry) : "--");
+        // LUT colour of the region, for the slot's swatch.
+        setValue(
+          "regionColor",
+          hit ? `rgb(${hit.entry.color[0]}, ${hit.entry.color[1]}, ${hit.entry.color[2]})` : null,
+        );
       }
     } catch (error) {
       console.warn("[StatusBarService] Atlas region lookup failed:", error);
       if (this.isInitialized) {
         setValue("region", "--");
+        setValue("regionColor", null);
       }
     }
   }

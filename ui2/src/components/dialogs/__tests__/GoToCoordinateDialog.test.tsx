@@ -1,3 +1,4 @@
+import React from 'react';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { installNumericInputGuard } from '@/utils/numericInput';
@@ -326,5 +327,31 @@ describe('GoToCoordinateDialog: no affine', () => {
     fireEvent.click(screen.getByRole('radio', { name: 'World (mm)' }));
     expect((screen.getByLabelText('X (mm)') as HTMLInputElement).value).toBe('12');
     layerState.current = { layers: [], layerMetadata: new Map() };
+  });
+});
+
+describe('GoToCoordinateDialog focus return', () => {
+  it('returns focus to the element that was focused when it opened', async () => {
+    const { fireEvent } = await import('@testing-library/react');
+    function Host() {
+      const [open, setOpen] = React.useState(false);
+      return (
+        <>
+          <button type="button" onClick={() => setOpen(true)}>
+            Crosshair
+          </button>
+          <GoToCoordinateDialog open={open} onClose={() => setOpen(false)} />
+        </>
+      );
+    }
+    render(<Host />);
+    const invoker = screen.getByRole('button', { name: 'Crosshair' });
+    invoker.focus();
+    fireEvent.click(invoker);
+    expect(await screen.findByRole('dialog')).toBeInTheDocument();
+    expect(document.activeElement).not.toBe(invoker);
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(document.activeElement).toBe(invoker);
   });
 });
