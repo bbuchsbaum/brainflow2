@@ -53,6 +53,8 @@ export const P3_SCENARIOS = [
   'multi-layer-readout',
   'mosaic-labelled',
   'export-dialog',
+  'export-mosaic',
+  'export-error',
   'compare-linked',
   'empty-compare',
   'empty-mosaic',
@@ -66,6 +68,8 @@ export const P3_VARIANTS: Array<[string, number, number]> = [
   ['files', 1280, 800],
   // Label map over a t map at the narrow width: the status bar must fit.
   ['region-at-crosshair', 1280, 800],
+  // The cluster table and the status bar at the narrow width (v2 critics).
+  ['cluster-table', 1280, 800],
 ];
 
 /** Gallery pages of ui/bf primitives (primitives-harness.html): [query page, file]. */

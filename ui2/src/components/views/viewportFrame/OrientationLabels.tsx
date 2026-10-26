@@ -1,4 +1,4 @@
-import { useCallback, useRef, type CSSProperties } from 'react';
+import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react';
 import { anatomicalLabels } from '@/utils/anatomicalLabels';
 import type { CrosshairRect } from '@/utils/crosshairUtils';
 import type { ViewPlane } from '@/types/coordinates';
@@ -19,6 +19,38 @@ export function useOrientationLabelKnockouts(enabledKey: string) {
   // Slots 0–3: the letters (only while `enabledKey` is set). Further slots
   // (e.g. the viewport header) always count.
   const refs = useRef<Array<HTMLElement | null>>([]);
+  // A knocked-out element that changes size after the last crosshair draw
+  // (the header re-flowing once the web font loads, or changing density)
+  // must redraw the crosshair: the getter's identity follows `revision`.
+  const [revision, setRevision] = useState(0);
+  const observerRef = useRef<ResizeObserver | null>(null);
+  const observed = useRef(new Set<Element>());
+  useEffect(() => {
+    if (typeof ResizeObserver === 'undefined') return;
+    // Any size change (including the first report) re-runs the draw; the
+    // crosshair layer is cheap to redraw.
+    const observer = new ResizeObserver(() => setRevision((r) => r + 1));
+    observerRef.current = observer;
+    const set = observed.current;
+    if (typeof document !== 'undefined' && document.fonts?.ready) {
+      void document.fonts.ready.then(() => setRevision((r) => r + 1));
+    }
+    return () => {
+      observer.disconnect();
+      observerRef.current = null;
+      set.clear();
+    };
+  }, []);
+  useEffect(() => {
+    const observer = observerRef.current;
+    if (!observer) return;
+    for (const el of refs.current) {
+      if (el && !observed.current.has(el)) {
+        observer.observe(el);
+        observed.current.add(el);
+      }
+    }
+  });
   const getKnockouts = useCallback((): CrosshairRect[] => {
     const rects: CrosshairRect[] = [];
     for (const [i, el] of refs.current.entries()) {
@@ -30,7 +62,8 @@ export function useOrientationLabelKnockouts(enabledKey: string) {
       }
     }
     return rects;
-  }, [enabledKey]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [enabledKey, revision]);
   return { refs, getKnockouts };
 }
 

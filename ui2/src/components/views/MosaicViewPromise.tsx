@@ -17,11 +17,16 @@ import { useViewStateStore } from '@/stores/viewStateStore';
 import { MosaicCell } from './MosaicCell';
 import { MosaicCellErrorBoundary } from './MosaicCellErrorBoundary';
 import { createMosaicRenderService } from '@/services/MosaicRenderService';
-import { getNonzeroBbox } from '@/services/mosaic/brainBounds';
+import { unionNonzeroBbox } from '@/services/mosaic/brainBounds';
 import { formatWorldMm } from '@/utils/valueFormat';
-import { sliceIndexRange, slicePositionAtIndex } from '@/services/mosaic/sliceGeometry';
+import {
+  MOSAIC_COLORBAR_COLUMN_PX,
+  sliceIndexRange,
+  slicePositionAtIndex,
+} from '@/services/mosaic/sliceGeometry';
 import { MosaicTileLabel, MosaicColorbar } from './MosaicFrame';
 import { getApiService } from '@/services/apiService';
+import { registerMosaicExportSource } from '@/services/export/compositeCapture';
 import { MosaicToolbar } from '@/components/ui/MosaicToolbar';
 import { Notice } from '@/components/ui/bf';
 import { RenderErrorBoundary } from '@/components/ui/RenderErrorBoundary';
@@ -32,6 +37,8 @@ import './MosaicView.css';
 
 const AXIS_DIMENSION = { sagittal: 0, coronal: 1, axial: 2 } as const;
 const AXIS_LETTER = { sagittal: 'x', coronal: 'y', axial: 'z' } as const;
+/** World axes spanning each plane's tile (u across, v down). */
+const IN_PLANE_AXES = { axial: [0, 1], coronal: [0, 2], sagittal: [1, 2] } as const;
 
 /** Reference slicing for one axis, cropped to the brain's slices [first, last]. */
 interface MosaicSliceRange {
@@ -73,6 +80,9 @@ function MosaicViewPromiseRaw({
   const [gridSize, setGridSize] = useState({ rows: 4, cols: 4 });
   const [sliceMetadata, setSliceMetadata] = useState<MosaicSliceRange | null>(null);
   const [cellSize, setCellSize] = useState({ width: 128, height: 128 }); // Start with minimum size
+  // In-plane aspect (width / height) of the cropped brain: tiles take this
+  // shape so the brain fills them instead of floating in a landscape cell.
+  const [brainAspect, setBrainAspect] = useState<number | null>(null);
   const [currentSlice, setCurrentSlice] = useState(0);
   const [hasInitialized, setHasInitialized] = useState(false);
   
@@ -137,8 +147,10 @@ function MosaicViewPromiseRaw({
     [layers]
   );
   
-  // Get primary volume for metadata
-  const primaryVolumeId = visibleLayers[0]?.volumeId;
+  // Reference volume for slice sampling: the bottom volume layer, visible or
+  // not (the voxel-snapping / ijk rule, utils/voxelSnap.ts).
+  const primaryVolumeId = layers.find(layer => layer.volumeId)?.volumeId;
+  const visibleVolumeKey = visibleLayers.map(layer => layer.volumeId).filter(Boolean).join('|');
   const range =
     sliceMetadata?.volumeId === primaryVolumeId && sliceMetadata?.axis === sliceAxis ? sliceMetadata : null;
   // Paging runs over the brain's slices only (P3.7 crop); indices stay the
@@ -172,14 +184,23 @@ function MosaicViewPromiseRaw({
           return;
         }
         
-        // Crop the slice range to the brain (non-zero voxels of the reference).
-        const brain = await getNonzeroBbox(primaryVolumeId);
+        // Crop the slice range to the union of the visible layers' non-zero
+        // voxels (a statistic outside the anatomy is not cut silently).
+        const brain = await unionNonzeroBbox(
+          visibleVolumeKey ? visibleVolumeKey.split('|') : [primaryVolumeId],
+        );
         if (cancelled) return;
         const d = AXIS_DIMENSION[sliceAxis];
         const sampling = { min: volumeBounds.min[d], max: volumeBounds.max[d], count: meta.sliceCount };
         const { first, last } = brain
           ? sliceIndexRange(sampling, brain.worldMinMm[d], brain.worldMaxMm[d])
           : { first: 0, last: meta.sliceCount - 1 };
+        const [ua, va] = IN_PLANE_AXES[sliceAxis];
+        const box = brain ?? { worldMinMm: volumeBounds.min, worldMaxMm: volumeBounds.max };
+        const extentU = Math.abs(box.worldMaxMm[ua] - box.worldMinMm[ua]);
+        const extentV = Math.abs(box.worldMaxMm[va] - box.worldMinMm[va]);
+        const aspect = extentU > 0 && extentV > 0 ? extentU / extentV : null;
+        setBrainAspect((prev) => (prev !== null && aspect !== null && Math.abs(prev - aspect) < 1e-3 ? prev : aspect));
 
         // Initial page: the one holding the crosshair's slice.
         const crosshairPosition = useViewStateStore.getState().getWorkspaceViewState(workspaceId).crosshair.world_mm;
@@ -214,7 +235,7 @@ function MosaicViewPromiseRaw({
     
     void fetchMetadataAndSetInitialPage();
     return () => { cancelled = true; };
-  }, [primaryVolumeId, sliceAxis, gridSize.rows, gridSize.cols, apiService, workspaceId]);
+  }, [primaryVolumeId, visibleVolumeKey, sliceAxis, gridSize.rows, gridSize.cols, apiService, workspaceId]);
   
   // Calculate cell dimensions based on container size
   useEffect(() => {
@@ -235,16 +256,26 @@ function MosaicViewPromiseRaw({
       // Account for gaps and padding
       const gap = 1; // hairline between tiles (MosaicView.css)
       const padding = 16;
-      const availableWidth = containerRect.width - padding - (gap * (cols - 1));
+      // The shared colorbar column sits beside the grid.
+      const availableWidth = containerRect.width - padding - MOSAIC_COLORBAR_COLUMN_PX - (gap * (cols - 1));
       const availableHeight = containerRect.height - padding - (gap * (rows - 1));
       
-      // Calculate optimal cell size (maintain square aspect)
+      // Tiles take the cropped brain's shape (square until it is known),
+      // as large as the grid allows, capped at 512 px on the long side.
       const cellWidth = Math.floor(availableWidth / cols);
       const cellHeight = Math.floor(availableHeight / rows);
-      const cellSizeValue = Math.min(cellWidth, cellHeight, 512); // Cap at 512px
-      
-      // Ensure minimum size
-      const finalSize = Math.max(cellSizeValue, 128);
+      const aspect = brainAspect && Number.isFinite(brainAspect) ? brainAspect : 1;
+      let tileHeight = Math.min(cellHeight, cellWidth / aspect);
+      let tileWidth = tileHeight * aspect;
+      const longSide = Math.max(tileWidth, tileHeight);
+      if (longSide > 512) {
+        tileWidth *= 512 / longSide;
+        tileHeight *= 512 / longSide;
+      }
+      const finalSize = {
+        width: Math.max(64, Math.floor(tileWidth)),
+        height: Math.max(64, Math.floor(tileHeight)),
+      };
       
       console.log('[MosaicViewPromise] Calculating cell dimensions:', {
         containerSize: { width: containerRect.width, height: containerRect.height },
@@ -254,7 +285,9 @@ function MosaicViewPromiseRaw({
         finalSize
       });
       
-      setCellSize({ width: finalSize, height: finalSize });
+      setCellSize((prev) =>
+        prev.width === finalSize.width && prev.height === finalSize.height ? prev : finalSize,
+      );
       setHasInitialized(true);
     };
 
@@ -279,7 +312,7 @@ function MosaicViewPromiseRaw({
       resizeObserver.disconnect();
       window.removeEventListener('resize', updateCellDimensions);
     };
-  }, [gridSize, hasInitialized]);
+  }, [gridSize, hasInitialized, brainAspect]);
   
   // Calculate slice indices for current page
   const sliceIndices = useMemo(() => {
@@ -373,13 +406,26 @@ function MosaicViewPromiseRaw({
     setCurrentPage(prev => Math.min(totalPages - 1, prev + 1));
   };
   
-  // Handle slice change from slider
-  const handleSliceChange = (newSlice: number) => {
-    setCurrentSlice(newSlice);
-    // Calculate which page this slice is on
-    const slicesPerPage = gridSize.rows * gridSize.cols;
-    const newPage = Math.floor(newSlice / slicesPerPage);
-    setCurrentPage(newPage);
+  // The slider has one meaning: the crosshair's slice (0-based within the
+  // cropped range). Moving it moves the crosshair along the mosaic axis, and
+  // the page follows to the tile holding it.
+  const axisDim = AXIS_DIMENSION[sliceAxis];
+  const sliceStep = range && range.count > 1 ? (range.max - range.min) / (range.count - 1) : 1;
+  const crosshairRel = range
+    ? Math.min(
+        Math.max(0, Math.round((crosshairWorld[axisDim] - range.min) / sliceStep) - firstSlice),
+        Math.max(0, totalSlices - 1),
+      )
+    : 0;
+  const handleSliceChange = (rel: number) => {
+    if (!range) return;
+    const position = slicePositionAtIndex(range, firstSlice + rel);
+    const current = useViewStateStore.getState().getWorkspaceViewState(workspaceId).crosshair.world_mm;
+    const next: [number, number, number] = [current[0], current[1], current[2]];
+    next[axisDim] = position;
+    void setCrosshair(next, true, false, workspaceId);
+    setCurrentSlice(rel);
+    setCurrentPage(Math.floor(rel / (gridSize.rows * gridSize.cols)));
   };
 
   const handleCrosshairClick = useCallback((worldCoord: [number, number, number]) => {
@@ -399,6 +445,32 @@ function MosaicViewPromiseRaw({
     }
   }, [currentPage, gridSize, totalSlices, currentSlice]);
   
+  // Export (P3.8): the visible tiles in grid order, read when the dialog composes.
+  const exportTilesRef = useRef<() => ReturnType<Parameters<typeof registerMosaicExportSource>[1]>>(() => null);
+  exportTilesRef.current = () => {
+    if (!primaryVolumeId || !range) return null;
+    const step = range.count > 1 ? (range.max - range.min) / (range.count - 1) : 1;
+    return {
+      workspaceId,
+      axis: sliceAxis,
+      cols: gridSize.cols,
+      sampling: { min: range.min, step, first: range.first, last: range.last },
+      tiles: sliceIndices.map((sliceIndex, i) => {
+        const position = slicePositionAtIndex(range, sliceIndex);
+        return {
+          plane: mosaicRenderService.getViewPlaneForTag(cellIds[i]),
+          positionMm: position,
+          label: `${AXIS_LETTER[sliceAxis]} ${formatWorldMm(position)}`,
+          atCrosshair: Math.abs(crosshairWorld[AXIS_DIMENSION[sliceAxis]] - position) < step / 2,
+        };
+      }),
+    };
+  };
+  useEffect(
+    () => registerMosaicExportSource(workspaceId, () => exportTilesRef.current()),
+    [workspaceId],
+  );
+
   if (!primaryVolumeId || totalSlices === 0) {
     console.log('[MosaicViewPromise] No volume to display:', { primaryVolumeId, totalSlices });
     return (
@@ -462,8 +534,15 @@ function MosaicViewPromiseRaw({
         canNext={currentPage < totalPages - 1}
         onPrev={goToPreviousPage}
         onNext={goToNextPage}
-        currentSlice={currentSlice}
+        currentSlice={crosshairRel}
         totalSlices={totalSlices}
+        pageRange={
+          range && sliceIndices.length > 0
+            ? `${AXIS_LETTER[sliceAxis]} ${formatWorldMm(slicePositionAtIndex(range, sliceIndices[0]))}–${formatWorldMm(
+                slicePositionAtIndex(range, sliceIndices[sliceIndices.length - 1]),
+              )}`
+            : undefined
+        }
         onSliceChange={handleSliceChange}
         sliceLabel={(rel) =>
           range
@@ -472,14 +551,18 @@ function MosaicViewPromiseRaw({
         }
       />
       
-      <div className="flex min-h-0 flex-1">
+      {/* The measured area; the brain-shaped grid and its colorbar sit
+          together in its centre (the bar beside the tiles, top-aligned). */}
+      <div
+        ref={gridRef}
+        className="mosaic-grid flex min-h-0 min-w-0 flex-1 items-center justify-center overflow-auto p-2"
+      >
+        <div className="flex">
         <div
-          ref={gridRef}
-          className="mosaic-grid min-w-0 flex-1 p-2 overflow-auto"
           style={{
             display: 'grid',
-            gridTemplateRows: `repeat(${gridSize.rows}, minmax(0, 1fr))`,
-            gridTemplateColumns: `repeat(${gridSize.cols}, minmax(0, 1fr))`,
+            gridTemplateRows: `repeat(${gridSize.rows}, ${cellSize.height}px)`,
+            gridTemplateColumns: `repeat(${gridSize.cols}, ${cellSize.width}px)`,
             gap: '1px'
           }}
         >
@@ -510,6 +593,7 @@ function MosaicViewPromiseRaw({
         </div>
         {/* One colorbar for the whole grid, outside the tiles (P3.7). */}
         <MosaicColorbar workspaceId={workspaceId} />
+        </div>
       </div>
     </div>
   );

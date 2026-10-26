@@ -73,6 +73,8 @@ export interface EventMap {
     message: string;
     durationMs?: number;
   };
+  /** Dismiss every visible toast (e.g. transient load toasts). */
+  'ui.notification.clear': Record<string, never>;
   'ui.progress': { taskId: string; progress: number; message?: string };
 
   // Services initialization events

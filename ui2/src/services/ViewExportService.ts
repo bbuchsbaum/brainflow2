@@ -313,17 +313,39 @@ export class ViewExportService {
     const viewPlane = viewState.views[viewType];
     const width = viewPlane?.dim_px?.[0] ?? 512;
     const height = viewPlane?.dim_px?.[1] ?? 512;
+    return this.renderViewToBytes(
+      viewState,
+      viewType,
+      width,
+      height,
+      options.format,
+      options.transparentBackground,
+    );
+  }
 
+  /**
+   * Render one view of a view state at width x height device pixels
+   * (render_view with a requested view refitted from the state's plane, so
+   * a larger size is the same field of view at a higher resolution).
+   */
+  async renderViewToBytes(
+    viewState: ViewState,
+    viewType: ViewType,
+    width: number,
+    height: number,
+    format: ExportFormat,
+    transparentBackground: boolean,
+  ): Promise<Uint8Array> {
     const payload = this.buildDeclarativeViewState(
       viewState,
       viewType,
       width,
       height,
-      options.transparentBackground,
+      transparentBackground,
     );
     const result = await this.transport.invoke<any>("render_view", {
       stateJson: JSON.stringify(payload),
-      format: options.format,
+      format,
     });
 
     if (result instanceof Uint8Array && result.length > 0) {

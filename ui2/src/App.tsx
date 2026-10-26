@@ -21,6 +21,7 @@ import { useExportMenuListener } from '@/hooks/useExportMenuListener';
 import { useExportDialogStore } from '@/stores/exportDialogStore';
 import { useCrosshairSettingsStore } from '@/stores/crosshairSettingsStore';
 import { openDockTab } from '@/components/layout/openDockTab';
+import { useHoverSettingsStore } from '@/stores/hoverSettingsStore';
 import { getClusterService } from '@/services/ClusterService';
 import { copyValuesAtCrosshair } from '@/services/readoutCopy';
 import { activeVolumeLayerId } from '@/utils/activeLayer';
@@ -256,12 +257,30 @@ function AppContent() {
         run: () => copyValuesAtCrosshair(),
       },
       {
+        id: 'hover.toggleNeurosynth',
+        title: 'Toggle Neurosynth Lookup',
+        subtitle: 'Off by default. When on, sends the cursor’s MNI coordinates to neurosynth.org.',
+        keywords: ['neurosynth', 'terms', 'meta-analysis', 'network', 'hover'],
+        group: 'Navigation',
+        run: () => {
+          const store = useHoverSettingsStore.getState();
+          const next = !store.enabledProviders.includes('neurosynth');
+          store.setProviderEnabled('neurosynth', next);
+          getEventBus().emit('ui.notification', {
+            type: 'info',
+            message: next
+              ? 'Neurosynth lookup on: the cursor’s MNI coordinates are sent to neurosynth.org'
+              : 'Neurosynth lookup off',
+          });
+        },
+      },
+      {
         id: 'statistics.clusters',
         title: 'Show Clusters',
         subtitle: 'Open the cluster table in the bottom dock.',
         keywords: ['clusters', 'peaks', 'table', 'threshold', 'statistics'],
         group: 'Statistics',
-        run: () => openDockTab('clusters'),
+        run: () => openDockTab('clusters', { focus: true }),
       },
       {
         id: 'statistics.goToMax',
@@ -271,7 +290,9 @@ function AppContent() {
         group: 'Statistics',
         run: async () => {
           const layerId = activeVolumeLayerId(useViewStateStore.getState().viewState.layers);
-          if (layerId) await getClusterService().goToExtremum(layerId, 'max');
+          if (!layerId) throw new Error('No volume layer to search');
+          const location = await getClusterService().goToExtremum(layerId, 'max');
+          if (!location) throw new Error('The layer has no finite value');
         },
       },
       {
@@ -282,7 +303,9 @@ function AppContent() {
         group: 'Statistics',
         run: async () => {
           const layerId = activeVolumeLayerId(useViewStateStore.getState().viewState.layers);
-          if (layerId) await getClusterService().goToExtremum(layerId, 'min');
+          if (!layerId) throw new Error('No volume layer to search');
+          const location = await getClusterService().goToExtremum(layerId, 'min');
+          if (!location) throw new Error('The layer has no finite value');
         },
       },
       {

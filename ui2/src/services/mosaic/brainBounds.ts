@@ -40,11 +40,30 @@ export function clearNonzeroBbox(volumeId?: string): void {
  * centre envelope padded by half a voxel per axis.
  */
 export function brainFraming(
-  bbox: VolumeNonzeroBbox,
+  bbox: Pick<VolumeNonzeroBbox, 'worldMinMm' | 'worldMaxMm'>,
   voxelSizeMm: readonly [number, number, number],
 ): { min: number[]; max: number[] } {
   return {
     min: bbox.worldMinMm.map((v, a) => v - voxelSizeMm[a] / 2),
     max: bbox.worldMaxMm.map((v, a) => v + voxelSizeMm[a] / 2),
   };
+}
+
+/**
+ * Union of the non-zero boxes of several volumes (the visible layers), so a
+ * statistic's voxels outside the anatomy are not cropped away silently.
+ * Volumes without a box are skipped; null when none has one.
+ */
+export async function unionNonzeroBbox(
+  volumeIds: readonly string[],
+): Promise<Pick<VolumeNonzeroBbox, 'worldMinMm' | 'worldMaxMm'> | null> {
+  const boxes = (await Promise.all([...new Set(volumeIds)].map((id) => getNonzeroBbox(id)))).filter(
+    (b): b is VolumeNonzeroBbox => b !== null,
+  );
+  if (boxes.length === 0) return null;
+  const axis = [0, 1, 2] as const;
+  return {
+    worldMinMm: axis.map((a) => Math.min(...boxes.map((b) => Math.min(b.worldMinMm[a], b.worldMaxMm[a])))),
+    worldMaxMm: axis.map((a) => Math.max(...boxes.map((b) => Math.max(b.worldMinMm[a], b.worldMaxMm[a])))),
+  } as Pick<VolumeNonzeroBbox, 'worldMinMm' | 'worldMaxMm'>;
 }

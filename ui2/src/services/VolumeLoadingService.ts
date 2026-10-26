@@ -222,11 +222,12 @@ export class VolumeLoadingService {
           : undefined,
         currentTimepoint: volumeHandle.current_timepoint || 0,
         // No intent in the header: FSL-style names (zstat/tstat) give a
-        // marked guess ("z?"), never a silent statistic.
+        // marked guess ("z (from name)"), never a silent statistic.
         statistic:
           volumeHandle.statistic ??
           (source === 'file' && sourcePath
-            ? (inferStatisticFromName(sourcePath.split(/[\\/]/).pop() ?? '') ?? undefined)
+            ? (inferStatisticFromName(sourcePath.split(/[\\/]/).pop() ?? '', volumeHandle.dtype) ??
+                undefined)
             : undefined),
         isLabelMap: volumeHandle.is_label_map === true ? true : undefined,
       };

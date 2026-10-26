@@ -19,7 +19,15 @@ import type { ReadoutPoint } from '@/hooks/useReadoutPoint';
 /** Readout sampling waits less than the status bar: it follows the pointer. */
 const READOUT_DELAY_MS = 30;
 
-export function LayerReadoutValue({ layerId, point }: { layerId: string; point: ReadoutPoint }) {
+export function LayerReadoutValue({
+  layerId,
+  point,
+  id,
+}: {
+  layerId: string;
+  point: ReadoutPoint;
+  id?: string;
+}) {
   const layer = useLayerStore((s) => s.layers.find((l) => l.id === layerId));
   const dataRange = useLayerStore((s) => s.layerMetadata.get(layerId)?.dataRange);
   const reading = useLayerValueAtWorld(layerId, point.world, READOUT_DELAY_MS);
@@ -33,8 +41,21 @@ export function LayerReadoutValue({ layerId, point }: { layerId: string; point: 
     const id = Math.round(value);
     const entry = id > 0 ? legend.find((e) => e.label_id === id) : undefined;
     const name = entry ? formatRegionLabel(entry) : id > 0 ? `label ${id}` : EMPTY_VALUE;
-    // Region names are text, not numbers: sans like the status Region slot.
-    content = <span className="font-sans">{name}</span>;
+    // Region names are text, not numbers: sans with the region's LUT
+    // swatch, like the status Region slot.
+    content = (
+      <span className="inline-flex min-w-0 items-center gap-1 font-sans">
+        {entry ? (
+          <span
+            aria-hidden
+            data-testid="scene-region-swatch"
+            className="h-1.5 w-1.5 shrink-0 rounded-bf-xs [forced-color-adjust:none]"
+            style={{ background: `rgb(${entry.color[0]}, ${entry.color[1]}, ${entry.color[2]})` }}
+          />
+        ) : null}
+        <span className="truncate">{name}</span>
+      </span>
+    );
     title = `${layer.name}: ${entry ? `${formatRegionLabel(entry)} (label ${id})` : id > 0 ? `label ${id}` : 'background'} ${at}`;
   } else if (value !== null) {
     const units = statisticUnits(layer?.statistic, dataRange);
@@ -51,7 +72,8 @@ export function LayerReadoutValue({ layerId, point }: { layerId: string; point: 
 
   return (
     <span
-      className="max-w-[16ch] shrink-0 truncate text-right font-mono text-bf-xs tabular-nums text-bf-text-secondary"
+      id={id}
+      className="max-w-[14ch] shrink-0 truncate text-right font-mono text-bf-xs tabular-nums text-bf-text-secondary"
       title={title}
       data-testid={`layer-readout-${layerId}`}
     >

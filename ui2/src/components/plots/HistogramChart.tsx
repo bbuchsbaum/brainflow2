@@ -13,6 +13,7 @@ import { localPoint } from '@visx/event';
 import { histogramAxisTicks, type HistogramChartProps, type HistogramBin } from '@/types/histogram';
 import { FilterChip } from '@/components/ui/bf';
 import { displayMinus, formatLayerValue, formatRange } from '@/utils/valueFormat';
+import { useLayerStore } from '@/stores/layerStore';
 
 // The plot well matches the plot body ground (one step below the panel).
 const surfaceColor = 'var(--bf-bg-app)';
@@ -104,6 +105,11 @@ export const HistogramChart: React.FC<HistogramChartProps> = ({
   loading = false,
   error = null,
 }) => {
+  // Label maps are categorical: a mean / SD of label ids means nothing.
+  const isLabelMap = useLayerStore((s) => {
+    const layer = data?.layerId ? s.layers.find((l) => l.id === data.layerId) : undefined;
+    return layer?.type === 'label' || layer?.isLabelMap === true;
+  });
   const {
     tooltipData,
     tooltipLeft,
@@ -367,10 +373,16 @@ export const HistogramChart: React.FC<HistogramChartProps> = ({
 
           {/* Intensity window overlay */}
           {intensityWindow && (
+            // Edges on the pixel grid (+0.5 for the 1px stroke): crisp, and
+            // the same pixels whatever sub-pixel width the chart measured.
             <rect
-              x={xScale(intensityWindow[0])}
-              y={0}
-              width={xScale(intensityWindow[1]) - xScale(intensityWindow[0])}
+              x={Math.round(xScale(intensityWindow[0]) as number) + 0.5}
+              y={0.5}
+              width={Math.max(
+                0,
+                Math.round(xScale(intensityWindow[1]) as number) -
+                  Math.round(xScale(intensityWindow[0]) as number),
+              )}
               height={innerHeight}
               fill={overlayFill}
               stroke={overlayStroke}
@@ -503,8 +515,14 @@ export const HistogramChart: React.FC<HistogramChartProps> = ({
           textAnchor="end"
           style={{ fontVariantNumeric: 'tabular-nums' }}
         >
-          μ={formatLayerValue(data.mean)}  σ={formatLayerValue(data.std)}
-          {data.zerosExcluded ? ' · zeros excluded' : ''}
+          {isLabelMap ? (
+            data.zerosExcluded ? 'background (0) excluded' : null
+          ) : (
+            <>
+              μ={formatLayerValue(data.mean)}  σ={formatLayerValue(data.std)}
+              {data.zerosExcluded ? ' · zeros excluded' : ''}
+            </>
+          )}
         </text>
         )}
 

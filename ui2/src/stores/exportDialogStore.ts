@@ -8,6 +8,13 @@
 import { create } from 'zustand';
 import type { CaptureTarget, ExportFormat } from '@/services/ViewExportService';
 import type { ViewType } from '@/types/coordinates';
+import type { ExportTarget, MosaicTileSpec } from '@/services/export/compositeCapture';
+import {
+  EXPORT_PRESETS,
+  type ExportPreset,
+  type FrameIncludes,
+  type SizeSpec,
+} from '@/services/export/compositeExport';
 
 interface ExportDialogState {
   isOpen: boolean;
@@ -23,6 +30,18 @@ interface ExportDialogState {
   viewType: ViewType | null;
   /** What the last capture shows (the dialog's View line). */
   target: CaptureTarget | null;
+  /** Composited export target (null: resolved from the active view on capture). */
+  exportTarget: ExportTarget | null;
+  /** What the frame includes (P3.8). Kept across openings. */
+  composite: FrameIncludes;
+  /** Output size: a screen multiple or a print width at a dpi. */
+  size: SizeSpec;
+  /** Embed a provenance record in the file. */
+  provenance: boolean;
+  /** Mosaic: this page, or a slice range. */
+  mosaicTiles: MosaicTileSpec;
+  /** Device-pixel size of the last composition. */
+  outputSize: { width: number; height: number } | null;
 
   bytes: Uint8Array | null;
   mime: string | null;
@@ -34,6 +53,13 @@ interface ExportDialogState {
   setTransparentBackground: (value: boolean) => void;
   setSuggestedName: (name: string) => void;
   setViewType: (viewType: ViewType) => void;
+  setExportTarget: (target: ExportTarget) => void;
+  setComposite: (patch: Partial<FrameIncludes>) => void;
+  setSize: (size: SizeSpec) => void;
+  setProvenance: (value: boolean) => void;
+  setMosaicTiles: (spec: MosaicTileSpec) => void;
+  applyPreset: (preset: ExportPreset) => void;
+  setOutputSize: (size: { width: number; height: number } | null) => void;
 
   setCapturing: (value: boolean) => void;
   setError: (message: string | null) => void;
@@ -57,6 +83,13 @@ export const useExportDialogStore = create<ExportDialogState>((set, get) => ({
   nameEdited: false,
   viewType: null,
   target: null,
+  exportTarget: null,
+  // Default: everything but the crosshair, on white (v2 user critic).
+  composite: { ...EXPORT_PRESETS.figure },
+  size: { kind: 'screen', scale: 2 },
+  provenance: false,
+  mosaicTiles: { kind: 'page' },
+  outputSize: null,
 
   bytes: null,
   mime: null,
@@ -65,7 +98,15 @@ export const useExportDialogStore = create<ExportDialogState>((set, get) => ({
   open: () => {
     // Reset capture state but keep last-used options.
     get().clearCapture();
-    set({ isOpen: true, error: null, nameEdited: false, viewType: null, target: null });
+    set({
+      isOpen: true,
+      error: null,
+      nameEdited: false,
+      viewType: null,
+      target: null,
+      exportTarget: null,
+      outputSize: null,
+    });
   },
 
   close: () => {
@@ -77,6 +118,13 @@ export const useExportDialogStore = create<ExportDialogState>((set, get) => ({
   setTransparentBackground: (value) => set({ transparentBackground: value }),
   setSuggestedName: (name) => set({ suggestedName: name, nameEdited: true }),
   setViewType: (viewType) => set({ viewType }),
+  setExportTarget: (exportTarget) => set({ exportTarget }),
+  setComposite: (patch) => set((state) => ({ composite: { ...state.composite, ...patch } })),
+  applyPreset: (preset) => set({ composite: { ...EXPORT_PRESETS[preset] } }),
+  setSize: (size) => set({ size }),
+  setProvenance: (provenance) => set({ provenance }),
+  setMosaicTiles: (mosaicTiles) => set({ mosaicTiles }),
+  setOutputSize: (outputSize) => set({ outputSize }),
 
   setCapturing: (value) => set({ isCapturing: value }),
   setError: (message) => set({ error: message }),

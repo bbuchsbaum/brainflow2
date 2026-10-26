@@ -534,3 +534,16 @@ input[data-numeric-invalid] {
   outline-offset: 0;
 }
 
+
+/* Transparent export preview (ExportImageDialog): a quiet neutral checker
+ * shown only when the export background is Transparent. */
+.bf-checkerboard {
+  background-color: var(--bf-bg-app);
+  background-image: conic-gradient(
+    var(--bf-bg-hover) 25%,
+    transparent 0 50%,
+    var(--bf-bg-hover) 0 75%,
+    transparent 0
+  );
+  background-size: 16px 16px;
+}

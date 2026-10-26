@@ -8,7 +8,7 @@ import { shortLayerLabel, type FramePlane } from './frameFormat';
 import { chooseColorbarHost, useViewportFrameStore } from './viewportFrameStore';
 import type { VolumeMetadata } from '@/stores/layerStore';
 import type { ColorbarLayer } from './ViewportColorbar';
-import { statisticUnits } from '@/utils/statistic';
+import { isInferredStatistic, statisticUnits } from '@/utils/statistic';
 
 /**
  * Overlay classification, matching the Scene stack (`buildSceneStack`): the
@@ -46,6 +46,7 @@ export function resolveColorbarLayer(
     // Value units come from the header's statistic ("z", "t(24)");
     // VolumeMetadata.units is spatial. Nothing is guessed from the file name.
     units: statisticUnits(info?.statistic, metadata?.dataRange),
+    unitsFromName: isInferredStatistic(info?.statistic),
     // One caption rule everywhere (Proposal C): "z · zmap_synthetic", so the
     // bar's identity never depends on selection or workspace.
     nameLabel: shortLayerLabel(name),

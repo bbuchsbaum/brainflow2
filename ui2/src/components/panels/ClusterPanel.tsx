@@ -11,7 +11,7 @@
  * The target layer is the active layer (the same rule as the viewport header,
  * colorbar and status bar), when it is a scalar volume.
  */
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useRef, useState } from 'react';
 import type { ClusterSign, ClusterSummary } from '@brainflow/api';
 import {
   Button,
@@ -30,6 +30,7 @@ import { useClusterStore, type ClusterConnectivity } from '@/stores/clusterStore
 import { useActiveLayer } from '@/utils/activeLayer';
 import { statisticUnits } from '@/utils/statistic';
 import { formatLayerValue, formatWorldMm } from '@/utils/valueFormat';
+import { trueMinus } from '@/components/views/viewportFrame/frameFormat';
 import { shortLayerLabel } from '@/components/views/viewportFrame/frameFormat';
 import {
   clusterMethodsSentence,
@@ -90,11 +91,13 @@ function SortHeader({
   const ariaSort = active ? (sort.dir === 'asc' ? 'ascending' : 'descending') : 'none';
   return (
     <th scope="col" aria-sort={ariaSort} className={cn('px-1 text-right font-normal', className)}>
+      {/* The sort arrow sits BEFORE the label, so the label's right edge
+          lines up with the right-aligned numbers below it. */}
       <button
         type="button"
         title={title}
         className={cn(
-          'inline-flex items-center gap-0.5 rounded-sm px-1 hover:text-foreground',
+          'inline-flex flex-row-reverse items-center gap-0.5 rounded-sm px-1 hover:text-foreground',
           active && 'text-foreground',
           FOCUS_RING_INSET,
         )}
@@ -131,6 +134,20 @@ function MmTriple({ value }: { value: readonly number[] }) {
   );
 }
 
+/** The methods sentence with the statistic variable italic (|z| as in the toolbar). */
+function MethodsSentence({ text, variable }: { text: string; variable: string }) {
+  if (!variable || variable === 'value') return <>{text}</>;
+  const i = text.search(new RegExp(`(?<![\\w])${variable}(?![\\w(])`));
+  if (i < 0) return <>{text}</>;
+  return (
+    <>
+      {text.slice(0, i)}
+      <i className="italic">{variable}</i>
+      {text.slice(i + variable.length)}
+    </>
+  );
+}
+
 export function ClusterPanel() {
   const viewLayers = useViewStateStore((s) => s.viewState.layers);
   const active = useActiveLayer(viewLayers);
@@ -151,7 +168,11 @@ export function ClusterPanel() {
   const selectedId = useClusterStore((s) => s.selectedId);
   const setParams = useClusterStore((s) => s.setParams);
 
-  const layerThreshold = displayThresholdMagnitude(target?.threshold);
+  // f32 thresholds (3.0999999046) shown and used at display precision (3.1).
+  const rawLayerThreshold = displayThresholdMagnitude(target?.threshold);
+  const layerThreshold =
+    rawLayerThreshold === null ? null : Number.parseFloat(rawLayerThreshold.toPrecision(6));
+  const thresholdRef = useRef<HTMLInputElement>(null);
   const threshold = params.linked ? (layerThreshold ?? 0) : params.threshold;
   const thresholdInvalid = threshold === null || !Number.isFinite(threshold) || threshold < 0;
   const minInvalid =
@@ -266,6 +287,7 @@ export function ClusterPanel() {
           |{symbol ? <StatSymbol label={variable} /> : variable}| &gt;
         </label>
         <NumberField
+          ref={thresholdRef}
           id="cluster-threshold"
           fieldClassName="w-[9ch]"
           step={0.1}
@@ -279,7 +301,11 @@ export function ClusterPanel() {
           <Button
             variant="link"
             size="sm"
-            onClick={() => setParams({ linked: true, threshold: null })}
+            onClick={() => {
+              setParams({ linked: true, threshold: null });
+              // The button goes away: focus returns to the threshold field.
+              requestAnimationFrame(() => thresholdRef.current?.focus());
+            }}
             title="Follow the layer's display threshold again"
           >
             Use layer threshold
@@ -291,9 +317,6 @@ export function ClusterPanel() {
           value={params.sign}
           onValueChange={(v) => setParams({ sign: v as ClusterSign })}
         />
-        <span className="text-bf-text-muted" aria-hidden>
-          ·
-        </span>
         <span className="text-bf-text-secondary" id="cluster-connectivity-label">
           Connectivity
         </span>
@@ -357,7 +380,7 @@ export function ClusterPanel() {
           <table
             role="grid"
             aria-label="Clusters"
-            className="w-auto border-collapse font-mono tabular-nums"
+            className="w-full border-collapse font-mono tabular-nums"
           >
             <thead className="sticky top-0 bg-bf-bg-panel text-bf-text-muted">
               <tr className="h-6 text-left font-sans">
@@ -382,11 +405,15 @@ export function ClusterPanel() {
                 <th scope="col" className="px-2 text-right font-normal" title="Peak voxel index on the layer's grid">
                   Peak ijk
                 </th>
-                <th scope="col" className="px-2 text-right font-normal">
-                  CoM x y z (mm)
+                <th
+                  scope="col"
+                  className="px-2 text-right font-normal"
+                  title="Unweighted centroid (mean voxel position); the CSV adds the |value|-weighted COG"
+                >
+                  Centroid x y z (mm)
                 </th>
-                <th scope="col" className="px-2 font-normal">
-                  Region
+                <th scope="col" className="w-full px-2 text-left font-normal" title="Atlas / label region at the cluster's peak voxel">
+                  Region at peak
                 </th>
               </tr>
             </thead>
@@ -426,7 +453,8 @@ export function ClusterPanel() {
                     </td>
                     <td className="px-2 text-right">{c.voxelCount}</td>
                     <td className="px-2 text-right">{Math.round(c.volumeMm3)}</td>
-                    <td className="px-2 text-right">{formatLayerValue(c.peakValue)}</td>
+                    {/* Fixed 2 decimals so the column's decimal points align. */}
+                    <td className="px-2 text-right">{trueMinus(c.peakValue.toFixed(2))}</td>
                     <td className="px-2 text-right">
                       <MmTriple value={c.peakMm} />
                     </td>
@@ -462,7 +490,10 @@ export function ClusterPanel() {
             data-testid="cluster-methods"
             title="Rows sorted by |peak|"
           >
-            {clusterMethodsSentence(result.table, statisticUnits(layer?.statistic, dataRange))}
+            <MethodsSentence
+              text={clusterMethodsSentence(result.table, statisticUnits(layer?.statistic, dataRange))}
+              variable={variable}
+            />
             {result.table.truncated ? ` (first ${result.table.clusters.length} shown)` : ''}
           </span>
         ) : null}

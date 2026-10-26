@@ -1,3 +1,4 @@
+import { useCompareEditTarget } from "@/utils/compareDisplay";
 import React, { useCallback, useId } from "react";
 import { Copy, GripVertical } from "lucide-react";
 import { copyValuesAtCrosshair } from "@/services/readoutCopy";
@@ -58,6 +59,10 @@ export function SceneStack() {
   const setActive = useInspectorSelectionStore((state) => state.setActive);
 
   const summary = buildSummary(volumes, surfaces, mappings);
+  // Unlinked Compare (P3.9): the scene's display edits belong to one panel.
+  const compare = useCompareEditTarget();
+  const meta =
+    compare?.scope === "panel" && summary ? `Panel ${compare.letter} · ${summary}` : summary;
 
   // Reordering a volume changes its z-order: the layer-array order is the
   // render contract (index 0 = base/bottom). All the store + ViewState + render
@@ -84,7 +89,7 @@ export function SceneStack() {
       title="Scene"
       icon={<SceneIcon />}
       defaultOpen
-      meta={summary ?? undefined}
+      meta={meta ?? undefined}
       divider={false}
     >
       <div onKeyDown={roving.onKeyDown}>
@@ -140,22 +145,26 @@ function ReadoutCaption() {
     () => resolveVoxelGridReference(layers, layerMetadata),
     [layers, layerMetadata],
   );
-  let text = "At crosshair";
+  let ijk: string | null = null;
   if (source === "pointer") {
     const index = reference ? worldToVoxelIndex(world, reference) : null;
-    text =
-      index && voxelIndexInBounds(index, reference?.dims)
-        ? `At pointer · ijk ${formatVoxelIndex(index)}`
-        : "At pointer";
+    ijk = index && voxelIndexInBounds(index, reference?.dims) ? formatVoxelIndex(index) : null;
   }
+  // Prose in sans, the voxel numbers in mono.
   return (
     <>
       <span
-        className="ml-auto font-mono tabular-nums"
+        className="ml-auto"
         data-testid="scene-readout-caption"
         title={reference ? `Voxel of ${reference.name}` : undefined}
       >
-        {text}
+        {source === "pointer" ? "At pointer" : "At crosshair"}
+        {ijk ? (
+          <>
+            {" · ijk "}
+            <span className="font-mono tabular-nums">{ijk}</span>
+          </>
+        ) : null}
       </span>
       <IconButton
         size="xs"
@@ -253,10 +262,11 @@ function VolumeSceneGroup({
 
   return (
     <div className="mt-2 first:mt-0">
-      <GroupTitle id={titleId}>
-        Volume view
+      {/* The grid is named by the stable title only, not the caption / Copy. */}
+      <div className="mb-1 flex items-baseline gap-2 px-2 text-bf-xs text-muted-foreground">
+        <span id={titleId}>Volume view</span>
         {items.length > 0 ? <ReadoutCaption /> : null}
-      </GroupTitle>
+      </div>
       {items.length === 0 ? (
         <Notice role={undefined}>No volumes loaded · use Load</Notice>
       ) : items.length === 1 ? (

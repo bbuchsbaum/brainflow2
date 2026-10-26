@@ -29,7 +29,14 @@ interface ViewportHeaderProps {
   showPlane?: boolean;
   /** Keep the (truncated) name even in the compact form: the panel's identity. */
   requireName?: boolean;
+  /** Compare panel letter ("A"), shown first (P3.9). */
+  letter?: string | null;
+  /** The letter's panel receives unlinked Inspector edits: 2px accent underline. */
+  letterActive?: boolean;
 }
+
+/** Room the panel letter takes from the header budget (glyph + gap). */
+const LETTER_W = 16;
 
 /**
  * Viewport header overlay: plane, slice position and layer, drawn inside the
@@ -56,6 +63,8 @@ export function ViewportHeader({
   rangeMm = null,
   showPlane = true,
   requireName = false,
+  letter = null,
+  letterActive = false,
 }: ViewportHeaderProps) {
   // Hysteresis memory: a roomier form needs a few px of spare width before
   // it replaces the compact one, so a pane at the boundary does not toggle.
@@ -64,7 +73,7 @@ export function ViewportHeader({
   // settles in one pass.
   const [previous, setPrevious] = useState<HeaderParts['density'] | null>(null);
   const visible = height >= 90;
-  const maxWidth = headerMaxWidth(width);
+  const maxWidth = headerMaxWidth(width) - (letter ? LETTER_W : 0);
   const parts = visible
     ? headerParts(plane, positionMm, layerName, maxWidth, {
         rangeMm,
@@ -78,7 +87,7 @@ export function ViewportHeader({
     setPrevious((cur) => (cur === density ? cur : density));
   }, [density]);
   if (!parts) return null;
-  const label = [PLANE_NAME[plane], parts.position, parts.fullName]
+  const label = [letter ? `Panel ${letter}` : null, PLANE_NAME[plane], parts.position, parts.fullName]
     .filter(Boolean)
     .join(', ');
 
@@ -91,8 +100,22 @@ export function ViewportHeader({
       aria-label={label}
       onCopy={asciiCopyHandler}
       className="pointer-events-none absolute left-1.5 top-1 z-10 flex min-w-0 select-none items-baseline gap-2 overflow-hidden whitespace-nowrap rounded-bf-xs bg-[color-mix(in_srgb,var(--bf-bg-canvas)_80%,transparent)] text-bf-xs text-bf-text-secondary"
-      style={{ maxWidth: maxWidth + (parts.density === 'compact' ? 3 : 0), padding: parts.density === 'compact' ? '0 2px' : '0 4px' }}
+      style={{
+        maxWidth: maxWidth + (letter ? LETTER_W : 0) + (parts.density === 'compact' ? 3 : 0),
+        padding: parts.density === 'compact' ? '0 2px' : '0 4px',
+      }}
     >
+      {letter && (
+        <span
+          data-testid="viewport-header-letter"
+          data-active={letterActive ? 'true' : undefined}
+          className={`shrink-0 font-semibold text-bf-text-primary ${
+            letterActive ? 'border-b-2 border-bf-accent' : 'border-b-2 border-transparent'
+          }`}
+        >
+          {letter}
+        </span>
+      )}
       {parts.plane && <span className="shrink-0">{parts.plane}</span>}
       <span className="shrink-0 font-mono tabular-nums">{parts.position}</span>
       {parts.name && (

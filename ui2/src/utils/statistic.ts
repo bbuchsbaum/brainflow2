@@ -42,6 +42,16 @@ export function statisticUnits(
   dataRange?: ValueRange,
 ): string | null {
   if (!statistic || !hasValueUnit(statistic)) return null;
+  // A t guessed from the name whose values lie in [0, 1] is a p-like map.
+  if (
+    isInferredStatistic(statistic) &&
+    statistic.kind === 't' &&
+    dataRange &&
+    dataRange.min >= 0 &&
+    dataRange.max <= 1
+  ) {
+    return null;
+  }
   const label = (
     statisticSignAssumed(statistic, dataRange) ? statistic.positiveDataLabel! : statistic.label
   ).trim();
@@ -115,10 +125,13 @@ export function statisticFacts(
         }
       : null,
     { label: 'Intent code', value: intent, mono: !statistic.fromDescription },
-    {
-      label: 'Intent params',
-      value: statistic.intentParams.map((p) => formatParam(p).replace('-', '\u2212')).join(', '),
-    },
+    // All-zero parameters (z, most maps) say nothing: the row is omitted.
+    statistic.intentParams.some((p) => p !== 0)
+      ? {
+          label: 'Intent params',
+          value: statistic.intentParams.map((p) => formatParam(p).replace('-', '\u2212')).join(', '),
+        }
+      : null,
     statistic.dof.length > 0
       ? {
           label: 'Degrees of freedom',
@@ -178,10 +191,8 @@ export function statisticPhrase(
   const units = statisticUnits(statistic, dataRange);
   if (!units) return null;
   const variable = units.replace(/\(.*\)$/, '');
-  if (DOF_KINDS.has(statistic.kind)) {
-    const df = statistic.dof.map(formatParam).join(', ');
-    return { variable, rest: df ? `, df ${df}` : '' };
-  }
+  // Paper notation: "t(24)", "F(2,30)" (StatSymbol italicises the variable).
+  if (DOF_KINDS.has(statistic.kind)) return { variable: units, rest: '' };
   const word = VARIABLE_WORD[statistic.kind];
   return word && variable === statistic.label ? { variable, rest: ` ${word}` } : { variable: units, rest: '' };
 }
@@ -220,22 +231,59 @@ export function statisticVariable(units: string | null | undefined): string {
 /** intent_name of a statistic guessed from the file name (no NIfTI intent). */
 export const INFERRED_FROM_NAME = 'inferred from file name';
 
+/** True for a statistic guessed from the file name ("z (from name)"). */
+export function isInferredStatistic(statistic: StatisticInfo | null | undefined): boolean {
+  return statistic?.intentName === INFERRED_FROM_NAME;
+}
+
+/**
+ * Name qualifiers that mean the map is not the statistic itself: FSL
+ * randomise 1−p maps (`_tfce_corrp_tstat1`, `_vox_p_tstat1`), cluster index
+ * and mask images (`cluster_mask_zstat1`), and the like.
+ */
+const NOT_THE_STATISTIC = new Set([
+  'p',
+  'corrp',
+  'tfce',
+  'vox',
+  'pval',
+  'pvals',
+  'cluster',
+  'clusters',
+  'mask',
+  'index',
+  'size',
+  'clustere',
+  'clusterm',
+]);
+
+const INTEGER_DTYPE = /^(u?int|uint|int)\d*$|^(u8|i8|u16|i16|u32|i32|u64|i64)$/i;
+
 /**
  * A modest guess for FSL-style maps without an intent code: "zstat1" -> z,
- * "tstat2" -> t (no df). Marked as a guess in its label ("z?", "t?") and
- * intent name; nothing else is inferred.
+ * "task_tstat2" -> t (no df). Only when the statistic token is the name's
+ * LAST component and no other component qualifies it (p, corrp, tfce, vox,
+ * cluster, mask, index …), and never for an integer-typed z (a cluster
+ * index). Shown as "z (from name)"; the intent name records the guess. A t
+ * guess whose data lie in [0, 1] is dropped once the range is known
+ * (`statisticUnits`).
  */
-export function inferStatisticFromName(fileName: string): StatisticInfo | null {
-  const lower = fileName.toLowerCase();
-  const kind = /(^|[^a-z])zstat\d*/.test(lower) ? 'z' : /(^|[^a-z])tstat\d*/.test(lower) ? 't' : null;
-  if (!kind) return null;
+export function inferStatisticFromName(fileName: string, dtype?: string | null): StatisticInfo | null {
+  const base = fileName.toLowerCase().replace(/\.(nii\.gz|nii|gz|img|hdr|mgz)$/, '').replace(/\.nii$/, '');
+  const tokens = base.split(/[_\-.\s]+/).filter(Boolean);
+  const last = tokens[tokens.length - 1] ?? '';
+  const match = /^(z|t)stat\d*$/.exec(last);
+  if (!match) return null;
+  if (tokens.slice(0, -1).some((t) => NOT_THE_STATISTIC.has(t))) return null;
+  const kind = match[1] as 'z' | 't';
+  if (dtype && INTEGER_DTYPE.test(dtype.trim())) return null;
   return {
     kind,
     intentCode: 0,
     intentParams: [0, 0, 0],
     intentName: INFERRED_FROM_NAME,
     dof: [],
-    label: `${kind}?`,
+    label: kind,
     fromDescription: false,
     positiveDataLabel: null,
   };

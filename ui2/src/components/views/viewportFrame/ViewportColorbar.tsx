@@ -1,6 +1,6 @@
 import { StatSymbol } from '@/components/ui/StatSymbol';
 import { statisticVariable } from '@/utils/statistic';
-import type { CSSProperties } from 'react';
+import { Fragment, type CSSProperties } from 'react';
 import {
   HIDDEN_BAND_BACKGROUND,
   colorbarTicks,
@@ -23,6 +23,8 @@ export interface ColorbarLayer {
   dataRange?: { min: number; max: number } | null;
   /** Value units, when the layer declares them. */
   units?: string | null;
+  /** The statistic was guessed from the file name: the caption says "(from name)". */
+  unitsFromName?: boolean;
   /**
    * Short layer name for the top caption line ("z · zmap_synthetic"); always
    * set by `resolveColorbarLayer`.
@@ -50,6 +52,8 @@ interface ViewportColorbarProps {
   topReserve?: number;
   /** The layer's value at the crosshair: drawn as a caret with its number. */
   value?: number | null;
+  /** Muted tag after the caption name, e.g. "unlinked" (Compare, P3.9). */
+  tag?: string | null;
 }
 
 const EDGE = 8; // px from the canvas-area edges
@@ -78,7 +82,9 @@ const MAX_BAR_H = 160;
 export const COLORBAR_MIN_WIDTH = 160;
 const CHAR_W = 6.2; // Plex Mono at 10px, approx.
 const NAME_CHAR_W = 5.6; // Plex Sans at 10px, average
-const NAME_MAX_CHARS = 28; // widest name caption before it truncates
+const NAME_MAX_CHARS = 28;
+/** Caption note for a statistic guessed from the file name. */
+const FROM_NAME = ' (from name)'; // widest name caption before it truncates
 const PAD_X = 8; // scrim px-1 both sides
 const PAD_Y = 8; // scrim pt-1.5 + pb-0.5
 
@@ -87,6 +93,38 @@ const PAD_Y = 8; // scrim pt-1.5 + pb-0.5
  * expression and "hidden" (the box widens to the expression rather than
  * breaking it into a third line).
  */
+/**
+ * One footer line ("|z| ≤ 3.1 hidden"): numbers mono, "hidden" in sans and
+ * the statistic variable italic like StatSymbol, so |z| reads the same in the
+ * toolbar, the Inspector and here.
+ */
+function ThresholdLine({ line, variable }: { line: string; variable: string }) {
+  const hidden = line.endsWith('hidden');
+  const expr = hidden ? line.slice(0, -'hidden'.length).trimEnd() : line;
+  const parts =
+    variable && variable !== 'value' ? expr.split(
+          new RegExp(`(?<![\\w])(${variable.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})(?![\\w(])`),
+        ) : [expr];
+  return (
+    <>
+      {expr && (
+        <span className="font-mono tabular-nums">
+          {parts.map((part, i) =>
+            i % 2 === 1 ? (
+              <i key={i} className="font-sans italic">
+                {part}
+              </i>
+            ) : (
+              <Fragment key={i}>{part}</Fragment>
+            ),
+          )}
+        </span>
+      )}
+      {hidden && <span>{expr ? ' hidden' : 'hidden'}</span>}
+    </>
+  );
+}
+
 export function colorbarCaptionLines(
   parts: [string, string] | null,
   maxW: number,
@@ -124,7 +162,10 @@ export function ViewportColorbar({
   avoidPoint,
   topReserve = 0,
   value = null,
+  tag = null,
 }: ViewportColorbarProps) {
+  const tagChars = tag ? tag.length + 3 : 0;
+  const fromNameChars = layer.units && layer.unitsFromName ? FROM_NAME.length : 0;
   const cmap = colormapVerticalGradient(layer.colormap);
   const exprParts = thresholdExpressionParts(layer.threshold, statisticVariable(layer.units));
   const [wMin, wMax] = layer.intensity;
@@ -150,16 +191,22 @@ export function ViewportColorbar({
     // ("−4.58") so the box does not resize as the crosshair moves.
     const valueW = Math.ceil(Math.max(5, valueLabel?.length ?? 0) * CHAR_W);
     const groupW = valueW + VALUE_GAP + CARET_W + BAR_W + MARK_W + LABEL_GAP + labelW;
-    const lines = colorbarCaptionLines(exprParts, Math.max(groupW, 7 * CHAR_W));
+    // The footer starts at the bar's left edge (like the name caption) and
+    // may widen the box to the right, so "|z| ≤ 3.1 hidden" stays one line.
+    const lines = colorbarCaptionLines(exprParts, NAME_MAX_CHARS * CHAR_W);
     // The name caption ("z · zmap_synthetic") may widen the box up to
     // NAME_MAX_CHARS; longer names middle-truncate.
     // The name caption starts at the bar's left edge and may widen the box
     // to the right, up to NAME_MAX_CHARS; longer names middle-truncate.
-    const nameChars = (layer.units ? layer.units.length + 3 : 0) + (layer.nameLabel?.length ?? 0);
+    const nameChars =
+      (layer.units ? layer.units.length + 3 + fromNameChars : 0) +
+      (layer.nameLabel?.length ?? 0) +
+      tagChars;
     const barLeft = valueW + VALUE_GAP + CARET_W;
     const nameW = Math.ceil(Math.min(nameChars, NAME_MAX_CHARS) * NAME_CHAR_W);
     const captionW = Math.ceil(Math.max(0, ...lines.map((l) => l.length * CHAR_W)));
-    const boxW = Math.max(groupW, captionW, nameChars ? barLeft + nameW : 0) + PAD_X;
+    const boxW =
+      Math.max(groupW, lines.length ? barLeft + captionW : 0, nameChars ? barLeft + nameW : 0) + PAD_X;
     return { ticks, labelW, valueW, boxW, lines };
   };
   const nominal = measure(MAX_BAR_H);
@@ -245,7 +292,7 @@ export function ViewportColorbar({
   const caretLabelTop = caretY === null ? null : labelTop(caretY);
 
   const ariaLabel = [
-    `Colorbar for ${layer.name}: ${cmap.label}`,
+    `Colorbar for ${layer.name}${tag ? ` (${tag})` : ''}: ${cmap.label}`,
     `${formatRange(wMin, wMax)}${layer.units ? ` ${layer.units}` : ''}`,
     exprParts ? `${exprParts.join(' ')} hidden` : null,
     valueLabel ? `value at crosshair ${valueLabel}` : null,
@@ -311,6 +358,9 @@ export function ViewportColorbar({
           {layer.units && (
             <StatSymbol label={layer.units} className="text-bf-text-secondary" />
           )}
+          {layer.units && layer.unitsFromName && (
+            <span className="text-bf-text-muted">{FROM_NAME}</span>
+          )}
           {layer.units && layer.nameLabel && <span className="text-bf-text-muted"> · </span>}
           {layer.nameLabel && (
             <span className="text-bf-text-muted">
@@ -319,12 +369,22 @@ export function ViewportColorbar({
                 Math.max(
                   1,
                   Math.floor(
-                    (boxW - PAD_X - nameIndent - (layer.units ? (layer.units.length + 3) * NAME_CHAR_W : 0)) /
+                    (boxW -
+                      PAD_X -
+                      nameIndent -
+                      (tagChars + fromNameChars) * NAME_CHAR_W -
+                      (layer.units ? (layer.units.length + 3) * NAME_CHAR_W : 0)) /
                       NAME_CHAR_W,
                   ),
                 ),
                 7,
               ) ?? layer.nameLabel}
+            </span>
+          )}
+          {tag && (
+            <span className="text-bf-text-muted" data-testid="viewport-colorbar-tag">
+              {' · '}
+              {tag}
             </span>
           )}
         </div>
@@ -413,12 +473,13 @@ export function ViewportColorbar({
       {lines.length > 0 && (
         <div
           data-testid="viewport-colorbar-caption"
-          className="whitespace-nowrap text-right"
-          style={{ marginTop: CAPTION_GAP }}
+          className="whitespace-nowrap text-left"
+          // Under the bar, aligned with it and with the name caption.
+          style={{ marginTop: CAPTION_GAP, paddingLeft: nameIndent }}
         >
           {lines.map((line) => (
             <div key={line} className="leading-none" style={{ height: LINE_H }}>
-              <span className={line === 'hidden' ? '' : 'font-mono tabular-nums'}>{line}</span>
+              <ThresholdLine line={line} variable={statisticVariable(layer.units)} />
             </div>
           ))}
         </div>

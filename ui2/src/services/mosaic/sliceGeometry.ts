@@ -49,3 +49,6 @@ export function sliceIndexRange(
   const last = Math.min(count - 1, Math.floor((b - min) / step + 1e-6));
   return first <= last ? { first, last } : all;
 }
+
+/** Width (px) of the mosaic's shared colorbar column beside the tiles. */
+export const MOSAIC_COLORBAR_COLUMN_PX = 112;

@@ -6,6 +6,7 @@ import {
   statisticSignAssumed,
   splitStatisticSymbol,
   statisticPhrase,
+  isInferredStatistic,
   statisticLongName,
   inferStatisticFromName,
   statisticVariable,
@@ -89,10 +90,10 @@ describe('splitStatisticSymbol', () => {
 describe('statistic wording (v1 critics)', () => {
   it('phrases the Data card row', () => {
     expect(statisticPhrase(stat({}))).toEqual({ variable: 'z', rest: ' score' });
-    expect(statisticPhrase(T24)).toEqual({ variable: 't', rest: ', df 24' });
+    expect(statisticPhrase(T24)).toEqual({ variable: 't(24)', rest: '' });
     expect(statisticPhrase(stat({ kind: 'f', intentCode: 4, dof: [2, 30], label: 'F(2,30)' }))).toEqual({
-      variable: 'F',
-      rest: ', df 2, 30',
+      variable: 'F(2,30)',
+      rest: '',
     });
     expect(statisticPhrase(stat({ kind: 'none', label: '' }))).toBeNull();
   });
@@ -106,10 +107,36 @@ describe('statistic wording (v1 critics)', () => {
   });
 
   it('guesses z / t from FSL names only, and marks the guess', () => {
-    expect(inferStatisticFromName('task-motor_zstat1.nii.gz')).toMatchObject({ kind: 'z', label: 'z?', intentCode: 0 });
-    expect(inferStatisticFromName('tstat2.nii.gz')).toMatchObject({ kind: 't', label: 't?', dof: [] });
+    const z = inferStatisticFromName('task-motor_zstat1.nii.gz', 'f32');
+    expect(z).toMatchObject({ kind: 'z', label: 'z', intentCode: 0 });
+    expect(isInferredStatistic(z)).toBe(true);
+    expect(inferStatisticFromName('tstat2.nii.gz')).toMatchObject({ kind: 't', label: 't', dof: [] });
+    expect(inferStatisticFromName('thresh_zstat1.nii.gz')).toMatchObject({ kind: 'z' });
     expect(inferStatisticFromName('cope1.nii.gz')).toBeNull();
     expect(inferStatisticFromName('sub-01_T1w.nii.gz')).toBeNull();
+  });
+
+  it('does not guess for FSL randomise p maps or cluster images (v2 fidelity)', () => {
+    for (const name of [
+      'grot_tfce_corrp_tstat1.nii.gz',
+      'grot_vox_p_tstat1.nii.gz',
+      'grot_tfce_p_tstat2.nii.gz',
+      'grot_vox_corrp_tstat1.nii.gz',
+      'cluster_mask_zstat1.nii.gz',
+      'cluster_index_zstat1.nii.gz',
+      'zstat1_mask.nii.gz',
+    ]) {
+      expect(inferStatisticFromName(name, 'f32'), name).toBeNull();
+    }
+    // Integer-typed z: a cluster index, not a z map.
+    expect(inferStatisticFromName('zstat1.nii.gz', 'i16')).toBeNull();
+    expect(inferStatisticFromName('zstat1.nii.gz', 'u8')).toBeNull();
+  });
+
+  it('drops a name-guessed t whose values lie in [0, 1]', () => {
+    const t = inferStatisticFromName('tstat1.nii.gz', 'f32');
+    expect(statisticUnits(t, { min: 0, max: 0.998 })).toBeNull();
+    expect(statisticUnits(t, { min: -3.2, max: 5.1 })).toBe('t');
   });
 
   it('names the threshold variable', () => {

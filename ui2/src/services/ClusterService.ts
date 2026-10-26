@@ -7,7 +7,8 @@
  * Backend semantics (core/api_bridge/src/clusters.rs): strict thresholds
  * (positive `v > t`, negative `v < −t`), each sign labelled separately,
  * 6/18/26-connectivity, rows sorted by |peak| descending, peak = the voxel
- * with the largest |value|, centre of mass = unweighted mean voxel position.
+ * with the largest |value|, centroid = unweighted mean voxel position, COG =
+ * |value|-weighted mean (CSV).
  */
 import type {
   ClusterSign,
@@ -23,7 +24,14 @@ import { useLayerStore } from '@/stores/layerStore';
 import { useViewStateStore } from '@/stores/viewStateStore';
 import { formatRegionLabel, resolveAtlasRegionAtWorld } from './atlasRegionLookup';
 import { formatTauriError } from '@/utils/formatTauriError';
-import { formatLayerValueAscii, formatWorldMmAscii } from '@/utils/valueFormat';
+import {
+  formatLayerValue,
+  formatLayerValueAscii,
+  formatWorldMm,
+  formatWorldMmAscii,
+} from '@/utils/valueFormat';
+import { statisticUnits } from '@/utils/statistic';
+import { announce } from '@/utils/announce';
 import { colormaps } from '@/components/ui/colormapOptions';
 
 export interface ComputeClustersInput {
@@ -84,6 +92,10 @@ export class ClusterService {
         regions,
         computedAt: Date.now(),
       });
+      const voxels = table.clusters.reduce((n, c) => n + c.voxelCount, 0);
+      announce(
+        `${table.totalClusters} cluster${table.totalClusters === 1 ? '' : 's'}, ${voxels} voxel${voxels === 1 ? '' : 's'}`,
+      );
       return table;
     } catch (error) {
       if (request === this.seq) {
@@ -126,10 +138,30 @@ export class ClusterService {
     return this.bridge().invoke<VoxelLocation | null>('volume_extremum', { request });
   }
 
-  /** Move the crosshair to the max / min voxel; returns the location. */
+  /**
+   * Move the crosshair to the max / min voxel; returns the location. When it
+   * lands in a row of the current table (the same layer), that row becomes
+   * selected. The move is announced in the polite live region.
+   */
   async goToExtremum(layerId: string, kind: ExtremumKind): Promise<VoxelLocation | null> {
     const location = await this.extremum(layerId, kind);
-    if (location) await useViewStateStore.getState().setCrosshair([...location.worldMm], true);
+    if (location) {
+      await useViewStateStore.getState().setCrosshair([...location.worldMm], true);
+      const { result, select } = useClusterStore.getState();
+      if (result?.layerId === layerId) {
+        const hit = result.table.clusters.find(
+          (c) => c.peakIjk.every((v, i) => v === location.ijk[i]),
+        );
+        if (hit) select(hit.id);
+      }
+      const layer = useLayerStore.getState().layers.find((l) => l.id === layerId);
+      const units = statisticUnits(layer?.statistic, useLayerStore.getState().layerMetadata.get(layerId)?.dataRange);
+      announce(
+        `Moved to ${kind} ${units ? `${stripDof(units)} ` : ''}${formatLayerValue(location.value)} at ${location.worldMm
+          .map((v) => formatWorldMm(v))
+          .join(', ')} mm`,
+      );
+    }
     return location;
   }
 }
@@ -190,11 +222,14 @@ export function clusterTableCsv(
     'peak_i',
     'peak_j',
     'peak_k',
-    'com_x_mm',
-    'com_y_mm',
-    'com_z_mm',
+    'centroid_x_mm',
+    'centroid_y_mm',
+    'centroid_z_mm',
+    'cog_abs_weighted_x_mm',
+    'cog_abs_weighted_y_mm',
+    'cog_abs_weighted_z_mm',
     'mean_value',
-    'region',
+    'region_at_peak',
   ];
   const rows = table.clusters.map((c, i) => [
     c.id,
@@ -205,10 +240,15 @@ export function clusterTableCsv(
     ...mm(c.peakMm),
     ...c.peakIjk,
     ...mm(c.centroidMm),
+    ...mm(c.weightedCentroidMm ?? c.centroidMm),
     Number(c.meanValue.toFixed(4)),
     regions[i] ?? null,
   ]);
-  const comment = `# ${meta.layerName}: ${clusterMethodsSentence(table, meta.symbol).replace(/−/g, '-')}`;
+  // The comment line is ASCII too (">=", "-"), like the numbers.
+  const comment = `# ${meta.layerName}: ${clusterMethodsSentence(table, meta.symbol)
+    .replace(/[−\u2212]/g, '-')
+    .replace(/≥/g, '>=')
+    .replace(/≤/g, '<=')}`;
   return (
     [comment, header.join(','), ...rows.map((r) => r.map(csvCell).join(','))].join('\n') + '\n'
   );

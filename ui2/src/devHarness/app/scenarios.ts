@@ -87,6 +87,32 @@ async function layerIdForPath(path: string): Promise<string> {
  * Select a volume layer the way a SceneStack row click does: the Inspector
  * follows `inspectorSelectionStore`, which mirrors into `layerStore`.
  */
+/**
+ * Several loads finish in any order, so their "Loaded …" toasts stack (and
+ * get painted) differently run to run: once every backend call has settled,
+ * dismiss them. Toast placement stays covered by the single-load specimens
+ * (e.g. volume), whose one toast is deterministic.
+ */
+async function dismissLoadToasts(): Promise<void> {
+  await until(() => window.__harnessLog.pending === 0, 'backend calls settled');
+  const { getEventBus } = await import('@/events/EventBus');
+  getEventBus().emit('ui.notification.clear', {});
+  await frames(2);
+}
+
+/** Accessible name of an element: aria-labelledby texts, else aria-label, else its text. */
+function accessibleName(el: Element): string {
+  const ids = el.getAttribute('aria-labelledby');
+  if (ids) {
+    return ids
+      .split(/\s+/)
+      .map((id) => document.getElementById(id)?.textContent?.trim() ?? '')
+      .filter(Boolean)
+      .join(' ');
+  }
+  return (el.getAttribute('aria-label') ?? el.textContent ?? '').trim();
+}
+
 async function selectLayer(path: string): Promise<string> {
   const { useLayerStore } = await import('@/stores/layerStore');
   const { useInspectorSelectionStore } = await import('@/stores/inspectorSelectionStore');
@@ -346,7 +372,14 @@ async function clientPointOf(
 
 /** Pointer hover over a world point of a slice view (the events useHoverInfo listens to). */
 async function hoverWorld(view: 'axial' | 'sagittal' | 'coronal', world: [number, number, number]) {
-  const { x, y, canvas } = await clientPointOf(view, world);
+  const exact = await clientPointOf(view, world);
+  // A synthetic MouseEvent truncates clientX/Y to whole CSS pixels (as real
+  // mouse events report them), so dispatch at the nearest whole pixel; the
+  // app reads exactly that pixel (v2 fidelity: the 0.6 mm "offset" was the
+  // dropped fraction, not the app's placement).
+  const { canvas } = exact;
+  const x = Math.round(exact.x);
+  const y = Math.round(exact.y);
   const init = { clientX: x, clientY: y, bubbles: true, cancelable: true, composed: true, view: window };
   canvas.dispatchEvent(new PointerEvent('pointerover', init));
   canvas.dispatchEvent(new MouseEvent('mouseover', init));
@@ -358,6 +391,23 @@ async function hoverWorld(view: 'axial' | 'sagittal' | 'coronal', world: [number
 
 async function enterDisplayMode(label: 'Compare' | 'Mosaic'): Promise<void> {
   await clickByText('[data-testid="display-mode-selector"] button', label);
+}
+
+/** The export dialog has composed (and shows) its current options. */
+async function exportSettled(): Promise<void> {
+  const { useExportDialogStore } = await import('@/stores/exportDialogStore');
+  await frames(2);
+  await until(() => {
+    const state = useExportDialogStore.getState();
+    return !state.isCapturing && (state.imageUrl !== null || state.error !== null);
+  }, 'export composition settled');
+  const error = useExportDialogStore.getState().error;
+  if (error) throw new Error(`export failed: ${error}`);
+  await until(
+    () => (document.querySelector<HTMLImageElement>('img[alt="Captured view preview"]')?.complete ?? false),
+    'export preview image loaded',
+  );
+  await frames(3);
 }
 
 const P3_DRIVERS: Record<string, (ctx: ScenarioContext) => Promise<void>> = {
@@ -526,7 +576,75 @@ const P3_DRIVERS: Record<string, (ctx: ScenarioContext) => Promise<void>> = {
     const { useExportDialogStore } = await import('@/stores/exportDialogStore');
     await until(() => useExportDialogStore.getState().isOpen, 'export dialog store open');
     await until(() => !useExportDialogStore.getState().isCapturing, 'export capture settled');
-    await frames(5);
+    // P3.8: "As shown" first, then the "Figure" preset (no crosshair; slice
+    // position, letters, colorbar and scale bar on white) at 89 mm, 300 dpi.
+    await clickWhere(
+      '[role="dialog"] [role="radio"]',
+      (el) => el.textContent?.trim() === 'As shown',
+      "export preset 'As shown'",
+    );
+    await exportSettled();
+    await clickWhere(
+      '[role="dialog"] [role="radio"]',
+      (el) => el.textContent?.trim() === 'Figure',
+      "export preset 'Figure'",
+    );
+    await clickWhere('[role="dialog"] [role="radio"]', (el) => el.textContent?.trim() === 'Print', "size 'Print'");
+    await exportSettled();
+    noteStep(`export: ${document.querySelector('[data-testid="export-size"]')?.textContent}`);
+  },
+  // P3.8: the mosaic exported as one image (tiles in grid order, one colorbar).
+  'export-mosaic': async () => {
+    await p3Base();
+    await loadZ();
+    await navigateTo(Z_PEAK);
+    await enterDisplayMode('Mosaic');
+    await until(
+      () => document.querySelectorAll('[data-testid="mosaic-tile-label"]').length > 0,
+      'mosaic tiles labelled',
+    );
+    await frames(10);
+    const { useExportDialogStore } = await import('@/stores/exportDialogStore');
+    // A slice range (every 3rd slice of the cropped brain) at a two-column
+    // print width: tiles in grid order, one colorbar, one scale bar.
+    const { currentMosaicExportSource } = await import('@/services/export/compositeCapture');
+    const source = currentMosaicExportSource();
+    const sampling = source?.sampling;
+    if (!sampling) throw new Error('mosaic export source has no sampling');
+    const store = useExportDialogStore.getState();
+    store.applyPreset('figure');
+    store.setSize({ kind: 'print', widthMm: 183, dpi: 300 });
+    store.setMosaicTiles({
+      kind: 'range',
+      fromMm: sampling.min + sampling.first * sampling.step,
+      toMm: sampling.min + sampling.last * sampling.step,
+      every: 3,
+    });
+    store.open();
+    await exportSettled();
+    noteStep(`export: ${document.querySelector('[data-testid="export-size"]')?.textContent}`);
+  },
+  // P3.8 (v2 function critic): a save that the backend rejects with a plain
+  // string shows the reason inline (role=alert) and keeps the dialog open.
+  'export-error': async () => {
+    await p3Base();
+    await loadZ();
+    await navigateTo(Z_PEAK);
+    activeBackend().setHandler('save_image_bytes', () => {
+      throw 'Permission denied: /Volumes/readonly/figure.png';
+    });
+    const { useExportDialogStore } = await import('@/stores/exportDialogStore');
+    useExportDialogStore.getState().open();
+    await exportSettled();
+    await clickWhere('[role="dialog"] button', (el) => el.textContent?.trim() === 'Save…', "'Save…'");
+    await until(() => !!document.querySelector('[data-testid="export-error"]'), 'export error alert');
+    noteStep(`export error: ${document.querySelector('[data-testid="export-error"]')?.textContent}`);
+    // The rejection was the scenario's own: keep it out of the error check.
+    const log = window.__harnessLog;
+    const expected = log.errors.filter((e) => e.cmd === 'save_image_bytes');
+    log.errors = log.errors.filter((e) => e.cmd !== 'save_image_bytes');
+    noteStep(`expected backend rejections: ${expected.length}`);
+    await frames(3);
   },
   // P3.9: Compare with the same overlay in both panels (each panel shows T1 + z).
   'compare-linked': async () => {
@@ -550,6 +668,30 @@ const P3_DRIVERS: Record<string, (ctx: ScenarioContext) => Promise<void>> = {
     }
     noteStep('compare panels: T1 + z in each');
     await navigateTo(Z_PEAK);
+    // P3.9: unlink the display, make panel B active and give it its own
+    // threshold (|z| <= 4.5 hidden; panel A keeps the shared 3.1).
+    await clickWhere(
+      '[data-testid="compare-link-mode"] [role="radio"]',
+      (el) => el.textContent?.trim() === 'Window',
+      "Link 'Window'",
+    );
+    await until(
+      () => useComparisonStore.getState().linkModes.get([...useComparisonStore.getState().panels.keys()][0]) === 'window',
+      'threshold and colormap per panel',
+    );
+    const panelB = document.querySelector<HTMLElement>('[data-panel-letter="B"]');
+    if (!panelB) throw new Error('compare panel B not found');
+    panelB.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+    await until(() => panelB.dataset.activePanel === 'true', 'panel B active');
+    const [workspaceId, panels] = [...useComparisonStore.getState().panels.entries()][0];
+    useComparisonStore.getState().setPanelOverride(workspaceId, panels[1].id, z, 'threshold', [-4.5, 4.5]);
+    await selectLayer(ZMAP_PATH);
+    await until(
+      () => !!document.querySelector('[data-testid="override-threshold"]'),
+      "Inspector 'Panel B only' threshold mark",
+    );
+    noteStep(`compare: ${document.querySelector('[data-testid="compare-edit-bar"]')?.textContent}`);
+    await frames(10);
   },
   // P3.11: empty workspaces with the next action.
   'empty-compare': async () => {
@@ -622,6 +764,7 @@ const DRIVERS: Record<string, (ctx: ScenarioContext) => Promise<void>> = {
         ),
       'integrated workspace tab active',
     );
+    await dismissLoadToasts();
   },
   mosaic: async () => {
     await baseVolume();
@@ -742,10 +885,13 @@ const DRIVERS: Record<string, (ctx: ScenarioContext) => Promise<void>> = {
     await DRIVERS['volume-surface'](ctx);
     // Inspector scene stack: click the surface geometry row like a user.
     await clickWhere(
-      '[role="row"][aria-label]',
-      (el) => el.getAttribute('aria-label')!.startsWith('lh.inflated.gii,'),
+      '[role="row"]',
+      // The row's accessible name ("<layer>, <kind>, <value>", from
+      // aria-labelledby), as assistive tech and a user read it.
+      (el) => accessibleName(el).startsWith('lh.inflated.gii '),
       "scene row 'lh.inflated.gii'",
     );
+
     await clickByText('button', 'Surface settings…');
     const popover = () => document.querySelector<HTMLElement>('[data-radix-popper-content-wrapper]');
     await until(() => !!popover(), 'surface settings popover');

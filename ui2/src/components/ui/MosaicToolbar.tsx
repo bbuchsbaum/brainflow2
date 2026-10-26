@@ -5,7 +5,6 @@ import { cn } from '@/utils/cn';
 // Export toolbar height for consistent spacing
 export const MOSAIC_TOOLBAR_HEIGHT = 40; // px
 
-const AXIS_LABEL = { axial: 'Axial', sagittal: 'Sagittal', coronal: 'Coronal' } as const;
 const AXIS_OPTIONS = [
   { value: 'axial', label: 'Axial' },
   { value: 'sagittal', label: 'Sagittal' },
@@ -38,6 +37,8 @@ interface MosaicToolbarProps {
    * shows the 0-based index, like the ijk readout.
    */
   sliceLabel?: (slice: number) => string;
+  /** World range of the tiles on this page ("z 24.5–54.5"), beside the pager. */
+  pageRange?: string;
   className?: string;
 }
 
@@ -56,6 +57,7 @@ export function MosaicToolbar({
   totalSlices,
   onSliceChange,
   sliceLabel,
+  pageRange,
   className
 }: MosaicToolbarProps) {
   const label = (v: number) => (sliceLabel ? sliceLabel(Math.round(v)) : String(Math.round(v)));
@@ -98,11 +100,11 @@ export function MosaicToolbar({
       {/* Slice slider: bf Slider (index 0..n-1, one step per slice). */}
       <div className="flex min-w-0 max-w-[300px] flex-1 items-center gap-2">
         <span className="whitespace-nowrap text-bf-xs text-muted-foreground" aria-hidden>
-          Slice
+          Crosshair
         </span>
         <Slider
           className="min-w-0 flex-1"
-          label="Mosaic slice position"
+          label="Crosshair slice"
           min={0}
           max={Math.max(0, totalSlices - 1)}
           step={1}
@@ -111,16 +113,25 @@ export function MosaicToolbar({
           value={currentSlice}
           disabled={totalSlices <= 1}
           showValue
-          // The slice's world position ("z 50.5"), as on the tiles: no 1-based
-          // index next to the 0-based ijk readout.
+          // The crosshair slice's world position ("z 50.5"), as on its tile;
+          // the page follows it.
           format={(v) => label(v)}
-          valueText={(v) => `${AXIS_LABEL[axis]} slice at ${label(v)} mm`}
+          valueText={(v) => `${label(v)} mm`}
           onValueChange={(v) => {
             const next = Math.round(v);
             if (next !== currentSlice) onSliceChange(next);
           }}
         />
       </div>
+
+      {pageRange ? (
+        <span
+          className="whitespace-nowrap font-mono text-bf-xs tabular-nums text-muted-foreground"
+          data-testid="mosaic-page-range"
+        >
+          {pageRange}
+        </span>
+      ) : null}
 
       {/* Page navigation: bf Pager ("Previous page" / "Next page"). */}
       <Pager

@@ -16,7 +16,7 @@ import { getViewPlaneService } from '@/services/ViewPlaneService';
 import { createDebugLogger } from '@/utils/debug';
 import { slicePositionAtIndex } from '@/services/mosaic/sliceGeometry';
 import { decodeBatchRenderBuffer } from '@/services/mosaic/decodeBatchRenderBuffer';
-import { brainFraming, getNonzeroBbox } from '@/services/mosaic/brainBounds';
+import { brainFraming, unionNonzeroBbox } from '@/services/mosaic/brainBounds';
 
 const debug = createDebugLogger('mosaic-render');
 
@@ -56,15 +56,21 @@ export class MosaicRenderService {
     let pending = byAxis.get(axis);
     if (!pending) {
       pending = (async () => {
-        const reference = base.layers.find(layer => layer.visible && layer.opacity > 0 && layer.volumeId);
+        // One reference rule with voxel snapping and ijk: the bottom volume
+        // layer, visible or not (utils/voxelSnap.ts).
+        const reference = base.layers.find(layer => layer.volumeId);
         if (!reference?.volumeId) throw new Error('No reference volume for montage');
         const volumeIds = [...new Set(base.layers.filter(layer => layer.visible && layer.opacity > 0 && layer.volumeId).map(layer => layer.volumeId!))];
+        if (volumeIds.length === 0) volumeIds.push(reference.volumeId);
         const [allBounds, meta, brain] = await Promise.all([
           Promise.all(volumeIds.map(id => this.apiService.getVolumeBounds(id))),
           this.apiService.querySliceAxisMeta(reference.volumeId, axis),
-          getNonzeroBbox(reference.volumeId),
+          // Crop to the union of the visible layers' non-zero voxels.
+          unionNonzeroBbox(volumeIds),
         ]);
-        const bounds = allBounds[0];
+        const refIndex = volumeIds.indexOf(reference.volumeId);
+        const bounds =
+          refIndex >= 0 ? allBounds[refIndex] : await this.apiService.getVolumeBounds(reference.volumeId);
         // Frame the reference brain (its non-zero voxels, padded to voxel
         // edges) so it fills the tile (P3.7); without a box, the union of the
         // visible volumes. Only the in-plane framing changes: slice positions

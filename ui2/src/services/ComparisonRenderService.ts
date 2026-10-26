@@ -7,6 +7,8 @@
  * the same pattern as MosaicRenderService.
  */
 
+import { linkModeOf, panelDisplayLayers } from '@/utils/compareDisplay';
+import type { CompareLinkMode } from '@/types/comparison';
 import { getApiService } from '@/services/apiService';
 import { useViewStateStore } from '@/stores/viewStateStore';
 import { useRenderStateStore } from '@/stores/renderStateStore';
@@ -88,7 +90,8 @@ export class ComparisonRenderService {
     panel: ComparisonPanelConfig,
     viewPlane: ViewPlane,
     crosshair?: WorldCoordinates,
-    underlayLayerId: string | null = null
+    underlayLayerId: string | null = null,
+    linkMode: CompareLinkMode = 'all'
   ): ViewState {
     return {
       ...globalViewState,
@@ -102,7 +105,8 @@ export class ComparisonRenderService {
         ...globalViewState.views,
         [panel.viewType]: viewPlane,
       },
-      layers: globalViewState.layers.map(layer => ({
+      // Unlinked display (P3.9): the panel's own window/threshold/colormap.
+      layers: panelDisplayLayers(globalViewState.layers, panel, linkMode).map(layer => ({
         ...layer,
         visible:
           panel.visibleLayerIds.has(layer.id) || layer.id === underlayLayerId
@@ -279,7 +283,7 @@ export class ComparisonRenderService {
    */
   private async renderSinglePanel(
     globalViewState: ViewState,
-    { panel, width, height }: ComparisonRenderRequest
+    { workspaceId, panel, width, height }: ComparisonRenderRequest
   ): Promise<void> {
     const tag = comparisonTag(panel.id, panel.viewType);
     const requestId = this.nextRequestId++;
@@ -318,7 +322,8 @@ export class ComparisonRenderService {
         panel,
         panelView,
         panelCrosshair,
-        underlayLayerId
+        underlayLayerId,
+        linkModeOf(useComparisonStore.getState(), workspaceId)
       );
 
       const imageBitmap = await this.apiService.applyAndRenderViewState(

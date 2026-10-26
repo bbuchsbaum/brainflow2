@@ -527,7 +527,7 @@ export function GoldenLayoutRoot() {
       }
       // Clusters are a bottom-dock tab (P3.5), never a centre or side pane.
       if (panelType === 'ClusterPanel') {
-        openDockTab('clusters');
+        openDockTab('clusters', { focus: true });
         return;
       }
       console.log(`[GoldenLayoutRoot] Adding panel: ${panelType}`);

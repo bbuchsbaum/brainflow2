@@ -67,15 +67,27 @@ const WIDTHS: Record<string, [string, string]> = {
   coordSys: ["22ch", "22ch"],
   crosshair: ["32ch", "32ch"],
   voxel: ["19ch", "19ch"],
-  mouse: ["40ch", "12ch"],
-  layer: ["40ch", "16ch"],
-  value: ["19ch", "15ch"],
-  region: ["30ch", "12ch"],
+  // Fixed so the bar does not jitter while the pointer moves.
+  mouse: ["34ch", "12ch"],
+  // Free text: content-sized (no reserved blank), capped.
+  layer: ["auto", "10ch"],
+  // "t(24) −10.25" fits; no wide empty reserve.
+  value: ["13ch", "11ch"],
+  region: ["auto", "16ch"],
 };
 
-/** Shrink order when the bar is narrow: the mouse readout (often "--") gives
- *  way first, then region, and the selected layer name last. */
-const SHRINK: Record<string, number> = { mouse: 4, region: 2, layer: 1 };
+/** Content-sized slots stop growing here (a long file name). */
+const MAX_WIDTHS: Record<string, string> = { layer: "40ch", region: "32ch" };
+
+/**
+ * Shrink priority when the bar is narrow (v2 critics): the layer name
+ * truncates first, then the mouse readout; the region keeps its content
+ * width (up to its cap) once the empty time slot has been hidden (`StatusBar`).
+ */
+const SHRINK: Record<string, number> = { layer: 12, mouse: 3 };
+
+/** Below this bar width an empty ("No time axis") time slot is hidden. */
+const HIDE_EMPTY_TIME_BELOW_PX = 1440;
 
 /** Developer telemetry lives behind the Diagnostics button, not in the bar. */
 export const DIAGNOSTIC_SLOT_IDS = ["atlas", "fps", "gpu"] as const;
@@ -106,8 +118,9 @@ const SlotFrame = ({ id, value, title, onClick, valueStyle, valueClassName }: Sl
     <div
       className={`status-slot${isClickable ? " cursor-pointer hover:text-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring" : ""}`}
       style={{
-        width: basis,
+        width: basis === "auto" ? undefined : basis,
         minWidth: min,
+        maxWidth: MAX_WIDTHS[id],
         flex: `0 ${SHRINK[id] ?? 0} ${basis}`,
       }}
       data-slot={id}
@@ -455,9 +468,28 @@ export function StatusBar({
     }
   }, [layers]);
 
+  // An empty time axis gives its room to the readouts on a narrow bar.
+  const barRef = React.useRef<HTMLDivElement>(null);
+  const [barWidth, setBarWidth] = React.useState<number | null>(null);
+  React.useLayoutEffect(() => {
+    const el = barRef.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const update = () => {
+      const w = Math.round(el.getBoundingClientRect().width);
+      setBarWidth((prev) => (prev === w ? prev : w));
+    };
+    update();
+    const observer = new ResizeObserver(update);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+  const showTime =
+    has4DVolume || barWidth === null || barWidth === 0 || barWidth >= HIDE_EMPTY_TIME_BELOW_PX;
+
   return (
     // Copying a readout puts ASCII minus on the clipboard.
     <div
+      ref={barRef}
       className={`status-bar ${className}`}
       onCopy={asciiCopyHandler}
       role="contentinfo"
@@ -488,8 +520,9 @@ export function StatusBar({
           ),
         )}
 
-      {/* Time slider always visible; disabled when no 4D */}
-      <TimeSlider className="flex-1 max-w-sm" disabled={!has4DVolume} />
+      {/* Time slider: disabled without a 4D volume, and hidden then on a
+          narrow bar (the readouts keep their room). */}
+      {showTime ? <TimeSlider className="flex-1 max-w-sm" disabled={!has4DVolume} /> : null}
 
       {/* Progress indicator */}
       <StatusBarProgress />

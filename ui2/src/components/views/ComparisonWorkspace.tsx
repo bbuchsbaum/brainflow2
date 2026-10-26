@@ -23,7 +23,13 @@ import { findNewLayerId } from '@/utils/layerLoadResult';
 import { useWorkspaceStore } from '@/stores/workspaceStore';
 import { useViewportDropTarget } from './viewport/useViewportDropTarget';
 import type { ComparisonPanelConfig } from '@/types/comparison';
-import { Button, SegmentedControl } from '@/components/ui/bf';
+import { Button, Notice, SegmentedControl } from '@/components/ui/bf';
+import { panelLetter, type CompareLinkMode } from '@/types/comparison';
+import { linkModeOf, resolveActivePanel, thresholdMismatch } from '@/utils/compareDisplay';
+import { thresholdExpression } from './viewportFrame/frameFormat';
+import { statisticUnits, statisticVariable } from '@/utils/statistic';
+import { CompareSharedColorbar } from './CompareSharedColorbar';
+import { panelLayerIdOf } from '@/utils/compareDisplay';
 
 const PLANE_OPTIONS = [
   { value: 'axial', label: 'Axial', title: 'Set all panels to axial' },
@@ -52,6 +58,13 @@ export function resolveCommonViewType(
   return panels.every(p => p.viewType === first) ? first : null;
 }
 
+const LINK_OPTIONS = [
+  { value: 'all', label: 'All', title: 'Every panel shares window, threshold and colormap' },
+  { value: 'window', label: 'Window', title: 'Panels share the window; threshold and colormap per panel' },
+  { value: 'threshold', label: 'Threshold', title: 'Panels share the threshold; window and colormap per panel' },
+  { value: 'none', label: 'None', title: 'Window, threshold and colormap per panel' },
+] as const;
+
 function ComparisonWorkspaceRaw({ workspaceId = 'comparison-default' }: ComparisonWorkspaceProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [containerSize, setContainerSize] = useState({ width: 512, height: 512 });
@@ -61,6 +74,39 @@ function ComparisonWorkspaceRaw({ workspaceId = 'comparison-default' }: Comparis
   const layout = useComparisonStore(state => state.layouts.get(workspaceId) ?? 'row');
   const globalViewType = useComparisonStore(state => state.globalViewTypes.get(workspaceId) ?? 'axial');
   const layers = useViewStateStore(state => state.getWorkspaceViewState(workspaceId).layers);
+  // Linked Compare (P3.9): one shared display, or per-panel edits on the active panel.
+  const linkMode = useComparisonStore(state => linkModeOf(state, workspaceId));
+  const linked = linkMode === 'all';
+  const activePanelId = useComparisonStore(
+    state => resolveActivePanel(state, workspaceId)?.panel.id ?? null
+  );
+  const setLinkMode = useComparisonStore(state => state.setLinkMode);
+  const setActivePanel = useComparisonStore(state => state.setActivePanel);
+  const handleActivatePanel = useCallback(
+    (panelId: string) => setActivePanel(workspaceId, panelId),
+    [setActivePanel, workspaceId],
+  );
+  // Linked panels whose own layer is the same overlay share one colorbar.
+  const layerInfos = useLayerStore(state => state.layers);
+  const sharedColorbarLayerId = useMemo(() => {
+    if (!linked || panels.length < 2) return null;
+    const ids = panels.map(panel => panelLayerIdOf(panel, layers));
+    const first = ids[0];
+    if (!first || ids.some(id => id !== first)) return null;
+    const info = layerInfos.find(l => l.id === first);
+    return info && info.type !== 'label' ? first : null;
+  }, [linked, panels, layers, layerInfos]);
+  // Same statistic thresholded differently across panels: say so.
+  const mismatch = useMemo(() => thresholdMismatch(panels, layers, linkMode), [panels, layers, linkMode]);
+  const mismatchText = useMemo(() => {
+    if (!mismatch) return null;
+    const info = layerInfos.find(l => l.id === mismatch.layerId);
+    const variable = statisticVariable(statisticUnits(info?.statistic));
+    const parts = mismatch.thresholds.map(
+      ({ letter, threshold }) => `${letter}: ${thresholdExpression(threshold, variable) ?? 'none'} hidden`,
+    );
+    return `Panels threshold ${info?.name ?? 'the same layer'} differently (${parts.join('; ')}).`;
+  }, [mismatch, layerInfos]);
   // The plane all panels share (null when per-panel overrides mix them).
   const commonViewType = useMemo(
     () => resolveCommonViewType(panels, globalViewType),
@@ -249,11 +295,24 @@ function ComparisonWorkspaceRaw({ workspaceId = 'comparison-default' }: Comparis
           onValueChange={(mode) => setLayout(workspaceId, mode as 'row' | 'grid')}
         />
 
+        {/* Link: which display properties the panels share. "All" is the
+            default; an unshared property is edited per panel (the active
+            panel, amber edge) in the Inspector. */}
+        <span className="ml-auto text-bf-xs text-bf-text-secondary" id={`compare-link-${workspaceId}`}>
+          Link
+        </span>
+        <SegmentedControl
+          aria-labelledby={`compare-link-${workspaceId}`}
+          options={LINK_OPTIONS}
+          value={linkMode}
+          onValueChange={(mode) => setLinkMode(workspaceId, mode as CompareLinkMode)}
+          data-testid="compare-link-mode"
+        />
+
         {/* Add panel */}
         <Button
           variant="secondary"
           size="sm"
-          className="ml-auto"
           onClick={handleAddEmptyPanel}
           title="Add empty panel"
         >
@@ -261,6 +320,15 @@ function ComparisonWorkspaceRaw({ workspaceId = 'comparison-default' }: Comparis
         </Button>
       </div>
 
+      {mismatchText ? (
+        <div className="shrink-0 border-b border-bf-border-subtle px-2 py-1">
+          <Notice severity="warning" role="status" data-testid="compare-threshold-mismatch">
+            {mismatchText}
+          </Notice>
+        </div>
+      ) : null}
+
+      <div className="flex min-h-0 flex-1">
       {/* Panel grid */}
       <div
         ref={containerRef}
@@ -275,11 +343,16 @@ function ComparisonWorkspaceRaw({ workspaceId = 'comparison-default' }: Comparis
           gap: `${COMPARISON_GRID_GAP}px`,
         }}
       >
-        {panels.map(panel => (
+        {panels.map((panel, index) => (
           <ComparisonPanel
             key={panel.id}
             workspaceId={workspaceId}
             panel={panel}
+            letter={panelLetter(index)}
+            linkMode={linkMode}
+            active={!linked && panel.id === activePanelId}
+            hideColorbar={sharedColorbarLayerId !== null}
+            onActivate={handleActivatePanel}
             width={panelDimensions.width}
             height={panelDimensions.height}
             layerNames={layerNames}
@@ -298,6 +371,11 @@ function ComparisonWorkspaceRaw({ workspaceId = 'comparison-default' }: Comparis
             onNativeFileDrop={handleDroppedNativeFileToNewPanel}
           />
         )}
+      </div>
+      {/* Linked panels showing the same overlay share one colorbar column. */}
+      {sharedColorbarLayerId ? (
+        <CompareSharedColorbar workspaceId={workspaceId} layerId={sharedColorbarLayerId} />
+      ) : null}
       </div>
     </div>
   );

@@ -12,19 +12,22 @@ import { useCallback, useEffect, useRef, useMemo, useState, type FocusEvent } fr
 import { SliceViewport, type SliceViewportPlacement } from './SliceViewport';
 import { SLIDER_HEIGHT } from './constants';
 import { SliceSlider } from '@/components/ui/SliceSlider';
-import { X } from 'lucide-react';
+import { Link2, Unlink2, X } from 'lucide-react';
 import { IconButton, Select } from '@/components/ui/bf';
 import { useLayerStore } from '@/stores/layerStore';
 import { sliceRangeForMetadata } from '@/services/SliceNavigationService';
 import { useLayerValueAtWorld } from '@/hooks/useLayerValueAtWorld';
 import { useStatusReadoutStore } from '@/stores/statusReadoutStore';
 import { formatLayerValue } from '@/utils/valueFormat';
+import { statisticUnits } from '@/utils/statistic';
+import { StatSymbol } from '@/components/ui/StatSymbol';
 import { useViewStateStore } from '@/stores/viewStateStore';
 import { useComparisonStore } from '@/stores/comparisonStore';
 import { buildActiveCrosshairStyle, type CrosshairStyle } from '@/utils/crosshairUtils';
 import { useCrosshairSettingsStore } from '@/stores/crosshairSettingsStore';
 import { comparisonTag, getComparisonRenderService } from '@/services/ComparisonRenderService';
-import type { ComparisonPanelConfig } from '@/types/comparison';
+import type { CompareLinkMode, ComparisonPanelConfig, PanelOverrideField } from '@/types/comparison';
+import { isFieldLinked, panelHasOverrides } from '@/utils/compareDisplay';
 import { useViewportDropTarget } from './viewport/useViewportDropTarget';
 import { createDebugLogger } from '@/utils/debug';
 import {
@@ -49,6 +52,16 @@ const PANEL_PLANE_OPTIONS = [
 interface ComparisonPanelProps {
   workspaceId: string;
   panel: ComparisonPanelConfig;
+  /** Panel letter in grid order ("A", "B", …): its identity in names and the header. */
+  letter?: string;
+  /** Which display properties the panels share (P3.9). */
+  linkMode?: CompareLinkMode;
+  /** Unlinked: this panel receives the Inspector's display edits (amber edge). */
+  active?: boolean;
+  /** The workspace draws one shared colorbar for the panels instead. */
+  hideColorbar?: boolean;
+  /** Pointer / focus in the panel makes it the active panel. */
+  onActivate?: (panelId: string) => void;
   width: number;
   height: number;
   layerNames: Map<string, string>;
@@ -94,6 +107,11 @@ export function volumeEdgeBounds(
 export function ComparisonPanel({
   workspaceId,
   panel,
+  letter = '',
+  linkMode = 'all',
+  active = false,
+  hideColorbar = false,
+  onActivate,
   width,
   height,
   layerNames,
@@ -183,6 +201,7 @@ export function ComparisonPanel({
     tag,
     viewStateRevision,
     workspaceId,
+    linkMode,
   ]);
 
   const renderContext = useMemo(() => ({
@@ -342,14 +361,39 @@ export function ComparisonPanel({
     },
     [releaseReadout],
   );
-  const panelLabel = panelLayerName
+  const panelName = panelLayerName
     ? shortLayerLabel(panelLayerName)
     : panel.label
       ? shortLayerLabel(panel.label)
-      : `panel ${panel.id}`;
+      : panel.id;
+  // Accessible identity: the letter first, so two panels showing the same
+  // layer never share a name ("Remove panel A, zmap_synthetic").
+  const panelLabel = letter ? `${letter}, ${panelName}` : panelName;
+  const panelUnits = useLayerStore(state => {
+    const info = panelLayerId ? state.layers.find(l => l.id === panelLayerId) : undefined;
+    return statisticUnits(info?.statistic, panelMetadata?.dataRange);
+  });
 
   // Colorbar keyed to the panel's own layer when it is a scalar overlay.
-  const colorbarLayer = useLayerColorbar(panelLayerId, workspaceId);
+  // Unlinked, the bar shows this panel's own window / threshold / colormap.
+  const sharedColorbarLayer = useLayerColorbar(panelLayerId, workspaceId);
+  const colorbarOverride =
+    linkMode !== 'all' && sharedColorbarLayer
+      ? panel.renderOverrides?.[sharedColorbarLayer.layerId]
+      : undefined;
+  const colorbarLayer = useMemo(() => {
+    if (!sharedColorbarLayer || !colorbarOverride) return sharedColorbarLayer;
+    // Only the fields this link mode leaves per panel.
+    const own = (field: PanelOverrideField) =>
+      colorbarOverride[field] !== undefined && !isFieldLinked(linkMode, field);
+    return {
+      ...sharedColorbarLayer,
+      intensity: own('intensity') ? colorbarOverride.intensity! : sharedColorbarLayer.intensity,
+      threshold: own('threshold') ? colorbarOverride.threshold! : sharedColorbarLayer.threshold,
+      colormap: own('colormap') ? colorbarOverride.colormap! : sharedColorbarLayer.colormap,
+    };
+  }, [sharedColorbarLayer, colorbarOverride, linkMode]);
+  const edited = panelHasOverrides(panel, linkMode);
   const colorbarReading = useLayerValueAtWorld(colorbarLayer?.layerId ?? null, crosshair.world_mm);
   const [placement, setPlacement] = useState<SliceViewportPlacement | null>(null);
   const handlePlacementChange = useCallback((next: SliceViewportPlacement) => {
@@ -381,13 +425,22 @@ export function ComparisonPanel({
 
   return (
     <div
-      className="group/panel relative h-full overflow-hidden bg-[var(--bf-bg-canvas)]"
+      className={`group/panel relative h-full overflow-hidden bg-[var(--bf-bg-canvas)] ${
+        // The panel the Inspector edits: the amber selection edge.
+        active ? 'shadow-[inset_2px_0_0_0_hsl(var(--ring))]' : ''
+      }`}
       style={{ minHeight: `${height}px`, height: `${height}px` }}
       data-testid="comparison-panel"
       data-panel-id={panel.id}
+      data-panel-letter={letter || undefined}
+      data-active-panel={active ? 'true' : undefined}
       onPointerEnter={claimReadout}
+      onPointerDownCapture={() => onActivate?.(panel.id)}
       onPointerLeave={handlePointerLeave}
-      onFocusCapture={claimReadout}
+      onFocusCapture={() => {
+        claimReadout();
+        onActivate?.(panel.id);
+      }}
       onBlurCapture={handleBlurCapture}
       onDragOver={handleDragOver}
       onDrop={handleDrop}
@@ -424,13 +477,14 @@ export function ComparisonPanel({
             rangeMm={headerRangeMm}
             showPlane={false}
             requireName
+            letter={letter || null}
           />
         ) : (
           <div className="pointer-events-none absolute inset-0 flex items-center justify-center text-bf-xs text-bf-text-muted">
             Drop a layer or file here
           </div>
         )}
-        {colorbarLayer && (
+        {colorbarLayer && !hideColorbar && (
           <ViewportColorbar
             layer={colorbarLayer}
             width={canvasSize.width}
@@ -438,6 +492,7 @@ export function ComparisonPanel({
             imageRect={imageRect}
             topReserve={PANEL_ACTIONS_RESERVE}
             value={colorbarReading?.value ?? null}
+            tag={edited && colorbarOverride ? 'unlinked' : null}
           />
         )}
         {viewPlane && hasLayers && <OrientationLabels viewPlane={viewPlane} refs={orientationLabelRefs} />}
@@ -481,6 +536,25 @@ export function ComparisonPanel({
               aria-label={`Remove panel ${panelLabel}`}
             />
           </div>
+          {linkMode !== 'all' && hasLayers ? (
+            // Shared or own display: a link / broken-link glyph, plus a
+            // neutral dot when this panel sets values of its own.
+            <span
+              className="pointer-events-auto inline-flex h-5 items-center gap-1 rounded-bf-xs bg-[color-mix(in_srgb,var(--bf-bg-canvas)_80%,transparent)] px-1 text-bf-text-secondary"
+              data-testid="comparison-panel-link"
+              data-edited={edited ? 'true' : undefined}
+              role="img"
+              aria-label={
+                edited
+                  ? `Panel ${letter}: display edited for this panel`
+                  : `Panel ${letter}: shared display`
+              }
+              title={edited ? 'This panel sets its own display values' : 'Shared display'}
+            >
+              {edited ? <Unlink2 className="h-3 w-3" aria-hidden /> : <Link2 className="h-3 w-3" aria-hidden />}
+              {edited ? <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-bf-text-secondary" /> : null}
+            </span>
+          ) : null}
           {panelValueText !== null && hasLayers && (
             <span
               data-testid="comparison-panel-value"
@@ -491,8 +565,13 @@ export function ComparisonPanel({
               role="note"
               aria-label={`Value at crosshair, ${panelLayerName}: ${panelValueText}`}
             >
-              {/* Named on screen, like the status bar's "Value". */}
-              <span className="mr-1 font-sans text-bf-text-muted">Value</span>
+              {/* The statistic symbol names the value ("z 5.97"); a plain
+                  image says "Value", like the status bar. */}
+              {panelUnits ? (
+                <StatSymbol label={panelUnits} className="mr-1 text-bf-text-muted" />
+              ) : (
+                <span className="mr-1 font-sans text-bf-text-muted">Value</span>
+              )}
               {panelValueText}
             </span>
           )}

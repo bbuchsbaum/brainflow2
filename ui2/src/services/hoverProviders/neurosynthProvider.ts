@@ -255,7 +255,8 @@ function debouncedFetch(coord: [number, number, number]): Promise<HoverInfoEntry
 
 export const neurosynthProvider: HoverInfoProvider = {
   id: 'neurosynth',
-  displayName: 'Neurosynth Terms',
+  // Opt-in, and named for what it does: it leaves the machine.
+  displayName: 'Neurosynth lookup — sends the cursor’s MNI coordinates to neurosynth.org',
   priority: 60, // Show after atlas (30), before anything lower priority
 
   async getInfo(ctx: HoverContext): Promise<HoverInfoEntry[] | null> {

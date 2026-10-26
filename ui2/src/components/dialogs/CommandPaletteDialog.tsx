@@ -2,6 +2,8 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Search, X } from 'lucide-react';
 import { Modal } from '@/components/ui/Modal';
 import { IconButton, SELECTED_EDGE } from '@/components/ui/bf';
+import { getEventBus } from '@/events/EventBus';
+import { formatTauriError } from '@/utils/formatTauriError';
 
 export interface CommandPaletteCommand {
   id: string;
@@ -86,6 +88,13 @@ export function CommandPaletteDialog({ open, commands, onClose }: CommandPalette
       onClose();
     } catch (error) {
       console.error('[CommandPaletteDialog] Command failed:', command.id, error);
+      // Failures are shown (toast, role=alert), not only logged, and the
+      // palette closes like after a success.
+      getEventBus().emit('ui.notification', {
+        type: 'error',
+        message: `${command.title}: ${formatTauriError(error) || 'failed'}`,
+      });
+      onClose();
     } finally {
       setRunningCommandId(null);
     }

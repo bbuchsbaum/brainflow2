@@ -1,12 +1,26 @@
-import React, { forwardRef } from "react";
+import React, { forwardRef, useId } from "react";
+import { useViewStateStore } from "@/stores/viewStateStore";
 import type { SceneItem, SceneItemKind } from "@/types/sceneItem";
 import { SelectableRow, type RovingItemProps } from "@/components/ui/bf";
 import { LayerReadoutValue } from "./LayerReadoutValue";
 import { useReadoutPoint } from "@/hooks/useReadoutPoint";
 
-function VolumeRowReadout({ layerId }: { layerId: string }) {
+function VolumeRowReadout({ layerId, id }: { layerId: string; id: string }) {
   const point = useReadoutPoint();
-  return <LayerReadoutValue layerId={layerId} point={point} />;
+  // Shown only while the layer is drawn: a hidden layer says so instead of
+  // reading a value the views do not show.
+  const drawn = useViewStateStore((s) => {
+    const layer = s.viewState.layers.find((l) => l.id === layerId);
+    return !!layer && layer.visible && layer.opacity > 0;
+  });
+  if (!drawn) {
+    return (
+      <span id={id} className="shrink-0 text-bf-xs text-bf-text-muted" data-testid={`layer-readout-${layerId}`}>
+        hidden
+      </span>
+    );
+  }
+  return <LayerReadoutValue layerId={layerId} point={point} id={id} />;
 }
 
 interface SceneStackItemProps {
@@ -110,8 +124,11 @@ const KIND_GLYPH: Record<SceneItemKind, React.ReactNode> = {
  */
 export const SceneStackItem = forwardRef<HTMLDivElement, SceneStackItemProps>(
   function SceneStackItem({ item, selected, onSelect, dragHandle, roving }, ref) {
-    const opacityPct = Math.round(item.opacity * 100);
     const { ref: rovingRef, ...rovingProps } = roving ?? {};
+    const uid = useId().replace(/:/g, "");
+    const nameId = `scene-row-${uid}-name`;
+    const kindId = `scene-row-${uid}-kind`;
+    const valueId = `scene-row-${uid}-value`;
     return (
       <SelectableRow
         {...rovingProps}
@@ -123,7 +140,9 @@ export const SceneStackItem = forwardRef<HTMLDivElement, SceneStackItemProps>(
         role="row"
         selected={selected}
         onSelect={() => onSelect()}
-        aria-label={`${item.name}, ${item.subtitle}, opacity ${opacityPct}%`}
+        // Named "<layer>, <kind>, <value>" from its own cells, so the value
+        // (with the statistic's long form) is read; opacity lives in Render.
+        aria-labelledby={`${nameId} ${kindId} ${valueId}`}
         className="group gap-2.5 rounded-sm py-1.5"
       >
         {dragHandle ? (
@@ -140,23 +159,25 @@ export const SceneStackItem = forwardRef<HTMLDivElement, SceneStackItemProps>(
             {KIND_GLYPH[item.kind]}
           </span>
           <span className="min-w-0 flex-1">
-            <span className="block truncate text-bf-sm text-foreground">
+            <span id={nameId} className="block truncate text-bf-sm text-foreground">
               {item.name}
             </span>
-            <span className="block truncate text-bf-xs text-muted-foreground">
+            <span id={kindId} className="block truncate text-bf-xs text-muted-foreground">
               {item.subtitle}
             </span>
           </span>
           {/* Volume rows read their layer's value at the pointer / crosshair
               (P3.6, FSLeyes-style location readout); opacity lives in Render.
-              Surfaces keep the opacity figure. */}
+              Surface rows have no sampled value here: "—", consistently. */}
           {item.ref.type === "volume" ? (
-            item.visible ? (
-              <VolumeRowReadout layerId={item.ref.layerId} />
-            ) : null
+            <VolumeRowReadout layerId={item.ref.layerId} id={valueId} />
           ) : (
-            <span className="shrink-0 font-mono text-bf-xs tabular-nums text-muted-foreground">
-              {opacityPct}%
+            <span
+              id={valueId}
+              className="shrink-0 font-mono text-bf-xs tabular-nums text-muted-foreground"
+              aria-label="no value"
+            >
+              —
             </span>
           )}
         </span>

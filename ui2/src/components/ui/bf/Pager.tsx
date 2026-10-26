@@ -1,4 +1,4 @@
-import React, { forwardRef, useId } from 'react';
+import React, { forwardRef, useId, useLayoutEffect, useRef } from 'react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { cn } from '@/utils/cn';
 import { IconButton } from '../IconButton';
@@ -57,7 +57,23 @@ export const Pager = forwardRef<HTMLDivElement, PagerProps>(function Pager(
   const has = count > 0;
   const atStart = !loop && page <= 1;
   const atEnd = !loop && page >= count;
+  const prevRef = useRef<HTMLButtonElement>(null);
+  const nextRef = useRef<HTMLButtonElement>(null);
+  // The button just pressed, so focus survives it disabling at an end: a
+  // step onto page 1 moves focus to "Next", onto the last page to "Previous".
+  const pressedRef = useRef<'prev' | 'next' | null>(null);
+  useLayoutEffect(() => {
+    const pressed = pressedRef.current;
+    pressedRef.current = null;
+    if (!pressed) return;
+    // Only when focus is still on the pager (or was dropped to <body>).
+    const active = document.activeElement;
+    if (active !== prevRef.current && active !== nextRef.current && active !== document.body) return;
+    if (pressed === 'prev' && atStart && !atEnd) nextRef.current?.focus();
+    else if (pressed === 'next' && atEnd && !atStart) prevRef.current?.focus();
+  });
   const go = (delta: number) => {
+    pressedRef.current = delta < 0 ? 'prev' : 'next';
     if (!has) return;
     let next = page + delta;
     if (loop) next = ((((next - 1) % count) + count) % count) + 1;
@@ -77,6 +93,7 @@ export const Pager = forwardRef<HTMLDivElement, PagerProps>(function Pager(
       {...rest}
     >
       <IconButton
+        ref={prevRef}
         size="xs"
         icon={<ChevronLeft />}
         aria-label={`Previous ${noun}`}
@@ -97,6 +114,7 @@ export const Pager = forwardRef<HTMLDivElement, PagerProps>(function Pager(
         {count}
       </span>
       <IconButton
+        ref={nextRef}
         size="xs"
         icon={<ChevronRight />}
         aria-label={`Next ${noun}`}

@@ -3,6 +3,7 @@ import { useSceneStack } from '@/hooks/useSceneStack';
 import { useInspectorSelectionStore } from '@/stores/inspectorSelectionStore';
 import type { SceneItem } from '@/types/sceneItem';
 import { SceneStack } from './SceneStack';
+import { CompareEditBar } from './CompareEditBar';
 import { SectionRouter } from './SectionRouter';
 
 /**
@@ -31,6 +32,7 @@ export function ImagingInspector() {
 
   return (
     <div className="flex flex-col">
+      <CompareEditBar />
       <SceneStack />
       {activeItem ? <SectionRouter item={activeItem} /> : <NoSelectionHint />}
     </div>

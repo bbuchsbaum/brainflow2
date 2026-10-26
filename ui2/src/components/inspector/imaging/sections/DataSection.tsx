@@ -1,6 +1,6 @@
 import { formatDataRange, formatDims, formatVoxelSize } from "@/utils/valueFormat";
 import { asciiCopyHandler } from "@/utils/numericInput";
-import { describeStatistic, statisticPhrase } from "@/utils/statistic";
+import { describeStatistic, isInferredStatistic, statisticPhrase } from "@/utils/statistic";
 import { StatSymbol } from "@/components/ui/StatSymbol";
 import { getClusterService } from "@/services/ClusterService";
 import { getEventBus } from "@/events/EventBus";
@@ -110,10 +110,10 @@ function VolumeFacts({ item }: { item: SceneItem }) {
       value: formatDataRange(min, max),
     });
   }
-  // Statistic maps: "t(24) · intent 3 t-stat, df 24" (utils/statistic.ts).
+  // Statistic maps: "t(24)", "z score", "z score (from name)" (utils/statistic.ts).
   const phrase = layer.statistic ? statisticPhrase(layer.statistic, metadata?.dataRange) : null;
   if (layer.statistic && phrase) {
-    // "z score", "t, df 24" with the variable in italic; the source in the
+    // "z score", "t(24)" with the variable in italic; the source in the
     // tooltip ("t(24) · t-stat").
     const description = describeStatistic(layer.statistic, metadata?.dataRange);
     facts.push({
@@ -122,6 +122,10 @@ function VolumeFacts({ item }: { item: SceneItem }) {
         <span title={description}>
           <StatSymbol label={phrase.variable} />
           {phrase.rest}
+          {/* A statistic guessed from the file name says so (no intent code). */}
+          {isInferredStatistic(layer.statistic) ? (
+            <span className="text-bf-text-muted"> (from name)</span>
+          ) : null}
         </span>
       ),
     });
@@ -169,11 +173,12 @@ function ExtremumLinks({ layerId }: { layerId: string }) {
       );
   };
   return (
-    <div className="mt-1 flex items-center gap-3 text-bf-xs" data-testid="extremum-links">
-      <Button variant="link" size="sm" onClick={() => go("max")}>
+    // Same control as the Clusters footer: secondary buttons (24px targets).
+    <div className="mt-1 flex items-center gap-1 text-bf-xs" data-testid="extremum-links">
+      <Button variant="secondary" size="sm" onClick={() => go("max")}>
         Go to max
       </Button>
-      <Button variant="link" size="sm" onClick={() => go("min")}>
+      <Button variant="secondary" size="sm" onClick={() => go("min")}>
         Go to min
       </Button>
     </div>

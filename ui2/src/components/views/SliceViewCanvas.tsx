@@ -578,10 +578,20 @@ function SliceViewCanvasRaw({
       ref={containerRef}
       className={`h-full w-full relative outline-none ${className}`}
       data-view-id={viewId}
+      // The image placement hover, click and overlay share (tests and the
+      // harness read it rather than recomputing one).
+      data-placement={
+        placementState
+          ? `${placementState.x},${placementState.y},${placementState.width},${placementState.height},${placementState.imageWidth},${placementState.imageHeight}`
+          : undefined
+      }
       // Programmatic focus target only (not in the Tab order): dialogs opened
       // by a shortcut return focus here instead of <body> (Modal).
       tabIndex={-1}
       data-focus-return="viewport"
+      // The focus-return target is a named landmark ("Axial view").
+      role="region"
+      aria-label={`${viewId.charAt(0).toUpperCase()}${viewId.slice(1)} view`}
       onPointerDown={markActive}
       onMouseEnter={markActive}
       onContextMenu={handleContextMenu}

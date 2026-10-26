@@ -118,9 +118,11 @@ describe('cluster methods sentence and CSV', () => {
 
   it('writes an ASCII CSV with a parameter comment line', () => {
     const csv = clusterTableCsv(TABLE, ['L_sensorimotor', null], { layerName: 'zmap', symbol: 'z' }).split('\n');
-    expect(csv[0]).toBe('# zmap: 26-connected clusters of |z| > 3.1, two-sided, uncorrected, ≥ 1 voxel; 2 clusters, 757 voxels');
+    expect(csv[0]).toBe('# zmap: 26-connected clusters of |z| > 3.1, two-sided, uncorrected, >= 1 voxel; 2 clusters, 757 voxels');
     expect(csv[1].split(',')[0]).toBe('cluster');
-    expect(csv[2]).toBe('1,positive,398,3184,5.965,-39.5,-19.5,50.5,1,2,3,-39.9,-19.5,50.5,2.9825,L_sensorimotor');
+    expect(csv[1]).toContain('centroid_x_mm,centroid_y_mm,centroid_z_mm,cog_abs_weighted_x_mm');
+    expect(csv[1].endsWith('region_at_peak')).toBe(true);
+    expect(csv[2]).toBe('1,positive,398,3184,5.965,-39.5,-19.5,50.5,1,2,3,-39.9,-19.5,50.5,-39.5,-19.5,50.5,2.9825,L_sensorimotor');
     expect(csv[3].startsWith('2,negative,359,2872,-4.977,0.5,40.5,10.5')).toBe(true);
     expect(csv[3].endsWith(',')).toBe(true);
   });

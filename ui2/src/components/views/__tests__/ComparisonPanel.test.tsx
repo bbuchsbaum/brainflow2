@@ -36,7 +36,9 @@ describe('ComparisonPanel', () => {
     comparisonService.cancelRenders.mockReset();
 
     vi.stubGlobal('ResizeObserver', vi.fn((callback: ResizeObserverCallback) => {
-      resizeCallback = callback;
+      // The panel's canvas-size observer is created first; later observers
+      // (the crosshair knockout re-measure) must not replace it here.
+      resizeCallback ??= callback;
       return {
         observe: vi.fn(),
         disconnect: vi.fn(),

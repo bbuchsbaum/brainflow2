@@ -13,13 +13,18 @@ interface Notification {
   timestamp: number;
 }
 
+/** Unique per toast (two toasts in the same millisecond must not share an id). */
+let nextNotificationId = 0;
+
 export function NotificationToast() {
   const [notifications, setNotifications] = useState<Notification[]>([]);
-  
+
+  useEvent('ui.notification.clear', () => setNotifications([]));
+
   // Listen for notification events
   useEvent('ui.notification', ({ type, message }) => {
     const notification: Notification = {
-      id: Date.now().toString(),
+      id: `toast-${(nextNotificationId += 1)}`,
       type,
       message,
       timestamp: Date.now()
@@ -86,7 +91,8 @@ export function NotificationToast() {
     // A persistent polite live region, so screen readers announce toasts
     // ("Saved image to …"); errors are assertive alerts.
     <div
-      className="fixed bottom-4 right-4 z-50 space-y-2"
+      // Above the 28px status bar, never over its readouts.
+      className="fixed bottom-10 right-4 z-50 space-y-2"
       role="status"
       aria-live="polite"
       aria-label="Notifications"
@@ -95,7 +101,7 @@ export function NotificationToast() {
         <div
           key={notification.id}
           role={notification.type === 'error' ? 'alert' : undefined}
-          className="px-4 py-3 shadow-lg animate-slide-in-right"
+          className="px-4 py-3 shadow-lg motion-safe:animate-slide-in-right"
           style={getNotificationStyle(notification.type)}
         >
           <div className="flex items-center gap-3">

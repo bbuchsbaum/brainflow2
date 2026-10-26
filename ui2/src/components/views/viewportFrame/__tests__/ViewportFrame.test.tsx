@@ -92,7 +92,8 @@ describe('ViewportColorbar', () => {
     expect(bar).toHaveAttribute('aria-label', expect.stringContaining('|value| ≤ 2.3 hidden'));
     // Caption: at most two lines (the box widens to the expression).
     const caption = screen.getByTestId('viewport-colorbar-caption');
-    expect(Array.from(caption.children).map((c) => c.textContent)).toEqual(['|value| ≤ 2.3', 'hidden']);
+    // One line under the bar, left-aligned with it (v2 visual critic).
+    expect(Array.from(caption.children).map((c) => c.textContent)).toEqual(['|value| ≤ 2.3 hidden']);
     expect(screen.getByTestId('viewport-colorbar-hidden-band')).toBeInTheDocument();
     for (const label of ['≥ 6', '2.3', '0', '−2.3', '−6']) {
       expect(screen.getByText(label)).toBeInTheDocument();
