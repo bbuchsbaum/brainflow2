@@ -114,6 +114,10 @@ Default permissions for api-bridge plugin
 - `allow-replay-population-summary`
 - `allow-open-population-summary`
 - `allow-export-population-plot`
+- `allow-save-image-bytes`
+- `allow-compute-clusters`
+- `allow-volume-extremum`
+- `allow-volume-nonzero-bbox`
 - `allow-release-population-slice`
 - `allow-sample-set-trace-at-world`
 
@@ -408,6 +412,32 @@ Enables the clear_template_cache command without any pre-configured scope.
 <td>
 
 Denies the clear_template_cache command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:allow-compute-clusters`
+
+</td>
+<td>
+
+Enables the compute_clusters command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:deny-compute-clusters`
+
+</td>
+<td>
+
+Denies the compute_clusters command without any pre-configured scope.
 
 </td>
 </tr>
@@ -2573,6 +2603,32 @@ Denies the sample_world_coordinate command without any pre-configured scope.
 <tr>
 <td>
 
+`api-bridge:allow-save-image-bytes`
+
+</td>
+<td>
+
+Enables the save_image_bytes command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:deny-save-image-bytes`
+
+</td>
+<td>
+
+Denies the save_image_bytes command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
 `api-bridge:allow-scan-bids-dataset`
 
 </td>
@@ -3164,6 +3220,58 @@ Enables the validate_template_config command without any pre-configured scope.
 <td>
 
 Denies the validate_template_config command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:allow-volume-extremum`
+
+</td>
+<td>
+
+Enables the volume_extremum command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:deny-volume-extremum`
+
+</td>
+<td>
+
+Denies the volume_extremum command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:allow-volume-nonzero-bbox`
+
+</td>
+<td>
+
+Enables the volume_nonzero_bbox command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`api-bridge:deny-volume-nonzero-bbox`
+
+</td>
+<td>
+
+Denies the volume_nonzero_bbox command without any pre-configured scope.
 
 </td>
 </tr>

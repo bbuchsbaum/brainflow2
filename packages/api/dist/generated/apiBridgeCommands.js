@@ -119,4 +119,8 @@ export const apiBridgeCommands = [
     "export_population_plot",
     "release_population_slice",
     "sample_set_trace_at_world",
+    "save_image_bytes",
+    "compute_clusters",
+    "volume_extremum",
+    "volume_nonzero_bbox",
 ];

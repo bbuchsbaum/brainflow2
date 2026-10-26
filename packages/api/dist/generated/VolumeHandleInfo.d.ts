@@ -1,3 +1,4 @@
+import type { StatisticInfo } from "./StatisticInfo";
 import type { TimeSeriesInfo } from "./TimeSeriesInfo";
 import type { VolumeType } from "./VolumeType";
 /**
@@ -24,4 +25,9 @@ export type VolumeHandleInfo = {
      * Additional time series metadata (if applicable)
      */
     time_series_info: TimeSeriesInfo | null;
+    /**
+     * Statistic carried by the NIfTI header (intent code or an SPM-style
+     * description). Absent for non-statistical images and non-NIfTI sources.
+     */
+    statistic?: StatisticInfo;
 };

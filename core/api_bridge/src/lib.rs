@@ -74,10 +74,12 @@ use brainflow_loaders as core_loaders;
 
 // Import error helpers
 mod analysis;
+mod clusters;
 mod command_registry;
 mod error_context;
 mod error_helpers;
 mod histogram;
+mod image_export;
 pub mod image_set;
 mod materialization;
 mod projection_geometry;
@@ -85,8 +87,10 @@ mod remote_cache;
 mod remote_transfer;
 mod render_bridge_adapter;
 mod render_lifecycle;
+mod stat_metadata;
 mod surface_loading;
 mod user_errors;
+mod volume_queries;
 use command_registry::bridge_commands;
 use error_context::*;
 use projection_geometry::build_volume3d_from_projection;
@@ -95,6 +99,17 @@ use projection_geometry::build_volume3d_from_projection;
 // them as bare identifiers alongside the commands defined in this file.
 use analysis::{cancel_analysis, get_analysis_job_status, list_analyses, start_analysis};
 use error_helpers::*;
+// Phase 3 command modules (export, clusters, voxel queries), re-exported so
+// `command_list.rs` and the TS exporter see them at the crate root.
+use clusters::compute_clusters;
+pub use clusters::{
+    ClusterPolarity, ClusterSign, ClusterSummary, ClusterTable, ComputeClustersRequest,
+};
+use image_export::save_image_bytes;
+use volume_queries::{volume_extremum, volume_nonzero_bbox};
+pub use volume_queries::{
+    ExtremumKind, VolumeExtremumRequest, VolumeNonzeroBbox, VolumeNonzeroBboxRequest, VoxelLocation,
+};
 
 // Import atlas system
 use atlases::{
@@ -153,6 +168,11 @@ pub struct VolumeBounds {
     pub max: [f32; 3],
     pub center: [f32; 3],
     pub dims: [u32; 3],
+    /// World centre of voxel `floor((dims - 1) / 2)`: a voxel-centred default
+    /// position (`center` falls on a voxel edge along even dimensions).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub center_voxel_world: Option<[f32; 3]>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)] // Add derives
@@ -2897,6 +2917,7 @@ async fn load_file(path: String, state: State<'_, BridgeState>) -> BridgeResult<
         num_timepoints: time_series_info.as_ref().map(|ts| ts.num_timepoints),
         current_timepoint: None,
         time_series_info,
+        statistic: stat_metadata::statistic_for_path(&file_path),
     })
 }
 
@@ -3419,6 +3440,7 @@ async fn get_volume_bounds(
         max: max_bounds,
         center: [center_world[0], center_world[1], center_world[2]],
         dims: [dims[0] as u32, dims[1] as u32, dims[2] as u32],
+        center_voxel_world: Some(volume_queries::centre_voxel_world(&affine, dims)),
     })
 }
 
@@ -3493,6 +3515,7 @@ async fn get_volume_info(
             .map(|ts| ts.num_timepoints),
         current_timepoint: entry.current_timepoint,
         time_series_info: entry.metadata.time_series_info.clone(),
+        statistic: stat_metadata::statistic_for_path(Path::new(&entry.metadata.path)),
     };
 
     Ok(handle_info)
@@ -3753,6 +3776,9 @@ async fn get_nifti_header_info(
             .unwrap_or((0, 0));
     let coordinate_space = detect_coordinate_space(sform_code, qform_code, &entry.metadata.path);
 
+    let header_statistic =
+        nifti_loader::read_statistic_metadata(std::path::Path::new(&entry.metadata.path));
+
     // Extract 4D metadata if available
     let (num_timepoints, tr_seconds, temporal_units) = match &entry.metadata.time_series_info {
         Some(ts) => (Some(ts.num_timepoints), ts.tr, ts.temporal_unit.clone()),
@@ -3775,8 +3801,12 @@ async fn get_nifti_header_info(
         temporal_units,
         tr_seconds,
         num_timepoints,
-        description: String::new(),
+        description: header_statistic
+            .as_ref()
+            .map(|meta| meta.description.clone())
+            .unwrap_or_default(),
         data_range: None,
+        statistic: header_statistic.map(|meta| meta.statistic),
     })
 }
 
@@ -6455,305 +6485,8 @@ async fn sample_world_coordinate_impl(
     // Get current timepoint for 4D volumes
     let timepoint = registry.get_timepoint(handle_id).unwrap_or(0);
 
-    // Check bounds and sample
-    let value = match volume_data {
-        VolumeSendable::VolF32(vol, _) => {
-            let dims = vol.space().dims();
-            if voxel_coords[0] >= 0.0
-                && voxel_coords[0] < dims[0] as f32
-                && voxel_coords[1] >= 0.0
-                && voxel_coords[1] < dims[1] as f32
-                && voxel_coords[2] >= 0.0
-                && voxel_coords[2] < dims[2] as f32
-            {
-                // Use nearest neighbor interpolation
-                let x = voxel_coords[0].round() as usize;
-                let y = voxel_coords[1].round() as usize;
-                let z = voxel_coords[2].round() as usize;
-                vol.get_at_coords(&[x, y, z]).unwrap_or(0.0)
-            } else {
-                0.0 // Out of bounds
-            }
-        }
-        VolumeSendable::VolF64(vol, _) => {
-            let dims = vol.space().dims();
-            if voxel_coords[0] >= 0.0
-                && voxel_coords[0] < dims[0] as f32
-                && voxel_coords[1] >= 0.0
-                && voxel_coords[1] < dims[1] as f32
-                && voxel_coords[2] >= 0.0
-                && voxel_coords[2] < dims[2] as f32
-            {
-                let x = voxel_coords[0].round() as usize;
-                let y = voxel_coords[1].round() as usize;
-                let z = voxel_coords[2].round() as usize;
-                vol.get_at_coords(&[x, y, z])
-                    .map(|v| v as f32)
-                    .unwrap_or(0.0)
-            } else {
-                0.0
-            }
-        }
-        VolumeSendable::VolI16(vol, _) => {
-            let dims = vol.space().dims();
-            if voxel_coords[0] >= 0.0
-                && voxel_coords[0] < dims[0] as f32
-                && voxel_coords[1] >= 0.0
-                && voxel_coords[1] < dims[1] as f32
-                && voxel_coords[2] >= 0.0
-                && voxel_coords[2] < dims[2] as f32
-            {
-                let x = voxel_coords[0].round() as usize;
-                let y = voxel_coords[1].round() as usize;
-                let z = voxel_coords[2].round() as usize;
-                vol.get_at_coords(&[x, y, z])
-                    .map(|v| v as f32)
-                    .unwrap_or(0.0)
-            } else {
-                0.0
-            }
-        }
-        VolumeSendable::VolI32(vol, _) => {
-            let dims = vol.space().dims();
-            if voxel_coords[0] >= 0.0
-                && voxel_coords[0] < dims[0] as f32
-                && voxel_coords[1] >= 0.0
-                && voxel_coords[1] < dims[1] as f32
-                && voxel_coords[2] >= 0.0
-                && voxel_coords[2] < dims[2] as f32
-            {
-                let x = voxel_coords[0].round() as usize;
-                let y = voxel_coords[1].round() as usize;
-                let z = voxel_coords[2].round() as usize;
-                vol.get_at_coords(&[x, y, z])
-                    .map(|v| v as f32)
-                    .unwrap_or(0.0)
-            } else {
-                0.0
-            }
-        }
-        VolumeSendable::VolU8(vol, _) => {
-            let dims = vol.space().dims();
-            if voxel_coords[0] >= 0.0
-                && voxel_coords[0] < dims[0] as f32
-                && voxel_coords[1] >= 0.0
-                && voxel_coords[1] < dims[1] as f32
-                && voxel_coords[2] >= 0.0
-                && voxel_coords[2] < dims[2] as f32
-            {
-                let x = voxel_coords[0].round() as usize;
-                let y = voxel_coords[1].round() as usize;
-                let z = voxel_coords[2].round() as usize;
-                vol.get_at_coords(&[x, y, z])
-                    .map(|v| v as f32)
-                    .unwrap_or(0.0)
-            } else {
-                0.0
-            }
-        }
-        VolumeSendable::VolU16(vol, _) => {
-            let dims = vol.space().dims();
-            if voxel_coords[0] >= 0.0
-                && voxel_coords[0] < dims[0] as f32
-                && voxel_coords[1] >= 0.0
-                && voxel_coords[1] < dims[1] as f32
-                && voxel_coords[2] >= 0.0
-                && voxel_coords[2] < dims[2] as f32
-            {
-                let x = voxel_coords[0].round() as usize;
-                let y = voxel_coords[1].round() as usize;
-                let z = voxel_coords[2].round() as usize;
-                vol.get_at_coords(&[x, y, z])
-                    .map(|v| v as f32)
-                    .unwrap_or(0.0)
-            } else {
-                0.0
-            }
-        }
-        VolumeSendable::VolI8(vol, _) => {
-            let dims = vol.space().dims();
-            if voxel_coords[0] >= 0.0
-                && voxel_coords[0] < dims[0] as f32
-                && voxel_coords[1] >= 0.0
-                && voxel_coords[1] < dims[1] as f32
-                && voxel_coords[2] >= 0.0
-                && voxel_coords[2] < dims[2] as f32
-            {
-                let x = voxel_coords[0].round() as usize;
-                let y = voxel_coords[1].round() as usize;
-                let z = voxel_coords[2].round() as usize;
-                vol.get_at_coords(&[x, y, z])
-                    .map(|v| v as f32)
-                    .unwrap_or(0.0)
-            } else {
-                0.0
-            }
-        }
-        VolumeSendable::VolU32(vol, _) => {
-            let dims = vol.space().dims();
-            if voxel_coords[0] >= 0.0
-                && voxel_coords[0] < dims[0] as f32
-                && voxel_coords[1] >= 0.0
-                && voxel_coords[1] < dims[1] as f32
-                && voxel_coords[2] >= 0.0
-                && voxel_coords[2] < dims[2] as f32
-            {
-                let x = voxel_coords[0].round() as usize;
-                let y = voxel_coords[1].round() as usize;
-                let z = voxel_coords[2].round() as usize;
-                vol.get_at_coords(&[x, y, z])
-                    .map(|v| v as f32)
-                    .unwrap_or(0.0)
-            } else {
-                0.0
-            }
-        }
-        // 4D volumes - sample from the current timepoint
-        VolumeSendable::Vec4DF32(vec) => {
-            let dims = vec.data.dim();
-            let t = timepoint.min(dims.3.saturating_sub(1));
-            if voxel_coords[0] >= 0.0
-                && voxel_coords[0] < dims.0 as f32
-                && voxel_coords[1] >= 0.0
-                && voxel_coords[1] < dims.1 as f32
-                && voxel_coords[2] >= 0.0
-                && voxel_coords[2] < dims.2 as f32
-            {
-                let x = voxel_coords[0].round() as usize;
-                let y = voxel_coords[1].round() as usize;
-                let z = voxel_coords[2].round() as usize;
-                vec.data[[x, y, z, t]]
-            } else {
-                0.0
-            }
-        }
-        VolumeSendable::Vec4DI16(vec) => {
-            let dims = vec.data.dim();
-            let t = timepoint.min(dims.3.saturating_sub(1));
-            if voxel_coords[0] >= 0.0
-                && voxel_coords[0] < dims.0 as f32
-                && voxel_coords[1] >= 0.0
-                && voxel_coords[1] < dims.1 as f32
-                && voxel_coords[2] >= 0.0
-                && voxel_coords[2] < dims.2 as f32
-            {
-                let x = voxel_coords[0].round() as usize;
-                let y = voxel_coords[1].round() as usize;
-                let z = voxel_coords[2].round() as usize;
-                vec.data[[x, y, z, t]] as f32
-            } else {
-                0.0
-            }
-        }
-        VolumeSendable::Vec4DU8(vec) => {
-            let dims = vec.data.dim();
-            let t = timepoint.min(dims.3.saturating_sub(1));
-            if voxel_coords[0] >= 0.0
-                && voxel_coords[0] < dims.0 as f32
-                && voxel_coords[1] >= 0.0
-                && voxel_coords[1] < dims.1 as f32
-                && voxel_coords[2] >= 0.0
-                && voxel_coords[2] < dims.2 as f32
-            {
-                let x = voxel_coords[0].round() as usize;
-                let y = voxel_coords[1].round() as usize;
-                let z = voxel_coords[2].round() as usize;
-                vec.data[[x, y, z, t]] as f32
-            } else {
-                0.0
-            }
-        }
-        VolumeSendable::Vec4DI8(vec) => {
-            let dims = vec.data.dim();
-            let t = timepoint.min(dims.3.saturating_sub(1));
-            if voxel_coords[0] >= 0.0
-                && voxel_coords[0] < dims.0 as f32
-                && voxel_coords[1] >= 0.0
-                && voxel_coords[1] < dims.1 as f32
-                && voxel_coords[2] >= 0.0
-                && voxel_coords[2] < dims.2 as f32
-            {
-                let x = voxel_coords[0].round() as usize;
-                let y = voxel_coords[1].round() as usize;
-                let z = voxel_coords[2].round() as usize;
-                vec.data[[x, y, z, t]] as f32
-            } else {
-                0.0
-            }
-        }
-        VolumeSendable::Vec4DU16(vec) => {
-            let dims = vec.data.dim();
-            let t = timepoint.min(dims.3.saturating_sub(1));
-            if voxel_coords[0] >= 0.0
-                && voxel_coords[0] < dims.0 as f32
-                && voxel_coords[1] >= 0.0
-                && voxel_coords[1] < dims.1 as f32
-                && voxel_coords[2] >= 0.0
-                && voxel_coords[2] < dims.2 as f32
-            {
-                let x = voxel_coords[0].round() as usize;
-                let y = voxel_coords[1].round() as usize;
-                let z = voxel_coords[2].round() as usize;
-                vec.data[[x, y, z, t]] as f32
-            } else {
-                0.0
-            }
-        }
-        VolumeSendable::Vec4DI32(vec) => {
-            let dims = vec.data.dim();
-            let t = timepoint.min(dims.3.saturating_sub(1));
-            if voxel_coords[0] >= 0.0
-                && voxel_coords[0] < dims.0 as f32
-                && voxel_coords[1] >= 0.0
-                && voxel_coords[1] < dims.1 as f32
-                && voxel_coords[2] >= 0.0
-                && voxel_coords[2] < dims.2 as f32
-            {
-                let x = voxel_coords[0].round() as usize;
-                let y = voxel_coords[1].round() as usize;
-                let z = voxel_coords[2].round() as usize;
-                vec.data[[x, y, z, t]] as f32
-            } else {
-                0.0
-            }
-        }
-        VolumeSendable::Vec4DU32(vec) => {
-            let dims = vec.data.dim();
-            let t = timepoint.min(dims.3.saturating_sub(1));
-            if voxel_coords[0] >= 0.0
-                && voxel_coords[0] < dims.0 as f32
-                && voxel_coords[1] >= 0.0
-                && voxel_coords[1] < dims.1 as f32
-                && voxel_coords[2] >= 0.0
-                && voxel_coords[2] < dims.2 as f32
-            {
-                let x = voxel_coords[0].round() as usize;
-                let y = voxel_coords[1].round() as usize;
-                let z = voxel_coords[2].round() as usize;
-                vec.data[[x, y, z, t]] as f32
-            } else {
-                0.0
-            }
-        }
-        VolumeSendable::Vec4DF64(vec) => {
-            let dims = vec.data.dim();
-            let t = timepoint.min(dims.3.saturating_sub(1));
-            if voxel_coords[0] >= 0.0
-                && voxel_coords[0] < dims.0 as f32
-                && voxel_coords[1] >= 0.0
-                && voxel_coords[1] < dims.1 as f32
-                && voxel_coords[2] >= 0.0
-                && voxel_coords[2] < dims.2 as f32
-            {
-                let x = voxel_coords[0].round() as usize;
-                let y = voxel_coords[1].round() as usize;
-                let z = voxel_coords[2].round() as usize;
-                vec.data[[x, y, z, t]] as f32
-            } else {
-                0.0
-            }
-        }
-    };
+    // Nearest voxel, matching the renderer: voxel i covers [i - 0.5, i + 0.5).
+    let value = volume_queries::sample_nearest(volume_data, voxel_coords, timepoint);
 
     info!(
         "Sampled value: {} at voxel coords {:?}",
@@ -8485,6 +8218,7 @@ async fn invalidate_cached_layer_for_render(
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum RenderFormat {
     Png,
+    Jpeg,
     RawRgba,
 }
 
@@ -8492,6 +8226,7 @@ impl RenderFormat {
     fn from_str(s: &str) -> Option<Self> {
         match s.to_lowercase().as_str() {
             "png" => Some(RenderFormat::Png),
+            "jpg" | "jpeg" => Some(RenderFormat::Jpeg),
             "rgba" | "raw" => Some(RenderFormat::RawRgba),
             _ => None,
         }
@@ -9177,7 +8912,7 @@ async fn render_frontend_view_with_diagnostics(
         (raw_buffer, std::time::Duration::ZERO)
     } else {
         let png_encode_start = std::time::Instant::now();
-        let png_data = render_bridge_adapter::encode_png_frame(width, height, rgba_data)?;
+        let png_data = image_export::encode_still_frame(format, width, height, rgba_data)?;
         let png_encode_time = png_encode_start.elapsed();
         info!("⏱️  PNG encoding took: {:?}", png_encode_time);
         info!(
@@ -9454,7 +9189,7 @@ async fn render_views_process_with_diagnostics(
         let payload = if format == RenderFormat::RawRgba {
             rgba
         } else {
-            render_bridge_adapter::encode_png_frame(width, height, rgba)?
+            image_export::encode_still_frame(format, width, height, rgba)?
         };
         per_view[index].format = format.label().to_string();
         per_view[index].encode_ms = duration_ms(encode_start.elapsed());
@@ -10412,6 +10147,7 @@ async fn load_atlas<R: Runtime>(
         num_timepoints: time_series_info.as_ref().map(|ts| ts.num_timepoints),
         current_timepoint: None,
         time_series_info,
+        statistic: None,
     };
 
     Ok(AtlasLoadResult {

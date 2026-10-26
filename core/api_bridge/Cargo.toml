@@ -48,7 +48,8 @@ flate2 = "1.0" # For gzip decompression
 ts-rs = { workspace = true } # For generating TypeScript types
 base64 = "0.22" # For encoding rendered images
 colormap = { path = "../colormap" } # Colormap system
-image = { version = "0.25", default-features = false, features = ["png"] } # For PNG encoding
+image = { version = "0.25", default-features = false, features = ["png", "jpeg"] } # PNG/JPEG export encoding
+tauri-plugin-dialog = "2.2.1" # Native save dialog for save_image_bytes (already used by src-tauri)
 neuro-types = { path = "../neuro-types" } # For ViewRectMm and geometry types
 atlases = { path = "../atlases" } # Atlas service
 templates = { path = "../templates" } # Template service

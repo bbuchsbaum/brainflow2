@@ -29,9 +29,11 @@ async fn your_command_name(
 }
 ```
 
-Commands defined in a submodule (e.g. `analysis.rs`) must be brought into crate
-scope so they can be listed as a bare identifier — see the
-`use analysis::{...};` line in `lib.rs`.
+Commands defined in a submodule (e.g. `analysis.rs`, `clusters.rs`) must be
+brought into crate scope so they can be listed as a bare identifier — see the
+`use analysis::{...};` line in `lib.rs`. Add any new command-defining submodule to
+`commandModules` in `tools/check_api_bridge_permissions.mjs` so the checker sees
+its `#[command]` fns.
 
 ## 2. Register it in the single source (`command_list.rs`)
 

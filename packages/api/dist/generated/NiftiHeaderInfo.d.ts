@@ -1,4 +1,5 @@
 import type { DataRange } from "./DataRange";
+import type { StatisticInfo } from "./StatisticInfo";
 /**
  * Detailed NIfTI header metadata for display in the UI
  */
@@ -75,4 +76,10 @@ export type NiftiHeaderInfo = {
      * Min/max data range of the volume
      */
     data_range: DataRange | null;
+    /**
+     * Decoded NIfTI intent (code, parameters, name and display label).
+     * Present whenever the source header could be re-read; `kind` is "none"
+     * for non-statistical images.
+     */
+    statistic?: StatisticInfo;
 };

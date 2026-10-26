@@ -587,6 +587,202 @@ pub struct VolumeHandleInfo {
     pub current_timepoint: Option<usize>,
     /// Additional time series metadata (if applicable)
     pub time_series_info: Option<TimeSeriesInfo>,
+    /// Statistic carried by the NIfTI header (intent code or an SPM-style
+    /// description). Absent for non-statistical images and non-NIfTI sources.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub statistic: Option<StatisticInfo>,
+}
+
+/// Statistic family declared by a NIfTI `intent_code`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export)]
+#[serde(rename_all = "lowercase")]
+pub enum StatisticKind {
+    /// No intent (`NIFTI_INTENT_NONE`).
+    None,
+    Z,
+    T,
+    F,
+    Chi2,
+    /// Correlation coefficient (`NIFTI_INTENT_CORREL`).
+    Correlation,
+    /// p-value.
+    P,
+    /// Natural-log p-value.
+    LogP,
+    /// log10 p-value.
+    Log10P,
+    /// Parameter estimate (`NIFTI_INTENT_ESTIMATE`).
+    Estimate,
+    /// Label/parcellation index (`NIFTI_INTENT_LABEL`).
+    Label,
+    /// Any other declared intent; see `intentCode` and `intentName`.
+    Other,
+}
+
+/// Statistic metadata decoded from a NIfTI header, for display units such as
+/// "z" or "t(24)".
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[ts(export)]
+#[serde(rename_all = "camelCase")]
+pub struct StatisticInfo {
+    pub kind: StatisticKind,
+    /// Raw NIfTI `intent_code` (0 when the kind was inferred from `descrip`).
+    pub intent_code: i16,
+    /// Raw NIfTI `intent_p1..p3`.
+    pub intent_params: [f32; 3],
+    /// NIfTI `intent_name` (trimmed; may be empty).
+    pub intent_name: String,
+    /// Degrees of freedom for t/chi2/correlation (one value) and F (two
+    /// values); empty when the kind has none or the header leaves them unset.
+    pub dof: Vec<f32>,
+    /// Short display label: "z", "t(24)", "F(2,30)", "χ²(3)", "r(18)", "p".
+    pub label: String,
+    /// True when the kind came from an SPM-style `descrip` such as
+    /// `SPM{T_[24.0]}` because `intent_code` was unset.
+    pub from_description: bool,
+}
+
+/// NIfTI-1 intent codes used by [`StatisticInfo::from_intent`].
+mod nifti_intent {
+    pub const NONE: i16 = 0;
+    pub const CORREL: i16 = 2;
+    pub const TTEST: i16 = 3;
+    pub const FTEST: i16 = 4;
+    pub const ZSCORE: i16 = 5;
+    pub const CHISQ: i16 = 6;
+    pub const PVAL: i16 = 22;
+    pub const LOGPVAL: i16 = 23;
+    pub const LOG10PVAL: i16 = 24;
+    pub const ESTIMATE: i16 = 1001;
+    pub const LABEL: i16 = 1002;
+}
+
+fn format_dof(df: f32) -> String {
+    if (df - df.round()).abs() < 1e-3 {
+        format!("{}", df.round() as i64)
+    } else {
+        let text = format!("{df:.2}");
+        text.trim_end_matches('0').trim_end_matches('.').to_string()
+    }
+}
+
+fn valid_dof(df: f32) -> Option<f32> {
+    (df.is_finite() && df > 0.0).then_some(df)
+}
+
+impl StatisticInfo {
+    /// Decode a NIfTI intent. When `intent_code` is 0, an SPM-style
+    /// `descrip` (`SPM{T_[24.0]}`, `SPM{F_[2.0,30.0]}`, `SPM{Z}`) is used.
+    pub fn from_intent(
+        intent_code: i16,
+        intent_params: [f32; 3],
+        intent_name: &str,
+        description: &str,
+    ) -> Self {
+        use nifti_intent as code;
+        let intent_name = intent_name.trim().to_string();
+        let [p1, p2, _] = intent_params;
+        let one = |df: f32| valid_dof(df).into_iter().collect::<Vec<_>>();
+        let (kind, dof) = match intent_code {
+            code::NONE => {
+                if let Some((kind, dof)) = parse_spm_description(description) {
+                    let mut info = Self::labelled(kind, dof, intent_params, intent_name, 0);
+                    info.from_description = true;
+                    return info;
+                }
+                (StatisticKind::None, vec![])
+            }
+            code::CORREL => (StatisticKind::Correlation, one(p1)),
+            code::TTEST => (StatisticKind::T, one(p1)),
+            code::FTEST => match (valid_dof(p1), valid_dof(p2)) {
+                (Some(a), Some(b)) => (StatisticKind::F, vec![a, b]),
+                _ => (StatisticKind::F, vec![]),
+            },
+            code::ZSCORE => (StatisticKind::Z, vec![]),
+            code::CHISQ => (StatisticKind::Chi2, one(p1)),
+            code::PVAL => (StatisticKind::P, vec![]),
+            code::LOGPVAL => (StatisticKind::LogP, vec![]),
+            code::LOG10PVAL => (StatisticKind::Log10P, vec![]),
+            code::ESTIMATE => (StatisticKind::Estimate, vec![]),
+            code::LABEL => (StatisticKind::Label, vec![]),
+            _ => (StatisticKind::Other, vec![]),
+        };
+        Self::labelled(kind, dof, intent_params, intent_name, intent_code)
+    }
+
+    fn labelled(
+        kind: StatisticKind,
+        dof: Vec<f32>,
+        intent_params: [f32; 3],
+        intent_name: String,
+        intent_code: i16,
+    ) -> Self {
+        let with_dof = |base: &str| {
+            if dof.is_empty() {
+                base.to_string()
+            } else {
+                let parts: Vec<String> = dof.iter().map(|d| format_dof(*d)).collect();
+                format!("{base}({})", parts.join(","))
+            }
+        };
+        let label = match kind {
+            StatisticKind::None => String::new(),
+            StatisticKind::Z => "z".into(),
+            StatisticKind::T => with_dof("t"),
+            StatisticKind::F => with_dof("F"),
+            StatisticKind::Chi2 => with_dof("χ²"),
+            StatisticKind::Correlation => with_dof("r"),
+            StatisticKind::P => "p".into(),
+            StatisticKind::LogP => "ln(p)".into(),
+            StatisticKind::Log10P => "log10(p)".into(),
+            StatisticKind::Estimate if !intent_name.is_empty() => intent_name.clone(),
+            StatisticKind::Estimate => "estimate".into(),
+            StatisticKind::Label => "label".into(),
+            StatisticKind::Other if !intent_name.is_empty() => intent_name.clone(),
+            StatisticKind::Other => format!("intent {intent_code}"),
+        };
+        Self {
+            kind,
+            intent_code,
+            intent_params,
+            intent_name,
+            dof,
+            label,
+            from_description: false,
+        }
+    }
+
+    /// True for kinds that carry a statistic worth labelling in the UI.
+    pub fn is_statistic(&self) -> bool {
+        !matches!(self.kind, StatisticKind::None)
+    }
+}
+
+/// Parse SPM's `SPM{T_[24.0]}` / `SPM{F_[2.0,30.0]}` / `SPM{Z}` description.
+fn parse_spm_description(description: &str) -> Option<(StatisticKind, Vec<f32>)> {
+    let start = description.find("SPM{")? + 4;
+    let rest = &description[start..];
+    let end = rest.find('}')?;
+    let body = &rest[..end];
+    let (letter, params) = match body.split_once("_[") {
+        Some((letter, params)) => (letter, params.trim_end_matches(']')),
+        None => (body, ""),
+    };
+    let dof: Vec<f32> = params
+        .split(',')
+        .filter_map(|p| p.trim().parse::<f32>().ok())
+        .filter_map(valid_dof)
+        .collect();
+    match (letter.trim(), dof.len()) {
+        ("T", 0 | 1) => Some((StatisticKind::T, dof)),
+        ("F", 0) => Some((StatisticKind::F, dof)),
+        ("F", 2) => Some((StatisticKind::F, dof)),
+        ("Z", _) => Some((StatisticKind::Z, vec![])),
+        ("X", 0 | 1) => Some((StatisticKind::Chi2, dof)),
+        _ => None,
+    }
 }
 
 /// Surface geometry data for frontend
@@ -666,6 +862,12 @@ pub struct NiftiHeaderInfo {
     pub description: String,
     /// Min/max data range of the volume
     pub data_range: Option<DataRange>,
+    /// Decoded NIfTI intent (code, parameters, name and display label).
+    /// Present whenever the source header could be re-read; `kind` is "none"
+    /// for non-statistical images.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub statistic: Option<StatisticInfo>,
 }
 
 // --- Surface Template Types ---
@@ -1648,4 +1850,93 @@ pub struct AnalysisJobStatus {
     pub message: Option<String>,
     pub artifacts: Option<Vec<AnalysisArtifact>>,
     pub error: Option<String>,
+}
+
+#[cfg(test)]
+mod statistic_info_tests {
+    use super::*;
+
+    fn info(code: i16, p: [f32; 3]) -> StatisticInfo {
+        StatisticInfo::from_intent(code, p, "", "")
+    }
+
+    #[test]
+    fn maps_intent_codes_to_kinds_and_labels() {
+        let z = info(5, [0.0; 3]);
+        assert_eq!((z.kind, z.label.as_str()), (StatisticKind::Z, "z"));
+        let t = info(3, [24.0, 0.0, 0.0]);
+        assert_eq!((t.kind, t.label.as_str()), (StatisticKind::T, "t(24)"));
+        assert_eq!(t.dof, vec![24.0]);
+        let welch = info(3, [23.456, 0.0, 0.0]);
+        assert_eq!(welch.label, "t(23.46)");
+        let f = info(4, [2.0, 30.0, 0.0]);
+        assert_eq!((f.kind, f.label.as_str()), (StatisticKind::F, "F(2,30)"));
+        assert_eq!(info(6, [3.0, 0.0, 0.0]).label, "χ²(3)");
+        assert_eq!(info(2, [18.0, 0.0, 0.0]).label, "r(18)");
+        assert_eq!(info(22, [0.0; 3]).kind, StatisticKind::P);
+        assert_eq!(info(24, [0.0; 3]).kind, StatisticKind::Log10P);
+        assert_eq!(info(1002, [0.0; 3]).kind, StatisticKind::Label);
+        let none = info(0, [0.0; 3]);
+        assert_eq!(none.kind, StatisticKind::None);
+        assert!(!none.is_statistic());
+        assert_eq!(none.label, "");
+    }
+
+    #[test]
+    fn unset_or_invalid_dof_leaves_bare_label() {
+        assert_eq!(info(3, [0.0; 3]).label, "t");
+        assert_eq!(info(3, [f32::NAN, 0.0, 0.0]).label, "t");
+        // F needs both dofs; one missing is reported without dof.
+        let f = info(4, [2.0, 0.0, 0.0]);
+        assert_eq!((f.label.as_str(), f.dof.len()), ("F", 0));
+    }
+
+    #[test]
+    fn other_intents_use_name_or_code() {
+        let named = StatisticInfo::from_intent(11, [0.0; 3], " normal ", "");
+        assert_eq!(
+            (named.kind, named.label.as_str()),
+            (StatisticKind::Other, "normal")
+        );
+        assert_eq!(info(11, [0.0; 3]).label, "intent 11");
+        let beta = StatisticInfo::from_intent(1001, [0.0; 3], "beta", "");
+        assert_eq!(
+            (beta.kind, beta.label.as_str()),
+            (StatisticKind::Estimate, "beta")
+        );
+    }
+
+    #[test]
+    fn spm_description_fills_in_when_intent_unset() {
+        let t = StatisticInfo::from_intent(0, [0.0; 3], "", "SPM{T_[24.0]} - contrast 1: faces");
+        assert_eq!((t.kind, t.label.as_str()), (StatisticKind::T, "t(24)"));
+        assert!(t.from_description);
+        assert_eq!(t.intent_code, 0);
+        let f = StatisticInfo::from_intent(0, [0.0; 3], "", "SPM{F_[2.0,30.0]}");
+        assert_eq!(f.label, "F(2,30)");
+        let z = StatisticInfo::from_intent(0, [0.0; 3], "", "SPM{Z} map");
+        assert_eq!(z.kind, StatisticKind::Z);
+        // An explicit intent wins over the description.
+        let explicit = StatisticInfo::from_intent(5, [0.0; 3], "", "SPM{T_[10.0]}");
+        assert_eq!(
+            (explicit.kind, explicit.from_description),
+            (StatisticKind::Z, false)
+        );
+        assert_eq!(
+            StatisticInfo::from_intent(0, [0.0; 3], "", "anatomical T1").kind,
+            StatisticKind::None
+        );
+    }
+
+    #[test]
+    fn serializes_kind_lowercase_and_fields_camel_case() {
+        let json = serde_json::to_value(info(3, [24.0, 0.0, 0.0])).unwrap();
+        assert_eq!(json["kind"], "t");
+        assert_eq!(json["intentCode"], 3);
+        assert_eq!(json["fromDescription"], false);
+        assert_eq!(
+            serde_json::to_value(info(6, [1.0, 0.0, 0.0])).unwrap()["kind"],
+            "chi2"
+        );
+    }
 }

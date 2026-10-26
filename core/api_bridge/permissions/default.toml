@@ -113,6 +113,10 @@ permissions = [
     "allow-replay-population-summary",
   "allow-open-population-summary",
     "allow-export-population-plot",
+    "allow-save-image-bytes",
+    "allow-compute-clusters",
+    "allow-volume-extremum",
+    "allow-volume-nonzero-bbox",
     "allow-release-population-slice",
     "allow-sample-set-trace-at-world"
 ]

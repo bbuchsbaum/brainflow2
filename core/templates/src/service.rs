@@ -417,6 +417,7 @@ impl TemplateService {
             num_timepoints: time_series_info.as_ref().map(|ts| ts.num_timepoints),
             current_timepoint: None,
             time_series_info,
+            statistic: None,
         })
     }
 
