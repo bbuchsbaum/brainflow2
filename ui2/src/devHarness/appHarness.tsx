@@ -10,7 +10,7 @@
  * module is evaluated, and the transport is installed before services (which
  * cache it at construction) are imported.
  */
-import { clearBrowserStorage, installDeterminism } from './app/determinism';
+import { clearBrowserStorage, installDeterminism, installOfflineFetch } from './app/determinism';
 import { createHarnessLog, noteStep } from './app/harnessLog';
 import { HarnessTransport, installTauriInternalsShim } from './app/harnessTransport';
 import { loadFixtures } from './app/fixtures';
@@ -23,6 +23,7 @@ async function boot(): Promise<void> {
   const scenario = params.get('scenario') ?? 'empty';
   clearBrowserStorage();
   installDeterminism();
+  installOfflineFetch();
   const log = createHarnessLog(scenario);
   document.documentElement.dataset.harnessScenario = scenario;
   // Bake-off: `?direction=` selects a palette from directions.generated.css.

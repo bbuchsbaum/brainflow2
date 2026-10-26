@@ -34,6 +34,12 @@ export const MNI_PATH = `${HARNESS_ROOT}/anat/MNI152_T1_2mm_brain.nii.gz`;
 export const STATS_PATH = `${HARNESS_ROOT}/stats/task-motor_zstat1.nii.gz`;
 export const SURFACE_PATH = `${HARNESS_ROOT}/surf/lh.inflated.gii`;
 export const SURFACE_OVERLAY_PATH = `${HARNESS_ROOT}/surf/lh.sensorimotor.func.gii`;
+/** Phase 3 synthetic statistics (fixtures/app/p3_fixtures.json). Listed under stats/, which
+ * the gate scenarios never expand, so the gate baselines do not see them. */
+export const ZMAP_PATH = `${HARNESS_ROOT}/stats/zmap_synthetic.nii.gz`;
+export const TMAP_PATH = `${HARNESS_ROOT}/stats/tmap_synthetic_df24.nii.gz`;
+export const ATLAS_PATH = `${HARNESS_ROOT}/stats/atlas-synth3_dseg.nii.gz`;
+export const ATLAS_LUT_PATH = `${HARNESS_ROOT}/stats/atlas-synth3_dseg.tsv`;
 
 interface VolumeEntry {
   id: string;
@@ -78,6 +84,10 @@ const VIRTUAL_FS: Record<string, Array<{ name: string; isDir: boolean }>> = {
   [`${HARNESS_ROOT}/stats`]: [
     { name: 'task-motor_zstat1.nii.gz', isDir: false },
     { name: 'task-motor_cope1.nii.gz', isDir: false },
+    { name: 'zmap_synthetic.nii.gz', isDir: false },
+    { name: 'tmap_synthetic_df24.nii.gz', isDir: false },
+    { name: 'atlas-synth3_dseg.nii.gz', isDir: false },
+    { name: 'atlas-synth3_dseg.tsv', isDir: false },
   ],
   [`${HARNESS_ROOT}/surf`]: [
     { name: 'lh.inflated.gii', isDir: false },
@@ -105,6 +115,33 @@ function stats(data: Float32Array) {
   return { min, max, mean, std: n ? Math.sqrt(Math.max(sum2 / n - mean * mean, 0)) : 0, n };
 }
 
+/**
+ * NIfTI intent/description extras for the Phase 3 fixtures, in the snake_case
+ * the bridge uses. The current bindings do not carry them yet (plan item 3);
+ * fixtures without a header add nothing, so existing responses are unchanged.
+ */
+function intentFields(fixture: VolumeFixture): Record<string, unknown> {
+  const h = fixture.header;
+  if (!h) return {};
+  return {
+    intent_code: h.intentCode,
+    intent_name: h.intentName,
+    intent_p1: h.intentP1,
+    intent_p2: h.intentP2,
+    intent_p3: h.intentP3,
+  };
+}
+
+/** PNG bytes for an RGBA buffer (what render_view returns for `format: 'png'`). */
+async function encodePng(rgba: Uint8Array, width: number, height: number): Promise<Uint8Array> {
+  const canvas = new OffscreenCanvas(width, height);
+  const ctx = canvas.getContext('2d');
+  if (!ctx) throw new Error('harness: no 2d context for PNG encoding');
+  ctx.putImageData(new ImageData(new Uint8ClampedArray(rgba), width, height), 0, 0);
+  const blob = await canvas.convertToBlob({ type: 'image/png' });
+  return new Uint8Array(await blob.arrayBuffer());
+}
+
 function vec3(v: unknown): Vec3 {
   const a = (v as number[]) ?? [0, 0, 0];
   return [Number(a[0]) || 0, Number(a[1]) || 0, Number(a[2]) || 0];
@@ -123,6 +160,9 @@ export function createBackend(fixtures: HarnessFixtures): HarnessBackend {
   const fixtureForPath = (path: string): VolumeFixture | null => {
     if (path === MNI_PATH) return fixtures.mni;
     if (path === STATS_PATH) return fixtures.stats;
+    if (path === ZMAP_PATH) return fixtures.zmap;
+    if (path === TMAP_PATH) return fixtures.tmap;
+    if (path === ATLAS_PATH) return fixtures.atlas;
     return null;
   };
 
@@ -139,6 +179,7 @@ export function createBackend(fixtures: HarnessFixtures): HarnessBackend {
       num_timepoints: null,
       current_timepoint: null,
       time_series_info: null,
+      ...intentFields(fixture),
     };
   };
 
@@ -340,7 +381,7 @@ export function createBackend(fixtures: HarnessFixtures): HarnessBackend {
         filename: vol.name,
         dimensions: [...vol.fixture.dims],
         voxel_spacing: [2, 2, 2],
-        data_type: 'FLOAT32',
+        data_type: vol.fixture.header?.dataType ?? 'FLOAT32',
         voxel_to_world: flatRowMajor(vol.fixture.affine),
         world_bounds_min: b.min,
         world_bounds_max: b.max,
@@ -351,8 +392,9 @@ export function createBackend(fixtures: HarnessFixtures): HarnessBackend {
         temporal_units: null,
         tr_seconds: null,
         num_timepoints: null,
-        description: 'Brainflow harness fixture',
+        description: vol.fixture.header?.description ?? 'Brainflow harness fixture',
         data_range: { min: s.min, max: s.max },
+        ...intentFields(vol.fixture),
       };
     },
     get_volume_timepoint: () => 0,
@@ -515,10 +557,14 @@ export function createBackend(fixtures: HarnessFixtures): HarnessBackend {
     },
     get_bids_events: () => BIDS_EVENTS,
 
-    render_view: ({ stateJson }: { stateJson: string }) => {
+    render_view: ({ stateJson, format }: { stateJson: string; format?: string }) => {
       const state = JSON.parse(stateJson);
       const view = state.requestedView ?? defaultRequestedView(state);
       const rgba = renderRequested(state, view);
+      // RenderFormat::from_str: "png" encodes; anything else (incl. "jpg") is raw RGBA.
+      if (String(format ?? '').toLowerCase() === 'png') {
+        return encodePng(rgba, Number(view.width), Number(view.height));
+      }
       const packet = new Uint8Array(8 + rgba.length);
       const dv = new DataView(packet.buffer);
       dv.setUint32(0, Number(view.width), true);

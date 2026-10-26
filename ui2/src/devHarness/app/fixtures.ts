@@ -5,6 +5,11 @@ import verticesUrl from '../fixtures/app/lh_inflated.f32?url';
 import facesUrl from '../fixtures/app/lh_inflated.i32?url';
 import overlayUrl from '../fixtures/app/lh_sensorimotor.f32?url';
 import surfaceMeta from '../fixtures/app/surface.json';
+import zmapUrl from '../fixtures/app/zmap_2mm.f32.gz?url';
+import tmapUrl from '../fixtures/app/tmap_2mm.f32.gz?url';
+import atlasUrl from '../fixtures/app/atlas3_2mm.u8.gz?url';
+import lutUrl from '../fixtures/app/atlas3_dseg.tsv?url';
+import p3Meta from '../fixtures/app/p3_fixtures.json';
 
 export interface VolumeFixture {
   dims: [number, number, number];
@@ -12,6 +17,19 @@ export interface VolumeFixture {
   affine: number[][];
   data: Float32Array;
   range: [number, number];
+  /** NIfTI header extras served by get_nifti_header_info / load_file (Phase 3 fixtures only). */
+  header?: StatHeader;
+}
+
+/** NIfTI intent and description fields of a synthetic Phase 3 fixture (p3_fixtures.json). */
+export interface StatHeader {
+  dataType: string;
+  intentCode: number;
+  intentName: string;
+  intentP1: number;
+  intentP2: number;
+  intentP3: number;
+  description: string;
 }
 
 export interface SurfaceFixture {
@@ -25,6 +43,12 @@ export interface HarnessFixtures {
   mni: VolumeFixture;
   stats: VolumeFixture;
   surface: SurfaceFixture;
+  /** Phase 3 synthetic statistics on the MNI 2 mm grid (see build-app-harness-fixtures.mjs). */
+  zmap: VolumeFixture;
+  tmap: VolumeFixture;
+  atlas: VolumeFixture;
+  /** BIDS-style LUT sidecar text for `atlas`. */
+  atlasLut: string;
 }
 
 async function fetchBuffer(url: string): Promise<ArrayBuffer> {
@@ -76,12 +100,52 @@ function buildStatsVolume(mni: VolumeFixture): VolumeFixture {
   return { dims: mni.dims, affine: mni.affine, data, range: [lo, hi] };
 }
 
+/** Gzip fixtures: decompress unless the dev server already did (Content-Encoding). */
+async function fetchGzip(url: string): Promise<ArrayBuffer> {
+  const buffer = await fetchBuffer(url);
+  const head = new Uint8Array(buffer, 0, 2);
+  if (head[0] !== 0x1f || head[1] !== 0x8b) return buffer;
+  const stream = new Blob([buffer]).stream().pipeThrough(new DecompressionStream('gzip'));
+  return new Response(stream).arrayBuffer();
+}
+
+type P3VolumeKey = 'zmap' | 'tmap' | 'atlas';
+
+function p3Volume(key: P3VolumeKey, data: Float32Array, mni: VolumeFixture): VolumeFixture {
+  const meta = p3Meta.volumes[key];
+  let lo = 0;
+  let hi = 0;
+  for (const v of data) {
+    if (v < lo) lo = v;
+    if (v > hi) hi = v;
+  }
+  return {
+    dims: mni.dims,
+    affine: mni.affine,
+    data,
+    range: [lo, hi],
+    header: {
+      dataType: meta.datatype,
+      intentCode: meta.intent_code,
+      intentName: meta.intent_name,
+      intentP1: meta.intent_p1,
+      intentP2: meta.intent_p2,
+      intentP3: meta.intent_p3,
+      description: meta.description,
+    },
+  };
+}
+
 export async function loadFixtures(): Promise<HarnessFixtures> {
-  const [vol, verts, faces, overlay] = await Promise.all([
+  const [vol, verts, faces, overlay, zmap, tmap, atlas, lut] = await Promise.all([
     fetchBuffer(volumeUrl),
     fetchBuffer(verticesUrl),
     fetchBuffer(facesUrl),
     fetchBuffer(overlayUrl),
+    fetchGzip(zmapUrl),
+    fetchGzip(tmapUrl),
+    fetchGzip(atlasUrl),
+    fetchBuffer(lutUrl),
   ]);
   const u8 = new Uint8Array(vol);
   const data = new Float32Array(u8.length);
@@ -101,5 +165,9 @@ export async function loadFixtures(): Promise<HarnessFixtures> {
       overlay: new Float32Array(overlay),
       overlayRange: surfaceMeta.overlayRange as [number, number],
     },
+    zmap: p3Volume('zmap', new Float32Array(zmap), mni),
+    tmap: p3Volume('tmap', new Float32Array(tmap), mni),
+    atlas: p3Volume('atlas', Float32Array.from(new Uint8Array(atlas)), mni),
+    atlasLut: new TextDecoder().decode(lut),
   };
 }

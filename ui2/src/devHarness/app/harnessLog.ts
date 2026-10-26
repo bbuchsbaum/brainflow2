@@ -17,6 +17,8 @@ export interface HarnessLog {
   /** Scenario steps completed, in order. */
   steps: string[];
   pageErrors: string[];
+  /** Cross-origin fetches the harness refused (it is offline by design). */
+  offline: string[];
   /** Toast messages observed before they expired. */
   toasts: string[];
   pending: number;
@@ -39,6 +41,7 @@ export function createHarnessLog(scenario: string): HarnessLog {
     fallbacks: [],
     steps: [],
     pageErrors: [],
+    offline: [],
     toasts: [],
     pending: 0,
   };

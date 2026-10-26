@@ -93,3 +93,25 @@ export function installDeterminism(seed = 0x5eed): void {
   }
   (globalThis as unknown as { Date: DateConstructor }).Date = HarnessDate as DateConstructor;
 }
+
+/**
+ * Keep the harness offline: a fetch to another origin (e.g. the Neurosynth
+ * hover provider) rejects the way an offline network does, instead of reaching
+ * the internet and making captures depend on a remote service. Each blocked
+ * URL is recorded in `__harnessLog.offline` (informational, not a gate error).
+ */
+export function installOfflineFetch(): void {
+  const realFetch = window.fetch.bind(window);
+  window.fetch = (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = new URL(
+      typeof input === 'string' ? input : input instanceof URL ? input.href : input.url,
+      window.location.href,
+    );
+    if (url.origin !== window.location.origin) {
+      const log = (window as unknown as { __harnessLog?: { offline?: string[] } }).__harnessLog;
+      if (log?.offline && !log.offline.includes(url.href)) log.offline.push(url.href);
+      return Promise.reject(new TypeError('Failed to fetch (app harness is offline)'));
+    }
+    return realFetch(input, init);
+  };
+}

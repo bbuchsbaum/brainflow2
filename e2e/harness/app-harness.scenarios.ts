@@ -37,6 +37,33 @@ export const VARIANTS: Array<[string, number, number]> = [
   ['integrated', 1280, 800],
 ];
 
+/**
+ * Phase 3 hill-climb specimens (.hillclimb/p3). Capture-only and opt-in: the
+ * capture spec runs one when APP_HARNESS_SCENARIOS names it (or contains `p3`
+ * for all of them); the visual gate never iterates these lists.
+ */
+export const P3_SCENARIOS = [
+  'stat-overlay-z',
+  'stat-overlay-t',
+  'header-stat',
+  'region-at-crosshair',
+  'voxel-nav',
+  'goto-voxel',
+  'cluster-table',
+  'multi-layer-readout',
+  'mosaic-labelled',
+  'export-dialog',
+  'compare-linked',
+  'empty-compare',
+  'empty-mosaic',
+  'empty-plot-dock',
+  'plot-dock',
+  'surface-frame',
+];
+
+/** Phase 3 viewport variants (capture-only): `files` exists only at 1280x800. */
+export const P3_VARIANTS: Array<[string, number, number]> = [['files', 1280, 800]];
+
 /** Gallery pages of ui/bf primitives (primitives-harness.html): [query page, file]. */
 export const PRIMITIVE_PAGES: Array<[string, string]> = [
   ['1', 'primitives'],

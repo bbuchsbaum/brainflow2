@@ -8,6 +8,8 @@
  * and save <OUT>/<scenario>.png plus <OUT>/<scenario>.log.json.
  * `APP_HARNESS_SCENARIOS=volume,overlay` restricts the run.
  * `APP_HARNESS_DIRECTION=<id>` captures under a direction palette (see build-direction-tokens.mjs).
+ * Phase 3 specimens (P3_SCENARIOS, P3_VARIANTS) are opt-in the same way: listed
+ * by name, or all of them with `p3`.
  * `primitives` (opt-in: only when listed in APP_HARNESS_SCENARIOS) captures the
  * shared-primitives gallery (primitives-harness.html) as primitives.png,
  * primitives-2.png, primitives-3.png and primitives-4.png, full page.
@@ -15,7 +17,15 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { expect, test, type Page } from '@playwright/test';
-import { FREEZE_CSS, PRIMITIVE_PAGES, SCENARIOS, VARIANTS, installStyleScript } from './app-harness.scenarios';
+import {
+  FREEZE_CSS,
+  P3_SCENARIOS,
+  P3_VARIANTS,
+  PRIMITIVE_PAGES,
+  SCENARIOS,
+  VARIANTS,
+  installStyleScript,
+} from './app-harness.scenarios';
 
 const OUT = process.env.APP_HARNESS_OUT;
 const DIRECTION = process.env.APP_HARNESS_DIRECTION;
@@ -37,6 +47,11 @@ async function capture(page: Page, scenario: string, file: string): Promise<void
     if (msg.type() === 'error') consoleErrors.push(msg.text().slice(0, 500));
   });
   page.on('pageerror', (err) => pageErrors.push(err.message));
+  // Names the resource behind a bare "Failed to load resource" console error.
+  const httpErrors: string[] = [];
+  page.on('response', (res) => {
+    if (res.status() >= 400) httpErrors.push(`${res.status()} ${res.url()}`);
+  });
 
   await page.goto(
     `/app-harness.html?scenario=${encodeURIComponent(scenario)}` +
@@ -54,11 +69,12 @@ async function capture(page: Page, scenario: string, file: string): Promise<void
   });
   writeFileSync(
     resolve(OUT!, `${file}.log.json`),
-    JSON.stringify({ scenario, failed, log, consoleErrors, pageErrors }, null, 2),
+    JSON.stringify({ scenario, failed, log, consoleErrors, pageErrors, httpErrors }, null, 2),
   );
   if (log.unknown.length) console.log(`[${scenario}] unknown commands (answered null): ${log.unknown.join(', ')}`);
   if (log.fallbacks.length) console.log(`[${scenario}] fallbacks: ${log.fallbacks.join(' | ')}`);
   if (consoleErrors.length) console.log(`[${scenario}] console errors:\n  ${consoleErrors.join('\n  ')}`);
+  if (httpErrors.length) console.log(`[${scenario}] HTTP errors:\n  ${httpErrors.join('\n  ')}`);
 
   expect(failed, `harness boot failed for ${scenario}`).toBeNull();
   expect(pageErrors, `uncaught page errors in ${scenario}`).toEqual([]);
@@ -77,6 +93,23 @@ for (const scenario of SCENARIOS) {
 
 for (const [scenario, width, height] of VARIANTS) {
   if (ONLY && !ONLY.includes(scenario)) continue;
+  test(`capture ${scenario} @${width}x${height}`, async ({ page }) => {
+    await page.setViewportSize({ width, height });
+    await capture(page, scenario, `${scenario}@${width}x${height}`);
+  });
+}
+
+const p3Selected = (scenario: string) => !!ONLY && (ONLY.includes(scenario) || ONLY.includes('p3'));
+
+for (const scenario of P3_SCENARIOS) {
+  if (!p3Selected(scenario)) continue;
+  test(`capture ${scenario}`, async ({ page }) => {
+    await capture(page, scenario, scenario);
+  });
+}
+
+for (const [scenario, width, height] of P3_VARIANTS) {
+  if (!p3Selected(scenario)) continue;
   test(`capture ${scenario} @${width}x${height}`, async ({ page }) => {
     await page.setViewportSize({ width, height });
     await capture(page, scenario, `${scenario}@${width}x${height}`);
